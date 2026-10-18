@@ -41,6 +41,11 @@ export interface DecodeResult {
   replies: Buffer[];
   /** Close the connection after writing the replies. */
   close?: boolean;
+  /**
+   * Replies to server commands. `ref` echoes the reference passed to `encodeCommand` when the protocol carries one
+   * (GT06 server flag); null when it doesn't (Teltonika Codec 12), in which case the oldest pending command matches.
+   */
+  commandResponses?: { ref: number | null; text: string }[];
 }
 
 export interface ProtocolDecoder<S extends BaseSession = BaseSession> {
@@ -54,6 +59,8 @@ export interface ProtocolDecoder<S extends BaseSession = BaseSession> {
   split(buf: Buffer, session: S): SplitResult;
   flush?(rest: Buffer, session: S): SplitResult;
   decode(frame: Buffer, session: S, ctx: DecodeContext): DecodeResult;
+  /** Frame carrying a text command to the device; `ref` is echoed in the reply where the protocol supports it. */
+  encodeCommand?(text: string, session: S, ref: number): Buffer;
 }
 
 export const emptyResult = (): DecodeResult => ({ positions: [], replies: [] });

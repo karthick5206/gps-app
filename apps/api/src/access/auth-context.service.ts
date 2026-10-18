@@ -29,7 +29,15 @@ export class AuthContextService {
    * Super Admin; everyone else is locked to their own company.
    */
   async fromToken(token: string, requestedCompanyId: string | undefined, ip: string | null): Promise<AuthContext> {
-    return this.forUser(this.verifyToken(token).sub, requestedCompanyId, ip);
+    const payload = this.verifyToken(token);
+    if (payload.sid) {
+      const session = await this.prisma.session.findUnique({ where: { id: payload.sid }, select: { userId: true, revokedAt: true, expiresAt: true } });
+      if (!session || session.userId !== payload.sub || session.revokedAt || session.expiresAt < new Date()) {
+        throw new UnauthorizedException('Session ended');
+      }
+    }
+    const ctx = await this.forUser(payload.sub, requestedCompanyId, ip);
+    return { ...ctx, sessionId: payload.sid ?? null };
   }
 
   async forUser(userId: string, requestedCompanyId: string | undefined, ip: string | null): Promise<AuthContext> {

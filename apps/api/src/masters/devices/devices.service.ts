@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { DeviceDto } from '@veetracer/shared';
+import { DeviceDto, RawPacketDto } from '@veetracer/shared';
 import { deviceScopeWhere } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
@@ -93,6 +93,13 @@ export class DevicesService {
   async history(ctx: AuthContext, id: string) {
     await this.find(ctx, id);
     return this.audit.history(ctx, ENTITY, id);
+  }
+
+  /** Latest raw frames of a device, newest first (support: decoding problems, protocol checks). */
+  async raw(ctx: AuthContext, id: string, limit: number): Promise<RawPacketDto[]> {
+    const device = await this.find(ctx, id);
+    const rows = await this.prisma.rawPacket.findMany({ where: { uniqueId: device.uniqueId }, orderBy: { receivedAt: 'desc' }, take: limit });
+    return rows.map((r) => ({ id: r.id.toString(), receivedAt: r.receivedAt.toISOString(), protocol: r.protocol, remoteAddress: r.remoteAddress, hex: r.hex, length: r.hex.length / 2 }));
   }
 
   private async find(ctx: AuthContext, id: string): Promise<DeviceRow> {

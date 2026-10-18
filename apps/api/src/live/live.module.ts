@@ -8,6 +8,6 @@ import { OfflineSweeperService } from './offline-sweeper.service';
 @Module({
   controllers: [LiveController],
   providers: [LiveStateService, LiveService, LiveGateway, OfflineSweeperService],
-  exports: [LiveService],
+  exports: [LiveService, LiveStateService],
 })
 export class LiveModule {}

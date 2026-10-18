@@ -118,7 +118,7 @@ export class DashboardService {
     if (!ids.length) return { generatedAt, inactiveAfterMin, rows: [] };
     const { day } = await this.today(ctx.companyId);
     const q: QueryCtx = { prisma: this.prisma, companyId: ctx.companyId, objects, ids, range: { gte: new Date(0), lt: new Date(now) }, maxRows: ids.length, options: { inactiveAfterMin } };
-    const [status, clocks, todayRows, remarks] = await Promise.all([
+    const [status, clocks, todayRows, remarks, maintenance] = await Promise.all([
       deviceStatusReport(q, now),
       // Latest live (not late / not re-uploaded) GPS fix per vehicle: device clock vs server clock. Points without a
       // fix are skipped: trackers stamp them with a default date (e.g. years in the past) until GPS locks.
@@ -132,7 +132,9 @@ export class DashboardService {
         ORDER BY "objectId", "serverTime" DESC`,
       this.prisma.dailySummary.findMany({ where: { objectId: { in: ids }, day: new Date(`${day}T00:00:00.000Z`) }, select: { objectId: true, distanceKm: true } }),
       this.latestRemarks(ids),
+      this.prisma.trackedObject.findMany({ where: { id: { in: ids }, maintenanceSince: { not: null } }, select: { id: true, maintenanceSince: true, maintenanceNote: true } }),
     ]);
+    const maint = new Map(maintenance.map((m) => [m.id, m]));
     const skew = new Map(clocks.map((c) => [c.objectId, Math.round(c.skew)]));
     const km = new Map(todayRows.map((r) => [r.objectId, r.distanceKm]));
     const rows: VehicleHealthRow[] = status.rows.map((r) => ({
@@ -155,6 +157,8 @@ export class DashboardService {
       lat: r.lat,
       lng: r.lng,
       remark: remarks.get(r.objectId) ?? null,
+      maintenanceSince: maint.get(r.objectId)?.maintenanceSince?.toISOString() ?? null,
+      maintenanceNote: maint.get(r.objectId)?.maintenanceNote ?? null,
     }));
     return { generatedAt, inactiveAfterMin, rows };
   }

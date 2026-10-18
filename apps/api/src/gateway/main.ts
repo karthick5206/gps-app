@@ -2,7 +2,9 @@ import { Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
+import { CommandDispatch, COMMAND_TTL_HOURS } from '@veetracer/shared';
 import { APP_ROOT, loadEnv } from '../config/env';
+import { RedisKeys } from '../redis/keys';
 import { Gt06Decoder } from './gt06/decoder';
 import { BaseSession, ProtocolDecoder } from './protocol';
 import { TcpGatewayServer } from './tcp-server';
@@ -43,6 +45,28 @@ async function main(): Promise<void> {
     servers.push(server);
     logger.log(`${decoder.name} listening on tcp://0.0.0.0:${port}`);
   }
+  // Commands for devices connected to this gateway (the API publishes to the channel named after vt:conn:<id>).
+  const commands = new Redis(env.redisUrl);
+  commands.on('error', (error) => logger.error(`Valkey (commands) error: ${error.message}`));
+  commands.on('message', (_channel, message) => {
+    let d: CommandDispatch;
+    try {
+      d = JSON.parse(message) as CommandDispatch;
+    } catch {
+      return;
+    }
+    if (servers.some((s) => s.sendCommand(d))) return;
+    // The device disconnected meanwhile: queue it for its next login.
+    const key = RedisKeys.commandQueue(d.uniqueId);
+    redis
+      .multi()
+      .rpush(key, message)
+      .expire(key, COMMAND_TTL_HOURS * 3600)
+      .exec()
+      .catch((error: Error) => logger.error(`Command re-queue failed: ${error.message}`));
+  });
+  await commands.subscribe(RedisKeys.commandChannel(gatewayId));
+
   logger.log(`Gateway ${gatewayId} ready${capture ? ` (capturing ${captureIds})` : ''}`);
 
   const last = new Map(servers.map((s) => [s.protocol, s.stats.positions]));
@@ -60,6 +84,7 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     clearInterval(timer);
     await Promise.all(servers.map((s) => s.close()));
+    await commands.quit().catch(() => undefined);
     await redis.quit();
     process.exit(0);
   };

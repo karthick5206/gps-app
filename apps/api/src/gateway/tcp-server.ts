@@ -3,7 +3,7 @@ import type Redis from 'ioredis';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { createServer, Server, Socket } from 'node:net';
 import { join } from 'node:path';
-import { NormalizedPosition } from '@veetracer/shared';
+import { CommandDispatch, CommandUpdate, NormalizedPosition } from '@veetracer/shared';
 import { POSITIONS_STREAM_MAXLEN, RedisKeys } from '../redis/keys';
 import { BaseSession, DecodeContext, ProtocolDecoder } from './protocol';
 import { RateLimitedWarn, UnparsedLog } from './unparsed-log';
@@ -15,6 +15,10 @@ const CONN_KEY_TTL_SEC = 300;
 const CONN_KEY_REFRESH_MS = 60_000;
 /** Raw frames captured per connection when capture is enabled for a device. */
 const CAPTURE_FRAMES_PER_CONNECTION = 500;
+/** Command delivery state kept in Valkey for the API to reconcile (seconds). */
+const COMMAND_STATE_TTL_SEC = 7 * 86_400;
+/** Commands drained per login from the offline queue. */
+const QUEUE_DRAIN_MAX = 20;
 
 export interface GatewayStats {
   connections: number;
@@ -44,6 +48,10 @@ interface Connection<S extends BaseSession> {
   captured: number;
   flushTimer: NodeJS.Timeout | null;
   loginTimer: NodeJS.Timeout | null;
+  /** Registered in `byId` (device identified itself). */
+  identified: boolean;
+  /** Commands sent and awaiting a reply: protocol reference → command id, in send order. */
+  pending: Map<number, string>;
 }
 
 /**
@@ -54,6 +62,9 @@ export class TcpGatewayServer<S extends BaseSession> {
   private readonly logger: Logger;
   private readonly warnings: RateLimitedWarn;
   private readonly connections = new Set<Connection<S>>();
+  /** Identified connections by device unique id (latest connection wins). */
+  private readonly byId = new Map<string, Connection<S>>();
+  private nextRef = (Date.now() / 1000) >>> 0;
   private server: Server | null = null;
   private captureReady: Promise<void> | null = null;
   readonly stats: GatewayStats = { connections: 0, frames: 0, positions: 0, dropped: 0, errors: 0 };
@@ -100,6 +111,8 @@ export class TcpGatewayServer<S extends BaseSession> {
       captured: 0,
       flushTimer: null,
       loginTimer: null,
+      identified: false,
+      pending: new Map(),
     };
     this.connections.add(conn);
     this.stats.connections = this.connections.size;
@@ -115,6 +128,8 @@ export class TcpGatewayServer<S extends BaseSession> {
       if (conn.flushTimer) clearTimeout(conn.flushTimer);
       if (conn.loginTimer) clearTimeout(conn.loginTimer);
       this.connections.delete(conn);
+      const id = conn.session.uniqueId;
+      if (id && this.byId.get(id) === conn) this.byId.delete(id);
       this.stats.connections = this.connections.size;
     });
   }
@@ -176,6 +191,7 @@ export class TcpGatewayServer<S extends BaseSession> {
           this.capture(conn, 'out', reply);
         }
         positions.push(...result.positions);
+        for (const r of result.commandResponses ?? []) this.onCommandResponse(conn, r.ref, r.text);
         if (result.close) {
           conn.socket.end();
           break;
@@ -187,6 +203,7 @@ export class TcpGatewayServer<S extends BaseSession> {
         ctx.unparsed(`decoder error: ${(error as Error).message}`, frame, conn.session.uniqueId);
       }
     }
+    if (conn.session.uniqueId && !conn.identified) this.onIdentified(conn);
     if (conn.session.uniqueId && conn.loginTimer) {
       clearTimeout(conn.loginTimer);
       conn.loginTimer = null;
@@ -194,6 +211,78 @@ export class TcpGatewayServer<S extends BaseSession> {
     if (positions.length) this.publish(positions, conn.remote);
     // Any traffic (including heartbeats) refreshes the connection key; the offline sweeper treats it as "online".
     this.refreshConnectionKey(conn);
+  }
+
+  // ── Commands ────────────────────────────────────────────────────────────────
+
+  /** Whether a device is connected to this server right now. */
+  has(uniqueId: string): boolean {
+    return this.byId.has(uniqueId);
+  }
+
+  /**
+   * Sends a command to a connected device. Returns false when the device is not connected here or the protocol has
+   * no command support (the caller re-queues it).
+   */
+  sendCommand(d: CommandDispatch): boolean {
+    const conn = this.byId.get(d.uniqueId);
+    if (!conn || !this.decoder.encodeCommand || conn.socket.destroyed) return false;
+    const ref = (this.nextRef = (this.nextRef + 1) >>> 0);
+    const frame = this.decoder.encodeCommand(d.text, conn.session, ref);
+    conn.pending.set(ref, d.commandId);
+    if (conn.pending.size > 50) conn.pending.delete(conn.pending.keys().next().value as number);
+    conn.socket.write(frame);
+    this.capture(conn, 'out', frame);
+    this.logger.log(`Command ${d.commandId} sent to ${d.uniqueId}: ${d.text}`);
+    this.publishCommandUpdate({ commandId: d.commandId, status: 'SENT', at: new Date().toISOString() });
+    return true;
+  }
+
+  private onCommandResponse(conn: Connection<S>, ref: number | null, text: string): void {
+    let commandId: string | undefined;
+    if (ref !== null && conn.pending.has(ref)) {
+      commandId = conn.pending.get(ref);
+      conn.pending.delete(ref);
+    } else if (ref === null && conn.pending.size) {
+      // No reference in the protocol (Teltonika Codec 12): replies arrive in send order.
+      const [first] = conn.pending;
+      commandId = first[1];
+      conn.pending.delete(first[0]);
+    }
+    if (!commandId) {
+      this.warnings.warn(`cmd-unmatched:${conn.session.uniqueId}`, `Unmatched command reply from ${conn.session.uniqueId}: ${text}`);
+      return;
+    }
+    this.publishCommandUpdate({ commandId, status: 'ACKED', response: text.slice(0, 1000), at: new Date().toISOString() });
+  }
+
+  private publishCommandUpdate(u: CommandUpdate): void {
+    const json = JSON.stringify(u);
+    this.options.redis
+      .multi()
+      .set(RedisKeys.commandState(u.commandId), json, 'EX', COMMAND_STATE_TTL_SEC)
+      .publish(RedisKeys.commandUpdates, json)
+      .exec()
+      .catch((error: Error) => this.logger.error(`Command update failed: ${error.message}`));
+  }
+
+  /** First packet that identified the device: register it and deliver commands queued while it was offline. */
+  private onIdentified(conn: Connection<S>): void {
+    const id = conn.session.uniqueId!;
+    conn.identified = true;
+    this.byId.set(id, conn);
+    this.options.redis
+      .lpop(RedisKeys.commandQueue(id), QUEUE_DRAIN_MAX)
+      .then((items) => {
+        for (const raw of items ?? []) {
+          try {
+            this.sendCommand(JSON.parse(raw) as CommandDispatch);
+          } catch {
+            // Malformed queue entry: drop it.
+          }
+        }
+      })
+      .catch((error: Error) => this.logger.error(`Command queue read failed: ${error.message}`));
   }
 
   private publish(positions: NormalizedPosition[], remote: string): void {

@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
 import { BulkActionDto } from '../../common/bulk';
-import { CreateObjectDto, ObjectListQuery, UpdateObjectDto } from './objects.dto';
+import { CreateObjectDto, MaintenanceDto, ObjectListQuery, UpdateObjectDto } from './objects.dto';
 import { ObjectsService } from './objects.service';
 
 @Controller('objects')
@@ -37,6 +37,11 @@ export class ObjectsController {
   @Patch(':id') @RequirePermission('objects', 'edit')
   update(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateObjectDto) {
     return this.service.update(ctx, id, dto);
+  }
+
+  @Post(':id/maintenance') @RequirePermission('objects', 'edit')
+  maintenance(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: MaintenanceDto) {
+    return this.service.setMaintenance(ctx, id, dto.enabled, dto.note ?? null);
   }
 
   @Delete(':id') @RequirePermission('objects', 'delete')

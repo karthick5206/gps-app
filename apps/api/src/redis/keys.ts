@@ -10,6 +10,15 @@ export const RedisKeys = {
   liveUpdates: 'vt:live:updates',
   cacheInvalidate: 'vt:cache:invalidate',
   connection: (uniqueId: string) => `vt:conn:${uniqueId}`,
+  // ── Device commands ──
+  /** Pub/sub: commands for the devices connected to one gateway instance (`CommandDispatch`). */
+  commandChannel: (gatewayId: string) => `vt:cmd:gw:${gatewayId}`,
+  /** List of `CommandDispatch` waiting for a device that is offline; drained when it connects. */
+  commandQueue: (uniqueId: string) => `vt:cmd:queue:${uniqueId}`,
+  /** Pub/sub: delivery / acknowledgement updates from gateways (`CommandUpdate`). */
+  commandUpdates: 'vt:cmd:updates',
+  /** Last update per command (JSON, 7 days), so the API can reconcile updates it missed while restarting. */
+  commandState: (commandId: string) => `vt:cmd:state:${commandId}`,
   loginFailures: (email: string) => `vt:auth:fail:${email}`,
   // ── M2a ──
   /** Pub/sub: new alert `{ companyId, alert: AlertDto }` for realtime fan-out. */

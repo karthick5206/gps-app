@@ -6,6 +6,7 @@ import {
   decodeFrames,
   decodeMessage,
   encodeAck,
+  encodeCommand,
   encodeTimeResponse,
   Gt06DecodeError,
   Gt06Fix,
@@ -43,6 +44,8 @@ export interface Gt06Session extends BaseSession {
   typeId: number | null;
   status: Gt06Status;
   iccid: string | null;
+  /** Serial number for frames the server initiates (commands). */
+  serverSerial: number;
 }
 
 export const alarmName = (code: number): string => GT06_ALARMS[code] ?? `alarm_${code}`;
@@ -71,7 +74,13 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
       typeId: null,
       status: { ignition: null, charging: null, oilCut: null, batteryLevel: null, gsmSignal: null, extVoltage: null },
       iccid: null,
+      serverSerial: 0,
     };
+  }
+
+  encodeCommand(text: string, session: Gt06Session, ref: number): Buffer {
+    session.serverSerial = (session.serverSerial + 1) & 0xffff;
+    return encodeCommand(text, ref, session.serverSerial);
   }
 
   split(buf: Buffer): SplitResult {
@@ -109,7 +118,7 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
         if (message.iccid) session.iccid = message.iccid;
         break;
       case 'commandResponse':
-        ctx.warn(`gt06:cmd:${session.uniqueId}`, `Command response from ${session.uniqueId ?? ctx.remote}: ${message.text}`);
+        result.commandResponses = [{ ref: message.serverFlag, text: message.text }];
         break;
       case 'gps': {
         if (!session.uniqueId) break;

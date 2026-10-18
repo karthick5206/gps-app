@@ -3,6 +3,7 @@ import { compact, gsmFromLevel5, round } from '../attributes';
 import { BaseSession, DecodeContext, DecodeResult, emptyResult, ProtocolDecoder, SplitResult } from '../protocol';
 import {
   decodeTeltonika,
+  encodeCodec12,
   encodeRecordAck,
   splitTeltonika,
   TELTONIKA_MAX_FRAME_BYTES,
@@ -117,6 +118,11 @@ export class TeltonikaDecoder implements ProtocolDecoder<TeltonikaSession> {
     return { uniqueId: null };
   }
 
+  /** Codec 12 carries no reference; replies are matched to the oldest pending command. */
+  encodeCommand(text: string): Buffer {
+    return encodeCodec12(text, 0x05);
+  }
+
   split(buf: Buffer, session: TeltonikaSession): SplitResult {
     return splitTeltonika(buf, session.uniqueId !== null, this.maxFrameBytes);
   }
@@ -144,7 +150,7 @@ export class TeltonikaDecoder implements ProtocolDecoder<TeltonikaSession> {
         result.replies.push(encodeRecordAck(decoded.records.length));
         break;
       case 'response':
-        ctx.warn(`teltonika:cmd:${session.uniqueId}`, `Command response from ${session.uniqueId}: ${decoded.text}`);
+        result.commandResponses = [{ ref: null, text: decoded.text }];
         break;
       case 'unknown':
         ctx.unparsed(`unsupported codec 0x${decoded.codec.toString(16)}`, frame, session.uniqueId);

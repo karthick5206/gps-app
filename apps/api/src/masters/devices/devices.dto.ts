@@ -1,5 +1,6 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { ListQueryDto } from '../../common/list-query';
 
 export const UNIQUE_ID_PATTERN = /^[0-9A-Za-z_-]{4,32}$/;
@@ -19,3 +20,7 @@ export class CreateDeviceDto {
 }
 
 export class UpdateDeviceDto extends PartialType(CreateDeviceDto) {}
+
+export class RawQuery {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) limit?: number;
+}

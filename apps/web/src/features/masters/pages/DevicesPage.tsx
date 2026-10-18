@@ -1,8 +1,11 @@
 import type { DeviceDto, DeviceModelDto } from '@veetracer/shared';
-import { CpuIcon } from 'lucide-react';
-import { useMemo } from 'react';
+import { BinaryIcon, CpuIcon } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { useAuth } from '@/features/auth/auth-context';
 import { ASSIGNED_OPTIONS, DeviceForm, deviceColumns, deviceRowLabel, modelOption } from '../device-shared';
 import { MasterPage } from '../MasterPage';
+import { RawPacketsSheet } from '../RawPacketsSheet';
 import type { MasterFilter, MasterFormProps } from '../types';
 import { useEntityOptions } from '../use-options';
 
@@ -15,6 +18,16 @@ function CompanyDeviceForm(props: MasterFormProps<DeviceDto>) {
 
 export function DevicesPage() {
   const models = useEntityOptions<DeviceModelDto>('/device-models', modelOption);
+  const { can } = useAuth();
+  const [rawFor, setRawFor] = useState<DeviceDto | null>(null);
+  const rowActions = useCallback(
+    (r: DeviceDto) => (
+      <DropdownMenuItem onSelect={() => setRawFor(r)}>
+        <BinaryIcon /> Raw data
+      </DropdownMenuItem>
+    ),
+    [],
+  );
   const filters = useMemo<MasterFilter[]>(
     () => [
       { key: 'modelId', label: 'Models', options: models.options },
@@ -23,6 +36,7 @@ export function DevicesPage() {
     [models.options],
   );
   return (
+    <>
     <MasterPage
       menu="devices"
       title="Devices"
@@ -34,6 +48,9 @@ export function DevicesPage() {
       defaultSort={{ id: 'uniqueId', desc: false }}
       Form={CompanyDeviceForm}
       emptyIcon={CpuIcon}
+      rowActions={can('devices', 'edit') ? rowActions : undefined}
     />
+    <RawPacketsSheet device={rawFor} onClose={() => setRawFor(null)} />
+    </>
   );
 }

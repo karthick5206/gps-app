@@ -198,7 +198,8 @@ export class PositionProcessor {
         lives.set(object.objectId, live);
         tracks.set(object.objectId, { ...result.next, stoppedSince: status.stoppedSince });
         changed.set(object.objectId, live);
-        if ((flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null) {
+        // Vehicles in maintenance (workshop, testing) raise no alerts.
+        if ((flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null && !object.inMaintenance) {
           ruleInputs.push({
             object,
             fixTime,

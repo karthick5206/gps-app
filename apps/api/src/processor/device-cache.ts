@@ -63,6 +63,7 @@ export class DeviceCache {
                 vehicleType: true,
                 speedLimitKph: true,
                 isActive: true,
+                maintenanceSince: true,
               },
             },
           },
@@ -92,6 +93,7 @@ export class DeviceCache {
                 deviceId: d.id,
                 uniqueId: d.uniqueId,
                 speedLimitKph: effectiveSpeedLimit(o.speedLimitKph, o.type, o.vehicleType),
+                inMaintenance: o.maintenanceSince !== null,
               }
             : null,
         };

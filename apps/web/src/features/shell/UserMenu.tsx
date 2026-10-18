@@ -1,4 +1,5 @@
-import { LogOutIcon, ShieldIcon } from 'lucide-react';
+import { LaptopIcon, LogOutIcon, ShieldIcon } from 'lucide-react';
+import { useState } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth, useMe } from '@/features/auth/auth-context';
+import { SessionsDialog } from './SessionsDialog';
 
 function initials(name: string): string {
   return name
@@ -21,7 +23,9 @@ function initials(name: string): string {
 export function UserMenu() {
   const me = useMe();
   const { signOut } = useAuth();
+  const [sessionsOpen, setSessionsOpen] = useState(false);
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
@@ -44,10 +48,15 @@ export function UserMenu() {
           </DropdownMenuLabel>
         )}
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => setSessionsOpen(true)}>
+          <LaptopIcon /> Signed-in devices
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={signOut}>
           <LogOutIcon /> Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <SessionsDialog open={sessionsOpen} onOpenChange={setSessionsOpen} />
+    </>
   );
 }

@@ -60,6 +60,8 @@ export interface VehicleHealthRow {
   lat: number | null;
   lng: number | null;
   remark: VehicleRemarkDto | null;
+  maintenanceSince: string | null;
+  maintenanceNote: string | null;
 }
 
 export interface DashboardHealth {

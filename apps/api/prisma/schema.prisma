@@ -242,6 +242,9 @@ model TrackedObject {
   icon             String?
   speedLimitKph    Int?
   odometerOffsetKm Float        @default(0)
+  /// Set while the vehicle is in the workshop: alerts are suppressed and it is listed separately on the criticality board.
+  maintenanceSince DateTime?    @db.Timestamptz(3)
+  maintenanceNote  String?
   customFields     Json         @default("{}")
   isActive         Boolean      @default(true)
   createdAt        DateTime     @default(now())
@@ -253,6 +256,7 @@ model TrackedObject {
   groups      VehicleGroupMember[]
   users       UserObject[]
   remarks     ObjectRemark[]
+  commands    DeviceCommand[]
 
   @@index([companyId, branchId])
 }
@@ -363,6 +367,7 @@ model RawPacket {
   hex           String
 
   @@index([receivedAt])
+  @@index([uniqueId, receivedAt(sort: Desc)])
 }
 
 model UnknownDevice {
@@ -847,4 +852,35 @@ model GeofenceVisit {
 
   @@index([companyId, enterTime(sort: Desc)])
   @@index([objectId, geofenceId, enterTime(sort: Desc)])
+}
+
+enum CommandStatus {
+  QUEUED
+  SENT
+  ACKED
+  FAILED
+  EXPIRED
+}
+
+/// A command sent (or queued) to a tracker, e.g. engine cut-off. Payload is the protocol text actually sent.
+model DeviceCommand {
+  id          String        @id @default(uuid()) @db.Uuid
+  companyId   String        @db.Uuid
+  objectId    String        @db.Uuid
+  deviceId    String        @db.Uuid
+  uniqueId    String
+  type        String
+  payload     String
+  status      CommandStatus @default(QUEUED)
+  response    String?
+  error       String?
+  createdById String?       @db.Uuid
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  sentAt      DateTime?     @db.Timestamptz(3)
+  ackAt       DateTime?     @db.Timestamptz(3)
+  expiresAt   DateTime      @db.Timestamptz(3)
+  object      TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([objectId, createdAt(sort: Desc)])
+  @@index([companyId, createdAt(sort: Desc)])
 }

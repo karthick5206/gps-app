@@ -26,6 +26,7 @@ export class LiveService {
         type: true,
         vehicleType: true,
         speedLimitKph: true,
+        maintenanceSince: true,
         assignments: { where: { toTime: null }, select: { device: { select: { id: true, uniqueId: true } } } },
       },
       orderBy: { name: 'asc' },
@@ -44,6 +45,7 @@ export class LiveService {
         deviceId: device?.id ?? null,
         uniqueId: device?.uniqueId ?? null,
         speedLimitKph: effectiveSpeedLimit(o.speedLimitKph, o.type, o.vehicleType),
+        inMaintenance: o.maintenanceSince !== null,
       };
       const state = live.get(o.id);
       return state ? { ...state, ...meta } : noDataLive(meta);

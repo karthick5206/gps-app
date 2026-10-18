@@ -31,7 +31,10 @@ function useHealth(inactiveAfterMin: number) {
   });
 }
 
-const wrongClock = (r: VehicleHealthRow) => r.clockSkewSec !== null && Math.abs(r.clockSkewSec) > CLOCK_SKEW_LIMIT_SEC;
+const inMaintenance = (r: VehicleHealthRow) => r.maintenanceSince !== null;
+const wrongClock = (r: VehicleHealthRow) => !inMaintenance(r) && r.clockSkewSec !== null && Math.abs(r.clockSkewSec) > CLOCK_SKEW_LIMIT_SEC;
+/** Problem buckets leave out vehicles in maintenance (they have their own bucket). */
+const issue = (status: VehicleHealthRow['status']) => (r: VehicleHealthRow) => r.status === status && !inMaintenance(r);
 const fmtSkew = (sec: number | null) => (sec === null ? '—' : `${sec > 0 ? '+' : '−'}${formatDuration(Math.abs(sec))}`);
 
 // ── Shared columns ────────────────────────────────────────────────────────────
@@ -245,10 +248,25 @@ export function CriticalityTab() {
   const base = baseColumns(setRemarkFor);
   const [vehicle, plate, status, imei, lastSeen, lastFix, noData, remark] = base;
   const buckets: Bucket[] = [
-    { key: 'INACTIVE', label: 'Inactive', tone: 'destructive', test: (r) => r.status === 'INACTIVE', columns: [vehicle, plate, imei, lastSeen, noData, extra.sim, remark], hint: `No data for longer than ${formatDuration(inactiveAfterMin * 60)}: check power, SIM balance or the device.` },
-    { key: 'NO_GPS', label: 'No GPS', tone: 'warning', test: (r) => r.status === 'NO_GPS', columns: [vehicle, plate, imei, lastSeen, lastFix, extra.volt, remark], hint: 'Device is sending data but has no valid GPS fix for 6 hours: antenna, indoor parking or GPS fault.' },
+    { key: 'INACTIVE', label: 'Inactive', tone: 'destructive', test: issue('INACTIVE'), columns: [vehicle, plate, imei, lastSeen, noData, extra.sim, remark], hint: `No data for longer than ${formatDuration(inactiveAfterMin * 60)}: check power, SIM balance or the device.` },
+    { key: 'NO_GPS', label: 'No GPS', tone: 'warning', test: issue('NO_GPS'), columns: [vehicle, plate, imei, lastSeen, lastFix, extra.volt, remark], hint: 'Device is sending data but has no valid GPS fix for 6 hours: antenna, indoor parking or GPS fault.' },
     { key: 'WRONG_TIME', label: 'Wrong time zone', tone: 'warning', test: wrongClock, columns: [vehicle, plate, imei, extra.skew, lastSeen, extra.model, remark], hint: 'Device clock differs from server time by more than 15 minutes: set the device time zone (e.g. Concox GMT,E,5,30#).' },
-    { key: 'NEVER_CONNECTED', label: 'Never connected', tone: 'muted', test: (r) => r.status === 'NEVER_CONNECTED', columns: [vehicle, plate, imei, extra.model, extra.sim, remark], hint: 'Device registered but no data has ever arrived: check server IP/port, APN and the IMEI entered.' },
+    { key: 'NEVER_CONNECTED', label: 'Never connected', tone: 'muted', test: issue('NEVER_CONNECTED'), columns: [vehicle, plate, imei, extra.model, extra.sim, remark], hint: 'Device registered but no data has ever arrived: check server IP/port, APN and the IMEI entered.' },
+    {
+      key: 'MAINTENANCE',
+      label: 'In maintenance',
+      tone: 'warning',
+      test: inMaintenance,
+      columns: [
+        vehicle,
+        plate,
+        { id: 'maintenanceSince', header: 'Since', value: (r) => (r.maintenanceSince ? Date.parse(r.maintenanceSince as string) : null), render: (r) => <span className="tabular-nums">{formatDateTime(r.maintenanceSince as string)}</span> },
+        { id: 'maintenanceNote', header: 'Note', value: (r) => (r.maintenanceNote as string) ?? null },
+        lastSeen,
+        remark,
+      ],
+      hint: 'Vehicles marked as in maintenance from the live map: alerts are paused until maintenance ends.',
+    },
     { key: 'NO_DEVICE', label: 'No device', tone: 'secondary', test: (r) => r.status === 'NO_DEVICE', columns: [vehicle, plate, remark], hint: 'Vehicle has no tracker assigned.' },
     { key: 'ACTIVE', label: 'Active', tone: 'success', test: (r) => r.status === 'ACTIVE', columns: [vehicle, plate, status, lastSeen, lastFix, extra.battery, remark], hint: 'Reporting normally.' },
   ];

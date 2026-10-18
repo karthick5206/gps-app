@@ -1,7 +1,7 @@
 import type Redis from 'ioredis';
 import { connect, Socket } from 'node:net';
 import { NormalizedPosition } from '@veetracer/shared';
-import { decodeFrames, encodeGps22, encodeHeartbeat, encodeLogin, frameProtocol } from './gt06/codec';
+import { decodeFrames, decodeMessage, encodeFrame, encodeGps22, encodeHeartbeat, encodeLogin, frameProtocol, Gt06Protocol } from './gt06/codec';
 import { Gt06Decoder } from './gt06/decoder';
 import { BaseSession, ProtocolDecoder } from './protocol';
 import { TcpGatewayServer } from './tcp-server';
@@ -10,10 +10,30 @@ import { TeltonikaDecoder } from './teltonika/decoder';
 import { UnparsedLog } from './unparsed-log';
 
 /** Minimal Valkey stand-in: records XADD payloads and SET keys. */
-function fakeRedis() {
+function fakeRedis(queued: Record<string, string[]> = {}) {
   const published: NormalizedPosition[] = [];
   const keys = new Map<string, string>();
+  const messages: { channel: string; message: string }[] = [];
   const redis = {
+    multi() {
+      const ops: (() => void)[] = [];
+      const m = {
+        set: (key: string, value: string) => (ops.push(() => keys.set(key, value)), m),
+        publish: (channel: string, message: string) => (ops.push(() => messages.push({ channel, message })), m),
+        rpush: () => m,
+        expire: () => m,
+        exec: async () => {
+          ops.forEach((op) => op());
+          return [];
+        },
+      };
+      return m;
+    },
+    lpop: async (key: string) => {
+      const items = queued[key] ?? [];
+      delete queued[key];
+      return items.length ? items : null;
+    },
     pipeline() {
       const queued: NormalizedPosition[] = [];
       const p = {
@@ -33,11 +53,11 @@ function fakeRedis() {
       return 'OK';
     },
   };
-  return { redis: redis as unknown as Redis, published, keys };
+  return { redis: redis as unknown as Redis, published, keys, messages };
 }
 
-async function start(decoder: ProtocolDecoder<BaseSession>) {
-  const fake = fakeRedis();
+async function start(decoder: ProtocolDecoder<BaseSession>, queued: Record<string, string[]> = {}) {
+  const fake = fakeRedis(queued);
   const server = new TcpGatewayServer(decoder, { redis: fake.redis, gatewayId: 'gw-test', unparsed: new UnparsedLog({ dir: null }) });
   await server.listen(0);
   return { server, ...fake };
@@ -105,6 +125,42 @@ describe('TcpGatewayServer', () => {
     const closed = new Promise<void>((r) => socket.on('close', () => r()));
     socket.write(Buffer.from('GET / HTTP/1.1\r\n\r\n'));
     await closed;
+    await server.close();
+  });
+
+  it('GT06 command round trip: 0x80 out, 0x15 reply with the same server flag → ACKED', async () => {
+    const { server, messages } = await start(new Gt06Decoder() as ProtocolDecoder<BaseSession>);
+    const { socket, received } = await client(server.port!);
+    socket.write(encodeLogin('359647091912738', 1));
+    await until(() => server.has('359647091912738'));
+    expect(server.sendCommand({ commandId: 'cmd-1', uniqueId: '359647091912738', text: 'RELAY,1#' })).toBe(true);
+    await until(() => decodeFrames(Buffer.concat(received)).frames.some((f) => frameProtocol(f) === 0x80));
+    const out = decodeFrames(Buffer.concat(received)).frames.find((f) => frameProtocol(f) === 0x80)!;
+    expect(out.subarray(9, 17).toString('latin1')).toBe('RELAY,1#');
+    const serverFlag = out.readUInt32BE(5);
+    const text = Buffer.from('Cut off the fuel supply: Success!', 'latin1');
+    const content = Buffer.concat([Buffer.from([4 + text.length]), Buffer.alloc(4), text, Buffer.from('0002', 'hex')]);
+    content.writeUInt32BE(serverFlag, 1);
+    socket.write(encodeFrame(Gt06Protocol.COMMAND_RESPONSE, content, 2));
+    await until(() => messages.some((m) => JSON.parse(m.message).status === 'ACKED'));
+    const updates = messages.map((m) => JSON.parse(m.message));
+    expect(updates.map((u) => u.status)).toEqual(['SENT', 'ACKED']);
+    expect(updates[1]).toMatchObject({ commandId: 'cmd-1', response: 'Cut off the fuel supply: Success!' });
+    expect(decodeMessage(out).type).toBe('unknown'); // 0x80 is server → device only
+    expect(server.sendCommand({ commandId: 'x', uniqueId: 'not-connected', text: 'WHERE#' })).toBe(false);
+    socket.destroy();
+    await server.close();
+  });
+
+  it('delivers commands queued while the device was offline as soon as it logs in', async () => {
+    const queued = { 'vt:cmd:queue:359647091912738': [JSON.stringify({ commandId: 'cmd-q', uniqueId: '359647091912738', text: 'WHERE#' })] };
+    const { server, messages } = await start(new Gt06Decoder() as ProtocolDecoder<BaseSession>, queued);
+    const { socket, received } = await client(server.port!);
+    socket.write(encodeLogin('359647091912738', 1));
+    await until(() => decodeFrames(Buffer.concat(received)).frames.some((f) => frameProtocol(f) === 0x80));
+    await until(() => messages.length > 0);
+    expect(JSON.parse(messages[0].message)).toMatchObject({ commandId: 'cmd-q', status: 'SENT' });
+    socket.destroy();
     await server.close();
   });
 });

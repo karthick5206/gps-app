@@ -97,6 +97,8 @@ export interface TrackedObjectDto {
   plateNumber: string | null; make: string | null; model: string | null; color: string | null;
   branchId: string | null; branchName: string | null;
   speedLimitKph: number | null; isActive: boolean;
+  /** Set while the vehicle is in maintenance (alerts suppressed). */
+  maintenanceSince: string | null; maintenanceNote: string | null;
   device: { id: string; uniqueId: string; modelName: string } | null;
   groups: { id: string; name: string }[];
   customFields: Record<string, unknown>;
@@ -123,6 +125,11 @@ export interface CompanyDto extends CompanySummary {
 export interface AuditLogDto {
   id: string; userId: string | null; userName: string | null; action: string;
   entity: string; entityId: string | null; changes: unknown; ip: string | null; createdAt: string;
+}
+
+/** GET /devices/:id/raw: latest raw frames received from a device (hex). */
+export interface RawPacketDto {
+  id: string; receivedAt: string; protocol: string; remoteAddress: string | null; hex: string; length: number;
 }
 
 export interface UnknownDeviceDto {

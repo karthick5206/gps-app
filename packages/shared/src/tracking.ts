@@ -73,6 +73,8 @@ export interface NormalizedPosition {
 
 /** Current state of one tracked object, as shown on the live map. */
 export interface LiveObject {
+  /** In maintenance: alerts are suppressed. */
+  inMaintenance?: boolean;
   objectId: string;
   companyId: string;
   branchId: string | null;

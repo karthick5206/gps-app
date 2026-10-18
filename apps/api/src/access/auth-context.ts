@@ -14,12 +14,16 @@ export interface AuthContext {
   branchIds: string[];
   objectIds: string[];
   ip: string | null;
+  /** Login session behind the access token (absent for internal contexts such as sockets or schedulers). */
+  sessionId?: string | null;
 }
 
 export interface AccessTokenPayload {
   sub: string;
   cid: string;
   sa: boolean;
+  /** Session id: a signed-out session's access tokens stop working immediately. */
+  sid?: string;
 }
 
 export type AuthedRequest = Request & { auth?: AuthContext };

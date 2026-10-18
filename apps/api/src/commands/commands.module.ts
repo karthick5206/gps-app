@@ -1,0 +1,11 @@
+import { Module } from '@nestjs/common';
+import { LiveModule } from '../live/live.module';
+import { CommandsController } from './commands.controller';
+import { CommandsService } from './commands.service';
+
+@Module({
+  imports: [LiveModule],
+  controllers: [CommandsController],
+  providers: [CommandsService],
+})
+export class CommandsModule {}

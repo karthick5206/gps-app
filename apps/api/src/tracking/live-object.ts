@@ -12,6 +12,8 @@ export interface ObjectMeta {
   deviceId: string | null;
   uniqueId: string | null;
   speedLimitKph: number | null;
+  /** In maintenance: no alerts are raised. */
+  inMaintenance?: boolean;
 }
 
 /** Object limit, else the vehicle-type default; non-vehicles without a limit never overspeed. */
