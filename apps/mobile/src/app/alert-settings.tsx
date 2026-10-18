@@ -2,24 +2,36 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ALERT_SEVERITIES,
   ALERT_TYPES,
+  DEFAULT_CHANNELS,
+  type ChannelsBySeverity,
+  type NotifyChannel,
   type AlertSeverity,
   type AlertSettingDto,
   type AlertTypeDef,
   type EffectiveAlertSetting,
 } from '@veetracer/shared';
 import { Stack } from 'expo-router';
-import { ChevronDownIcon, ChevronUpIcon, LockIcon, RotateCcwIcon } from 'lucide-react-native';
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon, LockIcon, RotateCcwIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { SelectField, VehiclePicker } from '@/components/pickers';
 import { Button, Card, Chips, ErrorBanner, Text } from '@/components/ui';
 import { AlertTypeIcon, SEVERITY_COLOR, SEVERITY_LABEL } from '@/features/alerts/alert-icons';
+import { RecipientsCard } from '@/features/alerts/RecipientsCard';
 import { useAuth } from '@/features/auth/auth';
 import { liveStore } from '@/features/live/live-store';
 import { api, errorMessage } from '@/lib/api';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
 
 type Level = 'COMPANY' | 'OBJECT';
+/** Channels offered in the app (WhatsApp is not configured on the server yet). */
+const CHANNELS: { key: NotifyChannel; label: string }[] = [
+  { key: 'INAPP', label: 'In-app' },
+  { key: 'EMAIL', label: 'Email' },
+  { key: 'SMS', label: 'SMS' },
+  { key: 'PUSH', label: 'Push' },
+];
+const sameSet = (a: NotifyChannel[], b: NotifyChannel[]) => a.length === b.length && a.every((x) => b.includes(x));
 const CATEGORY_ORDER: AlertTypeDef['category'][] = ['Driving', 'Vehicle', 'Location', 'Safety', 'Device', 'Device health'];
 
 /** What one alert type looks like at the chosen level: values, and whether this level overrides them. */
@@ -28,6 +40,7 @@ interface Row {
   enabled: boolean;
   severity: AlertSeverity;
   params: Record<string, unknown>;
+  channels: ChannelsBySeverity;
   supported: boolean;
   /** Override stored at this level (null = all inherited). */
   own: AlertSettingDto | null;
@@ -58,6 +71,9 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
   const { def } = row;
   const [open, setOpen] = useState(false);
   const [severity, setSeverity] = useState<AlertSeverity>(row.severity);
+  const [channels, setChannels] = useState<ChannelsBySeverity>(row.channels);
+  const toggleChannel = (sev: AlertSeverity, ch: NotifyChannel) =>
+    setChannels((cur) => ({ ...cur, [sev]: cur[sev].includes(ch) ? cur[sev].filter((x) => x !== ch) : [...cur[sev], ch] }));
   const editable = def.params.filter((p) => p.type === 'number' || p.type === 'time');
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(editable.map((p) => [p.key, row.params[p.key] == null ? '' : String(row.params[p.key])])));
 
@@ -92,13 +108,15 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
     const body: Record<string, unknown> = {};
     if (Object.keys(params).length) body.params = params;
     if (severity !== row.severity) body.severity = severity;
+    const changedChannels = ALERT_SEVERITIES.filter((sev) => !sameSet(channels[sev], row.channels[sev]));
+    if (changedChannels.length) body.channels = Object.fromEntries(changedChannels.map((sev) => [sev, channels[sev]]));
     if (!Object.keys(body).length) return setOpen(false);
     put.mutate(body, { onSuccess: () => setOpen(false) });
   };
   const reset = () =>
     Alert.alert('Use inherited settings?', `${def.label} goes back to the ${level === 'OBJECT' ? 'company / group' : 'default'} settings.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Reset', style: 'destructive', onPress: () => put.mutate({ enabled: null, severity: null, params: null }) },
+      { text: 'Reset', style: 'destructive', onPress: () => put.mutate({ enabled: null, severity: null, params: null, channels: null }) },
     ]);
 
   const lockOff = def.mandatory && level === 'OBJECT';
@@ -138,6 +156,49 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
               ))}
             </View>
           )}
+          <View style={{ gap: 6 }}>
+            <Text size="xs" tone="muted">
+              Notify by
+            </Text>
+            <View style={styles.grid}>
+              <View style={styles.gridRow}>
+                <View style={styles.gridLabel} />
+                {CHANNELS.map((ch) => (
+                  <Text key={ch.key} size="xs" tone="muted" style={styles.gridCell}>
+                    {ch.label}
+                  </Text>
+                ))}
+              </View>
+              {ALERT_SEVERITIES.map((sev) => (
+                <View key={sev} style={styles.gridRow}>
+                  <Text size="sm" style={[styles.gridLabel, { color: SEVERITY_COLOR[sev] }]} weight={sev === severity ? '700' : '400'}>
+                    {SEVERITY_LABEL[sev]}
+                  </Text>
+                  {CHANNELS.map((ch) => {
+                    const on = channels[sev].includes(ch.key);
+                    return (
+                      <Pressable
+                        key={ch.key}
+                        disabled={!canEdit}
+                        onPress={() => toggleChannel(sev, ch.key)}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: on }}
+                        accessibilityLabel={`${SEVERITY_LABEL[sev]} by ${ch.label}`}
+                        style={styles.gridCell}
+                      >
+                        <View style={[styles.box, { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.primary : 'transparent' }]}>
+                          {on && <CheckIcon size={13} color={c.primaryForeground} />}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+            <Text size="xs" tone="muted">
+              The row matching this alert’s severity is used. Email / SMS go to the default recipients plus the extra ones above.
+            </Text>
+          </View>
           {def.params.some((p) => p.type === 'geofences') && (
             <Text size="xs" tone="muted">
               Geofence exclusions are edited in the web app.
@@ -183,8 +244,9 @@ export default function AlertSettingsScreen() {
       const o = own.get(def.code) ?? null;
       const e = eff.get(def.code);
       const defaults = Object.fromEntries(def.params.map((p) => [p.key, p.default]));
-      if (level === 'OBJECT' && e) return { def, enabled: e.enabled, severity: e.severity, params: e.params, supported: e.supported, own: o };
-      return { def, enabled: o?.enabled ?? def.defaultEnabled, severity: o?.severity ?? def.defaultSeverity, params: { ...defaults, ...(o?.params ?? {}) }, supported: true, own: o };
+      if (level === 'OBJECT' && e) return { def, enabled: e.enabled, severity: e.severity, params: e.params, channels: e.channels, supported: e.supported, own: o };
+      const channels = Object.fromEntries(ALERT_SEVERITIES.map((sev) => [sev, [...(o?.channels?.[sev] ?? DEFAULT_CHANNELS[sev])]])) as ChannelsBySeverity;
+      return { def, enabled: o?.enabled ?? def.defaultEnabled, severity: o?.severity ?? def.defaultSeverity, params: { ...defaults, ...(o?.params ?? {}) }, channels, supported: true, own: o };
     }).sort((a, b) => CATEGORY_ORDER.indexOf(a.def.category) - CATEGORY_ORDER.indexOf(b.def.category));
   }, [overrides.data, effective.data, level]);
 
@@ -221,6 +283,7 @@ export default function AlertSettingsScreen() {
                 You can view these settings; ask an admin to change them.
               </Text>
             )}
+            {targetId && <RecipientsCard key={`${level}-${targetId}`} level={level} targetId={targetId} canEdit={canEdit} />}
             {error && <ErrorBanner message={errorMessage(error)} onRetry={() => void refresh()} />}
             {loading && <ActivityIndicator style={{ margin: SPACE.lg }} />}
           </View>
@@ -243,5 +306,10 @@ export default function AlertSettingsScreen() {
 
 const styles = StyleSheet.create({
   input: { height: 42, borderWidth: 1, borderRadius: RADIUS.sm, paddingHorizontal: SPACE.md, fontSize: 15 },
+  grid: { gap: 6 },
+  gridRow: { flexDirection: 'row', alignItems: 'center' },
+  gridLabel: { width: 72 },
+  gridCell: { flex: 1, alignItems: 'center', textAlign: 'center' },
+  box: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
 });
 

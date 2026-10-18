@@ -34,6 +34,9 @@ function RootStack() {
           <Stack.Screen name="commands/[id]" options={{ title: 'Commands' }} />
           <Stack.Screen name="manage/[kind]/index" options={{ title: 'Manage' }} />
           <Stack.Screen name="manage/[kind]/[id]" options={{ title: 'Edit' }} />
+          <Stack.Screen name="profile" options={{ title: 'Profile' }} />
+          <Stack.Screen name="geofences/index" options={{ title: 'Geofences' }} />
+          <Stack.Screen name="geofences/[id]" options={{ title: 'Geofence' }} />
           <Stack.Screen name="alert-settings" options={{ title: 'Alert settings' }} />
           <Stack.Screen name="reports/index" options={{ title: 'Reports' }} />
           <Stack.Screen name="reports/[type]" options={{ title: 'Report' }} />

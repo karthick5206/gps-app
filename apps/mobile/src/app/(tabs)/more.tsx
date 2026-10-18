@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Me, ThemePreference } from '@veetracer/shared';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, IdCardIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
+import { BellRingIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, HexagonIcon, IdCardIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, Chips, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { meQueryKey, useAuth } from '@/features/auth/auth';
@@ -45,7 +45,7 @@ export default function MoreScreen() {
     ]);
   return (
     <ScrollView contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.md }}>
-      <Card>
+      <Card onPress={() => router.push('/profile')}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' }}>
             <UserIcon size={24} color={c.primary} />
@@ -58,6 +58,7 @@ export default function MoreScreen() {
               {me?.user.email ?? me?.user.mobile ?? ''}
             </Text>
           </View>
+          <ChevronRightIcon size={18} color={c.mutedForeground} />
         </View>
       </Card>
 
@@ -66,6 +67,7 @@ export default function MoreScreen() {
         {can('objects') && <MenuItem icon={TruckIcon} label="Vehicles" href="/manage/vehicles" />}
         {can('devices') && <MenuItem icon={CpuIcon} label="Devices" href="/manage/devices" />}
         {can('drivers') && <MenuItem icon={IdCardIcon} label="Drivers" href="/manage/drivers" />}
+        {can('geofences') && <MenuItem icon={HexagonIcon} label="Geofences" href="/geofences" />}
         {can('alert_settings') && <MenuItem icon={BellRingIcon} label="Alert settings" href="/alert-settings" />}
       </Card>
 
