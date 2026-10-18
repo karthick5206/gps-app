@@ -19,6 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { PickerSheet, type PickOption } from '@/components/PickerSheet';
 import { Button, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
+import { AddressLine } from '@/features/geocoding/use-address';
 import { VehicleSummary } from '@/features/live/components';
 import { liveStore } from '@/features/live/live-store';
 import { LiveSheet, type SheetSnap } from '@/features/live/LiveSheet';
@@ -257,6 +258,7 @@ export default function LiveMapScreen() {
         </Text>
       </View>
       <VehicleSummary o={selected} now={now} />
+      <AddressLine lat={selected.lat} lng={selected.lng} />
       {selected.driverName && (
         <Text size="sm" tone="muted">
           {t('Driver:')} <Text size="sm" weight="600">{selected.driverName}</Text>
