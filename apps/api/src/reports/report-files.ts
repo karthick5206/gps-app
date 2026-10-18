@@ -70,7 +70,7 @@ export async function renderReport(sections: ReportData[], format: ReportFormat,
 
 async function renderXlsx(sections: ReportData[], generated: string): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Veetrax';
+  wb.creator = 'VeeTrax';
   wb.created = new Date();
   const used = new Set<string>();
   for (const data of sections) {
@@ -167,7 +167,7 @@ async function renderPdf(sections: ReportData[], generated: string): Promise<Buf
     pageSize: 'A4',
     pageOrientation: 'landscape',
     pageMargins: [28, 28, 28, 34],
-    info: { title: sections.map((s) => REPORT_TITLES[s.type]).join(', '), creator: 'Veetrax' },
+    info: { title: sections.map((s) => REPORT_TITLES[s.type]).join(', '), creator: 'VeeTrax' },
     defaultStyle: { font: 'Roboto', fontSize: 7.5, color: '#0f172a' },
     styles: {
       company: { fontSize: 13, bold: true, color: '#0e5e57' },
@@ -178,7 +178,7 @@ async function renderPdf(sections: ReportData[], generated: string): Promise<Buf
     },
     footer: (current: number, count: number) => ({
       columns: [
-        { text: `${sections[0].companyName} · Veetrax`, fontSize: 7, color: '#94a3b8' },
+        { text: `${sections[0].companyName} · VeeTrax`, fontSize: 7, color: '#94a3b8' },
         { text: `Page ${current} of ${count}`, alignment: 'right', fontSize: 7, color: '#94a3b8' },
       ],
       margin: [28, 10, 28, 0],

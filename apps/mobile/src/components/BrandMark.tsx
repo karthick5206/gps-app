@@ -10,7 +10,7 @@ export function useBrandColors(): BrandColors {
 }
 
 /**
- * Veetrax mark (dotted trip line ending in a map pin) in the theme's colours.
+ * VeeTrax mark (dotted trip line ending in a map pin) in the theme's colours.
  * `tile` draws it on the rounded brand tile (like the app icon); `onLight` uses the ink colours for plain light
  * backgrounds; otherwise it is the white pin for dark / brand-coloured backgrounds.
  */
@@ -32,13 +32,13 @@ export function BrandMark({ size = 48, tile, onLight }: { size?: number; tile?: 
   );
 }
 
-/** Tile mark + lower-case wordmark, for headers and about screens. */
+/** Tile mark + "VeeTrax" wordmark, for headers and about screens. */
 export function BrandLockup({ size = 36, color, sub }: { size?: number; color: string; sub?: string }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <BrandMark size={size} tile />
       <View>
-        <Text style={{ color, fontSize: size * 0.62, fontWeight: '800', letterSpacing: -0.6 }}>veetrax</Text>
+        <Text style={{ color, fontSize: size * 0.62, fontWeight: '800', letterSpacing: -0.6 }}>VeeTrax</Text>
         {sub ? (
           <Text size="xs" tone="muted">
             {sub}

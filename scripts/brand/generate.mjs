@@ -1,5 +1,5 @@
 /**
- * Veetrax brand assets from one mark (dotted trip line ending in a map pin), in the default Teal & Saffron palette.
+ * VeeTrax brand assets from one mark (dotted trip line ending in a map pin), in the default Teal & Saffron palette.
  *
  *   npm i --no-save --prefix <tmp> @resvg/resvg-js@2.6.2
  *   RESVG_FROM=<tmp>/package.json node scripts/brand/generate.mjs
@@ -46,7 +46,7 @@ function mapMotif({ w, h, line, route, pin }) {
   </svg>`;
 }
 const word = ({ x, y, size, fill, weight = 800, anchor = 'start' }) =>
-  `<text x="${x}" y="${y}" font-family="Manrope" font-weight="${weight}" font-size="${size}" letter-spacing="${-0.03 * size}" fill="${fill}" text-anchor="${anchor}">veetrax</text>`;
+  `<text x="${x}" y="${y}" font-family="Manrope" font-weight="${weight}" font-size="${size}" letter-spacing="${-0.03 * size}" fill="${fill}" text-anchor="${anchor}">VeeTrax</text>`;
 const svg = (w, h, body, bg) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${bg ? `<rect width="${w}" height="${h}" fill="${bg}"/>` : ''}${body}</svg>`;
 
@@ -98,8 +98,8 @@ file(
   'apps/web/public/manifest.webmanifest',
   `${JSON.stringify(
     {
-      name: 'Veetrax',
-      short_name: 'Veetrax',
+      name: 'VeeTrax',
+      short_name: 'VeeTrax',
       description: 'Live fleet tracking: alerts, trips, drivers and reports.',
       start_url: '/',
       display: 'standalone',

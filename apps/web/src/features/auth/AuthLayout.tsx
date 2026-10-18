@@ -34,7 +34,7 @@ export function AuthLayout({ title, description, children }: { title: string; de
             ))}
           </ul>
         </div>
-        <p className="relative text-xs text-sidebar-muted">© {new Date().getFullYear()} Veetrax</p>
+        <p className="relative text-xs text-sidebar-muted">© {new Date().getFullYear()} VeeTrax</p>
       </aside>
       <main className="relative flex items-center justify-center px-4 py-10 sm:px-8">
         <div className="absolute top-4 right-4">

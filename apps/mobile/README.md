@@ -1,4 +1,4 @@
-# Veetrax mobile app
+# VeeTrax mobile app
 
 React Native / Expo (SDK 58) app for Android and iOS, in the gps-app monorepo. It uses the same API and
 `@veetracer/shared` package as the web app.
@@ -58,7 +58,7 @@ debug key, which is fine for testing. Use EAS (below) or a real keystore for Pla
 2. Clone the repo, run `npm install` at the root, then in `apps/mobile`: `npx expo run:ios` (simulator), or
    `npx expo run:ios --device` for a connected iPhone.
 3. For TestFlight / App Store: `npx eas-cli@latest build --platform ios` (needs an Apple Developer account),
-   or archive `ios/Veetrax.xcworkspace` in Xcode.
+   or archive `ios/VeeTrax.xcworkspace` in Xcode.
 
 ## Push alerts
 

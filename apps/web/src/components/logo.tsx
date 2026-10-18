@@ -2,7 +2,7 @@ import { BRAND_PIN_PATH, BRAND_PIN_TRANSFORM, BRAND_ROUTE_DOTS } from '@veetrace
 import { cn } from '@/lib/utils';
 
 /**
- * Veetrax mark (dotted trip line ending in a map pin) on a rounded tile. Colours come from the theme tokens
+ * VeeTrax mark (dotted trip line ending in a map pin) on a rounded tile. Colours come from the theme tokens
  * --brand / --brand-accent, so the logo follows the selected theme.
  */
 export function LogoMark({ className }: { className?: string }) {
@@ -20,9 +20,9 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-/** Lower-case wordmark, as in the logo files (brand/logo). */
+/** "VeeTrax" wordmark, as in the logo files (brand/logo). */
 export function Wordmark({ className }: { className?: string }) {
-  return <span className={cn('font-extrabold tracking-tight', className)}>veetrax</span>;
+  return <span className={cn('font-extrabold tracking-tight', className)}>VeeTrax</span>;
 }
 
 export function Logo({ className, textClassName }: { className?: string; textClassName?: string }) {

@@ -13,7 +13,7 @@ import { loadEnv } from '../src/config/env';
 loadEnv();
 const prisma = new PrismaClient();
 
-const GT06_CAPABILITIES = ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'lbs'];
+const GT06_CAPABILITIES = ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'lbs', 'crash'];
 const GT06_FIELDS = [
   { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' },
   { key: 'gsmSignal', label: 'GSM signal', type: 'number' },
@@ -136,12 +136,12 @@ async function main() {
   const partner = await prisma.partner.upsert({
     where: { slug: 'veetracer' },
     update: {},
-    create: { name: 'Veetrax', slug: 'veetracer' },
+    create: { name: 'VeeTrax', slug: 'veetracer' },
   });
 
   const platform =
     (await prisma.company.findFirst({ where: { isPlatform: true } })) ??
-    (await prisma.company.create({ data: { partnerId: partner.id, name: 'Veetrax Platform', isPlatform: true } }));
+    (await prisma.company.create({ data: { partnerId: partner.id, name: 'VeeTrax Platform', isPlatform: true } }));
 
   await upsertUser({
     companyId: platform.id,

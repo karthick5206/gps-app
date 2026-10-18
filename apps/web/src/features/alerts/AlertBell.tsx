@@ -62,7 +62,7 @@ function useAlertToasts() {
         toast.info(t('{{count}} more alert(s) just arrived', { count: burstCount }), { id: 'alert-burst', description: t('Open the bell to see the latest alerts.'), duration: 5000 });
         return;
       }
-      // Background tab / minimised window: also a desktop notification with the Veetrax icon.
+      // Background tab / minimised window: also a desktop notification with the VeeTrax icon.
       desktopNotify.show(a, alertTitle(a), `${vehicleLabel(a)} — ${a.message}`, () => openRef.current(a));
       const Icon = alertIcon(a.type);
       const opts = {

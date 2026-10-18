@@ -1,6 +1,6 @@
 {
-  "name": "Veetrax",
-  "short_name": "Veetrax",
+  "name": "VeeTrax",
+  "short_name": "VeeTrax",
   "description": "Live fleet tracking: alerts, trips, drivers and reports.",
   "start_url": "/",
   "display": "standalone",

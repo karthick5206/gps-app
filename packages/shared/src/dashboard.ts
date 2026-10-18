@@ -8,7 +8,7 @@ export interface DashboardOverview {
   byStatus: Record<string, number>;
   devicesOnline: number;
   todayDistanceKm: number;
-  /** Distance recorded by Veetrax plus each vehicle's odometer offset. */
+  /** Distance recorded by VeeTrax plus each vehicle's odometer offset. */
   totalOdometerKm: number;
   todayTrips: number;
   todayAlerts: { total: number; critical: number; byType: { type: string; count: number }[] };

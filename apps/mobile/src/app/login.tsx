@@ -113,7 +113,7 @@ export default function LoginScreen() {
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
             <BrandMark size={64} onLight={lightHero} />
-            <Text style={{ color: c.brandForeground, fontSize: 28, fontWeight: '800', letterSpacing: -0.8 }}>veetrax</Text>
+            <Text style={{ color: c.brandForeground, fontSize: 28, fontWeight: '800', letterSpacing: -0.8 }}>VeeTrax</Text>
             <Text style={{ color: c.brandForeground, opacity: 0.8, fontSize: 14 }}>{t('Every vehicle, every second, one screen.')}</Text>
           </View>
           <View style={[styles.sheet, { backgroundColor: c.background }]}>

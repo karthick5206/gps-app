@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react';
 import { storage } from '@/lib/storage';
 
 /**
- * Desktop (browser) notifications for warning and critical alerts while Veetrax is open in a background tab or
+ * Desktop (browser) notifications for warning and critical alerts while VeeTrax is open in a background tab or
  * minimised window. Opt-in per browser: turning it on asks the browser for permission.
  */
 const KEY = 'vt.alerts.desktop';

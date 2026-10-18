@@ -1,7 +1,7 @@
 import type { ThemePreference } from './api';
 
 /**
- * Veetrax mark: a dotted trip line ending in a map pin (64-unit box). Same geometry as the generated assets
+ * VeeTrax mark: a dotted trip line ending in a map pin (64-unit box). Same geometry as the generated assets
  * (scripts/brand/generate.mjs); the apps draw it in the selected theme's colours.
  */
 export const BRAND_PIN_PATH =
