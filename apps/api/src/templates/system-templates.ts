@@ -31,6 +31,16 @@ const DETAIL: Record<AlertTypeCode, string> = {
   CLOCK_ERROR: 'tracker clock is ahead by {{duration}} (check its time zone)',
   POWER_LOW: 'vehicle battery voltage is low ({{voltage}})',
   DEVICE_TAMPER: 'tracker reported tampering or GPS jamming',
+  DRIVER_FATIGUE: 'dashcam detected driver fatigue',
+  DRIVER_PHONE: 'dashcam detected the driver using a phone',
+  DRIVER_SMOKING: 'dashcam detected the driver smoking',
+  DRIVER_DISTRACTED: 'dashcam detected a distracted driver',
+  DRIVER_ABSENT: 'dashcam could not see a driver in the seat',
+  FORWARD_COLLISION_WARNING: 'dashcam raised a forward collision warning at {{speed}}',
+  LANE_DEPARTURE: 'dashcam detected a lane departure at {{speed}}',
+  TAILGATING: 'was following the vehicle ahead too closely at {{speed}}',
+  CAMERA_FAULT: 'dashcam reported a camera or video storage fault',
+  CRASH: 'tracker detected a crash or rollover at {{speed}}',
 };
 
 const BRAND = '#0e5e57';

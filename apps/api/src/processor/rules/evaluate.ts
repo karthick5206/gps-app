@@ -54,6 +54,8 @@ export interface AlertState {
   powerLow?: { since: number; alerted: boolean };
   /** Last external voltage, to detect a drop to ~0 V (main power removed). */
   extV?: number;
+  /** Dashcam video alarm flags on the last point (they stay set while the fault lasts). */
+  vid?: string[];
   /** Last alert time per cooldown key (alert type, or type:geofenceId). */
   cd: Record<string, number>;
 }
@@ -133,6 +135,29 @@ export interface EvalOutput {
   /** Merge into an existing alert's data (end-of-event summaries). */
   dataUpdates: { alertId: string; data: Record<string, unknown> }[];
 }
+
+/** Dashcam event attribute (JT/T 808 decoder `dms` / `adas`) → alert type and message. */
+const DMS_ALERTS: Record<string, [AlertTypeCode, string]> = {
+  fatigue: ['DRIVER_FATIGUE', 'Driver fatigue detected'],
+  phone: ['DRIVER_PHONE', 'Driver using a phone'],
+  smoking: ['DRIVER_SMOKING', 'Driver smoking'],
+  distraction: ['DRIVER_DISTRACTED', 'Driver distracted'],
+  driverAbsent: ['DRIVER_ABSENT', 'Driver not detected in the seat'],
+  cameraBlocked: ['CAMERA_FAULT', 'Driver camera blocked'],
+};
+const ADAS_ALERTS: Record<string, [AlertTypeCode, string]> = {
+  fcw: ['FORWARD_COLLISION_WARNING', 'Forward collision warning'],
+  pcw: ['FORWARD_COLLISION_WARNING', 'Pedestrian collision warning'],
+  obstacle: ['FORWARD_COLLISION_WARNING', 'Obstacle warning'],
+  ldw: ['LANE_DEPARTURE', 'Lane departure'],
+  laneChange: ['LANE_DEPARTURE', 'Frequent lane changes'],
+  hmw: ['TAILGATING', 'Following too close'],
+};
+const VIDEO_FAULTS: Record<string, string> = {
+  videoSignalLost: 'video signal lost',
+  videoSignalBlocked: 'camera covered',
+  storageFault: 'video storage failure',
+};
 
 const num = (v: unknown, fallback: number | null = null): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback;
@@ -215,6 +240,7 @@ class Evaluator {
     }
     this.ignition();
     this.alarms();
+    this.dashcam();
     this.battery();
     this.health();
     this.pruneCooldowns();
@@ -471,6 +497,43 @@ class Evaluator {
     else if (alarm === 'tamper' || alarm === 'jamming') {
       this.emit('DEVICE_TAMPER', { message: alarm === 'jamming' ? 'Tracker reported GPS/GSM jamming' : 'Tracker reported tampering (case opened or removed)', data: { alarm } });
     }
+  }
+
+  // ───────────── dashcam: driver monitoring (DMS), road ADAS, camera health, crash ─────────────
+  private dashcam(): void {
+    const a = this.input.attributes;
+    // Events from buffered history uploads are old news: never alert on them (the tracker's live state moved on).
+    if (a.reupload === true) return;
+    const speed = Math.round(this.input.speedKph);
+    const atLevel = (level: number | null) => (level === null ? '' : ` (level ${level})`);
+    const raise = (type: AlertTypeCode, message: string, data: Record<string, unknown>, level: number | null = null) => {
+      if (level !== null && level < this.param(type, 'minLevel', 1)) return;
+      this.emit(type, { message, data: { ...data, level } });
+    };
+
+    if (typeof a.dms === 'string') {
+      const level = num(a.dmsLevel);
+      const dms = DMS_ALERTS[a.dms];
+      if (dms) raise(dms[0], `${dms[1]}${atLevel(level)}`, { event: a.dms, source: 'dms' }, dms[0] === 'CAMERA_FAULT' ? null : level);
+    }
+    if (typeof a.adas === 'string') {
+      const level = num(a.adasLevel);
+      const adas = ADAS_ALERTS[a.adas];
+      if (adas) raise(adas[0], `${adas[1]} at ${speed} km/h${atLevel(level)}`, { event: a.adas, source: 'adas' }, level);
+    }
+
+    const alarm = a.alarm;
+    if (alarm === 'fatigue') raise('DRIVER_FATIGUE', 'Fatigue driving reported by the tracker', { event: alarm, source: 'alarm' });
+    else if (alarm === 'crash' || alarm === 'rollover') {
+      raise('CRASH', alarm === 'rollover' ? `Vehicle rollover detected at ${speed} km/h` : `Collision detected at ${speed} km/h`, { event: alarm, source: 'alarm' });
+    } else if (alarm === 'cameraFault') raise('CAMERA_FAULT', 'Tracker reported a camera fault', { event: alarm, source: 'alarm' });
+
+    // Video alarm flags stay set while the fault lasts: alert when a flag appears.
+    const flags = typeof a.videoAlarm === 'string' ? a.videoAlarm.split(',').filter((f) => VIDEO_FAULTS[f]) : [];
+    const added = flags.filter((f) => !this.state.vid?.includes(f));
+    if (added.length) raise('CAMERA_FAULT', `Camera fault: ${added.map((f) => VIDEO_FAULTS[f]).join(', ')}`, { event: added.join(','), source: 'video' });
+    if (flags.length) this.state.vid = flags;
+    else delete this.state.vid;
   }
 
   private battery(): void {

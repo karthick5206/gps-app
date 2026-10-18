@@ -30,7 +30,7 @@ export interface AlertParamDef {
 export interface AlertTypeDef {
   code: AlertTypeCode;
   label: string;
-  category: 'Driving' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety';
+  category: 'Driving' | 'Driver safety' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety';
   /** Device-model capability required; null = any GPS device. */
   capability: string | null;
   defaultSeverity: AlertSeverity;
@@ -61,12 +61,27 @@ export const ALERT_TYPE_CODES = [
   'CLOCK_ERROR',
   'POWER_LOW',
   'DEVICE_TAMPER',
+  'DRIVER_FATIGUE',
+  'DRIVER_PHONE',
+  'DRIVER_SMOKING',
+  'DRIVER_DISTRACTED',
+  'DRIVER_ABSENT',
+  'FORWARD_COLLISION_WARNING',
+  'LANE_DEPARTURE',
+  'TAILGATING',
+  'CAMERA_FAULT',
+  'CRASH',
 ] as const;
 export type AlertTypeCode = (typeof ALERT_TYPE_CODES)[number];
 
 export const COMMON_PLACEHOLDERS = [
   'vehicle_name', 'plate', 'branch', 'alert_type', 'severity', 'time', 'location', 'map_link', 'speed', 'driver_name', 'company',
 ] as const;
+
+/** Dashcams rate each ADAS / DMS event level 1 (first warning) or 2 (severe / repeated). */
+const DASHCAM_LEVEL_PARAM: AlertParamDef = {
+  key: 'minLevel', label: 'Minimum event level', type: 'number', default: 1, min: 1, max: 2, hint: '1 = every event, 2 = only severe (level 2) events',
+};
 
 export const ALERT_TYPES: readonly AlertTypeDef[] = [
   {
@@ -146,6 +161,17 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
     placeholders: ['voltage'],
   },
   { code: 'DEVICE_TAMPER', label: 'Tracker tamper / GPS jamming', category: 'Device health', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // ── Driver safety (dashcam DMS = driver camera, ADAS = road camera) ──
+  { code: 'DRIVER_FATIGUE', label: 'Driver fatigue', category: 'Driver safety', capability: 'dms', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'DRIVER_PHONE', label: 'Driver using phone', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'DRIVER_SMOKING', label: 'Driver smoking', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'DRIVER_DISTRACTED', label: 'Driver distracted', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'DRIVER_ABSENT', label: 'Driver not in seat', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'FORWARD_COLLISION_WARNING', label: 'Forward collision warning', category: 'Driver safety', capability: 'adas', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'LANE_DEPARTURE', label: 'Lane departure', category: 'Driver safety', capability: 'adas', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'TAILGATING', label: 'Following too close', category: 'Driver safety', capability: 'adas', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'CAMERA_FAULT', label: 'Dashcam camera fault', category: 'Device health', capability: 'video', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  { code: 'CRASH', label: 'Crash / rollover', category: 'Safety', capability: 'crash', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
 ];
 
 /** Catalogue default cooldown (minutes) per alert type when nothing is configured (shared by API and web). */
@@ -168,6 +194,17 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   CLOCK_ERROR: 1440,
   POWER_LOW: 0,
   DEVICE_TAMPER: 5,
+  // Dashcams repeat an event every few seconds while it lasts: one alert per short window.
+  DRIVER_FATIGUE: 2,
+  DRIVER_PHONE: 2,
+  DRIVER_SMOKING: 2,
+  DRIVER_DISTRACTED: 2,
+  DRIVER_ABSENT: 2,
+  FORWARD_COLLISION_WARNING: 2,
+  LANE_DEPARTURE: 2,
+  TAILGATING: 2,
+  CAMERA_FAULT: 30,
+  CRASH: 5,
 };
 
 export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEntries(ALERT_TYPES.map((t) => [t.code, t])) as Record<AlertTypeCode, AlertTypeDef>;

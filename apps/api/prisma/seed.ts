@@ -319,6 +319,12 @@ const SYSTEM_PACKS: { name: string; description: string; settings: PackSetting[]
       { alertType: 'GEOFENCE_EXIT', enabled: true },
       { alertType: 'IGNITION_ON', enabled: true },
       { alertType: 'SOS', enabled: true, severity: 'CRITICAL' },
+      // Dashcam buses (capability-gated: ignored on plain trackers).
+      { alertType: 'DRIVER_FATIGUE', enabled: true },
+      { alertType: 'DRIVER_PHONE', enabled: true, severity: 'CRITICAL' },
+      { alertType: 'DRIVER_SMOKING', enabled: true, severity: 'CRITICAL' },
+      { alertType: 'FORWARD_COLLISION_WARNING', enabled: true },
+      { alertType: 'CRASH', enabled: true },
     ],
   },
   {
@@ -329,6 +335,10 @@ const SYSTEM_PACKS: { name: string; description: string; settings: PackSetting[]
       { alertType: 'IDLING', enabled: true, params: { thresholdMin: 15, criticalMin: 45 } },
       { alertType: 'POWER_CUT', enabled: true, severity: 'CRITICAL' },
       { alertType: 'GEOFENCE_STAY', enabled: true },
+      { alertType: 'DRIVER_FATIGUE', enabled: true },
+      { alertType: 'FORWARD_COLLISION_WARNING', enabled: true },
+      { alertType: 'TAILGATING', enabled: true },
+      { alertType: 'CRASH', enabled: true },
     ],
   },
   {

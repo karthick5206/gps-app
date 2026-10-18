@@ -356,6 +356,62 @@ describe('device health', () => {
   });
 });
 
+describe('dashcam (ADAS / DMS)', () => {
+  const JT808 = ['ignition', 'sos', 'power_cut', 'crash', 'adas', 'dms', 'video'];
+  const dashcam = (object: Partial<Record<AlertTypeCode, Partial<SettingOverride>>> = {}, caps = JT808) => {
+    const chain: SettingsChain = { groups: [], object: Object.fromEntries(Object.entries(object).map(([k, v]) => [k, ov(v!)])) };
+    return ctx(new Map(resolveEffectiveSettings(chain, caps, [], T0).map((s) => [s.alertType, s])));
+  };
+  const types = (r: { alerts: { type: string }[] }) => r.alerts.map((a) => a.type);
+
+  it('DMS fatigue raises DRIVER_FATIGUE with the level', () => {
+    const r = run([at(sec(0), { speedKph: 48, attributes: { dms: 'fatigue', dmsLevel: 2 } })], dashcam());
+    expect(r.alerts).toHaveLength(1);
+    expect(r.alerts[0]).toMatchObject({ type: 'DRIVER_FATIGUE', severity: 'CRITICAL', message: 'Driver fatigue detected (level 2)', data: { event: 'fatigue', level: 2, speedKph: 48, source: 'dms' } });
+  });
+
+  it('ADAS forward collision raises FORWARD_COLLISION_WARNING with the speed', () => {
+    const r = run([at(sec(0), { speedKph: 54.2, attributes: { adas: 'fcw', adasLevel: 1 } })], dashcam());
+    expect(r.alerts[0]).toMatchObject({ type: 'FORWARD_COLLISION_WARNING', severity: 'CRITICAL', message: 'Forward collision warning at 54 km/h (level 1)', data: { event: 'fcw', level: 1, speedKph: 54 } });
+  });
+
+  it('maps the other events and alarm bits', () => {
+    const points = [
+      { dms: 'phone' }, { dms: 'smoking' }, { dms: 'distraction' }, { dms: 'driverAbsent' }, { dms: 'cameraBlocked' },
+      { adas: 'ldw' }, { adas: 'hmw' }, { alarm: 'crash' }, { adas: 'roadSignOverspeed' }, { dms: 'dms_9' },
+    ].map((attributes, i) => at(sec(i), { attributes }));
+    expect(types(run(points, dashcam()))).toEqual([
+      'DRIVER_PHONE', 'DRIVER_SMOKING', 'DRIVER_DISTRACTED', 'DRIVER_ABSENT', 'CAMERA_FAULT', 'LANE_DEPARTURE', 'TAILGATING', 'CRASH',
+    ]);
+  });
+
+  it('cooldown suppresses a repeated event inside the window and allows it after', () => {
+    const fcw = (s: number) => at(sec(s), { attributes: { adas: 'fcw', adasLevel: 1 } });
+    expect(types(run([fcw(0), fcw(5), fcw(60), fcw(121)], dashcam()))).toEqual(['FORWARD_COLLISION_WARNING', 'FORWARD_COLLISION_WARNING']);
+    expect(types(run([fcw(0), fcw(5)], dashcam({ FORWARD_COLLISION_WARNING: { cooldownMin: 0 } })))).toHaveLength(2);
+  });
+
+  it('history uploads and health-only points never raise', () => {
+    const attributes = { dms: 'fatigue', dmsLevel: 2, adas: 'fcw', adasLevel: 2 };
+    expect(types(run([at(sec(0), { attributes: { ...attributes, reupload: true } })], dashcam()))).toEqual([]);
+    expect(types(run([at(sec(0), { attributes, healthOnly: true, receivedAt: sec(0) })], dashcam()))).toEqual([]);
+  });
+
+  it('devices without the capability, disabled types and events below the minimum level do not raise', () => {
+    const p = at(sec(0), { attributes: { dms: 'phone', dmsLevel: 1 } });
+    expect(types(run([p], dashcam({}, GT06)))).toEqual([]);
+    expect(types(run([p], dashcam({ DRIVER_PHONE: { enabled: false } })))).toEqual([]);
+    expect(types(run([p], dashcam({ DRIVER_PHONE: { params: { minLevel: 2 } } })))).toEqual([]);
+  });
+
+  it('video alarm flags alert when a fault appears, not on every point while it lasts', () => {
+    const v = (s: number, videoAlarm?: string) => at(sec(s), { attributes: videoAlarm ? { videoAlarm } : {} });
+    const c = dashcam({ CAMERA_FAULT: { cooldownMin: 0 } });
+    const r = run([v(0, 'videoSignalLost'), v(10, 'videoSignalLost'), v(20, 'videoSignalLost,storageFault'), v(30), v(40, 'videoSignalLost')], c);
+    expect(r.alerts.map((a) => a.message)).toEqual(['Camera fault: video signal lost', 'Camera fault: video storage failure', 'Camera fault: video signal lost']);
+  });
+});
+
 describe('overspeed limit precedence', () => {
   it('vehicle-level setting > vehicle own limit > inherited setting > type default', () => {
     const own = { speedLimitKph: 50, ownSpeedLimitKph: 50 };

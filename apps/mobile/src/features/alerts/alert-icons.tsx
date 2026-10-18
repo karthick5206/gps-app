@@ -1,11 +1,16 @@
 import type { AlertSeverity, AlertTypeCode } from '@veetracer/shared';
 import { View } from 'react-native';
 import {
+  ArrowDownToDotIcon,
   BatteryLowIcon,
   BatteryWarningIcon,
   BellIcon,
+  CameraOffIcon,
+  CarFrontIcon,
+  CigaretteIcon,
   ClockAlertIcon,
   CloudAlertIcon,
+  EyeOffIcon,
   GaugeIcon,
   HourglassIcon,
   KeyRoundIcon,
@@ -13,12 +18,17 @@ import {
   LogOutIcon,
   MapPinnedIcon,
   MapPinOffIcon,
+  MoveHorizontalIcon,
+  OctagonAlertIcon,
   PowerOffIcon,
+  ScanEyeIcon,
   ShieldAlertIcon,
   SignalLowIcon,
   SirenIcon,
+  SmartphoneIcon,
   TimerIcon,
   UnplugIcon,
+  UserXIcon,
   WifiOffIcon,
   type LucideIcon,
 } from 'lucide-react-native';
@@ -44,6 +54,16 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   CLOCK_ERROR: ClockAlertIcon,
   POWER_LOW: BatteryWarningIcon,
   DEVICE_TAMPER: ShieldAlertIcon,
+  DRIVER_FATIGUE: EyeOffIcon,
+  DRIVER_PHONE: SmartphoneIcon,
+  DRIVER_SMOKING: CigaretteIcon,
+  DRIVER_DISTRACTED: ScanEyeIcon,
+  DRIVER_ABSENT: UserXIcon,
+  FORWARD_COLLISION_WARNING: CarFrontIcon,
+  LANE_DEPARTURE: MoveHorizontalIcon,
+  TAILGATING: ArrowDownToDotIcon,
+  CAMERA_FAULT: CameraOffIcon,
+  CRASH: OctagonAlertIcon,
 };
 
 export const alertIcon = (type: string): LucideIcon => ALERT_ICON[type as AlertTypeCode] ?? BellIcon;
