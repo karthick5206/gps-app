@@ -25,13 +25,19 @@ function RootStack() {
   return (
     <ThemeProvider value={theme}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <Stack screenOptions={{ headerTintColor: c.foreground, headerStyle: { backgroundColor: c.card }, headerShadowVisible: false, contentStyle: { backgroundColor: c.background } }}>
+      <Stack screenOptions={{ headerBackTitle: 'Back', headerTintColor: c.foreground, headerStyle: { backgroundColor: c.card }, headerShadowVisible: false, contentStyle: { backgroundColor: c.background } }}>
         <Stack.Protected guard={signedIn}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Home' }} />
           <Stack.Screen name="vehicle/[id]" options={{ title: 'Vehicle' }} />
           <Stack.Screen name="alert/[id]" options={{ title: 'Alert' }} />
           <Stack.Screen name="history/[id]" options={{ title: 'History' }} />
           <Stack.Screen name="commands/[id]" options={{ title: 'Commands' }} />
+          <Stack.Screen name="manage/[kind]/index" options={{ title: 'Manage' }} />
+          <Stack.Screen name="manage/[kind]/[id]" options={{ title: 'Edit' }} />
+          <Stack.Screen name="profile" options={{ title: 'Profile' }} />
+          <Stack.Screen name="geofences/index" options={{ title: 'Geofences' }} />
+          <Stack.Screen name="geofences/[id]" options={{ title: 'Geofence' }} />
+          <Stack.Screen name="alert-settings" options={{ title: 'Alert settings' }} />
           <Stack.Screen name="reports/index" options={{ title: 'Reports' }} />
           <Stack.Screen name="reports/[type]" options={{ title: 'Report' }} />
         </Stack.Protected>

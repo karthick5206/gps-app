@@ -31,7 +31,7 @@ export function DashboardPage() {
     );
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-5 p-4 sm:p-6">
+    <div className="w-full space-y-5 p-4 sm:p-6">
       <PageHeader
         title="Dashboard"
         description={TABS.find((t) => t.value === tab)?.description}

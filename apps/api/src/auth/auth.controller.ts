@@ -11,7 +11,9 @@ import {
   LoginDto,
   OtpRequestDto,
   OtpVerifyDto,
+  ChangePasswordDto,
   PreferencesDto,
+  UpdateProfileDto,
   PushTokenDto,
   RemovePushTokenDto,
   RefreshDto,
@@ -104,6 +106,23 @@ export class AuthController {
   async removePush(@Body() dto: RemovePushTokenDto): Promise<{ ok: true }> {
     await this.me.removePushToken(dto.token);
     return { ok: true };
+  }
+
+  /** Edit own name / email / mobile. */
+  @Patch('me') @HttpCode(200)
+  async updateProfile(@Auth() ctx: AuthContext, @Body() dto: UpdateProfileDto): Promise<Me> {
+    const me = await this.me.updateProfile(ctx, dto);
+    await this.audit.record(ctx, { action: 'UPDATE', entity: 'user', entityId: ctx.userId, details: { profile: Object.keys(dto) } });
+    return me;
+  }
+
+  /** Change own password; other signed-in devices are signed out. */
+  @Post('me/password') @HttpCode(200)
+  async changePassword(@Auth() ctx: AuthContext, @Body() dto: ChangePasswordDto): Promise<{ ok: true; signedOutOthers: number }> {
+    await this.me.changePassword(ctx, dto.currentPassword, dto.newPassword);
+    const signedOutOthers = await this.tokens.revokeOthers(ctx.userId, ctx.sessionId);
+    await this.audit.record(ctx, { action: 'UPDATE', entity: 'user', entityId: ctx.userId, details: { passwordChanged: true, signedOutOthers } });
+    return { ok: true, signedOutOthers };
   }
 
   @SkipThrottle() @Patch('me/preferences')

@@ -361,7 +361,7 @@ export function MasterPage<T>({
 
   return (
     // Fills the viewport: header and toolbar stay put, rows scroll inside the card, pagination is always visible.
-    <div className="mx-auto flex h-full min-h-[560px] w-full max-w-[1400px] flex-col gap-4 p-4 sm:p-6">
+    <div className="flex h-full min-h-[560px] w-full flex-col gap-4 p-4 sm:p-6">
       <PageHeader
         title={title}
         description={description}

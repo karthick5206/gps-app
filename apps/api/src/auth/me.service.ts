@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Me, ThemePreference } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { asRecord } from '../common/dto';
+import { hashPassword, verifyPassword } from '../common/secrets';
 import { toCompanySummary } from '../common/company-summary';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -49,5 +50,25 @@ export class MeService {
 
   async removePushToken(token: string): Promise<void> {
     await this.prisma.pushToken.deleteMany({ where: { token } });
+  }
+
+  async updateProfile(ctx: AuthContext, dto: { name?: string; email?: string | null; mobile?: string | null }): Promise<Me> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: ctx.userId }, select: { email: true, mobile: true } });
+    const email = dto.email === undefined ? user.email : dto.email?.trim().toLowerCase() || null;
+    const mobile = dto.mobile === undefined ? user.mobile : dto.mobile?.trim() || null;
+    if (!email && !mobile) throw new BadRequestException('Keep an email or a mobile number to sign in with');
+    await this.prisma.user.update({
+      where: { id: ctx.userId },
+      data: { name: dto.name?.trim(), ...(dto.email !== undefined ? { email } : {}), ...(dto.mobile !== undefined ? { mobile } : {}) },
+    });
+    return this.build(ctx);
+  }
+
+  async changePassword(ctx: AuthContext, currentPassword: string | undefined, newPassword: string): Promise<void> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: ctx.userId }, select: { passwordHash: true } });
+    if (user.passwordHash && !(currentPassword && (await verifyPassword(currentPassword, user.passwordHash)))) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    await this.prisma.user.update({ where: { id: ctx.userId }, data: { passwordHash: await hashPassword(newPassword) } });
   }
 }

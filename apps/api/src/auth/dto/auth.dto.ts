@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, Length, Matches, MaxLength, ValidateIf } from 'class-validator';
 import { ThemePreference } from '@veetracer/shared';
 import { MOBILE_MESSAGE, MOBILE_PATTERN, PASSWORD_MESSAGE, PASSWORD_PATTERN } from '../../common/secrets';
 
@@ -38,6 +38,19 @@ export class PushTokenDto {
 
 export class RemovePushTokenDto {
   @IsString() @MaxLength(200) token!: string;
+}
+
+/** Own profile. Absent = unchanged; null clears the email / mobile (at least one sign-in method must remain). */
+export class UpdateProfileDto {
+  @IsOptional() @IsString() @Length(1, 100) name?: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsEmail() @MaxLength(254) email?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @Matches(MOBILE_PATTERN, { message: MOBILE_MESSAGE }) mobile?: string | null;
+}
+
+export class ChangePasswordDto {
+  /** Required when the account already has a password (OTP-only accounts may set a first one). */
+  @IsOptional() @IsString() @MaxLength(128) currentPassword?: string;
+  @Matches(PASSWORD_PATTERN, { message: PASSWORD_MESSAGE }) newPassword!: string;
 }
 
 export class PreferencesDto {
