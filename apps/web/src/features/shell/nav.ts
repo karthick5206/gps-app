@@ -1,13 +1,20 @@
 import { MENUS, type MenuDef, type MenuGroup, type MenuKey, type PermissionMap } from '@veetracer/shared';
 import {
+  BellIcon,
+  BellRingIcon,
   BoxesIcon,
   Building2Icon,
+  CalendarClockIcon,
   CpuIcon,
+  FileBarChartIcon,
   GaugeIcon,
   HardDriveIcon,
+  HexagonIcon,
+  HistoryIcon,
   LayersIcon,
   ListTreeIcon,
   MapIcon,
+  MessageSquareTextIcon,
   RadarIcon,
   ScrollTextIcon,
   SettingsIcon,
@@ -34,16 +41,24 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   sa_device_models: BoxesIcon,
   sa_device_inventory: HardDriveIcon,
   sa_unknown_devices: RadarIcon,
+  history: HistoryIcon,
+  alerts: BellIcon,
+  reports: FileBarChartIcon,
+  geofences: HexagonIcon,
+  alert_settings: BellRingIcon,
+  message_templates: MessageSquareTextIcon,
+  report_schedules: CalendarClockIcon,
 };
 
 export const GROUP_LABELS: Record<MenuGroup, string> = {
   main: 'Main',
   masters: 'Masters',
+  alerting: 'Alert Management',
   admin: 'Administration',
   platform: 'Platform',
 };
 
-const GROUP_ORDER: MenuGroup[] = ['main', 'masters', 'admin', 'platform'];
+const GROUP_ORDER: MenuGroup[] = ['main', 'masters', 'alerting', 'admin', 'platform'];
 
 export interface NavGroup {
   group: MenuGroup;
