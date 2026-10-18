@@ -67,7 +67,7 @@ export const FleetMap = forwardRef<
       const b = boundsOf(list);
       if (!b) return;
       if (b[0] === b[2] && b[1] === b[3]) camera.current?.easeTo({ center: [b[0], b[1]], zoom: 14, duration: animate ? 600 : 0 });
-      else camera.current?.fitBounds(b, { padding: { top: 140, bottom: 220, left: 50, right: 50 }, duration: animate ? 600 : 0 });
+      else camera.current?.fitBounds(b, { padding: { top: 90, bottom: 380, left: 50, right: 50 }, duration: animate ? 600 : 0 });
     },
     focus(o, zoom = 15) {
       if (o.lat === null || o.lng === null) return;
