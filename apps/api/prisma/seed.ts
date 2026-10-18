@@ -24,6 +24,46 @@ const GT06_COMMANDS = [
   { key: 'engine_stop', label: 'Stop engine' },
   { key: 'engine_resume', label: 'Resume engine' },
 ];
+const EXT_VOLTAGE_FIELD = { key: 'extVoltage', label: 'External voltage', unit: 'V', type: 'number' };
+
+/** Customer device catalogue (docs/HANDOFF.md §4.1): capabilities drive alerts, map fields and commands. */
+interface ModelProfile {
+  capabilities: string[];
+  fields: Record<string, unknown>[];
+  commands: Record<string, unknown>[];
+}
+const PROFILES: Record<string, ModelProfile> = {
+  GT06: { capabilities: GT06_CAPABILITIES, fields: GT06_FIELDS, commands: GT06_COMMANDS },
+  // GT800 (2G) / V5 (4G) / VL149 (4G): GT06 family plus external voltage (0x23 / 0x94) and harsh-event alarms.
+  GT06_EXT: {
+    capabilities: [...GT06_CAPABILITIES, 'harsh_events'],
+    fields: [...GT06_FIELDS, EXT_VOLTAGE_FIELD],
+    commands: GT06_COMMANDS,
+  },
+  TELTONIKA: {
+    capabilities: ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'harsh_events', 'crash', 'rfid', 'temperature'],
+    fields: [
+      { key: 'extVoltage', label: 'External voltage', unit: 'V', type: 'number' },
+      { key: 'batteryVoltage', label: 'Battery voltage', unit: 'V', type: 'number' },
+      { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' },
+      { key: 'gsmSignal', label: 'GSM signal', type: 'number' },
+      { key: 'odometerM', label: 'Odometer', unit: 'm', type: 'number' },
+      { key: 'driverId', label: 'Driver (iButton/RFID)', type: 'string' },
+      { key: 'temp1', label: 'Temperature 1', unit: '°C', type: 'number' },
+    ],
+    commands: [
+      { key: 'engine_stop', label: 'Stop engine (DOUT1 on)' },
+      { key: 'engine_resume', label: 'Resume engine (DOUT1 off)' },
+    ],
+  },
+  // iTriangle TS101 (AIS-140): decoder pending the vendor protocol document (HANDOFF §4.1 item 4).
+  AIS140: {
+    capabilities: ['ignition', 'sos', 'power_cut', 'battery', 'tamper'],
+    fields: [EXT_VOLTAGE_FIELD, { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }, { key: 'gsmSignal', label: 'GSM signal', type: 'number' }],
+    commands: [],
+  },
+  PHONE: { capabilities: ['battery'], fields: [{ key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }], commands: [] },
+};
 
 const LOOKUPS: Record<string, string[]> = {
   VEHICLE_TYPE: [...VEHICLE_TYPES],
@@ -102,19 +142,21 @@ async function main() {
   });
 
   const models = new Map<string, string>();
-  for (const [brand, model, protocol] of [
-    ['Concox', 'GT06N', 'GT06'],
-    ['Concox', 'WeTrack2', 'GT06'],
-    ['Concox', 'AT4', 'GT06'],
-    ['Generic', 'Phone', 'PHONE'],
+  for (const [brand, model, protocol, profile] of [
+    ['Concox', 'GT06N', 'GT06', 'GT06'],
+    ['Concox', 'WeTrack2', 'GT06', 'GT06'],
+    ['Concox', 'AT4', 'GT06', 'GT06'],
+    ['Concox', 'GT800', 'GT06', 'GT06_EXT'],
+    ['Concox', 'V5', 'GT06', 'GT06_EXT'],
+    ['Concox', 'VL149', 'GT06', 'GT06_EXT'],
+    ['Teltonika', 'FMB920', 'TELTONIKA', 'TELTONIKA'],
+    ['Teltonika', 'FMB120', 'TELTONIKA', 'TELTONIKA'],
+    ['Teltonika', 'FMC130', 'TELTONIKA', 'TELTONIKA'],
+    ['iTriangle', 'TS101', 'AIS140', 'AIS140'],
+    ['Generic', 'Phone', 'PHONE', 'PHONE'],
   ]) {
-    const isGt06 = protocol === 'GT06';
-    const data = {
-      protocol,
-      capabilities: isGt06 ? GT06_CAPABILITIES : ['battery'],
-      fields: isGt06 ? GT06_FIELDS : [{ key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }],
-      commands: isGt06 ? GT06_COMMANDS : [],
-    };
+    const p = PROFILES[profile];
+    const data = { protocol, capabilities: p.capabilities, fields: p.fields as object[], commands: p.commands as object[] };
     const row = await prisma.deviceModel.upsert({
       where: { brand_model: { brand, model } },
       update: data,

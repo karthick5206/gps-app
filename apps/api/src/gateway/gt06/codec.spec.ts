@@ -135,8 +135,8 @@ describe('GT06 round trips', () => {
   });
 
   it('unknown protocols decode as unknown', () => {
-    const frame = only(decodeFrames(encodeAck(0x8a, 3)).frames);
-    expect(decodeMessage(frame)).toMatchObject({ type: 'unknown', protocol: 0x8a, serial: 3 });
+    const frame = only(decodeFrames(encodeAck(0x99, 3)).frames);
+    expect(decodeMessage(frame)).toMatchObject({ type: 'unknown', protocol: 0x99, serial: 3 });
   });
 });
 
@@ -195,13 +195,13 @@ describe('decodeFrames stream handling', () => {
   });
 
   it('supports 79 79 long frames', () => {
-    const long = Buffer.from(encodeAck(0x94, 5));
+    const long = Buffer.from(encodeAck(0x99, 5));
     const frame = Buffer.alloc(long.length + 1);
     frame[0] = frame[1] = 0x79;
     frame.writeUInt16BE(5, 2);
     long.copy(frame, 4, 3);
     frame.writeUInt16BE(crcItu(frame, 2, frame.length - 4), frame.length - 4);
     const msg = decodeMessage(only(decodeFrames(frame).frames));
-    expect(msg).toMatchObject({ type: 'unknown', protocol: 0x94, serial: 5 });
+    expect(msg).toMatchObject({ type: 'unknown', protocol: 0x99, serial: 5 });
   });
 });

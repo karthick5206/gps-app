@@ -26,7 +26,7 @@ export const ATTR = {
   batteryLevel: 'batteryLevel', // %
   batteryVoltage: 'batteryVoltage', // V (internal backup battery)
   extVoltage: 'extVoltage', // V (vehicle supply)
-  gsmSignal: 'gsmSignal', // 0..5
+  gsmSignal: 'gsmSignal', // 0..4 (web labels: No signal, Weak, Fair, Good, Excellent)
   charging: 'charging',
   alarm: 'alarm',
   odometerM: 'odometerM',
@@ -45,16 +45,16 @@ export const ATTR = {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
-/** GSM signal on the normalised 0..5 scale from a 0..4 level (GT06). */
-export function gsmFromLevel4(level: number): number {
-  return Math.round((clamp(level, 0, 4) * 5) / 4);
+/** GSM signal on the normalised 0..4 scale from a 0..5 level (Teltonika IO 21). GT06 already reports 0..4. */
+export function gsmFromLevel5(level: number): number {
+  return Math.round((clamp(level, 0, 5) * 4) / 5);
 }
 
-/** GSM signal on the normalised 0..5 scale from a modem CSQ value (0..31, 99 = unknown). */
+/** GSM signal on the normalised 0..4 scale from a modem CSQ value (0..31, 99 = unknown). */
 export function gsmFromCsq(csq: number): number | null {
   if (!Number.isFinite(csq) || csq < 0 || csq === 99 || csq > 31) return null;
   if (csq === 0) return 0;
-  return clamp(Math.round((csq * 5) / 31), 1, 5);
+  return clamp(Math.round((csq * 4) / 31), 1, 4);
 }
 
 /** Drop null/undefined/NaN values so stored attribute JSON stays small. */

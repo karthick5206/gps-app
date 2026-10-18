@@ -65,10 +65,32 @@ Notes:
 
 ### 4.1 Device parsers — IN PROGRESS (branch `wip/device-parsers`)
 Customer devices now: **Concox GT800, Concox V5, Concox VL149 (4G), Teltonika, iTriangle**.
-Done on the branch: `apps/api/src/gateway/protocol.ts` (decoder interface), `attributes.ts` (normalised attribute names),
-`unparsed-log.ts` (rate-limited raw logging of packets we can't parse). Nothing is wired in yet; `main` still has the M1 GT06 gateway.
 
-To do (all in `apps/api/src/gateway/**` and `src/simulator/**`):
+**Status (18 Oct 2026):**
+
+Done and tested (174 api tests). The work is on the branch and deployed to the test server.
+- **Multi-protocol gateway:** `gateway/tcp-server.ts` provides one generic listener per decoder. `gateway/main.ts` runs GT06 on 5023 and Teltonika on 5027.
+- **GT06 family:** extensions in `gateway/gt06/codec.ts` and `decoder.ts`:
+  - 2-byte MNC
+  - 0x10/0x12/0x22, 0xA0 4G
+  - 0x13/0x23 heartbeats, 0x16/0x26/0x27/0xA4 alarms
+  - 0x8A time reply, 0x94 voltage/ICCID
+  - 0x15/0x21 command responses, LBS/Wi-Fi recognised
+  - Login time zone, with per-connection detection of a local vs UTC device clock
+- **Teltonika:** `gateway/teltonika/*`. Codec 8/8E/16, CRC-16/IBM and the IO mapping are verified against Teltonika's public sample packets.
+- **Offline sweeper:** a parked device that only sends heartbeats stays online, because it still holds its `vt:conn` key.
+- **Simulator:** `--protocol gt06|gt06-4g|teltonika` and `--tz`.
+- **Seed:** device models GT800/V5/VL149, FMB920/FMB120/FMC130 and TS101.
+- **Docs:** `docs/devices/DEVICE_SETUP.md`.
+- **Real-device capture:** `GATEWAY_CAPTURE=<imeis>` writes raw frames to `var/logs/capture-<protocol>.log`.
+
+Still open:
+- Item 4, AIS-140: waiting for iTriangle's document.
+- Real-device fixtures from the capture logs: V5 359647091912738, plus 867440069681286 and 352503093516521.
+- Command downlink (`encodeCommand` and Codec 12 exist; nothing sends them yet).
+- Teltonika UDP.
+
+Original plan (kept for reference):
 1. **Multi-protocol gateway**: one TCP listener per protocol — `GT06_PORT` 5023, `TELTONIKA_PORT` 5027, `AIS140_PORT` 5030 — sharing
    the existing pipeline (XADD `vt:positions`, raw hex, connection registry, unknown devices, idle timeout, frame-size guards).
 2. **Concox GT06 family extensions** for GT800/V5/VL149: 0x01 login variants, 0x10/0x11, 0x12/0x22, 0x13, 0x23 heartbeat, 0x16/0x26/0x27
