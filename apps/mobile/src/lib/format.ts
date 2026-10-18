@@ -1,4 +1,5 @@
-/** Pure formatting helpers (no imports so they can be unit-tested with node --test). */
+/** Formatting helpers. Words go through i18n; units (s, min, h, d) stay as they are. */
+import { i18n } from '@/lib/i18n';
 
 const MINUTE = 60;
 const HOUR = 3600;
@@ -34,8 +35,8 @@ export function relativeTime(iso: string | null, now: number = Date.now()): stri
   if (Number.isNaN(t)) return '—';
   const diff = Math.round((now - t) / 1000);
   // Small negative values come from clock skew between server and browser.
-  if (diff < 5) return 'just now';
-  return `${formatDuration(diff).replace(/ \d+ (min|h)$/, '')} ago`;
+  if (diff < 5) return i18n.t('just now');
+  return i18n.t('{{d}} ago', { d: formatDuration(diff).replace(/ \d+ (min|h)$/, '') });
 }
 
 export function formatDateTime(iso: string | null | undefined): string {

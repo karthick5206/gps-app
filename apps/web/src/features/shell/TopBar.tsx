@@ -1,5 +1,6 @@
 import { MENUS } from '@veetracer/shared';
 import { MenuIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -9,6 +10,8 @@ import { useRealtimeStatus } from '@/features/live/use-live';
 import type { RealtimeStatus } from '@/features/live/realtime';
 import { cn } from '@/lib/utils';
 import { CompanySwitcher } from './CompanySwitcher';
+import { DisplayToggle } from './DisplayToggle';
+import { LanguageToggle } from './LanguageToggle';
 import { ThemeToggle } from './ThemeToggle';
 import { UserMenu } from './UserMenu';
 
@@ -20,12 +23,13 @@ const REALTIME_LABEL: Record<RealtimeStatus, string> = {
 };
 
 function RealtimeIndicator() {
+  const { t } = useTranslation();
   const status = useRealtimeStatus();
   const { can } = useAuth();
   if (!can('live_map') && !can('dashboard')) return null;
   return (
-    <Tooltip content={REALTIME_LABEL[status]}>
-      <span className="flex size-9 items-center justify-center" role="status" aria-label={REALTIME_LABEL[status]}>
+    <Tooltip content={t(REALTIME_LABEL[status])}>
+      <span className="flex size-9 items-center justify-center" role="status" aria-label={t(REALTIME_LABEL[status])}>
         <span
           className={cn(
             'size-2.5 rounded-full',
@@ -41,6 +45,7 @@ function RealtimeIndicator() {
 }
 
 export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
+  const { t } = useTranslation();
   const me = useMe();
   const { can } = useAuth();
   const { pathname } = useLocation();
@@ -49,7 +54,7 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-card/80 px-3 backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:px-4">
-      <Button variant="ghost" size="icon" className="lg:hidden" onClick={onOpenMobileNav} aria-label="Open navigation">
+      <Button variant="ghost" size="icon" className="lg:hidden" onClick={onOpenMobileNav} aria-label={t('Open navigation')}>
         <MenuIcon />
       </Button>
       <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -61,12 +66,14 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
         {current && (
           <>
             <span className="hidden text-muted-foreground/50 md:block">/</span>
-            <span className="hidden truncate text-sm font-medium md:block">{current.label}</span>
+            <span className="hidden truncate text-sm font-medium md:block">{t(current.label)}</span>
           </>
         )}
       </div>
       <RealtimeIndicator />
       {can('alerts') && <AlertBell />}
+      <LanguageToggle />
+      <DisplayToggle />
       <ThemeToggle />
       <UserMenu />
     </header>

@@ -1,5 +1,6 @@
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { computeTotals, type ReportColumn, type Row } from './report-columns';
@@ -17,6 +18,7 @@ function compare(a: string | number | null, b: string | number | null): number {
 
 /** Client-side sortable results table with sticky header and totals row. */
 export function ReportTable({ columns, rows, totals: apiTotals, className }: { columns: ReportColumn[]; rows: Row[]; totals?: Record<string, number>; className?: string }) {
+  const { t } = useTranslation();
   const [sort, setSort] = useState<{ id: string; desc: boolean } | null>(null);
   const [limit, setLimit] = useState(PAGE);
 
@@ -60,7 +62,7 @@ export function ReportTable({ columns, rows, totals: apiTotals, className }: { c
                       onClick={() => toggle(c.id)}
                       className={cn('-mx-1 inline-flex items-center gap-1 rounded px-1 uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none', c.numeric && 'flex-row-reverse')}
                     >
-                      {c.header}
+                      {t(c.header)}
                       {active ? sort!.desc ? <ArrowDownIcon className="size-3.5" /> : <ArrowUpIcon className="size-3.5" /> : <ArrowUpDownIcon className="size-3.5 opacity-40" />}
                     </button>
                   </th>
@@ -89,7 +91,7 @@ export function ReportTable({ columns, rows, totals: apiTotals, className }: { c
                   const v = totals[c.id];
                   return (
                     <td key={c.id} className={cn('border-t-2 bg-muted px-3 py-2 font-semibold whitespace-nowrap', c.numeric && 'text-right tabular-nums')}>
-                      {i === 0 ? 'Total' : v === undefined ? '' : c.format ? c.format(v) : v.toLocaleString()}
+                      {i === 0 ? t('Total') : v === undefined ? '' : c.format ? c.format(v) : v.toLocaleString()}
                     </td>
                   );
                 })}
@@ -100,9 +102,9 @@ export function ReportTable({ columns, rows, totals: apiTotals, className }: { c
       </div>
       {sorted.length > limit && (
         <div className="flex items-center justify-center gap-3 border-t p-2 text-sm text-muted-foreground">
-          Showing {limit.toLocaleString()} of {sorted.length.toLocaleString()} rows
+          {t('Showing {{shown}} of {{total}} rows', { shown: limit.toLocaleString(), total: sorted.length.toLocaleString() })}
           <Button size="sm" variant="outline" onClick={() => setLimit((l) => l + PAGE * 5)}>
-            Show more
+            {t('Show more')}
           </Button>
         </div>
       )}

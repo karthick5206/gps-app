@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { AlertDto, Paginated } from '@veetracer/shared';
 import { BellIcon, HexagonIcon, LayersIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -48,6 +49,7 @@ function ToggleRow({ icon: Icon, label, hint, checked, onChange }: { icon: typeo
  * (`?focus=<objectId>` selects and zooms to a vehicle, `?geofence=<id>` frames a geofence).
  */
 export function LiveMapOverlays({ controller, onFocusObject, className }: { controller: MapController | null; onFocusObject: (objectId: string) => void; className?: string }) {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -143,14 +145,14 @@ export function LiveMapOverlays({ controller, onFocusObject, className }: { cont
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn('gap-1.5 bg-card shadow-md', className)} aria-label="Map layers">
-          <LayersIcon /> <span className="hidden sm:inline">Layers</span>
+        <Button variant="outline" size="sm" className={cn('gap-1.5 bg-card shadow-md', className)} aria-label={t('Map layers')}>
+          <LayersIcon /> <span className="hidden sm:inline">{t('Layers')}</span>
           {activeCount > 0 && <span className="rounded bg-primary/12 px-1 text-[11px] font-semibold text-primary tabular-nums">{activeCount}</span>}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-1.5">
-        {can('geofences') && <ToggleRow icon={HexagonIcon} label="Geofences" hint="Zones with name labels" checked={prefs.geofences} onChange={(v) => update({ geofences: v })} />}
-        {can('alerts') && <ToggleRow icon={BellIcon} label="Alert markers" hint="Alerts of the last 24 hours" checked={prefs.alerts} onChange={(v) => update({ alerts: v })} />}
+        {can('geofences') && <ToggleRow icon={HexagonIcon} label={t('Geofences')} hint={t('Zones with name labels')} checked={prefs.geofences} onChange={(v) => update({ geofences: v })} />}
+        {can('alerts') && <ToggleRow icon={BellIcon} label={t('Alert markers')} hint={t('Alerts of the last 24 hours')} checked={prefs.alerts} onChange={(v) => update({ alerts: v })} />}
       </PopoverContent>
     </Popover>
   );

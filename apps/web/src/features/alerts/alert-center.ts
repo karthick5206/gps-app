@@ -1,6 +1,7 @@
 import { ALERT_TYPE_MAP, type AlertDto, type Paginated } from '@veetracer/shared';
 import { realtime } from '@/features/live/realtime';
 import { api } from '@/lib/api';
+import { i18n } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { bindAudioUnlock, playAlertSound } from './sound';
 
@@ -25,7 +26,8 @@ type Listener = () => void;
 type AlertListener = (a: AlertDto) => void;
 
 export function alertTitle(a: Pick<AlertDto, 'type'>): string {
-  return ALERT_TYPE_MAP[a.type]?.label ?? a.type;
+  const label = ALERT_TYPE_MAP[a.type]?.label;
+  return label ? i18n.t(label) : a.type;
 }
 
 /**

@@ -3,6 +3,20 @@ import type { DataScope, MenuKey, Action, PermissionMap } from './permissions';
 import type { ObjectType, VehicleType, StatusThresholds } from './tracking';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
+/** UI languages. */
+export const LANGUAGES = [
+  { code: 'en', label: 'English', native: 'English', locale: 'en-IN' },
+  { code: 'hi', label: 'Hindi', native: 'हिन्दी', locale: 'hi-IN' },
+  { code: 'ta', label: 'Tamil', native: 'தமிழ்', locale: 'ta-IN' },
+] as const;
+export type LanguageCode = (typeof LANGUAGES)[number]['code'];
+export const LANGUAGE_CODES = LANGUAGES.map((l) => l.code) as LanguageCode[];
+
+/** Readability settings (profile): text / UI scale and map vehicle-icon size. */
+export const DISPLAY_SIZES = ['normal', 'large', 'xlarge'] as const;
+export type DisplaySize = (typeof DISPLAY_SIZES)[number];
+export const TEXT_SCALE: Record<DisplaySize, number> = { normal: 1, large: 1.125, xlarge: 1.25 };
+export const MAP_ICON_SCALE: Record<DisplaySize, number> = { normal: 1, large: 1.3, xlarge: 1.6 };
 
 export interface Paginated<T> {
   items: T[];
@@ -44,7 +58,8 @@ export interface Me {
     email: string | null;
     mobile: string | null;
     isSuperAdmin: boolean;
-    preferences: { theme: ThemePreference };
+    /** language null = not chosen yet (apps follow the device / browser language). */
+    preferences: { theme: ThemePreference; language: LanguageCode | null; textSize: DisplaySize; mapIconSize: DisplaySize };
   };
   /** Company the user acts in. For the Super Admin: the company selected via X-Company-Id, else the platform company. */
   company: CompanySummary;

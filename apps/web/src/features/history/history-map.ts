@@ -1,4 +1,5 @@
 import { STATUS_META, TRACK_STATUS_CODES, type AlertDto, type StopDto } from '@veetracer/shared';
+import { displayStore } from '@/features/display/display-store';
 import maplibregl, { type ExpressionSpecification, type GeoJSONSource, type Map as MlMap, type StyleSpecification } from 'maplibre-gl';
 import { ARROW_IMAGE, LABEL_FONT, createArrowImage, cssToken, styleUrl } from '@/features/live/map/map-style';
 import type { ResolvedTheme } from '@/features/theme/theme-store';
@@ -164,15 +165,15 @@ export class HistoryMap {
     map.addLayer({ id: LYR.ends, type: 'circle', source: SRC.marks, filter: ['==', ['get', 'kind'], 'end'], paint: { 'circle-radius': 11, 'circle-stroke-width': 2.5 } });
     map.addLayer({ id: LYR.endsText, type: 'symbol', source: SRC.marks, filter: ['==', ['get', 'kind'], 'end'], layout: { ...markText, 'text-size': 12, 'text-field': ['get', 'label'] }, paint: { 'text-color': '#ffffff' } });
 
-    map.addLayer({ id: LYR.cursorHalo, type: 'circle', source: SRC.cursor, paint: { 'circle-radius': 22, 'circle-opacity': 0.18 } });
-    map.addLayer({ id: LYR.cursor, type: 'circle', source: SRC.cursor, paint: { 'circle-radius': 12, 'circle-stroke-width': 2.5 } });
+    map.addLayer({ id: LYR.cursorHalo, type: 'circle', source: SRC.cursor, paint: { 'circle-radius': 22 * displayStore.iconScale(), 'circle-opacity': 0.18 } });
+    map.addLayer({ id: LYR.cursor, type: 'circle', source: SRC.cursor, paint: { 'circle-radius': 12 * displayStore.iconScale(), 'circle-stroke-width': 2.5 } });
     map.addLayer({
       id: LYR.cursorArrow,
       type: 'symbol',
       source: SRC.cursor,
       layout: {
         'icon-image': ARROW_IMAGE,
-        'icon-size': 0.62,
+        'icon-size': 0.75 * displayStore.iconScale(),
         'icon-rotate': ['get', 'bearing'],
         'icon-rotation-alignment': 'map',
         'icon-allow-overlap': true,

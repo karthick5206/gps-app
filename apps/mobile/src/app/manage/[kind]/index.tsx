@@ -3,6 +3,7 @@ import type { Paginated } from '@veetracer/shared';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { ChevronRightIcon, DatabaseIcon, PlusIcon } from 'lucide-react-native';
 import { useDeferredValue, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { Card, EmptyState, ErrorBanner, SearchInput, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
@@ -15,6 +16,7 @@ const PAGE_SIZE = 30;
 export default function ManageListScreen() {
   const { kind } = useLocalSearchParams<{ kind: string }>();
   const c = useColors();
+  const { t } = useTranslation();
   const { can } = useAuth();
   const [q, setQ] = useState('');
   const search = useDeferredValue(q.trim());
@@ -27,7 +29,7 @@ export default function ManageListScreen() {
     getNextPageParam: (last) => (last.page * last.pageSize < last.total ? last.page + 1 : undefined),
     enabled: !!def,
   });
-  if (!def || !isKind(kind)) return <EmptyState icon={DatabaseIcon} title="Unknown list" />;
+  if (!def || !isKind(kind)) return <EmptyState icon={DatabaseIcon} title={t('Unknown list')} />;
   const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
   const total = list.data?.pages[0]?.total ?? 0;
   const canCreate = can(def.menu, 'create');
@@ -39,19 +41,19 @@ export default function ManageListScreen() {
     <>
       <Stack.Screen
         options={{
-          title: def.title,
+          title: t(def.title),
           headerRight: () =>
             canCreate ? (
-              <Pressable onPress={() => router.push(`/manage/${kind}/new`)} hitSlop={10} accessibilityLabel={`Add ${def.singular}`} style={{ paddingHorizontal: SPACE.sm }}>
+              <Pressable onPress={() => router.push(`/manage/${kind}/new`)} hitSlop={10} accessibilityLabel={t(def.addLabel)} style={{ paddingHorizontal: SPACE.sm }}>
                 <PlusIcon size={24} color={c.primary} />
               </Pressable>
             ) : null,
         }}
       />
       <View style={{ padding: SPACE.lg, paddingBottom: SPACE.sm, gap: SPACE.sm }}>
-        <SearchInput value={q} onChangeText={setQ} placeholder={def.search} />
+        <SearchInput value={q} onChangeText={setQ} placeholder={t(def.search)} />
         <Text size="sm" tone="muted">
-          {total.toLocaleString()} {total === 1 ? def.singular : def.title.toLowerCase()}
+          {total === 1 ? t(def.countOne) : t(def.countMany, { n: total.toLocaleString() })}
         </Text>
       </View>
       {list.isError && (
@@ -83,7 +85,7 @@ export default function ManageListScreen() {
         )}
         ListFooterComponent={list.isFetchingNextPage ? <ActivityIndicator style={{ margin: SPACE.lg }} /> : undefined}
         ListEmptyComponent={
-          list.isPending ? <ActivityIndicator style={{ margin: SPACE.xl }} /> : <EmptyState icon={DatabaseIcon} title={`No ${def.title.toLowerCase()}`} description={canCreate ? 'Tap + to add one.' : undefined} />
+          list.isPending ? <ActivityIndicator style={{ margin: SPACE.xl }} /> : <EmptyState icon={DatabaseIcon} title={t(def.emptyTitle)} description={canCreate ? t('Tap + to add one.') : undefined} />
         }
       />
     </>

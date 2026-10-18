@@ -109,15 +109,19 @@ export function levelLabel(level: Source): string {
   return LEVEL_LABEL[level];
 }
 
+/** Translator for UI text; the default fills `{{vars}}` into the English key (keeps this file import-free for tests). */
+export type Translate = (key: string, vars?: Record<string, string>) => string;
+const plain: Translate = (key, vars) => key.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars?.[k] ?? '');
+
 /**
  * Badge text for a field shown at `viewLevel`: "Set here", "Default", "Inherited from Company",
  * "Inherited from Branch: Chennai".
  */
-export function sourceText(src: SourceRef | undefined, viewLevel: AlertLevel): string {
-  if (!src || src.level === 'DEFAULT') return 'Default';
-  if (src.level === viewLevel) return 'Set here';
-  const label = LEVEL_LABEL[src.level];
-  return src.name ? `Inherited from ${label}: ${src.name}` : `Inherited from ${label}`;
+export function sourceText(src: SourceRef | undefined, viewLevel: AlertLevel, t: Translate = plain): string {
+  if (!src || src.level === 'DEFAULT') return t('Default');
+  if (src.level === viewLevel) return t('Set here');
+  const label = t(LEVEL_LABEL[src.level]);
+  return src.name ? t('Inherited from {{level}}: {{name}}', { level: label, name: src.name }) : t('Inherited from {{level}}', { level: label });
 }
 
 export function isOverriddenHere(src: SourceRef | undefined, viewLevel: AlertLevel): boolean {

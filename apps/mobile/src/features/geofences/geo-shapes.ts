@@ -1,4 +1,5 @@
 import type { GeofenceGeometry, LatLng } from '@veetracer/shared';
+import { i18n } from '@/lib/i18n';
 
 const EARTH_M = 6_371_008.8;
 
@@ -38,5 +39,7 @@ export function geometryBounds(g: GeofenceGeometry): [number, number, number, nu
 }
 
 export function describeGeometry(g: GeofenceGeometry): string {
-  return g.type === 'CIRCLE' ? `Circle · ${g.radiusM >= 1000 ? `${(g.radiusM / 1000).toFixed(1)} km` : `${Math.round(g.radiusM)} m`}` : `Polygon · ${g.points.length} points`;
+  return g.type === 'CIRCLE'
+    ? i18n.t('Circle · {{size}}', { size: g.radiusM >= 1000 ? `${(g.radiusM / 1000).toFixed(1)} km` : `${Math.round(g.radiusM)} m` })
+    : i18n.t('Polygon · {{count}} points', { count: g.points.length });
 }

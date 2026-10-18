@@ -3,6 +3,7 @@ import type { GeofenceDto, Paginated } from '@veetracer/shared';
 import { router, Stack } from 'expo-router';
 import { ChevronRightIcon, HexagonIcon, PlusIcon } from 'lucide-react-native';
 import { useDeferredValue, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { Card, EmptyState, ErrorBanner, SearchInput, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
@@ -14,6 +15,7 @@ const MODE_LABEL = { NORMAL: 'Normal', NO_GO: 'No-go zone', KEEP_IN: 'Keep-in zo
 
 export default function GeofencesScreen() {
   const c = useColors();
+  const { t } = useTranslation();
   const { can } = useAuth();
   const [q, setQ] = useState('');
   const search = useDeferredValue(q.trim());
@@ -29,17 +31,17 @@ export default function GeofencesScreen() {
     <>
       <Stack.Screen
         options={{
-          title: 'Geofences',
+          title: t('Geofences'),
           headerRight: () =>
             canCreate ? (
-              <Pressable onPress={() => router.push('/geofences/new')} hitSlop={10} accessibilityLabel="Add geofence" style={{ paddingHorizontal: SPACE.sm }}>
+              <Pressable onPress={() => router.push('/geofences/new')} hitSlop={10} accessibilityLabel={t('Add geofence')} style={{ paddingHorizontal: SPACE.sm }}>
                 <PlusIcon size={24} color={c.primary} />
               </Pressable>
             ) : null,
         }}
       />
       <View style={{ padding: SPACE.lg, paddingBottom: SPACE.sm }}>
-        <SearchInput value={q} onChangeText={setQ} placeholder="Search geofences" />
+        <SearchInput value={q} onChangeText={setQ} placeholder={t('Search geofences')} />
       </View>
       {list.isError && (
         <View style={{ paddingHorizontal: SPACE.lg }}>
@@ -61,7 +63,7 @@ export default function GeofencesScreen() {
                   {g.name}
                 </Text>
                 <Text size="sm" tone="muted" numberOfLines={1}>
-                  {[describeGeometry(g.geometry), MODE_LABEL[g.mode], g.isActive ? null : 'Inactive'].filter(Boolean).join(' · ')}
+                  {[describeGeometry(g.geometry), t(MODE_LABEL[g.mode]), g.isActive ? null : t('Inactive')].filter(Boolean).join(' · ')}
                 </Text>
               </View>
               <ChevronRightIcon size={18} color={c.mutedForeground} />
@@ -69,7 +71,7 @@ export default function GeofencesScreen() {
           </Card>
         )}
         ListEmptyComponent={
-          list.isPending ? <ActivityIndicator style={{ margin: SPACE.xl }} /> : <EmptyState icon={HexagonIcon} title="No geofences" description={canCreate ? 'Tap + to draw one on the map.' : undefined} />
+          list.isPending ? <ActivityIndicator style={{ margin: SPACE.xl }} /> : <EmptyState icon={HexagonIcon} title={t('No geofences')} description={canCreate ? t('Tap + to draw one on the map.') : undefined} />
         }
       />
     </>

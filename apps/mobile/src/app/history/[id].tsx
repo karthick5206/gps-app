@@ -4,6 +4,7 @@ import { ALERT_TYPE_MAP, type HistoryResponse } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { PauseIcon, PlayIcon, RouteIcon, SkipBackIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SeekBar } from '@/components/SeekBar';
 import { Card, Chips, EmptyState, ErrorBanner, Text } from '@/components/ui';
@@ -12,6 +13,7 @@ import { formatClock, formatKm, trackStatus } from '@/features/history/history-f
 import { buildTrackIndex, PLAYBACK_RATES, type PlaybackRate, type Sample } from '@/features/history/playback-core';
 import { PlaybackEngine } from '@/features/history/playback-engine';
 import { presetRange, type RangePreset } from '@/features/history/time-range';
+import { useDisplay } from '@/features/display/display';
 import { liveStore } from '@/features/live/live-store';
 import { iconKind, iconName, rotates } from '@/features/map/vehicle-icons';
 import { VEHICLE_ICON_IMAGES } from '@/features/map/vehicle-icon-images';
@@ -40,11 +42,13 @@ export default function HistoryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const c = useColors();
   const scheme = useScheme();
+  const { t } = useTranslation();
   const vehicle = liveStore.get(id);
   const [preset, setPreset] = useState<Preset>('today');
   const [tab, setTab] = useState<Tab>('trips');
   const range = useMemo(() => presetRange(preset), [preset]);
   const camera = useRef<CameraRef>(null);
+  const { iconScale } = useDisplay();
 
   const history = useQuery({
     queryKey: ['history', id, range.from.toISOString(), range.to.toISOString()],
@@ -109,18 +113,18 @@ export default function HistoryScreen() {
     engine.setRate(PLAYBACK_RATES[(i + 1) % PLAYBACK_RATES.length] as PlaybackRate);
   };
 
-  const title = vehicle ? vehicle.plateNumber || vehicle.name : 'History';
+  const title = vehicle ? vehicle.plateNumber || vehicle.name : t('History');
   return (
     <View style={{ flex: 1 }}>
-      <Stack.Screen options={{ title: `History · ${title}` }} />
+      <Stack.Screen options={{ title: t('History · {{name}}', { name: title }) }} />
       <View style={{ padding: SPACE.md, paddingBottom: SPACE.sm }}>
         <Chips
           value={preset}
           onChange={setPreset}
           options={[
-            { value: 'today', label: 'Today' },
-            { value: 'yesterday', label: 'Yesterday' },
-            { value: 'last7', label: 'Last 7 days' },
+            { value: 'today', label: t('Today') },
+            { value: 'yesterday', label: t('Yesterday') },
+            { value: 'last7', label: t('Last 7 days') },
           ]}
         />
       </View>
@@ -141,7 +145,7 @@ export default function HistoryScreen() {
             />
           </GeoJSONSource>
           <GeoJSONSource id="cursor" data={marker}>
-            <Layer id="cursor-icon" type="symbol" layout={{ 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': 0.9 }} />
+            <Layer id="cursor-icon" type="symbol" layout={{ 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': 1.1 * iconScale }} />
           </GeoJSONSource>
         </Map>
         {history.isFetching && (
@@ -157,15 +161,15 @@ export default function HistoryScreen() {
         </View>
       )}
 
-      {h && !index && !history.isFetching && <EmptyState icon={RouteIcon} title="No movement data" description="Nothing was recorded for this vehicle in the selected period." />}
+      {h && !index && !history.isFetching && <EmptyState icon={RouteIcon} title={t('No movement data')} description={t('Nothing was recorded for this vehicle in the selected period.')} />}
 
       {h && index && engine && state && (
         <>
           <View style={[styles.player, { borderBottomColor: c.border, backgroundColor: c.card }]}>
-            <Pressable onPress={() => engine.seek(index.start)} hitSlop={8} accessibilityLabel="Back to start">
+            <Pressable onPress={() => engine.seek(index.start)} hitSlop={8} accessibilityLabel={t('Back to start')}>
               <SkipBackIcon size={20} color={c.foreground} />
             </Pressable>
-            <Pressable onPress={() => engine.toggle()} style={[styles.play, { backgroundColor: c.primary }]} accessibilityLabel={state.playing ? 'Pause' : 'Play'}>
+            <Pressable onPress={() => engine.toggle()} style={[styles.play, { backgroundColor: c.primary }]} accessibilityLabel={state.playing ? t('Pause') : t('Play')}>
               {state.playing ? <PauseIcon size={20} color={c.primaryForeground} /> : <PlayIcon size={20} color={c.primaryForeground} />}
             </Pressable>
             <View style={{ flex: 1 }}>
@@ -179,7 +183,7 @@ export default function HistoryScreen() {
                 </Text>
               </View>
             </View>
-            <Pressable onPress={cycleRate} style={[styles.rate, { borderColor: c.border }]} accessibilityLabel="Playback speed">
+            <Pressable onPress={cycleRate} style={[styles.rate, { borderColor: c.border }]} accessibilityLabel={t('Playback speed')}>
               <Text size="sm" weight="600">
                 {state.rate}×
               </Text>
@@ -188,16 +192,16 @@ export default function HistoryScreen() {
 
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: SPACE.md, gap: SPACE.md }}>
             <Card style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: SPACE.md, columnGap: SPACE.sm }}>
-              <SummaryStat label="Distance" value={formatKm(h.summary.distanceKm)} />
-              <SummaryStat label="Running" value={formatDuration(h.summary.runningSec)} />
-              <SummaryStat label="Idle" value={formatDuration(h.summary.idleSec)} />
-              <SummaryStat label="Stopped" value={formatDuration(h.summary.stopSec)} />
-              <SummaryStat label="Max speed" value={`${Math.round(h.summary.maxSpeedKph)} km/h`} />
-              <SummaryStat label="Avg speed" value={`${Math.round(h.summary.avgSpeedKph)} km/h`} />
+              <SummaryStat label={t('Distance')} value={formatKm(h.summary.distanceKm)} />
+              <SummaryStat label={t('Running')} value={formatDuration(h.summary.runningSec)} />
+              <SummaryStat label={t('Idle')} value={formatDuration(h.summary.idleSec)} />
+              <SummaryStat label={t('Stopped')} value={formatDuration(h.summary.stopSec)} />
+              <SummaryStat label={t('Max speed')} value={`${Math.round(h.summary.maxSpeedKph)} km/h`} />
+              <SummaryStat label={t('Avg speed')} value={`${Math.round(h.summary.avgSpeedKph)} km/h`} />
             </Card>
             {h.truncated && (
               <Text size="xs" tone="muted">
-                Long period: the track was simplified for display.
+                {t('Long period: the track was simplified for display.')}
               </Text>
             )}
 
@@ -205,27 +209,27 @@ export default function HistoryScreen() {
               value={tab}
               onChange={setTab}
               options={[
-                { value: 'trips', label: 'Trips', count: h.trips.length },
-                { value: 'stops', label: 'Stops', count: h.stops.length },
-                { value: 'alerts', label: 'Alerts', count: h.alerts.length },
+                { value: 'trips', label: t('Trips'), count: h.trips.length },
+                { value: 'stops', label: t('Stops'), count: h.stops.length },
+                { value: 'alerts', label: t('Alerts'), count: h.alerts.length },
               ]}
             />
 
             {tab === 'trips' &&
-              h.trips.map((t, i) => (
-                <Card key={t.id} onPress={() => engine.seek(Date.parse(t.startTime), { play: true, until: Date.parse(t.endTime) })}>
+              h.trips.map((trip, i) => (
+                <Card key={trip.id} onPress={() => engine.seek(Date.parse(trip.startTime), { play: true, until: Date.parse(trip.endTime) })}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text weight="600">Trip {i + 1}</Text>
+                    <Text weight="600">{t('Trip {{n}}', { n: i + 1 })}</Text>
                     <Text size="sm" weight="600">
-                      {formatKm(t.distanceKm)}
+                      {formatKm(trip.distanceKm)}
                     </Text>
                   </View>
                   <Text size="sm" tone="muted">
-                    {formatClock(Date.parse(t.startTime), preset === 'last7', false)} → {formatClock(Date.parse(t.endTime), false, false)} · {formatDuration(t.durationSec)} · max {Math.round(t.maxSpeedKph)} km/h
+                    {formatClock(Date.parse(trip.startTime), preset === 'last7', false)} → {formatClock(Date.parse(trip.endTime), false, false)} · {formatDuration(trip.durationSec)} · {t('max {{speed}} km/h', { speed: Math.round(trip.maxSpeedKph) })}
                   </Text>
-                  {(t.startAddress || t.endAddress) && (
+                  {(trip.startAddress || trip.endAddress) && (
                     <Text size="xs" tone="muted" numberOfLines={2}>
-                      {t.startAddress ?? '—'} → {t.endAddress ?? '—'}
+                      {trip.startAddress ?? '—'} → {trip.endAddress ?? '—'}
                     </Text>
                   )}
                 </Card>
@@ -243,7 +247,7 @@ export default function HistoryScreen() {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
                     <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: statusColor(s.ignitionOn ? 'IDLE' : 'OFF', scheme) }} />
                     <Text weight="600" style={{ flex: 1 }}>
-                      {s.ignitionOn ? 'Idle stop' : 'Parked'} · {formatDuration(s.durationSec)}
+                      {s.ignitionOn ? t('Idle stop') : t('Parked')} · {formatDuration(s.durationSec)}
                     </Text>
                     <Text size="sm" tone="muted">
                       {formatClock(Date.parse(s.startTime), preset === 'last7', false)}
@@ -268,7 +272,7 @@ export default function HistoryScreen() {
                     <View style={{ flexDirection: 'row', gap: SPACE.md, alignItems: 'center' }}>
                       <AlertTypeIcon type={a.type} severity={a.severity} size={30} />
                       <View style={{ flex: 1 }}>
-                        <Text weight="600">{ALERT_TYPE_MAP[a.type]?.label ?? a.type}</Text>
+                        <Text weight="600">{t(ALERT_TYPE_MAP[a.type]?.label ?? a.type)}</Text>
                         <Text size="xs" tone="muted" numberOfLines={1}>
                           {formatClock(Date.parse(a.occurredAt), preset === 'last7', false)} · {a.message}
                         </Text>

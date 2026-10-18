@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { Me, ThemePreference } from '@veetracer/shared';
+import { Prisma } from '@prisma/client';
+import { DISPLAY_SIZES, DisplaySize, LANGUAGE_CODES, LanguageCode, Me, ThemePreference } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { asRecord } from '../common/dto';
 import { hashPassword, verifyPassword } from '../common/secrets';
@@ -17,7 +18,8 @@ export class MeService {
       this.prisma.user.findUniqueOrThrow({ where: { id: ctx.userId } }),
       this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId } }),
     ]);
-    const theme = asRecord(user.preferences).theme;
+    const { theme, language, textSize, mapIconSize } = asRecord(user.preferences);
+    const size = (v: unknown): DisplaySize => (DISPLAY_SIZES.includes(v as DisplaySize) ? (v as DisplaySize) : 'normal');
     return {
       user: {
         id: user.id,
@@ -25,7 +27,12 @@ export class MeService {
         email: user.email,
         mobile: user.mobile,
         isSuperAdmin: user.isSuperAdmin,
-        preferences: { theme: THEMES.includes(theme as ThemePreference) ? (theme as ThemePreference) : 'system' },
+        preferences: {
+          theme: THEMES.includes(theme as ThemePreference) ? (theme as ThemePreference) : 'system',
+          language: LANGUAGE_CODES.includes(language as LanguageCode) ? (language as LanguageCode) : null,
+          textSize: size(textSize),
+          mapIconSize: size(mapIconSize),
+        },
       },
       company: toCompanySummary(company),
       permissions: ctx.permissions,
@@ -33,11 +40,12 @@ export class MeService {
     };
   }
 
-  async setTheme(ctx: AuthContext, theme: ThemePreference): Promise<Me> {
+  async setPreferences(ctx: AuthContext, prefs: { theme?: ThemePreference; language?: LanguageCode; textSize?: DisplaySize; mapIconSize?: DisplaySize }): Promise<Me> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: ctx.userId }, select: { preferences: true } });
     await this.prisma.user.update({
       where: { id: ctx.userId },
-      data: { preferences: { ...asRecord(user.preferences), theme } },
+      // Only the fields sent change; unknown keys in the stored JSON are kept.
+      data: { preferences: { ...asRecord(user.preferences), ...Object.fromEntries(Object.entries(prefs).filter(([, v]) => v !== undefined)) } as Prisma.InputJsonObject },
     });
     return this.build(ctx);
   }

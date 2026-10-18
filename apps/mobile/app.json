@@ -48,7 +48,8 @@
           "icon": "./assets/images/android-icon-monochrome.png",
           "color": "#0f766e"
         }
-      ]
+      ],
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -13,6 +13,7 @@ import {
 import { Stack } from 'expo-router';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, LockIcon, RotateCcwIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { SelectField, VehiclePicker } from '@/components/pickers';
 import { Button, Card, Chips, ErrorBanner, Text } from '@/components/ui';
@@ -48,17 +49,18 @@ interface Row {
 
 function ParamInput({ def, value, onChange }: { def: AlertTypeDef['params'][number]; value: string; onChange: (v: string) => void }) {
   const c = useColors();
+  const { t } = useTranslation();
   return (
     <View style={{ gap: 4, width: '48%' }}>
       <Text size="xs" tone="muted" numberOfLines={2}>
-        {def.label}
-        {def.unit ? ` (${def.unit})` : ''}
+        {t(def.label)}
+        {def.unit ? ` (${t(def.unit)})` : ''}
       </Text>
       <TextInput
         value={value}
         onChangeText={(v) => onChange(def.type === 'number' ? v.replace(/[^\d.]/g, '') : v)}
         keyboardType={def.type === 'number' ? 'decimal-pad' : 'numbers-and-punctuation'}
-        placeholder={def.type === 'time' ? 'HH:MM' : def.default === null ? 'Not set' : String(def.default)}
+        placeholder={def.type === 'time' ? 'HH:MM' : def.default === null ? t('Not set') : String(def.default)}
         placeholderTextColor={c.mutedForeground}
         style={[styles.input, { borderColor: c.border, color: c.foreground, backgroundColor: c.background }]}
       />
@@ -68,6 +70,7 @@ function ParamInput({ def, value, onChange }: { def: AlertTypeDef['params'][numb
 
 function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; level: Level; targetId: string; canEdit: boolean; onSaved: () => void }) {
   const c = useColors();
+  const { t } = useTranslation();
   const { def } = row;
   const [open, setOpen] = useState(false);
   const [severity, setSeverity] = useState<AlertSeverity>(row.severity);
@@ -80,7 +83,7 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
   const put = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.put<AlertSettingDto>('/alert-settings', { level, targetId, alertType: def.code, ...body }),
     onSuccess: onSaved,
-    onError: (err) => Alert.alert('Not saved', errorMessage(err)),
+    onError: (err) => Alert.alert(t('Not saved'), errorMessage(err)),
   });
 
   const toggle = (enabled: boolean) => put.mutate({ enabled });
@@ -93,13 +96,13 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
       if (p.type === 'number') {
         const n = raw === '' ? null : Number(raw);
         if (n !== null && (!Number.isFinite(n) || (p.min !== undefined && n < p.min) || (p.max !== undefined && n > p.max))) {
-          Alert.alert('Check the value', `${p.label}: ${p.min ?? 0} – ${p.max ?? '∞'} ${p.unit ?? ''}`);
+          Alert.alert(t('Check the value'), `${t(p.label)}: ${p.min ?? 0} – ${p.max ?? '∞'} ${p.unit ? t(p.unit) : ''}`);
           return;
         }
         params[p.key] = n;
       } else {
         if (raw && !/^([01]\d|2[0-3]):[0-5]\d$/.test(raw)) {
-          Alert.alert('Check the value', `${p.label}: use HH:MM, e.g. 22:00`);
+          Alert.alert(t('Check the value'), `${t(p.label)}: ${t('use HH:MM, e.g. 22:00')}`);
           return;
         }
         params[p.key] = raw || null;
@@ -114,10 +117,14 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
     put.mutate(body, { onSuccess: () => setOpen(false) });
   };
   const reset = () =>
-    Alert.alert('Use inherited settings?', `${def.label} goes back to the ${level === 'OBJECT' ? 'company / group' : 'default'} settings.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Reset', style: 'destructive', onPress: () => put.mutate({ enabled: null, severity: null, params: null, channels: null }) },
-    ]);
+    Alert.alert(
+      t('Use inherited settings?'),
+      level === 'OBJECT' ? t('{{name}} goes back to the company / group settings.', { name: t(def.label) }) : t('{{name}} goes back to the default settings.', { name: t(def.label) }),
+      [
+        { text: t('Cancel'), style: 'cancel' },
+        { text: t('Reset'), style: 'destructive', onPress: () => put.mutate({ enabled: null, severity: null, params: null, channels: null }) },
+      ],
+    );
 
   const lockOff = def.mandatory && level === 'OBJECT';
   return (
@@ -126,11 +133,11 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
         <AlertTypeIcon type={def.code} severity={row.severity} size={32} />
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text weight="600">{def.label}</Text>
+            <Text weight="600">{t(def.label)}</Text>
             {def.mandatory && <LockIcon size={13} color={c.mutedForeground} />}
           </View>
           <Text size="xs" tone="muted">
-            {!row.supported ? 'Not supported by this tracker' : `${SEVERITY_LABEL[row.severity]}${row.own ? ' · customised here' : ''}`}
+            {!row.supported ? t('Not supported by this tracker') : `${t(SEVERITY_LABEL[row.severity])}${row.own ? ` · ${t('customised here')}` : ''}`}
           </Text>
         </View>
         {put.isPending ? (
@@ -145,9 +152,9 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
         <View style={{ gap: SPACE.md, marginTop: SPACE.md }}>
           <View style={{ gap: 6 }}>
             <Text size="xs" tone="muted">
-              Severity
+              {t('Severity')}
             </Text>
-            <Chips value={severity} onChange={setSeverity} options={ALERT_SEVERITIES.map((s) => ({ value: s, label: SEVERITY_LABEL[s], color: SEVERITY_COLOR[s] }))} />
+            <Chips value={severity} onChange={setSeverity} options={ALERT_SEVERITIES.map((s) => ({ value: s, label: t(SEVERITY_LABEL[s]), color: SEVERITY_COLOR[s] }))} />
           </View>
           {editable.length > 0 && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: SPACE.md }}>
@@ -158,21 +165,21 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
           )}
           <View style={{ gap: 6 }}>
             <Text size="xs" tone="muted">
-              Notify by
+              {t('Notify by')}
             </Text>
             <View style={styles.grid}>
               <View style={styles.gridRow}>
                 <View style={styles.gridLabel} />
                 {CHANNELS.map((ch) => (
                   <Text key={ch.key} size="xs" tone="muted" style={styles.gridCell}>
-                    {ch.label}
+                    {t(ch.label)}
                   </Text>
                 ))}
               </View>
               {ALERT_SEVERITIES.map((sev) => (
                 <View key={sev} style={styles.gridRow}>
                   <Text size="sm" style={[styles.gridLabel, { color: SEVERITY_COLOR[sev] }]} weight={sev === severity ? '700' : '400'}>
-                    {SEVERITY_LABEL[sev]}
+                    {t(SEVERITY_LABEL[sev])}
                   </Text>
                   {CHANNELS.map((ch) => {
                     const on = channels[sev].includes(ch.key);
@@ -183,7 +190,7 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
                         onPress={() => toggleChannel(sev, ch.key)}
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: on }}
-                        accessibilityLabel={`${SEVERITY_LABEL[sev]} by ${ch.label}`}
+                        accessibilityLabel={t('{{severity}} by {{channel}}', { severity: t(SEVERITY_LABEL[sev]), channel: t(ch.label) })}
                         style={styles.gridCell}
                       >
                         <View style={[styles.box, { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.primary : 'transparent' }]}>
@@ -196,18 +203,18 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
               ))}
             </View>
             <Text size="xs" tone="muted">
-              The row matching this alert’s severity is used. Email / SMS go to the default recipients plus the extra ones above.
+              {t('The row matching this alert’s severity is used. Email / SMS go to the default recipients plus the extra ones above.')}
             </Text>
           </View>
           {def.params.some((p) => p.type === 'geofences') && (
             <Text size="xs" tone="muted">
-              Geofence exclusions are edited in the web app.
+              {t('Geofence exclusions are edited in the web app.')}
             </Text>
           )}
           {canEdit && (
             <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-              {row.own && <Button title="Reset" icon={RotateCcwIcon} variant="outline" onPress={reset} style={{ flex: 1 }} />}
-              <Button title="Save" onPress={save} loading={put.isPending} style={{ flex: 1 }} />
+              {row.own && <Button title={t('Reset')} icon={RotateCcwIcon} variant="outline" onPress={reset} style={{ flex: 1 }} />}
+              <Button title={t('Save')} onPress={save} loading={put.isPending} style={{ flex: 1 }} />
             </View>
           )}
         </View>
@@ -217,6 +224,7 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
 }
 
 export default function AlertSettingsScreen() {
+  const { t } = useTranslation();
   const { me, can } = useAuth();
   const queryClient = useQueryClient();
   const canEdit = can('alert_settings', 'edit') || can('alert_settings', 'create');
@@ -253,11 +261,11 @@ export default function AlertSettingsScreen() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['alert-settings'] });
   const loading = !!targetId && (overrides.isPending || (level === 'OBJECT' && effective.isPending));
   const error = overrides.error ?? effective.error;
-  const vehicleName = objectId ? (liveStore.get(objectId)?.name ?? 'Vehicle') : 'Choose a vehicle';
+  const vehicleName = objectId ? (liveStore.get(objectId)?.name ?? t('Vehicle')) : t('Choose a vehicle');
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Alert settings' }} />
+      <Stack.Screen options={{ title: t('Alert settings') }} />
       <FlatList
         data={targetId ? rows : []}
         keyExtractor={(r) => `${level}-${targetId}-${r.def.code}-${r.own?.updatedAt ?? ''}`}
@@ -268,19 +276,19 @@ export default function AlertSettingsScreen() {
               value={level}
               onChange={setLevel}
               options={[
-                { value: 'COMPANY', label: 'Whole company' },
-                { value: 'OBJECT', label: 'One vehicle' },
+                { value: 'COMPANY', label: t('Whole company') },
+                { value: 'OBJECT', label: t('One vehicle') },
               ]}
             />
-            {level === 'OBJECT' && <SelectField label="Vehicle" value={vehicleName} onPress={() => setPicker(true)} />}
+            {level === 'OBJECT' && <SelectField label={t('Vehicle')} value={vehicleName} onPress={() => setPicker(true)} />}
             <Text size="sm" tone="muted">
               {level === 'COMPANY'
-                ? 'Applies to every vehicle unless a group or vehicle has its own setting.'
-                : 'Changes here apply only to this vehicle and override company and group settings.'}
+                ? t('Applies to every vehicle unless a group or vehicle has its own setting.')
+                : t('Changes here apply only to this vehicle and override company and group settings.')}
             </Text>
             {!canEdit && (
               <Text size="sm" tone="muted">
-                You can view these settings; ask an admin to change them.
+                {t('You can view these settings; ask an admin to change them.')}
               </Text>
             )}
             {targetId && <RecipientsCard key={`${level}-${targetId}`} level={level} targetId={targetId} canEdit={canEdit} />}
@@ -292,14 +300,14 @@ export default function AlertSettingsScreen() {
           <View style={{ gap: SPACE.sm }}>
             {(index === 0 || rows[index - 1].def.category !== item.def.category) && (
               <Text size="xs" tone="muted" weight="600" style={{ textTransform: 'uppercase', letterSpacing: 0.6, marginTop: index ? SPACE.md : 0 }}>
-                {item.def.category}
+                {t(item.def.category)}
               </Text>
             )}
             <AlertTypeCard row={item} level={level} targetId={targetId!} canEdit={canEdit} onSaved={refresh} />
           </View>
         )}
       />
-      <VehiclePicker open={picker} onClose={() => setPicker(false)} selected={objectId ? [objectId] : []} onChange={(ids) => setObjectId(ids[0] ?? null)} multiple={false} title="Choose a vehicle" />
+      <VehiclePicker open={picker} onClose={() => setPicker(false)} selected={objectId ? [objectId] : []} onChange={(ids) => setObjectId(ids[0] ?? null)} multiple={false} title={t('Choose a vehicle')} />
     </>
   );
 }

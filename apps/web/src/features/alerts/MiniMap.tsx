@@ -1,6 +1,7 @@
 import type { AlertSeverity, GeofenceGeometry } from '@veetracer/shared';
 import type { GeoJSONSource } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { geometryRing } from '@/features/geofences/geometry';
 import { onStyleReady, useBasemap } from '@/features/geofences/map/use-basemap';
 import { cn } from '@/lib/utils';
@@ -24,6 +25,7 @@ export function MiniMap({
   className?: string;
   zoom?: number;
 }) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const { map, unsupported } = useBasemap(ref, { center: [lng, lat], zoom, interactive: false, attributionControl: false });
 
@@ -58,8 +60,8 @@ export function MiniMap({
 
   return (
     <div className={cn('relative h-40 overflow-hidden rounded-lg border bg-muted', className)}>
-      <div ref={ref} className="h-full w-full" aria-label="Alert location map" role="img" />
-      {unsupported && <p className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">Map unavailable</p>}
+      <div ref={ref} className="h-full w-full" aria-label={t('Alert location map')} role="img" />
+      {unsupported && <p className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">{t('Map unavailable')}</p>}
     </div>
   );
 }

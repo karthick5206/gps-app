@@ -2,6 +2,7 @@ import type { GeofenceDto } from '@veetracer/shared';
 import maplibregl, { type GeoJSONSource, type Map as MlMap, type MapLayerMouseEvent } from 'maplibre-gl';
 import { geometryRing, labelPoint } from '@/features/geofences/geometry';
 import { MODE_LABEL } from '@/features/geofences/api';
+import { i18n } from '@/lib/i18n';
 import { cssToken, LABEL_FONT, LAYERS } from '../map-style';
 import { beneathMarkers, escapeHtml, keepAlive } from './addon';
 
@@ -118,13 +119,18 @@ export class GeofenceLayer {
     const id = e.features?.[0]?.properties?.id as string | undefined;
     const g = id ? this.byId.get(id) : undefined;
     if (!g) return;
-    const extras = [g.maxStayMin ? `Max stay ${g.maxStayMin} min` : null, g.speedLimitKph ? `Zone limit ${g.speedLimitKph} km/h` : null].filter(Boolean).join(' · ');
+    const extras = [
+      g.maxStayMin ? i18n.t('Max stay {{minutes}} min', { minutes: g.maxStayMin }) : null,
+      g.speedLimitKph ? i18n.t('Zone limit {{speed}} km/h', { speed: g.speedLimitKph }) : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
     this.popup?.remove();
     this.popup = new maplibregl.Popup({ closeButton: true, maxWidth: '260px', className: 'vt-popup' })
       .setLngLat(e.lngLat)
       .setHTML(
         `<div class="vt-popup-body"><div class="vt-popup-title"><span class="vt-dot" style="background:${escapeHtml(g.color)}"></span>${escapeHtml(g.name)}</div>` +
-          `<div class="vt-popup-meta">${escapeHtml(MODE_LABEL[g.mode])} · ${escapeHtml(g.branchName ?? 'Company-wide')}</div>` +
+          `<div class="vt-popup-meta">${escapeHtml(i18n.t(MODE_LABEL[g.mode]))} · ${escapeHtml(g.branchName ?? i18n.t('Company-wide'))}</div>` +
           (extras ? `<div class="vt-popup-meta">${escapeHtml(extras)}</div>` : '') +
           `</div>`,
       )

@@ -2,6 +2,7 @@ import { ALERT_TYPE_MAP, type AlertDto } from '@veetracer/shared';
 import maplibregl, { type GeoJSONSource, type Map as MlMap, type MapLayerMouseEvent } from 'maplibre-gl';
 import { SEVERITY_COLOR, SEVERITY_LABEL } from '@/features/alerts/severity';
 import { formatDateTime } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 import { LAYERS } from '../map-style';
 import { escapeHtml, keepAlive } from './addon';
 
@@ -140,14 +141,16 @@ export class AlertLayer {
     const el = document.createElement('div');
     el.className = 'vt-popup-body';
     el.innerHTML =
-      `<div class="vt-popup-title"><span class="vt-dot" style="background:${SEVERITY_COLOR[a.severity]}"></span>${escapeHtml(ALERT_TYPE_MAP[a.type]?.label ?? a.type)}</div>` +
-      `<div class="vt-popup-meta">${escapeHtml(SEVERITY_LABEL[a.severity])} · ${escapeHtml(a.objectName)} · ${escapeHtml(formatDateTime(a.occurredAt))}</div>` +
+      `<div class="vt-popup-title"><span class="vt-dot" style="background:${SEVERITY_COLOR[a.severity]}"></span>${escapeHtml(i18n.t(ALERT_TYPE_MAP[a.type]?.label ?? a.type))}</div>` +
+      `<div class="vt-popup-meta">${escapeHtml(i18n.t(SEVERITY_LABEL[a.severity]))} · ${escapeHtml(a.objectName)} · ${escapeHtml(formatDateTime(a.occurredAt))}</div>` +
       `<div class="vt-popup-text">${escapeHtml(a.message)}</div>` +
-      (a.status !== 'NEW' ? `<div class="vt-popup-meta">Acknowledged${a.ackByName ? ` by ${escapeHtml(a.ackByName)}` : ''}</div>` : '');
+      (a.status !== 'NEW'
+        ? `<div class="vt-popup-meta">${escapeHtml(a.ackByName ? i18n.t('Acknowledged by {{name}}', { name: a.ackByName }) : i18n.t('Acknowledged'))}</div>`
+        : '');
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'vt-popup-link';
-    btn.textContent = 'Open alert';
+    btn.textContent = i18n.t('Open alert');
     btn.onclick = () => this.opts.onOpen(a);
     el.appendChild(btn);
     this.popup?.remove();

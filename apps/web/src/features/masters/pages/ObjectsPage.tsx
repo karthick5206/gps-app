@@ -12,11 +12,13 @@ import {
 import { TruckIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import type { Option } from '@/components/ui/multi-select';
 import { useAuth } from '@/features/auth/auth-context';
 import { ActiveBadge, Dash, DateCell, Muted, NameList } from '../cells';
 import { humanize } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 import { FormDialog, useSaveMutation } from '../FormDialog';
 import { ComboboxField, SelectField, SwitchField, TextField } from '../form-fields';
 import { nullIfBlank, numberOrNull, numericText, optionalText, requiredText, str } from '../form-schema';
@@ -48,6 +50,7 @@ type Values = z.infer<typeof schema>;
 const deviceOption = (d: DeviceDto): Option => ({ value: d.id, label: d.uniqueId, description: d.modelName });
 
 function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjectDto>) {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const form = useForm<Values>({
     resolver: zodResolver(schema),
@@ -115,7 +118,11 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
           label="Overspeed alert limit (km/h)"
           type="number"
           placeholder="e.g. 50"
-          hint={`Overspeed alerts fire above this speed (it overrides company and group alert settings). Leave empty for the default${vehicleType ? ` (${DEFAULT_SPEED_LIMIT_KPH[vehicleType]} km/h)` : ''}.`}
+          hint={
+            vehicleType
+              ? t('Overspeed alerts fire above this speed (it overrides company and group alert settings). Leave empty for the default ({{n}} km/h).', { n: DEFAULT_SPEED_LIMIT_KPH[vehicleType] })
+              : t('Overspeed alerts fire above this speed (it overrides company and group alert settings). Leave empty for the default.')
+          }
         />
         {can('devices') && (
           <ComboboxField
@@ -146,8 +153,8 @@ const columns: MasterColumn<TrackedObjectDto>[] = [
     sortable: true,
     cell: (r) => (
       <span>
-        {humanize(r.vehicleType ?? r.type)}
-        {r.vehicleType && <Muted> · Vehicle</Muted>}
+        {i18n.t(humanize(r.vehicleType ?? r.type))}
+        {r.vehicleType && <Muted> · {i18n.t('Vehicle')}</Muted>}
       </span>
     ),
   },
@@ -155,7 +162,7 @@ const columns: MasterColumn<TrackedObjectDto>[] = [
   {
     id: 'device',
     header: 'Device',
-    cell: (r) => (r.device ? <span className="font-mono text-xs">{r.device.uniqueId}</span> : <Muted>Unassigned</Muted>),
+    cell: (r) => (r.device ? <span className="font-mono text-xs">{r.device.uniqueId}</span> : <Muted>{i18n.t('Unassigned')}</Muted>),
   },
   { id: 'deviceModel', header: 'Device model', defaultHidden: true, cell: (r) => <Dash value={r.device?.modelName} /> },
   { id: 'groups', header: 'Groups', cell: (r) => <NameList items={r.groups} /> },
@@ -164,7 +171,7 @@ const columns: MasterColumn<TrackedObjectDto>[] = [
   {
     id: 'speedLimitKph',
     header: 'Overspeed limit',
-    cell: (r) => (r.speedLimitKph ? `${r.speedLimitKph} km/h` : <Muted>{r.vehicleType ? `${DEFAULT_SPEED_LIMIT_KPH[r.vehicleType]} km/h (default)` : '—'}</Muted>),
+    cell: (r) => (r.speedLimitKph ? `${r.speedLimitKph} km/h` : <Muted>{r.vehicleType ? i18n.t('{{n}} km/h (default)', { n: DEFAULT_SPEED_LIMIT_KPH[r.vehicleType] }) : '—'}</Muted>),
   },
   { id: 'isActive', header: 'Status', cell: (r) => <ActiveBadge active={r.isActive} /> },
   { id: 'createdAt', header: 'Created', sortable: true, defaultHidden: true, cell: (r) => <DateCell value={r.createdAt} /> },

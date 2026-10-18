@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { i18n } from '@/lib/i18n';
 
 /*
  * Forms keep plain strings (input type == output type) and convert on submit, which keeps
@@ -20,7 +21,7 @@ export function numericText({ min = 0, max = 1_000_000, required = false, intege
       const n = Number(v);
       if (!Number.isFinite(n)) ctx.addIssue({ code: 'custom', message: 'Enter a number' });
       else if (integer && !Number.isInteger(n)) ctx.addIssue({ code: 'custom', message: 'Enter a whole number' });
-      else if (n < min || n > max) ctx.addIssue({ code: 'custom', message: `Must be between ${min} and ${max}` });
+      else if (n < min || n > max) ctx.addIssue({ code: 'custom', message: i18n.t('Must be between {{min}} and {{max}}', { min, max }) });
     });
 }
 

@@ -1,6 +1,7 @@
 import { ALERT_TYPE_MAP, STATUS_META, type HistoryResponse } from '@veetracer/shared';
 import { ChevronDownIcon, ChevronUpIcon, DownloadIcon, PlayIcon } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatDuration } from '@/lib/format';
 import { statusColor } from '@/lib/status-tokens';
@@ -46,6 +47,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 function Summary({ data }: { data: HistoryResponse }) {
+  const { t } = useTranslation();
   const s = data.summary;
   const total = s.runningSec + s.idleSec + s.stopSec;
   const parts = [
@@ -56,27 +58,27 @@ function Summary({ data }: { data: HistoryResponse }) {
   return (
     <div className="space-y-4 p-4">
       <div className="grid grid-cols-2 gap-2">
-        <Stat label="Distance" value={formatKm(s.distanceKm)} />
-        <Stat label="Trips" value={String(data.trips.length)} sub={`${data.stops.length} stops`} />
-        <Stat label="Max speed" value={`${Math.round(s.maxSpeedKph)} km/h`} />
-        <Stat label="Avg moving speed" value={`${Math.round(s.avgSpeedKph)} km/h`} />
+        <Stat label={t('Distance')} value={formatKm(s.distanceKm)} />
+        <Stat label={t('Trips')} value={String(data.trips.length)} sub={t('{{stops}} stops', { stops: data.stops.length })} />
+        <Stat label={t('Max speed')} value={`${Math.round(s.maxSpeedKph)} km/h`} />
+        <Stat label={t('Avg moving speed')} value={`${Math.round(s.avgSpeedKph)} km/h`} />
       </div>
       <div className="space-y-2">
-        <p className="text-sm font-medium">Time split</p>
+        <p className="text-sm font-medium">{t('Time split')}</p>
         {total > 0 ? (
-          <div className="flex h-3 gap-0.5 overflow-hidden rounded-full" role="img" aria-label={parts.map((p) => `${p.label} ${formatDuration(p.sec)}`).join(', ')}>
+          <div className="flex h-3 gap-0.5 overflow-hidden rounded-full" role="img" aria-label={parts.map((p) => `${t(p.label)} ${formatDuration(p.sec)}`).join(', ')}>
             {parts.map((p) =>
-              p.sec > 0 ? <div key={p.key} style={{ flexGrow: p.sec, backgroundColor: statusColor(p.key) }} title={`${p.label}: ${formatDuration(p.sec)}`} /> : null,
+              p.sec > 0 ? <div key={p.key} style={{ flexGrow: p.sec, backgroundColor: statusColor(p.key) }} title={`${t(p.label)}: ${formatDuration(p.sec)}`} /> : null,
             )}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">No time recorded.</p>
+          <p className="text-xs text-muted-foreground">{t('No time recorded.')}</p>
         )}
         <dl className="space-y-1.5 pt-1">
           {parts.map((p) => (
             <div key={p.key} className="flex items-center gap-2 text-sm">
               <span className="size-2.5 rounded-sm" style={{ backgroundColor: statusColor(p.key) }} aria-hidden />
-              <dt className="flex-1 text-muted-foreground">{p.label === 'Stopped' ? 'Stopped' : STATUS_META[p.key].label}</dt>
+              <dt className="flex-1 text-muted-foreground">{p.label === 'Stopped' ? t('Stopped') : t(STATUS_META[p.key].label)}</dt>
               <dd className="font-medium tabular-nums">{formatDuration(p.sec)}</dd>
               <dd className="w-10 text-right text-xs text-muted-foreground tabular-nums">{total ? `${Math.round((p.sec / total) * 100)}%` : ''}</dd>
             </div>
@@ -84,7 +86,7 @@ function Summary({ data }: { data: HistoryResponse }) {
         </dl>
       </div>
       <p className="text-xs text-muted-foreground">
-        {data.points.length.toLocaleString()} track points · {data.alerts.length} alerts
+        {t('{{points}} track points · {{alerts}} alerts', { points: data.points.length.toLocaleString(), alerts: data.alerts.length })}
       </p>
     </div>
   );
@@ -122,15 +124,16 @@ export function HistorySidePanel({
   onExport?: (kind: 'trips' | 'stops') => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const exportBar = (kind: 'trips' | 'stops', count: number) =>
     onExport && count > 0 ? (
       <div className="flex justify-end border-b px-3 py-1.5">
         <button type="button" onClick={() => onExport(kind)} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
-          <DownloadIcon className="size-3.5" /> Download CSV
+          <DownloadIcon className="size-3.5" /> {t('Download CSV')}
         </button>
       </div>
     ) : null;
-  const t = (iso: string) => formatClock(Date.parse(iso), multiDay, false);
+  const clock = (iso: string) => formatClock(Date.parse(iso), multiDay, false);
   return (
     <Tabs
       value={tab}
@@ -142,17 +145,17 @@ export function HistorySidePanel({
     >
       <div className="flex items-center gap-1 border-b p-2">
         <TabsList className="w-full">
-          <TabsTrigger value="trips">Trips{data ? ` ${data.trips.length}` : ''}</TabsTrigger>
-          <TabsTrigger value="stops">Stops{data ? ` ${data.stops.length}` : ''}</TabsTrigger>
-          <TabsTrigger value="alerts">Alerts{data ? ` ${data.alerts.length}` : ''}</TabsTrigger>
-          <TabsTrigger value="summary">Summary</TabsTrigger>
+          <TabsTrigger value="trips">{t('Trips')}{data ? ` ${data.trips.length}` : ''}</TabsTrigger>
+          <TabsTrigger value="stops">{t('Stops')}{data ? ` ${data.stops.length}` : ''}</TabsTrigger>
+          <TabsTrigger value="alerts">{t('Alerts')}{data ? ` ${data.alerts.length}` : ''}</TabsTrigger>
+          <TabsTrigger value="summary">{t('Summary')}</TabsTrigger>
         </TabsList>
         {mobile && (
           <button
             type="button"
             onClick={() => onExpandedChange?.(!expanded)}
             className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
-            aria-label={expanded ? 'Collapse panel' : 'Expand panel'}
+            aria-label={expanded ? t('Collapse panel') : t('Expand panel')}
             aria-expanded={expanded}
           >
             {expanded ? <ChevronDownIcon className="size-4" /> : <ChevronUpIcon className="size-4" />}
@@ -162,14 +165,14 @@ export function HistorySidePanel({
       {expanded && (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {!data ? (
-            <Empty>Pick a vehicle and period to see trips, stops and alerts.</Empty>
+            <Empty>{t('Pick a vehicle and period to see trips, stops and alerts.')}</Empty>
           ) : (
             <>
               <TabsContent value="trips">
                 {exportBar('trips', data.trips.length)}
-                {data.trips.length === 0 && <Empty>No trips in this period.</Empty>}
+                {data.trips.length === 0 && <Empty>{t('No trips in this period.')}</Empty>}
                 {data.trips.map((trip, i) => (
-                  <ItemButton key={trip.id} active={activeTrip === i} onClick={() => onTrip(i)} label={`Play trip ${i + 1}`}>
+                  <ItemButton key={trip.id} active={activeTrip === i} onClick={() => onTrip(i)} label={t('Play trip {{number}}', { number: i + 1 })}>
                     <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-xs font-semibold text-primary group-hover:bg-primary group-hover:text-primary-foreground">
                       <span className="group-hover:hidden">{i + 1}</span>
                       <PlayIcon className="hidden size-3.5 group-hover:block" />
@@ -177,7 +180,7 @@ export function HistorySidePanel({
                     <span className="min-w-0 flex-1 space-y-1">
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="font-medium tabular-nums">
-                          {t(trip.startTime)} – {formatClock(Date.parse(trip.endTime), false, false)}
+                          {clock(trip.startTime)} – {formatClock(Date.parse(trip.endTime), false, false)}
                         </span>
                         <span className="text-xs text-muted-foreground tabular-nums">{formatDuration(trip.durationSec)}</span>
                       </span>
@@ -186,8 +189,8 @@ export function HistorySidePanel({
                       </span>
                       <span className="flex gap-3 text-xs tabular-nums">
                         <span>{formatKm(trip.distanceKm)}</span>
-                        <span className="text-muted-foreground">max {Math.round(trip.maxSpeedKph)} km/h</span>
-                        <span className="text-muted-foreground">avg {Math.round(trip.avgSpeedKph)}</span>
+                        <span className="text-muted-foreground">{t('max {{speed}} km/h', { speed: Math.round(trip.maxSpeedKph) })}</span>
+                        <span className="text-muted-foreground">{t('avg {{speed}}', { speed: Math.round(trip.avgSpeedKph) })}</span>
                       </span>
                     </span>
                   </ItemButton>
@@ -195,25 +198,26 @@ export function HistorySidePanel({
               </TabsContent>
               <TabsContent value="stops">
                 {exportBar('stops', data.stops.length)}
-                {data.stops.length === 0 && <Empty>No stops in this period.</Empty>}
+                {data.stops.length === 0 && <Empty>{t('No stops in this period.')}</Empty>}
                 {data.stops.map((stop, i) => (
-                  <ItemButton key={stop.id} active={selected?.kind === 'stop' && selected.index === i} onClick={() => onStop(i)} label={`Jump to stop at ${t(stop.startTime)}`}>
+                  <ItemButton key={stop.id} active={selected?.kind === 'stop' && selected.index === i} onClick={() => onStop(i)} label={t('Jump to stop at {{time}}', { time: clock(stop.startTime) })}>
                     <span
                       className="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
                       style={{ backgroundColor: stop.ignitionOn ? 'var(--status-idle)' : '#1d4ed8' }}
-                      title={stop.ignitionOn ? 'Idle (engine on)' : 'Parked'}
+                      title={stop.ignitionOn ? t('Idle (engine on)') : t('Parked')}
                     >
                       {stop.ignitionOn ? 'I' : 'P'}
                     </span>
                     <span className="min-w-0 flex-1 space-y-0.5">
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="font-medium tabular-nums">
-                          {t(stop.startTime)} – {formatClock(Date.parse(stop.endTime), false, false)}
+                          {clock(stop.startTime)} – {formatClock(Date.parse(stop.endTime), false, false)}
                         </span>
                         <span className="text-xs font-medium tabular-nums">{formatDuration(stop.durationSec)}</span>
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {stop.ignitionOn ? 'Idle · ' : 'Parked · '}
+                        {stop.ignitionOn ? t('Idle') : t('Parked')}
+                        {' · '}
                         {stop.address ?? `${stop.lat.toFixed(5)}, ${stop.lng.toFixed(5)}`}
                       </span>
                     </span>
@@ -221,14 +225,14 @@ export function HistorySidePanel({
                 ))}
               </TabsContent>
               <TabsContent value="alerts">
-                {data.alerts.length === 0 && <Empty>No alerts in this period.</Empty>}
+                {data.alerts.length === 0 && <Empty>{t('No alerts in this period.')}</Empty>}
                 {data.alerts.map((a, i) => (
-                  <ItemButton key={a.id} active={selected?.kind === 'alert' && selected.index === i} onClick={() => onAlert(i)} label={`Jump to alert ${a.message}`}>
+                  <ItemButton key={a.id} active={selected?.kind === 'alert' && selected.index === i} onClick={() => onAlert(i)} label={t('Jump to alert {{message}}', { message: a.message })}>
                     <span className="mt-1.5 size-2.5 shrink-0 rounded-full" style={{ backgroundColor: severityColor(a.severity) }} aria-hidden />
                     <span className="min-w-0 flex-1 space-y-0.5">
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className="truncate font-medium">{ALERT_TYPE_MAP[a.type]?.label ?? a.type}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{t(a.occurredAt)}</span>
+                        <span className="truncate font-medium">{ALERT_TYPE_MAP[a.type] ? t(ALERT_TYPE_MAP[a.type].label) : a.type}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{clock(a.occurredAt)}</span>
                       </span>
                       <span className="line-clamp-2 text-xs text-muted-foreground">{a.message}</span>
                     </span>

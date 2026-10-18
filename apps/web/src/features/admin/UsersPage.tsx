@@ -14,11 +14,12 @@ import { nullIfBlank, requiredText, str } from '@/features/masters/form-schema';
 import { MasterPage } from '@/features/masters/MasterPage';
 import type { MasterColumn, MasterFilter, MasterFormProps } from '@/features/masters/types';
 import { named, useEntityOptions } from '@/features/masters/use-options';
+import { i18n } from '@/lib/i18n';
 
 const ENDPOINT = '/users';
 
 const objectOption = (o: TrackedObjectDto): Option => ({ value: o.id, label: o.name, description: o.plateNumber ?? undefined });
-const roleOption = (r: RoleDto): Option => ({ value: r.id, label: r.name, description: r.dataScope === 'COMPANY' ? 'Whole company' : 'Assigned only' });
+const roleOption = (r: RoleDto): Option => ({ value: r.id, label: r.name, description: r.dataScope === 'COMPANY' ? i18n.t('Whole company') : i18n.t('Assigned only') });
 /** Roles have no active/inactive status, so don't send the default status filter. */
 const ROLE_PARAMS = { status: undefined };
 

@@ -1,5 +1,6 @@
 import { PanelLeftCloseIcon, PanelLeftOpenIcon } from 'lucide-react';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router';
 import { LogoMark } from '@/components/logo';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -18,11 +19,12 @@ export function Sidebar({
   onNavigate?: () => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const me = useMe();
   const groups = useMemo(() => buildNav(me.permissions), [me.permissions]);
 
   return (
-    <nav aria-label="Main navigation" className={cn('flex h-full flex-col bg-sidebar text-sidebar-foreground', className)}>
+    <nav aria-label={t('Main navigation')} className={cn('flex h-full flex-col bg-sidebar text-sidebar-foreground', className)}>
       <div className={cn('flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-4', collapsed && 'justify-center px-0')}>
         <LogoMark className="size-7" />
         {!collapsed && (
@@ -38,7 +40,7 @@ export function Sidebar({
             {collapsed ? (
               <div className="mx-auto my-2 h-px w-6 bg-sidebar-border first:hidden" />
             ) : (
-              <p className="px-2 pb-1 text-[11px] font-semibold tracking-wider text-sidebar-muted uppercase">{g.label}</p>
+              <p className="px-2 pb-1 text-[11px] font-semibold tracking-wider text-sidebar-muted uppercase">{t(g.label)}</p>
             )}
             {g.items.map((item) => {
               const Icon = MENU_ICONS[item.key];
@@ -62,14 +64,14 @@ export function Sidebar({
                     <>
                       {isActive && <span className="absolute top-1.5 bottom-1.5 left-0 w-0.5 rounded-full bg-sidebar-primary" />}
                       <Icon className={cn('size-[18px] shrink-0', isActive ? 'text-sidebar-primary' : 'text-sidebar-muted group-hover:text-sidebar-accent-foreground')} />
-                      {!collapsed && <span className="truncate">{item.label}</span>}
-                      {collapsed && <span className="sr-only">{item.label}</span>}
+                      {!collapsed && <span className="truncate">{t(item.label)}</span>}
+                      {collapsed && <span className="sr-only">{t(item.label)}</span>}
                     </>
                   )}
                 </NavLink>
               );
               return collapsed ? (
-                <Tooltip key={item.key} content={item.label} side="right">
+                <Tooltip key={item.key} content={t(item.label)} side="right">
                   {link}
                 </Tooltip>
               ) : (
@@ -85,14 +87,14 @@ export function Sidebar({
           <button
             type="button"
             onClick={onToggleCollapsed}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
             className={cn(
               'flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-sidebar-muted transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-primary/60 focus-visible:outline-none',
               collapsed && 'justify-center px-0',
             )}
           >
             {collapsed ? <PanelLeftOpenIcon className="size-[18px]" /> : <PanelLeftCloseIcon className="size-[18px]" />}
-            {!collapsed && 'Collapse'}
+            {!collapsed && t('Collapse')}
           </button>
         </div>
       )}

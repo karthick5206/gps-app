@@ -2,6 +2,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { MOVEMENT_STATUSES, type BranchDto, type LiveObject, type MovementStatus, type VehicleGroupDto } from '@veetracer/shared';
 import { ListIcon, MapIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import { named, useEntityOptions } from '@/features/masters/use-options';
 import { themeStore } from '@/features/theme/theme-store';
 import { prefersReducedMotion, useReducedMotion } from '@/hooks/use-reduced-motion';
 import { errorMessage } from '@/lib/api';
+import { i18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { EMPTY_FILTERS, baseMatcher, fullMatcher, parseStatusParam, type LiveFilters } from './filters';
 import { liveStore } from './live-store';
@@ -62,6 +64,7 @@ function useMapController(containerRef: RefObject<HTMLDivElement | null>, onSele
 }
 
 export function LiveMapPage() {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const [params] = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -86,7 +89,7 @@ export function LiveMapPage() {
   useEffect(() => {
     liveStore
       .loadSnapshot()
-      .catch((err) => toast.error(`Could not load live data: ${errorMessage(err)}`))
+      .catch((err) => toast.error(i18n.t('Could not load live data: {{error}}', { error: errorMessage(err) })))
       .finally(() => setLoading(false));
   }, []);
 
@@ -134,12 +137,13 @@ export function LiveMapPage() {
   return (
     <div className="relative h-full min-h-[420px] overflow-hidden">
       {/* MapLibre forces `position: relative` on its container, so size it with h-full rather than inset. */}
-      <div ref={containerRef} className="h-full w-full" role="region" aria-label="Live map" />
+      <div ref={containerRef} className="h-full w-full" role="region" aria-label={t('Live map')} />
       {unsupported && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted p-6 text-center md:pl-[23rem]">
           <p className="max-w-sm text-sm text-muted-foreground">
-            The map can't be shown because WebGL is turned off or not supported in this browser. Enable hardware acceleration
-            or use a recent version of Chrome, Edge, Firefox or Safari. The vehicle list still works.
+            {t(
+              "The map can't be shown because WebGL is turned off or not supported in this browser. Enable hardware acceleration or use a recent version of Chrome, Edge, Firefox or Safari. The vehicle list still works.",
+            )}
           </p>
         </div>
       )}
@@ -191,7 +195,7 @@ export function LiveMapPage() {
         onClick={() => setMobileView((v) => (v === 'map' ? 'list' : 'map'))}
       >
         {mobileView === 'map' ? <ListIcon /> : <MapIcon />}
-        {mobileView === 'map' ? `List (${items.length})` : 'Map'}
+        {mobileView === 'map' ? t('List ({{count}})', { count: items.length }) : t('Map')}
       </Button>
     </div>
   );

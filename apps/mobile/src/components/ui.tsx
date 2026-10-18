@@ -14,6 +14,8 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
+import { useDisplay } from '@/features/display/display';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
 
 /** Small set of themed primitives shared by every screen. */
@@ -25,7 +27,8 @@ const FONT: Record<Size, number> = { xs: 11, sm: 13, md: 15, lg: 18, xl: 24 };
 export function Text({ tone = 'default', size = 'md', weight, style, ...props }: TextProps & { tone?: Tone; size?: Size; weight?: '400' | '500' | '600' | '700' }) {
   const c = useColors();
   const color = tone === 'muted' ? c.mutedForeground : tone === 'primary' ? c.primary : tone === 'destructive' ? c.destructive : c.foreground;
-  return <RNText {...props} style={[{ color, fontSize: FONT[size], fontWeight: weight }, style]} />;
+  const { textScale } = useDisplay();
+  return <RNText {...props} style={[{ color, fontSize: FONT[size] * textScale, fontWeight: weight }, style]} />;
 }
 
 export function Card({ children, style, onPress }: { children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void }) {
@@ -49,6 +52,7 @@ export function Button({
   style,
   ...props
 }: Omit<PressableProps, 'style'> & { title: string; variant?: 'primary' | 'outline' | 'ghost' | 'destructive'; icon?: LucideIcon; loading?: boolean; style?: StyleProp<ViewStyle> }) {
+  const { textScale } = useDisplay();
   const c = useColors();
   const bg = variant === 'primary' ? c.primary : variant === 'destructive' ? c.destructive : 'transparent';
   const fg = variant === 'primary' ? c.primaryForeground : variant === 'destructive' ? '#ffffff' : c.foreground;
@@ -67,12 +71,13 @@ export function Button({
       ]}
     >
       {loading ? <ActivityIndicator color={fg} size="small" /> : Icon ? <Icon size={18} color={fg} /> : null}
-      <RNText style={{ color: fg, fontSize: 15, fontWeight: '600' }}>{title}</RNText>
+      <RNText style={{ color: fg, fontSize: 15 * textScale, fontWeight: '600' }}>{title}</RNText>
     </Pressable>
   );
 }
 
 export function Field({ label, error, hint, ...props }: TextInputProps & { label: string; error?: string; hint?: string }) {
+  const { textScale } = useDisplay();
   const c = useColors();
   return (
     <View style={{ gap: 6 }}>
@@ -82,7 +87,7 @@ export function Field({ label, error, hint, ...props }: TextInputProps & { label
       <TextInput
         placeholderTextColor={c.mutedForeground}
         {...props}
-        style={[styles.input, { borderColor: error ? c.destructive : c.border, backgroundColor: c.card, color: c.foreground }, props.style]}
+        style={[styles.input, { fontSize: 15 * textScale, borderColor: error ? c.destructive : c.border, backgroundColor: c.card, color: c.foreground }, props.style]}
       />
       {error ? (
         <Text size="xs" tone="destructive">
@@ -98,6 +103,7 @@ export function Field({ label, error, hint, ...props }: TextInputProps & { label
 }
 
 export function SearchInput(props: TextInputProps) {
+  const { textScale } = useDisplay();
   const c = useColors();
   return (
     <TextInput
@@ -106,22 +112,24 @@ export function SearchInput(props: TextInputProps) {
       autoCapitalize="none"
       clearButtonMode="while-editing"
       {...props}
-      style={[styles.input, { borderColor: c.border, backgroundColor: c.card, color: c.foreground }, props.style]}
+      style={[styles.input, { fontSize: 15 * textScale, borderColor: c.border, backgroundColor: c.card, color: c.foreground }, props.style]}
     />
   );
 }
 
 export function Pill({ label, color, style }: { label: string; color: string; style?: StyleProp<ViewStyle> }) {
+  const { textScale } = useDisplay();
   return (
     <View style={[styles.pill, { backgroundColor: `${color}22` }, style]}>
       <View style={[styles.dot, { backgroundColor: color }]} />
-      <RNText style={{ color, fontSize: 12, fontWeight: '600' }}>{label}</RNText>
+      <RNText style={{ color, fontSize: 12 * textScale, fontWeight: '600' }}>{label}</RNText>
     </View>
   );
 }
 
 /** Horizontal choice chips (status filters, tabs inside a screen). */
 export function Chips<T extends string>({ options, value, onChange }: { options: { value: T; label: string; color?: string; count?: number }[]; value: T; onChange: (v: T) => void }) {
+  const { textScale } = useDisplay();
   const c = useColors();
   return (
     <View style={styles.chips}>
@@ -136,7 +144,7 @@ export function Chips<T extends string>({ options, value, onChange }: { options:
             style={[styles.chip, { borderColor: active ? c.primary : c.border, backgroundColor: active ? c.accent : c.card }]}
           >
             {o.color && <View style={[styles.dot, { backgroundColor: o.color }]} />}
-            <RNText style={{ color: active ? c.primary : c.foreground, fontSize: 13, fontWeight: active ? '600' : '500' }}>
+            <RNText style={{ color: active ? c.primary : c.foreground, fontSize: 13 * textScale, fontWeight: active ? '600' : '500' }}>
               {o.label}
               {o.count !== undefined ? ` ${o.count}` : ''}
             </RNText>
@@ -167,6 +175,7 @@ export function EmptyState({ icon: Icon, title, description, action }: { icon: L
 
 export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
   const c = useColors();
+  const { t } = useTranslation();
   return (
     <View style={[styles.banner, { borderColor: `${c.destructive}55`, backgroundColor: `${c.destructive}12` }]}>
       <Text size="sm" tone="destructive" style={{ flex: 1 }}>
@@ -175,7 +184,7 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
       {onRetry && (
         <Pressable onPress={onRetry} hitSlop={8}>
           <Text size="sm" weight="600" tone="destructive">
-            Retry
+            {t('Retry')}
           </Text>
         </Pressable>
       )}

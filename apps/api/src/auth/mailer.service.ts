@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { basename, join } from 'node:path';
 import { createTransport, Transporter } from 'nodemailer';
 import { APP_ROOT } from '../config/env';
+import { sendZohoMail, zohoMailConfig } from './zoho-mail';
 
 /** File attached to an e-mail: a path on disk or in-memory content. */
 export interface MailAttachment {
@@ -29,7 +30,14 @@ export class MailerService {
   private readonly outDir = join(APP_ROOT, 'var', 'mail');
   /** Real delivery when SMTP_URL is set (e.g. smtps://user:pass@smtp.example.com:465); var/mail copies are kept either way. */
   private readonly smtp: Transporter | null = process.env.SMTP_URL ? createTransport(process.env.SMTP_URL) : null;
+  /** Zoho CPaaS e-mail API when ZOHO_MAIL_KEY is set (takes precedence over SMTP_URL). */
+  private readonly zoho = zohoMailConfig();
   private readonly from = process.env.MAIL_FROM ?? 'VeeTracer <no-reply@veetracer.local>';
+
+  /** Name of the real delivery channel, or null when mails are only written to var/mail. */
+  get provider(): string | null {
+    return this.zoho ? 'zoho' : this.smtp ? 'smtp' : null;
+  }
 
   async send(message: MailMessage): Promise<string> {
     const info = (await this.transport.sendMail({ from: this.from, ...message })) as { message?: Buffer };
@@ -47,7 +55,8 @@ export class MailerService {
         else if (a.content !== undefined) await writeFile(target, a.content);
       }
     }
-    if (this.smtp) await this.smtp.sendMail({ from: this.from, ...message });
+    if (this.zoho) await sendZohoMail(this.zoho, { from: this.from, ...message });
+    else if (this.smtp) await this.smtp.sendMail({ from: this.from, ...message });
     const extra = message.attachments?.length ? ` (+${message.attachments.length} attachment(s), ${stem}.eml)` : '';
     this.logger.log(`Mail "${message.subject}" to ${message.to} written to ${file}${extra}`);
     return file;

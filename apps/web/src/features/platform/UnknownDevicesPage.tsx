@@ -2,6 +2,7 @@ import type { UnknownDeviceDto } from '@veetracer/shared';
 import { PlusCircleIcon, RadarIcon } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/features/auth/auth-context';
 import { Dash, DateCell } from '@/features/masters/cells';
@@ -22,6 +23,7 @@ const ENDPOINT = '/admin/unknown-devices';
 const rowId = (r: UnknownDeviceDto) => r.uniqueId;
 
 export function UnknownDevicesPage() {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const [registering, setRegistering] = useState<string | null>(null);
@@ -34,10 +36,10 @@ export function UnknownDevicesPage() {
     (r: UnknownDeviceDto) =>
       can('sa_device_inventory', 'create') ? (
         <DropdownMenuItem onSelect={() => setRegistering(r.uniqueId)}>
-          <PlusCircleIcon /> Register device
+          <PlusCircleIcon /> {t('Register device')}
         </DropdownMenuItem>
       ) : null,
-    [can],
+    [can, t],
   );
   return (
     <>

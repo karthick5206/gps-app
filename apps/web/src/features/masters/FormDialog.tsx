@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { FormEventHandler, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { FormError } from '@/components/form-error';
 import { Button } from '@/components/ui/button';
@@ -30,11 +31,12 @@ export function useSaveMutation<TBody>({
   entity: string;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const invalidate = useInvalidateMaster();
   return useMutation({
     mutationFn: (body: TBody) => (id ? api.patch<unknown>(`${endpoint}/${id}`, body) : api.post<unknown>(endpoint, body)),
     onSuccess: () => {
-      toast.success(id ? `${entity} updated` : `${entity} created`);
+      toast.success(id ? t('{{entity}} updated', { entity: t(entity) }) : t('{{entity}} created', { entity: t(entity) }));
       invalidate(endpoint);
       onSaved();
     },
@@ -65,12 +67,13 @@ export function FormDialog({
   wide?: boolean;
   children: ReactNode;
 }) {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={(o) => !pending && onOpenChange(o)}>
       <DialogContent className={cn(wide ? 'max-w-3xl' : 'max-w-lg')}>
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          {description ? <DialogDescription>{description}</DialogDescription> : <DialogDescription className="sr-only">{title}</DialogDescription>}
+          <DialogTitle>{t(title)}</DialogTitle>
+          {description ? <DialogDescription>{t(description)}</DialogDescription> : <DialogDescription className="sr-only">{t(title)}</DialogDescription>}
         </DialogHeader>
         <form noValidate onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogBody className="space-y-4">
@@ -79,11 +82,11 @@ export function FormDialog({
           </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" disabled={pending}>
               {pending && <Spinner />}
-              {submitLabel}
+              {t(submitLabel)}
             </Button>
           </DialogFooter>
         </form>

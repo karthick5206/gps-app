@@ -2,6 +2,7 @@ import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/d
 import type { LiveObject } from '@veetracer/shared';
 import { CalendarIcon, CheckIcon, ChevronDownIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, SearchInput, Text } from '@/components/ui';
@@ -60,7 +61,7 @@ export function VehiclePicker({
   selected,
   onChange,
   multiple = true,
-  title = 'Choose vehicles',
+  title: titleProp,
 }: {
   open: boolean;
   onClose: () => void;
@@ -70,6 +71,8 @@ export function VehiclePicker({
   title?: string;
 }) {
   const c = useColors();
+  const { t } = useTranslation();
+  const title = titleProp ?? t('Choose vehicles');
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set(selected));
   const all = useMemo(() => (open ? [...liveStore.all()].sort((a, b) => a.name.localeCompare(b.name)) : []), [open]);
@@ -98,14 +101,14 @@ export function VehiclePicker({
         <View style={[styles.header, { borderBottomColor: c.border }]}>
           <Pressable onPress={onClose} hitSlop={10}>
             <Text tone="primary" weight="600">
-              Cancel
+              {t('Cancel')}
             </Text>
           </Pressable>
           <Text weight="700">{title}</Text>
           {multiple ? (
             <Pressable onPress={() => setPicked(new Set())} hitSlop={10}>
               <Text tone="primary" weight="600">
-                Clear
+                {t('Clear')}
               </Text>
             </Pressable>
           ) : (
@@ -113,7 +116,7 @@ export function VehiclePicker({
           )}
         </View>
         <View style={{ padding: SPACE.md }}>
-          <SearchInput value={q} onChangeText={setQ} placeholder="Search vehicle, plate or IMEI" />
+          <SearchInput value={q} onChangeText={setQ} placeholder={t('Search vehicle, plate or IMEI')} />
         </View>
         <FlatList
           data={rows}
@@ -140,7 +143,7 @@ export function VehiclePicker({
         {multiple && (
           <View style={{ padding: SPACE.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }}>
             <Button
-              title={picked.size ? `Use ${picked.size} vehicle${picked.size === 1 ? '' : 's'}` : 'Use all vehicles'}
+              title={picked.size ? (picked.size === 1 ? t('Use 1 vehicle') : t('Use {{count}} vehicles', { count: picked.size })) : t('Use all vehicles')}
               onPress={() => {
                 onChange([...picked]);
                 onClose();

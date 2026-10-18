@@ -10,6 +10,7 @@ import { SwitchField, TextField } from '@/features/masters/form-fields';
 import { numericText, requiredText, str } from '@/features/masters/form-schema';
 import { MasterPage } from '@/features/masters/MasterPage';
 import type { MasterColumn, MasterFormProps } from '@/features/masters/types';
+import { i18n } from '@/lib/i18n';
 
 const ENDPOINT = '/device-models';
 
@@ -17,7 +18,7 @@ function jsonArray(label: string) {
   return z.string().superRefine((v, ctx) => {
     if (!v.trim()) return;
     try {
-      if (!Array.isArray(JSON.parse(v))) ctx.addIssue({ code: 'custom', message: `${label} must be a JSON array` });
+      if (!Array.isArray(JSON.parse(v))) ctx.addIssue({ code: 'custom', message: i18n.t('{{label}} must be a JSON array', { label: i18n.t(label) }) });
     } catch {
       ctx.addIssue({ code: 'custom', message: 'Invalid JSON' });
     }

@@ -14,6 +14,7 @@ import type {
 } from '@veetracer/shared';
 import { MailIcon, MessageSquareIcon, PlusIcon, SmartphoneIcon, BellIcon, UserIcon, UsersIcon, SparklesIcon, XIcon, RotateCcwIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,8 +23,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip } from '@/components/ui/tooltip';
+import { SEVERITY_LABEL } from '@/features/alerts/severity';
 import { useAuth } from '@/features/auth/auth-context';
 import { api } from '@/lib/api';
+import { i18n } from '@/lib/i18n';
 import { CHANNEL_LABEL, SENDABLE_CHANNELS, useDeleteRecipientList, usePutRecipientList } from './api';
 import { levelLabel } from './inheritance';
 import { dedupeEntries, entryKey, MODE_LABEL, modeUsesEntries, parseContacts } from './recipients';
@@ -69,19 +72,21 @@ function useDirectory() {
 }
 
 function entryLabel(e: RecipientEntry, dir: ReturnType<typeof useDirectory>): string {
+  const dynamic = e.kind === 'DYNAMIC' ? DYNAMIC.find((d) => d.value === e.value)?.label : undefined;
+  if (dynamic) return i18n.t(dynamic);
   if (e.label) return e.label;
-  if (e.kind === 'USER') return dir.users.find((u) => u.id === e.value)?.name ?? 'User';
-  if (e.kind === 'ROLE') return `Role: ${dir.roles.find((r) => r.id === e.value)?.name ?? 'role'}`;
-  if (e.kind === 'DYNAMIC') return DYNAMIC.find((d) => d.value === e.value)?.label ?? e.value;
+  if (e.kind === 'USER') return dir.users.find((u) => u.id === e.value)?.name ?? i18n.t('User');
+  if (e.kind === 'ROLE') return i18n.t('Role: {{name}}', { name: dir.roles.find((r) => r.id === e.value)?.name ?? i18n.t('role') });
   return e.value;
 }
 
 function PickList({ items, onPick, empty }: { items: { value: string; label: string; hint?: string }[]; onPick: (v: { value: string; label: string }) => void; empty: string }) {
+  const { t } = useTranslation();
   const [q, setQ] = useState('');
   const shown = items.filter((i) => !q || i.label.toLowerCase().includes(q.toLowerCase()) || i.hint?.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="space-y-1.5">
-      {items.length > 6 && <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="h-8" aria-label="Search" />}
+      {items.length > 6 && <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Search…')} className="h-8" aria-label={t('Search')} />}
       <ul className="max-h-52 overflow-y-auto">
         {shown.map((i) => (
           <li key={i.value}>
@@ -98,6 +103,7 @@ function PickList({ items, onPick, empty }: { items: { value: string; label: str
 }
 
 function ContactInput({ kind, onAdd }: { kind: 'EMAIL' | 'MOBILE'; onAdd: (entries: RecipientEntry[]) => void }) {
+  const { t } = useTranslation();
   const [text, setText] = useState('');
   const [invalid, setInvalid] = useState<string[]>([]);
   const add = () => {
@@ -118,19 +124,20 @@ function ContactInput({ kind, onAdd }: { kind: 'EMAIL' | 'MOBILE'; onAdd: (entri
           }
         }}
         placeholder={kind === 'EMAIL' ? 'ops@company.in, security@company.in' : '98765 43210, +91 91234 56789'}
-        aria-label={kind === 'EMAIL' ? 'Email addresses' : 'Mobile numbers'}
+        aria-label={kind === 'EMAIL' ? t('Email addresses') : t('Mobile numbers')}
         className="h-8"
       />
-      {invalid.length > 0 && <p className="text-xs text-destructive">Not valid: {invalid.join(', ')}</p>}
-      <p className="text-xs text-muted-foreground">{kind === 'EMAIL' ? 'Separate several with commas.' : 'Indian mobiles; saved as +91XXXXXXXXXX.'}</p>
+      {invalid.length > 0 && <p className="text-xs text-destructive">{t('Not valid: {{values}}', { values: invalid.join(', ') })}</p>}
+      <p className="text-xs text-muted-foreground">{kind === 'EMAIL' ? t('Separate several with commas.') : t('Indian mobiles; saved as +91XXXXXXXXXX.')}</p>
       <Button size="sm" onClick={add} disabled={!text.trim()}>
-        Add
+        {t('Add')}
       </Button>
     </div>
   );
 }
 
 function EntryPicker({ channel, onAdd, disabled }: { channel: NotifyChannel; onAdd: (entries: RecipientEntry[]) => void; disabled?: boolean }) {
+  const { t } = useTranslation();
   const dir = useDirectory();
   const [open, setOpen] = useState(false);
   const kinds = KINDS[channel].filter((k) => (k === 'USER' ? dir.canUsers : k === 'ROLE' ? dir.canRoles : true));
@@ -143,7 +150,7 @@ function EntryPicker({ channel, onAdd, disabled }: { channel: NotifyChannel; onA
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={disabled}>
-          <PlusIcon className="size-3.5" /> Add
+          <PlusIcon className="size-3.5" /> {t('Add')}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-2">
@@ -151,23 +158,27 @@ function EntryPicker({ channel, onAdd, disabled }: { channel: NotifyChannel; onA
           <TabsList className="w-full">
             {kinds.map((k) => (
               <TabsTrigger key={k} value={k} className="px-1.5 text-xs">
-                {tabLabel[k]}
+                {t(tabLabel[k])}
               </TabsTrigger>
             ))}
           </TabsList>
           <div className="pt-2">
             <TabsContent value="USER">
               <PickList
-                empty="No users"
+                empty={t('No users')}
                 items={dir.users.map((u) => ({ value: u.id, label: u.name, hint: [u.email, u.mobile].filter(Boolean).join(' · ') }))}
                 onPick={(i) => pick([{ kind: 'USER', value: i.value, label: i.label }])}
               />
             </TabsContent>
             <TabsContent value="ROLE">
-              <PickList empty="No roles" items={dir.roles.map((r) => ({ value: r.id, label: r.name, hint: `${r.userCount} user(s)` }))} onPick={(i) => pick([{ kind: 'ROLE', value: i.value, label: `Role: ${i.label}` }])} />
+              <PickList empty={t('No roles')} items={dir.roles.map((r) => ({ value: r.id, label: r.name, hint: t('{{count}} user(s)', { count: r.userCount }) }))} onPick={(i) => pick([{ kind: 'ROLE', value: i.value, label: `Role: ${i.label}` }])} />
             </TabsContent>
             <TabsContent value="DYNAMIC">
-              <PickList empty="—" items={DYNAMIC} onPick={(i) => pick([{ kind: 'DYNAMIC', value: i.value, label: i.label }])} />
+              <PickList
+                empty="—"
+                items={DYNAMIC.map((d) => ({ ...d, label: t(d.label), hint: t(d.hint) }))}
+                onPick={(i) => pick([{ kind: 'DYNAMIC', value: i.value, label: DYNAMIC.find((d) => d.value === i.value)?.label ?? i.label }])}
+              />
             </TabsContent>
             <TabsContent value="EMAIL">
               <ContactInput kind="EMAIL" onAdd={pick} />
@@ -199,22 +210,23 @@ function ChannelRow({
   pending: boolean;
   readOnly: boolean;
 }) {
+  const { t } = useTranslation();
   const dir = useDirectory();
   const Icon = CHANNEL_ICON[channel];
   const mode: RecipientMode = list?.mode ?? (isDefaultList ? 'ONLY' : 'DEFAULT');
   const entries = list?.entries ?? [];
   const showEntries = isDefaultList ? mode !== 'NONE' && mode !== 'DEFAULT' : modeUsesEntries(mode);
   const modes = isDefaultList ? (['ADD', 'ONLY', 'NONE'] as RecipientMode[]) : MODES;
-  const modeLabel = (m: RecipientMode) => (isDefaultList ? { DEFAULT: 'Inherit', ADD: 'Inherited + these', ONLY: 'Only these', NONE: 'Nobody' }[m] : MODE_LABEL[m]);
+  const modeLabel = (m: RecipientMode) => t(isDefaultList ? { DEFAULT: 'Inherit', ADD: 'Inherited + these', ONLY: 'Only these', NONE: 'Nobody' }[m] : MODE_LABEL[m]);
 
   return (
     <div className="grid gap-2 rounded-lg border p-2.5 sm:grid-cols-[7.5rem_11rem_1fr] sm:items-start">
       <div className="flex items-center gap-2 pt-1 text-sm font-medium">
         <Icon className="size-4 text-muted-foreground" />
-        {CHANNEL_LABEL[channel]}
+        {t(CHANNEL_LABEL[channel])}
       </div>
       <Select value={mode} onValueChange={(m) => onSave(m as RecipientMode, entries)} disabled={readOnly || pending}>
-        <SelectTrigger className="h-8 text-xs" aria-label={`${CHANNEL_LABEL[channel]} recipients mode`}>
+        <SelectTrigger className="h-8 text-xs" aria-label={t('{{channel}} recipients mode', { channel: t(CHANNEL_LABEL[channel]) })}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -226,8 +238,8 @@ function ChannelRow({
         </SelectContent>
       </Select>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        {!list && <span className="text-xs text-muted-foreground">{isDefaultList ? 'Inherited from the level above' : 'Uses the default list'}</span>}
-        {list && !showEntries && <span className="text-xs text-muted-foreground">{mode === 'NONE' ? 'Nobody is notified on this channel' : 'Uses the default list'}</span>}
+        {!list && <span className="text-xs text-muted-foreground">{isDefaultList ? t('Inherited from the level above') : t('Uses the default list')}</span>}
+        {list && !showEntries && <span className="text-xs text-muted-foreground">{mode === 'NONE' ? t('Nobody is notified on this channel') : t('Uses the default list')}</span>}
         {showEntries &&
           entries.map((e) => {
             const KIcon = KIND_ICON[e.kind];
@@ -236,18 +248,18 @@ function ChannelRow({
                 <KIcon className="size-3 shrink-0 opacity-70" />
                 <span className="truncate">{entryLabel(e, dir)}</span>
                 {!readOnly && (
-                  <button type="button" aria-label={`Remove ${entryLabel(e, dir)}`} className="rounded p-0.5 hover:bg-background/60" onClick={() => onSave(mode, entries.filter((x) => entryKey(x) !== entryKey(e)))} disabled={pending}>
+                  <button type="button" aria-label={t('Remove {{name}}', { name: entryLabel(e, dir) })} className="rounded p-0.5 hover:bg-background/60" onClick={() => onSave(mode, entries.filter((x) => entryKey(x) !== entryKey(e)))} disabled={pending}>
                     <XIcon className="size-3" />
                   </button>
                 )}
               </span>
             );
           })}
-        {showEntries && !entries.length && <span className="text-xs text-warning">No recipients yet</span>}
+        {showEntries && !entries.length && <span className="text-xs text-warning">{t('No recipients yet')}</span>}
         {showEntries && !readOnly && <EntryPicker channel={channel} disabled={pending} onAdd={(add) => onSave(mode, dedupeEntries([...entries, ...add]))} />}
         {list && !readOnly && (
-          <Tooltip content={`Remove this list (${levelLabel(list.level)} level) and inherit`}>
-            <Button variant="ghost" size="icon-sm" className="ml-auto size-7" aria-label="Reset recipients to inherited" onClick={onReset} disabled={pending}>
+          <Tooltip content={t('Remove this list ({{level}} level) and inherit', { level: t(levelLabel(list.level)) })}>
+            <Button variant="ghost" size="icon-sm" className="ml-auto size-7" aria-label={t('Reset recipients to inherited')} onClick={onReset} disabled={pending}>
               <RotateCcwIcon className="size-3.5" />
             </Button>
           </Tooltip>
@@ -275,6 +287,7 @@ export function RecipientsEditor({
   lists: RecipientListDto[];
   readOnly: boolean;
 }) {
+  const { t } = useTranslation();
   const [severity, setSeverity] = useState<AlertSeverity | '*'>('*');
   const put = usePutRecipientList(level, targetId);
   const del = useDeleteRecipientList();
@@ -287,21 +300,22 @@ export function RecipientsEditor({
     <div className="space-y-2">
       {!isDefaultList && (
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground">Applies to</span>
+        <span className="text-xs text-muted-foreground">{t('Applies to')}</span>
         <Select value={severity} onValueChange={(v) => setSeverity(v as AlertSeverity | '*')}>
-          <SelectTrigger className="h-7 w-auto min-w-[9rem] text-xs" aria-label="Severity for these lists">
+          <SelectTrigger className="h-7 w-auto min-w-[9rem] text-xs" aria-label={t('Severity for these lists')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="*">All severities</SelectItem>
+            <SelectItem value="*">{t('All severities')}</SelectItem>
             {(['INFO', 'WARNING', 'CRITICAL'] as AlertSeverity[]).map((s) => (
               <SelectItem key={s} value={s}>
-                {s.charAt(0) + s.slice(1).toLowerCase()} only{otherSeverities.has(s) ? ' •' : ''}
+                {t('{{severity}} only', { severity: t(SEVERITY_LABEL[s]) })}
+                {otherSeverities.has(s) ? ' •' : ''}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {otherSeverities.size > 0 && severity === '*' && <Badge variant="muted">Has severity-specific lists</Badge>}
+        {otherSeverities.size > 0 && severity === '*' && <Badge variant="muted">{t('Has severity-specific lists')}</Badge>}
       </div>
       )}
       {SENDABLE_CHANNELS.map((channel) => {

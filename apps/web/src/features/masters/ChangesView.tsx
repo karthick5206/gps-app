@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 /** Renders an audit `changes` payload: `{before, after}` objects as a field diff, anything else as JSON. */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -10,6 +12,7 @@ function show(v: unknown): string {
 }
 
 export function ChangesView({ changes }: { changes: unknown }) {
+  const { t } = useTranslation();
   if (changes === null || changes === undefined) return null;
   if (isRecord(changes) && ('before' in changes || 'after' in changes)) {
     const before = isRecord(changes.before) ? changes.before : {};
@@ -23,9 +26,9 @@ export function ChangesView({ changes }: { changes: unknown }) {
         <table className="w-full">
           <thead className="bg-muted/60 text-muted-foreground">
             <tr>
-              <th className="px-2 py-1.5 text-left font-medium">Field</th>
-              <th className="px-2 py-1.5 text-left font-medium">Before</th>
-              <th className="px-2 py-1.5 text-left font-medium">After</th>
+              <th className="px-2 py-1.5 text-left font-medium">{t('Field')}</th>
+              <th className="px-2 py-1.5 text-left font-medium">{t('Before')}</th>
+              <th className="px-2 py-1.5 text-left font-medium">{t('After')}</th>
             </tr>
           </thead>
           <tbody>

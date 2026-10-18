@@ -127,6 +127,6 @@ export class AuthController {
 
   @SkipThrottle() @Patch('me/preferences')
   setPreferences(@Auth() ctx: AuthContext, @Body() dto: PreferencesDto): Promise<Me> {
-    return this.me.setTheme(ctx, dto.theme);
+    return this.me.setPreferences(ctx, dto);
   }
 }

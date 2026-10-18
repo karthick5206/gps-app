@@ -3,6 +3,7 @@ import type { BranchDto, GeofenceDto, GeofenceMode, LiveObject, TimeWindow, Trac
 import { CrosshairIcon, LockIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import { FormError } from '@/components/form-error';
 import { Badge } from '@/components/ui/badge';
@@ -100,6 +101,7 @@ function useVehiclePositions(enabled: boolean) {
 
 /** Full-screen geofence editor: map drawing on the left, all fields on the right, visits tab when editing. */
 export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<GeofenceDto>) {
+  const { t } = useTranslation();
   const { can, me } = useAuth();
   const assignedScope = me?.dataScope === 'ASSIGNED';
   // ASSIGNED users can't edit company-wide geofences (server enforces; mirror it in the UI).
@@ -165,18 +167,19 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
   };
 
   const submit = form.handleSubmit((v) => {
-    const gErr = validateGeometry(geometry);
+    const tr = (k: string, vars?: Record<string, string>) => t(k, vars);
+    const gErr = validateGeometry(geometry, tr);
     if (gErr) {
       setGeometryError(gErr);
       return;
     }
-    const twErr = timeWindows.map(validateWindow).find(Boolean);
+    const twErr = timeWindows.map((w) => validateWindow(w, tr)).find(Boolean);
     if (twErr) {
-      setGeometryError(`Time windows: ${twErr}`);
+      setGeometryError(t('Time windows: {{error}}', { error: twErr }));
       return;
     }
     if (assignedScope && !v.branchId) {
-      form.setError('branchId', { message: 'Choose one of your branches as owner' });
+      form.setError('branchId', { message: t('Choose one of your branches as owner') });
       return;
     }
     save.mutate({
@@ -237,29 +240,29 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
             <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3 pr-12">
               <div className="min-w-0 flex-1">
                 <DialogTitle className="flex items-center gap-2 truncate">
-                  {record ? `Edit ${record.name}` : 'New geofence'}
+                  {record ? t('Edit {{name}}', { name: record.name }) : t('New geofence')}
                   {readOnly && (
                     <Badge variant="muted">
-                      <LockIcon /> Company-wide, read only
+                      <LockIcon /> {t('Company-wide, read only')}
                     </Badge>
                   )}
                 </DialogTitle>
-                <DialogDescription className="text-xs">Draw the zone on the map, then set the rules on the right.</DialogDescription>
+                <DialogDescription className="text-xs">{t('Draw the zone on the map, then set the rules on the right.')}</DialogDescription>
               </div>
               {record && (
                 <TabsList>
-                  <TabsTrigger value="details">Details</TabsTrigger>
-                  <TabsTrigger value="visits">Visits</TabsTrigger>
+                  <TabsTrigger value="details">{t('Details')}</TabsTrigger>
+                  <TabsTrigger value="visits">{t('Visits')}</TabsTrigger>
                 </TabsList>
               )}
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => onOpenChange(false)} disabled={save.isPending}>
-                  {readOnly ? 'Close' : 'Cancel'}
+                  {readOnly ? t('Close') : t('Cancel')}
                 </Button>
                 {!readOnly && (
                   <Button type="submit" disabled={save.isPending}>
                     {save.isPending && <Spinner />}
-                    Save
+                    {t('Save')}
                   </Button>
                 )}
               </div>
@@ -282,20 +285,20 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                   </div>
                 )}
                 <fieldset disabled={readOnly} className="min-w-0">
-                  <Section title="Shape" description="Draw with the tools on the map, or place a circle at a vehicle.">
+                  <Section title={t('Shape')} description={t('Draw with the tools on the map, or place a circle at a vehicle.')}>
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       {geometry ? (
                         <>
-                          <Badge variant="secondary">{geometry.type === 'CIRCLE' ? 'Circle' : geometry.type === 'RECTANGLE' ? 'Rectangle' : `Polygon · ${geometry.points.length} points`}</Badge>
+                          <Badge variant="secondary">{geometry.type === 'CIRCLE' ? t('Circle') : geometry.type === 'RECTANGLE' ? t('Rectangle') : t('Polygon · {{count}} points', { count: geometry.points.length })}</Badge>
                           <span className="text-muted-foreground">{formatArea(areaM2(geometry))}</span>
                         </>
                       ) : (
-                        <span className="text-muted-foreground">Nothing drawn yet.</span>
+                        <span className="text-muted-foreground">{t('Nothing drawn yet.')}</span>
                       )}
                     </div>
                     {circle && (
                       <div className="grid grid-cols-3 gap-2">
-                        <Field label="Radius (m)" htmlFor="gf-radius" hint={`${MIN_RADIUS_M}–${MAX_RADIUS_M.toLocaleString()} m`}>
+                        <Field label={t('Radius (m)')} htmlFor="gf-radius" hint={`${MIN_RADIUS_M}–${MAX_RADIUS_M.toLocaleString()} m`}>
                           <Input
                             id="gf-radius"
                             type="number"
@@ -313,46 +316,46 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                             }}
                           />
                         </Field>
-                        <Field label="Centre lat" htmlFor="gf-lat">
+                        <Field label={t('Centre lat')} htmlFor="gf-lat">
                           <Input id="gf-lat" type="number" step="0.000001" defaultValue={circle.center.lat.toFixed(6)} key={`lat-${circle.center.lat}`} onBlur={(e) => setCenter('lat', e.target.value)} />
                         </Field>
-                        <Field label="Centre lng" htmlFor="gf-lng">
+                        <Field label={t('Centre lng')} htmlFor="gf-lng">
                           <Input id="gf-lng" type="number" step="0.000001" defaultValue={circle.center.lng.toFixed(6)} key={`lng-${circle.center.lng}`} onBlur={(e) => setCenter('lng', e.target.value)} />
                         </Field>
                       </div>
                     )}
                     {can('live_map') && (
-                      <Field label="Use vehicle location" hint="Centres a circle on the vehicle's last position.">
+                      <Field label={t('Use vehicle location')} hint={t("Centres a circle on the vehicle's last position.")}>
                         <div className="flex items-center gap-2">
                           <CrosshairIcon className="size-4 shrink-0 text-muted-foreground" />
-                          <Combobox value={null} onChange={useVehicle} options={vehicleOptions} placeholder="Pick a vehicle…" searchPlaceholder="Search vehicles…" />
+                          <Combobox value={null} onChange={useVehicle} options={vehicleOptions} placeholder={t('Pick a vehicle…')} searchPlaceholder={t('Search vehicles…')} />
                         </div>
                       </Field>
                     )}
                   </Section>
 
-                  <Section title="Details">
-                    <TextField form={form} name="name" label="Name" required />
+                  <Section title={t('Details')}>
+                    <TextField form={form} name="name" label={t('Name')} required />
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <SelectField form={form} name="category" label="Category" options={categories.options} required />
+                      <SelectField form={form} name="category" label={t('Category')} options={categories.options} required />
                       {can('branches') ? (
                         <ComboboxField
                           form={form}
                           name="branchId"
-                          label="Owner branch"
+                          label={t('Owner branch')}
                           options={branches.options}
                           loading={branches.loading}
-                          placeholder={assignedScope ? 'Choose a branch' : 'Company-wide'}
-                          hint={assignedScope ? undefined : 'Empty = shared company-wide'}
+                          placeholder={assignedScope ? t('Choose a branch') : t('Company-wide')}
+                          hint={assignedScope ? undefined : t('Empty = shared company-wide')}
                           selectedOption={record?.branchId ? { value: record.branchId, label: record.branchName ?? '' } : null}
                         />
                       ) : (
-                        <Field label="Owner branch">
-                          <Input value={record?.branchName ?? 'Company-wide'} disabled />
+                        <Field label={t('Owner branch')}>
+                          <Input value={record?.branchName ?? t('Company-wide')} disabled />
                         </Field>
                       )}
                     </div>
-                    <Field label="Colour">
+                    <Field label={t('Colour')}>
                       <Controller
                         control={form.control}
                         name="color"
@@ -362,28 +365,28 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                               <button
                                 key={c}
                                 type="button"
-                                aria-label={`Colour ${c}`}
+                                aria-label={t('Colour {{color}}', { color: c })}
                                 aria-pressed={field.value.toLowerCase() === c}
                                 onClick={() => field.onChange(c)}
                                 className={cn('size-7 rounded-full border-2 transition-transform focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none', field.value.toLowerCase() === c ? 'scale-110 border-foreground' : 'border-transparent')}
                                 style={{ backgroundColor: c }}
                               />
                             ))}
-                            <input type="color" aria-label="Custom colour" value={field.value} onChange={(e) => field.onChange(e.target.value)} className="h-7 w-9 cursor-pointer rounded border bg-transparent" />
+                            <input type="color" aria-label={t('Custom colour')} value={field.value} onChange={(e) => field.onChange(e.target.value)} className="h-7 w-9 cursor-pointer rounded border bg-transparent" />
                           </div>
                         )}
                       />
                     </Field>
-                    <TextField form={form} name="address" label="Address" placeholder="Optional" />
-                    <TextField form={form} name="description" label="Description" multiline />
+                    <TextField form={form} name="address" label={t('Address')} placeholder={t('Optional')} />
+                    <TextField form={form} name="description" label={t('Description')} multiline />
                   </Section>
 
-                  <Section title="Rules">
+                  <Section title={t('Rules')}>
                     <Controller
                       control={form.control}
                       name="mode"
                       render={({ field }) => (
-                        <div role="radiogroup" aria-label="Mode" className="grid gap-2">
+                        <div role="radiogroup" aria-label={t('Mode')} className="grid gap-2">
                           {MODES.map((m) => (
                             <button
                               key={m}
@@ -398,8 +401,8 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                             >
                               <span className={cn('mt-1 size-3.5 shrink-0 rounded-full border-2', field.value === m ? 'border-primary bg-primary shadow-[inset_0_0_0_2px] shadow-card' : 'border-input')} />
                               <span>
-                                <span className="block text-sm font-medium">{MODE_LABEL[m]}</span>
-                                <span className="block text-xs text-muted-foreground">{MODE_HINT[m]}</span>
+                                <span className="block text-sm font-medium">{t(MODE_LABEL[m])}</span>
+                                <span className="block text-xs text-muted-foreground">{t(MODE_HINT[m])}</span>
                               </span>
                             </button>
                           ))}
@@ -407,43 +410,43 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                       )}
                     />
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <Controller control={form.control} name="notifyEnter" render={({ field }) => <SwitchRow label="Alert on entry" checked={field.value} onChange={field.onChange} disabled={readOnly} />} />
-                      <Controller control={form.control} name="notifyExit" render={({ field }) => <SwitchRow label="Alert on exit" checked={field.value} onChange={field.onChange} disabled={readOnly} />} />
+                      <Controller control={form.control} name="notifyEnter" render={({ field }) => <SwitchRow label={t('Alert on entry')} checked={field.value} onChange={field.onChange} disabled={readOnly} />} />
+                      <Controller control={form.control} name="notifyExit" render={({ field }) => <SwitchRow label={t('Alert on exit')} checked={field.value} onChange={field.onChange} disabled={readOnly} />} />
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <TextField form={form} name="maxStayMin" label="Max stay (min)" type="number" placeholder="No limit" hint="Alert when a vehicle stays longer" />
-                      <TextField form={form} name="speedLimitKph" label="Zone speed limit (km/h)" type="number" placeholder="None" hint="Overspeed inside this zone" />
+                      <TextField form={form} name="maxStayMin" label={t('Max stay (min)')} type="number" placeholder={t('No limit')} hint={t('Alert when a vehicle stays longer')} />
+                      <TextField form={form} name="speedLimitKph" label={t('Zone speed limit (km/h)')} type="number" placeholder={t('None')} hint={t('Overspeed inside this zone')} />
                     </div>
                   </Section>
 
-                  <Section title="Time windows" description="When the geofence is active (company timezone).">
+                  <Section title={t('Time windows')} description={t('When the geofence is active (company timezone).')}>
                     <TimeWindowsEditor value={timeWindows} onChange={setTimeWindows} disabled={readOnly} />
                   </Section>
 
-                  <Section title="Applies to">
+                  <Section title={t('Applies to')}>
                     <Controller
                       control={form.control}
                       name="appliesAll"
-                      render={({ field }) => <SwitchRow label="All vehicles" hint="Turn off to choose branches, groups or vehicles" checked={field.value} onChange={field.onChange} disabled={readOnly} />}
+                      render={({ field }) => <SwitchRow label={t('All vehicles')} hint={t('Turn off to choose branches, groups or vehicles')} checked={field.value} onChange={field.onChange} disabled={readOnly} />}
                     />
                     {!appliesAll && (
                       <div className="space-y-3">
                         {can('branches') && (
-                          <Field label="Branches">
-                            <Controller control={form.control} name="branchIds" render={({ field }) => <MultiSelect value={field.value} onChange={field.onChange} options={branches.options} loading={branches.loading} placeholder="Any branch…" />} />
+                          <Field label={t('Branches')}>
+                            <Controller control={form.control} name="branchIds" render={({ field }) => <MultiSelect value={field.value} onChange={field.onChange} options={branches.options} loading={branches.loading} placeholder={t('Any branch…')} />} />
                           </Field>
                         )}
                         {can('vehicle_groups') && (
-                          <Field label="Vehicle groups">
-                            <Controller control={form.control} name="groupIds" render={({ field }) => <MultiSelect value={field.value} onChange={field.onChange} options={groups.options} loading={groups.loading} placeholder="Any group…" />} />
+                          <Field label={t('Vehicle groups')}>
+                            <Controller control={form.control} name="groupIds" render={({ field }) => <MultiSelect value={field.value} onChange={field.onChange} options={groups.options} loading={groups.loading} placeholder={t('Any group…')} />} />
                           </Field>
                         )}
-                        <Field label="Vehicles" error={form.formState.errors.objectIds?.message}>
+                        <Field label={t('Vehicles')} error={form.formState.errors.objectIds?.message ? t(form.formState.errors.objectIds.message) : undefined}>
                           <Controller
                             control={form.control}
                             name="objectIds"
                             render={({ field }) => (
-                              <MultiSelect value={field.value} onChange={field.onChange} options={objects.options} loading={objects.loading} onSearch={setObjectQ} placeholder="Pick vehicles…" />
+                              <MultiSelect value={field.value} onChange={field.onChange} options={objects.options} loading={objects.loading} onSearch={setObjectQ} placeholder={t('Pick vehicles…')} />
                             )}
                           />
                         </Field>
@@ -451,8 +454,8 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                     )}
                   </Section>
 
-                  <Section title="Status">
-                    <Controller control={form.control} name="isActive" render={({ field }) => <SwitchRow label="Active" hint="Inactive geofences raise no alerts" checked={field.value} onChange={field.onChange} disabled={readOnly} />} />
+                  <Section title={t('Status')}>
+                    <Controller control={form.control} name="isActive" render={({ field }) => <SwitchRow label={t('Active')} hint={t('Inactive geofences raise no alerts')} checked={field.value} onChange={field.onChange} disabled={readOnly} />} />
                   </Section>
                 </fieldset>
               </div>

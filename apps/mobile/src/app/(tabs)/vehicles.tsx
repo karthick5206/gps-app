@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { TruckIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FlatList, RefreshControl, View } from 'react-native';
 import { Card, EmptyState, SearchInput } from '@/components/ui';
 import { matches, StatusChips, VehicleSummary, type StatusFilter } from '@/features/live/components';
@@ -9,6 +10,7 @@ import { useLiveVersion, useNow } from '@/features/live/use-live';
 import { SPACE } from '@/lib/theme';
 
 export default function VehiclesScreen() {
+  const { t } = useTranslation();
   const version = useLiveVersion(2000);
   const now = useNow();
   const [q, setQ] = useState('');
@@ -30,7 +32,7 @@ export default function VehiclesScreen() {
     <View style={{ flex: 1 }}>
       <View style={{ gap: SPACE.sm, paddingVertical: SPACE.sm }}>
         <View style={{ paddingHorizontal: SPACE.lg }}>
-          <SearchInput value={q} onChangeText={setQ} placeholder="Search vehicle, plate or IMEI" />
+          <SearchInput value={q} onChangeText={setQ} placeholder={t('Search vehicle, plate or IMEI')} />
         </View>
         <StatusChips objects={searched} value={status} onChange={setStatus} />
       </View>
@@ -45,7 +47,7 @@ export default function VehiclesScreen() {
           </Card>
         )}
         ListEmptyComponent={
-          liveStore.snapshotLoaded ? <EmptyState icon={TruckIcon} title={all.length ? 'No matching vehicles' : 'No vehicles yet'} description={all.length ? 'Try another search or status.' : 'Vehicles added on the web appear here.'} /> : undefined
+          liveStore.snapshotLoaded ? <EmptyState icon={TruckIcon} title={all.length ? t('No matching vehicles') : t('No vehicles yet')} description={all.length ? t('Try another search or status.') : t('Vehicles added on the web appear here.')} /> : undefined
         }
       />
     </View>

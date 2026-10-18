@@ -1,4 +1,6 @@
 import { ALERT_TYPES, type ReportOptions, type ReportType } from '@veetracer/shared';
+import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { MultiSelect } from '@/components/ui/multi-select';
@@ -49,6 +51,7 @@ function NumberField({
   max: number;
   onChange: (v: number | undefined) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Field label={label} htmlFor={id} hint={hint} className="sm:w-48">
       <Input
@@ -57,7 +60,7 @@ function NumberField({
         inputMode="numeric"
         min={min}
         max={max}
-        placeholder={fallback === undefined ? 'Any' : String(fallback)}
+        placeholder={fallback === undefined ? t('Any') : String(fallback)}
         value={value ?? ''}
         onChange={(e) => {
           const n = e.target.value === '' ? undefined : Math.round(Number(e.target.value));
@@ -70,6 +73,8 @@ function NumberField({
 
 /** Extra inputs for the selected report type; renders nothing for types without options. */
 export function ReportOptionsFields({ type, value, onChange }: { type: ReportType; value: ReportOptions; onChange: (v: ReportOptions) => void }) {
+  const { t } = useTranslation();
+  const alertOptions = useMemo(() => ALERT_OPTIONS.map((o) => ({ ...o, label: t(o.label), description: t(o.description) })), [t]);
   const set = (patch: Partial<ReportOptions>) => onChange({ ...value, ...patch });
   switch (type) {
     case 'HALT':
@@ -78,8 +83,8 @@ export function ReportOptionsFields({ type, value, onChange }: { type: ReportTyp
       return (
         <NumberField
           id="r-min-duration"
-          label="Minimum duration (min)"
-          hint={type === 'HALT' ? 'Parked at least this long' : 'Leave empty for all stops'}
+          label={t('Minimum duration (min)')}
+          hint={type === 'HALT' ? t('Parked at least this long') : t('Leave empty for all stops')}
           value={value.minDurationMin}
           fallback={type === 'HALT' ? OPTION_DEFAULTS.haltMin : undefined}
           min={1}
@@ -90,23 +95,23 @@ export function ReportOptionsFields({ type, value, onChange }: { type: ReportTyp
     case 'ALERTS':
     case 'EVENT_SUMMARY':
       return (
-        <Field label="Event types" className="sm:w-80">
-          <MultiSelect value={value.alertTypes ?? []} onChange={(alertTypes) => set({ alertTypes })} options={ALERT_OPTIONS} placeholder="All event types" />
+        <Field label={t('Event types')} className="sm:w-80">
+          <MultiSelect value={value.alertTypes ?? []} onChange={(alertTypes) => set({ alertTypes })} options={alertOptions} placeholder={t('All event types')} />
         </Field>
       );
     case 'CONTINUOUS_DRIVING':
       return (
         <div className="flex flex-col gap-3 sm:flex-row">
-          <NumberField id="r-driving" label="Driving limit (min)" hint="Report stretches at least this long" value={value.drivingMin} fallback={OPTION_DEFAULTS.drivingMin} min={30} max={1440} onChange={(drivingMin) => set({ drivingMin })} />
-          <NumberField id="r-break" label="Required break (min)" hint="A stop this long resets driving" value={value.breakMin} fallback={OPTION_DEFAULTS.breakMin} min={1} max={240} onChange={(breakMin) => set({ breakMin })} />
+          <NumberField id="r-driving" label={t('Driving limit (min)')} hint={t('Report stretches at least this long')} value={value.drivingMin} fallback={OPTION_DEFAULTS.drivingMin} min={30} max={1440} onChange={(drivingMin) => set({ drivingMin })} />
+          <NumberField id="r-break" label={t('Required break (min)')} hint={t('A stop this long resets driving')} value={value.breakMin} fallback={OPTION_DEFAULTS.breakMin} min={1} max={240} onChange={(breakMin) => set({ breakMin })} />
         </div>
       );
     case 'OVERSPEED':
       return (
         <NumberField
           id="r-overspeed"
-          label="Ignore shorter than (s)"
-          hint="Skip brief spikes above the limit"
+          label={t('Ignore shorter than (s)')}
+          hint={t('Skip brief spikes above the limit')}
           value={value.minOverspeedSec}
           fallback={OPTION_DEFAULTS.minOverspeedSec}
           min={0}
@@ -118,8 +123,8 @@ export function ReportOptionsFields({ type, value, onChange }: { type: ReportTyp
       return (
         <NumberField
           id="r-inactive"
-          label="Inactive after (min)"
-          hint="No data for this long = inactive"
+          label={t('Inactive after (min)')}
+          hint={t('No data for this long = inactive')}
           value={value.inactiveAfterMin}
           fallback={OPTION_DEFAULTS.inactiveAfterMin}
           min={5}

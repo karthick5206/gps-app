@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation } from 'react-router';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useAuth } from '@/features/auth/auth-context';
@@ -23,6 +24,7 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(() => storage.get(STORAGE_KEYS.sidebarCollapsed) === '1');
   const [mobileOpen, setMobileOpen] = useState(false);
   const { pathname } = useLocation();
+  const { t } = useTranslation();
   useRealtimeConnection();
 
   useEffect(() => setMobileOpen(false), [pathname]);
@@ -41,7 +43,7 @@ export function AppShell() {
       </aside>
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-72 border-sidebar-border bg-sidebar p-0" aria-describedby={undefined}>
-          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          <SheetTitle className="sr-only">{t('Navigation')}</SheetTitle>
           <Sidebar onNavigate={() => setMobileOpen(false)} />
         </SheetContent>
       </Sheet>

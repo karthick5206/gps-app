@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { StyleSheet, Switch, View } from 'react-native';
 import { PickerSheet, type PickOption } from '@/components/PickerSheet';
 import { SelectField } from '@/components/pickers';
@@ -11,7 +12,7 @@ export function ChoiceField({
   value,
   options,
   onChange,
-  emptyLabel = 'None',
+  emptyLabel: emptyLabelProp,
   allowEmpty = true,
   error,
 }: {
@@ -25,6 +26,8 @@ export function ChoiceField({
 }) {
   const [open, setOpen] = useState(false);
   const c = useColors();
+  const { t } = useTranslation();
+  const emptyLabel = emptyLabelProp ?? t('None');
   const shown = value ? (options.find((o) => o.value === value)?.label ?? '…') : emptyLabel;
   return (
     <View style={{ gap: 4 }}>

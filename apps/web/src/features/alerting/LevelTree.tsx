@@ -1,6 +1,7 @@
 import type { AlertLevel, BranchDto, TrackedObjectDto, VehicleGroupDto } from '@veetracer/shared';
 import { Building2Icon, ChevronDownIcon, LayersIcon, SearchIcon, TruckIcon, WarehouseIcon, type LucideIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth, useMe } from '@/features/auth/auth-context';
@@ -53,6 +54,7 @@ function Node({ active, onClick, children, sub }: { active: boolean; onClick: ()
 
 /** Level tree: Company → Branches, Vehicle groups, Vehicles (server-side search). */
 export function LevelTree({ value, onChange, className }: { value: Target | null; onChange: (t: Target) => void; className?: string }) {
+  const { t } = useTranslation();
   const me = useMe();
   const { can } = useAuth();
   const [filter, setFilter] = useState('');
@@ -69,9 +71,9 @@ export function LevelTree({ value, onChange, className }: { value: Target | null
     <div className={cn('flex min-h-0 flex-col', className)}>
       <div className="relative p-2">
         <SearchIcon className="pointer-events-none absolute top-1/2 left-4.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter branches & groups" aria-label="Filter levels" className="h-8 pl-8" />
+        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t('Filter branches & groups')} aria-label={t('Filter levels')} className="h-8 pl-8" />
       </div>
-      <nav aria-label="Settings level" className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
+      <nav aria-label={t('Settings level')} className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
         <ul>
           <Node active={is('COMPANY', me.company.id)} onClick={() => onChange({ level: 'COMPANY', id: me.company.id, name: me.company.name })}>
             <span className="flex items-center gap-2">
@@ -81,30 +83,30 @@ export function LevelTree({ value, onChange, className }: { value: Target | null
           </Node>
         </ul>
         {can('branches') && (
-          <Section title="Branches" icon={WarehouseIcon} count={branches.rows.length}>
+          <Section title={t('Branches')} icon={WarehouseIcon} count={branches.rows.length}>
             {branches.loading && !branches.rows.length && <Skeleton className="mx-2 h-6" />}
             {branchRows.map((b) => (
               <Node key={b.id} active={is('BRANCH', b.id)} onClick={() => onChange({ level: 'BRANCH', id: b.id, name: b.name })} sub={`${b.objectCount}`}>
                 {b.name}
               </Node>
             ))}
-            {!branches.loading && !branchRows.length && <li className="px-2.5 py-1 text-xs text-muted-foreground">No branches</li>}
+            {!branches.loading && !branchRows.length && <li className="px-2.5 py-1 text-xs text-muted-foreground">{t('No branches')}</li>}
           </Section>
         )}
         {can('vehicle_groups') && (
-          <Section title="Vehicle groups" icon={LayersIcon} count={groups.rows.length}>
+          <Section title={t('Vehicle groups')} icon={LayersIcon} count={groups.rows.length}>
             {groupRows.map((g) => (
               <Node key={g.id} active={is('GROUP', g.id)} onClick={() => onChange({ level: 'GROUP', id: g.id, name: g.name })} sub={`${g.objects.length}`}>
                 {g.name}
               </Node>
             ))}
-            {!groups.loading && !groupRows.length && <li className="px-2.5 py-1 text-xs text-muted-foreground">No groups</li>}
+            {!groups.loading && !groupRows.length && <li className="px-2.5 py-1 text-xs text-muted-foreground">{t('No groups')}</li>}
           </Section>
         )}
         {can('objects') && (
-          <Section title="Vehicles" icon={TruckIcon}>
+          <Section title={t('Vehicles')} icon={TruckIcon}>
             <li className="px-1 pb-1">
-              <Input value={objectQ} onChange={(e) => setObjectQ(e.target.value)} placeholder="Search vehicles…" aria-label="Search vehicles" className="h-8" />
+              <Input value={objectQ} onChange={(e) => setObjectQ(e.target.value)} placeholder={t('Search vehicles…')} aria-label={t('Search vehicles')} className="h-8" />
             </li>
             {objects.rows.slice(0, 100).map((o) => (
               <Node key={o.id} active={is('OBJECT', o.id)} onClick={() => onChange({ level: 'OBJECT', id: o.id, name: o.name, object: o })} sub={o.plateNumber}>
@@ -112,7 +114,7 @@ export function LevelTree({ value, onChange, className }: { value: Target | null
               </Node>
             ))}
             {objects.loading && !objects.rows.length && <Skeleton className="mx-2 h-6" />}
-            {!objects.loading && !objects.rows.length && <li className="px-2.5 py-1 text-xs text-muted-foreground">No vehicles</li>}
+            {!objects.loading && !objects.rows.length && <li className="px-2.5 py-1 text-xs text-muted-foreground">{t('No vehicles')}</li>}
           </Section>
         )}
       </nav>

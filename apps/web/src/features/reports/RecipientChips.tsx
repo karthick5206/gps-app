@@ -1,5 +1,6 @@
 import { MailIcon, XIcon } from 'lucide-react';
 import { useState, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { splitRecipients } from './report-format';
 
@@ -20,6 +21,7 @@ export function RecipientChips({
   onInvalidChange?: (message: string | null) => void;
   max?: number;
 }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState('');
 
   const commit = (text: string): boolean => {
@@ -28,7 +30,7 @@ export function RecipientChips({
     if (added.length) onChange([...value, ...added.slice(0, room)]);
     const leftover = bad.join(' ');
     setDraft(leftover);
-    onInvalidChange?.(bad.length ? `Not a valid email: ${bad.join(', ')}` : added.length > room ? `At most ${max} recipients` : null);
+    onInvalidChange?.(bad.length ? t('Not a valid email: {{emails}}', { emails: bad.join(', ') }) : added.length > room ? t('At most {{max}} recipients', { max }) : null);
     return !bad.length;
   };
 
@@ -62,7 +64,7 @@ export function RecipientChips({
         <span key={email} className="inline-flex max-w-full items-center gap-1 rounded-md bg-secondary py-0.5 pr-1 pl-1.5 text-xs font-medium text-secondary-foreground">
           <MailIcon className="size-3 opacity-60" aria-hidden />
           <span className="truncate">{email}</span>
-          <button type="button" aria-label={`Remove ${email}`} onClick={() => onChange(value.filter((v) => v !== email))} className="rounded p-0.5 hover:bg-background/60">
+          <button type="button" aria-label={t('Remove {{email}}', { email })} onClick={() => onChange(value.filter((v) => v !== email))} className="rounded p-0.5 hover:bg-background/60">
             <XIcon className="size-3" />
           </button>
         </span>

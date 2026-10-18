@@ -1,6 +1,7 @@
 import type { GeofenceDto, GeofenceMode, LookupDto, Paginated } from '@veetracer/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Option } from '@/components/ui/multi-select';
 import { useAuth } from '@/features/auth/auth-context';
 import { api } from '@/lib/api';
@@ -27,6 +28,7 @@ const FALLBACK_CATEGORIES = ['DEPOT', 'CUSTOMER', 'FUEL_STATION', 'SERVICE_CENTE
 
 /** GEOFENCE_CATEGORY lookup options; falls back to the seeded codes without `lookups:view`. */
 export function useCategoryOptions() {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const allowed = can('lookups');
   const q = useQuery({
@@ -40,10 +42,10 @@ export function useCategoryOptions() {
     const options: Option[] = items?.length
       ? items.map((l) => ({ value: l.code, label: l.label }))
       : FALLBACK_CATEGORIES.map((c) => ({ value: c, label: humanize(c) }));
-    if (!options.some((o) => o.value === 'OTHER')) options.push({ value: 'OTHER', label: 'Other' });
+    if (!options.some((o) => o.value === 'OTHER')) options.push({ value: 'OTHER', label: t('Other') });
     const labelOf = (code: string) => options.find((o) => o.value === code)?.label ?? humanize(code);
     return { options, labelOf };
-  }, [q.data]);
+  }, [q.data, t]);
 }
 
 /** Loads every active geofence (paged in 100s, capped) — for map layers and pickers. */

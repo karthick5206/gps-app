@@ -1,12 +1,14 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { DEFAULT_SPEED_LIMIT_KPH, type CompanyDto, type DeviceDto, type DeviceModelDto } from '@veetracer/shared';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type { Option } from '@/components/ui/multi-select';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
+import { i18n } from '@/lib/i18n';
 import { ActiveBadge, Dash, DateCell, Muted } from './cells';
 import { FormDialog, useSaveMutation } from './FormDialog';
 import { ComboboxField, SwitchField, TextField } from './form-fields';
@@ -50,6 +52,7 @@ export function DeviceForm({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -78,7 +81,7 @@ export function DeviceForm({
       try {
         await api.patch(`/objects/${vehicle.id}`, { speedLimitKph: numberOrNull(v.speedLimitKph) });
       } catch (err) {
-        toast.error(`Speed limit not saved: ${errorMessage(err)}`);
+        toast.error(t('Speed limit not saved: {{error}}', { error: errorMessage(err) }));
         return;
       }
     }
@@ -131,10 +134,12 @@ export function DeviceForm({
             type="number"
             className="sm:col-span-2"
             disabled={!canSetLimit}
-            placeholder={typeDefault ? `Default ${typeDefault}` : 'e.g. 50'}
+            placeholder={typeDefault ? t('Default {{n}}', { n: typeDefault }) : 'e.g. 50'}
             hint={
               vehicle
-                ? `Applies to ${vehicle.name}. Overspeed alerts fire above this speed. Leave empty for the vehicle-type default${typeDefault ? ` (${typeDefault} km/h)` : ''}.`
+                ? typeDefault
+                  ? t('Applies to {{name}}. Overspeed alerts fire above this speed. Leave empty for the vehicle-type default ({{n}} km/h).', { name: vehicle.name, n: typeDefault })
+                  : t('Applies to {{name}}. Overspeed alerts fire above this speed. Leave empty for the vehicle-type default.', { name: vehicle.name })
                 : 'Fit this device to a vehicle (Vehicles & Objects) to set its overspeed limit here.'
             }
           />
@@ -151,9 +156,9 @@ export function deviceColumns(withCompany: boolean): MasterColumn<DeviceDto>[] {
     { id: 'modelName', header: 'Model', sortable: true, cell: (r) => r.modelName },
     { id: 'protocol', header: 'Protocol', defaultHidden: true, cell: (r) => r.protocol },
     ...(withCompany
-      ? [{ id: 'companyName', header: 'Company', sortable: true, cell: (r: DeviceDto) => r.companyName ?? <Muted>Platform stock</Muted> }]
+      ? [{ id: 'companyName', header: 'Company', sortable: true, cell: (r: DeviceDto) => r.companyName ?? <Muted>{i18n.t('Platform stock')}</Muted> }]
       : []),
-    { id: 'object', header: 'Object', cell: (r) => r.object?.name ?? <Muted>Unassigned</Muted> },
+    { id: 'object', header: 'Object', cell: (r) => r.object?.name ?? <Muted>{i18n.t('Unassigned')}</Muted> },
     { id: 'simNumber', header: 'SIM', cell: (r) => <Dash value={r.simNumber} /> },
     { id: 'simOperator', header: 'Operator', defaultHidden: true, cell: (r) => <Dash value={r.simOperator} /> },
     { id: 'firmware', header: 'Firmware', defaultHidden: true, cell: (r) => <Dash value={r.firmware} /> },

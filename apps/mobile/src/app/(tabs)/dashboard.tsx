@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, MOVEMENT_STATUSES, STATUS_META, type AlertTypeCode, type DashboardOverview, type DashboardVehicleDistance } from '@veetracer/shared';
 import { router } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { alertIcon } from '@/features/alerts/alert-icons';
@@ -28,12 +29,13 @@ function Kpi({ label, value, hint }: { label: string; value: string; hint?: stri
 
 function DistanceList({ rows }: { rows: DashboardVehicleDistance[] }) {
   const c = useColors();
+  const { t } = useTranslation();
   const max = Math.max(1, ...rows.map((r) => r.distanceKm));
   return (
     <Card style={{ gap: SPACE.md }}>
       {rows.length === 0 && (
         <Text size="sm" tone="muted">
-          No distance recorded today.
+          {t('No distance recorded today.')}
         </Text>
       )}
       {rows.map((r) => (
@@ -50,7 +52,7 @@ function DistanceList({ rows }: { rows: DashboardVehicleDistance[] }) {
             <View style={{ width: `${(r.distanceKm / max) * 100}%`, height: 6, borderRadius: 3, backgroundColor: c.primary }} />
           </View>
           <Text size="xs" tone="muted">
-            Running {formatDuration(r.runningSec)}
+            {t('Running {{duration}}', { duration: formatDuration(r.runningSec) })}
           </Text>
         </Pressable>
       ))}
@@ -61,6 +63,7 @@ function DistanceList({ rows }: { rows: DashboardVehicleDistance[] }) {
 export default function DashboardScreen() {
   const scheme = useScheme();
   const c = useColors();
+  const { t } = useTranslation();
   const q = useQuery({
     queryKey: ['dashboard', 'overview'],
     queryFn: ({ signal }) => api.get<DashboardOverview>('/dashboard/overview', { top: 5 }, signal),
@@ -73,7 +76,7 @@ export default function DashboardScreen() {
       {q.isError && <ErrorBanner message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
       {d && (
         <>
-          <SectionTitle>Fleet now · {d.total} vehicles</SectionTitle>
+          <SectionTitle>{t('Fleet now · {{count}} vehicles', { count: d.total })}</SectionTitle>
           <View style={styles.grid}>
             {MOVEMENT_STATUSES.map((s) => (
               <Pressable key={s} onPress={() => router.push('/vehicles')} style={[styles.status, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -82,23 +85,23 @@ export default function DashboardScreen() {
                   {d.byStatus[s] ?? 0}
                 </Text>
                 <Text size="xs" tone="muted">
-                  {STATUS_META[s].label}
+                  {t(STATUS_META[s].label)}
                 </Text>
               </Pressable>
             ))}
           </View>
 
-          <SectionTitle>Today</SectionTitle>
+          <SectionTitle>{t('Today')}</SectionTitle>
           <View style={styles.grid}>
-            <Kpi label="Distance" value={`${Math.round(d.todayDistanceKm).toLocaleString()} km`} />
-            <Kpi label="Trips" value={d.todayTrips.toLocaleString()} />
-            <Kpi label="Devices online" value={`${d.devicesOnline} / ${d.total}`} />
-            <Kpi label="Alerts" value={d.todayAlerts.total.toLocaleString()} hint={d.todayAlerts.critical ? `${d.todayAlerts.critical} critical` : undefined} />
+            <Kpi label={t('Distance')} value={`${Math.round(d.todayDistanceKm).toLocaleString()} km`} />
+            <Kpi label={t('Trips')} value={d.todayTrips.toLocaleString()} />
+            <Kpi label={t('Devices online')} value={`${d.devicesOnline} / ${d.total}`} />
+            <Kpi label={t('Alerts')} value={d.todayAlerts.total.toLocaleString()} hint={d.todayAlerts.critical ? t('{{count}} critical', { count: d.todayAlerts.critical }) : undefined} />
           </View>
 
           {d.todayAlerts.byType.length > 0 && (
             <>
-              <SectionTitle>Alerts today</SectionTitle>
+              <SectionTitle>{t('Alerts today')}</SectionTitle>
               <Card style={{ gap: SPACE.sm }}>
                 {d.todayAlerts.byType.map((a) => {
                   const Icon = alertIcon(a.type);
@@ -106,7 +109,7 @@ export default function DashboardScreen() {
                     <Pressable key={a.type} onPress={() => router.push('/alerts')} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
                       <Icon size={18} color={c.mutedForeground} />
                       <Text size="sm" style={{ flex: 1 }}>
-                        {ALERT_TYPE_MAP[a.type as AlertTypeCode]?.label ?? a.type}
+                        {t(ALERT_TYPE_MAP[a.type as AlertTypeCode]?.label ?? a.type)}
                       </Text>
                       <Text size="sm" weight="600">
                         {a.count}
@@ -118,12 +121,12 @@ export default function DashboardScreen() {
             </>
           )}
 
-          <SectionTitle>Top distance today</SectionTitle>
+          <SectionTitle>{t('Top distance today')}</SectionTitle>
           <DistanceList rows={d.top} />
 
           {d.geofences.length > 0 && (
             <>
-              <SectionTitle>Inside geofences · {d.vehiclesInsideGeofences}</SectionTitle>
+              <SectionTitle>{t('Inside geofences · {{count}}', { count: d.vehiclesInsideGeofences })}</SectionTitle>
               <Card style={{ gap: SPACE.sm }}>
                 {d.geofences.map((g) => (
                   <View key={g.geofenceId} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
