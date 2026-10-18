@@ -120,13 +120,14 @@ export class DashboardService {
     const q: QueryCtx = { prisma: this.prisma, companyId: ctx.companyId, objects, ids, range: { gte: new Date(0), lt: new Date(now) }, maxRows: ids.length, options: { inactiveAfterMin } };
     const [status, clocks, todayRows, remarks] = await Promise.all([
       deviceStatusReport(q, now),
-      // Latest live (not late / not re-uploaded) packet per vehicle: device clock vs server clock.
+      // Latest live (not late / not re-uploaded) GPS fix per vehicle: device clock vs server clock. Points without a
+      // fix are skipped: trackers stamp them with a default date (e.g. years in the past) until GPS locks.
       this.prisma.$queryRaw<{ objectId: string; skew: number; age: number }[]>`
         SELECT DISTINCT ON ("objectId") "objectId",
                extract(epoch from ("fixTime" - "serverTime"))::float8 AS skew,
                extract(epoch from (now() - "serverTime"))::float8 AS age
         FROM "Position"
-        WHERE "objectId" = ANY(${ids}::uuid[]) AND (flags & ${POSITION_FLAGS.LATE}) = 0
+        WHERE "objectId" = ANY(${ids}::uuid[]) AND valid AND (flags & ${POSITION_FLAGS.LATE | POSITION_FLAGS.INVALID_FIX}) = 0
           AND NOT (attributes ? 'reupload') AND "serverTime" > now() - make_interval(secs => ${CLOCK_SAMPLE_MAX_AGE_SEC})
         ORDER BY "objectId", "serverTime" DESC`,
       this.prisma.dailySummary.findMany({ where: { objectId: { in: ids }, day: new Date(`${day}T00:00:00.000Z`) }, select: { objectId: true, distanceKm: true } }),
