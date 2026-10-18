@@ -1,32 +1,87 @@
-import { STATUS_META, type MovementStatus } from '@veetracer/shared';
-import { useColorScheme } from 'react-native';
+import { DEFAULT_THEME, normalizeTheme, STATUS_META, themeScheme, type MovementStatus, type ThemePreference } from '@veetracer/shared';
+import { useSyncExternalStore } from 'react';
 
-/** Same design tokens as the web app (apps/web/src/index.css). */
-const light = {
-  background: '#f6f8fa',
-  foreground: '#0f1d2b',
+/**
+ * Colour themes, the same as the web app (apps/web/src/index.css; ids and labels: THEMES in @veetracer/shared):
+ * Teal & Saffron (default), Plum & Pink, Sky & Cobalt, Light and Dark.
+ */
+const status = { destructive: '#dc2626', warning: '#d97706', success: '#16a34a', info: '#2563eb' };
+
+const teal = {
+  background: '#f5f8f7',
+  foreground: '#0f1d1b',
   card: '#ffffff',
-  primary: '#0f766e',
+  primary: '#0e5e57',
   primaryForeground: '#ffffff',
-  muted: '#f1f5f9',
-  mutedForeground: '#5a6b7d',
-  accent: '#e7f5f3',
-  accentForeground: '#0b3b5a',
-  destructive: '#dc2626',
-  warning: '#d97706',
-  success: '#16a34a',
-  info: '#2563eb',
-  border: '#e2e8f0',
-  brand: '#0b2e46',
+  muted: '#eff4f3',
+  mutedForeground: '#566966',
+  accent: '#e3f1ee',
+  accentForeground: '#0b3b36',
+  ...status,
+  border: '#dce6e3',
+  brand: '#0b3b36',
   brandForeground: '#ffffff',
-  brandAccent: '#2dd4bf',
+  brandAccent: '#ffb443',
 };
 
-const dark: typeof light = {
+type ColorsShape = typeof teal;
+
+const plum: ColorsShape = {
+  background: '#f8f5fa',
+  foreground: '#1e1225',
+  card: '#ffffff',
+  primary: '#5b1e78',
+  primaryForeground: '#ffffff',
+  muted: '#f3eef6',
+  mutedForeground: '#6a5a73',
+  accent: '#f1e4f7',
+  accentForeground: '#3e1052',
+  ...status,
+  border: '#e7ddec',
+  brand: '#3e1052',
+  brandForeground: '#ffffff',
+  brandAccent: '#ff9ecf',
+};
+
+const sky: ColorsShape = {
+  background: '#f3f7ff',
+  foreground: '#10183a',
+  card: '#ffffff',
+  primary: '#1f4fff',
+  primaryForeground: '#ffffff',
+  muted: '#edf2fd',
+  mutedForeground: '#55607f',
+  accent: '#e3ecff',
+  accentForeground: '#10183a',
+  ...status,
+  border: '#dce4f5',
+  brand: '#eaf1ff',
+  brandForeground: '#10183a',
+  brandAccent: '#ff6b4a',
+};
+
+const light: ColorsShape = {
+  background: '#f7f7f8',
+  foreground: '#17181c',
+  card: '#ffffff',
+  primary: '#0e5e57',
+  primaryForeground: '#ffffff',
+  muted: '#f2f3f5',
+  mutedForeground: '#5e6370',
+  accent: '#eef0f2',
+  accentForeground: '#17181c',
+  ...status,
+  border: '#e3e5e8',
+  brand: '#ffffff',
+  brandForeground: '#17181c',
+  brandAccent: '#ffb443',
+};
+
+const dark: ColorsShape = {
   background: '#08121d',
   foreground: '#e3ebf2',
   card: '#0d1a28',
-  primary: '#14b8a6',
+  primary: '#2bb3a3',
   primaryForeground: '#04201e',
   muted: '#122133',
   mutedForeground: '#8b9fb3',
@@ -39,20 +94,45 @@ const dark: typeof light = {
   border: '#1c2e42',
   brand: '#06101a',
   brandForeground: '#ffffff',
-  brandAccent: '#2dd4bf',
+  brandAccent: '#ffb443',
 };
 
-export type Colors = typeof light;
+export type Colors = ColorsShape;
 export type Scheme = 'light' | 'dark';
 
-export const COLORS: Record<Scheme, Colors> = { light, dark };
+export const COLORS: Record<ThemePreference, Colors> = { teal, plum, sky, light, dark };
+
+// Current theme (outside React so startup code can set it before the first render).
+type Listener = () => void;
+const listeners = new Set<Listener>();
+let current: ThemePreference = DEFAULT_THEME;
+
+export const themeState = {
+  get: () => current,
+  set(next: unknown) {
+    const theme = normalizeTheme(next);
+    if (theme === current) return;
+    current = theme;
+    listeners.forEach((l) => l());
+  },
+  subscribe(l: Listener) {
+    listeners.add(l);
+    return () => {
+      listeners.delete(l);
+    };
+  },
+};
+
+export function useTheme(): ThemePreference {
+  return useSyncExternalStore(themeState.subscribe, themeState.get);
+}
 
 export function useScheme(): Scheme {
-  return useColorScheme() === 'dark' ? 'dark' : 'light';
+  return themeScheme(useTheme());
 }
 
 export function useColors(): Colors {
-  return COLORS[useScheme()];
+  return COLORS[useTheme()];
 }
 
 export function statusColor(status: MovementStatus, scheme: Scheme): string {

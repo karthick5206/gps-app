@@ -101,7 +101,7 @@ export function Timeline({
 }) {
   const { t } = useTranslation();
   const idx = engine.index;
-  const { resolved } = useTheme();
+  const { preference } = useTheme();
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -123,7 +123,7 @@ export function Timeline({
 
   useEffect(() => {
     if (canvasRef.current && width) setYMax(drawSpeed(canvasRef.current, idx, width, CHART_H));
-  }, [idx, width, resolved]);
+  }, [idx, width, preference]);
 
   // Imperative cursor updates; aria value only on discrete moves.
   useEffect(

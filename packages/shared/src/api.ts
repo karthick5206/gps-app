@@ -2,7 +2,25 @@
 import type { DataScope, MenuKey, Action, PermissionMap } from './permissions';
 import type { ObjectType, VehicleType, StatusThresholds } from './tracking';
 
-export type ThemePreference = 'light' | 'dark' | 'system';
+/**
+ * Colour themes (profile; the web and mobile apps share them): four light palettes and one dark.
+ * Teal & Saffron is the brand default. `swatch` = [background, accent] for theme pickers.
+ */
+export const THEMES = [
+  { id: 'teal', label: 'Teal & Saffron', scheme: 'light', swatch: ['#0E5E57', '#FFB443'] },
+  { id: 'plum', label: 'Plum & Pink', scheme: 'light', swatch: ['#5B1E78', '#FF9ECF'] },
+  { id: 'sky', label: 'Sky & Cobalt', scheme: 'light', swatch: ['#EAF1FF', '#1F4FFF'] },
+  { id: 'light', label: 'Light', scheme: 'light', swatch: ['#FFFFFF', '#0E5E57'] },
+  { id: 'dark', label: 'Dark', scheme: 'dark', swatch: ['#08121D', '#FFB443'] },
+] as const;
+export type ThemePreference = (typeof THEMES)[number]['id'];
+export const THEME_IDS = THEMES.map((t) => t.id) as ThemePreference[];
+export const DEFAULT_THEME: ThemePreference = 'teal';
+export const themeScheme = (theme: ThemePreference): 'light' | 'dark' => (theme === 'dark' ? 'dark' : 'light');
+/** Stored value → theme; older profiles stored 'system', which becomes the default. */
+export function normalizeTheme(value: unknown): ThemePreference {
+  return THEME_IDS.includes(value as ThemePreference) ? (value as ThemePreference) : DEFAULT_THEME;
+}
 /** UI languages. */
 export const LANGUAGES = [
   { code: 'en', label: 'English', native: 'English', locale: 'en-IN' },

@@ -31,4 +31,16 @@ describe('Zoho CPaaS mail', () => {
     const bad = jest.fn(async () => new Response('{"error":{"code":"TM_3201","message":"Invalid from address"}}', { status: 400 })) as unknown as typeof fetch;
     await expect(sendZohoMail({ key: 'k', baseUrl: 'https://x' }, { from: 'a@b.in', to: 'x@y.in', subject: 'S', html: '', text: '' }, bad)).rejects.toThrow('Zoho mail HTTP 400');
   });
+
+  it('sends reply_to when configured', async () => {
+    let body: Record<string, unknown> = {};
+    const ok = jest.fn(async (_url: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return new Response('{}', { status: 201 });
+    }) as unknown as typeof fetch;
+    await sendZohoMail({ key: 'k', baseUrl: 'https://x' }, { from: 'VeeTracer <noreply@veetracer.com>', replyTo: 'info@vaidhika.in', to: 'x@y.in', subject: 'S', html: '', text: '' }, ok);
+    expect(body.reply_to).toEqual([{ address: 'info@vaidhika.in' }]);
+    await sendZohoMail({ key: 'k', baseUrl: 'https://x' }, { from: 'a@b.in', to: 'x@y.in', subject: 'S', html: '', text: '' }, ok);
+    expect(body.reply_to).toBeUndefined();
+  });
 });

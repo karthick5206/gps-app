@@ -7,11 +7,13 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>VeeTracer</title>
     <script>
-      // Apply the stored theme before first paint to avoid a light/dark flash.
+      // Apply the stored theme before first paint to avoid a colour flash (ids: THEMES in @veetracer/shared).
       (function () {
         try {
-          var pref = localStorage.getItem('vt.theme') || 'system';
-          var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var pref = localStorage.getItem('vt.theme');
+          if (['teal', 'plum', 'sky', 'light', 'dark'].indexOf(pref) < 0) pref = 'teal';
+          var dark = pref === 'dark';
+          document.documentElement.dataset.theme = pref;
           document.documentElement.classList.toggle('dark', dark);
           document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
         } catch (e) {}

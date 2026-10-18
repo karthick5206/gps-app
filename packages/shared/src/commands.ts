@@ -28,6 +28,8 @@ export const COMMAND_DEF_MAP = Object.fromEntries(COMMAND_DEFS.map((d) => [d.typ
 export const PROTOCOL_COMMANDS: Record<string, Partial<Record<Exclude<CommandType, 'custom'>, string>>> = {
   GT06: { engine_stop: 'RELAY,1#', engine_resume: 'RELAY,0#', locate: 'WHERE#', status: 'STATUS#', reboot: 'RESET#' },
   TELTONIKA: { engine_stop: 'setdigout 1', engine_resume: 'setdigout 0', locate: 'getgps', status: 'getstatus', reboot: 'cpureset' },
+  // '#<msgId>[:arg]' is sent as that binary message (see gateway/jt808/decoder.ts); other text goes out as 0x8300 TTS.
+  JT808: { locate: '#8201', reboot: '#8105:4' },
 };
 
 /** Engine cut-off is refused above this speed (km/h), as most operators require for safety. */

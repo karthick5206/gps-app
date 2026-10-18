@@ -1,6 +1,6 @@
-import type { Me, ThemePreference } from '@veetracer/shared';
+import { THEMES, type Me, type ThemePreference } from '@veetracer/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { MonitorIcon, MoonIcon, SunIcon } from 'lucide-react';
+import { PaletteIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,21 +16,24 @@ import { themeStore } from '@/features/theme/theme-store';
 import { useTheme } from '@/features/theme/use-theme';
 import { api } from '@/lib/api';
 
-const OPTIONS: { value: ThemePreference; label: string; icon: typeof SunIcon }[] = [
-  { value: 'light', label: 'Light', icon: SunIcon },
-  { value: 'dark', label: 'Dark', icon: MoonIcon },
-  { value: 'system', label: 'System', icon: MonitorIcon },
-];
+/** Two-colour dot showing a theme's background and accent. */
+export function ThemeSwatch({ colors }: { colors: readonly [string, string] }) {
+  return (
+    <span aria-hidden="true" className="relative inline-block size-4 shrink-0 overflow-hidden rounded-full border border-border" style={{ background: colors[0] }}>
+      <span className="absolute right-0 bottom-0 size-2 rounded-tl-full" style={{ background: colors[1] }} />
+    </span>
+  );
+}
 
 export function ThemeToggle() {
   const { t } = useTranslation();
-  const { preference, resolved } = useTheme();
+  const { preference } = useTheme();
   const { companyId } = useAuth();
   const queryClient = useQueryClient();
 
   const setTheme = (theme: ThemePreference) => {
     themeStore.setPreference(theme);
-    // Persist server-side as well; the local value already applies, so failures are non-fatal.
+    // Persist server-side as well (the mobile app follows it); the local value already applies, so failures are non-fatal.
     api
       .patch<Me>('/auth/me/preferences', { theme })
       .then((me) => queryClient.setQueryData(meQueryKey(companyId), me))
@@ -41,15 +44,15 @@ export function ThemeToggle() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" aria-label={t('Change theme')}>
-          {resolved === 'dark' ? <MoonIcon /> : <SunIcon />}
+          <PaletteIcon />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuLabel>{t('Theme')}</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={preference} onValueChange={(v) => setTheme(v as ThemePreference)}>
-          {OPTIONS.map(({ value, label, icon: Icon }) => (
-            <DropdownMenuRadioItem key={value} value={value}>
-              <Icon /> {t(label)}
+          {THEMES.map((theme) => (
+            <DropdownMenuRadioItem key={theme.id} value={theme.id}>
+              <ThemeSwatch colors={theme.swatch} /> {t(theme.label)}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

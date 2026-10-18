@@ -7,6 +7,7 @@ All devices connect to **`track.mintplus.co.in`** over TCP. This name must stay 
 |---|---|---|---|
 | Concox / Jimi GT06 family | GT06N, AT4, WeTrack2, **GT800**, **V5**, **VL149** (4G) | **5023** | `GT06` |
 | Teltonika | **FMB920**, **FMB120**, **FMC130** (any FMB/FMC/FMM/FMT) | **5027** | `TELTONIKA` |
+| JT/T 808 dashcams / MDVRs | **Mettax MC202**, Jimi JC4xx, other JT/T 808-2013/2019 terminals | **6808** | `JT808` |
 | iTriangle AIS-140 | TS101 Basic / Advanced | 5030 (planned) | `AIS140`: decoder waiting for iTriangle's protocol document |
 
 ## 1. Before you configure the device
@@ -55,6 +56,22 @@ Recommended Configurator settings:
 
 ## 4. iTriangle TS101 (AIS-140): pending
 The decoder needs iTriangle's protocol document or sample packets: login, NR/live, history, emergency and health packets. Until then, AIS-140 devices can't be connected.
+
+## 4a. JT/T 808 dashcams (Mettax MC202 and similar)
+Set the platform server in the dashcam's own menu or the vendor's configuration tool (the exact menu names vary by firmware).
+
+| Setting | Value |
+|---|---|
+| Server / IP | `track.mintplus.co.in` |
+| Port | **6808**, TCP |
+| Protocol | JT/T 808 (2013 or 2019) |
+| Terminal phone / device ID | Note this number: it is the device's identity in VeeTracer |
+
+Notes:
+- **Registering in VeeTracer:** enter the **terminal phone / device ID** (not the IMEI) as the device's unique ID, without leading zeros. For example, a terminal ID `013912345678` is registered as `13912345678`. If unsure, connect the device first and copy the ID from **Platform → Unknown Devices**.
+- **Time zone:** the spec says GMT+8, but VeeTracer detects GMT+8, IST and UTC clocks automatically from the first live fix.
+- **ADAS / DMS:** collision, lane-departure, fatigue, phone and smoking events are stored with each position (`adas`, `dms` fields). Alerts for them and video (JT/T 1078) come in a later release.
+- **Commands:** *Request location* (0x8201) and *Restart device* (0x8105). A custom command is read out on the dashcam speaker (0x8300 TTS), or `#<msgId>:<hex body>` sends a raw message.
 
 ## 5. Checking a device
 1. **Live map:** the vehicle should leave **No data** within a minute of the device connecting.

@@ -15,6 +15,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/features/auth/auth-context';
+import { useAddress } from '@/features/geocoding/use-address';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, formatDuration, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,13 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
       <dd className="min-w-0 text-right font-medium break-words">{children ?? '—'}</dd>
     </div>
   );
+}
+
+function AddressRow({ lat, lng }: { lat: number | null; lng: number | null }) {
+  const { t } = useTranslation();
+  const { address, loading } = useAddress(lat, lng);
+  if (!loading && !address) return null;
+  return <Row label={t('Address')}>{loading ? <Skeleton className="ml-auto h-4 w-40" /> : <span className="font-normal">{address}</span>}</Row>;
 }
 
 function orDash(v: string | number | null | undefined, suffix = ''): string {
@@ -51,6 +59,7 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
       {o.type === 'VEHICLE' && <DriverControl o={o} />}
       <Row label={t('Speed')}>{`${Math.round(o.speedKph)} km/h`}</Row>
       <Row label={t('Ignition')}>{o.ignition === null ? '—' : o.ignition ? t('On') : t('Off')}</Row>
+      <AddressRow lat={o.lat} lng={o.lng} />
       <Row label={t('Coordinates')}>
         {o.lat !== null && o.lng !== null ? <span className="font-mono text-xs">{`${o.lat.toFixed(6)}, ${o.lng.toFixed(6)}`}</span> : '—'}
       </Row>

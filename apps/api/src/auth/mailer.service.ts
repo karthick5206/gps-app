@@ -33,6 +33,7 @@ export class MailerService {
   /** Zoho CPaaS e-mail API when ZOHO_MAIL_KEY is set (takes precedence over SMTP_URL). */
   private readonly zoho = zohoMailConfig();
   private readonly from = process.env.MAIL_FROM ?? 'VeeTracer <no-reply@veetracer.local>';
+  private readonly replyTo = process.env.MAIL_REPLY_TO?.trim() || undefined;
 
   /** Name of the real delivery channel, or null when mails are only written to var/mail. */
   get provider(): string | null {
@@ -40,7 +41,7 @@ export class MailerService {
   }
 
   async send(message: MailMessage): Promise<string> {
-    const info = (await this.transport.sendMail({ from: this.from, ...message })) as { message?: Buffer };
+    const info = (await this.transport.sendMail({ from: this.from, replyTo: this.replyTo, ...message })) as { message?: Buffer };
     await mkdir(this.outDir, { recursive: true });
     // Random suffix: concurrent sends (notifier) within the same millisecond must not overwrite each other.
     const stem = join(this.outDir, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`);
@@ -55,8 +56,8 @@ export class MailerService {
         else if (a.content !== undefined) await writeFile(target, a.content);
       }
     }
-    if (this.zoho) await sendZohoMail(this.zoho, { from: this.from, ...message });
-    else if (this.smtp) await this.smtp.sendMail({ from: this.from, ...message });
+    if (this.zoho) await sendZohoMail(this.zoho, { from: this.from, replyTo: this.replyTo, ...message });
+    else if (this.smtp) await this.smtp.sendMail({ from: this.from, replyTo: this.replyTo, ...message });
     const extra = message.attachments?.length ? ` (+${message.attachments.length} attachment(s), ${stem}.eml)` : '';
     this.logger.log(`Mail "${message.subject}" to ${message.to} written to ${file}${extra}`);
     return file;

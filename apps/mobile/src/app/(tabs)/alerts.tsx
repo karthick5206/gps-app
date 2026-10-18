@@ -40,6 +40,11 @@ function AlertRow({ a, now }: { a: AlertDto; now: number }) {
           <Text size="sm" tone="muted" numberOfLines={2}>
             {a.message}
           </Text>
+          {a.address && (
+            <Text size="xs" tone="muted" numberOfLines={1}>
+              {a.address}
+            </Text>
+          )}
         </View>
       </View>
     </Card>

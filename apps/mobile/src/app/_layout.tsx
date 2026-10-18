@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import '@/lib/i18n';
 import { AuthProvider, useAuth } from '@/features/auth/auth';
-import { COLORS, useScheme } from '@/lib/theme';
+import { useColors, useScheme } from '@/lib/theme';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -15,7 +15,7 @@ function RootStack() {
   const { status } = useAuth();
   const { t } = useTranslation();
   const scheme = useScheme();
-  const c = COLORS[scheme];
+  const c = useColors();
 
   useEffect(() => {
     if (status !== 'loading') SplashScreen.hideAsync();

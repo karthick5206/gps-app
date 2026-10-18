@@ -1,15 +1,12 @@
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Me, ThemePreference } from '@veetracer/shared';
 import { router, type Href } from 'expo-router';
 import { BellRingIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, HexagonIcon, IdCardIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Card, Chips, InfoRow, SectionTitle, Text } from '@/components/ui';
-import { meQueryKey, useAuth } from '@/features/auth/auth';
-import { applyThemePreference } from '@/features/theme/theme';
-import { api } from '@/lib/api';
+import { ThemePicker } from '@/components/ThemePicker';
+import { Button, Card, InfoRow, SectionTitle, Text } from '@/components/ui';
+import { useAuth } from '@/features/auth/auth';
 import { useRealtimeStatus } from '@/features/live/use-live';
 import { pushStatus } from '@/features/notifications/push';
 import { LanguageChips } from '@/components/LanguageChips';
@@ -32,15 +29,7 @@ const CONNECTION_LABEL = { idle: 'Not connected', connecting: 'Connecting…', c
 export default function MoreScreen() {
   const c = useColors();
   const { t } = useTranslation();
-  const { me, signOut, can, companyId } = useAuth();
-  const queryClient = useQueryClient();
-  const theme = me?.user.preferences.theme ?? 'system';
-  const setTheme = useMutation({
-    mutationFn: (t: ThemePreference) => api.patch<Me>('/auth/me/preferences', { theme: t }),
-    onMutate: (t) => applyThemePreference(t),
-    onSuccess: (updated) => queryClient.setQueryData(meQueryKey(companyId), updated),
-    onError: () => applyThemePreference(theme),
-  });
+  const { me, signOut, can } = useAuth();
   const connection = useRealtimeStatus();
   const confirmSignOut = () =>
     Alert.alert(t('Sign out?'), t('You will need to sign in again to see your vehicles.'), [
@@ -91,17 +80,9 @@ export default function MoreScreen() {
       <DisplaySizeCard />
 
       <SectionTitle>{t('Appearance')}</SectionTitle>
-      <Card style={{ gap: SPACE.sm }}>
-        <Chips
-          value={setTheme.isPending && setTheme.variables ? setTheme.variables : theme}
-          onChange={(t) => setTheme.mutate(t)}
-          options={[
-            { value: 'system', label: t('System') },
-            { value: 'light', label: t('Light') },
-            { value: 'dark', label: t('Dark') },
-          ]}
-        />
-        <Text size="xs" tone="muted">
+      <Card style={{ gap: SPACE.sm, paddingVertical: SPACE.xs }}>
+        <ThemePicker />
+        <Text size="xs" tone="muted" style={{ paddingBottom: SPACE.sm }}>
           {t('Saved to your profile, so the web app uses the same theme.')}
         </Text>
       </Card>
