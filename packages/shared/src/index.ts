@@ -8,3 +8,4 @@ export * from './dashboard';
 export * from './commands';
 export * from './drivers';
 export * from './i18n';
+export * from './brand';

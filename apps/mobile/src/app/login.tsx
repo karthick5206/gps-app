@@ -11,7 +11,7 @@ import { LanguageChips } from '@/components/LanguageChips';
 import { useAuth } from '@/features/auth/auth';
 import { api, errorMessage } from '@/lib/api';
 import { SERVER_URL } from '@/lib/config';
-import { RADIUS, SPACE, useColors } from '@/lib/theme';
+import { RADIUS, SPACE, useColors, useTheme } from '@/lib/theme';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE = /^\+[1-9]\d{7,14}$/;
@@ -104,12 +104,15 @@ export default function LoginScreen() {
   const c = useColors();
   const { t } = useTranslation();
   const [mode, setMode] = useState<'password' | 'otp'>('password');
+  // Sky and Light have a light hero, so the logo uses its ink colours there.
+  const theme = useTheme();
+  const lightHero = theme === 'sky' || theme === 'light';
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: c.brand }} edges={['top']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <BrandMark size={64} pin={c.brandForeground} route={c.brandAccent} />
+            <BrandMark size={64} onLight={lightHero} />
             <Text style={{ color: c.brandForeground, fontSize: 28, fontWeight: '800', letterSpacing: -0.8 }}>veetrax</Text>
             <Text style={{ color: c.brandForeground, opacity: 0.8, fontSize: 14 }}>{t('Every vehicle, every second, one screen.')}</Text>
           </View>

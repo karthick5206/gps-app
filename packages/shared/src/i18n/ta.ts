@@ -1486,6 +1486,7 @@ export const TA: Record<string, string> = {
   'Verification code': 'சரிபார்ப்புக் குறியீடு',
   'Verify and sign in': 'சரிபார்த்து உள்நுழை',
   'Version': 'பதிப்பு',
+  'Version {{version}}': 'பதிப்பு {{version}}',
   'Version {{version}} restored as a new version': 'பதிப்பு {{version}} புதிய பதிப்பாக மீட்டமைக்கப்பட்டது',
   'Version history': 'பதிப்பு வரலாறு',
   'Versions': 'பதிப்புகள்',

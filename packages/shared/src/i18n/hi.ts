@@ -1486,6 +1486,7 @@ export const HI: Record<string, string> = {
   'Verification code': 'सत्यापन कोड',
   'Verify and sign in': 'सत्यापित करें और साइन इन करें',
   'Version': 'संस्करण',
+  'Version {{version}}': 'संस्करण {{version}}',
   'Version {{version}} restored as a new version': 'संस्करण {{version}} नए संस्करण के रूप में बहाल किया गया',
   'Version history': 'संस्करण इतिहास',
   'Versions': 'संस्करण',
