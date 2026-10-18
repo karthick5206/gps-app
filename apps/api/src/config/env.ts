@@ -10,6 +10,8 @@ export interface AppEnv {
   gt06Port: number;
   /** Teltonika TCP port; 0 disables the listener. */
   teltonikaPort: number;
+  /** JT/T 808 (dashcams / MDVRs) TCP port; 0 disables the listener. */
+  jt808Port: number;
   webUrl: string;
   otpDevEcho: boolean;
   mailDevEcho: boolean;
@@ -40,6 +42,7 @@ export function loadEnv(): AppEnv {
     apiPort: Number(process.env.API_PORT ?? 4000),
     gt06Port: Number(process.env.GT06_PORT ?? 5023),
     teltonikaPort: Number(process.env.TELTONIKA_PORT ?? 5027),
+    jt808Port: Number(process.env.JT808_PORT ?? 6808),
     webUrl: process.env.WEB_URL ?? 'http://localhost:5173',
     otpDevEcho: process.env.OTP_DEV_ECHO === 'true',
     mailDevEcho: process.env.MAIL_DEV_ECHO === 'true',

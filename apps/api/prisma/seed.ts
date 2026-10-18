@@ -62,6 +62,17 @@ const PROFILES: Record<string, ModelProfile> = {
     fields: [EXT_VOLTAGE_FIELD, { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }, { key: 'gsmSignal', label: 'GSM signal', type: 'number' }],
     commands: [],
   },
+  // JT/T 808 dashcams / MDVRs: ADAS / DMS events arrive as position attributes (adas, dms).
+  JT808: {
+    capabilities: ['ignition', 'sos', 'power_cut', 'crash', 'adas', 'dms', 'video'],
+    fields: [
+      { key: 'gsmSignal', label: 'GSM signal', type: 'number' },
+      { key: 'odometerM', label: 'Odometer', unit: 'm', type: 'number' },
+      { key: 'adas', label: 'ADAS event', type: 'string' },
+      { key: 'dms', label: 'Driver monitoring event', type: 'string' },
+    ],
+    commands: [],
+  },
   PHONE: { capabilities: ['battery'], fields: [{ key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }], commands: [] },
 };
 
@@ -153,6 +164,8 @@ async function main() {
     ['Teltonika', 'FMB120', 'TELTONIKA', 'TELTONIKA'],
     ['Teltonika', 'FMC130', 'TELTONIKA', 'TELTONIKA'],
     ['iTriangle', 'TS101', 'AIS140', 'AIS140'],
+    ['Mettax', 'MC202', 'JT808', 'JT808'],
+    ['Generic', 'JT808 terminal', 'JT808', 'JT808'],
     ['Generic', 'Phone', 'PHONE', 'PHONE'],
   ]) {
     const p = PROFILES[profile];
