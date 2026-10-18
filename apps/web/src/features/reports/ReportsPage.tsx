@@ -17,7 +17,6 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { FormError } from '@/components/form-error';
-import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -55,9 +54,11 @@ function addDays(d: Date, n: number) {
   return x;
 }
 
+/** Ranges end today by default: fleets look at today's activity first (today's figures grow until midnight). */
 const DATE_PRESETS: { label: string; range: () => [string, string] }[] = [
+  { label: 'Today', range: () => [toDateInput(new Date()), toDateInput(new Date())] },
   { label: 'Yesterday', range: () => [toDateInput(addDays(new Date(), -1)), toDateInput(addDays(new Date(), -1))] },
-  { label: 'Last 7 days', range: () => [toDateInput(addDays(new Date(), -7)), toDateInput(addDays(new Date(), -1))] },
+  { label: 'Last 7 days', range: () => [toDateInput(addDays(new Date(), -6)), toDateInput(new Date())] },
   {
     label: 'This month',
     range: () => {
@@ -79,7 +80,7 @@ export function ReportsPage() {
   const canExport = can('reports', 'export');
   const [type, setType] = useState<ReportType>('SUMMARY');
   const [scope, setScope] = useState<ReportScope>(EMPTY_SCOPE);
-  const [[from, to], setDates] = useState<[string, string]>(DATE_PRESETS[1].range);
+  const [[from, to], setDates] = useState<[string, string]>(DATE_PRESETS[2].range);
   const [period, setPeriod] = useState<ReportPeriod>('DAY');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
   const [options, setOptions] = useState<ReportOptions>({});
@@ -124,27 +125,28 @@ export function ReportsPage() {
     }
   };
 
-  return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-5 p-4 sm:p-6">
-      <PageHeader
-        title="Reports"
-        description="Run reports for your fleet and download them as Excel, PDF or CSV."
-        actions={
-          can('report_schedules') && (
-            <Button variant="outline" asChild>
-              <Link to="/reports/schedules">
-                <CalendarClockIcon /> Scheduled reports
-              </Link>
-            </Button>
-          )
-        }
-      />
+  const current = REPORT_DEF_MAP[type];
+  const CurrentIcon = current.icon;
+  const scheduleLink = can('report_schedules') && (
+    <Button variant="outline" size="sm" asChild>
+      <Link to="/reports/schedules">
+        <CalendarClockIcon /> Scheduled reports
+      </Link>
+    </Button>
+  );
 
-      <div role="radiogroup" aria-label="Report type" className="space-y-3">
-        {REPORT_CATEGORIES.map((category) => (
-          <section key={category} aria-label={category} className="space-y-1.5">
-            <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{category}</h2>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+  return (
+    <div className="flex h-full min-h-0 flex-col lg:flex-row">
+      {/* Report types: a sidebar on large screens, a drop-down on small ones. */}
+      <aside aria-label="Report types" className="hidden w-64 shrink-0 flex-col border-r bg-card lg:flex">
+        <div className="border-b px-4 py-4">
+          <h1 className="text-lg font-semibold tracking-tight">Reports</h1>
+          <p className="text-xs text-muted-foreground">Run, view and download fleet reports.</p>
+        </div>
+        <nav role="radiogroup" aria-label="Report type" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-2">
+          {REPORT_CATEGORIES.map((category) => (
+            <div key={category} className="space-y-0.5">
+              <p className="px-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{category}</p>
               {REPORT_DEFS.filter((d) => d.category === category).map((d) => {
                 const active = d.type === type;
                 const Icon = d.icon;
@@ -156,119 +158,150 @@ export function ReportsPage() {
                     aria-checked={active}
                     onClick={() => setType(d.type)}
                     className={cn(
-                      'flex items-center gap-2.5 rounded-xl border bg-card p-2.5 text-left sm:flex-col sm:items-start sm:gap-2 sm:p-3 shadow-xs transition-[border-color,box-shadow,background-color] outline-none hover:border-primary/50 focus-visible:ring-[3px] focus-visible:ring-ring/40',
-                      active && 'border-primary bg-accent/60 ring-1 ring-primary',
+                      'flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40',
+                      active && 'bg-accent font-medium text-accent-foreground hover:bg-accent',
                     )}
                   >
-                    <span className={cn('flex size-8 items-center justify-center rounded-lg', active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
-                      <Icon className="size-4" />
-                    </span>
-                    <span className="text-sm font-semibold">{d.label}</span>
-                    <span className="line-clamp-2 hidden text-xs text-muted-foreground sm:block">{d.description}</span>
+                    <Icon className={cn('size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+                    {d.label}
                   </button>
                 );
               })}
             </div>
-          </section>
-        ))}
-      </div>
+          ))}
+        </nav>
+        {scheduleLink && <div className="border-t p-3 [&_a]:w-full">{scheduleLink}</div>}
+      </aside>
 
-      <Card className="space-y-4 p-4">
-        <ScopePicker value={scope} onChange={setScope} />
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-          <div className="grid grid-cols-2 gap-3 sm:flex sm:items-end">
-            <Field label="From" htmlFor="r-from">
-              <Input id="r-from" type="date" value={from} max={to || undefined} onChange={(e) => setDates([e.target.value, to])} className="sm:w-40" aria-invalid={!!rangeError} />
-            </Field>
-            <Field label="To" htmlFor="r-to">
-              <Input id="r-to" type="date" value={to} min={from || undefined} onChange={(e) => setDates([from, e.target.value])} className="sm:w-40" aria-invalid={!!rangeError} />
-            </Field>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {DATE_PRESETS.map((p) => {
-              const [a, b] = p.range();
-              return (
-                <Button key={p.label} size="sm" variant={a === from && b === to ? 'secondary' : 'ghost'} onClick={() => setDates([a, b])}>
-                  {p.label}
-                </Button>
-              );
-            })}
-          </div>
-          {usesPeriod && (
-            <Field label="Group by" htmlFor="r-period" className="lg:w-48">
-              <Select value={period} onValueChange={(v) => setPeriod(v as ReportPeriod)}>
-                <SelectTrigger id="r-period">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PERIOD_OPTIONS.map((p) => (
-                    <SelectItem key={p.value} value={p.value}>
-                      {p.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
-          <span className="flex-1" />
-          <Button onClick={() => run.mutate(request)} disabled={!!inputError || run.isPending} className="lg:w-36">
-            {run.isPending ? <Spinner /> : <PlayIcon />} Run report
-          </Button>
-        </div>
-        <ReportOptionsFields type={type} value={options} onChange={setOptions} />
-        {inputError && <p className="text-xs text-destructive">{inputError}</p>}
-      </Card>
-
-      {run.isError && <FormError message={errorMessage(run.error)} />}
-
-      {run.isPending && !result && (
-        <Card className="space-y-3 p-4">
-          <Skeleton className="h-6 w-48" />
-          <Skeleton className="h-64 w-full" />
-        </Card>
-      )}
-
-      {result && def && (
-        <div className={cn('space-y-4', run.isPending && 'opacity-60 transition-opacity')}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">{def.label} report</h2>
-              <p className="text-sm text-muted-foreground">
-                {periodLabel(result.res.from)} – {periodLabel(result.res.to)}
-                {result.res.period ? ` · ${PERIOD_OPTIONS.find((p) => p.value === result.res.period)?.label}` : ''} · {(result.res.totalRows ?? result.res.rows.length).toLocaleString()} rows
-              </p>
+      <div className="min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="hidden size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground sm:flex">
+              <CurrentIcon className="size-5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold tracking-tight">{current.label} report</h2>
+              <p className="text-sm text-muted-foreground">{current.description}</p>
             </div>
-            {canExport && (
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Download">
-                {FORMATS.map((f) => (
-                  <Button key={f.format} variant="outline" size="sm" onClick={() => exportAs(f.format)} disabled={!!exporting}>
-                    {exporting === f.format ? <Spinner /> : <f.icon />} {f.label}
-                  </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 lg:hidden">
+            <Select value={type} onValueChange={(v) => setType(v as ReportType)}>
+              <SelectTrigger className="w-56" aria-label="Report type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REPORT_DEFS.map((d) => (
+                  <SelectItem key={d.type} value={d.type}>
+                    {d.category} · {d.label}
+                  </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            {scheduleLink}
+          </div>
+        </div>
+
+        <Card className="gap-0 p-0">
+          <div className="space-y-4 p-4">
+            <ScopePicker value={scope} onChange={setScope} />
+            <div role="group" aria-label="Date presets" className="flex flex-wrap gap-1.5">
+              {DATE_PRESETS.map((p) => {
+                const [a, b] = p.range();
+                const on = a === from && b === to;
+                return (
+                  <Button key={p.label} type="button" size="sm" variant={on ? 'secondary' : 'outline'} aria-pressed={on} onClick={() => setDates([a, b])} className={cn(on && 'border-primary/40 text-primary')}>
+                    {p.label}
+                  </Button>
+                );
+              })}
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
+              <Field label="From" htmlFor="r-from">
+                <Input id="r-from" type="date" value={from} max={to || undefined} onChange={(e) => setDates([e.target.value, to])} className="sm:w-40" aria-invalid={!!rangeError} />
+              </Field>
+              <Field label="To" htmlFor="r-to">
+                <Input id="r-to" type="date" value={to} min={from || undefined} max={toDateInput(new Date())} onChange={(e) => setDates([from, e.target.value])} className="sm:w-40" aria-invalid={!!rangeError} />
+              </Field>
+              {usesPeriod && (
+                <Field label="Group by" htmlFor="r-period" className="col-span-2 sm:w-44">
+                  <Select value={period} onValueChange={(v) => setPeriod(v as ReportPeriod)}>
+                    <SelectTrigger id="r-period">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PERIOD_OPTIONS.map((p) => (
+                        <SelectItem key={p.value} value={p.value}>
+                          {p.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
+            </div>
+            <ReportOptionsFields type={type} value={options} onChange={setOptions} />
+          </div>
+          <div className="flex flex-col gap-2 border-t bg-muted/30 px-4 py-3 sm:flex-row sm:items-center">
+            <p className={cn('flex-1 text-xs', inputError ? 'text-destructive' : 'text-muted-foreground')}>
+              {inputError ?? 'Leave branches, groups and vehicles empty to include every vehicle you can access.'}
+            </p>
+            <Button onClick={() => run.mutate(request)} disabled={!!inputError || run.isPending} className="sm:w-36">
+              {run.isPending ? <Spinner /> : <PlayIcon />} Run report
+            </Button>
+          </div>
+        </Card>
+
+        {run.isError && <FormError message={errorMessage(run.error)} />}
+
+        {run.isPending && !result && (
+          <Card className="space-y-3 p-4">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-64 w-full" />
+          </Card>
+        )}
+
+        {result && def && (
+          <div className={cn('space-y-4', run.isPending && 'opacity-60 transition-opacity')}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">{def.label} report</h2>
+                <p className="text-sm text-muted-foreground">
+                  {periodLabel(result.res.from)} – {periodLabel(result.res.to)}
+                  {result.res.period ? ` · ${PERIOD_OPTIONS.find((p) => p.value === result.res.period)?.label}` : ''} · {(result.res.totalRows ?? result.res.rows.length).toLocaleString()} rows
+                </p>
               </div>
+              {canExport && (
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Download">
+                  {FORMATS.map((f) => (
+                    <Button key={f.format} variant="outline" size="sm" onClick={() => exportAs(f.format)} disabled={!!exporting}>
+                      {exporting === f.format ? <Spinner /> : <f.icon />} {f.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {result.req.type === 'SUMMARY' && <SummaryCharts rows={result.res.rows as unknown as SummaryReportRow[]} />}
+            <Card className="overflow-hidden">
+              {result.res.rows.length ? (
+                <ReportTable key={`${result.req.type}-${run.submittedAt}`} columns={def.columns} rows={result.res.rows} totals={result.res.totals} />
+              ) : (
+                <EmptyState icon={TableIcon} title="No data for this selection" description="Try a longer period or a wider scope." />
+              )}
+            </Card>
+            {(result.res.truncated || (result.res.totalRows === undefined && result.res.rows.length >= 10_000)) && (
+              <p className="text-xs text-warning">
+                Showing the first {result.res.rows.length.toLocaleString()} rows{result.res.totalRows ? ` of ${result.res.totalRows.toLocaleString()}` : ''}; totals cover every row. Download the report or narrow the selection for the rest.
+              </p>
             )}
           </div>
-          {result.req.type === 'SUMMARY' && <SummaryCharts rows={result.res.rows as unknown as SummaryReportRow[]} />}
-          <Card className="overflow-hidden">
-            {result.res.rows.length ? (
-              <ReportTable key={`${result.req.type}-${run.submittedAt}`} columns={def.columns} rows={result.res.rows} totals={result.res.totals} />
-            ) : (
-              <EmptyState icon={TableIcon} title="No data for this selection" description="Try a longer period or a wider scope." />
-            )}
-          </Card>
-          {(result.res.truncated || (result.res.totalRows === undefined && result.res.rows.length >= 10_000)) && (
-            <p className="text-xs text-warning">
-              Showing the first {result.res.rows.length.toLocaleString()} rows{result.res.totalRows ? ` of ${result.res.totalRows.toLocaleString()}` : ''}; totals cover every row. Download the report or narrow the selection for the rest.
-            </p>
-          )}
-        </div>
-      )}
+        )}
 
-      {!result && !run.isPending && (
-        <Card>
-          <EmptyState icon={TableIcon} title="Choose a report and press Run" description="Leave branches, groups and vehicles empty to include every vehicle you can access." />
-        </Card>
-      )}
+        {!result && !run.isPending && (
+          <Card>
+            <EmptyState icon={TableIcon} title="Press Run report" description="Results appear here. You can then download them as Excel, PDF or CSV." />
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
