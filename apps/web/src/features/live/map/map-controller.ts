@@ -107,6 +107,11 @@ export class MapController {
     this.unsubscribe = liveStore.subscribe((e) => this.onLiveEvent(e));
   }
 
+  /** Underlying map for add-on layers (geofences, alert markers in ./layers); they re-add themselves after style swaps. */
+  get mapInstance(): MlMap {
+    return this.map;
+  }
+
   destroy() {
     this.unsubscribe();
     cancelAnimationFrame(this.raf);

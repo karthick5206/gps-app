@@ -8,6 +8,8 @@ import { BulkActionDto, runBulk } from '../../common/bulk';
 import { iso } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisKeys } from '../../redis/keys';
+import { RedisService } from '../../redis/redis.service';
 import { CreateVehicleGroupDto, UpdateVehicleGroupDto, VehicleGroupListQuery } from './vehicle-groups.dto';
 
 const ENTITY = 'vehicle_group';
@@ -29,23 +31,26 @@ const LIST: ListSpec = {
   defaultSort: 'name',
 };
 
-const CSV: CsvSpec<VehicleGroupDto> = {
+const CSV: CsvSpec<VehicleGroupDto & { alertPriority: number }> = {
   name: 'vehicle-groups',
   columns: [
     { header: 'Name', value: (g) => g.name },
     { header: 'Description', value: (g) => g.description },
     { header: 'Objects', value: (g) => g.objects.map((o) => o.name) },
+    { header: 'Alert priority', value: (g) => g.alertPriority },
     { header: 'Active', value: (g) => (g.isActive ? 'Yes' : 'No') },
   ],
 };
 
-function toDto(g: Row): VehicleGroupDto {
+/** VehicleGroupDto plus `alertPriority` (M2a; not yet in the shared type). */
+function toDto(g: Row): VehicleGroupDto & { alertPriority: number } {
   return {
     id: g.id,
     name: g.name,
     description: g.description,
     isActive: g.isActive,
     objects: g.members.map((m) => ({ id: m.object.id, name: m.object.name })),
+    alertPriority: g.alertPriority,
     createdAt: iso(g.createdAt),
     updatedAt: iso(g.updatedAt),
   };
@@ -61,7 +66,13 @@ export class VehicleGroupsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly redis: RedisService,
   ) {}
+
+  /** Membership/priority/active changes alter alert-settings resolution and geofence applicability. */
+  private async invalidateRules(ctx: AuthContext): Promise<void> {
+    await this.redis.client.publish(RedisKeys.rulesInvalidate, JSON.stringify({ companyId: ctx.companyId, reason: 'vehicle_group', at: Date.now() }));
+  }
 
   async list(ctx: AuthContext, query: VehicleGroupListQuery) {
     const plan = planList<Prisma.VehicleGroupWhereInput, Prisma.VehicleGroupOrderByWithRelationInput>(query, LIST);
@@ -94,11 +105,13 @@ export class VehicleGroupsService {
         name: dto.name.trim(),
         description: dto.description,
         isActive: dto.isActive,
+        alertPriority: dto.alertPriority,
         members: { create: objectIds.map((objectId) => ({ objectId })) },
       },
       include: includeFor(ctx),
     });
     await this.audit.record(ctx, { action: 'CREATE', entity: ENTITY, entityId: row.id, after: snapshot(row) });
+    await this.invalidateRules(ctx);
     return toDto(row);
   }
 
@@ -117,11 +130,12 @@ export class VehicleGroupsService {
       }
       return tx.vehicleGroup.update({
         where: { id },
-        data: { name: dto.name?.trim(), description: dto.description, isActive: dto.isActive },
+        data: { name: dto.name?.trim(), description: dto.description, isActive: dto.isActive, alertPriority: dto.alertPriority },
         include: includeFor(ctx),
       });
     });
     await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before: snapshot(before), after: snapshot(row) });
+    await this.invalidateRules(ctx);
     return toDto(row);
   }
 
@@ -129,6 +143,7 @@ export class VehicleGroupsService {
     const before = await this.find(ctx, id);
     await this.prisma.vehicleGroup.delete({ where: { id } });
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: snapshot(before) });
+    await this.invalidateRules(ctx);
   }
 
   bulk(ctx: AuthContext, dto: BulkActionDto) {

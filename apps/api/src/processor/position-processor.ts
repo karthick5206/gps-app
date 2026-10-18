@@ -8,6 +8,8 @@ import { nextStatus, StatusState } from '../tracking/movement-status';
 import { EMPTY_TRACK_STATE, filterPosition, TrackState } from '../tracking/position-filter';
 import { DeviceCache, ResolvedDevice } from './device-cache';
 import { PositionRow, RawPacketRow, UnknownDeviceRow, WriteBatch, writeBatch } from './position-writer';
+import { RuleInput } from './rules/evaluate';
+import { RulesBatch, RulesEngine } from './rules/rules-engine';
 
 const LAST_SEEN_THROTTLE_MS = 10_000;
 
@@ -58,6 +60,7 @@ export class PositionProcessor {
     private readonly prisma: PrismaClient,
     private readonly redis: Redis,
     private readonly cache: DeviceCache,
+    private readonly rules: RulesEngine | null = null,
   ) {}
 
   /** Returns the number of entries processed (acknowledged). */
@@ -83,6 +86,7 @@ export class PositionProcessor {
     const batch: WriteBatch = { positions: [], rawPackets: [], unknownDevices: [], lastSeen: [] };
     const unknown = new Map<string, UnknownDeviceRow>();
     const changed = new Map<string, LiveObject>();
+    const ruleInputs: RuleInput[] = [];
 
     for (const { entry, position } of parsed) {
       const device = devices.get(position.uniqueId);
@@ -103,15 +107,25 @@ export class PositionProcessor {
         continue;
       }
       if (!device.accepted) continue;
-      batch.positions.push(this.evaluate(position, device, lives, tracks, changed, now, serverTime));
+      batch.positions.push(this.evaluate(position, device, lives, tracks, changed, now, serverTime, ruleInputs));
       if (position.raw) batch.rawPackets.push(this.rawPacket(position, entry.remote));
       this.trackLastSeen(device.deviceId, now, serverTime, batch);
     }
     batch.unknownDevices = [...unknown.values()];
 
+    let rules = await this.evaluateRules(ruleInputs);
     if (changed.size) await this.publish(changed, tracks);
-    await writeBatch(this.prisma, batch);
+    try {
+      await writeBatch(this.prisma, batch, rules?.statements(this.prisma));
+    } catch (error) {
+      if (!rules) throw error;
+      // Never let alert rows hold positions hostage: retry the batch without them (rule state is not committed).
+      this.logger.error(`Batch write with alerts failed, retrying without: ${(error as Error).message}`);
+      rules = null;
+      await writeBatch(this.prisma, batch);
+    }
     await this.redis.xack(RedisKeys.positionsStream, RedisKeys.processorGroup, ...entries.map((e) => e.id));
+    if (rules) await this.commitRules(rules);
     return entries.length;
   }
 
@@ -137,6 +151,7 @@ export class PositionProcessor {
     changed: Map<string, LiveObject>,
     now: number,
     serverTime: string,
+    ruleInputs: RuleInput[],
   ): PositionRow {
     const fixTime = Date.parse(position.fixTime);
     const object = device.object;
@@ -183,6 +198,17 @@ export class PositionProcessor {
         lives.set(object.objectId, live);
         tracks.set(object.objectId, { ...result.next, stoppedSince: status.stoppedSince });
         changed.set(object.objectId, live);
+        if ((flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null) {
+          ruleInputs.push({
+            object,
+            fixTime,
+            lat: live.lat,
+            lng: live.lng,
+            speedKph: live.speedKph,
+            ignition: position.ignition,
+            attributes: attrs,
+          });
+        }
       }
     }
 
@@ -202,6 +228,27 @@ export class PositionProcessor {
       flags,
       attributes: JSON.stringify(position.attributes ?? {}),
     };
+  }
+
+  /** Alert rules never block position processing: failures are logged and the batch continues without alerts. */
+  private async evaluateRules(inputs: RuleInput[]): Promise<RulesBatch | null> {
+    if (!this.rules || !inputs.length) return null;
+    try {
+      return await this.rules.evaluate(inputs);
+    } catch (error) {
+      this.logger.error(`Rules evaluation failed: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  private async commitRules(rules: RulesBatch): Promise<void> {
+    const started = performance.now();
+    try {
+      await rules.commit();
+    } catch (error) {
+      this.logger.error(`Rules commit failed: ${(error as Error).message}`);
+    }
+    this.rules?.recordCommit(performance.now() - started);
   }
 
   private rawPacket(position: NormalizedPosition, remote: string | null): RawPacketRow {

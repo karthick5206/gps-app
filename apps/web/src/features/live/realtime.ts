@@ -11,6 +11,7 @@ interface ServerToClient {
 }
 
 type Listener = () => void;
+type EventHandler = (...args: unknown[]) => void;
 
 /** Socket.IO client for the `/live` namespace; one connection per selected company. */
 class Realtime {
@@ -22,6 +23,8 @@ class Realtime {
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private hadConnection = false;
   private stopTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Extra server events (e.g. `alert`) registered by features; re-attached to every new socket. */
+  private extra = new Map<string, Set<EventHandler>>();
 
   getStatus = () => this.status;
 
@@ -31,6 +34,19 @@ class Realtime {
       this.listeners.delete(listener);
     };
   };
+
+  /** Subscribes to a server event on the current and future sockets. Returns an unsubscribe function. */
+  on<T extends unknown[]>(event: string, handler: (...args: T) => void): () => void {
+    const h = handler as unknown as EventHandler;
+    let set = this.extra.get(event);
+    if (!set) this.extra.set(event, (set = new Set()));
+    set.add(h);
+    (this.socket as Socket | null)?.on(event, h);
+    return () => {
+      set.delete(h);
+      (this.socket as Socket | null)?.off(event, h);
+    };
+  }
 
   private setStatus(status: RealtimeStatus) {
     if (status === this.status) return;
@@ -60,6 +76,7 @@ class Realtime {
       this.hadConnection = true;
     });
     socket.on('live:batch', (items) => liveStore.applyBatch(items));
+    for (const [event, handlers] of this.extra) for (const h of handlers) (socket as Socket).on(event, h);
     socket.on('disconnect', (reason) => {
       this.setStatus('disconnected');
       if (reason === 'io server disconnect') this.reconnectWithFreshToken();

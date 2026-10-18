@@ -7,14 +7,12 @@ import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage';
 import { RedirectIfAuthenticated, RequireAuth, RequirePermission } from '@/features/auth/guards';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage';
-import { ComingSoonPage, ForbiddenPage, NotFoundPage, UnexpectedErrorPage } from '@/features/errors/ErrorPages';
+import { ForbiddenPage, NotFoundPage, UnexpectedErrorPage } from '@/features/errors/ErrorPages';
 import { AppShell } from '@/features/shell/AppShell';
 
 function page<M extends Record<string, unknown>>(loader: () => Promise<M>, name: keyof M): LazyExoticComponent<ComponentType> {
   return lazy(() => loader().then((m) => ({ default: m[name] as ComponentType })));
 }
-
-const comingSoon = lazy(async () => ({ default: ComingSoonPage }));
 
 /** One page per menu; paths come from MENUS so navigation and routing never drift apart. */
 const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
@@ -33,14 +31,13 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   sa_device_models: page(() => import('@/features/platform/DeviceModelsPage'), 'DeviceModelsPage'),
   sa_device_inventory: page(() => import('@/features/platform/DeviceInventoryPage'), 'DeviceInventoryPage'),
   sa_unknown_devices: page(() => import('@/features/platform/UnknownDevicesPage'), 'UnknownDevicesPage'),
-  // M2a menus: placeholders until their pages are built (docs/m2a/M2A_SPEC.md parts C and D).
-  history: comingSoon,
-  alerts: comingSoon,
-  reports: comingSoon,
-  geofences: comingSoon,
-  alert_settings: comingSoon,
-  message_templates: comingSoon,
-  report_schedules: comingSoon,
+  history: page(() => import('@/features/history/HistoryPage'), 'HistoryPage'),
+  reports: page(() => import('@/features/reports/ReportsPage'), 'ReportsPage'),
+  report_schedules: page(() => import('@/features/reports/ScheduledReportsPage'), 'ScheduledReportsPage'),
+  alerts: page(() => import('@/features/alerts/AlertsPage'), 'AlertsPage'),
+  geofences: page(() => import('@/features/geofences/GeofencesPage'), 'GeofencesPage'),
+  alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
+  message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };
 
 function PageFallback() {

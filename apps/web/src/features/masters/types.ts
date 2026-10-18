@@ -53,4 +53,10 @@ export interface MasterPageProps<T> {
   /** Extra items for the row action menu. */
   rowActions?: (row: T) => ReactNode;
   emptyIcon?: LucideIcon;
+  /** Extra buttons in the page header (e.g. Import). */
+  headerActions?: ReactNode;
+  /** Show the Add button when the user may create (default true). */
+  allowCreate?: boolean;
+  /** Row selection + bulk activate/deactivate/delete via `<endpoint>/bulk` (default true). */
+  bulkActions?: boolean;
 }

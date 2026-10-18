@@ -1,4 +1,4 @@
-import { CompassIcon, HammerIcon, ShieldOffIcon, TriangleAlertIcon, type LucideIcon } from 'lucide-react';
+import { CompassIcon, ShieldOffIcon, TriangleAlertIcon, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 
@@ -31,18 +31,6 @@ export function ForbiddenPage() {
 
 export function NotFoundPage() {
   return <ErrorScreen code="404" icon={CompassIcon} title="Page not found" description="The page you're looking for doesn't exist or was moved." />;
-}
-
-/** Placeholder for menus whose pages are not built yet (M2a), so every MenuKey has a route. */
-export function ComingSoonPage() {
-  return (
-    <ErrorScreen
-      code="Coming soon"
-      icon={HammerIcon}
-      title="This page is being built"
-      description="This feature is part of an upcoming release and isn't available yet."
-    />
-  );
 }
 
 /** Route-level error boundary: an unexpected render error shows this instead of a blank/raw error page. */

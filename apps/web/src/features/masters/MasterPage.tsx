@@ -143,21 +143,24 @@ export function MasterPage<T>({
   canDeleteRow,
   rowActions,
   emptyIcon = DatabaseIcon,
+  headerActions,
+  allowCreate = true,
+  bulkActions = true,
 }: MasterPageProps<T>) {
   const { can } = useAuth();
   const invalidate = useInvalidateMaster();
   const allow = useMemo(
     () => ({
-      create: !readOnly && !!Form && can(menu, 'create'),
+      create: allowCreate && !readOnly && !!Form && can(menu, 'create'),
       edit: !readOnly && !!Form && can(menu, 'edit'),
       delete: !readOnly && can(menu, 'delete'),
       export: can(menu, 'export'),
     }),
-    [can, menu, readOnly, Form],
+    [can, menu, readOnly, Form, allowCreate],
   );
   // Bulk activate/deactivate only applies to masters with an active flag (those with the status filter).
   const bulkStatus = statusFilter && allow.edit;
-  const bulkEnabled = !readOnly && (bulkStatus || allow.delete);
+  const bulkEnabled = bulkActions && !readOnly && (bulkStatus || allow.delete);
 
   const [search, setSearch] = useState('');
   const q = useDeferredValue(search.trim());
@@ -349,6 +352,7 @@ export function MasterPage<T>({
         description={description}
         actions={
           <>
+            {headerActions}
             {allow.export && (
               <Button variant="outline" onClick={exportCsv} disabled={exporting}>
                 {exporting ? <Spinner /> : <DownloadIcon />}

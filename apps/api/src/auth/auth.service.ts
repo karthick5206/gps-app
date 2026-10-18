@@ -18,6 +18,7 @@ import { AppEnv } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
+import { SystemMessagesService } from '../templates/system-messages.service';
 import { MailerService } from './mailer.service';
 import { MeService } from './me.service';
 import { ClientInfo, TokenService } from './token.service';
@@ -43,6 +44,7 @@ export class AuthService {
     private readonly me: MeService,
     private readonly audit: AuditService,
     private readonly mailer: MailerService,
+    private readonly messages: SystemMessagesService,
     @Inject(APP_ENV) private readonly env: AppEnv,
   ) {}
 
@@ -73,7 +75,7 @@ export class AuthService {
     if (recent && Date.now() - recent.createdAt.getTime() < OTP_RESEND_MS) {
       throw new HttpException('Please wait 30 seconds before requesting another code', HttpStatus.TOO_MANY_REQUESTS);
     }
-    const user = await this.prisma.user.findUnique({ where: { mobile }, select: { id: true, isActive: true } });
+    const user = await this.prisma.user.findUnique({ where: { mobile }, select: { id: true, isActive: true, companyId: true } });
     // Unknown mobiles get the same response, so the endpoint cannot be used to discover accounts.
     if (!user?.isActive) return { ok: true };
 
@@ -81,6 +83,7 @@ export class AuthService {
     await this.prisma.otpCode.create({
       data: { mobile, codeHash: this.otpHash(mobile, code), expiresAt: new Date(Date.now() + OTP_TTL_MS) },
     });
+    await this.sendOtpSms(user.companyId, mobile, code).catch((e: Error) => this.logger.error(`OTP SMS failed: ${e.message}`));
     if (!this.env.otpDevEcho) return { ok: true };
     this.logger.log(`[dev] OTP for ${mobile}: ${code}`);
     return { ok: true, devCode: code };
@@ -121,7 +124,7 @@ export class AuthService {
 
   async forgotPassword(emailInput: string): Promise<{ ok: true; devLink?: string }> {
     const email = emailInput.trim().toLowerCase();
-    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, name: true, isActive: true } });
+    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, name: true, isActive: true, companyId: true } });
     if (!user?.isActive) return { ok: true };
 
     const token = randomToken(32);
@@ -129,12 +132,7 @@ export class AuthService {
       data: { userId: user.id, tokenHash: sha256(token), expiresAt: new Date(Date.now() + RESET_TTL_MS) },
     });
     const link = `${this.env.webUrl}/reset-password?token=${encodeURIComponent(token)}`;
-    await this.mailer.send({
-      to: email,
-      subject: 'Reset your VeeTracer password',
-      text: `Hi ${user.name},\n\nReset your password within 30 minutes: ${link}\n\nIf you did not ask for this, ignore this email.`,
-      html: `<p>Hi ${escapeHtml(user.name)},</p><p><a href="${escapeHtml(link)}">Reset your VeeTracer password</a> (valid for 30 minutes, single use).</p><p>If you did not ask for this, ignore this email.</p>`,
-    });
+    await this.sendResetEmail(user, email, link);
     return this.env.mailDevEcho ? { ok: true, devLink: link } : { ok: true };
   }
 
@@ -172,6 +170,57 @@ export class AuthService {
     );
     const ctx = await this.contexts.forUser(user.id, undefined, client.ip);
     return { ...tokens, me: await this.me.build(ctx) };
+  }
+
+  /** SYSTEM_OTP SMS (company override → system template); failures are logged, never surfaced to the caller. */
+  private async sendOtpSms(companyId: string, mobile: string, code: string): Promise<void> {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { name: true } });
+    const vars = { code, expires_min: String(OTP_TTL_MS / 60_000), company: company?.name ?? 'VeeTracer' };
+    const rendered = await this.messages.render(companyId, 'SYSTEM_OTP', 'SMS', vars);
+    const text = rendered?.text ?? `${code} is your VeeTracer login code. It expires in ${vars.expires_min} minutes.`;
+    let error: string | null = null;
+    try {
+      await this.messages.sms.send({ to: mobile, text, dltTemplateId: rendered?.dltTemplateId, senderId: rendered?.senderId, variables: rendered?.dltValues });
+    } catch (e) {
+      error = (e as Error).message;
+      this.logger.warn(`OTP SMS to ${mobile} failed: ${error}`);
+    }
+    await this.messages.log({
+      companyId,
+      channel: 'SMS',
+      recipient: mobile,
+      templateId: rendered?.templateId ?? null,
+      subject: null,
+      body: text,
+      status: error ? 'FAILED' : 'SENT',
+      error,
+      provider: this.messages.sms.name,
+      secrets: [code],
+    });
+  }
+
+  /** SYSTEM_PASSWORD_RESET e-mail (company override → system template). */
+  private async sendResetEmail(user: { id: string; name: string; companyId: string }, email: string, link: string): Promise<void> {
+    const company = await this.prisma.company.findUnique({ where: { id: user.companyId }, select: { name: true } });
+    const vars = { user_name: user.name, reset_link: link, expires_min: String(RESET_TTL_MS / 60_000), company: company?.name ?? 'VeeTracer' };
+    const rendered = await this.messages.render(user.companyId, 'SYSTEM_PASSWORD_RESET', 'EMAIL', vars);
+    const subject = rendered?.subject ?? 'Reset your VeeTracer password';
+    const html =
+      rendered?.body ??
+      `<p>Hi ${escapeHtml(user.name)},</p><p><a href="${escapeHtml(link)}">Reset your VeeTracer password</a> (valid for 30 minutes, single use).</p>`;
+    const text = rendered?.text ?? `Hi ${user.name},\n\nReset your password within 30 minutes: ${link}`;
+    await this.mailer.send({ to: email, subject, html, text });
+    await this.messages.log({
+      companyId: user.companyId,
+      channel: 'EMAIL',
+      recipient: email,
+      templateId: rendered?.templateId ?? null,
+      subject,
+      body: html,
+      status: 'SENT',
+      provider: 'mailer',
+      secrets: [link, escapeHtml(link)],
+    });
   }
 
   private otpHash(mobile: string, code: string): string {

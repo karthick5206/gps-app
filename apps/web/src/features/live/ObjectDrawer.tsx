@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { DEFAULT_SPEED_LIMIT_KPH, type DeviceDto, type LiveObject } from '@veetracer/shared';
-import { CrosshairIcon, LocateFixedIcon, LocateIcon, XIcon } from 'lucide-react';
+import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, XIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -105,6 +106,7 @@ export function ObjectDrawer({
   className?: string;
 }) {
   const hasCoords = object.lat !== null;
+  const { can } = useAuth();
   return (
     <aside
       aria-label="Object details"
@@ -129,6 +131,13 @@ export function ObjectDrawer({
         <Button size="sm" variant="outline" disabled={!hasCoords} onClick={onZoomTo}>
           <CrosshairIcon /> Zoom to
         </Button>
+        {can('history') && (
+          <Button size="sm" variant="outline" asChild>
+            <Link to={`/history?objectId=${encodeURIComponent(object.objectId)}`}>
+              <HistoryIcon /> History
+            </Link>
+          </Button>
+        )}
       </div>
       <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
         <TabsList className="mx-4 mt-3 w-[calc(100%-2rem)]">

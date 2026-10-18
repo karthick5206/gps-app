@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { LiveObject } from '@veetracer/shared';
+import { OfflineAlertService } from '../alerts/offline-alerts.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { COMPARE_AND_SET_SCRIPT, RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
@@ -18,6 +19,7 @@ export class OfflineSweeperService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    @Optional() private readonly offlineAlerts?: OfflineAlertService,
   ) {}
 
   @Interval(30_000)
@@ -56,10 +58,15 @@ export class OfflineSweeperService {
     const keys = objectIds.map(RedisKeys.live);
     const values = await this.redis.client.mget(keys);
     let marked = 0;
+    const offlineNow: LiveObject[] = [];
     for (let i = 0; i < keys.length; i++) {
       const current = values[i];
       const live = parseLive(current);
-      if (!current || !live?.serverTime || live.status === 'OFFLINE') continue;
+      if (!current || !live?.serverTime) continue;
+      if (live.status === 'OFFLINE') {
+        offlineNow.push(live);
+        continue;
+      }
       if (Date.parse(live.serverTime) >= cutoff) continue;
       const offline: LiveObject = { ...live, status: 'OFFLINE', statusSince: nowIso, speedKph: 0 };
       const json = JSON.stringify(offline);
@@ -67,6 +74,13 @@ export class OfflineSweeperService {
       if (swapped !== 1) continue;
       await this.redis.client.publish(RedisKeys.liveUpdates, JSON.stringify({ companyId, live: offline }));
       marked++;
+      offlineNow.push(offline);
+    }
+    // DEVICE_OFFLINE alerts (respecting a larger `afterMin` override); never let alerting break the sweep.
+    if (this.offlineAlerts && offlineNow.length) {
+      await this.offlineAlerts.check(companyId, offlineNow, Date.parse(nowIso)).catch((error: Error) => {
+        this.logger.error(`Offline alerts failed: ${error.message}`);
+      });
     }
     return marked;
   }
