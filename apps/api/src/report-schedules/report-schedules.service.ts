@@ -276,7 +276,7 @@ export class ReportSchedulesService {
       subject: `${vars.report_name} — ${vars.period}`,
       html:
         `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#0f172a">` +
-        `<h2 style="color:#0f766e;margin:0 0 8px">${e('report_name')}</h2>` +
+        `<h2 style="color:#0e5e57;margin:0 0 8px">${e('report_name')}</h2>` +
         `<p>Hi ${e('user_name')},</p><p>Your scheduled report (${e('report_types')}) for <b>${e('period')}</b> is attached: ${e('file_name')}.</p>` +
         `<p style="color:#64748b;font-size:12px">Generated ${e('generated_at')} · ${e('company')} · Veetrax</p></body></html>`,
       text: `${vars.report_name}\n\nHi ${vars.user_name}, your scheduled report (${vars.report_types}) for ${vars.period} is attached: ${vars.file_name}.\nGenerated ${vars.generated_at} · ${vars.company}`,

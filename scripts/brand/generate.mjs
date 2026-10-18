@@ -81,6 +81,8 @@ png(
   svg(1024, 1024, `<g stroke="${C.white}" stroke-width="18" opacity="0.07" fill="none"><path d="M0 300H1024M0 720H1024M300 0V1024M720 0V1024"/></g>`, C.teal),
 );
 png('apps/mobile/assets/images/android-icon-monochrome.png', svg(1024, 1024, mark({ x: 1024 * 0.27, y: 1024 * 0.28, size: 1024 * 0.46, pin: C.white, route: C.white })));
+// Android status-bar / notification small icon: white silhouette filling the 96 px canvas (Android tints it).
+png('apps/mobile/assets/images/notification-icon.png', svg(96, 96, mark({ x: 2, y: 4, size: 90, pin: C.white, route: C.white })));
 // Splash: mark over the wordmark on teal (expo-splash-screen backgroundColor = C.teal).
 png('apps/mobile/assets/images/splash-icon.png', svg(1024, 1024, mark({ x: 312, y: 150, size: 400, pin: C.white, route: C.saffron }) + word({ x: 512, y: 760, size: 190, fill: C.white, anchor: 'middle' })));
 png('apps/mobile/assets/images/favicon.png', roundIcon(48));

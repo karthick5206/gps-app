@@ -88,7 +88,7 @@ async function renderXlsx(sections: ReportData[], generated: string): Promise<Bu
     const header = ws.addRow(p.headers);
     header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     header.eachCell((cell) => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F766E' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0E5E57' } };
       cell.alignment = { vertical: 'middle' };
     });
     const headerRow = header.number;
@@ -151,7 +151,7 @@ async function renderPdf(sections: ReportData[], generated: string): Promise<Buf
       {
         table: { headerRows: 1, dontBreakRows: true, widths: p.widths.map((w) => `${((w / total) * 100).toFixed(2)}%`), body },
         layout: {
-          fillColor: (row: number) => (row === 0 ? '#0f766e' : row % 2 === 0 ? '#f8fafc' : null),
+          fillColor: (row: number) => (row === 0 ? '#0e5e57' : row % 2 === 0 ? '#f8fafc' : null),
           hLineWidth: (i: number) => (i === 0 || i === 1 ? 0 : 0.5),
           vLineWidth: () => 0,
           hLineColor: () => '#e2e8f0',
@@ -170,7 +170,7 @@ async function renderPdf(sections: ReportData[], generated: string): Promise<Buf
     info: { title: sections.map((s) => REPORT_TITLES[s.type]).join(', '), creator: 'Veetrax' },
     defaultStyle: { font: 'Roboto', fontSize: 7.5, color: '#0f172a' },
     styles: {
-      company: { fontSize: 13, bold: true, color: '#0f766e' },
+      company: { fontSize: 13, bold: true, color: '#0e5e57' },
       title: { fontSize: 11, bold: true, margin: [0, 2, 0, 2] },
       meta: { fontSize: 8, color: '#475569' },
       note: { fontSize: 8, italics: true, color: '#b45309' },

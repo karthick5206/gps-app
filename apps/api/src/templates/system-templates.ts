@@ -33,7 +33,7 @@ const DETAIL: Record<AlertTypeCode, string> = {
   DEVICE_TAMPER: 'tracker reported tampering or GPS jamming',
 };
 
-const BRAND = '#0f766e';
+const BRAND = '#0e5e57';
 
 /** Simple responsive e-mail shell (table layout, inline styles) with the company name and an optional button. */
 export function emailShell(opts: { heading: string; intro: string; rows?: [string, string][]; button?: { label: string; href: string }; footer?: string }): string {

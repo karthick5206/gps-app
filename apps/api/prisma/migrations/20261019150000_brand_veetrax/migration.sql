@@ -8,3 +8,5 @@ SET "name" = replace("name", 'VeeTracer', 'Veetrax'),
     "body" = replace("body", 'VeeTracer', 'Veetrax')
 WHERE "companyId" IS NULL
   AND ("name" LIKE '%VeeTracer%' OR "subject" LIKE '%VeeTracer%' OR "body" LIKE '%VeeTracer%');
+-- Brand colour in the built-in e-mail layout: old teal → Veetrax teal.
+UPDATE "MessageTemplate" SET "body" = replace("body", '#0f766e', '#0e5e57') WHERE "companyId" IS NULL AND "body" LIKE '%#0f766e%';

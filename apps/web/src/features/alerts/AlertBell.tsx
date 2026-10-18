@@ -1,5 +1,5 @@
 import type { AlertDto } from '@veetracer/shared';
-import { BellIcon, CheckCheckIcon, MapPinIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, Volume2Icon, VolumeXIcon } from 'lucide-react';
+import { BellIcon, CheckCheckIcon, MapPinIcon, MonitorIcon, MonitorOffIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, Volume2Icon, VolumeXIcon } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
@@ -17,6 +17,7 @@ import { formatDateTime, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { alertCenter, alertTitle } from './alert-center';
 import { alertIcon, AlertTypeIcon } from './alert-icons';
+import { desktopNotify, useDesktopNotify } from './desktop-notify';
 import { SEVERITY_COLOR } from './severity';
 
 // Lazy so maplibre stays out of the main bundle (the bell is in the shell).
@@ -61,6 +62,8 @@ function useAlertToasts() {
         toast.info(t('{{count}} more alert(s) just arrived', { count: burstCount }), { id: 'alert-burst', description: t('Open the bell to see the latest alerts.'), duration: 5000 });
         return;
       }
+      // Background tab / minimised window: also a desktop notification with the Veetrax icon.
+      desktopNotify.show(a, alertTitle(a), `${vehicleLabel(a)} — ${a.message}`, () => openRef.current(a));
       const Icon = alertIcon(a.type);
       const opts = {
         id: `alert-${a.id}`,
@@ -75,6 +78,32 @@ function useAlertToasts() {
       else toast.info(title, opts);
     });
   }, [t]);
+}
+
+/** Desktop notifications on / off for this browser (asks for permission when turned on). */
+function DesktopNotifyToggle() {
+  const { t } = useTranslation();
+  const state = useDesktopNotify();
+  if (state === 'unsupported') return null;
+  const label =
+    state === 'on'
+      ? t('Desktop notifications on — click to turn off')
+      : state === 'blocked'
+        ? t('Desktop notifications are blocked in the browser settings for this site')
+        : t('Desktop notifications off — click to turn on');
+  const toggle = async () => {
+    if (state === 'on') return desktopNotify.disable();
+    const next = await desktopNotify.enable();
+    if (next === 'on') toast.success(t('Desktop notifications on'), { description: t('Warning and critical alerts appear on your desktop when this tab is in the background.') });
+    else toast.error(t('Desktop notifications are blocked in the browser settings for this site'));
+  };
+  return (
+    <Tooltip content={label}>
+      <Button variant="ghost" size="icon-sm" aria-label={label} aria-pressed={state === 'on'} disabled={state === 'blocked'} onClick={() => void toggle()}>
+        {state === 'on' ? <MonitorIcon /> : <MonitorOffIcon />}
+      </Button>
+    </Tooltip>
+  );
 }
 
 function CriticalAlertModal() {
@@ -299,6 +328,7 @@ export function AlertBell() {
                 {state.criticalPopup ? <PanelTopIcon /> : <PanelTopDashedIcon />}
               </Button>
             </Tooltip>
+            <DesktopNotifyToggle />
             {can('alerts', 'edit') && unreadShown.length > 0 && (
               <Tooltip content={t('Acknowledge the unread alerts shown')}>
                 <Button variant="ghost" size="icon-sm" aria-label={t('Acknowledge shown alerts')} onClick={markShownRead} disabled={acking}>
