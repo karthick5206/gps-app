@@ -14,6 +14,10 @@ export interface ObjectMeta {
   speedLimitKph: number | null;
   /** In maintenance: no alerts are raised. */
   inMaintenance?: boolean;
+  /** Driver on the vehicle now; `driverSource` RFID sessions end at ignition off. */
+  driverId?: string | null;
+  driverName?: string | null;
+  driverSource?: 'MANUAL' | 'RFID' | null;
 }
 
 /** Object limit, else the vehicle-type default; non-vehicles without a limit never overspeed. */

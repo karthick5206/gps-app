@@ -101,4 +101,7 @@ export interface LiveObject {
   fixTime: string | null;
   serverTime: string | null;
   speedLimitKph: number | null;
+  /** Driver on the vehicle now (RFID swipe or manual assignment). */
+  driverId?: string | null;
+  driverName?: string | null;
 }

@@ -27,6 +27,7 @@ import {
   consolidated,
   continuousDrivingReport,
   deviceStatusReport,
+  driversReport,
   eventSummary,
   geofenceSummary,
   ignition,
@@ -156,7 +157,8 @@ export class ReportDataService {
       case 'CONTINUOUS_DRIVING':
       case 'EVENT_SUMMARY':
       case 'GEOFENCE_SUMMARY':
-      case 'DEVICE_STATUS': {
+      case 'DEVICE_STATUS':
+      case 'DRIVERS': {
         const q: QueryCtx = { prisma: this.prisma, companyId: ctx.companyId, objects, ids, range, maxRows, options: req.options ?? {} };
         const r =
           req.type === 'CONSOLIDATED'
@@ -173,7 +175,9 @@ export class ReportDataService {
                       ? await eventSummary(q)
                       : req.type === 'GEOFENCE_SUMMARY'
                         ? await geofenceSummary(q)
-                        : await deviceStatusReport(q, Date.now());
+                        : req.type === 'DRIVERS'
+                          ? await driversReport(q)
+                          : await deviceStatusReport(q, Date.now());
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 

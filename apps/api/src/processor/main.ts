@@ -6,6 +6,7 @@ import { loadEnv } from '../config/env';
 import { RedisKeys } from '../redis/keys';
 import { RulesRepository } from '../alerts/rules-data';
 import { DeviceCache } from './device-cache';
+import { DriverIdentification } from './driver-identification';
 import { PositionProcessor } from './position-processor';
 import { RulesEngine } from './rules/rules-engine';
 import { StreamConsumer } from './stream-consumer';
@@ -23,18 +24,20 @@ async function main(): Promise<void> {
 
   const cache = new DeviceCache(prisma);
   const rulesRepo = new RulesRepository(prisma);
+  const drivers = new DriverIdentification(prisma);
   subscriber.on('message', (channel: string, message: string) => {
     if (channel === RedisKeys.rulesInvalidate) {
       rulesRepo.invalidate(parseCompanyId(message));
       return;
     }
     cache.clear();
+    drivers.clear();
     rulesRepo.invalidate();
   });
   await subscriber.subscribe(RedisKeys.cacheInvalidate, RedisKeys.rulesInvalidate);
 
   const rules = process.env.RULES_ENGINE === 'off' ? null : new RulesEngine(redis, rulesRepo);
-  const consumer = new StreamConsumer(redis, new PositionProcessor(prisma, redis, cache, rules), consumerName);
+  const consumer = new StreamConsumer(redis, new PositionProcessor(prisma, redis, cache, rules, drivers), consumerName);
   const shutdown = () => {
     logger.log('Stopping after the current batch…');
     consumer.stop();

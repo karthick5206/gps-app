@@ -89,6 +89,7 @@ export const REPORT_TYPES = [
   'GEOFENCE_VISITS',
   'GEOFENCE_SUMMARY',
   'DEVICE_STATUS',
+  'DRIVERS',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 

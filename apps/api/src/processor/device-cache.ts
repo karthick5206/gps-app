@@ -64,6 +64,7 @@ export class DeviceCache {
                 speedLimitKph: true,
                 isActive: true,
                 maintenanceSince: true,
+                drivers: { where: { toTime: null }, take: 1, select: { driverId: true, source: true, driver: { select: { name: true } } } },
               },
             },
           },
@@ -94,6 +95,9 @@ export class DeviceCache {
                 uniqueId: d.uniqueId,
                 speedLimitKph: effectiveSpeedLimit(o.speedLimitKph, o.type, o.vehicleType),
                 inMaintenance: o.maintenanceSince !== null,
+                driverId: o.drivers[0]?.driverId ?? null,
+                driverName: o.drivers[0]?.driver.name ?? null,
+                driverSource: (o.drivers[0]?.source as 'MANUAL' | 'RFID' | undefined) ?? null,
               }
             : null,
         };

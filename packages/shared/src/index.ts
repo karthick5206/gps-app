@@ -6,3 +6,4 @@ export * from './alerts';
 export * from './history';
 export * from './dashboard';
 export * from './commands';
+export * from './drivers';
