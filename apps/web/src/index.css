@@ -3,49 +3,142 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Design tokens (shadcn convention). Brand: teal primary, navy accents.
- * Status colours (--status-*) are injected at startup from STATUS_META (see lib/status-tokens.ts)
- * so the shared package stays the single source of truth.
+ * Design tokens (shadcn convention). Themes (THEMES in @veetracer/shared, <html data-theme>): Teal & Saffron is the
+ * default (:root); Plum & Pink, Sky & Cobalt and Light override the palette; Dark adds the `dark` class.
+ * Keep apps/mobile/src/lib/theme.ts in step. Status colours (--status-*) are injected at startup from STATUS_META
+ * (see lib/status-tokens.ts) so the shared package stays the single source of truth.
  */
 :root {
   --radius: 0.625rem;
-
-  --background: #f6f8fa;
-  --foreground: #0f1d2b;
+  --background: #f5f8f7;
+  --foreground: #0f1d1b;
   --card: #ffffff;
-  --card-foreground: #0f1d2b;
+  --card-foreground: #0f1d1b;
   --popover: #ffffff;
-  --popover-foreground: #0f1d2b;
-  --primary: #0f766e;
+  --popover-foreground: #0f1d1b;
+  --primary: #0e5e57;
   --primary-foreground: #ffffff;
-  --secondary: #edf2f6;
-  --secondary-foreground: #0b3b5a;
-  --muted: #f1f5f9;
-  --muted-foreground: #5a6b7d;
-  --accent: #e7f5f3;
-  --accent-foreground: #0b3b5a;
+  --secondary: #eaf2f0;
+  --secondary-foreground: #0b3b36;
+  --muted: #eff4f3;
+  --muted-foreground: #566966;
+  --accent: #e3f1ee;
+  --accent-foreground: #0b3b36;
+  --border: #dce6e3;
+  --input: #cbd9d5;
+  --ring: #14897e;
+  --navy: #0b3b36;
+  --navy-foreground: #ffffff;
+  --sidebar: #0b3b36;
+  --sidebar-foreground: #cfe3df;
+  --sidebar-muted: #8db3ad;
+  --sidebar-accent: #14524b;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-primary: #ffb443;
+  --sidebar-border: #155049;
+  --brand: #0e5e57;
+  --brand-accent: #ffb443;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
   --success: #15803d;
   --warning: #b45309;
-  --border: #e2e8f0;
-  --input: #d4dce5;
-  --ring: #14b8a6;
-  --navy: #0b3b5a;
-  --navy-foreground: #ffffff;
-
-  --sidebar: #0b2e46;
-  --sidebar-foreground: #c3d3e0;
-  --sidebar-muted: #7f99ad;
-  --sidebar-accent: #134566;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-primary: #2dd4bf;
-  --sidebar-border: #173f5c;
-
   --overlay: rgb(8 20 32 / 0.5);
   --map-label-halo: #ffffff;
   --map-label: #0f1d2b;
   --map-marker-stroke: #ffffff;
+}
+
+:root[data-theme='plum'] {
+  --background: #f8f5fa;
+  --foreground: #1e1225;
+  --card: #ffffff;
+  --card-foreground: #1e1225;
+  --popover: #ffffff;
+  --popover-foreground: #1e1225;
+  --primary: #5b1e78;
+  --primary-foreground: #ffffff;
+  --secondary: #f2ebf6;
+  --secondary-foreground: #3e1052;
+  --muted: #f3eef6;
+  --muted-foreground: #6a5a73;
+  --accent: #f1e4f7;
+  --accent-foreground: #3e1052;
+  --border: #e7ddec;
+  --input: #d9cce0;
+  --ring: #a04fc4;
+  --navy: #3e1052;
+  --navy-foreground: #ffffff;
+  --sidebar: #3e1052;
+  --sidebar-foreground: #e6d5ee;
+  --sidebar-muted: #b293c2;
+  --sidebar-accent: #56236f;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-primary: #ff9ecf;
+  --sidebar-border: #4f1f68;
+  --brand: #5b1e78;
+  --brand-accent: #ff9ecf;
+}
+
+:root[data-theme='sky'] {
+  --background: #f3f7ff;
+  --foreground: #10183a;
+  --card: #ffffff;
+  --card-foreground: #10183a;
+  --popover: #ffffff;
+  --popover-foreground: #10183a;
+  --primary: #1f4fff;
+  --primary-foreground: #ffffff;
+  --secondary: #e6eeff;
+  --secondary-foreground: #10183a;
+  --muted: #edf2fd;
+  --muted-foreground: #55607f;
+  --accent: #e3ecff;
+  --accent-foreground: #10183a;
+  --border: #dce4f5;
+  --input: #ccd6ee;
+  --ring: #4f75ff;
+  --navy: #10183a;
+  --navy-foreground: #ffffff;
+  --sidebar: #eaf1ff;
+  --sidebar-foreground: #2a3560;
+  --sidebar-muted: #5f6a8f;
+  --sidebar-accent: #d6e3ff;
+  --sidebar-accent-foreground: #10183a;
+  --sidebar-primary: #1f4fff;
+  --sidebar-border: #d3ddf5;
+  --brand: #1f4fff;
+  --brand-accent: #ff6b4a;
+}
+
+:root[data-theme='light'] {
+  --background: #f7f7f8;
+  --foreground: #17181c;
+  --card: #ffffff;
+  --card-foreground: #17181c;
+  --popover: #ffffff;
+  --popover-foreground: #17181c;
+  --primary: #0e5e57;
+  --primary-foreground: #ffffff;
+  --secondary: #f0f1f3;
+  --secondary-foreground: #26282e;
+  --muted: #f2f3f5;
+  --muted-foreground: #5e6370;
+  --accent: #eef0f2;
+  --accent-foreground: #17181c;
+  --border: #e3e5e8;
+  --input: #d3d6db;
+  --ring: #14897e;
+  --navy: #26282e;
+  --navy-foreground: #ffffff;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #3d414b;
+  --sidebar-muted: #6e737f;
+  --sidebar-accent: #f0f1f3;
+  --sidebar-accent-foreground: #17181c;
+  --sidebar-primary: #0e5e57;
+  --sidebar-border: #e3e5e8;
+  --brand: #0e5e57;
+  --brand-accent: #ffb443;
 }
 
 .dark {
@@ -55,7 +148,7 @@
   --card-foreground: #e3ebf2;
   --popover: #0f1e2e;
   --popover-foreground: #e3ebf2;
-  --primary: #14b8a6;
+  --primary: #2bb3a3;
   --primary-foreground: #04201e;
   --secondary: #15263a;
   --secondary-foreground: #d8e4ee;
@@ -72,15 +165,15 @@
   --ring: #2dd4bf;
   --navy: #12466b;
   --navy-foreground: #ffffff;
-
   --sidebar: #06101a;
   --sidebar-foreground: #b4c4d3;
   --sidebar-muted: #6c8296;
   --sidebar-accent: #11283c;
   --sidebar-accent-foreground: #ffffff;
-  --sidebar-primary: #2dd4bf;
+  --sidebar-primary: #ffb443;
   --sidebar-border: #13243a;
-
+  --brand: #2bb3a3;
+  --brand-accent: #ffb443;
   --overlay: rgb(0 0 0 / 0.6);
   --map-label-halo: #08121d;
   --map-label: #e3ebf2;

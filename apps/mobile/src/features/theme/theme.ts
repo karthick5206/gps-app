@@ -1,24 +1,31 @@
-import type { ThemePreference } from '@veetracer/shared';
+import { normalizeTheme, themeScheme, type ThemePreference } from '@veetracer/shared';
 import * as SecureStore from 'expo-secure-store';
 import { Appearance } from 'react-native';
+import { themeState } from '@/lib/theme';
 
 /**
- * Light / dark / system theme. The choice is the user's profile preference (shared with the web app); it is also kept
- * on the device so the right theme shows on the next launch before the profile loads.
+ * Colour theme (Teal & Saffron, Plum & Pink, Sky & Cobalt, Light, Dark). The choice is the user's profile preference
+ * (shared with the web app); it is also kept on the device so the right theme shows on the next launch before the
+ * profile loads. Native views (keyboard, pickers) follow the theme's light / dark scheme.
  */
 const KEY = 'vt.theme';
 
+function apply(theme: ThemePreference): void {
+  themeState.set(theme);
+  Appearance.setColorScheme(themeScheme(theme));
+}
+
 export function applyThemePreference(pref: ThemePreference): void {
-  Appearance.setColorScheme(pref === 'system' ? 'unspecified' : pref);
-  SecureStore.setItemAsync(KEY, pref).catch(() => undefined);
+  const theme = normalizeTheme(pref);
+  apply(theme);
+  SecureStore.setItemAsync(KEY, theme).catch(() => undefined);
 }
 
 /** Applies the theme saved on the device (call once at startup). */
 export async function restoreThemePreference(): Promise<void> {
   try {
-    const saved = (await SecureStore.getItemAsync(KEY)) as ThemePreference | null;
-    if (saved === 'light' || saved === 'dark' || saved === 'system') Appearance.setColorScheme(saved === 'system' ? 'unspecified' : saved);
+    apply(normalizeTheme(await SecureStore.getItemAsync(KEY)));
   } catch {
-    /* keystore unavailable: follow the system */
+    apply(normalizeTheme(null));
   }
 }

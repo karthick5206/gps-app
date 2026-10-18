@@ -1,46 +1,34 @@
-import type { ThemePreference } from '@veetracer/shared';
+import { normalizeTheme, themeScheme, type ThemePreference } from '@veetracer/shared';
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 
 export type ResolvedTheme = 'light' | 'dark';
 
-/** Theme state outside React so non-React code (the map) can subscribe too. */
+/**
+ * Colour theme outside React so non-React code (the map) can subscribe too. The theme id goes on <html data-theme>
+ * (palette tokens in index.css); `resolved` is its light / dark scheme (map styles, the `dark` class).
+ */
 type Listener = () => void;
 const listeners = new Set<Listener>();
-const media = window.matchMedia('(prefers-color-scheme: dark)');
 
-function readPreference(): ThemePreference {
-  const v = storage.get(STORAGE_KEYS.theme);
-  return v === 'light' || v === 'dark' ? v : 'system';
-}
-
-let preference: ThemePreference = readPreference();
-let resolved: ResolvedTheme = resolve(preference);
-
-function resolve(pref: ThemePreference): ResolvedTheme {
-  return pref === 'system' ? (media.matches ? 'dark' : 'light') : pref;
-}
+let preference: ThemePreference = normalizeTheme(storage.get(STORAGE_KEYS.theme));
+let resolved: ResolvedTheme = themeScheme(preference);
 
 function apply() {
-  const next = resolve(preference);
-  const changed = next !== resolved;
-  resolved = next;
+  resolved = themeScheme(preference);
   const root = document.documentElement;
+  root.dataset.theme = preference;
   root.classList.toggle('dark', resolved === 'dark');
   root.style.colorScheme = resolved;
-  return changed;
 }
-
-media.addEventListener('change', () => {
-  if (preference === 'system' && apply()) listeners.forEach((l) => l());
-});
 
 export const themeStore = {
   getPreference: () => preference,
   getResolved: () => resolved,
   setPreference(pref: ThemePreference) {
-    if (pref === preference) return;
-    preference = pref;
-    storage.set(STORAGE_KEYS.theme, pref);
+    const next = normalizeTheme(pref);
+    if (next === preference) return;
+    preference = next;
+    storage.set(STORAGE_KEYS.theme, next);
     apply();
     listeners.forEach((l) => l());
   },

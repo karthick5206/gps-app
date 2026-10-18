@@ -1,13 +1,12 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { DISPLAY_SIZES, DisplaySize, LANGUAGE_CODES, LanguageCode, Me, ThemePreference } from '@veetracer/shared';
+import { DISPLAY_SIZES, DisplaySize, LANGUAGE_CODES, LanguageCode, Me, normalizeTheme, ThemePreference } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { asRecord } from '../common/dto';
 import { hashPassword, verifyPassword } from '../common/secrets';
 import { toCompanySummary } from '../common/company-summary';
 import { PrismaService } from '../prisma/prisma.service';
 
-const THEMES: ThemePreference[] = ['light', 'dark', 'system'];
 
 @Injectable()
 export class MeService {
@@ -28,7 +27,7 @@ export class MeService {
         mobile: user.mobile,
         isSuperAdmin: user.isSuperAdmin,
         preferences: {
-          theme: THEMES.includes(theme as ThemePreference) ? (theme as ThemePreference) : 'system',
+          theme: normalizeTheme(theme),
           language: LANGUAGE_CODES.includes(language as LanguageCode) ? (language as LanguageCode) : null,
           textSize: size(textSize),
           mapIconSize: size(mapIconSize),

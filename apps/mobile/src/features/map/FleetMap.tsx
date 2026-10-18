@@ -4,7 +4,7 @@ import { forwardRef, useImperativeHandle, useMemo, useRef, type ReactNode } from
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useDisplay } from '@/features/display/display';
 import { MAP_STYLE } from '@/lib/config';
-import { COLORS, useScheme } from '@/lib/theme';
+import { useColors, useScheme } from '@/lib/theme';
 import { iconKind, iconName, rotates } from './vehicle-icons';
 import { VEHICLE_ICON_IMAGES } from './vehicle-icon-images';
 
@@ -59,7 +59,7 @@ export const FleetMap = forwardRef<
   { objects: LiveObject[]; selectedId?: string | null; onSelect?: (id: string | null) => void; style?: StyleProp<ViewStyle>; children?: ReactNode; interactive?: boolean; initialZoom?: number }
 >(function FleetMap({ objects, selectedId = null, onSelect, style, children, interactive = true, initialZoom }, ref) {
   const scheme = useScheme();
-  const c = COLORS[scheme];
+  const c = useColors();
   const camera = useRef<CameraRef>(null);
   const { iconScale } = useDisplay();
   const data = useMemo(() => toFeatures(objects, selectedId), [objects, selectedId]);
