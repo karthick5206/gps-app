@@ -36,7 +36,8 @@ describe('resolvePermissions', () => {
   it('unions role permissions and picks COMPANY scope if any role has it', () => {
     const { permissions, dataScope } = resolvePermissions([toGrant('Viewer'), toGrant('Manager')], false);
     expect(dataScope).toBe('ASSIGNED');
-    expect(permissions.live_map).toEqual(['view', 'command']);
+    expect(permissions.live_map).toEqual(['view']); // device commands are Admin-only
+    expect(resolvePermissions([toGrant('Admin')], false).permissions.live_map).toEqual(['view', 'command']);
     expect(permissions.users).toEqual(['view', 'create', 'edit']);
     expect(resolvePermissions([toGrant('Viewer'), toGrant('Admin')], false).dataScope).toBe('COMPANY');
   });

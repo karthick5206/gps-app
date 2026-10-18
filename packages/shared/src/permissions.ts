@@ -97,7 +97,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     dataScope: 'ASSIGNED',
     permissions: {
       dashboard: ['view'],
-      live_map: ['view', 'command'],
+      live_map: ['view'], // device commands (engine stop…) are for Admin roles only
       history: ['view', 'export'],
       alerts: ['view', 'edit', 'export'],
       reports: ['view', 'export'],

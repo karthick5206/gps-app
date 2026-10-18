@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Me, ThemePreference } from '@veetracer/shared';
 import { router, type Href } from 'expo-router';
-import { ChevronRightIcon, FileBarChartIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
+import { BellRingIcon, ChevronRightIcon, FileBarChartIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, Chips, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { meQueryKey, useAuth } from '@/features/auth/auth';
@@ -63,6 +63,7 @@ export default function MoreScreen() {
 
       <Card style={{ paddingVertical: 0 }}>
         {can('reports') && <MenuItem icon={FileBarChartIcon} label="Reports" href="/reports" />}
+        {can('alert_settings') && <MenuItem icon={BellRingIcon} label="Alert settings" href="/alert-settings" />}
       </Card>
 
       <SectionTitle>Account</SectionTitle>
