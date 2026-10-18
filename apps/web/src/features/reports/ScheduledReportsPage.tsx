@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { REPORT_TYPES, type ReportFormat, type ReportPeriod, type ReportScheduleDto, type ReportType } from '@veetracer/shared';
+import { REPORT_TYPES, SINGLE_OBJECT_REPORT_TYPES, type ReportFormat, type ReportPeriod, type ReportScheduleDto, type ReportType } from '@veetracer/shared';
 import { CalendarClockIcon, HistoryIcon, PlayIcon } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
@@ -37,7 +37,8 @@ const FORMATS: { value: ReportFormat; label: string }[] = [
   { value: 'PDF', label: 'PDF' },
   { value: 'CSV', label: 'CSV' },
 ];
-const TYPE_OPTIONS = REPORT_TYPES.map((t) => ({ value: t, label: REPORT_DEF_MAP[t].label }));
+// Raw single-vehicle reports (Positions) are run on demand only.
+const TYPE_OPTIONS = REPORT_TYPES.filter((t) => !SINGLE_OBJECT_REPORT_TYPES.includes(t)).map((t) => ({ value: t, label: REPORT_DEF_MAP[t].label }));
 
 const schema = z
   .object({

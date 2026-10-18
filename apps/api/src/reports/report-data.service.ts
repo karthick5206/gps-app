@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import {
   AlertDto,
   DailySummaryDto,
+  DistanceReportRow,
+  EngineHoursReportRow,
   GeofenceVisitDto,
   ReportPeriod,
   ReportRequest,
@@ -20,6 +22,19 @@ import { stopDto, tripDto } from '../history/history.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { addDays, daysBetween, isDayKey, localMidnight } from '../summarizer/tz';
 import { aggregateSummaries, intersectScope, summaryTotals } from './aggregate';
+import {
+  alertTypeFilter,
+  consolidated,
+  continuousDrivingReport,
+  deviceStatusReport,
+  eventSummary,
+  geofenceSummary,
+  ignition,
+  ObjInfo,
+  overspeed,
+  positions,
+  QueryCtx,
+} from './report-queries';
 
 export const REPORT_JSON_MAX_ROWS = 10_000;
 export const REPORT_MAX_DAYS = 366;
@@ -34,13 +49,6 @@ export interface ReportData extends ReportResponse {
 }
 
 type ScopeCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'objectIds'>;
-
-interface ObjInfo {
-  name: string;
-  plateNumber: string | null;
-  branchId: string | null;
-  branchName: string | null;
-}
 
 @Injectable()
 export class ReportDataService {
@@ -63,6 +71,9 @@ export class ReportDataService {
         branchId: true,
         branch: { select: { name: true } },
         groups: { select: { groupId: true } },
+        type: true,
+        vehicleType: true,
+        speedLimitKph: true,
       },
     });
     const ids = new Set(
@@ -73,7 +84,17 @@ export class ReportDataService {
     );
     const map = new Map<string, ObjInfo>();
     for (const r of rows) {
-      if (ids.has(r.id)) map.set(r.id, { name: r.name, plateNumber: r.plateNumber, branchId: r.branchId, branchName: r.branch?.name ?? null });
+      if (ids.has(r.id)) {
+        map.set(r.id, {
+          name: r.name,
+          plateNumber: r.plateNumber,
+          branchId: r.branchId,
+          branchName: r.branch?.name ?? null,
+          type: r.type,
+          vehicleType: r.vehicleType,
+          speedLimitKph: r.speedLimitKph,
+        });
+      }
     }
     return map;
   }
@@ -94,35 +115,79 @@ export class ReportDataService {
       case 'SUMMARY': {
         const period: ReportPeriod = req.period ?? 'DAY';
         if (!ids.length) return { ...empty, period, totals: summaryTotals([]) };
-        const rows = await this.prisma.dailySummary.findMany({
-          where: { companyId: ctx.companyId, objectId: { in: ids }, day: { gte: dayDate(req.from), lte: dayDate(req.to) } },
-          orderBy: [{ objectId: 'asc' }, { day: 'asc' }],
-        });
-        const days: DailySummaryDto[] = rows.map((r) => {
-          const o = objects.get(r.objectId);
-          return {
-            objectId: r.objectId,
-            objectName: o?.name ?? 'Unknown object',
-            plateNumber: o?.plateNumber ?? null,
-            branchName: o?.branchName ?? null,
-            day: r.day.toISOString().slice(0, 10),
-            distanceKm: r.distanceKm,
-            runningSec: r.runningSec,
-            idleSec: r.idleSec,
-            stopSec: r.stopSec,
-            offlineSec: r.offlineSec,
-            overspeedSec: r.overspeedSec,
-            overspeedCount: r.overspeedCount,
-            tripCount: r.tripCount,
-            maxSpeedKph: r.maxSpeedKph,
-            avgSpeedKph: r.avgSpeedKph,
-            engineSec: r.engineSec,
-            firstStart: r.firstStart?.toISOString() ?? null,
-            lastStop: r.lastStop?.toISOString() ?? null,
-          };
-        });
+        const days = await this.loadDays(ctx.companyId, objects, req);
         const all: SummaryReportRow[] = aggregateSummaries(days, period);
         return { ...base, period, rows: all.slice(0, maxRows), totals: summaryTotals(all), truncated: all.length > maxRows, totalRows: all.length };
+      }
+
+      case 'DISTANCE':
+      case 'ENGINE_HOURS': {
+        const period: ReportPeriod = req.period ?? 'DAY';
+        if (!ids.length) return { ...empty, period, totals: {} };
+        const all = aggregateSummaries(await this.loadDays(ctx.companyId, objects, req), period);
+        const t = summaryTotals(all);
+        const rows: (DistanceReportRow | EngineHoursReportRow)[] = all.map((r) =>
+          req.type === 'DISTANCE'
+            ? { objectId: r.objectId, objectName: r.objectName, plateNumber: r.plateNumber, branchName: r.branchName, period: r.period, distanceKm: r.distanceKm, tripCount: r.tripCount, runningSec: r.runningSec, offlineSec: r.offlineSec }
+            : {
+                objectId: r.objectId,
+                objectName: r.objectName,
+                plateNumber: r.plateNumber,
+                branchName: r.branchName,
+                period: r.period,
+                engineSec: r.engineSec,
+                runningSec: r.runningSec,
+                idleSec: r.idleSec,
+                idlePct: r.engineSec ? Math.round((r.idleSec / r.engineSec) * 1000) / 10 : 0,
+                distanceKm: r.distanceKm,
+              },
+        );
+        const totals: Record<string, number> =
+          req.type === 'DISTANCE'
+            ? { distanceKm: t.distanceKm, tripCount: t.tripCount, runningSec: t.runningSec, offlineSec: t.offlineSec, vehicles: t.vehicles }
+            : { engineSec: t.engineSec, runningSec: t.runningSec, idleSec: t.idleSec, idlePct: t.engineSec ? Math.round((t.idleSec / t.engineSec) * 1000) / 10 : 0, distanceKm: t.distanceKm, vehicles: t.vehicles };
+        return { ...base, period, rows: rows.slice(0, maxRows), totals, truncated: rows.length > maxRows, totalRows: rows.length };
+      }
+
+      case 'CONSOLIDATED':
+      case 'POSITIONS':
+      case 'OVERSPEED':
+      case 'IGNITION':
+      case 'CONTINUOUS_DRIVING':
+      case 'EVENT_SUMMARY':
+      case 'GEOFENCE_SUMMARY':
+      case 'DEVICE_STATUS': {
+        const q: QueryCtx = { prisma: this.prisma, companyId: ctx.companyId, objects, ids, range, maxRows, options: req.options ?? {} };
+        const r =
+          req.type === 'CONSOLIDATED'
+            ? await consolidated(q, ids.length ? await this.loadDays(ctx.companyId, objects, req) : [], req)
+            : req.type === 'POSITIONS'
+              ? await positions(q, req)
+              : req.type === 'OVERSPEED'
+                ? await overspeed(q)
+                : req.type === 'IGNITION'
+                  ? await ignition(q)
+                  : req.type === 'CONTINUOUS_DRIVING'
+                    ? await continuousDrivingReport(q)
+                    : req.type === 'EVENT_SUMMARY'
+                      ? await eventSummary(q)
+                      : req.type === 'GEOFENCE_SUMMARY'
+                        ? await geofenceSummary(q)
+                        : await deviceStatusReport(q, Date.now());
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'HALT': {
+        // Long stoppages: parked (engine off) for at least `minDurationMin` (default 30 min).
+        if (!ids.length) return { ...empty, totals: { count: 0, durationSec: 0 } };
+        const minSec = Math.max(1, req.options?.minDurationMin ?? 30) * 60;
+        const where: Prisma.StopWhereInput = { companyId: ctx.companyId, objectId: { in: ids }, startTime: range, ignitionOn: false, durationSec: { gte: minSec } };
+        const [rows, agg] = await Promise.all([
+          this.prisma.stop.findMany({ where, orderBy: { startTime: 'asc' }, take: maxRows }),
+          this.prisma.stop.aggregate({ where, _count: true, _sum: { durationSec: true } }),
+        ]);
+        const dtos: StopDto[] = rows.map((s) => stopDto(s, { name: name(s.objectId) })).sort(byName);
+        return { ...base, rows: dtos, totals: { count: agg._count, durationSec: agg._sum.durationSec ?? 0 }, truncated: agg._count > rows.length, totalRows: agg._count };
       }
 
       case 'TRIPS': {
@@ -156,6 +221,7 @@ export class ReportDataService {
           objectId: { in: ids },
           startTime: range,
           ...(req.type === 'IDLE' ? { ignitionOn: true } : {}),
+          ...(req.options?.minDurationMin ? { durationSec: { gte: req.options.minDurationMin * 60 } } : {}),
         };
         const [rows, agg] = await Promise.all([
           this.prisma.stop.findMany({ where, orderBy: { startTime: 'asc' }, take: maxRows }),
@@ -174,7 +240,7 @@ export class ReportDataService {
       case 'ALERTS': {
         const zero = { count: 0, INFO: 0, WARNING: 0, CRITICAL: 0 };
         if (!ids.length) return { ...empty, totals: zero };
-        const where: Prisma.AlertWhereInput = { companyId: ctx.companyId, objectId: { in: ids }, occurredAt: range };
+        const where: Prisma.AlertWhereInput = { companyId: ctx.companyId, objectId: { in: ids }, occurredAt: range, ...alertTypeFilter(req.options ?? {}) };
         const [rows, bySeverity] = await Promise.all([
           this.prisma.alert.findMany({ where, orderBy: { occurredAt: 'asc' }, take: maxRows }),
           this.prisma.alert.groupBy({ by: ['severity'], where, _count: true }),
@@ -231,6 +297,37 @@ export class ReportDataService {
       }
     }
     throw new BadRequestException(`Unknown report type ${(req as { type: ReportType }).type}`);
+  }
+
+  /** Daily summaries of the vehicles in `objects` for the request's days, with vehicle names attached. */
+  private async loadDays(companyId: string, objects: Map<string, ObjInfo>, req: ReportRequest): Promise<DailySummaryDto[]> {
+    const rows = await this.prisma.dailySummary.findMany({
+      where: { companyId, objectId: { in: [...objects.keys()] }, day: { gte: dayDate(req.from), lte: dayDate(req.to) } },
+      orderBy: [{ objectId: 'asc' }, { day: 'asc' }],
+    });
+    return rows.map((r) => {
+      const o = objects.get(r.objectId);
+      return {
+        objectId: r.objectId,
+        objectName: o?.name ?? 'Unknown object',
+        plateNumber: o?.plateNumber ?? null,
+        branchName: o?.branchName ?? null,
+        day: r.day.toISOString().slice(0, 10),
+        distanceKm: r.distanceKm,
+        runningSec: r.runningSec,
+        idleSec: r.idleSec,
+        stopSec: r.stopSec,
+        offlineSec: r.offlineSec,
+        overspeedSec: r.overspeedSec,
+        overspeedCount: r.overspeedCount,
+        tripCount: r.tripCount,
+        maxSpeedKph: r.maxSpeedKph,
+        avgSpeedKph: r.avgSpeedKph,
+        engineSec: r.engineSec,
+        firstStart: r.firstStart?.toISOString() ?? null,
+        lastStop: r.lastStop?.toISOString() ?? null,
+      };
+    });
   }
 }
 
