@@ -68,15 +68,17 @@ and APNs. Setup, once:
 1. Create an Expo account and run `npx eas-cli@latest init` in `apps/mobile`. This writes
    `extra.eas.projectId` to `app.json`. The app skips push registration while it's missing.
 2. **Android:** create a Firebase project and add an Android app with package `com.sasvata.veetracer`.
-   Download `google-services.json` into `apps/mobile/` and set `"android": { "googleServicesFile": "./google-services.json" }`.
-   In EAS, under credentials, upload the FCM V1 service-account key.
+   Download `google-services.json` into `apps/mobile/` (git-ignored); `app.config.js` picks it up automatically,
+   and the next build includes Firebase. In Firebase → Project settings → Service accounts, generate a private key
+   (JSON) and upload it on expo.dev → project → Credentials → Android → **FCM V1 service account key**.
 3. **iOS:** `eas credentials` creates the APNs key.
 4. Server: nothing is required. Optional: `EXPO_ACCESS_TOKEN` (enhanced push security), or `PUSH_PROVIDER=none`
    to turn push off.
-5. In the web app's Alert Settings, enable the **Push** channel for the alert types and severities you want.
+5. Warning and critical alerts are pushed by default. Change it per alert type in Alert Settings (Notify by).
 
 Each phone registers after sign-in (`POST /auth/push-token`). Pushes stop when the user signs out or the
-session is revoked. Tapping a notification opens the alert.
+session is revoked. Tapping a notification opens the alert. **More → Send test notification** checks the whole
+path (permission, registration, Expo, FCM/APNs) on that phone.
 
 ## Vehicle icons
 
