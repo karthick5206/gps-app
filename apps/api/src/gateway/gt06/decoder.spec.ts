@@ -62,6 +62,14 @@ describe('Gt06Decoder', () => {
     expect(warnings.join()).toMatch(/clock is UTC/);
   });
 
+  it('before a live fix, a local-clock history upload (time in the future) proves a local clock', () => {
+    const { feed, session } = setup();
+    feed(encodeLogin(IMEI, 1, 0x3612, timeZoneWord(330)));
+    const hist = feed(encodeGps22({ fix: fix({ time: new Date('2026-10-18T06:00:00Z') }), lbs, acc: true, reupload: true, clockOffsetMinutes: 330 }, 2));
+    expect(hist.positions[0].fixTime).toBe('2026-10-18T06:00:00.000Z');
+    expect(session.clock).toBe('local');
+  });
+
   it('no zone at login means UTC', () => {
     const { feed } = setup();
     feed(encodeLogin(IMEI, 1));

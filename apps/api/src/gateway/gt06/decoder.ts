@@ -22,6 +22,8 @@ export const GT06_PROTOCOL = 'gt06';
 
 /** A real-time fix within this window of server time decides whether the device clock is UTC or local. */
 const CLOCK_DECISION_WINDOW_MS = 30 * 60_000;
+/** Before a decision, a device time this far ahead of server time means the clock is local (east of UTC). */
+const CLOCK_FUTURE_EVIDENCE_MS = 10 * 60_000;
 
 /** Latest terminal status seen on a connection (heartbeats, alarms, 0x94 info) used to enrich positions. */
 export interface Gt06Status {
@@ -137,28 +139,37 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
   }
 
   /**
-   * Device clock → UTC. Concox devices report their configured zone in the login packet and most stamp fixes in that
-   * zone (as Traccar assumes), but some firmware stamp UTC regardless. The first real-time fix close to server time
-   * decides which, once per connection; until then the reported zone is applied.
+   * Device clock → UTC. Concox devices report their configured zone in the login packet; some stamp fixes in that zone
+   * (as Traccar assumes) but others stamp UTC regardless (seen on a customer unit reporting +05:30). The first
+   * real-time fix close to server time decides which, once per connection. Until then a time clearly in the future
+   * proves a local clock; otherwise the time is taken as UTC.
    */
   private fixTime(session: Gt06Session, fix: Gt06Fix, reupload: boolean, ctx: DecodeContext): Date {
     const raw = fix.time.getTime();
     const offset = (session.timeZoneMinutes ?? 0) * 60_000;
     if (!offset || session.clock === 'utc') return fix.time;
-    if (session.clock === null && !reupload && fix.positioned) {
-      const now = ctx.receivedAt.getTime();
+    if (session.clock === 'local') return new Date(raw - offset);
+    const now = ctx.receivedAt.getTime();
+    if (!reupload && fix.positioned) {
       const asLocal = Math.abs(raw - offset - now);
       const asUtc = Math.abs(raw - now);
       if (Math.min(asLocal, asUtc) <= CLOCK_DECISION_WINDOW_MS) {
-        session.clock = asUtc < asLocal ? 'utc' : 'local';
-        ctx.warn(
-          `gt06:clock:${session.uniqueId}`,
-          `Device ${session.uniqueId} reports UTC${session.timeZoneMinutes! >= 0 ? '+' : ''}${session.timeZoneMinutes} min; clock is ${session.clock === 'utc' ? 'UTC (zone ignored)' : 'local (zone applied)'}`,
-        );
-        if (session.clock === 'utc') return fix.time;
+        this.decideClock(session, asUtc < asLocal ? 'utc' : 'local', ctx);
+        return session.clock === 'utc' ? fix.time : new Date(raw - offset);
       }
     }
-    return new Date(raw - offset);
+    // Undecided (history or no fix yet): a raw time clearly in the future can only be a local clock east of UTC.
+    if (offset > 0 && raw - now > CLOCK_FUTURE_EVIDENCE_MS) {
+      this.decideClock(session, 'local', ctx);
+      return new Date(raw - offset);
+    }
+    return fix.time;
+  }
+
+  private decideClock(session: Gt06Session, clock: 'utc' | 'local', ctx: DecodeContext): void {
+    session.clock = clock;
+    const zone = `UTC${session.timeZoneMinutes! >= 0 ? '+' : ''}${session.timeZoneMinutes} min`;
+    ctx.warn(`gt06:clock:${session.uniqueId}`, `Device ${session.uniqueId} reports ${zone}; clock is ${clock === 'utc' ? 'UTC (zone ignored)' : 'local (zone applied)'}`);
   }
 
   private position(
@@ -184,7 +195,7 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
       altitude: null,
       satellites: fix.satellites,
       valid: fix.positioned,
-      ignition: acc ?? s.ignition,
+      ignition: acc ?? fix.courseAcc ?? s.ignition,
       attributes: compact({
         batteryLevel: s.batteryLevel,
         gsmSignal: s.gsmSignal,

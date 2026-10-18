@@ -78,6 +78,8 @@ export interface Gt06Fix {
   speedKph: number;
   course: number;
   positioned: boolean;
+  /** ACC carried in the course word on some firmware (bit 14 = present, bit 15 = on), e.g. Concox V5; else null. */
+  courseAcc?: boolean | null;
 }
 
 export interface Gt06Lbs {
@@ -215,6 +217,7 @@ function readFix(c: Buffer, at: number): Gt06Fix {
     speedKph: c[at + 15],
     course: courseStatus & 0x03ff,
     positioned: (courseStatus & 0x1000) !== 0,
+    courseAcc: (courseStatus & 0x4000) !== 0 ? (courseStatus & 0x8000) !== 0 : null,
   };
 }
 
