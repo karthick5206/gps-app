@@ -4,7 +4,8 @@ import type { MailAttachment } from './mailer.service';
 /**
  * Zoho CPaaS (formerly ZeptoMail) transactional e-mail API.
  * Env: ZOHO_MAIL_KEY (send token; with or without the "Zoho-enczapikey " prefix), ZOHO_MAIL_URL (default
- * https://cpaas.zoho.in — use the host of your Zoho data centre), MAIL_FROM ("Name <address>" on a domain verified in Zoho).
+ * https://cpaas.zoho.in — use the host of your Zoho data centre), MAIL_FROM ("Name <address>" on a domain verified in Zoho),
+ * MAIL_REPLY_TO (optional "Name <address>" where replies go, e.g. a monitored inbox when MAIL_FROM is a no-reply address).
  */
 export interface ZohoMailConfig {
   key: string;
@@ -25,7 +26,7 @@ export function parseFrom(from: string): { address: string; name?: string } {
 
 export async function sendZohoMail(
   cfg: ZohoMailConfig,
-  msg: { from: string; to: string; subject: string; html: string; text: string; attachments?: MailAttachment[] },
+  msg: { from: string; replyTo?: string; to: string; subject: string; html: string; text: string; attachments?: MailAttachment[] },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string | null> {
   const attachments = await Promise.all(
@@ -40,6 +41,7 @@ export async function sendZohoMail(
     headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: cfg.key },
     body: JSON.stringify({
       from: parseFrom(msg.from),
+      ...(msg.replyTo ? { reply_to: [parseFrom(msg.replyTo)] } : {}),
       to: msg.to.split(/[,;]\s*/).filter(Boolean).map((address) => ({ email_address: { address } })),
       subject: msg.subject,
       htmlbody: msg.html,

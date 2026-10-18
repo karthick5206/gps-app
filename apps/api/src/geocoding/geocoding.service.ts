@@ -7,6 +7,19 @@ import { PrismaService } from '../prisma/prisma.service';
  * (GEOCODER_URL; the public nominatim.openstreetmap.org allows ≤ 1 request/s and is for development only).
  * Callers must treat `null` as "no address" and never block the hot path on this.
  */
+/** "Anna Salai, Teynampet, Chennai, Tamil Nadu 600018" from Photon properties; repeated parts (city = district) dropped. */
+export function photonAddress(p: Record<string, string | undefined>): string | null {
+  const street = p.street ? [p.housenumber, p.street].filter(Boolean).join(' ') : undefined;
+  const parts: string[] = [];
+  for (const v of [p.name, street, p.locality ?? p.district, p.city ?? p.county, p.state]) {
+    const s = v?.trim();
+    if (s && !parts.some((x) => x.toLowerCase() === s.toLowerCase())) parts.push(s);
+  }
+  if (!parts.length) return null;
+  if (p.postcode) parts[parts.length - 1] += ` ${p.postcode}`;
+  return parts.join(', ');
+}
+
 @Injectable()
 export class GeocodingService {
   private readonly logger = new Logger(GeocodingService.name);
@@ -49,12 +62,13 @@ export class GeocodingService {
   private async lookup(lat: number, lng: number): Promise<string | null> {
     try {
       if (this.provider === 'photon') {
-        const res = await fetch(`${this.baseUrl}/reverse?lat=${lat}&lon=${lng}&limit=1`, { signal: AbortSignal.timeout(3000) });
+        // lang=en: Latin-script names (OSM name:en) rather than the local script, so addresses read the same everywhere.
+        const res = await fetch(`${this.baseUrl}/reverse?lat=${lat}&lon=${lng}&limit=1&lang=en`, { signal: AbortSignal.timeout(3000) });
         if (!res.ok) return null;
         const body = (await res.json()) as { features?: { properties?: Record<string, string | undefined> }[] };
         const p = body.features?.[0]?.properties;
         if (!p) return null;
-        return [p.name, p.street, p.district ?? p.locality, p.city, p.state].filter(Boolean).join(', ') || null;
+        return photonAddress(p);
       }
       if (this.provider === 'nominatim') {
         const url = `${this.baseUrl}/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=17&addressdetails=0`;
