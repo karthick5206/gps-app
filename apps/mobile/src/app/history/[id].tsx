@@ -1,11 +1,11 @@
 import { Camera, GeoJSONSource, Images, Layer, Map, type CameraRef } from '@maplibre/maplibre-react-native';
-import Slider from '@react-native-community/slider';
 import { useQuery } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, type HistoryResponse } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { PauseIcon, PlayIcon, RouteIcon, SkipBackIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SeekBar } from '@/components/SeekBar';
 import { Card, Chips, EmptyState, ErrorBanner, Text } from '@/components/ui';
 import { AlertTypeIcon } from '@/features/alerts/alert-icons';
 import { formatClock, formatKm, trackStatus } from '@/features/history/history-format';
@@ -169,15 +169,7 @@ export default function HistoryScreen() {
               {state.playing ? <PauseIcon size={20} color={c.primaryForeground} /> : <PlayIcon size={20} color={c.primaryForeground} />}
             </Pressable>
             <View style={{ flex: 1 }}>
-              <Slider
-                minimumValue={index.start}
-                maximumValue={index.end}
-                value={sample?.t ?? index.start}
-                onSlidingComplete={(t) => engine.seek(t, { play: state.playing })}
-                minimumTrackTintColor={c.primary}
-                maximumTrackTintColor={c.border}
-                thumbTintColor={c.primary}
-              />
+              <SeekBar min={index.start} max={index.end} value={sample?.t ?? index.start} onSeek={(t) => engine.seek(t, { play: state.playing })} />
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12 }}>
                 <Text size="xs" tone="muted">
                   {sample ? formatClock(sample.t, preset === 'last7') : ''}

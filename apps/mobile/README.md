@@ -34,11 +34,13 @@ Checks: `npx tsc --noEmit` and `npx expo-doctor`.
 ## Android release APK (local, Windows)
 
 The native C++ build exceeds Windows' 260-character path limit when the repo lives deep under
-`OneDrive\Desktop`. Map the repo to a drive letter first:
+`OneDrive\Desktop`. A `subst` drive doesn't help, because Node resolves it back to the long path. Build from
+a git worktree at a short path instead:
 
 ```bat
-subst V: C:\Users\sasva\OneDrive\Desktop\veetracer\gps-app
-cd /d V:\apps\mobile
+git worktree add --detach C:\vt HEAD     REM once; later: cd /d C:\vt & git checkout --detach <commit>
+cd /d C:\vt & npm ci & npm run build:shared
+cd apps\mobile
 npx expo prebuild --platform android --clean
 cd android
 .\gradlew.bat assembleRelease

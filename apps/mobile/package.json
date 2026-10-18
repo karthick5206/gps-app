@@ -6,7 +6,6 @@
     "@expo/ui": "~58.0.20",
     "@maplibre/maplibre-react-native": "^11.5.0",
     "@react-native-community/datetimepicker": "9.2.1",
-    "@react-native-community/slider": "5.2.1",
     "@tanstack/react-query": "^5.104.4",
     "@veetracer/shared": "*",
     "expo": "~58.0.14",
