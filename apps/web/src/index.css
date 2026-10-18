@@ -1,0 +1,225 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens (shadcn convention). Brand: teal primary, navy accents.
+ * Status colours (--status-*) are injected at startup from STATUS_META (see lib/status-tokens.ts)
+ * so the shared package stays the single source of truth.
+ */
+:root {
+  --radius: 0.625rem;
+
+  --background: #f6f8fa;
+  --foreground: #0f1d2b;
+  --card: #ffffff;
+  --card-foreground: #0f1d2b;
+  --popover: #ffffff;
+  --popover-foreground: #0f1d2b;
+  --primary: #0f766e;
+  --primary-foreground: #ffffff;
+  --secondary: #edf2f6;
+  --secondary-foreground: #0b3b5a;
+  --muted: #f1f5f9;
+  --muted-foreground: #5a6b7d;
+  --accent: #e7f5f3;
+  --accent-foreground: #0b3b5a;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --success: #15803d;
+  --warning: #b45309;
+  --border: #e2e8f0;
+  --input: #d4dce5;
+  --ring: #14b8a6;
+  --navy: #0b3b5a;
+  --navy-foreground: #ffffff;
+
+  --sidebar: #0b2e46;
+  --sidebar-foreground: #c3d3e0;
+  --sidebar-muted: #7f99ad;
+  --sidebar-accent: #134566;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-primary: #2dd4bf;
+  --sidebar-border: #173f5c;
+
+  --overlay: rgb(8 20 32 / 0.5);
+  --map-label-halo: #ffffff;
+  --map-label: #0f1d2b;
+  --map-marker-stroke: #ffffff;
+}
+
+.dark {
+  --background: #08121d;
+  --foreground: #e3ebf2;
+  --card: #0d1a28;
+  --card-foreground: #e3ebf2;
+  --popover: #0f1e2e;
+  --popover-foreground: #e3ebf2;
+  --primary: #14b8a6;
+  --primary-foreground: #04201e;
+  --secondary: #15263a;
+  --secondary-foreground: #d8e4ee;
+  --muted: #122133;
+  --muted-foreground: #8b9fb3;
+  --accent: #10303a;
+  --accent-foreground: #e3ebf2;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --border: #1c2e42;
+  --input: #25394f;
+  --ring: #2dd4bf;
+  --navy: #12466b;
+  --navy-foreground: #ffffff;
+
+  --sidebar: #06101a;
+  --sidebar-foreground: #b4c4d3;
+  --sidebar-muted: #6c8296;
+  --sidebar-accent: #11283c;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-primary: #2dd4bf;
+  --sidebar-border: #13243a;
+
+  --overlay: rgb(0 0 0 / 0.6);
+  --map-label-halo: #08121d;
+  --map-label: #e3ebf2;
+  --map-marker-stroke: #08121d;
+}
+
+@theme inline {
+  --font-sans: 'Inter', 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-navy: var(--navy);
+  --color-navy-foreground: var(--navy-foreground);
+  --color-overlay: var(--overlay);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --color-status-running: var(--status-running);
+  --color-status-idle: var(--status-idle);
+  --color-status-off: var(--status-off);
+  --color-status-overspeed: var(--status-overspeed);
+  --color-status-offline: var(--status-offline);
+  --color-status-nodata: var(--status-nodata);
+
+  --animate-fade-in: fade-in 150ms ease-out;
+  --animate-fade-out: fade-out 120ms ease-in;
+  --animate-zoom-in: zoom-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-zoom-out: zoom-out 120ms ease-in;
+  --animate-slide-in-right: slide-in-right 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-out-right: slide-out-right 160ms ease-in;
+  --animate-slide-in-left: slide-in-left 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-out-left: slide-out-left 160ms ease-in;
+  --animate-pop-in: pop-in 140ms ease-out;
+
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes zoom-in { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
+  @keyframes zoom-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(6px) scale(0.97); } }
+  @keyframes slide-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  @keyframes slide-out-right { from { transform: translateX(0); } to { transform: translateX(100%); } }
+  @keyframes slide-in-left { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+  @keyframes slide-out-left { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+  @keyframes pop-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 25%, transparent);
+  }
+  :focus-visible {
+    outline: none;
+  }
+}
+
+/* Smooth theme switch for surfaces; skipped entirely when the user prefers reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  body,
+  .theme-transition {
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* MapLibre controls follow the theme. */
+.maplibregl-ctrl-group {
+  background-color: var(--card) !important;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08) !important;
+  border-radius: var(--radius-md) !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--border) !important;
+}
+.dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg);
+}
+.maplibregl-ctrl-attrib {
+  background-color: color-mix(in oklab, var(--card) 80%, transparent) !important;
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--muted-foreground) !important;
+}
+.dark .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+}

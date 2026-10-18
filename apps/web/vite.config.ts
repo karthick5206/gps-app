@@ -1,0 +1,29 @@
+import { fileURLToPath } from 'node:url';
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+
+const API_TARGET = 'http://localhost:4000';
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // Compile the shared TS source directly; its dist is CommonJS.
+      '@veetracer/shared': fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)),
+    },
+  },
+  server: {
+    port: 5173,
+    strictPort: true,
+    proxy: {
+      '/api': { target: API_TARGET, changeOrigin: true },
+      '/socket.io': { target: API_TARGET, ws: true, changeOrigin: true },
+    },
+  },
+  build: {
+    // maplibre-gl alone is ~800 kB minified and is already isolated in the lazily loaded live-map chunk.
+    chunkSizeWarningLimit: 1100,
+  },
+});

@@ -1,0 +1,30 @@
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { AuthedRequest } from './auth-context';
+import { AuthContextService } from './auth-context.service';
+import { IS_PUBLIC } from './decorators';
+
+/** Global guard: every route needs a valid Bearer access token unless marked @Public(). */
+@Injectable()
+export class JwtAuthGuard implements CanActivate {
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly contexts: AuthContextService,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (context.getType() !== 'http') return true;
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [context.getHandler(), context.getClass()]);
+    if (isPublic) return true;
+    const req = context.switchToHttp().getRequest<AuthedRequest>();
+    const header = req.headers.authorization;
+    if (!header?.startsWith('Bearer ')) throw new UnauthorizedException('Missing access token');
+    const companyHeader = req.headers['x-company-id'];
+    req.auth = await this.contexts.fromToken(
+      header.slice(7),
+      typeof companyHeader === 'string' ? companyHeader : undefined,
+      req.ip ?? null,
+    );
+    return true;
+  }
+}

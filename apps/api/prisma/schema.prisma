@@ -1,0 +1,835 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType {
+  BUSINESS
+  INDIVIDUAL
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum DataScope {
+  COMPANY
+  ASSIGNED
+}
+
+enum ObjectType {
+  VEHICLE
+  PERSON
+  ASSET
+  PET
+}
+
+enum VehicleType {
+  CAR
+  BIKE
+  TRUCK
+  BUS
+  SCHOOL_BUS
+  VAN
+  AUTO
+  OTHER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  PASSWORD_RESET
+}
+
+model Partner {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  companies Company[]
+}
+
+model Company {
+  id            String        @id @default(uuid()) @db.Uuid
+  partnerId     String        @db.Uuid
+  name          String
+  accountType   AccountType   @default(BUSINESS)
+  status        CompanyStatus @default(ACTIVE)
+  timezone      String        @default("Asia/Kolkata")
+  distanceUnit  String        @default("km")
+  retentionDays Int           @default(90)
+  settings      Json          @default("{}")
+  isPlatform    Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  partner       Partner         @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  branches      Branch[]
+  users         User[]
+  roles         Role[]
+  devices       Device[]
+  objects       TrackedObject[]
+  vehicleGroups VehicleGroup[]
+  lookups       Lookup[]
+  auditLogs     AuditLog[]
+}
+
+model Branch {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  name      String
+  code      String?
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  objects TrackedObject[]
+  users   UserBranch[]
+
+  @@unique([companyId, name])
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @db.Uuid
+  name         String
+  email        String?   @unique
+  mobile       String?   @unique
+  passwordHash String?
+  isSuperAdmin Boolean   @default(false)
+  managerId    String?   @db.Uuid
+  isActive     Boolean   @default(true)
+  preferences  Json      @default("{\"theme\":\"system\"}")
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  manager        User?           @relation("UserManager", fields: [managerId], references: [id], onDelete: Restrict)
+  reports        User[]          @relation("UserManager")
+  roles          UserRole[]
+  branches       UserBranch[]
+  objects        UserObject[]
+  sessions       Session[]
+  passwordResets PasswordReset[]
+
+  @@index([companyId])
+}
+
+model Role {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  name        String
+  description String?
+  isSystem    Boolean   @default(false)
+  dataScope   DataScope @default(ASSIGNED)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@unique([companyId, name])
+}
+
+model RolePermission {
+  roleId  String   @db.Uuid
+  menu    String
+  actions String[]
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, menu])
+}
+
+model UserRole {
+  userId String @db.Uuid
+  roleId String @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model UserBranch {
+  userId   String @db.Uuid
+  branchId String @db.Uuid
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@id([userId, branchId])
+  @@index([branchId])
+}
+
+model UserObject {
+  userId   String @db.Uuid
+  objectId String @db.Uuid
+
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Restrict)
+
+  @@id([userId, objectId])
+  @@index([objectId])
+}
+
+model DeviceModel {
+  id                String   @id @default(uuid()) @db.Uuid
+  brand             String
+  model             String
+  protocol          String
+  capabilities      String[]
+  fields            Json     @default("[]")
+  commands          Json     @default("[]")
+  timeOffsetMinutes Int      @default(0)
+  filterDefaults    Json     @default("{}")
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  devices Device[]
+
+  @@unique([brand, model])
+}
+
+model Device {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String?   @db.Uuid
+  modelId     String    @db.Uuid
+  uniqueId    String    @unique
+  simNumber   String?
+  simOperator String?
+  firmware    String?
+  ingestToken String    @unique
+  isActive    Boolean   @default(true)
+  lastSeenAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company     Company?           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  model       DeviceModel        @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  assignments DeviceAssignment[]
+
+  @@index([companyId])
+}
+
+model TrackedObject {
+  id               String       @id @default(uuid()) @db.Uuid
+  companyId        String       @db.Uuid
+  branchId         String?      @db.Uuid
+  type             ObjectType   @default(VEHICLE)
+  vehicleType      VehicleType?
+  name             String
+  plateNumber      String?
+  make             String?
+  model            String?
+  color            String?
+  icon             String?
+  speedLimitKph    Int?
+  odometerOffsetKm Float        @default(0)
+  customFields     Json         @default("{}")
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch      Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  assignments DeviceAssignment[]
+  groups      VehicleGroupMember[]
+  users       UserObject[]
+
+  @@index([companyId, branchId])
+}
+
+/// At most one open (toTime null) row per device and per object: partial unique indexes in the init migration.
+model DeviceAssignment {
+  id       String    @id @default(uuid()) @db.Uuid
+  deviceId String    @db.Uuid
+  objectId String    @db.Uuid
+  fromTime DateTime  @default(now())
+  toTime   DateTime?
+
+  device Device        @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Restrict)
+
+  @@index([deviceId])
+  @@index([objectId])
+}
+
+model VehicleGroup {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// Higher wins when an object's groups have conflicting alert settings.
+  alertPriority Int @default(0)
+
+  company Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  members VehicleGroupMember[]
+
+  @@unique([companyId, name])
+}
+
+model VehicleGroupMember {
+  groupId  String @db.Uuid
+  objectId String @db.Uuid
+
+  group  VehicleGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Restrict)
+
+  @@id([groupId, objectId])
+  @@index([objectId])
+}
+
+/// System rows have companyId null; a partial unique index on (type, code) for them lives in the init migration.
+model Lookup {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String?  @db.Uuid
+  type      String
+  code      String
+  label     String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, type, code])
+  @@index([type])
+}
+
+/// No foreign keys: high-volume table, becomes a Timescale hypertable when the extension is available.
+model Position {
+  objectId   String?  @db.Uuid
+  deviceId   String   @db.Uuid
+  fixTime    DateTime @db.Timestamptz(3)
+  serverTime DateTime @db.Timestamptz(3)
+  lat        Float
+  lng        Float
+  speedKph   Float    @db.Real
+  course     Int      @db.SmallInt
+  altitude   Float?   @db.Real
+  satellites Int?     @db.SmallInt
+  valid      Boolean
+  ignition   Boolean?
+  flags      Int      @default(0)
+  attributes Json     @default("{}")
+
+  @@id([deviceId, fixTime])
+  @@index([objectId, fixTime(sort: Desc)])
+}
+
+model RawPacket {
+  id            BigInt   @id @default(autoincrement())
+  uniqueId      String?
+  protocol      String
+  remoteAddress String?
+  receivedAt    DateTime @db.Timestamptz(3)
+  hex           String
+
+  @@index([receivedAt])
+}
+
+model UnknownDevice {
+  uniqueId      String   @id
+  protocol      String
+  remoteAddress String?
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  packetCount   Int      @default(0)
+}
+
+model AuditLog {
+  id        String      @id @default(uuid()) @db.Uuid
+  companyId String?     @db.Uuid
+  userId    String?     @db.Uuid
+  action    AuditAction
+  entity    String
+  entityId  String?
+  changes   Json?
+  ip        String?
+  createdAt DateTime    @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([entity, entityId])
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ip               String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model OtpCode {
+  id         String    @id @default(uuid()) @db.Uuid
+  mobile     String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([mobile, createdAt(sort: Desc)])
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ───────────────────────────── M2a: geofences, alerts, templates, history, reports ─────────────────────────────
+
+enum GeofenceType {
+  CIRCLE
+  POLYGON
+  RECTANGLE
+}
+
+enum GeofenceMode {
+  NORMAL
+  NO_GO
+  KEEP_IN
+}
+
+enum AlertLevel {
+  COMPANY
+  BRANCH
+  GROUP
+  OBJECT
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum AlertStatus {
+  NEW
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum NotifyChannel {
+  INAPP
+  EMAIL
+  SMS
+  WHATSAPP
+  PUSH
+}
+
+enum RecipientMode {
+  DEFAULT
+  ADD
+  ONLY
+  NONE
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum ReportFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum ReportPeriod {
+  DAY
+  WEEK
+  MONTH
+}
+
+enum ReportFormat {
+  XLSX
+  PDF
+  CSV
+}
+
+enum RunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// geometry: {type:'CIRCLE',center:{lat,lng},radiusM} | {type:'POLYGON'|'RECTANGLE',points:[{lat,lng}]}; bbox columns speed up candidate lookup.
+model Geofence {
+  id            String       @id @default(uuid()) @db.Uuid
+  companyId     String       @db.Uuid
+  branchId      String?      @db.Uuid
+  name          String
+  category      String       @default("OTHER")
+  type          GeofenceType
+  geometry      Json
+  minLat        Float
+  minLng        Float
+  maxLat        Float
+  maxLng        Float
+  color         String       @default("#0f766e")
+  address       String?
+  description   String?
+  mode          GeofenceMode @default(NORMAL)
+  notifyEnter   Boolean      @default(true)
+  notifyExit    Boolean      @default(true)
+  maxStayMin    Int?
+  speedLimitKph Int?
+  timeWindows   Json         @default("[]")
+  appliesToAll  Boolean      @default(true)
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  targets GeofenceTarget[]
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+}
+
+/// kind: BRANCH | GROUP | OBJECT (used when appliesToAll = false).
+model GeofenceTarget {
+  geofenceId String @db.Uuid
+  kind       String
+  refId      String @db.Uuid
+
+  geofence Geofence @relation(fields: [geofenceId], references: [id], onDelete: Cascade)
+
+  @@id([geofenceId, kind, refId])
+  @@index([refId])
+}
+
+/// One override row per (level, target, alert type). targetId = companyId for COMPANY level. Null fields inherit.
+model AlertSetting {
+  id          String         @id @default(uuid()) @db.Uuid
+  companyId   String         @db.Uuid
+  level       AlertLevel
+  targetId    String         @db.Uuid
+  alertType   String
+  enabled     Boolean?
+  params      Json           @default("{}")
+  schedule    Json?
+  cooldownMin Int?
+  severity    AlertSeverity?
+  channels    Json?
+  updatedById String?        @db.Uuid
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([companyId, level, targetId, alertType])
+  @@index([companyId])
+}
+
+/// alertType '*' and severity '*' = applies to all. entries: RecipientEntry[].
+model RecipientList {
+  id        String        @id @default(uuid()) @db.Uuid
+  companyId String        @db.Uuid
+  level     AlertLevel
+  targetId  String        @db.Uuid
+  alertType String        @default("*")
+  severity  String        @default("*")
+  channel   NotifyChannel
+  mode      RecipientMode @default(DEFAULT)
+  entries   Json          @default("[]")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([companyId, level, targetId, alertType, channel, severity])
+  @@index([companyId])
+}
+
+model AlertSnooze {
+  id          String     @id @default(uuid()) @db.Uuid
+  companyId   String     @db.Uuid
+  level       AlertLevel
+  targetId    String     @db.Uuid
+  alertTypes  String[]
+  until       DateTime
+  reason      String?
+  createdById String?    @db.Uuid
+  createdAt   DateTime   @default(now())
+
+  @@index([companyId, until])
+}
+
+/// companyId null = system pack. settings: array of AlertSetting-like objects without level/target.
+model AlertPack {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String?  @db.Uuid
+  name        String
+  description String?
+  settings    Json     @default("[]")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, name])
+}
+
+/// High volume: no foreign keys.
+model Alert {
+  id         String        @id @default(uuid()) @db.Uuid
+  companyId  String        @db.Uuid
+  objectId   String        @db.Uuid
+  deviceId   String?       @db.Uuid
+  type       String
+  severity   AlertSeverity
+  message    String
+  lat        Float?
+  lng        Float?
+  address    String?
+  geofenceId String?       @db.Uuid
+  data       Json          @default("{}")
+  occurredAt DateTime      @db.Timestamptz(3)
+  createdAt  DateTime      @default(now())
+  status     AlertStatus   @default(NEW)
+  ackById    String?       @db.Uuid
+  ackAt      DateTime?
+  ackNote    String?
+
+  @@index([companyId, occurredAt(sort: Desc)])
+  @@index([objectId, occurredAt(sort: Desc)])
+  @@index([companyId, status])
+}
+
+model NotificationLog {
+  id         String             @id @default(uuid()) @db.Uuid
+  companyId  String             @db.Uuid
+  alertId    String?            @db.Uuid
+  channel    NotifyChannel
+  recipient  String
+  templateId String?            @db.Uuid
+  subject    String?
+  body       String
+  status     NotificationStatus
+  error      String?
+  provider   String?
+  createdAt  DateTime           @default(now())
+  sentAt     DateTime?
+
+  @@index([alertId])
+  @@index([companyId, createdAt(sort: Desc)])
+}
+
+/// companyId null = system template (partial unique index in migration). approvalStatus: NA|DRAFT|PENDING|APPROVED|REJECTED.
+model MessageTemplate {
+  id             String        @id @default(uuid()) @db.Uuid
+  companyId      String?       @db.Uuid
+  purpose        String
+  channel        NotifyChannel
+  language       String        @default("en")
+  name           String
+  subject        String?
+  body           String
+  dltTemplateId  String?
+  senderId       String?
+  approvalStatus String        @default("NA")
+  isActive       Boolean       @default(true)
+  version        Int           @default(1)
+  updatedById    String?       @db.Uuid
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  versions MessageTemplateVersion[]
+
+  @@unique([companyId, purpose, channel, language])
+  @@index([purpose, channel])
+}
+
+model MessageTemplateVersion {
+  id          String   @id @default(uuid()) @db.Uuid
+  templateId  String   @db.Uuid
+  version     Int
+  subject     String?
+  body        String
+  changedById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  template MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+}
+
+model Trip {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @db.Uuid
+  objectId     String   @db.Uuid
+  startTime    DateTime @db.Timestamptz(3)
+  endTime      DateTime @db.Timestamptz(3)
+  startLat     Float
+  startLng     Float
+  endLat       Float
+  endLng       Float
+  startAddress String?
+  endAddress   String?
+  distanceKm   Float
+  durationSec  Int
+  idleSec      Int      @default(0)
+  maxSpeedKph  Float
+  avgSpeedKph  Float
+  createdAt    DateTime @default(now())
+
+  @@unique([objectId, startTime])
+  @@index([companyId, startTime(sort: Desc)])
+}
+
+model Stop {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  objectId    String   @db.Uuid
+  startTime   DateTime @db.Timestamptz(3)
+  endTime     DateTime @db.Timestamptz(3)
+  lat         Float
+  lng         Float
+  address     String?
+  durationSec Int
+  ignitionOn  Boolean
+  createdAt   DateTime @default(now())
+
+  @@unique([objectId, startTime])
+  @@index([companyId, startTime(sort: Desc)])
+}
+
+/// Per object per local day (company timezone).
+model DailySummary {
+  objectId       String    @db.Uuid
+  day            DateTime  @db.Date
+  companyId      String    @db.Uuid
+  distanceKm     Float     @default(0)
+  runningSec     Int       @default(0)
+  idleSec        Int       @default(0)
+  stopSec        Int       @default(0)
+  offlineSec     Int       @default(0)
+  overspeedSec   Int       @default(0)
+  overspeedCount Int       @default(0)
+  tripCount      Int       @default(0)
+  maxSpeedKph    Float     @default(0)
+  avgSpeedKph    Float     @default(0)
+  engineSec      Int       @default(0)
+  firstStart     DateTime?
+  lastStop       DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  @@id([objectId, day])
+  @@index([companyId, day])
+}
+
+/// Summarizer watermark per object; state holds the open trip/stop between runs.
+model SummaryCursor {
+  objectId       String   @id @db.Uuid
+  processedUntil DateTime @db.Timestamptz(3)
+  state          Json     @default("{}")
+  updatedAt      DateTime @updatedAt
+}
+
+/// Days needing recomputation because late (out-of-order) positions arrived.
+model SummaryDirtyDay {
+  objectId  String   @db.Uuid
+  day       DateTime @db.Date
+  createdAt DateTime @default(now())
+
+  @@id([objectId, day])
+}
+
+model ReportSchedule {
+  id          String          @id @default(uuid()) @db.Uuid
+  companyId   String          @db.Uuid
+  ownerId     String          @db.Uuid
+  name        String
+  reportTypes String[]
+  scope       Json            @default("{}")
+  period      ReportPeriod    @default(DAY)
+  frequency   ReportFrequency
+  dayOfWeek   Int?
+  dayOfMonth  Int?
+  timeOfDay   String          @default("07:00")
+  format      ReportFormat    @default(XLSX)
+  recipients  String[]
+  isActive    Boolean         @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([companyId])
+  @@index([isActive, nextRunAt])
+}
+
+model ReportRun {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @db.Uuid
+  scheduleId    String?   @db.Uuid
+  requestedById String?   @db.Uuid
+  reportTypes   String[]
+  params        Json      @default("{}")
+  status        RunStatus @default(RUNNING)
+  fileName      String?
+  filePath      String?
+  error         String?
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  @@index([scheduleId, startedAt(sort: Desc)])
+  @@index([companyId, startedAt(sort: Desc)])
+}
+
+/// Reverse-geocoding cache keyed by coordinates rounded to 4 decimals (~11 m).
+model AddressCache {
+  key       String   @id
+  address   String
+  provider  String
+  createdAt DateTime @default(now())
+}
+
+/// Written by the rules engine on every geofence entry/exit (independent of alert settings); read by reports.
+model GeofenceVisit {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  objectId    String    @db.Uuid
+  geofenceId  String    @db.Uuid
+  enterTime   DateTime  @db.Timestamptz(3)
+  exitTime    DateTime? @db.Timestamptz(3)
+  durationSec Int?
+
+  @@index([companyId, enterTime(sort: Desc)])
+  @@index([objectId, geofenceId, enterTime(sort: Desc)])
+}
