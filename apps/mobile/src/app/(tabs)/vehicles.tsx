@@ -1,0 +1,53 @@
+import { router } from 'expo-router';
+import { TruckIcon } from 'lucide-react-native';
+import { useMemo, useState } from 'react';
+import { FlatList, RefreshControl, View } from 'react-native';
+import { Card, EmptyState, SearchInput } from '@/components/ui';
+import { matches, StatusChips, VehicleSummary, type StatusFilter } from '@/features/live/components';
+import { liveStore } from '@/features/live/live-store';
+import { useLiveVersion, useNow } from '@/features/live/use-live';
+import { SPACE } from '@/lib/theme';
+
+export default function VehiclesScreen() {
+  const version = useLiveVersion(2000);
+  const now = useNow();
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState<StatusFilter>('ALL');
+  const [refreshing, setRefreshing] = useState(false);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const all = useMemo(() => liveStore.all(), [version]);
+  const searched = useMemo(() => all.filter((o) => matches(o, q, 'ALL')), [all, q]);
+  const rows = useMemo(() => searched.filter((o) => matches(o, '', status)).sort((a, b) => a.name.localeCompare(b.name)), [searched, status]);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await liveStore.loadSnapshot().catch(() => undefined);
+    setRefreshing(false);
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={{ gap: SPACE.sm, paddingVertical: SPACE.sm }}>
+        <View style={{ paddingHorizontal: SPACE.lg }}>
+          <SearchInput value={q} onChangeText={setQ} placeholder="Search vehicle, plate or IMEI" />
+        </View>
+        <StatusChips objects={searched} value={status} onChange={setStatus} />
+      </View>
+      <FlatList
+        data={rows}
+        keyExtractor={(o) => o.objectId}
+        contentContainerStyle={{ padding: SPACE.lg, paddingTop: SPACE.xs, gap: SPACE.sm, flexGrow: 1 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+        renderItem={({ item }) => (
+          <Card onPress={() => router.push(`/vehicle/${item.objectId}`)}>
+            <VehicleSummary o={item} now={now} />
+          </Card>
+        )}
+        ListEmptyComponent={
+          liveStore.snapshotLoaded ? <EmptyState icon={TruckIcon} title={all.length ? 'No matching vehicles' : 'No vehicles yet'} description={all.length ? 'Try another search or status.' : 'Vehicles added on the web appear here.'} /> : undefined
+        }
+      />
+    </View>
+  );
+}
