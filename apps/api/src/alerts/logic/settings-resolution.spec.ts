@@ -22,11 +22,12 @@ describe('alert settings resolution', () => {
     const os = get(list, 'OVERSPEED');
     expect(os.enabled).toBe(true);
     expect(os.severity).toBe('WARNING');
-    expect(os.params.toleranceKph).toBe(5);
+    expect(os.params.toleranceKph).toBe(0); // fleet default: alert above the limit (80 km/h unless the vehicle has its own)
     expect(os.params.limitKph).toBeNull();
     expect(os.sources.enabled).toBe('DEFAULT');
     expect(os.channels.CRITICAL).toEqual(['INAPP', 'EMAIL', 'SMS']);
-    expect(get(list, 'IGNITION_ON').enabled).toBe(false);
+    // Fleet defaults: ignition on/off, overspeed, device offline and low battery are on.
+    for (const code of ['IGNITION_ON', 'IGNITION_OFF', 'OVERSPEED', 'DEVICE_OFFLINE', 'LOW_BATTERY'] as const) expect(get(list, code).enabled).toBe(true);
   });
 
   it('inherits field by field: Company → Branch → Group → Object', () => {

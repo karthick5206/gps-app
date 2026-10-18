@@ -264,11 +264,20 @@ describe('geofences', () => {
 });
 
 describe('other rules', () => {
-  it('ignition on/off on change only (when enabled)', () => {
+  it('ignition on/off on change only (on by default, can be disabled)', () => {
     const c = ctx(settings({ IGNITION_ON: { enabled: true }, IGNITION_OFF: { enabled: true } }));
     const r = run([at(sec(0), { ignition: false }), at(sec(5), { ignition: false }), at(sec(10), { ignition: true }), at(sec(15), { ignition: null }), at(sec(20), { ignition: false })], c);
     expect(r.alerts.map((a) => a.type)).toEqual(['IGNITION_ON', 'IGNITION_OFF']);
-    expect(run([at(sec(0), { ignition: false }), at(sec(10), { ignition: true })], ctx()).alerts).toHaveLength(0); // disabled by default
+    expect(run([at(sec(0), { ignition: false }), at(sec(10), { ignition: true })], ctx()).alerts.map((a) => a.type)).toEqual(['IGNITION_ON']); // on by default
+    const off = ctx(settings({ IGNITION_ON: { enabled: false }, IGNITION_OFF: { enabled: false } }));
+    expect(run([at(sec(0), { ignition: false }), at(sec(10), { ignition: true })], off).alerts).toHaveLength(0);
+  });
+
+  it('without a GPS fix: ignition, SOS and battery alerts still fire; overspeed and geofences do not', () => {
+    const noFix = (t: number, p: Partial<RuleInput> = {}) => at(t, { locationValid: false, lat: Number.NaN, lng: Number.NaN, ...p });
+    const r = run([noFix(sec(0), { ignition: false }), noFix(sec(10), { ignition: true, speedKph: 150 }), noFix(sec(20), { speedKph: 150, attributes: { alarm: 'sos' } })], ctx());
+    expect(r.alerts.map((a) => a.type)).toEqual(['IGNITION_ON', 'SOS']);
+    expect(r.alerts[0]).toMatchObject({ lat: null, lng: null });
   });
 
   it('SOS ignores snoozes; cooldown suppresses repeats; power cut alerts', () => {

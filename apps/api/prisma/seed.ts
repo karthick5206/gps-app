@@ -396,7 +396,6 @@ async function seedM2a(companyId: string, branches: { chennai: string }, adminEm
     if (!existing) await prisma.recipientList.create({ data: { ...key, mode: 'DEFAULT', entries: l.entries } });
   }
   for (const [alertType, params] of [
-    ['OVERSPEED', { toleranceKph: 5 }],
     ['IDLING', { thresholdMin: 10 }],
   ] as const) {
     const key = { companyId, level: 'COMPANY' as const, targetId: companyId, alertType };

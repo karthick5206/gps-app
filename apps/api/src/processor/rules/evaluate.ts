@@ -73,6 +73,11 @@ export interface RuleInput {
   speedKph: number;
   ignition: boolean | null;
   attributes: Record<string, unknown>;
+  /**
+   * False when the point has no valid GPS fix: only rules that don't depend on location run (ignition, SOS/power-cut
+   * alarms, battery); lat/lng are then the last known location, or NaN when there is none. Default true.
+   */
+  locationValid?: boolean;
 }
 
 export interface PendingAlert {
@@ -160,8 +165,8 @@ class Evaluator {
       severity: opts.severity ?? setting.severity,
       message: opts.message,
       occurredAt: at,
-      lat: this.input.lat,
-      lng: this.input.lng,
+      lat: Number.isFinite(this.input.lat) ? this.input.lat : null,
+      lng: Number.isFinite(this.input.lng) ? this.input.lng : null,
       geofenceId: opts.geofence?.id ?? null,
       geofenceName: opts.geofence?.name ?? null,
       data: { speedKph: Math.round(this.input.speedKph), ...(opts.data ?? {}) },
@@ -170,9 +175,11 @@ class Evaluator {
   }
 
   run(): EvalOutput {
-    this.geofences();
-    this.overspeed();
-    this.idling();
+    if (this.input.locationValid !== false) {
+      this.geofences();
+      this.overspeed();
+      this.idling();
+    }
     this.ignition();
     this.alarms();
     this.battery();
