@@ -87,6 +87,7 @@ export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string
     duration: n(d.durationSec) === null ? '' : formatDuration(n(d.durationSec)!),
     geofence: a.geofenceName ?? (typeof d.geofence === 'string' ? d.geofence : ''),
     battery: n(d.batteryPct) === null ? '' : `${Math.round(n(d.batteryPct)!)}%`,
+    voltage: n(d.voltage) === null ? '' : `${n(d.voltage)!.toFixed(1)} V`,
   };
 }
 

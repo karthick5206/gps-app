@@ -40,4 +40,14 @@ export class MeService {
     });
     return this.build(ctx);
   }
+
+  /** One row per app install: re-registering moves the token to the current user and session. */
+  async registerPushToken(ctx: AuthContext, dto: { token: string; platform: string; deviceName?: string }): Promise<void> {
+    const data = { userId: ctx.userId, sessionId: ctx.sessionId ?? null, platform: dto.platform, deviceName: dto.deviceName ?? null };
+    await this.prisma.pushToken.upsert({ where: { token: dto.token }, create: { token: dto.token, ...data }, update: data });
+  }
+
+  async removePushToken(token: string): Promise<void> {
+    await this.prisma.pushToken.deleteMany({ where: { token } });
+  }
 }

@@ -1,6 +1,6 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { AuthTokens } from '@veetracer/shared';
+import { AuthTokens, SessionDto } from '@veetracer/shared';
 import { AccessTokenPayload } from '../access/auth-context';
 import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
@@ -24,14 +24,14 @@ export class TokenService {
     @Inject(APP_ENV) private readonly env: AppEnv,
   ) {}
 
-  private accessToken(user: { id: string; companyId: string; isSuperAdmin: boolean }): string {
-    const payload: AccessTokenPayload = { sub: user.id, cid: user.companyId, sa: user.isSuperAdmin };
+  private accessToken(user: { id: string; companyId: string; isSuperAdmin: boolean }, sessionId: string): string {
+    const payload: AccessTokenPayload = { sub: user.id, cid: user.companyId, sa: user.isSuperAdmin, sid: sessionId };
     return this.jwt.sign(payload, { secret: this.env.jwtSecret, expiresIn: ACCESS_TTL_SEC });
   }
 
   async issue(user: { id: string; companyId: string; isSuperAdmin: boolean }, client: ClientInfo): Promise<AuthTokens> {
     const refreshToken = randomToken(48);
-    await this.prisma.session.create({
+    const session = await this.prisma.session.create({
       data: {
         userId: user.id,
         refreshTokenHash: sha256(refreshToken),
@@ -40,7 +40,7 @@ export class TokenService {
         expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
       },
     });
-    return { accessToken: this.accessToken(user), refreshToken, expiresIn: ACCESS_TTL_SEC };
+    return { accessToken: this.accessToken(user, session.id), refreshToken, expiresIn: ACCESS_TTL_SEC };
   }
 
   /** Exchange a refresh token for a new pair; the old refresh token stops working. */
@@ -60,7 +60,7 @@ export class TokenService {
       data: { refreshTokenHash: sha256(next), expiresAt: new Date(Date.now() + REFRESH_TTL_MS) },
     });
     if (count !== 1) throw new UnauthorizedException('Invalid refresh token');
-    return { accessToken: this.accessToken(user), refreshToken: next, expiresIn: ACCESS_TTL_SEC };
+    return { accessToken: this.accessToken(user, session.id), refreshToken: next, expiresIn: ACCESS_TTL_SEC };
   }
 
   /** Revoke the session; returns its user id when one was found. */
@@ -69,6 +69,31 @@ export class TokenService {
     if (!session || session.revokedAt) return null;
     await this.prisma.session.update({ where: { id: session.id }, data: { revokedAt: new Date() } });
     return session.userId;
+  }
+
+  /** The user's active sessions, newest first. */
+  async list(userId: string, currentId: string | null | undefined): Promise<SessionDto[]> {
+    const rows = await this.prisma.session.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, userAgent: true, ip: true, createdAt: true, expiresAt: true },
+    });
+    return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString(), expiresAt: r.expiresAt.toISOString(), current: r.id === currentId }));
+  }
+
+  /** Sign out one of the user's own sessions. */
+  async revokeOwn(userId: string, sessionId: string): Promise<boolean> {
+    const { count } = await this.prisma.session.updateMany({ where: { id: sessionId, userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    return count > 0;
+  }
+
+  /** Sign out every other session of the user; returns how many. */
+  async revokeOthers(userId: string, currentId: string | null | undefined): Promise<number> {
+    const { count } = await this.prisma.session.updateMany({
+      where: { userId, revokedAt: null, ...(currentId ? { id: { not: currentId } } : {}) },
+      data: { revokedAt: new Date() },
+    });
+    return count;
   }
 
   async revokeAll(userId: string): Promise<void> {

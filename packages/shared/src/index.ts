@@ -4,3 +4,5 @@ export * from './api';
 export * from './geo';
 export * from './alerts';
 export * from './history';
+export * from './dashboard';
+export * from './commands';

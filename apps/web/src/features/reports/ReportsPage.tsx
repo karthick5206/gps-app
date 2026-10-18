@@ -1,5 +1,17 @@
 import { useMutation } from '@tanstack/react-query';
-import type { ReportFormat, ReportPeriod, ReportRequest, ReportResponse, ReportScope, ReportType, SummaryReportRow } from '@veetracer/shared';
+import {
+  PERIOD_REPORT_TYPES,
+  POSITIONS_REPORT_MAX_DAYS,
+  SINGLE_OBJECT_REPORT_TYPES,
+  type ReportFormat,
+  type ReportOptions,
+  type ReportPeriod,
+  type ReportRequest,
+  type ReportResponse,
+  type ReportScope,
+  type ReportType,
+  type SummaryReportRow,
+} from '@veetracer/shared';
 import { CalendarClockIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, PlayIcon, TableIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
@@ -18,8 +30,9 @@ import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { downloadFile } from './download';
-import { REPORT_DEF_MAP, REPORT_DEFS, type Row } from './report-columns';
-import { periodLabel, toDateInput } from './report-format';
+import { REPORT_CATEGORIES, REPORT_DEF_MAP, REPORT_DEFS, type Row } from './report-columns';
+import { daySpan, periodLabel, toDateInput } from './report-format';
+import { optionsFor, ReportOptionsFields } from './ReportOptionsFields';
 import { ReportTable } from './ReportTable';
 import { EMPTY_SCOPE, ScopePicker } from './ScopePicker';
 import { SummaryCharts } from './SummaryCharts';
@@ -69,9 +82,22 @@ export function ReportsPage() {
   const [[from, to], setDates] = useState<[string, string]>(DATE_PRESETS[1].range);
   const [period, setPeriod] = useState<ReportPeriod>('DAY');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
+  const [options, setOptions] = useState<ReportOptions>({});
 
-  const request: ReportRequest = { type, scope, from, to, ...(type === 'SUMMARY' ? { period } : {}) };
-  const rangeError = !from || !to ? 'Choose a start and end date' : from > to ? 'The end date must be on or after the start date' : null;
+  const usesPeriod = PERIOD_REPORT_TYPES.includes(type);
+  const singleVehicle = SINGLE_OBJECT_REPORT_TYPES.includes(type);
+  const typeOptions = optionsFor(type, options);
+  const request: ReportRequest = { type, scope, from, to, ...(usesPeriod ? { period } : {}), ...(typeOptions ? { options: typeOptions } : {}) };
+  const rangeError =
+    !from || !to
+      ? 'Choose a start and end date'
+      : from > to
+        ? 'The end date must be on or after the start date'
+        : singleVehicle && daySpan(from, to) > POSITIONS_REPORT_MAX_DAYS
+          ? `This report covers at most ${POSITIONS_REPORT_MAX_DAYS} days`
+          : null;
+  const scopeError = singleVehicle && (scope.objectIds.length !== 1 || scope.branchIds.length > 0 || scope.groupIds.length > 0) ? 'Choose exactly one vehicle (and no branches or groups) for this report' : null;
+  const inputError = rangeError ?? scopeError;
 
   const run = useMutation({
     // The API also returns `truncated` / `totalRows` (beyond the shared ReportResponse) when rows exceed 10,000.
@@ -114,30 +140,37 @@ export function ReportsPage() {
         }
       />
 
-      <div role="radiogroup" aria-label="Report type" className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        {REPORT_DEFS.map((d) => {
-          const active = d.type === type;
-          const Icon = d.icon;
-          return (
-            <button
-              key={d.type}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              onClick={() => setType(d.type)}
-              className={cn(
-                'flex items-center gap-2.5 rounded-xl border bg-card p-2.5 text-left sm:flex-col sm:items-start sm:gap-2 sm:p-3 shadow-xs transition-[border-color,box-shadow,background-color] outline-none hover:border-primary/50 focus-visible:ring-[3px] focus-visible:ring-ring/40',
-                active && 'border-primary bg-accent/60 ring-1 ring-primary',
-              )}
-            >
-              <span className={cn('flex size-8 items-center justify-center rounded-lg', active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
-                <Icon className="size-4" />
-              </span>
-              <span className="text-sm font-semibold">{d.label}</span>
-              <span className="line-clamp-2 hidden text-xs text-muted-foreground sm:block">{d.description}</span>
-            </button>
-          );
-        })}
+      <div role="radiogroup" aria-label="Report type" className="space-y-3">
+        {REPORT_CATEGORIES.map((category) => (
+          <section key={category} aria-label={category} className="space-y-1.5">
+            <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{category}</h2>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+              {REPORT_DEFS.filter((d) => d.category === category).map((d) => {
+                const active = d.type === type;
+                const Icon = d.icon;
+                return (
+                  <button
+                    key={d.type}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setType(d.type)}
+                    className={cn(
+                      'flex items-center gap-2.5 rounded-xl border bg-card p-2.5 text-left sm:flex-col sm:items-start sm:gap-2 sm:p-3 shadow-xs transition-[border-color,box-shadow,background-color] outline-none hover:border-primary/50 focus-visible:ring-[3px] focus-visible:ring-ring/40',
+                      active && 'border-primary bg-accent/60 ring-1 ring-primary',
+                    )}
+                  >
+                    <span className={cn('flex size-8 items-center justify-center rounded-lg', active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
+                      <Icon className="size-4" />
+                    </span>
+                    <span className="text-sm font-semibold">{d.label}</span>
+                    <span className="line-clamp-2 hidden text-xs text-muted-foreground sm:block">{d.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
 
       <Card className="space-y-4 p-4">
@@ -161,7 +194,7 @@ export function ReportsPage() {
               );
             })}
           </div>
-          {type === 'SUMMARY' && (
+          {usesPeriod && (
             <Field label="Group by" htmlFor="r-period" className="lg:w-48">
               <Select value={period} onValueChange={(v) => setPeriod(v as ReportPeriod)}>
                 <SelectTrigger id="r-period">
@@ -178,11 +211,12 @@ export function ReportsPage() {
             </Field>
           )}
           <span className="flex-1" />
-          <Button onClick={() => run.mutate(request)} disabled={!!rangeError || run.isPending} className="lg:w-36">
+          <Button onClick={() => run.mutate(request)} disabled={!!inputError || run.isPending} className="lg:w-36">
             {run.isPending ? <Spinner /> : <PlayIcon />} Run report
           </Button>
         </div>
-        {rangeError && <p className="text-xs text-destructive">{rangeError}</p>}
+        <ReportOptionsFields type={type} value={options} onChange={setOptions} />
+        {inputError && <p className="text-xs text-destructive">{inputError}</p>}
       </Card>
 
       {run.isError && <FormError message={errorMessage(run.error)} />}

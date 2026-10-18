@@ -97,6 +97,8 @@ export interface TrackedObjectDto {
   plateNumber: string | null; make: string | null; model: string | null; color: string | null;
   branchId: string | null; branchName: string | null;
   speedLimitKph: number | null; isActive: boolean;
+  /** Set while the vehicle is in maintenance (alerts suppressed). */
+  maintenanceSince: string | null; maintenanceNote: string | null;
   device: { id: string; uniqueId: string; modelName: string } | null;
   groups: { id: string; name: string }[];
   customFields: Record<string, unknown>;
@@ -115,12 +117,19 @@ export interface LookupDto {
 
 export interface CompanyDto extends CompanySummary {
   branchCount: number; userCount: number; objectCount: number; deviceCount: number;
+  /** Days of history (positions, trips, stops, alerts) kept; older data is deleted automatically. */
+  retentionDays: number;
   createdAt: string; updatedAt: string;
 }
 
 export interface AuditLogDto {
   id: string; userId: string | null; userName: string | null; action: string;
   entity: string; entityId: string | null; changes: unknown; ip: string | null; createdAt: string;
+}
+
+/** GET /devices/:id/raw: latest raw frames received from a device (hex). */
+export interface RawPacketDto {
+  id: string; receivedAt: string; protocol: string; remoteAddress: string | null; hex: string; length: number;
 }
 
 export interface UnknownDeviceDto {
@@ -133,3 +142,8 @@ export interface DashboardSummary {
   byStatus: Record<string, number>;
   devicesOnline: number;
 }
+
+/** Allowed per-company history retention (design: 30–180 days). */
+export const RETENTION_MIN_DAYS = 30;
+export const RETENTION_MAX_DAYS = 180;
+export const RETENTION_OPTIONS = [30, 60, 90, 120, 180] as const;

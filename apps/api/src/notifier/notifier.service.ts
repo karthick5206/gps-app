@@ -13,6 +13,7 @@ import { RedisService } from '../redis/redis.service';
 import { htmlToText, isSendable } from '../templates/render';
 import { loadAlertContext, Rendered, renderTemplate } from '../templates/template-renderer';
 import { withRetries } from './retry';
+import { createPushProvider, PushProvider } from './push';
 import { createSmsProvider, SmsProvider } from './sms';
 
 const READ_COUNT = 50;
@@ -59,6 +60,7 @@ export class NotifierService {
   private readonly logger = new Logger('Notifier');
   private readonly consumer = process.env.NOTIFIER_CONSUMER ?? `notifier-${hostname()}`;
   private readonly sms: SmsProvider = createSmsProvider();
+  private readonly push: PushProvider = createPushProvider();
   private readonly rules: RulesRepository;
   private readonly expander: RecipientExpander;
   private readonly lists = new Map<string, { rows: RecipientListRow[]; at: number }>();
@@ -236,8 +238,13 @@ export class NotifierService {
       subject: msg.subject,
       body: msg.body,
     };
-    if (channel === 'PUSH' || channel === 'WHATSAPP') {
-      await this.writeLog({ ...base, status: 'SKIPPED', error: `${channel === 'PUSH' ? 'Push' : 'WhatsApp'} not configured`, provider: null });
+    if (channel === 'WHATSAPP') {
+      await this.writeLog({ ...base, status: 'SKIPPED', error: 'WhatsApp not configured', provider: null });
+      return;
+    }
+    if (channel === 'PUSH') {
+      const res = await this.sendPush(r.address, msg, { alertId: alert.id, objectId: alert.objectId, type: alert.type, severity: alert.severity });
+      await this.writeLog({ ...base, ...res, provider: this.push.name });
       return;
     }
     const { error } = await withRetries(() => this.send(channel, r.address, msg));
@@ -250,6 +257,33 @@ export class NotifierService {
       return this.sms.send({ to, text: msg.text, dltTemplateId: msg.dltTemplateId, senderId: msg.senderId, variables: msg.dltValues });
     }
     return Promise.reject(new Error(`${channel} not configured`));
+  }
+
+/**
+   * Push to every app install of a user (`user:<id>`) whose sign-in session is still valid.
+   * Tokens the push service reports as unregistered are deleted.
+   */
+  private async sendPush(recipient: string, msg: Rendered, data: Record<string, unknown>): Promise<{ status: NotificationStatus; error: string | null }> {
+    if (!this.push.enabled) return { status: 'SKIPPED', error: 'Push not configured' };
+    const userId = recipient.startsWith('user:') ? recipient.slice(5) : null;
+    if (!userId) return { status: 'SKIPPED', error: 'Not a user recipient' };
+    const now = new Date();
+    const rows = await this.prisma.pushToken.findMany({
+      where: { userId, OR: [{ sessionId: null }, { session: { revokedAt: null, expiresAt: { gt: now } } }] },
+      select: { token: true },
+    });
+    if (!rows.length) return { status: 'SKIPPED', error: 'Mobile app not signed in' };
+    const title = msg.subject?.trim() || 'VeeTracer alert';
+    const body = (msg.text || htmlToText(msg.body)).slice(0, 500);
+    let result: Awaited<ReturnType<PushProvider['send']>> | null = null;
+    const { error } = await withRetries(async () => {
+      result = await this.push.send(rows.map((r) => r.token), { title, body, data });
+    });
+    const res = result as Awaited<ReturnType<PushProvider['send']>> | null;
+    if (res?.invalidTokens.length) await this.prisma.pushToken.deleteMany({ where: { token: { in: res.invalidTokens } } });
+    if (error) return { status: 'FAILED', error };
+    if (!res?.sent) return { status: 'FAILED', error: res?.error ?? 'No device accepted the push' };
+    return { status: 'SENT', error: res.error };
   }
 
   private async writeLog(data: Prisma.NotificationLogUncheckedCreateInput & { status: NotificationStatus }): Promise<void> {
@@ -269,7 +303,10 @@ export class NotifierService {
     let status: NotificationStatus;
     let error: string | null = null;
     let provider: string | null = null;
-    if (log.channel === 'PUSH' || log.channel === 'WHATSAPP' || log.channel === 'INAPP') {
+    if (log.channel === 'PUSH') {
+      ({ status, error } = await this.sendPush(log.recipient, { templateId: log.templateId, subject: log.subject, body: log.body, text: log.body, missing: [] }, { test: true }));
+      provider = this.push.name;
+    } else if (log.channel === 'WHATSAPP' || log.channel === 'INAPP') {
       status = 'SKIPPED';
       error = `${log.channel} not configured`;
     } else {

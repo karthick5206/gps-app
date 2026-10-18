@@ -32,7 +32,7 @@ import { formatDateTime, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { alertCenter, alertTitle } from './alert-center';
 import { AlertDetailSheet } from './AlertDetailSheet';
-import { SeverityIcon } from './AlertBell';
+import { AlertTypeIcon } from './alert-icons';
 import { DateRangePicker, rangeFromPreset, type DateRangeValue } from './DateRangePicker';
 import { AlertStatusBadge, SeverityBadge } from './badges';
 import { SEVERITY_LABEL, STATUS_LABEL } from './severity';
@@ -347,7 +347,7 @@ export function AlertsPage() {
                 </TableCell>
                 <TableCell>
                   <span className="flex items-center gap-2 font-medium whitespace-nowrap">
-                    <SeverityIcon severity={a.severity} />
+                    <AlertTypeIcon type={a.type} severity={a.severity} size="sm" />
                     {alertTitle(a)}
                   </span>
                 </TableCell>

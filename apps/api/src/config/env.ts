@@ -8,6 +8,8 @@ export interface AppEnv {
   jwtSecret: string;
   apiPort: number;
   gt06Port: number;
+  /** Teltonika TCP port; 0 disables the listener. */
+  teltonikaPort: number;
   webUrl: string;
   otpDevEcho: boolean;
   mailDevEcho: boolean;
@@ -37,6 +39,7 @@ export function loadEnv(): AppEnv {
     jwtSecret,
     apiPort: Number(process.env.API_PORT ?? 4000),
     gt06Port: Number(process.env.GT06_PORT ?? 5023),
+    teltonikaPort: Number(process.env.TELTONIKA_PORT ?? 5027),
     webUrl: process.env.WEB_URL ?? 'http://localhost:5173',
     otpDevEcho: process.env.OTP_DEV_ECHO === 'true',
     mailDevEcho: process.env.MAIL_DEV_ECHO === 'true',
@@ -45,5 +48,16 @@ export function loadEnv(): AppEnv {
       .map((o) => o.trim())
       .filter(Boolean),
   };
+  if (process.env.NODE_ENV === 'production') assertProductionSafe(cached);
   return cached;
+}
+
+/** Dev conveniences that expose login codes or reset links must never reach a public server. */
+function assertProductionSafe(env: AppEnv): void {
+  if (env.otpDevEcho || env.mailDevEcho) {
+    throw new Error('OTP_DEV_ECHO and MAIL_DEV_ECHO must be false when NODE_ENV=production');
+  }
+  if (env.jwtSecret.startsWith('change-me')) {
+    throw new Error('JWT_SECRET still has the .env.example value; set a long random secret');
+  }
 }

@@ -12,6 +12,7 @@ import {
   type RecipientEntry,
   type RecipientListDto,
   type RecipientMode,
+  DEFAULT_COOLDOWN_MIN,
 } from '@veetracer/shared';
 import { toast } from 'sonner';
 import { api, errorMessage, request } from '@/lib/api';
@@ -53,24 +54,8 @@ export interface ResolvedRecipientsResponse {
   channels: ResolvedChannel[];
 }
 
-/**
- * Catalogue default cooldowns (minutes). Mirrors the API's DEFAULT_COOLDOWN_MIN, which is not in the shared package;
- * only used to label "Default" values on Company/Branch/Group screens (object level uses the API's effective values).
- */
-export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
-  OVERSPEED: 0,
-  IDLING: 0,
-  IGNITION_ON: 0,
-  IGNITION_OFF: 0,
-  GEOFENCE_ENTER: 0,
-  GEOFENCE_EXIT: 0,
-  GEOFENCE_STAY: 0,
-  GEOFENCE_OVERSPEED: 5,
-  POWER_CUT: 5,
-  SOS: 1,
-  LOW_BATTERY: 60,
-  DEVICE_OFFLINE: 0,
-};
+/** Catalogue default cooldowns (minutes), shared with the API. */
+export { DEFAULT_COOLDOWN_MIN };
 
 export function catalogueDefaults(def: AlertTypeDef): Defaults {
   return {

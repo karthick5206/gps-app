@@ -1,4 +1,4 @@
-import { ReportFormat } from '@veetracer/shared';
+import { PERIOD_REPORT_TYPES, ReportFormat } from '@veetracer/shared';
 import ExcelJS from 'exceljs';
 import { dirname } from 'node:path';
 import pdfmake from 'pdfmake';
@@ -40,7 +40,7 @@ function prepare(data: ReportData): Prepared {
   const cols = columnsFor(data.type);
   const rows = data.rows.map((r) => cols.map((c) => c.value(r as never, data.tz)));
   const hasTotals = cols.some((c) => c.total);
-  const periodLabel = data.type === 'SUMMARY' && data.period ? ` · grouped by ${data.period.toLowerCase()}` : '';
+  const periodLabel = PERIOD_REPORT_TYPES.includes(data.type) && data.period ? ` · grouped by ${data.period.toLowerCase()}` : '';
   return {
     title: REPORT_TITLES[data.type],
     periodLine: `Period: ${data.from} to ${data.to} (${data.tz})${periodLabel}`,

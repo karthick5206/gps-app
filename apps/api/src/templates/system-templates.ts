@@ -25,6 +25,12 @@ const DETAIL: Record<AlertTypeCode, string> = {
   SOS: 'SOS / panic button was pressed',
   LOW_BATTERY: 'tracker battery is low ({{battery}})',
   DEVICE_OFFLINE: 'tracker has sent no data for {{duration}}',
+  GPS_LOST: 'tracker has had no GPS fix for {{duration}}',
+  GSM_WEAK: 'tracker mobile signal has been weak for {{duration}}',
+  DATA_DELAYED: 'tracker data is arriving {{duration}} late (network problem)',
+  CLOCK_ERROR: 'tracker clock is ahead by {{duration}} (check its time zone)',
+  POWER_LOW: 'vehicle battery voltage is low ({{voltage}})',
+  DEVICE_TAMPER: 'tracker reported tampering or GPS jamming',
 };
 
 const BRAND = '#0f766e';

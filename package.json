@@ -3,14 +3,24 @@
   "private": true,
   "version": "0.1.0",
   "description": "VeeTracer GPS tracking SaaS (monorepo)",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "build:shared": "npm run build -w @veetracer/shared",
     "dev:api": "npm run start:dev -w @veetracer/api",
     "dev:gateway": "npm run gateway:dev -w @veetracer/api",
     "dev:processor": "npm run processor:dev -w @veetracer/api",
     "dev:web": "npm run dev -w @veetracer/web",
-    "sim": "npm run sim -w @veetracer/api --"
+    "sim": "npm run sim -w @veetracer/api --",
+    "dev:mobile": "npm run start -w @veetracer/mobile"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
 }

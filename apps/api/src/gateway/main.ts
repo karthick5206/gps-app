@@ -1,11 +1,24 @@
 import { Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { hostname } from 'node:os';
-import { loadEnv } from '../config/env';
-import { Gt06Server } from './gt06-server';
+import { join } from 'node:path';
+import { CommandDispatch, COMMAND_TTL_HOURS } from '@veetracer/shared';
+import { APP_ROOT, loadEnv } from '../config/env';
+import { RedisKeys } from '../redis/keys';
+import { Gt06Decoder } from './gt06/decoder';
+import { BaseSession, ProtocolDecoder } from './protocol';
+import { TcpGatewayServer } from './tcp-server';
+import { TeltonikaDecoder } from './teltonika/decoder';
+import { UnparsedLog } from './unparsed-log';
 
 const STATS_INTERVAL_MS = 30_000;
 
+/**
+ * Device gateway: one TCP listener per protocol, all feeding the same `vt:positions` stream.
+ *   GT06_PORT (5023)       Concox / Jimi GT06 family (GT06N, GT800, V5, VL149, …)
+ *   TELTONIKA_PORT (5027)  Teltonika FMB/FMC/FMM (0 disables)
+ * GATEWAY_CAPTURE = comma-separated IMEIs (or `all`) to write raw frames to var/logs/capture-<protocol>.log.
+ */
 async function main(): Promise<void> {
   const env = loadEnv();
   const logger = new Logger('Gateway');
@@ -13,23 +26,65 @@ async function main(): Promise<void> {
   const redis = new Redis(env.redisUrl);
   redis.on('error', (error) => logger.error(`Valkey error: ${error.message}`));
 
-  const server = new Gt06Server(redis, gatewayId);
-  await server.listen(env.gt06Port);
-  logger.log(`GT06 gateway ${gatewayId} listening on tcp://0.0.0.0:${env.gt06Port}`);
+  const logDir = join(APP_ROOT, 'var', 'logs');
+  const unparsed = new UnparsedLog({ dir: logDir });
+  const captureIds = (process.env.GATEWAY_CAPTURE ?? '').trim();
+  const capture = captureIds
+    ? { dir: logDir, ids: captureIds === 'all' ? ('all' as const) : new Set(captureIds.split(',').map((s) => s.trim()).filter(Boolean)) }
+    : null;
 
-  let last = { ...server.stats };
+  const listeners: [ProtocolDecoder<BaseSession>, number][] = [
+    [new Gt06Decoder() as ProtocolDecoder<BaseSession>, env.gt06Port],
+    [new TeltonikaDecoder(), env.teltonikaPort],
+  ];
+  const servers: TcpGatewayServer<BaseSession>[] = [];
+  for (const [decoder, port] of listeners) {
+    if (!port) continue;
+    const server = new TcpGatewayServer(decoder, { redis, gatewayId, unparsed, capture });
+    await server.listen(port);
+    servers.push(server);
+    logger.log(`${decoder.name} listening on tcp://0.0.0.0:${port}`);
+  }
+  // Commands for devices connected to this gateway (the API publishes to the channel named after vt:conn:<id>).
+  const commands = new Redis(env.redisUrl);
+  commands.on('error', (error) => logger.error(`Valkey (commands) error: ${error.message}`));
+  commands.on('message', (_channel, message) => {
+    let d: CommandDispatch;
+    try {
+      d = JSON.parse(message) as CommandDispatch;
+    } catch {
+      return;
+    }
+    if (servers.some((s) => s.sendCommand(d))) return;
+    // The device disconnected meanwhile: queue it for its next login.
+    const key = RedisKeys.commandQueue(d.uniqueId);
+    redis
+      .multi()
+      .rpush(key, message)
+      .expire(key, COMMAND_TTL_HOURS * 3600)
+      .exec()
+      .catch((error: Error) => logger.error(`Command re-queue failed: ${error.message}`));
+  });
+  await commands.subscribe(RedisKeys.commandChannel(gatewayId));
+
+  logger.log(`Gateway ${gatewayId} ready${capture ? ` (capturing ${captureIds})` : ''}`);
+
+  const last = new Map(servers.map((s) => [s.protocol, s.stats.positions]));
   const timer = setInterval(() => {
-    const s = server.stats;
-    const rate = ((s.positions - last.positions) * 1000) / STATS_INTERVAL_MS;
-    logger.log(
-      `connections=${s.connections} frames=${s.frames} positions=${s.positions} dropped=${s.dropped} rate=${rate.toFixed(1)}/s`,
-    );
-    last = { ...s };
+    for (const server of servers) {
+      const s = server.stats;
+      const rate = ((s.positions - (last.get(server.protocol) ?? 0)) * 1000) / STATS_INTERVAL_MS;
+      logger.log(
+        `[${server.protocol}] connections=${s.connections} frames=${s.frames} positions=${s.positions} dropped=${s.dropped} errors=${s.errors} rate=${rate.toFixed(1)}/s`,
+      );
+      last.set(server.protocol, s.positions);
+    }
   }, STATS_INTERVAL_MS);
 
   const shutdown = async () => {
     clearInterval(timer);
-    await server.close();
+    await Promise.all(servers.map((s) => s.close()));
+    await commands.quit().catch(() => undefined);
     await redis.quit();
     process.exit(0);
   };

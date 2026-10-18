@@ -159,6 +159,7 @@ export function sampleVars(purpose: string, company = 'Demo Logistics'): Record<
     duration: '12 min',
     geofence: 'Depot',
     battery: '15%',
+    voltage: '11.2 V',
     code: '482913',
     expires_min: '5',
     user_name: 'Priya',

@@ -16,6 +16,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   Columns3Icon,
+  FilterIcon,
   DatabaseIcon,
   DownloadIcon,
   EyeIcon,
@@ -34,6 +35,7 @@ import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { FormError } from '@/components/form-error';
 import { PageHeader } from '@/components/page-header';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -48,6 +50,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
@@ -94,19 +97,16 @@ function filterParams(filters: MasterFilter[], values: Record<string, string | n
 
 function FilterControl({ filter, value, onChange }: { filter: MasterFilter; value: string | null; onChange: (v: string | null) => void }) {
   if (filter.kind === 'text') {
-    return <Input value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} placeholder={filter.label} aria-label={filter.label} className="h-9 w-40" />;
+    return <Input value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} placeholder={filter.label} aria-label={filter.label} className="h-9 w-full" />;
   }
   if (filter.kind === 'date') {
     return (
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-        {filter.label}
-        <Input type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} className="h-9 w-[9.5rem]" aria-label={filter.label} />
-      </label>
+      <Input type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} className="h-9 w-full" aria-label={filter.label} />
     );
   }
   return (
     <Select value={value ?? ALL} onValueChange={(v) => onChange(v === ALL ? null : v)}>
-      <SelectTrigger className="h-9 w-auto min-w-[9rem]" aria-label={filter.label}>
+      <SelectTrigger className="h-9 w-full" aria-label={filter.label}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -120,6 +120,19 @@ function FilterControl({ filter, value, onChange }: { filter: MasterFilter; valu
     </Select>
   );
 }
+
+/** Text of an active filter chip, e.g. "Chennai" or "From 2026-10-01". */
+function chipText(filter: MasterFilter, value: string): string {
+  if (filter.kind === 'date') return `${filter.label} ${value}`;
+  if (filter.kind === 'text') return `${filter.label}: ${value}`;
+  return filter.options.find((o) => o.value === value)?.label ?? value;
+}
+
+const STATUS_TABS = [
+  { value: null, label: 'All' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'INACTIVE', label: 'Inactive' },
+] as const;
 
 /**
  * Reusable master list: server-side search/sort/pagination/status filter, column chooser (persisted),
@@ -334,7 +347,8 @@ export function MasterPage<T>({
     onColumnVisibilityChange: setColumnVisibility,
   });
 
-  const hasFilters = !!q || !!status || Object.values(filterValues).some(Boolean);
+  const activeFilters = filters.filter((f) => filterValues[f.key]);
+  const hasFilters = !!q || !!status || activeFilters.length > 0;
   const clearFilters = () => {
     setSearch('');
     setStatus(null);
@@ -346,7 +360,8 @@ export function MasterPage<T>({
   const viewEditable = viewRow && allow.edit && (canEditRow?.(viewRow) ?? true);
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-5 p-4 sm:p-6">
+    // Fills the viewport: header and toolbar stay put, rows scroll inside the card, pagination is always visible.
+    <div className="mx-auto flex h-full min-h-[560px] w-full max-w-[1400px] flex-col gap-4 p-4 sm:p-6">
       <PageHeader
         title={title}
         description={description}
@@ -356,7 +371,7 @@ export function MasterPage<T>({
             {allow.export && (
               <Button variant="outline" onClick={exportCsv} disabled={exporting}>
                 {exporting ? <Spinner /> : <DownloadIcon />}
-                Export CSV
+                <span className="hidden sm:inline">Export CSV</span>
               </Button>
             )}
             {allow.create && (
@@ -368,56 +383,98 @@ export function MasterPage<T>({
         }
       />
 
-      <Card className="overflow-hidden">
-        <div className="flex flex-col gap-3 border-b p-3 lg:flex-row lg:items-center">
-          <div className="relative w-full lg:max-w-xs">
+      <Card className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden py-0">
+        <div className="flex flex-wrap items-center gap-2 border-b p-3">
+          <div className="relative min-w-[12rem] flex-1 sm:max-w-sm">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${title.toLowerCase()}…`} aria-label="Search" className="pl-8" />
-          </div>
-          <div className="flex flex-1 flex-wrap items-center gap-2">
-            {statusFilter && (
-              <Select value={status ?? ALL} onValueChange={(v) => setStatus(v === ALL ? null : (v as 'ACTIVE' | 'INACTIVE'))}>
-                <SelectTrigger className="h-9 w-auto min-w-[8.5rem]" aria-label="Status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL}>All statuses</SelectItem>
-                  <SelectItem value="ACTIVE">Active</SelectItem>
-                  <SelectItem value="INACTIVE">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-            {filters.map((f) => (
-              <FilterControl key={f.key} filter={f} value={filterValues[f.key] ?? null} onChange={(v) => setFilterValues((prev) => ({ ...prev, [f.key]: v }))} />
-            ))}
-            {hasFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                <XIcon /> Clear
-              </Button>
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${title.toLowerCase()}…`} aria-label="Search" className="h-9 pl-8" />
+            {search && (
+              <button type="button" onClick={() => setSearch('')} aria-label="Clear search" className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground">
+                <XIcon className="size-3.5" />
+              </button>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            {list.isFetching && !list.isPending && <Spinner className="text-muted-foreground" />}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Columns3Icon /> Columns
+          {statusFilter && (
+            <div role="radiogroup" aria-label="Status" className="inline-flex h-9 items-center rounded-lg bg-muted p-0.5">
+              {STATUS_TABS.map((t) => (
+                <button
+                  key={t.label}
+                  type="button"
+                  role="radio"
+                  aria-checked={status === t.value}
+                  onClick={() => setStatus(t.value)}
+                  className={cn(
+                    'h-8 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
+                    status === t.value && 'bg-background text-foreground shadow-xs',
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {filters.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="h-9">
+                  <FilterIcon /> Filters
+                  {activeFilters.length > 0 && <Badge className="ml-0.5 h-5 min-w-5 justify-center rounded-full px-1.5">{activeFilters.length}</Badge>}
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
-                {table
-                  .getAllLeafColumns()
-                  .filter((c) => c.getCanHide())
-                  .map((c) => (
-                    <DropdownMenuCheckboxItem key={c.id} checked={c.getIsVisible()} onCheckedChange={(v) => c.toggleVisibility(!!v)} onSelect={(e) => e.preventDefault()}>
-                      {String(c.columnDef.header)}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 space-y-3">
+                {filters.map((f) => (
+                  <div key={f.key} className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">{f.label}</p>
+                    <FilterControl filter={f} value={filterValues[f.key] ?? null} onChange={(v) => setFilterValues((prev) => ({ ...prev, [f.key]: v }))} />
+                  </div>
+                ))}
+                {activeFilters.length > 0 && (
+                  <Button variant="ghost" size="sm" className="w-full" onClick={() => setFilterValues({})}>
+                    <XIcon /> Reset filters
+                  </Button>
+                )}
+              </PopoverContent>
+            </Popover>
+          )}
+          <span className="flex-1" />
+          <span className="text-sm text-muted-foreground tabular-nums">
+            {list.isFetching && !list.isPending ? <Spinner className="inline" /> : `${total.toLocaleString()} ${total === 1 ? 'record' : 'records'}`}
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="size-9" aria-label="Choose columns">
+                <Columns3Icon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+              {table
+                .getAllLeafColumns()
+                .filter((c) => c.getCanHide())
+                .map((c) => (
+                  <DropdownMenuCheckboxItem key={c.id} checked={c.getIsVisible()} onCheckedChange={(v) => c.toggleVisibility(!!v)} onSelect={(e) => e.preventDefault()}>
+                    {String(c.columnDef.header)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+
+        {activeFilters.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b px-3 py-2">
+            {activeFilters.map((f) => (
+              <span key={f.key} className="inline-flex items-center gap-1 rounded-full border bg-muted/50 py-0.5 pr-1 pl-2.5 text-xs">
+                {chipText(f, filterValues[f.key]!)}
+                <button type="button" aria-label={`Remove ${f.label} filter`} onClick={() => setFilterValues((prev) => ({ ...prev, [f.key]: null }))} className="rounded-full p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground">
+                  <XIcon className="size-3" />
+                </button>
+              </span>
+            ))}
+            <Button variant="link" size="sm" className="h-6 px-1 text-xs" onClick={clearFilters}>
+              Clear all
+            </Button>
+          </div>
+        )}
 
         {selectedIds.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b bg-accent/60 px-3 py-2 text-sm animate-fade-in">
@@ -450,8 +507,8 @@ export function MasterPage<T>({
           </div>
         )}
 
-        <Table>
-          <TableHeader>
+        <Table containerClassName="min-h-0 flex-1 overflow-auto">
+          <TableHeader className="sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_var(--color-border)]">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id} className="hover:bg-transparent">
                 {hg.headers.map((h) => {
@@ -520,7 +577,7 @@ export function MasterPage<T>({
           </TableBody>
         </Table>
 
-        <div className="flex flex-col gap-3 border-t px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t bg-card px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted-foreground tabular-nums">
             {total > 0 ? `Showing ${from.toLocaleString()}–${to.toLocaleString()} of ${total.toLocaleString()}` : 'No records'}
           </p>

@@ -11,7 +11,8 @@ import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, humanize } from '@/lib/format';
 import { alertTitle } from './alert-center';
-import { SeverityIcon, useOpenAlert } from './AlertBell';
+import { useOpenAlert } from './AlertBell';
+import { AlertTypeIcon } from './alert-icons';
 import { AlertStatusBadge, SeverityBadge } from './badges';
 
 const MiniMap = lazy(() => import('./MiniMap').then((m) => ({ default: m.MiniMap })));
@@ -85,7 +86,7 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
       <SheetContent className="sm:max-w-lg">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
-            {a && <SeverityIcon severity={a.severity} />}
+            {a && <AlertTypeIcon type={a.type} severity={a.severity} />}
             {a ? alertTitle(a) : 'Alert'}
           </SheetTitle>
           <SheetDescription className="truncate">{a ? `${a.objectName}${a.plateNumber && a.plateNumber !== a.objectName ? ` · ${a.plateNumber}` : ''}` : ' '}</SheetDescription>

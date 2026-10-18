@@ -42,3 +42,8 @@ export class CreateObjectDto {
 }
 
 export class UpdateObjectDto extends PartialType(CreateObjectDto) {}
+
+export class MaintenanceDto {
+  @IsBoolean() enabled!: boolean;
+  @IsOptional() @IsString() @MaxLength(300) note?: string;
+}

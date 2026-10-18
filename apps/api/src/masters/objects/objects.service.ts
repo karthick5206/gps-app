@@ -8,6 +8,7 @@ import { BulkActionDto, runBulk } from '../../common/bulk';
 import { asRecord, iso } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisKeys } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import { CreateObjectDto, ObjectListQuery, UpdateObjectDto } from './objects.dto';
 
@@ -74,6 +75,8 @@ function toDto(o: Row): TrackedObjectDto {
     branchName: o.branch?.name ?? null,
     speedLimitKph: o.speedLimitKph,
     isActive: o.isActive,
+    maintenanceSince: o.maintenanceSince ? iso(o.maintenanceSince) : null,
+    maintenanceNote: o.maintenanceNote,
     device: device ? { id: device.id, uniqueId: device.uniqueId, modelName: `${device.model.brand} ${device.model.model}` } : null,
     groups: o.groups.map((g) => ({ id: g.group.id, name: g.group.name })),
     customFields: asRecord(o.customFields),
@@ -154,6 +157,29 @@ export class ObjectsService {
     });
     await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before: snapshot(before), after: snapshot(row) });
     await this.redis.invalidateCache('object');
+    return toDto(row);
+  }
+
+  /** Put a vehicle in / take it out of maintenance (alerts suppressed while in maintenance). */
+  async setMaintenance(ctx: AuthContext, id: string, enabled: boolean, note: string | null): Promise<TrackedObjectDto> {
+    const before = await this.find(ctx, id);
+    const row = await this.prisma.trackedObject.update({
+      where: { id },
+      data: enabled ? { maintenanceSince: before.maintenanceSince ?? new Date(), maintenanceNote: note?.trim() || null } : { maintenanceSince: null, maintenanceNote: null },
+      include: INCLUDE,
+    });
+    await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before: { maintenance: !!before.maintenanceSince, note: before.maintenanceNote }, after: { maintenance: enabled, note: row.maintenanceNote } });
+    await this.redis.invalidateCache('object');
+    // Reflect it in the live state right away (the processor only rewrites it on the next position).
+    const key = RedisKeys.live(id);
+    const live = await this.redis.client.get(key);
+    if (live) {
+      try {
+        await this.redis.client.set(key, JSON.stringify({ ...JSON.parse(live), inMaintenance: enabled }));
+      } catch {
+        // Corrupt live entry: the processor rewrites it on the next position.
+      }
+    }
     return toDto(row);
   }
 

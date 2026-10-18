@@ -198,17 +198,35 @@ export class PositionProcessor {
         lives.set(object.objectId, live);
         tracks.set(object.objectId, { ...result.next, stoppedSince: status.stoppedSince });
         changed.set(object.objectId, live);
-        if ((flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null) {
+        // Vehicles in maintenance (workshop, testing) raise no alerts. Without a GPS fix only location-independent
+        // rules run (ignition, SOS/power cut, battery come from the device wiring, not GPS).
+        if (!object.inMaintenance) {
           ruleInputs.push({
             object,
             fixTime,
-            lat: live.lat,
-            lng: live.lng,
+            lat: live.lat ?? Number.NaN,
+            lng: live.lng ?? Number.NaN,
             speedKph: live.speedKph,
             ignition: position.ignition,
             attributes: attrs,
+            locationValid: (flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null,
+            receivedAt: now,
           });
         }
+      } else if ((flags & POSITION_FLAGS.FUTURE) !== 0 && !object.inMaintenance) {
+        // Dropped from live state because the device clock runs ahead: still tell the operator why.
+        ruleInputs.push({
+          object,
+          fixTime,
+          lat: position.lat ?? Number.NaN,
+          lng: position.lng ?? Number.NaN,
+          speedKph: position.speedKph,
+          ignition: position.ignition,
+          attributes: position.attributes,
+          locationValid: (flags & POSITION_FLAGS.INVALID_FIX) === 0,
+          receivedAt: now,
+          healthOnly: true,
+        });
       }
     }
 

@@ -1,5 +1,5 @@
 import type { AlertDto } from '@veetracer/shared';
-import { AlertTriangleIcon, BellIcon, CheckCheckIcon, InfoIcon, MapPinIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, SirenIcon, Volume2Icon, VolumeXIcon } from 'lucide-react';
+import { BellIcon, CheckCheckIcon, MapPinIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, Volume2Icon, VolumeXIcon } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -15,18 +15,14 @@ import { errorMessage } from '@/lib/api';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { alertCenter, alertTitle } from './alert-center';
-import { SEVERITY_COLOR, SEVERITY_LABEL } from './severity';
+import { alertIcon, AlertTypeIcon } from './alert-icons';
+import { SEVERITY_COLOR } from './severity';
 
 // Lazy so maplibre stays out of the main bundle (the bell is in the shell).
 const MiniMap = lazy(() => import('./MiniMap').then((m) => ({ default: m.MiniMap })));
 
 export function useAlertCenter() {
   return useSyncExternalStore(alertCenter.subscribe, alertCenter.getState);
-}
-
-export function SeverityIcon({ severity, className }: { severity: AlertDto['severity']; className?: string }) {
-  const Icon = severity === 'CRITICAL' ? SirenIcon : severity === 'WARNING' ? AlertTriangleIcon : InfoIcon;
-  return <Icon className={cn('size-4 shrink-0', className)} style={{ color: SEVERITY_COLOR[severity] }} aria-label={SEVERITY_LABEL[severity]} />;
 }
 
 /** Where clicking an alert goes: the live map focused on the vehicle (falls back to the alerts page). */
@@ -63,8 +59,10 @@ function useAlertToasts() {
         toast.info(`${burstCount} more alert(s) just arrived`, { id: 'alert-burst', description: 'Open the bell to see the latest alerts.', duration: 5000 });
         return;
       }
+      const Icon = alertIcon(a.type);
       const opts = {
         id: `alert-${a.id}`,
+        icon: <Icon className="size-4" style={{ color: SEVERITY_COLOR[a.severity] }} aria-hidden />,
         description: `${vehicleLabel(a)} — ${a.message}`,
         duration: a.severity === 'INFO' ? 4000 : 7000,
         action: { label: 'View', onClick: () => openRef.current(a) },
@@ -132,7 +130,10 @@ function CriticalAlertModal() {
               <ShieldAlertIcon className="size-5" />
             </span>
             <div className="min-w-0">
-              <DialogTitle className="text-destructive">{alertTitle(current)}</DialogTitle>
+              <DialogTitle className="flex items-center gap-2 text-destructive">
+                <AlertTypeIcon type={current.type} severity="CRITICAL" />
+                {alertTitle(current)}
+              </DialogTitle>
               <p className="text-xs text-muted-foreground">
                 Critical alert{critical.length > 1 ? ` · 1 of ${critical.length}` : ''}
               </p>
@@ -202,7 +203,7 @@ function AlertRow({ a, onOpen }: { a: AlertDto; onOpen: () => void }) {
   return (
     <li>
       <button type="button" onClick={onOpen} className="flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none">
-        <SeverityIcon severity={a.severity} className="mt-0.5" />
+        <AlertTypeIcon type={a.type} severity={a.severity} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className={cn('truncate text-sm', a.status === 'NEW' ? 'font-semibold' : 'font-medium text-muted-foreground')}>{alertTitle(a)}</span>

@@ -51,7 +51,7 @@ export class OfflineAlertService {
     const rules = await this.repo.get(companyId);
     const due: { live: LiveObject; offlineMs: number }[] = [];
     for (const live of lives) {
-      if (!live.serverTime) continue;
+      if (!live.serverTime || live.inMaintenance) continue;
       const setting = rules.effective(live.objectId).get('DEVICE_OFFLINE');
       if (!setting?.enabled) continue;
       const afterMin = typeof setting.params.afterMin === 'number' ? setting.params.afterMin : null;

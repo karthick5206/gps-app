@@ -1,9 +1,9 @@
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
 
-export function Table({ className, ...props }: ComponentProps<'table'>) {
+export function Table({ className, containerClassName, ...props }: ComponentProps<'table'> & { containerClassName?: string }) {
   return (
-    <div className="relative w-full overflow-x-auto">
+    <div className={cn('relative w-full overflow-x-auto', containerClassName)}>
       <table className={cn('w-full caption-bottom text-sm', className)} {...props} />
     </div>
   );

@@ -30,7 +30,7 @@ export interface AlertParamDef {
 export interface AlertTypeDef {
   code: AlertTypeCode;
   label: string;
-  category: 'Driving' | 'Location' | 'Device' | 'Vehicle' | 'Safety';
+  category: 'Driving' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety';
   /** Device-model capability required; null = any GPS device. */
   capability: string | null;
   defaultSeverity: AlertSeverity;
@@ -55,6 +55,12 @@ export const ALERT_TYPE_CODES = [
   'SOS',
   'LOW_BATTERY',
   'DEVICE_OFFLINE',
+  'GPS_LOST',
+  'GSM_WEAK',
+  'DATA_DELAYED',
+  'CLOCK_ERROR',
+  'POWER_LOW',
+  'DEVICE_TAMPER',
 ] as const;
 export type AlertTypeCode = (typeof ALERT_TYPE_CODES)[number];
 
@@ -67,7 +73,7 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
     code: 'OVERSPEED', label: 'Overspeed', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
     params: [
       { key: 'limitKph', label: 'Speed limit', type: 'number', unit: 'km/h', default: null, min: 5, max: 250, hint: 'Empty = the vehicle\'s own limit, else the vehicle-type default' },
-      { key: 'toleranceKph', label: 'Tolerance', type: 'number', unit: 'km/h', default: 5, min: 0, max: 50 },
+      { key: 'toleranceKph', label: 'Tolerance', type: 'number', unit: 'km/h', default: 0, min: 0, max: 50 },
       { key: 'minDurationSec', label: 'Minimum duration over the limit', type: 'number', unit: 's', default: 10, min: 0, max: 600 },
       { key: 'criticalOverKph', label: 'Critical when over the limit by', type: 'number', unit: 'km/h', default: 20, min: 1, max: 150 },
       { key: 'nightLimitKph', label: 'Night limit', type: 'number', unit: 'km/h', default: null, min: 5, max: 250, hint: 'Empty = same as day' },
@@ -89,8 +95,8 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
     ],
     placeholders: ['duration'],
   },
-  { code: 'IGNITION_ON', label: 'Ignition on', category: 'Vehicle', capability: 'ignition', defaultSeverity: 'INFO', defaultEnabled: false, mandatory: false, params: [], placeholders: [] },
-  { code: 'IGNITION_OFF', label: 'Ignition off', category: 'Vehicle', capability: 'ignition', defaultSeverity: 'INFO', defaultEnabled: false, mandatory: false, params: [], placeholders: [] },
+  { code: 'IGNITION_ON', label: 'Ignition on', category: 'Vehicle', capability: 'ignition', defaultSeverity: 'INFO', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  { code: 'IGNITION_OFF', label: 'Ignition off', category: 'Vehicle', capability: 'ignition', defaultSeverity: 'INFO', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   { code: 'GEOFENCE_ENTER', label: 'Geofence entry', category: 'Location', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['geofence'] },
   { code: 'GEOFENCE_EXIT', label: 'Geofence exit', category: 'Location', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['geofence'] },
   { code: 'GEOFENCE_STAY', label: 'Stayed too long in geofence', category: 'Location', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['geofence', 'duration'] },
@@ -107,7 +113,62 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
     params: [{ key: 'afterMin', label: 'Offline after', type: 'number', unit: 'min', default: null, min: 5, max: 1440, hint: 'Empty = company offline threshold' }],
     placeholders: ['duration'],
   },
+  // ── Device health (computed from the data the tracker sends) ──
+  {
+    code: 'GPS_LOST', label: 'GPS signal lost', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
+    params: [{ key: 'afterMin', label: 'Alert after no GPS fix for', type: 'number', unit: 'min', default: 30, min: 5, max: 1440, hint: 'Data keeps arriving but without a valid fix: antenna, jamming or covered parking' }],
+    placeholders: ['duration'],
+  },
+  {
+    code: 'GSM_WEAK', label: 'Weak mobile signal', category: 'Device health', capability: null, defaultSeverity: 'INFO', defaultEnabled: true, mandatory: false,
+    params: [
+      { key: 'maxLevel', label: 'Weak at or below', type: 'number', unit: 'bars (0–4)', default: 1, min: 0, max: 3 },
+      { key: 'afterMin', label: 'Alert after', type: 'number', unit: 'min', default: 30, min: 5, max: 1440 },
+    ],
+    placeholders: ['duration'],
+  },
+  {
+    code: 'DATA_DELAYED', label: 'Data delayed (network)', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
+    params: [{ key: 'delayMin', label: 'Alert when data arrives later than', type: 'number', unit: 'min', default: 10, min: 2, max: 720, hint: 'The tracker buffered data because GPRS was down' }],
+    placeholders: ['duration'],
+  },
+  {
+    code: 'CLOCK_ERROR', label: 'Wrong device time', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
+    params: [{ key: 'thresholdMin', label: 'Alert when the device clock is ahead by', type: 'number', unit: 'min', default: 15, min: 5, max: 1440, hint: 'Usually a wrong time-zone setting on the tracker' }],
+    placeholders: ['duration'],
+  },
+  {
+    code: 'POWER_LOW', label: 'Low vehicle voltage', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
+    params: [
+      { key: 'thresholdV', label: 'Alert below', type: 'number', unit: 'V', default: 11.5, min: 5, max: 30, hint: '12 V vehicles ~11.5 V; 24 V vehicles ~23 V' },
+      { key: 'afterMin', label: 'For at least', type: 'number', unit: 'min', default: 10, min: 1, max: 1440 },
+    ],
+    placeholders: ['voltage'],
+  },
+  { code: 'DEVICE_TAMPER', label: 'Tracker tamper / GPS jamming', category: 'Device health', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
 ];
+
+/** Catalogue default cooldown (minutes) per alert type when nothing is configured (shared by API and web). */
+export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
+  OVERSPEED: 0,
+  IDLING: 0,
+  IGNITION_ON: 0,
+  IGNITION_OFF: 0,
+  GEOFENCE_ENTER: 0,
+  GEOFENCE_EXIT: 0,
+  GEOFENCE_STAY: 0,
+  GEOFENCE_OVERSPEED: 5,
+  POWER_CUT: 5,
+  SOS: 1,
+  LOW_BATTERY: 60,
+  DEVICE_OFFLINE: 0,
+  GPS_LOST: 0,
+  GSM_WEAK: 0,
+  DATA_DELAYED: 60,
+  CLOCK_ERROR: 1440,
+  POWER_LOW: 0,
+  DEVICE_TAMPER: 5,
+};
 
 export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEntries(ALERT_TYPES.map((t) => [t.code, t])) as Record<AlertTypeCode, AlertTypeDef>;
 

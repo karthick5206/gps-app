@@ -57,17 +57,28 @@ export class OfflineSweeperService {
   private async sweepChunk(companyId: string, objectIds: string[], cutoff: number, nowIso: string): Promise<number> {
     const keys = objectIds.map(RedisKeys.live);
     const values = await this.redis.client.mget(keys);
+    const lives = values.map((v) => parseLive(v));
+    // A parked tracker may send only heartbeats (no positions) yet stay connected: the gateway refreshes its
+    // connection key on any traffic, so an object whose device still has one is not offline.
+    const stale = lives.map((live) => !!live?.serverTime && live.status !== 'OFFLINE' && Date.parse(live.serverTime) < cutoff);
+    const connectedIds = lives.map((live, i) => (stale[i] && live?.uniqueId ? live.uniqueId : null));
+    const probe = connectedIds.filter((id): id is string => id !== null);
+    const connected = new Set<string>();
+    if (probe.length) {
+      const conns = await this.redis.client.mget(probe.map(RedisKeys.connection));
+      probe.forEach((id, k) => conns[k] && connected.add(id));
+    }
     let marked = 0;
     const offlineNow: LiveObject[] = [];
     for (let i = 0; i < keys.length; i++) {
       const current = values[i];
-      const live = parseLive(current);
+      const live = lives[i];
       if (!current || !live?.serverTime) continue;
       if (live.status === 'OFFLINE') {
         offlineNow.push(live);
         continue;
       }
-      if (Date.parse(live.serverTime) >= cutoff) continue;
+      if (!stale[i] || (live.uniqueId && connected.has(live.uniqueId))) continue;
       const offline: LiveObject = { ...live, status: 'OFFLINE', statusSince: nowIso, speedKph: 0 };
       const json = JSON.stringify(offline);
       const swapped = await this.redis.client.eval(COMPARE_AND_SET_SCRIPT, 1, keys[i], current, json);

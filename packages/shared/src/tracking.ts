@@ -18,9 +18,12 @@ export type ObjectType = (typeof OBJECT_TYPES)[number];
 export const VEHICLE_TYPES = ['CAR', 'BIKE', 'TRUCK', 'BUS', 'SCHOOL_BUS', 'VAN', 'AUTO', 'OTHER'] as const;
 export type VehicleType = (typeof VEHICLE_TYPES)[number];
 
-/** Default speed limit (km/h) per vehicle type, used when the object has no own limit. */
+/**
+ * Default speed limit (km/h) per vehicle type, used when the object has no own limit. Fleet default: overspeed above
+ * 80 km/h for every type; set a lower limit on individual vehicles (e.g. school buses) under Vehicles & Objects.
+ */
 export const DEFAULT_SPEED_LIMIT_KPH: Record<VehicleType, number> = {
-  CAR: 80, BIKE: 60, TRUCK: 60, BUS: 60, SCHOOL_BUS: 40, VAN: 70, AUTO: 50, OTHER: 80,
+  CAR: 80, BIKE: 80, TRUCK: 80, BUS: 80, SCHOOL_BUS: 80, VAN: 80, AUTO: 80, OTHER: 80,
 };
 
 /** Highest plausible speed (km/h) per object type; faster implied jumps are flagged as GPS jumps. */
@@ -73,6 +76,8 @@ export interface NormalizedPosition {
 
 /** Current state of one tracked object, as shown on the live map. */
 export interface LiveObject {
+  /** In maintenance: alerts are suppressed. */
+  inMaintenance?: boolean;
   objectId: string;
   companyId: string;
   branchId: string | null;

@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
 import { BulkActionDto } from '../../common/bulk';
-import { CreateDeviceDto, DeviceListQuery, UpdateDeviceDto } from './devices.dto';
+import { CreateDeviceDto, DeviceListQuery, RawQuery, UpdateDeviceDto } from './devices.dto';
 import { DevicesService } from './devices.service';
 
 @Controller('devices')
@@ -12,6 +12,12 @@ export class DevicesController {
   @Get() @RequirePermission('devices', 'view')
   list(@Auth() ctx: AuthContext, @Query() query: DeviceListQuery) {
     return this.service.list(ctx, query);
+  }
+
+  /** Raw frames: support staff only (anyone who can edit devices). */
+  @Get(':id/raw') @RequirePermission('devices', 'edit')
+  raw(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query() q: RawQuery) {
+    return this.service.raw(ctx, id, q.limit ?? 100);
   }
 
   @Get(':id') @RequirePermission('devices', 'view')
