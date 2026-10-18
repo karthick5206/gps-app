@@ -31,6 +31,7 @@ function RootStack() {
           <Stack.Screen name="vehicle/[id]" options={{ title: 'Vehicle' }} />
           <Stack.Screen name="alert/[id]" options={{ title: 'Alert' }} />
           <Stack.Screen name="history/[id]" options={{ title: 'History' }} />
+          <Stack.Screen name="commands/[id]" options={{ title: 'Commands' }} />
           <Stack.Screen name="reports/index" options={{ title: 'Reports' }} />
           <Stack.Screen name="reports/[type]" options={{ title: 'Report' }} />
         </Stack.Protected>

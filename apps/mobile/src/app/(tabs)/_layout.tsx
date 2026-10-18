@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { useAuth } from '@/features/auth/auth';
 import { realtime } from '@/features/live/realtime';
 import { useLiveConnection } from '@/features/live/use-live-connection';
+import { handleNotificationTaps, registerForPush } from '@/features/notifications/push';
 import { api } from '@/lib/api';
 import { useColors } from '@/lib/theme';
 
@@ -13,6 +14,10 @@ export default function TabsLayout() {
   const { can } = useAuth();
   const queryClient = useQueryClient();
   useLiveConnection();
+  useEffect(() => {
+    void registerForPush();
+    return handleNotificationTaps();
+  }, []);
 
   const unread = useQuery({
     queryKey: ['alerts', 'unread-count'],

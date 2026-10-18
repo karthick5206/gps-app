@@ -124,6 +124,7 @@ model User {
   objects        UserObject[]
   sessions       Session[]
   passwordResets PasswordReset[]
+  pushTokens     PushToken[]
 
   @@index([companyId])
 }
@@ -406,7 +407,25 @@ model Session {
   revokedAt        DateTime?
   createdAt        DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushTokens PushToken[]
+
+  @@index([userId])
+}
+
+/// Mobile app push registration (Expo push token). Tied to the sign-in session: no pushes once it is revoked or expired.
+model PushToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  sessionId  String?  @db.Uuid
+  token      String   @unique
+  platform   String
+  deviceName String?
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }

@@ -5,6 +5,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { useRealtimeStatus } from '@/features/live/use-live';
+import { pushStatus } from '@/features/notifications/push';
 import { SERVER_URL } from '@/lib/config';
 import { SPACE, useColors } from '@/lib/theme';
 
@@ -62,6 +63,7 @@ export default function MoreScreen() {
       <SectionTitle>App</SectionTitle>
       <Card style={{ paddingVertical: 0 }}>
         <InfoRow label="Live connection" value={CONNECTION_LABEL[connection]} />
+        <InfoRow label="Push alerts" value={pushStatus ?? 'On'} />
         <InfoRow
           label="Server"
           value={

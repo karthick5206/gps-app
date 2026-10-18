@@ -1,6 +1,6 @@
 import { STATUS_META } from '@veetracer/shared';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { BellIcon, CarIcon, HistoryIcon } from 'lucide-react-native';
+import { BellIcon, CarIcon, HistoryIcon, TerminalIcon } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
 import { ScrollView, View } from 'react-native';
 import { Button, Card, EmptyState, InfoRow, SectionTitle, Text } from '@/components/ui';
@@ -68,6 +68,8 @@ export default function VehicleScreen() {
           {can('history') && <Button title="History" icon={HistoryIcon} variant="outline" style={{ flex: 1 }} onPress={() => router.push(`/history/${o.objectId}`)} />}
           {can('alerts') && <Button title="Alerts" icon={BellIcon} variant="outline" style={{ flex: 1 }} onPress={() => router.push({ pathname: '/alerts', params: { objectId: o.objectId, name: o.plateNumber || o.name } })} />}
         </View>
+
+        {can('live_map', 'command') && <Button title="Commands" icon={TerminalIcon} variant="outline" onPress={() => router.push(`/commands/${o.objectId}`)} />}
 
         <SectionTitle>Status</SectionTitle>
         <Card style={{ paddingVertical: 0 }}>

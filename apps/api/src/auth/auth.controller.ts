@@ -12,6 +12,8 @@ import {
   OtpRequestDto,
   OtpVerifyDto,
   PreferencesDto,
+  PushTokenDto,
+  RemovePushTokenDto,
   RefreshDto,
   ResetPasswordDto,
 } from './dto/auth.dto';
@@ -88,6 +90,20 @@ export class AuthController {
     const count = await this.tokens.revokeOthers(ctx.userId, ctx.sessionId);
     if (count) await this.audit.record(ctx, { action: 'UPDATE', entity: 'Session', entityId: null, details: { signedOutOthers: count } });
     return { count };
+  }
+
+  /** Registers this app install for push alerts (moves the token to the current user / session). */
+  @SkipThrottle() @Post('push-token') @HttpCode(200)
+  async registerPush(@Auth() ctx: AuthContext, @Body() dto: PushTokenDto): Promise<{ ok: true }> {
+    await this.me.registerPushToken(ctx, dto);
+    return { ok: true };
+  }
+
+  /** Called by the app before signing out. Public: the access token may already be gone. */
+  @Public() @Post('push-token/remove') @HttpCode(200)
+  async removePush(@Body() dto: RemovePushTokenDto): Promise<{ ok: true }> {
+    await this.me.removePushToken(dto.token);
+    return { ok: true };
   }
 
   @SkipThrottle() @Patch('me/preferences')

@@ -38,7 +38,14 @@
       "@maplibre/maplibre-react-native",
       "expo-secure-store",
       "@react-native-community/datetimepicker",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#0f766e"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

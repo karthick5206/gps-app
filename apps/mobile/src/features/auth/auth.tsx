@@ -5,6 +5,7 @@ import { Alert } from 'react-native';
 import { api, refreshAccessToken, setSessionExpiredHandler } from '@/lib/api';
 import { session } from '@/lib/session';
 import { liveStore } from '@/features/live/live-store';
+import { unregisterPush } from '@/features/notifications/push';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -43,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(() => {
+    void unregisterPush();
     const refreshToken = session.getRefreshToken();
     if (refreshToken) api.post('/auth/logout', { refreshToken }, { anonymous: true }).catch(() => undefined);
     session.clear();
