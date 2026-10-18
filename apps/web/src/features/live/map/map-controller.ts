@@ -17,6 +17,7 @@ import {
   keepOwnLayers,
   styleUrl,
 } from './map-style';
+import { createVehicleIcon, iconKind, parseIconId, rotates } from './vehicle-icons';
 
 const GLIDE_MS = 1000;
 const FRAME_MS = 1000 / 30; // source updates capped at 30 fps
@@ -45,13 +46,24 @@ function hasCoords(o: LiveObject): o is LiveObject & { lat: number; lng: number 
 }
 
 function properties(o: LiveObject, bearing: number) {
+  const kind = iconKind(o);
+  const rotating = rotates(kind);
   return {
     id: o.objectId,
     status: o.status,
     label: o.plateNumber || o.name,
+    kind,
+    rotating,
     bearing,
+    /** Icon rotation: vehicles point along their heading; round badges stay upright. */
+    rot: rotating ? bearing : 0,
     moving: o.status === 'RUNNING' || o.status === 'OVERSPEED',
   };
+}
+
+/** `veh:<kind>:<status>:<theme>` image per feature (images are drawn on demand, see vehicle-icons). */
+function iconImageExpression(theme: ResolvedTheme): maplibregl.ExpressionSpecification {
+  return ['concat', 'veh:', ['get', 'kind'], ':', ['get', 'status'], ':', theme];
 }
 
 /**
@@ -94,9 +106,14 @@ export class MapController {
     this.map.on('load', () => this.onLoad());
     // Basemap style swaps (theme changes) drop runtime images; re-register the arrow on demand.
     this.map.on('styleimagemissing', (e) => {
-      if (e.id === ARROW_IMAGE && !this.map.hasImage(ARROW_IMAGE)) {
+      if (this.map.hasImage(e.id)) return;
+      if (e.id === ARROW_IMAGE) {
         this.map.addImage(ARROW_IMAGE, createArrowImage(), { sdf: true, pixelRatio: 2 });
+        return;
       }
+      // Vehicle-type icons are drawn the first time a type/status/theme combination is shown.
+      const icon = parseIconId(e.id);
+      if (icon) this.map.addImage(e.id, createVehicleIcon(icon.kind, icon.status, icon.theme, cssToken('--map-marker-stroke') || '#ffffff'), { pixelRatio: 2 });
     });
     this.map.on('dragstart', () => {
       if (this.followId) {
@@ -157,13 +174,14 @@ export class MapController {
       type: 'circle',
       source: SOURCE_ID,
       filter: ['==', ['get', 'id'], ''],
-      paint: { 'circle-radius': 15, 'circle-opacity': 0.18, 'circle-stroke-width': 2 },
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 12, 12, 18, 16, 24], 'circle-opacity': 0.18, 'circle-stroke-width': 2 },
     });
     map.addLayer({
       id: LAYERS.arrow,
       type: 'symbol',
       source: SOURCE_ID,
-      filter: ['all', unclustered, ['==', ['get', 'moving'], true]],
+      // Vehicle icons rotate with their heading; only round badges (people, assets, pets) need the arrow.
+      filter: ['all', unclustered, ['==', ['get', 'moving'], true], ['==', ['get', 'rotating'], false]],
       layout: {
         'icon-image': ARROW_IMAGE,
         'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 14, 0.8],
@@ -177,12 +195,16 @@ export class MapController {
     });
     map.addLayer({
       id: LAYERS.circle,
-      type: 'circle',
+      type: 'symbol',
       source: SOURCE_ID,
       filter: unclustered,
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 3.5, 10, 5.5, 15, 8],
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 5, 1, 12, 2],
+      layout: {
+        'icon-image': iconImageExpression(this.theme),
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.45, 10, 0.65, 14, 0.85, 17, 1.1],
+        'icon-rotate': ['get', 'rot'],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
       },
     });
     map.addLayer({
@@ -195,7 +217,7 @@ export class MapController {
         'text-field': ['get', 'label'],
         'text-font': LABEL_FONT,
         'text-size': 11,
-        'text-offset': [0, 1.2],
+        'text-offset': [0, 1.5],
         'text-anchor': 'top',
         'text-optional': true,
       },
@@ -228,8 +250,7 @@ export class MapController {
     const map = this.map;
     const primary = cssToken('--primary');
     const stroke = cssToken('--map-marker-stroke');
-    map.setPaintProperty(LAYERS.circle, 'circle-color', statusColorExpression(this.theme));
-    map.setPaintProperty(LAYERS.circle, 'circle-stroke-color', stroke);
+    map.setLayoutProperty(LAYERS.circle, 'icon-image', iconImageExpression(this.theme));
     map.setPaintProperty(LAYERS.arrow, 'icon-color', statusColorExpression(this.theme));
     map.setPaintProperty(LAYERS.arrow, 'icon-halo-color', stroke);
     map.setPaintProperty(LAYERS.clusters, 'circle-color', primary);
