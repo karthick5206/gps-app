@@ -18,6 +18,7 @@ import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, formatDuration, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CommandsTab } from './CommandsTab';
+import { DriverControl } from './DriverControl';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -45,6 +46,7 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
           {since && <span className="text-xs font-normal text-muted-foreground">for {since}</span>}
         </span>
       </Row>
+      {o.type === 'VEHICLE' && <DriverControl o={o} />}
       <Row label="Speed">{`${Math.round(o.speedKph)} km/h`}</Row>
       <Row label="Ignition">{o.ignition === null ? '—' : o.ignition ? 'On' : 'Off'}</Row>
       <Row label="Coordinates">

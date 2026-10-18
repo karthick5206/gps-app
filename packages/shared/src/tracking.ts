@@ -104,4 +104,6 @@ export interface LiveObject {
   /** Driver on the vehicle now (RFID swipe or manual assignment). */
   driverId?: string | null;
   driverName?: string | null;
+  /** RFID = card swipe on the tracker (ends at ignition off), MANUAL = assigned in the app. */
+  driverSource?: 'MANUAL' | 'RFID' | null;
 }

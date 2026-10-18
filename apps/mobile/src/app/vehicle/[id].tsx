@@ -75,6 +75,7 @@ export default function VehicleScreen() {
         <Card style={{ paddingVertical: 0 }}>
           <InfoRow label="Status" value={STATUS_META[o.status].label} />
           <InfoRow label="Since" value={formatDateTime(o.statusSince)} />
+          <InfoRow label="Driver" value={o.driverName ? `${o.driverName}${o.driverSource === 'RFID' ? ' (card)' : ''}` : '—'} />
           <InfoRow label="Ignition" value={yesNo(o.ignition)} />
           <InfoRow label="Speed limit" value={or(o.speedLimitKph, 'km/h')} />
           <InfoRow label="Last update" value={`${relativeTime(o.serverTime ?? o.fixTime, now)}`} />

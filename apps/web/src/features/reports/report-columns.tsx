@@ -16,6 +16,7 @@ import {
   CoffeeIcon,
   GaugeIcon,
   HexagonIcon,
+  IdCardIcon,
   LayersIcon,
   ListChecksIcon,
   MapPinnedIcon,
@@ -352,6 +353,20 @@ const DEVICE_STATUS: ReportColumn[] = [
   optNum('extVoltage', 'Ext. V', 2),
 ];
 
+const DRIVERS: ReportColumn[] = [
+  { id: 'driverName', header: 'Driver', value: str('driverName'), render: (r) => <span className="font-medium">{r.driverName as string}</span> },
+  { id: 'employeeId', header: 'Employee ID', value: str('employeeId'), render: text('employeeId') },
+  { id: 'vehicles', header: 'Vehicles', value: str('vehicles'), render: text('vehicles') },
+  count('sessions', 'Sessions'),
+  count('tripCount', 'Trips'),
+  kmCol(),
+  duration('drivingSec', 'Driving'),
+  count('maxSpeedKph', 'Max (km/h)', 'max'),
+  count('overspeedCount', 'Overspeed'),
+  { id: 'firstStart', header: 'First start', value: time('firstStart'), render: timeCell('firstStart') },
+  { id: 'lastEnd', header: 'Last end', value: time('lastEnd'), render: (r) => (r.lastEnd ? timeCell('lastEnd')(r) : <Badge variant="success">Driving now</Badge>) },
+];
+
 export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices';
 export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Devices'];
 
@@ -367,6 +382,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'IDLE', category: 'Driving', label: 'Idling', description: 'Stops with the engine running — fuel wasted while stationary.', icon: ClockIcon, columns: STOPS },
   { type: 'OVERSPEED', category: 'Driving', label: 'Over-speed', description: "Speeding episodes above each vehicle's limit with peak speed and duration.", icon: GaugeIcon, columns: OVERSPEED },
   { type: 'CONTINUOUS_DRIVING', category: 'Driving', label: 'Continuous driving', description: 'Driving stretches without a proper break (default 4 h / 15 min rule).', icon: CoffeeIcon, columns: CONTINUOUS_DRIVING },
+  { type: 'DRIVERS', category: 'Driving', label: 'Driver activity', description: 'Per driver: vehicles driven, trips, distance, driving time and overspeeding (from card swipes and assignments).', icon: IdCardIcon, columns: DRIVERS },
   { type: 'IGNITION', category: 'Driving', label: 'Ignition on/off', description: 'Every ignition change with how long the previous state lasted.', icon: PowerIcon, columns: IGNITION },
   { type: 'ALERTS', category: 'Events', label: 'Alerts', description: 'Alerts raised in the period with severity and status; filter by type.', icon: BellIcon, columns: ALERTS },
   { type: 'EVENT_SUMMARY', category: 'Events', label: 'Event summary', description: 'How many of each alert type per vehicle, with first and last time.', icon: ListChecksIcon, columns: EVENT_SUMMARY },
