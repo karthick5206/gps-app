@@ -46,7 +46,11 @@ const str = (v: number | boolean | null) => (v === null ? null : String(v));
  * Writes one processor batch in a single transaction. Columns are passed as parameterised text arrays and
  * expanded with unnest(), so a batch of any size is one statement per table.
  */
-export async function writeBatch(prisma: PrismaClient, batch: WriteBatch): Promise<void> {
+export async function writeBatch(
+  prisma: PrismaClient,
+  batch: WriteBatch,
+  extra: Prisma.PrismaPromise<number>[] = [],
+): Promise<void> {
   const statements: Prisma.PrismaPromise<number>[] = [];
   const { positions: p, rawPackets: r, unknownDevices: u, lastSeen: s } = batch;
 
@@ -104,5 +108,7 @@ export async function writeBatch(prisma: PrismaClient, batch: WriteBatch): Promi
       FROM unnest(${s.map((x) => x.deviceId)}::text[]::uuid[], ${s.map((x) => x.at)}::text[]::timestamptz[]) AS t(id, at)
       WHERE d.id = t.id`);
   }
+  // Extra statements (alert rows, geofence visits) commit atomically with the positions they came from.
+  statements.push(...extra);
   if (statements.length) await prisma.$transaction(statements);
 }

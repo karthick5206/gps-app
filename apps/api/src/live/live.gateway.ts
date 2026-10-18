@@ -1,6 +1,6 @@
 import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, WebSocketGateway } from '@nestjs/websockets';
-import { LiveObject } from '@veetracer/shared';
+import { AlertDto, LiveObject } from '@veetracer/shared';
 import { Namespace, Socket } from 'socket.io';
 import { hasPermission, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
@@ -54,15 +54,18 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       this.contexts
         .fromToken(auth.token, companyId, socket.handshake.address)
         .then((ctx) => {
-          if (!hasPermission(ctx, 'live_map', 'view')) return next(new Error('Permission denied'));
+          if (!hasPermission(ctx, 'live_map', 'view') && !hasPermission(ctx, 'alerts', 'view')) {
+            return next(new Error('Permission denied'));
+          }
           socket.data.ctx = ctx;
           next();
         })
         .catch((error: Error) => next(new Error(error.message || 'Unauthorized')));
     });
 
-    this.redis.subscribe([RedisKeys.liveUpdates, RedisKeys.cacheInvalidate], (channel, message) => {
+    this.redis.subscribe([RedisKeys.liveUpdates, RedisKeys.cacheInvalidate, RedisKeys.alertsChannel], (channel, message) => {
       if (channel === RedisKeys.liveUpdates) this.onUpdate(message);
+      else if (channel === RedisKeys.alertsChannel) this.onAlert(message);
       else this.scheduleRefresh();
     });
     this.timers = [
@@ -108,7 +111,24 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (!clients) return;
     const objectId = update.live.objectId;
     for (const client of clients) {
+      if (!hasPermission(client.ctx, 'live_map', 'view')) continue;
       if (client.allowed === null || client.allowed.has(objectId)) client.pending.set(objectId, update.live);
+    }
+  }
+
+  /** New alert: emitted immediately (not batched) to in-scope sockets holding `alerts:view`. */
+  private onAlert(message: string): void {
+    let event: { companyId: string; alert: AlertDto };
+    try {
+      event = JSON.parse(message) as { companyId: string; alert: AlertDto };
+    } catch {
+      return;
+    }
+    const clients = this.byCompany.get(event.companyId);
+    if (!clients) return;
+    for (const client of clients) {
+      if (!hasPermission(client.ctx, 'alerts', 'view')) continue;
+      if (client.allowed === null || client.allowed.has(event.alert.objectId)) client.socket.emit('alert', event.alert);
     }
   }
 
@@ -141,7 +161,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         const { ctx } = client;
         const requested = ctx.companyId !== ctx.homeCompanyId ? ctx.companyId : undefined;
         const next = await this.contexts.forUser(ctx.userId, requested, ctx.ip);
-        if (!hasPermission(next, 'live_map', 'view')) throw new Error('Permission denied');
+        if (!hasPermission(next, 'live_map', 'view') && !hasPermission(next, 'alerts', 'view')) throw new Error('Permission denied');
         client.ctx = next;
         client.allowed = await this.allowedObjects(next);
       } catch (error) {

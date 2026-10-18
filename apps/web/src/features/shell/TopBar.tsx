@@ -3,6 +3,7 @@ import { MenuIcon } from 'lucide-react';
 import { useLocation } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
+import { AlertBell } from '@/features/alerts/AlertBell';
 import { useAuth, useMe } from '@/features/auth/auth-context';
 import { useRealtimeStatus } from '@/features/live/use-live';
 import type { RealtimeStatus } from '@/features/live/realtime';
@@ -41,8 +42,10 @@ function RealtimeIndicator() {
 
 export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
   const me = useMe();
+  const { can } = useAuth();
   const { pathname } = useLocation();
-  const current = MENUS.find((m) => pathname === m.path || pathname.startsWith(`${m.path}/`));
+  // Most specific match wins (e.g. /reports/schedules over /reports).
+  const current = MENUS.filter((m) => pathname === m.path || pathname.startsWith(`${m.path}/`)).sort((a, b) => b.path.length - a.path.length)[0];
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-card/80 px-3 backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:px-4">
@@ -63,6 +66,7 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
         )}
       </div>
       <RealtimeIndicator />
+      {can('alerts') && <AlertBell />}
       <ThemeToggle />
       <UserMenu />
     </header>

@@ -46,6 +46,7 @@ export function Sidebar({
                 <NavLink
                   key={item.key}
                   to={item.path}
+                  end
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     cn(

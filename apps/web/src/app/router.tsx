@@ -31,6 +31,13 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   sa_device_models: page(() => import('@/features/platform/DeviceModelsPage'), 'DeviceModelsPage'),
   sa_device_inventory: page(() => import('@/features/platform/DeviceInventoryPage'), 'DeviceInventoryPage'),
   sa_unknown_devices: page(() => import('@/features/platform/UnknownDevicesPage'), 'UnknownDevicesPage'),
+  history: page(() => import('@/features/history/HistoryPage'), 'HistoryPage'),
+  reports: page(() => import('@/features/reports/ReportsPage'), 'ReportsPage'),
+  report_schedules: page(() => import('@/features/reports/ScheduledReportsPage'), 'ScheduledReportsPage'),
+  alerts: page(() => import('@/features/alerts/AlertsPage'), 'AlertsPage'),
+  geofences: page(() => import('@/features/geofences/GeofencesPage'), 'GeofencesPage'),
+  alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
+  message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };
 
 function PageFallback() {

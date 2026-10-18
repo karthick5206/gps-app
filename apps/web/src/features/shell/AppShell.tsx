@@ -11,7 +11,7 @@ import { TopBar } from './TopBar';
 /** Keeps one Socket.IO connection per selected company while the user is in the app. */
 function useRealtimeConnection() {
   const { companyId, can } = useAuth();
-  const enabled = can('live_map') || can('dashboard');
+  const enabled = can('live_map') || can('dashboard') || can('alerts');
   useEffect(() => {
     if (!enabled) return;
     realtime.start(companyId);

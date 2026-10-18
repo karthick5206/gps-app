@@ -1,14 +1,24 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { basename, join } from 'node:path';
 import { createTransport, Transporter } from 'nodemailer';
 import { APP_ROOT } from '../config/env';
+
+/** File attached to an e-mail: a path on disk or in-memory content. */
+export interface MailAttachment {
+  filename: string;
+  path?: string;
+  content?: Buffer | string;
+  contentType?: string;
+}
 
 export interface MailMessage {
   to: string;
   subject: string;
   html: string;
   text: string;
+  attachments?: MailAttachment[];
 }
 
 /** M1 mailer: renders through nodemailer's stream transport and writes the HTML body to var/mail/. */
@@ -17,13 +27,29 @@ export class MailerService {
   private readonly logger = new Logger(MailerService.name);
   private readonly transport: Transporter = createTransport({ streamTransport: true, buffer: true, newline: 'unix' });
   private readonly outDir = join(APP_ROOT, 'var', 'mail');
+  /** Real delivery when SMTP_URL is set (e.g. smtps://user:pass@smtp.example.com:465); var/mail copies are kept either way. */
+  private readonly smtp: Transporter | null = process.env.SMTP_URL ? createTransport(process.env.SMTP_URL) : null;
+  private readonly from = process.env.MAIL_FROM ?? 'VeeTracer <no-reply@veetracer.local>';
 
   async send(message: MailMessage): Promise<string> {
-    await this.transport.sendMail({ from: 'VeeTracer <no-reply@veetracer.local>', ...message });
+    const info = (await this.transport.sendMail({ from: this.from, ...message })) as { message?: Buffer };
     await mkdir(this.outDir, { recursive: true });
-    const file = join(this.outDir, `${new Date().toISOString().replace(/[:.]/g, '-')}.html`);
+    // Random suffix: concurrent sends (notifier) within the same millisecond must not overwrite each other.
+    const stem = join(this.outDir, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`);
+    const file = `${stem}.html`;
     await writeFile(file, message.html, 'utf8');
-    this.logger.log(`Mail "${message.subject}" to ${message.to} written to ${file}`);
+    if (message.attachments?.length) {
+      // Dev transport: keep the complete MIME message (with attachments) and a plain copy of each attachment.
+      if (info.message) await writeFile(`${stem}.eml`, info.message);
+      for (const a of message.attachments) {
+        const target = `${stem}-${basename(a.filename)}`;
+        if (a.path) await copyFile(a.path, target);
+        else if (a.content !== undefined) await writeFile(target, a.content);
+      }
+    }
+    if (this.smtp) await this.smtp.sendMail({ from: this.from, ...message });
+    const extra = message.attachments?.length ? ` (+${message.attachments.length} attachment(s), ${stem}.eml)` : '';
+    this.logger.log(`Mail "${message.subject}" to ${message.to} written to ${file}${extra}`);
     return file;
   }
 }

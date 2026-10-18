@@ -15,6 +15,7 @@ import { EMPTY_FILTERS, baseMatcher, fullMatcher, parseStatusParam, type LiveFil
 import { liveStore } from './live-store';
 import { LivePanel } from './LivePanel';
 import { MapController } from './map/map-controller';
+import { LiveMapOverlays } from './map/layers/LiveMapOverlays';
 import { ObjectDrawer } from './ObjectDrawer';
 import { useLiveVersion, useNow } from './use-live';
 
@@ -181,6 +182,8 @@ export function LiveMapPage() {
           }}
         />
       )}
+
+      {!unsupported && <LiveMapOverlays controller={controller} onFocusObject={pick} className="absolute top-3 right-3 z-10" />}
 
       <Button
         variant="outline"

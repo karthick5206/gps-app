@@ -3,7 +3,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
-const API_TARGET = 'http://localhost:4000';
+// Overridable so several dev servers can run side by side (e.g. API_TARGET=http://localhost:4100 WEB_PORT=5174).
+const API_TARGET = process.env.API_TARGET ?? 'http://localhost:4000';
+const WEB_PORT = Number(process.env.WEB_PORT ?? 5173);
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -15,7 +17,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: WEB_PORT,
     strictPort: true,
     proxy: {
       '/api': { target: API_TARGET, changeOrigin: true },
