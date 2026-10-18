@@ -1,6 +1,7 @@
 import type { Me, ThemePreference } from '@veetracer/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { MonitorIcon, MoonIcon, SunIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,6 +23,7 @@ const OPTIONS: { value: ThemePreference; label: string; icon: typeof SunIcon }[]
 ];
 
 export function ThemeToggle() {
+  const { t } = useTranslation();
   const { preference, resolved } = useTheme();
   const { companyId } = useAuth();
   const queryClient = useQueryClient();
@@ -38,16 +40,16 @@ export function ThemeToggle() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Change theme">
+        <Button variant="ghost" size="icon" aria-label={t('Change theme')}>
           {resolved === 'dark' ? <MoonIcon /> : <SunIcon />}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuLabel>Theme</DropdownMenuLabel>
+        <DropdownMenuLabel>{t('Theme')}</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={preference} onValueChange={(v) => setTheme(v as ThemePreference)}>
           {OPTIONS.map(({ value, label, icon: Icon }) => (
             <DropdownMenuRadioItem key={value} value={value}>
-              <Icon /> {label}
+              <Icon /> {t(label)}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

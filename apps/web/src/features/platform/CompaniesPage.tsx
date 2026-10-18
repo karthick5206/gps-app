@@ -3,6 +3,7 @@ import { RETENTION_OPTIONS, type CompanyDto } from '@veetracer/shared';
 import { Building2Icon, LogInIcon } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +14,7 @@ import { passwordRule } from '@/features/auth/password-rules';
 import { timezoneOptions } from '@/features/admin/timezones';
 import { DateCell } from '@/features/masters/cells';
 import { humanize } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 import { FormDialog, useSaveMutation } from '@/features/masters/FormDialog';
 import { ComboboxField, SelectField, TextField } from '@/features/masters/form-fields';
 import { nullIfBlank, requiredText, str } from '@/features/masters/form-schema';
@@ -28,8 +30,6 @@ const STATUS_OPTIONS: Option[] = [
   { value: 'ACTIVE', label: 'Active' },
   { value: 'SUSPENDED', label: 'Suspended' },
 ];
-
-const RETENTION_SELECT = RETENTION_OPTIONS.map((d) => ({ value: String(d), label: `${d} days` }));
 
 const email = z.string().trim().refine((v) => v === '' || z.string().email().safeParse(v).success, 'Enter a valid email');
 const mobile = z.string().trim().refine((v) => v === '' || /^\+[1-9]\d{7,14}$/.test(v), 'Use international format, e.g. +919876543210');
@@ -56,7 +56,9 @@ function schemaFor(isCreate: boolean) {
 type Values = z.infer<ReturnType<typeof schemaFor>>;
 
 function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>) {
+  const { t } = useTranslation();
   const tzOptions = useMemo(timezoneOptions, []);
+  const retentionSelect = useMemo(() => RETENTION_OPTIONS.map((d) => ({ value: String(d), label: t('{{n}} days', { n: d }) })), [t]);
   const schema = useMemo(() => schemaFor(!record), [record]);
   const form = useForm<Values>({
     resolver: zodResolver(schema),
@@ -99,12 +101,12 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
         <TextField form={form} name="name" label="Company name" required className="sm:col-span-2" />
         <SelectField form={form} name="accountType" label="Account type" required options={ACCOUNT_TYPES} />
         <ComboboxField form={form} name="timezone" label="Time zone" required options={tzOptions} />
-        <SelectField form={form} name="retentionDays" label="History kept" required options={RETENTION_SELECT} hint="Positions, trips, stops and alerts older than this are deleted automatically. Daily summaries are kept." />
+        <SelectField form={form} name="retentionDays" label="History kept" required options={retentionSelect} hint="Positions, trips, stops and alerts older than this are deleted automatically. Daily summaries are kept." />
         {record && <SelectField form={form} name="status" label="Status" required options={STATUS_OPTIONS} hint="Suspended companies can't sign in and their data is not processed." />}
       </div>
       {!record && (
         <fieldset className="space-y-4 rounded-lg border p-4">
-          <legend className="px-1 text-sm font-semibold">First admin user</legend>
+          <legend className="px-1 text-sm font-semibold">{t('First admin user')}</legend>
           <div className="grid gap-4 sm:grid-cols-2">
             <TextField form={form} name="admin.name" label="Full name" required className="sm:col-span-2" />
             <TextField form={form} name="admin.email" label="Email" type="email" autoComplete="off" />
@@ -119,10 +121,10 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
 
 const columns: MasterColumn<CompanyDto>[] = [
   { id: 'name', header: 'Name', sortable: true, hideable: false, cell: (r) => <span className="font-medium">{r.name}</span> },
-  { id: 'accountType', header: 'Type', sortable: true, cell: (r) => humanize(r.accountType) },
-  { id: 'status', header: 'Status', sortable: true, cell: (r) => <Badge variant={r.status === 'ACTIVE' ? 'success' : 'destructive'}>{humanize(r.status)}</Badge> },
+  { id: 'accountType', header: 'Type', sortable: true, cell: (r) => i18n.t(humanize(r.accountType)) },
+  { id: 'status', header: 'Status', sortable: true, cell: (r) => <Badge variant={r.status === 'ACTIVE' ? 'success' : 'destructive'}>{i18n.t(humanize(r.status))}</Badge> },
   { id: 'timezone', header: 'Time zone', defaultHidden: true, cell: (r) => r.timezone },
-  { id: 'retentionDays', header: 'History kept', cell: (r) => `${r.retentionDays} days` },
+  { id: 'retentionDays', header: 'History kept', cell: (r) => i18n.t('{{n}} days', { n: r.retentionDays }) },
   { id: 'branchCount', header: 'Branches', cell: (r) => <span className="tabular-nums">{r.branchCount}</span> },
   { id: 'userCount', header: 'Users', cell: (r) => <span className="tabular-nums">{r.userCount}</span> },
   { id: 'objectCount', header: 'Objects', sortable: true, cell: (r) => <span className="tabular-nums">{r.objectCount}</span> },
@@ -133,6 +135,7 @@ const columns: MasterColumn<CompanyDto>[] = [
 const rowLabel = (r: CompanyDto) => r.name;
 
 export function CompaniesPage() {
+  const { t } = useTranslation();
   const { switchCompany } = useAuth();
   const navigate = useNavigate();
   const rowActions = useCallback(
@@ -143,10 +146,10 @@ export function CompaniesPage() {
           navigate('/');
         }}
       >
-        <LogInIcon /> Act as this company
+        <LogInIcon /> {t('Act as this company')}
       </DropdownMenuItem>
     ),
-    [switchCompany, navigate],
+    [switchCompany, navigate, t],
   );
   return (
     <MasterPage

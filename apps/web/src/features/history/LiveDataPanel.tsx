@@ -1,6 +1,7 @@
 import { STATUS_META } from '@veetracer/shared';
 import { MapPinIcon } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { statusColor } from '@/lib/status-tokens';
 import { cn } from '@/lib/utils';
 import { formatClock, formatKm, trackStatus } from './history-format';
@@ -11,6 +12,7 @@ const TEXT_FRAME_MS = 100; // text readouts refresh at ~10 fps while playing
 
 /** Floating readout of the cursor: written imperatively from frame callbacks; address fetched on pause. */
 export function LiveDataPanel({ engine, className }: { engine: PlaybackEngine; className?: string }) {
+  const { t } = useTranslation();
   const refs = {
     time: useRef<HTMLSpanElement>(null),
     speed: useRef<HTMLSpanElement>(null),
@@ -36,15 +38,15 @@ export function LiveDataPanel({ engine, className }: { engine: PlaybackEngine; c
       };
       set(refs.time, formatClock(s.t, multiDay));
       set(refs.speed, `${Math.round(s.speed)}`);
-      set(refs.ignition, s.ignition === 1 ? 'On' : s.ignition === 0 ? 'Off' : '—');
-      set(refs.status, STATUS_META[status].label);
+      set(refs.ignition, s.ignition === 1 ? t('On') : s.ignition === 0 ? t('Off') : '—');
+      set(refs.status, t(STATUS_META[status].label));
       set(refs.dist, formatKm(s.distKm));
       set(refs.coords, `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`);
       if (refs.status.current) refs.status.current.style.color = statusColor(status);
       if (refs.dot.current) refs.dot.current.style.backgroundColor = statusColor(status);
     });
     // refs are stable
-  }, [engine, multiDay]);
+  }, [engine, multiDay, t]);
 
   // Address only when paused (debounced), via the reverse-geocode endpoint if the API exposes it.
   useEffect(() => {
@@ -76,19 +78,19 @@ export function LiveDataPanel({ engine, className }: { engine: PlaybackEngine; c
       </div>
       <div className="mt-1.5 grid grid-cols-3 gap-2 sm:mt-2">
         <div>
-          <p className="text-[11px] text-muted-foreground">Speed</p>
+          <p className="text-[11px] text-muted-foreground">{t('Speed')}</p>
           <p className="font-semibold tabular-nums">
             <span ref={refs.speed} className="text-lg leading-none" /> <span className="text-xs font-normal text-muted-foreground">km/h</span>
           </p>
         </div>
         <div>
-          <p className="text-[11px] text-muted-foreground">Ignition</p>
+          <p className="text-[11px] text-muted-foreground">{t('Ignition')}</p>
           <p className="font-semibold">
             <span ref={refs.ignition} />
           </p>
         </div>
         <div>
-          <p className="text-[11px] text-muted-foreground">Distance</p>
+          <p className="text-[11px] text-muted-foreground">{t('Distance')}</p>
           <p className="font-semibold tabular-nums">
             <span ref={refs.dist} />
           </p>

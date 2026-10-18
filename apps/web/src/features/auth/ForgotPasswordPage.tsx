@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { ArrowLeftIcon, MailCheckIcon } from 'lucide-react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { z } from 'zod';
 import { FormError } from '@/components/form-error';
@@ -15,6 +16,7 @@ import { AuthLayout } from './AuthLayout';
 const schema = z.object({ email: z.string().trim().min(1, 'Email is required').email('Enter a valid email') });
 
 export function ForgotPasswordPage() {
+  const { t } = useTranslation();
   const form = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema), defaultValues: { email: '' } });
   const forgot = useMutation({
     mutationFn: (v: z.infer<typeof schema>) => api.post<{ ok: true; devLink?: string }>('/auth/password/forgot', v, { anonymous: true }),
@@ -22,20 +24,20 @@ export function ForgotPasswordPage() {
 
   const backLink = (
     <Link to="/login" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
-      <ArrowLeftIcon className="size-4" /> Back to sign in
+      <ArrowLeftIcon className="size-4" /> {t('Back to sign in')}
     </Link>
   );
 
   if (forgot.isSuccess) {
     const devLink = forgot.data.devLink;
     return (
-      <AuthLayout title="Check your email" description="If an account exists for that address, we've sent a link to reset your password. It expires in 30 minutes.">
+      <AuthLayout title={t('Check your email')} description={t("If an account exists for that address, we've sent a link to reset your password. It expires in 30 minutes.")}>
         <div className="flex size-12 items-center justify-center rounded-full bg-accent text-primary">
           <MailCheckIcon className="size-6" />
         </div>
         {devLink && (
           <p className="rounded-lg border border-dashed border-primary/40 bg-accent px-3 py-2 text-sm break-all">
-            Development link:{' '}
+            {t('Development link:')}{' '}
             <a href={devLink} className="font-medium text-primary underline">
               {devLink}
             </a>
@@ -48,15 +50,15 @@ export function ForgotPasswordPage() {
 
   const { errors } = form.formState;
   return (
-    <AuthLayout title="Forgot password" description="Enter your account email and we'll send you a reset link.">
+    <AuthLayout title={t('Forgot password')} description={t("Enter your account email and we'll send you a reset link.")}>
       <form className="space-y-4" noValidate onSubmit={form.handleSubmit((v) => forgot.mutate(v))}>
         <FormError message={forgot.isError ? errorMessage(forgot.error) : null} />
-        <Field label="Email" htmlFor="email" error={errors.email?.message}>
+        <Field label={t('Email')} htmlFor="email" error={errors.email?.message && t(errors.email.message)}>
           <Input id="email" type="email" autoComplete="email" aria-invalid={!!errors.email} {...form.register('email')} />
         </Field>
         <Button type="submit" className="w-full" disabled={forgot.isPending}>
           {forgot.isPending && <Spinner />}
-          Send reset link
+          {t('Send reset link')}
         </Button>
       </form>
       {backLink}

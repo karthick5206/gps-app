@@ -33,7 +33,11 @@ export function splitCsvLine(line: string): string[] {
 }
 
 /** Preview of a CSV `name,lat,lng,radiusM` file (header row optional). */
-export function previewCsv(text: string): ImportPreview {
+/** Translator for UI text; the default fills `{{vars}}` into the English key (keeps this file import-free for tests). */
+export type Translate = (key: string, vars?: Record<string, string>) => string;
+const plain: Translate = (key, vars) => key.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars?.[k] ?? '');
+
+export function previewCsv(text: string, tr: Translate = plain): ImportPreview {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   const preview: ImportPreview = { kind: 'csv', total: 0, circles: 0, polygons: 0, skipped: [], names: [] };
   lines.forEach((line, i) => {
@@ -42,7 +46,7 @@ export function previewCsv(text: string): ImportPreview {
     const [name, lat, lng, r] = cols;
     const ok = name && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && Number(r) >= 20 && Number(r) <= 50_000 && Math.abs(Number(lat)) <= 90 && Math.abs(Number(lng)) <= 180;
     if (!ok) {
-      preview.skipped.push(`Line ${i + 1}: ${line.slice(0, 60)}`);
+      preview.skipped.push(tr('Line {{line}}: {{text}}', { line: String(i + 1), text: line.slice(0, 60) }));
       return;
     }
     preview.total++;
@@ -53,25 +57,25 @@ export function previewCsv(text: string): ImportPreview {
 }
 
 /** Preview of a GeoJSON FeatureCollection with Polygon features or Point features carrying a `radius` property. */
-export function previewGeoJson(text: string): ImportPreview {
+export function previewGeoJson(text: string, tr: Translate = plain): ImportPreview {
   const preview: ImportPreview = { kind: 'geojson', total: 0, circles: 0, polygons: 0, skipped: [], names: [] };
   let data: unknown;
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error('The file is not valid JSON');
+    throw new Error(tr('The file is not valid JSON'));
   }
   const fc = data as { type?: string; features?: { geometry?: { type?: string }; properties?: Record<string, unknown> }[] };
-  if (fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) throw new Error('Expected a GeoJSON FeatureCollection');
+  if (fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) throw new Error(tr('Expected a GeoJSON FeatureCollection'));
   fc.features.forEach((f, i) => {
-    const name = String(f.properties?.name ?? f.properties?.Name ?? `Feature ${i + 1}`);
+    const name = String(f.properties?.name ?? f.properties?.Name ?? tr('Feature {{n}}', { n: String(i + 1) }));
     const t = f.geometry?.type;
     if (t === 'Polygon') {
       preview.polygons++;
     } else if (t === 'Point' && Number(f.properties?.radius ?? f.properties?.radiusM) > 0) {
       preview.circles++;
     } else {
-      preview.skipped.push(`${name}: ${t === 'Point' ? 'Point without a radius property' : `unsupported ${t ?? 'geometry'}`}`);
+      preview.skipped.push(`${name}: ${t === 'Point' ? tr('Point without a radius property') : tr('unsupported {{type}}', { type: t ?? tr('geometry') })}`);
       return;
     }
     preview.total++;

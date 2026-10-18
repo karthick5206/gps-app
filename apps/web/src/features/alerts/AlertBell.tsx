@@ -1,6 +1,7 @@
 import type { AlertDto } from '@veetracer/shared';
 import { BellIcon, CheckCheckIcon, MapPinIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, Volume2Icon, VolumeXIcon } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -44,6 +45,7 @@ const BURST_MAX = 4;
 
 /** Toast per incoming alert; bursts collapse into one summary toast so a noisy fleet doesn't flood the screen. */
 function useAlertToasts() {
+  const { t } = useTranslation();
   const open = useOpenAlert();
   const openRef = useRef(open);
   openRef.current = open;
@@ -56,7 +58,7 @@ function useAlertToasts() {
       recent.push(now);
       if (recent.length > BURST_MAX) {
         burstCount = recent.length > BURST_MAX + 1 ? burstCount + 1 : 1;
-        toast.info(`${burstCount} more alert(s) just arrived`, { id: 'alert-burst', description: 'Open the bell to see the latest alerts.', duration: 5000 });
+        toast.info(t('{{count}} more alert(s) just arrived', { count: burstCount }), { id: 'alert-burst', description: t('Open the bell to see the latest alerts.'), duration: 5000 });
         return;
       }
       const Icon = alertIcon(a.type);
@@ -65,17 +67,18 @@ function useAlertToasts() {
         icon: <Icon className="size-4" style={{ color: SEVERITY_COLOR[a.severity] }} aria-hidden />,
         description: `${vehicleLabel(a)} — ${a.message}`,
         duration: a.severity === 'INFO' ? 4000 : 7000,
-        action: { label: 'View', onClick: () => openRef.current(a) },
+        action: { label: t('View'), onClick: () => openRef.current(a) },
       };
       const title = alertTitle(a);
       if (a.severity === 'CRITICAL') toast.error(title, opts);
       else if (a.severity === 'WARNING') toast.warning(title, opts);
       else toast.info(title, opts);
     });
-  }, []);
+  }, [t]);
 }
 
 function CriticalAlertModal() {
+  const { t } = useTranslation();
   const { critical } = useAlertCenter();
   const { can } = useAuth();
   const open = useOpenAlert();
@@ -92,7 +95,7 @@ function CriticalAlertModal() {
     setPending(true);
     try {
       await alertCenter.ack(current.id, note.trim() || undefined);
-      toast.success('Alert acknowledged');
+      toast.success(t('Alert acknowledged'));
       if (thenOpen) open(current);
     } catch (e) {
       toast.error(errorMessage(e));
@@ -108,7 +111,7 @@ function CriticalAlertModal() {
         critical.map((c) => c.id),
         note.trim() || undefined,
       );
-      toast.success(`${critical.length} critical alerts acknowledged`);
+      toast.success(t('{{count}} critical alerts acknowledged', { count: critical.length }));
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -135,7 +138,8 @@ function CriticalAlertModal() {
                 {alertTitle(current)}
               </DialogTitle>
               <p className="text-xs text-muted-foreground">
-                Critical alert{critical.length > 1 ? ` · 1 of ${critical.length}` : ''}
+                {t('Critical alert')}
+                {critical.length > 1 ? ` · ${t('1 of {{count}}', { count: critical.length })}` : ''}
               </p>
             </div>
           </div>
@@ -150,46 +154,46 @@ function CriticalAlertModal() {
             </Suspense>
           )}
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-            <dt className="text-muted-foreground">Time</dt>
+            <dt className="text-muted-foreground">{t('Time')}</dt>
             <dd>{formatDateTime(current.occurredAt)}</dd>
             {(current.address || current.lat !== null) && (
               <>
-                <dt className="text-muted-foreground">Location</dt>
+                <dt className="text-muted-foreground">{t('Location')}</dt>
                 <dd className="break-words">{current.address ?? `${current.lat?.toFixed(5)}, ${current.lng?.toFixed(5)}`}</dd>
               </>
             )}
             {current.geofenceName && (
               <>
-                <dt className="text-muted-foreground">Geofence</dt>
+                <dt className="text-muted-foreground">{t('Geofence')}</dt>
                 <dd>{current.geofenceName}</dd>
               </>
             )}
           </dl>
-          {canAck && <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional) — what action was taken?" className="min-h-16" aria-label="Acknowledgement note" />}
+          {canAck && <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('Note (optional) — what action was taken?')} className="min-h-16" aria-label={t('Acknowledgement note')} />}
         </div>
         <DialogFooter className="flex-wrap">
           {canAck ? (
             <>
               {critical.length > 1 && (
                 <Button variant="ghost" onClick={ackAll} disabled={pending}>
-                  Acknowledge all {critical.length}
+                  {t('Acknowledge all {{count}}', { count: critical.length })}
                 </Button>
               )}
               <Button variant="outline" onClick={() => ack(true)} disabled={pending}>
-                <MapPinIcon /> Acknowledge &amp; view
+                <MapPinIcon /> {t('Acknowledge & view')}
               </Button>
               <Button variant="destructive" onClick={() => ack(false)} disabled={pending}>
                 {pending && <Spinner />}
-                Acknowledge
+                {t('Acknowledge')}
               </Button>
             </>
           ) : (
             <>
               <Button variant="outline" onClick={() => open(current)}>
-                <MapPinIcon /> View on map
+                <MapPinIcon /> {t('View on map')}
               </Button>
               <Button variant="destructive" onClick={() => alertCenter.dismissCritical(current.id)}>
-                Dismiss
+                {t('Dismiss')}
               </Button>
             </>
           )}
@@ -200,6 +204,7 @@ function CriticalAlertModal() {
 }
 
 function AlertRow({ a, onOpen }: { a: AlertDto; onOpen: () => void }) {
+  const { t } = useTranslation();
   return (
     <li>
       <button type="button" onClick={onOpen} className="flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none">
@@ -207,7 +212,7 @@ function AlertRow({ a, onOpen }: { a: AlertDto; onOpen: () => void }) {
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className={cn('truncate text-sm', a.status === 'NEW' ? 'font-semibold' : 'font-medium text-muted-foreground')}>{alertTitle(a)}</span>
-            {a.status === 'NEW' && <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label="Unread" />}
+            {a.status === 'NEW' && <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={t('Unread')} />}
             <span className="ml-auto shrink-0 text-[11px] text-muted-foreground" title={formatDateTime(a.occurredAt)}>
               {relativeTime(a.occurredAt)}
             </span>
@@ -223,6 +228,7 @@ function AlertRow({ a, onOpen }: { a: AlertDto; onOpen: () => void }) {
 
 /** Top-bar bell: unread count, latest 20 dropdown, mute toggle; hosts alert toasts and the critical modal. */
 export function AlertBell() {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const state = useAlertCenter();
   const [open, setOpen] = useState(false);
@@ -247,7 +253,7 @@ export function AlertBell() {
       setAcking(false);
     }
   };
-  const label = state.unread ? `Alerts, ${state.unread} unread` : 'Alerts';
+  const label = state.unread ? t('Alerts, {{count}} unread', { count: state.unread }) : t('Alerts');
 
   return (
     <>
@@ -274,19 +280,19 @@ export function AlertBell() {
           }}
         >
           <div className="flex items-center gap-2 border-b px-3 py-2.5">
-            <p className="text-sm font-semibold">Alerts</p>
-            {state.unread > 0 && <Badge variant="destructive">{state.unread} unread</Badge>}
+            <p className="text-sm font-semibold">{t('Alerts')}</p>
+            {state.unread > 0 && <Badge variant="destructive">{t('{{count}} unread', { count: state.unread })}</Badge>}
             <span className="flex-1" />
-            <Tooltip content={state.muted ? 'Sound off — click to turn on' : 'Sound on for Warning and Critical — click to mute'}>
-              <Button variant="ghost" size="icon-sm" aria-label={state.muted ? 'Unmute alert sound' : 'Mute alert sound'} aria-pressed={state.muted} onClick={() => alertCenter.setMuted(!state.muted)}>
+            <Tooltip content={state.muted ? t('Sound off — click to turn on') : t('Sound on for Warning and Critical — click to mute')}>
+              <Button variant="ghost" size="icon-sm" aria-label={state.muted ? t('Unmute alert sound') : t('Mute alert sound')} aria-pressed={state.muted} onClick={() => alertCenter.setMuted(!state.muted)}>
                 {state.muted ? <VolumeXIcon /> : <Volume2Icon />}
               </Button>
             </Tooltip>
-            <Tooltip content={state.criticalPopup ? 'Critical alerts open a pop-up until acknowledged — click to turn off' : 'Critical pop-ups off — click to turn on'}>
+            <Tooltip content={state.criticalPopup ? t('Critical alerts open a pop-up until acknowledged — click to turn off') : t('Critical pop-ups off — click to turn on')}>
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label={state.criticalPopup ? 'Turn off critical alert pop-ups' : 'Turn on critical alert pop-ups'}
+                aria-label={state.criticalPopup ? t('Turn off critical alert pop-ups') : t('Turn on critical alert pop-ups')}
                 aria-pressed={!state.criticalPopup}
                 onClick={() => alertCenter.setCriticalPopup(!state.criticalPopup)}
               >
@@ -294,16 +300,16 @@ export function AlertBell() {
               </Button>
             </Tooltip>
             {can('alerts', 'edit') && unreadShown.length > 0 && (
-              <Tooltip content="Acknowledge the unread alerts shown">
-                <Button variant="ghost" size="icon-sm" aria-label="Acknowledge shown alerts" onClick={markShownRead} disabled={acking}>
+              <Tooltip content={t('Acknowledge the unread alerts shown')}>
+                <Button variant="ghost" size="icon-sm" aria-label={t('Acknowledge shown alerts')} onClick={markShownRead} disabled={acking}>
                   {acking ? <Spinner /> : <CheckCheckIcon />}
                 </Button>
               </Tooltip>
             )}
           </div>
           <ul className="max-h-[min(28rem,70vh)] overflow-y-auto p-1">
-            {!state.loaded && <li className="px-3 py-8 text-center text-sm text-muted-foreground">Loading…</li>}
-            {state.loaded && state.latest.length === 0 && <li className="px-3 py-8 text-center text-sm text-muted-foreground">No alerts yet.</li>}
+            {!state.loaded && <li className="px-3 py-8 text-center text-sm text-muted-foreground">{t('Loading…')}</li>}
+            {state.loaded && state.latest.length === 0 && <li className="px-3 py-8 text-center text-sm text-muted-foreground">{t('No alerts yet.')}</li>}
             {state.latest.map((a) => (
               <AlertRow
                 key={a.id}
@@ -325,7 +331,7 @@ export function AlertBell() {
                 navigate('/alerts');
               }}
             >
-              View all alerts
+              {t('View all alerts')}
             </Button>
           </div>
         </PopoverContent>

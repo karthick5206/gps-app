@@ -30,7 +30,9 @@ import {
   Trash2Icon,
   XIcon,
 } from 'lucide-react';
+import type { TFunction } from 'i18next';
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { FormError } from '@/components/form-error';
@@ -96,24 +98,25 @@ function filterParams(filters: MasterFilter[], values: Record<string, string | n
 }
 
 function FilterControl({ filter, value, onChange }: { filter: MasterFilter; value: string | null; onChange: (v: string | null) => void }) {
+  const { t } = useTranslation();
   if (filter.kind === 'text') {
-    return <Input value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} placeholder={filter.label} aria-label={filter.label} className="h-9 w-full" />;
+    return <Input value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} placeholder={t(filter.label)} aria-label={t(filter.label)} className="h-9 w-full" />;
   }
   if (filter.kind === 'date') {
     return (
-      <Input type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} className="h-9 w-full" aria-label={filter.label} />
+      <Input type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} className="h-9 w-full" aria-label={t(filter.label)} />
     );
   }
   return (
     <Select value={value ?? ALL} onValueChange={(v) => onChange(v === ALL ? null : v)}>
-      <SelectTrigger className="h-9 w-full" aria-label={filter.label}>
+      <SelectTrigger className="h-9 w-full" aria-label={t(filter.label)}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={ALL}>All {filter.label.toLowerCase()}</SelectItem>
+        <SelectItem value={ALL}>{t('All {{label}}', { label: t(filter.label).toLowerCase() })}</SelectItem>
         {filter.options.map((o) => (
           <SelectItem key={o.value} value={o.value}>
-            {o.label}
+            {t(o.label)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -122,10 +125,11 @@ function FilterControl({ filter, value, onChange }: { filter: MasterFilter; valu
 }
 
 /** Text of an active filter chip, e.g. "Chennai" or "From 2026-10-01". */
-function chipText(filter: MasterFilter, value: string): string {
-  if (filter.kind === 'date') return `${filter.label} ${value}`;
-  if (filter.kind === 'text') return `${filter.label}: ${value}`;
-  return filter.options.find((o) => o.value === value)?.label ?? value;
+function chipText(filter: MasterFilter, value: string, t: TFunction): string {
+  if (filter.kind === 'date') return `${t(filter.label)} ${value}`;
+  if (filter.kind === 'text') return `${t(filter.label)}: ${value}`;
+  const label = filter.options.find((o) => o.value === value)?.label;
+  return label ? t(label) : value;
 }
 
 const STATUS_TABS = [
@@ -160,6 +164,7 @@ export function MasterPage<T>({
   allowCreate = true,
   bulkActions = true,
 }: MasterPageProps<T>) {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const invalidate = useInvalidateMaster();
   const allow = useMemo(
@@ -222,7 +227,7 @@ export function MasterPage<T>({
   const remove = useMutation({
     mutationFn: (row: T) => api.delete<unknown>(`${endpoint}/${getRowId(row)}`),
     onSuccess: (_, row) => {
-      toast.success(`${rowLabel(row)} deleted`);
+      toast.success(t('{{label}} deleted', { label: rowLabel(row) }));
       setDeleteRow(null);
       invalidate(endpoint);
     },
@@ -233,11 +238,26 @@ export function MasterPage<T>({
   const bulk = useMutation({
     mutationFn: (action: BulkAction) => api.post<BulkResult | undefined>(`${endpoint}/bulk`, { ids: selectedIds, action }),
     onSuccess: (res, action) => {
-      const verb = action === 'delete' ? 'deleted' : `${action}d`;
       const failed = res?.failed?.length ?? 0;
       const succeeded = res?.succeeded?.length ?? selectedIds.length - failed;
-      if (succeeded) toast.success(`${succeeded} record(s) ${verb}`);
-      if (failed) toast.warning(`${failed} record(s) could not be ${verb} (for example, still in use).`);
+      if (succeeded) {
+        toast.success(
+          action === 'delete'
+            ? t('{{n}} record(s) deleted', { n: succeeded })
+            : action === 'activate'
+              ? t('{{n}} record(s) activated', { n: succeeded })
+              : t('{{n}} record(s) deactivated', { n: succeeded }),
+        );
+      }
+      if (failed) {
+        toast.warning(
+          action === 'delete'
+            ? t('{{n}} record(s) could not be deleted (for example, still in use).', { n: failed })
+            : action === 'activate'
+              ? t('{{n}} record(s) could not be activated (for example, still in use).', { n: failed })
+              : t('{{n}} record(s) could not be deactivated (for example, still in use).', { n: failed }),
+        );
+      }
       setBulkAction(null);
       setRowSelection({});
       invalidate(endpoint);
@@ -266,18 +286,18 @@ export function MasterPage<T>({
         enableSorting: false,
         header: ({ table }) => (
           <Checkbox
-            aria-label="Select all on this page"
+            aria-label={t('Select all on this page')}
             checked={table.getIsAllPageRowsSelected() ? true : table.getIsSomePageRowsSelected() ? 'indeterminate' : false}
             onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
           />
         ),
-        cell: ({ row }) => <Checkbox aria-label="Select row" checked={row.getIsSelected()} onCheckedChange={(v) => row.toggleSelected(!!v)} />,
+        cell: ({ row }) => <Checkbox aria-label={t('Select row')} checked={row.getIsSelected()} onCheckedChange={(v) => row.toggleSelected(!!v)} />,
       });
     }
     for (const c of columns) {
       defs.push({
         id: c.id,
-        header: c.header,
+        header: t(c.header),
         enableSorting: !!c.sortable,
         enableHiding: c.hideable !== false,
         cell: ({ row }) => c.cell(row.original),
@@ -288,7 +308,7 @@ export function MasterPage<T>({
       id: '__actions',
       enableHiding: false,
       enableSorting: false,
-      header: () => <span className="sr-only">Actions</span>,
+      header: () => <span className="sr-only">{t('Actions')}</span>,
       cell: ({ row }) => {
         const r = row.original;
         const editable = allow.edit && (canEditRow?.(r) ?? true);
@@ -297,22 +317,22 @@ export function MasterPage<T>({
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${rowLabel(r)}`}>
+              <Button variant="ghost" size="icon-sm" aria-label={t('Actions for {{label}}', { label: rowLabel(r) })}>
                 <MoreHorizontalIcon />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => setViewRow(r)}>
-                <EyeIcon /> View
+                <EyeIcon /> {t('View')}
               </DropdownMenuItem>
               {editable && (
                 <DropdownMenuItem onSelect={() => setFormRecord(r)}>
-                  <PencilIcon /> Edit
+                  <PencilIcon /> {t('Edit')}
                 </DropdownMenuItem>
               )}
               {history && (
                 <DropdownMenuItem onSelect={() => setHistoryTarget({ id: getRowId(r), label: rowLabel(r) })}>
-                  <HistoryIcon /> History
+                  <HistoryIcon /> {t('History')}
                 </DropdownMenuItem>
               )}
               {extra}
@@ -320,7 +340,7 @@ export function MasterPage<T>({
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" onSelect={() => setDeleteRow(r)}>
-                    <Trash2Icon /> Delete
+                    <Trash2Icon /> {t('Delete')}
                   </DropdownMenuItem>
                 </>
               )}
@@ -330,7 +350,7 @@ export function MasterPage<T>({
       },
     });
     return defs;
-  }, [columns, bulkEnabled, allow, history, canEditRow, canDeleteRow, rowActions, rowLabel, getRowId]);
+  }, [columns, bulkEnabled, allow, history, canEditRow, canDeleteRow, rowActions, rowLabel, getRowId, t]);
 
   const table = useReactTable({
     data: rows,
@@ -363,20 +383,20 @@ export function MasterPage<T>({
     // Fills the viewport: header and toolbar stay put, rows scroll inside the card, pagination is always visible.
     <div className="flex h-full min-h-[560px] w-full flex-col gap-4 p-4 sm:p-6">
       <PageHeader
-        title={title}
-        description={description}
+        title={t(title)}
+        description={description && t(description)}
         actions={
           <>
             {headerActions}
             {allow.export && (
               <Button variant="outline" onClick={exportCsv} disabled={exporting}>
                 {exporting ? <Spinner /> : <DownloadIcon />}
-                <span className="hidden sm:inline">Export CSV</span>
+                <span className="hidden sm:inline">{t('Export CSV')}</span>
               </Button>
             )}
             {allow.create && (
               <Button onClick={() => setFormRecord(null)}>
-                <PlusIcon /> Add
+                <PlusIcon /> {t('Add')}
               </Button>
             )}
           </>
@@ -387,28 +407,28 @@ export function MasterPage<T>({
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
           <div className="relative min-w-[12rem] flex-1 sm:max-w-sm">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${title.toLowerCase()}…`} aria-label="Search" className="h-9 pl-8" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Search {{title}}…', { title: t(title).toLowerCase() })} aria-label={t('Search')} className="h-9 pl-8" />
             {search && (
-              <button type="button" onClick={() => setSearch('')} aria-label="Clear search" className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground">
+              <button type="button" onClick={() => setSearch('')} aria-label={t('Clear search')} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground">
                 <XIcon className="size-3.5" />
               </button>
             )}
           </div>
           {statusFilter && (
-            <div role="radiogroup" aria-label="Status" className="inline-flex h-9 items-center rounded-lg bg-muted p-0.5">
-              {STATUS_TABS.map((t) => (
+            <div role="radiogroup" aria-label={t('Status')} className="inline-flex h-9 items-center rounded-lg bg-muted p-0.5">
+              {STATUS_TABS.map((tab) => (
                 <button
-                  key={t.label}
+                  key={tab.label}
                   type="button"
                   role="radio"
-                  aria-checked={status === t.value}
-                  onClick={() => setStatus(t.value)}
+                  aria-checked={status === tab.value}
+                  onClick={() => setStatus(tab.value)}
                   className={cn(
                     'h-8 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
-                    status === t.value && 'bg-background text-foreground shadow-xs',
+                    status === tab.value && 'bg-background text-foreground shadow-xs',
                   )}
                 >
-                  {t.label}
+                  {t(tab.label)}
                 </button>
               ))}
             </div>
@@ -417,20 +437,20 @@ export function MasterPage<T>({
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" className="h-9">
-                  <FilterIcon /> Filters
+                  <FilterIcon /> {t('Filters')}
                   {activeFilters.length > 0 && <Badge className="ml-0.5 h-5 min-w-5 justify-center rounded-full px-1.5">{activeFilters.length}</Badge>}
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="start" className="w-72 space-y-3">
                 {filters.map((f) => (
                   <div key={f.key} className="space-y-1.5">
-                    <p className="text-xs font-medium text-muted-foreground">{f.label}</p>
+                    <p className="text-xs font-medium text-muted-foreground">{t(f.label)}</p>
                     <FilterControl filter={f} value={filterValues[f.key] ?? null} onChange={(v) => setFilterValues((prev) => ({ ...prev, [f.key]: v }))} />
                   </div>
                 ))}
                 {activeFilters.length > 0 && (
                   <Button variant="ghost" size="sm" className="w-full" onClick={() => setFilterValues({})}>
-                    <XIcon /> Reset filters
+                    <XIcon /> {t('Reset filters')}
                   </Button>
                 )}
               </PopoverContent>
@@ -438,16 +458,16 @@ export function MasterPage<T>({
           )}
           <span className="flex-1" />
           <span className="text-sm text-muted-foreground tabular-nums">
-            {list.isFetching && !list.isPending ? <Spinner className="inline" /> : `${total.toLocaleString()} ${total === 1 ? 'record' : 'records'}`}
+            {list.isFetching && !list.isPending ? <Spinner className="inline" /> : total === 1 ? t('{{n}} record', { n: total.toLocaleString() }) : t('{{n}} records', { n: total.toLocaleString() })}
           </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="size-9" aria-label="Choose columns">
+              <Button variant="outline" size="icon" className="size-9" aria-label={t('Choose columns')}>
                 <Columns3Icon />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+              <DropdownMenuLabel>{t('Visible columns')}</DropdownMenuLabel>
               {table
                 .getAllLeafColumns()
                 .filter((c) => c.getCanHide())
@@ -464,39 +484,39 @@ export function MasterPage<T>({
           <div className="flex flex-wrap items-center gap-1.5 border-b px-3 py-2">
             {activeFilters.map((f) => (
               <span key={f.key} className="inline-flex items-center gap-1 rounded-full border bg-muted/50 py-0.5 pr-1 pl-2.5 text-xs">
-                {chipText(f, filterValues[f.key]!)}
-                <button type="button" aria-label={`Remove ${f.label} filter`} onClick={() => setFilterValues((prev) => ({ ...prev, [f.key]: null }))} className="rounded-full p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground">
+                {chipText(f, filterValues[f.key]!, t)}
+                <button type="button" aria-label={t('Remove {{label}} filter', { label: t(f.label) })} onClick={() => setFilterValues((prev) => ({ ...prev, [f.key]: null }))} className="rounded-full p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground">
                   <XIcon className="size-3" />
                 </button>
               </span>
             ))}
             <Button variant="link" size="sm" className="h-6 px-1 text-xs" onClick={clearFilters}>
-              Clear all
+              {t('Clear all')}
             </Button>
           </div>
         )}
 
         {selectedIds.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b bg-accent/60 px-3 py-2 text-sm animate-fade-in">
-            <span className="font-medium">{selectedIds.length} selected</span>
+            <span className="font-medium">{t('{{n}} selected', { n: selectedIds.length })}</span>
             <span className="flex-1" />
             {bulkStatus && (
               <>
                 <Button size="sm" variant="outline" onClick={() => setBulkAction('activate')}>
-                  <PowerIcon /> Activate
+                  <PowerIcon /> {t('Activate')}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setBulkAction('deactivate')}>
-                  <PowerOffIcon /> Deactivate
+                  <PowerOffIcon /> {t('Deactivate')}
                 </Button>
               </>
             )}
             {allow.delete && (
               <Button size="sm" variant="destructive" onClick={() => setBulkAction('delete')}>
-                <Trash2Icon /> Delete
+                <Trash2Icon /> {t('Delete')}
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={() => setRowSelection({})}>
-              Clear
+              {t('Clear')}
             </Button>
           </div>
         )}
@@ -555,17 +575,17 @@ export function MasterPage<T>({
                 <TableCell colSpan={visibleColumnCount}>
                   <EmptyState
                     icon={emptyIcon}
-                    title={hasFilters ? 'No matching records' : `No ${title.toLowerCase()} yet`}
-                    description={hasFilters ? 'Try a different search or clear the filters.' : allow.create ? 'Add the first record to get started.' : undefined}
+                    title={hasFilters ? t('No matching records') : t('No {{title}} yet', { title: t(title).toLowerCase() })}
+                    description={hasFilters ? t('Try a different search or clear the filters.') : allow.create ? t('Add the first record to get started.') : undefined}
                     action={
                       hasFilters ? (
                         <Button variant="outline" size="sm" onClick={clearFilters}>
-                          Clear filters
+                          {t('Clear filters')}
                         </Button>
                       ) : (
                         allow.create && (
                           <Button size="sm" onClick={() => setFormRecord(null)}>
-                            <PlusIcon /> Add
+                            <PlusIcon /> {t('Add')}
                           </Button>
                         )
                       )
@@ -579,12 +599,12 @@ export function MasterPage<T>({
 
         <div className="flex flex-col gap-3 border-t bg-card px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted-foreground tabular-nums">
-            {total > 0 ? `Showing ${from.toLocaleString()}–${to.toLocaleString()} of ${total.toLocaleString()}` : 'No records'}
+            {total > 0 ? t('Showing {{from}}–{{to}} of {{total}}', { from: from.toLocaleString(), to: to.toLocaleString(), total: total.toLocaleString() }) : t('No records')}
           </p>
           <div className="flex items-center gap-2">
-            <span className="hidden text-muted-foreground sm:inline">Rows</span>
+            <span className="hidden text-muted-foreground sm:inline">{t('Rows')}</span>
             <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-              <SelectTrigger className="h-8 w-[4.5rem]" aria-label="Rows per page">
+              <SelectTrigger className="h-8 w-[4.5rem]" aria-label={t('Rows per page')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -598,10 +618,10 @@ export function MasterPage<T>({
             <span className="px-1 text-muted-foreground tabular-nums">
               {page} / {pageCount}
             </span>
-            <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            <Button variant="outline" size="icon-sm" aria-label={t('Previous page')} disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
               <ChevronLeftIcon />
             </Button>
-            <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>
+            <Button variant="outline" size="icon-sm" aria-label={t('Next page')} disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>
               <ChevronRightIcon />
             </Button>
           </div>
@@ -611,7 +631,7 @@ export function MasterPage<T>({
       {Form && formRecord !== undefined && <Form record={formRecord} open onOpenChange={(o) => !o && setFormRecord(undefined)} />}
 
       <DetailSheet
-        title={title}
+        title={t(title)}
         row={viewRow}
         label={viewRow ? rowLabel(viewRow) : ''}
         columns={columns}
@@ -639,14 +659,14 @@ export function MasterPage<T>({
       <ConfirmDialog
         open={!!deleteRow}
         onOpenChange={(o) => !o && setDeleteRow(null)}
-        title="Delete record?"
+        title={t('Delete record?')}
         description={
           <>
-            <span className="font-medium text-foreground">{deleteRow ? rowLabel(deleteRow) : ''}</span> will be permanently deleted. Records that are in use can't be
-            deleted — deactivate them instead.
+            <span className="font-medium text-foreground">{deleteRow ? rowLabel(deleteRow) : ''}</span>{' '}
+            {t("will be permanently deleted. Records that are in use can't be deleted — deactivate them instead.")}
           </>
         }
-        confirmLabel="Delete"
+        confirmLabel={t('Delete')}
         destructive
         pending={remove.isPending}
         onConfirm={() => deleteRow && remove.mutate(deleteRow)}
@@ -655,9 +675,15 @@ export function MasterPage<T>({
       <ConfirmDialog
         open={!!bulkAction}
         onOpenChange={(o) => !o && setBulkAction(null)}
-        title={bulkAction === 'delete' ? `Delete ${selectedIds.length} record(s)?` : `${bulkAction === 'activate' ? 'Activate' : 'Deactivate'} ${selectedIds.length} record(s)?`}
-        description={bulkAction === 'delete' ? 'Selected records will be permanently deleted. Records in use will be rejected by the server.' : 'The status of all selected records will change.'}
-        confirmLabel={bulkAction === 'delete' ? 'Delete' : 'Confirm'}
+        title={
+          bulkAction === 'delete'
+            ? t('Delete {{n}} record(s)?', { n: selectedIds.length })
+            : bulkAction === 'activate'
+              ? t('Activate {{n}} record(s)?', { n: selectedIds.length })
+              : t('Deactivate {{n}} record(s)?', { n: selectedIds.length })
+        }
+        description={bulkAction === 'delete' ? t('Selected records will be permanently deleted. Records in use will be rejected by the server.') : t('The status of all selected records will change.')}
+        confirmLabel={bulkAction === 'delete' ? t('Delete') : t('Confirm')}
         destructive={bulkAction === 'delete'}
         pending={bulk.isPending}
         onConfirm={() => bulkAction && bulk.mutate(bulkAction)}

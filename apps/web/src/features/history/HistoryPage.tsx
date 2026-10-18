@@ -2,6 +2,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { AlertDto } from '@veetracer/shared';
 import { AlertTriangleIcon, RouteIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { Spinner } from '@/components/ui/spinner';
 import { themeStore } from '@/features/theme/theme-store';
@@ -67,14 +68,15 @@ function isTypingTarget(el: EventTarget | null): boolean {
 }
 
 function Legend({ mode, onModeChange }: { mode: ColorMode; onModeChange: (m: ColorMode) => void }) {
+  const { t } = useTranslation();
   const { resolved } = useTheme();
   const items =
     mode === 'status'
-      ? TRACK_STATUS_CODES.map((s) => ({ label: STATUS_META[s].label, color: STATUS_META[s][resolved] }))
+      ? TRACK_STATUS_CODES.map((s) => ({ label: t(STATUS_META[s].label), color: STATUS_META[s][resolved] }))
       : SPEED_BAND_LABELS.map((l, i) => ({ label: l, color: SPEED_BAND_COLORS[resolved][i] }));
   return (
     <div className="pointer-events-auto rounded-xl border bg-card/95 p-2 text-xs shadow-lg backdrop-blur-sm">
-      <div className="flex rounded-md bg-muted p-0.5" role="group" aria-label="Colour track by">
+      <div className="flex rounded-md bg-muted p-0.5" role="group" aria-label={t('Colour track by')}>
         {(['status', 'speed'] as const).map((m) => (
           <button
             key={m}
@@ -83,7 +85,7 @@ function Legend({ mode, onModeChange }: { mode: ColorMode; onModeChange: (m: Col
             onClick={() => onModeChange(m)}
             className={cn('h-6 flex-1 rounded px-2 font-medium capitalize transition-colors', mode === m ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
           >
-            {m === 'status' ? 'Status' : 'Speed'}
+            {m === 'status' ? t('Status') : t('Speed')}
           </button>
         ))}
       </div>
@@ -109,6 +111,7 @@ function Overlay({ children }: { children: React.ReactNode }) {
 }
 
 export function HistoryPage() {
+  const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const objectId = params.get('objectId');
   const fromParam = params.get('from');
@@ -303,16 +306,16 @@ export function HistoryPage() {
       {data?.truncated && (
         <div role="status" className="flex items-start gap-2 border-b bg-warning/10 px-4 py-2 text-xs text-warning sm:text-sm">
           <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
-          <span>This period has more points than can be drawn, so the track was simplified (stops and alert points are kept). Choose a shorter period for full detail.</span>
+          <span>{t('This period has more points than can be drawn, so the track was simplified (stops and alert points are kept). Choose a shorter period for full detail.')}</span>
         </div>
       )}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
-            <div ref={containerRef} className="h-full w-full" role="region" aria-label="History map" />
+            <div ref={containerRef} className="h-full w-full" role="region" aria-label={t('History map')} />
             {unsupported && (
               <Overlay>
-                <p className="text-sm text-muted-foreground">The map can't be shown because WebGL is turned off or not supported in this browser.</p>
+                <p className="text-sm text-muted-foreground">{t("The map can't be shown because WebGL is turned off or not supported in this browser.")}</p>
               </Overlay>
             )}
             {engine && hasTrack && (
@@ -328,28 +331,28 @@ export function HistoryPage() {
             {!objectId && (
               <Overlay>
                 <RouteIcon className="mx-auto size-8 text-primary" />
-                <p className="mt-2 font-medium">Pick a vehicle</p>
-                <p className="mt-1 text-sm text-muted-foreground">Choose a vehicle and a period to replay its route, trips, stops and alerts.</p>
+                <p className="mt-2 font-medium">{t('Pick a vehicle')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{t('Choose a vehicle and a period to replay its route, trips, stops and alerts.')}</p>
               </Overlay>
             )}
             {objectId && query.isFetching && (
               <div className="pointer-events-none absolute inset-x-0 top-24 flex justify-center sm:top-3">
                 <span className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm shadow-md">
-                  <Spinner /> Loading history…
+                  <Spinner /> {t('Loading history…')}
                 </span>
               </div>
             )}
             {objectId && query.isError && (
               <Overlay>
                 <AlertTriangleIcon className="mx-auto size-7 text-destructive" />
-                <p className="mt-2 font-medium">Couldn't load history</p>
+                <p className="mt-2 font-medium">{t("Couldn't load history")}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{errorMessage(query.error)}</p>
               </Overlay>
             )}
             {objectId && data && !hasTrack && !query.isFetching && (
               <Overlay>
-                <p className="font-medium">No positions in this period</p>
-                <p className="mt-1 text-sm text-muted-foreground">Try another day or a longer range.</p>
+                <p className="font-medium">{t('No positions in this period')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{t('Try another day or a longer range.')}</p>
               </Overlay>
             )}
           </div>
@@ -369,7 +372,7 @@ export function HistoryPage() {
         </div>
         {isDesktop && side}
       </div>
-      {reducedMotion && <span className="sr-only">Reduced motion is on: the camera does not animate automatically.</span>}
+      {reducedMotion && <span className="sr-only">{t('Reduced motion is on: the camera does not animate automatically.')}</span>}
     </div>
   );
 }

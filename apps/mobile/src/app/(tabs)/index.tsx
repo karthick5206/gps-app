@@ -13,6 +13,7 @@ import {
 import { router } from 'expo-router';
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, LocateFixedIcon, MaximizeIcon, SearchIcon, XIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PickerSheet, type PickOption } from '@/components/PickerSheet';
@@ -45,6 +46,7 @@ function VehicleRow({ o, now, onPress }: { o: LiveObject; now: number; onPress: 
   const c = useColors();
   const scheme = useScheme();
   const color = statusColor(o.status, scheme);
+  const { t } = useTranslation();
   const meta = STATUS_META[o.status];
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, { borderBottomColor: c.border }, pressed && { backgroundColor: c.muted }]}>
@@ -59,7 +61,7 @@ function VehicleRow({ o, now, onPress }: { o: LiveObject; now: number; onPress: 
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <Text size="sm" weight="600" style={{ color }}>
-          {timeInStatus(meta.label, o.statusSince, now) ?? meta.label}
+          {timeInStatus(t(meta.label), o.statusSince, now) ?? t(meta.label)}
         </Text>
         <Text size="xs" tone="muted">
           {relativeTime(o.serverTime ?? o.fixTime, now)}
@@ -85,6 +87,7 @@ export default function LiveMapScreen() {
   const c = useColors();
   const scheme = useScheme();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { can } = useAuth();
   const version = useLiveVersion(1000);
   const now = useNow();
@@ -170,6 +173,7 @@ export default function LiveMapScreen() {
 
   const branchOptions: PickOption[] = (branches.data?.items ?? []).map((b) => ({ value: b.id, label: b.name }));
   const groupOptions: PickOption[] = (groups.data?.items ?? []).map((g) => ({ value: g.id, label: g.name }));
+  const typeOptions = useMemo(() => TYPE_OPTIONS.map((o) => ({ ...o, label: t(o.label) })), [t]);
   const labelOf = (opts: PickOption[], v: string | null, all: string) => (v ? (opts.find((o) => o.value === v)?.label ?? all) : all);
   const filtersActive = !!(q || branchId || groupId || type || status !== 'ALL');
 
@@ -181,14 +185,14 @@ export default function LiveMapScreen() {
           value={q}
           onChangeText={setQ}
           onFocus={() => setSnap('full')}
-          placeholder="Search name, plate or IMEI"
+          placeholder={t('Search name, plate or IMEI')}
           placeholderTextColor={c.mutedForeground}
           autoCorrect={false}
           autoCapitalize="none"
           style={{ flex: 1, fontSize: 15, color: c.foreground, paddingVertical: 0 }}
         />
         {!!q && (
-          <Pressable onPress={() => setQ('')} hitSlop={10} accessibilityLabel="Clear search">
+          <Pressable onPress={() => setQ('')} hitSlop={10} accessibilityLabel={t('Clear search')}>
             <XIcon size={16} color={c.mutedForeground} />
           </Pressable>
         )}
@@ -207,20 +211,20 @@ export default function LiveMapScreen() {
             >
               {s !== 'ALL' && <View style={[styles.chipDot, { backgroundColor: on ? '#fff' : color }]} />}
               <Text size="sm" weight="600" style={{ color: on ? '#fff' : c.foreground }}>
-                {s === 'ALL' ? 'All' : STATUS_META[s].label} <Text size="sm" style={{ color: on ? '#fff' : c.mutedForeground }}>{s === 'ALL' ? base.length : counts[s]}</Text>
+                {s === 'ALL' ? t('All') : t(STATUS_META[s].label)} <Text size="sm" style={{ color: on ? '#fff' : c.mutedForeground }}>{s === 'ALL' ? base.length : counts[s]}</Text>
               </Text>
             </Pressable>
           );
         })}
       </View>
       <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-        {can('branches') && <FilterButton label={labelOf(branchOptions, branchId, 'All branches')} active={!!branchId} onPress={() => setPicker('branch')} />}
-        {can('vehicle_groups') && <FilterButton label={labelOf(groupOptions, groupId, 'All groups')} active={!!groupId} onPress={() => setPicker('group')} />}
-        <FilterButton label={labelOf(TYPE_OPTIONS, type, 'All types')} active={!!type} onPress={() => setPicker('type')} />
+        {can('branches') && <FilterButton label={labelOf(branchOptions, branchId, t('All branches'))} active={!!branchId} onPress={() => setPicker('branch')} />}
+        {can('vehicle_groups') && <FilterButton label={labelOf(groupOptions, groupId, t('All groups'))} active={!!groupId} onPress={() => setPicker('group')} />}
+        <FilterButton label={labelOf(typeOptions, type, t('All types'))} active={!!type} onPress={() => setPicker('type')} />
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Text size="sm" tone="muted" style={{ flex: 1 }}>
-          {visible.length} shown
+          {t('{{count}} shown', { count: visible.length })}
         </Text>
         {filtersActive && (
           <Pressable
@@ -234,7 +238,7 @@ export default function LiveMapScreen() {
             hitSlop={8}
           >
             <Text size="sm" tone="primary" weight="600">
-              Clear filters
+              {t('Clear filters')}
             </Text>
           </Pressable>
         )}
@@ -245,23 +249,23 @@ export default function LiveMapScreen() {
   const selectedHeader = selected && (
     <View style={{ paddingHorizontal: SPACE.lg, paddingBottom: SPACE.lg, gap: SPACE.md }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-        <Pressable onPress={() => select(null)} hitSlop={10} accessibilityLabel="Back to list" style={{ padding: 2 }}>
+        <Pressable onPress={() => select(null)} hitSlop={10} accessibilityLabel={t('Back to list')} style={{ padding: 2 }}>
           <ArrowLeftIcon size={20} color={c.foreground} />
         </Pressable>
         <Text size="sm" tone="muted" style={{ flex: 1 }}>
-          All vehicles
+          {t('All vehicles')}
         </Text>
       </View>
       <VehicleSummary o={selected} now={now} />
       {selected.driverName && (
         <Text size="sm" tone="muted">
-          Driver: <Text size="sm" weight="600">{selected.driverName}</Text>
+          {t('Driver:')} <Text size="sm" weight="600">{selected.driverName}</Text>
         </Text>
       )}
       <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-        <Button title="Details" icon={ChevronRightIcon} style={{ flex: 1 }} onPress={() => router.push(`/vehicle/${selected.objectId}`)} />
+        <Button title={t('Details')} icon={ChevronRightIcon} style={{ flex: 1 }} onPress={() => router.push(`/vehicle/${selected.objectId}`)} />
         <Button
-          title={follow ? 'Following' : 'Follow'}
+          title={follow ? t('Following') : t('Follow')}
           icon={LocateFixedIcon}
           variant={follow ? 'primary' : 'outline'}
           style={{ flex: 1 }}
@@ -279,11 +283,11 @@ export default function LiveMapScreen() {
         {connection === 'disconnected' && (
           <View style={[styles.offline, { backgroundColor: c.warning }]}>
             <Text size="xs" weight="600" style={{ color: '#fff' }}>
-              Reconnecting… positions may be out of date
+              {t('Reconnecting… positions may be out of date')}
             </Text>
           </View>
         )}
-        <Pressable accessibilityLabel="Show all vehicles" onPress={() => map.current?.fitAll(visible)} style={[styles.fab, { backgroundColor: c.card, borderColor: c.border }]}>
+        <Pressable accessibilityLabel={t('Show all vehicles')} onPress={() => map.current?.fitAll(visible)} style={[styles.fab, { backgroundColor: c.card, borderColor: c.border }]}>
           <MaximizeIcon size={20} color={c.foreground} />
         </Pressable>
       </SafeAreaView>
@@ -301,7 +305,7 @@ export default function LiveMapScreen() {
               ListEmptyComponent={
                 liveStore.snapshotLoaded ? (
                   <Text tone="muted" style={{ textAlign: 'center', padding: SPACE.xl }}>
-                    {all.length ? 'No vehicles match these filters.' : 'No vehicles yet.'}
+                    {all.length ? t('No vehicles match these filters.') : t('No vehicles yet.')}
                   </Text>
                 ) : undefined
               }
@@ -310,9 +314,9 @@ export default function LiveMapScreen() {
         </LiveSheet>
       )}
 
-      <PickerSheet open={picker === 'branch'} title="Branch" allLabel="All branches" options={branchOptions} value={branchId} onChange={setBranchId} onClose={() => setPicker(null)} />
-      <PickerSheet open={picker === 'group'} title="Vehicle group" allLabel="All groups" options={groupOptions} value={groupId} onChange={setGroupId} onClose={() => setPicker(null)} />
-      <PickerSheet open={picker === 'type'} title="Type" allLabel="All types" options={TYPE_OPTIONS} value={type} onChange={setType} onClose={() => setPicker(null)} />
+      <PickerSheet open={picker === 'branch'} title={t('Branch')} allLabel={t('All branches')} options={branchOptions} value={branchId} onChange={setBranchId} onClose={() => setPicker(null)} />
+      <PickerSheet open={picker === 'group'} title={t('Vehicle group')} allLabel={t('All groups')} options={groupOptions} value={groupId} onChange={setGroupId} onClose={() => setPicker(null)} />
+      <PickerSheet open={picker === 'type'} title={t('Type')} allLabel={t('All types')} options={typeOptions} value={type} onChange={setType} onClose={() => setPicker(null)} />
     </View>
   );
 }

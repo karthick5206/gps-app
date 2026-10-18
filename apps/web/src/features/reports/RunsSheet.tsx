@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ReportRunDto } from '@veetracer/shared';
 import { DownloadIcon, HistoryIcon, RefreshCwIcon } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { FormError } from '@/components/form-error';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +21,7 @@ const STATUS_VARIANT = { RUNNING: 'default', SUCCEEDED: 'success', FAILED: 'dest
 export const runsQueryKey = (scheduleId: string | undefined) => ['report-runs', scheduleId] as const;
 
 export function RunsSheet({ target, onClose }: { target: { id: string; name: string } | null; onClose: () => void }) {
+  const { t } = useTranslation();
   const runs = useQuery({
     queryKey: runsQueryKey(target?.id),
     queryFn: ({ signal }) => api.get<ReportRunDto[]>('/report-runs', { scheduleId: target!.id }, signal),
@@ -44,12 +46,12 @@ export function RunsSheet({ target, onClose }: { target: { id: string; name: str
     <Sheet open={!!target} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>Run history</SheetTitle>
+          <SheetTitle>{t('Run history')}</SheetTitle>
           <SheetDescription>{target?.name}</SheetDescription>
         </SheetHeader>
         <div className="flex items-center justify-end border-b px-5 py-2">
           <Button size="sm" variant="ghost" onClick={() => runs.refetch()} disabled={runs.isFetching}>
-            {runs.isFetching ? <Spinner /> : <RefreshCwIcon />} Refresh
+            {runs.isFetching ? <Spinner /> : <RefreshCwIcon />} {t('Refresh')}
           </Button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -65,7 +67,7 @@ export function RunsSheet({ target, onClose }: { target: { id: string; name: str
               ))}
             </div>
           )}
-          {runs.data?.length === 0 && <EmptyState icon={HistoryIcon} title="No runs yet" description="Runs appear here after the schedule fires or you use Run now." />}
+          {runs.data?.length === 0 && <EmptyState icon={HistoryIcon} title={t('No runs yet')} description={t('Runs appear here after the schedule fires or you use Run now.')} />}
           <ul>
             {runs.data?.map((r) => (
               <li key={r.id} className="flex items-start gap-3 border-b px-5 py-3 text-sm">
@@ -73,20 +75,20 @@ export function RunsSheet({ target, onClose }: { target: { id: string; name: str
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={STATUS_VARIANT[r.status]}>
                       {r.status === 'RUNNING' && <Spinner className="size-3" />}
-                      {r.status === 'SUCCEEDED' ? 'Succeeded' : r.status === 'FAILED' ? 'Failed' : 'Running'}
+                      {r.status === 'SUCCEEDED' ? t('Succeeded') : r.status === 'FAILED' ? t('Failed') : t('Running')}
                     </Badge>
                     <span className="tabular-nums">{formatDateTime(r.startedAt)}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {r.reportTypes.map((t) => REPORT_DEF_MAP[t]?.label ?? t).join(', ')}
-                    {r.finishedAt && ` · took ${formatDuration((Date.parse(r.finishedAt) - Date.parse(r.startedAt)) / 1000)}`}
+                    {r.reportTypes.map((rt) => (REPORT_DEF_MAP[rt] ? t(REPORT_DEF_MAP[rt].label) : rt)).join(', ')}
+                    {r.finishedAt && ` · ${t('took {{duration}}', { duration: formatDuration((Date.parse(r.finishedAt) - Date.parse(r.startedAt)) / 1000) })}`}
                   </p>
                   {r.error && <p className="text-xs break-words text-destructive">{r.error}</p>}
                 </div>
                 {r.status === 'SUCCEEDED' && r.fileName && (
-                  <Button size="sm" variant="outline" onClick={() => download(r)} disabled={downloading === r.id} aria-label={`Download ${r.fileName}`}>
+                  <Button size="sm" variant="outline" onClick={() => download(r)} disabled={downloading === r.id} aria-label={t('Download {{file}}', { file: r.fileName })}>
                     {downloading === r.id ? <Spinner /> : <DownloadIcon />}
-                    <span className="hidden sm:inline">Download</span>
+                    <span className="hidden sm:inline">{t('Download')}</span>
                   </Button>
                 )}
               </li>

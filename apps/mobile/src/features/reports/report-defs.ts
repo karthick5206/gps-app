@@ -29,6 +29,7 @@ import {
   TimerIcon,
 } from 'lucide-react-native';
 import { formatDateTime, humanize } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 import { formatHm, periodLabel } from './report-format';
 
 export type Row = Record<string, unknown>;
@@ -132,32 +133,33 @@ const STOPS: ReportColumn[] = [
     id: 'ignitionOn',
     header: 'Type',
     value: (r) => (r.ignitionOn ? 'Idle' : 'Parked'),
+    display: (r) => (r.ignitionOn ? i18n.t('Idle') : i18n.t('Parked')),
   },
   { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
 ];
 
-const onOff = (on: boolean | null) => (on === null ? null : on ? 'On' : 'Off');
+const onOff = (on: boolean | null) => (on === null ? null : on ? i18n.t('On') : i18n.t('Off'));
 
 const ALERTS: ReportColumn[] = [
   { id: 'occurredAt', header: 'Time', value: time('occurredAt'), kind: 'time' },
   vehicle,
-  { id: 'type', header: 'Type', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string) },
+  { id: 'type', header: 'Type', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string), display: (r) => i18n.t(ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string)) },
   {
     id: 'severity',
     header: 'Severity',
     value: (r) => ['INFO', 'WARNING', 'CRITICAL'].indexOf(r.severity as string),
-    display: (r) => humanize(r.severity as string),
+    display: (r) => i18n.t(humanize(r.severity as string)),
   },
   { id: 'message', header: 'Message', value: str('message') },
   { id: 'address', header: 'Location', value: str('address') },
-  { id: 'status', header: 'Status', value: str('status'), display: (r) => humanize(r.status as string) },
+  { id: 'status', header: 'Status', value: str('status'), display: (r) => i18n.t(humanize(r.status as string)) },
 ];
 
 const GEOFENCE_VISITS: ReportColumn[] = [
   vehicle,
   { id: 'geofenceName', header: 'Geofence', value: str('geofenceName') },
   { id: 'enterTime', header: 'Entered', value: time('enterTime'), kind: 'time' },
-  { id: 'exitTime', header: 'Exited', value: time('exitTime'), kind: 'time', display: (r) => (r.exitTime ? null : 'Inside') },
+  { id: 'exitTime', header: 'Exited', value: time('exitTime'), kind: 'time', display: (r) => (r.exitTime ? null : i18n.t('Inside')) },
   duration('durationSec', 'Duration'),
 ];
 
@@ -217,13 +219,13 @@ const POSITIONS: ReportColumn[] = [
   { id: 'speedKph', header: 'km/h', value: num('speedKph'), numeric: true, total: 'max', format: int },
   count('course', 'Course', undefined),
   count('satellites', 'Sats', undefined),
-  { id: 'valid', header: 'Fix', value: (r) => (r.valid ? 1 : 0), display: (r) => (r.valid ? 'Valid' : 'No fix') },
+  { id: 'valid', header: 'Fix', value: (r) => (r.valid ? 1 : 0), display: (r) => (r.valid ? i18n.t('Valid') : i18n.t('No fix')) },
   { id: 'ignition', header: 'Ignition', value: (r) => (r.ignition === null ? null : r.ignition ? 1 : 0), display: (r) => onOff(r.ignition as boolean | null) },
   optNum('extVoltage', 'Ext. V', 2),
   optNum('batteryLevel', 'Battery %', 0),
   optNum('gsmSignal', 'GSM', 0),
   optNum('odometerKm', 'Odometer (km)', 1),
-  { id: 'alarm', header: 'Alarm', value: str('alarm'), display: (r) => (r.alarm ? humanize(r.alarm as string) : null) },
+  { id: 'alarm', header: 'Alarm', value: str('alarm'), display: (r) => (r.alarm ? i18n.t(humanize(r.alarm as string)) : null) },
   { id: 'flags', header: 'Flags', value: str('flags') },
 ];
 
@@ -272,7 +274,7 @@ const CONTINUOUS_DRIVING: ReportColumn[] = [
 const EVENT_SUMMARY: ReportColumn[] = [
   vehicle,
   plate,
-  { id: 'type', header: 'Event', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string) },
+  { id: 'type', header: 'Event', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string), display: (r) => i18n.t(ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string)) },
   count('count', 'Count'),
   count('criticalCount', 'Critical'),
   { id: 'firstAt', header: 'First', value: time('firstAt'), kind: 'time' },
@@ -290,7 +292,7 @@ const DRIVERS: ReportColumn[] = [
   count('sessions', 'Sessions'),
   count('maxSpeedKph', 'Max (km/h)', 'max'),
   { id: 'firstStart', header: 'First start', value: time('firstStart'), kind: 'time' },
-  { id: 'lastEnd', header: 'Last end', value: time('lastEnd'), kind: 'time', display: (r) => (r.lastEnd ? null : 'Driving now') },
+  { id: 'lastEnd', header: 'Last end', value: time('lastEnd'), kind: 'time', display: (r) => (r.lastEnd ? null : i18n.t('Driving now')) },
 ];
 
 const GEOFENCE_SUMMARY: ReportColumn[] = [
@@ -300,7 +302,7 @@ const GEOFENCE_SUMMARY: ReportColumn[] = [
   duration('insideSec', 'Time inside'),
   duration('avgVisitSec', 'Avg visit', undefined),
   { id: 'firstEnter', header: 'First entry', value: time('firstEnter'), kind: 'time' },
-  { id: 'lastExit', header: 'Last exit', value: time('lastExit'), kind: 'time', display: (r) => (r.lastExit ? null : 'Inside') },
+  { id: 'lastExit', header: 'Last exit', value: time('lastExit'), kind: 'time', display: (r) => (r.lastExit ? null : i18n.t('Inside')) },
 ];
 
 export const DEVICE_STATUS_META: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'muted' | 'secondary' }> = {
@@ -319,7 +321,7 @@ const DEVICE_STATUS: ReportColumn[] = [
     id: 'status',
     header: 'Status',
     value: str('status'),
-    display: (r) => DEVICE_STATUS_META[r.status as string]?.label ?? (r.status as string),
+    display: (r) => i18n.t(DEVICE_STATUS_META[r.status as string]?.label ?? (r.status as string)),
   },
   { id: 'uniqueId', header: 'IMEI', value: str('uniqueId') },
   { id: 'model', header: 'Model', value: str('model') },

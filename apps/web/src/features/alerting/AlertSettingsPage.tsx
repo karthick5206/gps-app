@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, type AlertLevel, type AlertSettingDto, type AlertTypeCode, type TrackedObjectDto } from '@veetracer/shared';
 import { AlertTriangleIcon, Building2Icon, CopyIcon, LayersIcon, ListChecksIcon, MoreHorizontalIcon, PackageIcon, SendIcon, TruckIcon, WarehouseIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { FormError } from '@/components/form-error';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth, useMe } from '@/features/auth/auth-context';
 import { useAllGeofences } from '@/features/geofences/api';
 import { api, errorMessage } from '@/lib/api';
+import { i18n } from '@/lib/i18n';
 import {
   catalogueDefaults,
   LEVEL_NAME,
@@ -37,7 +39,16 @@ const LEVEL_ICON = { COMPANY: Building2Icon, BRANCH: WarehouseIcon, GROUP: Layer
 function conflictText(c: GroupConflict): string {
   const field = c.field.replace(/^params\./, '').replace(/^channels\./, 'channels ');
   const others = c.others.map((o) => `${o.groupName} (${JSON.stringify(o.value)})`).join(', ');
-  return `${ALERT_TYPE_MAP[c.alertType]?.label ?? c.alertType} · ${field}: ${c.winner.groupName} (priority ${c.winner.priority}, ${JSON.stringify(c.winner.value)}) wins over ${others}${c.overriddenByObject ? ' — but this vehicle overrides it anyway' : ''}`;
+  const type = ALERT_TYPE_MAP[c.alertType]?.label;
+  const text = i18n.t('{{type}} · {{field}}: {{winner}} (priority {{priority}}, {{value}}) wins over {{others}}', {
+    type: type ? i18n.t(type) : c.alertType,
+    field,
+    winner: c.winner.groupName,
+    priority: c.winner.priority,
+    value: JSON.stringify(c.winner.value),
+    others,
+  });
+  return `${text}${c.overriddenByObject ? ` — ${i18n.t('but this vehicle overrides it anyway')}` : ''}`;
 }
 
 /** Selected level target, kept in the URL (?level=&id=) so it survives reloads and can be deep-linked. */
@@ -67,6 +78,7 @@ function useTarget(): [Target, (t: Target) => void, boolean] {
 }
 
 export function AlertSettingsPage() {
+  const { t } = useTranslation();
   const me = useMe();
   const { can } = useAuth();
   const [target, setTarget, targetLoading] = useTarget();
@@ -150,7 +162,7 @@ export function AlertSettingsPage() {
       </aside>
       <Sheet open={treeOpen} onOpenChange={setTreeOpen}>
         <SheetContent side="left" className="w-80 p-0" aria-describedby={undefined}>
-          <SheetTitle className="border-b px-4 py-3">Choose level</SheetTitle>
+          <SheetTitle className="border-b px-4 py-3">{t('Choose level')}</SheetTitle>
           <LevelTree value={target} onChange={pick} className="min-h-0 flex-1" />
         </SheetContent>
       </Sheet>
@@ -159,49 +171,51 @@ export function AlertSettingsPage() {
         <div className="w-full space-y-4 p-4 sm:p-6">
           <div className="flex flex-wrap items-start gap-3">
             <div className="min-w-0 flex-1 space-y-1">
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Alert settings</p>
+              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t('Alert settings')}</p>
               <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
                 <Icon className="size-5 text-primary" />
                 <span className="truncate">{target.name}</span>
-                <Badge variant="secondary">{LEVEL_NAME[level]}</Badge>
+                <Badge variant="secondary">{t(LEVEL_NAME[level])}</Badge>
               </h1>
               <p className="text-sm text-muted-foreground">
                 {level === 'COMPANY'
-                  ? 'Company defaults apply to every vehicle unless a branch, group or vehicle overrides them.'
+                  ? t('Company defaults apply to every vehicle unless a branch, group or vehicle overrides them.')
                   : level === 'OBJECT'
-                    ? `Overrides for this vehicle only.${target.object?.branchName ? ` Branch: ${target.object.branchName}.` : ''}${target.object?.groups.length ? ` Groups: ${target.object.groups.map((g) => g.name).join(', ')}.` : ''}`
-                    : `Overrides for every vehicle in this ${level === 'BRANCH' ? 'branch' : 'group'}; anything not set here is inherited from the company.`}
+                    ? `${t('Overrides for this vehicle only.')}${target.object?.branchName ? ` ${t('Branch: {{name}}.', { name: target.object.branchName })}` : ''}${target.object?.groups.length ? ` ${t('Groups: {{names}}.', { names: target.object.groups.map((g) => g.name).join(', ') })}` : ''}`
+                    : level === 'BRANCH'
+                      ? t('Overrides for every vehicle in this branch; anything not set here is inherited from the company.')
+                      : t('Overrides for every vehicle in this group; anything not set here is inherited from the company.')}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" className="lg:hidden" onClick={() => setTreeOpen(true)}>
-                <ListChecksIcon /> Level
+                <ListChecksIcon /> {t('Level')}
               </Button>
               {canEdit && (
                 <Button variant="outline" onClick={() => setDialog('packs')}>
-                  <PackageIcon /> Apply pack
+                  <PackageIcon /> {t('Apply pack')}
                 </Button>
               )}
               {canEdit && (
                 <Button variant="outline" onClick={() => openTest(null)}>
-                  <SendIcon /> Send test
+                  <SendIcon /> {t('Send test')}
                 </Button>
               )}
               {canEdit && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="icon" aria-label="More actions">
+                    <Button variant="outline" size="icon" aria-label={t('More actions')}>
                       <MoreHorizontalIcon />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     {isObject && (
                       <DropdownMenuItem onSelect={() => setDialog('copy')}>
-                        <CopyIcon /> Copy settings to…
+                        <CopyIcon /> {t('Copy settings to…')}
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuItem onSelect={() => setDialog('bulk')}>
-                      <ListChecksIcon /> Bulk enable / disable
+                      <ListChecksIcon /> {t('Bulk enable / disable')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -212,25 +226,25 @@ export function AlertSettingsPage() {
           {isObject && (conflicts.data?.length ?? 0) > 0 && (
             <div role="alert" className="space-y-1 rounded-lg border border-warning/40 bg-warning/8 px-3 py-2.5 text-sm">
               <p className="flex items-center gap-2 font-medium text-warning">
-                <AlertTriangleIcon className="size-4" /> This vehicle's groups disagree on {conflicts.data!.length} setting(s)
+                <AlertTriangleIcon className="size-4" /> {t("This vehicle's groups disagree on {{count}} setting(s)", { count: conflicts.data!.length })}
               </p>
               <ul className="list-disc space-y-0.5 pl-6 text-xs">
                 {conflicts.data!.slice(0, 8).map((c, i) => (
                   <li key={i}>{conflictText(c)}</li>
                 ))}
               </ul>
-              <p className="text-xs text-muted-foreground">The group with the highest alert priority wins. Set the value on this vehicle to override it explicitly.</p>
+              <p className="text-xs text-muted-foreground">{t('The group with the highest alert priority wins. Set the value on this vehicle to override it explicitly.')}</p>
             </div>
           )}
 
           <Tabs value={tab} onValueChange={setTab}>
             <div className="-mx-1 overflow-x-auto px-1">
               <TabsList>
-                <TabsTrigger value="types">Alert types</TabsTrigger>
-                <TabsTrigger value="recipients">Default recipients</TabsTrigger>
-                {isObject && <TabsTrigger value="effective">Effective</TabsTrigger>}
-                <TabsTrigger value="snoozes">Snoozes</TabsTrigger>
-                <TabsTrigger value="history">History</TabsTrigger>
+                <TabsTrigger value="types">{t('Alert types')}</TabsTrigger>
+                <TabsTrigger value="recipients">{t('Default recipients')}</TabsTrigger>
+                {isObject && <TabsTrigger value="effective">{t('Effective')}</TabsTrigger>}
+                <TabsTrigger value="snoozes">{t('Snoozes')}</TabsTrigger>
+                <TabsTrigger value="history">{t('History')}</TabsTrigger>
               </TabsList>
             </div>
 
@@ -240,11 +254,11 @@ export function AlertSettingsPage() {
                 Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
               {!loading &&
                 CATEGORY_ORDER.map((cat) => {
-                  const defs = (types.data ?? []).filter((t) => t.category === cat);
+                  const defs = (types.data ?? []).filter((d) => d.category === cat);
                   if (!defs.length) return null;
                   return (
                     <section key={cat} className="space-y-2">
-                      <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{cat}</h2>
+                      <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t(cat)}</h2>
                       {defs.map((def) => {
                         const view = views.get(def.code);
                         if (!view) return null;
@@ -270,11 +284,11 @@ export function AlertSettingsPage() {
 
             <TabsContent value="recipients" className="mt-4 space-y-3">
               <div>
-                <h2 className="text-sm font-semibold">Default recipient lists — {target.name}</h2>
+                <h2 className="text-sm font-semibold">{t('Default recipient lists — {{name}}', { name: target.name })}</h2>
                 <p className="text-sm text-muted-foreground">
                   {level === 'COMPANY'
-                    ? 'Who receives alerts when an alert type has no list of its own. Branches, groups and vehicles inherit these and can add to or replace them.'
-                    : `Default lists for this ${LEVEL_NAME[level].toLowerCase()}: inherit the level above, add to it, replace it, or notify nobody.`}
+                    ? t('Who receives alerts when an alert type has no list of its own. Branches, groups and vehicles inherit these and can add to or replace them.')
+                    : t('Default lists for this {{level}}: inherit the level above, add to it, replace it, or notify nobody.', { level: t(LEVEL_NAME[level]).toLowerCase() })}
                 </p>
               </div>
               {lists.isError && <FormError message={errorMessage(lists.error)} />}

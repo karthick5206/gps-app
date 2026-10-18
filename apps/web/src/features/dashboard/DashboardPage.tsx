@@ -1,4 +1,5 @@
 import { ArrowRightIcon, MapIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -17,9 +18,11 @@ const TABS = [
 type TabValue = (typeof TABS)[number]['value'];
 
 export function DashboardPage() {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const [params, setParams] = useSearchParams();
-  const tab = (TABS.find((t) => t.value === params.get('tab'))?.value ?? 'overview') as TabValue;
+  const tab = (TABS.find((x) => x.value === params.get('tab'))?.value ?? 'overview') as TabValue;
+  const description = TABS.find((x) => x.value === tab)?.description;
   const setTab = (v: string) =>
     setParams(
       (p) => {
@@ -33,13 +36,13 @@ export function DashboardPage() {
   return (
     <div className="w-full space-y-5 p-4 sm:p-6">
       <PageHeader
-        title="Dashboard"
-        description={TABS.find((t) => t.value === tab)?.description}
+        title={t('Dashboard')}
+        description={description && t(description)}
         actions={
           can('live_map') && (
             <Button asChild>
               <Link to="/live">
-                <MapIcon /> Open live map <ArrowRightIcon />
+                <MapIcon /> {t('Open live map')} <ArrowRightIcon />
               </Link>
             </Button>
           )
@@ -47,9 +50,9 @@ export function DashboardPage() {
       />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
-          {TABS.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>
-              {t.label}
+          {TABS.map((x) => (
+            <TabsTrigger key={x.value} value={x.value}>
+              {t(x.label)}
             </TabsTrigger>
           ))}
         </TabsList>

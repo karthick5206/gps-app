@@ -2,6 +2,7 @@ import type { GeofenceDto } from '@veetracer/shared';
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 import { CheckIcon, CircleIcon, EraserIcon, HexagonIcon, MaximizeIcon, SquareIcon, Undo2Icon, XIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cssToken } from '@/features/live/map/map-style';
@@ -58,6 +59,7 @@ export function GeofenceMap({
   readOnly?: boolean;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const { map, unsupported } = useBasemap(containerRef);
   const drawRef = useRef<GeofenceDraw | null>(null);
@@ -154,30 +156,30 @@ export function GeofenceMap({
 
   return (
     <div className={cn('relative min-h-[280px] overflow-hidden', className)}>
-      <div ref={containerRef} className="h-full w-full" role="application" aria-label="Geofence map editor" />
+      <div ref={containerRef} className="h-full w-full" role="application" aria-label={t('Geofence map editor')} />
       {unsupported && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted p-6 text-center text-sm text-muted-foreground">
-          The map needs WebGL. You can still enter a circle centre and radius in the form.
+          {t('The map needs WebGL. You can still enter a circle centre and radius in the form.')}
         </div>
       )}
       {!readOnly && !unsupported && (
         <>
           <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5" role="toolbar" aria-label="Drawing tools">
-            <ToolButton label="Draw circle" active={mode === 'circle'} onClick={() => start('circle')}>
+            <ToolButton label={t('Draw circle')} active={mode === 'circle'} onClick={() => start('circle')}>
               <CircleIcon />
             </ToolButton>
-            <ToolButton label="Draw polygon" active={mode === 'polygon'} onClick={() => start('polygon')}>
+            <ToolButton label={t('Draw polygon')} active={mode === 'polygon'} onClick={() => start('polygon')}>
               <HexagonIcon />
             </ToolButton>
-            <ToolButton label="Draw rectangle" active={mode === 'rectangle'} onClick={() => start('rectangle')}>
+            <ToolButton label={t('Draw rectangle')} active={mode === 'rectangle'} onClick={() => start('rectangle')}>
               <SquareIcon />
             </ToolButton>
             <div className="my-0.5 h-px bg-border" />
-            <ToolButton label="Zoom to shape" onClick={() => drawRef.current?.fitToGeometry()} disabled={!geometry}>
+            <ToolButton label={t('Zoom to shape')} onClick={() => drawRef.current?.fitToGeometry()} disabled={!geometry}>
               <MaximizeIcon />
             </ToolButton>
             <ToolButton
-              label="Clear shape"
+              label={t('Clear shape')}
               onClick={() => {
                 drawRef.current?.setGeometry(null);
                 onChange(null);
@@ -189,21 +191,21 @@ export function GeofenceMap({
           </div>
           <div className="pointer-events-none absolute inset-x-3 bottom-10 z-10 flex justify-center sm:bottom-3 sm:left-14 sm:justify-start">
             <div className="pointer-events-auto flex max-w-xl flex-wrap items-center gap-2 rounded-lg border bg-card/95 px-3 py-2 text-xs shadow-md backdrop-blur">
-              <span className="text-muted-foreground">{!geometry && mode === 'none' ? 'Pick a tool on the left to draw the geofence.' : HINTS[mode]}</span>
+              <span className="text-muted-foreground">{!geometry && mode === 'none' ? t('Pick a tool on the left to draw the geofence.') : t(HINTS[mode])}</span>
               {mode === 'polygon' && (
                 <>
-                  <span className="font-medium tabular-nums">{draftPoints} pts</span>
+                  <span className="font-medium tabular-nums">{t('{{count}} pts', { count: draftPoints })}</span>
                   <Button size="sm" className="h-7" onClick={() => drawRef.current?.finishPolygon()} disabled={draftPoints < 3}>
-                    <CheckIcon /> Finish
+                    <CheckIcon /> {t('Finish')}
                   </Button>
                   <Button size="sm" variant="outline" className="h-7" onClick={() => drawRef.current?.undoPoint()} disabled={!draftPoints}>
-                    <Undo2Icon /> Undo
+                    <Undo2Icon /> {t('Undo')}
                   </Button>
                 </>
               )}
               {mode !== 'none' && (
                 <Button size="sm" variant="ghost" className="h-7" onClick={() => drawRef.current?.setMode('none')}>
-                  <XIcon /> Cancel
+                  <XIcon /> {t('Cancel')}
                 </Button>
               )}
             </div>

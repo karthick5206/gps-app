@@ -1,5 +1,6 @@
 import type { AlertDto, TripDto } from '@veetracer/shared';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/features/theme/use-theme';
 import { cn } from '@/lib/utils';
 import { sampleAt, type TrackIndex } from './playback-core';
@@ -98,6 +99,7 @@ export function Timeline({
   alerts: AlertDto[];
   className?: string;
 }) {
+  const { t } = useTranslation();
   const idx = engine.index;
   const { resolved } = useTheme();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -192,7 +194,7 @@ export function Timeline({
         ref={wrapRef}
         role="slider"
         tabIndex={0}
-        aria-label="Playback position"
+        aria-label={t('Playback position')}
         aria-valuemin={Math.round(idx.start / 1000)}
         aria-valuemax={Math.round(idx.end / 1000)}
         className="relative cursor-pointer touch-none rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
@@ -208,15 +210,15 @@ export function Timeline({
           <div className="absolute inset-x-0 top-2 h-1.5 overflow-hidden rounded-full bg-muted">
             <div ref={playedRef} className="absolute inset-0 origin-left bg-primary/25" style={{ transform: 'scaleX(0)' }} />
           </div>
-          {trips.map((t) => {
-            const a = pct(Date.parse(t.startTime));
-            const b = pct(Date.parse(t.endTime));
+          {trips.map((trip) => {
+            const a = pct(Date.parse(trip.startTime));
+            const b = pct(Date.parse(trip.endTime));
             return (
               <div
-                key={t.id}
+                key={trip.id}
                 className="absolute top-2 h-1.5 rounded-full bg-primary"
                 style={{ left: `${a}%`, width: `max(2px, calc(${b - a}% - 2px))` }}
-                title={`Trip ${formatClock(Date.parse(t.startTime))} – ${formatClock(Date.parse(t.endTime))}`}
+                title={t('Trip {{from}} – {{to}}', { from: formatClock(Date.parse(trip.startTime)), to: formatClock(Date.parse(trip.endTime)) })}
               />
             );
           })}

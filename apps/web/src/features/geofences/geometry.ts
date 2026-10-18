@@ -152,17 +152,21 @@ export function clampRadius(r: number): number {
 }
 
 /** Validation message for a geometry, or null when acceptable for the API (radius 20 m–50 km, polygon 3–500 points, rectangle 4). */
-export function validateGeometry(g: Geometry | null): string | null {
-  if (!g) return 'Draw the geofence on the map';
+export function validateGeometry(g: Geometry | null, tr: Translate = plain): string | null {
+  if (!g) return tr('Draw the geofence on the map');
   if (g.type === 'CIRCLE') {
-    if (!Number.isFinite(g.radiusM) || g.radiusM < MIN_RADIUS_M || g.radiusM > MAX_RADIUS_M) return 'Radius must be between 20 m and 50 km';
+    if (!Number.isFinite(g.radiusM) || g.radiusM < MIN_RADIUS_M || g.radiusM > MAX_RADIUS_M) return tr('Radius must be between 20 m and 50 km');
     return null;
   }
-  if (g.type === 'RECTANGLE' && g.points.length !== 4) return 'A rectangle needs 4 corners';
-  if (g.points.length < 3) return 'A polygon needs at least 3 points';
-  if (g.points.length > MAX_POLYGON_POINTS) return `A polygon can have at most ${MAX_POLYGON_POINTS} points`;
+  if (g.type === 'RECTANGLE' && g.points.length !== 4) return tr('A rectangle needs 4 corners');
+  if (g.points.length < 3) return tr('A polygon needs at least 3 points');
+  if (g.points.length > MAX_POLYGON_POINTS) return tr('A polygon can have at most {{count}} points', { count: String(MAX_POLYGON_POINTS) });
   return null;
 }
+
+/** Translator for UI text; the default fills `{{vars}}` into the English key (keeps this file import-free for tests). */
+export type Translate = (key: string, vars?: Record<string, string>) => string;
+const plain: Translate = (key, vars) => key.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars?.[k] ?? '');
 
 /** Human size: "300 m", "1.2 km", "4.5 ha", "2.1 km²". */
 export function formatRadius(m: number): string {

@@ -31,6 +31,7 @@ import {
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { formatDateTime, humanize } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 import { formatHm, periodLabel } from './report-format';
 
 export type Row = Record<string, unknown>;
@@ -154,33 +155,39 @@ const STOPS: ReportColumn[] = [
     id: 'ignitionOn',
     header: 'Type',
     value: (r) => (r.ignitionOn ? 'Idle' : 'Parked'),
-    render: (r) => <Badge variant={r.ignitionOn ? 'warning' : 'secondary'}>{r.ignitionOn ? 'Idle' : 'Parked'}</Badge>,
+    render: (r) => <Badge variant={r.ignitionOn ? 'warning' : 'secondary'}>{r.ignitionOn ? i18n.t('Idle') : i18n.t('Parked')}</Badge>,
   },
   { id: 'address', header: 'Location', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
 ];
+
+/** Alert type label in the current language (the sort value stays English). */
+const alertTypeLabel = (r: Row) => {
+  const label = ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label;
+  return label ? i18n.t(label) : (r.type as string);
+};
 
 const SEVERITY_VARIANT = { INFO: 'secondary', WARNING: 'warning', CRITICAL: 'destructive' } as const;
 
 const ALERTS: ReportColumn[] = [
   { id: 'occurredAt', header: 'Time', value: time('occurredAt'), render: timeCell('occurredAt') },
   vehicle,
-  { id: 'type', header: 'Type', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string) },
+  { id: 'type', header: 'Type', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string), render: (r) => alertTypeLabel(r) },
   {
     id: 'severity',
     header: 'Severity',
     value: (r) => ['INFO', 'WARNING', 'CRITICAL'].indexOf(r.severity as string),
-    render: (r) => <Badge variant={SEVERITY_VARIANT[r.severity as AlertDto['severity']] ?? 'secondary'}>{humanize(r.severity as string)}</Badge>,
+    render: (r) => <Badge variant={SEVERITY_VARIANT[r.severity as AlertDto['severity']] ?? 'secondary'}>{i18n.t(humanize(r.severity as string))}</Badge>,
   },
   { id: 'message', header: 'Message', value: str('message'), render: text('message', 'block max-w-96 truncate') },
   { id: 'address', header: 'Location', value: str('address'), render: text('address') },
-  { id: 'status', header: 'Status', value: str('status'), render: (r) => humanize(r.status as string) },
+  { id: 'status', header: 'Status', value: str('status'), render: (r) => i18n.t(humanize(r.status as string)) },
 ];
 
 const GEOFENCE_VISITS: ReportColumn[] = [
   vehicle,
   { id: 'geofenceName', header: 'Geofence', value: str('geofenceName') },
   { id: 'enterTime', header: 'Entered', value: time('enterTime'), render: timeCell('enterTime') },
-  { id: 'exitTime', header: 'Exited', value: time('exitTime'), render: (r) => (r.exitTime ? timeCell('exitTime')(r) : <Badge variant="default">Inside</Badge>) },
+  { id: 'exitTime', header: 'Exited', value: time('exitTime'), render: (r) => (r.exitTime ? timeCell('exitTime')(r) : <Badge variant="default">{i18n.t('Inside')}</Badge>) },
   duration('durationSec', 'Duration'),
 ];
 
@@ -241,7 +248,7 @@ const ENGINE_HOURS: ReportColumn[] = [
 ];
 
 const STATE_BADGE = (on: boolean | null) =>
-  on === null ? <span className="text-muted-foreground">—</span> : <Badge variant={on ? 'success' : 'muted'}>{on ? 'On' : 'Off'}</Badge>;
+  on === null ? <span className="text-muted-foreground">—</span> : <Badge variant={on ? 'success' : 'muted'}>{on ? i18n.t('On') : i18n.t('Off')}</Badge>;
 
 const POSITIONS: ReportColumn[] = [
   { id: 'fixTime', header: 'GPS time', value: time('fixTime'), render: timeCell('fixTime') },
@@ -250,13 +257,13 @@ const POSITIONS: ReportColumn[] = [
   { id: 'speedKph', header: 'km/h', value: num('speedKph'), numeric: true, total: 'max', format: int },
   count('course', 'Course', undefined),
   count('satellites', 'Sats', undefined),
-  { id: 'valid', header: 'Fix', value: (r) => (r.valid ? 1 : 0), render: (r) => <Badge variant={r.valid ? 'success' : 'warning'}>{r.valid ? 'Valid' : 'No fix'}</Badge> },
+  { id: 'valid', header: 'Fix', value: (r) => (r.valid ? 1 : 0), render: (r) => <Badge variant={r.valid ? 'success' : 'warning'}>{r.valid ? i18n.t('Valid') : i18n.t('No fix')}</Badge> },
   { id: 'ignition', header: 'Ignition', value: (r) => (r.ignition === null ? null : r.ignition ? 1 : 0), render: (r) => STATE_BADGE(r.ignition as boolean | null) },
   optNum('extVoltage', 'Ext. V', 2),
   optNum('batteryLevel', 'Battery %', 0),
   optNum('gsmSignal', 'GSM', 0),
   optNum('odometerKm', 'Odometer (km)', 1),
-  { id: 'alarm', header: 'Alarm', value: str('alarm'), render: (r) => (r.alarm ? <Badge variant="destructive">{humanize(r.alarm as string)}</Badge> : <span className="text-muted-foreground">—</span>) },
+  { id: 'alarm', header: 'Alarm', value: str('alarm'), render: (r) => (r.alarm ? <Badge variant="destructive">{i18n.t(humanize(r.alarm as string))}</Badge> : <span className="text-muted-foreground">—</span>) },
   { id: 'flags', header: 'Flags', value: str('flags'), render: text('flags') },
 ];
 
@@ -306,7 +313,7 @@ const CONTINUOUS_DRIVING: ReportColumn[] = [
 const EVENT_SUMMARY: ReportColumn[] = [
   vehicle,
   plate,
-  { id: 'type', header: 'Event', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string) },
+  { id: 'type', header: 'Event', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string), render: (r) => alertTypeLabel(r) },
   count('count', 'Count'),
   count('criticalCount', 'Critical'),
   { id: 'firstAt', header: 'First', value: time('firstAt'), render: timeCell('firstAt') },
@@ -320,7 +327,7 @@ const GEOFENCE_SUMMARY: ReportColumn[] = [
   duration('insideSec', 'Time inside'),
   duration('avgVisitSec', 'Avg visit', undefined),
   { id: 'firstEnter', header: 'First entry', value: time('firstEnter'), render: timeCell('firstEnter') },
-  { id: 'lastExit', header: 'Last exit', value: time('lastExit'), render: (r) => (r.lastExit ? timeCell('lastExit')(r) : <Badge variant="default">Inside</Badge>) },
+  { id: 'lastExit', header: 'Last exit', value: time('lastExit'), render: (r) => (r.lastExit ? timeCell('lastExit')(r) : <Badge variant="default">{i18n.t('Inside')}</Badge>) },
 ];
 
 export const DEVICE_STATUS_META: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'muted' | 'secondary' }> = {
@@ -341,7 +348,7 @@ const DEVICE_STATUS: ReportColumn[] = [
     value: str('status'),
     render: (r) => {
       const m = DEVICE_STATUS_META[r.status as string];
-      return <Badge variant={m?.variant ?? 'secondary'}>{m?.label ?? (r.status as string)}</Badge>;
+      return <Badge variant={m?.variant ?? 'secondary'}>{m ? i18n.t(m.label) : (r.status as string)}</Badge>;
     },
   },
   { id: 'uniqueId', header: 'IMEI', value: str('uniqueId'), render: (r) => <span className="font-mono text-xs">{(r.uniqueId as string) ?? '—'}</span> },
@@ -364,7 +371,7 @@ const DRIVERS: ReportColumn[] = [
   count('maxSpeedKph', 'Max (km/h)', 'max'),
   count('overspeedCount', 'Overspeed'),
   { id: 'firstStart', header: 'First start', value: time('firstStart'), render: timeCell('firstStart') },
-  { id: 'lastEnd', header: 'Last end', value: time('lastEnd'), render: (r) => (r.lastEnd ? timeCell('lastEnd')(r) : <Badge variant="success">Driving now</Badge>) },
+  { id: 'lastEnd', header: 'Last end', value: time('lastEnd'), render: (r) => (r.lastEnd ? timeCell('lastEnd')(r) : <Badge variant="success">{i18n.t('Driving now')}</Badge>) },
 ];
 
 export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices';

@@ -1,5 +1,6 @@
 import { router, Stack } from 'expo-router';
 import { ChevronRightIcon } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
 import { SectionList, View } from 'react-native';
 import { Card, SectionTitle, Text } from '@/components/ui';
 import { REPORT_CATEGORIES, REPORT_DEFS } from '@/features/reports/report-defs';
@@ -9,15 +10,16 @@ const SECTIONS = REPORT_CATEGORIES.map((category) => ({ title: category, data: R
 
 export default function ReportsScreen() {
   const c = useColors();
+  const { t } = useTranslation();
   return (
     <>
-      <Stack.Screen options={{ title: 'Reports' }} />
+      <Stack.Screen options={{ title: t('Reports') }} />
       <SectionList
         sections={SECTIONS}
         keyExtractor={(d) => d.type}
         stickySectionHeadersEnabled={false}
         contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.sm }}
-        renderSectionHeader={({ section }) => <SectionTitle>{section.title}</SectionTitle>}
+        renderSectionHeader={({ section }) => <SectionTitle>{t(section.title)}</SectionTitle>}
         renderItem={({ item: d }) => (
           <Card onPress={() => router.push(`/reports/${d.type}`)}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
@@ -25,9 +27,9 @@ export default function ReportsScreen() {
                 <d.icon size={20} color={c.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text weight="600">{d.label}</Text>
+                <Text weight="600">{t(d.label)}</Text>
                 <Text size="sm" tone="muted" numberOfLines={2}>
-                  {d.description}
+                  {t(d.description)}
                 </Text>
               </View>
               <ChevronRightIcon size={18} color={c.mutedForeground} />

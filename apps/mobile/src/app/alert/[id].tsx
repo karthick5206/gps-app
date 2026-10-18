@@ -4,6 +4,7 @@ import { ALERT_TYPE_MAP, type AlertDto } from '@veetracer/shared';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { CarIcon, CheckIcon } from 'lucide-react-native';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
 import { Button, Card, ErrorBanner, Field, InfoRow, Pill, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
@@ -18,6 +19,7 @@ const STATUS_LABEL = { NEW: 'New', ACKNOWLEDGED: 'Acknowledged', RESOLVED: 'Reso
 export default function AlertScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const scheme = useScheme();
+  const { t } = useTranslation();
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const [note, setNote] = useState('');
@@ -37,7 +39,7 @@ export default function AlertScreen() {
     );
   }
   const a = alert.data;
-  const label = ALERT_TYPE_MAP[a.type]?.label ?? a.type;
+  const label = t(ALERT_TYPE_MAP[a.type]?.label ?? a.type);
   const point = a.lat !== null && a.lng !== null ? ([a.lng, a.lat] as [number, number]) : null;
   const color = SEVERITY_COLOR[a.severity];
   return (
@@ -60,29 +62,29 @@ export default function AlertScreen() {
               <Text size="lg" weight="700">
                 {label}
               </Text>
-              <Pill label={SEVERITY_LABEL[a.severity]} color={color} />
+              <Pill label={t(SEVERITY_LABEL[a.severity])} color={color} />
             </View>
           </View>
           <Text style={{ marginTop: SPACE.md }}>{a.message}</Text>
         </Card>
 
         <Card style={{ paddingVertical: 0 }}>
-          <InfoRow label="Vehicle" value={a.plateNumber && a.plateNumber !== a.objectName ? `${a.objectName} · ${a.plateNumber}` : a.objectName} />
-          <InfoRow label="Time" value={formatDateTime(a.occurredAt)} />
-          {a.geofenceName && <InfoRow label="Geofence" value={a.geofenceName} />}
-          {a.address && <InfoRow label="Address" value={a.address} />}
-          <InfoRow label="Status" value={STATUS_LABEL[a.status]} />
-          {a.ackByName && <InfoRow label="Acknowledged by" value={`${a.ackByName} · ${formatDateTime(a.ackAt)}`} />}
-          {a.ackNote && <InfoRow label="Note" value={a.ackNote} />}
+          <InfoRow label={t('Vehicle')} value={a.plateNumber && a.plateNumber !== a.objectName ? `${a.objectName} · ${a.plateNumber}` : a.objectName} />
+          <InfoRow label={t('Time')} value={formatDateTime(a.occurredAt)} />
+          {a.geofenceName && <InfoRow label={t('Geofence')} value={a.geofenceName} />}
+          {a.address && <InfoRow label={t('Address')} value={a.address} />}
+          <InfoRow label={t('Status')} value={t(STATUS_LABEL[a.status])} />
+          {a.ackByName && <InfoRow label={t('Acknowledged by')} value={`${a.ackByName} · ${formatDateTime(a.ackAt)}`} />}
+          {a.ackNote && <InfoRow label={t('Note')} value={a.ackNote} />}
         </Card>
 
-        <Button title="Open vehicle" icon={CarIcon} variant="outline" onPress={() => router.push(`/vehicle/${a.objectId}`)} />
+        <Button title={t('Open vehicle')} icon={CarIcon} variant="outline" onPress={() => router.push(`/vehicle/${a.objectId}`)} />
 
         {a.status === 'NEW' && can('alerts', 'edit') && (
           <Card style={{ gap: SPACE.md }}>
-            <Field label="Note (optional)" value={note} onChangeText={setNote} placeholder="What was done?" maxLength={500} />
+            <Field label={t('Note (optional)')} value={note} onChangeText={setNote} placeholder={t('What was done?')} maxLength={500} />
             {ack.isError && <ErrorBanner message={errorMessage(ack.error)} />}
-            <Button title="Acknowledge" icon={CheckIcon} onPress={() => ack.mutate()} loading={ack.isPending} />
+            <Button title={t('Acknowledge')} icon={CheckIcon} onPress={() => ack.mutate()} loading={ack.isPending} />
           </Card>
         )}
       </View>

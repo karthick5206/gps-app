@@ -1,6 +1,7 @@
 import { MOVEMENT_STATUSES, STATUS_META, type LiveObject, type MovementStatus } from '@veetracer/shared';
 import { Image } from 'expo-image';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Chips, Pill, Text } from '@/components/ui';
 import { vehicleImage } from '@/features/map/vehicle-icons';
@@ -11,8 +12,9 @@ export type StatusFilter = MovementStatus | 'ALL';
 
 export function StatusPill({ o, now }: { o: LiveObject; now?: number }) {
   const scheme = useScheme();
+  const { t } = useTranslation();
   const meta = STATUS_META[o.status];
-  return <Pill label={timeInStatus(meta.label, o.statusSince, now) ?? meta.label} color={statusColor(o.status, scheme)} />;
+  return <Pill label={timeInStatus(t(meta.label), o.statusSince, now) ?? t(meta.label)} color={statusColor(o.status, scheme)} />;
 }
 
 export function VehicleThumb({ o, size = 36 }: { o: LiveObject; size?: number }) {
@@ -59,10 +61,11 @@ export function useStatusCounts(objects: LiveObject[]) {
 
 export function StatusChips({ objects, value, onChange }: { objects: LiveObject[]; value: StatusFilter; onChange: (v: StatusFilter) => void }) {
   const scheme = useScheme();
+  const { t } = useTranslation();
   const counts = useStatusCounts(objects);
   const options = [
-    { value: 'ALL' as StatusFilter, label: 'All', count: counts.ALL },
-    ...MOVEMENT_STATUSES.filter((s) => counts[s] > 0 || s === value).map((s) => ({ value: s as StatusFilter, label: STATUS_META[s].label, color: statusColor(s, scheme), count: counts[s] })),
+    { value: 'ALL' as StatusFilter, label: t('All'), count: counts.ALL },
+    ...MOVEMENT_STATUSES.filter((s) => counts[s] > 0 || s === value).map((s) => ({ value: s as StatusFilter, label: t(STATUS_META[s].label), color: statusColor(s, scheme), count: counts[s] })),
   ];
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SPACE.lg }} keyboardShouldPersistTaps="handled">

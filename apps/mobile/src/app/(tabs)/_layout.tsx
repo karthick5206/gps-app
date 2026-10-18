@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tabs } from 'expo-router';
 import { BellIcon, LayoutDashboardIcon, ListIcon, MapIcon, MenuIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/features/auth/auth';
 import { realtime } from '@/features/live/realtime';
 import { useLiveConnection } from '@/features/live/use-live-connection';
@@ -11,6 +12,7 @@ import { useColors } from '@/lib/theme';
 
 export default function TabsLayout() {
   const c = useColors();
+  const { t } = useTranslation();
   const { can } = useAuth();
   const queryClient = useQueryClient();
   useLiveConnection();
@@ -40,19 +42,19 @@ export default function TabsLayout() {
         headerShadowVisible: false,
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Live map', headerShown: false, tabBarIcon: ({ color, size }) => <MapIcon color={color} size={size} /> }} />
-      <Tabs.Screen name="vehicles" options={{ title: 'Vehicles', tabBarIcon: ({ color, size }) => <ListIcon color={color} size={size} /> }} />
+      <Tabs.Screen name="index" options={{ title: t('Live map'), headerShown: false, tabBarIcon: ({ color, size }) => <MapIcon color={color} size={size} /> }} />
+      <Tabs.Screen name="vehicles" options={{ title: t('Vehicles'), tabBarIcon: ({ color, size }) => <ListIcon color={color} size={size} /> }} />
       <Tabs.Screen
         name="alerts"
         options={{
-          title: 'Alerts',
+          title: t('Alerts'),
           href: can('alerts') ? undefined : null,
           tabBarBadge: count ? (count > 99 ? '99+' : count) : undefined,
           tabBarIcon: ({ color, size }) => <BellIcon color={color} size={size} />,
         }}
       />
-      <Tabs.Screen name="dashboard" options={{ title: 'Dashboard', href: can('dashboard') ? undefined : null, tabBarIcon: ({ color, size }) => <LayoutDashboardIcon color={color} size={size} /> }} />
-      <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: ({ color, size }) => <MenuIcon color={color} size={size} /> }} />
+      <Tabs.Screen name="dashboard" options={{ title: t('Dashboard'), href: can('dashboard') ? undefined : null, tabBarIcon: ({ color, size }) => <LayoutDashboardIcon color={color} size={size} /> }} />
+      <Tabs.Screen name="more" options={{ title: t('More'), tabBarIcon: ({ color, size }) => <MenuIcon color={color} size={size} /> }} />
     </Tabs>
   );
 }

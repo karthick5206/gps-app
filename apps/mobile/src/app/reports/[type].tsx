@@ -12,6 +12,7 @@ import {
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { FileSpreadsheetIcon, FileTextIcon, PlayIcon, SheetIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, FlatList, ScrollView, StyleSheet, View } from 'react-native';
 import { DateField, SelectField, toYmd, VehiclePicker } from '@/components/pickers';
 import { Button, Card, Chips, EmptyState, ErrorBanner, Field, Text } from '@/components/ui';
@@ -55,6 +56,7 @@ const FORMATS: { format: ReportFormat; label: string; icon: typeof FileTextIcon 
 const PREVIEW_FIELDS = 5;
 
 function RowCard({ row, columns }: { row: Row; columns: ReturnType<typeof getColumns> }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [title, ...rest] = columns;
   const shown = open ? rest : rest.slice(0, PREVIEW_FIELDS);
@@ -67,7 +69,7 @@ function RowCard({ row, columns }: { row: Row; columns: ReturnType<typeof getCol
         {shown.map((c) => (
           <View key={c.id} style={styles.field}>
             <Text size="xs" tone="muted" numberOfLines={1}>
-              {c.header}
+              {t(c.header)}
             </Text>
             <Text size="sm" weight="500" numberOfLines={open ? undefined : 2}>
               {cellText(c, row)}
@@ -77,7 +79,7 @@ function RowCard({ row, columns }: { row: Row; columns: ReturnType<typeof getCol
       </View>
       {rest.length > PREVIEW_FIELDS && (
         <Text size="xs" tone="primary" weight="600" style={{ marginTop: SPACE.sm }}>
-          {open ? 'Show less' : `Show all ${rest.length + 1} fields`}
+          {open ? t('Show less') : t('Show all {{count}} fields', { count: rest.length + 1 })}
         </Text>
       )}
     </Card>
@@ -90,6 +92,7 @@ export default function ReportRunScreen() {
   const { type } = useLocalSearchParams<{ type: ReportType }>();
   const def = REPORT_DEF_MAP[type];
   const c = useColors();
+  const { t } = useTranslation();
   const { can } = useAuth();
   const single = SINGLE_OBJECT_REPORT_TYPES.includes(type);
   const periodic = PERIOD_REPORT_TYPES.includes(type);
@@ -121,9 +124,9 @@ export default function ReportRunScreen() {
 
   const validation = (() => {
     const span = daySpan(from, to);
-    if (!(span >= 1)) return 'The end date must be on or after the start date.';
-    if (single && objectIds.length !== 1) return 'Choose one vehicle for this report.';
-    if (single && span > POSITIONS_REPORT_MAX_DAYS) return `This report covers at most ${POSITIONS_REPORT_MAX_DAYS} days.`;
+    if (!(span >= 1)) return t('The end date must be on or after the start date.');
+    if (single && objectIds.length !== 1) return t('Choose one vehicle for this report.');
+    if (single && span > POSITIONS_REPORT_MAX_DAYS) return t('This report covers at most {{count}} days.', { count: POSITIONS_REPORT_MAX_DAYS });
     return null;
   })();
 
@@ -135,7 +138,7 @@ export default function ReportRunScreen() {
     try {
       await downloadAndShare('/reports/export', { method: 'POST', body: { ...request, format }, fallbackName: `${type.toLowerCase()}-${from}.${format.toLowerCase()}` });
     } catch (err) {
-      Alert.alert('Export failed', errorMessage(err));
+      Alert.alert(t('Export failed'), errorMessage(err));
     } finally {
       setExporting(null);
     }
@@ -146,12 +149,12 @@ export default function ReportRunScreen() {
   const totals = useMemo(() => (run.data ? computeTotals(columns, rows, run.data.totals) : {}), [run.data, columns, rows]);
   const totalCols = columns.filter((col) => totals[col.id] !== undefined);
 
-  if (!def) return <EmptyState icon={FileTextIcon} title="Unknown report" />;
-  const vehicleLabel = objectIds.length === 0 ? (single ? 'Choose a vehicle' : 'All vehicles') : objectIds.length === 1 ? (liveStore.get(objectIds[0])?.name ?? '1 vehicle') : `${objectIds.length} vehicles`;
+  if (!def) return <EmptyState icon={FileTextIcon} title={t('Unknown report')} />;
+  const vehicleLabel = objectIds.length === 0 ? (single ? t('Choose a vehicle') : t('All vehicles')) : objectIds.length === 1 ? (liveStore.get(objectIds[0])?.name ?? t('1 vehicle')) : t('{{n}} vehicles', { n: objectIds.length });
 
   return (
     <>
-      <Stack.Screen options={{ title: def.label }} />
+      <Stack.Screen options={{ title: t(def.label) }} />
       <FlatList
         data={rows}
         keyExtractor={(_, i) => String(i)}
@@ -160,51 +163,51 @@ export default function ReportRunScreen() {
         ListHeaderComponent={
           <View style={{ gap: SPACE.md, marginBottom: SPACE.sm }}>
             <Text size="sm" tone="muted">
-              {def.description}
+              {t(def.description)}
             </Text>
-            <SelectField label={single ? 'Vehicle' : 'Vehicles'} value={vehicleLabel} onPress={() => setPicker(true)} />
+            <SelectField label={single ? t('Vehicle') : t('Vehicles')} value={vehicleLabel} onPress={() => setPicker(true)} />
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <Chips
                 value={preset}
                 onChange={pickPreset}
                 options={[
-                  { value: 'today', label: 'Today' },
-                  { value: 'yesterday', label: 'Yesterday' },
-                  { value: 'last7', label: 'Last 7 days' },
-                  { value: 'month', label: 'This month' },
-                  { value: 'lastMonth', label: 'Last month' },
-                  { value: 'custom', label: 'Custom' },
+                  { value: 'today', label: t('Today') },
+                  { value: 'yesterday', label: t('Yesterday') },
+                  { value: 'last7', label: t('Last 7 days') },
+                  { value: 'month', label: t('This month') },
+                  { value: 'lastMonth', label: t('Last month') },
+                  { value: 'custom', label: t('Custom') },
                 ]}
               />
             </ScrollView>
             <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-              <DateField label="From" value={from} maximumDate={new Date()} onChange={(v) => (setPreset('custom'), setRange([v, to]))} />
-              <DateField label="To" value={to} maximumDate={new Date()} onChange={(v) => (setPreset('custom'), setRange([from, v]))} />
+              <DateField label={t('From')} value={from} maximumDate={new Date()} onChange={(v) => (setPreset('custom'), setRange([v, to]))} />
+              <DateField label={t('To')} value={to} maximumDate={new Date()} onChange={(v) => (setPreset('custom'), setRange([from, v]))} />
             </View>
             {periodic && (
               <Chips
                 value={period}
                 onChange={setPeriod}
                 options={[
-                  { value: 'DAY', label: 'Daily' },
-                  { value: 'WEEK', label: 'Weekly' },
-                  { value: 'MONTH', label: 'Monthly' },
+                  { value: 'DAY', label: t('Daily') },
+                  { value: 'WEEK', label: t('Weekly') },
+                  { value: 'MONTH', label: t('Monthly') },
                 ]}
               />
             )}
             {['HALT', 'STOPS', 'IDLE'].includes(type) && (
-              <Field label="Minimum duration (min)" value={minDuration} onChangeText={(v) => setMinDuration(v.replace(/\D/g, ''))} keyboardType="number-pad" placeholder="Any" />
+              <Field label={t('Minimum duration (min)')} value={minDuration} onChangeText={(v) => setMinDuration(v.replace(/\D/g, ''))} keyboardType="number-pad" placeholder={t('Any')} />
             )}
             {validation && (
               <Text size="sm" tone="destructive">
                 {validation}
               </Text>
             )}
-            <Button title="Run report" icon={PlayIcon} onPress={() => run.mutate()} loading={run.isPending} disabled={!!validation} />
+            <Button title={t('Run report')} icon={PlayIcon} onPress={() => run.mutate()} loading={run.isPending} disabled={!!validation} />
             {can('reports', 'export') && (
               <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
                 {FORMATS.map((f) => (
-                  <Button key={f.format} title={f.label} icon={f.icon} variant="outline" style={{ flex: 1, paddingHorizontal: SPACE.sm }} loading={exporting === f.format} disabled={!!validation || !!exporting} onPress={() => exportAs(f.format)} />
+                  <Button key={f.format} title={t(f.label)} icon={f.icon} variant="outline" style={{ flex: 1, paddingHorizontal: SPACE.sm }} loading={exporting === f.format} disabled={!!validation || !!exporting} onPress={() => exportAs(f.format)} />
                 ))}
               </View>
             )}
@@ -212,16 +215,16 @@ export default function ReportRunScreen() {
             {run.data && (
               <>
                 <Text size="sm" tone="muted">
-                  {run.data.totalRows.toLocaleString()} rows{run.data.truncated ? ` (showing the first ${rows.length.toLocaleString()} — export for all)` : ''}
+                  {t('{{n}} rows', { n: run.data.totalRows.toLocaleString() })}{run.data.truncated ? ` ${t('(showing the first {{n}} — export for all)', { n: rows.length.toLocaleString() })}` : ''}
                 </Text>
                 {totalCols.length > 0 && rows.length > 0 && (
                   <Card style={{ backgroundColor: c.accent }}>
-                    <Text weight="600">Totals</Text>
+                    <Text weight="600">{t('Totals')}</Text>
                     <View style={styles.fields}>
                       {totalCols.map((col) => (
                         <View key={col.id} style={styles.field}>
                           <Text size="xs" tone="muted">
-                            {col.header}
+                            {t(col.header)}
                           </Text>
                           <Text size="sm" weight="600">
                             {col.format ? col.format(totals[col.id]) : totals[col.id].toLocaleString()}
@@ -236,9 +239,9 @@ export default function ReportRunScreen() {
           </View>
         }
         renderItem={({ item }) => <RowCard row={item} columns={columns} />}
-        ListEmptyComponent={run.isPending ? <ActivityIndicator style={{ margin: SPACE.xl }} /> : run.data ? <EmptyState icon={def.icon} title="No data" description="Nothing matched for these vehicles and dates." /> : undefined}
+        ListEmptyComponent={run.isPending ? <ActivityIndicator style={{ margin: SPACE.xl }} /> : run.data ? <EmptyState icon={def.icon} title={t('No data')} description={t('Nothing matched for these vehicles and dates.')} /> : undefined}
       />
-      <VehiclePicker open={picker} onClose={() => setPicker(false)} selected={objectIds} onChange={setObjectIds} multiple={!single} title={single ? 'Choose a vehicle' : 'Choose vehicles'} />
+      <VehiclePicker open={picker} onClose={() => setPicker(false)} selected={objectIds} onChange={setObjectIds} multiple={!single} title={single ? t('Choose a vehicle') : t('Choose vehicles')} />
     </>
   );
 }

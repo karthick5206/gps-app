@@ -10,6 +10,7 @@ import {
 } from '@veetracer/shared';
 import { AlertTriangleIcon, BellOffIcon, ChevronDownIcon, CpuIcon, LockIcon, SendIcon } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +23,7 @@ import { SEVERITY_LABEL } from '@/features/alerts/severity';
 import { DayToggles } from '@/features/geofences/TimeWindowsEditor';
 import { formatWindow } from '@/features/geofences/time-windows';
 import { formatDateTime } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 import { AlertTypeIcon } from '@/features/alerts/alert-icons';
 import { cn } from '@/lib/utils';
 import { CHANNEL_LABEL, usePutSetting, type AlertTypeWithSupport, type GroupConflict, type SettingPatch } from './api';
@@ -41,9 +43,9 @@ const SEVERITY_DOT: Record<AlertSeverity, string> = { INFO: 'bg-[#2563eb]', WARN
 
 /** Placeholder for an inherited value (the unit is shown as an input suffix). */
 function paramDisplay(v: unknown): string {
-  if (v === null || v === undefined || v === '') return 'Not set';
-  if (Array.isArray(v)) return v.length ? `${v.length} selected` : 'None';
-  if (typeof v === 'boolean') return v ? 'On' : 'Off';
+  if (v === null || v === undefined || v === '') return i18n.t('Not set');
+  if (Array.isArray(v)) return v.length ? i18n.t('{{count}} selected', { count: v.length }) : i18n.t('None');
+  if (typeof v === 'boolean') return v ? i18n.t('On') : i18n.t('Off');
   return String(v);
 }
 
@@ -64,12 +66,13 @@ function ParamField({
   geofenceOptions: Option[];
   onSet: (v: unknown) => void;
 }) {
+  const { t } = useTranslation();
   const here = isOverriddenHere(source, level);
   const id = `param-${p.key}`;
   const badge = <SourceBadge source={source} level={level} onReset={() => onSet(null)} disabled={disabled} />;
   if (p.type === 'number') {
     return (
-      <SettingRow label={p.label} htmlFor={id} hint={p.hint ?? (p.min !== undefined ? `${p.min}–${p.max} ${p.unit ?? ''}` : undefined)} source={badge}>
+      <SettingRow label={t(p.label)} htmlFor={id} hint={p.hint ? t(p.hint) : p.min !== undefined ? `${p.min}–${p.max} ${p.unit ?? ''}` : undefined} source={badge}>
         <CommitNumber
           id={id}
           value={here ? (value as number | null) : null}
@@ -85,7 +88,7 @@ function ParamField({
   }
   if (p.type === 'time') {
     return (
-      <SettingRow label={p.label} htmlFor={id} source={badge}>
+      <SettingRow label={t(p.label)} htmlFor={id} source={badge}>
         <Input
           id={id}
           type="time"
@@ -99,26 +102,27 @@ function ParamField({
   }
   if (p.type === 'boolean') {
     return (
-      <SettingRow label={p.label} source={badge}>
-        <Switch checked={!!value} onCheckedChange={(v) => onSet(v)} disabled={disabled} aria-label={p.label} />
+      <SettingRow label={t(p.label)} source={badge}>
+        <Switch checked={!!value} onCheckedChange={(v) => onSet(v)} disabled={disabled} aria-label={t(p.label)} />
       </SettingRow>
     );
   }
   return (
-    <SettingRow label={p.label} source={badge} hint={p.hint} className="sm:col-span-2">
-      <MultiSelect value={Array.isArray(value) ? (value as string[]) : []} onChange={(v) => onSet(v)} options={geofenceOptions} placeholder="No geofences" disabled={disabled} />
+    <SettingRow label={t(p.label)} source={badge} hint={p.hint ? t(p.hint) : undefined} className="sm:col-span-2">
+      <MultiSelect value={Array.isArray(value) ? (value as string[]) : []} onChange={(v) => onSet(v)} options={geofenceOptions} placeholder={t('No geofences')} disabled={disabled} />
     </SettingRow>
   );
 }
 
 function ScheduleField({ value, source, level, disabled, onSet }: { value: TimeWindow | null; source: SourceRef | undefined; level: AlertLevel; disabled: boolean; onSet: (v: TimeWindow | null) => void }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState<TimeWindow>(value ?? { days: [1, 2, 3, 4, 5, 6, 7], from: '06:00', to: '22:00' });
   const here = isOverriddenHere(source, level);
   const limited = !!value;
   return (
     <SettingRow
-      label="Schedule"
-      hint={value ? `Active ${formatWindow(value)} (company timezone)` : 'Active all the time'}
+      label={t('Schedule')}
+      hint={value ? t('Active {{window}} (company timezone)', { window: formatWindow(value, (k, v) => t(k, v)) }) : t('Active all the time')}
       source={<SourceBadge source={source} level={level} onReset={() => onSet(null)} disabled={disabled} />}
       className="sm:col-span-2"
     >
@@ -131,12 +135,12 @@ function ScheduleField({ value, source, level, disabled, onSet }: { value: TimeW
             else if (here) onSet(null);
           }}
         >
-          <SelectTrigger className="h-8 w-36" aria-label="Schedule">
+          <SelectTrigger className="h-8 w-36" aria-label={t('Schedule')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="always">Always</SelectItem>
-            <SelectItem value="window">Only during…</SelectItem>
+            <SelectItem value="always">{t('Always')}</SelectItem>
+            <SelectItem value="window">{t('Only during…')}</SelectItem>
           </SelectContent>
         </Select>
         {limited && (
@@ -152,14 +156,14 @@ function ScheduleField({ value, source, level, disabled, onSet }: { value: TimeW
             />
             <Input
               type="time"
-              aria-label="From"
+              aria-label={t('From')}
               className="h-8 w-[7.75rem]"
               value={value!.from}
               disabled={disabled}
               onChange={(e) => e.target.value && onSet({ ...value!, from: e.target.value })}
             />
-            <span className="text-xs text-muted-foreground">to</span>
-            <Input type="time" aria-label="To" className="h-8 w-[7.75rem]" value={value!.to} disabled={disabled} onChange={(e) => e.target.value && onSet({ ...value!, to: e.target.value })} />
+            <span className="text-xs text-muted-foreground">{t('to')}</span>
+            <Input type="time" aria-label={t('To')} className="h-8 w-[7.75rem]" value={value!.to} disabled={disabled} onChange={(e) => e.target.value && onSet({ ...value!, to: e.target.value })} />
           </>
         )}
       </div>
@@ -168,8 +172,9 @@ function ScheduleField({ value, source, level, disabled, onSet }: { value: TimeW
 }
 
 function ChannelsField({ channels, sources, level, disabled, onSet }: { channels: Record<AlertSeverity, NotifyChannel[]>; sources: Record<string, SourceRef>; level: AlertLevel; disabled: boolean; onSet: (sev: AlertSeverity, v: NotifyChannel[] | null) => void }) {
+  const { t } = useTranslation();
   return (
-    <SettingRow label="Channels by severity" hint="In-app always reaches users who can see the vehicle; WhatsApp and push are logged as not configured in this release." className="sm:col-span-2">
+    <SettingRow label={t('Channels by severity')} hint={t('In-app always reaches users who can see the vehicle; WhatsApp and push are logged as not configured in this release.')} className="sm:col-span-2">
       <div className="space-y-1.5">
         {ALERT_SEVERITIES.map((sev) => {
           const list = channels[sev] ?? [];
@@ -177,7 +182,7 @@ function ChannelsField({ channels, sources, level, disabled, onSet }: { channels
             <div key={sev} className="flex flex-wrap items-center gap-1.5 rounded-lg border px-2 py-1.5">
               <span className="flex w-20 items-center gap-1.5 text-xs font-medium">
                 <span className={cn('size-2 rounded-full', SEVERITY_DOT[sev])} />
-                {SEVERITY_LABEL[sev]}
+                {t(SEVERITY_LABEL[sev])}
               </span>
               {NOTIFY_CHANNELS.map((ch) => {
                 const on = list.includes(ch);
@@ -193,7 +198,7 @@ function ChannelsField({ channels, sources, level, disabled, onSet }: { channels
                       on ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-card text-muted-foreground hover:bg-accent',
                     )}
                   >
-                    {CHANNEL_LABEL[ch]}
+                    {t(CHANNEL_LABEL[ch])}
                   </button>
                 );
               })}
@@ -230,6 +235,7 @@ export function AlertTypeCard({
   onSendTest?: () => void;
   defaultOpen?: boolean;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
   const put = usePutSetting(level, targetId);
   const { values, sources } = view;
@@ -249,44 +255,44 @@ export function AlertTypeCard({
           <span className="min-w-0">
             <span className="flex flex-wrap items-center gap-1.5">
               <AlertTypeIcon type={def.code} severity={values.severity} size="sm" />
-              <span className="font-medium">{def.label}</span>
+              <span className="font-medium">{t(def.label)}</span>
               {def.mandatory && (
-                <Tooltip content="Mandatory: can't be switched off below company level and ignores snoozes">
-                  <LockIcon className="size-3.5 text-muted-foreground" aria-label="Mandatory" />
+                <Tooltip content={t("Mandatory: can't be switched off below company level and ignores snoozes")}>
+                  <LockIcon className="size-3.5 text-muted-foreground" aria-label={t('Mandatory')} />
                 </Tooltip>
               )}
-              {overriddenCount > 0 && <Badge variant="default">{overriddenCount} set here</Badge>}
-              {hasLists && <Badge variant="secondary">Recipients</Badge>}
+              {overriddenCount > 0 && <Badge variant="default">{t('{{count}} set here', { count: overriddenCount })}</Badge>}
+              {hasLists && <Badge variant="secondary">{t('Recipients')}</Badge>}
               {view.snoozedUntil && (
                 <Badge variant="warning">
-                  <BellOffIcon /> Snoozed until {formatDateTime(view.snoozedUntil)}
+                  <BellOffIcon /> {t('Snoozed until {{time}}', { time: formatDateTime(view.snoozedUntil) })}
                 </Badge>
               )}
             </span>
             <span className="block truncate text-xs text-muted-foreground">
               {unsupported ? (
                 <span className="inline-flex items-center gap-1 text-warning">
-                  <CpuIcon className="size-3" /> Not supported by this device
+                  <CpuIcon className="size-3" /> {t('Not supported by this device')}
                 </span>
               ) : level !== 'OBJECT' && def.supportedBy.total > 0 ? (
-                `Supported by ${def.supportedBy.count} of ${def.supportedBy.total} company vehicles`
+                t('Supported by {{count}} of {{total}} company vehicles', { count: def.supportedBy.count, total: def.supportedBy.total })
               ) : def.capability ? (
-                `Needs device capability: ${def.capability.replace(/_/g, ' ')}`
+                t('Needs device capability: {{capability}}', { capability: def.capability.replace(/_/g, ' ') })
               ) : (
-                'Any GPS device'
+                t('Any GPS device')
               )}
             </span>
           </span>
         </button>
         {conflicts.length > 0 && (
-          <Tooltip content={`${conflicts.length} conflicting group setting(s) — see the warning above`}>
-            <AlertTriangleIcon className="size-4 text-warning" aria-label="Group conflict" />
+          <Tooltip content={t('{{count}} conflicting group setting(s) — see the warning above', { count: conflicts.length })}>
+            <AlertTriangleIcon className="size-4 text-warning" aria-label={t('Group conflict')} />
           </Tooltip>
         )}
         {put.isPending && <Spinner className="text-muted-foreground" />}
         <span className="flex-1 sm:hidden" />
         <Select value={values.severity} onValueChange={(v) => patch({ severity: v as AlertSeverity })} disabled={disabled || unsupported}>
-          <SelectTrigger className="h-8 w-[7.5rem] text-xs" aria-label={`${def.label} severity`}>
+          <SelectTrigger className="h-8 w-[7.5rem] text-xs" aria-label={t('{{alert}} severity', { alert: t(def.label) })}>
             <span className="flex items-center gap-1.5">
               <span className={cn('size-2 rounded-full', SEVERITY_DOT[values.severity])} />
               <SelectValue />
@@ -295,18 +301,18 @@ export function AlertTypeCard({
           <SelectContent>
             {ALERT_SEVERITIES.map((s) => (
               <SelectItem key={s} value={s}>
-                {SEVERITY_LABEL[s]}
+                {t(SEVERITY_LABEL[s])}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Tooltip content={lockedOn ? 'Mandatory alert — always on below company level' : `Enabled: ${sources.enabled?.level === level ? 'set here' : 'inherited'}`}>
+        <Tooltip content={lockedOn ? t('Mandatory alert — always on below company level') : sources.enabled?.level === level ? t('Enabled: set here') : t('Enabled: inherited')}>
           <span className="flex items-center">
             <Switch
               checked={lockedOn ? true : values.enabled}
               onCheckedChange={(v) => patch({ enabled: v })}
               disabled={disabled || lockedOn || unsupported}
-              aria-label={`${def.label} enabled`}
+              aria-label={t('{{alert}} enabled', { alert: t(def.label) })}
             />
           </span>
         </Tooltip>
@@ -316,13 +322,14 @@ export function AlertTypeCard({
         <div id={regionId} className="space-y-5 border-t px-3 py-4 sm:px-4">
           {unsupported && (
             <p className="rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-sm text-warning">
-              This vehicle's device model doesn't report <strong>{def.capability?.replace(/_/g, ' ')}</strong>, so this alert can't fire. Settings below are kept for when the device changes.
+              {t("This vehicle's device model doesn't report")} <strong>{def.capability?.replace(/_/g, ' ')}</strong>
+              {t(", so this alert can't fire. Settings below are kept for when the device changes.")}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Enabled</span>
+            <span className="text-muted-foreground">{t('Enabled')}</span>
             <SourceBadge source={sources.enabled} level={level} onReset={() => patch({ enabled: null })} disabled={disabled} />
-            <span className="ml-2 text-muted-foreground">Severity</span>
+            <span className="ml-2 text-muted-foreground">{t('Severity')}</span>
             <SourceBadge source={sources.severity} level={level} onReset={() => patch({ severity: null })} disabled={disabled} />
           </div>
 
@@ -340,9 +347,9 @@ export function AlertTypeCard({
               />
             ))}
             <SettingRow
-              label="Cooldown"
+              label={t('Cooldown')}
               htmlFor={`cooldown-${def.code}`}
-              hint="Minimum gap between two alerts of this type for the same vehicle"
+              hint={t('Minimum gap between two alerts of this type for the same vehicle')}
               source={<SourceBadge source={sources.cooldownMin} level={level} onReset={() => patch({ cooldownMin: null })} disabled={disabled} />}
             >
               <CommitNumber
@@ -363,12 +370,12 @@ export function AlertTypeCard({
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h4 className="text-[13px] font-medium">Recipients</h4>
-                <p className="text-xs text-muted-foreground">Per channel: use the default lists, add to them, replace them, or notify nobody.</p>
+                <h4 className="text-[13px] font-medium">{t('Recipients')}</h4>
+                <p className="text-xs text-muted-foreground">{t('Per channel: use the default lists, add to them, replace them, or notify nobody.')}</p>
               </div>
               {onSendTest && (
                 <Button size="sm" variant="outline" onClick={onSendTest}>
-                  <SendIcon /> Send test
+                  <SendIcon /> {t('Send test')}
                 </Button>
               )}
             </div>

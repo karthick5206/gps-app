@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Me, ThemePreference } from '@veetracer/shared';
 import { router, type Href } from 'expo-router';
 import { BellRingIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, HexagonIcon, IdCardIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, Chips, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { meQueryKey, useAuth } from '@/features/auth/auth';
@@ -10,6 +11,7 @@ import { applyThemePreference } from '@/features/theme/theme';
 import { api } from '@/lib/api';
 import { useRealtimeStatus } from '@/features/live/use-live';
 import { pushStatus } from '@/features/notifications/push';
+import { LanguageChips } from '@/components/LanguageChips';
 import { SERVER_URL } from '@/lib/config';
 import { SPACE, useColors } from '@/lib/theme';
 
@@ -28,6 +30,7 @@ const CONNECTION_LABEL = { idle: 'Not connected', connecting: 'Connecting…', c
 
 export default function MoreScreen() {
   const c = useColors();
+  const { t } = useTranslation();
   const { me, signOut, can, companyId } = useAuth();
   const queryClient = useQueryClient();
   const theme = me?.user.preferences.theme ?? 'system';
@@ -39,9 +42,9 @@ export default function MoreScreen() {
   });
   const connection = useRealtimeStatus();
   const confirmSignOut = () =>
-    Alert.alert('Sign out?', 'You will need to sign in again to see your vehicles.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: signOut },
+    Alert.alert(t('Sign out?'), t('You will need to sign in again to see your vehicles.'), [
+      { text: t('Cancel'), style: 'cancel' },
+      { text: t('Sign out'), style: 'destructive', onPress: signOut },
     ]);
   return (
     <ScrollView contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.md }}>
@@ -63,43 +66,48 @@ export default function MoreScreen() {
       </Card>
 
       <Card style={{ paddingVertical: 0 }}>
-        {can('reports') && <MenuItem icon={FileBarChartIcon} label="Reports" href="/reports" />}
-        {can('objects') && <MenuItem icon={TruckIcon} label="Vehicles" href="/manage/vehicles" />}
-        {can('devices') && <MenuItem icon={CpuIcon} label="Devices" href="/manage/devices" />}
-        {can('drivers') && <MenuItem icon={IdCardIcon} label="Drivers" href="/manage/drivers" />}
-        {can('geofences') && <MenuItem icon={HexagonIcon} label="Geofences" href="/geofences" />}
-        {can('alert_settings') && <MenuItem icon={BellRingIcon} label="Alert settings" href="/alert-settings" />}
+        {can('reports') && <MenuItem icon={FileBarChartIcon} label={t('Reports')} href="/reports" />}
+        {can('objects') && <MenuItem icon={TruckIcon} label={t('Vehicles')} href="/manage/vehicles" />}
+        {can('devices') && <MenuItem icon={CpuIcon} label={t('Devices')} href="/manage/devices" />}
+        {can('drivers') && <MenuItem icon={IdCardIcon} label={t('Drivers')} href="/manage/drivers" />}
+        {can('geofences') && <MenuItem icon={HexagonIcon} label={t('Geofences')} href="/geofences" />}
+        {can('alert_settings') && <MenuItem icon={BellRingIcon} label={t('Alert settings')} href="/alert-settings" />}
       </Card>
 
-      <SectionTitle>Account</SectionTitle>
+      <SectionTitle>{t('Account')}</SectionTitle>
       <Card style={{ paddingVertical: 0 }}>
-        <InfoRow label="Company" value={me?.company.name ?? '—'} />
-        <InfoRow label="Time zone" value={me?.company.timezone ?? '—'} />
-        <InfoRow label="Data access" value={me?.dataScope === 'ASSIGNED' ? 'Assigned branches / vehicles' : 'Whole company'} />
+        <InfoRow label={t('Company')} value={me?.company.name ?? '—'} />
+        <InfoRow label={t('Time zone')} value={me?.company.timezone ?? '—'} />
+        <InfoRow label={t('Data access')} value={me?.dataScope === 'ASSIGNED' ? t('Assigned branches / vehicles') : t('Whole company')} />
       </Card>
 
-      <SectionTitle>Appearance</SectionTitle>
+      <SectionTitle>{t('Language')}</SectionTitle>
+      <Card>
+        <LanguageChips />
+      </Card>
+
+      <SectionTitle>{t('Appearance')}</SectionTitle>
       <Card style={{ gap: SPACE.sm }}>
         <Chips
           value={setTheme.isPending && setTheme.variables ? setTheme.variables : theme}
           onChange={(t) => setTheme.mutate(t)}
           options={[
-            { value: 'system', label: 'System' },
-            { value: 'light', label: 'Light' },
-            { value: 'dark', label: 'Dark' },
+            { value: 'system', label: t('System') },
+            { value: 'light', label: t('Light') },
+            { value: 'dark', label: t('Dark') },
           ]}
         />
         <Text size="xs" tone="muted">
-          Saved to your profile, so the web app uses the same theme.
+          {t('Saved to your profile, so the web app uses the same theme.')}
         </Text>
       </Card>
 
-      <SectionTitle>App</SectionTitle>
+      <SectionTitle>{t('App')}</SectionTitle>
       <Card style={{ paddingVertical: 0 }}>
-        <InfoRow label="Live connection" value={CONNECTION_LABEL[connection]} />
-        <InfoRow label="Push alerts" value={pushStatus ?? 'On'} />
+        <InfoRow label={t('Live connection')} value={t(CONNECTION_LABEL[connection])} />
+        <InfoRow label={t('Push alerts')} value={pushStatus ? t(pushStatus) : t('On')} />
         <InfoRow
-          label="Server"
+          label={t('Server')}
           value={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <ServerIcon size={14} color={c.mutedForeground} />
@@ -107,10 +115,10 @@ export default function MoreScreen() {
             </View>
           }
         />
-        <InfoRow label="Version" value={Constants.expoConfig?.version ?? '—'} />
+        <InfoRow label={t('Version')} value={Constants.expoConfig?.version ?? '—'} />
       </Card>
 
-      <Button title="Sign out" icon={LogOutIcon} variant="outline" onPress={confirmSignOut} style={{ marginTop: SPACE.md }} />
+      <Button title={t('Sign out')} icon={LogOutIcon} variant="outline" onPress={confirmSignOut} style={{ marginTop: SPACE.md }} />
     </ScrollView>
   );
 }

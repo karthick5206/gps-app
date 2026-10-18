@@ -1,6 +1,7 @@
 import type { AlertLevel } from '@veetracer/shared';
 import { RotateCcwIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,16 +11,17 @@ import { isOverriddenHere, sourceText, type SourceRef } from './inheritance';
 
 /** "Set here" / "Inherited from Branch: Chennai" / "Default" badge plus a Reset button when overridden at this level. */
 export function SourceBadge({ source, level, onReset, disabled, className }: { source: SourceRef | undefined; level: AlertLevel; onReset?: () => void; disabled?: boolean; className?: string }) {
+  const { t } = useTranslation();
   const here = isOverriddenHere(source, level);
-  const text = sourceText(source, level);
+  const text = sourceText(source, level, (k, v) => t(k, v));
   return (
     <span className={cn('inline-flex items-center gap-1', className)}>
       <Badge variant={here ? 'default' : 'muted'} className="max-w-[14rem] truncate font-normal" title={text}>
         {text}
       </Badge>
       {here && onReset && (
-        <Tooltip content="Reset to inherited">
-          <Button variant="ghost" size="icon-sm" className="size-6" aria-label="Reset to inherited" onClick={onReset} disabled={disabled}>
+        <Tooltip content={t('Reset to inherited')}>
+          <Button variant="ghost" size="icon-sm" className="size-6" aria-label={t('Reset to inherited')} onClick={onReset} disabled={disabled}>
             <RotateCcwIcon className="size-3.5" />
           </Button>
         </Tooltip>
@@ -53,6 +55,7 @@ export function CommitNumber({
   disabled?: boolean;
   className?: string;
 }) {
+  const { t: tr } = useTranslation();
   const [text, setText] = useState(value === null ? '' : String(value));
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -68,7 +71,7 @@ export function CommitNumber({
       return;
     }
     const n = Number(t);
-    if (!Number.isFinite(n)) return setError('Enter a number');
+    if (!Number.isFinite(n)) return setError(tr('Enter a number'));
     if ((min !== undefined && n < min) || (max !== undefined && n > max)) return setError(`${min ?? '−∞'}–${max ?? '∞'}`);
     setError(null);
     if (n !== value) onCommit(n);

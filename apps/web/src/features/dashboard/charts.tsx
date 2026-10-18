@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
 export interface Slice {
@@ -10,6 +11,7 @@ export interface Slice {
 
 /** Donut with a centred total and a clickable legend; zero-value slices stay in the legend. */
 export function Donut({ title, slices, centerLabel, onSelect }: { title: string; slices: Slice[]; centerLabel?: string; onSelect?: (key: string) => void }) {
+  const { t } = useTranslation();
   const total = slices.reduce((s, x) => s + x.value, 0);
   const r = 42;
   const c = 2 * Math.PI * r;
@@ -45,7 +47,7 @@ export function Donut({ title, slices, centerLabel, onSelect }: { title: string;
           {total.toLocaleString()}
         </text>
         <text x="60" y="74" textAnchor="middle" className="fill-muted-foreground text-[9px]" transform="rotate(90 60 60)">
-          {centerLabel ?? 'total'}
+          {centerLabel ?? t('total')}
         </text>
       </svg>
       <figcaption className="w-full min-w-0 space-y-1">

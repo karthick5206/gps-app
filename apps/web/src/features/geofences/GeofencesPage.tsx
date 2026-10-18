@@ -1,6 +1,7 @@
 import type { BranchDto, GeofenceDto, GeofenceMode } from '@veetracer/shared';
 import { BellOffIcon, CircleIcon, HexagonIcon, MapIcon, SquareIcon, UploadIcon } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,12 +31,13 @@ function ShapeCell({ g }: { g: GeofenceDto }) {
 }
 
 function AppliesCell({ g }: { g: GeofenceDto }) {
+  const { t } = useTranslation();
   const a = g.appliesTo;
-  if (a.all) return <Muted>All vehicles</Muted>;
+  if (a.all) return <Muted>{t('All vehicles')}</Muted>;
   const parts = [
-    a.branchIds.length && `${a.branchIds.length} branch${a.branchIds.length > 1 ? 'es' : ''}`,
-    a.groupIds.length && `${a.groupIds.length} group${a.groupIds.length > 1 ? 's' : ''}`,
-    a.objectIds.length && `${a.objectIds.length} vehicle${a.objectIds.length > 1 ? 's' : ''}`,
+    a.branchIds.length && (a.branchIds.length > 1 ? t('{{count}} branches', { count: a.branchIds.length }) : t('1 branch')),
+    a.groupIds.length && (a.groupIds.length > 1 ? t('{{count}} groups', { count: a.groupIds.length }) : t('1 group')),
+    a.objectIds.length && (a.objectIds.length > 1 ? t('{{count}} vehicles', { count: a.objectIds.length }) : t('1 vehicle')),
   ].filter(Boolean);
   return <span className="whitespace-nowrap">{parts.join(', ')}</span>;
 }
@@ -43,6 +45,7 @@ function AppliesCell({ g }: { g: GeofenceDto }) {
 const MODE_FILTER = (['NORMAL', 'NO_GO', 'KEEP_IN'] as GeofenceMode[]).map((m) => ({ value: m, label: MODE_LABEL[m] }));
 
 export function GeofencesPage() {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const navigate = useNavigate();
   const [importOpen, setImportOpen] = useState(false);
@@ -52,7 +55,7 @@ export function GeofencesPage() {
   const columns: MasterColumn<GeofenceDto>[] = [
     {
       id: 'name',
-      header: 'Name',
+      header: t('Name'),
       sortable: true,
       hideable: false,
       cell: (r) => (
@@ -62,42 +65,42 @@ export function GeofencesPage() {
         </span>
       ),
     },
-    { id: 'shape', header: 'Shape', cell: (r) => <ShapeCell g={r} /> },
-    { id: 'category', header: 'Category', sortable: true, cell: (r) => categories.labelOf(r.category) },
-    { id: 'mode', header: 'Mode', cell: (r) => <Badge variant={MODE_VARIANT[r.mode]}>{MODE_LABEL[r.mode]}</Badge> },
+    { id: 'shape', header: t('Shape'), cell: (r) => <ShapeCell g={r} /> },
+    { id: 'category', header: t('Category'), sortable: true, cell: (r) => categories.labelOf(r.category) },
+    { id: 'mode', header: t('Mode'), cell: (r) => <Badge variant={MODE_VARIANT[r.mode]}>{t(MODE_LABEL[r.mode])}</Badge> },
     {
       id: 'notify',
-      header: 'Alerts',
+      header: t('Alerts'),
       cell: (r) =>
         !r.notifyEnter && !r.notifyExit ? (
           <span className="inline-flex items-center gap-1 text-muted-foreground">
-            <BellOffIcon className="size-3.5" /> Off
+            <BellOffIcon className="size-3.5" /> {t('Off')}
           </span>
         ) : (
-          <span className="whitespace-nowrap">{[r.notifyEnter && 'Entry', r.notifyExit && 'Exit'].filter(Boolean).join(' + ')}</span>
+          <span className="whitespace-nowrap">{[r.notifyEnter && t('Entry'), r.notifyExit && t('Exit')].filter(Boolean).join(' + ')}</span>
         ),
     },
-    { id: 'rules', header: 'Limits', defaultHidden: true, cell: (r) => [r.maxStayMin && `Stay ≤ ${r.maxStayMin} min`, r.speedLimitKph && `≤ ${r.speedLimitKph} km/h`].filter(Boolean).join(' · ') || <Muted>—</Muted> },
-    { id: 'timeWindows', header: 'Active hours', defaultHidden: true, cell: (r) => <span className="block max-w-56 truncate">{formatWindows(r.timeWindows)}</span> },
-    { id: 'branchName', header: 'Owner', cell: (r) => r.branchName ?? <Muted>Company-wide</Muted> },
-    { id: 'appliesTo', header: 'Applies to', cell: (r) => <AppliesCell g={r} /> },
-    { id: 'address', header: 'Address', defaultHidden: true, cell: (r) => <span className="block max-w-xs truncate">{r.address ?? '—'}</span> },
-    { id: 'isActive', header: 'Status', cell: (r) => <ActiveBadge active={r.isActive} /> },
-    { id: 'updatedAt', header: 'Updated', sortable: true, defaultHidden: true, cell: (r) => <DateCell value={r.updatedAt} relative /> },
+    { id: 'rules', header: t('Limits'), defaultHidden: true, cell: (r) => [r.maxStayMin && t('Stay ≤ {{count}} min', { count: r.maxStayMin }), r.speedLimitKph && `≤ ${r.speedLimitKph} km/h`].filter(Boolean).join(' · ') || <Muted>—</Muted> },
+    { id: 'timeWindows', header: t('Active hours'), defaultHidden: true, cell: (r) => <span className="block max-w-56 truncate">{formatWindows(r.timeWindows, (k, v) => t(k, v))}</span> },
+    { id: 'branchName', header: t('Owner'), cell: (r) => r.branchName ?? <Muted>{t('Company-wide')}</Muted> },
+    { id: 'appliesTo', header: t('Applies to'), cell: (r) => <AppliesCell g={r} /> },
+    { id: 'address', header: t('Address'), defaultHidden: true, cell: (r) => <span className="block max-w-xs truncate">{r.address ?? '—'}</span> },
+    { id: 'isActive', header: t('Status'), cell: (r) => <ActiveBadge active={r.isActive} /> },
+    { id: 'updatedAt', header: t('Updated'), sortable: true, defaultHidden: true, cell: (r) => <DateCell value={r.updatedAt} relative /> },
   ];
 
   const filters: MasterFilter[] = [
-    { key: 'category', label: 'Categories', options: categories.options },
-    { key: 'mode', label: 'Modes', options: MODE_FILTER },
-    ...(can('branches') ? [{ key: 'branchId', label: 'Owners', options: branches.options }] : []),
+    { key: 'category', label: t('Categories'), options: categories.options },
+    { key: 'mode', label: t('Modes'), options: MODE_FILTER.map((o) => ({ ...o, label: t(o.label) })) },
+    ...(can('branches') ? [{ key: 'branchId', label: t('Owners'), options: branches.options }] : []),
   ];
 
   return (
     <>
       <MasterPage
         menu="geofences"
-        title="Geofences"
-        description="Zones that raise entry, exit, stay and zone-speed alerts. Draw circles, polygons or rectangles on the map."
+        title={t('Geofences')}
+        description={t('Zones that raise entry, exit, stay and zone-speed alerts. Draw circles, polygons or rectangles on the map.')}
         endpoint={GEOFENCES_ENDPOINT}
         columns={columns}
         rowLabel={(r) => r.name}
@@ -108,14 +111,14 @@ export function GeofencesPage() {
         headerActions={
           can('geofences', 'create') ? (
             <Button variant="outline" onClick={() => setImportOpen(true)}>
-              <UploadIcon /> Import
+              <UploadIcon /> {t('Import')}
             </Button>
           ) : null
         }
         rowActions={(r) =>
           can('live_map') ? (
             <DropdownMenuItem onSelect={() => navigate(`/live?geofence=${r.id}`)}>
-              <MapIcon /> Show on live map
+              <MapIcon /> {t('Show on live map')}
             </DropdownMenuItem>
           ) : null
         }

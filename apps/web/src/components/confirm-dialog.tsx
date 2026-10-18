@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
@@ -8,7 +9,7 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = 'Confirm',
+  confirmLabel,
   destructive = false,
   pending = false,
   onConfirm,
@@ -22,6 +23,7 @@ export function ConfirmDialog({
   pending?: boolean;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={(o) => !pending && onOpenChange(o)}>
       <DialogContent className="max-w-md" hideClose>
@@ -31,11 +33,11 @@ export function ConfirmDialog({
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button variant={destructive ? 'destructive' : 'default'} onClick={onConfirm} disabled={pending}>
             {pending && <Spinner />}
-            {confirmLabel}
+            {confirmLabel ?? t('Confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

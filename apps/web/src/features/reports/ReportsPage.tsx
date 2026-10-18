@@ -14,6 +14,7 @@ import {
 } from '@veetracer/shared';
 import { CalendarClockIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, PlayIcon, TableIcon } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { FormError } from '@/components/form-error';
@@ -76,6 +77,7 @@ const DATE_PRESETS: { label: string; range: () => [string, string] }[] = [
 ];
 
 export function ReportsPage() {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const canExport = can('reports', 'export');
   const [type, setType] = useState<ReportType>('SUMMARY');
@@ -91,13 +93,13 @@ export function ReportsPage() {
   const request: ReportRequest = { type, scope, from, to, ...(usesPeriod ? { period } : {}), ...(typeOptions ? { options: typeOptions } : {}) };
   const rangeError =
     !from || !to
-      ? 'Choose a start and end date'
+      ? t('Choose a start and end date')
       : from > to
-        ? 'The end date must be on or after the start date'
+        ? t('The end date must be on or after the start date')
         : singleVehicle && daySpan(from, to) > POSITIONS_REPORT_MAX_DAYS
-          ? `This report covers at most ${POSITIONS_REPORT_MAX_DAYS} days`
+          ? t('This report covers at most {{days}} days', { days: POSITIONS_REPORT_MAX_DAYS })
           : null;
-  const scopeError = singleVehicle && (scope.objectIds.length !== 1 || scope.branchIds.length > 0 || scope.groupIds.length > 0) ? 'Choose exactly one vehicle (and no branches or groups) for this report' : null;
+  const scopeError = singleVehicle && (scope.objectIds.length !== 1 || scope.branchIds.length > 0 || scope.groupIds.length > 0) ? t('Choose exactly one vehicle (and no branches or groups) for this report') : null;
   const inputError = rangeError ?? scopeError;
 
   const run = useMutation({
@@ -117,7 +119,7 @@ export function ReportsPage() {
         body: { ...result.req, format },
         fallbackName: `${result.req.type.toLowerCase()}-${result.req.from}-${result.req.to}.${format.toLowerCase()}`,
       });
-      toast.success(`Downloaded ${name}`);
+      toast.success(t('Downloaded {{name}}', { name }));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -130,7 +132,7 @@ export function ReportsPage() {
   const scheduleLink = can('report_schedules') && (
     <Button variant="outline" size="sm" asChild>
       <Link to="/reports/schedules">
-        <CalendarClockIcon /> Scheduled reports
+        <CalendarClockIcon /> {t('Scheduled reports')}
       </Link>
     </Button>
   );
@@ -138,15 +140,15 @@ export function ReportsPage() {
   return (
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
       {/* Report types: a sidebar on large screens, a drop-down on small ones. */}
-      <aside aria-label="Report types" className="hidden w-64 shrink-0 flex-col border-r bg-card lg:flex">
+      <aside aria-label={t('Report types')} className="hidden w-64 shrink-0 flex-col border-r bg-card lg:flex">
         <div className="border-b px-4 py-4">
-          <h1 className="text-lg font-semibold tracking-tight">Reports</h1>
-          <p className="text-xs text-muted-foreground">Run, view and download fleet reports.</p>
+          <h1 className="text-lg font-semibold tracking-tight">{t('Reports')}</h1>
+          <p className="text-xs text-muted-foreground">{t('Run, view and download fleet reports.')}</p>
         </div>
-        <nav role="radiogroup" aria-label="Report type" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-2">
+        <nav role="radiogroup" aria-label={t('Report type')} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-2">
           {REPORT_CATEGORIES.map((category) => (
             <div key={category} className="space-y-0.5">
-              <p className="px-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{category}</p>
+              <p className="px-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{t(category)}</p>
               {REPORT_DEFS.filter((d) => d.category === category).map((d) => {
                 const active = d.type === type;
                 const Icon = d.icon;
@@ -163,7 +165,7 @@ export function ReportsPage() {
                     )}
                   >
                     <Icon className={cn('size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
-                    {d.label}
+                    {t(d.label)}
                   </button>
                 );
               })}
@@ -180,19 +182,19 @@ export function ReportsPage() {
               <CurrentIcon className="size-5" />
             </span>
             <div className="min-w-0">
-              <h2 className="text-xl font-semibold tracking-tight">{current.label} report</h2>
-              <p className="text-sm text-muted-foreground">{current.description}</p>
+              <h2 className="text-xl font-semibold tracking-tight">{t('{{report}} report', { report: t(current.label) })}</h2>
+              <p className="text-sm text-muted-foreground">{t(current.description)}</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 lg:hidden">
             <Select value={type} onValueChange={(v) => setType(v as ReportType)}>
-              <SelectTrigger className="w-56" aria-label="Report type">
+              <SelectTrigger className="w-56" aria-label={t('Report type')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {REPORT_DEFS.map((d) => (
                   <SelectItem key={d.type} value={d.type}>
-                    {d.category} · {d.label}
+                    {t(d.category)} · {t(d.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -204,26 +206,26 @@ export function ReportsPage() {
         <Card className="gap-0 p-0">
           <div className="space-y-4 p-4">
             <ScopePicker value={scope} onChange={setScope} />
-            <div role="group" aria-label="Date presets" className="flex flex-wrap gap-1.5">
+            <div role="group" aria-label={t('Date presets')} className="flex flex-wrap gap-1.5">
               {DATE_PRESETS.map((p) => {
                 const [a, b] = p.range();
                 const on = a === from && b === to;
                 return (
                   <Button key={p.label} type="button" size="sm" variant={on ? 'secondary' : 'outline'} aria-pressed={on} onClick={() => setDates([a, b])} className={cn(on && 'border-primary/40 text-primary')}>
-                    {p.label}
+                    {t(p.label)}
                   </Button>
                 );
               })}
             </div>
             <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
-              <Field label="From" htmlFor="r-from">
+              <Field label={t('From')} htmlFor="r-from">
                 <Input id="r-from" type="date" value={from} max={to || undefined} onChange={(e) => setDates([e.target.value, to])} className="sm:w-40" aria-invalid={!!rangeError} />
               </Field>
-              <Field label="To" htmlFor="r-to">
+              <Field label={t('To')} htmlFor="r-to">
                 <Input id="r-to" type="date" value={to} min={from || undefined} max={toDateInput(new Date())} onChange={(e) => setDates([from, e.target.value])} className="sm:w-40" aria-invalid={!!rangeError} />
               </Field>
               {usesPeriod && (
-                <Field label="Group by" htmlFor="r-period" className="col-span-2 sm:w-44">
+                <Field label={t('Group by')} htmlFor="r-period" className="col-span-2 sm:w-44">
                   <Select value={period} onValueChange={(v) => setPeriod(v as ReportPeriod)}>
                     <SelectTrigger id="r-period">
                       <SelectValue />
@@ -231,7 +233,7 @@ export function ReportsPage() {
                     <SelectContent>
                       {PERIOD_OPTIONS.map((p) => (
                         <SelectItem key={p.value} value={p.value}>
-                          {p.label}
+                          {t(p.label)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -243,10 +245,10 @@ export function ReportsPage() {
           </div>
           <div className="flex flex-col gap-2 border-t bg-muted/30 px-4 py-3 sm:flex-row sm:items-center">
             <p className={cn('flex-1 text-xs', inputError ? 'text-destructive' : 'text-muted-foreground')}>
-              {inputError ?? 'Leave branches, groups and vehicles empty to include every vehicle you can access.'}
+              {inputError ?? t('Leave branches, groups and vehicles empty to include every vehicle you can access.')}
             </p>
             <Button onClick={() => run.mutate(request)} disabled={!!inputError || run.isPending} className="sm:w-36">
-              {run.isPending ? <Spinner /> : <PlayIcon />} Run report
+              {run.isPending ? <Spinner /> : <PlayIcon />} {t('Run report')}
             </Button>
           </div>
         </Card>
@@ -264,14 +266,14 @@ export function ReportsPage() {
           <div className={cn('space-y-4', run.isPending && 'opacity-60 transition-opacity')}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-lg font-semibold">{def.label} report</h2>
+                <h2 className="text-lg font-semibold">{t('{{report}} report', { report: t(def.label) })}</h2>
                 <p className="text-sm text-muted-foreground">
                   {periodLabel(result.res.from)} – {periodLabel(result.res.to)}
-                  {result.res.period ? ` · ${PERIOD_OPTIONS.find((p) => p.value === result.res.period)?.label}` : ''} · {(result.res.totalRows ?? result.res.rows.length).toLocaleString()} rows
+                  {result.res.period ? ` · ${t(PERIOD_OPTIONS.find((p) => p.value === result.res.period)?.label ?? result.res.period)}` : ''} · {t('{{rows}} rows', { rows: (result.res.totalRows ?? result.res.rows.length).toLocaleString() })}
                 </p>
               </div>
               {canExport && (
-                <div className="flex flex-wrap gap-2" role="group" aria-label="Download">
+                <div className="flex flex-wrap gap-2" role="group" aria-label={t('Download')}>
                   {FORMATS.map((f) => (
                     <Button key={f.format} variant="outline" size="sm" onClick={() => exportAs(f.format)} disabled={!!exporting}>
                       {exporting === f.format ? <Spinner /> : <f.icon />} {f.label}
@@ -285,12 +287,17 @@ export function ReportsPage() {
               {result.res.rows.length ? (
                 <ReportTable key={`${result.req.type}-${run.submittedAt}`} columns={def.columns} rows={result.res.rows} totals={result.res.totals} />
               ) : (
-                <EmptyState icon={TableIcon} title="No data for this selection" description="Try a longer period or a wider scope." />
+                <EmptyState icon={TableIcon} title={t('No data for this selection')} description={t('Try a longer period or a wider scope.')} />
               )}
             </Card>
             {(result.res.truncated || (result.res.totalRows === undefined && result.res.rows.length >= 10_000)) && (
               <p className="text-xs text-warning">
-                Showing the first {result.res.rows.length.toLocaleString()} rows{result.res.totalRows ? ` of ${result.res.totalRows.toLocaleString()}` : ''}; totals cover every row. Download the report or narrow the selection for the rest.
+                {result.res.totalRows
+                  ? t('Showing the first {{shown}} rows of {{total}}; totals cover every row. Download the report or narrow the selection for the rest.', {
+                      shown: result.res.rows.length.toLocaleString(),
+                      total: result.res.totalRows.toLocaleString(),
+                    })
+                  : t('Showing the first {{shown}} rows; totals cover every row. Download the report or narrow the selection for the rest.', { shown: result.res.rows.length.toLocaleString() })}
               </p>
             )}
           </div>
@@ -298,7 +305,7 @@ export function ReportsPage() {
 
         {!result && !run.isPending && (
           <Card>
-            <EmptyState icon={TableIcon} title="Press Run report" description="Results appear here. You can then download them as Excel, PDF or CSV." />
+            <EmptyState icon={TableIcon} title={t('Press Run report')} description={t('Results appear here. You can then download them as Excel, PDF or CSV.')} />
           </Card>
         )}
       </div>

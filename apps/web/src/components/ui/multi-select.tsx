@@ -1,5 +1,6 @@
 import { CheckIcon, ChevronsUpDownIcon, SearchIcon, XIcon } from 'lucide-react';
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
 import { Spinner } from './spinner';
@@ -36,14 +37,15 @@ function SearchableList({
   options,
   onSearch,
   loading,
-  searchPlaceholder = 'Search…',
-  emptyText = 'No results',
+  searchPlaceholder,
+  emptyText,
   isSelected,
   onPick,
 }: Pick<OptionPickerProps, 'options' | 'onSearch' | 'loading' | 'searchPlaceholder' | 'emptyText'> & {
   isSelected: (value: string) => boolean;
   onPick: (option: Option) => void;
 }) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const listId = useId();
@@ -81,14 +83,14 @@ function SearchableList({
             onSearch?.(e.target.value);
           }}
           onKeyDown={onKeyDown}
-          placeholder={searchPlaceholder}
+          placeholder={searchPlaceholder ?? t('Search…')}
           aria-controls={listId}
           className="h-10 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
         {loading && <Spinner className="text-muted-foreground" />}
       </div>
       <ul id={listId} role="listbox" className="max-h-64 overflow-y-auto p-1">
-        {visible.length === 0 && <li className="px-2 py-6 text-center text-sm text-muted-foreground">{loading ? 'Loading…' : emptyText}</li>}
+        {visible.length === 0 && <li className="px-2 py-6 text-center text-sm text-muted-foreground">{loading ? t('Loading…') : (emptyText ?? t('No results'))}</li>}
         {visible.map((o, i) => {
           const selected = isSelected(o.value);
           return (
@@ -124,13 +126,14 @@ export function MultiSelect({
   value,
   onChange,
   selectedOptions,
-  placeholder = 'Select…',
+  placeholder,
   disabled,
   id,
   invalid,
   className,
   ...listProps
 }: OptionPickerProps & { value: string[]; onChange: (value: string[]) => void; selectedOptions?: Option[] }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const labelOf = useLabelCache(listProps.options, selectedOptions);
   const set = useMemo(() => new Set(value), [value]);
@@ -142,14 +145,14 @@ export function MultiSelect({
       <PopoverTrigger asChild disabled={disabled}>
         <button type="button" id={id} aria-invalid={invalid || undefined} className={cn(triggerClass, className)}>
           <span className="flex min-w-0 flex-1 flex-wrap gap-1">
-            {value.length === 0 && <span className="text-muted-foreground">{placeholder}</span>}
+            {value.length === 0 && <span className="text-muted-foreground">{placeholder ?? t('Select…')}</span>}
             {value.map((v) => (
               <span key={v} className="inline-flex max-w-full items-center gap-1 rounded-md bg-secondary py-0.5 pr-1 pl-2 text-xs font-medium text-secondary-foreground">
                 <span className="truncate">{labelOf(v)}</span>
                 <span
                   role="button"
                   tabIndex={-1}
-                  aria-label={`Remove ${labelOf(v)}`}
+                  aria-label={t('Remove {{name}}', { name: labelOf(v) })}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -169,9 +172,9 @@ export function MultiSelect({
         <SearchableList {...listProps} isSelected={(v) => set.has(v)} onPick={toggle} />
         {value.length > 0 && (
           <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
-            <span>{value.length} selected</span>
+            <span>{t('{{count}} selected', { count: value.length })}</span>
             <button type="button" className="font-medium text-primary hover:underline" onClick={() => onChange([])}>
-              Clear
+              {t('Clear')}
             </button>
           </div>
         )}
@@ -184,7 +187,7 @@ export function Combobox({
   value,
   onChange,
   selectedOption,
-  placeholder = 'Select…',
+  placeholder,
   clearable = true,
   disabled,
   id,
@@ -198,18 +201,19 @@ export function Combobox({
   clearable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
   const labelOf = useLabelCache(listProps.options, selectedOption ? [selectedOption] : []);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild disabled={disabled}>
         <button type="button" id={id} aria-invalid={invalid || undefined} className={cn(triggerClass, 'h-9', className)}>
-          <span className={cn('min-w-0 flex-1 truncate', !value && 'text-muted-foreground')}>{value ? labelOf(value) : placeholder}</span>
+          <span className={cn('min-w-0 flex-1 truncate', !value && 'text-muted-foreground')}>{value ? labelOf(value) : (placeholder ?? t('Select…'))}</span>
           {clearable && value && (
             <span
               role="button"
               tabIndex={-1}
-              aria-label="Clear selection"
+              aria-label={t('Clear selection')}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();

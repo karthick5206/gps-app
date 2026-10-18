@@ -1,4 +1,5 @@
 import { ACTIONS, MENUS, type Action, type MenuKey, type PermissionMap } from '@veetracer/shared';
+import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { GROUP_LABELS } from '@/features/shell/nav';
 import { humanize } from '@/lib/format';
@@ -15,6 +16,7 @@ function checkState(selected: number, total: number): boolean | 'indeterminate' 
  * Granting any action implies `view`; removing `view` clears the row.
  */
 export function PermissionMatrix({ value, onChange, disabled }: { value: PermissionMap; onChange: (v: PermissionMap) => void; disabled?: boolean }) {
+  const { t } = useTranslation();
   const has = (menu: MenuKey, action: Action) => value[menu]?.includes(action) ?? false;
 
   const setRow = (menu: MenuKey, actions: Action[]) => {
@@ -54,20 +56,20 @@ export function PermissionMatrix({ value, onChange, disabled }: { value: Permiss
       <table className="w-full text-sm">
         <thead className="bg-muted/60">
           <tr>
-            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Menu</th>
+            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase">{t('Menu')}</th>
             {ACTIONS.map((a) => {
               const eligible = ROLE_MENUS.filter((m) => m.actions.includes(a));
               const selected = eligible.filter((m) => has(m.key, a)).length;
               return (
                 <th key={a} className="px-2 py-2 text-center text-xs font-medium text-muted-foreground">
                   <label className="flex flex-col items-center gap-1.5 uppercase">
-                    {humanize(a)}
-                    <Checkbox disabled={disabled} checked={checkState(selected, eligible.length)} onCheckedChange={(v) => toggleColumn(a, v === true)} aria-label={`Toggle ${a} for all menus`} />
+                    {t(humanize(a))}
+                    <Checkbox disabled={disabled} checked={checkState(selected, eligible.length)} onCheckedChange={(v) => toggleColumn(a, v === true)} aria-label={t('Toggle {{action}} for all menus', { action: t(humanize(a)) })} />
                   </label>
                 </th>
               );
             })}
-            <th className="px-2 py-2 text-center text-xs font-medium text-muted-foreground uppercase">All</th>
+            <th className="px-2 py-2 text-center text-xs font-medium text-muted-foreground uppercase">{t('All')}</th>
           </tr>
         </thead>
         <tbody>
@@ -79,16 +81,16 @@ export function PermissionMatrix({ value, onChange, disabled }: { value: Permiss
               groupRow && (
                 <tr key={`g-${m.group}`} className="bg-muted/30">
                   <td colSpan={ACTIONS.length + 2} className="px-3 py-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                    {GROUP_LABELS[m.group]}
+                    {t(GROUP_LABELS[m.group])}
                   </td>
                 </tr>
               ),
               <tr key={m.key} className="border-t hover:bg-muted/30">
-                <td className="px-3 py-2 font-medium whitespace-nowrap">{m.label}</td>
+                <td className="px-3 py-2 font-medium whitespace-nowrap">{t(m.label)}</td>
                 {ACTIONS.map((a) => (
                   <td key={a} className="px-2 py-2 text-center">
                     {m.actions.includes(a) ? (
-                      <Checkbox disabled={disabled} checked={has(m.key, a)} onCheckedChange={(v) => toggle(m.key, a, v === true)} aria-label={`${m.label}: ${a}`} className="mx-auto" />
+                      <Checkbox disabled={disabled} checked={has(m.key, a)} onCheckedChange={(v) => toggle(m.key, a, v === true)} aria-label={`${t(m.label)}: ${t(humanize(a))}`} className="mx-auto" />
                     ) : (
                       <span className="text-muted-foreground/40" aria-hidden>
                         ·
@@ -101,7 +103,7 @@ export function PermissionMatrix({ value, onChange, disabled }: { value: Permiss
                     disabled={disabled}
                     checked={checkState(selected, m.actions.length)}
                     onCheckedChange={(v) => setRow(m.key, v === true ? [...m.actions] : [])}
-                    aria-label={`${m.label}: all actions`}
+                    aria-label={`${t(m.label)}: ${t('all actions')}`}
                     className="mx-auto"
                   />
                 </td>

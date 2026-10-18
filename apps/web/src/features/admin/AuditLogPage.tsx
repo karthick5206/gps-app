@@ -8,6 +8,7 @@ import { ChangesView } from '@/features/masters/ChangesView';
 import { MasterPage } from '@/features/masters/MasterPage';
 import type { MasterColumn, MasterFilter } from '@/features/masters/types';
 import { named, useEntityOptions } from '@/features/masters/use-options';
+import { i18n } from '@/lib/i18n';
 
 const ACTION_VARIANT: Record<string, 'success' | 'warning' | 'destructive' | 'secondary' | 'default'> = {
   CREATE: 'success',
@@ -19,7 +20,7 @@ const ACTION_VARIANT: Record<string, 'success' | 'warning' | 'destructive' | 'se
 
 const columns: MasterColumn<AuditLogDto>[] = [
   { id: 'createdAt', header: 'Time', sortable: true, hideable: false, cell: (r) => <DateCell value={r.createdAt} /> },
-  { id: 'userName', header: 'User', cell: (r) => r.userName ?? <Muted>System</Muted> },
+  { id: 'userName', header: 'User', cell: (r) => r.userName ?? <Muted>{i18n.t('System')}</Muted> },
   { id: 'action', header: 'Action', sortable: true, cell: (r) => <Badge variant={ACTION_VARIANT[r.action] ?? 'secondary'}>{r.action}</Badge> },
   { id: 'entity', header: 'Entity', sortable: true, cell: (r) => r.entity },
   { id: 'entityId', header: 'Record ID', defaultHidden: true, cell: (r) => (r.entityId ? <span className="font-mono text-xs">{r.entityId}</span> : <Muted>—</Muted>) },

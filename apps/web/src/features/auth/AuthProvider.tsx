@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { api, refreshAccessToken, setSessionExpiredHandler } from '@/lib/api';
 import { session } from '@/lib/session';
 import { themeStore } from '@/features/theme/theme-store';
+import { i18n, setLanguage } from '@/lib/i18n';
 import { liveStore } from '@/features/live/live-store';
 import { AuthContext, meQueryKey, type AuthContextValue, type AuthStatus } from './auth-context';
 
@@ -39,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setSessionExpiredHandler(() => {
       if (status !== 'authenticated') return;
-      toast.error('Your session has expired. Please sign in again.');
+      toast.error(i18n.t('Your session has expired. Please sign in again.'));
       signOut();
     });
   }, [signOut, status]);
@@ -55,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!meQuery.isError) return;
     if (companyId) {
-      toast.error('The selected company is no longer available.');
+      toast.error(i18n.t('The selected company is no longer available.'));
       session.setCompanyId(null);
     } else {
       signOut();
@@ -68,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session.setTokens(res);
       queryClient.setQueryData(meQueryKey(null), res.me);
       themeStore.setPreference(res.me.user.preferences.theme);
+      if (res.me.user.preferences.language) setLanguage(res.me.user.preferences.language);
       setStatus('authenticated');
     },
     [queryClient],
@@ -84,6 +86,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const me = meQuery.data;
+  // The profile language (also set from the mobile app) wins once known.
+  const profileLanguage = me?.user.preferences.language;
+  useEffect(() => {
+    if (profileLanguage) setLanguage(profileLanguage);
+  }, [profileLanguage]);
   const can = useCallback((menu: MenuKey, action: Action = 'view') => !!me && canDo(me.permissions, menu, action), [me]);
 
   const value = useMemo<AuthContextValue>(

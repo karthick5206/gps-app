@@ -4,6 +4,7 @@ import { DEFAULT_THRESHOLDS, type CompanySummary } from '@veetracer/shared';
 import { SaveIcon } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { FormError } from '@/components/form-error';
@@ -44,6 +45,7 @@ function toValues(c: CompanySummary): Values {
 }
 
 export function SettingsPage() {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const editable = can('settings', 'edit');
   const queryClient = useQueryClient();
@@ -71,7 +73,7 @@ export function SettingsPage() {
         },
       }),
     onSuccess: (res) => {
-      toast.success('Settings saved');
+      toast.success(t('Settings saved'));
       queryClient.setQueryData(SETTINGS_KEY, res);
       queryClient.invalidateQueries({ queryKey: ['me'] });
     },
@@ -83,9 +85,9 @@ export function SettingsPage() {
   return (
     <div className="w-full space-y-6 p-4 sm:p-6">
       <PageHeader
-        title="Company Settings"
-        description="Company profile and the thresholds used to compute vehicle status."
-        actions={company && <Badge variant={company.status === 'ACTIVE' ? 'success' : 'destructive'}>{company.status === 'ACTIVE' ? 'Active' : 'Suspended'}</Badge>}
+        title={t('Company Settings')}
+        description={t('Company profile and the thresholds used to compute vehicle status.')}
+        actions={company && <Badge variant={company.status === 'ACTIVE' ? 'success' : 'destructive'}>{company.status === 'ACTIVE' ? t('Active') : t('Suspended')}</Badge>}
       />
       {settings.isError && <FormError message={errorMessage(settings.error)} />}
       {settings.isPending ? (
@@ -100,8 +102,8 @@ export function SettingsPage() {
           <form noValidate onSubmit={form.handleSubmit((v) => save.mutate(v))} className="grid gap-6 xl:grid-cols-2 xl:items-start">
             <Card>
               <CardHeader>
-                <CardTitle>Profile</CardTitle>
-                <CardDescription>{company.accountType === 'BUSINESS' ? 'Business account' : 'Individual account'}</CardDescription>
+                <CardTitle>{t('Profile')}</CardTitle>
+                <CardDescription>{company.accountType === 'BUSINESS' ? t('Business account') : t('Individual account')}</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <TextField form={form} name="name" label="Company name" required />
@@ -110,8 +112,8 @@ export function SettingsPage() {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle>Status thresholds</CardTitle>
-                <CardDescription>How the live map decides Running, Idle and Offline. Changes apply to new positions.</CardDescription>
+                <CardTitle>{t('Status thresholds')}</CardTitle>
+                <CardDescription>{t('How the live map decides Running, Idle and Offline. Changes apply to new positions.')}</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <TextField form={form} name="runningSpeedKph" label="Running above (km/h)" type="number" required hint="Slower is treated as stationary." />
@@ -123,11 +125,11 @@ export function SettingsPage() {
             {editable && (
               <div className="flex justify-end gap-2 xl:col-span-2">
                 <Button variant="outline" disabled={!form.formState.isDirty || save.isPending} onClick={() => form.reset(toValues(company))}>
-                  Reset
+                  {t('Reset')}
                 </Button>
                 <Button type="submit" disabled={!form.formState.isDirty || save.isPending}>
                   {save.isPending ? <Spinner /> : <SaveIcon />}
-                  Save changes
+                  {t('Save changes')}
                 </Button>
               </div>
             )}

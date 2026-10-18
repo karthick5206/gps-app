@@ -4,6 +4,7 @@ import { LICENSE_WARN_DAYS, type BranchDto, type DriverAssignmentDto, type Drive
 import { IdCardIcon, ListIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -12,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, formatDuration } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 import { ActiveBadge, Dash, DateCell, Muted } from '../cells';
 import { FormDialog, useSaveMutation } from '../FormDialog';
 import { ComboboxField, SwitchField, TextField } from '../form-fields';
@@ -91,6 +93,7 @@ function DriverForm({ record, open, onOpenChange }: MasterFormProps<DriverDto>) 
 }
 
 function LicenseCell({ d }: { d: DriverDto }) {
+  const { t } = useTranslation();
   if (!d.licenseNo && !d.licenseExpiry) return <Muted>—</Muted>;
   const days = d.licenseExpiry ? Math.floor((Date.parse(`${d.licenseExpiry}T00:00:00`) - Date.now()) / 86_400_000) : null;
   return (
@@ -99,8 +102,8 @@ function LicenseCell({ d }: { d: DriverDto }) {
       {d.licenseExpiry && (
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {d.licenseExpiry}
-          {days !== null && days < 0 && <Badge variant="destructive">Expired</Badge>}
-          {days !== null && days >= 0 && days <= LICENSE_WARN_DAYS && <Badge variant="warning">{days} d left</Badge>}
+          {days !== null && days < 0 && <Badge variant="destructive">{t('Expired')}</Badge>}
+          {days !== null && days >= 0 && days <= LICENSE_WARN_DAYS && <Badge variant="warning">{t('{{n}} d left', { n: days })}</Badge>}
         </span>
       )}
     </span>
@@ -122,7 +125,7 @@ const columns: MasterColumn<DriverDto>[] = [
         <span className="flex flex-col">
           <span className="font-medium">{r.current.objectName}</span>
           <span className="text-xs text-muted-foreground">
-            since {formatDateTime(r.current.since)} · {r.current.source === 'RFID' ? 'card' : 'manual'}
+            {i18n.t('since {{time}}', { time: formatDateTime(r.current.since) })} · {r.current.source === 'RFID' ? i18n.t('card') : i18n.t('manual')}
           </span>
         </span>
       ) : (
@@ -136,6 +139,7 @@ const columns: MasterColumn<DriverDto>[] = [
 
 /** Driver sessions: which vehicle, from–to, card or manual. */
 export function DriverSessionsSheet({ target, onClose }: { target: { driverId?: string; objectId?: string; label: string } | null; onClose: () => void }) {
+  const { t } = useTranslation();
   const q = useQuery({
     queryKey: ['driver-assignments', target?.driverId, target?.objectId],
     queryFn: ({ signal }) => api.get<DriverAssignmentDto[]>('/drivers/assignments', { driverId: target?.driverId, objectId: target?.objectId }, signal),
@@ -145,24 +149,24 @@ export function DriverSessionsSheet({ target, onClose }: { target: { driverId?: 
     <Sheet open={!!target} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>Driver sessions · {target?.label}</SheetTitle>
-          <SheetDescription>Latest first. Card sessions end when the ignition goes off or another card is swiped.</SheetDescription>
+          <SheetTitle>{t('Driver sessions')} · {target?.label}</SheetTitle>
+          <SheetDescription>{t('Latest first. Card sessions end when the ignition goes off or another card is swiped.')}</SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
           {q.isLoading && <Skeleton className="h-40" />}
           {q.isError && <p className="text-sm text-destructive">{errorMessage(q.error)}</p>}
-          {q.data?.length === 0 && <p className="text-sm text-muted-foreground">No sessions yet.</p>}
+          {q.data?.length === 0 && <p className="text-sm text-muted-foreground">{t('No sessions yet.')}</p>}
           {q.data?.map((a) => {
             const end = a.toTime ? Date.parse(a.toTime) : Date.now();
             return (
               <div key={a.id} className="rounded-lg border p-2.5 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">{target?.driverId ? a.objectName : a.driverName}</span>
-                  <Badge variant={a.source === 'RFID' ? 'secondary' : 'muted'}>{a.source === 'RFID' ? 'Card' : 'Manual'}</Badge>
+                  <Badge variant={a.source === 'RFID' ? 'secondary' : 'muted'}>{a.source === 'RFID' ? t('Card') : t('Manual')}</Badge>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-                  {formatDateTime(a.fromTime)} → {a.toTime ? formatDateTime(a.toTime) : <span className="font-medium text-success">driving now</span>} · {formatDuration((end - Date.parse(a.fromTime)) / 1000)}
-                  {a.createdByName ? ` · by ${a.createdByName}` : ''}
+                  {formatDateTime(a.fromTime)} → {a.toTime ? formatDateTime(a.toTime) : <span className="font-medium text-success">{t('driving now')}</span>} · {formatDuration((end - Date.parse(a.fromTime)) / 1000)}
+                  {a.createdByName ? ` · ${t('by {{name}}', { name: a.createdByName })}` : ''}
                 </p>
               </div>
             );
@@ -174,6 +178,7 @@ export function DriverSessionsSheet({ target, onClose }: { target: { driverId?: 
 }
 
 export function DriversPage() {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const [sessions, setSessions] = useState<{ driverId: string; label: string } | null>(null);
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
@@ -206,7 +211,7 @@ export function DriversPage() {
         emptyIcon={IdCardIcon}
         rowActions={(r) => (
           <DropdownMenuItem onSelect={() => setSessions({ driverId: r.id, label: r.name })}>
-            <ListIcon /> Sessions
+            <ListIcon /> {t('Sessions')}
           </DropdownMenuItem>
         )}
       />

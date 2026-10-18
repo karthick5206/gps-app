@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { Platform } from 'react-native';
 import { api } from '@/lib/api';
+import { i18n } from '@/lib/i18n';
 
 /**
  * Push alerts: the app registers its Expo push token with the API after sign-in; the notifier sends alerts for
@@ -14,7 +15,7 @@ import { api } from '@/lib/api';
  */
 
 let registeredToken: string | null = null;
-/** Last registration outcome for the settings screen: null = registered, else the reason it is off. */
+/** Last registration outcome for the settings screen: null = registered, else the reason it is off (English; translated where shown). */
 export let pushStatus: string | null = 'Not registered yet';
 
 Notifications.setNotificationHandler({
@@ -41,7 +42,7 @@ async function register(): Promise<string | null> {
   if (!id) return 'Push not set up for this build';
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('alerts', {
-      name: 'Alerts',
+      name: i18n.t('Alerts'),
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#0f766e',

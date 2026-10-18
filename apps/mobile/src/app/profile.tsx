@@ -3,6 +3,7 @@ import type { Me } from '@veetracer/shared';
 import { Stack } from 'expo-router';
 import { KeyRoundIcon, SaveIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { blankToNull } from '@/components/form';
 import { Button, Card, ErrorBanner, Field, SectionTitle, Text } from '@/components/ui';
@@ -16,6 +17,7 @@ const PASSWORD = /^(?=.*[A-Za-z])(?=.*\d).{8,128}$/;
 
 /** Own profile: name, email, mobile, and password change. */
 export default function ProfileScreen() {
+  const { t } = useTranslation();
   const { me, companyId } = useAuth();
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
@@ -36,7 +38,7 @@ export default function ProfileScreen() {
     mutationFn: () => api.patch<Me>('/auth/me', { name: name.trim(), email: blankToNull(email), mobile: blankToNull(mobile) }),
     onSuccess: (updated) => {
       queryClient.setQueryData(meQueryKey(companyId), updated);
-      Alert.alert('Saved', 'Your profile was updated.');
+      Alert.alert(t('Saved'), t('Your profile was updated.'));
     },
   });
   const changePassword = useMutation({
@@ -45,44 +47,44 @@ export default function ProfileScreen() {
       setCurrent('');
       setNext('');
       setConfirm('');
-      Alert.alert('Password changed', r.signedOutOthers ? `You were signed out on ${r.signedOutOthers} other device(s).` : 'Use the new password next time you sign in.');
+      Alert.alert(t('Password changed'), r.signedOutOthers ? t('You were signed out on {{count}} other device(s).', { count: r.signedOutOthers }) : t('Use the new password next time you sign in.'));
     },
   });
 
-  const emailError = email.trim() && !EMAIL.test(email.trim()) ? 'Enter a valid email' : undefined;
-  const mobileError = mobile.trim() && !MOBILE.test(mobile.trim()) ? 'Use international format, e.g. +919876543210' : undefined;
+  const emailError = email.trim() && !EMAIL.test(email.trim()) ? t('Enter a valid email') : undefined;
+  const mobileError = mobile.trim() && !MOBILE.test(mobile.trim()) ? t('Use international format, e.g. +919876543210') : undefined;
   const profileInvalid = !name.trim() || !!emailError || !!mobileError || (!email.trim() && !mobile.trim());
   const dirty = !!me && (name.trim() !== me.user.name || email.trim() !== (me.user.email ?? '') || mobile.trim() !== (me.user.mobile ?? ''));
-  const nextError = next && !PASSWORD.test(next) ? 'At least 8 characters with a letter and a digit' : undefined;
-  const confirmError = confirm && confirm !== next ? 'Passwords do not match' : undefined;
+  const nextError = next && !PASSWORD.test(next) ? t('At least 8 characters with a letter and a digit') : undefined;
+  const confirmError = confirm && confirm !== next ? t('Passwords do not match') : undefined;
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Profile' }} />
+      <Stack.Screen options={{ title: t('Profile') }} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.md, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
-          <SectionTitle>Personal information</SectionTitle>
+          <SectionTitle>{t('Personal information')}</SectionTitle>
           <Card style={{ gap: SPACE.md }}>
-            <Field label="Name" value={name} onChangeText={setName} autoComplete="name" />
-            <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoComplete="email" error={emailError} hint="Used to sign in and for email alerts." />
-            <Field label="Mobile" value={mobile} onChangeText={setMobile} keyboardType="phone-pad" autoComplete="tel" placeholder="+919876543210" error={mobileError} hint="Used for OTP sign-in and SMS alerts." />
+            <Field label={t('Name')} value={name} onChangeText={setName} autoComplete="name" />
+            <Field label={t('Email')} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoComplete="email" error={emailError} hint={t('Used to sign in and for email alerts.')} />
+            <Field label={t('Mobile')} value={mobile} onChangeText={setMobile} keyboardType="phone-pad" autoComplete="tel" placeholder="+919876543210" error={mobileError} hint={t('Used for OTP sign-in and SMS alerts.')} />
             {!email.trim() && !mobile.trim() && (
               <Text size="xs" tone="destructive">
-                Keep an email or a mobile number to sign in with.
+                {t('Keep an email or a mobile number to sign in with.')}
               </Text>
             )}
             {saveProfile.isError && <ErrorBanner message={errorMessage(saveProfile.error)} />}
-            <Button title="Save profile" icon={SaveIcon} onPress={() => saveProfile.mutate()} disabled={!dirty || profileInvalid} loading={saveProfile.isPending} />
+            <Button title={t('Save profile')} icon={SaveIcon} onPress={() => saveProfile.mutate()} disabled={!dirty || profileInvalid} loading={saveProfile.isPending} />
           </Card>
 
-          <SectionTitle>Change password</SectionTitle>
+          <SectionTitle>{t('Change password')}</SectionTitle>
           <Card style={{ gap: SPACE.md }}>
-            <Field label="Current password" value={current} onChangeText={setCurrent} secureTextEntry autoComplete="password" />
-            <Field label="New password" value={next} onChangeText={setNext} secureTextEntry autoComplete="password-new" error={nextError} />
-            <Field label="Confirm new password" value={confirm} onChangeText={setConfirm} secureTextEntry autoComplete="password-new" error={confirmError} />
+            <Field label={t('Current password')} value={current} onChangeText={setCurrent} secureTextEntry autoComplete="password" />
+            <Field label={t('New password')} value={next} onChangeText={setNext} secureTextEntry autoComplete="password-new" error={nextError} />
+            <Field label={t('Confirm new password')} value={confirm} onChangeText={setConfirm} secureTextEntry autoComplete="password-new" error={confirmError} />
             {changePassword.isError && <ErrorBanner message={errorMessage(changePassword.error)} />}
             <Button
-              title="Change password"
+              title={t('Change password')}
               icon={KeyRoundIcon}
               variant="outline"
               onPress={() => changePassword.mutate()}
@@ -90,7 +92,7 @@ export default function ProfileScreen() {
               loading={changePassword.isPending}
             />
             <Text size="xs" tone="muted">
-              Other devices signed in to your account are signed out.
+              {t('Other devices signed in to your account are signed out.')}
             </Text>
           </Card>
         </ScrollView>

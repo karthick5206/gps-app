@@ -21,6 +21,7 @@ import {
   WifiOffIcon,
   type LucideIcon,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { SEVERITY_COLOR, SEVERITY_LABEL } from './severity';
 
@@ -50,13 +51,14 @@ export const alertIcon = (type: string): LucideIcon => ALERT_ICON[type as AlertT
 
 /** Alert type glyph in a round badge tinted by severity. */
 export function AlertTypeIcon({ type, severity, size = 'md', className }: { type: string; severity: AlertSeverity; size?: 'sm' | 'md' | 'lg'; className?: string }) {
+  const { t } = useTranslation();
   const Icon = alertIcon(type);
   const color = SEVERITY_COLOR[severity];
   return (
     <span
       className={cn('inline-flex shrink-0 items-center justify-center rounded-full', size === 'sm' ? 'size-6' : size === 'lg' ? 'size-9' : 'size-7', className)}
       style={{ backgroundColor: `${color}1f`, color }}
-      title={SEVERITY_LABEL[severity]}
+      title={t(SEVERITY_LABEL[severity])}
     >
       <Icon className={size === 'sm' ? 'size-3.5' : size === 'lg' ? 'size-5' : 'size-4'} aria-hidden />
     </span>

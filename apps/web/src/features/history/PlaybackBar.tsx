@@ -1,6 +1,7 @@
 import type { AlertDto, TripDto } from '@veetracer/shared';
 import { FastForwardIcon, GaugeIcon, LocateFixedIcon, LocateIcon, PauseIcon, PlayIcon, RotateCcwIcon, SkipForwardIcon } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -37,6 +38,7 @@ export function PlaybackBar({
   onSkipStopsChange: (v: boolean) => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const state = useSyncExternalStore(engine.subscribe, engine.getState);
   const playable = engine.index.n > 1;
   return (
@@ -47,12 +49,12 @@ export function PlaybackBar({
           className="rounded-full"
           onClick={() => engine.toggle()}
           disabled={!playable}
-          aria-label={state.playing ? 'Pause' : state.ended ? 'Replay' : 'Play'}
+          aria-label={state.playing ? t('Pause') : state.ended ? t('Replay') : t('Play')}
           aria-keyshortcuts="Space"
         >
           {state.playing ? <PauseIcon className="fill-current" /> : state.ended ? <RotateCcwIcon /> : <PlayIcon className="fill-current" />}
         </Button>
-        <div className="flex items-center rounded-lg bg-muted p-0.5" role="group" aria-label="Playback speed">
+        <div className="flex items-center rounded-lg bg-muted p-0.5" role="group" aria-label={t('Playback speed')}>
           {PLAYBACK_RATES.map((r) => (
             <button
               key={r}
@@ -69,19 +71,20 @@ export function PlaybackBar({
           ))}
         </div>
         <span className="hidden text-xs text-muted-foreground xl:inline">
-          <GaugeIcon className="mr-1 inline size-3.5 align-[-2px]" />1× = 1 min per second
+          <GaugeIcon className="mr-1 inline size-3.5 align-[-2px]" />
+          {t('1× = 1 min per second')}
         </span>
         <span className="flex-1" />
-        <Toggle pressed={skipStops} onClick={() => onSkipStopsChange(!skipStops)} label="Skip through stops and gaps quickly">
+        <Toggle pressed={skipStops} onClick={() => onSkipStopsChange(!skipStops)} label={t('Skip through stops and gaps quickly')}>
           {skipStops ? <FastForwardIcon /> : <SkipForwardIcon />}
-          <span className="hidden sm:inline">Skip stops</span>
+          <span className="hidden sm:inline">{t('Skip stops')}</span>
         </Toggle>
-        <Toggle pressed={follow} onClick={() => onFollowChange(!follow)} label="Keep the vehicle centred">
+        <Toggle pressed={follow} onClick={() => onFollowChange(!follow)} label={t('Keep the vehicle centred')}>
           {follow ? <LocateFixedIcon /> : <LocateIcon />}
-          <span className="hidden sm:inline">Follow</span>
+          <span className="hidden sm:inline">{t('Follow')}</span>
         </Toggle>
       </div>
-      {playable ? <Timeline engine={engine} trips={trips} alerts={alerts} /> : <p className="py-3 text-center text-xs text-muted-foreground">Not enough points to play back.</p>}
+      {playable ? <Timeline engine={engine} trips={trips} alerts={alerts} /> : <p className="py-3 text-center text-xs text-muted-foreground">{t('Not enough points to play back.')}</p>}
     </div>
   );
 }

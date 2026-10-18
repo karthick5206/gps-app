@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import type { DataScope, MenuKey, PermissionMap, RoleDto } from '@veetracer/shared';
 import { LockIcon, ShieldCheckIcon } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import type { Option } from '@/components/ui/multi-select';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +13,7 @@ import { SelectField, TextField } from '@/features/masters/form-fields';
 import { nullIfBlank, optionalText, requiredText, str } from '@/features/masters/form-schema';
 import { MasterPage } from '@/features/masters/MasterPage';
 import type { MasterColumn, MasterFormProps } from '@/features/masters/types';
+import { i18n } from '@/lib/i18n';
 import { PermissionMatrix } from './PermissionMatrix';
 
 const ENDPOINT = '/roles';
@@ -34,6 +36,7 @@ function toMap(role: RoleDto | null): PermissionMap {
 }
 
 function RoleForm({ record, open, onOpenChange }: MasterFormProps<RoleDto>) {
+  const { t } = useTranslation();
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: { name: str(record?.name), description: str(record?.description), dataScope: record?.dataScope ?? 'ASSIGNED', permissions: toMap(record) },
@@ -54,7 +57,7 @@ function RoleForm({ record, open, onOpenChange }: MasterFormProps<RoleDto>) {
     <FormDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={record ? `Edit role${record.isSystem ? ' (system)' : ''}` : 'Add role'}
+      title={record ? (record.isSystem ? 'Edit role (system)' : 'Edit role') : 'Add role'}
       description={record?.isSystem ? 'System roles can be edited but not deleted.' : undefined}
       wide
       pending={save.isPending}
@@ -66,7 +69,7 @@ function RoleForm({ record, open, onOpenChange }: MasterFormProps<RoleDto>) {
         <SelectField form={form} name="dataScope" label="Data scope" required options={SCOPE_OPTIONS} />
         <TextField form={form} name="description" label="Description" className="sm:col-span-2" />
       </div>
-      <Field label="Permissions" error={permError}>
+      <Field label={t('Permissions')} error={permError && t(permError)}>
         <Controller
           control={form.control}
           name="permissions"
@@ -86,7 +89,7 @@ const columns: MasterColumn<RoleDto>[] = [
     cell: (r) => (
       <span className="inline-flex items-center gap-1.5 font-medium">
         {r.name}
-        {r.isSystem && <LockIcon className="size-3 text-muted-foreground" aria-label="System role" />}
+        {r.isSystem && <LockIcon className="size-3 text-muted-foreground" aria-label={i18n.t('System role')} />}
       </span>
     ),
   },
@@ -95,11 +98,11 @@ const columns: MasterColumn<RoleDto>[] = [
     id: 'dataScope',
     header: 'Data scope',
     sortable: true,
-    cell: (r) => <Badge variant={r.dataScope === 'COMPANY' ? 'default' : 'secondary'}>{r.dataScope === 'COMPANY' ? 'Whole company' : 'Assigned'}</Badge>,
+    cell: (r) => <Badge variant={r.dataScope === 'COMPANY' ? 'default' : 'secondary'}>{r.dataScope === 'COMPANY' ? i18n.t('Whole company') : i18n.t('Assigned')}</Badge>,
   },
   { id: 'permissions', header: 'Menus', cell: (r) => <span className="tabular-nums">{r.permissions.length}</span> },
   { id: 'userCount', header: 'Users', sortable: true, cell: (r) => <span className="tabular-nums">{r.userCount}</span> },
-  { id: 'isSystem', header: 'Type', cell: (r) => <Badge variant={r.isSystem ? 'muted' : 'outline'}>{r.isSystem ? 'System' : 'Custom'}</Badge> },
+  { id: 'isSystem', header: 'Type', cell: (r) => <Badge variant={r.isSystem ? 'muted' : 'outline'}>{r.isSystem ? i18n.t('System') : i18n.t('Custom')}</Badge> },
   { id: 'updatedAt', header: 'Updated', sortable: true, defaultHidden: true, cell: (r) => <DateCell value={r.updatedAt} relative /> },
 ];
 

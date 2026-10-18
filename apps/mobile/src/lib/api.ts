@@ -1,5 +1,6 @@
 import type { AuthTokens } from '@veetracer/shared';
 import { API_URL } from './config';
+import { i18n } from './i18n';
 import { session } from './session';
 
 /** REST client for the VeeTracer API (same contract as the web app's lib/api.ts). */
@@ -9,7 +10,7 @@ export class ApiError extends Error {
   readonly messages: string[];
 
   constructor(status: number, messages: string[]) {
-    super(messages.join('\n') || `Request failed (${status})`);
+    super(messages.join('\n') || i18n.t('Request failed ({{status}})', { status }));
     this.status = status;
     this.messages = messages;
   }
@@ -57,7 +58,7 @@ async function toApiError(res: Response): Promise<ApiError> {
   } catch {
     /* non-JSON body */
   }
-  if (!messages.length) messages = [res.status === 429 ? 'Too many attempts. Please wait and try again.' : `Request failed (${res.status})`];
+  if (!messages.length) messages = [res.status === 429 ? i18n.t('Too many attempts. Please wait and try again.') : i18n.t('Request failed ({{status}})', { status: res.status })];
   return new ApiError(res.status, messages);
 }
 
@@ -83,7 +84,7 @@ async function send(path: string, opts: RequestOptions): Promise<Response> {
     });
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err;
-    throw new ApiError(0, ['No connection to the server. Check your internet and try again.']);
+    throw new ApiError(0, [i18n.t('No connection to the server. Check your internet and try again.')]);
   }
 }
 
@@ -142,5 +143,5 @@ export const api = {
 
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
-  return 'Something went wrong';
+  return i18n.t('Something went wrong');
 }

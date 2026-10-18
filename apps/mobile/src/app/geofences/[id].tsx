@@ -4,6 +4,7 @@ import type { GeofenceDto, GeofenceGeometry, GeofenceMode, LatLng } from '@veetr
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { CircleIcon, PentagonIcon, Trash2Icon, Undo2Icon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { blankToNull, SwitchRow } from '@/components/form';
 import { Button, Chips, ErrorBanner, Field, Text } from '@/components/ui';
@@ -24,6 +25,7 @@ export default function GeofenceEditor() {
   const isNew = id === 'new';
   const c = useColors();
   const scheme = useScheme();
+  const { t } = useTranslation();
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const camera = useRef<CameraRef>(null);
@@ -88,7 +90,7 @@ export default function GeofenceEditor() {
     },
     onSuccess: done,
   });
-  const remove = useMutation({ mutationFn: () => api.delete(`/geofences/${id}`), onSuccess: done, onError: (err) => Alert.alert('Not deleted', errorMessage(err)) });
+  const remove = useMutation({ mutationFn: () => api.delete(`/geofences/${id}`), onSuccess: done, onError: (err) => Alert.alert(t('Not deleted'), errorMessage(err)) });
 
   const onMapPress = (lng: number, lat: number) => {
     if (!canSave) return;
@@ -96,9 +98,9 @@ export default function GeofenceEditor() {
     else setPoints((p) => [...p, { lat, lng }]);
   };
   const submit = () => {
-    if (!name.trim()) return Alert.alert('Name is required');
-    if (!geometry) return Alert.alert(shape === 'CIRCLE' ? 'Tap the map to place the centre' : 'Tap at least 3 points on the map');
-    if (limit !== null && (!Number.isInteger(limit) || limit < 5 || limit > 250)) return Alert.alert('Speed limit must be 5 – 250 km/h');
+    if (!name.trim()) return Alert.alert(t('Name is required'));
+    if (!geometry) return Alert.alert(shape === 'CIRCLE' ? t('Tap the map to place the centre') : t('Tap at least 3 points on the map'));
+    if (limit !== null && (!Number.isInteger(limit) || limit < 5 || limit > 250)) return Alert.alert(t('Speed limit must be 5 – 250 km/h'));
     save.mutate();
   };
 
@@ -108,14 +110,14 @@ export default function GeofenceEditor() {
     <>
       <Stack.Screen
         options={{
-          title: isNew ? 'New geofence' : 'Edit geofence',
+          title: isNew ? t('New geofence') : t('Edit geofence'),
           headerRight: () =>
             !isNew && can('geofences', 'delete') ? (
               <Pressable
                 onPress={() =>
-                  Alert.alert(`Delete ${name || 'geofence'}?`, 'Visits already recorded are kept in reports.', [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: () => remove.mutate() },
+                  Alert.alert(t('Delete {{name}}?', { name: name || t('geofence') }), t('Visits already recorded are kept in reports.'), [
+                    { text: t('Cancel'), style: 'cancel' },
+                    { text: t('Delete'), style: 'destructive', onPress: () => remove.mutate() },
                   ])
                 }
                 hitSlop={10}
@@ -143,10 +145,10 @@ export default function GeofenceEditor() {
         {canSave && (
           <View style={[styles.hint, { backgroundColor: c.card }]}>
             <Text size="xs" weight="600">
-              {shape === 'CIRCLE' ? (center ? 'Tap to move the centre' : 'Tap the map to place the centre') : `Tap to add points (${points.length})`}
+              {shape === 'CIRCLE' ? (center ? t('Tap to move the centre') : t('Tap the map to place the centre')) : t('Tap to add points ({{count}})', { count: points.length })}
             </Text>
             {shape === 'POLYGON' && points.length > 0 && (
-              <Pressable onPress={() => setPoints((p) => p.slice(0, -1))} hitSlop={8} accessibilityLabel="Undo last point">
+              <Pressable onPress={() => setPoints((p) => p.slice(0, -1))} hitSlop={8} accessibilityLabel={t('Undo last point')}>
                 <Undo2Icon size={16} color={c.primary} />
               </Pressable>
             )}
@@ -165,7 +167,7 @@ export default function GeofenceEditor() {
                 <Pressable key={s} disabled={!canSave} onPress={() => setShape(s)} style={[styles.shape, { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.accent : c.card }]}>
                   <Icon size={18} color={on ? c.primary : c.mutedForeground} />
                   <Text weight={on ? '600' : '400'} tone={on ? 'primary' : 'default'}>
-                    {s === 'CIRCLE' ? 'Circle' : 'Polygon'}
+                    {s === 'CIRCLE' ? t('Circle') : t('Polygon')}
                   </Text>
                 </Pressable>
               );
@@ -174,48 +176,48 @@ export default function GeofenceEditor() {
           {shape === 'CIRCLE' && (
             <View style={{ gap: 6 }}>
               <Text size="sm" weight="500">
-                Radius
+                {t('Radius')}
               </Text>
               <Chips value={String(radiusM)} onChange={(v) => setRadiusM(Number(v))} options={RADII.map((r) => ({ value: String(r), label: r >= 1000 ? `${r / 1000} km` : `${r} m` }))} />
             </View>
           )}
-          <Field label="Name *" value={name} onChangeText={setName} placeholder="e.g. Chennai depot" editable={canSave} />
+          <Field label={t('Name *')} value={name} onChangeText={setName} placeholder={t('e.g. Chennai depot')} editable={canSave} />
           <View style={{ gap: 6 }}>
             <Text size="sm" weight="500">
-              Type
+              {t('Type')}
             </Text>
             <Chips
               value={mode}
               onChange={setMode}
               options={[
-                { value: 'NORMAL', label: 'Normal' },
-                { value: 'NO_GO', label: 'No-go' },
-                { value: 'KEEP_IN', label: 'Keep-in' },
+                { value: 'NORMAL', label: t('Normal') },
+                { value: 'NO_GO', label: t('No-go') },
+                { value: 'KEEP_IN', label: t('Keep-in') },
               ]}
             />
             <Text size="xs" tone="muted">
-              No-go: entering is critical. Keep-in: leaving is critical.
+              {t('No-go: entering is critical. Keep-in: leaving is critical.')}
             </Text>
           </View>
           <View style={{ gap: 6 }}>
             <Text size="sm" weight="500">
-              Colour
+              {t('Colour')}
             </Text>
             <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
               {COLORS.map((col) => (
-                <Pressable key={col} onPress={() => setColor(col)} accessibilityLabel={`Colour ${col}`} style={[styles.swatch, { backgroundColor: col, borderColor: col === color ? c.foreground : 'transparent' }]} />
+                <Pressable key={col} onPress={() => setColor(col)} accessibilityLabel={t('Colour {{color}}', { color: col })} style={[styles.swatch, { backgroundColor: col, borderColor: col === color ? c.foreground : 'transparent' }]} />
               ))}
             </View>
           </View>
-          <SwitchRow label="Alert on entry" value={notifyEnter} onChange={setNotifyEnter} />
-          <SwitchRow label="Alert on exit" value={notifyExit} onChange={setNotifyExit} />
-          <Field label="Speed limit inside (km/h)" value={speedLimit} onChangeText={(v) => setSpeedLimit(v.replace(/\D/g, ''))} keyboardType="number-pad" placeholder="None" hint="Overspeed inside this geofence raises an alert." editable={canSave} />
-          <SwitchRow label="Active" value={isActive} onChange={setIsActive} />
+          <SwitchRow label={t('Alert on entry')} value={notifyEnter} onChange={setNotifyEnter} />
+          <SwitchRow label={t('Alert on exit')} value={notifyExit} onChange={setNotifyExit} />
+          <Field label={t('Speed limit inside (km/h)')} value={speedLimit} onChangeText={(v) => setSpeedLimit(v.replace(/\D/g, ''))} keyboardType="number-pad" placeholder={t('None')} hint={t('Overspeed inside this geofence raises an alert.')} editable={canSave} />
+          <SwitchRow label={t('Active')} value={isActive} onChange={setIsActive} />
           <Text size="xs" tone="muted">
-            {record.data && !record.data.appliesTo.all ? 'Applies to selected branches / groups / vehicles (set on the web).' : 'Applies to all vehicles.'} Time windows, vehicle selection and import are in the web app.
+            {record.data && !record.data.appliesTo.all ? t('Applies to selected branches / groups / vehicles (set on the web).') : t('Applies to all vehicles.')} {t('Time windows, vehicle selection and import are in the web app.')}
           </Text>
           {save.isError && <ErrorBanner message={errorMessage(save.error)} />}
-          {canSave && <Button title={isNew ? 'Create geofence' : 'Save'} onPress={submit} loading={save.isPending} />}
+          {canSave && <Button title={isNew ? t('Create geofence') : t('Save')} onPress={submit} loading={save.isPending} />}
         </ScrollView>
       </KeyboardAvoidingView>
     </>

@@ -7,6 +7,7 @@ import { session } from '@/lib/session';
 import { liveStore } from '@/features/live/live-store';
 import { unregisterPush } from '@/features/notifications/push';
 import { applyThemePreference, restoreThemePreference } from '@/features/theme/theme';
+import { i18n, restoreLanguage, setLanguage } from '@/lib/i18n';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -33,7 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await Promise.all([session.load(), restoreThemePreference()]);
+      await Promise.all([session.load(), restoreThemePreference(), restoreLanguage()]);
       const ok = session.getRefreshToken() ? await refreshAccessToken() : false;
       if (cancelled) return;
       if (!ok) session.clear();
@@ -57,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setSessionExpiredHandler(() => {
       if (status !== 'authenticated') return;
-      Alert.alert('Signed out', 'Your session has expired. Please sign in again.');
+      Alert.alert(i18n.t('Signed out'), i18n.t('Your session has expired. Please sign in again.'));
       signOut();
     });
   }, [signOut, status]);
@@ -102,6 +103,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (themePref) applyThemePreference(themePref);
   }, [themePref]);
+  const languagePref = me?.user.preferences.language;
+  useEffect(() => {
+    if (languagePref) setLanguage(languagePref);
+  }, [languagePref]);
   const can = useCallback((menu: MenuKey, action: Action = 'view') => !!me && canDo(me.permissions, menu, action), [me]);
 
   const value = useMemo<AuthContextValue>(() => ({ status, me, companyId, signIn, signOut, switchCompany, can }), [status, me, companyId, signIn, signOut, switchCompany, can]);

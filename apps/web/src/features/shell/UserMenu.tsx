@@ -1,5 +1,6 @@
 import { LaptopIcon, LogOutIcon, ShieldIcon } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +22,7 @@ function initials(name: string): string {
 }
 
 export function UserMenu() {
+  const { t } = useTranslation();
   const me = useMe();
   const { signOut } = useAuth();
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -30,7 +32,7 @@ export function UserMenu() {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Account menu"
+          aria-label={t('Account menu')}
           className="flex size-9 items-center justify-center rounded-full bg-navy text-xs font-semibold text-navy-foreground ring-offset-2 ring-offset-background transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           {initials(me.user.name) || '?'}
@@ -44,15 +46,15 @@ export function UserMenu() {
         </DropdownMenuLabel>
         {me.user.isSuperAdmin && (
           <DropdownMenuLabel className="flex items-center gap-1.5 pt-0 text-primary">
-            <ShieldIcon className="size-3.5" /> Super Admin
+            <ShieldIcon className="size-3.5" /> {t('Super Admin')}
           </DropdownMenuLabel>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => setSessionsOpen(true)}>
-          <LaptopIcon /> Signed-in devices
+          <LaptopIcon /> {t('Signed-in devices')}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={signOut}>
-          <LogOutIcon /> Sign out
+          <LogOutIcon /> {t('Sign out')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

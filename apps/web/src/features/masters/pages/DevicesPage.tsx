@@ -1,6 +1,7 @@
 import type { DeviceDto, DeviceModelDto } from '@veetracer/shared';
 import { BinaryIcon, CpuIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/features/auth/auth-context';
 import { ASSIGNED_OPTIONS, DeviceForm, deviceColumns, deviceRowLabel, modelOption } from '../device-shared';
@@ -17,16 +18,17 @@ function CompanyDeviceForm(props: MasterFormProps<DeviceDto>) {
 }
 
 export function DevicesPage() {
+  const { t } = useTranslation();
   const models = useEntityOptions<DeviceModelDto>('/device-models', modelOption);
   const { can } = useAuth();
   const [rawFor, setRawFor] = useState<DeviceDto | null>(null);
   const rowActions = useCallback(
     (r: DeviceDto) => (
       <DropdownMenuItem onSelect={() => setRawFor(r)}>
-        <BinaryIcon /> Raw data
+        <BinaryIcon /> {t('Raw data')}
       </DropdownMenuItem>
     ),
-    [],
+    [t],
   );
   const filters = useMemo<MasterFilter[]>(
     () => [

@@ -9,6 +9,7 @@ import type { Option } from '@/components/ui/multi-select';
 import { useMe } from '@/features/auth/auth-context';
 import { ActiveBadge } from '../cells';
 import { humanize } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 import { FormDialog, useSaveMutation } from '../FormDialog';
 import { SelectField, SwitchField, TextField } from '../form-fields';
 import { numericText, requiredText, str } from '../form-schema';
@@ -57,7 +58,7 @@ function LookupForm({ record, open, onOpenChange }: MasterFormProps<LookupDto>) 
 }
 
 const columns: MasterColumn<LookupDto>[] = [
-  { id: 'type', header: 'Type', sortable: true, cell: (r) => <Badge variant="secondary">{humanize(r.type)}</Badge> },
+  { id: 'type', header: 'Type', sortable: true, cell: (r) => <Badge variant="secondary">{i18n.t(humanize(r.type))}</Badge> },
   { id: 'code', header: 'Code', sortable: true, cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
   {
     id: 'label',
@@ -67,17 +68,17 @@ const columns: MasterColumn<LookupDto>[] = [
     cell: (r) => (
       <span className="inline-flex items-center gap-1.5 font-medium">
         {r.label}
-        {r.isSystem && <LockIcon className="size-3 text-muted-foreground" aria-label="System value" />}
+        {r.isSystem && <LockIcon className="size-3 text-muted-foreground" aria-label={i18n.t('System value')} />}
       </span>
     ),
   },
   { id: 'sortOrder', header: 'Order', sortable: true, cell: (r) => <span className="tabular-nums">{r.sortOrder}</span> },
-  { id: 'isSystem', header: 'Source', cell: (r) => <Badge variant={r.isSystem ? 'muted' : 'default'}>{r.isSystem ? 'System' : 'Company'}</Badge> },
+  { id: 'isSystem', header: 'Source', cell: (r) => <Badge variant={r.isSystem ? 'muted' : 'default'}>{r.isSystem ? i18n.t('System') : i18n.t('Company')}</Badge> },
   { id: 'isActive', header: 'Status', cell: (r) => <ActiveBadge active={r.isActive} /> },
 ];
 
 const filters: MasterFilter[] = [{ key: 'type', label: 'Types', options: TYPE_OPTIONS }];
-const rowLabel = (r: LookupDto) => `${humanize(r.type)} · ${r.label}`;
+const rowLabel = (r: LookupDto) => `${i18n.t(humanize(r.type))} · ${r.label}`;
 
 export function LookupsPage() {
   const me = useMe();

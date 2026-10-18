@@ -1,5 +1,6 @@
 import type { SummaryReportRow } from '@veetracer/shared';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/card';
 import { statusColor } from '@/lib/status-tokens';
 import { formatHm, periodLabel, periodShortLabel } from './report-format';
@@ -64,6 +65,7 @@ const H = 200;
 const PAD = { l: 44, r: 8, t: 10, b: 24 };
 
 function BarChart({ data, segments, format, axisFormat, title }: { data: PeriodAgg[]; segments: Segment[]; format: (v: number) => string; axisFormat: (v: number) => string; title: string }) {
+  const { t } = useTranslation();
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const totals = data.map((d) => segments.reduce((s, seg) => s + seg.value(d), 0));
@@ -85,7 +87,7 @@ function BarChart({ data, segments, format, axisFormat, title }: { data: PeriodA
             {segments.map((s) => (
               <li key={s.key} className="flex items-center gap-1.5">
                 <span className="size-2.5 rounded-sm" style={{ backgroundColor: s.color }} aria-hidden />
-                {s.label}
+                {t(s.label)}
               </li>
             ))}
           </ul>
@@ -136,7 +138,7 @@ function BarChart({ data, segments, format, axisFormat, title }: { data: PeriodA
               <p key={s.key} className="mt-0.5 flex items-center justify-between gap-3 tabular-nums">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <span className="size-2 rounded-sm" style={{ backgroundColor: s.color }} />
-                  {s.label}
+                  {t(s.label)}
                 </span>
                 {format(s.value(data[hover]))}
               </p>
@@ -158,12 +160,13 @@ const TIME: Segment[] = [
 
 /** Summary report charts: distance per period, and running/idle/stopped time stacked per period (all vehicles). */
 export function SummaryCharts({ rows }: { rows: SummaryReportRow[] }) {
+  const { t } = useTranslation();
   const data = useMemo(() => aggregate(rows), [rows]);
   if (!data.length) return null;
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <BarChart title="Distance (km)" data={data} segments={DISTANCE} format={(v) => `${v.toFixed(1)} km`} axisFormat={(v) => (v >= 1000 ? `${(v / 1000).toFixed(v % 1000 ? 1 : 0)}k` : String(Math.round(v)))} />
-      <BarChart title="Running / idle / stopped (hh:mm)" data={data} segments={TIME} format={(h) => formatHm(h * 3600)} axisFormat={(h) => `${Number.isInteger(h) ? h : h.toFixed(1)}h`} />
+      <BarChart title={t('Distance (km)')} data={data} segments={DISTANCE} format={(v) => `${v.toFixed(1)} km`} axisFormat={(v) => (v >= 1000 ? `${(v / 1000).toFixed(v % 1000 ? 1 : 0)}k` : String(Math.round(v)))} />
+      <BarChart title={t('Running / idle / stopped (hh:mm)')} data={data} segments={TIME} format={(h) => formatHm(h * 3600)} axisFormat={(h) => `${Number.isInteger(h) ? h : h.toFixed(1)}h`} />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type { LoginResponse } from '@veetracer/shared';
 import { KeyRoundIcon, MailIcon, SmartphoneIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { z } from 'zod';
 import { FormError } from '@/components/form-error';
@@ -27,6 +28,7 @@ const passwordSchema = z.object({
 });
 
 function PasswordForm() {
+  const { t } = useTranslation();
   const complete = useCompleteLogin();
   const form = useForm<z.infer<typeof passwordSchema>>({ resolver: zodResolver(passwordSchema), defaultValues: { email: '', password: '' } });
   const login = useMutation({
@@ -38,20 +40,20 @@ function PasswordForm() {
   return (
     <form className="space-y-4" noValidate onSubmit={form.handleSubmit((v) => login.mutate(v))}>
       <FormError message={login.isError ? errorMessage(login.error) : null} />
-      <Field label="Email" htmlFor="email" error={errors.email?.message}>
+      <Field label={t('Email')} htmlFor="email" error={errors.email?.message && t(errors.email.message)}>
         <Input id="email" type="email" autoComplete="username" placeholder="you@company.com" aria-invalid={!!errors.email} {...form.register('email')} />
       </Field>
-      <Field label="Password" htmlFor="password" error={errors.password?.message}>
+      <Field label={t('Password')} htmlFor="password" error={errors.password?.message && t(errors.password.message)}>
         <Input id="password" type="password" autoComplete="current-password" aria-invalid={!!errors.password} {...form.register('password')} />
       </Field>
       <div className="flex justify-end">
         <Link to="/forgot-password" className="text-sm font-medium text-primary hover:underline">
-          Forgot password?
+          {t('Forgot password?')}
         </Link>
       </div>
       <Button type="submit" className="w-full" disabled={login.isPending}>
         {login.isPending ? <Spinner /> : <KeyRoundIcon />}
-        Sign in
+        {t('Sign in')}
       </Button>
     </form>
   );
@@ -68,6 +70,7 @@ const codeSchema = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter th
 const RESEND_AFTER_SEC = 30;
 
 function OtpForm() {
+  const { t } = useTranslation();
   const complete = useCompleteLogin();
   const [mobile, setMobile] = useState<string | null>(null);
   const [devCode, setDevCode] = useState<string | null>(null);
@@ -75,8 +78,8 @@ function OtpForm() {
 
   useEffect(() => {
     if (resendIn <= 0) return;
-    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
   }, [resendIn]);
 
   const mobileForm = useForm<z.infer<typeof mobileSchema>>({ resolver: zodResolver(mobileSchema), defaultValues: { mobile: '+91' } });
@@ -100,12 +103,12 @@ function OtpForm() {
     return (
       <form className="space-y-4" noValidate onSubmit={mobileForm.handleSubmit((v) => requestOtp.mutate(v.mobile))}>
         <FormError message={requestOtp.isError ? errorMessage(requestOtp.error) : null} />
-        <Field label="Mobile number" htmlFor="mobile" error={errors.mobile?.message} hint="We'll send a 6-digit code to this number.">
+        <Field label={t('Mobile number')} htmlFor="mobile" error={errors.mobile?.message && t(errors.mobile.message)} hint={t("We'll send a 6-digit code to this number.")}>
           <Input id="mobile" type="tel" inputMode="tel" autoComplete="tel" aria-invalid={!!errors.mobile} {...mobileForm.register('mobile')} />
         </Field>
         <Button type="submit" className="w-full" disabled={requestOtp.isPending}>
           {requestOtp.isPending ? <Spinner /> : <SmartphoneIcon />}
-          Send code
+          {t('Send code')}
         </Button>
       </form>
     );
@@ -116,17 +119,17 @@ function OtpForm() {
     <form className="space-y-4" noValidate onSubmit={codeForm.handleSubmit((v) => verify.mutate(v.code))}>
       <FormError message={verify.isError ? errorMessage(verify.error) : requestOtp.isError ? errorMessage(requestOtp.error) : null} />
       <p className="text-sm text-muted-foreground">
-        Code sent to <span className="font-medium text-foreground">{mobile}</span>.{' '}
+        {t('Code sent to')} <span className="font-medium text-foreground">{mobile}</span>.{' '}
         <button type="button" className="font-medium text-primary hover:underline" onClick={() => setMobile(null)}>
-          Change
+          {t('Change')}
         </button>
       </p>
       {devCode && (
         <p className="rounded-lg border border-dashed border-primary/40 bg-accent px-3 py-2 text-sm">
-          Development code: <span className="font-mono font-semibold tracking-widest">{devCode}</span>
+          {t('Development code:')} <span className="font-mono font-semibold tracking-widest">{devCode}</span>
         </p>
       )}
-      <Field label="Verification code" htmlFor="code" error={errors.code?.message}>
+      <Field label={t('Verification code')} htmlFor="code" error={errors.code?.message && t(errors.code.message)}>
         <Input
           id="code"
           inputMode="numeric"
@@ -139,7 +142,7 @@ function OtpForm() {
       </Field>
       <Button type="submit" className="w-full" disabled={verify.isPending}>
         {verify.isPending && <Spinner />}
-        Verify and sign in
+        {t('Verify and sign in')}
       </Button>
       <Button
         type="button"
@@ -148,22 +151,23 @@ function OtpForm() {
         disabled={resendIn > 0 || requestOtp.isPending}
         onClick={() => requestOtp.mutate(mobile)}
       >
-        {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
+        {resendIn > 0 ? t('Resend code in {{seconds}}s', { seconds: resendIn }) : t('Resend code')}
       </Button>
     </form>
   );
 }
 
 export function LoginPage() {
+  const { t } = useTranslation();
   return (
-    <AuthLayout title="Sign in" description="Welcome back. Sign in to your VeeTracer account.">
+    <AuthLayout title={t('Sign in')} description={t('Welcome back. Sign in to your VeeTracer account.')}>
       <Tabs defaultValue="password" className="space-y-5">
         <TabsList className="w-full">
           <TabsTrigger value="password">
-            <MailIcon /> Email &amp; password
+            <MailIcon /> {t('Email & password')}
           </TabsTrigger>
           <TabsTrigger value="otp">
-            <SmartphoneIcon /> Mobile OTP
+            <SmartphoneIcon /> {t('Mobile OTP')}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="password">

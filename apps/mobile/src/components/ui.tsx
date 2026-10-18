@@ -14,6 +14,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
 
 /** Small set of themed primitives shared by every screen. */
@@ -167,6 +168,7 @@ export function EmptyState({ icon: Icon, title, description, action }: { icon: L
 
 export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
   const c = useColors();
+  const { t } = useTranslation();
   return (
     <View style={[styles.banner, { borderColor: `${c.destructive}55`, backgroundColor: `${c.destructive}12` }]}>
       <Text size="sm" tone="destructive" style={{ flex: 1 }}>
@@ -175,7 +177,7 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
       {onRetry && (
         <Pressable onPress={onRetry} hitSlop={8}>
           <Text size="sm" weight="600" tone="destructive">
-            Retry
+            {t('Retry')}
           </Text>
         </Pressable>
       )}

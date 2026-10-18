@@ -11,24 +11,29 @@ export const DAY_LETTER = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** Translator for UI text; the default fills `{{vars}}` into the English key (keeps this file import-free for tests). */
+export type Translate = (key: string, vars?: Record<string, string>) => string;
+const plain: Translate = (key, vars) => key.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars?.[k] ?? '');
+
 export function isTime(v: string): boolean {
   return TIME_RE.test(v);
 }
 
 /** "Mon–Fri", "Every day", "Weekends", "Mon, Wed, Fri", "Sat–Mon"-style runs are not wrapped across Sunday. */
-export function formatDays(days: number[]): string {
+export function formatDays(days: number[], tr: Translate = plain): string {
   const set = Array.from(new Set(days.filter((d) => d >= 1 && d <= 7))).sort((a, b) => a - b);
-  if (set.length === 0) return 'No days';
-  if (set.length === 7) return 'Every day';
-  if (set.length === 2 && set[0] === 6 && set[1] === 7) return 'Weekends';
-  if (set.length === 5 && set.join() === '1,2,3,4,5') return 'Weekdays';
+  if (set.length === 0) return tr('No days');
+  if (set.length === 7) return tr('Every day');
+  if (set.length === 2 && set[0] === 6 && set[1] === 7) return tr('Weekends');
+  if (set.length === 5 && set.join() === '1,2,3,4,5') return tr('Weekdays');
   const runs: string[] = [];
   let start = set[0];
   let prev = set[0];
+  const day = (d: number) => tr(DAY_SHORT[d - 1]);
   const flush = () => {
-    if (prev - start >= 2) runs.push(`${DAY_SHORT[start - 1]}–${DAY_SHORT[prev - 1]}`);
-    else if (prev !== start) runs.push(DAY_SHORT[start - 1], DAY_SHORT[prev - 1]);
-    else runs.push(DAY_SHORT[start - 1]);
+    if (prev - start >= 2) runs.push(`${day(start)}–${day(prev)}`);
+    else if (prev !== start) runs.push(day(start), day(prev));
+    else runs.push(day(start));
   };
   for (const d of set.slice(1)) {
     if (d === prev + 1) prev = d;
@@ -46,20 +51,20 @@ export function wrapsMidnight(w: Pick<Window, 'from' | 'to'>): boolean {
 }
 
 /** "Weekdays 08:00–18:00", "Every day 22:00–06:00 (overnight)", "Every day, all day". */
-export function formatWindow(w: Window): string {
-  const days = formatDays(w.days);
-  if (w.from === w.to) return `${days}, all day`;
-  return `${days} ${w.from}–${w.to}${wrapsMidnight(w) ? ' (overnight)' : ''}`;
+export function formatWindow(w: Window, tr: Translate = plain): string {
+  const days = formatDays(w.days, tr);
+  if (w.from === w.to) return tr('{{days}}, all day', { days });
+  return `${days} ${w.from}–${w.to}${wrapsMidnight(w) ? ` ${tr('(overnight)')}` : ''}`;
 }
 
-export function formatWindows(ws: Window[]): string {
-  return ws.length ? ws.map(formatWindow).join('; ') : 'Always active';
+export function formatWindows(ws: Window[], tr: Translate = plain): string {
+  return ws.length ? ws.map((w) => formatWindow(w, tr)).join('; ') : tr('Always active');
 }
 
 /** Validation message or null. */
-export function validateWindow(w: Window): string | null {
-  if (!w.days.length) return 'Pick at least one day';
-  if (!isTime(w.from) || !isTime(w.to)) return 'Use HH:mm times';
+export function validateWindow(w: Window, tr: Translate = plain): string | null {
+  if (!w.days.length) return tr('Pick at least one day');
+  if (!isTime(w.from) || !isTime(w.to)) return tr('Use HH:mm times');
   return null;
 }
 

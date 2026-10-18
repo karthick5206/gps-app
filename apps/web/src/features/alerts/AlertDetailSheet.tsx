@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { AlertDto, GeofenceDto, NotificationLogDto, NotificationStatus } from '@veetracer/shared';
 import { CheckIcon, MailIcon, MapPinIcon, MessageSquareIcon, SmartphoneIcon, BellIcon } from 'lucide-react';
 import { lazy, Suspense, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FormError } from '@/components/form-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, humanize } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 import { alertTitle } from './alert-center';
 import { useOpenAlert } from './AlertBell';
 import { AlertTypeIcon } from './alert-icons';
@@ -47,7 +49,7 @@ function showValue(key: string, v: unknown): string {
     if (/(^|_)m$|meters|distanceM/i.test(key)) return `${rounded} m`;
     return String(rounded);
   }
-  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (typeof v === 'boolean') return v ? i18n.t('Yes') : i18n.t('No');
   if (typeof v === 'string') return /^\d{4}-\d{2}-\d{2}T/.test(v) ? formatDateTime(v) : v;
   return JSON.stringify(v);
 }
@@ -58,6 +60,7 @@ function labelOf(key: string): string {
 
 /** Alert detail: map snippet, fields, `data`, acknowledgement, and the per-recipient notification log. */
 export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId: string | null; initial: AlertDto | null; onClose: () => void; onAck: (a: AlertDto) => void }) {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const openOnMap = useOpenAlert();
   const alert = useQuery({
@@ -87,7 +90,7 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             {a && <AlertTypeIcon type={a.type} severity={a.severity} />}
-            {a ? alertTitle(a) : 'Alert'}
+            {a ? alertTitle(a) : t('Alert')}
           </SheetTitle>
           <SheetDescription className="truncate">{a ? `${a.objectName}${a.plateNumber && a.plateNumber !== a.objectName ? ` · ${a.plateNumber}` : ''}` : ' '}</SheetDescription>
         </SheetHeader>
@@ -101,38 +104,38 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
                   <MiniMap lat={a.lat} lng={a.lng} severity={a.severity} geofence={geofence.data ? { geometry: geofence.data.geometry, color: geofence.data.color } : null} className="h-44" />
                 </Suspense>
               ) : (
-                <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">No location for this alert.</p>
+                <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">{t('No location for this alert.')}</p>
               )}
               <div className="flex flex-wrap gap-2">
                 {can('live_map') && (
                   <Button size="sm" variant="outline" onClick={() => openOnMap(a)}>
-                    <MapPinIcon /> View on live map
+                    <MapPinIcon /> {t('View on live map')}
                   </Button>
                 )}
                 {can('alerts', 'edit') && a.status === 'NEW' && (
                   <Button size="sm" onClick={() => onAck(a)}>
-                    <CheckIcon /> Acknowledge
+                    <CheckIcon /> {t('Acknowledge')}
                   </Button>
                 )}
               </div>
               <dl className="divide-y">
-                <Row label="Severity">
+                <Row label={t('Severity')}>
                   <SeverityBadge severity={a.severity} />
                 </Row>
-                <Row label="Status">
+                <Row label={t('Status')}>
                   <span className="flex flex-wrap items-center gap-2">
                     <AlertStatusBadge status={a.status} />
-                    {a.ackAt && <span className="text-xs text-muted-foreground">{`${a.ackByName ? `by ${a.ackByName} · ` : ''}${formatDateTime(a.ackAt)}`}</span>}
+                    {a.ackAt && <span className="text-xs text-muted-foreground">{`${a.ackByName ? `${t('by {{name}}', { name: a.ackByName })} · ` : ''}${formatDateTime(a.ackAt)}`}</span>}
                   </span>
                 </Row>
-                {a.ackNote && <Row label="Note">{a.ackNote}</Row>}
-                <Row label="Time">{formatDateTime(a.occurredAt)}</Row>
-                <Row label="Message">{a.message}</Row>
-                <Row label="Location">
-                  {a.address ?? <span className="text-muted-foreground">Address pending</span>}
+                {a.ackNote && <Row label={t('Note')}>{a.ackNote}</Row>}
+                <Row label={t('Time')}>{formatDateTime(a.occurredAt)}</Row>
+                <Row label={t('Message')}>{a.message}</Row>
+                <Row label={t('Location')}>
+                  {a.address ?? <span className="text-muted-foreground">{t('Address pending')}</span>}
                   {a.lat !== null && <span className="block font-mono text-xs text-muted-foreground">{`${a.lat.toFixed(6)}, ${a.lng?.toFixed(6)}`}</span>}
                 </Row>
-                {a.geofenceName && <Row label="Geofence">{a.geofenceName}</Row>}
+                {a.geofenceName && <Row label={t('Geofence')}>{a.geofenceName}</Row>}
                 {dataEntries.map(([k, v]) => (
                   <Row key={k} label={labelOf(k)}>
                     {showValue(k, v)}
@@ -143,10 +146,10 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
           )}
 
           <section className="space-y-2">
-            <h3 className="text-sm font-semibold">Notifications</h3>
+            <h3 className="text-sm font-semibold">{t('Notifications')}</h3>
             {logs.isPending && <Skeleton className="h-16 w-full" />}
             {logs.isError && <FormError message={errorMessage(logs.error)} />}
-            {logs.data?.length === 0 && <p className="text-sm text-muted-foreground">No notifications were sent for this alert (in-app only, or no recipients).</p>}
+            {logs.data?.length === 0 && <p className="text-sm text-muted-foreground">{t('No notifications were sent for this alert (in-app only, or no recipients).')}</p>}
             {logs.data && logs.data.length > 0 && (
               <ul className="divide-y rounded-lg border">
                 {logs.data.map((l) => {

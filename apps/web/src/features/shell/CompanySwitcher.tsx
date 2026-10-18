@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { CompanyDto, Paginated } from '@veetracer/shared';
 import { Building2Icon, CheckIcon, ChevronsUpDownIcon, SearchIcon } from 'lucide-react';
 import { useDeferredValue, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth, useMe } from '@/features/auth/auth-context';
@@ -10,6 +11,7 @@ import { cn } from '@/lib/utils';
 
 /** Super Admin only: choose the company to act in (sent as X-Company-Id and Socket.IO companyId). */
 export function CompanySwitcher() {
+  const { t } = useTranslation();
   const me = useMe();
   const { companyId, switchCompany } = useAuth();
   const [open, setOpen] = useState(false);
@@ -32,7 +34,7 @@ export function CompanySwitcher() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label="Switch company"
+          aria-label={t('Switch company')}
           className="flex h-9 max-w-[16rem] min-w-0 items-center gap-2 rounded-lg border bg-card px-2.5 text-sm shadow-xs transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none"
         >
           <Building2Icon className="size-4 shrink-0 text-primary" />
@@ -47,24 +49,24 @@ export function CompanySwitcher() {
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search companies…"
-            aria-label="Search companies"
+            placeholder={t('Search companies…')}
+            aria-label={t('Search companies')}
             className="h-10 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           {companies.isFetching && <Spinner className="text-muted-foreground" />}
         </div>
-        <ul className="max-h-72 overflow-y-auto p-1" role="listbox" aria-label="Companies">
-          <CompanyOption label="Platform (no company)" hint="Super Admin home" selected={!companyId} onSelect={() => choose(null)} />
+        <ul className="max-h-72 overflow-y-auto p-1" role="listbox" aria-label={t('Companies')}>
+          <CompanyOption label={t('Platform (no company)')} hint={t('Super Admin home')} selected={!companyId} onSelect={() => choose(null)} />
           {companies.data?.items.map((c) => (
             <CompanyOption
               key={c.id}
               label={c.name}
-              hint={`${c.objectCount} objects${c.status === 'SUSPENDED' ? ' · suspended' : ''}`}
+              hint={c.status === 'SUSPENDED' ? t('{{count}} objects · suspended', { count: c.objectCount }) : t('{{count}} objects', { count: c.objectCount })}
               selected={companyId === c.id}
               onSelect={() => choose(c.id)}
             />
           ))}
-          {companies.isSuccess && companies.data.items.length === 0 && <li className="px-2 py-4 text-center text-sm text-muted-foreground">No companies found</li>}
+          {companies.isSuccess && companies.data.items.length === 0 && <li className="px-2 py-4 text-center text-sm text-muted-foreground">{t('No companies found')}</li>}
         </ul>
       </PopoverContent>
     </Popover>

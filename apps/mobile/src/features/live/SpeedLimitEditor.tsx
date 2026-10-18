@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { DEFAULT_SPEED_LIMIT_KPH, type LiveObject, type TrackedObjectDto } from '@veetracer/shared';
 import { GaugeIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Button, ErrorBanner, Field, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
@@ -12,6 +13,7 @@ import { liveStore } from './live-store';
 /** "Overspeed limit" row of the vehicle screen; editable with Vehicles edit permission. */
 export function SpeedLimitRow({ o }: { o: LiveObject }) {
   const c = useColors();
+  const { t } = useTranslation();
   const { can } = useAuth();
   const canEdit = can('objects', 'edit');
   const [open, setOpen] = useState(false);
@@ -43,16 +45,16 @@ export function SpeedLimitRow({ o }: { o: LiveObject }) {
   return (
     <View style={[styles.row, { borderBottomColor: c.border }]}>
       <Text size="sm" tone="muted">
-        Overspeed limit
+        {t('Overspeed limit')}
       </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
         <Text size="sm" weight="500">
-          {shown === null ? '—' : `${shown} km/h${own === null ? ' (default)' : ''}`}
+          {shown === null ? '—' : `${shown} km/h${own === null ? ` ${t('(default)')}` : ''}`}
         </Text>
         {canEdit && (
-          <Pressable onPress={() => setOpen(true)} hitSlop={8} accessibilityLabel="Edit overspeed limit">
+          <Pressable onPress={() => setOpen(true)} hitSlop={8} accessibilityLabel={t('Edit overspeed limit')}>
             <Text size="sm" tone="primary" weight="600">
-              Edit
+              {t('Edit')}
             </Text>
           </Pressable>
         )}
@@ -64,17 +66,17 @@ export function SpeedLimitRow({ o }: { o: LiveObject }) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
               <GaugeIcon size={22} color={c.primary} />
               <Text size="lg" weight="700">
-                Overspeed limit
+                {t('Overspeed limit')}
               </Text>
             </View>
             <Text size="sm" tone="muted">
-              Overspeed alerts for {o.name} fire above this speed. Leave empty for the default{typeDefault ? ` (${typeDefault} km/h)` : ''}.
+              {typeDefault ? t('Overspeed alerts for {{name}} fire above this speed. Leave empty for the default ({{limit}} km/h).', { name: o.name, limit: typeDefault }) : t('Overspeed alerts for {{name}} fire above this speed. Leave empty for the default.', { name: o.name })}
             </Text>
-            <Field label="Limit (km/h)" value={value} onChangeText={(v) => setValue(v.replace(/\D/g, ''))} keyboardType="number-pad" placeholder="e.g. 50" maxLength={3} error={invalid ? 'Enter 5 – 250 km/h' : undefined} autoFocus />
+            <Field label={t('Limit (km/h)')} value={value} onChangeText={(v) => setValue(v.replace(/\D/g, ''))} keyboardType="number-pad" placeholder={t('e.g. 50')} maxLength={3} error={invalid ? t('Enter 5 – 250 km/h') : undefined} autoFocus />
             {save.isError && <ErrorBanner message={errorMessage(save.error)} />}
             <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-              <Button title="Cancel" variant="outline" style={{ flex: 1 }} onPress={() => setOpen(false)} />
-              <Button title="Save" style={{ flex: 1 }} disabled={invalid} loading={save.isPending} onPress={() => save.mutate(parsed)} />
+              <Button title={t('Cancel')} variant="outline" style={{ flex: 1 }} onPress={() => setOpen(false)} />
+              <Button title={t('Save')} style={{ flex: 1 }} disabled={invalid} loading={save.isPending} onPress={() => save.mutate(parsed)} />
             </View>
           </View>
         </KeyboardAvoidingView>

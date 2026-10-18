@@ -1,5 +1,6 @@
 import type { BranchDto, LiveObject, ReportScope, TrackedObjectDto, VehicleGroupDto } from '@veetracer/shared';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Field } from '@/components/ui/field';
 import { MultiSelect, type Option } from '@/components/ui/multi-select';
 import { useAuth } from '@/features/auth/auth-context';
@@ -46,6 +47,7 @@ export function ScopePicker({
   className?: string;
   knownObjects?: Option[];
 }) {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const [q, setQ] = useState('');
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
@@ -54,17 +56,17 @@ export function ScopePicker({
   return (
     <div className={cn('grid gap-3 sm:grid-cols-3', className)}>
       {can('branches') && (
-        <Field label="Branches">
-          <MultiSelect value={value.branchIds} onChange={(branchIds) => onChange({ ...value, branchIds })} options={branches.options} loading={branches.loading} placeholder="All branches" />
+        <Field label={t('Branches')}>
+          <MultiSelect value={value.branchIds} onChange={(branchIds) => onChange({ ...value, branchIds })} options={branches.options} loading={branches.loading} placeholder={t('All branches')} />
         </Field>
       )}
       {can('vehicle_groups') && (
-        <Field label="Vehicle groups">
-          <MultiSelect value={value.groupIds} onChange={(groupIds) => onChange({ ...value, groupIds })} options={groups.options} loading={groups.loading} placeholder="All groups" />
+        <Field label={t('Vehicle groups')}>
+          <MultiSelect value={value.groupIds} onChange={(groupIds) => onChange({ ...value, groupIds })} options={groups.options} loading={groups.loading} placeholder={t('All groups')} />
         </Field>
       )}
       {vehicles.available && (
-        <Field label="Vehicles">
+        <Field label={t('Vehicles')}>
           <MultiSelect
             value={value.objectIds}
             onChange={(objectIds) => onChange({ ...value, objectIds })}
@@ -72,8 +74,8 @@ export function ScopePicker({
             loading={vehicles.loading}
             onSearch={vehicles.onSearch ? setQ : undefined}
             selectedOptions={knownObjects}
-            placeholder="All vehicles"
-            searchPlaceholder="Search name or plate…"
+            placeholder={t('All vehicles')}
+            searchPlaceholder={t('Search name or plate…')}
           />
         </Field>
       )}

@@ -1,8 +1,10 @@
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { formatDateTime, relativeTime } from '@/lib/format';
 
 export function ActiveBadge({ active }: { active: boolean }) {
-  return <Badge variant={active ? 'success' : 'muted'}>{active ? 'Active' : 'Inactive'}</Badge>;
+  const { t } = useTranslation();
+  return <Badge variant={active ? 'success' : 'muted'}>{active ? t('Active') : t('Inactive')}</Badge>;
 }
 
 export function Muted({ children }: { children: React.ReactNode }) {

@@ -1,6 +1,7 @@
 import { MOVEMENT_STATUSES, OBJECT_TYPES, STATUS_META, VEHICLE_TYPES, type LiveObject, type MovementStatus } from '@veetracer/shared';
 import { SearchIcon, SearchXIcon, XIcon } from 'lucide-react';
 import { memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { StatusDot } from '@/components/status-badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -23,14 +24,26 @@ const TYPE_OPTIONS: Option[] = [
   ...OBJECT_TYPES.filter((t) => t !== 'VEHICLE').map((t) => ({ value: `ot:${t}`, label: humanize(t) })),
 ];
 
-function FilterSelect({ label, value, options, onChange }: { label: string; value: string | null; options: Option[]; onChange: (v: string | null) => void }) {
+function FilterSelect({
+  label,
+  allLabel,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  allLabel: string;
+  value: string | null;
+  options: Option[];
+  onChange: (v: string | null) => void;
+}) {
   return (
     <Select value={value ?? ALL} onValueChange={(v) => onChange(v === ALL ? null : v)}>
       <SelectTrigger aria-label={label} className="h-8 min-w-0 flex-1 px-2.5 text-xs">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={ALL}>All {label.toLowerCase()}</SelectItem>
+        <SelectItem value={ALL}>{allLabel}</SelectItem>
         {options.map((o) => (
           <SelectItem key={o.value} value={o.value}>
             {o.label}
@@ -56,7 +69,8 @@ const ObjectRow = memo(function ObjectRow({
   onPick: (id: string) => void;
   onToggle: (id: string) => void;
 }) {
-  const since = timeInStatus(STATUS_META[o.status].label, o.statusSince, now);
+  const { t } = useTranslation();
+  const since = timeInStatus(t(STATUS_META[o.status].label), o.statusSince, now);
   return (
     <div
       className={cn(
@@ -64,7 +78,7 @@ const ObjectRow = memo(function ObjectRow({
         active ? 'bg-accent ring-1 ring-primary/30' : 'hover:bg-muted/70',
       )}
     >
-      <Checkbox checked={checked} onCheckedChange={() => onToggle(o.objectId)} aria-label={`Select ${o.name}`} />
+      <Checkbox checked={checked} onCheckedChange={() => onToggle(o.objectId)} aria-label={t('Select {{name}}', { name: o.name })} />
       <button type="button" onClick={() => onPick(o.objectId)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none focus-visible:underline">
         <StatusDot status={o.status} />
         <span className="min-w-0 flex-1">
@@ -76,7 +90,7 @@ const ObjectRow = memo(function ObjectRow({
         </span>
         <span className="shrink-0 text-right">
           <span className="block text-xs font-medium" style={{ color: statusColor(o.status) }}>
-            {since ?? STATUS_META[o.status].label}
+            {since ?? t(STATUS_META[o.status].label)}
           </span>
           <span className="block text-[11px] text-muted-foreground">{relativeTime(o.serverTime, now)}</span>
         </span>
@@ -116,6 +130,7 @@ export function LivePanel({
   now: number;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const toggleStatus = (s: MovementStatus) =>
     onFiltersChange({ statuses: filters.statuses.includes(s) ? filters.statuses.filter((x) => x !== s) : [...filters.statuses, s] });
 
@@ -127,18 +142,18 @@ export function LivePanel({
           <Input
             value={filters.q}
             onChange={(e) => onFiltersChange({ q: e.target.value })}
-            placeholder="Search name, plate or IMEI"
-            aria-label="Search objects"
+            placeholder={t('Search name, plate or IMEI')}
+            aria-label={t('Search objects')}
             className="h-9 pr-8 pl-8"
           />
           {filters.q && (
-            <button type="button" aria-label="Clear search" onClick={() => onFiltersChange({ q: '' })} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent">
+            <button type="button" aria-label={t('Clear search')} onClick={() => onFiltersChange({ q: '' })} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent">
               <XIcon className="size-3.5" />
             </button>
           )}
         </div>
 
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('Filter by status')}>
           <button
             type="button"
             aria-pressed={filters.statuses.length === 0}
@@ -148,7 +163,7 @@ export function LivePanel({
               filters.statuses.length === 0 ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-muted',
             )}
           >
-            All <span className="tabular-nums opacity-80">{formatNumber(counts.total)}</span>
+            {t('All')} <span className="tabular-nums opacity-80">{formatNumber(counts.total)}</span>
           </button>
           {MOVEMENT_STATUSES.map((s) => {
             const on = filters.statuses.includes(s);
@@ -162,7 +177,7 @@ export function LivePanel({
                 style={on ? { borderColor: statusColor(s), backgroundColor: `color-mix(in oklab, ${statusColor(s)} 15%, transparent)` } : undefined}
               >
                 <StatusDot status={s} className="size-2" />
-                {STATUS_META[s].label}
+                {t(STATUS_META[s].label)}
                 <span className="text-muted-foreground tabular-nums">{formatNumber(counts[s])}</span>
               </button>
             );
@@ -170,23 +185,30 @@ export function LivePanel({
         </div>
 
         <div className="flex gap-2">
-          {branchOptions && <FilterSelect label="Branches" value={filters.branchId} options={branchOptions} onChange={(branchId) => onFiltersChange({ branchId })} />}
-          {groupOptions && <FilterSelect label="Groups" value={filters.groupId} options={groupOptions} onChange={(groupId) => onFiltersChange({ groupId })} />}
-          <FilterSelect label="Types" value={filters.type} options={TYPE_OPTIONS} onChange={(type) => onFiltersChange({ type })} />
+          {branchOptions && <FilterSelect label={t('Branches')} allLabel={t('All branches')} value={filters.branchId} options={branchOptions} onChange={(branchId) => onFiltersChange({ branchId })} />}
+          {groupOptions && <FilterSelect label={t('Groups')} allLabel={t('All groups')} value={filters.groupId} options={groupOptions} onChange={(groupId) => onFiltersChange({ groupId })} />}
+          <FilterSelect
+            label={t('Types')}
+            allLabel={t('All types')}
+            value={filters.type}
+            options={TYPE_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))}
+            onChange={(type) => onFiltersChange({ type })}
+          />
         </div>
 
         <div className="flex h-6 items-center justify-between gap-2 text-xs text-muted-foreground">
           <span className="tabular-nums">
-            {formatNumber(items.length)} shown{selected.size > 0 && <> · {formatNumber(selected.size)} selected</>}
+            {t('{{n}} shown', { n: formatNumber(items.length) })}
+            {selected.size > 0 && <> · {t('{{n}} selected', { n: formatNumber(selected.size) })}</>}
           </span>
           {selected.size > 0 && (
             <span className="flex items-center gap-2">
               <label className="flex items-center gap-1.5">
                 <Switch checked={filters.selectedOnly} onCheckedChange={(selectedOnly) => onFiltersChange({ selectedOnly })} className="scale-90" />
-                Selected only
+                {t('Selected only')}
               </label>
               <button type="button" onClick={onClearSelected} className="font-medium text-primary hover:underline">
-                Clear
+                {t('Clear')}
               </button>
             </span>
           )}
@@ -200,10 +222,10 @@ export function LivePanel({
           ))}
         </div>
       ) : items.length === 0 ? (
-        <EmptyState icon={SearchXIcon} title="No objects match" description="Try clearing the search or filters." className="flex-1" />
+        <EmptyState icon={SearchXIcon} title={t('No objects match')} description={t('Try clearing the search or filters.')} className="flex-1" />
       ) : (
         <VirtualList
-          label="Objects"
+          label={t('Objects')}
           items={items}
           rowHeight={ROW_HEIGHT}
           getKey={(o) => o.objectId}

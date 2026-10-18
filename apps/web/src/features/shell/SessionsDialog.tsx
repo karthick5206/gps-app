@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SessionDto } from '@veetracer/shared';
 import { LaptopIcon, LogOutIcon, SmartphoneIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,10 +10,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
+import { i18n } from '@/lib/i18n';
 
 /** "Chrome on Windows"-style label from a user-agent string. */
 export function deviceLabel(ua: string | null): { label: string; mobile: boolean } {
-  if (!ua) return { label: 'Unknown device', mobile: false };
+  if (!ua) return { label: i18n.t('Unknown device'), mobile: false };
   const mobile = /Android|iPhone|iPad|Mobile/i.test(ua);
   const browser = /Edg\//.test(ua)
     ? 'Edge'
@@ -25,22 +27,23 @@ export function deviceLabel(ua: string | null): { label: string; mobile: boolean
           : /Safari\//.test(ua)
             ? 'Safari'
             : /Dart|okhttp/i.test(ua)
-              ? 'VeeTracer app'
-              : 'Browser';
+              ? i18n.t('VeeTracer app')
+              : i18n.t('Browser');
   const os = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad|iOS/.test(ua) ? 'iOS' : /Mac OS X/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : null;
-  return { label: os ? `${browser} on ${os}` : browser, mobile };
+  return { label: os ? i18n.t('{{browser}} on {{os}}', { browser, os }) : browser, mobile };
 }
 
 const KEY = ['auth-sessions'] as const;
 
 /** Where the user is signed in, with sign-out per device or everywhere else. */
 export function SessionsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const sessions = useQuery({ queryKey: KEY, queryFn: ({ signal }) => api.get<SessionDto[]>('/auth/sessions', undefined, signal), enabled: open });
   const end = useMutation({
     mutationFn: (id: string) => api.delete(`/auth/sessions/${id}`),
     onSuccess: () => {
-      toast.success('Signed out that device');
+      toast.success(t('Signed out that device'));
       queryClient.invalidateQueries({ queryKey: KEY });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -48,7 +51,7 @@ export function SessionsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const endOthers = useMutation({
     mutationFn: () => api.post<{ count: number }>('/auth/sessions/revoke-others'),
     onSuccess: (r) => {
-      toast.success(r.count ? `Signed out ${r.count} other device${r.count === 1 ? '' : 's'}` : 'No other devices were signed in');
+      toast.success(r.count ? (r.count === 1 ? t('Signed out 1 other device') : t('Signed out {{count}} other devices', { count: r.count })) : t('No other devices were signed in'));
       queryClient.invalidateQueries({ queryKey: KEY });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -58,8 +61,8 @@ export function SessionsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Signed-in devices</DialogTitle>
-          <DialogDescription>Browsers and apps where your account is signed in. Signing a device out takes effect immediately.</DialogDescription>
+          <DialogTitle>{t('Signed-in devices')}</DialogTitle>
+          <DialogDescription>{t('Browsers and apps where your account is signed in. Signing a device out takes effect immediately.')}</DialogDescription>
         </DialogHeader>
         <DialogBody className="max-h-[60vh] space-y-2 overflow-y-auto">
           {sessions.isLoading && <Skeleton className="h-24" />}
@@ -73,15 +76,15 @@ export function SessionsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-2 text-sm font-medium">
                     {d.label}
-                    {s.current && <Badge variant="success">This device</Badge>}
+                    {s.current && <Badge variant="success">{t('This device')}</Badge>}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {s.ip ?? 'Unknown IP'} · signed in {formatDateTime(s.createdAt)}
+                    {s.ip ?? t('Unknown IP')} · {t('signed in {{time}}', { time: formatDateTime(s.createdAt) })}
                   </p>
                 </div>
                 {!s.current && (
-                  <Button size="sm" variant="outline" onClick={() => end.mutate(s.id)} disabled={end.isPending} aria-label={`Sign out ${d.label}`}>
-                    <LogOutIcon /> Sign out
+                  <Button size="sm" variant="outline" onClick={() => end.mutate(s.id)} disabled={end.isPending} aria-label={t('Sign out {{device}}', { device: d.label })}>
+                    <LogOutIcon /> {t('Sign out')}
                   </Button>
                 )}
               </div>
@@ -90,10 +93,10 @@ export function SessionsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+            {t('Close')}
           </Button>
           <Button variant="destructive" onClick={() => endOthers.mutate()} disabled={!others || endOthers.isPending}>
-            {endOthers.isPending && <Spinner />} Sign out all other devices
+            {endOthers.isPending && <Spinner />} {t('Sign out all other devices')}
           </Button>
         </DialogFooter>
       </DialogContent>

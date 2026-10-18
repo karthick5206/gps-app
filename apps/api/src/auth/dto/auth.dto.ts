@@ -1,5 +1,5 @@
 import { IsEmail, IsIn, IsOptional, IsString, Length, Matches, MaxLength, ValidateIf } from 'class-validator';
-import { ThemePreference } from '@veetracer/shared';
+import { LANGUAGE_CODES, LanguageCode, ThemePreference } from '@veetracer/shared';
 import { MOBILE_MESSAGE, MOBILE_PATTERN, PASSWORD_MESSAGE, PASSWORD_PATTERN } from '../../common/secrets';
 
 export class LoginDto {
@@ -54,5 +54,6 @@ export class ChangePasswordDto {
 }
 
 export class PreferencesDto {
-  @IsIn(['light', 'dark', 'system']) theme!: ThemePreference;
+  @IsOptional() @IsIn(['light', 'dark', 'system']) theme?: ThemePreference;
+  @IsOptional() @IsIn(LANGUAGE_CODES) language?: LanguageCode;
 }

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RecipientEntry, RecipientListDto } from '@veetracer/shared';
 import { MailIcon, MessageSquareIcon, PlusIcon, XIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { Button, Card, Text } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
@@ -17,6 +18,7 @@ const VALID: Record<Channel, RegExp> = { EMAIL: /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/,
  */
 function ChannelRecipients({ level, targetId, channel, lists, canEdit }: { level: string; targetId: string; channel: Channel; lists: RecipientListDto[]; canEdit: boolean }) {
   const c = useColors();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const list = lists.find((l) => l.channel === channel && l.alertType === '*' && l.severity === '*') ?? null;
   const mine = (list?.entries ?? []).filter((e) => e.kind === KIND[channel]);
@@ -32,12 +34,12 @@ function ChannelRecipients({ level, targetId, channel, lists, canEdit }: { level
       return api.put('/recipient-lists', { level, targetId, alertType: '*', severity: '*', channel, mode: list?.mode ?? 'ADD', entries });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['recipient-lists'] }),
-    onError: (err) => Alert.alert('Not saved', errorMessage(err)),
+    onError: (err) => Alert.alert(t('Not saved'), errorMessage(err)),
   });
 
   const add = () => {
     const v = channel === 'EMAIL' ? input.trim().toLowerCase() : input.replace(/[\s-]/g, '');
-    if (!VALID[channel].test(v)) return Alert.alert(channel === 'EMAIL' ? 'Enter a valid email' : 'Use international format, e.g. +919876543210');
+    if (!VALID[channel].test(v)) return Alert.alert(channel === 'EMAIL' ? t('Enter a valid email') : t('Use international format, e.g. +919876543210'));
     if (values.includes(v)) return setInput('');
     const next = [...values, v];
     setValues(next);
@@ -56,21 +58,21 @@ function ChannelRecipients({ level, targetId, channel, lists, canEdit }: { level
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
         <Icon size={16} color={c.primary} />
         <Text weight="600" style={{ flex: 1 }}>
-          {channel === 'EMAIL' ? 'Email addresses' : 'SMS numbers'}
+          {channel === 'EMAIL' ? t('Email addresses') : t('SMS numbers')}
         </Text>
         {save.isPending && <ActivityIndicator />}
       </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
         {values.length === 0 && (
           <Text size="sm" tone="muted">
-            None — only the default recipients.
+            {t('None — only the default recipients.')}
           </Text>
         )}
         {values.map((v) => (
           <View key={v} style={[styles.chip, { backgroundColor: c.muted }]}>
             <Text size="sm">{v}</Text>
             {canEdit && (
-              <Pressable onPress={() => removeAt(v)} hitSlop={8} accessibilityLabel={`Remove ${v}`}>
+              <Pressable onPress={() => removeAt(v)} hitSlop={8} accessibilityLabel={t('Remove {{value}}', { value: v })}>
                 <XIcon size={14} color={c.mutedForeground} />
               </Pressable>
             )}
@@ -89,7 +91,7 @@ function ChannelRecipients({ level, targetId, channel, lists, canEdit }: { level
             autoCapitalize="none"
             style={[styles.input, { borderColor: c.border, color: c.foreground, backgroundColor: c.background }]}
           />
-          <Button title="Add" icon={PlusIcon} variant="outline" onPress={add} style={{ height: 42, paddingHorizontal: SPACE.md }} />
+          <Button title={t('Add')} icon={PlusIcon} variant="outline" onPress={add} style={{ height: 42, paddingHorizontal: SPACE.md }} />
         </View>
       )}
     </View>
@@ -97,6 +99,7 @@ function ChannelRecipients({ level, targetId, channel, lists, canEdit }: { level
 }
 
 export function RecipientsCard({ level, targetId, canEdit }: { level: string; targetId: string; canEdit: boolean }) {
+  const { t } = useTranslation();
   const lists = useQuery({
     queryKey: ['recipient-lists', level, targetId],
     queryFn: ({ signal }) => api.get<RecipientListDto[]>('/recipient-lists', { level, targetId }, signal),
@@ -104,9 +107,11 @@ export function RecipientsCard({ level, targetId, canEdit }: { level: string; ta
   return (
     <Card style={{ gap: SPACE.lg }}>
       <View style={{ gap: 2 }}>
-        <Text weight="700">Extra email & SMS recipients</Text>
+        <Text weight="700">{t('Extra email & SMS recipients')}</Text>
         <Text size="xs" tone="muted">
-          Get every alert {level === 'COMPANY' ? 'for the company' : 'for this vehicle'} in addition to the default recipients (users of the vehicle and its branch). Which alerts use email or SMS is set per alert below.
+          {level === 'COMPANY'
+            ? t('Get every alert for the company in addition to the default recipients (users of the vehicle and its branch). Which alerts use email or SMS is set per alert below.')
+            : t('Get every alert for this vehicle in addition to the default recipients (users of the vehicle and its branch). Which alerts use email or SMS is set per alert below.')}
         </Text>
       </View>
       {lists.isPending ? (

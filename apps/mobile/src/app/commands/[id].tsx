@@ -3,6 +3,7 @@ import { COMMAND_DEF_MAP, ENGINE_STOP_MAX_SPEED_KPH, type AvailableCommand, type
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { PowerIcon, PowerOffIcon, RadarIcon, RotateCwIcon, SendIcon, TerminalIcon, type LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, ErrorBanner, Field, Pill, SectionTitle, Text } from '@/components/ui';
 import { liveStore } from '@/features/live/live-store';
@@ -24,6 +25,7 @@ const STATUS: Record<CommandStatusValue, { label: string; color: string }> = {
 export default function CommandsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const c = useColors();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   useLiveVersion(2000);
   const object = liveStore.get(id);
@@ -54,7 +56,7 @@ export default function CommandsScreen() {
         ...(pending!.critical ? { password } : {}),
       }),
     onSuccess: (res) => {
-      Alert.alert(pending!.label, res.status === 'QUEUED' ? 'Sent to the device. Delivery and the reply appear below.' : STATUS[res.status].label);
+      Alert.alert(t(pending!.label), res.status === 'QUEUED' ? t('Sent to the device. Delivery and the reply appear below.') : t(STATUS[res.status].label));
       queryClient.invalidateQueries({ queryKey: ['commands', id] });
       close();
     },
@@ -66,11 +68,11 @@ export default function CommandsScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: `Commands · ${object?.plateNumber || object?.name || ''}` }} />
+      <Stack.Screen options={{ title: t('Commands · {{name}}', { name: object?.plateNumber || object?.name || '' }) }} />
       <ScrollView contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.md }} refreshControl={<RefreshControl refreshing={history.isRefetching} onRefresh={() => void history.refetch()} />}>
         {available.isPending && <ActivityIndicator />}
         {available.isError && <ErrorBanner message={errorMessage(available.error)} onRetry={() => void available.refetch()} />}
-        {available.data?.length === 0 && <Text tone="muted">This tracker model doesn&apos;t support remote commands.</Text>}
+        {available.data?.length === 0 && <Text tone="muted">{t("This tracker model doesn't support remote commands.")}</Text>}
         <View style={styles.grid}>
           {available.data?.map((cmd) => {
             const Icon = ICONS[cmd.type] ?? SendIcon;
@@ -82,20 +84,20 @@ export default function CommandsScreen() {
               >
                 <Icon size={20} color={cmd.critical ? c.destructive : c.primary} />
                 <Text size="sm" weight="600" style={cmd.critical ? { color: c.destructive } : undefined}>
-                  {cmd.label}
+                  {t(cmd.label)}
                 </Text>
               </Pressable>
             );
           })}
         </View>
 
-        <SectionTitle>Recent commands</SectionTitle>
-        {history.data?.length === 0 && <Text tone="muted">No commands sent yet.</Text>}
+        <SectionTitle>{t('Recent commands')}</SectionTitle>
+        {history.data?.length === 0 && <Text tone="muted">{t('No commands sent yet.')}</Text>}
         {history.data?.map((x) => (
           <Card key={x.id} style={{ gap: 6 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text weight="600">{COMMAND_DEF_MAP[x.type]?.label ?? x.type}</Text>
-              <Pill label={STATUS[x.status].label} color={STATUS[x.status].color} />
+              <Text weight="600">{t(COMMAND_DEF_MAP[x.type]?.label ?? x.type)}</Text>
+              <Pill label={t(STATUS[x.status].label)} color={STATUS[x.status].color} />
             </View>
             <Text size="xs" tone="muted" style={{ fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }) }}>
               {x.payload}
@@ -111,8 +113,8 @@ export default function CommandsScreen() {
               </Text>
             )}
             <Text size="xs" tone="muted">
-              {x.createdByName ?? 'Unknown user'} · {formatDateTime(x.createdAt)}
-              {x.ackAt ? ` · replied ${formatDateTime(x.ackAt)}` : x.sentAt ? ` · sent ${formatDateTime(x.sentAt)}` : ''}
+              {x.createdByName ?? t('Unknown user')} · {formatDateTime(x.createdAt)}
+              {x.ackAt ? ` · ${t('replied {{time}}', { time: formatDateTime(x.ackAt) })}` : x.sentAt ? ` · ${t('sent {{time}}', { time: formatDateTime(x.sentAt) })}` : ''}
             </Text>
           </Card>
         ))}
@@ -122,13 +124,13 @@ export default function CommandsScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.backdrop}>
           <View style={[styles.dialog, { backgroundColor: c.card }]}>
             <Text size="lg" weight="700">
-              {pending?.label}
+              {pending ? t(pending.label) : undefined}
             </Text>
             <Text size="sm" tone="muted">
-              {pending?.description}
+              {pending ? t(pending.description) : undefined}
             </Text>
             {pending?.type === 'custom' ? (
-              <Field label="Command text" value={text} onChangeText={setText} autoCapitalize="none" autoCorrect={false} maxLength={200} hint="Sent exactly as typed, e.g. PARAM# (Concox) or getver (Teltonika)." />
+              <Field label={t('Command text')} value={text} onChangeText={setText} autoCapitalize="none" autoCorrect={false} maxLength={200} hint={t('Sent exactly as typed, e.g. PARAM# (Concox) or getver (Teltonika).')} />
             ) : (
               <Text size="sm" style={{ fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }), backgroundColor: c.muted, padding: SPACE.sm, borderRadius: RADIUS.sm }}>
                 {pending?.payload}
@@ -136,19 +138,19 @@ export default function CommandsScreen() {
             )}
             {offline && (
               <Text size="sm" style={{ color: c.warning }}>
-                The device is offline. The command is queued and sent when it reconnects (within 24 hours).
+                {t('The device is offline. The command is queued and sent when it reconnects (within 24 hours).')}
               </Text>
             )}
             {blocked && (
               <Text size="sm" tone="destructive">
-                The vehicle is moving at {Math.round(object!.speedKph)} km/h. Engine stop is only allowed below {ENGINE_STOP_MAX_SPEED_KPH} km/h.
+                {t('The vehicle is moving at {{speed}} km/h. Engine stop is only allowed below {{max}} km/h.', { speed: Math.round(object!.speedKph), max: ENGINE_STOP_MAX_SPEED_KPH })}
               </Text>
             )}
-            {pending?.critical && !blocked && <Field label="Your password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" hint="Required to stop an engine." />}
+            {pending?.critical && !blocked && <Field label={t('Your password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" hint={t('Required to stop an engine.')} />}
             {send.isError && <ErrorBanner message={errorMessage(send.error)} />}
             <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-              <Button title="Cancel" variant="outline" style={{ flex: 1 }} onPress={close} />
-              <Button title={pending?.label ?? 'Send'} variant={pending?.critical ? 'destructive' : 'primary'} style={{ flex: 1 }} disabled={!ready} loading={send.isPending} onPress={() => send.mutate()} />
+              <Button title={t('Cancel')} variant="outline" style={{ flex: 1 }} onPress={close} />
+              <Button title={pending ? t(pending.label) : t('Send')} variant={pending?.critical ? 'destructive' : 'primary'} style={{ flex: 1 }} disabled={!ready} loading={send.isPending} onPress={() => send.mutate()} />
             </View>
           </View>
         </KeyboardAvoidingView>
