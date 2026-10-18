@@ -156,7 +156,7 @@ export function AlertSettingsPage() {
       </Sheet>
 
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6">
+        <div className="w-full space-y-4 p-4 sm:p-6">
           <div className="flex flex-wrap items-start gap-3">
             <div className="min-w-0 flex-1 space-y-1">
               <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Alert settings</p>

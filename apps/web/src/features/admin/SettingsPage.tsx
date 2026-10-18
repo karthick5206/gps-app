@@ -81,7 +81,7 @@ export function SettingsPage() {
   const company = settings.data?.company;
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 p-4 sm:p-6">
+    <div className="w-full space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Company Settings"
         description="Company profile and the thresholds used to compute vehicle status."
@@ -97,7 +97,7 @@ export function SettingsPage() {
         </Card>
       ) : (
         company && (
-          <form noValidate onSubmit={form.handleSubmit((v) => save.mutate(v))} className="space-y-6">
+          <form noValidate onSubmit={form.handleSubmit((v) => save.mutate(v))} className="grid gap-6 xl:grid-cols-2 xl:items-start">
             <Card>
               <CardHeader>
                 <CardTitle>Profile</CardTitle>
@@ -121,7 +121,7 @@ export function SettingsPage() {
               </CardContent>
             </Card>
             {editable && (
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 xl:col-span-2">
                 <Button variant="outline" disabled={!form.formState.isDirty || save.isPending} onClick={() => form.reset(toValues(company))}>
                   Reset
                 </Button>

@@ -6,6 +6,7 @@ import { api, refreshAccessToken, setSessionExpiredHandler } from '@/lib/api';
 import { session } from '@/lib/session';
 import { liveStore } from '@/features/live/live-store';
 import { unregisterPush } from '@/features/notifications/push';
+import { applyThemePreference, restoreThemePreference } from '@/features/theme/theme';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -32,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await session.load();
+      await Promise.all([session.load(), restoreThemePreference()]);
       const ok = session.getRefreshToken() ? await refreshAccessToken() : false;
       if (cancelled) return;
       if (!ok) session.clear();
@@ -96,6 +97,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const me = meQuery.data;
+  // The profile theme (also set from the web app) wins once it is known.
+  const themePref = me?.user.preferences.theme;
+  useEffect(() => {
+    if (themePref) applyThemePreference(themePref);
+  }, [themePref]);
   const can = useCallback((menu: MenuKey, action: Action = 'view') => !!me && canDo(me.permissions, menu, action), [me]);
 
   const value = useMemo<AuthContextValue>(() => ({ status, me, companyId, signIn, signOut, switchCompany, can }), [status, me, companyId, signIn, signOut, switchCompany, can]);

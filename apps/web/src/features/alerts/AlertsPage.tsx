@@ -223,7 +223,7 @@ export function AlertsPage() {
   const colCount = canAck ? 9 : 8;
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-5 p-4 sm:p-6">
+    <div className="flex h-full min-h-[560px] w-full flex-col gap-5 p-4 sm:p-6">
       <PageHeader
         title="Alerts"
         description="Every alert raised for vehicles in your scope. Acknowledge to clear them from the bell."
@@ -244,7 +244,7 @@ export function AlertsPage() {
         }
       />
 
-      <Card className="overflow-hidden">
+      <Card className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden py-0">
         <div className="flex flex-col gap-3 border-b p-3 xl:flex-row xl:items-center">
           <div className="relative w-full xl:max-w-xs">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -295,8 +295,8 @@ export function AlertsPage() {
           </div>
         )}
 
-        <Table>
-          <TableHeader>
+        <Table containerClassName="min-h-0 flex-1 overflow-auto">
+          <TableHeader className="sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_var(--color-border)]">
             <TableRow className="hover:bg-transparent">
               {canAck && (
                 <TableHead className="w-10">
