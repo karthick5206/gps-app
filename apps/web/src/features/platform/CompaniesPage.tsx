@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { CompanyDto } from '@veetracer/shared';
+import { RETENTION_OPTIONS, type CompanyDto } from '@veetracer/shared';
 import { Building2Icon, LogInIcon } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
@@ -29,6 +29,8 @@ const STATUS_OPTIONS: Option[] = [
   { value: 'SUSPENDED', label: 'Suspended' },
 ];
 
+const RETENTION_SELECT = RETENTION_OPTIONS.map((d) => ({ value: String(d), label: `${d} days` }));
+
 const email = z.string().trim().refine((v) => v === '' || z.string().email().safeParse(v).success, 'Enter a valid email');
 const mobile = z.string().trim().refine((v) => v === '' || /^\+[1-9]\d{7,14}$/.test(v), 'Use international format, e.g. +919876543210');
 
@@ -40,6 +42,7 @@ function schemaFor(isCreate: boolean) {
       accountType: z.enum(['BUSINESS', 'INDIVIDUAL']),
       timezone: z.string({ invalid_type_error: 'Required' }).min(1, 'Required'),
       status: z.enum(['ACTIVE', 'SUSPENDED']),
+      retentionDays: z.string().min(1, 'Required'),
       admin: z.object({ name: z.string().trim().max(100), email, mobile, password: z.string() }),
     })
     .superRefine((v, ctx) => {
@@ -62,6 +65,7 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
       accountType: record?.accountType ?? 'BUSINESS',
       timezone: record?.timezone ?? 'Asia/Kolkata',
       status: record?.status ?? 'ACTIVE',
+      retentionDays: String(record?.retentionDays ?? 90),
       admin: { name: '', email: '', mobile: '', password: '' },
     },
   });
@@ -69,11 +73,12 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
   const submit = form.handleSubmit((v) =>
     save.mutate(
       record
-        ? { name: v.name, accountType: v.accountType, timezone: v.timezone, status: v.status }
+        ? { name: v.name, accountType: v.accountType, timezone: v.timezone, status: v.status, retentionDays: Number(v.retentionDays) }
         : {
             name: v.name,
             accountType: v.accountType,
             timezone: v.timezone,
+            retentionDays: Number(v.retentionDays),
             admin: { name: v.admin.name, email: nullIfBlank(v.admin.email), mobile: nullIfBlank(v.admin.mobile), password: v.admin.password },
           },
     ),
@@ -94,6 +99,7 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
         <TextField form={form} name="name" label="Company name" required className="sm:col-span-2" />
         <SelectField form={form} name="accountType" label="Account type" required options={ACCOUNT_TYPES} />
         <ComboboxField form={form} name="timezone" label="Time zone" required options={tzOptions} />
+        <SelectField form={form} name="retentionDays" label="History kept" required options={RETENTION_SELECT} hint="Positions, trips, stops and alerts older than this are deleted automatically. Daily summaries are kept." />
         {record && <SelectField form={form} name="status" label="Status" required options={STATUS_OPTIONS} hint="Suspended companies can't sign in and their data is not processed." />}
       </div>
       {!record && (
@@ -116,6 +122,7 @@ const columns: MasterColumn<CompanyDto>[] = [
   { id: 'accountType', header: 'Type', sortable: true, cell: (r) => humanize(r.accountType) },
   { id: 'status', header: 'Status', sortable: true, cell: (r) => <Badge variant={r.status === 'ACTIVE' ? 'success' : 'destructive'}>{humanize(r.status)}</Badge> },
   { id: 'timezone', header: 'Time zone', defaultHidden: true, cell: (r) => r.timezone },
+  { id: 'retentionDays', header: 'History kept', cell: (r) => `${r.retentionDays} days` },
   { id: 'branchCount', header: 'Branches', cell: (r) => <span className="tabular-nums">{r.branchCount}</span> },
   { id: 'userCount', header: 'Users', cell: (r) => <span className="tabular-nums">{r.userCount}</span> },
   { id: 'objectCount', header: 'Objects', sortable: true, cell: (r) => <span className="tabular-nums">{r.objectCount}</span> },

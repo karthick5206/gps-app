@@ -34,6 +34,7 @@ const CSV: CsvSpec<CompanyDto> = {
     { header: 'Account type', value: (c) => c.accountType },
     { header: 'Status', value: (c) => c.status },
     { header: 'Timezone', value: (c) => c.timezone },
+    { header: 'History kept (days)', value: (c) => c.retentionDays },
     { header: 'Branches', value: (c) => c.branchCount },
     { header: 'Users', value: (c) => c.userCount },
     { header: 'Objects', value: (c) => c.objectCount },
@@ -49,6 +50,7 @@ function toDto(c: Row): CompanyDto {
     userCount: c._count.users,
     objectCount: c._count.objects,
     deviceCount: c._count.devices,
+    retentionDays: c.retentionDays,
     createdAt: iso(c.createdAt),
     updatedAt: iso(c.updatedAt),
   };
@@ -88,7 +90,7 @@ export class CompaniesService {
       const partner = await tx.partner.findUnique({ where: { slug: DEFAULT_PARTNER_SLUG } });
       if (!partner) throw new BadRequestException('Default partner missing — run the seed');
       const company = await tx.company.create({
-        data: { partnerId: partner.id, name: dto.name.trim(), accountType: dto.accountType, timezone: dto.timezone },
+        data: { partnerId: partner.id, name: dto.name.trim(), accountType: dto.accountType, timezone: dto.timezone, retentionDays: dto.retentionDays },
       });
       const roles = await ensureSystemRoles(tx, company.id);
       const branch = await tx.branch.create({ data: { companyId: company.id, name: 'Head Office' } });

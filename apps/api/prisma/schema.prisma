@@ -252,8 +252,23 @@ model TrackedObject {
   assignments DeviceAssignment[]
   groups      VehicleGroupMember[]
   users       UserObject[]
+  remarks     ObjectRemark[]
 
   @@index([companyId, branchId])
+}
+
+/// Support notes on a vehicle (e.g. "SIM recharged", "device removed for repair"), shown on the criticality board.
+model ObjectRemark {
+  id          String        @id @default(uuid()) @db.Uuid
+  companyId   String        @db.Uuid
+  objectId    String        @db.Uuid
+  note        String
+  createdById String?       @db.Uuid
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  object      TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([objectId, createdAt(sort: Desc)])
+  @@index([companyId, createdAt(sort: Desc)])
 }
 
 /// At most one open (toTime null) row per device and per object: partial unique indexes in the init migration.

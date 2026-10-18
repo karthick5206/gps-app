@@ -14,6 +14,8 @@ import { MastersModule } from './masters/masters.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { ReportSchedulesModule } from './report-schedules/report-schedules.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { RetentionModule } from './retention/retention.module';
 import { ReportsModule } from './reports/reports.module';
 import { TemplatesModule } from './templates/templates.module';
 
@@ -36,6 +38,8 @@ import { TemplatesModule } from './templates/templates.module';
     GeofencesModule,
     ReportsModule,
     ReportSchedulesModule,
+    DashboardModule,
+    RetentionModule,
   ],
   controllers: [HealthController],
 })

@@ -115,6 +115,8 @@ export interface LookupDto {
 
 export interface CompanyDto extends CompanySummary {
   branchCount: number; userCount: number; objectCount: number; deviceCount: number;
+  /** Days of history (positions, trips, stops, alerts) kept; older data is deleted automatically. */
+  retentionDays: number;
   createdAt: string; updatedAt: string;
 }
 
@@ -133,3 +135,8 @@ export interface DashboardSummary {
   byStatus: Record<string, number>;
   devicesOnline: number;
 }
+
+/** Allowed per-company history retention (design: 30–180 days). */
+export const RETENTION_MIN_DAYS = 30;
+export const RETENTION_MAX_DAYS = 180;
+export const RETENTION_OPTIONS = [30, 60, 90, 120, 180] as const;
