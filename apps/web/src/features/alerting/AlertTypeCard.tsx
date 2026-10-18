@@ -22,6 +22,7 @@ import { SEVERITY_LABEL } from '@/features/alerts/severity';
 import { DayToggles } from '@/features/geofences/TimeWindowsEditor';
 import { formatWindow } from '@/features/geofences/time-windows';
 import { formatDateTime } from '@/lib/format';
+import { AlertTypeIcon } from '@/features/alerts/alert-icons';
 import { cn } from '@/lib/utils';
 import { CHANNEL_LABEL, usePutSetting, type AlertTypeWithSupport, type GroupConflict, type SettingPatch } from './api';
 import { CommitNumber, SettingRow, SourceBadge } from './fields';
@@ -247,6 +248,7 @@ export function AlertTypeCard({
           <ChevronDownIcon className={cn('size-4 shrink-0 text-muted-foreground transition-transform', !open && '-rotate-90')} />
           <span className="min-w-0">
             <span className="flex flex-wrap items-center gap-1.5">
+              <AlertTypeIcon type={def.code} severity={values.severity} size="sm" />
               <span className="font-medium">{def.label}</span>
               {def.mandatory && (
                 <Tooltip content="Mandatory: can't be switched off below company level and ignores snoozes">
