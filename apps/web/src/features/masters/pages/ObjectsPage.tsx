@@ -112,9 +112,10 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
         <TextField
           form={form}
           name="speedLimitKph"
-          label="Speed limit (km/h)"
+          label="Overspeed alert limit (km/h)"
           type="number"
-          hint={vehicleType ? `Leave empty to use the default (${DEFAULT_SPEED_LIMIT_KPH[vehicleType]} km/h).` : 'Leave empty to use the vehicle type default.'}
+          placeholder="e.g. 50"
+          hint={`Overspeed alerts fire above this speed (it overrides company and group alert settings). Leave empty for the default${vehicleType ? ` (${DEFAULT_SPEED_LIMIT_KPH[vehicleType]} km/h)` : ''}.`}
         />
         {can('devices') && (
           <ComboboxField
@@ -162,8 +163,7 @@ const columns: MasterColumn<TrackedObjectDto>[] = [
   { id: 'color', header: 'Colour', defaultHidden: true, cell: (r) => <Dash value={r.color} /> },
   {
     id: 'speedLimitKph',
-    header: 'Speed limit',
-    defaultHidden: true,
+    header: 'Overspeed limit',
     cell: (r) => (r.speedLimitKph ? `${r.speedLimitKph} km/h` : <Muted>{r.vehicleType ? `${DEFAULT_SPEED_LIMIT_KPH[r.vehicleType]} km/h (default)` : '—'}</Muted>),
   },
   { id: 'isActive', header: 'Status', cell: (r) => <ActiveBadge active={r.isActive} /> },

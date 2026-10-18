@@ -5,6 +5,7 @@ import {
   ContinuousDrivingReportRow,
   DailySummaryDto,
   DeviceStatusReportRow,
+  DriverReportRow,
   EventSummaryReportRow,
   GeofenceSummaryReportRow,
   IgnitionReportRow,
@@ -436,4 +437,118 @@ export async function deviceStatusReport(q: QueryCtx, now: number): Promise<Quer
   const totals: Record<string, number> = { ...zero, count: rows.length };
   for (const r of rows) totals[r.status]++;
   return slice(rows, q, totals);
+}
+
+// ---------------------------------------------------------------------------
+// DRIVERS: activity per driver from driver sessions (RFID / manual) × trips
+// ---------------------------------------------------------------------------
+
+export interface DriverSessionIn {
+  driverId: string;
+  driverName: string;
+  employeeId: string | null;
+  objectId: string;
+  fromTime: Date;
+  toTime: Date | null;
+}
+
+/**
+ * Credits each trip (by start time) and each overspeed alert to the driver whose session on that vehicle covered it,
+ * with sessions clipped to the report range. Pure, so it can be unit-tested.
+ */
+export function aggregateDriverActivity(
+  sessions: DriverSessionIn[],
+  trips: { objectId: string; startTime: Date; distanceKm: number; durationSec: number; idleSec: number; maxSpeedKph: number }[],
+  overspeeds: { objectId: string; occurredAt: Date }[],
+  range: { gte: Date; lt: Date },
+  objectName: (id: string) => string,
+  now = new Date(),
+): DriverReportRow[] {
+  const byDriver = new Map<string, DriverReportRow & { names: Set<string>; first: number; last: number; open: boolean }>();
+  const inWindow = (t: Date, a: number, b: number) => t.getTime() >= a && t.getTime() < b;
+  for (const s of sessions) {
+    const a = Math.max(s.fromTime.getTime(), range.gte.getTime());
+    const b = Math.min((s.toTime ?? now).getTime(), range.lt.getTime());
+    if (b <= a) continue;
+    let row = byDriver.get(s.driverId);
+    if (!row) {
+      row = {
+        driverId: s.driverId,
+        driverName: s.driverName,
+        employeeId: s.employeeId,
+        vehicles: '',
+        sessions: 0,
+        tripCount: 0,
+        distanceKm: 0,
+        drivingSec: 0,
+        maxSpeedKph: 0,
+        overspeedCount: 0,
+        firstStart: null,
+        lastEnd: null,
+        names: new Set(),
+        first: a,
+        last: b,
+        open: false,
+      };
+      byDriver.set(s.driverId, row);
+    }
+    row.sessions++;
+    row.names.add(objectName(s.objectId));
+    row.first = Math.min(row.first, a);
+    if (b >= row.last) {
+      row.last = b;
+      row.open = s.toTime === null && b === now.getTime();
+    }
+    for (const t of trips) {
+      if (t.objectId !== s.objectId || !inWindow(t.startTime, a, b)) continue;
+      row.tripCount++;
+      row.distanceKm += t.distanceKm;
+      row.drivingSec += Math.max(0, t.durationSec - t.idleSec);
+      row.maxSpeedKph = Math.max(row.maxSpeedKph, t.maxSpeedKph);
+    }
+    for (const o of overspeeds) if (o.objectId === s.objectId && inWindow(o.occurredAt, a, b)) row.overspeedCount++;
+  }
+  return [...byDriver.values()]
+    .map(({ names, first, last, open, ...r }) => ({
+      ...r,
+      vehicles: [...names].sort().join(', '),
+      distanceKm: r1(r.distanceKm),
+      maxSpeedKph: Math.round(r.maxSpeedKph),
+      firstStart: new Date(first).toISOString(),
+      lastEnd: open ? null : new Date(last).toISOString(),
+    }))
+    .sort((x, y) => x.driverName.localeCompare(y.driverName));
+}
+
+export async function driversReport(q: QueryCtx): Promise<QueryResult<DriverReportRow>> {
+  const zero = { sessions: 0, tripCount: 0, distanceKm: 0, drivingSec: 0, maxSpeedKph: 0, overspeedCount: 0, drivers: 0 };
+  if (!q.ids.length) return { rows: [], totals: zero, totalRows: 0 };
+  const [sessions, trips, overspeeds] = await Promise.all([
+    q.prisma.driverAssignment.findMany({
+      where: { companyId: q.companyId, objectId: { in: q.ids }, fromTime: { lt: q.range.lt }, OR: [{ toTime: null }, { toTime: { gt: q.range.gte } }] },
+      include: { driver: { select: { name: true, employeeId: true } } },
+    }),
+    q.prisma.trip.findMany({
+      where: { companyId: q.companyId, objectId: { in: q.ids }, startTime: q.range },
+      select: { objectId: true, startTime: true, distanceKm: true, durationSec: true, idleSec: true, maxSpeedKph: true },
+    }),
+    q.prisma.alert.findMany({ where: { companyId: q.companyId, objectId: { in: q.ids }, type: 'OVERSPEED', occurredAt: q.range }, select: { objectId: true, occurredAt: true } }),
+  ]);
+  const rows = aggregateDriverActivity(
+    sessions.map((s) => ({ driverId: s.driverId, driverName: s.driver.name, employeeId: s.driver.employeeId, objectId: s.objectId, fromTime: s.fromTime, toTime: s.toTime })),
+    trips,
+    overspeeds,
+    q.range,
+    (id) => nameOf(q, id),
+  );
+  const sum = (k: 'sessions' | 'tripCount' | 'distanceKm' | 'drivingSec' | 'overspeedCount') => rows.reduce((s, r) => s + r[k], 0);
+  return slice(rows, q, {
+    drivers: rows.length,
+    sessions: sum('sessions'),
+    tripCount: sum('tripCount'),
+    distanceKm: r1(sum('distanceKm')),
+    drivingSec: sum('drivingSec'),
+    maxSpeedKph: rows.reduce((m, r) => Math.max(m, r.maxSpeedKph), 0),
+    overspeedCount: sum('overspeedCount'),
+  });
 }

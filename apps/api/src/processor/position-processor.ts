@@ -7,6 +7,7 @@ import { parseLive } from '../tracking/live-object';
 import { nextStatus, StatusState } from '../tracking/movement-status';
 import { EMPTY_TRACK_STATE, filterPosition, TrackState } from '../tracking/position-filter';
 import { DeviceCache, ResolvedDevice } from './device-cache';
+import { DriverIdentification } from './driver-identification';
 import { PositionRow, RawPacketRow, UnknownDeviceRow, WriteBatch, writeBatch } from './position-writer';
 import { RuleInput } from './rules/evaluate';
 import { RulesBatch, RulesEngine } from './rules/rules-engine';
@@ -61,6 +62,7 @@ export class PositionProcessor {
     private readonly redis: Redis,
     private readonly cache: DeviceCache,
     private readonly rules: RulesEngine | null = null,
+    private readonly drivers: DriverIdentification | null = null,
   ) {}
 
   /** Returns the number of entries processed (acknowledged). */
@@ -107,6 +109,7 @@ export class PositionProcessor {
         continue;
       }
       if (!device.accepted) continue;
+      if (this.drivers && device.object) await this.drivers.apply(device.object, position);
       batch.positions.push(this.evaluate(position, device, lives, tracks, changed, now, serverTime, ruleInputs));
       if (position.raw) batch.rawPackets.push(this.rawPacket(position, entry.remote));
       this.trackLastSeen(device.deviceId, now, serverTime, batch);

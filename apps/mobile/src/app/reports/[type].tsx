@@ -37,7 +37,7 @@ function presetDates(p: Exclude<Preset, 'custom'>): [string, string] {
     case 'yesterday':
       return [toYmd(addDays(now, -1)), toYmd(addDays(now, -1))];
     case 'last7':
-      return [toYmd(addDays(now, -7)), toYmd(addDays(now, -1))];
+      return [toYmd(addDays(now, -6)), toYmd(now)];
     case 'month':
       return [toYmd(new Date(now.getFullYear(), now.getMonth(), 1)), toYmd(now)];
     case 'lastMonth':
@@ -94,8 +94,8 @@ export default function ReportRunScreen() {
   const single = SINGLE_OBJECT_REPORT_TYPES.includes(type);
   const periodic = PERIOD_REPORT_TYPES.includes(type);
 
-  const [preset, setPreset] = useState<Preset>('yesterday');
-  const [[from, to], setRange] = useState<[string, string]>(() => presetDates('yesterday'));
+  const [preset, setPreset] = useState<Preset>('last7');
+  const [[from, to], setRange] = useState<[string, string]>(() => presetDates('last7'));
   const [period, setPeriod] = useState<ReportPeriod>('DAY');
   const [objectIds, setObjectIds] = useState<string[]>([]);
   const [picker, setPicker] = useState(false);

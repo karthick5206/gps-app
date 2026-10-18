@@ -16,6 +16,7 @@ import {
   CoffeeIcon,
   GaugeIcon,
   HexagonIcon,
+  IdCardIcon,
   LayersIcon,
   ListChecksIcon,
   MapPinnedIcon,
@@ -278,6 +279,20 @@ const EVENT_SUMMARY: ReportColumn[] = [
   { id: 'lastAt', header: 'Last', value: time('lastAt'), kind: 'time' },
 ];
 
+const DRIVERS: ReportColumn[] = [
+  { id: 'driverName', header: 'Driver', value: str('driverName') },
+  { id: 'employeeId', header: 'Employee ID', value: str('employeeId') },
+  { id: 'vehicles', header: 'Vehicles', value: str('vehicles') },
+  count('tripCount', 'Trips'),
+  kmCol(),
+  duration('drivingSec', 'Driving'),
+  count('overspeedCount', 'Overspeed'),
+  count('sessions', 'Sessions'),
+  count('maxSpeedKph', 'Max (km/h)', 'max'),
+  { id: 'firstStart', header: 'First start', value: time('firstStart'), kind: 'time' },
+  { id: 'lastEnd', header: 'Last end', value: time('lastEnd'), kind: 'time', display: (r) => (r.lastEnd ? null : 'Driving now') },
+];
+
 const GEOFENCE_SUMMARY: ReportColumn[] = [
   vehicle,
   { id: 'geofenceName', header: 'Geofence', value: str('geofenceName') },
@@ -330,6 +345,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'IDLE', category: 'Driving', label: 'Idling', description: 'Stops with the engine running — fuel wasted while stationary.', icon: ClockIcon, columns: STOPS },
   { type: 'OVERSPEED', category: 'Driving', label: 'Over-speed', description: "Speeding episodes above each vehicle's limit with peak speed and duration.", icon: GaugeIcon, columns: OVERSPEED },
   { type: 'CONTINUOUS_DRIVING', category: 'Driving', label: 'Continuous driving', description: 'Driving stretches without a proper break (default 4 h / 15 min rule).', icon: CoffeeIcon, columns: CONTINUOUS_DRIVING },
+  { type: 'DRIVERS', category: 'Driving', label: 'Driver activity', description: 'Per driver: vehicles driven, trips, distance, driving time and overspeeding.', icon: IdCardIcon, columns: DRIVERS },
   { type: 'IGNITION', category: 'Driving', label: 'Ignition on/off', description: 'Every ignition change with how long the previous state lasted.', icon: PowerIcon, columns: IGNITION },
   { type: 'ALERTS', category: 'Events', label: 'Alerts', description: 'Alerts raised in the period with severity and status; filter by type.', icon: BellIcon, columns: ALERTS },
   { type: 'EVENT_SUMMARY', category: 'Events', label: 'Event summary', description: 'How many of each alert type per vehicle, with first and last time.', icon: ListChecksIcon, columns: EVENT_SUMMARY },

@@ -1,5 +1,6 @@
 import { MENUS, type MenuDef, type MenuGroup, type MenuKey, type PermissionMap } from '@veetracer/shared';
 import {
+  IdCardIcon,
   BellIcon,
   BellRingIcon,
   BoxesIcon,
@@ -29,6 +30,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   dashboard: GaugeIcon,
   live_map: MapIcon,
   objects: TruckIcon,
+  drivers: IdCardIcon,
   devices: CpuIcon,
   vehicle_groups: LayersIcon,
   branches: WarehouseIcon,

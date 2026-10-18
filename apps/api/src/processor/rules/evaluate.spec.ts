@@ -2,7 +2,7 @@ import { AlertTypeCode, EffectiveAlertSetting, GeofenceGeometry } from '@veetrac
 import { geometryBBox } from '../../alerts/logic/geofence-geometry';
 import { resolveEffectiveSettings, SettingOverride, SettingsChain } from '../../alerts/logic/settings-resolution';
 import { GeofenceRuntime } from '../../alerts/rules-data';
-import { AlertState, emptyAlertState, EvalContext, evaluatePosition, RuleInput } from './evaluate';
+import { AlertState, emptyAlertState, EvalContext, evaluatePosition, overspeedLimit, RuleInput } from './evaluate';
 
 const T0 = Date.parse('2026-10-19T06:00:00Z'); // 11:30 IST Monday
 const sec = (s: number) => T0 + s * 1000;
@@ -353,5 +353,25 @@ describe('device health', () => {
   it('health alerts can be disabled', () => {
     const off = ctx(settings({ GSM_WEAK: { enabled: false } }));
     expect(types(run([at(min(0), { attributes: { gsmSignal: 0 } }), at(min(40), { attributes: { gsmSignal: 0 } })], off))).toEqual([]);
+  });
+});
+
+describe('overspeed limit precedence', () => {
+  it('vehicle-level setting > vehicle own limit > inherited setting > type default', () => {
+    const own = { speedLimitKph: 50, ownSpeedLimitKph: 50 };
+    const typeDefault = { speedLimitKph: 80, ownSpeedLimitKph: null };
+    expect(overspeedLimit(40, 'OBJECT', own)).toBe(40);
+    expect(overspeedLimit(80, 'COMPANY', own)).toBe(50);
+    expect(overspeedLimit(80, 'GROUP', own)).toBe(50);
+    expect(overspeedLimit(null, 'DEFAULT', own)).toBe(50);
+    expect(overspeedLimit(70, 'BRANCH', typeDefault)).toBe(70);
+    expect(overspeedLimit(null, 'DEFAULT', typeDefault)).toBe(80);
+  });
+
+  it('a vehicle set to 50 km/h alerts above 50', () => {
+    const c = ctx(settings({ OVERSPEED: { params: { toleranceKph: 0, minDurationSec: 10 } } }));
+    const o = { ...object, speedLimitKph: 50, ownSpeedLimitKph: 50 };
+    const r = run([at(sec(0), { object: o, speedKph: 55 }), at(sec(5), { object: o, speedKph: 58 }), at(sec(12), { object: o, speedKph: 60 })], c);
+    expect(r.alerts.map((a) => [a.type, a.data.limitKph])).toEqual([['OVERSPEED', 50]]);
   });
 });

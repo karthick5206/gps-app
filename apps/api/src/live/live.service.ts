@@ -28,6 +28,7 @@ export class LiveService {
         speedLimitKph: true,
         maintenanceSince: true,
         assignments: { where: { toTime: null }, select: { device: { select: { id: true, uniqueId: true } } } },
+        drivers: { where: { toTime: null }, take: 1, select: { driverId: true, source: true, driver: { select: { name: true } } } },
       },
       orderBy: { name: 'asc' },
     });
@@ -46,6 +47,9 @@ export class LiveService {
         uniqueId: device?.uniqueId ?? null,
         speedLimitKph: effectiveSpeedLimit(o.speedLimitKph, o.type, o.vehicleType),
         inMaintenance: o.maintenanceSince !== null,
+        driverId: o.drivers[0]?.driverId ?? null,
+        driverName: o.drivers[0]?.driver.name ?? null,
+        driverSource: (o.drivers[0]?.source as 'MANUAL' | 'RFID' | undefined) ?? null,
       };
       const state = live.get(o.id);
       return state ? { ...state, ...meta } : noDataLive(meta);

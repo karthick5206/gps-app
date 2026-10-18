@@ -5,6 +5,7 @@ import {
   ConsolidatedReportRow,
   ContinuousDrivingReportRow,
   DeviceStatusReportRow,
+  DriverReportRow,
   DistanceReportRow,
   EngineHoursReportRow,
   EventSummaryReportRow,
@@ -49,6 +50,7 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   GEOFENCE_VISITS: 'Geofence visits report',
   GEOFENCE_SUMMARY: 'Geofence summary report',
   DEVICE_STATUS: 'Device status report',
+  DRIVERS: 'Driver activity report',
 };
 
 const col = <T>(c: Omit<ReportColumn, 'value'> & { value: (row: T, tz: string) => Cell }): ReportColumn => c as ReportColumn;
@@ -259,6 +261,20 @@ const DEVICE_STATUS: ReportColumn[] = [
   col<DeviceStatusReportRow>({ header: 'Last location', width: 24, value: (r) => loc(r.lat, r.lng) }),
 ];
 
+const DRIVERS: ReportColumn[] = [
+  col<DriverReportRow>({ header: 'Driver', width: 22, value: (r) => r.driverName, total: (t) => `${t.drivers ?? 0} drivers` }),
+  col<DriverReportRow>({ header: 'Employee ID', width: 12, value: (r) => r.employeeId ?? '' }),
+  col<DriverReportRow>({ header: 'Vehicles', width: 24, value: (r) => r.vehicles }),
+  col<DriverReportRow>({ header: 'Sessions', width: 9, numeric: true, value: (r) => r.sessions, total: (t) => t.sessions ?? 0 }),
+  col<DriverReportRow>({ header: 'Trips', width: 7, numeric: true, value: (r) => r.tripCount, total: (t) => t.tripCount ?? 0 }),
+  col<DriverReportRow>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => num(r.distanceKm, 1), total: (t) => num(t.distanceKm ?? 0, 1) }),
+  col<DriverReportRow>({ header: 'Driving', width: 10, value: (r) => hhmmss(r.drivingSec), total: (t) => hhmmss(t.drivingSec ?? 0) }),
+  col<DriverReportRow>({ header: 'Max (km/h)', width: 10, numeric: true, value: (r) => r.maxSpeedKph, total: (t) => t.maxSpeedKph ?? 0 }),
+  col<DriverReportRow>({ header: 'Overspeed', width: 10, numeric: true, value: (r) => r.overspeedCount, total: (t) => t.overspeedCount ?? 0 }),
+  col<DriverReportRow>({ header: 'First start', width: 19, value: (r, tz) => localTime(r.firstStart, tz) }),
+  col<DriverReportRow>({ header: 'Last end', width: 19, value: (r, tz) => (r.lastEnd ? localTime(r.lastEnd, tz) : 'Driving now') }),
+];
+
 export function columnsFor(type: ReportType): ReportColumn[] {
   switch (type) {
     case 'SUMMARY':
@@ -295,6 +311,8 @@ export function columnsFor(type: ReportType): ReportColumn[] {
       return GEOFENCE_SUMMARY;
     case 'DEVICE_STATUS':
       return DEVICE_STATUS;
+    case 'DRIVERS':
+      return DRIVERS;
   }
 }
 

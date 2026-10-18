@@ -80,6 +80,7 @@ model Company {
   devices       Device[]
   objects       TrackedObject[]
   vehicleGroups VehicleGroup[]
+  drivers       Driver[]
   lookups       Lookup[]
   auditLogs     AuditLog[]
 }
@@ -97,6 +98,7 @@ model Branch {
   company Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
   objects TrackedObject[]
   users   UserBranch[]
+  drivers Driver[]
 
   @@unique([companyId, name])
 }
@@ -258,6 +260,7 @@ model TrackedObject {
   users       UserObject[]
   remarks     ObjectRemark[]
   commands    DeviceCommand[]
+  drivers     DriverAssignment[]
 
   @@index([companyId, branchId])
 }
@@ -289,6 +292,52 @@ model DeviceAssignment {
 
   @@index([deviceId])
   @@index([objectId])
+}
+
+/// A person who drives company vehicles; identified on the tracker by an RFID card / iButton (`rfidTag`).
+model Driver {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @db.Uuid
+  branchId      String?   @db.Uuid
+  name          String
+  mobile        String?
+  employeeId    String?
+  licenseNo     String?
+  licenseExpiry DateTime? @db.Date
+  /// Hex, upper case, without leading zeros (normalizeRfidTag); unique per company.
+  rfidTag       String?
+  notes         String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch      Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  assignments DriverAssignment[]
+
+  @@unique([companyId, rfidTag])
+  @@unique([companyId, employeeId])
+  @@index([companyId, name])
+}
+
+/// Who drove which vehicle when. At most one open (toTime null) row per object and per driver (partial unique indexes in the migration).
+model DriverAssignment {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  driverId    String    @db.Uuid
+  objectId    String    @db.Uuid
+  fromTime    DateTime  @db.Timestamptz(3)
+  toTime      DateTime? @db.Timestamptz(3)
+  /// MANUAL (assigned in the app) or RFID (card swipe on the tracker).
+  source      String
+  createdById String?   @db.Uuid
+
+  driver Driver        @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([objectId, fromTime(sort: Desc)])
+  @@index([driverId, fromTime(sort: Desc)])
+  @@index([companyId, fromTime(sort: Desc)])
 }
 
 model VehicleGroup {
