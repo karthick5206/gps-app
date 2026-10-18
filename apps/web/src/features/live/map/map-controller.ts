@@ -3,6 +3,7 @@ import maplibregl, { type GeoJSONSource, type GeoJSONSourceDiff, type Map as MlM
 import type { ResolvedTheme } from '@/features/theme/theme-store';
 import { interpolatePose, type Pose } from '@/lib/geo';
 import { liveStore, type LiveEvent } from '../live-store';
+import { displayStore } from '@/features/display/display-store';
 import {
   ARROW_IMAGE,
   CLUSTER_MAX_ZOOM,
@@ -71,6 +72,14 @@ function iconImageExpression(theme: ResolvedTheme): maplibregl.ExpressionSpecifi
  * Markers live in one GeoJSON source; positional changes go through `updateData` diffs and glide with
  * requestAnimationFrame (≤30 fps, viewport-only, skipped above 1,000 movers or with reduced motion).
  */
+/** Vehicle marker size by zoom (about 30 % larger than before), times the user's map icon size. */
+function vehicleIconSize(scale: number): maplibregl.ExpressionSpecification {
+  return ['interpolate', ['linear'], ['zoom'], 5, 0.6 * scale, 10, 0.85 * scale, 14, 1.1 * scale, 17, 1.4 * scale];
+}
+function arrowIconSize(scale: number): maplibregl.ExpressionSpecification {
+  return ['interpolate', ['linear'], ['zoom'], 8, 0.7 * scale, 14, 1 * scale];
+}
+
 export class MapController {
   private readonly map: MlMap;
   private readonly opts: MapControllerOptions;
@@ -121,12 +130,26 @@ export class MapController {
         this.opts.onFollowInterrupted();
       }
     });
-    this.unsubscribe = liveStore.subscribe((e) => this.onLiveEvent(e));
+    const offLive = liveStore.subscribe((e) => this.onLiveEvent(e));
+    const offDisplay = displayStore.subscribe(() => this.applyIconSize());
+    this.unsubscribe = () => {
+      offLive();
+      offDisplay();
+    };
   }
 
   /** Underlying map for add-on layers (geofences, alert markers in ./layers); they re-add themselves after style swaps. */
   get mapInstance(): MlMap {
     return this.map;
+  }
+
+  /** Re-applies marker sizes after the user changes the map icon size. */
+  private applyIconSize() {
+    const map = this.map;
+    if (!map.getLayer(LAYERS.circle)) return;
+    const scale = displayStore.iconScale();
+    map.setLayoutProperty(LAYERS.circle, 'icon-size', vehicleIconSize(scale));
+    if (map.getLayer(LAYERS.arrow)) map.setLayoutProperty(LAYERS.arrow, 'icon-size', arrowIconSize(scale));
   }
 
   destroy() {
@@ -184,7 +207,7 @@ export class MapController {
       filter: ['all', unclustered, ['==', ['get', 'moving'], true], ['==', ['get', 'rotating'], false]],
       layout: {
         'icon-image': ARROW_IMAGE,
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 14, 0.8],
+        'icon-size': arrowIconSize(displayStore.iconScale()),
         'icon-rotate': ['get', 'bearing'],
         'icon-rotation-alignment': 'map',
         'icon-offset': [0, -15],
@@ -200,7 +223,7 @@ export class MapController {
       filter: unclustered,
       layout: {
         'icon-image': iconImageExpression(this.theme),
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.45, 10, 0.65, 14, 0.85, 17, 1.1],
+        'icon-size': vehicleIconSize(displayStore.iconScale()),
         'icon-rotate': ['get', 'rot'],
         'icon-rotation-alignment': 'map',
         'icon-allow-overlap': true,

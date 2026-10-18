@@ -8,6 +8,7 @@ import { liveStore } from '@/features/live/live-store';
 import { unregisterPush } from '@/features/notifications/push';
 import { applyThemePreference, restoreThemePreference } from '@/features/theme/theme';
 import { i18n, restoreLanguage, setLanguage } from '@/lib/i18n';
+import { display } from '@/features/display/display';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -34,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await Promise.all([session.load(), restoreThemePreference(), restoreLanguage()]);
+      await Promise.all([session.load(), restoreThemePreference(), restoreLanguage(), display.restore()]);
       const ok = session.getRefreshToken() ? await refreshAccessToken() : false;
       if (cancelled) return;
       if (!ok) session.clear();
@@ -107,6 +108,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (languagePref) setLanguage(languagePref);
   }, [languagePref]);
+  const textSizePref = me?.user.preferences.textSize;
+  const iconSizePref = me?.user.preferences.mapIconSize;
+  useEffect(() => {
+    display.set({ textSize: textSizePref, mapIconSize: iconSizePref });
+  }, [textSizePref, iconSizePref]);
   const can = useCallback((menu: MenuKey, action: Action = 'view') => !!me && canDo(me.permissions, menu, action), [me]);
 
   const value = useMemo<AuthContextValue>(() => ({ status, me, companyId, signIn, signOut, switchCompany, can }), [status, me, companyId, signIn, signOut, switchCompany, can]);

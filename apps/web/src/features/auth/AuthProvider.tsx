@@ -6,6 +6,7 @@ import { api, refreshAccessToken, setSessionExpiredHandler } from '@/lib/api';
 import { session } from '@/lib/session';
 import { themeStore } from '@/features/theme/theme-store';
 import { i18n, setLanguage } from '@/lib/i18n';
+import { displayStore } from '@/features/display/display-store';
 import { liveStore } from '@/features/live/live-store';
 import { AuthContext, meQueryKey, type AuthContextValue, type AuthStatus } from './auth-context';
 
@@ -70,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData(meQueryKey(null), res.me);
       themeStore.setPreference(res.me.user.preferences.theme);
       if (res.me.user.preferences.language) setLanguage(res.me.user.preferences.language);
+      displayStore.set({ textSize: res.me.user.preferences.textSize, mapIconSize: res.me.user.preferences.mapIconSize });
       setStatus('authenticated');
     },
     [queryClient],
@@ -91,6 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (profileLanguage) setLanguage(profileLanguage);
   }, [profileLanguage]);
+  const profileTextSize = me?.user.preferences.textSize;
+  const profileIconSize = me?.user.preferences.mapIconSize;
+  useEffect(() => {
+    displayStore.set({ textSize: profileTextSize, mapIconSize: profileIconSize });
+  }, [profileTextSize, profileIconSize]);
   const can = useCallback((menu: MenuKey, action: Action = 'view') => !!me && canDo(me.permissions, menu, action), [me]);
 
   const value = useMemo<AuthContextValue>(

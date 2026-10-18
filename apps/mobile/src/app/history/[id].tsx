@@ -13,6 +13,7 @@ import { formatClock, formatKm, trackStatus } from '@/features/history/history-f
 import { buildTrackIndex, PLAYBACK_RATES, type PlaybackRate, type Sample } from '@/features/history/playback-core';
 import { PlaybackEngine } from '@/features/history/playback-engine';
 import { presetRange, type RangePreset } from '@/features/history/time-range';
+import { useDisplay } from '@/features/display/display';
 import { liveStore } from '@/features/live/live-store';
 import { iconKind, iconName, rotates } from '@/features/map/vehicle-icons';
 import { VEHICLE_ICON_IMAGES } from '@/features/map/vehicle-icon-images';
@@ -47,6 +48,7 @@ export default function HistoryScreen() {
   const [tab, setTab] = useState<Tab>('trips');
   const range = useMemo(() => presetRange(preset), [preset]);
   const camera = useRef<CameraRef>(null);
+  const { iconScale } = useDisplay();
 
   const history = useQuery({
     queryKey: ['history', id, range.from.toISOString(), range.to.toISOString()],
@@ -143,7 +145,7 @@ export default function HistoryScreen() {
             />
           </GeoJSONSource>
           <GeoJSONSource id="cursor" data={marker}>
-            <Layer id="cursor-icon" type="symbol" layout={{ 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': 0.9 }} />
+            <Layer id="cursor-icon" type="symbol" layout={{ 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': 1.1 * iconScale }} />
           </GeoJSONSource>
         </Map>
         {history.isFetching && (

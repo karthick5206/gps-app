@@ -10,6 +10,7 @@ import { useRealtimeStatus } from '@/features/live/use-live';
 import type { RealtimeStatus } from '@/features/live/realtime';
 import { cn } from '@/lib/utils';
 import { CompanySwitcher } from './CompanySwitcher';
+import { DisplayToggle } from './DisplayToggle';
 import { LanguageToggle } from './LanguageToggle';
 import { ThemeToggle } from './ThemeToggle';
 import { UserMenu } from './UserMenu';
@@ -72,6 +73,7 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
       <RealtimeIndicator />
       {can('alerts') && <AlertBell />}
       <LanguageToggle />
+      <DisplayToggle />
       <ThemeToggle />
       <UserMenu />
     </header>

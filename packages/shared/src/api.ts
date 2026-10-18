@@ -12,6 +12,12 @@ export const LANGUAGES = [
 export type LanguageCode = (typeof LANGUAGES)[number]['code'];
 export const LANGUAGE_CODES = LANGUAGES.map((l) => l.code) as LanguageCode[];
 
+/** Readability settings (profile): text / UI scale and map vehicle-icon size. */
+export const DISPLAY_SIZES = ['normal', 'large', 'xlarge'] as const;
+export type DisplaySize = (typeof DISPLAY_SIZES)[number];
+export const TEXT_SCALE: Record<DisplaySize, number> = { normal: 1, large: 1.125, xlarge: 1.25 };
+export const MAP_ICON_SCALE: Record<DisplaySize, number> = { normal: 1, large: 1.3, xlarge: 1.6 };
+
 export interface Paginated<T> {
   items: T[];
   total: number;
@@ -53,7 +59,7 @@ export interface Me {
     mobile: string | null;
     isSuperAdmin: boolean;
     /** language null = not chosen yet (apps follow the device / browser language). */
-    preferences: { theme: ThemePreference; language: LanguageCode | null };
+    preferences: { theme: ThemePreference; language: LanguageCode | null; textSize: DisplaySize; mapIconSize: DisplaySize };
   };
   /** Company the user acts in. For the Super Admin: the company selected via X-Company-Id, else the platform company. */
   company: CompanySummary;

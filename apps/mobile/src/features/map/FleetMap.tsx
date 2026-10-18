@@ -2,6 +2,7 @@ import { Camera, GeoJSONSource, Images, Layer, Map, type CameraRef, type LngLatB
 import type { LiveObject } from '@veetracer/shared';
 import { forwardRef, useImperativeHandle, useMemo, useRef, type ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
+import { useDisplay } from '@/features/display/display';
 import { MAP_STYLE } from '@/lib/config';
 import { COLORS, useScheme } from '@/lib/theme';
 import { iconKind, iconName, rotates } from './vehicle-icons';
@@ -60,6 +61,7 @@ export const FleetMap = forwardRef<
   const scheme = useScheme();
   const c = COLORS[scheme];
   const camera = useRef<CameraRef>(null);
+  const { iconScale } = useDisplay();
   const data = useMemo(() => toFeatures(objects, selectedId), [objects, selectedId]);
 
   useImperativeHandle(ref, () => ({
@@ -114,7 +116,8 @@ export const FleetMap = forwardRef<
           type="symbol"
           layout={{
             'icon-image': ['get', 'icon'],
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.45, 10, 0.65, 14, 0.85, 17, 1.1],
+            // About 30 % larger than before, times the user's map icon size.
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.6 * iconScale, 10, 0.85 * iconScale, 14, 1.1 * iconScale, 17, 1.4 * iconScale],
             'icon-rotate': ['get', 'rot'],
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,

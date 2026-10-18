@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Me, ThemePreference } from '@veetracer/shared';
 import { router, type Href } from 'expo-router';
@@ -85,6 +86,9 @@ export default function MoreScreen() {
       <Card>
         <LanguageChips />
       </Card>
+
+      <SectionTitle>{t('Display size')}</SectionTitle>
+      <DisplaySizeCard />
 
       <SectionTitle>{t('Appearance')}</SectionTitle>
       <Card style={{ gap: SPACE.sm }}>

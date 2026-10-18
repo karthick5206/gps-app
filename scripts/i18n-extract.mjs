@@ -27,7 +27,7 @@ function walk(dir, out = []) {
 }
 
 const STR = String.raw`'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|\`((?:[^\`\\$]|\\.)*)\``;
-const T_CALL = new RegExp(String.raw`\b(?:i18n\.)?t\(\s*(?:${STR})`, 'g');
+const T_CALL = new RegExp(String.raw`\b(?:i18n\.)?(?:t|tr)\(\s*(?:${STR})`, 'g');
 const PROP = new RegExp(String.raw`\b(label|header|description|title|hint|placeholder|unit|category|message)\s*:\s*(?:${STR})`, 'g');
 const STATUS_META_LABEL = /STATUS_META[\s\S]*?=\s*\{([\s\S]*?)\n\};/;
 
@@ -47,6 +47,12 @@ for (const file of SRC.flatMap((d) => walk(d))) {
   for (const m of text.matchAll(T_CALL)) add(m[1] ?? m[2] ?? m[3]);
   // Label-like properties are translated at render time (t(def.label)); shared catalogues and app-level config.
   for (const m of text.matchAll(PROP)) add(m[2] ?? m[3] ?? m[4]);
+  // JSX string props that shared components translate (title="…", description="…", placeholder="…").
+  for (const m of text.matchAll(/\s(?:title|description|label|placeholder|hint|header|aria-label|emptyText|confirmLabel|submitLabel|entity|allLabel|searchPlaceholder)="([^"{}]+)"/g)) add(m[1]);
+  // Label maps such as GROUP_LABELS / MODE_LABEL / SEVERITY_LABEL = { key: 'Text', … }.
+  for (const m of text.matchAll(/const\s+\w*LABELS?\w*[^=\n]*=\s*\{([\s\S]*?)\};/g)) {
+    for (const v of m[1].matchAll(/:\s*'((?:[^'\\]|\\.)*)'/g)) add(v[1]);
+  }
 }
 
 // Enum values shown through humanize(): VEHICLE_TYPES etc. → "School bus".
@@ -57,6 +63,8 @@ for (const list of ['OBJECT_TYPES', 'VEHICLE_TYPES']) {
   for (const v of m?.[1].match(/'([A-Z_]+)'/g) ?? []) add(humanize(v.slice(1, -1)));
 }
 void STATUS_META_LABEL;
+// Shown via t(value) from places the scanner cannot see (record values, stored reasons).
+for (const v of ['Info', 'Warning', 'Critical', 'New', 'Acknowledged', 'Resolved', 'Queued', 'Sent', 'Failed', 'Expired', 'Push needs a real phone', 'Push not set up for this build', 'Notifications are turned off for VeeTracer', 'Not registered yet', 'On', 'Off', 'Card', 'Manual']) add(v);
 
 const dict = (lang) => {
   const src = readFileSync(join(root, `packages/shared/src/i18n/${lang}.ts`), 'utf8');
