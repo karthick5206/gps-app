@@ -5,11 +5,14 @@ import { AuthContext } from '../access/auth-context';
 import { asRecord } from '../common/dto';
 import { hashPassword, verifyPassword } from '../common/secrets';
 import { toCompanySummary } from '../common/company-summary';
+import { createPushProvider, PushProvider } from '../notifier/push';
 import { PrismaService } from '../prisma/prisma.service';
 
 
 @Injectable()
 export class MeService {
+  private readonly push: PushProvider = createPushProvider();
+
   constructor(private readonly prisma: PrismaService) {}
 
   async build(ctx: AuthContext): Promise<Me> {
@@ -53,6 +56,20 @@ export class MeService {
   async registerPushToken(ctx: AuthContext, dto: { token: string; platform: string; deviceName?: string }): Promise<void> {
     const data = { userId: ctx.userId, sessionId: ctx.sessionId ?? null, platform: dto.platform, deviceName: dto.deviceName ?? null };
     await this.prisma.pushToken.upsert({ where: { token: dto.token }, create: { token: dto.token, ...data }, update: data });
+  }
+
+  /** Sends a test notification to one of the caller's own app installs (Settings → "Send test notification"). */
+  async testPush(ctx: AuthContext, token: string): Promise<{ sent: boolean; error: string | null }> {
+    const row = await this.prisma.pushToken.findUnique({ where: { token }, select: { userId: true } });
+    if (!row || row.userId !== ctx.userId) throw new BadRequestException('This phone is not registered for notifications yet');
+    if (!this.push.enabled) return { sent: false, error: 'Push is turned off on the server (PUSH_PROVIDER=none)' };
+    try {
+      const res = await this.push.send([token], { title: 'Test notification', body: 'Alerts will arrive on this phone like this.', data: { test: true } });
+      if (res.invalidTokens.length) await this.prisma.pushToken.deleteMany({ where: { token: { in: res.invalidTokens } } });
+      return res.sent ? { sent: true, error: null } : { sent: false, error: res.error ?? 'The push service did not accept the notification' };
+    } catch (error) {
+      return { sent: false, error: (error as Error).message };
+    }
   }
 
   async removePushToken(token: string): Promise<void> {

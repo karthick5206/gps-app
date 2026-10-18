@@ -4,6 +4,7 @@ import { router, type Href } from 'expo-router';
 import { BellRingIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, HexagonIcon, IdCardIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { PushTestButton } from '@/components/PushTestButton';
 import { ThemePicker } from '@/components/ThemePicker';
 import { Button, Card, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
@@ -102,6 +103,7 @@ export default function MoreScreen() {
         />
         <InfoRow label={t('Version')} value={Constants.expoConfig?.version ?? '—'} />
       </Card>
+      <PushTestButton />
 
       <Button title={t('Sign out')} icon={LogOutIcon} variant="outline" onPress={confirmSignOut} style={{ marginTop: SPACE.md }} />
     </ScrollView>

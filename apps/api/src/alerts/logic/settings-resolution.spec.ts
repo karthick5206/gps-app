@@ -25,7 +25,7 @@ describe('alert settings resolution', () => {
     expect(os.params.toleranceKph).toBe(0); // fleet default: alert above the limit (80 km/h unless the vehicle has its own)
     expect(os.params.limitKph).toBeNull();
     expect(os.sources.enabled).toBe('DEFAULT');
-    expect(os.channels.CRITICAL).toEqual(['INAPP', 'EMAIL', 'SMS']);
+    expect(os.channels.CRITICAL).toEqual(['INAPP', 'PUSH', 'EMAIL', 'SMS']);
     // Fleet defaults: ignition on/off, overspeed, device offline and low battery are on.
     for (const code of ['IGNITION_ON', 'IGNITION_OFF', 'OVERSPEED', 'DEVICE_OFFLINE', 'LOW_BATTERY'] as const) expect(get(list, code).enabled).toBe(true);
   });

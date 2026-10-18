@@ -183,8 +183,8 @@ export type ChannelsBySeverity = Record<AlertSeverity, NotifyChannel[]>;
 
 export const DEFAULT_CHANNELS: ChannelsBySeverity = {
   INFO: ['INAPP'],
-  WARNING: ['INAPP', 'EMAIL'],
-  CRITICAL: ['INAPP', 'EMAIL', 'SMS'],
+  WARNING: ['INAPP', 'PUSH', 'EMAIL'],
+  CRITICAL: ['INAPP', 'PUSH', 'EMAIL', 'SMS'],
 };
 
 /** One stored override row. Null/absent fields inherit from the level above. */
