@@ -1,4 +1,5 @@
 import {
+  DEFAULT_COOLDOWN_MIN,
   ALERT_SEVERITIES,
   ALERT_TYPE_MAP,
   ALERT_TYPES,
@@ -16,21 +17,7 @@ import {
 } from '@veetracer/shared';
 import { isValidTimeWindow, parseHhmm } from './time-window';
 
-/** Catalogue default cooldown (minutes) per alert type when nothing is configured. */
-export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
-  OVERSPEED: 0,
-  IDLING: 0,
-  IGNITION_ON: 0,
-  IGNITION_OFF: 0,
-  GEOFENCE_ENTER: 0,
-  GEOFENCE_EXIT: 0,
-  GEOFENCE_STAY: 0,
-  GEOFENCE_OVERSPEED: 5,
-  POWER_CUT: 5,
-  SOS: 1,
-  LOW_BATTERY: 60,
-  DEVICE_OFFLINE: 0,
-};
+export { DEFAULT_COOLDOWN_MIN };
 
 /** The override fields of one stored AlertSetting row. Null/absent = inherit. */
 export interface SettingOverride {

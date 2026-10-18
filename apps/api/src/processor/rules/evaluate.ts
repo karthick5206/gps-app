@@ -48,6 +48,12 @@ export interface AlertState {
   idle?: IdleEpisode;
   ign?: boolean | null;
   batLow?: boolean;
+  /** Device health episodes: start time (server clock) and whether the alert was raised. */
+  gpsLost?: { since: number; alerted: boolean };
+  gsmWeak?: { since: number; alerted: boolean };
+  powerLow?: { since: number; alerted: boolean };
+  /** Last external voltage, to detect a drop to ~0 V (main power removed). */
+  extV?: number;
   /** Last alert time per cooldown key (alert type, or type:geofenceId). */
   cd: Record<string, number>;
 }
@@ -78,6 +84,11 @@ export interface RuleInput {
    * alarms, battery); lat/lng are then the last known location, or NaN when there is none. Default true.
    */
   locationValid?: boolean;
+  /** When the server received the point (ms). Defaults to fixTime. Used for health durations and for alerts from
+   * points without a fix, whose device time can't be trusted. */
+  receivedAt?: number;
+  /** Only run device-health checks (points that don't update live state, e.g. a clock running ahead). */
+  healthOnly?: boolean;
 }
 
 export interface PendingAlert {
@@ -154,7 +165,8 @@ class Evaluator {
     },
   ): string | null {
     const setting = this.ctx.settings.get(type);
-    const at = opts.at ?? this.input.fixTime;
+    // A point without a GPS fix may carry a default device date (years off): date those alerts by the server clock.
+    const at = opts.at ?? (this.input.locationValid === false ? this.now : this.input.fixTime);
     const cdKey = opts.cooldownKey ?? type;
     if (!canEmit(setting, this.state, cdKey, at, this.ctx.timezone)) return null;
     this.state.cd[cdKey] = at;
@@ -174,7 +186,16 @@ class Evaluator {
     return id;
   }
 
+  /** Server time of the point. */
+  private get now(): number {
+    return this.input.receivedAt ?? this.input.fixTime;
+  }
+
   run(): EvalOutput {
+    if (this.input.healthOnly) {
+      this.health();
+      return this.out;
+    }
     if (this.input.locationValid !== false) {
       this.geofences();
       this.overspeed();
@@ -183,6 +204,7 @@ class Evaluator {
     this.ignition();
     this.alarms();
     this.battery();
+    this.health();
     this.pruneCooldowns();
     return this.out;
   }
@@ -434,6 +456,9 @@ class Evaluator {
     const alarm = this.input.attributes.alarm;
     if (alarm === 'sos') this.emit('SOS', { message: 'SOS / panic button pressed', data: { alarm } });
     else if (alarm === 'powerCut') this.emit('POWER_CUT', { message: 'Tracker main power disconnected', data: { alarm } });
+    else if (alarm === 'tamper' || alarm === 'jamming') {
+      this.emit('DEVICE_TAMPER', { message: alarm === 'jamming' ? 'Tracker reported GPS/GSM jamming' : 'Tracker reported tampering (case opened or removed)', data: { alarm } });
+    }
   }
 
   private battery(): void {
@@ -445,6 +470,81 @@ class Evaluator {
       this.emit('LOW_BATTERY', { message: `Tracker battery at ${Math.round(level)}%`, data: { batteryPct: Math.round(level), thresholdPct: threshold } });
     } else if (level >= threshold + LOW_BATTERY_HYSTERESIS_PCT && this.state.batLow) {
       this.state.batLow = false;
+    }
+  }
+
+  // ───────────── device health (data-driven) ─────────────
+  private param(type: AlertTypeCode, key: string, fallback: number): number {
+    return num(this.ctx.settings.get(type)?.params[key], fallback)!;
+  }
+
+  /** Starts / continues / clears a health episode and raises its alert once when it lasted long enough. */
+  private episode(
+    key: 'gpsLost' | 'gsmWeak' | 'powerLow',
+    active: boolean,
+    afterMin: number,
+    raise: (durationSec: number) => void,
+  ): void {
+    if (!active) {
+      delete this.state[key];
+      return;
+    }
+    const ep = (this.state[key] ??= { since: this.now, alerted: false });
+    const durationSec = Math.round((this.now - ep.since) / 1000);
+    if (!ep.alerted && durationSec >= afterMin * 60) {
+      ep.alerted = true;
+      raise(durationSec);
+    }
+  }
+
+  private health(): void {
+    const { attributes } = this.input;
+    const reupload = attributes.reupload === true;
+    const fmt = (sec: number) => (sec >= 3600 ? `${Math.floor(sec / 3600)} h ${Math.round((sec % 3600) / 60)} min` : `${Math.round(sec / 60)} min`);
+
+    if (!this.input.healthOnly) {
+      // GPS: data keeps arriving without a valid fix.
+      this.episode('gpsLost', this.input.locationValid === false, this.param('GPS_LOST', 'afterMin', 30), (durationSec) =>
+        this.emit('GPS_LOST', { at: this.now, message: `No GPS fix for ${fmt(durationSec)}`, data: { durationSec } }),
+      );
+
+      // GSM: weak mobile signal for a while.
+      const gsm = num(attributes.gsmSignal);
+      if (gsm !== null) {
+        this.episode('gsmWeak', gsm <= this.param('GSM_WEAK', 'maxLevel', 1), this.param('GSM_WEAK', 'afterMin', 30), (durationSec) =>
+          this.emit('GSM_WEAK', { at: this.now, message: `Mobile signal ${gsm}/4 for ${fmt(durationSec)}`, data: { durationSec, gsmSignal: gsm } }),
+        );
+      }
+
+      // Power source: main power removed (voltage drops to ~0) or vehicle battery low.
+      const v = num(attributes.extVoltage);
+      if (v !== null) {
+        const prev = this.state.extV;
+        if (prev !== undefined && prev >= 6 && v < 1) {
+          this.emit('POWER_CUT', { at: this.now, message: `Main power disconnected (${prev.toFixed(1)} V → ${v.toFixed(1)} V)`, data: { voltage: v, previousVoltage: prev, source: 'voltage' } });
+        }
+        const threshold = this.param('POWER_LOW', 'thresholdV', 11.5);
+        const low = v >= 1 && v < threshold;
+        // Small hysteresis so a voltage hovering at the threshold doesn't restart the episode.
+        if (low || !this.state.powerLow || v >= threshold + 0.3) {
+          this.episode('powerLow', low, this.param('POWER_LOW', 'afterMin', 10), () =>
+            this.emit('POWER_LOW', { at: this.now, message: `Vehicle voltage low: ${v.toFixed(1)} V (below ${threshold} V)`, data: { voltage: v, thresholdV: threshold } }),
+          );
+        }
+        this.state.extV = v;
+      }
+
+      // GPRS: live data arriving late = the tracker buffered it while the network was down.
+      const delaySec = Math.round((this.now - this.input.fixTime) / 1000);
+      if (this.input.locationValid !== false && !reupload && delaySec >= this.param('DATA_DELAYED', 'delayMin', 10) * 60 && delaySec < 7 * 86_400) {
+        this.emit('DATA_DELAYED', { at: this.now, message: `Data arriving ${fmt(delaySec)} late (network / GPRS)`, data: { durationSec: delaySec } });
+      }
+    }
+
+    // Clock: device time ahead of the server (wrong time zone on the tracker).
+    const aheadSec = Math.round((this.input.fixTime - this.now) / 1000);
+    if (this.input.locationValid !== false && aheadSec >= this.param('CLOCK_ERROR', 'thresholdMin', 15) * 60) {
+      this.emit('CLOCK_ERROR', { at: this.now, message: `Device clock is ${fmt(aheadSec)} ahead — check the time zone setting`, data: { durationSec: aheadSec } });
     }
   }
 

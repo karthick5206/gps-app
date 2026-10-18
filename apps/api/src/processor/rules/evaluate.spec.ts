@@ -305,3 +305,53 @@ describe('other rules', () => {
     expect(r.alerts).toHaveLength(0);
   });
 });
+
+describe('device health', () => {
+  const min = (m: number) => sec(m * 60);
+  const types = (r: { alerts: { type: string }[] }) => r.alerts.map((a) => a.type);
+
+  it('GPS lost after the configured time without a fix, once per episode, dated by the server clock', () => {
+    const bogus = Date.parse('2007-01-01T00:00:00Z');
+    const noFix = (m: number) => at(bogus, { locationValid: false, lat: Number.NaN, lng: Number.NaN, receivedAt: min(m) });
+    const r = run([noFix(0), noFix(20), noFix(31), noFix(45), at(min(50)), noFix(55), noFix(90)], ctx());
+    expect(types(r)).toEqual(['GPS_LOST', 'GPS_LOST']);
+    expect(r.alerts[0]).toMatchObject({ occurredAt: min(31), data: { durationSec: 31 * 60 } });
+  });
+
+  it('weak GSM signal sustained for the configured time', () => {
+    const g = (m: number, gsmSignal: number) => at(min(m), { attributes: { gsmSignal } });
+    expect(types(run([g(0, 1), g(20, 0), g(29, 3), g(40, 1), g(75, 1)], ctx()))).toEqual(['GSM_WEAK']);
+    expect(types(run([g(0, 2), g(60, 2)], ctx()))).toEqual([]);
+  });
+
+  it('power source: voltage drop to 0 V is a power cut; low voltage sustained is POWER_LOW with hysteresis', () => {
+    const v = (m: number, extVoltage: number) => at(min(m), { attributes: { extVoltage } });
+    expect(types(run([v(0, 12.6), v(1, 0.2)], ctx()))).toEqual(['POWER_CUT']);
+    const r = run([v(0, 11.2), v(5, 11.4), v(11, 11.3), v(12, 11.6), v(13, 11.0), v(30, 12.4), v(31, 11.0), v(45, 11.1)], ctx());
+    expect(r.alerts.map((a) => [a.type, a.data.voltage])).toEqual([
+      ['POWER_LOW', 11.3],
+      ['POWER_LOW', 11.1],
+    ]);
+  });
+
+  it('data delayed when live (non-buffered) points arrive late; reuploads are ignored', () => {
+    expect(types(run([at(min(0), { receivedAt: min(12) })], ctx()))).toEqual(['DATA_DELAYED']);
+    expect(types(run([at(min(0), { receivedAt: min(12), attributes: { reupload: true } })], ctx()))).toEqual([]);
+    expect(types(run([at(min(0), { receivedAt: min(5) })], ctx()))).toEqual([]);
+  });
+
+  it('clock error for points dated ahead of the server (health-only input)', () => {
+    const r = run([at(min(330), { receivedAt: min(0), healthOnly: true, speedKph: 150, ignition: false })], ctx());
+    expect(types(r)).toEqual(['CLOCK_ERROR']);
+    expect(r.alerts[0].occurredAt).toBe(min(0));
+  });
+
+  it('tamper and jamming alarms', () => {
+    expect(types(run([at(sec(0), { attributes: { alarm: 'tamper' } }), at(sec(600), { attributes: { alarm: 'jamming' } })], ctx()))).toEqual(['DEVICE_TAMPER', 'DEVICE_TAMPER']);
+  });
+
+  it('health alerts can be disabled', () => {
+    const off = ctx(settings({ GSM_WEAK: { enabled: false } }));
+    expect(types(run([at(min(0), { attributes: { gsmSignal: 0 } }), at(min(40), { attributes: { gsmSignal: 0 } })], off))).toEqual([]);
+  });
+});

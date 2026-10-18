@@ -210,8 +210,23 @@ export class PositionProcessor {
             ignition: position.ignition,
             attributes: attrs,
             locationValid: (flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null,
+            receivedAt: now,
           });
         }
+      } else if ((flags & POSITION_FLAGS.FUTURE) !== 0 && !object.inMaintenance) {
+        // Dropped from live state because the device clock runs ahead: still tell the operator why.
+        ruleInputs.push({
+          object,
+          fixTime,
+          lat: position.lat ?? Number.NaN,
+          lng: position.lng ?? Number.NaN,
+          speedKph: position.speedKph,
+          ignition: position.ignition,
+          attributes: position.attributes,
+          locationValid: (flags & POSITION_FLAGS.INVALID_FIX) === 0,
+          receivedAt: now,
+          healthOnly: true,
+        });
       }
     }
 
