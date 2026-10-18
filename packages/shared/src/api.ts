@@ -88,7 +88,8 @@ export interface DeviceDto {
   modelId: string; modelName: string; protocol: string;
   simNumber: string | null; simOperator: string | null; firmware: string | null;
   isActive: boolean; lastSeenAt: string | null;
-  object: { id: string; name: string } | null;
+  /** Vehicle the device is fitted to; `speedLimitKph` = its own overspeed limit (null = vehicle-type default). */
+  object: { id: string; name: string; speedLimitKph: number | null; vehicleType: VehicleType | null } | null;
   createdAt: string; updatedAt: string;
 }
 

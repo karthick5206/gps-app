@@ -94,6 +94,7 @@ export class DeviceCache {
                 deviceId: d.id,
                 uniqueId: d.uniqueId,
                 speedLimitKph: effectiveSpeedLimit(o.speedLimitKph, o.type, o.vehicleType),
+                ownSpeedLimitKph: o.speedLimitKph,
                 inMaintenance: o.maintenanceSince !== null,
                 driverId: o.drivers[0]?.driverId ?? null,
                 driverName: o.drivers[0]?.driver.name ?? null,

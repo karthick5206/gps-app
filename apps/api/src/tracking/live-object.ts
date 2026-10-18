@@ -12,6 +12,8 @@ export interface ObjectMeta {
   deviceId: string | null;
   uniqueId: string | null;
   speedLimitKph: number | null;
+  /** The vehicle's own limit as set on the vehicle (null = none, the vehicle-type default applies). */
+  ownSpeedLimitKph?: number | null;
   /** In maintenance: no alerts are raised. */
   inMaintenance?: boolean;
   /** Driver on the vehicle now; `driverSource` RFID sessions end at ignition off. */

@@ -6,6 +6,7 @@ import { ScrollView, View } from 'react-native';
 import { Button, Card, EmptyState, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { StatusPill, VehicleThumb } from '@/features/live/components';
+import { SpeedLimitRow } from '@/features/live/SpeedLimitEditor';
 import { liveStore } from '@/features/live/live-store';
 import { useLiveVersion, useNow } from '@/features/live/use-live';
 import { FleetMap } from '@/features/map/FleetMap';
@@ -77,7 +78,7 @@ export default function VehicleScreen() {
           <InfoRow label="Since" value={formatDateTime(o.statusSince)} />
           <InfoRow label="Driver" value={o.driverName ? `${o.driverName}${o.driverSource === 'RFID' ? ' (card)' : ''}` : '—'} />
           <InfoRow label="Ignition" value={yesNo(o.ignition)} />
-          <InfoRow label="Speed limit" value={or(o.speedLimitKph, 'km/h')} />
+          <SpeedLimitRow o={o} />
           <InfoRow label="Last update" value={`${relativeTime(o.serverTime ?? o.fixTime, now)}`} />
           <InfoRow label="GPS time" value={formatDateTime(o.fixTime)} />
           <InfoRow label="Position" value={hasPosition ? `${o.lat!.toFixed(5)}, ${o.lng!.toFixed(5)}` : '—'} />

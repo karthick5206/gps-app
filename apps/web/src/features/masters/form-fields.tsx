@@ -30,7 +30,8 @@ export function TextField<V extends FieldValues>({
   placeholder,
   autoComplete,
   multiline,
-}: BaseProps<V> & { type?: string; placeholder?: string; autoComplete?: string; multiline?: boolean }) {
+  disabled,
+}: BaseProps<V> & { type?: string; placeholder?: string; autoComplete?: string; multiline?: boolean; disabled?: boolean }) {
   const error = errorOf(form, name);
   const id = `f-${name}`;
   return (
@@ -38,7 +39,7 @@ export function TextField<V extends FieldValues>({
       {multiline ? (
         <Textarea id={id} placeholder={placeholder} aria-invalid={!!error} {...form.register(name)} />
       ) : (
-        <Input id={id} type={type} placeholder={placeholder} autoComplete={autoComplete} aria-invalid={!!error} {...form.register(name)} />
+        <Input id={id} type={type} placeholder={placeholder} autoComplete={autoComplete} disabled={disabled} aria-invalid={!!error} {...form.register(name)} />
       )}
     </Field>
   );

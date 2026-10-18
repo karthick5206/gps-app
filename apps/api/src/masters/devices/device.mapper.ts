@@ -7,7 +7,7 @@ import { CsvSpec, ListSpec } from '../../common/list-query';
 export const DEVICE_INCLUDE = {
   company: { select: { name: true } },
   model: { select: { brand: true, model: true, protocol: true } },
-  assignments: { where: { toTime: null }, include: { object: { select: { id: true, name: true } } } },
+  assignments: { where: { toTime: null }, include: { object: { select: { id: true, name: true, speedLimitKph: true, vehicleType: true } } } },
 } satisfies Prisma.DeviceInclude;
 export type DeviceRow = Prisma.DeviceGetPayload<{ include: typeof DEVICE_INCLUDE }>;
 
@@ -64,7 +64,7 @@ export function toDeviceDto(d: DeviceRow): DeviceDto {
     firmware: d.firmware,
     isActive: d.isActive,
     lastSeenAt: isoOrNull(d.lastSeenAt),
-    object: object ? { id: object.id, name: object.name } : null,
+    object: object ? { id: object.id, name: object.name, speedLimitKph: object.speedLimitKph, vehicleType: object.vehicleType } : null,
     createdAt: iso(d.createdAt),
     updatedAt: iso(d.updatedAt),
   };

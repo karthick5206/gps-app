@@ -58,6 +58,16 @@ export interface AlertState {
   cd: Record<string, number>;
 }
 
+/**
+ * Overspeed limit, most specific first: an Alert Settings limit set on this vehicle → the limit set on the vehicle itself
+ * (vehicle / device form) → an Alert Settings limit inherited from company, branch or group → the vehicle-type default.
+ */
+export function overspeedLimit(settingLimit: number | null, settingSource: string | undefined, object: Pick<RuleObject, 'speedLimitKph' | 'ownSpeedLimitKph'>): number | null {
+  if (settingLimit !== null && settingSource === 'OBJECT') return settingLimit;
+  if (object.ownSpeedLimitKph != null) return object.ownSpeedLimitKph;
+  return settingLimit ?? object.speedLimitKph;
+}
+
 export const emptyAlertState = (): AlertState => ({ gf: {}, cd: {} });
 
 export interface RuleObject {
@@ -69,6 +79,8 @@ export interface RuleObject {
   deviceId: string | null;
   /** Effective speed limit of the object (own limit or vehicle-type default), null = never overspeeds. */
   speedLimitKph: number | null;
+  /** Limit set on the vehicle itself (vehicle / device form); null or absent = not set. */
+  ownSpeedLimitKph?: number | null;
 }
 
 export interface RuleInput {
@@ -311,7 +323,7 @@ class Evaluator {
       this.endOverspeed(ep);
       ep = undefined;
     }
-    const baseLimit = num(p.limitKph) ?? this.input.object.speedLimitKph;
+    const baseLimit = overspeedLimit(num(p.limitKph), setting?.sources['params.limitKph'], this.input.object);
     const nightLimit = num(p.nightLimitKph);
     const night = nightLimit !== null && inDailyRange(p.nightFrom, p.nightTo, fixTime, this.ctx.timezone);
     const limit = night ? nightLimit : baseLimit;

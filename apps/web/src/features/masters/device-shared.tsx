@@ -1,13 +1,16 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { CompanyDto, DeviceDto, DeviceModelDto } from '@veetracer/shared';
+import { DEFAULT_SPEED_LIMIT_KPH, type CompanyDto, type DeviceDto, type DeviceModelDto } from '@veetracer/shared';
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type { Option } from '@/components/ui/multi-select';
+import { useAuth } from '@/features/auth/auth-context';
+import { api, errorMessage } from '@/lib/api';
 import { ActiveBadge, Dash, DateCell, Muted } from './cells';
 import { FormDialog, useSaveMutation } from './FormDialog';
 import { ComboboxField, SwitchField, TextField } from './form-fields';
-import { nullIfBlank, optionalText, requiredText, str } from './form-schema';
+import { nullIfBlank, numberOrNull, numericText, optionalText, requiredText, str } from './form-schema';
 import type { MasterColumn } from './types';
 import { named, useEntityOptions } from './use-options';
 
@@ -23,6 +26,7 @@ const schema = z.object({
   simNumber: optionalText(20),
   simOperator: optionalText(50),
   firmware: optionalText(50),
+  speedLimitKph: numericText({ min: 5, max: 250, integer: true }),
   isActive: z.boolean(),
 });
 type Values = z.infer<typeof schema>;
@@ -55,6 +59,7 @@ export function DeviceForm({
       simNumber: str(record?.simNumber),
       simOperator: str(record?.simOperator),
       firmware: str(record?.firmware),
+      speedLimitKph: str(record?.object?.speedLimitKph),
       isActive: record?.isActive ?? true,
     },
   });
@@ -62,8 +67,21 @@ export function DeviceForm({
   const [companyQ, setCompanyQ] = useState('');
   const companies = useEntityOptions<CompanyDto>('/admin/companies', named, { q: companyQ, enabled: open && withCompany });
   const save = useSaveMutation({ endpoint, id: record?.id ?? null, entity: 'Device', onSaved: () => onOpenChange(false) });
+  const { can } = useAuth();
+  // The overspeed limit belongs to the vehicle the device is fitted to (it moves with the vehicle on a device swap).
+  const vehicle = !withCompany ? record?.object ?? null : null;
+  const canSetLimit = !!vehicle && can('objects', 'edit');
+  const typeDefault = vehicle?.vehicleType ? DEFAULT_SPEED_LIMIT_KPH[vehicle.vehicleType] : null;
 
-  const submit = form.handleSubmit((v) =>
+  const submit = form.handleSubmit(async (v) => {
+    if (canSetLimit && numberOrNull(v.speedLimitKph) !== (vehicle.speedLimitKph ?? null)) {
+      try {
+        await api.patch(`/objects/${vehicle.id}`, { speedLimitKph: numberOrNull(v.speedLimitKph) });
+      } catch (err) {
+        toast.error(`Speed limit not saved: ${errorMessage(err)}`);
+        return;
+      }
+    }
     save.mutate({
       uniqueId: v.uniqueId,
       modelId: v.modelId,
@@ -72,8 +90,8 @@ export function DeviceForm({
       firmware: nullIfBlank(v.firmware),
       isActive: v.isActive,
       ...(withCompany ? { companyId: v.companyId } : {}),
-    }),
-  );
+    });
+  });
 
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} title={record ? 'Edit device' : 'Add device'} pending={save.isPending} error={save.error} onSubmit={submit}>
@@ -105,6 +123,22 @@ export function DeviceForm({
         <TextField form={form} name="simNumber" label="SIM number" type="tel" />
         <TextField form={form} name="simOperator" label="SIM operator" />
         <TextField form={form} name="firmware" label="Firmware" />
+        {!withCompany && (
+          <TextField
+            form={form}
+            name="speedLimitKph"
+            label="Overspeed alert limit (km/h)"
+            type="number"
+            className="sm:col-span-2"
+            disabled={!canSetLimit}
+            placeholder={typeDefault ? `Default ${typeDefault}` : 'e.g. 50'}
+            hint={
+              vehicle
+                ? `Applies to ${vehicle.name}. Overspeed alerts fire above this speed. Leave empty for the vehicle-type default${typeDefault ? ` (${typeDefault} km/h)` : ''}.`
+                : 'Fit this device to a vehicle (Vehicles & Objects) to set its overspeed limit here.'
+            }
+          />
+        )}
       </div>
       <SwitchField form={form} name="isActive" label="Active" hint="Positions from inactive devices are ignored." />
     </FormDialog>
