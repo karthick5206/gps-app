@@ -2,7 +2,7 @@ import { PanelLeftCloseIcon, PanelLeftOpenIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router';
-import { LogoMark } from '@/components/logo';
+import { LogoMark, Wordmark } from '@/components/logo';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useMe } from '@/features/auth/auth-context';
 import { cn } from '@/lib/utils';
@@ -28,9 +28,7 @@ export function Sidebar({
       <div className={cn('flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-4', collapsed && 'justify-center px-0')}>
         <LogoMark className="size-7" />
         {!collapsed && (
-          <span className="text-[15px] font-semibold tracking-tight text-sidebar-accent-foreground">
-            Vee<span className="text-sidebar-primary">Tracer</span>
-          </span>
+          <Wordmark className="text-[17px] text-sidebar-accent-foreground" />
         )}
       </div>
 

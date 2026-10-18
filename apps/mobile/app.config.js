@@ -1,6 +1,6 @@
 /**
  * Adds Firebase (needed for push on Android) when google-services.json is present, so builds without it still work.
- * Get the file from the Firebase console (Android app com.sasvata.veetracer) and place it next to app.json,
+ * Get the file from the Firebase console (Android app com.sasvata.veetrax) and place it next to app.json,
  * or point GOOGLE_SERVICES_JSON at it (e.g. an EAS file secret). It is git-ignored.
  */
 const fs = require('fs');

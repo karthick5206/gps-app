@@ -136,12 +136,12 @@ async function main() {
   const partner = await prisma.partner.upsert({
     where: { slug: 'veetracer' },
     update: {},
-    create: { name: 'VeeTracer', slug: 'veetracer' },
+    create: { name: 'Veetrax', slug: 'veetracer' },
   });
 
   const platform =
     (await prisma.company.findFirst({ where: { isPlatform: true } })) ??
-    (await prisma.company.create({ data: { partnerId: partner.id, name: 'VeeTracer Platform', isPlatform: true } }));
+    (await prisma.company.create({ data: { partnerId: partner.id, name: 'Veetrax Platform', isPlatform: true } }));
 
   await upsertUser({
     companyId: platform.id,

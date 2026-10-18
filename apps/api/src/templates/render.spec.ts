@@ -35,10 +35,10 @@ describe('template rendering', () => {
 });
 
 describe('SMS / DLT', () => {
-  const body = '{{company}}: {{vehicle_name}} overspeed {{speed}} at {{time}}. {{vehicle_name}} -VeeTracer';
+  const body = '{{company}}: {{vehicle_name}} overspeed {{speed}} at {{time}}. {{vehicle_name}} -Veetrax';
 
   it('generates DLT text with positional {#var#} slots', () => {
-    expect(smsDltText(body)).toBe('{#var#}: {#var#} overspeed {#var#} at {#var#}. {#var#} -VeeTracer');
+    expect(smsDltText(body)).toBe('{#var#}: {#var#} overspeed {#var#} at {#var#}. {#var#} -Veetrax');
     expect(smsVariableOrder(body)).toEqual(['company', 'vehicle_name', 'speed', 'time', 'vehicle_name']);
     expect(fillDltText('{#var#} and {#var#}', ['x', 'y'])).toBe('x and y');
   });
@@ -48,7 +48,7 @@ describe('SMS / DLT', () => {
     const sms = renderSms(body, vars);
     expect(sms.values).toEqual(['Demo', 'Car 01', '92 km/h', '10:05', 'Car 01']);
     expect(sms.text).toBe(renderText(body, vars).text);
-    expect(sms.text).toBe('Demo: Car 01 overspeed 92 km/h at 10:05. Car 01 -VeeTracer');
+    expect(sms.text).toBe('Demo: Car 01 overspeed 92 km/h at 10:05. Car 01 -Veetrax');
   });
 
   it('only approved SMS templates (with a DLT id) can be active/sent', () => {

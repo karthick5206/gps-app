@@ -58,7 +58,7 @@ export function emailShell(opts: { heading: string; intro: string; rows?: [strin
 ${rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px">${rows}</table>` : ''}
 ${button}
 </td></tr>
-<tr><td style="padding:16px 20px;color:#94a3b8;font-size:12px">${opts.footer ?? 'Sent by VeeTracer on behalf of {{company}}.'}</td></tr>
+<tr><td style="padding:16px 20px;color:#94a3b8;font-size:12px">${opts.footer ?? 'Sent by Veetrax on behalf of {{company}}.'}</td></tr>
 </table></td></tr></table>
 </body></html>`;
 }
@@ -106,7 +106,7 @@ export function systemTemplates(): SystemTemplateDef[] {
       channel: 'SMS',
       name: `${t.label} — SMS`,
       subject: null,
-      body: `{{company}}: {{vehicle_name}} {{plate}} ${DETAIL[t.code]} at {{time}}. {{map_link}} -VeeTracer`,
+      body: `{{company}}: {{vehicle_name}} {{plate}} ${DETAIL[t.code]} at {{time}}. {{map_link}} -Veetrax`,
       approvalStatus: 'APPROVED',
       dltTemplateId: nextDlt(),
       senderId: 'VEETRC',
@@ -127,7 +127,7 @@ export function systemTemplates(): SystemTemplateDef[] {
     channel: 'SMS',
     name: 'Login OTP — SMS',
     subject: null,
-    body: '{{code}} is your VeeTracer login code. It expires in {{expires_min}} minutes. Do not share it with anyone. -VeeTracer',
+    body: '{{code}} is your Veetrax login code. It expires in {{expires_min}} minutes. Do not share it with anyone. -Veetrax',
     approvalStatus: 'APPROVED',
     dltTemplateId: nextDlt(),
     senderId: 'VEETRC',
@@ -136,7 +136,7 @@ export function systemTemplates(): SystemTemplateDef[] {
     purpose: 'SYSTEM_OTP',
     channel: 'EMAIL',
     name: 'Login OTP — e-mail',
-    subject: 'Your VeeTracer login code: {{code}}',
+    subject: 'Your Veetrax login code: {{code}}',
     body: emailShell({
       heading: 'Your login code',
       intro: 'Use <strong style="font-size:20px;letter-spacing:2px">{{code}}</strong> to sign in. It expires in {{expires_min}} minutes. Never share this code.',
@@ -149,7 +149,7 @@ export function systemTemplates(): SystemTemplateDef[] {
     purpose: 'SYSTEM_PASSWORD_RESET',
     channel: 'EMAIL',
     name: 'Password reset — e-mail',
-    subject: 'Reset your VeeTracer password',
+    subject: 'Reset your Veetrax password',
     body: emailShell({
       heading: 'Reset your password',
       intro: 'Hi {{user_name}}, we received a request to reset your password. The link is valid for {{expires_min}} minutes and can be used once. If you did not ask for this, ignore this e-mail.',
@@ -163,9 +163,9 @@ export function systemTemplates(): SystemTemplateDef[] {
     purpose: 'SYSTEM_WELCOME',
     channel: 'EMAIL',
     name: 'Welcome — e-mail',
-    subject: 'Welcome to VeeTracer, {{user_name}}',
+    subject: 'Welcome to Veetrax, {{user_name}}',
     body: emailShell({
-      heading: 'Welcome to VeeTracer',
+      heading: 'Welcome to Veetrax',
       intro: 'Hi {{user_name}}, an account has been created for you ({{email}}) at {{company}}.',
       button: { label: 'Sign in', href: '{{login_link}}' },
     }),

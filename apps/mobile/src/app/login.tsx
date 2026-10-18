@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chips, ErrorBanner, Field, Text } from '@/components/ui';
+import { BrandMark } from '@/components/BrandMark';
 import { LanguageChips } from '@/components/LanguageChips';
 import { useAuth } from '@/features/auth/auth';
 import { api, errorMessage } from '@/lib/api';
@@ -108,13 +109,9 @@ export default function LoginScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <View style={styles.logo}>
-              <Text style={{ color: c.brandAccent, fontSize: 26, fontWeight: '800' }}>V</Text>
-            </View>
-            <Text style={{ color: c.brandForeground, fontSize: 24, fontWeight: '700' }}>
-              Vee<Text style={{ color: c.brandAccent, fontSize: 24, fontWeight: '700' }}>Tracer</Text>
-            </Text>
-            <Text style={{ color: '#c3d3e0', fontSize: 14 }}>{t('Every vehicle, every second, one screen.')}</Text>
+            <BrandMark size={64} pin={c.brandForeground} route={c.brandAccent} />
+            <Text style={{ color: c.brandForeground, fontSize: 28, fontWeight: '800', letterSpacing: -0.8 }}>veetrax</Text>
+            <Text style={{ color: c.brandForeground, opacity: 0.8, fontSize: 14 }}>{t('Every vehicle, every second, one screen.')}</Text>
           </View>
           <View style={[styles.sheet, { backgroundColor: c.background }]}>
             <Text size="xl" weight="700">
@@ -148,6 +145,5 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   hero: { paddingHorizontal: SPACE.xl, paddingTop: 48, paddingBottom: 36, gap: SPACE.sm },
-  logo: { width: 48, height: 48, borderRadius: RADIUS.md, backgroundColor: '#134566', alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.sm },
   sheet: { flex: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: SPACE.xl, gap: SPACE.lg, paddingBottom: 32 },
 });

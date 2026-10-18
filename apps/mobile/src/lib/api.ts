@@ -3,7 +3,7 @@ import { API_URL } from './config';
 import { i18n } from './i18n';
 import { session } from './session';
 
-/** REST client for the VeeTracer API (same contract as the web app's lib/api.ts). */
+/** REST client for the Veetrax API (same contract as the web app's lib/api.ts). */
 
 export class ApiError extends Error {
   readonly status: number;

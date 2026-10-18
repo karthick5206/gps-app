@@ -2,7 +2,7 @@
   "name": "veetracer",
   "private": true,
   "version": "0.1.0",
-  "description": "VeeTracer GPS tracking SaaS (monorepo)",
+  "description": "Veetrax GPS tracking SaaS (monorepo)",
   "workspaces": [
     "packages/*",
     "apps/*"

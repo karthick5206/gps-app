@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "VeeTracer",
+    "name": "Veetrax",
     "slug": "veetracer",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "veetracer",
+    "scheme": "veetrax",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/images/icon.png",
-      "bundleIdentifier": "com.sasvata.veetracer",
+      "bundleIdentifier": "com.sasvata.veetrax",
       "supportsTablet": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -17,13 +17,13 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0b3b5a",
+        "backgroundColor": "#0E5E57",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.sasvata.veetracer"
+      "package": "com.sasvata.veetrax"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -33,9 +33,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0b2e46",
+          "backgroundColor": "#0E5E57",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 200
         }
       ],
       "@maplibre/maplibre-react-native",
@@ -46,7 +46,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/android-icon-monochrome.png",
-          "color": "#0f766e"
+          "color": "#0E5E57"
         }
       ],
       "expo-localization"

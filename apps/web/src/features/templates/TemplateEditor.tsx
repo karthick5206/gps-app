@@ -102,7 +102,7 @@ function PreviewPane({ channel, preview, loading, error }: { channel: TemplateRo
       )}
       {(channel === 'PUSH' || channel === 'WHATSAPP') && (
         <div className="mx-auto max-w-sm rounded-2xl border bg-card p-3 shadow-sm">
-          <p className="text-[11px] text-muted-foreground">{channel === 'PUSH' ? `VeeTracer · ${t('now')}` : 'WhatsApp'}</p>
+          <p className="text-[11px] text-muted-foreground">{channel === 'PUSH' ? `Veetrax · ${t('now')}` : 'WhatsApp'}</p>
           {preview.subject && <p className="text-sm font-semibold">{preview.subject}</p>}
           <p className="text-sm whitespace-pre-wrap">{preview.text || preview.body}</p>
         </div>

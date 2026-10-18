@@ -160,7 +160,7 @@ function OtpForm() {
 export function LoginPage() {
   const { t } = useTranslation();
   return (
-    <AuthLayout title={t('Sign in')} description={t('Welcome back. Sign in to your VeeTracer account.')}>
+    <AuthLayout title={t('Sign in')} description={t('Welcome back. Sign in to your Veetrax account.')}>
       <Tabs defaultValue="password" className="space-y-5">
         <TabsList className="w-full">
           <TabsTrigger value="password">

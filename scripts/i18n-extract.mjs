@@ -64,7 +64,7 @@ for (const list of ['OBJECT_TYPES', 'VEHICLE_TYPES']) {
 }
 void STATUS_META_LABEL;
 // Shown via t(value) from places the scanner cannot see (record values, stored reasons).
-for (const v of ['Info', 'Warning', 'Critical', 'New', 'Acknowledged', 'Resolved', 'Queued', 'Sent', 'Failed', 'Expired', 'Push needs a real phone', 'Push not set up for this build', 'Notifications are turned off for VeeTracer', 'Not registered yet', 'On', 'Off', 'Card', 'Manual']) add(v);
+for (const v of ['Info', 'Warning', 'Critical', 'New', 'Acknowledged', 'Resolved', 'Queued', 'Sent', 'Failed', 'Expired', 'Push needs a real phone', 'Push not set up for this build', 'Notifications are turned off for Veetrax', 'Not registered yet', 'On', 'Off', 'Card', 'Manual']) add(v);
 
 const dict = (lang) => {
   const src = readFileSync(join(root, `packages/shared/src/i18n/${lang}.ts`), 'utf8');

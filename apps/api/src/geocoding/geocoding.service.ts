@@ -72,7 +72,7 @@ export class GeocodingService {
       }
       if (this.provider === 'nominatim') {
         const url = `${this.baseUrl}/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=17&addressdetails=0`;
-        const res = await fetch(url, { headers: { 'User-Agent': 'VeeTracer/0.1 (development)' }, signal: AbortSignal.timeout(5000) });
+        const res = await fetch(url, { headers: { 'User-Agent': 'Veetrax/0.1 (development)' }, signal: AbortSignal.timeout(5000) });
         if (!res.ok) return null;
         const body = (await res.json()) as { display_name?: string };
         return body.display_name ?? null;

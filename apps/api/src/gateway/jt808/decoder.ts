@@ -170,7 +170,7 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
     };
     switch (h.msgId) {
       case Jt808Msg.REGISTER:
-        // Any terminal may register; the platform only accepts data for devices added in VeeTracer.
+        // Any terminal may register; the platform only accepts data for devices added in Veetrax.
         result.replies.push(registerResponse(h, this.nextSerial(session), h.terminalId));
         break;
       case Jt808Msg.LOCATION:

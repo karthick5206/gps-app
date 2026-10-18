@@ -50,7 +50,7 @@ async function register(): Promise<string | null> {
   }
   let { status } = await Notifications.getPermissionsAsync();
   if (status !== 'granted') status = (await Notifications.requestPermissionsAsync()).status;
-  if (status !== 'granted') return 'Notifications are turned off for VeeTracer';
+  if (status !== 'granted') return 'Notifications are turned off for Veetrax';
   const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: id });
   await api.post('/auth/push-token', { token, platform: Platform.OS === 'ios' ? 'ios' : 'android', deviceName: Device.deviceName ?? Device.modelName ?? undefined });
   registeredToken = token;
