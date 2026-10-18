@@ -45,5 +45,16 @@ export function loadEnv(): AppEnv {
       .map((o) => o.trim())
       .filter(Boolean),
   };
+  if (process.env.NODE_ENV === 'production') assertProductionSafe(cached);
   return cached;
+}
+
+/** Dev conveniences that expose login codes or reset links must never reach a public server. */
+function assertProductionSafe(env: AppEnv): void {
+  if (env.otpDevEcho || env.mailDevEcho) {
+    throw new Error('OTP_DEV_ECHO and MAIL_DEV_ECHO must be false when NODE_ENV=production');
+  }
+  if (env.jwtSecret.startsWith('change-me')) {
+    throw new Error('JWT_SECRET still has the .env.example value; set a long random secret');
+  }
 }
