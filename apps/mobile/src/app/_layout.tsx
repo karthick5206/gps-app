@@ -30,6 +30,9 @@ function RootStack() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="vehicle/[id]" options={{ title: 'Vehicle' }} />
           <Stack.Screen name="alert/[id]" options={{ title: 'Alert' }} />
+          <Stack.Screen name="history/[id]" options={{ title: 'History' }} />
+          <Stack.Screen name="reports/index" options={{ title: 'Reports' }} />
+          <Stack.Screen name="reports/[type]" options={{ title: 'Report' }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="login" options={{ headerShown: false }} />

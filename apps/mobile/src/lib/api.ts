@@ -120,6 +120,11 @@ async function authorizedFetch(path: string, opts: RequestOptions): Promise<Resp
   return res;
 }
 
+/** Raw response (file downloads) with the same auth / refresh handling. */
+export function requestRaw(path: string, opts: RequestOptions = {}): Promise<Response> {
+  return authorizedFetch(path, opts);
+}
+
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const res = await authorizedFetch(path, opts);
   if (res.status === 204) return undefined as T;

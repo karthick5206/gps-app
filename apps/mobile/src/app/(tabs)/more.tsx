@@ -1,17 +1,29 @@
 import Constants from 'expo-constants';
-import { LogOutIcon, ServerIcon, UserIcon } from 'lucide-react-native';
-import { Alert, ScrollView, View } from 'react-native';
+import { router, type Href } from 'expo-router';
+import { ChevronRightIcon, FileBarChartIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { useRealtimeStatus } from '@/features/live/use-live';
 import { SERVER_URL } from '@/lib/config';
 import { SPACE, useColors } from '@/lib/theme';
 
+function MenuItem({ icon: Icon, label, href }: { icon: LucideIcon; label: string; href: Href }) {
+  const c = useColors();
+  return (
+    <Pressable onPress={() => router.push(href)} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }, pressed && { opacity: 0.6 }]}>
+      <Icon size={20} color={c.primary} />
+      <Text style={{ flex: 1 }}>{label}</Text>
+      <ChevronRightIcon size={18} color={c.mutedForeground} />
+    </Pressable>
+  );
+}
+
 const CONNECTION_LABEL = { idle: 'Not connected', connecting: 'Connecting…', connected: 'Live', disconnected: 'Reconnecting…' } as const;
 
 export default function MoreScreen() {
   const c = useColors();
-  const { me, signOut } = useAuth();
+  const { me, signOut, can } = useAuth();
   const connection = useRealtimeStatus();
   const confirmSignOut = () =>
     Alert.alert('Sign out?', 'You will need to sign in again to see your vehicles.', [
@@ -34,6 +46,10 @@ export default function MoreScreen() {
             </Text>
           </View>
         </View>
+      </Card>
+
+      <Card style={{ paddingVertical: 0 }}>
+        {can('reports') && <MenuItem icon={FileBarChartIcon} label="Reports" href="/reports" />}
       </Card>
 
       <SectionTitle>Account</SectionTitle>
