@@ -1,5 +1,6 @@
 import {
   ALERT_SEVERITIES,
+  isEmergencyAlert,
   NOTIFY_CHANNELS,
   type AlertLevel,
   type AlertParamDef,
@@ -8,7 +9,7 @@ import {
   type RecipientListDto,
   type TimeWindow,
 } from '@veetracer/shared';
-import { AlertTriangleIcon, BellOffIcon, ChevronDownIcon, CpuIcon, LockIcon, SendIcon } from 'lucide-react';
+import { AlertTriangleIcon, BellOffIcon, ChevronDownIcon, CpuIcon, LockIcon, SendIcon, SmartphoneIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
@@ -282,6 +283,11 @@ export function AlertTypeCard({
                 t('Any GPS device')
               )}
             </span>
+            {isEmergencyAlert(def.code) && (
+              <span className="inline-flex items-center gap-1 text-xs text-destructive">
+                <SmartphoneIcon className="size-3" /> {t('Mobile app: plays a loud siren and full-screen alarm')}
+              </span>
+            )}
           </span>
         </button>
         {conflicts.length > 0 && (

@@ -33,6 +33,7 @@ function RootStack() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false, title: t('Home') }} />
           <Stack.Screen name="vehicle/[id]" options={{ title: t('Vehicle') }} />
           <Stack.Screen name="alert/[id]" options={{ title: t('Alert') }} />
+          <Stack.Screen name="sos/[id]" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade', contentStyle: { backgroundColor: '#c62828' } }} />
           <Stack.Screen name="history/[id]" options={{ title: t('History') }} />
           <Stack.Screen name="commands/[id]" options={{ title: t('Commands') }} />
           <Stack.Screen name="manage/[kind]/index" options={{ title: t('Manage') }} />

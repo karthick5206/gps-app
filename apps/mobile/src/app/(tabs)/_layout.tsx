@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { BellIcon, LayoutDashboardIcon, ListIcon, MapIcon, MenuIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SosIntroNotice } from '@/components/SosIntroNotice';
 import { useAuth } from '@/features/auth/auth';
 import { realtime } from '@/features/live/realtime';
 import { useLiveConnection } from '@/features/live/use-live-connection';
@@ -32,29 +33,32 @@ export default function TabsLayout() {
   const count = unread.data?.count ?? 0;
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: c.primary,
-        tabBarInactiveTintColor: c.mutedForeground,
-        tabBarStyle: { backgroundColor: c.card, borderTopColor: c.border },
-        headerStyle: { backgroundColor: c.card },
-        headerTintColor: c.foreground,
-        headerShadowVisible: false,
-      }}
-    >
-      <Tabs.Screen name="index" options={{ title: t('Live map'), headerShown: false, tabBarIcon: ({ color, size }) => <MapIcon color={color} size={size} /> }} />
-      <Tabs.Screen name="vehicles" options={{ title: t('Vehicles'), tabBarIcon: ({ color, size }) => <ListIcon color={color} size={size} /> }} />
-      <Tabs.Screen
-        name="alerts"
-        options={{
-          title: t('Alerts'),
-          href: can('alerts') ? undefined : null,
-          tabBarBadge: count ? (count > 99 ? '99+' : count) : undefined,
-          tabBarIcon: ({ color, size }) => <BellIcon color={color} size={size} />,
+    <>
+      <Tabs
+        screenOptions={{
+          tabBarActiveTintColor: c.primary,
+          tabBarInactiveTintColor: c.mutedForeground,
+          tabBarStyle: { backgroundColor: c.card, borderTopColor: c.border },
+          headerStyle: { backgroundColor: c.card },
+          headerTintColor: c.foreground,
+          headerShadowVisible: false,
         }}
-      />
-      <Tabs.Screen name="dashboard" options={{ title: t('Dashboard'), href: can('dashboard') ? undefined : null, tabBarIcon: ({ color, size }) => <LayoutDashboardIcon color={color} size={size} /> }} />
-      <Tabs.Screen name="more" options={{ title: t('More'), tabBarIcon: ({ color, size }) => <MenuIcon color={color} size={size} /> }} />
-    </Tabs>
+      >
+        <Tabs.Screen name="index" options={{ title: t('Live map'), headerShown: false, tabBarIcon: ({ color, size }) => <MapIcon color={color} size={size} /> }} />
+        <Tabs.Screen name="vehicles" options={{ title: t('Vehicles'), tabBarIcon: ({ color, size }) => <ListIcon color={color} size={size} /> }} />
+        <Tabs.Screen
+          name="alerts"
+          options={{
+            title: t('Alerts'),
+            href: can('alerts') ? undefined : null,
+            tabBarBadge: count ? (count > 99 ? '99+' : count) : undefined,
+            tabBarIcon: ({ color, size }) => <BellIcon color={color} size={size} />,
+          }}
+        />
+        <Tabs.Screen name="dashboard" options={{ title: t('Dashboard'), href: can('dashboard') ? undefined : null, tabBarIcon: ({ color, size }) => <LayoutDashboardIcon color={color} size={size} /> }} />
+        <Tabs.Screen name="more" options={{ title: t('More'), tabBarIcon: ({ color, size }) => <MenuIcon color={color} size={size} /> }} />
+      </Tabs>
+      <SosIntroNotice />
+    </>
   );
 }

@@ -5,6 +5,7 @@ import { BellRingIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon
 import { useTranslation } from 'react-i18next';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
+import { EmergencyAlertsCard } from '@/components/EmergencyAlertsCard';
 import { PushTestButton } from '@/components/PushTestButton';
 import { ThemePicker } from '@/components/ThemePicker';
 import { Button, Card, InfoRow, SectionTitle, Text } from '@/components/ui';
@@ -112,6 +113,9 @@ export default function MoreScreen() {
         <InfoRow label={t('Version')} value={Constants.expoConfig?.version ?? '—'} />
       </Card>
       <PushTestButton />
+
+      <SectionTitle>{t('Emergency alerts')}</SectionTitle>
+      <EmergencyAlertsCard />
 
       <Button title={t('Sign out')} icon={LogOutIcon} variant="outline" onPress={confirmSignOut} style={{ marginTop: SPACE.md }} />
     </ScrollView>
