@@ -94,6 +94,8 @@ export interface RelayTargetDto {
   companyId: string | null;
   companyName: string | null;
   deviceIds: string[];
+  /** Unique ids of `deviceIds` (for the picker chips). */
+  devices: { id: string; uniqueId: string }[];
   protocol: string | null;
   liveOnly: boolean;
   validOnly: boolean;

@@ -82,7 +82,10 @@ export class RelayAdminService {
     const companyIds = [...new Set(rows.map((r) => r.companyId).filter((id): id is string => !!id))];
     const companies = companyIds.length ? await this.prisma.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true } }) : [];
     const names = new Map(companies.map((c) => [c.id, c.name]));
-    return rows.map((r) => this.toDto(r, stats.get(r.id) ?? null, r.companyId ? (names.get(r.companyId) ?? null) : null));
+    const deviceIds = [...new Set(rows.flatMap((r) => r.deviceIds))];
+    const devices = deviceIds.length ? await this.prisma.device.findMany({ where: { id: { in: deviceIds } }, select: { id: true, uniqueId: true } }) : [];
+    const uniqueIds = new Map(devices.map((d) => [d.id, d.uniqueId]));
+    return rows.map((r) => this.toDto(r, stats.get(r.id) ?? null, r.companyId ? (names.get(r.companyId) ?? null) : null, uniqueIds));
   }
 
   async liveStats(): Promise<Map<string, RelayTargetStats>> {
@@ -103,7 +106,7 @@ export class RelayAdminService {
     return relayStatsFromHeartbeats(heartbeats);
   }
 
-  toDto(r: RelayTarget, stats: RelayTargetStats | null, companyName: string | null): RelayTargetDto {
+  toDto(r: RelayTarget, stats: RelayTargetStats | null, companyName: string | null, uniqueIds = new Map<string, string>()): RelayTargetDto {
     const status: RelayTargetDto['status'] = !r.enabled ? 'DISABLED' : stats?.failingSince ? 'FAILING' : stats?.lastSuccessAt ? 'OK' : 'IDLE';
     return {
       id: r.id,
@@ -122,6 +125,7 @@ export class RelayAdminService {
       companyId: r.companyId,
       companyName,
       deviceIds: r.deviceIds,
+      devices: r.deviceIds.map((id) => ({ id, uniqueId: uniqueIds.get(id) ?? id })),
       protocol: r.protocol,
       liveOnly: r.liveOnly,
       validOnly: r.validOnly,
