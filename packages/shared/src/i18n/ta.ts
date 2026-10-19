@@ -879,6 +879,7 @@ export const TA: Record<string, string> = {
   'Last exit': 'கடைசி வெளியேற்றம்',
   'Last fix': 'கடைசி ஃபிக்ஸ்',
   'Last GPS fix': 'கடைசி GPS ஃபிக்ஸ்',
+  'Last location': 'கடைசி இருப்பிடம்',
   'Last month': 'கடந்த மாதம்',
   'Last run': 'கடைசி இயக்கம்',
   'Last seen': 'கடைசியாகக் கண்டது',

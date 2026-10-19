@@ -61,6 +61,8 @@ export async function poiVisitsReport(
         durationSec: v.durationSec,
         distanceM: v.distanceM,
         ignitionOn: v.ignitionOn,
+        lat: v.lat,
+        lng: v.lng,
         address: v.address,
       };
     })

@@ -39,6 +39,7 @@ import {
 import { documentsReport } from './documents-report';
 import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
 import { fuelEventsReport, fuelReport } from './fuel-report';
+import { AddressEnricher } from './address-enricher';
 
 export const REPORT_JSON_MAX_ROWS = 10_000;
 export const REPORT_MAX_DAYS = 366;
@@ -56,7 +57,10 @@ type ScopeCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'obj
 
 @Injectable()
 export class ReportDataService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly addresses: AddressEnricher,
+  ) {}
 
   validate(req: ReportRequest): void {
     if (!isDayKey(req.from) || !isDayKey(req.to)) throw new BadRequestException('from and to must be dates (YYYY-MM-DD)');
@@ -103,7 +107,14 @@ export class ReportDataService {
     return map;
   }
 
+  /** Builds a report section; rows with a location get their addresses filled (cache first, then a bounded number of lookups). */
   async generate(ctx: ScopeCtx, req: ReportRequest, maxRows = REPORT_JSON_MAX_ROWS): Promise<ReportData> {
+    const data = await this.build(ctx, req, maxRows);
+    await this.addresses.enrichReport(data.type, data.rows);
+    return data;
+  }
+
+  private async build(ctx: ScopeCtx, req: ReportRequest, maxRows: number): Promise<ReportData> {
     this.validate(req);
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { name: true, timezone: true } });
     const tz = company.timezone;

@@ -62,7 +62,10 @@ export const REPORT_TITLES: Record<ReportType, string> = {
 };
 
 const col = <T>(c: Omit<ReportColumn, 'value'> & { value: (row: T, tz: string) => Cell }): ReportColumn => c as ReportColumn;
-const loc = (lat: number | null, lng: number | null) => (lat === null || lng === null ? '' : `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+const loc = (lat: number | null | undefined, lng: number | null | undefined) =>
+  lat === null || lat === undefined || lng === null || lng === undefined ? '' : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+/** Address, else "lat, lng" (addresses are filled when the report is generated, as far as the lookup budget allows). */
+const place = (address: string | null | undefined, lat: number | null | undefined, lng: number | null | undefined) => address || loc(lat, lng);
 const num = (v: number, digits: number) => Number(v.toFixed(digits));
 
 const SUMMARY: ReportColumn[] = [
@@ -93,8 +96,8 @@ const TRIPS: ReportColumn[] = [
   col<TripDto>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => num(r.distanceKm, 2), total: (t) => num(t.distanceKm ?? 0, 2) }),
   col<TripDto>({ header: 'Max km/h', width: 9, numeric: true, value: (r) => num(r.maxSpeedKph, 1), total: (t) => num(t.maxSpeedKph ?? 0, 1) }),
   col<TripDto>({ header: 'Avg km/h', width: 9, numeric: true, value: (r) => num(r.avgSpeedKph, 1) }),
-  col<TripDto>({ header: 'From', width: 36, value: (r) => r.startAddress ?? loc(r.startLat, r.startLng) }),
-  col<TripDto>({ header: 'To', width: 36, value: (r) => r.endAddress ?? loc(r.endLat, r.endLng) }),
+  col<TripDto>({ header: 'From', width: 36, value: (r) => place(r.startAddress, r.startLat, r.startLng) }),
+  col<TripDto>({ header: 'To', width: 36, value: (r) => place(r.endAddress, r.endLat, r.endLng) }),
 ];
 
 const stopColumns = (label: string): ReportColumn[] => [
@@ -104,7 +107,7 @@ const stopColumns = (label: string): ReportColumn[] => [
   col<StopDto>({ header: 'Duration', width: 10, value: (r) => hhmmss(r.durationSec), total: (t) => hhmmss(t.durationSec) }),
   col<StopDto>({ header: 'Type', width: 14, value: (r) => (r.ignitionOn ? 'Idle (engine on)' : 'Parked') }),
   col<StopDto>({ header: 'POI', width: 20, value: (r) => r.poiName ?? '' }),
-  col<StopDto>({ header: 'Location', width: 40, value: (r) => r.address ?? loc(r.lat, r.lng) }),
+  col<StopDto>({ header: 'Location', width: 40, value: (r) => place(r.address, r.lat, r.lng) }),
 ];
 
 const litres = (v: number | null) => (v === null ? '' : Math.round(v * 10) / 10);
@@ -133,7 +136,7 @@ const FUEL_EVENTS: ReportColumn[] = [
   col<FuelEventDto>({ header: 'Before (L)', width: 10, numeric: true, value: (r) => r.litresBefore }),
   col<FuelEventDto>({ header: 'After (L)', width: 10, numeric: true, value: (r) => r.litresAfter }),
   col<FuelEventDto>({ header: 'Change (L)', width: 10, numeric: true, value: (r) => (r.type === 'REFILL' ? r.deltaL : -r.deltaL) }),
-  col<FuelEventDto>({ header: 'Location', width: 24, value: (r) => (r.lat === null || r.lng === null ? '' : loc(r.lat, r.lng)) }),
+  col<FuelEventDto>({ header: 'Location', width: 36, value: (r) => place(r.address, r.lat, r.lng) }),
 ];
 
 const POI_VISITS: ReportColumn[] = [
@@ -145,6 +148,7 @@ const POI_VISITS: ReportColumn[] = [
   col<PoiVisitReportRow>({ header: 'Duration', width: 10, value: (r) => hhmmss(r.durationSec), total: (t) => hhmmss(t.durationSec) }),
   col<PoiVisitReportRow>({ header: 'Distance (m)', width: 10, numeric: true, value: (r) => r.distanceM }),
   col<PoiVisitReportRow>({ header: 'Engine', width: 10, value: (r) => (r.ignitionOn ? 'On' : 'Off') }),
+  col<PoiVisitReportRow>({ header: 'Location', width: 36, value: (r) => place(r.address, r.lat, r.lng) }),
 ];
 
 const ALERTS: ReportColumn[] = [
@@ -159,7 +163,7 @@ const ALERTS: ReportColumn[] = [
     total: (t) => `C ${t.CRITICAL ?? 0} / W ${t.WARNING ?? 0} / I ${t.INFO ?? 0}`,
   }),
   col<AlertDto>({ header: 'Message', width: 40, value: (r) => r.message }),
-  col<AlertDto>({ header: 'Location', width: 36, value: (r) => r.address ?? loc(r.lat, r.lng) }),
+  col<AlertDto>({ header: 'Location', width: 36, value: (r) => place(r.address, r.lat, r.lng) }),
   col<AlertDto>({ header: 'Status', width: 13, value: (r) => r.status }),
   col<AlertDto>({ header: 'Acknowledged by', width: 18, value: (r) => r.ackByName ?? '' }),
 ];
@@ -223,6 +227,7 @@ const POSITIONS: ReportColumn[] = [
   col<PositionReportRow>({ header: 'Server time', width: 19, value: (r, tz) => localTime(r.serverTime, tz) }),
   col<PositionReportRow>({ header: 'Latitude', width: 10, numeric: true, value: (r) => num(r.lat, 6) }),
   col<PositionReportRow>({ header: 'Longitude', width: 10, numeric: true, value: (r) => num(r.lng, 6) }),
+  col<PositionReportRow>({ header: 'Address', width: 36, value: (r) => r.address ?? '' }),
   col<PositionReportRow>({ header: 'km/h', width: 7, numeric: true, value: (r) => r.speedKph, total: (t) => `max ${t.maxSpeedKph ?? 0}` }),
   col<PositionReportRow>({ header: 'Course', width: 7, numeric: true, value: (r) => r.course }),
   col<PositionReportRow>({ header: 'Sats', width: 6, numeric: true, value: (r) => r.satellites ?? '' }),
@@ -244,7 +249,7 @@ const OVERSPEED: ReportColumn[] = [
   col<OverspeedReportRow>({ header: 'Limit km/h', width: 9, numeric: true, value: (r) => r.limitKph }),
   col<OverspeedReportRow>({ header: 'Max km/h', width: 9, numeric: true, value: (r) => r.maxSpeedKph, total: (t) => t.maxSpeedKph ?? 0 }),
   col<OverspeedReportRow>({ header: 'Avg km/h', width: 9, numeric: true, value: (r) => r.avgSpeedKph }),
-  col<OverspeedReportRow>({ header: 'Location (peak)', width: 24, value: (r) => loc(r.lat, r.lng) }),
+  col<OverspeedReportRow>({ header: 'Location (peak)', width: 36, value: (r) => place(r.address, r.lat, r.lng) }),
 ];
 
 const IGNITION: ReportColumn[] = [
@@ -252,7 +257,7 @@ const IGNITION: ReportColumn[] = [
   col<IgnitionReportRow>({ header: 'Time', width: 19, value: (r, tz) => localTime(r.time, tz) }),
   col<IgnitionReportRow>({ header: 'Ignition', width: 9, value: (r) => r.state }),
   col<IgnitionReportRow>({ header: 'Previous state for', width: 14, value: (r) => hhmmss(r.previousStateSec) }),
-  col<IgnitionReportRow>({ header: 'Location', width: 24, value: (r) => loc(r.lat, r.lng) }),
+  col<IgnitionReportRow>({ header: 'Location', width: 36, value: (r) => place(r.address, r.lat, r.lng) }),
 ];
 
 const CONTINUOUS_DRIVING: ReportColumn[] = [
@@ -264,8 +269,8 @@ const CONTINUOUS_DRIVING: ReportColumn[] = [
   col<ContinuousDrivingReportRow>({ header: 'Longest break', width: 11, value: (r) => hhmmss(r.longestBreakSec) }),
   col<ContinuousDrivingReportRow>({ header: 'Trips', width: 7, numeric: true, value: (r) => r.trips }),
   col<ContinuousDrivingReportRow>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => num(r.distanceKm, 2), total: (t) => num(t.distanceKm ?? 0, 2) }),
-  col<ContinuousDrivingReportRow>({ header: 'From', width: 30, value: (r) => r.startAddress ?? '' }),
-  col<ContinuousDrivingReportRow>({ header: 'To', width: 30, value: (r) => r.endAddress ?? '' }),
+  col<ContinuousDrivingReportRow>({ header: 'From', width: 32, value: (r) => place(r.startAddress, r.startLat, r.startLng) }),
+  col<ContinuousDrivingReportRow>({ header: 'To', width: 32, value: (r) => place(r.endAddress, r.endLat, r.endLng) }),
 ];
 
 const EVENT_SUMMARY: ReportColumn[] = [
@@ -307,7 +312,7 @@ const DEVICE_STATUS: ReportColumn[] = [
   col<DeviceStatusReportRow>({ header: 'No data for', width: 11, value: (r) => hhmmss(r.inactiveSec) }),
   col<DeviceStatusReportRow>({ header: 'Battery %', width: 8, numeric: true, value: (r) => r.batteryLevel ?? '' }),
   col<DeviceStatusReportRow>({ header: 'Ext. V', width: 7, numeric: true, value: (r) => r.extVoltage ?? '' }),
-  col<DeviceStatusReportRow>({ header: 'Last location', width: 24, value: (r) => loc(r.lat, r.lng) }),
+  col<DeviceStatusReportRow>({ header: 'Last location', width: 32, value: (r) => place(r.address, r.lat, r.lng) }),
 ];
 
 const DRIVERS: ReportColumn[] = [

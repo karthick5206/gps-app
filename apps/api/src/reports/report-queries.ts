@@ -193,6 +193,7 @@ export async function positions(q: QueryCtx, req: ReportRequest): Promise<QueryR
       gsmSignal: num(a.gsmSignal),
       alarm: typeof a.alarm === 'string' ? a.alarm : null,
       odometerKm: odoM === null ? null : r1(odoM / 1000),
+      address: null,
     };
   });
   return { rows: out, totals: { count: total, maxSpeedKph: r1(agg._max.speedKph ?? 0) }, totalRows: total };
@@ -237,6 +238,7 @@ export async function overspeed(q: QueryCtx): Promise<QueryResult<OverspeedRepor
         points: ep.points,
         lat: ep.lat,
         lng: ep.lng,
+        address: null,
       });
     }
   }
@@ -271,7 +273,7 @@ export async function ignition(q: QueryCtx): Promise<QueryResult<IgnitionReportR
   const rows: IgnitionReportRow[] = [];
   for (const [id, list] of byObject) {
     for (const c of ignitionChanges(list)) {
-      rows.push({ objectId: id, objectName: nameOf(q, id), plateNumber: plateOf(q, id), time: new Date(c.t).toISOString(), state: c.state, previousStateSec: c.previousStateSec, lat: c.lat, lng: c.lng });
+      rows.push({ objectId: id, objectName: nameOf(q, id), plateNumber: plateOf(q, id), time: new Date(c.t).toISOString(), state: c.state, previousStateSec: c.previousStateSec, lat: c.lat, lng: c.lng, address: null });
     }
   }
   rows.sort((a, b) => a.objectName.localeCompare(b.objectName) || a.time.localeCompare(b.time));
@@ -287,13 +289,36 @@ export async function continuousDrivingReport(q: QueryCtx): Promise<QueryResult<
   const trips = await q.prisma.trip.findMany({
     where: { companyId: q.companyId, objectId: { in: q.ids }, startTime: q.range },
     orderBy: [{ objectId: 'asc' }, { startTime: 'asc' }],
-    select: { objectId: true, startTime: true, endTime: true, durationSec: true, distanceKm: true, startAddress: true, endAddress: true },
+    select: {
+      objectId: true,
+      startTime: true,
+      endTime: true,
+      durationSec: true,
+      distanceKm: true,
+      startAddress: true,
+      endAddress: true,
+      startLat: true,
+      startLng: true,
+      endLat: true,
+      endLng: true,
+    },
   });
   const byObject = new Map<string, typeof trips>();
   for (const t of trips) (byObject.get(t.objectId) ?? byObject.set(t.objectId, []).get(t.objectId)!).push(t);
   const rows: ContinuousDrivingReportRow[] = [];
   for (const [id, list] of byObject) {
-    const spans = list.map((t) => ({ start: t.startTime.getTime(), end: t.endTime.getTime(), durationSec: t.durationSec, distanceKm: t.distanceKm, startAddress: t.startAddress, endAddress: t.endAddress }));
+    const spans = list.map((t) => ({
+      start: t.startTime.getTime(),
+      end: t.endTime.getTime(),
+      durationSec: t.durationSec,
+      distanceKm: t.distanceKm,
+      startAddress: t.startAddress,
+      endAddress: t.endAddress,
+      startLat: t.startLat,
+      startLng: t.startLng,
+      endLat: t.endLat,
+      endLng: t.endLng,
+    }));
     for (const s of continuousDriving(spans, { drivingMin: q.options.drivingMin, breakMin: q.options.breakMin })) {
       rows.push({
         objectId: id,
@@ -308,6 +333,10 @@ export async function continuousDrivingReport(q: QueryCtx): Promise<QueryResult<
         longestBreakSec: s.longestBreakSec,
         startAddress: s.startAddress,
         endAddress: s.endAddress,
+        startLat: s.startLat,
+        startLng: s.startLng,
+        endLat: s.endLat,
+        endLng: s.endLng,
       });
     }
   }
@@ -431,6 +460,7 @@ export async function deviceStatusReport(q: QueryCtx, now: number): Promise<Quer
       batteryLevel: num(attrs.batteryLevel),
       extVoltage: num(attrs.extVoltage),
       gsmSignal: num(attrs.gsmSignal),
+      address: null,
     };
   });
   rows.sort((x, y) => STATUS_ORDER.indexOf(x.status) - STATUS_ORDER.indexOf(y.status) || x.objectName.localeCompare(y.objectName));

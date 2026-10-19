@@ -76,5 +76,7 @@ export interface PoiVisitReportRow {
   /** Distance from the stop to the POI (m). */
   distanceM: number;
   ignitionOn: boolean;
+  /** Where the vehicle stopped. */
+  lat: number; lng: number;
   address: string | null;
 }

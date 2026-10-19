@@ -879,6 +879,7 @@ export const HI: Record<string, string> = {
   'Last exit': 'अंतिम निकास',
   'Last fix': 'अंतिम फ़िक्स',
   'Last GPS fix': 'अंतिम GPS फ़िक्स',
+  'Last location': 'अंतिम स्थान',
   'Last month': 'पिछला महीना',
   'Last run': 'अंतिम रन',
   'Last seen': 'अंतिम बार देखा',

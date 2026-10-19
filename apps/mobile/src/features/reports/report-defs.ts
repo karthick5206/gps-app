@@ -75,7 +75,7 @@ const time = (k: string) => (r: Row) => {
   return v ? Date.parse(v) : null;
 };
 
-/** Address, else "lat, lng" (addresses are filled asynchronously by the summarizer). */
+/** Address, else "lat, lng" (addresses are filled when the report runs, as far as the lookup budget allows). */
 const place = (addr: string, lat: string, lng: string) => (r: Row) => {
   const a = r[addr] as string | null | undefined;
   if (a) return a;
@@ -157,7 +157,7 @@ const ALERTS: ReportColumn[] = [
     display: (r) => i18n.t(humanize(r.severity as string)),
   },
   { id: 'message', header: 'Message', value: str('message') },
-  { id: 'address', header: 'Location', value: str('address') },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
   { id: 'status', header: 'Status', value: str('status'), display: (r) => i18n.t(humanize(r.status as string)) },
 ];
 
@@ -178,6 +178,7 @@ const POI_VISITS: ReportColumn[] = [
   duration('durationSec', 'Duration'),
   { id: 'distanceM', header: 'Distance (m)', value: num('distanceM'), numeric: true, format: (v) => Math.round(v).toLocaleString() },
   { id: 'ignitionOn', header: 'Engine', value: (r) => (r.ignitionOn ? 1 : 0), display: (r) => onOff(r.ignitionOn as boolean) },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
 ];
 
 const plate: ReportColumn = { id: 'plateNumber', header: 'Plate', value: str('plateNumber') };
@@ -233,6 +234,7 @@ const POSITIONS: ReportColumn[] = [
   { id: 'fixTime', header: 'GPS time', value: time('fixTime'), kind: 'time' },
   { id: 'serverTime', header: 'Received', value: time('serverTime'), kind: 'time' },
   { id: 'lat', header: 'Location', value: coordValue('lat', 'lng') },
+  { id: 'address', header: 'Address', value: str('address') },
   { id: 'speedKph', header: 'km/h', value: num('speedKph'), numeric: true, total: 'max', format: int },
   count('course', 'Course', undefined),
   count('satellites', 'Sats', undefined),
@@ -262,7 +264,7 @@ const OVERSPEED: ReportColumn[] = [
     format: int,
   },
   count('avgSpeedKph', 'Avg (km/h)', undefined),
-  { id: 'lat', header: 'Peak at', value: coordValue('lat', 'lng') },
+  { id: 'address', header: 'Peak at', value: place('address', 'lat', 'lng') },
 ];
 
 const IGNITION: ReportColumn[] = [
@@ -271,7 +273,7 @@ const IGNITION: ReportColumn[] = [
   { id: 'time', header: 'Time', value: time('time'), kind: 'time' },
   { id: 'state', header: 'Ignition', value: str('state'), display: (r) => onOff(r.state === 'ON') },
   duration('previousStateSec', 'Previous state for', undefined),
-  { id: 'lat', header: 'Location', value: coordValue('lat', 'lng') },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
 ];
 
 const CONTINUOUS_DRIVING: ReportColumn[] = [
@@ -284,8 +286,8 @@ const CONTINUOUS_DRIVING: ReportColumn[] = [
   duration('longestBreakSec', 'Longest break', undefined),
   count('trips', 'Trips', undefined),
   kmCol(),
-  { id: 'startAddress', header: 'From', value: str('startAddress') },
-  { id: 'endAddress', header: 'To', value: str('endAddress') },
+  { id: 'startAddress', header: 'From', value: place('startAddress', 'startLat', 'startLng') },
+  { id: 'endAddress', header: 'To', value: place('endAddress', 'endLat', 'endLng') },
 ];
 
 const EVENT_SUMMARY: ReportColumn[] = [
@@ -347,6 +349,7 @@ const DEVICE_STATUS: ReportColumn[] = [
   duration('inactiveSec', 'No data for', undefined),
   optNum('batteryLevel', 'Battery %', 0),
   optNum('extVoltage', 'Ext. V', 2),
+  { id: 'address', header: 'Last location', value: place('address', 'lat', 'lng') },
 ];
 
 export const DOCUMENT_REPORT_STATUS_LABELS: Record<string, string> = {
@@ -398,6 +401,7 @@ const FUEL_EVENTS: ReportColumn[] = [
   litresCol('litresBefore', 'Before (L)'),
   litresCol('litresAfter', 'After (L)'),
   { id: 'deltaL', header: 'Change (L)', value: (r) => (r.type === 'REFILL' ? (r.deltaL as number) : -(r.deltaL as number)), numeric: true, format: (v) => (v > 0 ? `+${litres(v)}` : litres(v)) },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
 ];
 
 export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Devices' | 'Compliance';

@@ -98,6 +98,10 @@ export interface TripSpan {
   distanceKm: number;
   startAddress: string | null;
   endAddress: string | null;
+  startLat?: number | null;
+  startLng?: number | null;
+  endLat?: number | null;
+  endLng?: number | null;
 }
 
 export interface DrivingStretch {
@@ -110,6 +114,10 @@ export interface DrivingStretch {
   longestBreakSec: number;
   startAddress: string | null;
   endAddress: string | null;
+  startLat: number | null;
+  startLng: number | null;
+  endLat: number | null;
+  endLng: number | null;
 }
 
 /**
@@ -129,7 +137,14 @@ export function continuousDriving(trips: TripSpan[], opts: { drivingMin?: number
   for (const t of [...trips].sort((a, b) => a.start - b.start)) {
     if (cur && t.start - cur.end >= breakMs) flush();
     if (!cur) {
-      cur = { start: t.start, end: t.end, drivingSec: 0, spanSec: 0, distanceKm: 0, trips: 0, longestBreakSec: 0, startAddress: t.startAddress, endAddress: t.endAddress };
+      cur = { start: t.start, end: t.end, drivingSec: 0, spanSec: 0, distanceKm: 0, trips: 0, longestBreakSec: 0,
+        startAddress: t.startAddress,
+        endAddress: t.endAddress,
+        startLat: t.startLat ?? null,
+        startLng: t.startLng ?? null,
+        endLat: t.endLat ?? null,
+        endLng: t.endLng ?? null,
+      };
     } else {
       cur.longestBreakSec = Math.max(cur.longestBreakSec, Math.max(0, Math.round((t.start - cur.end) / 1000)));
     }
@@ -139,6 +154,8 @@ export function continuousDriving(trips: TripSpan[], opts: { drivingMin?: number
     cur.trips++;
     cur.spanSec = Math.round((cur.end - cur.start) / 1000);
     cur.endAddress = t.endAddress;
+    cur.endLat = t.endLat ?? null;
+    cur.endLng = t.endLng ?? null;
   }
   flush();
   return out;

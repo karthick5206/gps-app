@@ -166,6 +166,8 @@ export interface PositionReportRow {
   lat: number; lng: number; speedKph: number; course: number; altitude: number | null; satellites: number | null;
   valid: boolean; ignition: boolean | null; flags: string;
   extVoltage: number | null; batteryLevel: number | null; gsmSignal: number | null; alarm: string | null; odometerKm: number | null;
+  /** Reverse-geocoded address (null = not resolved yet; show the coordinates). */
+  address: string | null;
 }
 
 /** OVERSPEED: one row per speeding episode. */
@@ -174,6 +176,8 @@ export interface OverspeedReportRow {
   startTime: string; endTime: string; durationSec: number;
   limitKph: number; maxSpeedKph: number; avgSpeedKph: number; points: number;
   lat: number; lng: number;
+  /** Address of the peak-speed point. */
+  address: string | null;
 }
 
 /** IGNITION: one row per ignition state change. */
@@ -183,6 +187,7 @@ export interface IgnitionReportRow {
   /** How long the previous state lasted (null for the first change in range). */
   previousStateSec: number | null;
   lat: number; lng: number;
+  address: string | null;
 }
 
 /** CONTINUOUS_DRIVING: a driving stretch without a long enough break. */
@@ -190,6 +195,7 @@ export interface ContinuousDrivingReportRow {
   objectId: string; objectName: string; plateNumber: string | null;
   startTime: string; endTime: string; drivingSec: number; spanSec: number; distanceKm: number; trips: number; longestBreakSec: number;
   startAddress: string | null; endAddress: string | null;
+  startLat: number | null; startLng: number | null; endLat: number | null; endLng: number | null;
 }
 
 /** EVENT_SUMMARY: alert counts per vehicle and type. */
@@ -211,6 +217,8 @@ export interface DeviceStatusReportRow {
   status: 'ACTIVE' | 'INACTIVE' | 'NO_GPS' | 'NEVER_CONNECTED' | 'NO_DEVICE';
   lastSeenAt: string | null; lastFixTime: string | null; inactiveSec: number | null;
   lat: number | null; lng: number | null; batteryLevel: number | null; extVoltage: number | null; gsmSignal: number | null;
+  /** Address of the last GPS fix. */
+  address: string | null;
 }
 
 export interface SummaryReportRow {

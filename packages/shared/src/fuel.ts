@@ -55,6 +55,8 @@ export interface FuelEventDto {
   deltaL: number;
   lat: number | null;
   lng: number | null;
+  /** Reverse-geocoded address of the event (reports only). */
+  address?: string | null;
 }
 
 /** FUEL report: one row per vehicle per day. */

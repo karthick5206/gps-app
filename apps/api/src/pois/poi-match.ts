@@ -28,6 +28,8 @@ export interface PoiVisit {
   durationSec: number;
   distanceM: number;
   ignitionOn: boolean;
+  lat: number;
+  lng: number;
   address: string | null;
 }
 
@@ -96,6 +98,8 @@ export function matchStopsToPois(stops: MatchStop[], index: PoiIndex): PoiVisit[
       durationSec: s.durationSec,
       distanceM: Math.round(hit.distanceM),
       ignitionOn: s.ignitionOn,
+      lat: s.lat,
+      lng: s.lng,
       address: s.address,
     };
     out.push(v);

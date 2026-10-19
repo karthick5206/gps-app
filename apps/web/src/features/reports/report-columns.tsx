@@ -84,7 +84,7 @@ const text = (k: string, cls = 'block max-w-72 truncate') => (r: Row) => {
   );
 };
 
-/** Address, else "lat, lng" (addresses are filled asynchronously by the summarizer). */
+/** Address, else "lat, lng" (addresses are filled when the report runs, as far as the lookup budget allows). */
 const place = (addr: string, lat: string, lng: string) => (r: Row) => {
   const a = r[addr] as string | null | undefined;
   if (a) return a;
@@ -184,7 +184,7 @@ const ALERTS: ReportColumn[] = [
     render: (r) => <Badge variant={SEVERITY_VARIANT[r.severity as AlertDto['severity']] ?? 'secondary'}>{i18n.t(humanize(r.severity as string))}</Badge>,
   },
   { id: 'message', header: 'Message', value: str('message'), render: text('message', 'block max-w-96 truncate') },
-  { id: 'address', header: 'Location', value: str('address'), render: text('address') },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
   { id: 'status', header: 'Status', value: str('status'), render: (r) => i18n.t(humanize(r.status as string)) },
 ];
 
@@ -210,6 +210,7 @@ const POI_VISITS: ReportColumn[] = [
     value: (r) => (r.ignitionOn ? 'On' : 'Off'),
     render: (r) => <Badge variant={r.ignitionOn ? 'warning' : 'secondary'}>{r.ignitionOn ? i18n.t('On') : i18n.t('Off')}</Badge>,
   },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
 ];
 
 const plate: ReportColumn = { id: 'plateNumber', header: 'Plate', value: str('plateNumber'), render: text('plateNumber') };
@@ -275,6 +276,7 @@ const POSITIONS: ReportColumn[] = [
   { id: 'fixTime', header: 'GPS time', value: time('fixTime'), render: timeCell('fixTime') },
   { id: 'serverTime', header: 'Received', value: time('serverTime'), render: timeCell('serverTime') },
   { id: 'lat', header: 'Location', value: coordValue('lat', 'lng'), render: coords('lat', 'lng') },
+  { id: 'address', header: 'Address', value: str('address'), render: text('address') },
   { id: 'speedKph', header: 'km/h', value: num('speedKph'), numeric: true, total: 'max', format: int },
   count('course', 'Course', undefined),
   count('satellites', 'Sats', undefined),
@@ -305,7 +307,7 @@ const OVERSPEED: ReportColumn[] = [
     render: (r) => <span className="font-semibold text-destructive tabular-nums">{int(r.maxSpeedKph as number)}</span>,
   },
   count('avgSpeedKph', 'Avg (km/h)', undefined),
-  { id: 'lat', header: 'Peak at', value: coordValue('lat', 'lng'), render: coords('lat', 'lng') },
+  { id: 'address', header: 'Peak at', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
 ];
 
 const IGNITION: ReportColumn[] = [
@@ -314,7 +316,7 @@ const IGNITION: ReportColumn[] = [
   { id: 'time', header: 'Time', value: time('time'), render: timeCell('time') },
   { id: 'state', header: 'Ignition', value: str('state'), render: (r) => STATE_BADGE(r.state === 'ON') },
   duration('previousStateSec', 'Previous state for', undefined),
-  { id: 'lat', header: 'Location', value: coordValue('lat', 'lng'), render: coords('lat', 'lng') },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
 ];
 
 const CONTINUOUS_DRIVING: ReportColumn[] = [
@@ -327,8 +329,8 @@ const CONTINUOUS_DRIVING: ReportColumn[] = [
   duration('longestBreakSec', 'Longest break', undefined),
   count('trips', 'Trips', undefined),
   kmCol(),
-  { id: 'startAddress', header: 'From', value: str('startAddress'), render: text('startAddress') },
-  { id: 'endAddress', header: 'To', value: str('endAddress'), render: text('endAddress') },
+  { id: 'startAddress', header: 'From', value: place('startAddress', 'startLat', 'startLng'), render: placeCell('startAddress', 'startLat', 'startLng') },
+  { id: 'endAddress', header: 'To', value: place('endAddress', 'endLat', 'endLng'), render: placeCell('endAddress', 'endLat', 'endLng') },
 ];
 
 const EVENT_SUMMARY: ReportColumn[] = [
@@ -379,6 +381,7 @@ const DEVICE_STATUS: ReportColumn[] = [
   duration('inactiveSec', 'No data for', undefined),
   optNum('batteryLevel', 'Battery %', 0),
   optNum('extVoltage', 'Ext. V', 2),
+  { id: 'address', header: 'Last location', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
 ];
 
 const DRIVERS: ReportColumn[] = [
@@ -466,7 +469,7 @@ const FUEL_EVENTS: ReportColumn[] = [
   { id: 'litresBefore', header: 'Before (L)', value: num('litresBefore'), numeric: true, format: litres },
   { id: 'litresAfter', header: 'After (L)', value: num('litresAfter'), numeric: true, format: litres },
   { id: 'deltaL', header: 'Change (L)', value: (r) => (r.type === 'REFILL' ? (r.deltaL as number) : -(r.deltaL as number)), numeric: true, format: (v) => (v > 0 ? `+${litres(v)}` : litres(v)) },
-  { id: 'location', header: 'Location', value: coordValue('lat', 'lng'), render: coords('lat', 'lng') },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
 ];
 
 export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Devices' | 'Compliance';
