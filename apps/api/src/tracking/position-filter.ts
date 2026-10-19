@@ -3,6 +3,12 @@ import { haversineMeters } from './geo';
 
 const FUTURE_TOLERANCE_MS = 5 * 60_000;
 const MIN_SATELLITES = 3;
+/** At or below this many satellites a fix is weak: position can be off by tens of metres and the speed is noise. */
+const WEAK_SATELLITES = 6;
+/** While not driving (weak fix or ignition off), reported speeds below this are treated as GPS noise. */
+const STATIONARY_NOISE_KPH = 15;
+/** Drift radius for weak fixes (the normal radius comes from the company thresholds). */
+const WEAK_FIX_DRIFT_RADIUS_M = 80;
 /** After this many consecutive jump-flagged points the new location is accepted (the old anchor was wrong). */
 const JUMP_STREAK_ACCEPT = 3;
 
@@ -82,12 +88,13 @@ export function filterPosition(input: FilterInput, state: TrackState, ctx: Filte
     if (impliedKph > MAX_PLAUSIBLE_SPEED_KPH[ctx.objectType] && state.jumpStreak + 1 < JUMP_STREAK_ACCEPT) {
       flags |= POSITION_FLAGS.JUMP;
       jumpStreak = state.jumpStreak + 1;
-    } else if (
-      input.ignition !== true &&
-      input.speedKph < ctx.thresholds.runningSpeedKph &&
-      distance < ctx.thresholds.driftRadiusM
-    ) {
-      flags |= POSITION_FLAGS.DRIFT;
+    } else if (input.ignition !== true) {
+      // Parked / not driving: small moves are GPS drift. A weak fix (few satellites) or ignition off also reports
+      // fake low speeds (seen: 6-9 km/h at identical coordinates), so those speeds don't count as movement.
+      const weak = input.satellites !== null && input.satellites <= WEAK_SATELLITES;
+      const noisySpeed = weak || input.ignition === false ? STATIONARY_NOISE_KPH : ctx.thresholds.runningSpeedKph;
+      const radius = weak ? Math.max(ctx.thresholds.driftRadiusM, WEAK_FIX_DRIFT_RADIUS_M) : ctx.thresholds.driftRadiusM;
+      if (input.speedKph < noisySpeed && distance < radius) flags |= POSITION_FLAGS.DRIFT;
     }
   }
 
@@ -98,7 +105,8 @@ export function filterPosition(input: FilterInput, state: TrackState, ctx: Filte
     flags,
     lat: lastValid?.lat ?? null,
     lng: lastValid?.lng ?? null,
-    speedKph: trusted ? input.speedKph : 0,
+    // Drift is a parked vehicle: speed 0, so status never shows it as moving.
+    speedKph: trusted && (flags & POSITION_FLAGS.DRIFT) === 0 ? input.speedKph : 0,
     updatesLive,
     next: { ...state, lastValid, lastFixTime: input.fixTime, jumpStreak },
   };

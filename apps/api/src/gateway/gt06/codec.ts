@@ -55,6 +55,17 @@ export const GT06_ALARMS: Record<number, string> = {
   0x30: 'crash',
 };
 
+/**
+ * Alarm bits 5..3 of the terminal-information byte (Concox spec: 100 SOS, 011 low battery, 010 power cut, 001 shock)
+ * mapped to alarm codes. Some devices (e.g. Concox ID card trackers) leave the alarm byte 0 and only set these bits.
+ */
+const TERMINAL_INFO_ALARMS: Record<number, number> = { 0b100: 0x01, 0b011: 0x0e, 0b010: 0x02, 0b001: 0x03 };
+
+/** Alarm code from the terminal-information byte, or 0 when it reports none. */
+export function terminalInfoAlarm(info: number): number {
+  return TERMINAL_INFO_ALARMS[(info >> 3) & 0x07] ?? 0;
+}
+
 /** 0x94 information sub-types we decode. */
 export const Gt06InfoType = {
   EXTERNAL_VOLTAGE: 0x00,
@@ -356,7 +367,8 @@ function decodeAlarm(protocol: number, serial: number, content: Buffer, fourG: b
     fix,
     lbs,
     status: readTerminalStatus(content[s], content[s + 1], content[s + 2]),
-    alarm: content[s + 3],
+    // Alarm byte first; when it is 0 the alarm is carried only in the terminal-information bits.
+    alarm: content[s + 3] || terminalInfoAlarm(content[s]),
     lang: content[s + 4],
   };
 }
@@ -594,7 +606,9 @@ export function encodeTimeResponse(serial: number, now: Date): Buffer {
 /** Which decoded messages the server must acknowledge with an empty echo (0x8A gets a time reply instead). */
 export function requiresAck(message: Gt06Message): boolean {
   // OBD (0x8C) is echoed like other device-initiated Concox packets (harmless if the firmware does not expect it).
-  return message.type === 'login' || message.type === 'heartbeat' || message.type === 'alarm' || message.type === 'obd';
+  // Unknown device packets are echoed too: Concox firmware resends a packet until it is acknowledged (seen: 0x1F every
+  // 30 s from an ID card tracker), and an echo is the generic Concox acknowledgement.
+  return message.type === 'login' || message.type === 'heartbeat' || message.type === 'alarm' || message.type === 'obd' || message.type === 'unknown';
 }
 
 /** Server → device text command (0x80), e.g. `RELAY,1#`. */

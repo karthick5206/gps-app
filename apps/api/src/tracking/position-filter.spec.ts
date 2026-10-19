@@ -72,6 +72,36 @@ describe('filterPosition', () => {
     expect(r.next.lastValid).toEqual(anchored.lastValid);
   });
 
+  // Concox V5 861896070025993 indoors (2026-10-20): 4-6 satellites, ignition off, the fix wanders 13-60 m and the
+  // device reports 6-9 km/h at identical coordinates.
+  it('treats a weak fix with fake low speed as drift: marker stays, speed 0', () => {
+    const weakAnchor: TrackState = { ...anchored, lastValid: { lat: 12.972, lng: 80.18572, fixTime: NOW - 20_000 } };
+    for (const [lat, lng, kph, sats] of [
+      [12.97226, 80.18554, 9, 5],
+      [12.97235, 80.1853, 7, 6],
+      [12.97202, 80.18547, 6, 4],
+    ] as const) {
+      const r = filterPosition({ ...base, lat, lng, speedKph: kph, satellites: sats, ignition: false }, weakAnchor, ctx);
+      expect([lat, sats, r.flags, r.speedKph]).toEqual([lat, sats, POSITION_FLAGS.DRIFT, 0]);
+      expect(r.lat).toBe(12.972);
+      expect(r.speedKph).toBe(0);
+    }
+  });
+
+  it('ignition off: low noisy speed near the parked point is drift even with good satellites', () => {
+    const r = filterPosition({ ...base, lat: 13.0502, speedKph: 8, ignition: false }, anchored, ctx);
+    expect(r.flags).toBe(POSITION_FLAGS.DRIFT);
+    expect(r.speedKph).toBe(0);
+  });
+
+  it('still accepts real movement: beyond the weak-fix radius, or above the noise speed', () => {
+    const far = filterPosition({ ...base, lat: 13.0512, speedKph: 9, satellites: 5, ignition: false }, anchored, ctx); // ~130 m
+    expect(far.flags).toBe(0);
+    const fast = filterPosition({ ...base, lat: 13.0503, speedKph: 25, satellites: 5, ignition: null }, anchored, ctx);
+    expect(fast.flags).toBe(0);
+    expect(fast.speedKph).toBe(25);
+  });
+
   it('does not flag DRIFT when ignition is on', () => {
     const r = filterPosition({ ...base, lat: 13.0501, speedKph: 1, ignition: true }, anchored, ctx);
     expect(r.flags).toBe(0);

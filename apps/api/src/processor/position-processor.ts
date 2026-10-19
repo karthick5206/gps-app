@@ -205,6 +205,9 @@ export class PositionProcessor {
   ): PositionRow {
     const fixTime = Date.parse(position.fixTime);
     const object = device.object;
+    // Ignition is only wired in vehicles; personal / asset / pet trackers report a meaningless ACC bit, which would
+    // otherwise drive status, drift filtering and ignition alerts (seen: an ID card tracker always "ignition off").
+    if (object && object.type !== 'VEHICLE' && position.ignition !== null) position = { ...position, ignition: null };
     let flags = 0;
 
     // Calibrated fuel level (litres, % of the tank) per the vehicle's fuel settings, stored with the position.
