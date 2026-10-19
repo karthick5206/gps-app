@@ -96,7 +96,7 @@ Set the platform server in the dashcam's own menu or the vendor's configuration 
 Notes:
 - **Registering in VeeTracer:** enter the **terminal phone / device ID** (not the IMEI) as the device's unique ID, without leading zeros. For example, a terminal ID `013912345678` is registered as `13912345678`. If unsure, connect the device first and copy the ID from **Platform → Unknown Devices**.
 - **Time zone:** the spec says GMT+8, but VeeTracer detects GMT+8, IST and UTC clocks automatically from the first live fix.
-- **ADAS / DMS:** collision, lane-departure, fatigue, phone and smoking events are stored with each position (`adas`, `dms` fields). Video is covered in §4b.
+- **ADAS / DMS:** collision, lane-departure, fatigue, phone and smoking events are stored with each position (`adas`, `dms` fields). Video is covered in §4b, driver events and snapshots in §4c.
 - **Commands:** *Request location* (0x8201) and *Restart device* (0x8105). A custom command is read out on the dashcam speaker (0x8300 TTS), or `#<msgId>:<hex body>` sends a raw message.
 
 ## 4b. Video (JT/T 1078)
@@ -126,6 +126,36 @@ How it works: VeeTrax asks the dashcam over its JT808 connection (0x9101 live, 0
 **Permissions:** the **Video** menu (view) is granted to Admin and Manager roles (run the seed's role sync, or add it in **Roles & Permissions**; add it to User roles there if wanted). The device model must have the `video` capability (the JT808 model does) and the vehicle an active licence. Every view is written to the audit log (vehicle, channel, live / playback, duration).
 
 **Verify with a real device first.** The media server and signalling were built from the public JT/T 1078-2016 spec, not vendor documents or captures. Connect one MC202 with `GATEWAY_CAPTURE=<terminal id>` on the gateway, start a live view and a recording search, and send `capture-jt808.log` plus the gateway log lines from `[Media]` / `[Video]` to development. To confirm: the 0x9101 answer, that media arrives on 7612 (6- or 10-byte SIM field is detected automatically), recording times from 0x1205 (device clock zone), and playback (0x9201).
+
+## 4c. Driver events and snapshots
+Every ADAS / DMS driver-behaviour alert (fatigue, phone, smoking, distracted, driver absent, forward collision, lane departure, tailgating) and every crash alert creates a **driver event** with the vehicle, the driver assigned at that time, speed, place and level. Events are on the **Driver events** page (web main menu, mobile **More → Driver events**), in the alert detail (dashcam snapshot) and in the live vehicle drawer (recent events). Camera faults are alerts only, not driver events.
+
+Evidence comes two ways:
+1. **Snapshot on demand (all JT808 dashcams).** When the event is created the notifier asks the dashcam's gateway for a photo: JT/T 808 **0x8801 camera shoot immediately** (1 photo, upload now, 640×480, quality 5) on the **cabin camera** for DMS events and the **road camera** for ADAS events and crashes. The dashcam answers 0x0805 and uploads the JPEG with **0x0801** (sub-packaged; reassembled up to 2 MB, acknowledged with 0x8800, missing packages are asked for again). This uses the existing JT808 connection (port 6808): no extra firewall rule.
+2. **Alarm attachments (Su-standard dashcams).** When an ADAS / DMS alarm says it has attachments, the gateway sends **0x9208** telling the dashcam to upload its own alarm photos / clips to the **attachment server on TCP 7613** (0x1210 / 0x1211 / file data / 0x1212 → 0x9212, with retransmission of missing ranges). JPEGs are shown with the event; MP4 clips play in the browser, raw H.264 clips can be downloaded.
+
+**Server (one-time):**
+- Open **TCP 7613** inbound: `New-NetFirewallRule -DisplayName "VeeTrax attachments 7613" -Direction Inbound -Protocol TCP -LocalPort 7613 -Action Allow`.
+- Run the migration (`20261019220000_driver_events`) and restart `veetracer-gateway`, `veetracer-notifier` and `veetracer-api`. Built-in Admin / Manager roles get the **Driver events** menu (view, review, export), User roles view only.
+- The gateway writes files under `apps/api/var/driver-media/incoming/`; the notifier links them to events and moves them to `var/driver-media/<company>/<month>/`. **Gateway, notifier and API must share this `var/` directory** (same server, as today). Downloads go through the API with short-lived signed links (30 min).
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ATTACH_PORT` | 7613 | Public TCP port of the alarm attachment server; `0` disables it (and the 0x9208 requests) |
+| `MEDIA_PUBLIC_HOST` | track.mintplus.co.in | Host sent to the dashcam in 0x9208 (same as video) |
+| `DRIVER_EVENT_EMAIL_WAIT_MS` | 25000 | How long a driver event e-mail waits for the snapshot (attached as `snapshot.jpg`, plus a link to the event). SMS, push and in-app alerts are never delayed |
+
+**Company settings** (Driver events page → gear icon, needs Company Settings edit): snapshot on/off, cabin camera channel (default **2**), road camera channel (default **1**), photos kept per event (default 3; clips max 2), retention (default **90 days**; the hourly retention job deletes the files and then the rows) and storage quota (default 2 GB; new media is skipped when full). Photos are limited to 2 MB and clips to 20 MB each.
+
+**Dashcam settings:**
+- Check which channel is the driver-facing camera (MC202: usually CH2) and set it in the company settings if different.
+- Enable ADAS / DMS **alarm photo upload** (often "alarm snapshot" / "附件上传") and, for clips, alarm video upload. Set the attachment server to the same host, port 7613, if the firmware has its own field (most take it from 0x9208).
+- Photos need no memory card; clips usually do.
+
+**Verify with a real device first** (built from the JT/T 808-2013/2019 and Su-standard specs, not from vendor captures). On the gateway set `GATEWAY_CAPTURE=<terminal id>`, raise a DMS event (e.g. cover the cabin camera / hold a phone) and check:
+- the `[Snapshot]` log line for 0x8801 and the 0x0805 answer, then `[Media] snapshot photo from …` — some firmware answers 0x0001 instead of 0x0805 (handled) or needs a different resolution value;
+- that the 0x0801 embedded location time is right (device clock zone) and the photo opens on the event;
+- for attachments: `Alarm attachments on tcp://…:7613` at start-up, a connection from the dashcam after an alarm, `[Media] attachment …` lines, and the file name format (`<type>_<channel>_<alarm>_<n>_<alarm number>.<ext>`). Variants with a 30-byte terminal id in the alarm identification (some 2019 firmware) are **not** handled yet — send `capture-jt808.log` and the gateway log if attachments do not arrive.
 
 ## 5. Checking a device
 1. **Live map:** the vehicle should leave **No data** within a minute of the device connecting.
