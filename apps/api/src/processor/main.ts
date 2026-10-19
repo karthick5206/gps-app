@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import Redis from 'ioredis';
 import { hostname } from 'node:os';
 import { loadEnv } from '../config/env';
+import { startHeartbeat } from '../monitoring/heartbeat';
 import { RedisKeys } from '../redis/keys';
 import { RulesRepository } from '../alerts/rules-data';
 import { DeviceCache } from './device-cache';
@@ -17,7 +18,8 @@ async function main(): Promise<void> {
   const consumerName = process.env.PROCESSOR_CONSUMER ?? `processor-${hostname()}`;
 
   const prisma = new PrismaClient();
-  await prisma.$connect();
+  // Don't exit when PostgreSQL is down at start: Prisma connects lazily and the consumer backs off until it is back.
+  await prisma.$connect().catch((error: Error) => logger.error(`Database not reachable at start (will retry): ${error.message}`));
   const redis = new Redis(env.redisUrl, { maxRetriesPerRequest: null });
   const subscriber = new Redis(env.redisUrl);
   for (const conn of [redis, subscriber]) conn.on('error', (error) => logger.error(`Valkey error: ${error.message}`));
@@ -38,6 +40,7 @@ async function main(): Promise<void> {
 
   const rules = process.env.RULES_ENGINE === 'off' ? null : new RulesEngine(redis, rulesRepo);
   const consumer = new StreamConsumer(redis, new PositionProcessor(prisma, redis, cache, rules, drivers), consumerName);
+  const heartbeat = startHeartbeat(redis, 'processor', () => consumer.metrics());
   const shutdown = () => {
     logger.log('Stopping after the current batch…');
     consumer.stop();
@@ -47,6 +50,7 @@ async function main(): Promise<void> {
 
   logger.log(`Consumer ${consumerName} reading ${RedisKeys.positionsStream} (group ${RedisKeys.processorGroup})`);
   await consumer.run();
+  await heartbeat.stop();
   await Promise.all([redis.quit(), subscriber.quit(), prisma.$disconnect()]);
   process.exit(0);
 }
