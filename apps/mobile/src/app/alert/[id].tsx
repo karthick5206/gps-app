@@ -1,11 +1,12 @@
 import { Camera, GeoJSONSource, Layer, Map } from '@maplibre/maplibre-react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ALERT_TYPE_MAP, type AlertDto } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, isDriverEventType, type AlertDto, type DriverEventDto } from '@veetracer/shared';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { CarIcon, CheckIcon } from 'lucide-react-native';
+import { CarIcon, CheckIcon, ScanFaceIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
+import { mediaUri } from '@/features/driver-events/driver-events';
 import { Button, Card, ErrorBanner, Field, InfoRow, Pill, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { AlertTypeIcon, SEVERITY_COLOR, SEVERITY_LABEL } from '@/features/alerts/alert-icons';
@@ -25,6 +26,11 @@ export default function AlertScreen() {
   const [note, setNote] = useState('');
 
   const alert = useQuery({ queryKey: ['alerts', 'one', id], queryFn: ({ signal }) => api.get<AlertDto>(`/alerts/${id}`, undefined, signal) });
+  const driverEvent = useQuery({
+    queryKey: ['driver-events', 'by-alert', id],
+    queryFn: ({ signal }) => api.get<{ event: DriverEventDto | null }>(`/driver-events/by-alert/${id}`, undefined, signal).then((r) => r.event),
+    enabled: !!alert.data && isDriverEventType(alert.data.type),
+  });
   const ack = useMutation({
     mutationFn: () => api.post<AlertDto>(`/alerts/${id}/ack`, note.trim() ? { note: note.trim() } : {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['alerts'] }),
@@ -78,6 +84,14 @@ export default function AlertScreen() {
           {a.ackNote && <InfoRow label={t('Note')} value={a.ackNote} />}
         </Card>
 
+        {driverEvent.data?.thumbnailUrl && (
+          <Pressable onPress={() => can('driver_events') && router.push(`/driver-events/${driverEvent.data!.id}`)} accessibilityRole="imagebutton" accessibilityLabel={t('Dashcam snapshot')}>
+            <Image source={{ uri: mediaUri(driverEvent.data.thumbnailUrl) }} style={{ width: '100%', aspectRatio: 16 / 9, borderRadius: 10, backgroundColor: '#000' }} resizeMode="contain" />
+          </Pressable>
+        )}
+        {driverEvent.data && can('driver_events') && (
+          <Button title={t('Open driver event')} icon={ScanFaceIcon} variant="outline" onPress={() => router.push(`/driver-events/${driverEvent.data!.id}`)} />
+        )}
         <Button title={t('Open vehicle')} icon={CarIcon} variant="outline" onPress={() => router.push(`/vehicle/${a.objectId}`)} />
 
         {a.status === 'NEW' && can('alerts', 'edit') && (

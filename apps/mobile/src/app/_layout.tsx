@@ -48,6 +48,8 @@ function RootStack() {
           <Stack.Screen name="documents/index" options={{ title: t('Documents & service') }} />
           <Stack.Screen name="documents/[id]" options={{ title: t('Document') }} />
           <Stack.Screen name="documents/service/[id]" options={{ title: t('Service reminder') }} />
+          <Stack.Screen name="driver-events/index" options={{ title: t('Driver events') }} />
+          <Stack.Screen name="driver-events/[id]" options={{ title: t('Driver event') }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="login" options={{ headerShown: false }} />

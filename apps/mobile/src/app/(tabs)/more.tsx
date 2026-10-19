@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
+import { BellRingIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
@@ -61,6 +61,7 @@ export default function MoreScreen() {
       </Card>
 
       <Card style={{ paddingVertical: 0 }}>
+        {can('driver_events') && <MenuItem icon={ScanFaceIcon} label={t('Driver events')} href="/driver-events" />}
         {can('reports') && <MenuItem icon={FileBarChartIcon} label={t('Reports')} href="/reports" />}
         {can('objects') && <MenuItem icon={TruckIcon} label={t('Vehicles')} href="/manage/vehicles" />}
         {can('devices') && <MenuItem icon={CpuIcon} label={t('Devices')} href="/manage/devices" />}
