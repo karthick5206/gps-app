@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 import { Alert, MessageTemplate, NotificationLog, NotificationStatus, NotifyChannel, Prisma } from '@prisma/client';
 import { ALERT_TYPE_MAP, AlertSeverity, AlertTypeCode } from '@veetracer/shared';
@@ -6,7 +6,11 @@ import { hostname } from 'node:os';
 import { RecipientExpander, Recipient } from '../alerts/recipients/recipient-expander';
 import { RecipientListRow } from '../alerts/logic/recipients';
 import { RulesRepository } from '../alerts/rules-data';
-import { MailerService } from '../auth/mailer.service';
+import { MailAttachment, MailerService } from '../auth/mailer.service';
+import { APP_ENV } from '../config/config.module';
+import { AppEnv } from '../config/env';
+import { DriverEventWorkerService } from '../driver-events/driver-event-worker.service';
+import { mediaPath } from '../driver-events/media-store';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
@@ -25,6 +29,8 @@ const CLAIM_EVERY_MS = 30_000;
 const CACHE_TTL_MS = 30_000;
 const GEOCODE_TIMEOUT_MS = 4000;
 const GEOCODE_MAX_INFLIGHT = 2;
+/** Driver event e-mails wait this long for the dashcam snapshot (other channels are never delayed). */
+const EMAIL_SNAPSHOT_WAIT_MS = Number(process.env.DRIVER_EVENT_EMAIL_WAIT_MS ?? 25_000);
 
 type RawEntry = [id: string, fields: string[] | null];
 interface Job {
@@ -70,6 +76,8 @@ export class NotifierService {
   private geocodeInflight = 0;
   private lastClaimAt = 0;
   private stats = { jobs: 0, sent: 0, failed: 0, skipped: 0, ms: 0 };
+  /** E-mails waiting for a driver event snapshot. */
+  private readonly deferred = new Set<Promise<void>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -77,6 +85,8 @@ export class NotifierService {
     private readonly mailer: MailerService,
     private readonly geocoding: GeocodingService,
     @Optional() private readonly webhooks?: WebhookWorkerService,
+    @Optional() private readonly driverEvents?: DriverEventWorkerService,
+    @Optional() @Inject(APP_ENV) private readonly env?: AppEnv,
   ) {
     this.rules = new RulesRepository(prisma);
     this.expander = new RecipientExpander(prisma);
@@ -84,6 +94,11 @@ export class NotifierService {
 
   stop(): void {
     this.stopping = true;
+  }
+
+  /** Waits for deferred (snapshot) e-mails before the process exits. */
+  async drain(): Promise<void> {
+    await Promise.allSettled([...this.deferred]);
   }
 
   invalidate(companyId: string | null): void {
@@ -181,9 +196,14 @@ export class NotifierService {
   async handleAlert(alertId: string): Promise<void> {
     const alert = await this.prisma.alert.findUnique({ where: { id: alertId } });
     if (!alert) return;
+    await this.fillAddress(alert);
+    // ADAS / DMS / crash: driver event row + dashcam snapshot request (idempotent per alert).
+    const eventId = this.driverEvents ? await this.driverEvents.onAlert(alert).catch((e: Error) => {
+      this.logger.error(`Driver event for ${alert.id} failed: ${e.message}`);
+      return null;
+    }) : null;
     // Re-delivered job (crash between sending and XACK): don't notify twice.
     if (await this.prisma.notificationLog.count({ where: { alertId } })) return;
-    await this.fillAddress(alert);
     const ctx = await loadAlertContext(this.prisma, alert);
     if (!ctx) return;
 
@@ -209,8 +229,31 @@ export class NotifierService {
             text: `${label}: ${ctx.object.name} — ${alert.message} (${ctx.vars.time}) ${ctx.vars.map_link}`,
             missing: [],
           };
+      if (c.channel === 'EMAIL' && eventId) {
+        this.deferEmail(alert, c.recipients, rendered, eventId);
+        continue;
+      }
       await Promise.all(c.recipients.map((r) => this.deliver(alert, c.channel, r, rendered)));
     }
+  }
+
+  /** Sends a driver event e-mail once its snapshot arrived (or after EMAIL_SNAPSHOT_WAIT_MS without it). */
+  private deferEmail(alert: Alert, recipients: Recipient[], rendered: Rendered, eventId: string): void {
+    const task = (async () => {
+      const photo = await this.driverEvents!.photoFor(eventId, EMAIL_SNAPSHOT_WAIT_MS);
+      const link = `${this.env?.webUrl ?? ''}/driver-events?event=${eventId}`;
+      const msg: Rendered = {
+        ...rendered,
+        body: `${rendered.body}<p><a href="${link}">${photo ? 'View the driver event (snapshot attached)' : 'View the driver event'}</a></p>`,
+        text: `${rendered.text || htmlToText(rendered.body)}
+Driver event: ${link}`,
+      };
+      const attachments: MailAttachment[] = photo ? [{ filename: 'snapshot.jpg', path: mediaPath(photo.filePath), contentType: photo.mime }] : [];
+      await Promise.all(recipients.map((r) => this.deliver(alert, 'EMAIL', r, msg, attachments)));
+    })()
+      .catch((error: Error) => this.logger.error(`Driver event e-mail for ${alert.id} failed: ${error.message}`))
+      .finally(() => this.deferred.delete(task));
+    this.deferred.add(task);
   }
 
   /** Reverse-geocode the alert position (bounded concurrency + timeout; never blocks delivery for long). */
@@ -234,7 +277,7 @@ export class NotifierService {
     }
   }
 
-  private async deliver(alert: Alert, channel: NotifyChannel, r: Recipient, msg: Rendered): Promise<void> {
+  private async deliver(alert: Alert, channel: NotifyChannel, r: Recipient, msg: Rendered, attachments?: MailAttachment[]): Promise<void> {
     const base = {
       companyId: alert.companyId,
       alertId: alert.id,
@@ -253,12 +296,14 @@ export class NotifierService {
       await this.writeLog({ ...base, ...res, provider: this.push.name });
       return;
     }
-    const { error } = await withRetries(() => this.send(channel, r.address, msg));
+    const { error } = await withRetries(() => this.send(channel, r.address, msg, attachments));
     await this.writeLog({ ...base, status: error ? 'FAILED' : 'SENT', error, provider: channel === 'SMS' ? this.sms.name : 'mailer' });
   }
 
-  private send(channel: NotifyChannel, to: string, msg: Rendered): Promise<unknown> {
-    if (channel === 'EMAIL') return this.mailer.send({ to, subject: msg.subject ?? '(no subject)', html: msg.body, text: msg.text || htmlToText(msg.body) });
+  private send(channel: NotifyChannel, to: string, msg: Rendered, attachments?: MailAttachment[]): Promise<unknown> {
+    if (channel === 'EMAIL') {
+      return this.mailer.send({ to, subject: msg.subject ?? '(no subject)', html: msg.body, text: msg.text || htmlToText(msg.body), ...(attachments?.length ? { attachments } : {}) });
+    }
     if (channel === 'SMS') {
       return this.sms.send({ to, text: msg.text, dltTemplateId: msg.dltTemplateId, senderId: msg.senderId, variables: msg.dltValues });
     }

@@ -21,6 +21,7 @@ export const MENU_KEYS = [
   'dashboard',
   'live_map',
   'video',
+  'driver_events',
   'history',
   'alerts',
   'reports',
@@ -57,6 +58,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'dashboard', label: 'Dashboard', group: 'main', path: '/dashboard', actions: ['view'] },
   { key: 'live_map', label: 'Live Map', group: 'main', path: '/live', actions: ['view', 'command'] },
   { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },
+  { key: 'driver_events', label: 'Driver events', group: 'main', path: '/driver-events', actions: ['view', 'edit', 'export'] },
   { key: 'history', label: 'History & Playback', group: 'main', path: '/history', actions: ['view', 'export'] },
   { key: 'alerts', label: 'Alerts', group: 'main', path: '/alerts', actions: ['view', 'edit', 'export'] },
   { key: 'reports', label: 'Reports', group: 'main', path: '/reports', actions: ['view', 'export'] },
@@ -113,6 +115,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
       dashboard: ['view'],
       live_map: ['view'], // device commands (engine stop…) are for Admin roles only
       video: ['view'],
+      driver_events: ['view', 'edit', 'export'],
       history: ['view', 'export'],
       alerts: ['view', 'edit', 'export'],
       reports: ['view', 'export'],
@@ -136,7 +139,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     description: 'Tracks assigned branches/vehicles',
     dataScope: 'ASSIGNED',
     permissions: {
-      dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], reports: ['view'],
+      dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], reports: ['view'], driver_events: ['view'],
       geofences: ['view'], pois: ['view'], report_schedules: ['view', 'create', 'edit', 'delete'], objects: ['view'], drivers: ['view'], documents: ['view'], vehicle_groups: ['view'],
     },
   },

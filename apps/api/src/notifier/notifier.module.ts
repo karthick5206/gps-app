@@ -6,9 +6,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { RedisModule } from '../redis/redis.module';
 import { NotifierService } from './notifier.service';
 import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
+import { DriverEventWorkerService } from '../driver-events/driver-event-worker.service';
 
 @Module({
   imports: [AppConfigModule, PrismaModule, RedisModule, GeocodingModule],
-  providers: [MailerService, NotifierService, WebhookWorkerService],
+  providers: [MailerService, NotifierService, WebhookWorkerService, DriverEventWorkerService],
 })
 export class NotifierModule {}

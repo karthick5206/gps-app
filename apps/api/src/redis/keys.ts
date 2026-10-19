@@ -29,6 +29,12 @@ export const RedisKeys = {
   videoAttributes: (uniqueId: string) => `vt:video:attrs:${uniqueId}`,
   /** Session → `{ objectId, companyId, channel, kind }` so the API can authorise status / leave calls. */
   videoSession: (sessionId: string) => `vt:video:session:${sessionId}`,
+  // ── Driver events ──
+  /** Pub/sub: snapshot requests (`SnapshotRequest`) for the dashcams connected to one gateway. */
+  snapshotChannel: (gatewayId: string) => `vt:snap:gw:${gatewayId}`,
+  /** Stream of stored photos / clips (`DriverMediaMessage`) for the notifier to link to driver events. */
+  driverMediaStream: 'vt:driver-media',
+  driverMediaGroup: 'driver-media',
   // ── M2a ──
   /** Pub/sub: new alert `{ companyId, alert: AlertDto }` for realtime fan-out. */
   alertsChannel: 'vt:alerts',

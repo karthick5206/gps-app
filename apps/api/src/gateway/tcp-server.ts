@@ -5,7 +5,7 @@ import { createServer, Server, Socket } from 'node:net';
 import { join } from 'node:path';
 import { CommandDispatch, CommandUpdate, NormalizedPosition } from '@veetracer/shared';
 import { POSITIONS_STREAM_MAXLEN, RedisKeys } from '../redis/keys';
-import { BaseSession, DecodeContext, ProtocolDecoder } from './protocol';
+import { BaseSession, DecodeContext, DecodedMedia, ProtocolDecoder } from './protocol';
 import { RateLimitedWarn, UnparsedLog } from './unparsed-log';
 
 const IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -43,6 +43,8 @@ export interface TcpGatewayOptions {
    * `ids` = unique ids to capture, or `'all'`. Null disables.
    */
   capture?: { dir: string; ids: Set<string> | 'all' } | null;
+  /** Photos / clips decoded from device uploads (stored by the gateway's media sink). */
+  onMedia?: (media: DecodedMedia[]) => void;
 }
 
 interface Connection<S extends BaseSession> {
@@ -199,6 +201,7 @@ export class TcpGatewayServer<S extends BaseSession> {
           this.capture(conn, 'out', reply);
         }
         positions.push(...result.positions);
+        if (result.media?.length) this.options.onMedia?.(result.media);
         for (const r of result.commandResponses ?? []) this.onCommandResponse(conn, r.ref, r.text, r.data);
         if (result.close) {
           conn.socket.end();

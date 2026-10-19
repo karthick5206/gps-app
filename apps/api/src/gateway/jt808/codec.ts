@@ -193,6 +193,8 @@ export interface Jt808Adas {
   deviation: number;
   speed: number;
   attachments: number;
+  /** Alarm identification number (last 16 bytes), echoed in 0x9208 to fetch the attachments. */
+  ident: Buffer;
 }
 export interface Jt808Dms {
   alarmId: number;
@@ -202,6 +204,8 @@ export interface Jt808Dms {
   fatigue: number;
   speed: number;
   attachments: number;
+  /** Alarm identification number (last 16 bytes), echoed in 0x9208 to fetch the attachments. */
+  ident: Buffer;
 }
 
 export interface Jt808Location {
@@ -242,11 +246,12 @@ function parseAdas(v: Buffer): Jt808Adas | null {
     deviation: v[9],
     speed: v[12],
     attachments: v[v.length - 2],
+    ident: Buffer.from(v.subarray(v.length - 16)),
   };
 }
 function parseDms(v: Buffer): Jt808Dms | null {
   if (v.length < 47) return null;
-  return { alarmId: v.readUInt32BE(0), flag: v[4], type: v[5], level: v[6], fatigue: v[7], speed: v[12], attachments: v[v.length - 2] };
+  return { alarmId: v.readUInt32BE(0), flag: v[4], type: v[5], level: v[6], fatigue: v[7], speed: v[12], attachments: v[v.length - 2], ident: Buffer.from(v.subarray(v.length - 16)) };
 }
 
 export function parseLocation(b: Buffer): Jt808Location {

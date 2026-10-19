@@ -46,6 +46,25 @@ export interface DecodeResult {
    * (GT06 server flag); null when it doesn't (Teltonika Codec 12), in which case the oldest pending command matches.
    */
   commandResponses?: { ref: number | null; text: string; data?: unknown }[];
+  /** Photos / clips received from the device (JT808 0x0801 snapshots), stored and linked to driver events. */
+  media?: DecodedMedia[];
+}
+
+export interface DecodedMedia {
+  uniqueId: string;
+  source: 'SNAPSHOT' | 'ATTACHMENT';
+  kind: 'PHOTO' | 'VIDEO';
+  mime: string;
+  channel: number | null;
+  /** UTC capture time when known (embedded location / alarm identification). */
+  capturedAt: string | null;
+  lat: number | null;
+  lng: number | null;
+  /** Driver event the platform asked this snapshot for, when matched by multimedia id / channel. */
+  eventId: string | null;
+  /** Device-side reference: multimedia id or attachment alarm number / file name. */
+  ref: string | null;
+  data: Buffer;
 }
 
 export interface ProtocolDecoder<S extends BaseSession = BaseSession> {

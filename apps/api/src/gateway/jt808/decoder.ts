@@ -1,6 +1,7 @@
-import { NormalizedPosition } from '@veetracer/shared';
+import { randomUUID } from 'node:crypto';
+import { DRIVER_MEDIA_MAX_PHOTO_BYTES, NormalizedPosition } from '@veetracer/shared';
 import { compact, gsmFromCsq, round } from '../attributes';
-import { BaseSession, DecodeContext, DecodeResult, emptyResult, ProtocolDecoder, SplitResult } from '../protocol';
+import { BaseSession, DecodeContext, DecodedMedia, DecodeResult, emptyResult, ProtocolDecoder, SplitResult } from '../protocol';
 import {
   decodeMessage,
   encodeMessage,
@@ -18,6 +19,7 @@ import {
   split808,
 } from './codec';
 import { AvMsg, parseAvAttributes, parseResourceList } from './av';
+import { encodeAlarmAttachRequest, encodeMediaUploadResponse, MEDIA_FORMAT_MIME, MediaMsg, MediaType, parseMediaEvent, parseMediaUpload, parseShootResponse } from './media';
 
 export const JT808_PROTOCOL = 'jt808';
 
@@ -83,10 +85,33 @@ export interface Jt808Session extends BaseSession {
   /** Header of the latest frame, echoed in commands (2013 vs 2019 format, BCD terminal id). */
   header: Pick<Jt808Header, 'terminalBcd' | 'version2019' | 'protocolVersion'> | null;
   /** Sub-packaged message parts by `msgId:firstSerial`. */
-  parts: Map<string, { total: number; got: Map<number, Buffer>; header: Jt808Header }>;
+  parts: Map<string, { total: number; got: Map<number, Buffer>; header: Jt808Header; bytes: number; at: number }>;
   /** Gateway ref of the latest 0x9003 query (its 0x1003 answer carries no reply serial). */
   avAttributesRef: number | null;
+  /** Snapshots the platform asked for (0x8801), matched to 0x0801 uploads by multimedia id or channel. */
+  snapshots: PendingSnapshot[];
 }
+
+export interface PendingSnapshot {
+  eventId: string;
+  channel: number;
+  at: number;
+  ids: number[];
+}
+
+export interface Jt808DecoderOptions {
+  /** Su-standard attachment server the dashcam is told (0x9208) to upload ADAS / DMS alarm photos and clips to. */
+  attachServer?: { host: string; port: number } | null;
+}
+
+/** Sub-packaged messages: at most this many parts / bytes per message and pending bytes per connection. */
+export const JT808_MAX_PACKAGES = 4096;
+export const JT808_MAX_REASSEMBLED_BYTES = 2 * 1024 * 1024;
+const MAX_PENDING_BYTES_PER_SESSION = 4 * 1024 * 1024;
+/** Incomplete sub-packaged messages are dropped after this. */
+const PARTS_TTL_MS = 3 * 60_000;
+/** A 0x0801 upload without a known multimedia id matches a pending snapshot on the same channel within this window. */
+const SNAPSHOT_MATCH_MS = 2 * 60_000;
 
 const bit = (v: number, n: number) => ((v >>> n) & 1) === 1;
 
@@ -98,8 +123,10 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
   readonly name = JT808_PROTOCOL;
   readonly maxFrameBytes = JT808_MAX_FRAME_BYTES;
 
+  constructor(private readonly options: Jt808DecoderOptions = {}) {}
+
   createSession(): Jt808Session {
-    return { uniqueId: null, serial: 0, clockZone: null, alarmFlags: 0, commandRefs: new Map(), header: null, parts: new Map(), avAttributesRef: null };
+    return { uniqueId: null, serial: 0, clockZone: null, alarmFlags: 0, commandRefs: new Map(), header: null, parts: new Map(), avAttributesRef: null, snapshots: [] };
   }
 
   split(buf: Buffer): SplitResult {
@@ -153,7 +180,7 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
     let body = message.body;
     if (h.subpackage) {
       result.replies.push(platformResponse(h, this.nextSerial(session)));
-      const whole = this.reassemble(session, h, body);
+      const whole = this.reassemble(session, h, body, ctx, result);
       if (!whole) return result;
       body = whole;
     }
@@ -177,10 +204,13 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
         // Any terminal may register; the platform only accepts data for devices added in VeeTrax.
         result.replies.push(registerResponse(h, this.nextSerial(session), h.terminalId));
         break;
-      case Jt808Msg.LOCATION:
-        result.positions.push(this.position(session, parseLocation(body), false, ctx, frame));
+      case Jt808Msg.LOCATION: {
+        const loc = parseLocation(body);
+        result.positions.push(this.position(session, loc, false, ctx, frame));
         ack();
+        this.requestAttachments(session, h, loc, result);
         break;
+      }
       case Jt808Msg.LOCATION_RESPONSE: {
         // Reply to our 0x8201 query: reply serial(2) + location.
         if (body.length < 30) throw new Jt808DecodeError('location response too short');
@@ -222,6 +252,25 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
         ack();
         break;
       }
+      case MediaMsg.SHOOT_RESPONSE: {
+        const r = parseShootResponse(body);
+        if (!r) throw new Jt808DecodeError('shoot response too short');
+        const text = r.result === 0 ? `OK: ${r.ids.length} photo(s)` : r.result === 2 ? 'Channel not supported' : 'Failed';
+        this.commandReply(session, r.serial, text, result, r);
+        ack();
+        break;
+      }
+      case MediaMsg.MEDIA_EVENT:
+        parseMediaEvent(body);
+        ack();
+        break;
+      case MediaMsg.MEDIA_UPLOAD: {
+        const m = parseMediaUpload(body);
+        result.replies.push(encodeMessage(MediaMsg.MEDIA_UPLOAD_RESPONSE, h, this.nextSerial(session), encodeMediaUploadResponse(m.mediaId)));
+        const media = this.snapshotMedia(session, m, ctx);
+        if (media) (result.media ??= []).push(media);
+        break;
+      }
       case Jt808Msg.AUTH:
       case Jt808Msg.HEARTBEAT:
       case Jt808Msg.LOGOUT:
@@ -235,6 +284,55 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
     }
   }
 
+  /** 0x0801 → stored media (JPEG photos; other types are acknowledged and dropped). */
+  private snapshotMedia(session: Jt808Session, m: ReturnType<typeof parseMediaUpload>, ctx: DecodeContext): DecodedMedia | null {
+    const now = ctx.receivedAt.getTime();
+    session.snapshots = session.snapshots.filter((s) => now - s.at < SNAPSHOT_MATCH_MS);
+    const isJpeg = m.data.length > 3 && m.data[0] === 0xff && m.data[1] === 0xd8;
+    if (m.type !== MediaType.IMAGE || !isJpeg) {
+      ctx.warn(`jt808:media:${session.uniqueId}`, `Device ${session.uniqueId} uploaded multimedia type ${m.type} format ${m.format}; only JPEG photos are kept`);
+      return null;
+    }
+    if (m.data.length > DRIVER_MEDIA_MAX_PHOTO_BYTES) return null;
+    let match = session.snapshots.find((s) => s.ids.includes(m.mediaId));
+    if (match) {
+      match.ids = match.ids.filter((id) => id !== m.mediaId);
+      if (!match.ids.length) session.snapshots = session.snapshots.filter((s) => s !== match);
+    } else {
+      match = session.snapshots.find((s) => s.channel === m.channel && !s.ids.length);
+      if (match) session.snapshots = session.snapshots.filter((s) => s !== match);
+    }
+    // Embedded location time is device-local; trust it only near the receive time.
+    const zone = session.clockZone ?? CLOCK_ZONES[0];
+    const t = m.location ? m.location.time.getTime() - zone * 60_000 : NaN;
+    const capturedAt = Number.isFinite(t) && Math.abs(t - now) < 86_400_000 ? new Date(t) : ctx.receivedAt;
+    const valid = m.location && (m.location.lat !== 0 || m.location.lng !== 0);
+    return {
+      uniqueId: session.uniqueId!,
+      source: 'SNAPSHOT',
+      kind: 'PHOTO',
+      mime: MEDIA_FORMAT_MIME[m.format] === 'image/jpeg' || isJpeg ? 'image/jpeg' : MEDIA_FORMAT_MIME[m.format],
+      channel: m.channel,
+      capturedAt: capturedAt.toISOString(),
+      lat: valid ? m.location!.lat : null,
+      lng: valid ? m.location!.lng : null,
+      eventId: match?.eventId ?? null,
+      ref: String(m.mediaId),
+      data: m.data,
+    };
+  }
+
+  /** ADAS / DMS alarm with attachments: ask the dashcam (0x9208) to upload them to the attachment server. */
+  private requestAttachments(session: Jt808Session, h: Jt808Header, loc: Jt808Location, result: DecodeResult): void {
+    const server = this.options.attachServer;
+    if (!server) return;
+    for (const a of [loc.adas, loc.dms]) {
+      if (!a || a.flag === 2 || a.attachments <= 0) continue;
+      const body = encodeAlarmAttachRequest({ host: server.host, tcpPort: server.port, ident: a.ident, alarmNumber: randomUUID().replace(/-/g, '') });
+      result.replies.push(encodeMessage(MediaMsg.ALARM_ATTACH_REQUEST, h, this.nextSerial(session), body));
+    }
+  }
+
   private commandReply(session: Jt808Session, serial: number, text: string, result: DecodeResult, data?: unknown): void {
     const ref = session.commandRefs.get(serial);
     if (ref === undefined) return;
@@ -242,16 +340,45 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
     (result.commandResponses ??= []).push(data === undefined ? { ref, text } : { ref, text, data });
   }
 
-  private reassemble(session: Jt808Session, h: Jt808Header, body: Buffer): Buffer | null {
+  private reassemble(session: Jt808Session, h: Jt808Header, body: Buffer, ctx: DecodeContext, result: DecodeResult): Buffer | null {
     const total = h.packageTotal ?? 1;
     const index = h.packageIndex ?? 1;
+    const now = ctx.receivedAt.getTime();
+    if (total < 1 || total > JT808_MAX_PACKAGES || index < 1 || index > total) {
+      ctx.warn(`jt808:parts:${session.uniqueId}`, `Device ${session.uniqueId} sent package ${index}/${total}; ignored`);
+      return null;
+    }
+    for (const [k, e] of session.parts) if (now - e.at > PARTS_TTL_MS) session.parts.delete(k);
     // Parts carry consecutive serials, so the first part's serial identifies the message.
     const key = `${h.msgId}:${(h.serial - index + 1) & 0xffff}`;
-    const entry = session.parts.get(key) ?? { total, got: new Map<number, Buffer>(), header: h };
-    entry.got.set(index, Buffer.from(body));
+    const entry = session.parts.get(key) ?? { total, got: new Map<number, Buffer>(), header: h, bytes: 0, at: now };
+    if (!entry.got.has(index)) {
+      entry.got.set(index, Buffer.from(body));
+      entry.bytes += body.length;
+    }
+    entry.at = now;
+    if (entry.bytes > JT808_MAX_REASSEMBLED_BYTES) {
+      session.parts.delete(key);
+      ctx.warn(`jt808:parts:${session.uniqueId}`, `Device ${session.uniqueId}: message 0x${h.msgId.toString(16)} over ${JT808_MAX_REASSEMBLED_BYTES} bytes; dropped`);
+      return null;
+    }
     session.parts.set(key, entry);
-    if (session.parts.size > 8) session.parts.delete(session.parts.keys().next().value as string);
-    if (entry.got.size < entry.total) return null;
+    let pending = 0;
+    for (const e of session.parts.values()) pending += e.bytes;
+    while ((session.parts.size > 8 || pending > MAX_PENDING_BYTES_PER_SESSION) && session.parts.size > 1) {
+      const oldest = session.parts.keys().next().value as string;
+      if (oldest === key) break;
+      pending -= session.parts.get(oldest)!.bytes;
+      session.parts.delete(oldest);
+    }
+    if (entry.got.size < entry.total) {
+      // Last part arrived but some are missing: ask for the missing ones (0x8800 retransmit list) for multimedia.
+      if (index === total && h.msgId === MediaMsg.MEDIA_UPLOAD && entry.got.has(1) && entry.got.get(1)!.length >= 4) {
+        const missing = Array.from({ length: total }, (_, i) => i + 1).filter((i) => !entry.got.has(i));
+        result.replies.push(encodeMessage(MediaMsg.MEDIA_UPLOAD_RESPONSE, h, this.nextSerial(session), encodeMediaUploadResponse(entry.got.get(1)!.readUInt32BE(0), missing)));
+      }
+      return null;
+    }
     session.parts.delete(key);
     return Buffer.concat([...entry.got.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b));
   }

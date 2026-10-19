@@ -523,7 +523,7 @@ class Evaluator {
     const atLevel = (level: number | null) => (level === null ? '' : ` (level ${level})`);
     const raise = (type: AlertTypeCode, message: string, data: Record<string, unknown>, level: number | null = null) => {
       if (level !== null && level < this.param(type, 'minLevel', 1)) return;
-      this.emit(type, { message, data: { ...data, level } });
+      this.emit(type, { message, data: { ...data, level, speedKph: speed } });
     };
 
     if (typeof a.dms === 'string') {

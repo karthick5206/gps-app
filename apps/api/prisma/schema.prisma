@@ -287,6 +287,7 @@ model TrackedObject {
   serviceLog  ServiceRecord[]
   fuelConfig  FuelConfig?
   fuelEvents  FuelEvent[]
+  driverEvents DriverEvent[]
 
   @@index([companyId, branchId])
 }
@@ -343,6 +344,7 @@ model Driver {
   branch      Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
   assignments DriverAssignment[]
   documents   Document[]
+  driverEvents DriverEvent[]
 
   @@unique([companyId, rfidTag])
   @@unique([companyId, employeeId])
@@ -1446,4 +1448,74 @@ model CreditNote {
 model CreditNoteCounter {
   fy      String @id
   lastSeq Int
+}
+
+enum DriverEventStatus {
+  NEW
+  REVIEWED
+  DISMISSED
+  COACHED
+}
+
+enum DriverMediaKind {
+  PHOTO
+  VIDEO
+}
+
+enum DriverMediaSource {
+  SNAPSHOT
+  ATTACHMENT
+}
+
+/// Driver behaviour event (ADAS / DMS / crash alert) with its cabin / road photos; one per alert.
+model DriverEvent {
+  id           String            @id @default(uuid()) @db.Uuid
+  companyId    String            @db.Uuid
+  objectId     String            @db.Uuid
+  deviceId     String?           @db.Uuid
+  /// Driver assigned to the vehicle when the event happened (DriverAssignment), if any.
+  driverId     String?           @db.Uuid
+  alertId      String?           @unique @db.Uuid
+  /// Alert type code (DRIVER_EVENT_TYPES).
+  type         String
+  level        Int?
+  speedKph     Float?
+  lat          Float?
+  lng          Float?
+  address      String?
+  occurredAt   DateTime          @db.Timestamptz(3)
+  status       DriverEventStatus @default(NEW)
+  reviewedById String?           @db.Uuid
+  reviewedAt   DateTime?         @db.Timestamptz(3)
+  note         String?
+  createdAt    DateTime          @default(now()) @db.Timestamptz(3)
+
+  object TrackedObject      @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  driver Driver?            @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  media  DriverEventMedia[]
+
+  @@index([companyId, occurredAt(sort: Desc)])
+  @@index([objectId, occurredAt(sort: Desc)])
+  @@index([driverId, occurredAt(sort: Desc)])
+  @@index([deviceId, occurredAt(sort: Desc)])
+}
+
+/// Photo / clip of a driver event, stored under var/driver-media/ (path relative to that directory).
+model DriverEventMedia {
+  id         String            @id @default(uuid()) @db.Uuid
+  eventId    String            @db.Uuid
+  companyId  String            @db.Uuid
+  kind       DriverMediaKind
+  source     DriverMediaSource
+  channel    Int?
+  filePath   String
+  fileSize   Int
+  mime       String
+  capturedAt DateTime?         @db.Timestamptz(3)
+  createdAt  DateTime          @default(now()) @db.Timestamptz(3)
+
+  event DriverEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([companyId, createdAt])
 }

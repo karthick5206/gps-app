@@ -10,7 +10,10 @@ import { Gt06Decoder } from './gt06/decoder';
 import { MediaHub } from './jt1078/hub';
 import { MediaServer } from './jt1078/media-server';
 import { VideoControl } from './jt1078/video-control';
-import { Jt808Decoder } from './jt808/decoder';
+import { Jt808Decoder, Jt808Session } from './jt808/decoder';
+import { AttachmentServer } from './media/attachment-server';
+import { MediaSink } from './media/media-sink';
+import { SnapshotControl } from './media/snapshot-control';
 import { BaseSession, ProtocolDecoder } from './protocol';
 import { TcpGatewayServer } from './tcp-server';
 import { TeltonikaDecoder } from './teltonika/decoder';
@@ -25,6 +28,7 @@ const STATS_INTERVAL_MS = 30_000;
  *   JT808_PORT (6808)      JT/T 808-2013/2019 dashcams and MDVRs (Mettax MC202, Jimi JC4xx) (0 disables)
  *   AIS140_PORT (5030)     AIS-140 VLT devices (iTriangle TS101) (0 disables)
  *   MEDIA_PORT (7612)      JT/T 1078 dashcam video streams (0 disables); MEDIA_HTTP_PORT (4110, localhost) HTTP-FLV
+ *   ATTACH_PORT (7613)     Su-standard ADAS / DMS alarm attachments (photos / clips) (0 disables)
  * GATEWAY_CAPTURE =comma-separated IMEIs (or `all`) to write raw frames to var/logs/capture-<protocol>.log.
  */
 async function main(): Promise<void> {
@@ -44,13 +48,18 @@ async function main(): Promise<void> {
   const listeners: [ProtocolDecoder<BaseSession>, number][] = [
     [new Gt06Decoder() as ProtocolDecoder<BaseSession>, env.gt06Port],
     [new TeltonikaDecoder(), env.teltonikaPort],
-    [new Jt808Decoder() as ProtocolDecoder<BaseSession>, env.jt808Port],
+    [
+      new Jt808Decoder({ attachServer: env.attachPort ? { host: env.mediaPublicHost, port: env.attachPort } : null }) as ProtocolDecoder<BaseSession>,
+      env.jt808Port,
+    ],
     [new Ais140Decoder() as ProtocolDecoder<BaseSession>, env.ais140Port],
   ];
   const servers: TcpGatewayServer<BaseSession>[] = [];
+  // Driver event photos / clips (0x0801 snapshots, alarm attachments) → var/driver-media + vt:driver-media.
+  const sink = new MediaSink(redis);
   for (const [decoder, port] of listeners) {
     if (!port) continue;
-    const server = new TcpGatewayServer(decoder, { redis, gatewayId, unparsed, capture });
+    const server = new TcpGatewayServer(decoder, { redis, gatewayId, unparsed, capture, onMedia: (m) => sink.accept(m) });
     await server.listen(port);
     servers.push(server);
     logger.log(`${decoder.name} listening on tcp://0.0.0.0:${port}`);
@@ -99,6 +108,23 @@ async function main(): Promise<void> {
     logger.log(`JT/T 1078 media on tcp://0.0.0.0:${env.mediaPort} (devices → ${env.mediaPublicHost}), HTTP-FLV on http://127.0.0.1:${env.mediaHttpPort}, max ${env.mediaMaxStreams} streams`);
   }
 
+  // Driver event snapshots (0x8801) and the Su-standard attachment server.
+  let snapSub: Redis | null = null;
+  let attachments: AttachmentServer | null = null;
+  if (jt808) {
+    snapSub = new Redis(env.redisUrl);
+    snapSub.on('error', (error) => logger.error(`Valkey (snapshots) error: ${error.message}`));
+    await new SnapshotControl(jt808).subscribe(snapSub, gatewayId);
+    if (env.attachPort) {
+      attachments = new AttachmentServer({
+        zoneOf: (id) => (jt808.sessionOf(id) as Jt808Session | null)?.clockZone ?? null,
+        onMedia: (m) => sink.accept([m]),
+      });
+      await attachments.listen(env.attachPort);
+      logger.log(`Alarm attachments on tcp://0.0.0.0:${env.attachPort} (devices → ${env.mediaPublicHost})`);
+    }
+  }
+
   logger.log(`Gateway ${gatewayId} ready${capture ? ` (capturing ${captureIds})` : ''}`);
 
   const last = new Map(servers.map((s) => [s.protocol, s.stats.positions]));
@@ -116,6 +142,8 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     clearInterval(timer);
     await media?.close();
+    await attachments?.close();
+    await snapSub?.quit().catch(() => undefined);
     await videoSub?.quit().catch(() => undefined);
     await Promise.all(servers.map((s) => s.close()));
     await commands.quit().catch(() => undefined);
