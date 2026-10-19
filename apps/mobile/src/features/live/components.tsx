@@ -14,6 +14,8 @@ export function StatusPill({ o, now }: { o: LiveObject; now?: number }) {
   const scheme = useScheme();
   const { t } = useTranslation();
   const meta = STATUS_META[o.status];
+  // Licence expired past grace: no position or status is shown until it is renewed.
+  if (o.licenceLocked) return <Pill label={t('Licence expired')} color="#dc2626" />;
   return <Pill label={timeInStatus(t(meta.label), o.statusSince, now) ?? t(meta.label)} color={statusColor(o.status, scheme)} />;
 }
 

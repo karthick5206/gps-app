@@ -7,6 +7,7 @@ import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { alertIcon } from '@/features/alerts/alert-icons';
 import { api, errorMessage } from '@/lib/api';
 import { formatDuration } from '@/lib/format';
+import { LicenceBanner } from '@/features/licences/LicenceBanner';
 import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
 
 function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -72,6 +73,7 @@ export default function DashboardScreen() {
   const d = q.data;
   return (
     <ScrollView contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.md }} refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => void q.refetch()} />}>
+      <LicenceBanner />
       {q.isPending && <ActivityIndicator style={{ margin: SPACE.xl }} />}
       {q.isError && <ErrorBanner message={errorMessage(q.error)} onRetry={() => q.refetch()} />}
       {d && (

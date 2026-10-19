@@ -28,7 +28,7 @@ import { PoolsService } from './pools.service';
 
 /** Buyer of licences: a customer company (its own pool) or a partner (bulk pool). */
 export interface Owner extends LicenceOwnerRef {
-  /** For a company: its partner (partner prices apply when the partner has overrides). */
+  /** For a company: its partner (customers buying directly pay platform prices; partner prices apply to the partner pool). */
   partnerId: string | null;
 }
 
@@ -148,7 +148,7 @@ export class BillingService {
       ? await this.prisma.licenceSeat.findMany({ where: { id: { in: renewIds }, ...ownerWhere(owner) }, select: { id: true, type: true, expiresAt: true } })
       : [];
     if (renewals.length !== renewIds.length) throw new BadRequestException('Some seats to renew were not found in this pool');
-    const prices = await this.settings.pricesFor(owner.kind === 'PARTNER' ? owner.id : owner.partnerId);
+    const prices = await this.settings.pricesFor(owner.kind === 'PARTNER' ? owner.id : null);
     const unpriced = [...items.map((i) => i.type), ...renewals.map((r) => r.type)].find((t) => !prices[t]);
     if (unpriced) throw new BadRequestException(`The ${LICENCE_TYPE_LABELS[unpriced].toLowerCase()} licence price has not been set yet. Please contact support.`);
     const lines = quoteLines(items, renewals, prices, paidAt);
@@ -176,7 +176,7 @@ export class BillingService {
       owner: { kind: owner.kind, id: owner.id, name: owner.name },
       summary,
       seats,
-      pricesPaise: await this.settings.pricesFor(owner.kind === 'PARTNER' ? owner.id : owner.partnerId),
+      pricesPaise: await this.settings.pricesFor(owner.kind === 'PARTNER' ? owner.id : null),
       gstRatePct: s.gstRatePct,
       graceDays: s.graceDays,
       billing: await this.profile(owner),
