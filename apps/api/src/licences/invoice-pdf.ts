@@ -59,10 +59,11 @@ export function invoiceDate(isoDate: string): string {
   return `${String(d.getUTCDate()).padStart(2, '0')}-${MONTHS[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
 }
 
-const rs = (paise: number) => `Rs. ${formatInr(paise)}`;
-const stateText = (code: string) => `${stateByCode(code)?.name ?? code} (${code})`;
+/** "₹1,180.00" (Indian digit grouping; Noto Sans has the Rupee sign). */
+export const rs = (paise: number) => `${paise < 0 ? '-' : ''}₹${formatInr(Math.abs(paise))}`;
+export const stateText = (code: string) => `${stateByCode(code)?.name ?? code} (${code})`;
 
-function partyBlock(title: string, p: InvoiceParty, withContact: boolean): Content {
+export function partyBlock(title: string, p: InvoiceParty, withContact: boolean): Content {
   const lines: Content[] = [
     { text: title, style: 'label' },
     { text: p.name, bold: true, fontSize: 10 },
@@ -173,7 +174,7 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
     pageSize: 'A4',
     pageMargins: [28, 28, 28, 34],
     info: { title: `Invoice ${inv.number}`, creator: 'VeeTrax' },
-    defaultStyle: { font: 'Roboto', fontSize: 8.5, color: '#0f172a' },
+    defaultStyle: { font: 'NotoSans', fontSize: 8.5, color: '#0f172a' },
     styles: { label: { fontSize: 7.5, color: '#64748b', bold: true }, th: { bold: true, color: '#ffffff', fontSize: 8 } },
     footer: (current: number, count: number) => ({
       columns: [

@@ -1,6 +1,6 @@
 import { PERIOD_REPORT_TYPES, ReportFormat } from '@veetracer/shared';
 import ExcelJS from 'exceljs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import pdfmake from 'pdfmake';
 import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces';
 import { toCsv } from '../common/csv';
@@ -112,6 +112,9 @@ async function renderXlsx(sections: ReportData[], generated: string): Promise<Bu
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+/** Bundled fonts (src/reports or dist/reports → apps/api/assets/fonts). */
+export const NOTO_DIR = join(__dirname, '..', '..', 'assets', 'fonts');
+
 let pdfReady = false;
 export function setupPdf(): void {
   if (pdfReady) return;
@@ -124,10 +127,17 @@ export function setupPdf(): void {
       italics: `${fontDir}/Roboto-Italic.ttf`,
       bolditalics: `${fontDir}/Roboto-MediumItalic.ttf`,
     },
+    // Noto Sans (SIL OFL) has the Indian Rupee sign, which Roboto lacks: used by invoices and credit notes.
+    NotoSans: {
+      normal: join(NOTO_DIR, 'NotoSans-Regular.ttf'),
+      bold: join(NOTO_DIR, 'NotoSans-Bold.ttf'),
+      italics: join(NOTO_DIR, 'NotoSans-Italic.ttf'),
+      bolditalics: join(NOTO_DIR, 'NotoSans-BoldItalic.ttf'),
+    },
   });
   // Report content never references external or local resources besides the bundled fonts.
   pdfmake.setUrlAccessPolicy(() => false);
-  pdfmake.setLocalAccessPolicy((path: string) => path.startsWith(fontDir));
+  pdfmake.setLocalAccessPolicy((path: string) => path.startsWith(fontDir) || path.startsWith(NOTO_DIR));
   pdfReady = true;
 }
 

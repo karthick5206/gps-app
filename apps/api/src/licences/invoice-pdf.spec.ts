@@ -1,4 +1,4 @@
-import { InvoiceSnapshot, renderInvoicePdf, invoiceDate } from './invoice-pdf';
+import { InvoiceSnapshot, renderInvoicePdf, invoiceDate, invoiceDocument, rs } from './invoice-pdf';
 
 const snapshot: InvoiceSnapshot = {
   number: 'VTX/2026-27/0001',
@@ -33,5 +33,21 @@ describe('invoice PDF', () => {
 
   it('prints dates as DD-Mon-YYYY in India time', () => {
     expect(invoiceDate('2026-10-18T20:00:00.000Z')).toBe('19-Oct-2026');
+  });
+});
+
+describe('invoice PDF amounts', () => {
+  it('prints the Rupee sign with Indian digit grouping, in Noto Sans', () => {
+    const doc = invoiceDocument({ ...snapshot, totalPaise: 12345670 }, null);
+    const json = JSON.stringify(doc.content);
+    expect(json).toContain('₹1,23,456.70');
+    expect(json).toContain('₹2,000.00');
+    expect(json).not.toContain('Rs.');
+    expect(doc.defaultStyle?.font).toBe('NotoSans');
+  });
+
+  it('formats negative amounts as -₹', () => {
+    expect(rs(-118000)).toBe('-₹1,180.00');
+    expect(rs(118000)).toBe('₹1,180.00');
   });
 });

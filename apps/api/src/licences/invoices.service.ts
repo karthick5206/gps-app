@@ -184,7 +184,7 @@ export class InvoicesService {
     const text = [
       `Dear ${snap.buyer.name},`,
       '',
-      `Thank you for your payment. Please find attached tax invoice ${inv.number} dated ${invoiceDate(inv.issuedAt.toISOString())} for Rs. ${formatInr(inv.totalPaise)} (GST inclusive) for your VeeTrax licences.`,
+      `Thank you for your payment. Please find attached tax invoice ${inv.number} dated ${invoiceDate(inv.issuedAt.toISOString())} for ₹${formatInr(inv.totalPaise)} (GST inclusive) for your VeeTrax licences.`,
       '',
       `Regards,`,
       snap.supplier.name || 'VeeTrax',
