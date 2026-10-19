@@ -33,6 +33,7 @@ export const MENU_KEYS = [
   'roles',
   'lookups',
   'geofences',
+  'pois',
   'alert_settings',
   'message_templates',
   'report_schedules',
@@ -61,6 +62,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'branches', label: 'Branches', group: 'masters', path: '/masters/branches', actions: CRUD },
   { key: 'lookups', label: 'Lookups', group: 'masters', path: '/masters/lookups', actions: CRUD },
   { key: 'geofences', label: 'Geofences', group: 'masters', path: '/masters/geofences', actions: CRUD },
+  { key: 'pois', label: 'Points of Interest', group: 'masters', path: '/masters/pois', actions: CRUD },
   { key: 'alert_settings', label: 'Alert Settings', group: 'alerting', path: '/alerting/settings', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'message_templates', label: 'Message Templates', group: 'alerting', path: '/alerting/templates', actions: ['view', 'create', 'edit', 'delete', 'export'] },
   { key: 'report_schedules', label: 'Scheduled Reports', group: 'alerting', path: '/reports/schedules', actions: ['view', 'create', 'edit', 'delete'] },
@@ -104,6 +106,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
       alerts: ['view', 'edit', 'export'],
       reports: ['view', 'export'],
       geofences: ['view', 'create', 'edit', 'export'],
+      pois: ['view', 'create', 'edit', 'delete', 'export'],
       alert_settings: ['view', 'create', 'edit'],
       message_templates: ['view'],
       report_schedules: ['view', 'create', 'edit', 'delete'],
@@ -123,7 +126,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     dataScope: 'ASSIGNED',
     permissions: {
       dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], reports: ['view'],
-      geofences: ['view'], report_schedules: ['view', 'create', 'edit', 'delete'], objects: ['view'], drivers: ['view'], documents: ['view'], vehicle_groups: ['view'],
+      geofences: ['view'], pois: ['view'], report_schedules: ['view', 'create', 'edit', 'delete'], objects: ['view'], drivers: ['view'], documents: ['view'], vehicle_groups: ['view'],
     },
   },
   {

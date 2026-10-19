@@ -82,6 +82,7 @@ model Company {
   vehicleGroups VehicleGroup[]
   drivers       Driver[]
   documents     Document[]
+  pois          Poi[]
   lookups       Lookup[]
   auditLogs     AuditLog[]
 }
@@ -100,6 +101,7 @@ model Branch {
   objects TrackedObject[]
   users   UserBranch[]
   drivers Driver[]
+  pois    Poi[]
 
   @@unique([companyId, name])
 }
@@ -703,6 +705,31 @@ model Geofence {
 
   @@unique([companyId, name])
   @@index([companyId, isActive])
+}
+
+/// Point of interest (customer site, depot, fuel station…): a stop within radiusM counts as a visit.
+model Poi {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  branchId    String?  @db.Uuid
+  name        String
+  category    String   @default("OTHER")
+  lat         Float
+  lng         Float
+  address     String?
+  radiusM     Int      @default(100)
+  icon        String?
+  color       String   @default("#2563eb")
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch  Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, isActive])
+  @@index([companyId, lat, lng])
 }
 
 /// kind: BRANCH | GROUP | OBJECT (used when appliesToAll = false).

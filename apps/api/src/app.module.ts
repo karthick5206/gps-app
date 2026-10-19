@@ -17,6 +17,7 @@ import { ReportSchedulesModule } from './report-schedules/report-schedules.modul
 import { CommandsModule } from './commands/commands.module';
 import { DriversModule } from './drivers/drivers.module';
 import { DocumentsModule } from './documents/documents.module';
+import { PoisModule } from './pois/pois.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { RetentionModule } from './retention/retention.module';
 import { ReportsModule } from './reports/reports.module';
@@ -46,6 +47,7 @@ import { TemplatesModule } from './templates/templates.module';
     CommandsModule,
     DriversModule,
     DocumentsModule,
+    PoisModule,
   ],
   controllers: [HealthController],
 })

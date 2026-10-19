@@ -14,6 +14,7 @@ import {
   GeofenceVisitDto,
   IgnitionReportRow,
   OverspeedReportRow,
+  PoiVisitReportRow,
   PositionReportRow,
   ReportType,
   StopDto,
@@ -53,6 +54,7 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   DEVICE_STATUS: 'Device status report',
   DRIVERS: 'Driver activity report',
   DOCUMENTS: 'Documents & services report',
+  POI_VISITS: 'POI visits report',
 };
 
 const col = <T>(c: Omit<ReportColumn, 'value'> & { value: (row: T, tz: string) => Cell }): ReportColumn => c as ReportColumn;
@@ -97,7 +99,19 @@ const stopColumns = (label: string): ReportColumn[] => [
   col<StopDto>({ header: 'End', width: 19, value: (r, tz) => localTime(r.endTime, tz) }),
   col<StopDto>({ header: 'Duration', width: 10, value: (r) => hhmmss(r.durationSec), total: (t) => hhmmss(t.durationSec) }),
   col<StopDto>({ header: 'Type', width: 14, value: (r) => (r.ignitionOn ? 'Idle (engine on)' : 'Parked') }),
-  col<StopDto>({ header: 'Location', width: 44, value: (r) => r.address ?? loc(r.lat, r.lng) }),
+  col<StopDto>({ header: 'POI', width: 20, value: (r) => r.poiName ?? '' }),
+  col<StopDto>({ header: 'Location', width: 40, value: (r) => r.address ?? loc(r.lat, r.lng) }),
+];
+
+const POI_VISITS: ReportColumn[] = [
+  col<PoiVisitReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.count ?? 0} visits, ${t.pois ?? 0} POIs)` }),
+  col<PoiVisitReportRow>({ header: 'POI', width: 24, value: (r) => r.poiName }),
+  col<PoiVisitReportRow>({ header: 'Category', width: 14, value: (r) => r.category }),
+  col<PoiVisitReportRow>({ header: 'Arrival', width: 19, value: (r, tz) => localTime(r.arrival, tz) }),
+  col<PoiVisitReportRow>({ header: 'Departure', width: 19, value: (r, tz) => localTime(r.departure, tz) }),
+  col<PoiVisitReportRow>({ header: 'Duration', width: 10, value: (r) => hhmmss(r.durationSec), total: (t) => hhmmss(t.durationSec) }),
+  col<PoiVisitReportRow>({ header: 'Distance (m)', width: 10, numeric: true, value: (r) => r.distanceM }),
+  col<PoiVisitReportRow>({ header: 'Engine', width: 10, value: (r) => (r.ignitionOn ? 'On' : 'Off') }),
 ];
 
 const ALERTS: ReportColumn[] = [
@@ -340,6 +354,8 @@ export function columnsFor(type: ReportType): ReportColumn[] {
       return DRIVERS;
     case 'DOCUMENTS':
       return DOCUMENTS;
+    case 'POI_VISITS':
+      return POI_VISITS;
   }
 }
 

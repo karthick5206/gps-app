@@ -20,6 +20,7 @@ import {
   IdCardIcon,
   LayersIcon,
   ListChecksIcon,
+  MapPinIcon,
   MapPinnedIcon,
   ParkingSquareIcon,
   PowerIcon,
@@ -158,6 +159,7 @@ const STOPS: ReportColumn[] = [
     value: (r) => (r.ignitionOn ? 'Idle' : 'Parked'),
     render: (r) => <Badge variant={r.ignitionOn ? 'warning' : 'secondary'}>{r.ignitionOn ? i18n.t('Idle') : i18n.t('Parked')}</Badge>,
   },
+  { id: 'poiName', header: 'POI', value: str('poiName'), render: text('poiName', 'block max-w-56 truncate') },
   { id: 'address', header: 'Location', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
 ];
 
@@ -190,6 +192,22 @@ const GEOFENCE_VISITS: ReportColumn[] = [
   { id: 'enterTime', header: 'Entered', value: time('enterTime'), render: timeCell('enterTime') },
   { id: 'exitTime', header: 'Exited', value: time('exitTime'), render: (r) => (r.exitTime ? timeCell('exitTime')(r) : <Badge variant="default">{i18n.t('Inside')}</Badge>) },
   duration('durationSec', 'Duration'),
+];
+
+const POI_VISITS: ReportColumn[] = [
+  vehicle,
+  { id: 'poiName', header: 'POI', value: str('poiName'), render: (r) => <span className="font-medium">{r.poiName as string}</span> },
+  { id: 'category', header: 'Category', value: str('category'), render: (r) => i18n.t(humanize(r.category as string)) },
+  { id: 'arrival', header: 'Arrival', value: time('arrival'), render: timeCell('arrival') },
+  { id: 'departure', header: 'Departure', value: time('departure'), render: timeCell('departure') },
+  duration('durationSec', 'Duration'),
+  { id: 'distanceM', header: 'Distance (m)', value: num('distanceM'), numeric: true, format: int },
+  {
+    id: 'ignitionOn',
+    header: 'Engine',
+    value: (r) => (r.ignitionOn ? 'On' : 'Off'),
+    render: (r) => <Badge variant={r.ignitionOn ? 'warning' : 'secondary'}>{r.ignitionOn ? i18n.t('On') : i18n.t('Off')}</Badge>,
+  },
 ];
 
 const plate: ReportColumn = { id: 'plateNumber', header: 'Plate', value: str('plateNumber'), render: text('plateNumber') };
@@ -427,6 +445,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'EVENT_SUMMARY', category: 'Events', label: 'Event summary', description: 'How many of each alert type per vehicle, with first and last time.', icon: ListChecksIcon, columns: EVENT_SUMMARY },
   { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS },
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
+  { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },
   { type: 'DEVICE_STATUS', category: 'Devices', label: 'Device status', description: 'Active, inactive, no-GPS and never-connected devices right now.', icon: ActivityIcon, columns: DEVICE_STATUS },
   { type: 'DOCUMENTS', category: 'Compliance', label: 'Documents & services', description: 'Document expiry and service status of every vehicle as of today (the date range is not used).', icon: FileCheck2Icon, columns: DOCUMENTS },
 ];

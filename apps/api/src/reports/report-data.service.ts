@@ -37,6 +37,7 @@ import {
   QueryCtx,
 } from './report-queries';
 import { documentsReport } from './documents-report';
+import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
 
 export const REPORT_JSON_MAX_ROWS = 10_000;
 export const REPORT_MAX_DAYS = 366;
@@ -188,6 +189,11 @@ export class ReportDataService {
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 
+      case 'POI_VISITS': {
+        const r = await poiVisitsReport(this.prisma, ctx, objects, range, maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
       case 'HALT': {
         // Long stoppages: parked (engine off) for at least `minDurationMin` (default 30 min).
         if (!ids.length) return { ...empty, totals: { count: 0, durationSec: 0 } };
@@ -198,6 +204,7 @@ export class ReportDataService {
           this.prisma.stop.aggregate({ where, _count: true, _sum: { durationSec: true } }),
         ]);
         const dtos: StopDto[] = rows.map((s) => stopDto(s, { name: name(s.objectId) })).sort(byName);
+        await attachPoiNames(this.prisma, ctx, dtos);
         return { ...base, rows: dtos, totals: { count: agg._count, durationSec: agg._sum.durationSec ?? 0 }, truncated: agg._count > rows.length, totalRows: agg._count };
       }
 
@@ -239,6 +246,7 @@ export class ReportDataService {
           this.prisma.stop.aggregate({ where, _count: true, _sum: { durationSec: true } }),
         ]);
         const dtos: StopDto[] = rows.map((s) => stopDto(s, { name: name(s.objectId) })).sort(byName);
+        await attachPoiNames(this.prisma, ctx, dtos);
         return {
           ...base,
           rows: dtos,

@@ -187,24 +187,14 @@ export class GeofencesService {
         continue;
       }
       try {
-        const data = await this.prepare(
-          ctx,
-          {
-            name: item.name.slice(0, 100),
-            geometry: item.geometry as unknown as Record<string, unknown>,
-            category: item.category ?? dto.category,
-            color: item.color ?? dto.color,
-            description: item.description,
-            branchId: dto.branchId,
-          },
-          null,
-          false,
-        );
-        const row = await this.prisma.geofence.create({
-          data: { ...data.fields, companyId: ctx.companyId, name: item.name.trim().slice(0, 100) } as Prisma.GeofenceUncheckedCreateInput,
-          include: { targets: true },
+        await this.createImported(ctx, {
+          name: item.name,
+          geometry: item.geometry,
+          category: item.category ?? dto.category,
+          color: item.color ?? dto.color,
+          description: item.description,
+          branchId: dto.branchId,
         });
-        await this.audit.record(ctx, { action: 'CREATE', entity: ENTITY, entityId: row.id, after: { ...snapshot(row), imported: true } });
         created++;
       } catch (error) {
         const http = httpErrorFromPrisma(error);
@@ -213,6 +203,50 @@ export class GeofencesService {
     }
     if (created) await this.targets.invalidate(ctx.companyId, 'geofence_import');
     return { created, failed };
+  }
+
+  /**
+   * Create one imported geofence (same validation as the form; applies to all vehicles). The caller invalidates the
+   * alert targets once after the whole import.
+   */
+  async createImported(
+    ctx: AuthContext,
+    item: { name: string; geometry: GeofenceGeometry; category?: string; color?: string; description?: string; address?: string; branchId?: string | null },
+  ): Promise<string> {
+    const data = await this.prepare(
+      ctx,
+      {
+        name: item.name.slice(0, 100),
+        geometry: item.geometry as unknown as Record<string, unknown>,
+        category: item.category,
+        color: item.color,
+        description: item.description,
+        address: item.address,
+        branchId: item.branchId ?? undefined,
+      },
+      null,
+      false,
+    );
+    const row = await this.prisma.geofence.create({
+      data: { ...data.fields, companyId: ctx.companyId, name: item.name.trim().slice(0, 100) } as Prisma.GeofenceUncheckedCreateInput,
+      include: { targets: true },
+    });
+    await this.audit.record(ctx, { action: 'CREATE', entity: ENTITY, entityId: row.id, after: { ...snapshot(row), imported: true } });
+    return row.id;
+  }
+
+  async invalidateTargets(companyId: string, reason: string): Promise<void> {
+    await this.targets.invalidate(companyId, reason);
+  }
+
+  /** Geofences visible to the caller (for KML / GeoJSON export). */
+  async exportRows(ctx: AuthContext, activeOnly: boolean) {
+    return this.prisma.geofence.findMany({
+      where: { AND: [this.scopeWhere(ctx), activeOnly ? { isActive: true } : {}] },
+      orderBy: { name: 'asc' },
+      take: 10_000,
+      select: { name: true, category: true, color: true, description: true, geometry: true },
+    });
   }
 
   async visits(ctx: AuthContext, id: string, from?: string, to?: string, objectId?: string): Promise<GeofenceVisitDto[]> {

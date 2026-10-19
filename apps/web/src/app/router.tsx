@@ -38,6 +38,7 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   report_schedules: page(() => import('@/features/reports/ScheduledReportsPage'), 'ScheduledReportsPage'),
   alerts: page(() => import('@/features/alerts/AlertsPage'), 'AlertsPage'),
   geofences: page(() => import('@/features/geofences/GeofencesPage'), 'GeofencesPage'),
+  pois: page(() => import('@/features/pois/PoisPage'), 'PoisPage'),
   alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
   message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };

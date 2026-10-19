@@ -13,6 +13,13 @@ const LABEL_MIN_ZOOM = 13;
 /** Centre of India: first view before any vehicle has a position. */
 const DEFAULT_CENTER: [number, number] = [78.9, 21.5];
 
+/** Camera position after the user (or an animation) moved the map. */
+export interface MapView {
+  center: [lng: number, lat: number];
+  zoom: number;
+  bounds: LngLatBounds;
+}
+
 export interface FleetMapHandle {
   /** Shows every vehicle with a position. */
   fitAll(objects: LiveObject[], animate?: boolean): void;
@@ -56,8 +63,18 @@ function toFeatures(objects: LiveObject[], selectedId: string | null): GeoJSON.F
 /** MapLibre map with the fleet as rotated vehicle icons (same style and icons as the web live map). */
 export const FleetMap = forwardRef<
   FleetMapHandle,
-  { objects: LiveObject[]; selectedId?: string | null; onSelect?: (id: string | null) => void; style?: StyleProp<ViewStyle>; children?: ReactNode; interactive?: boolean; initialZoom?: number }
->(function FleetMap({ objects, selectedId = null, onSelect, style, children, interactive = true, initialZoom }, ref) {
+  {
+    objects: LiveObject[];
+    selectedId?: string | null;
+    onSelect?: (id: string | null) => void;
+    style?: StyleProp<ViewStyle>;
+    children?: ReactNode;
+    interactive?: boolean;
+    initialZoom?: number;
+    /** Called when the map stops moving (current centre, zoom and visible bounds). */
+    onViewChange?: (view: MapView) => void;
+  }
+>(function FleetMap({ objects, selectedId = null, onSelect, style, children, interactive = true, initialZoom, onViewChange }, ref) {
   const scheme = useScheme();
   const c = useColors();
   const camera = useRef<CameraRef>(null);
@@ -92,6 +109,7 @@ export const FleetMap = forwardRef<
       touchPitch={false}
       doubleTapZoom={interactive}
       onPress={() => onSelect?.(null)}
+      onRegionDidChange={onViewChange ? (e) => onViewChange({ center: e.nativeEvent.center, zoom: e.nativeEvent.zoom, bounds: e.nativeEvent.bounds }) : undefined}
     >
       <Camera ref={camera} initialViewState={initial ? { center: [initial.lng!, initial.lat!], zoom: initialZoom ?? 11 } : { center: DEFAULT_CENTER, zoom: 4 }} />
       <Images images={VEHICLE_ICON_IMAGES} />

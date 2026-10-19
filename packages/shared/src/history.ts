@@ -22,6 +22,8 @@ export interface StopDto {
   lat: number; lng: number; address: string | null;
   /** true = engine running while stopped (idle stop); false = parked. */
   ignitionOn: boolean;
+  /** Nearest point of interest within its radius (stop reports only). */
+  poiName?: string | null;
 }
 
 export interface HistoryResponse {
@@ -91,6 +93,7 @@ export const REPORT_TYPES = [
   'DEVICE_STATUS',
   'DRIVERS',
   'DOCUMENTS',
+  'POI_VISITS',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 

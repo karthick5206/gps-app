@@ -40,6 +40,8 @@ function RootStack() {
           <Stack.Screen name="profile" options={{ title: t('Profile') }} />
           <Stack.Screen name="geofences/index" options={{ title: t('Geofences') }} />
           <Stack.Screen name="geofences/[id]" options={{ title: t('Geofence') }} />
+          <Stack.Screen name="pois/index" options={{ title: t('Points of interest') }} />
+          <Stack.Screen name="pois/[id]" options={{ title: t('Point of interest') }} />
           <Stack.Screen name="alert-settings" options={{ title: t('Alert settings') }} />
           <Stack.Screen name="reports/index" options={{ title: t('Reports') }} />
           <Stack.Screen name="reports/[type]" options={{ title: t('Report') }} />
