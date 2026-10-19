@@ -17,6 +17,8 @@ import {
   PoiVisitReportRow,
   FuelEventDto,
   FuelReportRow,
+  IoDailyReportRow,
+  IoSessionReportRow,
   PositionReportRow,
   ReportType,
   StopDto,
@@ -59,6 +61,8 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   POI_VISITS: 'POI visits report',
   FUEL: 'Fuel report',
   FUEL_EVENTS: 'Fuel refills & drains report',
+  AC_DOOR: 'AC / Door report',
+  AC_DOOR_DAILY: 'AC / Door daily totals report',
 };
 
 const col = <T>(c: Omit<ReportColumn, 'value'> & { value: (row: T, tz: string) => Cell }): ReportColumn => c as ReportColumn;
@@ -137,6 +141,37 @@ const FUEL_EVENTS: ReportColumn[] = [
   col<FuelEventDto>({ header: 'After (L)', width: 10, numeric: true, value: (r) => r.litresAfter }),
   col<FuelEventDto>({ header: 'Change (L)', width: 10, numeric: true, value: (r) => (r.type === 'REFILL' ? r.deltaL : -r.deltaL) }),
   col<FuelEventDto>({ header: 'Location', width: 36, value: (r) => place(r.address, r.lat, r.lng) }),
+];
+
+const ioStatus = (r: IoSessionReportRow) => (r.kind === 'AC' ? (r.on ? 'On' : 'Off') : r.on ? 'Open' : 'Closed');
+
+const AC_DOOR: ReportColumn[] = [
+  col<IoSessionReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.count ?? 0} periods)` }),
+  col<IoSessionReportRow>({ header: 'Plate', width: 14, value: (r) => r.plateNumber ?? '' }),
+  col<IoSessionReportRow>({ header: 'Sensor', width: 8, value: (r) => (r.kind === 'AC' ? 'AC' : 'Door') }),
+  col<IoSessionReportRow>({ header: 'Status', width: 8, value: (r) => ioStatus(r) }),
+  col<IoSessionReportRow>({ header: 'Start', width: 19, value: (r, tz) => localTime(r.startTime, tz) }),
+  col<IoSessionReportRow>({ header: 'End', width: 19, value: (r, tz) => (r.endTime ? localTime(r.endTime, tz) : 'Ongoing') }),
+  col<IoSessionReportRow>({ header: 'Duration', width: 10, value: (r) => hhmmss(r.durationSec), total: (t) => `AC on ${hhmmss(t.acOnSec ?? 0)}` }),
+  col<IoSessionReportRow>({ header: 'Engine off', width: 10, value: (r) => hhmmss(r.engineOffSec), total: (t) => hhmmss(t.acOnEngineOffSec ?? 0) }),
+  col<IoSessionReportRow>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => num(r.distanceKm, 2) }),
+  col<IoSessionReportRow>({ header: 'Start address', width: 36, value: (r) => place(r.startAddress, r.startLat, r.startLng) }),
+  col<IoSessionReportRow>({
+    header: 'End address', width: 36, value: (r) => place(r.endAddress, r.endLat, r.endLng),
+    total: (t) => `Door opened ${t.doorOpenCount ?? 0} times, ${hhmmss(t.doorOpenSec ?? 0)}`,
+  }),
+];
+
+const AC_DOOR_DAILY: ReportColumn[] = [
+  col<IoDailyReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.vehicles ?? 0} vehicles)` }),
+  col<IoDailyReportRow>({ header: 'Plate', width: 14, value: (r) => r.plateNumber ?? '' }),
+  col<IoDailyReportRow>({ header: 'Day', width: 11, value: (r) => r.day }),
+  col<IoDailyReportRow>({ header: 'AC on', width: 10, value: (r) => hhmmss(r.acOnSec), total: (t) => hhmmss(t.acOnSec ?? 0) }),
+  col<IoDailyReportRow>({ header: 'AC on, engine off', width: 14, value: (r) => hhmmss(r.acOnEngineOffSec), total: (t) => hhmmss(t.acOnEngineOffSec ?? 0) }),
+  col<IoDailyReportRow>({ header: 'AC switch-ons', width: 11, numeric: true, value: (r) => r.acOnCount, total: (t) => t.acOnCount ?? 0 }),
+  col<IoDailyReportRow>({ header: 'Km with AC on', width: 11, numeric: true, value: (r) => num(r.acDistanceKm, 2), total: (t) => num(t.acDistanceKm ?? 0, 2) }),
+  col<IoDailyReportRow>({ header: 'Door opened', width: 10, numeric: true, value: (r) => r.doorOpenCount, total: (t) => t.doorOpenCount ?? 0 }),
+  col<IoDailyReportRow>({ header: 'Door open time', width: 12, value: (r) => hhmmss(r.doorOpenSec), total: (t) => hhmmss(t.doorOpenSec ?? 0) }),
 ];
 
 const POI_VISITS: ReportColumn[] = [
@@ -398,6 +433,10 @@ export function columnsFor(type: ReportType): ReportColumn[] {
       return FUEL;
     case 'FUEL_EVENTS':
       return FUEL_EVENTS;
+    case 'AC_DOOR':
+      return AC_DOOR;
+    case 'AC_DOOR_DAILY':
+      return AC_DOOR_DAILY;
   }
 }
 

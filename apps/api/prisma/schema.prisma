@@ -287,6 +287,8 @@ model TrackedObject {
   serviceLog  ServiceRecord[]
   fuelConfig  FuelConfig?
   fuelEvents  FuelEvent[]
+  ioSensors   IoSensorConfig[]
+  ioSessions  IoSession[]
   driverEvents DriverEvent[]
 
   @@index([companyId, branchId])
@@ -769,6 +771,55 @@ model FuelEvent {
 
   @@unique([objectId, type, startTime])
   @@index([companyId, startTime(sort: Desc)])
+}
+
+/// AC / door sensor of a vehicle (one row per kind). kind: AC | DOOR; source: DIGITAL | ANALOG.
+/// DIGITAL: `attribute` is a boolean (or 0/1) input, `invert` flips it. ANALOG: ON while minV ≤ value ≤ maxV (volts).
+model IoSensorConfig {
+  objectId    String   @db.Uuid
+  kind        String
+  companyId   String   @db.Uuid
+  enabled     Boolean  @default(true)
+  source      String   @default("ANALOG")
+  attribute   String   @default("adc1")
+  invert      Boolean  @default(false)
+  minV        Float?
+  maxV        Float?
+  hysteresisV Float    @default(0.2)
+  debounceSec Int      @default(10)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@id([objectId, kind])
+  @@index([companyId])
+}
+
+/// One period in one AC / door state, written by the processor (endTime null = still in that state).
+model IoSession {
+  id           String    @id @db.Uuid
+  companyId    String    @db.Uuid
+  objectId     String    @db.Uuid
+  kind         String
+  on           Boolean
+  startTime    DateTime  @db.Timestamptz(3)
+  endTime      DateTime? @db.Timestamptz(3)
+  startLat     Float?
+  startLng     Float?
+  endLat       Float?
+  endLng       Float?
+  distanceKm   Float     @default(0)
+  durationSec  Int       @default(0)
+  /// Seconds of this period with the ignition off (AC running with the engine off).
+  engineOffSec Int       @default(0)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, startTime(sort: Desc)])
+  @@index([objectId, kind, startTime])
 }
 
 /// Point of interest (customer site, depot, fuel station…): a stop within radiusM counts as a visit.

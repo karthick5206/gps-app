@@ -30,7 +30,7 @@ export interface AlertParamDef {
 export interface AlertTypeDef {
   code: AlertTypeCode;
   label: string;
-  category: 'Driving' | 'Driver safety' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety' | 'Compliance';
+  category: 'Driving' | 'Driver safety' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety' | 'Compliance' | 'Sensors';
   /** Device-model capability required; null = any GPS device. */
   capability: string | null;
   defaultSeverity: AlertSeverity;
@@ -77,6 +77,12 @@ export const ALERT_TYPE_CODES = [
   'SERVICE_DUE',
   'FUEL_DRAIN',
   'FUEL_REFILL',
+  'AC_ON',
+  'AC_OFF',
+  'AC_ON_ENGINE_OFF',
+  'DOOR_OPEN',
+  'DOOR_CLOSED',
+  'DOOR_OPEN_WHILE_MOVING',
 ] as const;
 export type AlertTypeCode = (typeof ALERT_TYPE_CODES)[number];
 
@@ -187,6 +193,21 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   // ── Fuel (refill / drain detected from the vehicle's fuel sensor; thresholds are in the vehicle's fuel settings) ──
   { code: 'FUEL_DRAIN', label: 'Possible fuel theft', category: 'Vehicle', capability: 'fuel', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: ['litres', 'fuel_before', 'fuel_after'] },
   { code: 'FUEL_REFILL', label: 'Fuel refill', category: 'Vehicle', capability: 'fuel', defaultSeverity: 'INFO', defaultEnabled: true, mandatory: false, params: [], placeholders: ['litres', 'fuel_before', 'fuel_after'] },
+  // ── AC / door sensors (supported only on vehicles with the sensor configured in "AC / Door sensors") ──
+  { code: 'AC_ON', label: 'AC switched on', category: 'Sensors', capability: 'ac', defaultSeverity: 'INFO', defaultEnabled: false, mandatory: false, params: [], placeholders: [] },
+  { code: 'AC_OFF', label: 'AC switched off', category: 'Sensors', capability: 'ac', defaultSeverity: 'INFO', defaultEnabled: false, mandatory: false, params: [], placeholders: ['duration'] },
+  {
+    code: 'AC_ON_ENGINE_OFF', label: 'AC running with ignition off', category: 'Sensors', capability: 'ac', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
+    params: [{ key: 'minutes', label: 'Alert after AC on with ignition off for', type: 'number', unit: 'min', default: 10, min: 1, max: 600, hint: 'Drains the vehicle battery' }],
+    placeholders: ['duration'],
+  },
+  { code: 'DOOR_OPEN', label: 'Door opened', category: 'Sensors', capability: 'door', defaultSeverity: 'INFO', defaultEnabled: false, mandatory: false, params: [], placeholders: [] },
+  { code: 'DOOR_CLOSED', label: 'Door closed', category: 'Sensors', capability: 'door', defaultSeverity: 'INFO', defaultEnabled: false, mandatory: false, params: [], placeholders: ['duration'] },
+  {
+    code: 'DOOR_OPEN_WHILE_MOVING', label: 'Door open while moving', category: 'Sensors', capability: 'door', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
+    params: [{ key: 'speedKph', label: 'Alert when the door is open above', type: 'number', unit: 'km/h', default: 10, min: 1, max: 120 }],
+    placeholders: [],
+  },
 ];
 
 /** Catalogue default cooldown (minutes) per alert type when nothing is configured (shared by API and web). */
@@ -228,6 +249,13 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   // One alert per detected event (events are already debounced by the detector).
   FUEL_DRAIN: 0,
   FUEL_REFILL: 0,
+  // State changes are debounced by the processor; a short cooldown still guards against a loose wire.
+  AC_ON: 1,
+  AC_OFF: 1,
+  AC_ON_ENGINE_OFF: 30,
+  DOOR_OPEN: 1,
+  DOOR_CLOSED: 1,
+  DOOR_OPEN_WHILE_MOVING: 5,
 };
 
 export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEntries(ALERT_TYPES.map((t) => [t.code, t])) as Record<AlertTypeCode, AlertTypeDef>;

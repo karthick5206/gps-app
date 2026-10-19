@@ -101,6 +101,12 @@ export interface LiveObject {
   /** Fuel in the tank (calibrated litres) and % of the tank, when the vehicle has a fuel sensor configured. */
   fuelL?: number | null;
   fuelPct?: number | null;
+  /** AC / door sensor state when configured on the vehicle (null = configured but no reading yet; absent = not configured). */
+  acOn?: boolean | null;
+  doorOpen?: boolean | null;
+  /** Latest analog reading (V) of an analog AC / door sensor, for display and calibration. */
+  acVoltage?: number | null;
+  doorVoltage?: number | null;
   fixTime: string | null;
   serverTime: string | null;
   speedLimitKph: number | null;

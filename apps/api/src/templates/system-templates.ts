@@ -47,6 +47,12 @@ const DETAIL: Record<AlertTypeCode, string> = {
   SERVICE_DUE: 'is due for {{service}} {{due}}',
   FUEL_DRAIN: 'lost {{litres}} of fuel while stationary ({{fuel_before}} to {{fuel_after}}): possible fuel theft',
   FUEL_REFILL: 'was refuelled with {{litres}} ({{fuel_before}} to {{fuel_after}})',
+  AC_ON: 'AC was switched on',
+  AC_OFF: 'AC was switched off after {{duration}}',
+  AC_ON_ENGINE_OFF: 'AC has been running with the ignition off for {{duration}}',
+  DOOR_OPEN: 'door was opened',
+  DOOR_CLOSED: 'door was closed after {{duration}}',
+  DOOR_OPEN_WHILE_MOVING: 'door is open while driving at {{speed}}',
 };
 
 /** Reminder alerts (documents, services) have no position or speed: their e-mail shows what is due instead. */

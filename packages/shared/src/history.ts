@@ -98,6 +98,8 @@ export const REPORT_TYPES = [
   'POI_VISITS',
   'FUEL',
   'FUEL_EVENTS',
+  'AC_DOOR',
+  'AC_DOOR_DAILY',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 
