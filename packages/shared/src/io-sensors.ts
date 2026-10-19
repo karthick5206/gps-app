@@ -1,5 +1,5 @@
 /**
- * AC / door sensors: per-vehicle input configuration, the sessions the processor records and the "AC / Door" reports.
+ * AC / door sensors: per-device input configuration (Devices → Advanced settings; the wiring is on the tracker), the sessions the processor records and the "AC / Door" reports.
  * A sensor reads one position attribute: a DIGITAL input (door, in1, in2 …; `invert` flips it) or an ANALOG voltage
  * (adc1, adc2 …) that means ON while minV ≤ value ≤ maxV (e.g. the Concox GT800 purple wire on the AC blower).
  */
@@ -18,7 +18,7 @@ export const IO_ANALOG_KEYS = ['adc1', 'adc2'] as const;
 export const IO_ATTRIBUTE_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,39}$/;
 
 export interface IoSensorConfigDto {
-  objectId: string;
+  deviceId: string;
   kind: IoSensorKind;
   /** False = no sensor of this kind (never configured, or switched off). */
   enabled: boolean;
@@ -36,7 +36,7 @@ export interface IoSensorConfigDto {
   updatedAt: string | null;
 }
 
-export type IoSensorConfigInput = Omit<IoSensorConfigDto, 'objectId' | 'kind' | 'updatedAt'>;
+export type IoSensorConfigInput = Omit<IoSensorConfigDto, 'deviceId' | 'kind' | 'updatedAt'>;
 
 /** Defaults: GT800 purple wire on the AC blower = analog adc1 (min / max set by the installer); door = digital `door`. */
 export const IO_SENSOR_DEFAULTS: Record<IoSensorKind, IoSensorConfigInput> = {
@@ -45,11 +45,13 @@ export const IO_SENSOR_DEFAULTS: Record<IoSensorKind, IoSensorConfigInput> = {
 };
 
 export interface IoSensorsDto {
-  objectId: string;
+  deviceId: string;
+  /** Vehicle the device is fitted to now (null = unassigned). */
+  objectId: string | null;
   sensors: IoSensorConfigDto[];
 }
 
-/** GET /objects/:id/recent-attributes: attribute keys seen on the vehicle's recent positions with their last values. */
+/** GET /devices/:id/recent-attributes: attribute keys seen on the device's recent positions with their last values. */
 export interface RecentAttributeDto {
   key: string;
   value: string | number | boolean;
@@ -60,7 +62,7 @@ export interface RecentAttributeDto {
 }
 
 export interface RecentAttributesDto {
-  objectId: string;
+  deviceId: string;
   scanned: number;
   attributes: RecentAttributeDto[];
 }
@@ -87,4 +89,27 @@ export interface IoDailyReportRow {
   objectId: string; objectName: string; plateNumber: string | null; day: string;
   acOnSec: number; acOnEngineOffSec: number; acOnCount: number; acDistanceKm: number;
   doorOpenCount: number; doorOpenSec: number;
+}
+
+/**
+ * What one attribute value means for a sensor (same rule in the processor and the settings UI). DIGITAL: boolean or
+ * 0/1, flipped by `invert`. ANALOG: ON while minV ≤ value ≤ maxV; once ON (`prev` true) it stays ON until the value
+ * leaves [minV − h, maxV + h]. An analog sensor without bounds only reports its voltage (on = null: not calibrated).
+ */
+export function evaluateIoReading(
+  value: unknown,
+  cfg: Pick<IoSensorConfigInput, 'source' | 'invert' | 'minV' | 'maxV' | 'hysteresisV'>,
+  prev: boolean | null = null,
+): { on: boolean | null; voltage: number | null } {
+  const n = typeof value === 'number' && Number.isFinite(value) ? value : null;
+  if (cfg.source === 'DIGITAL') {
+    const b = typeof value === 'boolean' ? value : n !== null ? n !== 0 : null;
+    return { on: b === null ? null : b !== cfg.invert, voltage: null };
+  }
+  if (n === null) return { on: null, voltage: null };
+  if (cfg.minV === null && cfg.maxV === null) return { on: null, voltage: n };
+  const h = prev === true ? Math.max(0, cfg.hysteresisV) : 0;
+  const lo = cfg.minV === null ? Number.NEGATIVE_INFINITY : cfg.minV - h;
+  const hi = cfg.maxV === null ? Number.POSITIVE_INFINITY : cfg.maxV + h;
+  return { on: n >= lo && n <= hi, voltage: n };
 }

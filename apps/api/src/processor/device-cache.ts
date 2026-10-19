@@ -3,6 +3,7 @@ import { StatusThresholds } from '@veetracer/shared';
 import { effectiveSpeedLimit, ObjectMeta } from '../tracking/live-object';
 import { companyThresholds } from '../tracking/thresholds';
 import { FuelConfig, parseFuelConfig } from '../fuel/fuel-logic';
+import { IoSensorRuntime, parseIoSensors } from '../io-sensors/io-logic';
 
 const TTL_MS = 30_000;
 
@@ -16,6 +17,8 @@ export interface ResolvedDevice {
   object: ObjectMeta | null;
   /** Fuel sensor settings of the object (null = no fuel sensor configured). */
   fuel?: FuelConfig | null;
+  /** Enabled AC / door sensors wired to the device, applied to its object (empty / absent = none). */
+  io?: IoSensorRuntime[];
 }
 
 interface Entry {
@@ -52,6 +55,7 @@ export class DeviceCache {
         isActive: true,
         companyId: true,
         company: { select: { status: true, settings: true } },
+        ioSensors: { where: { enabled: true }, select: { kind: true, enabled: true, source: true, attribute: true, invert: true, minV: true, maxV: true, hysteresisV: true, debounceSec: true } },
         assignments: {
           where: { toTime: null },
           select: {
@@ -90,6 +94,7 @@ export class DeviceCache {
           accepted: d.isActive && d.company?.status === 'ACTIVE' && (o?.isActive ?? true),
           thresholds: companyThresholds(d.company?.settings),
           fuel: fuel && fuel.source !== 'none' ? fuel : null,
+          io: o ? parseIoSensors(d.ioSensors) : [],
           object: o
             ? {
                 objectId: o.id,

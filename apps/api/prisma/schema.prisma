@@ -248,6 +248,7 @@ model Device {
   model       DeviceModel        @relation(fields: [modelId], references: [id], onDelete: Restrict)
   assignments DeviceAssignment[]
   licenceSeat LicenceSeat?
+  ioSensors   IoSensorConfig[]
 
   @@index([companyId])
 }
@@ -287,7 +288,6 @@ model TrackedObject {
   serviceLog  ServiceRecord[]
   fuelConfig  FuelConfig?
   fuelEvents  FuelEvent[]
-  ioSensors   IoSensorConfig[]
   ioSessions  IoSession[]
   driverEvents DriverEvent[]
 
@@ -773,12 +773,12 @@ model FuelEvent {
   @@index([companyId, startTime(sort: Desc)])
 }
 
-/// AC / door sensor of a vehicle (one row per kind). kind: AC | DOOR; source: DIGITAL | ANALOG.
+/// AC / door sensor wired to a tracker (one row per device and kind; the wiring is on the device). kind: AC | DOOR; source: DIGITAL | ANALOG.
 /// DIGITAL: `attribute` is a boolean (or 0/1) input, `invert` flips it. ANALOG: ON while minV ≤ value ≤ maxV (volts).
 model IoSensorConfig {
-  objectId    String   @db.Uuid
+  deviceId    String   @db.Uuid
   kind        String
-  companyId   String   @db.Uuid
+  companyId   String?  @db.Uuid
   enabled     Boolean  @default(true)
   source      String   @default("ANALOG")
   attribute   String   @default("adc1")
@@ -790,9 +790,9 @@ model IoSensorConfig {
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
-  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
-  @@id([objectId, kind])
+  @@id([deviceId, kind])
   @@index([companyId])
 }
 

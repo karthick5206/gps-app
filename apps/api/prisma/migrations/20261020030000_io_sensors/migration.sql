@@ -1,8 +1,8 @@
 -- CreateTable
 CREATE TABLE "IoSensorConfig" (
-    "objectId" UUID NOT NULL,
+    "deviceId" UUID NOT NULL,
     "kind" TEXT NOT NULL,
-    "companyId" UUID NOT NULL,
+    "companyId" UUID,
     "enabled" BOOLEAN NOT NULL DEFAULT true,
     "source" TEXT NOT NULL DEFAULT 'ANALOG',
     "attribute" TEXT NOT NULL DEFAULT 'adc1',
@@ -14,7 +14,7 @@ CREATE TABLE "IoSensorConfig" (
     "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMPTZ(3) NOT NULL,
 
-    CONSTRAINT "IoSensorConfig_pkey" PRIMARY KEY ("objectId","kind")
+    CONSTRAINT "IoSensorConfig_pkey" PRIMARY KEY ("deviceId","kind")
 );
 
 -- CreateTable
@@ -49,7 +49,7 @@ CREATE INDEX "IoSession_companyId_startTime_idx" ON "IoSession"("companyId", "st
 CREATE INDEX "IoSession_objectId_kind_startTime_idx" ON "IoSession"("objectId", "kind", "startTime");
 
 -- AddForeignKey
-ALTER TABLE "IoSensorConfig" ADD CONSTRAINT "IoSensorConfig_objectId_fkey" FOREIGN KEY ("objectId") REFERENCES "TrackedObject"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "IoSensorConfig" ADD CONSTRAINT "IoSensorConfig_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "IoSession" ADD CONSTRAINT "IoSession_objectId_fkey" FOREIGN KEY ("objectId") REFERENCES "TrackedObject"("id") ON DELETE CASCADE ON UPDATE CASCADE;

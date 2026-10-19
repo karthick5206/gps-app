@@ -40,6 +40,25 @@ export interface WriteBatch {
   lastSeen: { deviceId: string; at: string }[];
   /** Detected fuel refills / drains. */
   fuelEvents?: FuelEventRow[];
+  /** AC / door session rows to upsert. */
+  ioSessions?: IoSessionRow[];
+}
+
+export interface IoSessionRow {
+  id: string;
+  companyId: string;
+  objectId: string;
+  kind: string;
+  on: boolean;
+  startTime: string;
+  endTime: string | null;
+  startLat: number | null;
+  startLng: number | null;
+  endLat: number | null;
+  endLng: number | null;
+  distanceKm: number;
+  durationSec: number;
+  engineOffSec: number;
 }
 
 export interface FuelEventRow {
@@ -142,6 +161,31 @@ export async function writeBatch(
         ${f.map((x) => str(x.lng))}::text[]::float8[]
       )
       ON CONFLICT DO NOTHING`);
+  }
+  // AC / door periods: one row per id (the latest snapshot in the batch), inserted when opened and updated after.
+  const io = [...new Map((batch.ioSessions ?? []).map((x) => [x.id, x])).values()];
+  if (io.length) {
+    statements.push(prisma.$executeRaw`
+      INSERT INTO "IoSession" ("id", "companyId", "objectId", "kind", "on", "startTime", "endTime", "startLat", "startLng", "endLat", "endLng", "distanceKm", "durationSec", "engineOffSec", "updatedAt")
+      SELECT t.*, now() FROM unnest(
+        ${io.map((x) => x.id)}::text[]::uuid[],
+        ${io.map((x) => x.companyId)}::text[]::uuid[],
+        ${io.map((x) => x.objectId)}::text[]::uuid[],
+        ${io.map((x) => x.kind)}::text[],
+        ${io.map((x) => String(x.on))}::text[]::boolean[],
+        ${io.map((x) => x.startTime)}::text[]::timestamptz[],
+        ${io.map((x) => x.endTime)}::text[]::timestamptz[],
+        ${io.map((x) => str(x.startLat))}::text[]::float8[],
+        ${io.map((x) => str(x.startLng))}::text[]::float8[],
+        ${io.map((x) => str(x.endLat))}::text[]::float8[],
+        ${io.map((x) => str(x.endLng))}::text[]::float8[],
+        ${io.map((x) => String(x.distanceKm))}::text[]::float8[],
+        ${io.map((x) => String(x.durationSec))}::text[]::integer[],
+        ${io.map((x) => String(x.engineOffSec))}::text[]::integer[]
+      ) AS t
+      ON CONFLICT ("id") DO UPDATE SET
+        "endTime" = EXCLUDED."endTime", "endLat" = EXCLUDED."endLat", "endLng" = EXCLUDED."endLng",
+        "distanceKm" = EXCLUDED."distanceKm", "durationSec" = EXCLUDED."durationSec", "engineOffSec" = EXCLUDED."engineOffSec", "updatedAt" = now()`);
   }
   // Extra statements (alert rows, geofence visits) commit atomically with the positions they came from.
   statements.push(...extra);
