@@ -96,8 +96,36 @@ Set the platform server in the dashcam's own menu or the vendor's configuration 
 Notes:
 - **Registering in VeeTracer:** enter the **terminal phone / device ID** (not the IMEI) as the device's unique ID, without leading zeros. For example, a terminal ID `013912345678` is registered as `13912345678`. If unsure, connect the device first and copy the ID from **Platform → Unknown Devices**.
 - **Time zone:** the spec says GMT+8, but VeeTracer detects GMT+8, IST and UTC clocks automatically from the first live fix.
-- **ADAS / DMS:** collision, lane-departure, fatigue, phone and smoking events are stored with each position (`adas`, `dms` fields). Alerts for them and video (JT/T 1078) come in a later release.
+- **ADAS / DMS:** collision, lane-departure, fatigue, phone and smoking events are stored with each position (`adas`, `dms` fields). Video is covered in §4b.
 - **Commands:** *Request location* (0x8201) and *Restart device* (0x8105). A custom command is read out on the dashcam speaker (0x8300 TTS), or `#<msgId>:<hex body>` sends a raw message.
+
+## 4b. Video (JT/T 1078)
+Live and recorded video from JT/T 1078 dashcams (Mettax MC202 class) plays in the web app: **Live Map → vehicle → Video** tab, the **Video** page, or **Watch video** on an ADAS / DMS alert (opens the recordings ±2 minutes around it). The mobile app's **Video** button opens the same page in the browser (sign in on the web there once).
+
+How it works: VeeTrax asks the dashcam over its JT808 connection (0x9101 live, 0x9205 list recordings, 0x9201 playback, 0x9102 / 0x9202 stop). The dashcam then opens a **second TCP connection to port 7612** and streams H.264. The gateway turns it into HTTP-FLV; the API relays it to viewers with a short-lived signed link. A stream stops by itself 30 s after its last viewer leaves.
+
+**Server (one-time):**
+- Open **TCP 7612** inbound on the server firewall, e.g. `New-NetFirewallRule -DisplayName "VeeTrax video 7612" -Direction Inbound -Protocol TCP -LocalPort 7612 -Action Allow`. No Caddy change: viewers go through `https://gps.mintplus.co.in/api/video/...`.
+- Gateway / API environment (defaults shown; restart `veetracer-gateway` and `veetracer-api` after changing):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MEDIA_PORT` | 7612 | Public TCP port dashcams stream to; `0` disables video |
+| `MEDIA_PUBLIC_HOST` | track.mintplus.co.in | Host / IP sent to the dashcam in 0x9101 / 0x9201 |
+| `MEDIA_HTTP_PORT` | 4110 | Gateway HTTP-FLV server, bound to 127.0.0.1 only (the API proxies it) |
+| `MEDIA_MAX_STREAMS` | 8 | Concurrent device streams (protects the 4 GB server); viewers of the same channel share one stream |
+
+**Dashcam settings:**
+- Video server = the **same host** as the JT808 server (`track.mintplus.co.in`). Most firmware takes the address from the 0x9101 request, so nothing else is needed; if the firmware has its own "video server" field, enter the same host and port 7612.
+- Video codec **H.264**. H.265 cannot be played in the browser (the player says so).
+- Channels: usually CH1 = road camera, CH2 = driver camera, CH3–CH4 = extra cameras when fitted. The channel count comes from the dashcam (0x1003) when it answers; otherwise CH1–CH4 are shown.
+- Keep a memory card inserted for recordings.
+
+**Bandwidth:** VeeTrax requests the **sub-stream** by default: about **256–512 kbps per channel** (≈ 115–230 MB of SIM data per hour per channel). The main stream is typically 1–2 Mbps. This release is video-only (no audio).
+
+**Permissions:** the **Video** menu (view) is granted to Admin and Manager roles (run the seed's role sync, or add it in **Roles & Permissions**; add it to User roles there if wanted). The device model must have the `video` capability (the JT808 model does) and the vehicle an active licence. Every view is written to the audit log (vehicle, channel, live / playback, duration).
+
+**Verify with a real device first.** The media server and signalling were built from the public JT/T 1078-2016 spec, not vendor documents or captures. Connect one MC202 with `GATEWAY_CAPTURE=<terminal id>` on the gateway, start a live view and a recording search, and send `capture-jt808.log` plus the gateway log lines from `[Media]` / `[Video]` to development. To confirm: the 0x9101 answer, that media arrives on 7612 (6- or 10-byte SIM field is detected automatically), recording times from 0x1205 (device clock zone), and playback (0x9201).
 
 ## 5. Checking a device
 1. **Live map:** the vehicle should leave **No data** within a minute of the device connecting.
