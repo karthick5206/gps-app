@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { COMPARE_AND_SET_SCRIPT, RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { parseLive } from '../tracking/live-object';
+import { apiMetrics } from '../monitoring/api-metrics';
 import { companyThresholds } from '../tracking/thresholds';
 
 const CHUNK = 1000;
@@ -33,6 +34,7 @@ export class OfflineSweeperService {
       this.logger.error(`Offline sweep failed: ${(error as Error).message}`);
     } finally {
       this.running = false;
+      apiMetrics.sweeperLastRunAt = new Date().toISOString();
     }
   }
 
