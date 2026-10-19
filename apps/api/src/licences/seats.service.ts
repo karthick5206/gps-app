@@ -1,6 +1,6 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { deviceLicenceType, LICENCE_TYPE_LABELS, LicenceRequiredError, LicenceType } from '@veetracer/shared';
+import { deviceLicenceType, LICENCE_TYPE_LABELS, LicenceRequiredError, LicenceType, SeatLicenceType } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { LicencePolicyService } from './licence-policy.service';
@@ -37,7 +37,7 @@ export class SeatsService {
   ) {}
 
   /** Assign a seat to the subject (no-op for platform companies). Returns the seat id, or null when exempt. */
-  async assign(tx: Tx, ctx: AuthContext | null, companyId: string, type: LicenceType, subjectId: string): Promise<string | null> {
+  async assign(tx: Tx, ctx: AuthContext | null, companyId: string, type: SeatLicenceType, subjectId: string): Promise<string | null> {
     if (await this.policy.isExempt(companyId)) return null;
     const col = Prisma.raw(`"${SUBJECT_COLUMN[type]}"`);
     const rows = await tx.$queryRaw<{ id: string }[]>`

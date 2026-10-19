@@ -3,7 +3,12 @@
  * Pure functions, shared by the api (invoices, locking) and the web / mobile apps (price previews, banners).
  */
 
-export const LICENCE_TYPES = ['USER', 'GPS_DEVICE', 'DASHCAM', 'FUEL_SENSOR'] as const;
+/** Licences held by one user / device / fuel sensor. */
+export const SEAT_LICENCE_TYPES = ['USER', 'GPS_DEVICE', 'DASHCAM', 'FUEL_SENSOR'] as const;
+export type SeatLicenceType = (typeof SEAT_LICENCE_TYPES)[number];
+
+/** Every licence type: the per-subject seats plus the account-level Developer API licence (one per company). */
+export const LICENCE_TYPES = [...SEAT_LICENCE_TYPES, 'API_ACCESS'] as const;
 export type LicenceType = (typeof LICENCE_TYPES)[number];
 
 export const LICENCE_TYPE_LABELS: Record<LicenceType, string> = {
@@ -11,12 +16,15 @@ export const LICENCE_TYPE_LABELS: Record<LicenceType, string> = {
   GPS_DEVICE: 'GPS device',
   DASHCAM: 'Dashcam',
   FUEL_SENSOR: 'Fuel sensor',
+  API_ACCESS: 'Developer API',
 };
+
+export const isSeatLicenceType = (t: LicenceType): t is SeatLicenceType => t !== 'API_ACCESS';
 
 /** Device-model capabilities that make a device a dashcam (JT/T 808 video profiles). */
 export const DASHCAM_CAPABILITIES = ['video', 'adas', 'dms'] as const;
 
-export function deviceLicenceType(capabilities: readonly string[]): LicenceType {
+export function deviceLicenceType(capabilities: readonly string[]): SeatLicenceType {
   return capabilities.some((c) => (DASHCAM_CAPABILITIES as readonly string[]).includes(c)) ? 'DASHCAM' : 'GPS_DEVICE';
 }
 
@@ -32,6 +40,82 @@ export const PAYMENT_MODE_LABELS: Record<PaymentMode, string> = {
   BANK_TRANSFER: 'Bank transfer',
   CHEQUE: 'Cheque',
 };
+
+/** How a credit note's amount was refunded (Razorpay refunds are not automated yet: recorded manually). */
+export const REFUND_MODES = ['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'RAZORPAY_REFUND_MANUAL', 'NONE'] as const;
+export type RefundMode = (typeof REFUND_MODES)[number];
+
+export const REFUND_MODE_LABELS: Record<RefundMode, string> = {
+  CASH: 'Cash',
+  UPI: 'UPI',
+  BANK_TRANSFER: 'Bank transfer',
+  CHEQUE: 'Cheque',
+  RAZORPAY_REFUND_MANUAL: 'Razorpay refund (manual)',
+  NONE: 'No refund (credit only)',
+};
+
+// ───────────── Developer API plans (API_ACCESS licence) ─────────────
+
+export const API_PLANS = ['BASIC', 'STANDARD', 'ENTERPRISE'] as const;
+export type ApiPlan = (typeof API_PLANS)[number];
+
+export const API_PLAN_LABELS: Record<ApiPlan, string> = { BASIC: 'Basic', STANDARD: 'Standard', ENTERPRISE: 'Enterprise' };
+
+export interface ApiPlanLimits {
+  /** GST-inclusive price per account per year (paise). */
+  pricePaise: number;
+  /** Vehicles reachable through the API (first N by name); null = unlimited. */
+  maxVehicles: number | null;
+  /** Requests per minute per API key (a key's own setting can only be lower). */
+  ratePerMinute: number;
+  /** Requests per day for the whole company (all keys together; UTC day). */
+  ratePerDay: number;
+  /** Webhook endpoints the company may create. */
+  maxWebhooks: number;
+}
+
+export type ApiPlans = Record<ApiPlan, ApiPlanLimits>;
+
+/** Owner's default pricing; every value can be changed by the Super Admin (Platform Settings → Licence pricing). */
+export const DEFAULT_API_PLANS: ApiPlans = {
+  BASIC: { pricePaise: 600_000, maxVehicles: 25, ratePerMinute: 60, ratePerDay: 10_000, maxWebhooks: 1 },
+  STANDARD: { pricePaise: 1_500_000, maxVehicles: 100, ratePerMinute: 120, ratePerDay: 50_000, maxWebhooks: 5 },
+  ENTERPRISE: { pricePaise: 4_000_000, maxVehicles: null, ratePerMinute: 300, ratePerDay: 250_000, maxWebhooks: 20 },
+};
+
+const intIn = (v: unknown, min: number, max: number, fallback: number): number => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
+};
+
+/** Plans from stored JSON: each field sanitised, anything missing taken from the defaults. */
+export function readApiPlans(json: unknown): ApiPlans {
+  const src = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>;
+  const out = {} as ApiPlans;
+  for (const plan of API_PLANS) {
+    const d = DEFAULT_API_PLANS[plan];
+    const p = (src[plan] && typeof src[plan] === 'object' ? src[plan] : {}) as Record<string, unknown>;
+    out[plan] = {
+      pricePaise: intIn(p.pricePaise, 0, 1_000_000_000, d.pricePaise),
+      maxVehicles: p.maxVehicles === null ? null : 'maxVehicles' in p ? intIn(p.maxVehicles, 1, 1_000_000, d.maxVehicles ?? 1) : d.maxVehicles,
+      ratePerMinute: intIn(p.ratePerMinute, 1, 6000, d.ratePerMinute),
+      ratePerDay: intIn(p.ratePerDay, 1, 100_000_000, d.ratePerDay),
+      maxWebhooks: intIn(p.maxWebhooks, 0, 1000, d.maxWebhooks),
+    };
+  }
+  return out;
+}
+
+export const isApiPlan = (v: unknown): v is ApiPlan => typeof v === 'string' && (API_PLANS as readonly string[]).includes(v);
+
+/** A key's effective limits: never above the plan (minimum of the key's own setting and the plan's). */
+export function cappedKeyRates(key: { ratePerMinute: number; ratePerDay: number }, plan: Pick<ApiPlanLimits, 'ratePerMinute' | 'ratePerDay'> | null): { perMinute: number; perDay: number } {
+  if (!plan) return { perMinute: key.ratePerMinute, perDay: key.ratePerDay };
+  return { perMinute: Math.min(key.ratePerMinute, plan.ratePerMinute), perDay: Math.min(key.ratePerDay, plan.ratePerDay) };
+}
+
+/** Partner price-override key of an API plan in the partner's pricesPaise JSON. */
+export const apiPlanPriceKey = (plan: ApiPlan) => `API_ACCESS:${plan}`;
 
 /** Where a seat came from. */
 export type SeatSource = 'PURCHASE' | 'MIGRATION' | 'OVERRIDE' | 'ALLOCATION';
@@ -282,22 +366,37 @@ export function formatInvoiceNumber(prefix: string, fy: string, seq: number): st
 
 // ───────────── API DTOs ─────────────
 
-export type LicencePrices = Record<LicenceType, number>;
+/** Yearly price per seat type (the Developer API is priced per plan: ApiPlans). */
+export type LicencePrices = Record<SeatLicenceType, number>;
 
 /** Platform licence settings (Super Admin). Prices are GST-inclusive, per seat per year, in paise. */
 export interface LicencePricingDto {
   pricesPaise: LicencePrices;
+  /** Developer API plans: price and limits, all editable. */
+  apiPlans: ApiPlans;
   gstRatePct: number;
   graceDays: number;
   /** Validity of a seat granted by a Super Admin override (days). */
   overrideDays: number;
 }
 
+/** Unit price of a licence (API_ACCESS: the plan's price; BASIC when no plan is given). */
+export function unitPricePaise(prices: LicencePrices, plans: ApiPlans, type: LicenceType, plan?: ApiPlan | null): number {
+  return type === 'API_ACCESS' ? plans[plan ?? 'BASIC'].pricePaise : prices[type];
+}
+
+/** "Developer API (Standard)" / "GPS device". */
+export function licenceLabel(type: LicenceType, plan?: ApiPlan | null): string {
+  return type === 'API_ACCESS' && plan ? `${LICENCE_TYPE_LABELS[type]} (${API_PLAN_LABELS[plan]})` : LICENCE_TYPE_LABELS[type];
+}
+
 export interface PartnerPricingDto {
   partnerId: string;
   partnerName: string;
   /** Per-type override; null = platform price. */
-  pricesPaise: Record<LicenceType, number | null>;
+  pricesPaise: Record<SeatLicenceType, number | null>;
+  /** Developer API plan price overrides; null = platform price. */
+  apiPlanPricesPaise: Record<ApiPlan, number | null>;
 }
 
 export interface InvoicingSettingsDto {
@@ -316,6 +415,8 @@ export interface InvoicingSettingsDto {
   hasLogo: boolean;
   sacCode: string;
   invoicePrefix: string;
+  /** Credit note series prefix, e.g. "VTX/CN" → VTX/CN/2026-27/0001. */
+  creditNotePrefix: string;
   bankName: string;
   bankAccountName: string;
   bankAccountNo: string;
@@ -338,7 +439,7 @@ export interface BillingProfileDto {
   complete: boolean;
 }
 
-export type SeatSubjectKind = 'USER' | 'DEVICE' | 'FUEL';
+export type SeatSubjectKind = 'USER' | 'DEVICE' | 'FUEL' | 'COMPANY';
 
 export interface SeatDto {
   id: string;
@@ -355,6 +456,8 @@ export interface SeatDto {
   locked: boolean;
   subject: { kind: SeatSubjectKind; id: string; name: string } | null;
   note: string | null;
+  /** API_ACCESS seats: the plan. */
+  apiPlan: ApiPlan | null;
 }
 
 export interface SeatSummaryDto {
@@ -377,6 +480,10 @@ export interface LicenceOverviewDto {
   summary: SeatSummaryDto[];
   seats: SeatDto[];
   pricesPaise: LicencePrices;
+  /** Developer API plans with this buyer's prices. */
+  apiPlans: ApiPlans;
+  /** Company pools: the Developer API licence (null for partner pools). */
+  apiAccess: ApiAccessStatusDto | null;
   gstRatePct: number;
   graceDays: number;
   billing: BillingProfileDto;
@@ -388,6 +495,8 @@ export interface LicenceOverviewDto {
 export interface PurchaseItem {
   type: LicenceType;
   quantity: number;
+  /** API_ACCESS only (default BASIC). */
+  plan?: ApiPlan;
 }
 
 export interface PurchaseRequest {
@@ -405,6 +514,8 @@ export interface QuoteLineDto {
   periodFrom: string;
   periodTo: string;
   seatIds: string[];
+  /** API_ACCESS lines: the plan bought / renewed. */
+  plan?: ApiPlan | null;
 }
 
 export interface QuoteDto {
@@ -445,6 +556,8 @@ export interface InvoiceDto {
   paymentMode: PaymentMode;
   paymentReference: string | null;
   emailedAt: string | null;
+  /** Sum of the credit notes issued against this invoice (GST-inclusive, paise). */
+  creditedPaise: number;
 }
 
 export interface OfflinePaymentRequest extends PurchaseRequest {
@@ -474,3 +587,102 @@ export interface LicenceRequiredError {
 }
 
 export const LICENCE_OVERRIDE_HEADER = 'x-licence-override';
+
+// ───────────── Credit notes ─────────────
+
+/** One invoice line to credit: by index; quantity of seats; amount defaults to unit price × quantity. */
+export interface CreditNoteLineRequest {
+  lineIndex: number;
+  quantity: number;
+  /** GST-inclusive amount to credit for this line (paise); at most what is left on the line. */
+  amountPaise?: number;
+}
+
+export interface CreditNoteRequest {
+  lines: CreditNoteLineRequest[];
+  reason: string;
+  refundMode: RefundMode;
+  refundReference?: string;
+  /** Leave the credited seats running (e.g. a price correction); otherwise they expire now. */
+  keepSeatsActive: boolean;
+}
+
+/** An invoice line with what has already been credited against it. */
+export interface CreditableLineDto {
+  lineIndex: number;
+  type: LicenceType;
+  plan: ApiPlan | null;
+  kind: 'NEW' | 'RENEWAL';
+  quantity: number;
+  unitPaise: number;
+  amountPaise: number;
+  periodFrom: string;
+  periodTo: string;
+  creditedQuantity: number;
+  creditedPaise: number;
+  remainingQuantity: number;
+  remainingPaise: number;
+}
+
+export interface CreditNoteDto {
+  id: string;
+  number: string;
+  issuedAt: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  buyerName: string;
+  companyId: string | null;
+  partnerId: string | null;
+  gstin: string | null;
+  stateCode: string;
+  reason: string;
+  taxablePaise: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  utgstPaise: number;
+  igstPaise: number;
+  totalPaise: number;
+  refundMode: RefundMode;
+  refundReference: string | null;
+  keepSeatsActive: boolean;
+  revokedSeats: number;
+  emailedAt: string | null;
+}
+
+/** Invoice detail for crediting: its lines, what is left to credit, and the credit notes so far. */
+export interface InvoiceCreditsDto {
+  invoice: InvoiceDto;
+  lines: CreditableLineDto[];
+  creditedPaise: number;
+  remainingPaise: number;
+  creditNotes: CreditNoteDto[];
+}
+
+// ───────────── Developer API licence status ─────────────
+
+export interface ApiAccessSeatDto {
+  id: string;
+  plan: ApiPlan;
+  source: SeatSource;
+  activatedAt: string;
+  expiresAt: string;
+  status: SeatStatus;
+  locked: boolean;
+}
+
+/** The company's Developer API licence: plan, limits and today's usage (Developer API page, Billing & Licences). */
+export interface ApiAccessStatusDto {
+  /** Platform companies: no licence needed, no plan limits. */
+  exempt: boolean;
+  /** Current API seat (latest expiry), or null when none was ever bought. */
+  seat: ApiAccessSeatDto | null;
+  /** API keys work: exempt, or the seat is active / in its grace period. */
+  allowed: boolean;
+  /** Limits of the current plan (null: exempt or no seat). */
+  limits: ApiPlanLimits | null;
+  usage: { requestsToday: number; vehicles: number; webhooks: number };
+  graceDays: number;
+}
+
+/** Customer API error codes for the Developer API licence (HTTP 402). */
+export type ApiLicenceErrorCode = 'LICENCE_EXPIRED' | 'LICENCE_REQUIRED' | 'API_VEHICLE_LIMIT' | 'API_WEBHOOK_LIMIT';

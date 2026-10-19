@@ -1,14 +1,17 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { PlatformBillingSettings } from '@prisma/client';
+import { PlatformBillingSettings, Prisma } from '@prisma/client';
 import {
+  API_PLANS,
+  apiPlanPriceKey,
+  ApiPlans,
   DEFAULT_GRACE_DAYS,
   DEFAULT_GST_RATE,
   gstinError,
   InvoicingSettingsDto,
-  LICENCE_TYPES,
   LicencePrices,
   LicencePricingDto,
-  LicenceType,
+  readApiPlans,
+  SEAT_LICENCE_TYPES,
   stateByCode,
 } from '@veetracer/shared';
 import { existsSync } from 'node:fs';
@@ -24,7 +27,7 @@ const MAX_LOGO_BYTES = 1024 * 1024;
 
 export function readPrices(json: unknown): LicencePrices {
   const src = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>;
-  return Object.fromEntries(LICENCE_TYPES.map((t) => [t, Math.max(0, Math.round(Number(src[t]) || 0))])) as LicencePrices;
+  return Object.fromEntries(SEAT_LICENCE_TYPES.map((t) => [t, Math.max(0, Math.round(Number(src[t]) || 0))])) as LicencePrices;
 }
 
 export function toInvoicingDto(s: PlatformBillingSettings): InvoicingSettingsDto {
@@ -43,6 +46,7 @@ export function toInvoicingDto(s: PlatformBillingSettings): InvoicingSettingsDto
     hasLogo: !!s.logoFile,
     sacCode: s.sacCode,
     invoicePrefix: s.invoicePrefix,
+    creditNotePrefix: s.creditNotePrefix,
     bankName: s.bankName,
     bankAccountName: s.bankAccountName,
     bankAccountNo: s.bankAccountNo,
@@ -80,7 +84,7 @@ export class LicenceSettingsService {
 
   async pricing(): Promise<LicencePricingDto> {
     const s = await this.get();
-    return { pricesPaise: readPrices(s.pricesPaise), gstRatePct: s.gstRatePct ?? DEFAULT_GST_RATE, graceDays: s.graceDays, overrideDays: s.overrideDays };
+    return { pricesPaise: readPrices(s.pricesPaise), apiPlans: readApiPlans(s.apiPlans), gstRatePct: s.gstRatePct ?? DEFAULT_GST_RATE, graceDays: s.graceDays, overrideDays: s.overrideDays };
   }
 
   /** Prices for a buyer: the partner's overrides where set, else the platform price. */
@@ -90,18 +94,26 @@ export class LicenceSettingsService {
     const partner = await this.prisma.partner.findUnique({ where: { id: partnerId }, select: { pricesPaise: true } });
     const overrides = (partner?.pricesPaise ?? {}) as Record<string, unknown>;
     const out = { ...base };
-    for (const t of LICENCE_TYPES) {
+    for (const t of SEAT_LICENCE_TYPES) {
       const v = overrides[t];
-      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[t as LicenceType] = Math.round(v);
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[t] = Math.round(v);
     }
     return out;
+  }
+
+  /** Developer API plans for a buyer: limits from the platform, prices overridden by the partner where set. */
+  async apiPlansFor(partnerId: string | null): Promise<ApiPlans> {
+    const plans = readApiPlans((await this.get()).apiPlans);
+    if (!partnerId) return plans;
+    const partner = await this.prisma.partner.findUnique({ where: { id: partnerId }, select: { pricesPaise: true } });
+    return applyPartnerApiPrices(plans, partner?.pricesPaise);
   }
 
   async updatePricing(dto: LicencePricingDto): Promise<LicencePricingDto> {
     await this.get();
     await this.prisma.platformBillingSettings.update({
       where: { id: 'default' },
-      data: { pricesPaise: readPrices(dto.pricesPaise), gstRatePct: dto.gstRatePct, graceDays: dto.graceDays, overrideDays: dto.overrideDays },
+      data: { pricesPaise: readPrices(dto.pricesPaise), apiPlans: readApiPlans(dto.apiPlans) as unknown as Prisma.InputJsonValue, gstRatePct: dto.gstRatePct, graceDays: dto.graceDays, overrideDays: dto.overrideDays },
     });
     this.invalidate();
     return this.pricing();
@@ -118,6 +130,9 @@ export class LicenceSettingsService {
       if (err) throw new BadRequestException(err);
     }
     if (!/^[A-Za-z0-9-]{0,16}$/.test(dto.invoicePrefix)) throw new BadRequestException('Invoice prefix: letters, digits and "-" only (max 16)');
+    if (!/^[A-Za-z0-9-]+(\/[A-Za-z0-9-]+)*$/.test(dto.creditNotePrefix) || dto.creditNotePrefix.length > 20 || dto.creditNotePrefix === dto.invoicePrefix) {
+      throw new BadRequestException('Credit note prefix: letters, digits, "-" and "/" (max 20), different from the invoice prefix');
+    }
     await this.get();
     const { ...data } = dto;
     await this.prisma.platformBillingSettings.update({
@@ -162,4 +177,15 @@ export class LicenceSettingsService {
     const mime = ext === 'svg' ? 'image/svg+xml' : ext === 'png' ? 'image/png' : 'image/jpeg';
     return { data: await readFile(path), mime };
   }
+}
+
+/** Partner overrides of the API plan prices (keys "API_ACCESS:<plan>" in the partner's pricesPaise). */
+export function applyPartnerApiPrices(plans: ApiPlans, partnerPrices: unknown): ApiPlans {
+  const overrides = (partnerPrices && typeof partnerPrices === 'object' ? partnerPrices : {}) as Record<string, unknown>;
+  const out = { ...plans };
+  for (const plan of API_PLANS) {
+    const v = overrides[apiPlanPriceKey(plan)];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[plan] = { ...out[plan], pricePaise: Math.round(v) };
+  }
+  return out;
 }

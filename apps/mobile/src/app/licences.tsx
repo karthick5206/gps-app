@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { formatInr, LICENCE_EXPIRING_DAYS, LICENCE_TYPE_LABELS, LICENCE_TYPES, type InvoiceDto, type LicenceOverviewDto } from '@veetracer/shared';
+import { API_PLAN_LABELS, formatInr, LICENCE_EXPIRING_DAYS, LICENCE_TYPE_LABELS, SEAT_LICENCE_TYPES, type CreditNoteDto, type InvoiceDto, type LicenceOverviewDto } from '@veetracer/shared';
 import { Stack } from 'expo-router';
-import { ExternalLinkIcon, FileDownIcon, FileTextIcon, ShieldCheckIcon } from 'lucide-react-native';
+import { ExternalLinkIcon, FileDownIcon, FileMinusIcon, FileTextIcon, ShieldCheckIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, EmptyState, ErrorBanner, Pill, SectionTitle, Text } from '@/components/ui';
@@ -20,6 +20,11 @@ export default function LicencesScreen() {
   const c = useColors();
   const overview = useQuery({ queryKey: ['licences', 'overview'], queryFn: ({ signal }) => api.get<LicenceOverviewDto>('/licences/overview', undefined, signal) });
   const invoices = useQuery({ queryKey: ['licences', 'invoices'], queryFn: ({ signal }) => api.get<InvoiceDto[]>('/licences/invoices', undefined, signal) });
+  const credits = useQuery({ queryKey: ['licences', 'credit-notes'], queryFn: ({ signal }) => api.get<CreditNoteDto[]>('/licences/credit-notes', undefined, signal) });
+  const shareCn = useMutation({
+    mutationFn: (cn: CreditNoteDto) => downloadAndShare(`/licences/credit-notes/${cn.id}/pdf`, { fallbackName: `CreditNote-${cn.number.replace(/\//g, '-')}.pdf` }),
+    onError: (err) => Alert.alert(t('Could not open the credit note'), errorMessage(err)),
+  });
   const share = useMutation({
     mutationFn: (inv: InvoiceDto) => downloadAndShare(`/licences/invoices/${inv.id}/pdf`, { fallbackName: `Invoice-${inv.number.replace(/\//g, '-')}.pdf` }),
     onError: (err) => Alert.alert(t('Could not open the invoice'), errorMessage(err)),
@@ -27,6 +32,7 @@ export default function LicencesScreen() {
   const refresh = () => {
     void overview.refetch();
     void invoices.refetch();
+    void credits.refetch();
   };
   const o = overview.data;
   const expiring = (o?.seats ?? []).filter((s) => s.subject && s.status !== 'ACTIVE');
@@ -41,7 +47,7 @@ export default function LicencesScreen() {
           <>
             <SectionTitle>{t('Licences')}</SectionTitle>
             <View style={styles.grid}>
-              {LICENCE_TYPES.map((type) => {
+              {SEAT_LICENCE_TYPES.map((type) => {
                 const s = o.summary.find((x) => x.type === type);
                 return (
                   <Card key={type} style={styles.tile}>
@@ -59,6 +65,18 @@ export default function LicencesScreen() {
                 );
               })}
             </View>
+            {o.apiAccess?.seat && (
+              <Card style={{ gap: 2 }}>
+                <Text size="sm" tone="muted">
+                  {t(LICENCE_TYPE_LABELS.API_ACCESS)}
+                </Text>
+                <Text weight="700">{t(API_PLAN_LABELS[o.apiAccess.seat.plan])}</Text>
+                <Text size="xs" tone="muted">
+                  {t('Expires on')} {day(o.apiAccess.seat.expiresAt)}
+                  {o.apiAccess.allowed ? '' : ` · ${t('Developer API licence expired')}`}
+                </Text>
+              </Card>
+            )}
             <Button title={t('Buy or renew on the web')} icon={ExternalLinkIcon} onPress={() => void Linking.openURL(`${SERVER_URL}/admin/billing`)} />
 
             <SectionTitle>{t('Expiring or expired')}</SectionTitle>
@@ -69,7 +87,7 @@ export default function LicencesScreen() {
                     <View style={{ flex: 1 }}>
                       <Text weight="600">{s.subject?.name}</Text>
                       <Text size="xs" tone="muted">
-                        {t(LICENCE_TYPE_LABELS[s.type])} · {t('Expires on')} {day(s.expiresAt)}
+                        {t(LICENCE_TYPE_LABELS[s.type])}{s.apiPlan ? ` (${t(API_PLAN_LABELS[s.apiPlan])})` : ''} · {t('Expires on')} {day(s.expiresAt)}
                       </Text>
                     </View>
                     <Pill label={s.status === 'EXPIRING' ? t('Expiring') : s.status === 'GRACE' ? t('In grace period') : t('Expired')} color={s.status === 'EXPIRING' ? c.warning : c.destructive} />
@@ -90,15 +108,34 @@ export default function LicencesScreen() {
         {!!invoices.data?.length && (
           <Card style={{ paddingVertical: 0 }}>
             {invoices.data.map((inv) => (
-              <Pressable key={inv.id} onPress={() => share.mutate(inv)} disabled={share.isPending} style={({ pressed }) => [styles.row, { borderBottomColor: c.border }, pressed && { opacity: 0.6 }]}>
-                <View style={{ flex: 1 }}>
-                  <Text weight="600">{inv.number}</Text>
-                  <Text size="xs" tone="muted">
-                    {day(inv.issuedAt)} · {rupees(inv.totalPaise)}
-                  </Text>
-                </View>
-                {share.isPending && share.variables?.id === inv.id ? <ActivityIndicator /> : <FileDownIcon size={20} color={c.primary} />}
-              </Pressable>
+              <View key={inv.id}>
+                <Pressable onPress={() => share.mutate(inv)} disabled={share.isPending} style={({ pressed }) => [styles.row, { borderBottomColor: c.border }, pressed && { opacity: 0.6 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text weight="600">{inv.number}</Text>
+                    <Text size="xs" tone="muted">
+                      {day(inv.issuedAt)} · {rupees(inv.totalPaise)}
+                      {inv.creditedPaise > 0 ? ` · ${t('Credited {{amount}}', { amount: rupees(inv.creditedPaise) })}` : ''}
+                    </Text>
+                  </View>
+                  {share.isPending && share.variables?.id === inv.id ? <ActivityIndicator /> : <FileDownIcon size={20} color={c.primary} />}
+                </Pressable>
+                {(credits.data ?? [])
+                  .filter((cn) => cn.invoiceId === inv.id)
+                  .map((cn) => (
+                    <Pressable key={cn.id} onPress={() => shareCn.mutate(cn)} disabled={shareCn.isPending} style={({ pressed }) => [styles.row, styles.subRow, { borderBottomColor: c.border }, pressed && { opacity: 0.6 }]}>
+                      <FileMinusIcon size={16} color={c.destructive} />
+                      <View style={{ flex: 1 }}>
+                        <Text size="sm" weight="600">
+                          {t('Credit note')} {cn.number}
+                        </Text>
+                        <Text size="xs" tone="muted">
+                          {day(cn.issuedAt)} · -{rupees(cn.totalPaise)} · {cn.reason}
+                        </Text>
+                      </View>
+                      {shareCn.isPending && shareCn.variables?.id === cn.id ? <ActivityIndicator /> : <FileDownIcon size={18} color={c.primary} />}
+                    </Pressable>
+                  ))}
+              </View>
             ))}
           </Card>
         )}
@@ -112,4 +149,5 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm },
   tile: { flexBasis: '47%', flexGrow: 1, gap: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  subRow: { paddingLeft: SPACE.lg, paddingVertical: 8 },
 });

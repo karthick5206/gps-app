@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { InvoiceDto, LicenceOverviewDto } from '@veetracer/shared';
+import type { CreditNoteDto, InvoiceDto, LicenceOverviewDto } from '@veetracer/shared';
 import { CreditCardIcon, FileTextIcon, ReceiptIcon, RefreshCwIcon, ShieldCheckIcon, WalletIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, errorMessage } from '@/lib/api';
 import { BillingProfileForm } from './BillingProfileForm';
 import { BuyDialog } from './BuyDialog';
-import { InvoicesTable, SeatSummaryCards, SeatsTable } from './shared';
+import { CreditNotesTable, InvoicesTable, SeatSummaryCards, SeatsTable } from './shared';
 
 /**
  * One licence pool (company or partner): seat summary, seat list with renewal selection, buy / renew (online or the
@@ -23,6 +23,8 @@ export function PoolView({
   profilePath,
   invoicesPath,
   pdfPath,
+  creditNotesPath,
+  creditNotePdfPath,
   recordPath,
   canBuy,
   canEditProfile,
@@ -35,6 +37,9 @@ export function PoolView({
   profilePath: string;
   invoicesPath: string;
   pdfPath: (id: string) => string;
+  /** Credit notes of this pool (listed under the invoices). */
+  creditNotesPath?: string;
+  creditNotePdfPath?: (id: string) => string;
   recordPath?: string;
   canBuy: boolean;
   canEditProfile: boolean;
@@ -46,6 +51,11 @@ export function PoolView({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<'pay' | 'record' | null>(null);
   const invoices = useQuery({ queryKey: [invoicesPath], queryFn: ({ signal }) => api.get<InvoiceDto[]>(invoicesPath, undefined, signal) });
+  const creditNotes = useQuery({
+    queryKey: [creditNotesPath],
+    queryFn: ({ signal }) => api.get<CreditNoteDto[]>(creditNotesPath!, undefined, signal),
+    enabled: !!creditNotesPath,
+  });
   const toggle = (id: string, on: boolean) =>
     setSelected((s) => {
       const n = new Set(s);
@@ -117,6 +127,14 @@ export function PoolView({
           <Card className="overflow-hidden p-0">
             {invoices.isPending ? <Skeleton className="m-4 h-24" /> : invoices.isError ? <FormError message={errorMessage(invoices.error)} /> : <InvoicesTable invoices={invoices.data} pdfPath={pdfPath} />}
           </Card>
+          {creditNotePdfPath && !!creditNotes.data?.length && (
+            <div className="mt-4 space-y-2">
+              <h3 className="text-sm font-semibold">{t('Credit notes')}</h3>
+              <Card className="overflow-hidden p-0">
+                <CreditNotesTable notes={creditNotes.data} pdfPath={creditNotePdfPath} />
+              </Card>
+            </div>
+          )}
         </TabsContent>
         <TabsContent value="billing" className="mt-4">
           <Card className="p-4">

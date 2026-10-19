@@ -159,6 +159,7 @@ export function InvoicingSettings() {
           <h3 className="font-medium">{t('Numbering and tax')}</h3>
           <div className="grid gap-4 sm:grid-cols-3">
             {text('invoicePrefix', t('Invoice prefix'), { max: 16, upper: true, hint: t('Next number looks like {{example}}', { example: formatInvoiceNumber(form.invoicePrefix, financialYear(new Date()), 1) }) })}
+            {text('creditNotePrefix', t('Credit note prefix'), { max: 20, upper: true, hint: t('Next number looks like {{example}}', { example: formatInvoiceNumber(form.creditNotePrefix, financialYear(new Date()), 1) }) })}
             {text('sacCode', t('SAC code'), { max: 8, hint: t('Default 998314 — confirm with your accountant.') })}
           </div>
         </section>

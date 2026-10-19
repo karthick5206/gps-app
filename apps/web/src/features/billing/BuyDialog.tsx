@@ -1,14 +1,17 @@
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import {
+  API_PLAN_LABELS,
+  API_PLANS,
   LICENCE_TYPE_LABELS,
-  LICENCE_TYPES,
   OFFLINE_PAYMENT_MODES,
   PAYMENT_MODE_LABELS,
+  type ApiPlan,
   type CheckoutDto,
   type LicenceOverviewDto,
-  type LicenceType,
   type OfflinePaymentMode,
   type QuoteDto,
+  SEAT_LICENCE_TYPES,
+  type SeatLicenceType,
 } from '@veetracer/shared';
 import { BanknoteIcon, CreditCardIcon, ReceiptIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -25,7 +28,7 @@ import { api, errorMessage } from '@/lib/api';
 import { openCheckout } from './razorpay';
 import { formatDay, rupees, TYPE_ICONS } from './shared';
 
-type Quantities = Record<LicenceType, number>;
+type Quantities = Record<SeatLicenceType, number>;
 const ZERO: Quantities = { USER: 0, GPS_DEVICE: 0, DASHCAM: 0, FUEL_SENSOR: 0 };
 
 const today = () => {
@@ -50,7 +53,8 @@ export function QuoteSummary({ quote }: { quote: QuoteDto }) {
       {quote.lines.map((l, i) => (
         <div key={i} className="flex justify-between gap-3">
           <span>
-            {l.quantity} × {t(LICENCE_TYPE_LABELS[l.type])} {l.kind === 'RENEWAL' ? t('renewal') : ''}
+            {l.quantity} × {t(LICENCE_TYPE_LABELS[l.type])}
+            {l.plan ? ` (${t(API_PLAN_LABELS[l.plan])})` : ''} {l.kind === 'RENEWAL' ? t('renewal') : ''}
             <span className="block text-xs text-muted-foreground">
               {formatDay(l.periodFrom)} – {formatDay(l.periodTo)}
             </span>
@@ -91,6 +95,7 @@ export function BuyDialog({
   renewSeatIds,
   mode,
   onDone,
+  initialApiPlan,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -100,21 +105,38 @@ export function BuyDialog({
   renewSeatIds: string[];
   mode: 'pay' | 'record';
   onDone: () => void;
+  /** Preselect a Developer API plan (link from the Developer API page). */
+  initialApiPlan?: ApiPlan | null;
 }) {
   const { t } = useTranslation();
   const [qty, setQty] = useState<Quantities>(ZERO);
+  const [apiPlan, setApiPlan] = useState<ApiPlan | null>(initialApiPlan ?? null);
+  const [apiQty, setApiQty] = useState(1);
+  const isPartnerPool = overview.owner.kind === 'PARTNER';
+  const currentApi = overview.apiAccess?.seat ?? null;
   const [payMode, setPayMode] = useState<OfflinePaymentMode>('BANK_TRANSFER');
   const [reference, setReference] = useState('');
   const [paidOn, setPaidOn] = useState(today());
   useEffect(() => {
     if (open) {
       setQty(ZERO);
+      setApiPlan(initialApiPlan ?? null);
+      setApiQty(1);
       setReference('');
       setPaidOn(today());
     }
   }, [open]);
 
-  const body = useMemo(() => ({ items: LICENCE_TYPES.filter((ty) => qty[ty] > 0).map((type) => ({ type, quantity: qty[type] })), renewSeatIds }), [qty, renewSeatIds]);
+  const body = useMemo(
+    () => ({
+      items: [
+        ...SEAT_LICENCE_TYPES.filter((ty) => qty[ty] > 0).map((type) => ({ type, quantity: qty[type] })),
+        ...(apiPlan ? [{ type: 'API_ACCESS' as const, quantity: isPartnerPool ? apiQty : 1, plan: apiPlan }] : []),
+      ],
+      renewSeatIds,
+    }),
+    [qty, renewSeatIds, apiPlan, apiQty, isPartnerPool],
+  );
   const hasAny = body.items.length > 0 || renewSeatIds.length > 0;
   const quote = useQuery({
     queryKey: [basePath, 'quote', body],
@@ -165,7 +187,7 @@ export function BuyDialog({
         <DialogBody className="grid gap-4">
           {!overview.billing.complete && <FormError message={t('Fill in the billing details (name, address, state and e-mail) before buying')} />}
           <div className="grid gap-3 sm:grid-cols-2">
-            {LICENCE_TYPES.map((type) => {
+            {SEAT_LICENCE_TYPES.map((type) => {
               const Icon = TYPE_ICONS[type];
               return (
                 <Field key={type} label={`${t(LICENCE_TYPE_LABELS[type])} — ${rupees(overview.pricesPaise[type])}`} htmlFor={`qty-${type}`}>
@@ -186,6 +208,12 @@ export function BuyDialog({
               );
             })}
           </div>
+          <ApiPlanPicker overview={overview} plan={apiPlan} onPlan={setApiPlan} quantity={isPartnerPool ? apiQty : null} onQuantity={setApiQty} />
+          {apiPlan && currentApi && !currentApi.locked && (
+            <p className="text-sm text-muted-foreground">
+              {t('Buying a plan replaces the current {{plan}} plan from today; the new plan runs 12 months. To keep the current plan, renew it from the licence list instead.', { plan: t(API_PLAN_LABELS[currentApi.plan]) })}
+            </p>
+          )}
           {renewSeatIds.length > 0 && <p className="text-sm text-muted-foreground">{t('{{n}} selected licence(s) will be renewed for 12 months.', { n: renewSeatIds.length })}</p>}
           {quote.isError && <FormError message={errorMessage(quote.error)} />}
           {hasAny && quote.data && <QuoteSummary quote={quote.data} />}
@@ -263,5 +291,39 @@ export function BuyDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Developer API plan choice (one per company; partner pools buy a quantity to allocate). */
+function ApiPlanPicker({ overview, plan, onPlan, quantity, onQuantity }: { overview: LicenceOverviewDto; plan: ApiPlan | null; onPlan: (p: ApiPlan | null) => void; quantity: number | null; onQuantity: (n: number) => void }) {
+  const { t } = useTranslation();
+  const Icon = TYPE_ICONS.API_ACCESS;
+  const limits = plan ? overview.apiPlans[plan] : null;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <Field label={t('Developer API plan')} htmlFor="api-plan" hint={limits ? t('{{vehicles}} vehicles · {{perMinute}}/min per key · {{perDay}}/day · {{webhooks}} webhook(s)', { vehicles: limits.maxVehicles ?? t('Unlimited'), perMinute: limits.ratePerMinute, perDay: limits.ratePerDay.toLocaleString('en-IN'), webhooks: limits.maxWebhooks }) : undefined}>
+        <div className="flex items-center gap-2">
+          <Icon className="size-4 shrink-0 text-muted-foreground" />
+          <Select value={plan ?? 'none'} onValueChange={(v) => onPlan(v === 'none' ? null : (v as ApiPlan))}>
+            <SelectTrigger id="api-plan">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">{t('No Developer API plan')}</SelectItem>
+              {API_PLANS.map((p) => (
+                <SelectItem key={p} value={p} disabled={!overview.apiPlans[p].pricePaise}>
+                  {t(API_PLAN_LABELS[p])} — {rupees(overview.apiPlans[p].pricePaise)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </Field>
+      {quantity !== null && plan && (
+        <Field label={t('Quantity')} htmlFor="api-qty">
+          <Input id="api-qty" type="number" min={1} max={1000} value={quantity} onChange={(e) => onQuantity(Math.max(1, Math.min(1000, Math.floor(Number(e.target.value) || 1))))} />
+        </Field>
+      )}
+    </div>
   );
 }

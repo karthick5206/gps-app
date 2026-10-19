@@ -17,3 +17,12 @@ export async function nextInvoiceSeq(tx: CounterTx, fy: string): Promise<number>
     RETURNING "lastSeq"`;
   return Number(rows[0].lastSeq);
 }
+
+/** Next credit note sequence of a financial year: same gap-free row-lock approach, own counter table and series. */
+export async function nextCreditNoteSeq(tx: CounterTx, fy: string): Promise<number> {
+  const rows = await tx.$queryRaw<{ lastSeq: number }[]>`
+    INSERT INTO "CreditNoteCounter" ("fy", "lastSeq") VALUES (${fy}, 1)
+    ON CONFLICT ("fy") DO UPDATE SET "lastSeq" = "CreditNoteCounter"."lastSeq" + 1
+    RETURNING "lastSeq"`;
+  return Number(rows[0].lastSeq);
+}

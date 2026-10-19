@@ -1,6 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import { MailerService } from '../auth/mailer.service';
+import { ApiAccessService } from './api-access.service';
 import { BillingService } from './billing.service';
+import { CreditNotesService } from './credit-notes.service';
 import { InvoicesService } from './invoices.service';
 import { LicencePolicyService } from './licence-policy.service';
 import { LicenceRemindersService } from './licence-reminders.service';
@@ -20,6 +22,8 @@ import { SeatsService } from './seats.service';
   controllers: [LicencesController, PartnerLicencesController, LicencesAdminController, LicenceSettingsController, RazorpayWebhookController],
   providers: [
     LicenceSettingsService,
+    ApiAccessService,
+    CreditNotesService,
     LicencePolicyService,
     SeatsService,
     PoolsService,
@@ -29,6 +33,6 @@ import { SeatsService } from './seats.service';
     LicenceRemindersService,
     MailerService,
   ],
-  exports: [LicenceSettingsService, LicencePolicyService, SeatsService],
+  exports: [LicenceSettingsService, LicencePolicyService, SeatsService, ApiAccessService],
 })
 export class LicencesModule {}

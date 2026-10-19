@@ -1,6 +1,8 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
+  IsBoolean,
   IsArray,
   IsEmail,
   IsIn,
@@ -17,11 +19,12 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { LICENCE_TYPES, type LicenceType, OFFLINE_PAYMENT_MODES, type OfflinePaymentMode } from '@veetracer/shared';
+import { API_PLANS, type ApiPlan, type ApiPlans, LICENCE_TYPES, type LicenceType, OFFLINE_PAYMENT_MODES, type OfflinePaymentMode, REFUND_MODES, type RefundMode, type SeatLicenceType } from '@veetracer/shared';
 
 export class PurchaseItemDto {
   @IsIn(LICENCE_TYPES) type!: LicenceType;
   @Type(() => Number) @IsInt() @Min(0) @Max(1000) quantity!: number;
+  @IsOptional() @IsIn(API_PLANS) plan?: ApiPlan;
 }
 
 export class PurchaseDto {
@@ -63,10 +66,14 @@ export class GrantDto {
   @Type(() => Number) @IsInt() @Min(1) @Max(1000) quantity!: number;
   @Type(() => Number) @IsInt() @Min(1) @Max(3660) days!: number;
   @IsString() @Length(3, 200) reason!: string;
+  /** API_ACCESS grants: the plan (default BASIC). */
+  @IsOptional() @IsIn(API_PLANS) plan?: ApiPlan;
 }
 
 export class PricingDto {
-  @IsObject() pricesPaise!: Record<LicenceType, number>;
+  @IsObject() pricesPaise!: Record<SeatLicenceType, number>;
+  /** Sanitised by readApiPlans (bounds per field). */
+  @IsObject() apiPlans!: ApiPlans;
   @Type(() => Number) @IsNumber() @Min(0) @Max(40) gstRatePct!: number;
   @Type(() => Number) @IsInt() @Min(0) @Max(90) graceDays!: number;
   @Type(() => Number) @IsInt() @Min(1) @Max(365) overrideDays!: number;
@@ -86,6 +93,7 @@ export class InvoicingDto {
   @IsString() @MaxLength(160) accountsEmail!: string;
   @IsString() @Matches(/^\d{4,8}$/, { message: 'SAC code must be 4–8 digits' }) sacCode!: string;
   @IsString() @MaxLength(16) invoicePrefix!: string;
+  @IsString() @Length(1, 20) creditNotePrefix!: string;
   @IsString() @MaxLength(120) bankName!: string;
   @IsString() @MaxLength(160) bankAccountName!: string;
   @IsString() @MaxLength(40) bankAccountNo!: string;
@@ -104,7 +112,8 @@ export class PartnerCreateDto {
 export class PartnerUpdateDto {
   @IsOptional() @IsString() @Length(1, 120) name?: string;
   @IsOptional() @IsUUID() homeCompanyId?: string | null;
-  @IsOptional() @IsObject() pricesPaise?: Partial<Record<LicenceType, number | null>>;
+  @IsOptional() @IsObject() pricesPaise?: Partial<Record<SeatLicenceType, number | null>>;
+  @IsOptional() @IsObject() apiPlanPricesPaise?: Partial<Record<ApiPlan, number | null>>;
 }
 
 export class CompanyPartnerDto {
@@ -120,4 +129,18 @@ export class InvoiceQuery {
 
 export class MonthQuery {
   @Matches(/^\d{4}-\d{2}$/) month!: string;
+}
+
+export class CreditNoteLineDto {
+  @Type(() => Number) @IsInt() @Min(0) @Max(1000) lineIndex!: number;
+  @Type(() => Number) @IsInt() @Min(0) @Max(1000) quantity!: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) amountPaise?: number;
+}
+
+export class CreditNoteBody {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(1000) @ValidateNested({ each: true }) @Type(() => CreditNoteLineDto) lines!: CreditNoteLineDto[];
+  @IsString() @Length(3, 500) reason!: string;
+  @IsIn(REFUND_MODES) refundMode!: RefundMode;
+  @IsOptional() @IsString() @MaxLength(120) refundReference?: string;
+  @IsBoolean() keepSeatsActive!: boolean;
 }

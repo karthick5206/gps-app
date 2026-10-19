@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LICENCE_TYPE_LABELS, LICENCE_TYPES, toPaise, type LicencePricingDto, type LicenceType } from '@veetracer/shared';
+import { LICENCE_TYPE_LABELS, SEAT_LICENCE_TYPES, toPaise, type LicencePricingDto, type SeatLicenceType } from '@veetracer/shared';
 import { SaveIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -23,13 +23,13 @@ export function PricingSettings() {
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const q = useQuery({ queryKey: QUERY, queryFn: ({ signal }) => api.get<LicencePricingDto>('/licences/settings/pricing', undefined, signal) });
-  const [prices, setPrices] = useState<Record<LicenceType, string>>({ USER: '', GPS_DEVICE: '', DASHCAM: '', FUEL_SENSOR: '' });
+  const [prices, setPrices] = useState<Record<SeatLicenceType, string>>({ USER: '', GPS_DEVICE: '', DASHCAM: '', FUEL_SENSOR: '' });
   const [gst, setGst] = useState('18');
   const [grace, setGrace] = useState('15');
   const [override, setOverride] = useState('30');
   useEffect(() => {
     if (!q.data) return;
-    setPrices(Object.fromEntries(LICENCE_TYPES.map((ty) => [ty, String(q.data.pricesPaise[ty] / 100)])) as Record<LicenceType, string>);
+    setPrices(Object.fromEntries(SEAT_LICENCE_TYPES.map((ty) => [ty, String(q.data.pricesPaise[ty] / 100)])) as Record<SeatLicenceType, string>);
     setGst(String(q.data.gstRatePct));
     setGrace(String(q.data.graceDays));
     setOverride(String(q.data.overrideDays));
@@ -37,7 +37,8 @@ export function PricingSettings() {
   const save = useMutation({
     mutationFn: () =>
       api.put<LicencePricingDto>('/licences/settings/pricing', {
-        pricesPaise: Object.fromEntries(LICENCE_TYPES.map((ty) => [ty, toPaise(Number(prices[ty]) || 0)])),
+        pricesPaise: Object.fromEntries(SEAT_LICENCE_TYPES.map((ty) => [ty, toPaise(Number(prices[ty]) || 0)])),
+        apiPlans: q.data?.apiPlans,
         gstRatePct: Number(gst),
         graceDays: Math.floor(Number(grace)),
         overrideDays: Math.floor(Number(override)),
@@ -64,7 +65,7 @@ export function PricingSettings() {
           <p className="text-sm text-muted-foreground">{t('Partners pay these prices unless a partner price is set (Licences & Invoices → Partners). A price of 0 blocks purchases of that type.')}</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          {LICENCE_TYPES.map((ty) => {
+          {SEAT_LICENCE_TYPES.map((ty) => {
             const Icon = TYPE_ICONS[ty];
             return (
               <Field key={ty} label={t(LICENCE_TYPE_LABELS[ty])} htmlFor={`price-${ty}`}>

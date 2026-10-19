@@ -8,8 +8,8 @@ export interface CsvColumn<T> {
 function cell(value: unknown): string {
   if (value === null || value === undefined) return '';
   let text = Array.isArray(value) ? value.join('; ') : value instanceof Date ? value.toISOString() : String(value);
-  // Neutralise spreadsheet formula injection.
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  // Neutralise spreadsheet formula injection (a plain negative number such as a credit note amount is left as is).
+  if (/^[=+\-@\t\r]/.test(text) && !/^-\d+(\.\d+)?$/.test(text)) text = `'${text}`;
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

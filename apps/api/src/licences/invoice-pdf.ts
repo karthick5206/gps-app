@@ -1,4 +1,4 @@
-import { amountInWords, formatInr, LICENCE_TYPE_LABELS, LicenceType, PAYMENT_MODE_LABELS, PaymentMode, stateByCode, TaxKind } from '@veetracer/shared';
+import { amountInWords, ApiPlan, formatInr, licenceLabel, LicenceType, PAYMENT_MODE_LABELS, PaymentMode, stateByCode, TaxKind } from '@veetracer/shared';
 import pdfmake from 'pdfmake';
 import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces';
 import { setupPdf } from '../reports/report-files';
@@ -25,6 +25,10 @@ export interface InvoiceLineSnapshot {
   unitPaise: number;
   amountPaise: number;
   taxablePaise: number;
+  /** Developer API lines: the plan. */
+  plan?: ApiPlan | null;
+  /** Seats bought / renewed by this line (credit notes revoke from these). Missing on invoices issued before credit notes. */
+  seatIds?: string[];
 }
 
 /** Everything printed on the invoice (stored with the invoice so it can be re-rendered identically). */
@@ -61,6 +65,8 @@ export function invoiceDate(isoDate: string): string {
 
 /** "₹1,180.00" (Indian digit grouping; Noto Sans has the Rupee sign). */
 export const rs = (paise: number) => `${paise < 0 ? '-' : ''}₹${formatInr(Math.abs(paise))}`;
+/** "GPS device licence — new (12 months)" / "Developer API (Standard) licence — renewal (12 months)". */
+export const lineDescription = (l: Pick<InvoiceLineSnapshot, 'type' | 'kind' | 'plan'>) => `${licenceLabel(l.type, l.plan)} licence — ${l.kind === 'RENEWAL' ? 'renewal' : 'new'} (12 months)`;
 export const stateText = (code: string) => `${stateByCode(code)?.name ?? code} (${code})`;
 
 export function partyBlock(title: string, p: InvoiceParty, withContact: boolean): Content {
@@ -97,7 +103,7 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
     [th('#'), th('Description'), th('SAC'), th('Qty', 'right'), th('Period'), th('Rate (incl. GST)', 'right'), th('Amount', 'right'), th('Taxable value', 'right')],
     ...inv.lines.map((l, i): TableCell[] => [
       String(i + 1),
-      `${LICENCE_TYPE_LABELS[l.type]} licence — ${l.kind === 'RENEWAL' ? 'renewal' : 'new'} (12 months)`,
+      lineDescription(l),
       inv.sacCode,
       { text: String(l.quantity), alignment: 'right' },
       `${invoiceDate(l.periodFrom)} to ${invoiceDate(l.periodTo)}`,

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { LICENCE_EXPIRING_DAYS, LICENCE_TYPES, LicenceType, SeatSummaryDto } from '@veetracer/shared';
+import { API_PLANS, ApiPlan, apiPlanPriceKey, LICENCE_EXPIRING_DAYS, LicenceType, SEAT_LICENCE_TYPES, SeatLicenceType, SeatSummaryDto } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -28,7 +28,8 @@ export interface PartnerRow {
   homeCompanyId: string | null;
   homeCompanyName: string | null;
   customers: number;
-  pricesPaise: Record<LicenceType, number | null>;
+  pricesPaise: Record<SeatLicenceType, number | null>;
+  apiPlanPricesPaise: Record<ApiPlan, number | null>;
 }
 
 export interface CustomerRow {
@@ -92,7 +93,8 @@ export class PartnersService {
         homeCompanyId: p.homeCompanyId,
         homeCompanyName: p.homeCompanyId ? (homeName.get(p.homeCompanyId) ?? null) : null,
         customers: p._count.companies,
-        pricesPaise: Object.fromEntries(LICENCE_TYPES.map((t) => [t, typeof prices[t] === 'number' ? (prices[t] as number) : null])) as Record<LicenceType, number | null>,
+        pricesPaise: Object.fromEntries(SEAT_LICENCE_TYPES.map((t) => [t, typeof prices[t] === 'number' ? (prices[t] as number) : null])) as Record<SeatLicenceType, number | null>,
+        apiPlanPricesPaise: Object.fromEntries(API_PLANS.map((pl) => [pl, typeof prices[apiPlanPriceKey(pl)] === 'number' ? (prices[apiPlanPriceKey(pl)] as number) : null])) as Record<ApiPlan, number | null>,
       };
     });
   }
@@ -105,18 +107,23 @@ export class PartnersService {
     return this.partners();
   }
 
-  async update(ctx: AuthContext, id: string, dto: { name?: string; homeCompanyId?: string | null; pricesPaise?: Partial<Record<LicenceType, number | null>> }): Promise<PartnerRow[]> {
+  async update(ctx: AuthContext, id: string, dto: { name?: string; homeCompanyId?: string | null; pricesPaise?: Partial<Record<SeatLicenceType, number | null>>; apiPlanPricesPaise?: Partial<Record<ApiPlan, number | null>> }): Promise<PartnerRow[]> {
     const before = await this.prisma.partner.findUnique({ where: { id } });
     if (!before) throw new NotFoundException('Partner not found');
     if (dto.homeCompanyId && (await this.prisma.partner.count({ where: { homeCompanyId: dto.homeCompanyId, id: { not: id } } }))) {
       throw new BadRequestException('That company is already the home account of another partner');
     }
     let prices: Record<string, number> | undefined;
-    if (dto.pricesPaise) {
+    if (dto.pricesPaise || dto.apiPlanPricesPaise) {
+      const old = (before.pricesPaise ?? {}) as Record<string, unknown>;
       prices = {};
-      for (const t of LICENCE_TYPES) {
-        const v = dto.pricesPaise[t];
+      for (const t of SEAT_LICENCE_TYPES) {
+        const v = dto.pricesPaise ? dto.pricesPaise[t] : old[t];
         if (typeof v === 'number' && Number.isFinite(v) && v >= 0) prices[t] = Math.round(v);
+      }
+      for (const pl of API_PLANS) {
+        const v = dto.apiPlanPricesPaise ? dto.apiPlanPricesPaise[pl] : old[apiPlanPriceKey(pl)];
+        if (typeof v === 'number' && Number.isFinite(v) && v >= 0) prices[apiPlanPriceKey(pl)] = Math.round(v);
       }
     }
     const after = await this.prisma.partner.update({

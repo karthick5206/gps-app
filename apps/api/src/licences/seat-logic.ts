@@ -1,5 +1,7 @@
 import {
   addYears,
+  ApiPlan,
+  ApiPlans,
   DEFAULT_GRACE_DAYS,
   LICENCE_GRACE_REMINDER_DAYS,
   LICENCE_REMINDER_DAYS,
@@ -8,6 +10,8 @@ import {
   LicenceType,
   PurchaseItem,
   QuoteLineDto,
+  SeatLicenceType,
+  unitPricePaise,
   renewedExpiry,
   seatLocked,
   seatStatus,
@@ -17,7 +21,7 @@ import {
 const DAY_MS = 86_400_000;
 
 /** Column that links a seat of this type to its subject. */
-export const SUBJECT_COLUMN: Record<LicenceType, 'userId' | 'deviceId' | 'fuelObjectId'> = {
+export const SUBJECT_COLUMN: Record<SeatLicenceType, 'userId' | 'deviceId' | 'fuelObjectId'> = {
   USER: 'userId',
   GPS_DEVICE: 'deviceId',
   DASHCAM: 'deviceId',
@@ -31,9 +35,11 @@ export interface SeatLike {
   userId: string | null;
   deviceId: string | null;
   fuelObjectId: string | null;
+  /** API_ACCESS seats are account-level: in use while in a company pool (the company is the subject). */
+  companyId?: string | null;
 }
 
-export const isFree = (s: SeatLike): boolean => !s.userId && !s.deviceId && !s.fuelObjectId;
+export const isFree = (s: SeatLike): boolean => (s.type === 'API_ACCESS' ? !s.companyId : !s.userId && !s.deviceId && !s.fuelObjectId);
 
 /**
  * Free seat to reuse for a new subject: unassigned and not yet expired (a seat in its grace period is not handed out).
@@ -51,6 +57,12 @@ export function summarise(seats: SeatLike[], now: number, graceDays: number): Se
   return LICENCE_TYPES.map((type) => {
     const mine = seats.filter((s) => s.type === type);
     const valid = mine.filter((s) => s.expiresAt.getTime() > now);
+    if (type === 'API_ACCESS' && mine.some((s) => s.companyId)) {
+      // One account-level seat per company: older (replaced) API seats are history, not "expired" seats to renew.
+      const latest = [...mine].sort((a, b) => b.expiresAt.getTime() - a.expiresAt.getTime())[0];
+      const st = seatStatus(latest.expiresAt, now, graceDays);
+      return { type, total: valid.length, used: valid.length, free: 0, expiring: st === 'EXPIRING' ? 1 : 0, expired: latest.expiresAt.getTime() <= now ? 1 : 0 };
+    }
     return {
       type,
       total: valid.length,
@@ -78,17 +90,22 @@ export function userLockReason(
   return null;
 }
 
-/** Quote lines: new seats run a year from the payment date; renewals extend each seat (see renewedExpiry). */
+/**
+ * Quote lines: new seats run a year from the payment date; renewals extend each seat (see renewedExpiry). Developer API
+ * lines carry their plan (a renewal keeps the seat's plan).
+ */
 export function quoteLines(
   items: PurchaseItem[],
-  renewals: { id: string; type: LicenceType; expiresAt: Date }[],
+  renewals: { id: string; type: LicenceType; expiresAt: Date; apiPlan?: string | null }[],
   prices: LicencePrices,
   paidAt: Date,
+  plans: ApiPlans,
 ): QuoteLineDto[] {
   const lines: QuoteLineDto[] = [];
   for (const item of items) {
     if (item.quantity <= 0) continue;
-    const unit = prices[item.type];
+    const plan: ApiPlan | null = item.type === 'API_ACCESS' ? (item.plan ?? 'BASIC') : null;
+    const unit = unitPricePaise(prices, plans, item.type, plan);
     lines.push({
       kind: 'NEW',
       type: item.type,
@@ -98,10 +115,12 @@ export function quoteLines(
       periodFrom: paidAt.toISOString(),
       periodTo: addYears(paidAt).toISOString(),
       seatIds: [],
+      ...(plan ? { plan } : {}),
     });
   }
   for (const s of renewals) {
-    const unit = prices[s.type];
+    const plan: ApiPlan | null = s.type === 'API_ACCESS' ? ((s.apiPlan as ApiPlan | null) ?? 'BASIC') : null;
+    const unit = unitPricePaise(prices, plans, s.type, plan);
     const from = s.expiresAt.getTime() > paidAt.getTime() ? s.expiresAt : paidAt;
     lines.push({
       kind: 'RENEWAL',
@@ -112,6 +131,7 @@ export function quoteLines(
       periodFrom: from.toISOString(),
       periodTo: renewedExpiry(s.expiresAt, paidAt).toISOString(),
       seatIds: [s.id],
+      ...(plan ? { plan } : {}),
     });
   }
   return lines;

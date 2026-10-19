@@ -4,13 +4,15 @@ import {
   LICENCE_TYPE_LABELS,
   LICENCE_TYPES,
   PAYMENT_MODE_LABELS,
+  REFUND_MODE_LABELS,
+  type CreditNoteDto,
   type InvoiceDto,
   type LicenceType,
   type SeatDto,
   type SeatStatus,
   type SeatSummaryDto,
 } from '@veetracer/shared';
-import { CarIcon, CctvIcon, DownloadIcon, FileTextIcon, FuelIcon, LockIcon, UserIcon } from 'lucide-react';
+import { CarIcon, CctvIcon, CodeIcon, DownloadIcon, FileMinusIcon, FileTextIcon, FuelIcon, LockIcon, UserIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -26,7 +28,7 @@ import { formatDateTime } from '@/lib/format';
 
 export const rupees = (paise: number) => `₹${formatInr(paise)}`;
 
-export const TYPE_ICONS: Record<LicenceType, typeof UserIcon> = { USER: UserIcon, GPS_DEVICE: CarIcon, DASHCAM: CctvIcon, FUEL_SENSOR: FuelIcon };
+export const TYPE_ICONS: Record<LicenceType, typeof UserIcon> = { USER: UserIcon, GPS_DEVICE: CarIcon, DASHCAM: CctvIcon, FUEL_SENSOR: FuelIcon, API_ACCESS: CodeIcon };
 
 export function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
@@ -135,7 +137,18 @@ export function SeatsTable({
 
 const SOURCE_LABELS: Record<string, string> = { PURCHASE: 'Purchased', MIGRATION: 'Complimentary (launch)', OVERRIDE: 'Complimentary', ALLOCATION: 'From partner' };
 
-export function InvoicesTable({ invoices, pdfPath, showBuyer = false }: { invoices: InvoiceDto[]; pdfPath: (id: string) => string; showBuyer?: boolean }) {
+export function InvoicesTable({
+  invoices,
+  pdfPath,
+  showBuyer = false,
+  onCredit,
+}: {
+  invoices: InvoiceDto[];
+  pdfPath: (id: string) => string;
+  showBuyer?: boolean;
+  /** Super Admin: open the credit note dialog for an invoice. */
+  onCredit?: (inv: InvoiceDto) => void;
+}) {
   const { t } = useTranslation();
   const download = useMutation({
     mutationFn: (inv: InvoiceDto) => downloadFile(pdfPath(inv.id), `Invoice-${inv.number.replace(/\//g, '-')}.pdf`),
@@ -173,10 +186,72 @@ export function InvoicesTable({ invoices, pdfPath, showBuyer = false }: { invoic
             </TableCell>
             <TableCell className="text-right tabular-nums">{rupees(inv.taxablePaise)}</TableCell>
             <TableCell className="text-right tabular-nums">{rupees(inv.cgstPaise + inv.sgstPaise + inv.utgstPaise + inv.igstPaise)}</TableCell>
-            <TableCell className="text-right font-medium tabular-nums">{rupees(inv.totalPaise)}</TableCell>
+            <TableCell className="text-right font-medium tabular-nums">
+              {rupees(inv.totalPaise)}
+              {inv.creditedPaise > 0 && <div className="text-xs font-normal text-destructive">{t('Credited {{amount}}', { amount: rupees(inv.creditedPaise) })}</div>}
+            </TableCell>
             <TableCell className="text-right">
-              <Button size="sm" variant="outline" disabled={download.isPending} onClick={() => download.mutate(inv)}>
-                {download.isPending && download.variables?.id === inv.id ? <Spinner /> : <DownloadIcon />}
+              <div className="flex justify-end gap-1">
+                {onCredit && (
+                  <Button size="sm" variant="ghost" onClick={() => onCredit(inv)}>
+                    <FileMinusIcon />
+                    {t('Credit note')}
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" disabled={download.isPending} onClick={() => download.mutate(inv)}>
+                  {download.isPending && download.variables?.id === inv.id ? <Spinner /> : <DownloadIcon />}
+                  {t('PDF')}
+                </Button>
+              </div>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+/** Credit notes (against invoices) with PDF download. */
+export function CreditNotesTable({ notes, pdfPath, showBuyer = false }: { notes: CreditNoteDto[]; pdfPath: (id: string) => string; showBuyer?: boolean }) {
+  const { t } = useTranslation();
+  const download = useMutation({
+    mutationFn: (cn: CreditNoteDto) => downloadFile(pdfPath(cn.id), `CreditNote-${cn.number.replace(/\//g, '-')}.pdf`),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  if (!notes.length) return null;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{t('Credit note no')}</TableHead>
+          <TableHead>{t('Date')}</TableHead>
+          <TableHead>{t('Against invoice')}</TableHead>
+          {showBuyer && <TableHead>{t('Customer')}</TableHead>}
+          <TableHead>{t('Reason')}</TableHead>
+          <TableHead>{t('Refund')}</TableHead>
+          <TableHead className="text-right">{t('Total')}</TableHead>
+          <TableHead />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {notes.map((cn) => (
+          <TableRow key={cn.id}>
+            <TableCell className="font-medium">{cn.number}</TableCell>
+            <TableCell title={formatDateTime(cn.issuedAt)}>{formatDay(cn.issuedAt)}</TableCell>
+            <TableCell>{cn.invoiceNumber}</TableCell>
+            {showBuyer && <TableCell>{cn.buyerName}</TableCell>}
+            <TableCell className="max-w-64 truncate text-sm" title={cn.reason}>
+              {cn.reason}
+              {cn.revokedSeats > 0 && <div className="text-xs text-muted-foreground">{t('{{n}} licence(s) ended', { n: cn.revokedSeats })}</div>}
+            </TableCell>
+            <TableCell className="text-sm">
+              {t(REFUND_MODE_LABELS[cn.refundMode])}
+              {cn.refundReference && <div className="text-xs text-muted-foreground">{cn.refundReference}</div>}
+            </TableCell>
+            <TableCell className="text-right font-medium tabular-nums text-destructive">-{rupees(cn.totalPaise)}</TableCell>
+            <TableCell className="text-right">
+              <Button size="sm" variant="outline" disabled={download.isPending} onClick={() => download.mutate(cn)}>
+                {download.isPending && download.variables?.id === cn.id ? <Spinner /> : <DownloadIcon />}
                 {t('PDF')}
               </Button>
             </TableCell>

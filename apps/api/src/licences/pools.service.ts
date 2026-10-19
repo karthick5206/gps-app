@@ -1,14 +1,16 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  ApiPlan,
   can,
   deviceLicenceType,
   LICENCE_EXPIRING_DAYS,
-  LICENCE_TYPES,
+  isApiPlan,
   LicenceBannerDto,
   LicenceType,
   seatLocked,
   seatStatus,
+  SEAT_LICENCE_TYPES,
   SeatDto,
   SeatSource,
   SeatSummaryDto,
@@ -39,7 +41,9 @@ export function seatDto(s: SeatRow, now: number, graceDays: number): SeatDto {
       ? { kind: 'DEVICE' as const, id: s.device.id, name: `${s.device.uniqueId}${s.device.assignments[0] ? ` · ${s.device.assignments[0].object.name}` : ''}` }
       : s.fuelConfig
         ? { kind: 'FUEL' as const, id: s.fuelConfig.objectId, name: s.fuelConfig.object.name }
-        : null;
+        : s.type === 'API_ACCESS' && s.companyId
+          ? { kind: 'COMPANY' as const, id: s.companyId, name: s.company?.name ?? '' }
+          : null;
   return {
     id: s.id,
     type: s.type as LicenceType,
@@ -54,6 +58,7 @@ export function seatDto(s: SeatRow, now: number, graceDays: number): SeatDto {
     locked: seatLocked(s.expiresAt, now, graceDays),
     subject,
     note: s.note,
+    apiPlan: isApiPlan(s.apiPlan) ? s.apiPlan : null,
   };
 }
 
@@ -83,7 +88,7 @@ export class PoolsService {
     const at = new Date(now);
     const needsSeat = { OR: [{ licenceSeat: { is: null } }, { licenceSeat: { is: { expiresAt: { lte: at } } } }] };
     let moved = 0;
-    for (const type of LICENCE_TYPES) {
+    for (const type of SEAT_LICENCE_TYPES) {
       const free = await tx.licenceSeat.findMany({
         where: { companyId, type, userId: null, deviceId: null, fuelObjectId: null, expiresAt: { gt: at } },
         orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
@@ -123,6 +128,13 @@ export class PoolsService {
     if (!company || company.isPlatform) throw new NotFoundException('Company not found');
     if (company.partnerId !== partnerId) throw new ForbiddenException('This company is not a customer of the partner');
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) throw new BadRequestException('Quantity must be 1–1000');
+    if (type === 'API_ACCESS') {
+      // One account-level Developer API seat per company.
+      if (quantity !== 1) throw new BadRequestException('A company gets one Developer API licence');
+      if (await this.prisma.licenceSeat.count({ where: { companyId, type: 'API_ACCESS', expiresAt: { gt: new Date() } } })) {
+        throw new BadRequestException('This company already has a running Developer API licence');
+      }
+    }
     const now = new Date();
     const moved = await this.prisma.$transaction(async (tx) => {
       const free = await tx.$queryRaw<{ id: string }[]>`
@@ -142,8 +154,9 @@ export class PoolsService {
   }
 
   /** Super Admin: complimentary seats (no invoice) for a company or partner pool, audited with the reason. */
-  async grant(ctx: AuthContext, owner: { companyId?: string; partnerId?: string }, type: LicenceType, quantity: number, days: number, reason: string): Promise<number> {
+  async grant(ctx: AuthContext, owner: { companyId?: string; partnerId?: string }, type: LicenceType, quantity: number, days: number, reason: string, plan?: ApiPlan): Promise<number> {
     if (!reason.trim()) throw new BadRequestException('A reason is required');
+    if (type === 'API_ACCESS' && owner.companyId && quantity !== 1) throw new BadRequestException('A company gets one Developer API licence');
     const now = new Date();
     const expiresAt = new Date(now.getTime() + days * DAY_MS);
     const data = Array.from({ length: quantity }, () => ({
@@ -154,11 +167,14 @@ export class PoolsService {
       activatedAt: now,
       expiresAt,
       note: `Complimentary: ${reason.trim().slice(0, 200)}`,
+      apiPlan: type === 'API_ACCESS' ? (plan ?? 'BASIC') : null,
     }));
     await this.prisma.$transaction(async (tx) => {
+      // A new Developer API seat replaces the company's running one (one per company).
+      if (type === 'API_ACCESS' && owner.companyId) await expireApiSeats(tx, owner.companyId, now, 'Replaced by a complimentary licence');
       await tx.licenceSeat.createMany({ data });
       if (owner.companyId) await this.rebalance(tx, owner.companyId, now.getTime());
-      await this.audit.record({ ...ctx, companyId: owner.companyId ?? ctx.companyId }, { action: 'CREATE', entity: 'licence_grant', details: { ...owner, type, quantity, days, reason } }, tx);
+      await this.audit.record({ ...ctx, companyId: owner.companyId ?? ctx.companyId }, { action: 'CREATE', entity: 'licence_grant', details: { ...owner, type, quantity, days, reason, ...(type === 'API_ACCESS' ? { plan: plan ?? 'BASIC' } : {}) } }, tx);
     });
     if (owner.companyId) this.policy.invalidate(owner.companyId);
     return quantity;
@@ -179,4 +195,10 @@ export class PoolsService {
       : [];
     return { exempt: false, expiringSoon, inGrace, lockedVehicles, canManage };
   }
+}
+
+/** Expire the company's running Developer API seats (a new plan was bought / granted); the new seat is the effective one. */
+export async function expireApiSeats(tx: Tx, companyId: string, at: Date, note: string): Promise<number> {
+  const r = await tx.licenceSeat.updateMany({ where: { companyId, type: 'API_ACCESS', expiresAt: { gt: at } }, data: { expiresAt: at, notifiedState: 'REPLACED', note } });
+  return r.count;
 }

@@ -1,3 +1,4 @@
+import { DEFAULT_API_PLANS } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { BillingService } from './billing.service';
 import { nextInvoiceSeq } from './invoice-numbering';
@@ -183,7 +184,7 @@ describe('expiry, grace and locking', () => {
   it('quote lines: new seats run a year from payment, renewals per seat (no pro-rata)', () => {
     const paidAt = new Date('2026-10-19T06:00:00Z');
     const prices = { USER: 50_000, GPS_DEVICE: 120_000, DASHCAM: 300_000, FUEL_SENSOR: 80_000 };
-    const lines = quoteLines([{ type: 'GPS_DEVICE', quantity: 3 }], [{ id: 's1', type: 'USER', expiresAt: new Date('2026-11-01T00:00:00Z') }, { id: 's2', type: 'USER', expiresAt: new Date('2026-01-01T00:00:00Z') }], prices, paidAt);
+    const lines = quoteLines([{ type: 'GPS_DEVICE', quantity: 3 }], [{ id: 's1', type: 'USER', expiresAt: new Date('2026-11-01T00:00:00Z') }, { id: 's2', type: 'USER', expiresAt: new Date('2026-01-01T00:00:00Z') }], prices, paidAt, DEFAULT_API_PLANS);
     expect(lines[0]).toMatchObject({ kind: 'NEW', quantity: 3, amountPaise: 360_000, periodTo: '2027-10-19T06:00:00.000Z' });
     expect(lines[1]).toMatchObject({ kind: 'RENEWAL', periodFrom: '2026-11-01T00:00:00.000Z', periodTo: '2027-11-01T00:00:00.000Z', amountPaise: 50_000 });
     expect(lines[2]).toMatchObject({ kind: 'RENEWAL', periodFrom: paidAt.toISOString(), periodTo: '2027-10-19T06:00:00.000Z' });
@@ -247,7 +248,8 @@ describe('Razorpay webhook processing', () => {
     const invoices = { issue: jest.fn(async () => ({ id: 'inv1' })), deliver: jest.fn(async () => undefined) };
     const pools = { rebalance: jest.fn(async () => 0) };
     const policy = { invalidate: jest.fn() };
-    const svc = new BillingService(prisma as never, {} as never, policy as never, invoices as never, pools as never, {} as never);
+    const apiAccess = { invalidate: jest.fn() };
+    const svc = new BillingService(prisma as never, {} as never, policy as never, invoices as never, pools as never, {} as never, apiAccess as never);
     return { svc, invoices };
   }
 

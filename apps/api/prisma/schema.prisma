@@ -65,6 +65,7 @@ model Partner {
   licenceSeats   LicenceSeat[]
   licenceOrders  LicenceOrder[]
   invoices       Invoice[]
+  creditNotes    CreditNote[]
 }
 
 model Company {
@@ -99,6 +100,7 @@ model Company {
   licenceSeats   LicenceSeat[]
   licenceOrders  LicenceOrder[]
   invoices       Invoice[]
+  creditNotes    CreditNote[]
 }
 
 model Branch {
@@ -1219,40 +1221,47 @@ enum LicenceType {
   GPS_DEVICE
   DASHCAM
   FUEL_SENSOR
+  /// Developer API (customer API keys / webhooks): one account-level seat per company, plan on the seat.
+  API_ACCESS
 }
 
 /// Platform-wide licence pricing and invoicing (supplier) details; one row, id = "default". Edited by the Super Admin.
 model PlatformBillingSettings {
-  id              String   @id @default("default")
+  id               String   @id @default("default")
   /// GST-inclusive yearly price per licence type, in paise: { USER, GPS_DEVICE, DASHCAM, FUEL_SENSOR }.
-  pricesPaise     Json     @default("{}")
-  gstRatePct      Float    @default(18)
-  graceDays       Int      @default(15)
-  overrideDays    Int      @default(30)
-  legalName       String   @default("")
-  addressLines    String[] @default([])
-  city            String   @default("")
-  stateCode       String   @default("33")
-  pin             String   @default("")
-  gstin           String   @default("")
-  pan             String   @default("")
-  phone           String   @default("")
-  email           String   @default("")
-  website         String   @default("")
-  accountsEmail   String   @default("")
+  pricesPaise      Json     @default("{}")
+  gstRatePct       Float    @default(18)
+  graceDays        Int      @default(15)
+  overrideDays     Int      @default(30)
+  legalName        String   @default("")
+  addressLines     String[] @default([])
+  city             String   @default("")
+  stateCode        String   @default("33")
+  pin              String   @default("")
+  gstin            String   @default("")
+  pan              String   @default("")
+  phone            String   @default("")
+  email            String   @default("")
+  website          String   @default("")
+  accountsEmail    String   @default("")
   /// Logo file name under var/billing/ (PNG / JPG / SVG).
-  logoFile        String?
-  sacCode         String   @default("998314")
-  invoicePrefix   String   @default("VTX")
-  bankName        String   @default("")
-  bankAccountName String   @default("")
-  bankAccountNo   String   @default("")
-  bankIfsc        String   @default("")
-  bankBranch      String   @default("")
-  upiId           String   @default("")
-  terms           String   @default("")
-  footerNote      String   @default("")
-  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+  logoFile         String?
+  sacCode          String   @default("998314")
+  invoicePrefix    String   @default("VTX")
+  /// Credit notes have their own gap-free series: VTX/CN/2026-27/0001.
+  creditNotePrefix String   @default("VTX/CN")
+  /// Developer API plans: { BASIC | STANDARD | ENTERPRISE: { pricePaise, maxVehicles (null = unlimited), ratePerMinute,
+  /// ratePerDay, maxWebhooks } }; missing keys fall back to DEFAULT_API_PLANS (shared).
+  apiPlans         Json     @default("{}")
+  bankName         String   @default("")
+  bankAccountName  String   @default("")
+  bankAccountNo    String   @default("")
+  bankIfsc         String   @default("")
+  bankBranch       String   @default("")
+  upiId            String   @default("")
+  terms            String   @default("")
+  footerNote       String   @default("")
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
 }
 
 /// Billing details of a customer company or a partner (reseller); required before the first purchase.
@@ -1293,6 +1302,8 @@ model LicenceSeat {
   note          String?
   notifiedState String?
   lastOrderId   String?     @db.Uuid
+  /// API_ACCESS seats only: BASIC | STANDARD | ENTERPRISE (the subject of an API seat is its company).
+  apiPlan       String?
   createdAt     DateTime    @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime    @updatedAt @db.Timestamptz(3)
 
@@ -1368,9 +1379,10 @@ model Invoice {
   emailError       String?
   createdAt        DateTime  @default(now()) @db.Timestamptz(3)
 
-  order   LicenceOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  company Company?     @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  partner Partner?     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  order       LicenceOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  company     Company?     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partner     Partner?     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  creditNotes CreditNote[]
 
   @@unique([fy, seq])
   @@index([issuedAt])
@@ -1380,6 +1392,58 @@ model Invoice {
 
 /// Last invoice number used per financial year; incremented inside the invoice transaction (row lock → gap-free).
 model InvoiceCounter {
+  fy      String @id
+  lastSeq Int
+}
+
+/// GST credit note against an invoice (full or partial; Super Admin only). Own gap-free series per financial year
+/// (CreditNoteCounter). `snapshot` holds everything printed (CreditNoteSnapshot, incl. the credited invoice lines and the
+/// original invoice's tax type). Credited seats are expired at issue unless keepSeatsActive (e.g. a price correction).
+/// refundMode: CASH | UPI | BANK_TRANSFER | CHEQUE | RAZORPAY_REFUND_MANUAL | NONE.
+model CreditNote {
+  id              String    @id @default(uuid()) @db.Uuid
+  number          String    @unique
+  fy              String
+  seq             Int
+  issuedAt        DateTime  @db.Timestamptz(3)
+  invoiceId       String    @db.Uuid
+  companyId       String?   @db.Uuid
+  partnerId       String?   @db.Uuid
+  buyerName       String
+  buyerGstin      String?
+  buyerStateCode  String
+  snapshot        Json
+  reason          String
+  taxKind         String
+  gstRatePct      Float
+  taxablePaise    Int
+  cgstPaise       Int
+  sgstPaise       Int
+  utgstPaise      Int
+  igstPaise       Int
+  totalPaise      Int
+  refundMode      String
+  refundReference String?
+  keepSeatsActive Boolean   @default(false)
+  revokedSeatIds  String[]  @default([])
+  pdfFile         String?
+  emailedAt       DateTime? @db.Timestamptz(3)
+  emailError      String?
+  createdById     String?   @db.Uuid
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partner Partner? @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  @@unique([fy, seq])
+  @@index([invoiceId])
+  @@index([issuedAt])
+  @@index([companyId, issuedAt(sort: Desc)])
+}
+
+/// Last credit note number used per financial year (same row-lock approach as InvoiceCounter → gap-free).
+model CreditNoteCounter {
   fy      String @id
   lastSeq Int
 }

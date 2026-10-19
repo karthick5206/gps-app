@@ -120,7 +120,7 @@ export class LicenceRemindersService {
       where: {
         // Up to 20 days ahead, through the grace period and a few days past the lock day (missed runs).
         expiresAt: { lte: new Date(now + (LICENCE_REMINDER_DAYS[0] + 1) * DAY_MS), gt: new Date(now - (grace + 3) * DAY_MS) },
-        OR: [{ companyId: null }, { userId: { not: null } }, { deviceId: { not: null } }, { fuelObjectId: { not: null } }],
+        OR: [{ companyId: null }, { userId: { not: null } }, { deviceId: { not: null } }, { fuelObjectId: { not: null } }, { type: 'API_ACCESS' }],
       },
       include: {
         company: { select: { id: true, name: true, isPlatform: true } },
@@ -134,11 +134,13 @@ export class LicenceRemindersService {
     const digests = new Map<string, { companyIds: string[]; pool: string; seats: DueSeat[] }>();
     for (const s of seats) {
       if (s.company?.isPlatform) continue;
+      // A Developer API seat replaced by a newly bought plan is history: no reminders.
+      if (s.notifiedState === 'REPLACED') continue;
       const due = reminderDue(s.expiresAt, s.notifiedState, now, grace);
       if (!due) continue;
       const claimed = await this.prisma.licenceSeat.updateMany({ where: { id: s.id, notifiedState: s.notifiedState }, data: { notifiedState: due.state } });
       if (claimed.count !== 1) continue;
-      const subject = s.user?.name ?? (s.device ? `device ${s.device.uniqueId}` : s.fuelConfig ? `fuel sensor on ${s.fuelConfig.object.name}` : 'unassigned seat');
+      const subject = s.type === 'API_ACCESS' && s.companyId ? 'API keys and webhooks' : s.user?.name ?? (s.device ? `device ${s.device.uniqueId}` : s.fuelConfig ? `fuel sensor on ${s.fuelConfig.object.name}` : 'unassigned seat');
       const key = s.companyId ?? `partner:${s.partnerId}`;
       const companyIds = [s.companyId, s.partner?.homeCompanyId].filter((x): x is string => !!x);
       const d = digests.get(key) ?? { companyIds: [], pool: s.company?.name ?? s.partner?.name ?? 'your account', seats: [] };

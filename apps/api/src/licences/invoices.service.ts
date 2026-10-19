@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Invoice, LicenceOrder, Prisma } from '@prisma/client';
+import { CreditNote, Invoice, LicenceOrder, Prisma } from '@prisma/client';
 import { financialYear, formatInr, formatInvoiceNumber, gstBreakdown, InvoiceDto, PaymentMode, QuoteLineDto, stateByCode, TaxKind } from '@veetracer/shared';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -14,7 +14,7 @@ import { LicenceSettingsService } from './licence-settings.service';
 
 export const INVOICE_DIR = join(APP_ROOT, 'var', 'invoices');
 
-export function invoiceDto(i: Invoice): InvoiceDto {
+export function invoiceDto(i: Invoice & { creditNotes?: { totalPaise: number }[] }): InvoiceDto {
   return {
     id: i.id,
     number: i.number,
@@ -33,14 +33,56 @@ export function invoiceDto(i: Invoice): InvoiceDto {
     paymentMode: i.paymentMode as PaymentMode,
     paymentReference: i.paymentReference,
     emailedAt: i.emailedAt?.toISOString() ?? null,
+    creditedPaise: (i.creditNotes ?? []).reduce((a, c) => a + c.totalPaise, 0),
   };
 }
 
 const rupees = (paise: number) => (paise / 100).toFixed(2);
 
-export const GST_CSV: CsvColumn<Invoice>[] = [
-  { header: 'Invoice no', value: (i) => i.number },
-  { header: 'Invoice date', value: (i) => invoiceDate(i.issuedAt.toISOString()) },
+/** One row of the GST summary: a tax invoice (INV) or a credit note (CN, negative amounts, with the original invoice). */
+export interface GstRow {
+  docType: 'INV' | 'CN';
+  number: string;
+  issuedAt: Date;
+  originalInvoice: string;
+  buyerName: string;
+  buyerGstin: string | null;
+  buyerStateCode: string;
+  taxablePaise: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  utgstPaise: number;
+  igstPaise: number;
+  totalPaise: number;
+  paymentMode: string;
+  paymentReference: string | null;
+}
+
+export const invoiceGstRow = (i: Invoice): GstRow => ({ docType: 'INV', originalInvoice: '', ...i });
+
+export const creditNoteGstRow = (c: CreditNote & { invoice: { number: string } }): GstRow => ({
+  docType: 'CN',
+  number: c.number,
+  issuedAt: c.issuedAt,
+  originalInvoice: c.invoice.number,
+  buyerName: c.buyerName,
+  buyerGstin: c.buyerGstin,
+  buyerStateCode: c.buyerStateCode,
+  taxablePaise: -c.taxablePaise,
+  cgstPaise: -c.cgstPaise,
+  sgstPaise: -c.sgstPaise,
+  utgstPaise: -c.utgstPaise,
+  igstPaise: -c.igstPaise,
+  totalPaise: -c.totalPaise,
+  paymentMode: `REFUND:${c.refundMode}`,
+  paymentReference: c.refundReference,
+});
+
+export const GST_CSV: CsvColumn<GstRow>[] = [
+  { header: 'Document type', value: (i) => i.docType },
+  { header: 'Document no', value: (i) => i.number },
+  { header: 'Document date', value: (i) => invoiceDate(i.issuedAt.toISOString()) },
+  { header: 'Original invoice', value: (i) => i.originalInvoice },
   { header: 'Customer', value: (i) => i.buyerName },
   { header: 'GSTIN', value: (i) => i.buyerGstin ?? '' },
   { header: 'State', value: (i) => `${stateByCode(i.buyerStateCode)?.name ?? ''} (${i.buyerStateCode})` },
@@ -107,7 +149,18 @@ export class InvoicesService {
         email: profile.email,
       },
       sacCode: s.sacCode,
-      lines: lines.map((l, i) => ({ type: l.type, kind: l.kind, quantity: l.quantity, periodFrom: l.periodFrom, periodTo: l.periodTo, unitPaise: l.unitPaise, amountPaise: l.amountPaise, taxablePaise: gst.lines[i].taxablePaise })),
+      lines: lines.map((l, i) => ({
+        type: l.type,
+        kind: l.kind,
+        quantity: l.quantity,
+        periodFrom: l.periodFrom,
+        periodTo: l.periodTo,
+        unitPaise: l.unitPaise,
+        amountPaise: l.amountPaise,
+        taxablePaise: gst.lines[i].taxablePaise,
+        ...(l.plan ? { plan: l.plan } : {}),
+        seatIds: l.seatIds,
+      })),
       taxKind: gst.kind as TaxKind,
       gstRatePct: s.gstRatePct,
       taxablePaise: gst.taxablePaise,
@@ -221,16 +274,22 @@ export class InvoicesService {
   }
 
   async list(f: InvoiceFilter, take = 500): Promise<InvoiceDto[]> {
-    const rows = await this.prisma.invoice.findMany({ where: this.where(f), orderBy: { issuedAt: 'desc' }, take });
+    const rows = await this.prisma.invoice.findMany({ where: this.where(f), orderBy: { issuedAt: 'desc' }, take, include: { creditNotes: { select: { totalPaise: true } } } });
     return rows.map(invoiceDto);
   }
 
-  /** GST summary for the accountant: one row per invoice of the month (YYYY-MM, India time). */
+  /** GST summary for the accountant: one row per invoice and per credit note (negative) of the month (YYYY-MM, India time). */
   async gstCsv(month: string): Promise<{ file: Buffer; name: string }> {
     if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('Month must be YYYY-MM');
     const [y, m] = month.split('-').map(Number);
     const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-    const rows = await this.prisma.invoice.findMany({ where: this.where({ from: `${month}-01`, to: `${month}-${String(last).padStart(2, '0')}` }), orderBy: [{ fy: 'asc' }, { seq: 'asc' }] });
+    const range = this.where({ from: `${month}-01`, to: `${month}-${String(last).padStart(2, '0')}` });
+    const issuedAt = range.issuedAt as Prisma.DateTimeFilter;
+    const [invoices, credits] = await Promise.all([
+      this.prisma.invoice.findMany({ where: range, orderBy: [{ fy: 'asc' }, { seq: 'asc' }] }),
+      this.prisma.creditNote.findMany({ where: { issuedAt }, orderBy: [{ fy: 'asc' }, { seq: 'asc' }], include: { invoice: { select: { number: true } } } }),
+    ]);
+    const rows = [...invoices.map(invoiceGstRow), ...credits.map(creditNoteGstRow)];
     return { file: Buffer.from(toCsv(rows, GST_CSV), 'utf8'), name: `gst-summary-${month}.csv` };
   }
 }

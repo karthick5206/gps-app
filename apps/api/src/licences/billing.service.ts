@@ -6,7 +6,9 @@ import {
   CheckoutDto,
   gstBreakdown,
   gstinError,
+  isApiPlan,
   LICENCE_TYPE_LABELS,
+  licenceLabel,
   LicenceOverviewDto,
   LicenceOwnerRef,
   OfflinePaymentRequest,
@@ -15,16 +17,18 @@ import {
   QuoteLineDto,
   renewedExpiry,
   stateByCode,
+  unitPricePaise,
 } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ApiAccessService } from './api-access.service';
 import { InvoicesService } from './invoices.service';
 import { LicencePolicyService } from './licence-policy.service';
 import { LicenceSettingsService } from './licence-settings.service';
 import { RazorpayClient, razorpayConfig, webhookPayment } from './razorpay';
 import { quoteLines } from './seat-logic';
-import { PoolsService } from './pools.service';
+import { expireApiSeats, PoolsService } from './pools.service';
 
 /** Buyer of licences: a customer company (its own pool) or a partner (bulk pool). */
 export interface Owner extends LicenceOwnerRef {
@@ -72,6 +76,7 @@ export class BillingService {
     private readonly invoices: InvoicesService,
     private readonly pools: PoolsService,
     private readonly audit: AuditService,
+    private readonly apiAccess: ApiAccessService,
   ) {
     const cfg = razorpayConfig();
     this.razorpay = cfg ? new RazorpayClient(cfg) : null;
@@ -144,14 +149,20 @@ export class BillingService {
     const renewIds = [...new Set(req.renewSeatIds ?? [])];
     if (!items.length && !renewIds.length) throw new BadRequestException('Choose licences to buy or seats to renew');
     if (items.some((i) => !Number.isInteger(i.quantity) || i.quantity > 1000)) throw new BadRequestException('Quantity must be a whole number up to 1000');
+    const api = items.filter((i) => i.type === 'API_ACCESS');
+    if (owner.kind === 'COMPANY' && (api.length > 1 || api.some((i) => i.quantity !== 1))) throw new BadRequestException('A company buys one Developer API licence (choose one plan)');
     const renewals = renewIds.length
-      ? await this.prisma.licenceSeat.findMany({ where: { id: { in: renewIds }, ...ownerWhere(owner) }, select: { id: true, type: true, expiresAt: true } })
+      ? await this.prisma.licenceSeat.findMany({ where: { id: { in: renewIds }, ...ownerWhere(owner) }, select: { id: true, type: true, expiresAt: true, apiPlan: true, notifiedState: true } })
       : [];
     if (renewals.length !== renewIds.length) throw new BadRequestException('Some seats to renew were not found in this pool');
-    const prices = await this.settings.pricesFor(owner.kind === 'PARTNER' ? owner.id : null);
-    const unpriced = [...items.map((i) => i.type), ...renewals.map((r) => r.type)].find((t) => !prices[t]);
-    if (unpriced) throw new BadRequestException(`The ${LICENCE_TYPE_LABELS[unpriced].toLowerCase()} licence price has not been set yet. Please contact support.`);
-    const lines = quoteLines(items, renewals, prices, paidAt);
+    if (renewals.some((r) => r.type === 'API_ACCESS' && r.notifiedState === 'REPLACED')) throw new BadRequestException('This Developer API licence was replaced by a newer plan');
+    if (owner.kind === 'COMPANY' && api.length && renewals.some((r) => r.type === 'API_ACCESS')) throw new BadRequestException('Renew the Developer API licence or buy a new plan, not both');
+    const partnerId = owner.kind === 'PARTNER' ? owner.id : null;
+    const [prices, plans] = await Promise.all([this.settings.pricesFor(partnerId), this.settings.apiPlansFor(partnerId)]);
+    const priced = (t: (typeof items)[number]['type'], plan?: string | null) => unitPricePaise(prices, plans, t, isApiPlan(plan) ? plan : null) > 0;
+    const unpriced = [...items.map((i) => ({ t: i.type, plan: i.plan })), ...renewals.map((r) => ({ t: r.type, plan: r.apiPlan }))].find((x) => !priced(x.t, x.plan));
+    if (unpriced) throw new BadRequestException(`The ${LICENCE_TYPE_LABELS[unpriced.t].toLowerCase()} licence price has not been set yet. Please contact support.`);
+    const lines = quoteLines(items, renewals, prices, paidAt, plans);
     const s = await this.settings.get();
     const profile = await this.profile(owner);
     const customerState = profile.stateCode || s.stateCode;
@@ -177,6 +188,8 @@ export class BillingService {
       summary,
       seats,
       pricesPaise: await this.settings.pricesFor(owner.kind === 'PARTNER' ? owner.id : null),
+      apiPlans: await this.settings.apiPlansFor(owner.kind === 'PARTNER' ? owner.id : null),
+      apiAccess: owner.kind === 'COMPANY' ? await this.apiAccess.status(owner.id) : null,
       gstRatePct: s.gstRatePct,
       graceDays: s.graceDays,
       billing: await this.profile(owner),
@@ -202,7 +215,7 @@ export class BillingService {
     if (paidAt.getTime() > Date.now() + 86_400_000) throw new BadRequestException('The payment date cannot be in the future');
     const q = await this.quote(owner, dto, paidAt);
     if (q.gst.totalPaise !== dto.amountPaise) {
-      throw new BadRequestException(`The amount must equal the total of Rs. ${(q.gst.totalPaise / 100).toFixed(2)} (GST inclusive)`);
+      throw new BadRequestException(`The amount must equal the total of ₹${(q.gst.totalPaise / 100).toFixed(2)} (GST inclusive)`);
     }
     const order = await this.prisma.licenceOrder.create({
       data: {
@@ -251,7 +264,7 @@ export class BillingService {
       amountPaise: q.gst.totalPaise,
       currency: 'INR',
       name: 'VeeTrax',
-      description: q.lines.map((l) => `${l.quantity} x ${LICENCE_TYPE_LABELS[l.type]}${l.kind === 'RENEWAL' ? ' renewal' : ''}`).join(', ').slice(0, 250),
+      description: q.lines.map((l) => `${l.quantity} x ${licenceLabel(l.type, l.plan)}${l.kind === 'RENEWAL' ? ' renewal' : ''}`).join(', ').slice(0, 250),
       prefill: { name: profile.billingName, email: profile.email, contact: user?.mobile ?? '' },
     };
   }
@@ -335,9 +348,12 @@ export class BillingService {
           if (l.kind === 'NEW') {
             const expiresAt = addYears(pay.paidAt);
             const seatIds: string[] = [];
+            const apiPlan = l.type === 'API_ACCESS' ? (l.plan ?? 'BASIC') : null;
+            // Developer API upgrade / change of plan: the new plan runs 12 months from payment; the old seat ends now.
+            if (apiPlan && order.companyId) await expireApiSeats(tx, order.companyId, pay.paidAt, `Replaced by the ${apiPlan} plan (order ${order.id})`);
             for (let i = 0; i < l.quantity; i++) {
               const seat = await tx.licenceSeat.create({
-                data: { type: l.type, ...owner, source: 'PURCHASE', activatedAt: pay.paidAt, expiresAt, lastOrderId: order.id },
+                data: { type: l.type, ...owner, source: 'PURCHASE', activatedAt: pay.paidAt, expiresAt, lastOrderId: order.id, apiPlan },
                 select: { id: true },
               });
               seatIds.push(seat.id);
@@ -350,7 +366,7 @@ export class BillingService {
             if (!seat) {
               // The seat left this pool meanwhile: the buyer gets a fresh seat for the year paid for.
               const expiresAt = addYears(pay.paidAt);
-              const fresh = await tx.licenceSeat.create({ data: { type: l.type, ...owner, source: 'PURCHASE', activatedAt: pay.paidAt, expiresAt, lastOrderId: order.id } });
+              const fresh = await tx.licenceSeat.create({ data: { type: l.type, ...owner, source: 'PURCHASE', activatedAt: pay.paidAt, expiresAt, lastOrderId: order.id, apiPlan: l.type === 'API_ACCESS' ? (l.plan ?? 'BASIC') : null } });
               lines.push({ ...l, seatIds: [fresh.id], periodFrom: pay.paidAt.toISOString(), periodTo: expiresAt.toISOString() });
               continue;
             }
@@ -367,6 +383,7 @@ export class BillingService {
     );
     if (invoiceId) {
       this.policy.invalidate();
+      this.apiAccess.invalidate();
       void this.invoices.deliver(invoiceId).catch((e: Error) => this.logger.error(`Invoice ${invoiceId} delivery failed: ${e.message}`));
     }
     return invoiceId;

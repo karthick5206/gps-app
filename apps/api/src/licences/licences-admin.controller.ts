@@ -20,13 +20,15 @@ import { AuthContext } from '../access/auth-context';
 import { Auth, RequirePermission } from '../access/decorators';
 import { AuditService } from '../audit/audit.service';
 import { BillingService, Owner } from './billing.service';
+import { CreditNotesService } from './credit-notes.service';
 import { InvoicesService } from './invoices.service';
 import { LicenceSettingsService } from './licence-settings.service';
-import { pdfFile } from './licences.controller';
+import { creditNotePdfFile, pdfFile } from './licences.controller';
 import {
   AllocateDto,
   BillingProfileBody,
   CompanyPartnerDto,
+  CreditNoteBody,
   GrantDto,
   InvoiceQuery,
   InvoicingDto,
@@ -48,6 +50,7 @@ export class LicencesAdminController {
     private readonly pools: PoolsService,
     private readonly partners: PartnersService,
     private readonly invoices: InvoicesService,
+    private readonly creditNotes: CreditNotesService,
   ) {}
 
   private owner(kind: string, id: string): Promise<Owner> {
@@ -86,7 +89,7 @@ export class LicencesAdminController {
   @Post('pools/:kind/:id/grant') @RequirePermission('sa_licences', 'create')
   async grant(@Auth() ctx: AuthContext, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: GrantDto) {
     const owner = await this.owner(kind, id);
-    return { granted: await this.pools.grant(ctx, owner.kind === 'COMPANY' ? { companyId: owner.id } : { partnerId: owner.id }, dto.type, dto.quantity, dto.days, dto.reason) };
+    return { granted: await this.pools.grant(ctx, owner.kind === 'COMPANY' ? { companyId: owner.id } : { partnerId: owner.id }, dto.type, dto.quantity, dto.days, dto.reason, dto.plan) };
   }
 
   @Post('partners/:id/allocate') @HttpCode(200) @RequirePermission('sa_licences', 'edit')
@@ -130,6 +133,35 @@ export class LicencesAdminController {
   async resend(@Param('id', ParseUUIDPipe) id: string) {
     await this.invoices.find(id);
     await this.invoices.deliver(id);
+    return { ok: true };
+  }
+
+  /** Invoice detail for crediting: lines with what is left, and its credit notes. */
+  @Get('invoices/:id/credits') @RequirePermission('sa_licences', 'view')
+  invoiceCredits(@Param('id', ParseUUIDPipe) id: string) {
+    return this.creditNotes.credits(id);
+  }
+
+  @Post('invoices/:id/credit-notes') @RequirePermission('sa_licences', 'create')
+  createCreditNote(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CreditNoteBody) {
+    return this.creditNotes.create(ctx, id, dto);
+  }
+
+  @Get('credit-notes') @RequirePermission('sa_licences', 'view')
+  creditNotesList(@Query() q: InvoiceQuery) {
+    return this.creditNotes.list(q);
+  }
+
+  @Get('credit-notes/:id/pdf') @RequirePermission('sa_licences', 'view')
+  async creditNotePdf(@Param('id', ParseUUIDPipe) id: string) {
+    const cn = await this.creditNotes.find(id);
+    return creditNotePdfFile(this.creditNotes, cn, await this.creditNotes.pdf(cn));
+  }
+
+  @Post('credit-notes/:id/resend') @HttpCode(200) @RequirePermission('sa_licences', 'edit')
+  async resendCreditNote(@Param('id', ParseUUIDPipe) id: string) {
+    await this.creditNotes.find(id);
+    await this.creditNotes.deliver(id);
     return { ok: true };
   }
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { InvoiceDto } from '@veetracer/shared';
+import type { CreditNoteDto, InvoiceDto } from '@veetracer/shared';
 import { FileSpreadsheetIcon, FileTextIcon, HandshakeIcon, ShieldCheckIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +16,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, downloadFile, errorMessage } from '@/lib/api';
-import { InvoicesTable } from '../shared';
+import { CreditNotesTable, InvoicesTable } from '../shared';
+import { CreditNoteDialog } from './CreditNoteDialog';
 import { AdminPartnersTab } from './AdminPartnersTab';
 import { AdminPoolsTab, POOLS_QUERY, type PoolRow } from './AdminPoolsTab';
 
@@ -25,6 +26,8 @@ const thisMonth = () => new Date().toISOString().slice(0, 7);
 function AdminInvoicesTab({ pools }: { pools: PoolRow[] }) {
   const { t } = useTranslation();
   const { can } = useAuth();
+  const queryClient = useQueryClient();
+  const [crediting, setCrediting] = useState<InvoiceDto | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [owner, setOwner] = useState<string | null>(null);
@@ -32,6 +35,7 @@ function AdminInvoicesTab({ pools }: { pools: PoolRow[] }) {
   const pool = pools.find((p) => `${p.kind}:${p.id}` === owner);
   const query = { from: from || undefined, to: to || undefined, companyId: pool?.kind === 'COMPANY' ? pool.id : undefined, partnerId: pool?.kind === 'PARTNER' ? pool.id : undefined };
   const q = useQuery({ queryKey: ['licences', 'admin', 'invoices', query], queryFn: ({ signal }) => api.get<InvoiceDto[]>('/licences/admin/invoices', query, signal) });
+  const notes = useQuery({ queryKey: ['licences', 'admin', 'credit-notes', query], queryFn: ({ signal }) => api.get<CreditNoteDto[]>('/licences/admin/credit-notes', query, signal) });
   const exportCsv = useMutation({
     mutationFn: () => downloadFile(`/licences/admin/gst-summary?month=${month}`, `gst-summary-${month}.csv`),
     onError: (err) => toast.error(errorMessage(err)),
@@ -61,8 +65,23 @@ function AdminInvoicesTab({ pools }: { pools: PoolRow[] }) {
         )}
       </div>
       {q.isError && <FormError message={errorMessage(q.error)} />}
-      <Card className="overflow-hidden p-0">{q.isPending ? <Skeleton className="m-4 h-32" /> : <InvoicesTable invoices={q.data ?? []} pdfPath={(id) => `/licences/admin/invoices/${id}/pdf`} showBuyer />}</Card>
-      <p className="text-xs text-muted-foreground">{t('Credit notes are not supported yet: to cancel an invoice, issue a credit note outside VeeTrax.')}</p>
+      <Card className="overflow-hidden p-0">
+        {q.isPending ? (
+          <Skeleton className="m-4 h-32" />
+        ) : (
+          <InvoicesTable invoices={q.data ?? []} pdfPath={(id) => `/licences/admin/invoices/${id}/pdf`} showBuyer onCredit={can('sa_licences', 'create') ? setCrediting : undefined} />
+        )}
+      </Card>
+      {!!notes.data?.length && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold">{t('Credit notes')}</h3>
+          <Card className="overflow-hidden p-0">
+            <CreditNotesTable notes={notes.data} pdfPath={(id) => `/licences/admin/credit-notes/${id}/pdf`} showBuyer />
+          </Card>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">{t('Credit notes are numbered in their own series and included in the GST summary as negative rows.')}</p>
+      {crediting && <CreditNoteDialog invoice={crediting} onClose={() => setCrediting(null)} onIssued={() => void queryClient.invalidateQueries({ queryKey: ['licences', 'admin'] })} />}
     </div>
   );
 }

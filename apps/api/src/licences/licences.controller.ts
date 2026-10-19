@@ -1,9 +1,10 @@
 import { Body, Controller, ForbiddenException, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Put, Req, StreamableFile } from '@nestjs/common';
-import { Invoice } from '@prisma/client';
+import { CreditNote, Invoice } from '@prisma/client';
 import { Request } from 'express';
 import { AuthContext } from '../access/auth-context';
 import { Auth, Public, RequirePermission } from '../access/decorators';
 import { BillingService } from './billing.service';
+import { CreditNotesService } from './credit-notes.service';
 import { InvoicesService } from './invoices.service';
 import { AllocateDto, BillingProfileBody, OfflinePaymentDto, PurchaseDto, VerifyCheckoutDto } from './licences.dto';
 import { PartnersService } from './partners.service';
@@ -13,6 +14,10 @@ export function pdfFile(invoices: InvoicesService, inv: Invoice, buffer: Buffer)
   return new StreamableFile(buffer, { type: 'application/pdf', disposition: `attachment; filename="${invoices.fileName(inv)}"` });
 }
 
+export function creditNotePdfFile(notes: CreditNotesService, cn: CreditNote, buffer: Buffer): StreamableFile {
+  return new StreamableFile(buffer, { type: 'application/pdf', disposition: `attachment; filename="${notes.fileName(cn)}"` });
+}
+
 /** Company admins: their own licence pool, billing details, purchases / renewals and invoices. */
 @Controller('licences')
 export class LicencesController {
@@ -20,6 +25,7 @@ export class LicencesController {
     private readonly billing: BillingService,
     private readonly pools: PoolsService,
     private readonly invoices: InvoicesService,
+    private readonly creditNotes: CreditNotesService,
   ) {}
 
   /** Banner data for every signed-in user (no permission needed). */
@@ -63,6 +69,23 @@ export class LicencesController {
     const inv = await this.invoices.find(id, { companyId: ctx.companyId });
     return pdfFile(this.invoices, inv, await this.invoices.pdf(inv));
   }
+
+  /** Credit notes issued against one of the company's invoices. */
+  @Get('invoices/:id/credit-notes') @RequirePermission('billing', 'view')
+  async invoiceCreditNotes(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return (await this.creditNotes.credits(id, { companyId: ctx.companyId })).creditNotes;
+  }
+
+  @Get('credit-notes') @RequirePermission('billing', 'view')
+  creditNotesList(@Auth() ctx: AuthContext) {
+    return this.creditNotes.list({ companyId: ctx.companyId });
+  }
+
+  @Get('credit-notes/:id/pdf') @RequirePermission('billing', 'view')
+  async creditNotePdf(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    const cn = await this.creditNotes.find(id, { companyId: ctx.companyId });
+    return creditNotePdfFile(this.creditNotes, cn, await this.creditNotes.pdf(cn));
+  }
 }
 
 /** Partners (resellers): their bulk pool, purchases, allocation to customers, customers' expiries, offline payments. */
@@ -73,6 +96,7 @@ export class PartnerLicencesController {
     private readonly pools: PoolsService,
     private readonly partners: PartnersService,
     private readonly invoices: InvoicesService,
+    private readonly creditNotes: CreditNotesService,
   ) {}
 
   @Get('overview') @RequirePermission('billing', 'view')
@@ -155,6 +179,17 @@ export class PartnerLicencesController {
   async invoicePdf(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     const inv = await this.invoices.find(id, { partnerId: (await this.billing.partnerOf(ctx)).id });
     return pdfFile(this.invoices, inv, await this.invoices.pdf(inv));
+  }
+
+  @Get('credit-notes') @RequirePermission('billing', 'view')
+  async creditNotesList(@Auth() ctx: AuthContext) {
+    return this.creditNotes.list({ partnerId: (await this.billing.partnerOf(ctx)).id });
+  }
+
+  @Get('credit-notes/:id/pdf') @RequirePermission('billing', 'view')
+  async creditNotePdf(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    const cn = await this.creditNotes.find(id, { partnerId: (await this.billing.partnerOf(ctx)).id });
+    return creditNotePdfFile(this.creditNotes, cn, await this.creditNotes.pdf(cn));
   }
 }
 

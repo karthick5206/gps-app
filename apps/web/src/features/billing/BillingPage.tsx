@@ -91,6 +91,8 @@ export function BillingPage() {
       profilePath="/licences/billing-profile"
       invoicesPath="/licences/invoices"
       pdfPath={(id) => `/licences/invoices/${id}/pdf`}
+      creditNotesPath="/licences/credit-notes"
+      creditNotePdfPath={(id) => `/licences/credit-notes/${id}/pdf`}
       canBuy={can('billing', 'create')}
       canEditProfile={can('billing', 'edit')}
       onChanged={refresh}
@@ -122,6 +124,8 @@ export function BillingPage() {
               profilePath="/licences/partner/billing-profile"
               invoicesPath="/licences/partner/invoices"
               pdfPath={(id) => `/licences/partner/invoices/${id}/pdf`}
+              creditNotesPath="/licences/partner/credit-notes"
+              creditNotePdfPath={(id) => `/licences/partner/credit-notes/${id}/pdf`}
               canBuy={can('billing', 'create')}
               canEditProfile={can('billing', 'edit')}
               onChanged={refresh}
