@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Put, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Put, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthContext } from '../access/auth-context';
 import { Auth, Public, RequirePermission } from '../access/decorators';
@@ -44,10 +44,7 @@ export class DriverEventsController {
   @Get('media/:id') @Public()
   async media(@Param('id', ParseUUIDPipe) id: string, @Query() q: MediaTokenQuery, @Res({ passthrough: true }) res: Response) {
     const found = await this.service.media(id, q.token);
-    if (!found) {
-      res.status(404).json({ statusCode: 404, message: 'This photo link has expired or the photo was removed' });
-      return;
-    }
+    if (!found) throw new NotFoundException('This photo link has expired or the photo was removed');
     res.setHeader('Cache-Control', 'private, max-age=1800');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     return found.file;
