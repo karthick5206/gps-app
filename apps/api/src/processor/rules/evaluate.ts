@@ -103,6 +103,20 @@ export interface RuleInput {
   receivedAt?: number;
   /** Only run device-health checks (points that don't update live state, e.g. a clock running ahead). */
   healthOnly?: boolean;
+  /** Refills / drains the fuel detector reported on this point (already stored as FuelEvent rows). */
+  fuelEvents?: FuelAlertEvent[];
+}
+
+export interface FuelAlertEvent {
+  id: string;
+  type: 'REFILL' | 'DRAIN';
+  startTime: number;
+  endTime: number;
+  litresBefore: number;
+  litresAfter: number;
+  deltaL: number;
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface PendingAlert {
@@ -242,6 +256,7 @@ class Evaluator {
     this.alarms();
     this.dashcam();
     this.battery();
+    this.fuel();
     this.health();
     this.pruneCooldowns();
     return this.out;
@@ -545,6 +560,19 @@ class Evaluator {
       this.emit('LOW_BATTERY', { message: `Tracker battery at ${Math.round(level)}%`, data: { batteryPct: Math.round(level), thresholdPct: threshold } });
     } else if (level >= threshold + LOW_BATTERY_HYSTERESIS_PCT && this.state.batLow) {
       this.state.batLow = false;
+    }
+  }
+
+  // ───────────── fuel refill / drain (detected by the processor's fuel detector) ─────────────
+  private fuel(): void {
+    for (const e of this.input.fuelEvents ?? []) {
+      const data = { litresBefore: e.litresBefore, litresAfter: e.litresAfter, deltaL: e.deltaL, fuelEventId: e.id, startedAt: new Date(e.startTime).toISOString() };
+      const level = `${e.litresBefore.toFixed(1)} → ${e.litresAfter.toFixed(1)} L`;
+      if (e.type === 'DRAIN') {
+        this.emit('FUEL_DRAIN', { at: e.endTime, message: `Possible fuel theft: ${e.deltaL.toFixed(1)} L drained (${level})`, data, cooldownKey: `FUEL_DRAIN:${e.id}` });
+      } else {
+        this.emit('FUEL_REFILL', { at: e.endTime, message: `Refuelled ${e.deltaL.toFixed(1)} L (${level})`, data, cooldownKey: `FUEL_REFILL:${e.id}` });
+      }
     }
   }
 

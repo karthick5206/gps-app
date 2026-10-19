@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { DashboardSummary, LiveObject, MOVEMENT_STATUSES } from '@veetracer/shared';
 import { objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
+import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { effectiveSpeedLimit, noDataLive, ObjectMeta } from '../tracking/live-object';
 import { LiveStateService } from './live-state.service';
@@ -11,6 +12,7 @@ export class LiveService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly liveState: LiveStateService,
+    @Optional() private readonly licences?: LicencePolicyService,
   ) {}
 
   /** Every active object in scope; DB metadata wins over the cached copy inside the live state. */
@@ -33,6 +35,7 @@ export class LiveService {
       orderBy: { name: 'asc' },
     });
     const live = await this.liveState.read(objects.map((o) => o.id));
+    const locked = (await this.licences?.lockedObjectIds(ctx)) ?? new Set<string>();
     return objects.map((o) => {
       const device = o.assignments[0]?.device ?? null;
       const meta: ObjectMeta = {
@@ -51,6 +54,8 @@ export class LiveService {
         driverName: o.drivers[0]?.driver.name ?? null,
         driverSource: (o.drivers[0]?.source as 'MANUAL' | 'RFID' | undefined) ?? null,
       };
+      // Licence expired past grace: listed (so it can be renewed) but without position or telemetry.
+      if (locked.has(o.id)) return { ...noDataLive(meta), licenceLocked: true };
       const state = live.get(o.id);
       return state ? { ...state, ...meta } : noDataLive(meta);
     });

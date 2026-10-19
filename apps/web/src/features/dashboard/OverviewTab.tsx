@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ALERT_TYPE_MAP, MOVEMENT_STATUSES, STATUS_META, type AlertTypeCode, type DashboardOverview, type MovementStatus } from '@veetracer/shared';
-import { BellRingIcon, GaugeIcon, RadioTowerIcon, RouteIcon, SigmaIcon, TruckIcon } from 'lucide-react';
+import { ALERT_TYPE_MAP, MOVEMENT_STATUSES, STATUS_META, type AlertTypeCode, type ComplianceSummary, type DashboardOverview, type MovementStatus } from '@veetracer/shared';
+import { BellRingIcon, FileClockIcon, FileXIcon, GaugeIcon, RadioTowerIcon, RouteIcon, SigmaIcon, TruckIcon, WrenchIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
@@ -100,6 +100,31 @@ function StatCard({
 const km = (v: number) => `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
 const GEOFENCE_FALLBACK = ['#0f766e', '#2563eb', '#d97706', '#9333ea', '#dc2626', '#0891b2', '#65a30d'];
 
+/** Documents expiring / expired and services due (Documents & Service page). */
+function ComplianceCards() {
+  const { t } = useTranslation();
+  const q = useQuery({
+    queryKey: ['compliance-summary'],
+    queryFn: ({ signal }) => api.get<ComplianceSummary>('/documents/summary', undefined, signal),
+    staleTime: 5 * 60_000,
+  });
+  const c = q.data;
+  if (q.isError) return null;
+  return (
+    <section aria-labelledby="compliance" className="space-y-3">
+      <h2 id="compliance" className="text-sm font-semibold text-muted-foreground">
+        {t('Documents & service')}
+      </h2>
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatCard label={t('Documents expiring this month')} value={c?.documentsExpiringThisMonth} icon={FileClockIcon} hint={c ? t('{{count}} within their reminder window', { count: c.documentsExpiring }) : undefined} to="/masters/documents" />
+        <StatCard label={t('Documents expired')} value={c?.documentsExpired} icon={FileXIcon} to="/masters/documents" />
+        <StatCard label={t('Services due soon')} value={c?.servicesDueSoon} icon={WrenchIcon} to="/masters/documents?tab=service" />
+        <StatCard label={t('Services overdue')} value={c?.servicesOverdue} icon={WrenchIcon} to="/masters/documents?tab=service" />
+      </div>
+    </section>
+  );
+}
+
 export function OverviewTab() {
   const { t } = useTranslation();
   const { can } = useAuth();
@@ -154,6 +179,8 @@ export function OverviewTab() {
           ))}
         </div>
       </section>
+
+      {can('documents') && <ComplianceCards />}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="p-4">{d ? <Donut title={t('Status distribution')} slices={statusSlices} centerLabel={t('vehicles')} onSelect={toLive} /> : <Skeleton className="h-36" />}</Card>

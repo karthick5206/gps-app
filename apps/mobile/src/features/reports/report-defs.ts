@@ -10,6 +10,7 @@ import {
 import type { LucideIcon } from 'lucide-react-native';
 import {
   ActivityIcon,
+  FileCheck2Icon,
   BellIcon,
   CirclePauseIcon,
   ClockIcon,
@@ -19,6 +20,9 @@ import {
   IdCardIcon,
   LayersIcon,
   ListChecksIcon,
+  MapPinIcon,
+  DropletOffIcon,
+  FuelIcon,
   MapPinnedIcon,
   ParkingSquareIcon,
   PowerIcon,
@@ -30,6 +34,7 @@ import {
 } from 'lucide-react-native';
 import { formatDateTime, humanize } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
+import { poiCategoryLabel } from '@/features/pois/categories';
 import { formatHm, periodLabel } from './report-format';
 
 export type Row = Record<string, unknown>;
@@ -54,7 +59,7 @@ export interface ReportColumn {
 
 export interface ReportTypeDef {
   type: ReportType;
-  category: 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices';
+  category: ReportCategory;
   label: string;
   description: string;
   icon: LucideIcon;
@@ -70,7 +75,7 @@ const time = (k: string) => (r: Row) => {
   return v ? Date.parse(v) : null;
 };
 
-/** Address, else "lat, lng" (addresses are filled asynchronously by the summarizer). */
+/** Address, else "lat, lng" (addresses are filled when the report runs, as far as the lookup budget allows). */
 const place = (addr: string, lat: string, lng: string) => (r: Row) => {
   const a = r[addr] as string | null | undefined;
   if (a) return a;
@@ -136,6 +141,7 @@ const STOPS: ReportColumn[] = [
     display: (r) => (r.ignitionOn ? i18n.t('Idle') : i18n.t('Parked')),
   },
   { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
+  { id: 'poiName', header: 'POI', value: str('poiName') },
 ];
 
 const onOff = (on: boolean | null) => (on === null ? null : on ? i18n.t('On') : i18n.t('Off'));
@@ -151,7 +157,7 @@ const ALERTS: ReportColumn[] = [
     display: (r) => i18n.t(humanize(r.severity as string)),
   },
   { id: 'message', header: 'Message', value: str('message') },
-  { id: 'address', header: 'Location', value: str('address') },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
   { id: 'status', header: 'Status', value: str('status'), display: (r) => i18n.t(humanize(r.status as string)) },
 ];
 
@@ -161,6 +167,18 @@ const GEOFENCE_VISITS: ReportColumn[] = [
   { id: 'enterTime', header: 'Entered', value: time('enterTime'), kind: 'time' },
   { id: 'exitTime', header: 'Exited', value: time('exitTime'), kind: 'time', display: (r) => (r.exitTime ? null : i18n.t('Inside')) },
   duration('durationSec', 'Duration'),
+];
+
+const POI_VISITS: ReportColumn[] = [
+  vehicle,
+  { id: 'poiName', header: 'POI', value: str('poiName') },
+  { id: 'category', header: 'Category', value: str('category'), display: (r) => (r.category ? poiCategoryLabel(r.category as string) : null) },
+  { id: 'arrival', header: 'Arrival', value: time('arrival'), kind: 'time' },
+  { id: 'departure', header: 'Departure', value: time('departure'), kind: 'time' },
+  duration('durationSec', 'Duration'),
+  { id: 'distanceM', header: 'Distance (m)', value: num('distanceM'), numeric: true, format: (v) => Math.round(v).toLocaleString() },
+  { id: 'ignitionOn', header: 'Engine', value: (r) => (r.ignitionOn ? 1 : 0), display: (r) => onOff(r.ignitionOn as boolean) },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
 ];
 
 const plate: ReportColumn = { id: 'plateNumber', header: 'Plate', value: str('plateNumber') };
@@ -216,6 +234,7 @@ const POSITIONS: ReportColumn[] = [
   { id: 'fixTime', header: 'GPS time', value: time('fixTime'), kind: 'time' },
   { id: 'serverTime', header: 'Received', value: time('serverTime'), kind: 'time' },
   { id: 'lat', header: 'Location', value: coordValue('lat', 'lng') },
+  { id: 'address', header: 'Address', value: str('address') },
   { id: 'speedKph', header: 'km/h', value: num('speedKph'), numeric: true, total: 'max', format: int },
   count('course', 'Course', undefined),
   count('satellites', 'Sats', undefined),
@@ -245,7 +264,7 @@ const OVERSPEED: ReportColumn[] = [
     format: int,
   },
   count('avgSpeedKph', 'Avg (km/h)', undefined),
-  { id: 'lat', header: 'Peak at', value: coordValue('lat', 'lng') },
+  { id: 'address', header: 'Peak at', value: place('address', 'lat', 'lng') },
 ];
 
 const IGNITION: ReportColumn[] = [
@@ -254,7 +273,7 @@ const IGNITION: ReportColumn[] = [
   { id: 'time', header: 'Time', value: time('time'), kind: 'time' },
   { id: 'state', header: 'Ignition', value: str('state'), display: (r) => onOff(r.state === 'ON') },
   duration('previousStateSec', 'Previous state for', undefined),
-  { id: 'lat', header: 'Location', value: coordValue('lat', 'lng') },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
 ];
 
 const CONTINUOUS_DRIVING: ReportColumn[] = [
@@ -267,8 +286,8 @@ const CONTINUOUS_DRIVING: ReportColumn[] = [
   duration('longestBreakSec', 'Longest break', undefined),
   count('trips', 'Trips', undefined),
   kmCol(),
-  { id: 'startAddress', header: 'From', value: str('startAddress') },
-  { id: 'endAddress', header: 'To', value: str('endAddress') },
+  { id: 'startAddress', header: 'From', value: place('startAddress', 'startLat', 'startLng') },
+  { id: 'endAddress', header: 'To', value: place('endAddress', 'endLat', 'endLng') },
 ];
 
 const EVENT_SUMMARY: ReportColumn[] = [
@@ -330,10 +349,63 @@ const DEVICE_STATUS: ReportColumn[] = [
   duration('inactiveSec', 'No data for', undefined),
   optNum('batteryLevel', 'Battery %', 0),
   optNum('extVoltage', 'Ext. V', 2),
+  { id: 'address', header: 'Last location', value: place('address', 'lat', 'lng') },
 ];
 
-export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices';
-export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Devices'];
+export const DOCUMENT_REPORT_STATUS_LABELS: Record<string, string> = {
+  VALID: 'Valid',
+  EXPIRING: 'Expiring soon',
+  EXPIRED: 'Expired',
+  NO_EXPIRY: 'No expiry date',
+  OK: 'OK',
+  DUE_SOON: 'Due soon',
+  OVERDUE: 'Overdue',
+};
+
+const DOCUMENTS: ReportColumn[] = [
+  { id: 'vehicle', header: 'Vehicle', value: str('vehicle') },
+  { id: 'driver', header: 'Driver', value: str('driver') },
+  { id: 'kind', header: 'Type', value: str('kind'), display: (r) => (r.kind === 'SERVICE' ? i18n.t('Service') : i18n.t('Document')) },
+  { id: 'item', header: 'Item', value: str('item'), display: (r) => (r.kind === 'SERVICE' ? (r.item as string) : i18n.t(r.item as string)) },
+  { id: 'number', header: 'Number', value: str('number') },
+  { id: 'dueOn', header: 'Expires / due on', value: str('dueOn') },
+  { id: 'dueOdometerKm', header: 'Due at (km)', value: num('dueOdometerKm'), numeric: true, format: int },
+  { id: 'daysLeft', header: 'Days left', value: num('daysLeft'), numeric: true, format: int },
+  { id: 'kmLeft', header: 'Km left', value: num('kmLeft'), numeric: true, format: int },
+  { id: 'status', header: 'Status', value: str('status'), display: (r) => i18n.t(DOCUMENT_REPORT_STATUS_LABELS[r.status as string] ?? (r.status as string)) },
+];
+
+const litres = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+const litresCol = (id: string, header: string, total?: Total): ReportColumn => ({ id, header, value: num(id), numeric: true, total, format: litres });
+
+const FUEL: ReportColumn[] = [
+  vehicle,
+  { id: 'day', header: 'Day', value: str('day') },
+  litresCol('startL', 'Start (L)'),
+  litresCol('endL', 'End (L)'),
+  count('refills', 'Refills'),
+  litresCol('refillL', 'Refilled (L)', 'sum'),
+  count('drains', 'Drains'),
+  litresCol('drainL', 'Drained (L)', 'sum'),
+  litresCol('consumptionL', 'Consumed (L)', 'sum'),
+  kmCol(),
+  { id: 'kmPerL', header: 'km/L', value: num('kmPerL'), numeric: true, format: (v) => v.toFixed(2) },
+  { id: 'lPer100Km', header: 'L/100 km', value: num('lPer100Km'), numeric: true, format: (v) => v.toFixed(1) },
+];
+
+const FUEL_EVENTS: ReportColumn[] = [
+  vehicle,
+  { id: 'type', header: 'Event', value: str('type'), display: (r) => (r.type === 'REFILL' ? i18n.t('Refill') : i18n.t('Drain')) },
+  { id: 'startTime', header: 'Start', value: time('startTime'), kind: 'time' },
+  { id: 'endTime', header: 'End', value: time('endTime'), kind: 'time' },
+  litresCol('litresBefore', 'Before (L)'),
+  litresCol('litresAfter', 'After (L)'),
+  { id: 'deltaL', header: 'Change (L)', value: (r) => (r.type === 'REFILL' ? (r.deltaL as number) : -(r.deltaL as number)), numeric: true, format: (v) => (v > 0 ? `+${litres(v)}` : litres(v)) },
+  { id: 'address', header: 'Location', value: place('address', 'lat', 'lng') },
+];
+
+export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Devices' | 'Compliance';
+export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Fuel', 'Devices', 'Compliance'];
 
 export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'SUMMARY', category: 'Activity', label: 'Summary', description: 'Distance, running/idle/stop time and trips per vehicle by day, week or month.', icon: SigmaIcon, columns: SUMMARY },
@@ -353,7 +425,11 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'EVENT_SUMMARY', category: 'Events', label: 'Event summary', description: 'How many of each alert type per vehicle, with first and last time.', icon: ListChecksIcon, columns: EVENT_SUMMARY },
   { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS },
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
+  { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },
+  { type: 'FUEL', category: 'Fuel', label: 'Fuel', description: 'Per vehicle per day: start and end level, refills, drains, consumption and km/L (vehicles with a fuel sensor).', icon: FuelIcon, columns: FUEL },
+  { type: 'FUEL_EVENTS', category: 'Fuel', label: 'Fuel refills & drains', description: 'Every detected refill and drain (possible fuel theft) with the level before and after.', icon: DropletOffIcon, columns: FUEL_EVENTS },
   { type: 'DEVICE_STATUS', category: 'Devices', label: 'Device status', description: 'Active, inactive, no-GPS and never-connected devices right now.', icon: ActivityIcon, columns: DEVICE_STATUS },
+  { type: 'DOCUMENTS', category: 'Compliance', label: 'Documents & services', description: 'Document expiry and service status of every vehicle as of today.', icon: FileCheck2Icon, columns: DOCUMENTS },
 ];
 
 export const REPORT_DEF_MAP = Object.fromEntries(REPORT_DEFS.map((d) => [d.type, d])) as Record<ReportType, ReportTypeDef>;

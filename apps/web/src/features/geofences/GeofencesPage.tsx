@@ -11,6 +11,7 @@ import { ActiveBadge, DateCell, Muted } from '@/features/masters/cells';
 import { MasterPage } from '@/features/masters/MasterPage';
 import type { MasterColumn, MasterFilter } from '@/features/masters/types';
 import { named, useEntityOptions } from '@/features/masters/use-options';
+import { ExportMenu } from '@/features/pois/ExportMenu';
 import { GEOFENCES_ENDPOINT, MODE_LABEL, useCategoryOptions } from './api';
 import { GeofenceEditor } from './GeofenceEditor';
 import { areaM2, formatArea, formatRadius } from './geometry';
@@ -109,11 +110,15 @@ export function GeofencesPage() {
         Form={GeofenceEditor}
         emptyIcon={HexagonIcon}
         headerActions={
-          can('geofences', 'create') ? (
-            <Button variant="outline" onClick={() => setImportOpen(true)}>
-              <UploadIcon /> {t('Import')}
-            </Button>
-          ) : null
+          <>
+            {can('geofences', 'create') && (
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <UploadIcon /> {t('Import')}
+              </Button>
+            )}
+            {/* KML / GeoJSON export goes through /pois/export (needs pois:export). */}
+            {can('pois', 'export') && <ExportMenu includes={['geofences']} />}
+          </>
         }
         rowActions={(r) =>
           can('live_map') ? (

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import type { AlertDto, GeofenceDto, NotificationLogDto, NotificationStatus } from '@veetracer/shared';
-import { CheckIcon, MailIcon, MapPinIcon, MessageSquareIcon, SmartphoneIcon, BellIcon } from 'lucide-react';
+import { ALERT_TYPE_MAP, type AlertDto, type GeofenceDto, type NotificationLogDto, type NotificationStatus } from '@veetracer/shared';
+import { CheckIcon, MailIcon, MapPinIcon, MessageSquareIcon, SmartphoneIcon, BellIcon, VideoIcon } from 'lucide-react';
+import { Link } from 'react-router';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FormError } from '@/components/form-error';
@@ -16,6 +17,7 @@ import { alertTitle } from './alert-center';
 import { useOpenAlert } from './AlertBell';
 import { AlertTypeIcon } from './alert-icons';
 import { AlertStatusBadge, SeverityBadge } from './badges';
+import { videoPagePath } from '@/features/video/video-utils';
 
 const MiniMap = lazy(() => import('./MiniMap').then((m) => ({ default: m.MiniMap })));
 
@@ -110,6 +112,13 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
                 {can('live_map') && (
                   <Button size="sm" variant="outline" onClick={() => openOnMap(a)}>
                     <MapPinIcon /> {t('View on live map')}
+                  </Button>
+                )}
+                {can('video') && ['adas', 'dms'].includes(ALERT_TYPE_MAP[a.type]?.capability ?? '') && (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to={videoPagePath(a.objectId, { at: a.occurredAt })}>
+                      <VideoIcon /> {t('Watch video')}
+                    </Link>
                   </Button>
                 )}
                 {can('alerts', 'edit') && a.status === 'NEW' && (

@@ -51,12 +51,21 @@ enum AuditAction {
 }
 
 model Partner {
-  id        String    @id @default(uuid()) @db.Uuid
-  name      String
-  slug      String    @unique
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  companies Company[]
+  id             String          @id @default(uuid()) @db.Uuid
+  name           String
+  slug           String          @unique
+  createdAt      DateTime        @default(now())
+  /// The reseller's own company account: its admins (with billing permission) manage the partner pool.
+  homeCompanyId  String?         @unique @db.Uuid
+  /// Partner price overrides per licence type (paise, GST-inclusive); missing = platform price.
+  pricesPaise    Json            @default("{}")
+  updatedAt      DateTime        @updatedAt
+  companies      Company[]
+  billingProfile BillingProfile?
+  licenceSeats   LicenceSeat[]
+  licenceOrders  LicenceOrder[]
+  invoices       Invoice[]
+  creditNotes    CreditNote[]
 }
 
 model Company {
@@ -73,16 +82,25 @@ model Company {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  partner       Partner         @relation(fields: [partnerId], references: [id], onDelete: Restrict)
-  branches      Branch[]
-  users         User[]
-  roles         Role[]
-  devices       Device[]
-  objects       TrackedObject[]
-  vehicleGroups VehicleGroup[]
-  drivers       Driver[]
-  lookups       Lookup[]
-  auditLogs     AuditLog[]
+  partner        Partner           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  branches       Branch[]
+  users          User[]
+  roles          Role[]
+  devices        Device[]
+  objects        TrackedObject[]
+  vehicleGroups  VehicleGroup[]
+  drivers        Driver[]
+  documents      Document[]
+  pois           Poi[]
+  lookups        Lookup[]
+  auditLogs      AuditLog[]
+  apiKeys        ApiKey[]
+  webhooks       WebhookEndpoint[]
+  billingProfile BillingProfile?
+  licenceSeats   LicenceSeat[]
+  licenceOrders  LicenceOrder[]
+  invoices       Invoice[]
+  creditNotes    CreditNote[]
 }
 
 model Branch {
@@ -99,6 +117,7 @@ model Branch {
   objects TrackedObject[]
   users   UserBranch[]
   drivers Driver[]
+  pois    Poi[]
 
   @@unique([companyId, name])
 }
@@ -127,6 +146,7 @@ model User {
   sessions       Session[]
   passwordResets PasswordReset[]
   pushTokens     PushToken[]
+  licenceSeat    LicenceSeat?
 
   @@index([companyId])
 }
@@ -227,6 +247,7 @@ model Device {
   company     Company?           @relation(fields: [companyId], references: [id], onDelete: Restrict)
   model       DeviceModel        @relation(fields: [modelId], references: [id], onDelete: Restrict)
   assignments DeviceAssignment[]
+  licenceSeat LicenceSeat?
 
   @@index([companyId])
 }
@@ -261,6 +282,11 @@ model TrackedObject {
   remarks     ObjectRemark[]
   commands    DeviceCommand[]
   drivers     DriverAssignment[]
+  documents   Document[]
+  services    ServiceReminder[]
+  serviceLog  ServiceRecord[]
+  fuelConfig  FuelConfig?
+  fuelEvents  FuelEvent[]
 
   @@index([companyId, branchId])
 }
@@ -296,24 +322,27 @@ model DeviceAssignment {
 
 /// A person who drives company vehicles; identified on the tracker by an RFID card / iButton (`rfidTag`).
 model Driver {
-  id            String    @id @default(uuid()) @db.Uuid
-  companyId     String    @db.Uuid
-  branchId      String?   @db.Uuid
-  name          String
-  mobile        String?
-  employeeId    String?
-  licenseNo     String?
-  licenseExpiry DateTime? @db.Date
+  id                   String    @id @default(uuid()) @db.Uuid
+  companyId            String    @db.Uuid
+  branchId             String?   @db.Uuid
+  name                 String
+  mobile               String?
+  employeeId           String?
+  licenseNo            String?
+  licenseExpiry        DateTime? @db.Date
   /// Hex, upper case, without leading zeros (normalizeRfidTag); unique per company.
-  rfidTag       String?
-  notes         String?
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  rfidTag              String?
+  notes                String?
+  isActive             Boolean   @default(true)
+  /// Last licence-expiry reminder raised (EXPIRING | EXPIRED) for licenseExpiry; reset when the expiry changes.
+  licenseNotifiedState String?
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
 
   company     Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   branch      Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
   assignments DriverAssignment[]
+  documents   Document[]
 
   @@unique([companyId, rfidTag])
   @@unique([companyId, employeeId])
@@ -338,6 +367,90 @@ model DriverAssignment {
   @@index([objectId, fromTime(sort: Desc)])
   @@index([driverId, fromTime(sort: Desc)])
   @@index([companyId, fromTime(sort: Desc)])
+}
+
+/// RC, insurance, PUC, licence… of a vehicle (objectId) or a driver (driverId); exactly one is set (CHECK in the migration).
+model Document {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @db.Uuid
+  objectId      String?   @db.Uuid
+  driverId      String?   @db.Uuid
+  /// DOCUMENT_TYPE lookup code.
+  type          String
+  number        String?
+  issuedOn      DateTime? @db.Date
+  expiresOn     DateTime? @db.Date
+  reminderDays  Int       @default(30)
+  notes         String?
+  /// Attached scan / photo, stored under var/documents/.
+  fileName      String?
+  filePath      String?
+  fileType      String?
+  fileSize      Int?
+  /// Last reminder alert raised (EXPIRING | EXPIRED); reset when the expiry changes. Makes the reminders job idempotent.
+  notifiedState String?
+  createdById   String?   @db.Uuid
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  object  TrackedObject? @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  driver  Driver?        @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, expiresOn])
+  @@index([objectId])
+  @@index([driverId])
+}
+
+/// Periodic maintenance of a vehicle by date and/or odometer; dueAt / dueOdometerKm = last service + interval.
+model ServiceReminder {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @db.Uuid
+  objectId           String    @db.Uuid
+  title              String
+  intervalKm         Int?
+  intervalDays       Int?
+  lastDoneAt         DateTime? @db.Date
+  lastDoneOdometerKm Float?
+  dueAt              DateTime? @db.Date
+  dueOdometerKm      Float?
+  notifyBeforeKm     Int       @default(500)
+  notifyBeforeDays   Int       @default(7)
+  notes              String?
+  isActive           Boolean   @default(true)
+  /// Last reminder alert raised for the current due point (DUE_SOON | OVERDUE); reset when it rolls forward.
+  notifiedState      String?
+  createdById        String?   @db.Uuid
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  object  TrackedObject   @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  records ServiceRecord[]
+
+  @@index([companyId])
+  @@index([objectId])
+}
+
+/// One completed service (history), optionally of a reminder.
+model ServiceRecord {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  objectId    String   @db.Uuid
+  reminderId  String?  @db.Uuid
+  title       String
+  doneAt      DateTime @db.Date
+  odometerKm  Float?
+  cost        Float?
+  notes       String?
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  object   TrackedObject    @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  reminder ServiceReminder? @relation(fields: [reminderId], references: [id], onDelete: SetNull)
+
+  @@index([objectId, doneAt(sort: Desc)])
+  @@index([reminderId])
+  @@index([companyId, doneAt(sort: Desc)])
 }
 
 model VehicleGroup {
@@ -612,6 +725,73 @@ model Geofence {
 
   @@unique([companyId, name])
   @@index([companyId, isActive])
+}
+
+/// Fuel sensor settings of a vehicle. source: none | can_level_pct | can_level_l | lls | analog.
+/// calibration: [[raw, litres], …] ascending (LLS units or analog mV); refillMinL null = max(10 L, 5 % of the tank).
+model FuelConfig {
+  objectId        String   @id @db.Uuid
+  companyId       String   @db.Uuid
+  source          String   @default("none")
+  tankCapacityL   Float?
+  calibration     Json     @default("[]")
+  refillMinL      Float?
+  drainMinL       Float    @default(8)
+  drainWindowMin  Int      @default(10)
+  smoothingWindow Int      @default(5)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  object      TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  licenceSeat LicenceSeat?
+
+  @@index([companyId])
+}
+
+/// Refill or drain (possible theft) detected by the processor. type: REFILL | DRAIN.
+model FuelEvent {
+  id           String   @id @db.Uuid
+  companyId    String   @db.Uuid
+  objectId     String   @db.Uuid
+  type         String
+  startTime    DateTime @db.Timestamptz(3)
+  endTime      DateTime @db.Timestamptz(3)
+  litresBefore Float
+  litresAfter  Float
+  deltaL       Float
+  lat          Float?
+  lng          Float?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@unique([objectId, type, startTime])
+  @@index([companyId, startTime(sort: Desc)])
+}
+
+/// Point of interest (customer site, depot, fuel station…): a stop within radiusM counts as a visit.
+model Poi {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  branchId    String?  @db.Uuid
+  name        String
+  category    String   @default("OTHER")
+  lat         Float
+  lng         Float
+  address     String?
+  radiusM     Int      @default(100)
+  icon        String?
+  color       String   @default("#2563eb")
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch  Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, isActive])
+  @@index([companyId, lat, lng])
 }
 
 /// kind: BRANCH | GROUP | OBJECT (used when appliesToAll = false).
@@ -951,4 +1131,319 @@ model DeviceCommand {
 
   @@index([objectId, createdAt(sort: Desc)])
   @@index([companyId, createdAt(sort: Desc)])
+}
+
+/// Customer API key. Only the SHA-256 of the key is stored; `prefix` (first characters) identifies it in the UI.
+model ApiKey {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @db.Uuid
+  /// Limits the key to one branch's vehicles (null = whole company).
+  branchId      String?   @db.Uuid
+  name          String
+  prefix        String
+  keyHash       String    @unique
+  scopes        String[]
+  ipAllowList   String[]  @default([])
+  ratePerMinute Int       @default(60)
+  ratePerDay    Int       @default(10000)
+  expiresAt     DateTime? @db.Timestamptz(3)
+  lastUsedAt    DateTime? @db.Timestamptz(3)
+  lastUsedIp    String?
+  requestCount  Int       @default(0)
+  revokedAt     DateTime? @db.Timestamptz(3)
+  createdById   String?   @db.Uuid
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
+/// Outgoing webhook endpoint of a company. `secret` signs every request (HMAC-SHA256), so it is kept readable.
+model WebhookEndpoint {
+  id                  String    @id @default(uuid()) @db.Uuid
+  companyId           String    @db.Uuid
+  name                String
+  url                 String
+  events              String[]
+  secret              String
+  isActive            Boolean   @default(true)
+  consecutiveFailures Int       @default(0)
+  disabledAt          DateTime? @db.Timestamptz(3)
+  disabledReason      String?
+  lastDeliveryAt      DateTime? @db.Timestamptz(3)
+  lastStatusCode      Int?
+  createdById         String?   @db.Uuid
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @db.Timestamptz(3)
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([companyId])
+}
+
+/// One event sent to one endpoint (kept 30 days). status: PENDING | RETRYING | SUCCEEDED | FAILED.
+/// `dedupeKey` (endpoint + event id) stops an event being queued twice; tests and redeliveries have none.
+model WebhookDelivery {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @db.Uuid
+  endpointId     String    @db.Uuid
+  eventId        String
+  event          String
+  payload        Json
+  dedupeKey      String?   @unique
+  status         String    @default("PENDING")
+  attempt        Int       @default(0)
+  nextAttemptAt  DateTime? @db.Timestamptz(3)
+  responseStatus Int?
+  durationMs     Int?
+  error          String?
+  responseBody   String?
+  deliveredAt    DateTime? @db.Timestamptz(3)
+  isTest         Boolean   @default(false)
+  redeliveryOf   String?   @db.Uuid
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([endpointId, createdAt(sort: Desc)])
+  @@index([createdAt])
+}
+
+// ───────────── Licences & billing ─────────────
+
+enum LicenceType {
+  USER
+  GPS_DEVICE
+  DASHCAM
+  FUEL_SENSOR
+  /// Developer API (customer API keys / webhooks): one account-level seat per company, plan on the seat.
+  API_ACCESS
+}
+
+/// Platform-wide licence pricing and invoicing (supplier) details; one row, id = "default". Edited by the Super Admin.
+model PlatformBillingSettings {
+  id               String   @id @default("default")
+  /// GST-inclusive yearly price per licence type, in paise: { USER, GPS_DEVICE, DASHCAM, FUEL_SENSOR }.
+  pricesPaise      Json     @default("{}")
+  gstRatePct       Float    @default(18)
+  graceDays        Int      @default(15)
+  overrideDays     Int      @default(30)
+  legalName        String   @default("")
+  addressLines     String[] @default([])
+  city             String   @default("")
+  stateCode        String   @default("33")
+  pin              String   @default("")
+  gstin            String   @default("")
+  pan              String   @default("")
+  phone            String   @default("")
+  email            String   @default("")
+  website          String   @default("")
+  accountsEmail    String   @default("")
+  /// Logo file name under var/billing/ (PNG / JPG / SVG).
+  logoFile         String?
+  sacCode          String   @default("998314")
+  invoicePrefix    String   @default("VTX")
+  /// Credit notes have their own gap-free series: VTX/CN/2026-27/0001.
+  creditNotePrefix String   @default("VTX/CN")
+  /// Developer API plans: { BASIC | STANDARD | ENTERPRISE: { pricePaise, maxVehicles (null = unlimited), ratePerMinute,
+  /// ratePerDay, maxWebhooks } }; missing keys fall back to DEFAULT_API_PLANS (shared).
+  apiPlans         Json     @default("{}")
+  bankName         String   @default("")
+  bankAccountName  String   @default("")
+  bankAccountNo    String   @default("")
+  bankIfsc         String   @default("")
+  bankBranch       String   @default("")
+  upiId            String   @default("")
+  terms            String   @default("")
+  footerNote       String   @default("")
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+}
+
+/// Billing details of a customer company or a partner (reseller); required before the first purchase.
+model BillingProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String?  @unique @db.Uuid
+  partnerId   String?  @unique @db.Uuid
+  billingName String
+  address     String
+  city        String   @default("")
+  stateCode   String
+  pin         String   @default("")
+  gstin       String?
+  email       String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  partner Partner? @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+}
+
+/// One licence seat: runs 12 months from activation. In a company pool (companyId) or a partner pool (companyId null,
+/// partnerId set); a company seat with partnerId was allocated by that partner. A seat stays in the pool when its user /
+/// device / fuel sensor is deleted (subject set null) and is reused for the next one. source: PURCHASE | MIGRATION |
+/// OVERRIDE | ALLOCATION. notifiedState: last expiry reminder sent (D30, D15, D7, D1, D0).
+model LicenceSeat {
+  id            String      @id @default(uuid()) @db.Uuid
+  type          LicenceType
+  companyId     String?     @db.Uuid
+  partnerId     String?     @db.Uuid
+  source        String
+  activatedAt   DateTime    @db.Timestamptz(3)
+  expiresAt     DateTime    @db.Timestamptz(3)
+  userId        String?     @unique @db.Uuid
+  deviceId      String?     @unique @db.Uuid
+  fuelObjectId  String?     @unique @db.Uuid
+  assignedAt    DateTime?   @db.Timestamptz(3)
+  note          String?
+  notifiedState String?
+  lastOrderId   String?     @db.Uuid
+  /// API_ACCESS seats only: BASIC | STANDARD | ENTERPRISE (the subject of an API seat is its company).
+  apiPlan       String?
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @db.Timestamptz(3)
+
+  company    Company?    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  partner    Partner?    @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  device     Device?     @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  fuelConfig FuelConfig? @relation(fields: [fuelObjectId], references: [objectId], onDelete: SetNull)
+
+  @@index([companyId, type, expiresAt])
+  @@index([partnerId, type])
+  @@index([expiresAt])
+}
+
+/// A purchase / renewal: paid online (Razorpay, status CREATED → PAID after a verified webhook or signature) or recorded
+/// offline by a Super Admin / partner (CASH, UPI, BANK_TRANSFER, CHEQUE). `items` = the quote lines (with seat ids).
+model LicenceOrder {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String?   @db.Uuid
+  partnerId         String?   @db.Uuid
+  status            String    @default("CREATED")
+  mode              String
+  items             Json
+  amountPaise       Int
+  razorpayOrderId   String?   @unique
+  razorpayPaymentId String?   @unique
+  paymentReference  String?
+  paidAt            DateTime? @db.Timestamptz(3)
+  failureReason     String?
+  createdById       String?   @db.Uuid
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partner Partner? @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  invoice Invoice?
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([partnerId, createdAt(sort: Desc)])
+}
+
+/// GST tax invoice for one paid order. Numbered consecutively per Indian financial year (InvoiceCounter, gap-free).
+/// supplier / buyer / lines are snapshots so the invoice never changes when settings or profiles are edited.
+model Invoice {
+  id               String    @id @default(uuid()) @db.Uuid
+  number           String    @unique
+  fy               String
+  seq              Int
+  issuedAt         DateTime  @db.Timestamptz(3)
+  orderId          String    @unique @db.Uuid
+  companyId        String?   @db.Uuid
+  partnerId        String?   @db.Uuid
+  buyerName        String
+  buyerGstin       String?
+  buyerStateCode   String
+  supplier         Json
+  buyer            Json
+  lines            Json
+  taxKind          String
+  gstRatePct       Float
+  sacCode          String
+  taxablePaise     Int
+  cgstPaise        Int
+  sgstPaise        Int
+  utgstPaise       Int
+  igstPaise        Int
+  totalPaise       Int
+  paymentMode      String
+  paymentReference String?
+  paidAt           DateTime  @db.Timestamptz(3)
+  pdfFile          String?
+  emailedAt        DateTime? @db.Timestamptz(3)
+  emailError       String?
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+
+  order       LicenceOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  company     Company?     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partner     Partner?     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  creditNotes CreditNote[]
+
+  @@unique([fy, seq])
+  @@index([issuedAt])
+  @@index([companyId, issuedAt(sort: Desc)])
+  @@index([partnerId, issuedAt(sort: Desc)])
+}
+
+/// Last invoice number used per financial year; incremented inside the invoice transaction (row lock → gap-free).
+model InvoiceCounter {
+  fy      String @id
+  lastSeq Int
+}
+
+/// GST credit note against an invoice (full or partial; Super Admin only). Own gap-free series per financial year
+/// (CreditNoteCounter). `snapshot` holds everything printed (CreditNoteSnapshot, incl. the credited invoice lines and the
+/// original invoice's tax type). Credited seats are expired at issue unless keepSeatsActive (e.g. a price correction).
+/// refundMode: CASH | UPI | BANK_TRANSFER | CHEQUE | RAZORPAY_REFUND_MANUAL | NONE.
+model CreditNote {
+  id              String    @id @default(uuid()) @db.Uuid
+  number          String    @unique
+  fy              String
+  seq             Int
+  issuedAt        DateTime  @db.Timestamptz(3)
+  invoiceId       String    @db.Uuid
+  companyId       String?   @db.Uuid
+  partnerId       String?   @db.Uuid
+  buyerName       String
+  buyerGstin      String?
+  buyerStateCode  String
+  snapshot        Json
+  reason          String
+  taxKind         String
+  gstRatePct      Float
+  taxablePaise    Int
+  cgstPaise       Int
+  sgstPaise       Int
+  utgstPaise      Int
+  igstPaise       Int
+  totalPaise      Int
+  refundMode      String
+  refundReference String?
+  keepSeatsActive Boolean   @default(false)
+  revokedSeatIds  String[]  @default([])
+  pdfFile         String?
+  emailedAt       DateTime? @db.Timestamptz(3)
+  emailError      String?
+  createdById     String?   @db.Uuid
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partner Partner? @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  @@unique([fy, seq])
+  @@index([invoiceId])
+  @@index([issuedAt])
+  @@index([companyId, issuedAt(sort: Desc)])
+}
+
+/// Last credit note number used per financial year (same row-lock approach as InvoiceCounter → gap-free).
+model CreditNoteCounter {
+  fy      String @id
+  lastSeq Int
 }

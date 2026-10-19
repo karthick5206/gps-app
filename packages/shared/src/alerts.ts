@@ -30,7 +30,7 @@ export interface AlertParamDef {
 export interface AlertTypeDef {
   code: AlertTypeCode;
   label: string;
-  category: 'Driving' | 'Driver safety' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety';
+  category: 'Driving' | 'Driver safety' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety' | 'Compliance';
   /** Device-model capability required; null = any GPS device. */
   capability: string | null;
   defaultSeverity: AlertSeverity;
@@ -71,6 +71,11 @@ export const ALERT_TYPE_CODES = [
   'TAILGATING',
   'CAMERA_FAULT',
   'CRASH',
+  'DOCUMENT_EXPIRING',
+  'DOCUMENT_EXPIRED',
+  'SERVICE_DUE',
+  'FUEL_DRAIN',
+  'FUEL_REFILL',
 ] as const;
 export type AlertTypeCode = (typeof ALERT_TYPE_CODES)[number];
 
@@ -172,6 +177,13 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   { code: 'TAILGATING', label: 'Following too close', category: 'Driver safety', capability: 'adas', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
   { code: 'CAMERA_FAULT', label: 'Dashcam camera fault', category: 'Device health', capability: 'video', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   { code: 'CRASH', label: 'Crash / rollover', category: 'Safety', capability: 'crash', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // ── Compliance (raised by the daily reminders job, not by tracker data) ──
+  { code: 'DOCUMENT_EXPIRING', label: 'Document expiring', category: 'Compliance', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['document', 'expires_on', 'days_left'] },
+  { code: 'DOCUMENT_EXPIRED', label: 'Document expired', category: 'Compliance', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: ['document', 'expires_on'] },
+  { code: 'SERVICE_DUE', label: 'Service due', category: 'Compliance', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['service', 'due'] },
+  // ── Fuel (refill / drain detected from the vehicle's fuel sensor; thresholds are in the vehicle's fuel settings) ──
+  { code: 'FUEL_DRAIN', label: 'Possible fuel theft', category: 'Vehicle', capability: 'fuel', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: ['litres', 'fuel_before', 'fuel_after'] },
+  { code: 'FUEL_REFILL', label: 'Fuel refill', category: 'Vehicle', capability: 'fuel', defaultSeverity: 'INFO', defaultEnabled: true, mandatory: false, params: [], placeholders: ['litres', 'fuel_before', 'fuel_after'] },
 ];
 
 /** Catalogue default cooldown (minutes) per alert type when nothing is configured (shared by API and web). */
@@ -205,6 +217,13 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   TAILGATING: 2,
   CAMERA_FAULT: 30,
   CRASH: 5,
+  // Raised once per document / service state by the reminders job.
+  DOCUMENT_EXPIRING: 0,
+  DOCUMENT_EXPIRED: 0,
+  SERVICE_DUE: 0,
+  // One alert per detected event (events are already debounced by the detector).
+  FUEL_DRAIN: 0,
+  FUEL_REFILL: 0,
 };
 
 export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEntries(ALERT_TYPES.map((t) => [t.code, t])) as Record<AlertTypeCode, AlertTypeDef>;

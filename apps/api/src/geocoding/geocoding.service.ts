@@ -20,6 +20,9 @@ export function photonAddress(p: Record<string, string | undefined>): string | n
   return parts.join(', ');
 }
 
+/** AddressCache key: coordinates rounded to 4 decimals (~11 m). */
+export const addressKey = (lat: number, lng: number): string => `${lat.toFixed(4)},${lng.toFixed(4)}`;
+
 @Injectable()
 export class GeocodingService {
   private readonly logger = new Logger(GeocodingService.name);
@@ -37,7 +40,7 @@ export class GeocodingService {
 
   async reverse(lat: number, lng: number): Promise<string | null> {
     if (!this.enabled || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    const key = addressKey(lat, lng);
     const cached = await this.prisma.addressCache.findUnique({ where: { key } });
     if (cached) return cached.address;
     const address = await this.throttled(() => this.lookup(lat, lng));
@@ -47,8 +50,9 @@ export class GeocodingService {
     return address;
   }
 
-  /** Serialises provider calls and spaces them by minIntervalMs. */
+  /** Serialises provider calls and spaces them by minIntervalMs (rate-limited providers only; self-hosted Photon runs in parallel). */
   private throttled<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.minIntervalMs <= 0) return fn();
     const run = this.queue.then(async () => {
       const wait = this.lastCall + this.minIntervalMs - Date.now();
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));

@@ -431,3 +431,25 @@ describe('overspeed limit precedence', () => {
     expect(r.alerts.map((a) => [a.type, a.data.limitKph])).toEqual([['OVERSPEED', 50]]);
   });
 });
+
+describe('fuel refill / drain alerts', () => {
+  const withFuel = (caps: string[]) => new Map(resolveEffectiveSettings({ groups: [], object: {} }, caps, [], T0).map((s) => [s.alertType, s]));
+  const drain = { id: 'fe-1', type: 'DRAIN' as const, startTime: sec(0), endTime: sec(300), litresBefore: 70, litresAfter: 52, deltaL: 18, lat: 13.08, lng: 80.27 };
+  const refill = { ...drain, id: 'fe-2', type: 'REFILL' as const, litresBefore: 20, litresAfter: 60, deltaL: 40 };
+
+  it('raises a critical "possible fuel theft" alert and an info refill alert, dated when the event ended', () => {
+    const r = run([at(sec(310), { fuelEvents: [drain] }), at(sec(320), { fuelEvents: [refill] })], ctx(withFuel([...GT06, 'fuel'])));
+    expect(r.alerts.map((a) => [a.type, a.severity, a.occurredAt])).toEqual([
+      ['FUEL_DRAIN', 'CRITICAL', sec(300)],
+      ['FUEL_REFILL', 'INFO', sec(300)],
+    ]);
+    expect(r.alerts[0].message).toBe('Possible fuel theft: 18.0 L drained (70.0 → 52.0 L)');
+    expect(r.alerts[0].data).toMatchObject({ deltaL: 18, litresBefore: 70, litresAfter: 52, fuelEventId: 'fe-1' });
+  });
+
+  it('every detected event alerts (no cooldown between events), devices without the fuel capability never do', () => {
+    const two = run([at(sec(310), { fuelEvents: [drain] }), at(sec(400), { fuelEvents: [{ ...drain, id: 'fe-3' }] })], ctx(withFuel([...GT06, 'fuel'])));
+    expect(two.alerts).toHaveLength(2);
+    expect(run([at(sec(310), { fuelEvents: [drain, refill] })], ctx(withFuel(GT06))).alerts).toEqual([]);
+  });
+});

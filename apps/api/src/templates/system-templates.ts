@@ -41,6 +41,18 @@ const DETAIL: Record<AlertTypeCode, string> = {
   TAILGATING: 'was following the vehicle ahead too closely at {{speed}}',
   CAMERA_FAULT: 'dashcam reported a camera or video storage fault',
   CRASH: 'tracker detected a crash or rollover at {{speed}}',
+  DOCUMENT_EXPIRING: 'has {{document}} expiring on {{expires_on}} ({{days_left}})',
+  DOCUMENT_EXPIRED: 'has {{document}} that expired on {{expires_on}}',
+  SERVICE_DUE: 'is due for {{service}} {{due}}',
+  FUEL_DRAIN: 'lost {{litres}} of fuel while stationary ({{fuel_before}} to {{fuel_after}}): possible fuel theft',
+  FUEL_REFILL: 'was refuelled with {{litres}} ({{fuel_before}} to {{fuel_after}})',
+};
+
+/** Reminder alerts (documents, services) have no position or speed: their e-mail shows what is due instead. */
+const COMPLIANCE_ROWS: Partial<Record<AlertTypeCode, [string, string][]>> = {
+  DOCUMENT_EXPIRING: [['Document', '{{document}}'], ['Expires on', '{{expires_on}} ({{days_left}})']],
+  DOCUMENT_EXPIRED: [['Document', '{{document}}'], ['Expired on', '{{expires_on}}']],
+  SERVICE_DUE: [['Service', '{{service}}'], ['Due', '{{due}}']],
 };
 
 const BRAND = '#0e5e57';
@@ -74,6 +86,14 @@ ${button}
 }
 
 function alertEmail(code: AlertTypeCode, label: string): string {
+  const compliance = COMPLIANCE_ROWS[code];
+  if (compliance) {
+    return emailShell({
+      heading: `${label}: {{vehicle_name}}`,
+      intro: `{{vehicle_name}} ${DETAIL[code]}.`,
+      rows: [['Vehicle', '{{vehicle_name}} ({{plate}})'], ['Branch', '{{branch}}'], ['Severity', '{{severity}}'], ...compliance],
+    });
+  }
   const rows: [string, string][] = [
     ['Vehicle', '{{vehicle_name}} ({{plate}})'],
     ['Branch', '{{branch}}'],
@@ -84,6 +104,9 @@ function alertEmail(code: AlertTypeCode, label: string): string {
   ];
   if (code === 'GEOFENCE_ENTER' || code === 'GEOFENCE_EXIT' || code === 'GEOFENCE_STAY' || code === 'GEOFENCE_OVERSPEED') {
     rows.splice(2, 0, ['Geofence', '{{geofence}}']);
+  }
+  if (code === 'FUEL_DRAIN' || code === 'FUEL_REFILL') {
+    rows.splice(rows.length - 1, 1, [code === 'FUEL_DRAIN' ? 'Fuel lost' : 'Fuel added', '{{litres}}'], ['Fuel level', '{{fuel_before}} → {{fuel_after}}']);
   }
   return emailShell({
     heading: `${label}: {{vehicle_name}}`,

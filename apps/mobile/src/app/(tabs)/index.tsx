@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   MOVEMENT_STATUSES,
   OBJECT_TYPES,
@@ -8,10 +8,11 @@ import {
   type LiveObject,
   type MovementStatus,
   type Paginated,
+  type PoiDto,
   type VehicleGroupDto,
 } from '@veetracer/shared';
 import { router } from 'expo-router';
-import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, LocateFixedIcon, MaximizeIcon, SearchIcon, XIcon } from 'lucide-react-native';
+import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, LocateFixedIcon, MapPinIcon, MapPinPlusIcon, MaximizeIcon, SearchIcon, XIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
@@ -24,7 +25,9 @@ import { VehicleSummary } from '@/features/live/components';
 import { liveStore } from '@/features/live/live-store';
 import { LiveSheet, type SheetSnap } from '@/features/live/LiveSheet';
 import { useLiveVersion, useNow, useRealtimeStatus } from '@/features/live/use-live';
-import { FleetMap, type FleetMapHandle } from '@/features/map/FleetMap';
+import { FleetMap, type FleetMapHandle, type MapView } from '@/features/map/FleetMap';
+import { usePoiCategories } from '@/features/pois/categories';
+import { PoiLayer } from '@/features/pois/PoiLayer';
 import { api } from '@/lib/api';
 import { humanize, relativeTime, timeInStatus } from '@/lib/format';
 import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
@@ -105,6 +108,20 @@ export default function LiveMapScreen() {
   const [picker, setPicker] = useState<Picker>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [follow, setFollow] = useState(false);
+  const [view, setView] = useState<MapView | null>(null);
+  const [showPois, setShowPois] = useState(false);
+  const [poi, setPoi] = useState<PoiDto | null>(null);
+  const poiCategories = usePoiCategories();
+
+  // POIs in the visible area (bbox rounded so small pans reuse the cached page; the API caps a page at 200).
+  const bbox = view ? [view.bounds[1], view.bounds[0], view.bounds[3], view.bounds[2]].map((v, i) => (i < 2 ? Math.floor(v * 100) / 100 : Math.ceil(v * 100) / 100)).join(',') : null;
+  const pois = useQuery({
+    queryKey: ['pois', 'map', bbox],
+    queryFn: ({ signal }) => api.get<Paginated<PoiDto>>('/pois', { bbox: bbox!, pageSize: 200, status: 'ACTIVE' }, signal),
+    enabled: can('pois') && showPois && !!bbox,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  });
 
   const branches = useQuery({
     queryKey: ['options', 'branches-all'],
@@ -163,6 +180,7 @@ export default function LiveMapScreen() {
   }, [follow, selected]);
 
   const select = (id: string | null) => {
+    setPoi(null);
     setSelectedId(id);
     setFollow(false);
     const o = id ? liveStore.get(id) : undefined;
@@ -279,7 +297,18 @@ export default function LiveMapScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.background }} onLayout={(e) => setHeight(e.nativeEvent.layout.height)}>
-      <FleetMap ref={map} objects={visible} selectedId={selectedId} onSelect={select} />
+      <FleetMap ref={map} objects={visible} selectedId={selectedId} onSelect={select} onViewChange={setView}>
+        {showPois && can('pois') && (
+          <PoiLayer
+            pois={pois.data?.items ?? []}
+            selectedId={poi?.id}
+            onSelect={(p) => {
+              setPoi(p);
+              setSnap('peek');
+            }}
+          />
+        )}
+      </FleetMap>
 
       <SafeAreaView edges={['top']} style={styles.top} pointerEvents="box-none">
         {connection === 'disconnected' && (
@@ -292,6 +321,46 @@ export default function LiveMapScreen() {
         <Pressable accessibilityLabel={t('Show all vehicles')} onPress={() => map.current?.fitAll(visible)} style={[styles.fab, { backgroundColor: c.card, borderColor: c.border }]}>
           <MaximizeIcon size={20} color={c.foreground} />
         </Pressable>
+        {can('pois') && (
+          <Pressable
+            accessibilityLabel={showPois ? t('Hide points of interest') : t('Show points of interest')}
+            accessibilityState={{ selected: showPois }}
+            onPress={() => {
+              setShowPois((v) => !v);
+              setPoi(null);
+            }}
+            style={[styles.fab, showPois ? { backgroundColor: c.primary, borderColor: c.primary } : { backgroundColor: c.card, borderColor: c.border }]}
+          >
+            <MapPinIcon size={20} color={showPois ? '#fff' : c.foreground} />
+          </Pressable>
+        )}
+        {can('pois', 'create') && (
+          <Pressable
+            accessibilityLabel={t('Add POI here')}
+            onPress={() =>
+              router.push(view ? { pathname: '/pois/[id]', params: { id: 'new', lat: view.center[1].toFixed(6), lng: view.center[0].toFixed(6) } } : { pathname: '/pois/[id]', params: { id: 'new' } })
+            }
+            style={[styles.fab, { backgroundColor: c.card, borderColor: c.border }]}
+          >
+            <MapPinPlusIcon size={20} color={c.foreground} />
+          </Pressable>
+        )}
+        {poi && (
+          <Pressable onPress={() => router.push(`/pois/${poi.id}`)} style={[styles.poiCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={[styles.dot, { backgroundColor: poi.color }]} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text weight="700" numberOfLines={1}>
+                {poi.name}
+              </Text>
+              <Text size="sm" tone="muted" numberOfLines={1}>
+                {[poiCategories.label(poi.category), `${poi.radiusM} m`, poi.address].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
+            <Pressable onPress={() => setPoi(null)} hitSlop={10} accessibilityLabel={t('Close')}>
+              <XIcon size={18} color={c.mutedForeground} />
+            </Pressable>
+          </Pressable>
+        )}
       </SafeAreaView>
 
       {height > 0 && (
@@ -334,4 +403,5 @@ const styles = StyleSheet.create({
   filter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, height: 40, borderWidth: 1, borderRadius: RADIUS.sm, paddingHorizontal: SPACE.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.lg, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   dot: { width: 10, height: 10, borderRadius: 5 },
+  poiCard: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.md, borderWidth: StyleSheet.hairlineWidth, elevation: 3 },
 });

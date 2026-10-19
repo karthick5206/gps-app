@@ -1,6 +1,6 @@
 import { PERIOD_REPORT_TYPES, ReportFormat } from '@veetracer/shared';
 import ExcelJS from 'exceljs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import pdfmake from 'pdfmake';
 import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces';
 import { toCsv } from '../common/csv';
@@ -112,8 +112,11 @@ async function renderXlsx(sections: ReportData[], generated: string): Promise<Bu
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+/** Bundled fonts (src/reports or dist/reports → apps/api/assets/fonts). */
+export const NOTO_DIR = join(__dirname, '..', '..', 'assets', 'fonts');
+
 let pdfReady = false;
-function setupPdf(): void {
+export function setupPdf(): void {
   if (pdfReady) return;
   const regular = require.resolve('pdfmake/fonts/Roboto/Roboto-Regular.ttf');
   const fontDir = dirname(regular);
@@ -124,11 +127,45 @@ function setupPdf(): void {
       italics: `${fontDir}/Roboto-Italic.ttf`,
       bolditalics: `${fontDir}/Roboto-MediumItalic.ttf`,
     },
+    // Noto Sans (SIL OFL) has the Indian Rupee sign, which Roboto lacks: used by invoices and credit notes.
+    NotoSans: {
+      normal: join(NOTO_DIR, 'NotoSans-Regular.ttf'),
+      bold: join(NOTO_DIR, 'NotoSans-Bold.ttf'),
+      italics: join(NOTO_DIR, 'NotoSans-Italic.ttf'),
+      bolditalics: join(NOTO_DIR, 'NotoSans-BoldItalic.ttf'),
+    },
   });
   // Report content never references external or local resources besides the bundled fonts.
   pdfmake.setUrlAccessPolicy(() => false);
-  pdfmake.setLocalAccessPolicy((path: string) => path.startsWith(fontDir));
+  pdfmake.setLocalAccessPolicy((path: string) => path.startsWith(fontDir) || path.startsWith(NOTO_DIR));
   pdfReady = true;
+}
+
+/** A4 landscape minus page margins (pt). */
+const PDF_TABLE_WIDTH = 842 - 56;
+const PDF_CELL_PADDING = 8;
+/** Approximate width of one bold 7.5 pt header character (pt). */
+const PDF_HEADER_CHAR = 4.4;
+
+/**
+ * Column widths (percentages) proportional to the column weights, but never narrower than the longest word of the
+ * header, so wide columns such as addresses cannot squeeze short numeric columns until their headers overflow.
+ */
+export function pdfColumnWidths(weights: number[], headers: string[]): string[] {
+  const content = PDF_TABLE_WIDTH - weights.length * PDF_CELL_PADDING;
+  const mins = headers.map((h) => Math.max(...h.split(/\s+/).map((w) => w.length)) * PDF_HEADER_CHAR + 2);
+  const fixed = new Set<number>();
+  let out: number[] = [];
+  for (let pass = 0; pass <= weights.length; pass++) {
+    const free = content - [...fixed].reduce((s, i) => s + mins[i], 0);
+    const weightSum = weights.reduce((s, w, i) => (fixed.has(i) ? s : s + w), 0);
+    out = weights.map((w, i) => (fixed.has(i) ? mins[i] : weightSum > 0 ? (w / weightSum) * free : 0));
+    const under = out.findIndex((x, i) => !fixed.has(i) && x < mins[i]);
+    if (under < 0 || free <= 0) break;
+    fixed.add(under);
+  }
+  const sum = out.reduce((a, b) => a + b, 0) || 1;
+  return out.map((x) => `${((x / sum) * 100).toFixed(2)}%`);
 }
 
 async function renderPdf(sections: ReportData[], generated: string): Promise<Buffer> {
@@ -141,7 +178,6 @@ async function renderPdf(sections: ReportData[], generated: string): Promise<Buf
     for (const r of p.rows) body.push(r.map((v, i) => ({ text: String(v), alignment: p.numeric[i] ? 'right' : 'left' })));
     if (p.totals) body.push(p.totals.map((v, i) => ({ text: String(v), bold: true, fillColor: '#e2e8f0', alignment: p.numeric[i] ? 'right' : 'left' })));
     if (!p.rows.length) body.push(p.headers.map((_, i) => ({ text: i === 0 ? 'No data for this period' : '', italics: true, color: '#64748b' })));
-    const total = p.widths.reduce((a, b) => a + b, 0);
     content.push(
       { text: data.companyName, style: 'company', pageBreak: index > 0 ? 'before' : undefined },
       { text: p.title, style: 'title' },
@@ -149,7 +185,7 @@ async function renderPdf(sections: ReportData[], generated: string): Promise<Buf
       { text: generated, style: 'meta', margin: [0, 0, 0, p.note ? 2 : 8] },
       ...(p.note ? [{ text: p.note, style: 'note', margin: [0, 0, 0, 8] } as Content] : []),
       {
-        table: { headerRows: 1, dontBreakRows: true, widths: p.widths.map((w) => `${((w / total) * 100).toFixed(2)}%`), body },
+        table: { headerRows: 1, dontBreakRows: true, widths: pdfColumnWidths(p.widths, p.headers), body },
         layout: {
           fillColor: (row: number) => (row === 0 ? '#0e5e57' : row % 2 === 0 ? '#f8fafc' : null),
           hLineWidth: (i: number) => (i === 0 || i === 1 ? 0 : 0.5),

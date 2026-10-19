@@ -39,9 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   useEffect(() => {
-    setSessionExpiredHandler(() => {
+    setSessionExpiredHandler((message) => {
       if (status !== 'authenticated') return;
-      toast.error(i18n.t('Your session has expired. Please sign in again.'));
+      toast.error(message ? i18n.t(message) : i18n.t('Your session has expired. Please sign in again.'));
       signOut();
     });
   }, [signOut, status]);

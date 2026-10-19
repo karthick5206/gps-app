@@ -9,12 +9,16 @@ import {
   type VehicleGroupDto,
   type VehicleType,
 } from '@veetracer/shared';
-import { TruckIcon } from 'lucide-react';
+import { FileCheck2Icon, FuelIcon, TruckIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { FuelSettingsDialog, type FuelTarget } from '@/features/fuel/FuelSettingsDialog';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import type { Option } from '@/components/ui/multi-select';
+import { ComplianceSheet, type ComplianceTarget } from '@/features/documents/CompliancePanel';
 import { useAuth } from '@/features/auth/auth-context';
 import { ActiveBadge, Dash, DateCell, Muted, NameList } from '../cells';
 import { humanize } from '@/lib/format';
@@ -70,6 +74,7 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
   });
   const type = form.watch('type');
   const vehicleType = form.watch('vehicleType') as VehicleType | '';
+  const [fuel, setFuel] = useState<FuelTarget | null>(null);
 
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: open && can('branches') });
   const [deviceQ, setDeviceQ] = useState('');
@@ -140,6 +145,18 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
         )}
       </div>
       <SwitchField form={form} name="isActive" label="Active" hint="Inactive objects are hidden from the live map and ignored by the processor." />
+      {record && type === 'VEHICLE' && can('objects', 'edit') && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3">
+          <div className="text-sm">
+            <p className="font-medium">{t('Fuel sensor')}</p>
+            <p className="text-xs text-muted-foreground">{t('Sensor source, tank capacity, calibration and refill / theft thresholds.')}</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setFuel({ objectId: record.id, label: rowLabel(record) })}>
+            <FuelIcon /> {t('Fuel settings')}
+          </Button>
+        </div>
+      )}
+      <FuelSettingsDialog target={fuel} onClose={() => setFuel(null)} />
     </FormDialog>
   );
 }
@@ -180,7 +197,10 @@ const columns: MasterColumn<TrackedObjectDto>[] = [
 const rowLabel = (r: TrackedObjectDto) => (r.plateNumber ? `${r.name} (${r.plateNumber})` : r.name);
 
 export function ObjectsPage() {
+  const { t } = useTranslation();
   const { can } = useAuth();
+  const [compliance, setCompliance] = useState<ComplianceTarget | null>(null);
+  const [fuel, setFuel] = useState<FuelTarget | null>(null);
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
   const groups = useEntityOptions<VehicleGroupDto>('/vehicle-groups', named, { enabled: can('vehicle_groups') });
   const filters = useMemo<MasterFilter[]>(
@@ -194,6 +214,7 @@ export function ObjectsPage() {
   );
 
   return (
+    <>
     <MasterPage
       menu="objects"
       title="Vehicles & Objects"
@@ -205,6 +226,27 @@ export function ObjectsPage() {
       defaultSort={{ id: 'name', desc: false }}
       Form={ObjectForm}
       emptyIcon={TruckIcon}
+      rowActions={
+        can('documents') || can('objects', 'edit')
+          ? (r) => (
+              <>
+                {can('documents') && (
+                  <DropdownMenuItem onSelect={() => setCompliance({ objectId: r.id, label: rowLabel(r) })}>
+                    <FileCheck2Icon /> {t('Documents & service')}
+                  </DropdownMenuItem>
+                )}
+                {can('objects', 'edit') && r.type === 'VEHICLE' && (
+                  <DropdownMenuItem onSelect={() => setFuel({ objectId: r.id, label: rowLabel(r) })}>
+                    <FuelIcon /> {t('Fuel settings')}
+                  </DropdownMenuItem>
+                )}
+              </>
+            )
+          : undefined
+      }
     />
+    <ComplianceSheet target={compliance} onClose={() => setCompliance(null)} />
+    <FuelSettingsDialog target={fuel} onClose={() => setFuel(null)} />
+    </>
   );
 }

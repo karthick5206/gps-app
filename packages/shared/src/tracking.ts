@@ -98,6 +98,9 @@ export interface LiveObject {
   batteryLevel: number | null;
   gsmSignal: number | null;
   extVoltage: number | null;
+  /** Fuel in the tank (calibrated litres) and % of the tank, when the vehicle has a fuel sensor configured. */
+  fuelL?: number | null;
+  fuelPct?: number | null;
   fixTime: string | null;
   serverTime: string | null;
   speedLimitKph: number | null;
@@ -106,4 +109,6 @@ export interface LiveObject {
   driverName?: string | null;
   /** RFID = card swipe on the tracker (ends at ignition off), MANUAL = assigned in the app. */
   driverSource?: 'MANUAL' | 'RFID' | null;
+  /** The vehicle's licence expired past the grace period: position and history are hidden until it is renewed. */
+  licenceLocked?: boolean;
 }

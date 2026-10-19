@@ -105,7 +105,10 @@ export class DriversService {
   async update(ctx: AuthContext, id: string, dto: UpdateDriverDto): Promise<DriverDto> {
     const before = await this.find(ctx, id);
     await this.assertBranch(ctx, dto.branchId);
-    const row = await this.prisma.driver.update({ where: { id }, data: this.data(dto), include: INCLUDE });
+    const data = this.data(dto);
+    // New licence expiry: licence reminders start over.
+    if (dto.licenseExpiry !== undefined && (dto.licenseExpiry?.slice(0, 10) ?? null) !== ymd(before.licenseExpiry)) data.licenseNotifiedState = null;
+    const row = await this.prisma.driver.update({ where: { id }, data, include: INCLUDE });
     // A deactivated driver leaves the vehicle.
     if (dto.isActive === false && before.assignments[0]) await this.assign(ctx, { objectId: before.assignments[0].objectId, driverId: null });
     await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before, after: row });

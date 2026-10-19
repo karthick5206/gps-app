@@ -17,6 +17,7 @@ import {
   registerResponse,
   split808,
 } from './codec';
+import { AvMsg, parseAvAttributes, parseResourceList } from './av';
 
 export const JT808_PROTOCOL = 'jt808';
 
@@ -83,6 +84,8 @@ export interface Jt808Session extends BaseSession {
   header: Pick<Jt808Header, 'terminalBcd' | 'version2019' | 'protocolVersion'> | null;
   /** Sub-packaged message parts by `msgId:firstSerial`. */
   parts: Map<string, { total: number; got: Map<number, Buffer>; header: Jt808Header }>;
+  /** Gateway ref of the latest 0x9003 query (its 0x1003 answer carries no reply serial). */
+  avAttributesRef: number | null;
 }
 
 const bit = (v: number, n: number) => ((v >>> n) & 1) === 1;
@@ -96,7 +99,7 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
   readonly maxFrameBytes = JT808_MAX_FRAME_BYTES;
 
   createSession(): Jt808Session {
-    return { uniqueId: null, serial: 0, clockZone: null, alarmFlags: 0, commandRefs: new Map(), header: null, parts: new Map() };
+    return { uniqueId: null, serial: 0, clockZone: null, alarmFlags: 0, commandRefs: new Map(), header: null, parts: new Map(), avAttributesRef: null };
   }
 
   split(buf: Buffer): SplitResult {
@@ -121,6 +124,7 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
     if (raw) {
       const msgId = parseInt(raw[1], 16);
       const arg = raw[2] ?? '';
+      if (msgId === AvMsg.QUERY_ATTRIBUTES) session.avAttributesRef = ref;
       const body = msgId === 0x8105 ? Buffer.from([Number(arg || 4) & 0xff]) : Buffer.from(arg.replace(/\s+/g, ''), 'hex');
       return encodeMessage(msgId, header, serial, body);
     }
@@ -200,6 +204,24 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
         }
         break;
       }
+      case AvMsg.RESOURCE_LIST: {
+        // Answer to 0x9205 (resource query) or 0x9201 (playback request); times are device-local.
+        const list = parseResourceList(body, session.clockZone ?? CLOCK_ZONES[0]);
+        if (!list) throw new Jt808DecodeError('resource list too short');
+        const items = list.items.map((i) => ({ ...i, start: i.start?.toISOString() ?? null, end: i.end?.toISOString() ?? null }));
+        this.commandReply(session, list.serial, `${items.length} recording(s)`, result, { total: list.total, items });
+        ack();
+        break;
+      }
+      case AvMsg.ATTRIBUTES: {
+        const attrs = parseAvAttributes(body);
+        if (attrs && session.avAttributesRef !== null) {
+          (result.commandResponses ??= []).push({ ref: session.avAttributesRef, text: `${attrs.maxVideoChannels} video channel(s)`, data: attrs });
+          session.avAttributesRef = null;
+        }
+        ack();
+        break;
+      }
       case Jt808Msg.AUTH:
       case Jt808Msg.HEARTBEAT:
       case Jt808Msg.LOGOUT:
@@ -213,11 +235,11 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
     }
   }
 
-  private commandReply(session: Jt808Session, serial: number, text: string, result: DecodeResult): void {
+  private commandReply(session: Jt808Session, serial: number, text: string, result: DecodeResult, data?: unknown): void {
     const ref = session.commandRefs.get(serial);
     if (ref === undefined) return;
     session.commandRefs.delete(serial);
-    (result.commandResponses ??= []).push({ ref, text });
+    (result.commandResponses ??= []).push(data === undefined ? { ref, text } : { ref, text, data });
   }
 
   private reassemble(session: Jt808Session, h: Jt808Header, body: Buffer): Buffer | null {
@@ -284,7 +306,7 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
         alarm,
         gsmSignal: loc.gsmCsq === null ? null : gsmFromCsq(loc.gsmCsq),
         odometerM: loc.mileageKm === null ? null : Math.round(loc.mileageKm * 1000),
-        fuel: loc.fuelL,
+        fuelLevelL: loc.fuelL,
         oilCut: bit(loc.status, 10) ? true : null,
         doorLocked: bit(loc.status, 12) ? true : null,
         videoAlarm: VIDEO_ALARM_BITS.filter(([b]) => bit(videoFlags, b)).map(([, n]) => n).join(',') || null,

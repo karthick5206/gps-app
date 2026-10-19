@@ -20,6 +20,15 @@ export const RedisKeys = {
   /** Last update per command (JSON, 7 days), so the API can reconcile updates it missed while restarting. */
   commandState: (commandId: string) => `vt:cmd:state:${commandId}`,
   loginFailures: (email: string) => `vt:auth:fail:${email}`,
+  // ── Video (JT/T 1078) ──
+  /** Pub/sub: video signalling requests for the dashcams connected to one gateway (`VideoGatewayRequest`). */
+  videoChannel: (gatewayId: string) => `vt:video:gw:${gatewayId}`,
+  /** Pub/sub: gateway answers (`VideoGatewayReply`), matched by reqId. */
+  videoReplies: 'vt:video:replies',
+  /** Cached AV attributes (0x1003) per device, JSON, 1 day. */
+  videoAttributes: (uniqueId: string) => `vt:video:attrs:${uniqueId}`,
+  /** Session → `{ objectId, companyId, channel, kind }` so the API can authorise status / leave calls. */
+  videoSession: (sessionId: string) => `vt:video:session:${sessionId}`,
   // ── M2a ──
   /** Pub/sub: new alert `{ companyId, alert: AlertDto }` for realtime fan-out. */
   alertsChannel: 'vt:alerts',
@@ -30,6 +39,14 @@ export const RedisKeys = {
   rulesInvalidate: 'vt:rules:invalidate',
   /** Rules-engine state per object: geofence membership, overspeed/idle episodes, cooldowns. */
   alertState: (objectId: string) => `vt:alertstate:${objectId}`,
+  /** Fuel refill / drain detector state per object (smoothing buffer, open episode). */
+  fuelState: (objectId: string) => `vt:fuel:${objectId}`,
+  // ── Customer API / webhooks ──
+  /** Stream of webhook work (`event` fan-out or `deliveryId` send-now) consumed in the notifier process. */
+  webhooksStream: 'vt:webhooks',
+  webhooksGroup: 'webhooks',
+  /** Set of company ids with at least one active webhook endpoint (producers skip everyone else). */
+  webhookCompanies: 'vt:wh:companies',
   // ── System health ──
   /** Heartbeat of one process instance (JSON `ProcessHeartbeat`, EX 20 s). */
   healthProcess: (role: string, instanceId: string) => `vt:health:proc:${role}:${instanceId}`,

@@ -23,6 +23,7 @@ export function PlaybackBar({
   engine,
   trips,
   alerts,
+  fuel,
   follow,
   onFollowChange,
   skipStops,
@@ -32,6 +33,7 @@ export function PlaybackBar({
   engine: PlaybackEngine;
   trips: TripDto[];
   alerts: AlertDto[];
+  fuel?: [number, number][];
   follow: boolean;
   onFollowChange: (v: boolean) => void;
   skipStops: boolean;
@@ -84,7 +86,7 @@ export function PlaybackBar({
           <span className="hidden sm:inline">{t('Follow')}</span>
         </Toggle>
       </div>
-      {playable ? <Timeline engine={engine} trips={trips} alerts={alerts} /> : <p className="py-3 text-center text-xs text-muted-foreground">{t('Not enough points to play back.')}</p>}
+      {playable ? <Timeline engine={engine} trips={trips} alerts={alerts} fuel={fuel} /> : <p className="py-3 text-center text-xs text-muted-foreground">{t('Not enough points to play back.')}</p>}
     </div>
   );
 }

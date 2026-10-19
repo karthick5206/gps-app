@@ -5,9 +5,10 @@ import { GeocodingModule } from '../geocoding/geocoding.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RedisModule } from '../redis/redis.module';
 import { NotifierService } from './notifier.service';
+import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 
 @Module({
   imports: [AppConfigModule, PrismaModule, RedisModule, GeocodingModule],
-  providers: [MailerService, NotifierService],
+  providers: [MailerService, NotifierService, WebhookWorkerService],
 })
 export class NotifierModule {}

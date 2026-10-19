@@ -9,7 +9,11 @@ import {
   CigaretteIcon,
   ClockAlertIcon,
   CloudAlertIcon,
+  DropletOffIcon,
   EyeOffIcon,
+  FileClockIcon,
+  FileXIcon,
+  FuelIcon,
   GaugeIcon,
   HourglassIcon,
   KeyRoundIcon,
@@ -29,6 +33,7 @@ import {
   UnplugIcon,
   UserXIcon,
   WifiOffIcon,
+  WrenchIcon,
   type LucideIcon,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -65,6 +70,11 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   TAILGATING: ArrowDownToDotIcon,
   CAMERA_FAULT: CameraOffIcon,
   CRASH: OctagonAlertIcon,
+  DOCUMENT_EXPIRING: FileClockIcon,
+  DOCUMENT_EXPIRED: FileXIcon,
+  SERVICE_DUE: WrenchIcon,
+  FUEL_DRAIN: DropletOffIcon,
+  FUEL_REFILL: FuelIcon,
 };
 
 export const alertIcon = (type: string): LucideIcon => ALERT_ICON[type as AlertTypeCode] ?? BellIcon;

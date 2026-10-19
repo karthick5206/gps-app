@@ -162,6 +162,7 @@ export class AuthService {
   private async completeLogin(user: UserWithCompany, client: ClientInfo, method: string): Promise<LoginResponse> {
     if (!user.isActive) throw new ForbiddenException('Account inactive');
     if (!user.isSuperAdmin && user.company.status !== 'ACTIVE') throw new ForbiddenException('Company suspended');
+    await this.contexts.assertLicence(user);
     const tokens = await this.tokens.issue(user, client);
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     await this.audit.recordSystem(

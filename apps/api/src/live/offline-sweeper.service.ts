@@ -8,6 +8,7 @@ import { RedisService } from '../redis/redis.service';
 import { parseLive } from '../tracking/live-object';
 import { apiMetrics } from '../monitoring/api-metrics';
 import { companyThresholds } from '../tracking/thresholds';
+import { statusChangedEvent, vehicleState, WebhookEventPublisher } from '../webhooks/events';
 
 const CHUNK = 1000;
 
@@ -16,12 +17,15 @@ const CHUNK = 1000;
 export class OfflineSweeperService {
   private readonly logger = new Logger(OfflineSweeperService.name);
   private running = false;
+  private readonly webhooks: WebhookEventPublisher;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     @Optional() private readonly offlineAlerts?: OfflineAlertService,
-  ) {}
+  ) {
+    this.webhooks = new WebhookEventPublisher(redis.client);
+  }
 
   @Interval(30_000)
   async sweep(): Promise<void> {
@@ -86,6 +90,9 @@ export class OfflineSweeperService {
       const swapped = await this.redis.client.eval(COMPARE_AND_SET_SCRIPT, 1, keys[i], current, json);
       if (swapped !== 1) continue;
       await this.redis.client.publish(RedisKeys.liveUpdates, JSON.stringify({ companyId, live: offline }));
+      if (vehicleState(live.status)) {
+        await this.webhooks.publish([statusChangedEvent(offline, live.status)]).catch((error: Error) => this.logger.error(`Webhook event failed: ${error.message}`));
+      }
       marked++;
       offlineNow.push(offline);
     }

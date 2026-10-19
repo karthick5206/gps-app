@@ -84,6 +84,29 @@ function drawSpeed(canvas: HTMLCanvasElement, idx: TrackIndex, width: number, he
   return yMax;
 }
 
+/** Fuel level (litres) as a line over the speed chart, on the same time axis and its own scale. Returns the top of the scale. */
+function drawFuel(canvas: HTMLCanvasElement, fuel: [number, number][], start: number, end: number, width: number, height: number) {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(width * dpr));
+  canvas.height = Math.max(1, Math.round(height * dpr));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return 0;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  const span = end - start;
+  if (fuel.length < 2 || span <= 0 || width < 2) return 0;
+  const top = Math.max(10, Math.ceil(Math.max(...fuel.map((f) => f[1])) / 10) * 10);
+  const x = (t: number) => ((t - start) / span) * width;
+  const y = (l: number) => height - 2 - (l / top) * (height - 6);
+  ctx.beginPath();
+  fuel.forEach(([t, l], i) => (i ? ctx.lineTo(x(t), y(l)) : ctx.moveTo(x(t), y(l))));
+  ctx.strokeStyle = token('--warning', '#d97706');
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  return top;
+}
+
 /**
  * Scrubber + speed chart on a shared time axis. Drawn once per dataset/size/theme; the cursor and played fill
  * are moved imperatively from the engine's frame listener (CSS transforms, no React renders per frame).
@@ -92,11 +115,14 @@ export function Timeline({
   engine,
   trips,
   alerts,
+  fuel,
   className,
 }: {
   engine: PlaybackEngine;
   trips: TripDto[];
   alerts: AlertDto[];
+  /** Fuel level over time [epochMs, litres] (vehicles with a fuel sensor). */
+  fuel?: [number, number][];
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -104,6 +130,8 @@ export function Timeline({
   const { preference } = useTheme();
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fuelRef = useRef<HTMLCanvasElement>(null);
+  const [fuelMax, setFuelMax] = useState(0);
   const cursorRef = useRef<HTMLDivElement>(null);
   const playedRef = useRef<HTMLDivElement>(null);
   const hoverRef = useRef<HTMLDivElement>(null);
@@ -124,6 +152,11 @@ export function Timeline({
   useEffect(() => {
     if (canvasRef.current && width) setYMax(drawSpeed(canvasRef.current, idx, width, CHART_H));
   }, [idx, width, preference]);
+
+  useEffect(() => {
+    if (fuelRef.current && width && fuel?.length) setFuelMax(drawFuel(fuelRef.current, fuel, idx.start, idx.end, width, CHART_H));
+    else setFuelMax(0);
+  }, [fuel, idx, width, preference]);
 
   // Imperative cursor updates; aria value only on discrete moves.
   useEffect(
@@ -235,6 +268,12 @@ export function Timeline({
         <div className="relative" style={{ height: CHART_H }}>
           <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden />
           {yMax > 0 && <span className="pointer-events-none absolute top-0 left-1 text-[10px] text-muted-foreground tabular-nums">{yMax} km/h</span>}
+          {!!fuel?.length && <canvas ref={fuelRef} className="absolute inset-0 h-full w-full" aria-hidden />}
+          {fuelMax > 0 && (
+            <span className="pointer-events-none absolute top-0 right-1 text-[10px] text-warning tabular-nums" title={t('Fuel level')}>
+              {t('Fuel')} {fuelMax} L
+            </span>
+          )}
         </div>
         {/* Cursor */}
         <div ref={cursorRef} className="pointer-events-none absolute top-0 bottom-0 left-0 w-0" aria-hidden>

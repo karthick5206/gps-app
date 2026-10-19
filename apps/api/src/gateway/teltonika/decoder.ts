@@ -29,6 +29,35 @@ function signed32(v: number): number {
   return v > 0x7fffffff ? v - 0x1_0000_0000 : v;
 }
 
+/** int16 reading of a 2-byte value (LLS sensors report negative error codes). */
+function signed16(v: number): number {
+  return v > 0x7fff ? v - 0x1_0000 : v;
+}
+
+/**
+ * Fuel IO elements → normalised fuel attributes:
+ * IO 89 CAN fuel level (%), IO 84 CAN fuel level (0.1 L), IO 83 CAN fuel used (0.1 L),
+ * IO 201 / 203 LLS 1 / 2 fuel level (raw sensor units, negative = sensor error), IO 202 / 204 LLS 1 / 2 temperature (°C).
+ */
+export function fuelIo(take: (id: number) => TeltonikaIo | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const pct = num(take(89));
+  if (pct !== null && pct <= 100) out.fuelLevelPct = pct;
+  const litres = num(take(84));
+  if (litres !== null && litres < 0xffff) out.fuelLevelL = round(litres / 10, 1);
+  const used = num(take(83));
+  if (used !== null) out.fuelUsedL = round(used / 10, 1);
+  const lls1 = num(take(201));
+  if (lls1 !== null && signed16(lls1) >= 0) out.fuelSensorRaw = signed16(lls1);
+  const lls2 = num(take(203));
+  if (lls2 !== null && signed16(lls2) >= 0) out.fuelSensorRaw2 = signed16(lls2);
+  const t1 = num(take(202));
+  if (t1 !== null) out.fuelSensorTemp = t1 > 0x7f ? t1 - 0x100 : t1;
+  const t2 = num(take(204));
+  if (t2 !== null) out.fuelSensorTemp2 = t2 > 0x7f ? t2 - 0x100 : t2;
+  return out;
+}
+
 /** Map a record's IO elements to normalised attributes; unmapped ids are kept as `io<id>`. */
 export function mapIo(rec: TeltonikaRecord): { ignition: boolean | null; attributes: Record<string, unknown> } {
   const byId = new Map(rec.io.map((x) => [x.id, x]));
@@ -68,6 +97,7 @@ export function mapIo(rec: TeltonikaRecord): { ignition: boolean | null; attribu
   }
   const ain1 = num(take(9));
   if (ain1 !== null) attrs.adc1 = round(ain1 / 1000, 3);
+  Object.assign(attrs, fuelIo(take));
   for (const [id, key] of [
     [72, 'temp1'],
     [73, 'temp2'],

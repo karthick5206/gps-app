@@ -31,6 +31,7 @@
     "i18next": "^26.5.2",
     "lucide-react": "^1.59.0",
     "maplibre-gl": "^5.24.0",
+    "mpegts.js": "1.8.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-hook-form": "^7.90.0",

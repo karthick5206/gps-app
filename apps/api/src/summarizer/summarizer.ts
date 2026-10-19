@@ -18,6 +18,7 @@ import {
   SegState,
 } from './segmenter';
 import { localDayKey, localMidnight } from './tz';
+import { WebhookEventMessage, WebhookEventPublisher } from '../webhooks/events';
 
 /** Shape of SummaryCursor.state. */
 export interface CursorState {
@@ -88,6 +89,43 @@ export class Summarizer {
     this.chunkSize = opts.chunkSize ?? 100;
     this.pageSize = opts.pageSize ?? 20_000;
     this.detector = new LateDetector(prisma, redis);
+    this.webhooks = typeof redis?.smembers === 'function' ? new WebhookEventPublisher(redis) : null;
+  }
+
+  private readonly webhooks: WebhookEventPublisher | null;
+
+  /** `trip.completed` for trips that ended in the last 6 hours (rebuilds of older days are not re-announced). */
+  private async emitTrips(ctxs: Ctx[], trips: TripRow[]): Promise<void> {
+    if (!this.webhooks || !trips.length) return;
+    const meta = new Map(ctxs.map((c) => [c.meta.id, c.meta]));
+    const since = Date.now() - 6 * 3600_000;
+    const events: WebhookEventMessage[] = trips
+      .filter((t) => t.end >= since)
+      .map((t) => ({
+        id: `trip_${t.oid}_${t.start}`,
+        type: 'trip.completed' as const,
+        companyId: t.companyId,
+        occurredAt: new Date(t.end).toISOString(),
+        data: {
+          vehicleId: t.oid,
+          vehicleName: meta.get(t.oid)?.name ?? null,
+          plateNumber: meta.get(t.oid)?.plateNumber ?? null,
+          startTime: new Date(t.start).toISOString(),
+          endTime: new Date(t.end).toISOString(),
+          start: { lat: t.startLat, lng: t.startLng },
+          end: { lat: t.endLat, lng: t.endLng },
+          distanceKm: t.distanceKm,
+          durationSec: t.durationSec,
+          idleSec: t.idleSec,
+          maxSpeedKph: t.maxSpeedKph,
+          avgSpeedKph: t.avgSpeedKph,
+        },
+      }));
+    try {
+      await this.webhooks.publish(events);
+    } catch (error) {
+      console.error(`Webhook trip events failed: ${(error as Error).message}`);
+    }
   }
 
   async runOnce(now = Date.now()): Promise<RunStats> {
@@ -347,6 +385,7 @@ export class Summarizer {
       },
       { timeout: 120_000, maxWait: 30_000 },
     );
+    await this.emitTrips(ctxs, trips);
     return { positions: ctxs.reduce((a, c) => a + c.positions, 0), trips: trips.length, stops: stops.length, days: days.length, written: ctxs.length };
   }
 }

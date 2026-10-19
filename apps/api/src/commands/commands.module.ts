@@ -7,5 +7,6 @@ import { CommandsService } from './commands.service';
   imports: [LiveModule],
   controllers: [CommandsController],
   providers: [CommandsService],
+  exports: [CommandsService],
 })
 export class CommandsModule {}

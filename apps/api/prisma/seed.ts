@@ -25,6 +25,8 @@ const GT06_COMMANDS = [
   { key: 'engine_resume', label: 'Resume engine' },
 ];
 const EXT_VOLTAGE_FIELD = { key: 'extVoltage', label: 'External voltage', unit: 'V', type: 'number' };
+/** Calibrated fuel level written by the processor when the vehicle has fuel settings. */
+const FUEL_FIELD = { key: 'fuelL', label: 'Fuel', unit: 'L', type: 'number' };
 
 /** Customer device catalogue (docs/HANDOFF.md §4.1): capabilities drive alerts, map fields and commands. */
 interface ModelProfile {
@@ -35,13 +37,31 @@ interface ModelProfile {
 const PROFILES: Record<string, ModelProfile> = {
   GT06: { capabilities: GT06_CAPABILITIES, fields: GT06_FIELDS, commands: GT06_COMMANDS },
   // GT800 (2G) / V5 (4G) / VL149 (4G): GT06 family plus external voltage (0x23 / 0x94) and harsh-event alarms.
+  // RFID card readers report the card in 0x94/0x1B (driverId); serial fuel sensors in 0x94/0x0D (fuelSensorRaw).
   GT06_EXT: {
-    capabilities: [...GT06_CAPABILITIES, 'harsh_events'],
-    fields: [...GT06_FIELDS, EXT_VOLTAGE_FIELD],
+    capabilities: [...GT06_CAPABILITIES, 'harsh_events', 'rfid', 'fuel'],
+    fields: [...GT06_FIELDS, EXT_VOLTAGE_FIELD, { key: 'driverId', label: 'Driver (RFID card)', type: 'string' }, FUEL_FIELD],
     commands: GT06_COMMANDS,
   },
+  // Concox OBD trackers (OB22 class, plugged into the OBD-II port): 0x8C OBD data. Per public spec; verify on a device.
+  GT06_OBD: {
+    capabilities: ['ignition', 'power_cut', 'battery', 'lbs', 'harsh_events', 'crash', 'obd', 'fuel'],
+    fields: [
+      ...GT06_FIELDS,
+      EXT_VOLTAGE_FIELD,
+      { key: 'rpm', label: 'Engine RPM', unit: 'rpm', type: 'number' },
+      { key: 'coolantTemp', label: 'Coolant temperature', unit: '°C', type: 'number' },
+      { key: 'engineLoad', label: 'Engine load', unit: '%', type: 'number' },
+      { key: 'obdSpeedKph', label: 'OBD speed', unit: 'km/h', type: 'number' },
+      { key: 'fuelLevelPct', label: 'Fuel level (OBD)', unit: '%', type: 'number' },
+      { key: 'obdOdometerKm', label: 'OBD odometer', unit: 'km', type: 'number' },
+      { key: 'dtcs', label: 'Trouble codes', type: 'string' },
+      FUEL_FIELD,
+    ],
+    commands: [],
+  },
   TELTONIKA: {
-    capabilities: ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'harsh_events', 'crash', 'rfid', 'temperature'],
+    capabilities: ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'harsh_events', 'crash', 'rfid', 'temperature', 'fuel'],
     fields: [
       { key: 'extVoltage', label: 'External voltage', unit: 'V', type: 'number' },
       { key: 'batteryVoltage', label: 'Battery voltage', unit: 'V', type: 'number' },
@@ -50,26 +70,38 @@ const PROFILES: Record<string, ModelProfile> = {
       { key: 'odometerM', label: 'Odometer', unit: 'm', type: 'number' },
       { key: 'driverId', label: 'Driver (iButton/RFID)', type: 'string' },
       { key: 'temp1', label: 'Temperature 1', unit: '°C', type: 'number' },
+      FUEL_FIELD,
     ],
     commands: [
       { key: 'engine_stop', label: 'Stop engine (DOUT1 on)' },
       { key: 'engine_resume', label: 'Resume engine (DOUT1 off)' },
     ],
   },
-  // iTriangle TS101 (AIS-140): decoder pending the vendor protocol document (HANDOFF §4.1 item 4).
+  // iTriangle TS101 (AIS-140): gateway/ais140 decoder per the public AIS-140 spec (verify with a device capture).
   AIS140: {
-    capabilities: ['ignition', 'sos', 'power_cut', 'battery', 'tamper'],
-    fields: [EXT_VOLTAGE_FIELD, { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }, { key: 'gsmSignal', label: 'GSM signal', type: 'number' }],
+    capabilities: ['ignition', 'sos', 'power_cut', 'battery', 'tamper', 'harsh_events'],
+    fields: [
+      EXT_VOLTAGE_FIELD,
+      { key: 'batteryVoltage', label: 'Battery voltage', unit: 'V', type: 'number' },
+      { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' },
+      { key: 'gsmSignal', label: 'GSM signal', type: 'number' },
+      { key: 'emergency', label: 'Emergency (panic)', type: 'boolean' },
+      { key: 'tamper', label: 'Box open (tamper)', type: 'boolean' },
+      { key: 'hdop', label: 'HDOP', type: 'number' },
+      { key: 'operator', label: 'Network operator', type: 'string' },
+      { key: 'vehicleRegNo', label: 'Registration (device)', type: 'string' },
+    ],
     commands: [],
   },
   // JT/T 808 dashcams / MDVRs: ADAS / DMS events arrive as position attributes (adas, dms).
   JT808: {
-    capabilities: ['ignition', 'sos', 'power_cut', 'crash', 'adas', 'dms', 'video'],
+    capabilities: ['ignition', 'sos', 'power_cut', 'crash', 'adas', 'dms', 'video', 'fuel'],
     fields: [
       { key: 'gsmSignal', label: 'GSM signal', type: 'number' },
       { key: 'odometerM', label: 'Odometer', unit: 'm', type: 'number' },
       { key: 'adas', label: 'ADAS event', type: 'string' },
       { key: 'dms', label: 'Driver monitoring event', type: 'string' },
+      FUEL_FIELD,
     ],
     commands: [],
   },
@@ -81,6 +113,7 @@ const LOOKUPS: Record<string, string[]> = {
   FUEL_TYPE: ['PETROL', 'DIESEL', 'CNG', 'LPG', 'ELECTRIC', 'HYBRID'],
   LICENCE_CLASS: ['LMV', 'MCWG', 'HMV', 'HGMV', 'HPMV', 'TRANS'],
   DOCUMENT_TYPE: ['RC', 'INSURANCE', 'PUC', 'FITNESS', 'PERMIT', 'ROAD_TAX', 'DRIVING_LICENCE'],
+  POI_CATEGORY: ['CUSTOMER', 'DEPOT', 'FUEL_STATION', 'SERVICE_CENTER', 'HOSPITAL', 'SCHOOL', 'TOLL', 'PARKING', 'OTHER'],
   GEOFENCE_CATEGORY: ['DEPOT', 'CUSTOMER', 'FUEL_STATION', 'SERVICE_CENTER', 'SCHOOL', 'RESTRICTED'],
   VEHICLE_MAKE: ['TATA', 'ASHOK_LEYLAND', 'MAHINDRA', 'MARUTI_SUZUKI', 'HYUNDAI', 'TOYOTA', 'EICHER', 'BAJAJ', 'HERO', 'TVS', 'HONDA', 'ROYAL_ENFIELD'],
 };
@@ -160,6 +193,7 @@ async function main() {
     ['Concox', 'GT800', 'GT06', 'GT06_EXT'],
     ['Concox', 'V5', 'GT06', 'GT06_EXT'],
     ['Concox', 'VL149', 'GT06', 'GT06_EXT'],
+    ['Concox', 'OB22', 'GT06', 'GT06_OBD'],
     ['Teltonika', 'FMB920', 'TELTONIKA', 'TELTONIKA'],
     ['Teltonika', 'FMB120', 'TELTONIKA', 'TELTONIKA'],
     ['Teltonika', 'FMC130', 'TELTONIKA', 'TELTONIKA'],

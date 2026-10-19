@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { StatusThresholds } from '@veetracer/shared';
 import { effectiveSpeedLimit, ObjectMeta } from '../tracking/live-object';
 import { companyThresholds } from '../tracking/thresholds';
+import { FuelConfig, parseFuelConfig } from '../fuel/fuel-logic';
 
 const TTL_MS = 30_000;
 
@@ -13,6 +14,8 @@ export interface ResolvedDevice {
   thresholds: StatusThresholds;
   /** Object the device is fitted to (null = unassigned: positions are stored, no live state). */
   object: ObjectMeta | null;
+  /** Fuel sensor settings of the object (null = no fuel sensor configured). */
+  fuel?: FuelConfig | null;
 }
 
 interface Entry {
@@ -64,6 +67,9 @@ export class DeviceCache {
                 speedLimitKph: true,
                 isActive: true,
                 maintenanceSince: true,
+                fuelConfig: {
+                  select: { source: true, tankCapacityL: true, calibration: true, refillMinL: true, drainMinL: true, drainWindowMin: true, smoothingWindow: true },
+                },
                 drivers: { where: { toTime: null }, take: 1, select: { driverId: true, source: true, driver: { select: { name: true } } } },
               },
             },
@@ -77,11 +83,13 @@ export class DeviceCache {
       let value: ResolvedDevice | null = null;
       if (d) {
         const o = d.assignments[0]?.object ?? null;
+        const fuel = o?.fuelConfig ? parseFuelConfig(o.fuelConfig as unknown as Parameters<typeof parseFuelConfig>[0]) : null;
         value = {
           deviceId: d.id,
           uniqueId: d.uniqueId,
           accepted: d.isActive && d.company?.status === 'ACTIVE' && (o?.isActive ?? true),
           thresholds: companyThresholds(d.company?.settings),
+          fuel: fuel && fuel.source !== 'none' ? fuel : null,
           object: o
             ? {
                 objectId: o.id,

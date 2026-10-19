@@ -16,7 +16,14 @@ import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { ReportSchedulesModule } from './report-schedules/report-schedules.module';
 import { CommandsModule } from './commands/commands.module';
+import { VideoModule } from './video/video.module';
 import { DriversModule } from './drivers/drivers.module';
+import { DocumentsModule } from './documents/documents.module';
+import { PoisModule } from './pois/pois.module';
+import { FuelModule } from './fuel/fuel.module';
+import { LicencesModule } from './licences/licences.module';
+import { DeveloperModule } from './developer/developer.module';
+import { PublicApiModule } from './public-api/public-api.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { RetentionModule } from './retention/retention.module';
 import { ReportsModule } from './reports/reports.module';
@@ -31,6 +38,7 @@ import { TemplatesModule } from './templates/templates.module';
     ScheduleModule.forRoot(),
     AccessModule,
     AuditModule,
+    LicencesModule,
     AuthModule,
     // Before MastersModule: GET /objects/:id/history (?from&to = track history, else the M1 audit history) is served here.
     HistoryModule,
@@ -44,7 +52,13 @@ import { TemplatesModule } from './templates/templates.module';
     DashboardModule,
     RetentionModule,
     CommandsModule,
+    VideoModule,
     DriversModule,
+    DocumentsModule,
+    PoisModule,
+    FuelModule,
+    DeveloperModule,
+    PublicApiModule,
     MonitoringModule,
   ],
   controllers: [HealthController],

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { DEFAULT_SPEED_LIMIT_KPH, type DeviceDto, type LiveObject } from '@veetracer/shared';
-import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, WrenchIcon, XIcon } from 'lucide-react';
+import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, LockIcon, WrenchIcon, XIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -19,8 +19,10 @@ import { useAddress } from '@/features/geocoding/use-address';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, formatDuration, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { CompliancePanel } from '@/features/documents/CompliancePanel';
 import { CommandsTab } from './CommandsTab';
 import { DriverControl } from './DriverControl';
+import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -74,6 +76,21 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
       <Row label={t('Battery')}>{orDash(o.batteryLevel, '%')}</Row>
       <Row label={t('GSM signal')}>{o.gsmSignal === null ? '—' : t(GSM_LABELS[o.gsmSignal] ?? String(o.gsmSignal))}</Row>
       <Row label={t('External voltage')}>{orDash(o.extVoltage, ' V')}</Row>
+      {o.fuelL != null && (
+        <Row label={t('Fuel')}>
+          <span className="flex items-center gap-2 tabular-nums">
+            {`${o.fuelL.toFixed(1)} L`}
+            {o.fuelPct != null && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                <span className="h-1.5 w-12 overflow-hidden rounded-full bg-muted" aria-hidden>
+                  <span className={`block h-full rounded-full ${o.fuelPct < 15 ? 'bg-destructive' : 'bg-primary'}`} style={{ width: `${Math.min(100, Math.max(0, o.fuelPct))}%` }} />
+                </span>
+                {`${Math.round(o.fuelPct)}%`}
+              </span>
+            )}
+          </span>
+        </Row>
+      )}
       <Row label={t('Satellites')}>{orDash(o.satellites)}</Row>
       <Row label={t('Speed limit')}>{limit === null ? '—' : o.speedLimitKph === null ? t('{{limit}} km/h (default)', { limit }) : `${limit} km/h`}</Row>
     </dl>
@@ -184,6 +201,9 @@ export function ObjectDrawer({
   const [maintenance, setMaintenance] = useState<{ id: string; value: boolean } | null>(null);
   const inMaintenance = maintenance?.id === object.objectId ? maintenance.value : !!object.inMaintenance;
   const canCommand = can('live_map', 'command') && !!object.deviceId;
+  // Dashcams only: the channels call answers NOT_DASHCAM (400) for other trackers, which hides the tab.
+  const video = useVideoChannels(object.objectId, can('video') && !!object.deviceId && !object.licenceLocked);
+  const hasVideo = video.isSuccess;
   return (
     <aside
       aria-label={t('Object details')}
@@ -195,6 +215,11 @@ export function ObjectDrawer({
           <p className="truncate text-xs text-muted-foreground">
             {[object.plateNumber, object.vehicleType ?? object.type].filter(Boolean).join(' · ')}
           </p>
+          {object.licenceLocked && (
+            <Badge variant="destructive" className="mt-1.5">
+              <LockIcon className="size-3" /> {t('Licence expired — renew to view')}
+            </Badge>
+          )}
           {inMaintenance && (
             <Badge variant="warning" className="mt-1.5">
               <WrenchIcon className="size-3" /> {t('In maintenance · alerts paused')}
@@ -226,7 +251,9 @@ export function ObjectDrawer({
         <TabsList className="mx-4 mt-3 w-[calc(100%-2rem)]">
           <TabsTrigger value="overview">{t('Overview')}</TabsTrigger>
           <TabsTrigger value="device">{t('Device')}</TabsTrigger>
+          {hasVideo && <TabsTrigger value="video">{t('Video')}</TabsTrigger>}
           {canCommand && <TabsTrigger value="commands">{t('Commands')}</TabsTrigger>}
+          {can('documents') && object.type === 'VEHICLE' && <TabsTrigger value="documents">{t('Documents')}</TabsTrigger>}
         </TabsList>
         <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <Overview o={object} now={now} />
@@ -234,6 +261,16 @@ export function ObjectDrawer({
         <TabsContent value="device" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <DeviceTab o={object} />
         </TabsContent>
+        {can('documents') && object.type === 'VEHICLE' && (
+          <TabsContent value="documents" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <CompliancePanel target={{ objectId: object.objectId, label: object.name }} />
+          </TabsContent>
+        )}
+        {hasVideo && (
+          <TabsContent value="video" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <VideoPanel objectId={object.objectId} vehicle={object.name} />
+          </TabsContent>
+        )}
         {canCommand && (
           <TabsContent value="commands" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
             <CommandsTab object={object} />

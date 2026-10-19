@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval, Timeout } from '@nestjs/schedule';
-import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS } from '@veetracer/shared';
+import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, WEBHOOK_LOG_RETENTION_DAYS } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -20,6 +20,7 @@ const LIMITS = {
   rawPackets: Number(process.env.RAW_PACKET_RETENTION_DAYS ?? 7),
   notificationLogs: Number(process.env.NOTIFICATION_LOG_RETENTION_DAYS ?? 90),
   unknownDevices: 30,
+  webhookDeliveries: Number(process.env.WEBHOOK_LOG_RETENTION_DAYS ?? WEBHOOK_LOG_RETENTION_DAYS),
   expiredAuth: 7,
 };
 
@@ -38,7 +39,7 @@ export function effectiveRetentionDays(days: number | null | undefined): number 
 
 /**
  * Hourly data cleanup (DATA-04: per-company retention 30–180 days, automatic deletion).
- * - Positions, trips, stops, closed geofence visits and alerts older than the company's `retentionDays`.
+ * - Positions, trips, stops, fuel events, closed geofence visits and alerts older than the company's `retentionDays`.
  *   Daily summaries are kept, so long-range reports stay available.
  * - Raw packets (7 d), notification logs (90 d), unknown devices not seen for 30 d, expired sessions/OTPs/reset links.
  * Deletes run in small batches within a time budget; a Valkey lock ensures one api instance works at a time.
@@ -113,6 +114,7 @@ export class RetentionService {
         ],
         ['trips', () => this.prisma.$executeRaw`DELETE FROM "Trip" WHERE id IN (SELECT id FROM "Trip" WHERE "companyId" = ${c.id}::uuid AND "startTime" < ${cutoff} LIMIT ${BATCH})`],
         ['stops', () => this.prisma.$executeRaw`DELETE FROM "Stop" WHERE id IN (SELECT id FROM "Stop" WHERE "companyId" = ${c.id}::uuid AND "startTime" < ${cutoff} LIMIT ${BATCH})`],
+        ['fuelEvents', () => this.prisma.$executeRaw`DELETE FROM "FuelEvent" WHERE id IN (SELECT id FROM "FuelEvent" WHERE "companyId" = ${c.id}::uuid AND "startTime" < ${cutoff} LIMIT ${BATCH})`],
         [
           'geofenceVisits',
           () => this.prisma.$executeRaw`DELETE FROM "GeofenceVisit" WHERE id IN (SELECT id FROM "GeofenceVisit" WHERE "companyId" = ${c.id}::uuid AND "exitTime" IS NOT NULL AND "exitTime" < ${cutoff} LIMIT ${BATCH})`,
@@ -148,7 +150,11 @@ export class RetentionService {
           'sessions',
           () => this.prisma.$executeRaw`DELETE FROM "Session" WHERE "expiresAt" < ${ago(LIMITS.expiredAuth)} OR ("revokedAt" IS NOT NULL AND "revokedAt" < ${ago(LIMITS.expiredAuth)})`,
         ],
-        ['otpCodes', () => this.prisma.$executeRaw`DELETE FROM "OtpCode" WHERE "expiresAt" < ${ago(1)}`],
+        [
+          'webhookDeliveries',
+          () => this.prisma.$executeRaw`DELETE FROM "WebhookDelivery" WHERE id IN (SELECT id FROM "WebhookDelivery" WHERE "createdAt" < ${ago(LIMITS.webhookDeliveries)} LIMIT ${BATCH})`,
+        ],
+        ['otpCodes',() => this.prisma.$executeRaw`DELETE FROM "OtpCode" WHERE "expiresAt" < ${ago(1)}`],
         ['passwordResets', () => this.prisma.$executeRaw`DELETE FROM "PasswordReset" WHERE "expiresAt" < ${ago(LIMITS.expiredAuth)}`],
       ];
       for (const [key, step] of global) if (!(await drain(key, step))) complete = false;

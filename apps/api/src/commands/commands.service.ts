@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { DeviceCommand, Prisma } from '@prisma/client';
 import {
+  API_CRITICAL_COMMANDS,
   AvailableCommand,
   COMMAND_DEF_MAP,
   COMMAND_DEFS,
@@ -102,14 +103,20 @@ export class CommandsService implements OnModuleInit {
     const text = req.type === 'custom' ? (req.text ?? '').trim() : cmd.payload;
     if (!text) throw new BadRequestException('Enter the command text');
 
-    if (cmd.critical) {
+    // Customer API keys: no raw commands; engine stop / restore only with the explicit critical scope.
+    if (ctx.apiKey) {
+      if (req.type === 'custom') throw new ForbiddenException('Custom commands are not available through the API');
+      if ((API_CRITICAL_COMMANDS as readonly string[]).includes(req.type) && !ctx.apiKey.scopes.includes('write:commands:critical')) {
+        throw new ForbiddenException('This API key lacks the "write:commands:critical" scope needed for engine stop / restore');
+      }
+    }
+    if (cmd.critical && ctx.apiKey) {
+      await this.assertSlow(t);
+    } else if (cmd.critical) {
       const user = await this.prisma.user.findUnique({ where: { id: ctx.userId }, select: { passwordHash: true } });
       if (!user?.passwordHash) throw new ForbiddenException('Set a password on your account to send this command');
       if (!req.password || !(await verifyPassword(req.password, user.passwordHash))) throw new ForbiddenException('Password is incorrect');
-      const live = (await this.liveState.read([t.objectId])).get(t.objectId);
-      if (live && live.status !== 'OFFLINE' && live.speedKph > ENGINE_STOP_MAX_SPEED_KPH) {
-        throw new BadRequestException(`The vehicle is moving at ${Math.round(live.speedKph)} km/h. Engine stop is only allowed below ${ENGINE_STOP_MAX_SPEED_KPH} km/h.`);
-      }
+      await this.assertSlow(t);
     }
 
     const row = await this.prisma.deviceCommand.create({
@@ -120,14 +127,22 @@ export class CommandsService implements OnModuleInit {
         uniqueId: t.uniqueId,
         type: req.type,
         payload: text,
-        createdById: ctx.userId,
+        createdById: ctx.apiKey ? null : ctx.userId,
         expiresAt: new Date(Date.now() + COMMAND_TTL_HOURS * 3600_000),
       },
     });
-    await this.audit.record(ctx, { action: 'CREATE', entity: 'DeviceCommand', entityId: row.id, after: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, type: req.type, payload: text } });
+    await this.audit.record(ctx, { action: 'CREATE', entity: 'DeviceCommand', entityId: row.id, after: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, type: req.type, payload: text, ...(ctx.apiKey ? { apiKey: ctx.apiKey.name, apiKeyId: ctx.apiKey.id } : {}) } });
     await this.dispatch({ commandId: row.id, uniqueId: t.uniqueId, text });
     this.logger.log(`${ctx.userId} → ${t.uniqueId} ${req.type} "${text}" (${row.id})`);
     return (await this.toDtos([row]))[0];
+  }
+
+  /** Engine stop is refused while the vehicle moves faster than ENGINE_STOP_MAX_SPEED_KPH. */
+  private async assertSlow(t: Target): Promise<void> {
+    const live = (await this.liveState.read([t.objectId])).get(t.objectId);
+    if (live && live.status !== 'OFFLINE' && live.speedKph > ENGINE_STOP_MAX_SPEED_KPH) {
+      throw new BadRequestException(`The vehicle is moving at ${Math.round(live.speedKph)} km/h. Engine stop is only allowed below ${ENGINE_STOP_MAX_SPEED_KPH} km/h.`);
+    }
   }
 
   /** Online: publish to the device's gateway. Offline (or a stale gateway id): queue for its next connection. */

@@ -22,6 +22,12 @@ const QUEUE_DRAIN_MAX = 20;
 /** An XADD that hasn't completed after this long counts as failed (the device will resend; duplicates are dropped). */
 const ENQUEUE_TIMEOUT_MS = 10_000;
 
+export class DeviceOfflineError extends Error {
+  constructor() {
+    super('The device is not connected');
+  }
+}
+
 export interface GatewayStats {
   connections: number;
   frames: number;
@@ -76,6 +82,8 @@ export class TcpGatewayServer<S extends BaseSession> {
   /** Identified connections by device unique id (latest connection wins). */
   private readonly byId = new Map<string, Connection<S>>();
   private nextRef = (Date.now() / 1000) >>> 0;
+  /** In-gateway requests awaiting a device reply, by protocol ref. */
+  private readonly waiters = new Map<number, { resolve: (r: { text: string; data?: unknown }) => void; timer: NodeJS.Timeout }>();
   private server: Server | null = null;
   private captureReady: Promise<void> | null = null;
   readonly stats: GatewayStats = {
@@ -235,7 +243,7 @@ export class TcpGatewayServer<S extends BaseSession> {
         const last = segments[segments.length - 1];
         if (last && last.gated === gated) last.replies.push(...result.replies);
         else if (result.replies.length || gated) segments.push({ replies: [...result.replies], gated });
-        for (const r of result.commandResponses ?? []) this.onCommandResponse(conn, r.ref, r.text);
+        for (const r of result.commandResponses ?? []) this.onCommandResponse(conn, r.ref, r.text, r.data);
         if (result.close) {
           close = true;
           break;
@@ -314,7 +322,41 @@ export class TcpGatewayServer<S extends BaseSession> {
     return true;
   }
 
-  private onCommandResponse(conn: Connection<S>, ref: number | null, text: string): void {
+  /** Protocol session of a connected device (e.g. its JT808 clock zone), or null. */
+  sessionOf(uniqueId: string): S | null {
+    const conn = this.byId.get(uniqueId);
+    return conn && !conn.socket.destroyed ? conn.session : null;
+  }
+
+  /**
+   * Gateway-internal request (video signalling): sends `text` through the decoder's command encoder and resolves with
+   * the device's matched reply, without touching the DeviceCommand history. Rejects when offline or on timeout.
+   */
+  request(uniqueId: string, text: string, timeoutMs = 15_000): Promise<{ text: string; data?: unknown }> {
+    const conn = this.byId.get(uniqueId);
+    if (!conn || !this.decoder.encodeCommand || conn.socket.destroyed) return Promise.reject(new DeviceOfflineError());
+    const ref = (this.nextRef = (this.nextRef + 1) >>> 0);
+    const frame = this.decoder.encodeCommand(text, conn.session, ref);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiters.delete(ref);
+        reject(new Error('The device did not answer in time'));
+      }, timeoutMs);
+      timer.unref();
+      this.waiters.set(ref, { resolve, timer });
+      conn.socket.write(frame);
+      this.capture(conn, 'out', frame);
+    });
+  }
+
+  private onCommandResponse(conn: Connection<S>, ref: number | null, text: string, data?: unknown): void {
+    const waiter = ref !== null ? this.waiters.get(ref) : undefined;
+    if (waiter && ref !== null) {
+      this.waiters.delete(ref);
+      clearTimeout(waiter.timer);
+      waiter.resolve({ text, data });
+      return;
+    }
     let commandId: string | undefined;
     if (ref !== null && conn.pending.has(ref)) {
       commandId = conn.pending.get(ref);

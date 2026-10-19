@@ -1,5 +1,5 @@
 import { MOVEMENT_STATUSES, OBJECT_TYPES, STATUS_META, VEHICLE_TYPES, type LiveObject, type MovementStatus } from '@veetracer/shared';
-import { SearchIcon, SearchXIcon, XIcon } from 'lucide-react';
+import { LockIcon, SearchIcon, SearchXIcon, XIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StatusDot } from '@/components/status-badge';
@@ -88,12 +88,19 @@ const ObjectRow = memo(function ObjectRow({
             {o.status !== 'NO_DATA' && <> · <span className="tabular-nums">{Math.round(o.speedKph)} km/h</span></>}
           </span>
         </span>
-        <span className="shrink-0 text-right">
-          <span className="block text-xs font-medium" style={{ color: statusColor(o.status) }}>
-            {since ?? t(STATUS_META[o.status].label)}
+        {o.licenceLocked ? (
+          <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-destructive" title={t('Licence expired — renew to view')}>
+            <LockIcon className="size-3.5" />
+            {t('Licence expired')}
           </span>
-          <span className="block text-[11px] text-muted-foreground">{relativeTime(o.serverTime, now)}</span>
-        </span>
+        ) : (
+          <span className="shrink-0 text-right">
+            <span className="block text-xs font-medium" style={{ color: statusColor(o.status) }}>
+              {since ?? t(STATUS_META[o.status].label)}
+            </span>
+            <span className="block text-[11px] text-muted-foreground">{relativeTime(o.serverTime, now)}</span>
+          </span>
+        )}
       </button>
     </div>
   );

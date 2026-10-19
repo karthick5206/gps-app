@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   AlertDto,
@@ -19,8 +19,9 @@ import { objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { toAlertDto } from '../alerts/alert-dto';
 import { stopDto, tripDto } from '../history/history.service';
+import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { addDays, daysBetween, isDayKey, localMidnight } from '../summarizer/tz';
+import { addDays, daysBetween, isDayKey, localDayKey, localMidnight } from '../summarizer/tz';
 import { aggregateSummaries, intersectScope, summaryTotals } from './aggregate';
 import {
   alertTypeFilter,
@@ -36,6 +37,10 @@ import {
   positions,
   QueryCtx,
 } from './report-queries';
+import { documentsReport } from './documents-report';
+import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
+import { fuelEventsReport, fuelReport } from './fuel-report';
+import { AddressEnricher } from './address-enricher';
 
 export const REPORT_JSON_MAX_ROWS = 10_000;
 export const REPORT_MAX_DAYS = 366;
@@ -53,7 +58,11 @@ type ScopeCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'obj
 
 @Injectable()
 export class ReportDataService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly addresses: AddressEnricher,
+    @Optional() private readonly licences?: LicencePolicyService,
+  ) {}
 
   validate(req: ReportRequest): void {
     if (!isDayKey(req.from) || !isDayKey(req.to)) throw new BadRequestException('from and to must be dates (YYYY-MM-DD)');
@@ -63,8 +72,10 @@ export class ReportDataService {
 
   /** Object ids covered by `scope` within the caller's data scope. */
   async scopeObjects(ctx: ScopeCtx, scope: ReportScope): Promise<Map<string, ObjInfo>> {
+    // Vehicles locked by an expired licence are left out of reports.
+    const viewable = this.licences ? await this.licences.viewableWhere({ companyId: ctx.companyId, isSuperAdmin: (ctx as Partial<AuthContext>).isSuperAdmin ?? false }) : {};
     const rows = await this.prisma.trackedObject.findMany({
-      where: objectScopeWhere(ctx),
+      where: { AND: [objectScopeWhere(ctx), viewable] },
       select: {
         id: true,
         name: true,
@@ -100,7 +111,14 @@ export class ReportDataService {
     return map;
   }
 
+  /** Builds a report section; rows with a location get their addresses filled (cache first, then a bounded number of lookups). */
   async generate(ctx: ScopeCtx, req: ReportRequest, maxRows = REPORT_JSON_MAX_ROWS): Promise<ReportData> {
+    const data = await this.build(ctx, req, maxRows);
+    await this.addresses.enrichReport(data.type, data.rows);
+    return data;
+  }
+
+  private async build(ctx: ScopeCtx, req: ReportRequest, maxRows: number): Promise<ReportData> {
     this.validate(req);
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { name: true, timezone: true } });
     const tz = company.timezone;
@@ -181,6 +199,27 @@ export class ReportDataService {
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 
+      case 'DOCUMENTS': {
+        // Status as of today (like the device status report); the date range is not used.
+        const r = await documentsReport(this.prisma, ctx, objects, req.scope ?? { branchIds: [], groupIds: [], objectIds: [] }, localDayKey(Date.now(), tz), maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'FUEL': {
+        const r = await fuelReport(this.prisma, ctx.companyId, objects, range, req.from, req.to, tz, maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'FUEL_EVENTS': {
+        const r = await fuelEventsReport(this.prisma, ctx.companyId, objects, range, maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'POI_VISITS': {
+        const r = await poiVisitsReport(this.prisma, ctx, objects, range, maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
       case 'HALT': {
         // Long stoppages: parked (engine off) for at least `minDurationMin` (default 30 min).
         if (!ids.length) return { ...empty, totals: { count: 0, durationSec: 0 } };
@@ -191,6 +230,7 @@ export class ReportDataService {
           this.prisma.stop.aggregate({ where, _count: true, _sum: { durationSec: true } }),
         ]);
         const dtos: StopDto[] = rows.map((s) => stopDto(s, { name: name(s.objectId) })).sort(byName);
+        await attachPoiNames(this.prisma, ctx, dtos);
         return { ...base, rows: dtos, totals: { count: agg._count, durationSec: agg._sum.durationSec ?? 0 }, truncated: agg._count > rows.length, totalRows: agg._count };
       }
 
@@ -232,6 +272,7 @@ export class ReportDataService {
           this.prisma.stop.aggregate({ where, _count: true, _sum: { durationSec: true } }),
         ]);
         const dtos: StopDto[] = rows.map((s) => stopDto(s, { name: name(s.objectId) })).sort(byName);
+        await attachPoiNames(this.prisma, ctx, dtos);
         return {
           ...base,
           rows: dtos,

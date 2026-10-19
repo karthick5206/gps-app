@@ -30,6 +30,9 @@ export const PROTOCOL_COMMANDS: Record<string, Partial<Record<Exclude<CommandTyp
   TELTONIKA: { engine_stop: 'setdigout 1', engine_resume: 'setdigout 0', locate: 'getgps', status: 'getstatus', reboot: 'cpureset' },
   // '#<msgId>[:arg]' is sent as that binary message (see gateway/jt808/decoder.ts); other text goes out as 0x8300 TTS.
   JT808: { locate: '#8201', reboot: '#8105:4' },
+  // AIS-140 OTA command syntax differs per vendor and isn't confirmed for the iTriangle TS101 yet: only the custom
+  // (raw text line) command is offered until a vendor document / device test confirms SET/GET commands.
+  AIS140: {},
 };
 
 /** Engine cut-off is refused above this speed (km/h), as most operators require for safety. */
