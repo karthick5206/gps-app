@@ -51,12 +51,20 @@ enum AuditAction {
 }
 
 model Partner {
-  id        String    @id @default(uuid()) @db.Uuid
-  name      String
-  slug      String    @unique
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  companies Company[]
+  id             String          @id @default(uuid()) @db.Uuid
+  name           String
+  slug           String          @unique
+  createdAt      DateTime        @default(now())
+  /// The reseller's own company account: its admins (with billing permission) manage the partner pool.
+  homeCompanyId  String?         @unique @db.Uuid
+  /// Partner price overrides per licence type (paise, GST-inclusive); missing = platform price.
+  pricesPaise    Json            @default("{}")
+  updatedAt      DateTime        @updatedAt
+  companies      Company[]
+  billingProfile BillingProfile?
+  licenceSeats   LicenceSeat[]
+  licenceOrders  LicenceOrder[]
+  invoices       Invoice[]
 }
 
 model Company {
@@ -73,20 +81,24 @@ model Company {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  partner       Partner           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
-  branches      Branch[]
-  users         User[]
-  roles         Role[]
-  devices       Device[]
-  objects       TrackedObject[]
-  vehicleGroups VehicleGroup[]
-  drivers       Driver[]
-  documents     Document[]
-  pois          Poi[]
-  lookups       Lookup[]
-  auditLogs     AuditLog[]
-  apiKeys       ApiKey[]
-  webhooks      WebhookEndpoint[]
+  partner        Partner           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  branches       Branch[]
+  users          User[]
+  roles          Role[]
+  devices        Device[]
+  objects        TrackedObject[]
+  vehicleGroups  VehicleGroup[]
+  drivers        Driver[]
+  documents      Document[]
+  pois           Poi[]
+  lookups        Lookup[]
+  auditLogs      AuditLog[]
+  apiKeys        ApiKey[]
+  webhooks       WebhookEndpoint[]
+  billingProfile BillingProfile?
+  licenceSeats   LicenceSeat[]
+  licenceOrders  LicenceOrder[]
+  invoices       Invoice[]
 }
 
 model Branch {
@@ -132,6 +144,7 @@ model User {
   sessions       Session[]
   passwordResets PasswordReset[]
   pushTokens     PushToken[]
+  licenceSeat    LicenceSeat?
 
   @@index([companyId])
 }
@@ -232,6 +245,7 @@ model Device {
   company     Company?           @relation(fields: [companyId], references: [id], onDelete: Restrict)
   model       DeviceModel        @relation(fields: [modelId], references: [id], onDelete: Restrict)
   assignments DeviceAssignment[]
+  licenceSeat LicenceSeat?
 
   @@index([companyId])
 }
@@ -726,7 +740,8 @@ model FuelConfig {
   createdAt       DateTime @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @db.Timestamptz(3)
 
-  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  object      TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  licenceSeat LicenceSeat?
 
   @@index([companyId])
 }
@@ -1195,4 +1210,176 @@ model WebhookDelivery {
   @@index([status, nextAttemptAt])
   @@index([endpointId, createdAt(sort: Desc)])
   @@index([createdAt])
+}
+
+// ───────────── Licences & billing ─────────────
+
+enum LicenceType {
+  USER
+  GPS_DEVICE
+  DASHCAM
+  FUEL_SENSOR
+}
+
+/// Platform-wide licence pricing and invoicing (supplier) details; one row, id = "default". Edited by the Super Admin.
+model PlatformBillingSettings {
+  id              String   @id @default("default")
+  /// GST-inclusive yearly price per licence type, in paise: { USER, GPS_DEVICE, DASHCAM, FUEL_SENSOR }.
+  pricesPaise     Json     @default("{}")
+  gstRatePct      Float    @default(18)
+  graceDays       Int      @default(15)
+  overrideDays    Int      @default(30)
+  legalName       String   @default("")
+  addressLines    String[] @default([])
+  city            String   @default("")
+  stateCode       String   @default("33")
+  pin             String   @default("")
+  gstin           String   @default("")
+  pan             String   @default("")
+  phone           String   @default("")
+  email           String   @default("")
+  website         String   @default("")
+  accountsEmail   String   @default("")
+  /// Logo file name under var/billing/ (PNG / JPG / SVG).
+  logoFile        String?
+  sacCode         String   @default("998314")
+  invoicePrefix   String   @default("VTX")
+  bankName        String   @default("")
+  bankAccountName String   @default("")
+  bankAccountNo   String   @default("")
+  bankIfsc        String   @default("")
+  bankBranch      String   @default("")
+  upiId           String   @default("")
+  terms           String   @default("")
+  footerNote      String   @default("")
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+}
+
+/// Billing details of a customer company or a partner (reseller); required before the first purchase.
+model BillingProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String?  @unique @db.Uuid
+  partnerId   String?  @unique @db.Uuid
+  billingName String
+  address     String
+  city        String   @default("")
+  stateCode   String
+  pin         String   @default("")
+  gstin       String?
+  email       String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  partner Partner? @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+}
+
+/// One licence seat: runs 12 months from activation. In a company pool (companyId) or a partner pool (companyId null,
+/// partnerId set); a company seat with partnerId was allocated by that partner. A seat stays in the pool when its user /
+/// device / fuel sensor is deleted (subject set null) and is reused for the next one. source: PURCHASE | MIGRATION |
+/// OVERRIDE | ALLOCATION. notifiedState: last expiry reminder sent (D30, D15, D7, D1, D0).
+model LicenceSeat {
+  id            String      @id @default(uuid()) @db.Uuid
+  type          LicenceType
+  companyId     String?     @db.Uuid
+  partnerId     String?     @db.Uuid
+  source        String
+  activatedAt   DateTime    @db.Timestamptz(3)
+  expiresAt     DateTime    @db.Timestamptz(3)
+  userId        String?     @unique @db.Uuid
+  deviceId      String?     @unique @db.Uuid
+  fuelObjectId  String?     @unique @db.Uuid
+  assignedAt    DateTime?   @db.Timestamptz(3)
+  note          String?
+  notifiedState String?
+  lastOrderId   String?     @db.Uuid
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @db.Timestamptz(3)
+
+  company    Company?    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  partner    Partner?    @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  device     Device?     @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  fuelConfig FuelConfig? @relation(fields: [fuelObjectId], references: [objectId], onDelete: SetNull)
+
+  @@index([companyId, type, expiresAt])
+  @@index([partnerId, type])
+  @@index([expiresAt])
+}
+
+/// A purchase / renewal: paid online (Razorpay, status CREATED → PAID after a verified webhook or signature) or recorded
+/// offline by a Super Admin / partner (CASH, UPI, BANK_TRANSFER, CHEQUE). `items` = the quote lines (with seat ids).
+model LicenceOrder {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String?   @db.Uuid
+  partnerId         String?   @db.Uuid
+  status            String    @default("CREATED")
+  mode              String
+  items             Json
+  amountPaise       Int
+  razorpayOrderId   String?   @unique
+  razorpayPaymentId String?   @unique
+  paymentReference  String?
+  paidAt            DateTime? @db.Timestamptz(3)
+  failureReason     String?
+  createdById       String?   @db.Uuid
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partner Partner? @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  invoice Invoice?
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([partnerId, createdAt(sort: Desc)])
+}
+
+/// GST tax invoice for one paid order. Numbered consecutively per Indian financial year (InvoiceCounter, gap-free).
+/// supplier / buyer / lines are snapshots so the invoice never changes when settings or profiles are edited.
+model Invoice {
+  id               String    @id @default(uuid()) @db.Uuid
+  number           String    @unique
+  fy               String
+  seq              Int
+  issuedAt         DateTime  @db.Timestamptz(3)
+  orderId          String    @unique @db.Uuid
+  companyId        String?   @db.Uuid
+  partnerId        String?   @db.Uuid
+  buyerName        String
+  buyerGstin       String?
+  buyerStateCode   String
+  supplier         Json
+  buyer            Json
+  lines            Json
+  taxKind          String
+  gstRatePct       Float
+  sacCode          String
+  taxablePaise     Int
+  cgstPaise        Int
+  sgstPaise        Int
+  utgstPaise       Int
+  igstPaise        Int
+  totalPaise       Int
+  paymentMode      String
+  paymentReference String?
+  paidAt           DateTime  @db.Timestamptz(3)
+  pdfFile          String?
+  emailedAt        DateTime? @db.Timestamptz(3)
+  emailError       String?
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+
+  order   LicenceOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  company Company?     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partner Partner?     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  @@unique([fy, seq])
+  @@index([issuedAt])
+  @@index([companyId, issuedAt(sort: Desc)])
+  @@index([partnerId, issuedAt(sort: Desc)])
+}
+
+/// Last invoice number used per financial year; incremented inside the invoice transaction (row lock → gap-free).
+model InvoiceCounter {
+  fy      String @id
+  lastSeq Int
 }

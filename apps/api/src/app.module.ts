@@ -19,6 +19,7 @@ import { DriversModule } from './drivers/drivers.module';
 import { DocumentsModule } from './documents/documents.module';
 import { PoisModule } from './pois/pois.module';
 import { FuelModule } from './fuel/fuel.module';
+import { LicencesModule } from './licences/licences.module';
 import { DeveloperModule } from './developer/developer.module';
 import { PublicApiModule } from './public-api/public-api.module';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -35,6 +36,7 @@ import { TemplatesModule } from './templates/templates.module';
     ScheduleModule.forRoot(),
     AccessModule,
     AuditModule,
+    LicencesModule,
     AuthModule,
     // Before MastersModule: GET /objects/:id/history (?from&to = track history, else the M1 audit history) is served here.
     HistoryModule,

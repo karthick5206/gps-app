@@ -1,4 +1,4 @@
-import { Logger, OnModuleDestroy } from '@nestjs/common';
+import { Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, WebSocketGateway } from '@nestjs/websockets';
 import { AlertDto, LiveObject } from '@veetracer/shared';
 import { Namespace, Socket } from 'socket.io';
@@ -6,6 +6,7 @@ import { hasPermission, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuthContextService } from '../access/auth-context.service';
 import { loadEnv } from '../config/env';
+import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
@@ -19,6 +20,8 @@ interface Client {
   ctx: AuthContext;
   /** Allowed object ids; null = every object of the company (COMPANY scope). */
   allowed: Set<string> | null;
+  /** Vehicles locked by an expired licence: no live updates. */
+  locked: Set<string>;
   /** Latest update per object since the last flush. */
   pending: Map<string, LiveObject>;
 }
@@ -44,6 +47,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     private readonly contexts: AuthContextService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    @Optional() private readonly licences?: LicencePolicyService,
   ) {}
 
   afterInit(namespace: Namespace): void {
@@ -76,7 +80,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   async handleConnection(socket: Socket): Promise<void> {
     const ctx = socket.data.ctx as AuthContext;
-    const client: Client = { socket, ctx, allowed: await this.allowedObjects(ctx), pending: new Map() };
+    const client: Client = { socket, ctx, allowed: await this.allowedObjects(ctx), locked: await this.lockedObjects(ctx), pending: new Map() };
     if (!socket.connected) return;
     this.clients.set(socket.id, client);
     this.index(client);
@@ -112,6 +116,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const objectId = update.live.objectId;
     for (const client of clients) {
       if (!hasPermission(client.ctx, 'live_map', 'view')) continue;
+      if (client.locked.has(objectId)) continue;
       if (client.allowed === null || client.allowed.has(objectId)) client.pending.set(objectId, update.live);
     }
   }
@@ -146,6 +151,10 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     return new Set(rows.map((r) => r.id));
   }
 
+  private async lockedObjects(ctx: AuthContext): Promise<Set<string>> {
+    return (await this.licences?.lockedObjectIds(ctx)) ?? new Set();
+  }
+
   private scheduleRefresh(): void {
     if (this.invalidateTimer) return;
     this.invalidateTimer = setTimeout(() => {
@@ -164,6 +173,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         if (!hasPermission(next, 'live_map', 'view') && !hasPermission(next, 'alerts', 'view')) throw new Error('Permission denied');
         client.ctx = next;
         client.allowed = await this.allowedObjects(next);
+        client.locked = await this.lockedObjects(next);
       } catch (error) {
         this.logger.log(`Disconnecting socket ${client.socket.id}: ${(error as Error).message}`);
         client.socket.disconnect(true);

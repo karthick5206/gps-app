@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
@@ -6,6 +6,7 @@ import { asRecord, isoOrNull } from '../common/dto';
 import { odometers } from '../documents/reminder-logic';
 import { addressKey } from '../geocoding/geocoding.service';
 import { LiveStateService } from '../live/live-state.service';
+import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { vehicleState } from '../webhooks/events';
 import {
@@ -41,7 +42,13 @@ export class PublicApiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly live: LiveStateService,
+    @Optional() private readonly licences?: LicencePolicyService,
   ) {}
+
+  /** Vehicles locked by an expired licence: no positions, trips or events through the API either. */
+  private viewable(ctx: AuthContext) {
+    return this.licences ? this.licences.viewableWhere(ctx) : Promise.resolve({});
+  }
 
   async vehicles(ctx: AuthContext, q: PageQueryDto): Promise<Paged<unknown>> {
     const limit = clampLimit(q.limit, LIST_PAGE_DEFAULT, LIST_PAGE_MAX);
@@ -82,7 +89,7 @@ export class PublicApiService {
   async liveAll(ctx: AuthContext, vehicleIds: string | undefined): Promise<Paged<unknown>> {
     const ids = idList(vehicleIds);
     const objects = await this.prisma.trackedObject.findMany({
-      where: { AND: [objectScopeWhere(ctx), { isActive: true }, ids.length ? { id: { in: ids } } : {}] },
+      where: { AND: [objectScopeWhere(ctx), await this.viewable(ctx), { isActive: true }, ids.length ? { id: { in: ids } } : {}] },
       select: { id: true, name: true, plateNumber: true },
       orderBy: { name: 'asc' },
     });
@@ -126,7 +133,7 @@ export class PublicApiService {
   /** Vehicle in the key's scope with its company's retention (positions older than that are gone anyway). */
   private async vehicle(ctx: AuthContext, id: string) {
     const o = await this.prisma.trackedObject.findFirst({
-      where: { AND: [objectScopeWhere(ctx), { id }] },
+      where: { AND: [objectScopeWhere(ctx), await this.viewable(ctx), { id }] },
       select: { id: true, name: true, company: { select: { retentionDays: true } } },
     });
     if (!o) throw new NotFoundException('Vehicle not found');
@@ -173,7 +180,7 @@ export class PublicApiService {
   /** Vehicle ids the key may see (optionally just one), with names for the rows. */
   private async scope(ctx: AuthContext, vehicleId: string | undefined) {
     const objects = await this.prisma.trackedObject.findMany({
-      where: { AND: [objectScopeWhere(ctx), vehicleId ? { id: vehicleId } : {}] },
+      where: { AND: [objectScopeWhere(ctx), await this.viewable(ctx), vehicleId ? { id: vehicleId } : {}] },
       select: { id: true, name: true, plateNumber: true },
     });
     if (vehicleId && !objects.length) throw new NotFoundException('Vehicle not found');

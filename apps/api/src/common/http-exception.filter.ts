@@ -50,6 +50,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
       res.status(statusCode).json({ error: { status: statusCode, code, message } });
       return;
     }
-    res.status(statusCode).json({ statusCode, message });
+    // Machine-readable app error codes (e.g. LICENCE_REQUIRED / LICENCE_EXPIRED) travel with the message.
+    const extra: Record<string, unknown> = {};
+    if (typeof body === 'object' && body !== null) {
+      const b = body as Record<string, unknown>;
+      if (typeof b.code === 'string') extra.code = b.code;
+      if (typeof b.licenceType === 'string') extra.licenceType = b.licenceType;
+    }
+    res.status(statusCode).json({ statusCode, message, ...extra });
   }
 }

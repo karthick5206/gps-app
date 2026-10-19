@@ -7,6 +7,7 @@ import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
 import { listResult, planList } from '../../common/list-query';
 import { randomToken } from '../../common/secrets';
+import { SeatsService } from '../../licences/seats.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import {
@@ -30,6 +31,7 @@ export class DevicesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly redis: RedisService,
+    private readonly seats: SeatsService,
   ) {}
 
   async list(ctx: AuthContext, query: DeviceListQuery) {
@@ -52,9 +54,14 @@ export class DevicesService {
 
   async create(ctx: AuthContext, dto: CreateDeviceDto): Promise<DeviceDto> {
     await this.assertModel(dto.modelId);
-    const row = await this.prisma.device.create({
-      data: { ...dto, companyId: ctx.companyId, ingestToken: randomToken(24) },
-      include: DEVICE_INCLUDE,
+    // A device takes a GPS_DEVICE / DASHCAM licence seat from the company pool (refused without one).
+    const row = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.device.create({
+        data: { ...dto, companyId: ctx.companyId, ingestToken: randomToken(24) },
+        include: DEVICE_INCLUDE,
+      });
+      if (created.isActive) await this.seats.ensureDevice(tx, ctx, ctx.companyId, created.id);
+      return created;
     });
     await this.audit.record(ctx, { action: 'CREATE', entity: ENTITY, entityId: row.id, after: deviceSnapshot(row) });
     await this.redis.invalidateCache('device');
@@ -64,7 +71,10 @@ export class DevicesService {
   async update(ctx: AuthContext, id: string, dto: UpdateDeviceDto): Promise<DeviceDto> {
     const before = await this.find(ctx, id);
     if (dto.modelId) await this.assertModel(dto.modelId);
-    const row = await this.prisma.device.update({ where: { id }, data: dto, include: DEVICE_INCLUDE });
+    const row = await this.prisma.$transaction(async (tx) => {
+      if (dto.isActive === true && !before.isActive) await this.seats.ensureDevice(tx, ctx, ctx.companyId, id);
+      return tx.device.update({ where: { id }, data: dto, include: DEVICE_INCLUDE });
+    });
     await this.audit.record(ctx, {
       action: 'UPDATE',
       entity: ENTITY,

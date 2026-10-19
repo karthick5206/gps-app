@@ -109,4 +109,6 @@ export interface LiveObject {
   driverName?: string | null;
   /** RFID = card swipe on the tracker (ends at ignition off), MANUAL = assigned in the app. */
   driverSource?: 'MANUAL' | 'RFID' | null;
+  /** The vehicle's licence expired past the grace period: position and history are hidden until it is renewed. */
+  licenceLocked?: boolean;
 }

@@ -40,10 +40,13 @@ export const MENU_KEYS = [
   'audit_log',
   'settings',
   'api',
+  'billing',
   'sa_companies',
   'sa_device_models',
   'sa_device_inventory',
   'sa_unknown_devices',
+  'sa_licences',
+  'sa_platform_settings',
 ] as const;
 export type MenuKey = (typeof MENU_KEYS)[number];
 
@@ -72,10 +75,13 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'audit_log', label: 'Audit Log', group: 'admin', path: '/admin/audit-log', actions: ['view', 'export'] },
   { key: 'settings', label: 'Company Settings', group: 'admin', path: '/admin/settings', actions: ['view', 'edit'] },
   { key: 'api', label: 'Developer API', group: 'admin', path: '/admin/developer-api', actions: ['view', 'create', 'edit', 'delete'] },
+  { key: 'billing', label: 'Billing & Licences', group: 'admin', path: '/admin/billing', actions: ['view', 'create', 'edit'] },
   { key: 'sa_companies', label: 'Companies', group: 'platform', path: '/platform/companies', actions: CRUD, superAdminOnly: true },
   { key: 'sa_device_models', label: 'Device Models', group: 'platform', path: '/platform/device-models', actions: CRUD, superAdminOnly: true },
   { key: 'sa_device_inventory', label: 'Device Inventory', group: 'platform', path: '/platform/device-inventory', actions: CRUD, superAdminOnly: true },
   { key: 'sa_unknown_devices', label: 'Unknown Devices', group: 'platform', path: '/platform/unknown-devices', actions: ['view'], superAdminOnly: true },
+  { key: 'sa_licences', label: 'Licences & Invoices', group: 'platform', path: '/platform/licences', actions: CRUD, superAdminOnly: true },
+  { key: 'sa_platform_settings', label: 'Platform Settings', group: 'platform', path: '/platform/settings', actions: ['view', 'edit'], superAdminOnly: true },
 ];
 
 export type PermissionMap = Partial<Record<MenuKey, Action[]>>;

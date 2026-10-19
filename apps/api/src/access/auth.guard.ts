@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { LICENCE_OVERRIDE_HEADER } from '@veetracer/shared';
 import { AuthedRequest } from './auth-context';
 import { AuthContextService } from './auth-context.service';
 import { IS_PUBLIC } from './decorators';
@@ -27,6 +28,14 @@ export class JwtAuthGuard implements CanActivate {
       typeof companyHeader === 'string' ? companyHeader : undefined,
       req.ip ?? null,
     );
+    const override = req.headers[LICENCE_OVERRIDE_HEADER];
+    if (req.auth.isSuperAdmin && typeof override === 'string' && override.trim()) {
+      try {
+        req.auth.licenceOverride = decodeURIComponent(override).slice(0, 300);
+      } catch {
+        req.auth.licenceOverride = override.slice(0, 300);
+      }
+    }
     return true;
   }
 }

@@ -18,6 +18,8 @@ export interface AuthContext {
   sessionId?: string | null;
   /** Set when the caller is a customer API key (public API v1) instead of a signed-in user. */
   apiKey?: { id: string; name: string; scopes: string[] };
+  /** Super Admin only: reason sent in X-Licence-Override to create a user / device without a free licence seat. */
+  licenceOverride?: string | null;
 }
 
 export interface AccessTokenPayload {

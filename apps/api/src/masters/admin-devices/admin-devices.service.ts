@@ -6,6 +6,7 @@ import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
 import { listResult, planList } from '../../common/list-query';
 import { randomToken } from '../../common/secrets';
+import { SeatsService } from '../../licences/seats.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import {
@@ -29,6 +30,7 @@ export class AdminDevicesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly redis: RedisService,
+    private readonly seats: SeatsService,
   ) {}
 
   async list(query: AdminDeviceListQuery) {
@@ -52,9 +54,10 @@ export class AdminDevicesService {
 
   async create(ctx: AuthContext, dto: CreateAdminDeviceDto): Promise<DeviceDto> {
     await this.assertRefs(dto.modelId, dto.companyId);
-    const row = await this.prisma.device.create({
-      data: { ...dto, ingestToken: randomToken(24) },
-      include: DEVICE_INCLUDE,
+    const row = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.device.create({ data: { ...dto, ingestToken: randomToken(24) }, include: DEVICE_INCLUDE });
+      if (created.companyId && created.isActive) await this.seats.ensureDevice(tx, ctx, created.companyId, created.id);
+      return created;
     });
     await this.audit.record(ctx, { action: 'CREATE', entity: ENTITY, entityId: row.id, after: deviceSnapshot(row) });
     await this.redis.invalidateCache('device');
@@ -70,7 +73,13 @@ export class AdminDevicesService {
       if (movesCompany) {
         await tx.deviceAssignment.updateMany({ where: { deviceId: id, toTime: null }, data: { toTime: new Date() } });
       }
-      return tx.device.update({ where: { id }, data: dto, include: DEVICE_INCLUDE });
+      // Its licence seat stays with the old company's pool; in the new company it takes a free seat there.
+      if (movesCompany) await this.seats.releaseDevice(tx, id);
+      const updated = await tx.device.update({ where: { id }, data: dto, include: DEVICE_INCLUDE });
+      if (updated.companyId && updated.isActive && (movesCompany || (dto.isActive === true && !before.isActive))) {
+        await this.seats.ensureDevice(tx, ctx, updated.companyId, id);
+      }
+      return updated;
     });
     await this.audit.record(ctx, {
       action: 'UPDATE',

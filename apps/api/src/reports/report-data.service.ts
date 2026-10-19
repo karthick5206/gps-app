@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   AlertDto,
@@ -19,6 +19,7 @@ import { objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { toAlertDto } from '../alerts/alert-dto';
 import { stopDto, tripDto } from '../history/history.service';
+import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { addDays, daysBetween, isDayKey, localDayKey, localMidnight } from '../summarizer/tz';
 import { aggregateSummaries, intersectScope, summaryTotals } from './aggregate';
@@ -60,6 +61,7 @@ export class ReportDataService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly addresses: AddressEnricher,
+    @Optional() private readonly licences?: LicencePolicyService,
   ) {}
 
   validate(req: ReportRequest): void {
@@ -70,8 +72,10 @@ export class ReportDataService {
 
   /** Object ids covered by `scope` within the caller's data scope. */
   async scopeObjects(ctx: ScopeCtx, scope: ReportScope): Promise<Map<string, ObjInfo>> {
+    // Vehicles locked by an expired licence are left out of reports.
+    const viewable = this.licences ? await this.licences.viewableWhere({ companyId: ctx.companyId, isSuperAdmin: (ctx as Partial<AuthContext>).isSuperAdmin ?? false }) : {};
     const rows = await this.prisma.trackedObject.findMany({
-      where: objectScopeWhere(ctx),
+      where: { AND: [objectScopeWhere(ctx), viewable] },
       select: {
         id: true,
         name: true,

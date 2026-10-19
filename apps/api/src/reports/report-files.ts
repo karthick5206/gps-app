@@ -113,7 +113,7 @@ async function renderXlsx(sections: ReportData[], generated: string): Promise<Bu
 }
 
 let pdfReady = false;
-function setupPdf(): void {
+export function setupPdf(): void {
   if (pdfReady) return;
   const regular = require.resolve('pdfmake/fonts/Roboto/Roboto-Regular.ttf');
   const fontDir = dirname(regular);

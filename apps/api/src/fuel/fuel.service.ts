@@ -5,6 +5,8 @@ import { objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { iso } from '../common/dto';
+import { LicencePolicyService } from '../licences/licence-policy.service';
+import { SeatsService } from '../licences/seats.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { FuelConfigBody, FuelEventsQuery } from './fuel.dto';
@@ -17,6 +19,8 @@ export class FuelService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly redis: RedisService,
+    private readonly seats: SeatsService,
+    private readonly policy: LicencePolicyService,
   ) {}
 
   private async object(ctx: AuthContext, objectId: string) {
@@ -62,7 +66,13 @@ export class FuelService {
       drainWindowMin: dto.drainWindowMin ?? FUEL_CONFIG_DEFAULTS.drainWindowMin,
       smoothingWindow: dto.smoothingWindow ?? FUEL_CONFIG_DEFAULTS.smoothingWindow,
     };
-    const row = await this.prisma.fuelConfig.upsert({ where: { objectId }, create: { objectId, companyId: ctx.companyId, ...data }, update: data });
+    // Fuel monitoring on a vehicle takes a FUEL_SENSOR licence seat; switching it off returns the seat to the pool.
+    const row = await this.prisma.$transaction(async (tx) => {
+      const saved = await tx.fuelConfig.upsert({ where: { objectId }, create: { objectId, companyId: ctx.companyId, ...data }, update: data });
+      if (dto.source === 'none') await this.seats.releaseFuel(tx, objectId);
+      else await this.seats.ensureFuel(tx, ctx, ctx.companyId, objectId);
+      return saved;
+    });
     await this.audit.record(ctx, { action: before ? 'UPDATE' : 'CREATE', entity: 'fuel_config', entityId: objectId, before: before ?? undefined, after: row });
     // The processor caches device / object facts (fuel settings included): reload them.
     await this.redis.invalidateCache('fuel_config');
@@ -71,6 +81,8 @@ export class FuelService {
 
   async events(ctx: AuthContext, q: FuelEventsQuery): Promise<FuelEventDto[]> {
     const objects = await this.prisma.trackedObject.findMany({ where: { AND: [objectScopeWhere(ctx), q.objectId ? { id: q.objectId } : {}] }, select: { id: true, name: true, plateNumber: true } });
+    const fuelLocked = await this.policy.fuelLockedObjectIds(ctx);
+    if (fuelLocked.size) objects.splice(0, objects.length, ...objects.filter((o) => !fuelLocked.has(o.id)));
     if (!objects.length) return [];
     const meta = new Map(objects.map((o) => [o.id, o]));
     const rows = await this.prisma.fuelEvent.findMany({

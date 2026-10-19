@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Stop, Trip } from '@prisma/client';
 import { AlertDto, HistoryResponse, StopDto, TrackPoint, TripDto } from '@veetracer/shared';
 import { objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { toAlertDto } from '../alerts/alert-dto';
+import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { fetchPositions, isDrift, ObjectMeta, PosRow, toMeta, toSegPoint } from '../summarizer/positions';
 import {
@@ -44,7 +45,10 @@ interface Segments {
 
 @Injectable()
 export class HistoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly licences?: LicencePolicyService,
+  ) {}
 
   async objectMeta(ctx: AuthContext, objectId: string): Promise<ObjectMeta> {
     const o = await this.prisma.trackedObject.findFirst({
@@ -62,6 +66,7 @@ export class HistoryService {
       },
     });
     if (!o) throw new NotFoundException('Object not found');
+    await this.licences?.assertViewable(ctx, objectId);
     return toMeta(o);
   }
 
