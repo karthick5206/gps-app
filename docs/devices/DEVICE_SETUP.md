@@ -83,6 +83,11 @@ What VeeTracer reads (per the public AIS-140 spec):
 
 **Verify with a real device first.** The decoder handles the common vendor variations (alert ID field present or absent, vehicle registration field present or absent, 3 or 4 neighbouring cells, checksum present or absent). It hasn't been checked against a TS101 yet, so connect one unit with `GATEWAY_CAPTURE=<IMEI>` enabled and send the capture to development before rolling out.
 
+**Device with only one usable server slot?** VeeTrax can relay the device's raw data to the state backend (Platform →
+Data forwarding, *Raw TCP*, scope AIS-140). This is a supplement, not a replacement: most states require the device
+itself to report to the government server, so the owner must confirm with the state first. See
+[docs/RELAY.md](../RELAY.md).
+
 ## 4a. JT/T 808 dashcams (Mettax MC202 and similar)
 Set the platform server in the dashcam's own menu or the vendor's configuration tool (the exact menu names vary by firmware).
 
