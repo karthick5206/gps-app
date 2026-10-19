@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
 import { Alert, Prisma } from '@prisma/client';
-import { ALERT_TYPE_MAP, AlertDto, AlertTypeCode, NotificationLogDto, Paginated } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, AlertDto, AlertTypeCode, isEmergencyAlert, NotificationLogDto, Paginated } from '@veetracer/shared';
 import { objectScopeWhere } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { csvFile } from '../../common/csv';
@@ -105,7 +105,19 @@ export class AlertsService {
   }
 
   async get(ctx: AuthContext, id: string): Promise<AlertDto> {
-    return (await this.toDtos([await this.find(ctx, id)]))[0];
+    const row = await this.find(ctx, id);
+    const dto = (await this.toDtos([row]))[0];
+    return isEmergencyAlert(row.type) ? { ...dto, contacts: await this.contacts(row) } : dto;
+  }
+
+  /** Phone numbers for the SOS screen: the driver assigned at the time of the alert and the tracker's SIM. */
+  private async contacts(a: Alert): Promise<NonNullable<AlertDto['contacts']>> {
+    const at = { objectId: a.objectId, fromTime: { lte: a.occurredAt }, OR: [{ toTime: null }, { toTime: { gt: a.occurredAt } }] };
+    const [driver, device] = await Promise.all([
+      this.prisma.driverAssignment.findFirst({ where: at, orderBy: { fromTime: 'desc' }, select: { driver: { select: { name: true, mobile: true } } } }),
+      this.prisma.deviceAssignment.findFirst({ where: at, orderBy: { fromTime: 'desc' }, select: { device: { select: { simNumber: true } } } }),
+    ]);
+    return { driverName: driver?.driver.name ?? null, driverMobile: driver?.driver.mobile || null, deviceSim: device?.device.simNumber || null };
   }
 
   async unreadCount(ctx: AuthContext): Promise<{ count: number }> {

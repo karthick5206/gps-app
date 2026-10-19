@@ -336,6 +336,8 @@ export interface AlertDto {
   ackByName: string | null;
   ackAt: string | null;
   ackNote: string | null;
+  /** GET /alerts/:id of an emergency alert only: who to call (driver on the vehicle at the time, device SIM). */
+  contacts?: { driverName: string | null; driverMobile: string | null; deviceSim: string | null };
 }
 
 export type NotificationStatus = 'QUEUED' | 'SENT' | 'FAILED' | 'SKIPPED';
