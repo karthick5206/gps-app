@@ -10,6 +10,7 @@ import { SeekBar } from '@/components/SeekBar';
 import { Card, Chips, EmptyState, ErrorBanner, Text } from '@/components/ui';
 import { AlertTypeIcon } from '@/features/alerts/alert-icons';
 import { formatClock, formatKm, trackStatus } from '@/features/history/history-format';
+import { PlaybackAddress } from '@/features/history/PlaybackAddress';
 import { buildTrackIndex, PLAYBACK_RATES, type PlaybackRate, type Sample } from '@/features/history/playback-core';
 import { PlaybackEngine } from '@/features/history/playback-engine';
 import { presetRange, type RangePreset } from '@/features/history/time-range';
@@ -189,6 +190,11 @@ export default function HistoryScreen() {
               </Text>
             </Pressable>
           </View>
+          {sample && (
+            <View style={{ backgroundColor: c.card, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }}>
+              <PlaybackAddress lat={sample.lat} lng={sample.lng} playing={state.playing} />
+            </View>
+          )}
 
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: SPACE.md, gap: SPACE.md }}>
             <Card style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: SPACE.md, columnGap: SPACE.sm }}>

@@ -9,8 +9,18 @@ import type { PlaybackEngine } from './playback-engine';
 import { reverseGeocode } from './use-history';
 
 const TEXT_FRAME_MS = 100; // text readouts refresh at ~10 fps while playing
+/** While playing, the address follows the vehicle: at most every 3 s, and only after it moved ~200 m. */
+const ADDRESS_EVERY_MS = 3000;
+const ADDRESS_MOVE_M = 200;
 
-/** Floating readout of the cursor: written imperatively from frame callbacks; address fetched on pause. */
+const metres = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const k = Math.PI / 180;
+  const x = (b.lng - a.lng) * k * Math.cos(((a.lat + b.lat) / 2) * k);
+  const y = (b.lat - a.lat) * k;
+  return Math.sqrt(x * x + y * y) * 6_371_000;
+};
+
+/** Floating readout of the cursor: written imperatively from frame callbacks; address shown with the coordinates, also while playing. */
 export function LiveDataPanel({ engine, className }: { engine: PlaybackEngine; className?: string }) {
   const { t } = useTranslation();
   const refs = {
@@ -23,7 +33,14 @@ export function LiveDataPanel({ engine, className }: { engine: PlaybackEngine; c
     coords: useRef<HTMLSpanElement>(null),
   };
   const state = useSyncExternalStore(engine.subscribe, engine.getState);
-  const [address, setAddress] = useState<{ key: string; text: string | null } | null>(null);
+  const [address, setAddress] = useState<{ lat: number; lng: number; text: string | null } | null>(null);
+  const lookup = useRef<{ ctrl: AbortController | null; at: number; lat: number; lng: number } | null>(null);
+  const fetchAddress = useRef((lat: number, lng: number) => {
+    lookup.current?.ctrl?.abort();
+    const ctrl = new AbortController();
+    lookup.current = { ctrl, at: performance.now(), lat, lng };
+    reverseGeocode(lat, lng, ctrl.signal).then((text) => !ctrl.signal.aborted && setAddress({ lat, lng, text }));
+  }).current;
   const multiDay = engine.index.end - engine.index.start > 86_400_000;
 
   useEffect(() => {
@@ -42,30 +59,27 @@ export function LiveDataPanel({ engine, className }: { engine: PlaybackEngine; c
       set(refs.status, t(STATUS_META[status].label));
       set(refs.dist, formatKm(s.distKm));
       set(refs.coords, `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`);
+      const prev = lookup.current;
+      if (engine.getState().playing && (!prev || (now - prev.at >= ADDRESS_EVERY_MS && metres(prev, s) >= ADDRESS_MOVE_M))) fetchAddress(s.lat, s.lng);
       if (refs.status.current) refs.status.current.style.color = statusColor(status);
       if (refs.dot.current) refs.dot.current.style.backgroundColor = statusColor(status);
     });
     // refs are stable
-  }, [engine, multiDay, t]);
+  }, [engine, multiDay, t, fetchAddress]);
 
-  // Address only when paused (debounced), via the reverse-geocode endpoint if the API exposes it.
+  // Paused / seeking: the exact point's address (debounced).
   useEffect(() => {
     if (state.playing) return;
-    const s = engine.getSample();
-    const key = `${s.lat.toFixed(5)},${s.lng.toFixed(5)}`;
-    const ctrl = new AbortController();
     const timer = setTimeout(() => {
-      reverseGeocode(s.lat, s.lng, ctrl.signal).then((text) => !ctrl.signal.aborted && setAddress({ key, text }));
+      const s = engine.getSample();
+      fetchAddress(s.lat, s.lng);
     }, 350);
-    return () => {
-      clearTimeout(timer);
-      ctrl.abort();
-    };
-  }, [engine, state.playing, state.seekVersion]);
+    return () => clearTimeout(timer);
+  }, [engine, state.playing, state.seekVersion, fetchAddress]);
+  useEffect(() => () => lookup.current?.ctrl?.abort(), []);
 
-  const s = engine.getSample();
-  const currentKey = `${s.lat.toFixed(5)},${s.lng.toFixed(5)}`;
-  const addr = !state.playing && address?.key === currentKey ? address.text : null;
+  // While playing the last address is kept until the next one arrives (it trails the vehicle by a few seconds).
+  const addr = address?.text ?? null;
 
   return (
     <div className={cn('pointer-events-auto rounded-xl border bg-card/95 p-2.5 text-sm shadow-lg backdrop-blur-sm sm:p-3', className)} aria-live="off">
@@ -96,10 +110,13 @@ export function LiveDataPanel({ engine, className }: { engine: PlaybackEngine; c
           </p>
         </div>
       </div>
-      <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground sm:mt-2">
+      <div className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground sm:mt-2">
         <MapPinIcon className="mt-px size-3.5 shrink-0" aria-hidden />
-        {addr ? <span className="line-clamp-2 text-foreground">{addr}</span> : <span ref={refs.coords} className="font-mono" />}
-      </p>
+        <div className="min-w-0">
+          {addr && <p className="line-clamp-2 text-foreground">{addr}</p>}
+          <span ref={refs.coords} className="block font-mono text-[11px] select-all" />
+        </div>
+      </div>
     </div>
   );
 }
