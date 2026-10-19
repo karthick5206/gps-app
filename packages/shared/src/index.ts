@@ -14,3 +14,4 @@ export * from './i18n';
 export * from './brand';
 export * from './developer-api';
 export * from './licences';
+export * from './video';

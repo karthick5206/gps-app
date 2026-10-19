@@ -45,7 +45,7 @@ export interface DecodeResult {
    * Replies to server commands. `ref` echoes the reference passed to `encodeCommand` when the protocol carries one
    * (GT06 server flag); null when it doesn't (Teltonika Codec 12), in which case the oldest pending command matches.
    */
-  commandResponses?: { ref: number | null; text: string }[];
+  commandResponses?: { ref: number | null; text: string; data?: unknown }[];
 }
 
 export interface ProtocolDecoder<S extends BaseSession = BaseSession> {

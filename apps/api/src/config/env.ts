@@ -14,6 +14,12 @@ export interface AppEnv {
   jt808Port: number;
   /** AIS-140 (iTriangle TS101 and other VLT units) TCP port; 0 disables the listener. */
   ais140Port: number;
+  /** JT/T 1078 media: TCP port dashcams stream to (0 disables video), host they are told to connect to. */
+  mediaPort: number;
+  mediaPublicHost: string;
+  /** Gateway's localhost-only HTTP-FLV server; the API proxies viewers to it. */
+  mediaHttpPort: number;
+  mediaMaxStreams: number;
   webUrl: string;
   otpDevEcho: boolean;
   mailDevEcho: boolean;
@@ -46,6 +52,10 @@ export function loadEnv(): AppEnv {
     teltonikaPort: Number(process.env.TELTONIKA_PORT ?? 5027),
     jt808Port: Number(process.env.JT808_PORT ?? 6808),
     ais140Port: Number(process.env.AIS140_PORT ?? 5030),
+    mediaPort: Number(process.env.MEDIA_PORT ?? 7612),
+    mediaPublicHost: process.env.MEDIA_PUBLIC_HOST ?? 'track.mintplus.co.in',
+    mediaHttpPort: Number(process.env.MEDIA_HTTP_PORT ?? 4110),
+    mediaMaxStreams: Number(process.env.MEDIA_MAX_STREAMS ?? 8),
     webUrl: process.env.WEB_URL ?? 'http://localhost:5173',
     otpDevEcho: process.env.OTP_DEV_ECHO === 'true',
     mailDevEcho: process.env.MAIL_DEV_ECHO === 'true',
