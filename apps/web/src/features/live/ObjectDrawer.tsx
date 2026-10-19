@@ -23,6 +23,7 @@ import { CompliancePanel } from '@/features/documents/CompliancePanel';
 import { CommandsTab } from './CommandsTab';
 import { DriverControl } from './DriverControl';
 import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
+import { RecentDriverEvents } from '@/features/driver-events/AlertSnapshot';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -257,6 +258,7 @@ export function ObjectDrawer({
         </TabsList>
         <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <Overview o={object} now={now} />
+          {hasVideo && <RecentDriverEvents objectId={object.objectId} />}
         </TabsContent>
         <TabsContent value="device" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <DeviceTab o={object} />

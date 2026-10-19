@@ -18,6 +18,7 @@ import { useOpenAlert } from './AlertBell';
 import { AlertTypeIcon } from './alert-icons';
 import { AlertStatusBadge, SeverityBadge } from './badges';
 import { videoPagePath } from '@/features/video/video-utils';
+import { AlertSnapshot } from '@/features/driver-events/AlertSnapshot';
 
 const MiniMap = lazy(() => import('./MiniMap').then((m) => ({ default: m.MiniMap })));
 
@@ -127,6 +128,7 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
                   </Button>
                 )}
               </div>
+              <AlertSnapshot alertId={a.id} type={a.type} />
               <dl className="divide-y">
                 <Row label={t('Severity')}>
                   <SeverityBadge severity={a.severity} />

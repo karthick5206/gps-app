@@ -19,6 +19,7 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   dashboard: page(() => import('@/features/dashboard/DashboardPage'), 'DashboardPage'),
   live_map: page(() => import('@/features/live/LiveMapPage'), 'LiveMapPage'),
   video: page(() => import('@/features/video/VideoPage'), 'VideoPage'),
+  driver_events: page(() => import('@/features/driver-events/DriverEventsPage'), 'DriverEventsPage'),
   objects: page(() => import('@/features/masters/pages/ObjectsPage'), 'ObjectsPage'),
   drivers: page(() => import('@/features/masters/pages/DriversPage'), 'DriversPage'),
   documents: page(() => import('@/features/documents/DocumentsPage'), 'DocumentsPage'),

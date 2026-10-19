@@ -28,6 +28,7 @@ import {
   TruckIcon,
   UsersIcon,
   VideoIcon,
+  ScanFaceIcon,
   WarehouseIcon,
   type LucideIcon,
 } from 'lucide-react';
@@ -36,6 +37,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   dashboard: GaugeIcon,
   live_map: MapIcon,
   video: VideoIcon,
+  driver_events: ScanFaceIcon,
   objects: TruckIcon,
   drivers: IdCardIcon,
   documents: FileCheck2Icon,
