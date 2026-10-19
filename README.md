@@ -1,9 +1,9 @@
-# VeeTracer
+# VeeTrax
 
 GPS tracking SaaS: web dashboard, mobile apps (later milestones), Concox/GT06 device support.
 **Status, setup on a new machine and pending work: [docs/HANDOFF.md](docs/HANDOFF.md).**
 
-Product and system design: [docs/VeeTracer_Design_Document_v2.0.pdf](docs/VeeTracer_Design_Document_v2.0.pdf) · current milestone spec: [docs/m1/M1_SPEC.md](docs/m1/M1_SPEC.md)
+Product and system design: [docs/VeeTrax_Design_Document_v2.0.pdf](docs/VeeTrax_Design_Document_v2.0.pdf) · current milestone spec: [docs/m1/M1_SPEC.md](docs/m1/M1_SPEC.md)
 
 ## Structure
 | Path | What |

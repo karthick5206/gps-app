@@ -18,7 +18,7 @@ export function zohoMailConfig(env: NodeJS.ProcessEnv = process.env): ZohoMailCo
   return { key: key.startsWith('Zoho-enczapikey ') ? key : `Zoho-enczapikey ${key}`, baseUrl: (env.ZOHO_MAIL_URL || 'https://cpaas.zoho.in').replace(/\/+$/, '') };
 }
 
-/** "VeeTracer <alerts@example.com>" → { name, address }. */
+/** "VeeTrax <alerts@example.com>" → { name, address }. */
 export function parseFrom(from: string): { address: string; name?: string } {
   const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(from);
   return m ? { address: m[2].trim(), ...(m[1].trim() ? { name: m[1].trim() } : {}) } : { address: from.trim() };

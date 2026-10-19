@@ -175,9 +175,9 @@ export class AuthService {
   /** SYSTEM_OTP SMS (company override → system template); failures are logged, never surfaced to the caller. */
   private async sendOtpSms(companyId: string, mobile: string, code: string): Promise<void> {
     const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { name: true } });
-    const vars = { code, expires_min: String(OTP_TTL_MS / 60_000), company: company?.name ?? 'VeeTracer' };
+    const vars = { code, expires_min: String(OTP_TTL_MS / 60_000), company: company?.name ?? 'VeeTrax' };
     const rendered = await this.messages.render(companyId, 'SYSTEM_OTP', 'SMS', vars);
-    const text = rendered?.text ?? `${code} is your VeeTracer login code. It expires in ${vars.expires_min} minutes.`;
+    const text = rendered?.text ?? `${code} is your VeeTrax login code. It expires in ${vars.expires_min} minutes.`;
     let error: string | null = null;
     try {
       await this.messages.sms.send({ to: mobile, text, dltTemplateId: rendered?.dltTemplateId, senderId: rendered?.senderId, variables: rendered?.dltValues });
@@ -202,12 +202,12 @@ export class AuthService {
   /** SYSTEM_PASSWORD_RESET e-mail (company override → system template). */
   private async sendResetEmail(user: { id: string; name: string; companyId: string }, email: string, link: string): Promise<void> {
     const company = await this.prisma.company.findUnique({ where: { id: user.companyId }, select: { name: true } });
-    const vars = { user_name: user.name, reset_link: link, expires_min: String(RESET_TTL_MS / 60_000), company: company?.name ?? 'VeeTracer' };
+    const vars = { user_name: user.name, reset_link: link, expires_min: String(RESET_TTL_MS / 60_000), company: company?.name ?? 'VeeTrax' };
     const rendered = await this.messages.render(user.companyId, 'SYSTEM_PASSWORD_RESET', 'EMAIL', vars);
-    const subject = rendered?.subject ?? 'Reset your VeeTracer password';
+    const subject = rendered?.subject ?? 'Reset your VeeTrax password';
     const html =
       rendered?.body ??
-      `<p>Hi ${escapeHtml(user.name)},</p><p><a href="${escapeHtml(link)}">Reset your VeeTracer password</a> (valid for 30 minutes, single use).</p>`;
+      `<p>Hi ${escapeHtml(user.name)},</p><p><a href="${escapeHtml(link)}">Reset your VeeTrax password</a> (valid for 30 minutes, single use).</p>`;
     const text = rendered?.text ?? `Hi ${user.name},\n\nReset your password within 30 minutes: ${link}`;
     await this.mailer.send({ to: email, subject, html, text });
     await this.messages.log({

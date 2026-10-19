@@ -273,7 +273,7 @@ export class NotifierService {
       select: { token: true },
     });
     if (!rows.length) return { status: 'SKIPPED', error: 'Mobile app not signed in' };
-    const title = msg.subject?.trim() || 'VeeTracer alert';
+    const title = msg.subject?.trim() || 'VeeTrax alert';
     const body = (msg.text || htmlToText(msg.body)).slice(0, 500);
     let result: Awaited<ReturnType<PushProvider['send']>> | null = null;
     const { error } = await withRetries(async () => {

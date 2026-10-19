@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the VeeTracer dev stack in the background: API, GT06 gateway, processor, notifier, summarizer, web, simulator.
+# Starts the VeeTrax dev stack in the background: API, GT06 gateway, processor, notifier, summarizer, web, simulator.
 # Usage: scripts/dev-start.sh [simulated-device-count]   (default 20; 0 = no simulator)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,4 +27,4 @@ start summarizer summarizer.log node dist/summarizer/main.js
 until curl -sf localhost:4000/api/health >/dev/null; do sleep 1; done
 if [ "$COUNT" -gt 0 ]; then start sim sim.log "$BIN/tsx" src/simulator/gt06-sim.ts --count "$COUNT" --interval 5; fi
 
-echo "VeeTracer is running → http://localhost:5173   (logs: apps/api/var/logs, stop: scripts/dev-stop.sh)"
+echo "VeeTrax is running → http://localhost:5173   (logs: apps/api/var/logs, stop: scripts/dev-stop.sh)"

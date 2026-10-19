@@ -45,17 +45,24 @@ async function register(): Promise<string | null> {
       name: i18n.t('Alerts'),
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#0f766e',
+      lightColor: '#0e5e57',
     });
   }
   let { status } = await Notifications.getPermissionsAsync();
   if (status !== 'granted') status = (await Notifications.requestPermissionsAsync()).status;
-  if (status !== 'granted') return 'Notifications are turned off for VeeTracer';
+  if (status !== 'granted') return 'Notifications are turned off for VeeTrax';
   const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: id });
   await api.post('/auth/push-token', { token, platform: Platform.OS === 'ios' ? 'ios' : 'android', deviceName: Device.deviceName ?? Device.modelName ?? undefined });
   registeredToken = token;
   pushStatus = null;
   return null;
+}
+
+/** Asks the server to send a test notification to this phone. Returns null when sent, else the reason. */
+export async function sendTestPush(): Promise<string | null> {
+  if (!registeredToken) return pushStatus ?? 'Not registered yet';
+  const res = await api.post<{ sent: boolean; error: string | null }>('/auth/push-token/test', { token: registeredToken });
+  return res.sent ? null : (res.error ?? 'Push failed');
 }
 
 /** Stops pushes to this install (before signing out). */

@@ -32,7 +32,7 @@ export class MailerService {
   private readonly smtp: Transporter | null = process.env.SMTP_URL ? createTransport(process.env.SMTP_URL) : null;
   /** Zoho CPaaS e-mail API when ZOHO_MAIL_KEY is set (takes precedence over SMTP_URL). */
   private readonly zoho = zohoMailConfig();
-  private readonly from = process.env.MAIL_FROM ?? 'VeeTracer <no-reply@veetracer.local>';
+  private readonly from = process.env.MAIL_FROM ?? 'VeeTrax <no-reply@veetracer.local>';
   private readonly replyTo = process.env.MAIL_REPLY_TO?.trim() || undefined;
 
   /** Name of the real delivery channel, or null when mails are only written to var/mail. */

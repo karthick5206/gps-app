@@ -1,21 +1,35 @@
+import { BRAND_PIN_PATH, BRAND_PIN_TRANSFORM, BRAND_ROUTE_DOTS } from '@veetracer/shared';
 import { cn } from '@/lib/utils';
 
+/**
+ * VeeTrax mark (dotted trip line ending in a map pin) on a rounded tile. Colours come from the theme tokens
+ * --brand / --brand-accent, so the logo follows the selected theme.
+ */
 export function LogoMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 32 32" aria-hidden className={cn('size-8', className)}>
-      <rect width="32" height="32" rx="8" className="fill-navy" />
-      <path d="M9 9l7 15 7-15" fill="none" className="stroke-sidebar-primary" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg viewBox="0 0 64 64" aria-hidden className={cn('size-8', className)}>
+      <rect width="64" height="64" rx="15" style={{ fill: 'var(--brand)' }} />
+      <g transform="translate(5 6) scale(0.84)">
+        <circle cx="10" cy="54" r="5" style={{ fill: 'var(--brand-accent)' }} />
+        {BRAND_ROUTE_DOTS.map(([cx, cy]) => (
+          <circle key={cx} cx={cx} cy={cy} r="2.4" style={{ fill: 'var(--brand-accent)' }} />
+        ))}
+        <path transform={BRAND_PIN_TRANSFORM} d={BRAND_PIN_PATH} fill="#ffffff" fillRule="evenodd" />
+      </g>
     </svg>
   );
+}
+
+/** "VeeTrax" wordmark, as in the logo files (brand/logo). */
+export function Wordmark({ className }: { className?: string }) {
+  return <span className={cn('font-extrabold tracking-tight', className)}>VeeTrax</span>;
 }
 
 export function Logo({ className, textClassName }: { className?: string; textClassName?: string }) {
   return (
     <span className={cn('inline-flex items-center gap-2.5', className)}>
       <LogoMark />
-      <span className={cn('text-lg font-semibold tracking-tight', textClassName)}>
-        Vee<span className="text-primary">Tracer</span>
-      </span>
+      <Wordmark className={cn('text-lg', textClassName)} />
     </span>
   );
 }

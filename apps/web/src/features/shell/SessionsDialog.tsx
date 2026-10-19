@@ -27,7 +27,7 @@ export function deviceLabel(ua: string | null): { label: string; mobile: boolean
           : /Safari\//.test(ua)
             ? 'Safari'
             : /Dart|okhttp/i.test(ua)
-              ? i18n.t('VeeTracer app')
+              ? i18n.t('VeeTrax app')
               : i18n.t('Browser');
   const os = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad|iOS/.test(ua) ? 'iOS' : /Mac OS X/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : null;
   return { label: os ? i18n.t('{{browser}} on {{os}}', { browser, os }) : browser, mobile };

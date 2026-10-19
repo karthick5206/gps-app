@@ -101,6 +101,12 @@ export class AuthController {
     return { ok: true };
   }
 
+  /** Sends a test notification to this app install. */
+  @Post('push-token/test') @HttpCode(200)
+  testPush(@Auth() ctx: AuthContext, @Body() dto: RemovePushTokenDto): Promise<{ sent: boolean; error: string | null }> {
+    return this.me.testPush(ctx, dto.token);
+  }
+
   /** Called by the app before signing out. Public: the access token may already be gone. */
   @Public() @Post('push-token/remove') @HttpCode(200)
   async removePush(@Body() dto: RemovePushTokenDto): Promise<{ ok: true }> {

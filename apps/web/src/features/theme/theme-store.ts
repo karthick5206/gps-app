@@ -1,4 +1,4 @@
-import { normalizeTheme, themeScheme, type ThemePreference } from '@veetracer/shared';
+import { BRAND_COLORS, brandTileSvg, normalizeTheme, themeScheme, type ThemePreference } from '@veetracer/shared';
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 
 export type ResolvedTheme = 'light' | 'dark';
@@ -19,6 +19,21 @@ function apply() {
   root.dataset.theme = preference;
   root.classList.toggle('dark', resolved === 'dark');
   root.style.colorScheme = resolved;
+  applyBrandIcon();
+}
+
+/** Browser-tab icon and browser UI colour in the theme's logo colours. */
+function applyBrandIcon() {
+  const colors = BRAND_COLORS[preference];
+  let icon = document.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]');
+  if (!icon) {
+    icon = document.createElement('link');
+    icon.rel = 'icon';
+    icon.type = 'image/svg+xml';
+    document.head.appendChild(icon);
+  }
+  icon.href = `data:image/svg+xml,${encodeURIComponent(brandTileSvg(colors))}`;
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', colors.tile);
 }
 
 export const themeStore = {

@@ -2,7 +2,7 @@ import { MapPinnedIcon, ShieldCheckIcon, ZapIcon } from 'lucide-react';
 import { LanguageToggle } from '@/features/shell/LanguageToggle';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Logo, LogoMark } from '@/components/logo';
+import { Logo, LogoMark, Wordmark } from '@/components/logo';
 
 const HIGHLIGHTS = [
   { icon: MapPinnedIcon, text: 'Live fleet map with second-by-second updates' },
@@ -19,9 +19,7 @@ export function AuthLayout({ title, description, children }: { title: string; de
         <div className="pointer-events-none absolute -bottom-40 -left-20 size-96 rounded-full bg-primary/20 blur-3xl" />
         <span className="relative inline-flex items-center gap-2.5">
           <LogoMark />
-          <span className="text-lg font-semibold tracking-tight text-sidebar-accent-foreground">
-            Vee<span className="text-sidebar-primary">Tracer</span>
-          </span>
+          <Wordmark className="text-xl text-sidebar-accent-foreground" />
         </span>
         <div className="relative max-w-md space-y-6">
           <h2 className="text-3xl leading-tight font-semibold text-sidebar-accent-foreground">{t('Every vehicle, every second, one screen.')}</h2>
@@ -36,7 +34,7 @@ export function AuthLayout({ title, description, children }: { title: string; de
             ))}
           </ul>
         </div>
-        <p className="relative text-xs text-sidebar-muted">© {new Date().getFullYear()} VeeTracer</p>
+        <p className="relative text-xs text-sidebar-muted">© {new Date().getFullYear()} VeeTrax</p>
       </aside>
       <main className="relative flex items-center justify-center px-4 py-10 sm:px-8">
         <div className="absolute top-4 right-4">

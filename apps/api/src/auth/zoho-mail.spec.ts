@@ -8,7 +8,7 @@ describe('Zoho CPaaS mail', () => {
   });
 
   it('parses the from header', () => {
-    expect(parseFrom('VeeTracer Alerts <alerts@mintplus.co.in>')).toEqual({ name: 'VeeTracer Alerts', address: 'alerts@mintplus.co.in' });
+    expect(parseFrom('VeeTrax Alerts <alerts@mintplus.co.in>')).toEqual({ name: 'VeeTrax Alerts', address: 'alerts@mintplus.co.in' });
     expect(parseFrom('alerts@mintplus.co.in')).toEqual({ address: 'alerts@mintplus.co.in' });
   });
 
@@ -38,7 +38,7 @@ describe('Zoho CPaaS mail', () => {
       body = JSON.parse(String(init.body)) as Record<string, unknown>;
       return new Response('{}', { status: 201 });
     }) as unknown as typeof fetch;
-    await sendZohoMail({ key: 'k', baseUrl: 'https://x' }, { from: 'VeeTracer <noreply@veetracer.com>', replyTo: 'info@vaidhika.in', to: 'x@y.in', subject: 'S', html: '', text: '' }, ok);
+    await sendZohoMail({ key: 'k', baseUrl: 'https://x' }, { from: 'VeeTrax <noreply@veetracer.com>', replyTo: 'info@vaidhika.in', to: 'x@y.in', subject: 'S', html: '', text: '' }, ok);
     expect(body.reply_to).toEqual([{ address: 'info@vaidhika.in' }]);
     await sendZohoMail({ key: 'k', baseUrl: 'https://x' }, { from: 'a@b.in', to: 'x@y.in', subject: 'S', html: '', text: '' }, ok);
     expect(body.reply_to).toBeUndefined();

@@ -13,7 +13,7 @@ import { loadEnv } from '../src/config/env';
 loadEnv();
 const prisma = new PrismaClient();
 
-const GT06_CAPABILITIES = ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'lbs'];
+const GT06_CAPABILITIES = ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'lbs', 'crash'];
 const GT06_FIELDS = [
   { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' },
   { key: 'gsmSignal', label: 'GSM signal', type: 'number' },
@@ -136,12 +136,12 @@ async function main() {
   const partner = await prisma.partner.upsert({
     where: { slug: 'veetracer' },
     update: {},
-    create: { name: 'VeeTracer', slug: 'veetracer' },
+    create: { name: 'VeeTrax', slug: 'veetracer' },
   });
 
   const platform =
     (await prisma.company.findFirst({ where: { isPlatform: true } })) ??
-    (await prisma.company.create({ data: { partnerId: partner.id, name: 'VeeTracer Platform', isPlatform: true } }));
+    (await prisma.company.create({ data: { partnerId: partner.id, name: 'VeeTrax Platform', isPlatform: true } }));
 
   await upsertUser({
     companyId: platform.id,
@@ -319,6 +319,12 @@ const SYSTEM_PACKS: { name: string; description: string; settings: PackSetting[]
       { alertType: 'GEOFENCE_EXIT', enabled: true },
       { alertType: 'IGNITION_ON', enabled: true },
       { alertType: 'SOS', enabled: true, severity: 'CRITICAL' },
+      // Dashcam buses (capability-gated: ignored on plain trackers).
+      { alertType: 'DRIVER_FATIGUE', enabled: true },
+      { alertType: 'DRIVER_PHONE', enabled: true, severity: 'CRITICAL' },
+      { alertType: 'DRIVER_SMOKING', enabled: true, severity: 'CRITICAL' },
+      { alertType: 'FORWARD_COLLISION_WARNING', enabled: true },
+      { alertType: 'CRASH', enabled: true },
     ],
   },
   {
@@ -329,6 +335,10 @@ const SYSTEM_PACKS: { name: string; description: string; settings: PackSetting[]
       { alertType: 'IDLING', enabled: true, params: { thresholdMin: 15, criticalMin: 45 } },
       { alertType: 'POWER_CUT', enabled: true, severity: 'CRITICAL' },
       { alertType: 'GEOFENCE_STAY', enabled: true },
+      { alertType: 'DRIVER_FATIGUE', enabled: true },
+      { alertType: 'FORWARD_COLLISION_WARNING', enabled: true },
+      { alertType: 'TAILGATING', enabled: true },
+      { alertType: 'CRASH', enabled: true },
     ],
   },
   {

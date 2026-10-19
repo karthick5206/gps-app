@@ -31,9 +31,19 @@ const DETAIL: Record<AlertTypeCode, string> = {
   CLOCK_ERROR: 'tracker clock is ahead by {{duration}} (check its time zone)',
   POWER_LOW: 'vehicle battery voltage is low ({{voltage}})',
   DEVICE_TAMPER: 'tracker reported tampering or GPS jamming',
+  DRIVER_FATIGUE: 'dashcam detected driver fatigue',
+  DRIVER_PHONE: 'dashcam detected the driver using a phone',
+  DRIVER_SMOKING: 'dashcam detected the driver smoking',
+  DRIVER_DISTRACTED: 'dashcam detected a distracted driver',
+  DRIVER_ABSENT: 'dashcam could not see a driver in the seat',
+  FORWARD_COLLISION_WARNING: 'dashcam raised a forward collision warning at {{speed}}',
+  LANE_DEPARTURE: 'dashcam detected a lane departure at {{speed}}',
+  TAILGATING: 'was following the vehicle ahead too closely at {{speed}}',
+  CAMERA_FAULT: 'dashcam reported a camera or video storage fault',
+  CRASH: 'tracker detected a crash or rollover at {{speed}}',
 };
 
-const BRAND = '#0f766e';
+const BRAND = '#0e5e57';
 
 /** Simple responsive e-mail shell (table layout, inline styles) with the company name and an optional button. */
 export function emailShell(opts: { heading: string; intro: string; rows?: [string, string][]; button?: { label: string; href: string }; footer?: string }): string {
@@ -58,7 +68,7 @@ export function emailShell(opts: { heading: string; intro: string; rows?: [strin
 ${rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px">${rows}</table>` : ''}
 ${button}
 </td></tr>
-<tr><td style="padding:16px 20px;color:#94a3b8;font-size:12px">${opts.footer ?? 'Sent by VeeTracer on behalf of {{company}}.'}</td></tr>
+<tr><td style="padding:16px 20px;color:#94a3b8;font-size:12px">${opts.footer ?? 'Sent by VeeTrax on behalf of {{company}}.'}</td></tr>
 </table></td></tr></table>
 </body></html>`;
 }
@@ -106,7 +116,7 @@ export function systemTemplates(): SystemTemplateDef[] {
       channel: 'SMS',
       name: `${t.label} — SMS`,
       subject: null,
-      body: `{{company}}: {{vehicle_name}} {{plate}} ${DETAIL[t.code]} at {{time}}. {{map_link}} -VeeTracer`,
+      body: `{{company}}: {{vehicle_name}} {{plate}} ${DETAIL[t.code]} at {{time}}. {{map_link}} -VeeTrax`,
       approvalStatus: 'APPROVED',
       dltTemplateId: nextDlt(),
       senderId: 'VEETRC',
@@ -127,7 +137,7 @@ export function systemTemplates(): SystemTemplateDef[] {
     channel: 'SMS',
     name: 'Login OTP — SMS',
     subject: null,
-    body: '{{code}} is your VeeTracer login code. It expires in {{expires_min}} minutes. Do not share it with anyone. -VeeTracer',
+    body: '{{code}} is your VeeTrax login code. It expires in {{expires_min}} minutes. Do not share it with anyone. -VeeTrax',
     approvalStatus: 'APPROVED',
     dltTemplateId: nextDlt(),
     senderId: 'VEETRC',
@@ -136,7 +146,7 @@ export function systemTemplates(): SystemTemplateDef[] {
     purpose: 'SYSTEM_OTP',
     channel: 'EMAIL',
     name: 'Login OTP — e-mail',
-    subject: 'Your VeeTracer login code: {{code}}',
+    subject: 'Your VeeTrax login code: {{code}}',
     body: emailShell({
       heading: 'Your login code',
       intro: 'Use <strong style="font-size:20px;letter-spacing:2px">{{code}}</strong> to sign in. It expires in {{expires_min}} minutes. Never share this code.',
@@ -149,7 +159,7 @@ export function systemTemplates(): SystemTemplateDef[] {
     purpose: 'SYSTEM_PASSWORD_RESET',
     channel: 'EMAIL',
     name: 'Password reset — e-mail',
-    subject: 'Reset your VeeTracer password',
+    subject: 'Reset your VeeTrax password',
     body: emailShell({
       heading: 'Reset your password',
       intro: 'Hi {{user_name}}, we received a request to reset your password. The link is valid for {{expires_min}} minutes and can be used once. If you did not ask for this, ignore this e-mail.',
@@ -163,9 +173,9 @@ export function systemTemplates(): SystemTemplateDef[] {
     purpose: 'SYSTEM_WELCOME',
     channel: 'EMAIL',
     name: 'Welcome — e-mail',
-    subject: 'Welcome to VeeTracer, {{user_name}}',
+    subject: 'Welcome to VeeTrax, {{user_name}}',
     body: emailShell({
-      heading: 'Welcome to VeeTracer',
+      heading: 'Welcome to VeeTrax',
       intro: 'Hi {{user_name}}, an account has been created for you ({{email}}) at {{company}}.',
       button: { label: 'Sign in', href: '{{login_link}}' },
     }),

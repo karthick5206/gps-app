@@ -4,6 +4,8 @@ import { router, type Href } from 'expo-router';
 import { BellRingIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, HexagonIcon, IdCardIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { BrandLockup } from '@/components/BrandMark';
+import { PushTestButton } from '@/components/PushTestButton';
 import { ThemePicker } from '@/components/ThemePicker';
 import { Button, Card, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
@@ -38,6 +40,9 @@ export default function MoreScreen() {
     ]);
   return (
     <ScrollView contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.md }}>
+      <View style={{ paddingVertical: SPACE.xs }}>
+        <BrandLockup size={40} color={c.foreground} sub={t('Version {{version}}', { version: Constants.expoConfig?.version ?? '—' })} />
+      </View>
       <Card onPress={() => router.push('/profile')}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' }}>
@@ -102,6 +107,7 @@ export default function MoreScreen() {
         />
         <InfoRow label={t('Version')} value={Constants.expoConfig?.version ?? '—'} />
       </Card>
+      <PushTestButton />
 
       <Button title={t('Sign out')} icon={LogOutIcon} variant="outline" onPress={confirmSignOut} style={{ marginTop: SPACE.md }} />
     </ScrollView>
