@@ -20,6 +20,7 @@ export interface MenuDef {
 export const MENU_KEYS = [
   'dashboard',
   'live_map',
+  'video',
   'history',
   'alerts',
   'reports',
@@ -55,6 +56,7 @@ const CRUD: readonly Action[] = ['view', 'create', 'edit', 'delete', 'export'];
 export const MENUS: readonly MenuDef[] = [
   { key: 'dashboard', label: 'Dashboard', group: 'main', path: '/dashboard', actions: ['view'] },
   { key: 'live_map', label: 'Live Map', group: 'main', path: '/live', actions: ['view', 'command'] },
+  { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },
   { key: 'history', label: 'History & Playback', group: 'main', path: '/history', actions: ['view', 'export'] },
   { key: 'alerts', label: 'Alerts', group: 'main', path: '/alerts', actions: ['view', 'edit', 'export'] },
   { key: 'reports', label: 'Reports', group: 'main', path: '/reports', actions: ['view', 'export'] },
@@ -110,6 +112,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     permissions: {
       dashboard: ['view'],
       live_map: ['view'], // device commands (engine stop…) are for Admin roles only
+      video: ['view'],
       history: ['view', 'export'],
       alerts: ['view', 'edit', 'export'],
       reports: ['view', 'export'],

@@ -15,6 +15,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { ReportSchedulesModule } from './report-schedules/report-schedules.module';
 import { CommandsModule } from './commands/commands.module';
+import { VideoModule } from './video/video.module';
 import { DriversModule } from './drivers/drivers.module';
 import { DocumentsModule } from './documents/documents.module';
 import { PoisModule } from './pois/pois.module';
@@ -50,6 +51,7 @@ import { TemplatesModule } from './templates/templates.module';
     DashboardModule,
     RetentionModule,
     CommandsModule,
+    VideoModule,
     DriversModule,
     DocumentsModule,
     PoisModule,
