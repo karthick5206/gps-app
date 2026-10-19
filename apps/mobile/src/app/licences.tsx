@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { formatInr, LICENCE_TYPE_LABELS, LICENCE_TYPES, type InvoiceDto, type LicenceOverviewDto } from '@veetracer/shared';
+import { formatInr, LICENCE_EXPIRING_DAYS, LICENCE_TYPE_LABELS, LICENCE_TYPES, type InvoiceDto, type LicenceOverviewDto } from '@veetracer/shared';
 import { Stack } from 'expo-router';
 import { ExternalLinkIcon, FileDownIcon, FileTextIcon, ShieldCheckIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
@@ -78,7 +78,7 @@ export default function LicencesScreen() {
               </Card>
             ) : (
               <Card>
-                <Text tone="muted">{t('No licences expire within 30 days.')}</Text>
+                <Text tone="muted">{t('No licences expire within {{days}} days.', { days: LICENCE_EXPIRING_DAYS })}</Text>
               </Card>
             )}
           </>

@@ -2,6 +2,7 @@ import { AuthContext } from '../access/auth-context';
 import { BillingService } from './billing.service';
 import { nextInvoiceSeq } from './invoice-numbering';
 import { LicencePolicyService } from './licence-policy.service';
+import { istHour, reminderText } from './licence-reminders.service';
 import { hmacHex, verifyCheckoutSignature, verifyWebhookSignature, webhookPayment } from './razorpay';
 import { isFree, pickFreeSeat, quoteLines, reminderDue, SeatLike, summarise, userLockReason } from './seat-logic';
 import { LicenceRequiredException, SeatsService } from './seats.service';
@@ -134,18 +135,49 @@ describe('expiry, grace and locking', () => {
     }
   });
 
-  it('reminders at 30 / 15 / 7 / 1 days and on the expiry day, each once', () => {
+  it('reminders from 20 days before, on the expiry day, during grace and on the lock day, each once', () => {
     const at = (days: number) => new Date(NOW + days * DAY);
-    expect(reminderDue(at(45), null, NOW)).toBeNull();
-    expect(reminderDue(at(30), null, NOW)).toEqual({ state: 'D30', daysLeft: 30 });
-    expect(reminderDue(at(29), 'D30', NOW)).toBeNull();
-    expect(reminderDue(at(14), 'D30', NOW)).toEqual({ state: 'D15', daysLeft: 14 });
-    expect(reminderDue(at(6), 'D15', NOW)).toEqual({ state: 'D7', daysLeft: 6 });
-    expect(reminderDue(at(1), 'D7', NOW)).toEqual({ state: 'D1', daysLeft: 1 });
-    expect(reminderDue(at(-0.5), 'D1', NOW)).toEqual({ state: 'D0', daysLeft: 0 });
+    const due = (state: string, daysLeft: number, locked = false) => ({ state, daysLeft, locked });
+    expect(reminderDue(at(30), null, NOW)).toBeNull();
+    expect(reminderDue(at(20), null, NOW)).toEqual(due('D20', 20));
+    expect(reminderDue(at(19), 'D20', NOW)).toBeNull();
+    expect(reminderDue(at(15), 'D20', NOW)).toEqual(due('D15', 15));
+    expect(reminderDue(at(10), 'D15', NOW)).toEqual(due('D10', 10));
+    expect(reminderDue(at(7), 'D10', NOW)).toEqual(due('D7', 7));
+    expect(reminderDue(at(5), 'D7', NOW)).toEqual(due('D5', 5));
+    expect(reminderDue(at(3), 'D5', NOW)).toEqual(due('D3', 3));
+    expect(reminderDue(at(2), 'D3', NOW)).toEqual(due('D2', 2));
+    expect(reminderDue(at(1), 'D2', NOW)).toEqual(due('D1', 1));
+    expect(reminderDue(at(-0.5), 'D1', NOW)).toEqual(due('D0', 0));
     expect(reminderDue(at(-0.5), 'D0', NOW)).toBeNull();
+    // grace (15 days): 3, 7, 10 days after expiry, then the lock day; nothing after that
+    expect(reminderDue(at(-3), 'D0', NOW, 15)).toEqual(due('D-3', -3));
+    expect(reminderDue(at(-7), 'D-3', NOW, 15)).toEqual(due('D-7', -7));
+    expect(reminderDue(at(-10), 'D-7', NOW, 15)).toEqual(due('D-10', -10));
+    expect(reminderDue(at(-15), 'D-10', NOW, 15)).toEqual(due('D-15', -15, true));
+    expect(reminderDue(at(-16), 'D-15', NOW, 15)).toBeNull();
+    // a short grace skips the grace reminders it doesn't reach
+    expect(reminderDue(at(-5), 'D-3', NOW, 5)).toEqual(due('D-5', -5, true));
     // after downtime only the most urgent reminder goes out
-    expect(reminderDue(at(3), null, NOW)).toEqual({ state: 'D7', daysLeft: 3 });
+    expect(reminderDue(at(3), null, NOW)).toEqual(due('D3', 3));
+    expect(reminderDue(at(-20), 'D10', NOW, 15)).toEqual(due('D-15', -20, true));
+  });
+
+  it('reminder text covers expiring, expired-in-grace and locked seats', () => {
+    const exp = new Date('2026-11-09T00:00:00Z');
+    const seat = (daysLeft: number, locked = false) => ({ type: 'GPS_DEVICE' as const, subject: 'device 1', expiresAt: exp, daysLeft, locked });
+    expect(reminderText('Acme', [seat(20)], 15).lines[0]).toMatch(/expires on .* \(in 20 days\)/);
+    expect(reminderText('Acme', [seat(0)], 15).lines[0]).toMatch(/expires today .* viewing stops on/);
+    expect(reminderText('Acme', [seat(-3)], 15).lines[0]).toMatch(/viewing stops on .* \(in 12 days\)/);
+    const locked = reminderText('Acme', [seat(-15, true)], 15);
+    expect(locked.subject).toMatch(/viewing locked/);
+    expect(locked.lines[0]).toMatch(/Data is still being recorded/);
+  });
+
+  it('reminders go out 09:00–19:00 IST only', () => {
+    expect(istHour(Date.parse('2026-10-19T03:30:00Z'))).toBe(9);
+    expect(istHour(Date.parse('2026-10-19T13:29:00Z'))).toBe(18);
+    expect(istHour(Date.parse('2026-10-19T20:00:00Z'))).toBe(1);
   });
 
   it('quote lines: new seats run a year from payment, renewals per seat (no pro-rata)', () => {

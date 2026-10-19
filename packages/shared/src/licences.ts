@@ -42,9 +42,14 @@ export type SeatStatus = 'ACTIVE' | 'EXPIRING' | 'GRACE' | 'EXPIRED';
 export const DEFAULT_GRACE_DAYS = 15;
 export const DEFAULT_GST_RATE = 18;
 export const DEFAULT_SAC_CODE = '998314';
-export const LICENCE_EXPIRING_DAYS = 30;
+/** Seats expiring within this many days count as "expiring" (banners, lists, status). */
+export const LICENCE_EXPIRING_DAYS = 20;
 /** Reminder thresholds (days before expiry); 0 = on the day it expires. */
-export const LICENCE_REMINDER_DAYS = [30, 15, 7, 1, 0] as const;
+export const LICENCE_REMINDER_DAYS = [20, 15, 10, 7, 5, 3, 2, 1, 0] as const;
+/** Reminders during the grace period (days after expiry); the last one is sent on the day viewing locks (= grace days). */
+export const LICENCE_GRACE_REMINDER_DAYS = [3, 7, 10] as const;
+/** Reminders are only sent in this local (IST) window, never at night. */
+export const LICENCE_REMINDER_HOURS_IST = { from: 9, to: 19 } as const;
 
 const DAY_MS = 86_400_000;
 

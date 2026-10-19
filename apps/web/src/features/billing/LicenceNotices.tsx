@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { LICENCE_TYPE_LABELS, type LicenceBannerDto } from '@veetracer/shared';
+import { LICENCE_EXPIRING_DAYS, LICENCE_TYPE_LABELS, type LicenceBannerDto } from '@veetracer/shared';
 import { CreditCardIcon, LockIcon, ShieldAlertIcon, XIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,7 +13,7 @@ import { api, ApiError, setLicenceRequiredHandler } from '@/lib/api';
 
 const DISMISS_KEY = 'vt:licence-banner-dismissed';
 
-/** "N licences expire within 30 days" / "Vehicle X licence expired — renew to view" above every page. */
+/** "N licences expire within 20 days" / "Vehicle X licence expired — renew to view" above every page. */
 export function LicenceBanner() {
   const { t } = useTranslation();
   const { companyId } = useAuth();
@@ -40,7 +40,7 @@ export function LicenceBanner() {
   if (locked.length === 1) parts.push(t('Vehicle {{name}}: licence expired — renew to view its location, history and reports.', { name: locked[0].name }));
   else if (locked.length > 1) parts.push(t('{{n}} vehicles have expired licences ({{names}}) — renew to view them.', { n: locked.length, names: locked.slice(0, 3).map((v) => v.name).join(', ') + (locked.length > 3 ? '…' : '') }));
   if (b.inGrace > 0) parts.push(t('{{n}} licence(s) expired and in the grace period.', { n: b.inGrace }));
-  if (b.expiringSoon > 0) parts.push(t('{{n}} licence(s) expire within 30 days.', { n: b.expiringSoon }));
+  if (b.expiringSoon > 0) parts.push(t('{{n}} licence(s) expire within {{days}} days.', { n: b.expiringSoon, days: LICENCE_EXPIRING_DAYS }));
   const severe = locked.length > 0 || b.inGrace > 0;
   return (
     <div role="status" className={`flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm ${severe ? 'bg-destructive/10 text-destructive' : 'bg-warning/10 text-warning'}`}>

@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { LICENCE_TYPE_LABELS, LICENCE_TYPES, type LicenceType, type SeatSummaryDto } from '@veetracer/shared';
+import { LICENCE_EXPIRING_DAYS, LICENCE_TYPE_LABELS, LICENCE_TYPES, type LicenceType, type SeatSummaryDto } from '@veetracer/shared';
 import { ArrowRightLeftIcon, BuildingIcon, ExternalLinkIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -64,7 +64,7 @@ export function CustomersPanel({
                   {t(LICENCE_TYPE_LABELS[ty])}
                 </TableHead>
               ))}
-              <TableHead>{t('Expiring within 30 days')}</TableHead>
+              <TableHead>{t('Expiring within {{days}} days', { days: LICENCE_EXPIRING_DAYS })}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>

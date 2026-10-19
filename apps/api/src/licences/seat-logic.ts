@@ -1,5 +1,7 @@
 import {
   addYears,
+  DEFAULT_GRACE_DAYS,
+  LICENCE_GRACE_REMINDER_DAYS,
   LICENCE_REMINDER_DAYS,
   LICENCE_TYPES,
   LicencePrices,
@@ -119,13 +121,20 @@ export function quoteLines(
  * Which reminder is due for a seat expiring at `expiresAt` given the last one sent (D30, D15, D7, D1, D0), or null.
  * Only the most urgent threshold reached is sent (no burst of older reminders after downtime).
  */
-export function reminderDue(expiresAt: Date, notifiedState: string | null, now: number): { state: string; daysLeft: number } | null {
-  const daysLeft = Math.ceil((expiresAt.getTime() - now) / DAY_MS);
+export function reminderDue(
+  expiresAt: Date,
+  notifiedState: string | null,
+  now: number,
+  graceDays = DEFAULT_GRACE_DAYS,
+): { state: string; daysLeft: number; locked: boolean } | null {
+  const daysLeft = Math.ceil((expiresAt.getTime() - now) / DAY_MS) || 0; // no -0
   if (daysLeft > LICENCE_REMINDER_DAYS[0]) return null;
-  const reached = [...LICENCE_REMINDER_DAYS].reverse().find((d) => daysLeft <= d) ?? LICENCE_REMINDER_DAYS[0];
+  // Thresholds, latest first: before expiry (20 … 0), then during grace (-3, -7, -10) and the lock day (-grace).
+  const thresholds = [...LICENCE_REMINDER_DAYS, ...LICENCE_GRACE_REMINDER_DAYS.filter((d) => d < graceDays).map((d) => -d), -graceDays];
+  const reached = daysLeft < -graceDays ? -graceDays : ([...thresholds].reverse().find((d) => daysLeft <= d) ?? thresholds[0]);
   const state = `D${reached}`;
   if (notifiedState === state) return null;
   // Do not step backwards (e.g. after a manual date change the state is reset by renewal anyway).
   if (notifiedState && Number(notifiedState.slice(1)) <= reached) return null;
-  return { state, daysLeft: Math.max(daysLeft, 0) };
+  return { state, daysLeft, locked: reached === -graceDays };
 }
