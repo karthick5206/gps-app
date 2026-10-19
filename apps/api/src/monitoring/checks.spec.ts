@@ -98,6 +98,20 @@ describe('evaluateChecks', () => {
     expect(ids(healthy())).toEqual([]);
   });
 
+  it('data forwarding target failing for more than 5 minutes → WARN', () => {
+    const relay = (failingMsAgo: number | null) => ({
+      id: 't1', name: 'State backend', type: 'RAW_TCP', connected: 0, sessions: 3, bytes: 0, frames: 0, queued: 900, dropped: 4,
+      lastSuccessAt: null, lastError: { message: 'ECONNREFUSED', at: iso(1000) }, failingSince: failingMsAgo === null ? null : iso(failingMsAgo), recentErrors: [],
+    });
+    const input = healthy();
+    input.processes = input.processes.map((p) => (p.role === 'gateway' ? { ...p, instances: [instance('gateway', {}, { ...gatewayMetrics(20, iso(3000)), relay: [relay(6 * 60_000)] })] } : p));
+    const issues = evaluateChecks(input, t);
+    expect(issues.map((i) => `${i.id}:${i.severity}`)).toEqual(['relay.t1:WARN']);
+    expect(issues[0].message).toMatch(/State backend.*ECONNREFUSED/);
+    input.processes = input.processes.map((p) => (p.role === 'gateway' ? { ...p, instances: [instance('gateway', {}, { ...gatewayMetrics(20, iso(3000)), relay: [relay(60_000)] })] } : p));
+    expect(ids(input)).toEqual([]);
+  });
+
   it('a role without instances is CRITICAL (not during the startup grace)', () => {
     const input = healthy();
     input.processes.find((p) => p.role === 'processor')!.instances = [];

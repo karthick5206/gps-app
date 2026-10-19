@@ -1,4 +1,4 @@
-import { RELAY_FAILING_WARN_SEC, RelayTargetStats, RelayTargetType } from '@veetracer/shared';
+import { ProcessHeartbeat, RELAY_FAILING_WARN_SEC, RelayTargetStats, RelayTargetType } from '@veetracer/shared';
 
 const RECENT_ERRORS = 10;
 
@@ -86,4 +86,20 @@ export function mergeStats(list: RelayTargetStats[]): RelayTargetStats | null {
 /** True when the target has been failing for longer than the System Health threshold. */
 export function isFailing(s: RelayTargetStats | null, now = Date.now(), thresholdSec = RELAY_FAILING_WARN_SEC): boolean {
   return !!s?.failingSince && now - Date.parse(s.failingSince) > thresholdSec * 1000;
+}
+
+/** Per-target relay stats from the gateway / notifier heartbeats, merged over instances. */
+export function relayStatsFromHeartbeats(heartbeats: Pick<ProcessHeartbeat, 'role' | 'metrics'>[]): Map<string, RelayTargetStats> {
+  const byId = new Map<string, RelayTargetStats[]>();
+  for (const h of heartbeats) {
+    if (h.role !== 'gateway' && h.role !== 'notifier') continue;
+    for (const s of (h.metrics as { relay?: RelayTargetStats[] })?.relay ?? []) {
+      const list = byId.get(s.id) ?? [];
+      list.push(s);
+      byId.set(s.id, list);
+    }
+  }
+  const out = new Map<string, RelayTargetStats>();
+  for (const [id, list] of byId) out.set(id, mergeStats(list)!);
+  return out;
 }

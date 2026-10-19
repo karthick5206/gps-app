@@ -29,6 +29,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { RetentionModule } from './retention/retention.module';
 import { ReportsModule } from './reports/reports.module';
 import { TemplatesModule } from './templates/templates.module';
+import { RelayModule } from './relay/relay.controller';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { TemplatesModule } from './templates/templates.module';
     PoisModule,
     FuelModule,
     DeveloperModule,
+    RelayModule,
     PublicApiModule,
     MonitoringModule,
   ],

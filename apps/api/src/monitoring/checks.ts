@@ -11,6 +11,7 @@ import {
   QueueDto,
   ValkeyDto,
 } from '@veetracer/shared';
+import { isFailing, relayStatsFromHeartbeats } from '../relay/stats';
 import { HealthThresholds } from './thresholds';
 
 /** Everything the checks look at (collected by SystemHealthService). */
@@ -203,6 +204,22 @@ function notifierChecks(input: CheckInput, t: HealthThresholds, out: Issue[]): v
   }
 }
 
+/** Data forwarding targets (from gateway / notifier heartbeats) failing for more than 5 minutes. */
+function relayChecks(input: CheckInput, out: Issue[]): void {
+  const instances = input.processes.flatMap((p) => p.instances);
+  for (const [id, s] of relayStatsFromHeartbeats(instances)) {
+    if (!isFailing(s, input.now)) continue;
+    const since = Math.round((input.now - Date.parse(s.failingSince!)) / 1000);
+    out.push({
+      id: `relay.${id}`,
+      check: `forwarding ${s.name}`,
+      section: 'pipeline',
+      severity: 'WARN',
+      message: `Data forwarding target "${s.name}" has been failing for ${minutes(since)}${s.lastError ? ` (${s.lastError.message})` : ''}; ${fmt(s.queued)} ${s.type === 'RAW_TCP' ? 'bytes' : 'items'} queued, ${fmt(s.dropped)} dropped.`,
+    });
+  }
+}
+
 /** All checks; returns the issues that are currently WARN or CRITICAL. Pure (unit-tested). */
 export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] {
   const out: Issue[] = [];
@@ -211,6 +228,7 @@ export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] 
   queueChecks(input, t, out);
   storeChecks(input, t, out);
   notifierChecks(input, t, out);
+  relayChecks(input, out);
   return out.sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.id.localeCompare(b.id));
 }
 
