@@ -1,6 +1,8 @@
-import { STATUS_META } from '@veetracer/shared';
+import { useQuery } from '@tanstack/react-query';
+import { STATUS_META, type VideoChannelsDto } from '@veetracer/shared';
+import * as WebBrowser from 'expo-web-browser';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { BellIcon, CarIcon, HistoryIcon, TerminalIcon } from 'lucide-react-native';
+import { BellIcon, CarIcon, HistoryIcon, TerminalIcon, VideoIcon } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ScrollView, View } from 'react-native';
@@ -12,6 +14,8 @@ import { liveStore } from '@/features/live/live-store';
 import { useLiveVersion, useNow } from '@/features/live/use-live';
 import { useAddress } from '@/features/geocoding/use-address';
 import { FleetMap } from '@/features/map/FleetMap';
+import { api } from '@/lib/api';
+import { SERVER_URL } from '@/lib/config';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
 import { SPACE, useColors } from '@/lib/theme';
@@ -34,6 +38,14 @@ export default function VehicleScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const o = useMemo(() => liveStore.get(id), [id, version]);
   const objects = useMemo(() => (o ? [o] : []), [o]);
+  // Dashcams only: the API answers NOT_DASHCAM for other trackers. Video plays in the browser (web player, no native deps).
+  const video = useQuery({
+    queryKey: ['video-channels', id],
+    queryFn: () => api.get<VideoChannelsDto>(`/video/${id}/channels`),
+    enabled: can('video') && !!o?.deviceId && !o?.licenceLocked,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
 
   useEffect(() => {
     if (!o && !liveStore.snapshotLoaded) liveStore.loadSnapshot().catch(() => undefined);
@@ -79,6 +91,9 @@ export default function VehicleScreen() {
           {can('alerts') && <Button title={t('Alerts')} icon={BellIcon} variant="outline" style={{ flex: 1 }} onPress={() => router.push({ pathname: '/alerts', params: { objectId: o.objectId, name: o.plateNumber || o.name } })} />}
         </View>
 
+        {video.isSuccess && (
+          <Button title={t('Video')} icon={VideoIcon} variant="outline" onPress={() => void WebBrowser.openBrowserAsync(`${SERVER_URL}/video?objectId=${encodeURIComponent(o.objectId)}`)} />
+        )}
         {can('live_map', 'command') && <Button title={t('Commands')} icon={TerminalIcon} variant="outline" onPress={() => router.push(`/commands/${o.objectId}`)} />}
 
         <SectionTitle>{t('Status')}</SectionTitle>
