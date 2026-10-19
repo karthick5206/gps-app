@@ -111,14 +111,16 @@ export class StreamConsumer {
           this.failures++;
           const delay = retryDelayMs(this.failures);
           const db = isDatabaseError(error);
+          // Prisma messages start with a multi-line invocation trace; the last line is the cause.
+          const message = (error as Error).message.trim().split('\n').pop()!.trim().slice(0, 300);
           if (db) {
             this.totals.dbErrors++;
-            this.lastDbError = { message: (error as Error).message.trim().split('\n').pop()!.slice(0, 300), at: new Date().toISOString() };
+            this.lastDbError = { message, at: new Date().toISOString() };
           }
           // Database unreachable: retry our own pending batch (no new entries pile up in the PEL while it is down).
           if (isConnectivityError(error)) backlog = true;
           this.logger.error(
-            `Batch failed (${db ? 'database' : 'other'}; entries stay pending and will be retried in ${delay / 1000}s): ${(error as Error).message}`,
+            `Batch failed (${db ? 'database' : 'other'}; entries stay pending and will be retried in ${delay / 1000}s): ${message}`,
           );
           await this.sleepUnlessStopping(delay);
         }
