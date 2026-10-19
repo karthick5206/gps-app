@@ -74,6 +74,11 @@ export interface ProtocolDecoder<S extends BaseSession = BaseSession> {
   readonly maxFrameBytes: number;
   /** For text protocols whose terminator is optional: flush a pending tail after this much silence. */
   readonly flushAfterMs?: number;
+  /**
+   * Close the connection when positions could not be queued (their ACK is withheld). For protocols whose devices
+   * only resend unacknowledged records on a new connection (Teltonika).
+   */
+  readonly closeOnEnqueueFailure?: boolean;
   createSession(): S;
   split(buf: Buffer, session: S): SplitResult;
   flush?(rest: Buffer, session: S): SplitResult;

@@ -13,6 +13,7 @@ how to run it, the product decisions already made, and everything still pending,
 | **M1** Foundation: auth (password + OTP + reset), roles/menus/data scope, master pages, Concox GT06 gateway, processor, live map, simulator, light/dark | Done, on `main` | `docs/m1/M1_SPEC.md` |
 | **M2a** Alerts engine + alert management, geofences, templates, notifier, summarizer, history playback, reports + scheduled reports | Done, on `main` | `docs/m2a/M2A_SPEC.md` |
 | Device parsers (Concox GT800/V5/VL149 4G packets, Teltonika, iTriangle AIS-140) | **Started** — branch `wip/device-parsers` (3 skeleton files) | §4.1 below |
+| System Health monitoring (Super Admin page, heartbeats, checks, e-mail alerts, Prometheus `/api/metrics`, ACK-after-XADD) | Branch `feature/system-health` | `docs/MONITORING.md` |
 | M2b Mobile apps (Flutter), Firebase push, Razorpay billing | Not started | §4.4 |
 | M3 Drivers → routes → planned trips, dashboards, driver app, production hardening | Not started | Design doc §19 |
 

@@ -16,3 +16,4 @@ export * from './developer-api';
 export * from './licences';
 export * from './video';
 export * from './driver-events';
+export * from './system-health';

@@ -1,7 +1,7 @@
 import type Redis from 'ioredis';
 import { connect, Socket } from 'node:net';
 import { NormalizedPosition } from '@veetracer/shared';
-import { decodeFrames, decodeMessage, encodeFrame, encodeGps22, encodeHeartbeat, encodeLogin, frameProtocol, Gt06Protocol } from './gt06/codec';
+import { decodeFrames, decodeMessage, encodeAlarm, encodeFrame, encodeGps22, encodeHeartbeat, encodeLogin, frameProtocol, Gt06Protocol } from './gt06/codec';
 import { Gt06Decoder } from './gt06/decoder';
 import { BaseSession, ProtocolDecoder } from './protocol';
 import { TcpGatewayServer } from './tcp-server';
@@ -9,8 +9,14 @@ import { encodeAvlPacket, encodeImei } from './teltonika/codec';
 import { TeltonikaDecoder } from './teltonika/decoder';
 import { UnparsedLog } from './unparsed-log';
 
+/** XADD behaviour of the fake: succeed, fail every entry, or wait for `hold` first. */
+interface XaddMode {
+  fail?: boolean;
+  hold?: Promise<void>;
+}
+
 /** Minimal Valkey stand-in: records XADD payloads and SET keys. */
-function fakeRedis(queued: Record<string, string[]> = {}) {
+function fakeRedis(queued: Record<string, string[]> = {}, mode: XaddMode = {}) {
   const published: NormalizedPosition[] = [];
   const keys = new Map<string, string>();
   const messages: { channel: string; message: string }[] = [];
@@ -42,8 +48,10 @@ function fakeRedis(queued: Record<string, string[]> = {}) {
           return p;
         },
         exec: async () => {
+          if (mode.hold) await mode.hold;
+          if (mode.fail) return queued.map(() => [new Error('OOM command not allowed'), null]);
           published.push(...queued);
-          return [];
+          return queued.map(() => [null, '1-0']);
         },
       };
       return p;
@@ -56,8 +64,8 @@ function fakeRedis(queued: Record<string, string[]> = {}) {
   return { redis: redis as unknown as Redis, published, keys, messages };
 }
 
-async function start(decoder: ProtocolDecoder<BaseSession>, queued: Record<string, string[]> = {}) {
-  const fake = fakeRedis(queued);
+async function start(decoder: ProtocolDecoder<BaseSession>, queued: Record<string, string[]> = {}, mode: XaddMode = {}) {
+  const fake = fakeRedis(queued, mode);
   const server = new TcpGatewayServer(decoder, { redis: fake.redis, gatewayId: 'gw-test', unparsed: new UnparsedLog({ dir: null }) });
   await server.listen(0);
   return { server, ...fake };
@@ -160,6 +168,82 @@ describe('TcpGatewayServer', () => {
     await until(() => decodeFrames(Buffer.concat(received)).frames.some((f) => frameProtocol(f) === 0x80));
     await until(() => messages.length > 0);
     expect(JSON.parse(messages[0].message)).toMatchObject({ commandId: 'cmd-q', status: 'SENT' });
+    socket.destroy();
+    await server.close();
+  });
+
+  // ── ACK only after the positions are queued ──
+
+  const status = { ignition: true, charging: false, oilCut: false, voltageLevel: 6, gsmSignal: 4 };
+  const protocols = (received: Buffer[]) => decodeFrames(Buffer.concat(received)).frames.map(frameProtocol);
+
+  it('Teltonika: the record ACK waits for the XADD to complete', async () => {
+    let release!: () => void;
+    const hold = new Promise<void>((r) => (release = r));
+    const { server, published } = await start(new TeltonikaDecoder(), {}, { hold });
+    const { socket, received } = await client(server.port!);
+    socket.write(encodeImei('356307042441013'));
+    await until(() => Buffer.concat(received).length >= 1);
+    socket.write(encodeAvlPacket([{ timestamp: new Date(), lat: 13, lng: 80, satellites: 7, speedKph: 20, io: {} }]));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(Buffer.concat(received).length).toBe(1); // handshake only, no record ACK yet
+    release();
+    await until(() => Buffer.concat(received).length >= 5);
+    expect(published).toHaveLength(1);
+    socket.destroy();
+    await server.close();
+  });
+
+  it('Teltonika: XADD failure → no record ACK, failure counted, connection closed so the device resends', async () => {
+    const { server, published } = await start(new TeltonikaDecoder(), {}, { fail: true });
+    const { socket, received } = await client(server.port!);
+    const closed = new Promise<void>((r) => socket.on('close', () => r()));
+    socket.write(encodeImei('356307042441013'));
+    await until(() => Buffer.concat(received).length >= 1);
+    socket.write(encodeAvlPacket([{ timestamp: new Date(), lat: 13, lng: 80, satellites: 7, speedKph: 20, io: {} }]));
+    await closed;
+    expect(Buffer.concat(received)).toEqual(Buffer.from([0x01]));
+    expect(published).toHaveLength(0);
+    expect(server.stats.enqueueFailures).toBe(1);
+    await server.close();
+  });
+
+  it('GT06: XADD failure → alarm not ACKed, login/heartbeat ACKs still sent in order, connection kept', async () => {
+    const { server } = await start(new Gt06Decoder() as ProtocolDecoder<BaseSession>, {}, { fail: true });
+    const { socket, received } = await client(server.port!);
+    socket.write(
+      Buffer.concat([
+        encodeLogin('359647091912738', 1),
+        encodeAlarm({ fix, lbs, status, alarm: 0x01 }, 2),
+        encodeHeartbeat(status, 3),
+      ]),
+    );
+    await until(() => protocols(received).length === 2);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(protocols(received)).toEqual([0x01, 0x13]);
+    expect(server.stats.enqueueFailures).toBe(1);
+    expect(socket.destroyed).toBe(false);
+    socket.write(encodeHeartbeat(status, 4));
+    await until(() => protocols(received).length === 3);
+    socket.destroy();
+    await server.close();
+  });
+
+  it('GT06: a slow XADD keeps per-connection ACK order (alarm ACK before the following heartbeat ACK)', async () => {
+    let release!: () => void;
+    const hold = new Promise<void>((r) => (release = r));
+    const { server } = await start(new Gt06Decoder() as ProtocolDecoder<BaseSession>, {}, { hold });
+    const { socket, received } = await client(server.port!);
+    socket.write(encodeLogin('359647091912738', 1));
+    await until(() => protocols(received).length === 1);
+    socket.write(encodeAlarm({ fix, lbs, status, alarm: 0x01 }, 2));
+    await new Promise((r) => setTimeout(r, 30));
+    socket.write(encodeHeartbeat(status, 3));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(protocols(received)).toEqual([0x01]); // heartbeat ACK waits behind the alarm ACK
+    release();
+    await until(() => protocols(received).length === 3);
+    expect(protocols(received)).toEqual([0x01, 0x26, 0x13]);
     socket.destroy();
     await server.close();
   });

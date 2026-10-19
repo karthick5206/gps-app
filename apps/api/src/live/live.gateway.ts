@@ -1,12 +1,13 @@
 import { Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, WebSocketGateway } from '@nestjs/websockets';
-import { AlertDto, LiveObject } from '@veetracer/shared';
+import { AlertDto, LiveObject, SystemHealthSummary } from '@veetracer/shared';
 import { Namespace, Socket } from 'socket.io';
 import { hasPermission, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuthContextService } from '../access/auth-context.service';
 import { loadEnv } from '../config/env';
 import { LicencePolicyService } from '../licences/licence-policy.service';
+import { apiMetrics } from '../monitoring/api-metrics';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
@@ -67,9 +68,10 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         .catch((error: Error) => next(new Error(error.message || 'Unauthorized')));
     });
 
-    this.redis.subscribe([RedisKeys.liveUpdates, RedisKeys.cacheInvalidate, RedisKeys.alertsChannel], (channel, message) => {
+    this.redis.subscribe([RedisKeys.liveUpdates, RedisKeys.cacheInvalidate, RedisKeys.alertsChannel, RedisKeys.healthUpdates], (channel, message) => {
       if (channel === RedisKeys.liveUpdates) this.onUpdate(message);
       else if (channel === RedisKeys.alertsChannel) this.onAlert(message);
+      else if (channel === RedisKeys.healthUpdates) this.onSystemHealth(message);
       else this.scheduleRefresh();
     });
     this.timers = [
@@ -84,6 +86,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (!socket.connected) return;
     this.clients.set(socket.id, client);
     this.index(client);
+    apiMetrics.sockets = this.clients.size;
   }
 
   handleDisconnect(socket: Socket): void {
@@ -91,6 +94,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (!client) return;
     this.clients.delete(socket.id);
     this.byCompany.get(client.ctx.companyId)?.delete(client);
+    apiMetrics.sockets = this.clients.size;
   }
 
   onModuleDestroy(): void {
@@ -134,6 +138,19 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     for (const client of clients) {
       if (!hasPermission(client.ctx, 'alerts', 'view')) continue;
       if (client.allowed === null || client.allowed.has(event.alert.objectId)) client.socket.emit('alert', event.alert);
+    }
+  }
+
+  /** System Health evaluation (`SystemHealthSummary`): only the Super Admin's sockets, any selected company. */
+  private onSystemHealth(message: string): void {
+    let summary: SystemHealthSummary;
+    try {
+      summary = JSON.parse(message) as SystemHealthSummary;
+    } catch {
+      return;
+    }
+    for (const client of this.clients.values()) {
+      if (client.ctx.isSuperAdmin) client.socket.emit('system:health', summary);
     }
   }
 

@@ -11,6 +11,7 @@ import { HistoryModule } from './history/history.module';
 import { LiveModule } from './live/live.module';
 import { GeofencesModule } from './masters/geofences/geofences.module';
 import { MastersModule } from './masters/masters.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { ReportSchedulesModule } from './report-schedules/report-schedules.module';
@@ -60,6 +61,7 @@ import { TemplatesModule } from './templates/templates.module';
     FuelModule,
     DeveloperModule,
     PublicApiModule,
+    MonitoringModule,
   ],
   controllers: [HealthController],
 })

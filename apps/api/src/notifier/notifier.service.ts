@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 import { Alert, MessageTemplate, NotificationLog, NotificationStatus, NotifyChannel, Prisma } from '@prisma/client';
-import { ALERT_TYPE_MAP, AlertSeverity, AlertTypeCode } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, AlertSeverity, AlertTypeCode, NotifierMetrics } from '@veetracer/shared';
 import { hostname } from 'node:os';
 import { RecipientExpander, Recipient } from '../alerts/recipients/recipient-expander';
 import { RecipientListRow } from '../alerts/logic/recipients';
@@ -11,6 +11,7 @@ import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
 import { DriverEventWorkerService } from '../driver-events/driver-event-worker.service';
 import { mediaPath } from '../driver-events/media-store';
+import { RateMeter } from '../monitoring/heartbeat';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
@@ -78,6 +79,10 @@ export class NotifierService {
   private stats = { jobs: 0, sent: 0, failed: 0, skipped: 0, ms: 0 };
   /** E-mails waiting for a driver event snapshot. */
   private readonly deferred = new Set<Promise<void>>();
+  /** Since start, for the System Health heartbeat. */
+  private readonly totals = { jobs: 0, sent: {} as Record<string, number>, failed: {} as Record<string, number>, skipped: 0 };
+  private lastError: { message: string; at: string } | null = null;
+  private readonly jobRate = new RateMeter();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -99,6 +104,31 @@ export class NotifierService {
   /** Waits for deferred (snapshot) e-mails before the process exits. */
   async drain(): Promise<void> {
     await Promise.allSettled([...this.deferred]);
+  }
+
+  metrics(): NotifierMetrics {
+    return {
+      jobs: this.totals.jobs,
+      jobsPerSec: this.jobRate.rate(this.totals.jobs),
+      sent: { ...this.totals.sent },
+      failed: { ...this.totals.failed },
+      skipped: this.totals.skipped,
+      lastError: this.lastError,
+    };
+  }
+
+  private count(channel: string, status: NotificationStatus, error: string | null): void {
+    if (status === 'SENT') {
+      this.stats.sent++;
+      this.totals.sent[channel] = (this.totals.sent[channel] ?? 0) + 1;
+    } else if (status === 'FAILED') {
+      this.stats.failed++;
+      this.totals.failed[channel] = (this.totals.failed[channel] ?? 0) + 1;
+      this.lastError = { message: `${channel}: ${error ?? 'failed'}`.slice(0, 300), at: new Date().toISOString() };
+    } else {
+      this.stats.skipped++;
+      this.totals.skipped++;
+    }
   }
 
   invalidate(companyId: string | null): void {
@@ -179,12 +209,14 @@ export class NotifierService {
           if (job.logIds.length) await this.handleLogs(job.logIds);
         } catch (error) {
           this.logger.error(`Job ${job.id} failed: ${(error as Error).message}`);
+          this.lastError = { message: (error as Error).message.slice(0, 300), at: new Date().toISOString() };
         }
         // Webhook events for the alert (after handleAlert, so the address is filled); deduplicated per endpoint.
         if (job.alertId && this.webhooks) {
           await this.webhooks.onAlert(job.alertId).catch((error: Error) => this.logger.error(`Webhook events for ${job.alertId} failed: ${error.message}`));
         }
         this.stats.jobs++;
+        this.totals.jobs++;
         this.stats.ms += Date.now() - started;
         await this.redis.client.xack(RedisKeys.notifyStream, RedisKeys.notifierGroup, job.id);
       }
@@ -339,9 +371,7 @@ Driver event: ${link}`,
 
   private async writeLog(data: Prisma.NotificationLogUncheckedCreateInput & { status: NotificationStatus }): Promise<void> {
     await this.prisma.notificationLog.create({ data: { ...data, sentAt: data.status === 'SENT' ? new Date() : null } });
-    if (data.status === 'SENT') this.stats.sent++;
-    else if (data.status === 'FAILED') this.stats.failed++;
-    else this.stats.skipped++;
+    this.count(data.channel, data.status, data.error ?? null);
   }
 
   // ───────────── pre-rendered (test) jobs ─────────────
@@ -372,9 +402,7 @@ Driver event: ${link}`,
       provider = log.channel === 'SMS' ? this.sms.name : 'mailer';
     }
     await this.prisma.notificationLog.update({ where: { id: log.id }, data: { status, error, provider, sentAt: status === 'SENT' ? new Date() : null } });
-    if (status === 'SENT') this.stats.sent++;
-    else if (status === 'FAILED') this.stats.failed++;
-    else this.stats.skipped++;
+    this.count(log.channel, status, error);
   }
 
   // ───────────── caches ─────────────

@@ -4,7 +4,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import { createServer, Server, Socket } from 'node:net';
 import { join } from 'node:path';
 import { CommandDispatch, CommandUpdate, NormalizedPosition } from '@veetracer/shared';
-import { POSITIONS_STREAM_MAXLEN, RedisKeys } from '../redis/keys';
+import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { BaseSession, DecodeContext, DecodedMedia, ProtocolDecoder } from './protocol';
 import { RateLimitedWarn, UnparsedLog } from './unparsed-log';
 
@@ -19,6 +19,8 @@ const CAPTURE_FRAMES_PER_CONNECTION = 500;
 const COMMAND_STATE_TTL_SEC = 7 * 86_400;
 /** Commands drained per login from the offline queue. */
 const QUEUE_DRAIN_MAX = 20;
+/** An XADD that hasn't completed after this long counts as failed (the device will resend; duplicates are dropped). */
+const ENQUEUE_TIMEOUT_MS = 10_000;
 
 export class DeviceOfflineError extends Error {
   constructor() {
@@ -32,6 +34,10 @@ export interface GatewayStats {
   positions: number;
   dropped: number;
   errors: number;
+  /** Positions whose XADD failed; their ACKs were withheld so the device retransmits. */
+  enqueueFailures: number;
+  lastPacketAt: number | null;
+  lastPositionAt: number | null;
 }
 
 export interface TcpGatewayOptions {
@@ -60,6 +66,11 @@ interface Connection<S extends BaseSession> {
   identified: boolean;
   /** Commands sent and awaiting a reply: protocol reference → command id, in send order. */
   pending: Map<number, string>;
+  /**
+   * Tail of the reply chain while an XADD is in flight: later replies wait for it so the device sees ACKs in the
+   * order it sent the frames. Null when nothing is pending (replies are written immediately).
+   */
+  writeChain: Promise<void> | null;
 }
 
 /**
@@ -77,7 +88,19 @@ export class TcpGatewayServer<S extends BaseSession> {
   private readonly waiters = new Map<number, { resolve: (r: { text: string; data?: unknown }) => void; timer: NodeJS.Timeout }>();
   private server: Server | null = null;
   private captureReady: Promise<void> | null = null;
-  readonly stats: GatewayStats = { connections: 0, frames: 0, positions: 0, dropped: 0, errors: 0 };
+  readonly stats: GatewayStats = {
+    connections: 0,
+    frames: 0,
+    positions: 0,
+    dropped: 0,
+    errors: 0,
+    enqueueFailures: 0,
+    lastPacketAt: null,
+    lastPositionAt: null,
+  };
+  /** Port this server was asked to listen on, and why listening failed (for System Health). */
+  configuredPort: number | null = null;
+  listenError: string | null = null;
 
   constructor(
     private readonly decoder: ProtocolDecoder<S>,
@@ -97,12 +120,23 @@ export class TcpGatewayServer<S extends BaseSession> {
     return address && typeof address === 'object' ? address.port : null;
   }
 
+  get listening(): boolean {
+    return this.server?.listening ?? false;
+  }
+
   listen(port: number): Promise<void> {
+    this.configuredPort = port;
     this.server = createServer((socket) => this.accept(socket));
     this.server.maxConnections = 20_000;
     return new Promise((resolve, reject) => {
-      this.server!.once('error', reject);
-      this.server!.listen(port, () => resolve());
+      this.server!.once('error', (error: Error) => {
+        this.listenError = error.message;
+        reject(error);
+      });
+      this.server!.listen(port, () => {
+        this.listenError = null;
+        resolve();
+      });
     });
   }
 
@@ -123,6 +157,7 @@ export class TcpGatewayServer<S extends BaseSession> {
       loginTimer: null,
       identified: false,
       pending: new Map(),
+      writeChain: null,
     };
     this.connections.add(conn);
     this.stats.connections = this.connections.size;
@@ -154,6 +189,7 @@ export class TcpGatewayServer<S extends BaseSession> {
   }
 
   private onData(conn: Connection<S>, chunk: Buffer): void {
+    this.stats.lastPacketAt = Date.now();
     if (conn.flushTimer) {
       clearTimeout(conn.flushTimer);
       conn.flushTimer = null;
@@ -188,23 +224,31 @@ export class TcpGatewayServer<S extends BaseSession> {
     }
   }
 
+  /**
+   * Decodes the frames of one chunk. Replies of frames that carry positions (Teltonika record ACKs, GT06 alarm ACKs,
+   * JT808 location replies) are written only after the XADD of those positions succeeded — devices retransmit
+   * unacknowledged data, so a Valkey outage doesn't lose positions. Other replies (login, heartbeats) are always
+   * sent — immediately, or right after an earlier gated reply when one is still waiting (ordering is kept).
+   */
   private process(conn: Connection<S>, frames: Buffer[]): void {
     const positions: NormalizedPosition[] = [];
+    const segments: { replies: Buffer[]; gated: boolean }[] = [];
+    let close = false;
     for (const frame of frames) {
       this.stats.frames++;
       const ctx = this.context(conn);
       try {
         const result = this.decoder.decode(frame, conn.session, ctx);
         this.capture(conn, 'in', frame);
-        for (const reply of result.replies) {
-          conn.socket.write(reply);
-          this.capture(conn, 'out', reply);
-        }
         positions.push(...result.positions);
         if (result.media?.length) this.options.onMedia?.(result.media);
+        const gated = result.positions.length > 0;
+        const last = segments[segments.length - 1];
+        if (last && last.gated === gated) last.replies.push(...result.replies);
+        else if (result.replies.length || gated) segments.push({ replies: [...result.replies], gated });
         for (const r of result.commandResponses ?? []) this.onCommandResponse(conn, r.ref, r.text, r.data);
         if (result.close) {
-          conn.socket.end();
+          close = true;
           break;
         }
       } catch (error) {
@@ -219,9 +263,41 @@ export class TcpGatewayServer<S extends BaseSession> {
       clearTimeout(conn.loginTimer);
       conn.loginTimer = null;
     }
-    if (positions.length) this.publish(positions, conn.remote);
+    const gate = positions.length ? this.publish(positions, conn.remote) : null;
+    segments.forEach((seg, i) => this.reply(conn, seg.replies, seg.gated ? gate : null, close && i === segments.length - 1));
+    if (close && !segments.length) this.reply(conn, [], null, true);
     // Any traffic (including heartbeats) refreshes the connection key; the offline sweeper treats it as "online".
     this.refreshConnectionKey(conn);
+  }
+
+  /**
+   * Writes replies in order. With a `gate` (the XADD of the frames' positions) they wait for it; a failed gate drops
+   * them (no ACK → the device resends) and, for protocols that need it (Teltonika), closes the connection.
+   */
+  private reply(conn: Connection<S>, replies: Buffer[], gate: Promise<boolean> | null, close: boolean): void {
+    const write = (ok: boolean) => {
+      if (conn.socket.destroyed || conn.socket.writableEnded) return;
+      if (!ok) {
+        if (this.decoder.closeOnEnqueueFailure) conn.socket.destroy();
+        return;
+      }
+      for (const r of replies) {
+        conn.socket.write(r);
+        this.capture(conn, 'out', r);
+      }
+      if (close) conn.socket.end();
+    };
+    if (!gate && !conn.writeChain) {
+      if (replies.length || close) write(true);
+      return;
+    }
+    const chain: Promise<void> = (conn.writeChain ?? Promise.resolve())
+      .then(() => gate ?? true)
+      .then(write, () => write(false))
+      .finally(() => {
+        if (conn.writeChain === chain) conn.writeChain = null;
+      });
+    conn.writeChain = chain;
   }
 
   // ── Commands ────────────────────────────────────────────────────────────────
@@ -330,13 +406,32 @@ export class TcpGatewayServer<S extends BaseSession> {
       .catch((error: Error) => this.logger.error(`Command queue read failed: ${error.message}`));
   }
 
-  private publish(positions: NormalizedPosition[], remote: string): void {
+  /** XADDs the positions; resolves true when every entry was added (never rejects). */
+  private publish(positions: NormalizedPosition[], remote: string): Promise<boolean> {
     const pipeline = this.options.redis.pipeline();
+    const maxLen = positionsStreamMaxLen();
     for (const p of positions) {
-      pipeline.xadd(RedisKeys.positionsStream, 'MAXLEN', '~', POSITIONS_STREAM_MAXLEN, '*', 'data', JSON.stringify(p), 'remote', remote);
+      pipeline.xadd(RedisKeys.positionsStream, 'MAXLEN', '~', maxLen, '*', 'data', JSON.stringify(p), 'remote', remote);
     }
     this.stats.positions += positions.length;
-    pipeline.exec().catch((error: Error) => this.logger.error(`XADD failed: ${error.message}`));
+    this.stats.lastPositionAt = Date.now();
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`timed out after ${ENQUEUE_TIMEOUT_MS} ms`)), ENQUEUE_TIMEOUT_MS);
+      timer.unref();
+    });
+    return Promise.race([pipeline.exec(), timeout])
+      .then((results) => {
+        const failed = (results ?? []).filter(([error]) => error).length;
+        if (failed) throw (results ?? []).find(([error]) => error)![0] as Error;
+        return true;
+      })
+      .catch((error: Error) => {
+        this.stats.enqueueFailures += positions.length;
+        this.warnings.warn('xadd', `XADD failed (${positions.length} position(s) not acknowledged to the device): ${error.message}`);
+        return false;
+      })
+      .finally(() => clearTimeout(timer));
   }
 
   private refreshConnectionKey(conn: Connection<S>): void {
