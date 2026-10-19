@@ -150,12 +150,11 @@ export class VideoService implements OnModuleInit {
     const cached = await this.redis.client.get(key);
     if (cached) count = (JSON.parse(cached) as { maxVideoChannels: number }).maxVideoChannels;
     else {
-      // Ask the dashcam (0x9003 → 0x1003) once a day; offline or silent devices get the default.
-      const attrs = await this.ask(t.uniqueId, { op: 'attributes' }).then((r) => r.attributes ?? null).catch(() => null);
-      if (attrs) {
-        await this.redis.client.set(key, JSON.stringify(attrs), 'EX', ATTRIBUTES_TTL_SEC);
-        count = attrs.maxVideoChannels;
-      }
+      // Ask the dashcam (0x9003 → 0x1003) in the background, cached for a day; answer now with the default so the
+      // drawer never waits on a slow device.
+      void this.ask(t.uniqueId, { op: 'attributes' })
+        .then((r) => (r.attributes ? this.redis.client.set(key, JSON.stringify(r.attributes), 'EX', ATTRIBUTES_TTL_SEC) : null))
+        .catch(() => undefined);
     }
     const valid = count !== null && count >= 1 && count <= MAX_CHANNEL;
     const n = valid ? count! : VIDEO_DEFAULT_CHANNELS;
