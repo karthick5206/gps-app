@@ -89,14 +89,19 @@ export function mapIo(rec: TeltonikaRecord): { ignition: boolean | null; attribu
     [1, 'di1'],
     [2, 'di2'],
     [3, 'di3'],
+    [4, 'di4'],
     [179, 'do1'],
     [180, 'do2'],
   ] as const) {
     const v = num(take(id));
     if (v !== null) attrs[key] = v === 1;
   }
+  // Normalised digital inputs in1..in4 = DIN1..DIN4 (AVL IO 1–4), next to the Teltonika names di1..di4.
+  for (const i of [1, 2, 3, 4]) if (typeof attrs[`di${i}`] === 'boolean') attrs[`in${i}`] = attrs[`di${i}`];
   const ain1 = num(take(9));
   if (ain1 !== null) attrs.adc1 = round(ain1 / 1000, 3);
+  const ain2 = num(take(10));
+  if (ain2 !== null) attrs.adc2 = round(ain2 / 1000, 3);
   Object.assign(attrs, fuelIo(take));
   for (const [id, key] of [
     [72, 'temp1'],

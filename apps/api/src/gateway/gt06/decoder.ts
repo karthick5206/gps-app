@@ -25,6 +25,8 @@ export const GT06_PROTOCOL = 'gt06';
 const CLOCK_DECISION_WINDOW_MS = 30 * 60_000;
 /** Before a decision, a device time this far ahead of server time means the clock is local (east of UTC). */
 const CLOCK_FUTURE_EVIDENCE_MS = 10 * 60_000;
+/** 0x94/0x05 door / input flags are merged into positions for this long after they arrived. */
+const INPUTS_FRESH_MS = 15 * 60_000;
 
 /** Latest terminal status seen on a connection (heartbeats, alarms, 0x94 info) used to enrich positions. */
 export interface Gt06Status {
@@ -48,6 +50,9 @@ export interface Gt06Session extends BaseSession {
   serverSerial: number;
   /** Latest OBD / fuel sensor readings (0x8C, 0x94/0x0D), merged into every following position. */
   sensors: Record<string, number>;
+  /** Latest 0x94 / 0x05 door / input flags and when they arrived (ms); merged into positions while fresh. */
+  inputs?: { door: boolean; in1: boolean; in2: boolean } | null;
+  inputsAt?: number;
   /** Last fix coordinates, for event positions from packets without GPS (RFID card, OBD). */
   lastFix: { lat: number; lng: number; course: number } | null;
 }
@@ -128,6 +133,14 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
         if (message.iccid) session.iccid = message.iccid;
         if (message.fuelSensorRaw !== undefined) session.sensors.fuelSensorRaw = message.fuelSensorRaw;
         if (message.fuelSensorTemp !== undefined) session.sensors.fuelSensorTemp = message.fuelSensorTemp;
+        if (message.inputs) {
+          const prev = session.inputs;
+          const changed = !prev || prev.door !== message.inputs.door || prev.in1 !== message.inputs.in1 || prev.in2 !== message.inputs.in2;
+          session.inputs = message.inputs;
+          session.inputsAt = ctx.receivedAt.getTime();
+          // A door / input change is reported now (event position), not only with the next GPS packet.
+          if (changed && session.uniqueId) result.positions.push(this.eventPosition(session, frame, ctx, { event: 'io' }));
+        }
         // Card swipe: an event position now, so DriverIdentification (attributes.driverId) assigns the driver.
         if (message.rfid && session.uniqueId) {
           result.positions.push(this.eventPosition(session, frame, ctx, { driverId: message.rfid, rfid: message.rfid, event: 'rfid' }));
@@ -214,6 +227,8 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
   ): NormalizedPosition {
     const s = session.status;
     if (fix.positioned) session.lastFix = { lat: fix.lat, lng: fix.lng, course: fix.course };
+    // Door / input flags only while fresh: a tracker that stopped sending 0x94/0x05 must not freeze the door state.
+    const inputs = session.inputs && ctx.receivedAt.getTime() - (session.inputsAt ?? 0) <= INPUTS_FRESH_MS ? session.inputs : null;
     return {
       protocol: GT06_PROTOCOL,
       uniqueId: session.uniqueId!,
@@ -238,6 +253,7 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
         lac: lbs?.lac,
         cellId: lbs?.cellId,
         ...session.sensors,
+        ...(inputs ?? {}),
         ...extra,
       }),
       raw: frame.toString('hex'),

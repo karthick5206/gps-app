@@ -11,8 +11,8 @@ export const IO_SENSOR_SOURCES = ['DIGITAL', 'ANALOG'] as const;
 export type IoSensorSource = (typeof IO_SENSOR_SOURCES)[number];
 
 /** Attribute keys offered first in the settings dialog (any attribute key seen on the vehicle can be used). */
-export const IO_DIGITAL_KEYS = ['door', 'in1', 'in2', 'di1', 'di2', 'di3'] as const;
-export const IO_ANALOG_KEYS = ['adc1', 'adc2', 'extVoltage'] as const;
+export const IO_DIGITAL_KEYS = ['in1', 'in2', 'in3', 'in4', 'door'] as const;
+export const IO_ANALOG_KEYS = ['adc1', 'adc2'] as const;
 
 /** Attribute keys must look like decoder keys (letters, digits, underscore). */
 export const IO_ATTRIBUTE_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,39}$/;

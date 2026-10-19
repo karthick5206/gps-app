@@ -49,6 +49,15 @@ export const ATTR = {
   fuelSensorTemp: 'fuelSensorTemp', // LLS sensor temperature °C (IO 202; IO 204 = fuelSensorTemp2)
   adc1: 'adc1', // analog input 1, volts (Teltonika AIN1 = IO 9 in mV; analog fuel sensors are calibrated in mV)
   fuelL: 'fuelL', // calibrated litres, written by the processor
+  adc2: 'adc2', // analog input 2, volts (Teltonika AIN2 = IO 10 in mV)
+  // Digital inputs (AC / door sensors read these; see IoSensorConfig)
+  door: 'door', // door switch (GT06 0x94 sub-type 0x05 bit 0)
+  in1: 'in1', // digital input 1 (Teltonika DIN1; GT06 0x94/0x05 bit 2)
+  in2: 'in2', // digital input 2 (Teltonika DIN2; GT06 0x94/0x05 bit 1, unverified)
+  in3: 'in3', // digital input 3 (Teltonika DIN3 = IO 3)
+  in4: 'in4', // digital input 4 (Teltonika DIN4 = IO 4)
+  ac: 'ac', // AC on (debounced), written by the processor when an AC sensor is configured
+  doorOpen: 'doorOpen', // door open (debounced), written by the processor when a door sensor is configured
   // OBD (GT06 0x8C; per public spec, verify units with a device capture)
   rpm: 'rpm', // engine rpm
   coolantTemp: 'coolantTemp', // °C

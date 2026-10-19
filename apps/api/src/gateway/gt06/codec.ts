@@ -180,6 +180,8 @@ export type Gt06Message =
       /** Serial fuel sensor: raw level (calibrate as an LLS sensor) and temperature °C. */
       fuelSensorRaw?: number;
       fuelSensorTemp?: number;
+      /** 0x05 door / IO status: bit 0 door, bit 2 input 1 (per Traccar), bit 1 input 2 (unverified). */
+      inputs?: { door: boolean; in1: boolean; in2: boolean };
       content: Buffer;
     }
   | {
@@ -388,6 +390,12 @@ function decodeInfo(protocol: number, serial: number, content: Buffer): Gt06Mess
       return data.length >= 26 ? { ...base, iccid: bcd(data.subarray(16, 26)).replace(/f+$/i, '') } : base;
     case Gt06InfoType.STATUS_TEXT:
       return { ...base, text: data.toString('latin1').replace(/[^\x20-\x7e]/g, '').trim() };
+    case Gt06InfoType.DOOR: {
+      // Newer firmware prefixes the flags with date-time(6); older sends the flags byte alone (Traccar's decoder).
+      if (!data.length) return { ...base, known: false };
+      const flags = data.length >= 7 ? data[6] : data[0];
+      return { ...base, inputs: { door: (flags & 0x01) !== 0, in1: (flags & 0x04) !== 0, in2: (flags & 0x02) !== 0 } };
+    }
     case Gt06InfoType.FUEL_SENSOR:
       return { ...base, ...readFuelSensor(data) };
     case Gt06InfoType.RFID: {
