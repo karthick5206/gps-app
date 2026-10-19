@@ -61,6 +61,7 @@ export const ALERT_TYPE_CODES = [
   'CLOCK_ERROR',
   'POWER_LOW',
   'DEVICE_TAMPER',
+  'UNKNOWN_ALARM',
   'DRIVER_FATIGUE',
   'DRIVER_PHONE',
   'DRIVER_SMOKING',
@@ -166,6 +167,8 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
     placeholders: ['voltage'],
   },
   { code: 'DEVICE_TAMPER', label: 'Tracker tamper / GPS jamming', category: 'Device health', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // A device sent an alarm code VeeTrax doesn't recognise (e.g. a new model's SOS) — so it is noticed, not dropped.
+  { code: 'UNKNOWN_ALARM', label: 'Unrecognised device alarm', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // ── Driver safety (dashcam DMS = driver camera, ADAS = road camera) ──
   { code: 'DRIVER_FATIGUE', label: 'Driver fatigue', category: 'Driver safety', capability: 'dms', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
   { code: 'DRIVER_PHONE', label: 'Driver using phone', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
@@ -206,6 +209,7 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   CLOCK_ERROR: 1440,
   POWER_LOW: 0,
   DEVICE_TAMPER: 5,
+  UNKNOWN_ALARM: 60,
   // Dashcams repeat an event every few seconds while it lasts: one alert per short window.
   DRIVER_FATIGUE: 2,
   DRIVER_PHONE: 2,

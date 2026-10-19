@@ -348,6 +348,8 @@ describe('device health', () => {
 
   it('tamper and jamming alarms', () => {
     expect(types(run([at(sec(0), { attributes: { alarm: 'tamper' } }), at(sec(600), { attributes: { alarm: 'jamming' } })], ctx()))).toEqual(['DEVICE_TAMPER', 'DEVICE_TAMPER']);
+    // Unrecognised alarm codes are surfaced (a new model's SOS must not be silently dropped); alarm_0 means none.
+    expect(types(run([at(sec(0), { attributes: { alarm: 'alarm_7' } }), at(sec(10), { attributes: { alarm: 'alarm_0' } })], ctx()))).toEqual(['UNKNOWN_ALARM']);
   });
 
   it('health alerts can be disabled', () => {

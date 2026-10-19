@@ -31,6 +31,7 @@ const DETAIL: Record<AlertTypeCode, string> = {
   CLOCK_ERROR: 'tracker clock is ahead by {{duration}} (check its time zone)',
   POWER_LOW: 'vehicle battery voltage is low ({{voltage}})',
   DEVICE_TAMPER: 'tracker reported tampering or GPS jamming',
+  UNKNOWN_ALARM: 'tracker sent an alarm VeeTrax does not recognise; check the device',
   DRIVER_FATIGUE: 'dashcam detected driver fatigue',
   DRIVER_PHONE: 'dashcam detected the driver using a phone',
   DRIVER_SMOKING: 'dashcam detected the driver smoking',

@@ -2260,6 +2260,7 @@ export const TA: Record<string, string> = {
   'Unlimited': 'வரம்பற்ற',
   'Unmute alert sound': 'எச்சரிக்கை ஒலியை இயக்கு',
   'Unread': 'படிக்காதவை',
+  'Unrecognised device alarm': 'அடையாளம் காணப்படாத சாதன எச்சரிக்கை',
   'unsupported {{type}}': 'ஆதரிக்கப்படாத {{type}}',
   'Until': 'வரை',
   'until {{time}}': '{{time}} வரை',

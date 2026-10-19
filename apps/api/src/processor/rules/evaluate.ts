@@ -511,6 +511,9 @@ class Evaluator {
     else if (alarm === 'powerCut') this.emit('POWER_CUT', { message: 'Tracker main power disconnected', data: { alarm } });
     else if (alarm === 'tamper' || alarm === 'jamming') {
       this.emit('DEVICE_TAMPER', { message: alarm === 'jamming' ? 'Tracker reported GPS/GSM jamming' : 'Tracker reported tampering (case opened or removed)', data: { alarm } });
+    } else if (typeof alarm === 'string' && /^alarm_[1-9]\d*$/.test(alarm)) {
+      // Unrecognised alarm code (alarm_0 = none): may be a new model's SOS, so surface it instead of dropping it.
+      this.emit('UNKNOWN_ALARM', { message: `Tracker sent unrecognised alarm code ${alarm.slice(6)} — check the device (it may be an SOS)`, data: { alarm } });
     }
   }
 

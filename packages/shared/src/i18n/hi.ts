@@ -2260,6 +2260,7 @@ export const HI: Record<string, string> = {
   'Unlimited': 'असीमित',
   'Unmute alert sound': 'अलर्ट की आवाज़ चालू करें',
   'Unread': 'अपठित',
+  'Unrecognised device alarm': 'अपरिचित डिवाइस अलार्म',
   'unsupported {{type}}': 'असमर्थित {{type}}',
   'Until': 'तक',
   'until {{time}}': '{{time}} तक',
