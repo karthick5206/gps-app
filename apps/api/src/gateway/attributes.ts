@@ -49,6 +49,18 @@ export const ATTR = {
   fuelSensorTemp: 'fuelSensorTemp', // LLS sensor temperature °C (IO 202; IO 204 = fuelSensorTemp2)
   adc1: 'adc1', // analog input 1, volts (Teltonika AIN1 = IO 9 in mV; analog fuel sensors are calibrated in mV)
   fuelL: 'fuelL', // calibrated litres, written by the processor
+  // OBD (GT06 0x8C; per public spec, verify units with a device capture)
+  rpm: 'rpm', // engine rpm
+  coolantTemp: 'coolantTemp', // °C
+  engineLoad: 'engineLoad', // % (reserved: no GT06 key mapped yet)
+  obdSpeedKph: 'obdSpeedKph', // vehicle speed from the ECU, km/h
+  obdOdometerKm: 'obdOdometerKm', // ECU odometer, km
+  engineHours: 'engineHours', // h
+  dtcs: 'dtcs', // diagnostic trouble codes, comma-separated (reserved)
+  // RFID: driverId carries the card; `rfid` repeats it on the swipe event (event = 'rfid')
+  rfid: 'rfid',
+  reupload: 'reupload', // history / buffered record
+  emergency: 'emergency', // AIS-140 emergency status (panic button state)
 } as const;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);

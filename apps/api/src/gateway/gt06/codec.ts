@@ -26,6 +26,8 @@ export const Gt06Protocol = {
   WIFI: 0x2c,
   SERVER_COMMAND: 0x80,
   TIME_REQUEST: 0x8a,
+  /** OBD data (Concox OBD trackers, GT800-OBD / X3 / OB22 class). Per public spec; verify with a device capture. */
+  OBD: 0x8c,
   INFO: 0x94,
   GPS_4G: 0xa0,
   LBS_4G: 0xa1,
@@ -59,7 +61,27 @@ export const Gt06InfoType = {
   STATUS_TEXT: 0x04,
   DOOR: 0x05,
   ICCID: 0x0a,
+  /** Serial fuel sensor text (`!AIOAU,…`). Per public spec (Traccar); verify with a device capture. */
+  FUEL_SENSOR: 0x0d,
+  /** RFID card reader (driver card). Per public spec (Traccar); verify with a device capture. */
+  RFID: 0x1b,
 } as const;
+const KNOWN_INFO_TYPES = new Set<number>(Object.values(Gt06InfoType));
+
+/**
+ * OBD 0x8C `key=value` pairs → normalised attribute names and scale. The key's first two characters are read as hex
+ * and the value is hex × scale, as Traccar's public Gt06ProtocolDecoder does. Per public spec only: verify units with
+ * a real device capture (GATEWAY_CAPTURE=<imei>).
+ */
+export const GT06_OBD_KEYS: Record<number, { attr: string; scale: number }> = {
+  40: { attr: 'obdOdometerKm', scale: 0.01 },
+  43: { attr: 'fuelLevelPct', scale: 0.01 },
+  45: { attr: 'coolantTemp', scale: 0.01 },
+  53: { attr: 'obdSpeedKph', scale: 0.01 },
+  54: { attr: 'rpm', scale: 0.01 },
+  71: { attr: 'fuelUsedL', scale: 0.01 },
+  73: { attr: 'engineHours', scale: 0.01 },
+};
 
 const COORD_SCALE = 1_800_000;
 const FIX_LENGTH = 18;
@@ -132,7 +154,35 @@ export type Gt06Message =
       lang: number;
     }
   | { type: 'timeRequest'; protocol: number; serial: number }
-  | { type: 'info'; protocol: number; serial: number; infoType: number; extVoltage?: number; iccid?: string; text?: string; content: Buffer }
+  | {
+      type: 'info';
+      protocol: number;
+      serial: number;
+      infoType: number;
+      /** False for sub-types we don't decode (the decoder logs them as unparsed). */
+      known: boolean;
+      extVoltage?: number;
+      iccid?: string;
+      text?: string;
+      /** RFID card id as the reader reports it (hex upper case for binary cards, the text for ASCII readers). */
+      rfid?: string;
+      /** Serial fuel sensor: raw level (calibrate as an LLS sensor) and temperature °C. */
+      fuelSensorRaw?: number;
+      fuelSensorTemp?: number;
+      content: Buffer;
+    }
+  | {
+      type: 'obd';
+      protocol: number;
+      serial: number;
+      /** Device clock (read as UTC, like fixes); null when the date bytes are not a valid date. */
+      time: Date | null;
+      ignition: boolean;
+      /** Normalised attributes (rpm, coolantTemp, fuelLevelPct, obdOdometerKm, …). */
+      values: Record<string, number>;
+      /** Pairs with keys we don't map, as `obd_<key>` → raw value text. */
+      other: Record<string, string>;
+    }
   | { type: 'commandResponse'; protocol: number; serial: number; serverFlag: number; text: string }
   | { type: 'lbs'; protocol: number; serial: number }
   | { type: 'unknown'; protocol: number; serial: number; content: Buffer };
@@ -317,7 +367,7 @@ function decodeInfo(protocol: number, serial: number, content: Buffer): Gt06Mess
   requireLength(content, 1, protocol);
   const infoType = content[0];
   const data = content.subarray(1);
-  const base = { type: 'info' as const, protocol, serial, infoType, content: Buffer.from(content) };
+  const base = { type: 'info' as const, protocol, serial, infoType, known: KNOWN_INFO_TYPES.has(infoType), content: Buffer.from(content) };
   switch (infoType) {
     case Gt06InfoType.EXTERNAL_VOLTAGE:
       return data.length >= 2 ? { ...base, extVoltage: data.readUInt16BE(0) / 100 } : base;
@@ -326,9 +376,65 @@ function decodeInfo(protocol: number, serial: number, content: Buffer): Gt06Mess
       return data.length >= 26 ? { ...base, iccid: bcd(data.subarray(16, 26)).replace(/f+$/i, '') } : base;
     case Gt06InfoType.STATUS_TEXT:
       return { ...base, text: data.toString('latin1').replace(/[^\x20-\x7e]/g, '').trim() };
+    case Gt06InfoType.FUEL_SENSOR:
+      return { ...base, ...readFuelSensor(data) };
+    case Gt06InfoType.RFID: {
+      const rfid = readRfid(data);
+      return rfid ? { ...base, rfid } : { ...base, known: false };
+    }
     default:
       return base;
   }
+}
+
+/** `!AIOAU,addr,addr,ctrl,len,<temperature>,<level>,…`, optionally after 6 bytes of date. Per public spec. */
+const FUEL_TEXT = /!AIOAU,\d+,\d+,\d+,\d+,(-?\d+),(\d+)/;
+
+function readFuelSensor(data: Buffer): { fuelSensorRaw?: number; fuelSensorTemp?: number; known?: boolean } {
+  const at = data.indexOf('!');
+  const m = at < 0 ? null : FUEL_TEXT.exec(data.subarray(at).toString('latin1'));
+  if (!m) return { known: false };
+  return { fuelSensorTemp: Number(m[1]), fuelSensorRaw: Number(m[2]) };
+}
+
+/**
+ * RFID card from the 0x94 / 0x1B payload. ASCII readers send the card number as text (decimal or hex digits);
+ * binary readers send header(1) · type(1) · card(4) · checksum(1) · footer(1) (per Traccar's public decoder).
+ */
+function readRfid(data: Buffer): string | null {
+  const text = data.toString('latin1').replace(/[\x00\r\n]+$/g, '').trim();
+  if (/^[0-9A-Fa-f]{4,20}$/.test(text)) return text.toUpperCase();
+  if (data.length >= 6) {
+    const card = data.subarray(2, 6);
+    if (card.some((b) => b !== 0)) return card.toString('hex').toUpperCase();
+  }
+  return null;
+}
+
+/**
+ * 0x8C OBD data: date(6) · ignition(1) · ASCII `key=value,key=value…` · trailing binary block. Per public spec
+ * (Traccar's Gt06ProtocolDecoder); verify with a real device capture. Returns null when no pairs are readable.
+ */
+function decodeObd(protocol: number, serial: number, content: Buffer): Gt06Message {
+  requireLength(content, 8, protocol);
+  const [yy, mo, dd, hh, mi, ss] = content;
+  const validDate = mo >= 1 && mo <= 12 && dd >= 1 && dd <= 31 && hh < 24 && mi < 60 && ss < 60;
+  const time = validDate ? new Date(Date.UTC(2000 + yy, mo - 1, dd, hh, mi, ss)) : null;
+  let end = 7;
+  while (end < content.length && content[end] >= 0x20 && content[end] <= 0x7e) end++;
+  const values: Record<string, number> = {};
+  const other: Record<string, string> = {};
+  for (const pair of content.subarray(7, end).toString('latin1').split(',')) {
+    const [key, value] = pair.split('=').map((s) => s.trim());
+    if (!key || !value || !/^[0-9A-Fa-f]{2,}$/.test(key) || !/^[0-9A-Fa-f]{1,12}$/.test(value)) continue;
+    const def = GT06_OBD_KEYS[parseInt(key.slice(0, 2), 16)];
+    if (def) values[def.attr] = Math.round(parseInt(value, 16) * def.scale * 100) / 100;
+    else other[`obd_${key}`] = value;
+  }
+  if (!Object.keys(values).length && !Object.keys(other).length) {
+    throw new Gt06DecodeError('OBD 0x8c: no key=value pairs');
+  }
+  return { type: 'obd', protocol, serial, time, ignition: content[6] > 0, values, other };
 }
 
 function decodeCommandResponse(protocol: number, serial: number, content: Buffer): Gt06Message {
@@ -405,6 +511,8 @@ export function decodeMessage(frame: Buffer): Gt06Message {
       return { type: 'timeRequest', protocol, serial };
     case Gt06Protocol.INFO:
       return decodeInfo(protocol, serial, content);
+    case Gt06Protocol.OBD:
+      return decodeObd(protocol, serial, content);
     case Gt06Protocol.COMMAND_RESPONSE:
     case Gt06Protocol.COMMAND_RESPONSE_EXT:
       return decodeCommandResponse(protocol, serial, content);
@@ -485,7 +593,8 @@ export function encodeTimeResponse(serial: number, now: Date): Buffer {
 
 /** Which decoded messages the server must acknowledge with an empty echo (0x8A gets a time reply instead). */
 export function requiresAck(message: Gt06Message): boolean {
-  return message.type === 'login' || message.type === 'heartbeat' || message.type === 'alarm';
+  // OBD (0x8C) is echoed like other device-initiated Concox packets (harmless if the firmware does not expect it).
+  return message.type === 'login' || message.type === 'heartbeat' || message.type === 'alarm' || message.type === 'obd';
 }
 
 /** Server → device text command (0x80), e.g. `RELAY,1#`. */
@@ -609,6 +718,25 @@ export function encodeInfoVoltage(extVoltage: number, serial: number): Buffer {
   b[0] = Gt06InfoType.EXTERNAL_VOLTAGE;
   b.writeUInt16BE(Math.round(extVoltage * 100), 1);
   return encodeFrame(Gt06Protocol.INFO, b, serial);
+}
+
+/** 0x94 information packet with any sub-type (tests / simulator). */
+export function encodeInfo(infoType: number, data: Buffer, serial: number): Buffer {
+  return encodeFrame(Gt06Protocol.INFO, Buffer.concat([Buffer.from([infoType]), data]), serial);
+}
+
+/** 0x8C OBD packet: date · ignition · `pairs` text · 12-byte trailing block (zeros) as in the public spec. */
+export function encodeObd(time: Date, ignition: boolean, pairs: string, serial: number): Buffer {
+  const head = Buffer.from([
+    time.getUTCFullYear() - 2000,
+    time.getUTCMonth() + 1,
+    time.getUTCDate(),
+    time.getUTCHours(),
+    time.getUTCMinutes(),
+    time.getUTCSeconds(),
+    ignition ? 1 : 0,
+  ]);
+  return encodeFrame(Gt06Protocol.OBD, Buffer.concat([head, Buffer.from(pairs, 'latin1'), Buffer.alloc(12)]), serial);
 }
 
 export interface AlarmInput {

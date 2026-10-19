@@ -37,10 +37,28 @@ interface ModelProfile {
 const PROFILES: Record<string, ModelProfile> = {
   GT06: { capabilities: GT06_CAPABILITIES, fields: GT06_FIELDS, commands: GT06_COMMANDS },
   // GT800 (2G) / V5 (4G) / VL149 (4G): GT06 family plus external voltage (0x23 / 0x94) and harsh-event alarms.
+  // RFID card readers report the card in 0x94/0x1B (driverId); serial fuel sensors in 0x94/0x0D (fuelSensorRaw).
   GT06_EXT: {
-    capabilities: [...GT06_CAPABILITIES, 'harsh_events'],
-    fields: [...GT06_FIELDS, EXT_VOLTAGE_FIELD],
+    capabilities: [...GT06_CAPABILITIES, 'harsh_events', 'rfid', 'fuel'],
+    fields: [...GT06_FIELDS, EXT_VOLTAGE_FIELD, { key: 'driverId', label: 'Driver (RFID card)', type: 'string' }, FUEL_FIELD],
     commands: GT06_COMMANDS,
+  },
+  // Concox OBD trackers (OB22 class, plugged into the OBD-II port): 0x8C OBD data. Per public spec; verify on a device.
+  GT06_OBD: {
+    capabilities: ['ignition', 'power_cut', 'battery', 'lbs', 'harsh_events', 'crash', 'obd', 'fuel'],
+    fields: [
+      ...GT06_FIELDS,
+      EXT_VOLTAGE_FIELD,
+      { key: 'rpm', label: 'Engine RPM', unit: 'rpm', type: 'number' },
+      { key: 'coolantTemp', label: 'Coolant temperature', unit: '°C', type: 'number' },
+      { key: 'engineLoad', label: 'Engine load', unit: '%', type: 'number' },
+      { key: 'obdSpeedKph', label: 'OBD speed', unit: 'km/h', type: 'number' },
+      { key: 'fuelLevelPct', label: 'Fuel level (OBD)', unit: '%', type: 'number' },
+      { key: 'obdOdometerKm', label: 'OBD odometer', unit: 'km', type: 'number' },
+      { key: 'dtcs', label: 'Trouble codes', type: 'string' },
+      FUEL_FIELD,
+    ],
+    commands: [],
   },
   TELTONIKA: {
     capabilities: ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'harsh_events', 'crash', 'rfid', 'temperature', 'fuel'],
@@ -165,6 +183,7 @@ async function main() {
     ['Concox', 'GT800', 'GT06', 'GT06_EXT'],
     ['Concox', 'V5', 'GT06', 'GT06_EXT'],
     ['Concox', 'VL149', 'GT06', 'GT06_EXT'],
+    ['Concox', 'OB22', 'GT06', 'GT06_OBD'],
     ['Teltonika', 'FMB920', 'TELTONIKA', 'TELTONIKA'],
     ['Teltonika', 'FMB120', 'TELTONIKA', 'TELTONIKA'],
     ['Teltonika', 'FMC130', 'TELTONIKA', 'TELTONIKA'],

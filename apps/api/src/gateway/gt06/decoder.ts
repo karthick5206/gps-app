@@ -46,6 +46,10 @@ export interface Gt06Session extends BaseSession {
   iccid: string | null;
   /** Serial number for frames the server initiates (commands). */
   serverSerial: number;
+  /** Latest OBD / fuel sensor readings (0x8C, 0x94/0x0D), merged into every following position. */
+  sensors: Record<string, number>;
+  /** Last fix coordinates, for event positions from packets without GPS (RFID card, OBD). */
+  lastFix: { lat: number; lng: number; course: number } | null;
 }
 
 export const alarmName = (code: number): string => GT06_ALARMS[code] ?? `alarm_${code}`;
@@ -75,6 +79,8 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
       status: { ignition: null, charging: null, oilCut: null, batteryLevel: null, gsmSignal: null, extVoltage: null },
       iccid: null,
       serverSerial: 0,
+      sensors: {},
+      lastFix: null,
     };
   }
 
@@ -114,8 +120,23 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
         result.replies.push(encodeTimeResponse(message.serial, ctx.receivedAt));
         break;
       case 'info':
+        if (!message.known) {
+          ctx.unparsed(`unknown 0x94 sub-type 0x${message.infoType.toString(16).padStart(2, '0')}`, frame, session.uniqueId);
+          break;
+        }
         if (message.extVoltage !== undefined) session.status.extVoltage = message.extVoltage;
         if (message.iccid) session.iccid = message.iccid;
+        if (message.fuelSensorRaw !== undefined) session.sensors.fuelSensorRaw = message.fuelSensorRaw;
+        if (message.fuelSensorTemp !== undefined) session.sensors.fuelSensorTemp = message.fuelSensorTemp;
+        // Card swipe: an event position now, so DriverIdentification (attributes.driverId) assigns the driver.
+        if (message.rfid && session.uniqueId) {
+          result.positions.push(this.eventPosition(session, frame, ctx, { driverId: message.rfid, rfid: message.rfid, event: 'rfid' }));
+        }
+        break;
+      case 'obd':
+        Object.assign(session.sensors, message.values);
+        if (message.ignition !== null) session.status.ignition = message.ignition;
+        if (session.uniqueId) result.positions.push(this.eventPosition(session, frame, ctx, { ...message.other, event: 'obd' }));
         break;
       case 'commandResponse':
         result.commandResponses = [{ ref: message.serverFlag, text: message.text }];
@@ -192,6 +213,7 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
     extra: Record<string, unknown>,
   ): NormalizedPosition {
     const s = session.status;
+    if (fix.positioned) session.lastFix = { lat: fix.lat, lng: fix.lng, course: fix.course };
     return {
       protocol: GT06_PROTOCOL,
       uniqueId: session.uniqueId!,
@@ -215,9 +237,20 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
         mnc: lbs?.mnc,
         lac: lbs?.lac,
         cellId: lbs?.cellId,
+        ...session.sensors,
         ...extra,
       }),
       raw: frame.toString('hex'),
     };
+  }
+
+  /**
+   * Position for a packet without GPS (RFID swipe, OBD data): stamped with the receive time at the last known
+   * coordinates and marked invalid, so the processor keeps the last valid fix on the map but still sees the attributes.
+   */
+  private eventPosition(session: Gt06Session, frame: Buffer, ctx: DecodeContext, extra: Record<string, unknown>): NormalizedPosition {
+    const last = session.lastFix ?? { lat: 0, lng: 0, course: 0 };
+    const fix: Gt06Fix = { time: ctx.receivedAt, gpsInfoLength: 0, satellites: 0, lat: last.lat, lng: last.lng, speedKph: 0, course: last.course, positioned: false };
+    return this.position(session, fix, ctx.receivedAt, null, null, frame, ctx, extra);
   }
 }
