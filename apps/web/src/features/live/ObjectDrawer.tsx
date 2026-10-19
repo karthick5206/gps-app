@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { CompliancePanel } from '@/features/documents/CompliancePanel';
 import { CommandsTab } from './CommandsTab';
 import { DriverControl } from './DriverControl';
+import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -200,6 +201,9 @@ export function ObjectDrawer({
   const [maintenance, setMaintenance] = useState<{ id: string; value: boolean } | null>(null);
   const inMaintenance = maintenance?.id === object.objectId ? maintenance.value : !!object.inMaintenance;
   const canCommand = can('live_map', 'command') && !!object.deviceId;
+  // Dashcams only: the channels call answers NOT_DASHCAM (400) for other trackers, which hides the tab.
+  const video = useVideoChannels(object.objectId, can('video') && !!object.deviceId && !object.licenceLocked);
+  const hasVideo = video.isSuccess;
   return (
     <aside
       aria-label={t('Object details')}
@@ -247,6 +251,7 @@ export function ObjectDrawer({
         <TabsList className="mx-4 mt-3 w-[calc(100%-2rem)]">
           <TabsTrigger value="overview">{t('Overview')}</TabsTrigger>
           <TabsTrigger value="device">{t('Device')}</TabsTrigger>
+          {hasVideo && <TabsTrigger value="video">{t('Video')}</TabsTrigger>}
           {canCommand && <TabsTrigger value="commands">{t('Commands')}</TabsTrigger>}
           {can('documents') && object.type === 'VEHICLE' && <TabsTrigger value="documents">{t('Documents')}</TabsTrigger>}
         </TabsList>
@@ -259,6 +264,11 @@ export function ObjectDrawer({
         {can('documents') && object.type === 'VEHICLE' && (
           <TabsContent value="documents" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             <CompliancePanel target={{ objectId: object.objectId, label: object.name }} />
+          </TabsContent>
+        )}
+        {hasVideo && (
+          <TabsContent value="video" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <VideoPanel objectId={object.objectId} vehicle={object.name} />
           </TabsContent>
         )}
         {canCommand && (

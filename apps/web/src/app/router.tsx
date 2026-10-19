@@ -18,6 +18,7 @@ function page<M extends Record<string, unknown>>(loader: () => Promise<M>, name:
 const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   dashboard: page(() => import('@/features/dashboard/DashboardPage'), 'DashboardPage'),
   live_map: page(() => import('@/features/live/LiveMapPage'), 'LiveMapPage'),
+  video: page(() => import('@/features/video/VideoPage'), 'VideoPage'),
   objects: page(() => import('@/features/masters/pages/ObjectsPage'), 'ObjectsPage'),
   drivers: page(() => import('@/features/masters/pages/DriversPage'), 'DriversPage'),
   documents: page(() => import('@/features/documents/DocumentsPage'), 'DocumentsPage'),

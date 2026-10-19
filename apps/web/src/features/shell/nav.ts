@@ -27,6 +27,7 @@ import {
   ShieldCheckIcon,
   TruckIcon,
   UsersIcon,
+  VideoIcon,
   WarehouseIcon,
   type LucideIcon,
 } from 'lucide-react';
@@ -34,6 +35,7 @@ import {
 export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   dashboard: GaugeIcon,
   live_map: MapIcon,
+  video: VideoIcon,
   objects: TruckIcon,
   drivers: IdCardIcon,
   documents: FileCheck2Icon,
