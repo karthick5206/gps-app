@@ -19,6 +19,8 @@ export class JwtAuthGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) throw new UnauthorizedException('Missing access token');
+    // Customer API keys only work on the public API (/api/v1), never on the app's own endpoints.
+    if (header.startsWith('Bearer vtx_')) throw new UnauthorizedException('API keys can only be used with the public API (/api/v1)');
     const companyHeader = req.headers['x-company-id'];
     req.auth = await this.contexts.fromToken(
       header.slice(7),

@@ -73,7 +73,7 @@ model Company {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  partner       Partner         @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  partner       Partner           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   branches      Branch[]
   users         User[]
   roles         Role[]
@@ -85,6 +85,8 @@ model Company {
   pois          Poi[]
   lookups       Lookup[]
   auditLogs     AuditLog[]
+  apiKeys       ApiKey[]
+  webhooks      WebhookEndpoint[]
 }
 
 model Branch {
@@ -1112,4 +1114,85 @@ model DeviceCommand {
 
   @@index([objectId, createdAt(sort: Desc)])
   @@index([companyId, createdAt(sort: Desc)])
+}
+
+/// Customer API key. Only the SHA-256 of the key is stored; `prefix` (first characters) identifies it in the UI.
+model ApiKey {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @db.Uuid
+  /// Limits the key to one branch's vehicles (null = whole company).
+  branchId      String?   @db.Uuid
+  name          String
+  prefix        String
+  keyHash       String    @unique
+  scopes        String[]
+  ipAllowList   String[]  @default([])
+  ratePerMinute Int       @default(60)
+  ratePerDay    Int       @default(10000)
+  expiresAt     DateTime? @db.Timestamptz(3)
+  lastUsedAt    DateTime? @db.Timestamptz(3)
+  lastUsedIp    String?
+  requestCount  Int       @default(0)
+  revokedAt     DateTime? @db.Timestamptz(3)
+  createdById   String?   @db.Uuid
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
+/// Outgoing webhook endpoint of a company. `secret` signs every request (HMAC-SHA256), so it is kept readable.
+model WebhookEndpoint {
+  id                  String    @id @default(uuid()) @db.Uuid
+  companyId           String    @db.Uuid
+  name                String
+  url                 String
+  events              String[]
+  secret              String
+  isActive            Boolean   @default(true)
+  consecutiveFailures Int       @default(0)
+  disabledAt          DateTime? @db.Timestamptz(3)
+  disabledReason      String?
+  lastDeliveryAt      DateTime? @db.Timestamptz(3)
+  lastStatusCode      Int?
+  createdById         String?   @db.Uuid
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @db.Timestamptz(3)
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([companyId])
+}
+
+/// One event sent to one endpoint (kept 30 days). status: PENDING | RETRYING | SUCCEEDED | FAILED.
+/// `dedupeKey` (endpoint + event id) stops an event being queued twice; tests and redeliveries have none.
+model WebhookDelivery {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @db.Uuid
+  endpointId     String    @db.Uuid
+  eventId        String
+  event          String
+  payload        Json
+  dedupeKey      String?   @unique
+  status         String    @default("PENDING")
+  attempt        Int       @default(0)
+  nextAttemptAt  DateTime? @db.Timestamptz(3)
+  responseStatus Int?
+  durationMs     Int?
+  error          String?
+  responseBody   String?
+  deliveredAt    DateTime? @db.Timestamptz(3)
+  isTest         Boolean   @default(false)
+  redeliveryOf   String?   @db.Uuid
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([endpointId, createdAt(sort: Desc)])
+  @@index([createdAt])
 }

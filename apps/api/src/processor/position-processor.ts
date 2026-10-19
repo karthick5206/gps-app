@@ -13,6 +13,7 @@ import { DriverIdentification } from './driver-identification';
 import { FuelEventRow, PositionRow, RawPacketRow, UnknownDeviceRow, WriteBatch, writeBatch } from './position-writer';
 import { RuleInput } from './rules/evaluate';
 import { RulesBatch, RulesEngine } from './rules/rules-engine';
+import { statusChangedEvent, vehicleState, WebhookEventMessage, WebhookEventPublisher } from '../webhooks/events';
 
 const LAST_SEEN_THROTTLE_MS = 10_000;
 const FUEL_STATE_TTL_SEC = 7 * 24 * 3600;
@@ -83,6 +84,7 @@ export class PositionProcessor {
     private readonly cache: DeviceCache,
     private readonly rules: RulesEngine | null = null,
     private readonly drivers: DriverIdentification | null = null,
+    private readonly webhooks: WebhookEventPublisher | null = null,
   ) {}
 
   /** Returns the number of entries processed (acknowledged). */
@@ -104,6 +106,7 @@ export class PositionProcessor {
       if (d?.accepted && d.object) objectIds.add(d.object.objectId);
     }
     const { lives, tracks } = await this.loadState([...objectIds]);
+    const statusBefore = new Map([...lives].map(([id, l]) => [id, l.status]));
     const fuel = await this.loadFuel(parsed.map((p) => devices.get(p.position.uniqueId)));
 
     const batch: WriteBatch = { positions: [], rawPackets: [], unknownDevices: [], lastSeen: [] };
@@ -140,6 +143,7 @@ export class PositionProcessor {
 
     let rules = await this.evaluateRules(ruleInputs);
     if (changed.size) await this.publish(changed, tracks);
+    if (changed.size && this.webhooks) await this.emitStatusChanges(changed, statusBefore);
     try {
       await writeBatch(this.prisma, batch, rules?.statements(this.prisma));
     } catch (error) {
@@ -378,6 +382,23 @@ export class PositionProcessor {
     if (now - last < LAST_SEEN_THROTTLE_MS) return;
     this.lastSeenWritten.set(deviceId, now);
     batch.lastSeen.push({ deviceId, at: serverTime });
+  }
+
+  /** `vehicle.status_changed` webhooks for objects whose coarse state (moving / idle / stopped / offline) changed. */
+  private async emitStatusChanges(changed: Map<string, LiveObject>, before: Map<string, LiveObject['status']>): Promise<void> {
+    const events: WebhookEventMessage[] = [];
+    for (const [objectId, live] of changed) {
+      const prev = vehicleState(before.get(objectId));
+      const next = vehicleState(live.status);
+      if (!prev || !next || prev === next) continue;
+      events.push(statusChangedEvent(live, before.get(objectId)!));
+    }
+    if (!events.length) return;
+    try {
+      await this.webhooks!.publish(events);
+    } catch (error) {
+      this.logger.error(`Webhook events failed: ${(error as Error).message}`);
+    }
   }
 
   /** Live state + realtime publish for the latest update of each changed object in this batch. */

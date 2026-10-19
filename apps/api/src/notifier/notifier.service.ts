@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 import { Alert, MessageTemplate, NotificationLog, NotificationStatus, NotifyChannel, Prisma } from '@prisma/client';
 import { ALERT_TYPE_MAP, AlertSeverity, AlertTypeCode } from '@veetracer/shared';
 import { hostname } from 'node:os';
@@ -75,6 +76,7 @@ export class NotifierService {
     private readonly redis: RedisService,
     private readonly mailer: MailerService,
     private readonly geocoding: GeocodingService,
+    @Optional() private readonly webhooks?: WebhookWorkerService,
   ) {
     this.rules = new RulesRepository(prisma);
     this.expander = new RecipientExpander(prisma);
@@ -162,6 +164,10 @@ export class NotifierService {
           if (job.logIds.length) await this.handleLogs(job.logIds);
         } catch (error) {
           this.logger.error(`Job ${job.id} failed: ${(error as Error).message}`);
+        }
+        // Webhook events for the alert (after handleAlert, so the address is filled); deduplicated per endpoint.
+        if (job.alertId && this.webhooks) {
+          await this.webhooks.onAlert(job.alertId).catch((error: Error) => this.logger.error(`Webhook events for ${job.alertId} failed: ${error.message}`));
         }
         this.stats.jobs++;
         this.stats.ms += Date.now() - started;

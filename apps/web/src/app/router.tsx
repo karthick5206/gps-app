@@ -29,6 +29,7 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   roles: page(() => import('@/features/admin/RolesPage'), 'RolesPage'),
   audit_log: page(() => import('@/features/admin/AuditLogPage'), 'AuditLogPage'),
   settings: page(() => import('@/features/admin/SettingsPage'), 'SettingsPage'),
+  api: page(() => import('@/features/developer/DeveloperApiPage'), 'DeveloperApiPage'),
   sa_companies: page(() => import('@/features/platform/CompaniesPage'), 'CompaniesPage'),
   sa_device_models: page(() => import('@/features/platform/DeviceModelsPage'), 'DeviceModelsPage'),
   sa_device_inventory: page(() => import('@/features/platform/DeviceInventoryPage'), 'DeviceInventoryPage'),

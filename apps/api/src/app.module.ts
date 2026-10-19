@@ -19,6 +19,8 @@ import { DriversModule } from './drivers/drivers.module';
 import { DocumentsModule } from './documents/documents.module';
 import { PoisModule } from './pois/pois.module';
 import { FuelModule } from './fuel/fuel.module';
+import { DeveloperModule } from './developer/developer.module';
+import { PublicApiModule } from './public-api/public-api.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { RetentionModule } from './retention/retention.module';
 import { ReportsModule } from './reports/reports.module';
@@ -50,6 +52,8 @@ import { TemplatesModule } from './templates/templates.module';
     DocumentsModule,
     PoisModule,
     FuelModule,
+    DeveloperModule,
+    PublicApiModule,
   ],
   controllers: [HealthController],
 })

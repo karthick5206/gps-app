@@ -16,6 +16,8 @@ export interface AuthContext {
   ip: string | null;
   /** Login session behind the access token (absent for internal contexts such as sockets or schedulers). */
   sessionId?: string | null;
+  /** Set when the caller is a customer API key (public API v1) instead of a signed-in user. */
+  apiKey?: { id: string; name: string; scopes: string[] };
 }
 
 export interface AccessTokenPayload {

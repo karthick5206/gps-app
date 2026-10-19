@@ -32,6 +32,12 @@ export const RedisKeys = {
   alertState: (objectId: string) => `vt:alertstate:${objectId}`,
   /** Fuel refill / drain detector state per object (smoothing buffer, open episode). */
   fuelState: (objectId: string) => `vt:fuel:${objectId}`,
+  // ── Customer API / webhooks ──
+  /** Stream of webhook work (`event` fan-out or `deliveryId` send-now) consumed in the notifier process. */
+  webhooksStream: 'vt:webhooks',
+  webhooksGroup: 'webhooks',
+  /** Set of company ids with at least one active webhook endpoint (producers skip everyone else). */
+  webhookCompanies: 'vt:wh:companies',
 } as const;
 
 export const POSITIONS_STREAM_MAXLEN = 2_000_000;

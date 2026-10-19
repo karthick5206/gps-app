@@ -10,6 +10,7 @@ import { DriverIdentification } from './driver-identification';
 import { PositionProcessor } from './position-processor';
 import { RulesEngine } from './rules/rules-engine';
 import { StreamConsumer } from './stream-consumer';
+import { WebhookEventPublisher } from '../webhooks/events';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -37,7 +38,7 @@ async function main(): Promise<void> {
   await subscriber.subscribe(RedisKeys.cacheInvalidate, RedisKeys.rulesInvalidate);
 
   const rules = process.env.RULES_ENGINE === 'off' ? null : new RulesEngine(redis, rulesRepo);
-  const consumer = new StreamConsumer(redis, new PositionProcessor(prisma, redis, cache, rules, drivers), consumerName);
+  const consumer = new StreamConsumer(redis, new PositionProcessor(prisma, redis, cache, rules, drivers, new WebhookEventPublisher(redis)), consumerName);
   const shutdown = () => {
     logger.log('Stopping after the current batch…');
     consumer.stop();

@@ -6,6 +6,7 @@ import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { NotifierModule } from './notifier.module';
 import { NotifierService } from './notifier.service';
+import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 
 /** Notifier process: consumes `vt:notify`, renders templates, sends e-mail/SMS and writes NotificationLog. */
 async function main(): Promise<void> {
@@ -25,10 +26,13 @@ async function main(): Promise<void> {
   const shutdown = () => {
     Logger.log('Stopping after the current jobs…', 'Notifier');
     notifier.stop();
+    webhooks.stop();
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
-  await notifier.run();
+  // Webhook deliveries run in this process too (consumer group `webhooks` on `vt:webhooks`); no extra service.
+  const webhooks = app.get(WebhookWorkerService);
+  await Promise.all([notifier.run(), webhooks.run()]);
   await app.close();
   process.exit(0);
 }

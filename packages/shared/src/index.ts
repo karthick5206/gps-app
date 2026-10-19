@@ -12,3 +12,4 @@ export * from './pois';
 export * from './fuel';
 export * from './i18n';
 export * from './brand';
+export * from './developer-api';
