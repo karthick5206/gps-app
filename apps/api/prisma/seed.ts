@@ -77,10 +77,20 @@ const PROFILES: Record<string, ModelProfile> = {
       { key: 'engine_resume', label: 'Resume engine (DOUT1 off)' },
     ],
   },
-  // iTriangle TS101 (AIS-140): decoder pending the vendor protocol document (HANDOFF §4.1 item 4).
+  // iTriangle TS101 (AIS-140): gateway/ais140 decoder per the public AIS-140 spec (verify with a device capture).
   AIS140: {
-    capabilities: ['ignition', 'sos', 'power_cut', 'battery', 'tamper'],
-    fields: [EXT_VOLTAGE_FIELD, { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }, { key: 'gsmSignal', label: 'GSM signal', type: 'number' }],
+    capabilities: ['ignition', 'sos', 'power_cut', 'battery', 'tamper', 'harsh_events'],
+    fields: [
+      EXT_VOLTAGE_FIELD,
+      { key: 'batteryVoltage', label: 'Battery voltage', unit: 'V', type: 'number' },
+      { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' },
+      { key: 'gsmSignal', label: 'GSM signal', type: 'number' },
+      { key: 'emergency', label: 'Emergency (panic)', type: 'boolean' },
+      { key: 'tamper', label: 'Box open (tamper)', type: 'boolean' },
+      { key: 'hdop', label: 'HDOP', type: 'number' },
+      { key: 'operator', label: 'Network operator', type: 'string' },
+      { key: 'vehicleRegNo', label: 'Registration (device)', type: 'string' },
+    ],
     commands: [],
   },
   // JT/T 808 dashcams / MDVRs: ADAS / DMS events arrive as position attributes (adas, dms).
