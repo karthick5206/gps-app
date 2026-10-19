@@ -25,6 +25,8 @@ const GT06_COMMANDS = [
   { key: 'engine_resume', label: 'Resume engine' },
 ];
 const EXT_VOLTAGE_FIELD = { key: 'extVoltage', label: 'External voltage', unit: 'V', type: 'number' };
+/** Calibrated fuel level written by the processor when the vehicle has fuel settings. */
+const FUEL_FIELD = { key: 'fuelL', label: 'Fuel', unit: 'L', type: 'number' };
 
 /** Customer device catalogue (docs/HANDOFF.md §4.1): capabilities drive alerts, map fields and commands. */
 interface ModelProfile {
@@ -41,7 +43,7 @@ const PROFILES: Record<string, ModelProfile> = {
     commands: GT06_COMMANDS,
   },
   TELTONIKA: {
-    capabilities: ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'harsh_events', 'crash', 'rfid', 'temperature'],
+    capabilities: ['ignition', 'sos', 'power_cut', 'engine_cut', 'battery', 'harsh_events', 'crash', 'rfid', 'temperature', 'fuel'],
     fields: [
       { key: 'extVoltage', label: 'External voltage', unit: 'V', type: 'number' },
       { key: 'batteryVoltage', label: 'Battery voltage', unit: 'V', type: 'number' },
@@ -50,6 +52,7 @@ const PROFILES: Record<string, ModelProfile> = {
       { key: 'odometerM', label: 'Odometer', unit: 'm', type: 'number' },
       { key: 'driverId', label: 'Driver (iButton/RFID)', type: 'string' },
       { key: 'temp1', label: 'Temperature 1', unit: '°C', type: 'number' },
+      FUEL_FIELD,
     ],
     commands: [
       { key: 'engine_stop', label: 'Stop engine (DOUT1 on)' },
@@ -64,12 +67,13 @@ const PROFILES: Record<string, ModelProfile> = {
   },
   // JT/T 808 dashcams / MDVRs: ADAS / DMS events arrive as position attributes (adas, dms).
   JT808: {
-    capabilities: ['ignition', 'sos', 'power_cut', 'crash', 'adas', 'dms', 'video'],
+    capabilities: ['ignition', 'sos', 'power_cut', 'crash', 'adas', 'dms', 'video', 'fuel'],
     fields: [
       { key: 'gsmSignal', label: 'GSM signal', type: 'number' },
       { key: 'odometerM', label: 'Odometer', unit: 'm', type: 'number' },
       { key: 'adas', label: 'ADAS event', type: 'string' },
       { key: 'dms', label: 'Driver monitoring event', type: 'string' },
+      FUEL_FIELD,
     ],
     commands: [],
   },

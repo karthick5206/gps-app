@@ -38,7 +38,7 @@ export function effectiveRetentionDays(days: number | null | undefined): number 
 
 /**
  * Hourly data cleanup (DATA-04: per-company retention 30–180 days, automatic deletion).
- * - Positions, trips, stops, closed geofence visits and alerts older than the company's `retentionDays`.
+ * - Positions, trips, stops, fuel events, closed geofence visits and alerts older than the company's `retentionDays`.
  *   Daily summaries are kept, so long-range reports stay available.
  * - Raw packets (7 d), notification logs (90 d), unknown devices not seen for 30 d, expired sessions/OTPs/reset links.
  * Deletes run in small batches within a time budget; a Valkey lock ensures one api instance works at a time.
@@ -113,6 +113,7 @@ export class RetentionService {
         ],
         ['trips', () => this.prisma.$executeRaw`DELETE FROM "Trip" WHERE id IN (SELECT id FROM "Trip" WHERE "companyId" = ${c.id}::uuid AND "startTime" < ${cutoff} LIMIT ${BATCH})`],
         ['stops', () => this.prisma.$executeRaw`DELETE FROM "Stop" WHERE id IN (SELECT id FROM "Stop" WHERE "companyId" = ${c.id}::uuid AND "startTime" < ${cutoff} LIMIT ${BATCH})`],
+        ['fuelEvents', () => this.prisma.$executeRaw`DELETE FROM "FuelEvent" WHERE id IN (SELECT id FROM "FuelEvent" WHERE "companyId" = ${c.id}::uuid AND "startTime" < ${cutoff} LIMIT ${BATCH})`],
         [
           'geofenceVisits',
           () => this.prisma.$executeRaw`DELETE FROM "GeofenceVisit" WHERE id IN (SELECT id FROM "GeofenceVisit" WHERE "companyId" = ${c.id}::uuid AND "exitTime" IS NOT NULL AND "exitTime" < ${cutoff} LIMIT ${BATCH})`,

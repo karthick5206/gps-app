@@ -65,6 +65,7 @@ export interface AlertVarsContext {
 
 const n = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+const litres = (v: unknown): string => (n(v) === null ? '' : `${(Math.round(n(v)! * 10) / 10).toString()} L`);
 
 /** Template variables for an alert (COMMON_PLACEHOLDERS + type-specific ones). */
 export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string, string> {
@@ -95,6 +96,10 @@ export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string
     days_left: n(d.daysLeft) === null ? '' : n(d.daysLeft)! <= 0 ? 'today' : n(d.daysLeft) === 1 ? 'in 1 day' : `in ${n(d.daysLeft)} days`,
     service: str(d.service),
     due: str(d.due),
+    // Fuel refill / drain alerts.
+    litres: litres(d.deltaL),
+    fuel_before: litres(d.litresBefore),
+    fuel_after: litres(d.litresAfter),
   };
 }
 

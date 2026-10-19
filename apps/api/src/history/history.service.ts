@@ -80,7 +80,7 @@ export class HistoryService {
   async history(ctx: AuthContext, objectId: string, fromRaw?: string, toRaw?: string): Promise<HistoryResponse> {
     const meta = await this.objectMeta(ctx, objectId);
     const { from, to } = this.resolveRange(fromRaw, toRaw, meta);
-    const [rows, alerts] = await Promise.all([fetchPositions(this.prisma, objectId, from - 1, to), this.alerts(meta, from, to)]);
+    const [rows, alerts, fuel] = await Promise.all([fetchPositions(this.prisma, objectId, from - 1, to), this.alerts(meta, from, to), this.fuelSeries(objectId, from, to)]);
     const { trips, stops } = await this.segments(meta, from, to, rows);
 
     // Range summary straight from the points.
@@ -135,7 +135,24 @@ export class HistoryService {
         avgSpeedKph: avgMovingSpeed(sum),
       },
       truncated,
+      ...(fuel.length ? { fuel } : {}),
     };
+  }
+
+  /** Calibrated fuel level over the range (only vehicles with a fuel sensor store `fuelL`), at most ~1500 points. */
+  private async fuelSeries(objectId: string, from: number, to: number): Promise<[number, number][]> {
+    const rows = await this.prisma.$queryRaw<{ t: Date; l: number }[]>`
+      SELECT "fixTime" AS t, ("attributes"->>'fuelL')::float8 AS l
+      FROM "Position"
+      WHERE "objectId" = ${objectId}::uuid AND "fixTime" >= ${new Date(from)} AND "fixTime" <= ${new Date(to)}
+        AND "attributes"->>'fuelL' IS NOT NULL
+      ORDER BY "fixTime"
+      LIMIT 200000`;
+    const step = Math.max(1, Math.ceil(rows.length / 1500));
+    const out: [number, number][] = [];
+    for (let i = 0; i < rows.length; i += step) out.push([rows[i].t.getTime(), rows[i].l]);
+    if (rows.length && (rows.length - 1) % step !== 0) out.push([rows[rows.length - 1].t.getTime(), rows[rows.length - 1].l]);
+    return out;
   }
 
   async trips(ctx: AuthContext, objectId: string, fromRaw?: string, toRaw?: string): Promise<TripDto[]> {

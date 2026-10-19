@@ -267,6 +267,8 @@ model TrackedObject {
   documents   Document[]
   services    ServiceReminder[]
   serviceLog  ServiceRecord[]
+  fuelConfig  FuelConfig?
+  fuelEvents  FuelEvent[]
 
   @@index([companyId, branchId])
 }
@@ -705,6 +707,47 @@ model Geofence {
 
   @@unique([companyId, name])
   @@index([companyId, isActive])
+}
+
+/// Fuel sensor settings of a vehicle. source: none | can_level_pct | can_level_l | lls | analog.
+/// calibration: [[raw, litres], …] ascending (LLS units or analog mV); refillMinL null = max(10 L, 5 % of the tank).
+model FuelConfig {
+  objectId        String   @id @db.Uuid
+  companyId       String   @db.Uuid
+  source          String   @default("none")
+  tankCapacityL   Float?
+  calibration     Json     @default("[]")
+  refillMinL      Float?
+  drainMinL       Float    @default(8)
+  drainWindowMin  Int      @default(10)
+  smoothingWindow Int      @default(5)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
+/// Refill or drain (possible theft) detected by the processor. type: REFILL | DRAIN.
+model FuelEvent {
+  id           String   @id @db.Uuid
+  companyId    String   @db.Uuid
+  objectId     String   @db.Uuid
+  type         String
+  startTime    DateTime @db.Timestamptz(3)
+  endTime      DateTime @db.Timestamptz(3)
+  litresBefore Float
+  litresAfter  Float
+  deltaL       Float
+  lat          Float?
+  lng          Float?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@unique([objectId, type, startTime])
+  @@index([companyId, startTime(sort: Desc)])
 }
 
 /// Point of interest (customer site, depot, fuel station…): a stop within radiusM counts as a visit.

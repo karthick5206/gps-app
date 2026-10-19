@@ -15,6 +15,8 @@ import {
   ClockIcon,
   CoffeeIcon,
   FileCheck2Icon,
+  DropletOffIcon,
+  FuelIcon,
   GaugeIcon,
   HexagonIcon,
   IdCardIcon,
@@ -424,8 +426,51 @@ const DOCUMENTS: ReportColumn[] = [
   },
 ];
 
-export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices' | 'Compliance';
-export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Devices', 'Compliance'];
+const litres = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+
+const FUEL: ReportColumn[] = [
+  vehicle,
+  plate,
+  { id: 'day', header: 'Day', value: str('day'), render: (r) => <span className="tabular-nums">{r.day as string}</span> },
+  { id: 'startL', header: 'Start (L)', value: num('startL'), numeric: true, format: litres },
+  { id: 'endL', header: 'End (L)', value: num('endL'), numeric: true, format: litres },
+  count('refills', 'Refills'),
+  { id: 'refillL', header: 'Refilled (L)', value: num('refillL'), numeric: true, total: 'sum', format: litres },
+  count('drains', 'Drains'),
+  {
+    id: 'drainL',
+    header: 'Drained (L)',
+    value: num('drainL'),
+    numeric: true,
+    total: 'sum',
+    format: litres,
+    render: (r) => ((r.drainL as number) > 0 ? <span className="font-medium text-destructive tabular-nums">{litres(r.drainL as number)}</span> : <span className="tabular-nums">0</span>),
+  },
+  { id: 'consumptionL', header: 'Consumed (L)', value: num('consumptionL'), numeric: true, total: 'sum', format: litres },
+  kmCol(),
+  { id: 'kmPerL', header: 'km/L', value: num('kmPerL'), numeric: true, format: (v) => v.toFixed(2) },
+  { id: 'lPer100Km', header: 'L/100 km', value: num('lPer100Km'), numeric: true, format: (v) => v.toFixed(1) },
+];
+
+const FUEL_EVENTS: ReportColumn[] = [
+  vehicle,
+  plate,
+  {
+    id: 'type',
+    header: 'Event',
+    value: (r) => (r.type === 'REFILL' ? 'Refill' : 'Drain'),
+    render: (r) => <Badge variant={r.type === 'REFILL' ? 'success' : 'destructive'}>{r.type === 'REFILL' ? i18n.t('Refill') : i18n.t('Drain')}</Badge>,
+  },
+  { id: 'startTime', header: 'Start', value: time('startTime'), render: timeCell('startTime') },
+  { id: 'endTime', header: 'End', value: time('endTime'), render: timeCell('endTime') },
+  { id: 'litresBefore', header: 'Before (L)', value: num('litresBefore'), numeric: true, format: litres },
+  { id: 'litresAfter', header: 'After (L)', value: num('litresAfter'), numeric: true, format: litres },
+  { id: 'deltaL', header: 'Change (L)', value: (r) => (r.type === 'REFILL' ? (r.deltaL as number) : -(r.deltaL as number)), numeric: true, format: (v) => (v > 0 ? `+${litres(v)}` : litres(v)) },
+  { id: 'location', header: 'Location', value: coordValue('lat', 'lng'), render: coords('lat', 'lng') },
+];
+
+export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Devices' | 'Compliance';
+export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Fuel', 'Devices', 'Compliance'];
 
 export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'SUMMARY', category: 'Activity', label: 'Summary', description: 'Distance, running/idle/stop time and trips per vehicle by day, week or month.', icon: SigmaIcon, columns: SUMMARY },
@@ -446,6 +491,8 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS },
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
   { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },
+  { type: 'FUEL', category: 'Fuel', label: 'Fuel', description: 'Per vehicle per day: start and end level, refills, drains, consumption and km/L (vehicles with a fuel sensor).', icon: FuelIcon, columns: FUEL },
+  { type: 'FUEL_EVENTS', category: 'Fuel', label: 'Fuel refills & drains', description: 'Every detected refill and drain (possible fuel theft) with the level before and after.', icon: DropletOffIcon, columns: FUEL_EVENTS },
   { type: 'DEVICE_STATUS', category: 'Devices', label: 'Device status', description: 'Active, inactive, no-GPS and never-connected devices right now.', icon: ActivityIcon, columns: DEVICE_STATUS },
   { type: 'DOCUMENTS', category: 'Compliance', label: 'Documents & services', description: 'Document expiry and service status of every vehicle as of today (the date range is not used).', icon: FileCheck2Icon, columns: DOCUMENTS },
 ];

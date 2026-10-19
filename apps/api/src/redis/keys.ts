@@ -30,6 +30,8 @@ export const RedisKeys = {
   rulesInvalidate: 'vt:rules:invalidate',
   /** Rules-engine state per object: geofence membership, overspeed/idle episodes, cooldowns. */
   alertState: (objectId: string) => `vt:alertstate:${objectId}`,
+  /** Fuel refill / drain detector state per object (smoothing buffer, open episode). */
+  fuelState: (objectId: string) => `vt:fuel:${objectId}`,
 } as const;
 
 export const POSITIONS_STREAM_MAXLEN = 2_000_000;

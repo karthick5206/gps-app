@@ -36,6 +36,8 @@ export interface HistoryResponse {
   alerts: AlertDto[];
   summary: { distanceKm: number; runningSec: number; idleSec: number; stopSec: number; maxSpeedKph: number; avgSpeedKph: number };
   truncated: boolean; // true when the range exceeded the point cap and was simplified
+  /** Fuel level over time [epochMs, litres] when the vehicle has a fuel sensor (downsampled). */
+  fuel?: [number, number][];
 }
 
 export interface DailySummaryDto {
@@ -94,6 +96,8 @@ export const REPORT_TYPES = [
   'DRIVERS',
   'DOCUMENTS',
   'POI_VISITS',
+  'FUEL',
+  'FUEL_EVENTS',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 

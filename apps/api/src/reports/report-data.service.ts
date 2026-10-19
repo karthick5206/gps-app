@@ -38,6 +38,7 @@ import {
 } from './report-queries';
 import { documentsReport } from './documents-report';
 import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
+import { fuelEventsReport, fuelReport } from './fuel-report';
 
 export const REPORT_JSON_MAX_ROWS = 10_000;
 export const REPORT_MAX_DAYS = 366;
@@ -186,6 +187,16 @@ export class ReportDataService {
       case 'DOCUMENTS': {
         // Status as of today (like the device status report); the date range is not used.
         const r = await documentsReport(this.prisma, ctx, objects, req.scope ?? { branchIds: [], groupIds: [], objectIds: [] }, localDayKey(Date.now(), tz), maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'FUEL': {
+        const r = await fuelReport(this.prisma, ctx.companyId, objects, range, req.from, req.to, tz, maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'FUEL_EVENTS': {
+        const r = await fuelEventsReport(this.prisma, ctx.companyId, objects, range, maxRows);
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 

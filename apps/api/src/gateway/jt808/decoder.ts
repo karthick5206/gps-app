@@ -284,7 +284,7 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
         alarm,
         gsmSignal: loc.gsmCsq === null ? null : gsmFromCsq(loc.gsmCsq),
         odometerM: loc.mileageKm === null ? null : Math.round(loc.mileageKm * 1000),
-        fuel: loc.fuelL,
+        fuelLevelL: loc.fuelL,
         oilCut: bit(loc.status, 10) ? true : null,
         doorLocked: bit(loc.status, 12) ? true : null,
         videoAlarm: VIDEO_ALARM_BITS.filter(([b]) => bit(videoFlags, b)).map(([, n]) => n).join(',') || null,

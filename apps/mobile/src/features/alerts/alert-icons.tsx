@@ -10,9 +10,11 @@ import {
   CigaretteIcon,
   ClockAlertIcon,
   CloudAlertIcon,
+  DropletOffIcon,
   EyeOffIcon,
   FileClockIcon,
   FileXIcon,
+  FuelIcon,
   GaugeIcon,
   HourglassIcon,
   KeyRoundIcon,
@@ -70,6 +72,8 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   DOCUMENT_EXPIRING: FileClockIcon,
   DOCUMENT_EXPIRED: FileXIcon,
   SERVICE_DUE: WrenchIcon,
+  FUEL_DRAIN: DropletOffIcon,
+  FUEL_REFILL: FuelIcon,
 };
 
 export const alertIcon = (type: string): LucideIcon => ALERT_ICON[type as AlertTypeCode] ?? BellIcon;

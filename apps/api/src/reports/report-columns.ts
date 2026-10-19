@@ -15,6 +15,8 @@ import {
   IgnitionReportRow,
   OverspeedReportRow,
   PoiVisitReportRow,
+  FuelEventDto,
+  FuelReportRow,
   PositionReportRow,
   ReportType,
   StopDto,
@@ -55,6 +57,8 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   DRIVERS: 'Driver activity report',
   DOCUMENTS: 'Documents & services report',
   POI_VISITS: 'POI visits report',
+  FUEL: 'Fuel report',
+  FUEL_EVENTS: 'Fuel refills & drains report',
 };
 
 const col = <T>(c: Omit<ReportColumn, 'value'> & { value: (row: T, tz: string) => Cell }): ReportColumn => c as ReportColumn;
@@ -101,6 +105,35 @@ const stopColumns = (label: string): ReportColumn[] => [
   col<StopDto>({ header: 'Type', width: 14, value: (r) => (r.ignitionOn ? 'Idle (engine on)' : 'Parked') }),
   col<StopDto>({ header: 'POI', width: 20, value: (r) => r.poiName ?? '' }),
   col<StopDto>({ header: 'Location', width: 40, value: (r) => r.address ?? loc(r.lat, r.lng) }),
+];
+
+const litres = (v: number | null) => (v === null ? '' : Math.round(v * 10) / 10);
+
+const FUEL: ReportColumn[] = [
+  col<FuelReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.vehicles ?? 0} vehicles)` }),
+  col<FuelReportRow>({ header: 'Day', width: 11, value: (r) => r.day }),
+  col<FuelReportRow>({ header: 'Start (L)', width: 9, numeric: true, value: (r) => litres(r.startL) }),
+  col<FuelReportRow>({ header: 'End (L)', width: 9, numeric: true, value: (r) => litres(r.endL) }),
+  col<FuelReportRow>({ header: 'Refills', width: 8, numeric: true, value: (r) => r.refills, total: (t) => t.refills ?? 0 }),
+  col<FuelReportRow>({ header: 'Refilled (L)', width: 11, numeric: true, value: (r) => r.refillL, total: (t) => t.refillL ?? 0 }),
+  col<FuelReportRow>({ header: 'Drains', width: 8, numeric: true, value: (r) => r.drains, total: (t) => t.drains ?? 0 }),
+  col<FuelReportRow>({ header: 'Drained (L)', width: 11, numeric: true, value: (r) => r.drainL, total: (t) => t.drainL ?? 0 }),
+  col<FuelReportRow>({ header: 'Consumed (L)', width: 12, numeric: true, value: (r) => litres(r.consumptionL), total: (t) => t.consumptionL ?? 0 }),
+  col<FuelReportRow>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => r.distanceKm, total: (t) => t.distanceKm ?? 0 }),
+  col<FuelReportRow>({ header: 'km/L', width: 8, numeric: true, value: (r) => r.kmPerL ?? '', total: (t) => t.kmPerL || '' }),
+  col<FuelReportRow>({ header: 'L/100 km', width: 9, numeric: true, value: (r) => r.lPer100Km ?? '' }),
+];
+
+const FUEL_EVENTS: ReportColumn[] = [
+  col<FuelEventDto>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.refills ?? 0} refills, ${t.drains ?? 0} drains)` }),
+  col<FuelEventDto>({ header: 'Plate', width: 14, value: (r) => r.plateNumber ?? '' }),
+  col<FuelEventDto>({ header: 'Event', width: 12, value: (r) => (r.type === 'REFILL' ? 'Refill' : 'Drain') }),
+  col<FuelEventDto>({ header: 'Start', width: 19, value: (r, tz) => localTime(r.startTime, tz) }),
+  col<FuelEventDto>({ header: 'End', width: 19, value: (r, tz) => localTime(r.endTime, tz) }),
+  col<FuelEventDto>({ header: 'Before (L)', width: 10, numeric: true, value: (r) => r.litresBefore }),
+  col<FuelEventDto>({ header: 'After (L)', width: 10, numeric: true, value: (r) => r.litresAfter }),
+  col<FuelEventDto>({ header: 'Change (L)', width: 10, numeric: true, value: (r) => (r.type === 'REFILL' ? r.deltaL : -r.deltaL) }),
+  col<FuelEventDto>({ header: 'Location', width: 24, value: (r) => (r.lat === null || r.lng === null ? '' : loc(r.lat, r.lng)) }),
 ];
 
 const POI_VISITS: ReportColumn[] = [
@@ -356,6 +389,10 @@ export function columnsFor(type: ReportType): ReportColumn[] {
       return DOCUMENTS;
     case 'POI_VISITS':
       return POI_VISITS;
+    case 'FUEL':
+      return FUEL;
+    case 'FUEL_EVENTS':
+      return FUEL_EVENTS;
   }
 }
 

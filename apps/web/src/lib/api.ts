@@ -132,6 +132,7 @@ export const api = {
   post: <T>(path: string, body?: unknown, opts?: Pick<RequestOptions, 'anonymous'>) =>
     request<T>(path, { method: 'POST', body: body ?? {}, ...opts }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: 'PATCH', body }),
+  put: <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   /** POST multipart/form-data (e.g. a document scan). */
   upload: <T>(path: string, form: FormData) => request<T>(path, { method: 'POST', form }),

@@ -361,6 +361,7 @@ export function HistoryPage() {
               engine={engine}
               trips={data.trips}
               alerts={data.alerts}
+              fuel={data.fuel}
               follow={follow}
               onFollowChange={setFollow}
               skipStops={skipStops}

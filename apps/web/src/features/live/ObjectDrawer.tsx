@@ -75,6 +75,21 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
       <Row label={t('Battery')}>{orDash(o.batteryLevel, '%')}</Row>
       <Row label={t('GSM signal')}>{o.gsmSignal === null ? '—' : t(GSM_LABELS[o.gsmSignal] ?? String(o.gsmSignal))}</Row>
       <Row label={t('External voltage')}>{orDash(o.extVoltage, ' V')}</Row>
+      {o.fuelL != null && (
+        <Row label={t('Fuel')}>
+          <span className="flex items-center gap-2 tabular-nums">
+            {`${o.fuelL.toFixed(1)} L`}
+            {o.fuelPct != null && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                <span className="h-1.5 w-12 overflow-hidden rounded-full bg-muted" aria-hidden>
+                  <span className={`block h-full rounded-full ${o.fuelPct < 15 ? 'bg-destructive' : 'bg-primary'}`} style={{ width: `${Math.min(100, Math.max(0, o.fuelPct))}%` }} />
+                </span>
+                {`${Math.round(o.fuelPct)}%`}
+              </span>
+            )}
+          </span>
+        </Row>
+      )}
       <Row label={t('Satellites')}>{orDash(o.satellites)}</Row>
       <Row label={t('Speed limit')}>{limit === null ? '—' : o.speedLimitKph === null ? t('{{limit}} km/h (default)', { limit }) : `${limit} km/h`}</Row>
     </dl>

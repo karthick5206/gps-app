@@ -9,5 +9,6 @@ export * from './commands';
 export * from './drivers';
 export * from './documents';
 export * from './pois';
+export * from './fuel';
 export * from './i18n';
 export * from './brand';

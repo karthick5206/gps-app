@@ -2,17 +2,37 @@ import { Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { LiveObject, NormalizedPosition, POSITION_FLAGS } from '@veetracer/shared';
 import type Redis from 'ioredis';
+import { randomUUID } from 'node:crypto';
+import { emptyFuelState, fuelLitres, FuelState, stepFuel } from '../fuel/fuel-logic';
 import { RedisKeys } from '../redis/keys';
 import { parseLive } from '../tracking/live-object';
 import { nextStatus, StatusState } from '../tracking/movement-status';
 import { EMPTY_TRACK_STATE, filterPosition, TrackState } from '../tracking/position-filter';
 import { DeviceCache, ResolvedDevice } from './device-cache';
 import { DriverIdentification } from './driver-identification';
-import { PositionRow, RawPacketRow, UnknownDeviceRow, WriteBatch, writeBatch } from './position-writer';
+import { FuelEventRow, PositionRow, RawPacketRow, UnknownDeviceRow, WriteBatch, writeBatch } from './position-writer';
 import { RuleInput } from './rules/evaluate';
 import { RulesBatch, RulesEngine } from './rules/rules-engine';
 
 const LAST_SEEN_THROTTLE_MS = 10_000;
+const FUEL_STATE_TTL_SEC = 7 * 24 * 3600;
+
+/** Fuel detector state of the objects in one batch. */
+interface FuelBatch {
+  states: Map<string, FuelState>;
+  changed: Set<string>;
+  events: FuelEventRow[];
+}
+
+function parseFuelState(json: string | null): FuelState | null {
+  if (!json) return null;
+  try {
+    const s = JSON.parse(json) as FuelState;
+    return Array.isArray(s?.buf) && Array.isArray(s?.hist) ? s : null;
+  } catch {
+    return null;
+  }
+}
 
 export interface StreamEntry {
   id: string;
@@ -84,6 +104,7 @@ export class PositionProcessor {
       if (d?.accepted && d.object) objectIds.add(d.object.objectId);
     }
     const { lives, tracks } = await this.loadState([...objectIds]);
+    const fuel = await this.loadFuel(parsed.map((p) => devices.get(p.position.uniqueId)));
 
     const batch: WriteBatch = { positions: [], rawPackets: [], unknownDevices: [], lastSeen: [] };
     const unknown = new Map<string, UnknownDeviceRow>();
@@ -110,11 +131,12 @@ export class PositionProcessor {
       }
       if (!device.accepted) continue;
       if (this.drivers && device.object) await this.drivers.apply(device.object, position);
-      batch.positions.push(this.evaluate(position, device, lives, tracks, changed, now, serverTime, ruleInputs));
+      batch.positions.push(this.evaluate(position, device, lives, tracks, changed, now, serverTime, ruleInputs, fuel));
       if (position.raw) batch.rawPackets.push(this.rawPacket(position, entry.remote));
       this.trackLastSeen(device.deviceId, now, serverTime, batch);
     }
     batch.unknownDevices = [...unknown.values()];
+    batch.fuelEvents = fuel.events;
 
     let rules = await this.evaluateRules(ruleInputs);
     if (changed.size) await this.publish(changed, tracks);
@@ -127,6 +149,7 @@ export class PositionProcessor {
       rules = null;
       await writeBatch(this.prisma, batch);
     }
+    await this.saveFuel(fuel);
     await this.redis.xack(RedisKeys.positionsStream, RedisKeys.processorGroup, ...entries.map((e) => e.id));
     if (rules) await this.commitRules(rules);
     return entries.length;
@@ -146,6 +169,25 @@ export class PositionProcessor {
     return { lives, tracks };
   }
 
+  private async loadFuel(devices: (ResolvedDevice | null | undefined)[]): Promise<FuelBatch> {
+    const out: FuelBatch = { states: new Map(), changed: new Set(), events: [] };
+    const ids = [...new Set(devices.filter((d) => d?.accepted && d.object && d.fuel).map((d) => d!.object!.objectId))];
+    if (!ids.length) return out;
+    const values = await this.redis.mget(...ids.map(RedisKeys.fuelState));
+    ids.forEach((id, i) => out.states.set(id, parseFuelState(values[i]) ?? emptyFuelState()));
+    return out;
+  }
+
+  /** After the batch (and its fuel events) was written: persist the detector state. */
+  private async saveFuel(fuel: FuelBatch): Promise<void> {
+    if (!fuel.changed.size) return;
+    const pipeline = this.redis.pipeline();
+    for (const id of fuel.changed) pipeline.set(RedisKeys.fuelState(id), JSON.stringify(fuel.states.get(id)), 'EX', FUEL_STATE_TTL_SEC);
+    const results = await pipeline.exec();
+    const failed = results?.find(([error]) => error);
+    if (failed?.[0]) this.logger.error(`Fuel state update failed: ${failed[0].message}`);
+  }
+
   private evaluate(
     position: NormalizedPosition,
     device: ResolvedDevice,
@@ -155,10 +197,22 @@ export class PositionProcessor {
     now: number,
     serverTime: string,
     ruleInputs: RuleInput[],
+    fuel: FuelBatch = { states: new Map(), changed: new Set(), events: [] },
   ): PositionRow {
     const fixTime = Date.parse(position.fixTime);
     const object = device.object;
     let flags = 0;
+
+    // Calibrated fuel level (litres, % of the tank) per the vehicle's fuel settings, stored with the position.
+    let litres: number | null = null;
+    if (object && device.fuel) {
+      litres = fuelLitres(position.attributes ?? {}, device.fuel);
+      if (litres !== null) {
+        const tank = device.fuel.tankCapacityL;
+        const pct = tank ? Math.min(100, Math.round((litres / tank) * 1000) / 10) : null;
+        position.attributes = { ...(position.attributes ?? {}), fuelL: litres, ...(pct !== null ? { fuelPct: pct } : {}) };
+      }
+    }
 
     if (object) {
       const track = tracks.get(object.objectId) ?? EMPTY_TRACK_STATE;
@@ -195,12 +249,15 @@ export class PositionProcessor {
           batteryLevel: numberAttr(attrs, 'batteryLevel') ?? prev?.batteryLevel ?? null,
           gsmSignal: numberAttr(attrs, 'gsmSignal') ?? prev?.gsmSignal ?? null,
           extVoltage: numberAttr(attrs, 'extVoltage') ?? prev?.extVoltage ?? null,
+          fuelL: device.fuel ? (numberAttr(attrs, 'fuelL') ?? prev?.fuelL ?? null) : null,
+          fuelPct: device.fuel ? (numberAttr(attrs, 'fuelPct') ?? prev?.fuelPct ?? null) : null,
           fixTime: position.fixTime,
           serverTime,
         };
         lives.set(object.objectId, live);
         tracks.set(object.objectId, { ...result.next, stoppedSince: status.stoppedSince });
         changed.set(object.objectId, live);
+        const fuelEvents = this.detectFuel(object.objectId, object.companyId, device, litres, fixTime, live, trusted && attrs.reupload !== true, fuel);
         // Vehicles in maintenance (workshop, testing) raise no alerts. Without a GPS fix only location-independent
         // rules run (ignition, SOS/power cut, battery come from the device wiring, not GPS).
         if (!object.inMaintenance) {
@@ -214,6 +271,7 @@ export class PositionProcessor {
             attributes: attrs,
             locationValid: (flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null,
             receivedAt: now,
+            ...(fuelEvents.length ? { fuelEvents } : {}),
           });
         }
       } else if ((flags & POSITION_FLAGS.FUTURE) !== 0 && !object.inMaintenance) {
@@ -249,6 +307,39 @@ export class PositionProcessor {
       flags,
       attributes: JSON.stringify(position.attributes ?? {}),
     };
+  }
+
+  /** Run the refill / drain detector on a trusted live point; detected events become FuelEvent rows and rule input. */
+  private detectFuel(
+    objectId: string,
+    companyId: string,
+    device: ResolvedDevice,
+    litres: number | null,
+    fixTime: number,
+    live: LiveObject,
+    usable: boolean,
+    fuel: FuelBatch,
+  ): NonNullable<RuleInput['fuelEvents']> {
+    const state = fuel.states.get(objectId);
+    if (!device.fuel || litres === null || !usable || !state) return [];
+    const event = stepFuel(state, { t: fixTime, litres, speedKph: live.speedKph, lat: live.lat, lng: live.lng }, device.fuel);
+    fuel.changed.add(objectId);
+    if (!event) return [];
+    const row: FuelEventRow = {
+      id: randomUUID(),
+      companyId,
+      objectId,
+      type: event.type,
+      startTime: new Date(event.startTime).toISOString(),
+      endTime: new Date(event.endTime).toISOString(),
+      litresBefore: event.litresBefore,
+      litresAfter: event.litresAfter,
+      deltaL: event.deltaL,
+      lat: event.lat,
+      lng: event.lng,
+    };
+    fuel.events.push(row);
+    return [{ ...event, id: row.id }];
   }
 
   /** Alert rules never block position processing: failures are logged and the batch continues without alerts. */

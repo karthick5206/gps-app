@@ -38,6 +38,22 @@ export interface WriteBatch {
   rawPackets: RawPacketRow[];
   unknownDevices: UnknownDeviceRow[];
   lastSeen: { deviceId: string; at: string }[];
+  /** Detected fuel refills / drains. */
+  fuelEvents?: FuelEventRow[];
+}
+
+export interface FuelEventRow {
+  id: string;
+  companyId: string;
+  objectId: string;
+  type: 'REFILL' | 'DRAIN';
+  startTime: string;
+  endTime: string;
+  litresBefore: number;
+  litresAfter: number;
+  deltaL: number;
+  lat: number | null;
+  lng: number | null;
 }
 
 const str = (v: number | boolean | null) => (v === null ? null : String(v));
@@ -107,6 +123,25 @@ export async function writeBatch(
       UPDATE "Device" AS d SET "lastSeenAt" = t.at
       FROM unnest(${s.map((x) => x.deviceId)}::text[]::uuid[], ${s.map((x) => x.at)}::text[]::timestamptz[]) AS t(id, at)
       WHERE d.id = t.id`);
+  }
+  const f = batch.fuelEvents ?? [];
+  if (f.length) {
+    statements.push(prisma.$executeRaw`
+      INSERT INTO "FuelEvent" ("id", "companyId", "objectId", "type", "startTime", "endTime", "litresBefore", "litresAfter", "deltaL", "lat", "lng")
+      SELECT * FROM unnest(
+        ${f.map((x) => x.id)}::text[]::uuid[],
+        ${f.map((x) => x.companyId)}::text[]::uuid[],
+        ${f.map((x) => x.objectId)}::text[]::uuid[],
+        ${f.map((x) => x.type)}::text[],
+        ${f.map((x) => x.startTime)}::text[]::timestamptz[],
+        ${f.map((x) => x.endTime)}::text[]::timestamptz[],
+        ${f.map((x) => String(x.litresBefore))}::text[]::float8[],
+        ${f.map((x) => String(x.litresAfter))}::text[]::float8[],
+        ${f.map((x) => String(x.deltaL))}::text[]::float8[],
+        ${f.map((x) => str(x.lat))}::text[]::float8[],
+        ${f.map((x) => str(x.lng))}::text[]::float8[]
+      )
+      ON CONFLICT DO NOTHING`);
   }
   // Extra statements (alert rows, geofence visits) commit atomically with the positions they came from.
   statements.push(...extra);

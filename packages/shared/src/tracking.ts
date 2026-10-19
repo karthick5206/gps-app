@@ -98,6 +98,9 @@ export interface LiveObject {
   batteryLevel: number | null;
   gsmSignal: number | null;
   extVoltage: number | null;
+  /** Fuel in the tank (calibrated litres) and % of the tank, when the vehicle has a fuel sensor configured. */
+  fuelL?: number | null;
+  fuelPct?: number | null;
   fixTime: string | null;
   serverTime: string | null;
   speedLimitKph: number | null;
