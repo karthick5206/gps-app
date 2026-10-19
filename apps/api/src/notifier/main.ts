@@ -9,6 +9,7 @@ import { NotifierModule } from './notifier.module';
 import { NotifierService } from './notifier.service';
 import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 import { DriverEventWorkerService } from '../driver-events/driver-event-worker.service';
+import { RelayWorkerService } from '../relay/relay-worker.service';
 
 /** Notifier process: consumes `vt:notify`, renders templates, sends e-mail/SMS and writes NotificationLog. */
 async function main(): Promise<void> {
@@ -25,12 +26,15 @@ async function main(): Promise<void> {
       notifier.invalidate(null);
     }
   });
-  const heartbeat = startHeartbeat(redis.client, 'notifier', () => notifier.metrics());
+  // HTTP_JSON data forwarding (consumer group `relay` on `vt:positions`) also runs here.
+  const relay = app.get(RelayWorkerService);
+  const heartbeat = startHeartbeat(redis.client, 'notifier', () => ({ ...notifier.metrics(), relay: relay.snapshot() }));
   const shutdown = () => {
     Logger.log('Stopping after the current jobs…', 'Notifier');
     notifier.stop();
     webhooks.stop();
     driverEvents.stop();
+    relay.stop();
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
@@ -38,7 +42,7 @@ async function main(): Promise<void> {
   const webhooks = app.get(WebhookWorkerService);
   // Driver event media (vt:driver-media → DriverEventMedia) also runs here.
   const driverEvents = app.get(DriverEventWorkerService);
-  await Promise.all([notifier.run(), webhooks.run(), driverEvents.run()]);
+  await Promise.all([notifier.run(), webhooks.run(), driverEvents.run(), relay.run()]);
   await notifier.drain();
   await heartbeat.stop();
   await app.close();

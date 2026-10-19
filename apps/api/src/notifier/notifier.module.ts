@@ -7,9 +7,10 @@ import { RedisModule } from '../redis/redis.module';
 import { NotifierService } from './notifier.service';
 import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 import { DriverEventWorkerService } from '../driver-events/driver-event-worker.service';
+import { RelayWorkerService } from '../relay/relay-worker.service';
 
 @Module({
   imports: [AppConfigModule, PrismaModule, RedisModule, GeocodingModule],
-  providers: [MailerService, NotifierService, WebhookWorkerService, DriverEventWorkerService],
+  providers: [MailerService, NotifierService, WebhookWorkerService, DriverEventWorkerService, RelayWorkerService],
 })
 export class NotifierModule {}
