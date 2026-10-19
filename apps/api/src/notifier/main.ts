@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { loadEnv } from '../config/env';
+import { startHeartbeat } from '../monitoring/heartbeat';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { NotifierModule } from './notifier.module';
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
       notifier.invalidate(null);
     }
   });
+  const heartbeat = startHeartbeat(redis.client, 'notifier', () => notifier.metrics());
   const shutdown = () => {
     Logger.log('Stopping after the current jobs…', 'Notifier');
     notifier.stop();
@@ -33,6 +35,7 @@ async function main(): Promise<void> {
   // Webhook deliveries run in this process too (consumer group `webhooks` on `vt:webhooks`); no extra service.
   const webhooks = app.get(WebhookWorkerService);
   await Promise.all([notifier.run(), webhooks.run()]);
+  await heartbeat.stop();
   await app.close();
   process.exit(0);
 }

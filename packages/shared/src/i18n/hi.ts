@@ -2029,6 +2029,7 @@ export const HI: Record<string, string> = {
   'Unicode because of:': 'Unicode इसके कारण:',
   'Unknown device': 'अज्ञात डिवाइस',
   'Unknown Devices': 'अज्ञात डिवाइस',
+  'System Health': 'सिस्टम हेल्थ',
   'Unknown IP': 'अज्ञात IP',
   'Unknown list': 'अज्ञात सूची',
   'Unknown placeholders:': 'अज्ञात प्लेसहोल्डर:',

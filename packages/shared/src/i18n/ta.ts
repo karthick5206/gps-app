@@ -1897,6 +1897,7 @@ export const TA: Record<string, string> = {
   'Switch one alert type on or off across several branches, groups or vehicles at once.': 'ஒரு எச்சரிக்கை வகையை பல கிளைகள், குழுக்கள் அல்லது வாகனங்களுக்கு ஒரே நேரத்தில் இயக்கவும் அல்லது அணைக்கவும்.',
   'System': 'சிஸ்டம்',
   'System default': 'சிஸ்டம் இயல்புநிலை',
+  'System Health': 'சிஸ்டம் ஹெல்த்',
   'System role': 'சிஸ்டம் பங்கு',
   'System value': 'சிஸ்டம் மதிப்பு',
   'Systems using “{{name}}” will stop working immediately. This cannot be undone.': '“{{name}}” பயன்படுத்தும் அமைப்புகள் உடனே வேலை செய்வதை நிறுத்தும். இதைத் திரும்பப் பெற முடியாது.',

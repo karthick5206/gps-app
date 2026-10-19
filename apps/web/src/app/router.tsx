@@ -38,6 +38,7 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   sa_licences: page(() => import('@/features/billing/admin/LicencesAdminPage'), 'LicencesAdminPage'),
   sa_platform_settings: page(() => import('@/features/billing/admin/PlatformSettingsPage'), 'PlatformSettingsPage'),
   billing: page(() => import('@/features/billing/BillingPage'), 'BillingPage'),
+  sa_system_health: page(() => import('@/features/platform/SystemHealthPage'), 'SystemHealthPage'),
   history: page(() => import('@/features/history/HistoryPage'), 'HistoryPage'),
   reports: page(() => import('@/features/reports/ReportsPage'), 'ReportsPage'),
   report_schedules: page(() => import('@/features/reports/ScheduledReportsPage'), 'ScheduledReportsPage'),

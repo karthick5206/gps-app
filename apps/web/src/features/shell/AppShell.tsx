@@ -8,6 +8,7 @@ import { realtime } from '@/features/live/realtime';
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { Sidebar } from './Sidebar';
+import { SystemHealthBanner } from './SystemHealthBanner';
 import { TopBar } from './TopBar';
 
 /** Keeps one Socket.IO connection per selected company while the user is in the app. */
@@ -51,6 +52,7 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
         <LicenceBanner />
+        <SystemHealthBanner />
         <main id="main" className="min-h-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>

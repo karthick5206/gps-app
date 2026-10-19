@@ -143,6 +143,8 @@ export function mapIo(rec: TeltonikaRecord): { ignition: boolean | null; attribu
 export class TeltonikaDecoder implements ProtocolDecoder<TeltonikaSession> {
   readonly name = TELTONIKA_PROTOCOL;
   readonly maxFrameBytes = TELTONIKA_MAX_FRAME_BYTES;
+  // Teltonika resends unacknowledged records only on a new connection.
+  readonly closeOnEnqueueFailure = true;
 
   createSession(): TeltonikaSession {
     return { uniqueId: null };

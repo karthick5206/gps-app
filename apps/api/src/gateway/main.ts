@@ -2,8 +2,9 @@ import { Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { CommandDispatch, COMMAND_TTL_HOURS } from '@veetracer/shared';
+import { CommandDispatch, COMMAND_TTL_HOURS, GatewayMetrics } from '@veetracer/shared';
 import { APP_ROOT, loadEnv } from '../config/env';
+import { RateMeter, startHeartbeat } from '../monitoring/heartbeat';
 import { RedisKeys } from '../redis/keys';
 import { Ais140Decoder } from './ais140/decoder';
 import { Gt06Decoder } from './gt06/decoder';
@@ -17,6 +18,8 @@ import { TeltonikaDecoder } from './teltonika/decoder';
 import { UnparsedLog } from './unparsed-log';
 
 const STATS_INTERVAL_MS = 30_000;
+/** A listener that failed to bind (port in use) is retried this often; System Health shows it as not listening. */
+const LISTEN_RETRY_MS = 30_000;
 
 /**
  * Device gateway: one TCP listener per protocol, all feeding the same `vt:positions` stream.
@@ -48,12 +51,23 @@ async function main(): Promise<void> {
     [new Ais140Decoder() as ProtocolDecoder<BaseSession>, env.ais140Port],
   ];
   const servers: TcpGatewayServer<BaseSession>[] = [];
+  const retries: NodeJS.Timeout[] = [];
+  const listen = async (server: TcpGatewayServer<BaseSession>, port: number): Promise<void> => {
+    try {
+      await server.listen(port);
+      logger.log(`${server.protocol} listening on tcp://0.0.0.0:${port}`);
+    } catch (error) {
+      // Keep the other protocols running; report the port as not listening and retry.
+      logger.error(`${server.protocol} could not listen on ${port}: ${(error as Error).message} (retrying every ${LISTEN_RETRY_MS / 1000}s)`);
+      const timer = setTimeout(() => void listen(server, port), LISTEN_RETRY_MS);
+      retries.push(timer);
+    }
+  };
   for (const [decoder, port] of listeners) {
     if (!port) continue;
     const server = new TcpGatewayServer(decoder, { redis, gatewayId, unparsed, capture });
-    await server.listen(port);
     servers.push(server);
-    logger.log(`${decoder.name} listening on tcp://0.0.0.0:${port}`);
+    await listen(server, port);
   }
   // Commands for devices connected to this gateway (the API publishes to the channel named after vt:conn:<id>).
   const commands = new Redis(env.redisUrl);
@@ -107,16 +121,43 @@ async function main(): Promise<void> {
       const s = server.stats;
       const rate = ((s.positions - (last.get(server.protocol) ?? 0)) * 1000) / STATS_INTERVAL_MS;
       logger.log(
-        `[${server.protocol}] connections=${s.connections} frames=${s.frames} positions=${s.positions} dropped=${s.dropped} errors=${s.errors} rate=${rate.toFixed(1)}/s`,
+        `[${server.protocol}] connections=${s.connections} frames=${s.frames} positions=${s.positions} dropped=${s.dropped} errors=${s.errors} enqueueFailures=${s.enqueueFailures} rate=${rate.toFixed(1)}/s`,
       );
       last.set(server.protocol, s.positions);
     }
   }, STATS_INTERVAL_MS);
 
+  const meters = new Map(servers.map((s) => [s.protocol, { frames: new RateMeter(), positions: new RateMeter() }]));
+  const iso = (ms: number | null) => (ms ? new Date(ms).toISOString() : null);
+  const heartbeat = startHeartbeat(redis, 'gateway', (): GatewayMetrics => ({
+    listeners: servers.map((server) => {
+      const s = server.stats;
+      const m = meters.get(server.protocol)!;
+      return {
+        protocol: server.protocol,
+        port: server.configuredPort ?? 0,
+        listening: server.listening,
+        error: server.listening ? null : server.listenError,
+        connections: s.connections,
+        frames: s.frames,
+        positions: s.positions,
+        framesPerSec: m.frames.rate(s.frames),
+        positionsPerSec: m.positions.rate(s.positions),
+        dropped: s.dropped,
+        errors: s.errors,
+        enqueueFailures: s.enqueueFailures,
+        lastPacketAt: iso(s.lastPacketAt),
+        lastPositionAt: iso(s.lastPositionAt),
+      };
+    }),
+  }));
+
   const shutdown = async () => {
     clearInterval(timer);
     await media?.close();
     await videoSub?.quit().catch(() => undefined);
+    retries.forEach(clearTimeout);
+    await heartbeat.stop();
     await Promise.all(servers.map((s) => s.close()));
     await commands.quit().catch(() => undefined);
     await redis.quit();

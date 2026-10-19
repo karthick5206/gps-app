@@ -48,6 +48,7 @@ export const MENU_KEYS = [
   'sa_unknown_devices',
   'sa_licences',
   'sa_platform_settings',
+  'sa_system_health',
 ] as const;
 export type MenuKey = (typeof MENU_KEYS)[number];
 
@@ -84,6 +85,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'sa_unknown_devices', label: 'Unknown Devices', group: 'platform', path: '/platform/unknown-devices', actions: ['view'], superAdminOnly: true },
   { key: 'sa_licences', label: 'Licences & Invoices', group: 'platform', path: '/platform/licences', actions: CRUD, superAdminOnly: true },
   { key: 'sa_platform_settings', label: 'Platform Settings', group: 'platform', path: '/platform/settings', actions: ['view', 'edit'], superAdminOnly: true },
+  { key: 'sa_system_health', label: 'System Health', group: 'platform', path: '/platform/system-health', actions: ['view', 'edit'], superAdminOnly: true },
 ];
 
 export type PermissionMap = Partial<Record<MenuKey, Action[]>>;
