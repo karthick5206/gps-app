@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation } from 'react-router';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useAuth } from '@/features/auth/auth-context';
+import { LicenceBanner, LicenceRequiredDialog } from '@/features/billing/LicenceNotices';
 import { realtime } from '@/features/live/realtime';
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 import { cn } from '@/lib/utils';
@@ -49,10 +50,12 @@ export function AppShell() {
       </Sheet>
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
+        <LicenceBanner />
         <main id="main" className="min-h-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>
+      <LicenceRequiredDialog />
     </div>
   );
 }

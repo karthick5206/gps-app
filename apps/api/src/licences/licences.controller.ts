@@ -107,13 +107,43 @@ export class PartnerLicencesController {
     return { allocated: await this.pools.allocate(ctx, owner.id, dto.companyId, dto.type, dto.quantity) };
   }
 
-  /** Cash / UPI / bank / cheque collected by the partner from one of its customers. */
-  @Post('customers/:companyId/payments') @RequirePermission('billing', 'create')
-  async customerPayment(@Auth() ctx: AuthContext, @Param('companyId', ParseUUIDPipe) companyId: string, @Body() dto: OfflinePaymentDto) {
+  private async customer(ctx: AuthContext, companyId: string) {
     const partner = await this.billing.partnerOf(ctx);
     const owner = await this.billing.companyOwner(companyId);
     if (owner.partnerId !== partner.id) throw new ForbiddenException('This company is not your customer');
-    return this.billing.recordOffline(ctx, owner, dto);
+    return owner;
+  }
+
+  @Get('customers/:companyId/overview') @RequirePermission('billing', 'view')
+  async customerOverview(@Auth() ctx: AuthContext, @Param('companyId', ParseUUIDPipe) companyId: string) {
+    return this.billing.overview(await this.customer(ctx, companyId));
+  }
+
+  @Put('customers/:companyId/billing-profile') @RequirePermission('billing', 'edit')
+  async customerProfile(@Auth() ctx: AuthContext, @Param('companyId', ParseUUIDPipe) companyId: string, @Body() dto: BillingProfileBody) {
+    return this.billing.saveProfile(ctx, await this.customer(ctx, companyId), dto);
+  }
+
+  @Post('customers/:companyId/quote') @HttpCode(200) @RequirePermission('billing', 'view')
+  async customerQuote(@Auth() ctx: AuthContext, @Param('companyId', ParseUUIDPipe) companyId: string, @Body() dto: PurchaseDto) {
+    return this.billing.quote(await this.customer(ctx, companyId), dto);
+  }
+
+  /** Cash / UPI / bank / cheque collected by the partner from one of its customers. */
+  @Post('customers/:companyId/payments') @RequirePermission('billing', 'create')
+  async customerPayment(@Auth() ctx: AuthContext, @Param('companyId', ParseUUIDPipe) companyId: string, @Body() dto: OfflinePaymentDto) {
+    return this.billing.recordOffline(ctx, await this.customer(ctx, companyId), dto);
+  }
+
+  @Get('customers/:companyId/invoices') @RequirePermission('billing', 'view')
+  async customerInvoices(@Auth() ctx: AuthContext, @Param('companyId', ParseUUIDPipe) companyId: string) {
+    return this.invoices.list({ companyId: (await this.customer(ctx, companyId)).id });
+  }
+
+  @Get('customers/:companyId/invoices/:id/pdf') @RequirePermission('billing', 'view')
+  async customerInvoicePdf(@Auth() ctx: AuthContext, @Param('companyId', ParseUUIDPipe) companyId: string, @Param('id', ParseUUIDPipe) id: string) {
+    const inv = await this.invoices.find(id, { companyId: (await this.customer(ctx, companyId)).id });
+    return pdfFile(this.invoices, inv, await this.invoices.pdf(inv));
   }
 
   @Get('invoices') @RequirePermission('billing', 'view')

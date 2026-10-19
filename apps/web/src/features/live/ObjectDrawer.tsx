@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { DEFAULT_SPEED_LIMIT_KPH, type DeviceDto, type LiveObject } from '@veetracer/shared';
-import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, WrenchIcon, XIcon } from 'lucide-react';
+import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, LockIcon, WrenchIcon, XIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -211,6 +211,11 @@ export function ObjectDrawer({
           <p className="truncate text-xs text-muted-foreground">
             {[object.plateNumber, object.vehicleType ?? object.type].filter(Boolean).join(' · ')}
           </p>
+          {object.licenceLocked && (
+            <Badge variant="destructive" className="mt-1.5">
+              <LockIcon className="size-3" /> {t('Licence expired — renew to view')}
+            </Badge>
+          )}
           {inMaintenance && (
             <Badge variant="warning" className="mt-1.5">
               <WrenchIcon className="size-3" /> {t('In maintenance · alerts paused')}

@@ -1,6 +1,8 @@
 import { MENUS, type MenuDef, type MenuGroup, type MenuKey, type PermissionMap } from '@veetracer/shared';
 import {
   IdCardIcon,
+  ReceiptIndianRupeeIcon,
+  SlidersHorizontalIcon,
   BellIcon,
   BellRingIcon,
   BoxesIcon,
@@ -44,6 +46,9 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   audit_log: ScrollTextIcon,
   settings: SettingsIcon,
   api: CodeXmlIcon,
+  billing: ReceiptIndianRupeeIcon,
+  sa_licences: ShieldCheckIcon,
+  sa_platform_settings: SlidersHorizontalIcon,
   sa_companies: Building2Icon,
   sa_device_models: BoxesIcon,
   sa_device_inventory: HardDriveIcon,
