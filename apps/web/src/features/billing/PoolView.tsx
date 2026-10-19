@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { CreditNoteDto, InvoiceDto, LicenceOverviewDto } from '@veetracer/shared';
+import type { ApiPlan, CreditNoteDto, InvoiceDto, LicenceOverviewDto } from '@veetracer/shared';
 import { CreditCardIcon, FileTextIcon, ReceiptIcon, RefreshCwIcon, ShieldCheckIcon, WalletIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -31,6 +31,7 @@ export function PoolView({
   onChanged,
   extraTabs,
   extraActions,
+  initialApiPlan,
 }: {
   overview: LicenceOverviewDto;
   basePath: string;
@@ -46,10 +47,14 @@ export function PoolView({
   onChanged: () => void;
   extraTabs?: { value: string; label: string; content: ReactNode }[];
   extraActions?: ReactNode;
+  /** From the Developer API page: open the buy dialog with this plan, or with the API seat selected to renew it. */
+  initialApiPlan?: ApiPlan | null;
 }) {
   const { t } = useTranslation();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [dialog, setDialog] = useState<'pay' | 'record' | null>(null);
+  const apiSeat = overview.apiAccess?.seat ?? null;
+  const renewApi = !!initialApiPlan && !!apiSeat && apiSeat.plan === initialApiPlan;
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(renewApi && apiSeat ? [apiSeat.id] : []));
+  const [dialog, setDialog] = useState<'pay' | 'record' | null>(() => (initialApiPlan && canBuy ? 'pay' : null));
   const invoices = useQuery({ queryKey: [invoicesPath], queryFn: ({ signal }) => api.get<InvoiceDto[]>(invoicesPath, undefined, signal) });
   const creditNotes = useQuery({
     queryKey: [creditNotesPath],
@@ -155,6 +160,7 @@ export function PoolView({
           basePath={basePath}
           recordPath={recordPath}
           renewSeatIds={[...selected]}
+          initialApiPlan={renewApi ? null : initialApiPlan}
           mode={dialog}
           onDone={done}
         />

@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { LICENCE_TYPES, type LicenceOverviewDto, type LicenceType } from '@veetracer/shared';
+import { isApiPlan, LICENCE_TYPES, type LicenceOverviewDto, type LicenceType } from '@veetracer/shared';
 import { BuildingIcon, HandshakeIcon, InfoIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router';
 import { FormError } from '@/components/form-error';
 import { PageHeader } from '@/components/page-header';
 import { Card } from '@/components/ui/card';
@@ -67,6 +68,10 @@ export function BillingPage() {
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const [customer, setCustomer] = useState<{ id: string; name: string } | null>(null);
+  // ?apiPlan=STANDARD (Developer API page → buy / renew / upgrade): the buy dialog opens with that plan.
+  const [params] = useSearchParams();
+  const apiPlanParam = params.get('apiPlan');
+  const initialApiPlan = isApiPlan(apiPlanParam) ? apiPlanParam : null;
   const company = useQuery({ queryKey: ['licences', 'overview'], queryFn: ({ signal }) => api.get<LicenceOverviewDto>('/licences/overview', undefined, signal), retry: false });
   const partner = useQuery({ queryKey: ['licences', 'partner'], queryFn: ({ signal }) => api.get<PartnerOverview>('/licences/partner/overview', undefined, signal), retry: false });
   const isPartner = partner.isSuccess;
@@ -92,6 +97,7 @@ export function BillingPage() {
       invoicesPath="/licences/invoices"
       pdfPath={(id) => `/licences/invoices/${id}/pdf`}
       creditNotesPath="/licences/credit-notes"
+      initialApiPlan={initialApiPlan}
       creditNotePdfPath={(id) => `/licences/credit-notes/${id}/pdf`}
       canBuy={can('billing', 'create')}
       canEditProfile={can('billing', 'edit')}

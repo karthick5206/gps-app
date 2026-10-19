@@ -18,7 +18,7 @@ const pageMeta = obj({ count: int('Rows in this page'), nextCursor: nullable(str
 const list = (item: string): Json => obj({ data: { type: 'array', items: ref(item) }, meta: pageMeta });
 
 const SCHEMAS: Record<string, Json> = {
-  Error: obj({ error: obj({ status: int('HTTP status'), code: str('invalid_request | unauthorized | forbidden | not_found | rate_limited | internal_error'), message: str() }) }),
+  Error: obj({ error: obj({ status: int('HTTP status'), code: str('invalid_request | unauthorized | forbidden | not_found | rate_limited | internal_error | LICENCE_EXPIRED | LICENCE_REQUIRED | API_VEHICLE_LIMIT | API_WEBHOOK_LIMIT'), message: str() }) }),
   Vehicle: obj({
     id: str('Vehicle id (UUID)'),
     name: str(),
@@ -170,6 +170,7 @@ const errors = (...codes: number[]): Json =>
 const ERROR_TEXT: Record<number, string> = {
   400: 'Invalid request',
   401: 'Missing, invalid, revoked or expired API key',
+  402: 'Developer API licence: LICENCE_EXPIRED (past the grace period), LICENCE_REQUIRED (none bought), API_VEHICLE_LIMIT (vehicle beyond the plan), API_WEBHOOK_LIMIT',
   403: 'The key lacks the scope or the IP is not allowed',
   404: 'Not found (or outside the key\'s data scope)',
   429: 'Rate limit exceeded (see Retry-After)',
@@ -180,7 +181,7 @@ const op = (summary: string, scope: string, parameters: Json[], response: Json, 
   description: `Scope: \`${scope}\`.`,
   security: [{ apiKey: [] }],
   parameters,
-  responses: { '200': response, ...errors(400, 401, 403, 404, 429) },
+  responses: { '200': response, ...errors(400, 401, 402, 403, 404, 429) },
   ...extra,
 });
 
@@ -194,7 +195,7 @@ export function buildOpenApi(serverUrl = '/api'): Json {
         'Read vehicles, live positions, history, trips, alerts and reports, and send device commands from your own systems. ' +
         'Authenticate with `Authorization: Bearer vtx_live_…` (create keys under Administration → Developer API). ' +
         'All times are ISO 8601 in UTC. Lists are paginated with `cursor` / `limit`; responses are `{ data, meta }`, errors `{ error: { status, code, message } }`. ' +
-        `Scopes: ${API_SCOPES.join(', ')}. Each key has a per-minute and per-day request limit (X-RateLimit-* headers; 429 with Retry-After when exceeded).`,
+        `Scopes: ${API_SCOPES.join(', ')}. Each key has a per-minute and per-day request limit (X-RateLimit-* headers; 429 with Retry-After when exceeded), capped by the company's Developer API plan, which also sets a daily request quota for the whole company (X-Quota-* headers), the number of vehicles reachable (the first N by name) and of webhook endpoints. Without a valid Developer API licence every request gets 402.`,
     },
     servers: [{ url: serverUrl }],
     components: {
@@ -254,7 +255,7 @@ export function buildOpenApi(serverUrl = '/api'): Json {
       '/v1/webhooks/{id}': {
         delete: {
           ...op('Delete a webhook endpoint', 'webhooks', [{ name: 'id', in: 'path', required: true, schema: str(undefined, { format: 'uuid' }) }], { description: 'Deleted' }),
-          responses: { '204': { description: 'Deleted' }, ...errors(401, 403, 404, 429) },
+          responses: { '204': { description: 'Deleted' }, ...errors(401, 402, 403, 404, 429) },
         },
       },
       '/v1/vehicles/{id}/commands': {
@@ -266,7 +267,7 @@ export function buildOpenApi(serverUrl = '/api'): Json {
             required: true,
             content: { 'application/json': { schema: { type: 'object', required: ['type'], properties: { type: str('engine_stop | engine_resume | locate | status | reboot') } } } },
           },
-          responses: { '202': ok(obj({ data: ref('Command') }), 'Accepted (queued or sent)'), ...errors(400, 401, 403, 404, 429) },
+          responses: { '202': ok(obj({ data: ref('Command') }), 'Accepted (queued or sent)'), ...errors(400, 401, 402, 403, 404, 429) },
         },
       },
     },

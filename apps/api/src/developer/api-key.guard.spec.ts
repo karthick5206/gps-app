@@ -8,6 +8,7 @@ import { RedisService } from '../redis/redis.service';
 import { generateApiKey } from './api-key-crypto';
 import { ApiKeyGuard, RateLimitedException } from './api-key.guard';
 import { ApiKeysService } from './api-keys.service';
+import { ApiAccessService } from '../licences/api-access.service';
 
 const key = generateApiKey();
 const row = (over: Record<string, unknown> = {}) => ({
@@ -28,7 +29,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function setup(over: Record<string, unknown> = {}, scope: string | null = 'read:vehicles') {
+function setup(over: Record<string, unknown> = {}, scope: string | null = 'read:vehicles', access?: ApiAccessService) {
   const prisma = {
     apiKey: {
       findUnique: jest.fn(async ({ where }: { where: { keyHash: string } }) => (where.keyHash === key.hash ? row(over) : null)),
@@ -47,7 +48,7 @@ function setup(over: Record<string, unknown> = {}, scope: string | null = 'read:
   };
   const keys = new ApiKeysService(prisma as unknown as PrismaService, {} as AuditService);
   const reflector = { getAllAndOverride: jest.fn(() => scope ?? undefined) } as unknown as Reflector;
-  const guard = new ApiKeyGuard(reflector, keys, redis as unknown as RedisService);
+  const guard = new ApiKeyGuard(reflector, keys, redis as unknown as RedisService, access);
   return { guard, keys, prisma };
 }
 
@@ -113,6 +114,70 @@ describe('ApiKeyGuard (public API v1)', () => {
     expect(err).toBeInstanceOf(RateLimitedException);
     expect((err as RateLimitedException).getStatus()).toBe(429);
     expect(Number(h.headers['Retry-After'])).toBeGreaterThan(0);
+  });
+});
+
+const DAY = 86_400_000;
+
+/** Real ApiAccessService over fakes: the company's API seats, platform flag, plans and the Valkey quota counter. */
+function access(seats: { expiresAt: Date; apiPlan: string }[], opts: { exempt?: boolean; apiPlans?: unknown } = {}) {
+  const counters = new Map<string, number>();
+  const prisma = { licenceSeat: { findMany: jest.fn(async () => seats.map((s, i) => ({ id: `s${i}`, activatedAt: new Date(), source: 'PURCHASE', ...s }))) } };
+  const settings = { get: jest.fn(async () => ({ apiPlans: opts.apiPlans ?? {}, graceDays: 15 })) };
+  const policy = { isExempt: jest.fn(async () => !!opts.exempt) };
+  const redis = {
+    client: {
+      incr: jest.fn(async (k: string) => counters.set(k, (counters.get(k) ?? 0) + 1).get(k)),
+      expire: jest.fn(async () => 1),
+      get: jest.fn(async (k: string) => (counters.has(k) ? String(counters.get(k)) : null)),
+    },
+  };
+  return new ApiAccessService(prisma as never, settings as never, policy as never, redis as never);
+}
+
+describe('ApiKeyGuard: Developer API licence', () => {
+  const bearer = `Bearer ${key.secret}`;
+
+  it('refuses keys without an API licence, and after the grace period with 402 LICENCE_EXPIRED', async () => {
+    const none = await setup({}, 'read:vehicles', access([])).guard.canActivate(http(bearer).ctx).catch((e: unknown) => e);
+    expect(none).toMatchObject({ status: 402, code: 'LICENCE_REQUIRED' });
+    const expired = access([{ expiresAt: new Date(Date.now() - 16 * DAY), apiPlan: 'BASIC' }]);
+    const err = await setup({}, 'read:vehicles', expired).guard.canActivate(http(bearer).ctx).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 402, code: 'LICENCE_EXPIRED' });
+    expect((err as { getResponse: () => unknown }).getResponse()).toMatchObject({ code: 'LICENCE_EXPIRED', message: expect.stringContaining('Developer API licence expired') });
+  });
+
+  it('keeps working during the grace period and for platform companies', async () => {
+    const grace = access([{ expiresAt: new Date(Date.now() - 3 * DAY), apiPlan: 'BASIC' }]);
+    await expect(setup({}, 'read:vehicles', grace).guard.canActivate(http(bearer).ctx)).resolves.toBe(true);
+    await expect(setup({}, 'read:vehicles', access([], { exempt: true })).guard.canActivate(http(bearer).ctx)).resolves.toBe(true);
+  });
+
+  it('caps a key at the plan rate (minimum of key and plan)', async () => {
+    const plans = { BASIC: { ratePerMinute: 1 } };
+    const svc = access([{ expiresAt: new Date(Date.now() + 100 * DAY), apiPlan: 'BASIC' }], { apiPlans: plans });
+    const { guard } = setup({ ratePerMinute: 50 }, 'read:vehicles', svc);
+    const h = http(bearer);
+    await guard.canActivate(h.ctx);
+    expect(h.headers['X-RateLimit-Limit']).toBe('1');
+    await expect(guard.canActivate(http(bearer).ctx)).rejects.toBeInstanceOf(RateLimitedException);
+  });
+
+  it('enforces the company-wide daily quota of the plan across keys', async () => {
+    const plans = { STANDARD: { ratePerDay: 2 } };
+    const svc = access([{ expiresAt: new Date(Date.now() + 100 * DAY), apiPlan: 'STANDARD' }], { apiPlans: plans });
+    // Two keys of the same company: each is capped at the plan's 2/day, and together they share the company's 2/day.
+    const a = setup({ ratePerMinute: 100, ratePerDay: 100 }, 'read:vehicles', svc).guard;
+    const b = setup({ id: '44444444-4444-4444-4444-444444444444', ratePerMinute: 100, ratePerDay: 100 }, 'read:vehicles', svc).guard;
+    const first = http(bearer);
+    await a.canActivate(first.ctx);
+    expect(first.headers['X-Quota-Limit-Day']).toBe('2');
+    await a.canActivate(http(bearer).ctx);
+    const h = http(bearer);
+    const err = await b.canActivate(h.ctx).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RateLimitedException);
+    expect((err as Error).message).toContain('Daily request limit');
+    expect(await svc.requestsToday(row().companyId)).toBe(3);
   });
 });
 

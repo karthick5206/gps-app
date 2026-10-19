@@ -1,9 +1,10 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Optional, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { API_SCOPES, ApiScope, WEBHOOK_EVENTS, WebhookEvent } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
 import { Auth, RequirePermission } from '../access/decorators';
+import { ApiAccessService } from '../licences/api-access.service';
 import { WebhooksAdminService, toDeliveryDto } from '../webhooks/webhooks-admin.service';
 import { ApiKeysService } from './api-keys.service';
 
@@ -46,7 +47,15 @@ export class DeveloperController {
   constructor(
     private readonly keys: ApiKeysService,
     private readonly webhooks: WebhooksAdminService,
+    @Optional() private readonly access?: ApiAccessService,
   ) {}
+
+  /** Developer API licence of the company: plan, limits, today's usage, expiry. */
+  @Get('licence') @RequirePermission('api', 'view')
+  licence(@Auth() ctx: AuthContext) {
+    if (!this.access) return null;
+    return this.access.status(ctx.companyId);
+  }
 
   @Get('api-keys') @RequirePermission('api', 'view')
   listKeys(@Auth() ctx: AuthContext) {

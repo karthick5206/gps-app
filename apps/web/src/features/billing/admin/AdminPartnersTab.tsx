@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LICENCE_TYPE_LABELS, LICENCE_TYPES, toPaise, type LicenceType } from '@veetracer/shared';
+import { API_PLAN_LABELS, API_PLANS, LICENCE_TYPE_LABELS, SEAT_LICENCE_TYPES, toPaise, type ApiPlan, type SeatLicenceType } from '@veetracer/shared';
 import { HandshakeIcon, LinkIcon, PencilIcon, PlusIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -27,7 +27,8 @@ interface PartnerRow {
   homeCompanyId: string | null;
   homeCompanyName: string | null;
   customers: number;
-  pricesPaise: Record<LicenceType, number | null>;
+  pricesPaise: Record<SeatLicenceType, number | null>;
+  apiPlanPricesPaise: Record<ApiPlan, number | null>;
 }
 
 const PARTNERS_QUERY = ['licences', 'admin', 'partners'];
@@ -37,13 +38,17 @@ function PartnerDialog({ partner, companies, onClose }: { partner: PartnerRow | 
   const queryClient = useQueryClient();
   const [name, setName] = useState(partner?.name ?? '');
   const [home, setHome] = useState<string | null>(partner?.homeCompanyId ?? null);
-  const [prices, setPrices] = useState<Record<LicenceType, string>>(
-    Object.fromEntries(LICENCE_TYPES.map((ty) => [ty, partner?.pricesPaise[ty] != null ? String((partner.pricesPaise[ty] as number) / 100) : ''])) as Record<LicenceType, string>,
+  const [prices, setPrices] = useState<Record<SeatLicenceType, string>>(
+    Object.fromEntries(SEAT_LICENCE_TYPES.map((ty) => [ty, partner?.pricesPaise[ty] != null ? String((partner.pricesPaise[ty] as number) / 100) : ''])) as Record<SeatLicenceType, string>,
+  );
+  const [apiPrices, setApiPrices] = useState<Record<ApiPlan, string>>(
+    Object.fromEntries(API_PLANS.map((pl) => [pl, partner?.apiPlanPricesPaise?.[pl] != null ? String((partner.apiPlanPricesPaise[pl] as number) / 100) : ''])) as Record<ApiPlan, string>,
   );
   const save = useMutation({
     mutationFn: () => {
-      const pricesPaise = Object.fromEntries(LICENCE_TYPES.map((ty) => [ty, prices[ty].trim() === '' ? null : toPaise(Number(prices[ty]))]));
-      return partner ? api.patch(`/licences/admin/partners/${partner.id}`, { name: name.trim(), homeCompanyId: home, pricesPaise }) : api.post('/licences/admin/partners', { name: name.trim(), homeCompanyId: home });
+      const pricesPaise = Object.fromEntries(SEAT_LICENCE_TYPES.map((ty) => [ty, prices[ty].trim() === '' ? null : toPaise(Number(prices[ty]))]));
+      const apiPlanPricesPaise = Object.fromEntries(API_PLANS.map((pl) => [pl, apiPrices[pl].trim() === '' ? null : toPaise(Number(apiPrices[pl]))]));
+      return partner ? api.patch(`/licences/admin/partners/${partner.id}`, { name: name.trim(), homeCompanyId: home, pricesPaise, apiPlanPricesPaise }) : api.post('/licences/admin/partners', { name: name.trim(), homeCompanyId: home });
     },
     onSuccess: () => {
       toast.success(t('Partner saved'));
@@ -68,10 +73,16 @@ function PartnerDialog({ partner, companies, onClose }: { partner: PartnerRow | 
           {partner && (
             <Field label={t('Partner prices (₹ per year, incl. GST)')} hint={t('Leave empty to use the platform price.')}>
               <div className="grid grid-cols-2 gap-2">
-                {LICENCE_TYPES.map((ty) => (
+                {SEAT_LICENCE_TYPES.map((ty) => (
                   <label key={ty} className="grid gap-1 text-xs">
                     {t(LICENCE_TYPE_LABELS[ty])}
                     <Input type="number" min={0} step="0.01" value={prices[ty]} onChange={(e) => setPrices((p) => ({ ...p, [ty]: e.target.value }))} />
+                  </label>
+                ))}
+                {API_PLANS.map((pl) => (
+                  <label key={pl} className="grid gap-1 text-xs">
+                    {t(LICENCE_TYPE_LABELS.API_ACCESS)} ({t(API_PLAN_LABELS[pl])})
+                    <Input type="number" min={0} step="0.01" value={apiPrices[pl]} onChange={(e) => setApiPrices((p) => ({ ...p, [pl]: e.target.value }))} />
                   </label>
                 ))}
               </div>
@@ -181,7 +192,7 @@ export function AdminPartnersTab({ pools }: { pools: PoolRow[] }) {
                   <TableCell>{p.homeCompanyName ?? <span className="text-muted-foreground">—</span>}</TableCell>
                   <TableCell className="text-right tabular-nums">{p.customers}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {LICENCE_TYPES.filter((ty) => p.pricesPaise[ty] != null)
+                    {SEAT_LICENCE_TYPES.filter((ty) => p.pricesPaise[ty] != null)
                       .map((ty) => `${t(LICENCE_TYPE_LABELS[ty])}: ${rupees(p.pricesPaise[ty] as number)}`)
                       .join(' · ') || t('Platform prices')}
                   </TableCell>

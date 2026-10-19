@@ -9,6 +9,7 @@ export const V1_ERROR_CODES: Record<number, string> = {
   403: 'forbidden',
   404: 'not_found',
   409: 'conflict',
+  402: 'payment_required',
   413: 'payload_too_large',
   422: 'invalid_request',
   429: 'rate_limited',
@@ -46,7 +47,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = Array.isArray(raw) ? raw.join('; ') : String(raw);
     }
     if (v1) {
-      const code = V1_ERROR_CODES[statusCode] ?? (statusCode >= 500 ? 'internal_error' : 'invalid_request');
+      // 402 from the Developer API licence carries its own code (LICENCE_EXPIRED, LICENCE_REQUIRED, API_VEHICLE_LIMIT, …).
+      const appCode = statusCode === 402 && typeof body === 'object' && body !== null && typeof (body as { code?: unknown }).code === 'string' ? (body as { code: string }).code : null;
+      const code = appCode ?? V1_ERROR_CODES[statusCode] ?? (statusCode >= 500 ? 'internal_error' : 'invalid_request');
       res.status(statusCode).json({ error: { status: statusCode, code, message } });
       return;
     }

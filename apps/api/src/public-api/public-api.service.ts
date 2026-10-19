@@ -6,6 +6,7 @@ import { asRecord, isoOrNull } from '../common/dto';
 import { odometers } from '../documents/reminder-logic';
 import { addressKey } from '../geocoding/geocoding.service';
 import { LiveStateService } from '../live/live-state.service';
+import { ApiAccessService } from '../licences/api-access.service';
 import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { vehicleState } from '../webhooks/events';
@@ -43,18 +44,42 @@ export class PublicApiService {
     private readonly prisma: PrismaService,
     private readonly live: LiveStateService,
     @Optional() private readonly licences?: LicencePolicyService,
+    @Optional() private readonly access?: ApiAccessService,
   ) {}
 
-  /** Vehicles locked by an expired licence: no positions, trips or events through the API either. */
-  private viewable(ctx: AuthContext) {
-    return this.licences ? this.licences.viewableWhere(ctx) : Promise.resolve({});
+  /**
+   * Vehicles the key may reach: not locked by an expired vehicle licence, and within the Developer API plan's vehicle
+   * limit (the company's first N vehicles by name; lists simply stop there).
+   */
+  private async viewable(ctx: AuthContext): Promise<Prisma.TrackedObjectWhereInput> {
+    const [view, limit] = await Promise.all([this.licences ? this.licences.viewableWhere(ctx) : {}, this.planLimit(ctx)]);
+    return { AND: [view, limit] };
+  }
+
+  /** Plan vehicle limit as a filter ({} when unlimited / exempt). */
+  async planLimit(ctx: AuthContext): Promise<Prisma.TrackedObjectWhereInput> {
+    const ids = this.access ? await this.access.allowedVehicleIds(ctx.companyId) : null;
+    return ids ? { id: { in: ids } } : {};
+  }
+
+  /** 402 API_VEHICLE_LIMIT for a vehicle beyond the plan's vehicle limit (clearer than "not found"). */
+  async assertVehicleInPlan(ctx: AuthContext, vehicleId: string): Promise<void> {
+    if (this.access) await this.access.assertVehicleAllowed(ctx.companyId, vehicleId);
+  }
+
+  /** Report scope: requested vehicles (each must be within the plan), or all vehicles within the plan. */
+  async reportObjectIds(ctx: AuthContext, requested: string[]): Promise<string[]> {
+    for (const id of requested) await this.assertVehicleInPlan(ctx, id);
+    if (requested.length) return requested;
+    const ids = this.access ? await this.access.allowedVehicleIds(ctx.companyId) : null;
+    return ids ?? [];
   }
 
   async vehicles(ctx: AuthContext, q: PageQueryDto): Promise<Paged<unknown>> {
     const limit = clampLimit(q.limit, LIST_PAGE_DEFAULT, LIST_PAGE_MAX);
     const c = decodeCursor(q.cursor);
     const rows = await this.prisma.trackedObject.findMany({
-      where: { AND: [objectScopeWhere(ctx), c ? { id: { gt: c.id } } : {}] },
+      where: { AND: [objectScopeWhere(ctx), await this.planLimit(ctx), c ? { id: { gt: c.id } } : {}] },
       orderBy: { id: 'asc' },
       take: limit + 1,
       select: {
@@ -132,6 +157,7 @@ export class PublicApiService {
 
   /** Vehicle in the key's scope with its company's retention (positions older than that are gone anyway). */
   private async vehicle(ctx: AuthContext, id: string) {
+    await this.assertVehicleInPlan(ctx, id);
     const o = await this.prisma.trackedObject.findFirst({
       where: { AND: [objectScopeWhere(ctx), await this.viewable(ctx), { id }] },
       select: { id: true, name: true, company: { select: { retentionDays: true } } },
@@ -179,6 +205,7 @@ export class PublicApiService {
 
   /** Vehicle ids the key may see (optionally just one), with names for the rows. */
   private async scope(ctx: AuthContext, vehicleId: string | undefined) {
+    if (vehicleId) await this.assertVehicleInPlan(ctx, vehicleId);
     const objects = await this.prisma.trackedObject.findMany({
       where: { AND: [objectScopeWhere(ctx), await this.viewable(ctx), vehicleId ? { id: vehicleId } : {}] },
       select: { id: true, name: true, plateNumber: true },

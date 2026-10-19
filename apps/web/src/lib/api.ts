@@ -144,7 +144,8 @@ async function authorizedFetch(path: string, opts: RequestOptions): Promise<Resp
   if (!res.ok) {
     const err = await toApiError(res);
     if (err.code === 'USER_LICENCE_EXPIRED' && !opts.anonymous) onSessionExpired(err.message);
-    if (err.status === 402 && err.code === 'LICENCE_REQUIRED' && onLicenceRequired && !opts.headers?.[LICENCE_OVERRIDE_HEADER]) {
+    // Seat licences only: the Developer API licence (API_ACCESS) has no per-create override; its message is shown as is.
+    if (err.status === 402 && err.code === 'LICENCE_REQUIRED' && err.licenceType !== 'API_ACCESS' && onLicenceRequired && !opts.headers?.[LICENCE_OVERRIDE_HEADER]) {
       const reason = await onLicenceRequired(err);
       if (reason) return authorizedFetch(path, { ...opts, headers: { ...opts.headers, [LICENCE_OVERRIDE_HEADER]: encodeURIComponent(reason) } });
     }

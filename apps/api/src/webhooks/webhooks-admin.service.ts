@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma, WebhookDelivery, WebhookEndpoint } from '@prisma/client';
 import { WEBHOOK_EVENTS, WebhookDeliveryDto, WebhookDeliveryStatus, WebhookEndpointDto, WebhookEndpointRequest, WebhookEvent } from '@veetracer/shared';
 import { lookup } from 'node:dns/promises';
@@ -6,6 +6,7 @@ import { isIP } from 'node:net';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { isoOrNull } from '../common/dto';
+import { ApiAccessService } from '../licences/api-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { enqueueDelivery } from './events';
@@ -24,6 +25,7 @@ export class WebhooksAdminService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly audit: AuditService,
+    @Optional() private readonly access?: ApiAccessService,
   ) {}
 
   async list(ctx: AuthContext): Promise<WebhookEndpointDto[]> {
@@ -62,6 +64,8 @@ export class WebhooksAdminService {
 
   async create(ctx: AuthContext, req: WebhookEndpointRequest): Promise<{ endpoint: WebhookEndpointDto; secret: string }> {
     await this.validateUrl(req.url);
+    // Developer API licence: valid seat required; the plan limits the number of endpoints (402 API_WEBHOOK_LIMIT).
+    if (this.access) await this.access.assertWebhookCapacity(ctx.companyId);
     const count = await this.prisma.webhookEndpoint.count({ where: { companyId: ctx.companyId } });
     if (count >= MAX_ENDPOINTS) throw new BadRequestException(`A company can have at most ${MAX_ENDPOINTS} webhook endpoints`);
     const secret = generateWebhookSecret();

@@ -98,7 +98,7 @@ export class PublicApiController {
         type,
         from: q.from,
         to: q.to,
-        scope: { branchIds: [], groupIds: [], objectIds: idList(q.vehicleIds) },
+        scope: { branchIds: [], groupIds: [], objectIds: await this.api.reportObjectIds(ctx, idList(q.vehicleIds)) },
         ...(q.period ? { period: q.period.toUpperCase() as ReportPeriod } : {}),
       },
       V1_REPORT_MAX_ROWS,
@@ -121,12 +121,14 @@ export class PublicApiController {
 
   @Post('vehicles/:id/commands') @HttpCode(202) @RequireScope('write:commands')
   async sendCommand(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() body: V1CommandDto) {
+    await this.api.assertVehicleInPlan(ctx, id);
     const c = await this.commands.send(ctx, id, { type: body.type, text: body.text });
     return { data: commandOut(c) };
   }
 
   @Get('vehicles/:id/commands') @RequireScope('write:commands')
   async listCommands(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    await this.api.assertVehicleInPlan(ctx, id);
     const rows = await this.commands.list(ctx, id);
     return { data: rows.map(commandOut), meta: { count: rows.length, nextCursor: null } };
   }

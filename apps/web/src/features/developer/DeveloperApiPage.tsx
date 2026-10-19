@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiKeysTab } from './ApiKeysTab';
+import { ApiPlanCard } from './ApiPlanCard';
 import { DocsTab } from './DocsTab';
 import { WebhooksTab } from './WebhooksTab';
 
@@ -32,6 +33,7 @@ export function DeveloperApiPage() {
   return (
     <div className="w-full space-y-6 p-4 sm:p-6">
       <PageHeader title={t('Developer API')} description={t('Connect your ERP, dispatch or BI system to VeeTrax with API keys and webhooks.')} />
+      <ApiPlanCard />
       <Tabs value={tab} onValueChange={change}>
         <TabsList>
           <TabsTrigger value="keys">

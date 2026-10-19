@@ -6,15 +6,17 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Optional,
   SetMetadata,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ApiScope } from '@veetracer/shared';
+import { ApiScope, cappedKeyRates } from '@veetracer/shared';
 import { Response } from 'express';
 import { AuthedRequest } from '../access/auth-context';
 import { Public } from '../access/decorators';
+import { ApiAccessService } from '../licences/api-access.service';
 import { RedisService } from '../redis/redis.service';
 import { hasScope, looksLikeApiKey } from './api-key-crypto';
 import { ApiKeysService } from './api-keys.service';
@@ -45,6 +47,7 @@ export class ApiKeyGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly keys: ApiKeysService,
     redis: RedisService,
+    @Optional() private readonly access?: ApiAccessService,
   ) {
     this.limiter = new ApiRateLimiter(redis.client);
   }
@@ -60,7 +63,11 @@ export class ApiKeyGuard implements CanActivate {
     const ip = req.ip ?? null;
     const key = await this.keys.verify(token, ip);
 
-    const rate = await this.limiter.hit(key.id, key.ratePerMinute, key.ratePerDay);
+    // Developer API licence: keys work only while the company's API_ACCESS seat is active or in grace (402 otherwise);
+    // the plan caps each key's rates and the company's requests per day. Platform companies have no plan limits.
+    const licence = this.access ? await this.access.assertAllowed(key.companyId) : null;
+    const { perMinute, perDay } = cappedKeyRates(key, licence?.limits ?? null);
+    const rate = await this.limiter.hit(key.id, perMinute, perDay);
     res.setHeader('X-RateLimit-Limit', String(rate.limitMinute));
     res.setHeader('X-RateLimit-Remaining', String(rate.remainingMinute));
     res.setHeader('X-RateLimit-Limit-Day', String(rate.limitDay));
@@ -68,6 +75,15 @@ export class ApiKeyGuard implements CanActivate {
     if (!rate.allowed) {
       res.setHeader('Retry-After', String(rate.retryAfterSec));
       throw new RateLimitedException(rate.retryAfterSec, `Rate limit exceeded; retry in ${rate.retryAfterSec} s`);
+    }
+    if (this.access && licence?.limits) {
+      const quota = await this.access.hitCompanyQuota(key.companyId, licence.limits.ratePerDay);
+      res.setHeader('X-Quota-Limit-Day', String(licence.limits.ratePerDay));
+      res.setHeader('X-Quota-Remaining-Day', String(quota.remaining));
+      if (!quota.allowed) {
+        res.setHeader('Retry-After', String(quota.retryAfterSec));
+        throw new RateLimitedException(quota.retryAfterSec, `Daily request limit of your Developer API plan (${licence.limits.ratePerDay}) reached; retry in ${quota.retryAfterSec} s`);
+      }
     }
     this.keys.recordUse(key.id, ip);
 
