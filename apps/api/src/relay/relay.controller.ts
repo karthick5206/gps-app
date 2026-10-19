@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
 import { RELAY_AUTH_TYPES, RELAY_MAX_SCOPE_DEVICES, RELAY_PROTOCOLS, RELAY_SCOPES, RELAY_TARGET_TYPES, RelayAuthType, RelayScope, RelayTargetType } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min } from 'class-validator';
@@ -24,6 +24,10 @@ class UpdateRelayTargetDto {
   @IsOptional() @IsIn(RELAY_PROTOCOLS) protocol?: string | null;
   @IsOptional() @IsBoolean() liveOnly?: boolean;
   @IsOptional() @IsBoolean() validOnly?: boolean;
+}
+
+class RelayMasterDto {
+  @IsBoolean() enabled!: boolean;
 }
 
 class CreateRelayTargetDto {
@@ -52,7 +56,13 @@ export class RelayController {
 
   @Get() @RequirePermission('sa_relay', 'view')
   async list() {
-    return { items: await this.relay.list(), maxTargets: RELAY_LIMITS.maxTargets(), ownHosts: this.relay.policy.ownHosts, devicePorts: this.relay.policy.devicePorts };
+    return { masterEnabled: await this.relay.masterEnabled(), items: await this.relay.list(), maxTargets: RELAY_LIMITS.maxTargets(), ownHosts: this.relay.policy.ownHosts, devicePorts: this.relay.policy.devicePorts };
+  }
+
+  /** Master switch: pause / resume all forwarding at once. */
+  @Put('master') @RequirePermission('sa_relay', 'edit')
+  setMaster(@Auth() ctx: AuthContext, @Body() body: RelayMasterDto) {
+    return this.relay.setMasterEnabled(ctx, body.enabled);
   }
 
   @Post() @RequirePermission('sa_relay', 'create')

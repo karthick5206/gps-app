@@ -73,6 +73,8 @@ export interface RelayRuleSpec {
 export interface RelayRuleSet {
   at: string;
   rules: RelayRuleSpec[];
+  /** Master switch off: no rules are published, so nothing is forwarded. */
+  paused?: boolean;
 }
 
 export interface RelayTargetDto {

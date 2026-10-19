@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RelayTargetDto, RelayTestResult } from '@veetracer/shared';
-import { ChevronDownIcon, EyeIcon, PencilIcon, PlugZapIcon, PlusIcon, ShareIcon, Trash2Icon, TriangleAlertIcon } from 'lucide-react';
+import { ChevronDownIcon, EyeIcon, PauseCircleIcon, PencilIcon, PlugZapIcon, PlusIcon, ShareIcon, Trash2Icon, TriangleAlertIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -21,6 +21,8 @@ import { api, errorMessage } from '@/lib/api';
 import { PROTOCOL_LABELS, RELAY_QUERY, RelayTargetDialog } from './RelayTargetDialog';
 
 interface ListResponse {
+  /** Master switch: false pauses every target. */
+  masterEnabled: boolean;
   items: RelayTargetDto[];
   maxTargets: number;
 }
@@ -57,6 +59,7 @@ export function DataForwardingPage() {
   const [secret, setSecret] = useState<{ name: string; value: string } | null>(null);
   const [tests, setTests] = useState<Record<string, RelayTestResult>>({});
   const [openErrors, setOpenErrors] = useState<Record<string, boolean>>({});
+  const [confirmPause, setConfirmPause] = useState(false);
   const list = useQuery({
     queryKey: RELAY_QUERY,
     queryFn: ({ signal }) => api.get<ListResponse>('/admin/relay-targets', undefined, signal),
@@ -68,6 +71,15 @@ export function DataForwardingPage() {
   const toggle = useMutation({
     mutationFn: (r: RelayTargetDto) => api.patch(`/admin/relay-targets/${r.id}`, { enabled: !r.enabled }),
     onSuccess: refresh,
+    onError,
+  });
+  const master = useMutation({
+    mutationFn: (enabled: boolean) => api.put<{ enabled: boolean }>('/admin/relay-targets/master', { enabled }),
+    onSuccess: (res) => {
+      setConfirmPause(false);
+      toast.success(res.enabled ? t('Forwarding resumed') : t('All forwarding paused'));
+      refresh();
+    },
     onError,
   });
   const test = useMutation({
@@ -95,6 +107,7 @@ export function DataForwardingPage() {
   });
 
   const rows = list.data?.items ?? [];
+  const masterOn = list.data?.masterEnabled ?? true;
   const full = !!list.data && rows.length >= list.data.maxTargets;
   const scopeText = (r: RelayTargetDto) =>
     r.scope === 'ALL'
@@ -119,6 +132,25 @@ export function DataForwardingPage() {
           )
         }
       />
+      {list.data && (
+        <Card className={masterOn ? 'flex flex-wrap items-center gap-3 p-4' : 'flex flex-wrap items-center gap-3 border-warning/50 bg-warning/10 p-4'}>
+          {!masterOn && <PauseCircleIcon className="size-5 shrink-0 text-warning" aria-hidden />}
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">{masterOn ? t('Forwarding is on') : t('All forwarding is paused')}</p>
+            <p className="text-sm text-muted-foreground">
+              {masterOn
+                ? t('Enabled targets receive data. Turn this off to pause every target at once.')
+                : t('No data is sent to any target. Each target keeps its own settings and on / off state.')}
+            </p>
+          </div>
+          <Switch
+            checked={masterOn}
+            disabled={!editable || master.isPending}
+            onCheckedChange={(on) => (on ? master.mutate(true) : setConfirmPause(true))}
+            aria-label={t('Forwarding on / off')}
+          />
+        </Card>
+      )}
       {list.isError && <FormError message={errorMessage(list.error)} />}
       {list.isPending ? (
         <Skeleton className="h-36 w-full" />
@@ -137,7 +169,7 @@ export function DataForwardingPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{r.name}</span>
-                      <Badge variant={STATUS_VARIANT[r.status]}>{t(STATUS_LABEL[r.status])}</Badge>
+                      {masterOn || !r.enabled ? <Badge variant={STATUS_VARIANT[r.status]}>{t(STATUS_LABEL[r.status])}</Badge> : <Badge variant="warning">{t('Paused')}</Badge>}
                       <Badge variant="secondary">{r.type === 'RAW_TCP' ? t('Raw TCP') : t('HTTP JSON')}</Badge>
                       <Badge variant="outline">{scopeText(r)}</Badge>
                       {r.passDownstream && <Badge variant="warning">{t('Replies passed to device')}</Badge>}
@@ -232,6 +264,16 @@ export function DataForwardingPage() {
           <DialogBody>{secret && <SecretBox value={secret.value} />}</DialogBody>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={confirmPause}
+        onOpenChange={setConfirmPause}
+        title={t('Pause all forwarding?')}
+        description={t('No device data will be sent to any target until you turn forwarding back on. It takes effect within about a minute.')}
+        confirmLabel={t('Pause all')}
+        destructive
+        pending={master.isPending}
+        onConfirm={() => master.mutate(false)}
+      />
       <ConfirmDialog
         open={!!deleting}
         onOpenChange={(o) => !o && setDeleting(null)}

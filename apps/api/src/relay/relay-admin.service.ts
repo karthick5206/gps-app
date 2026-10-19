@@ -330,10 +330,35 @@ export class RelayAdminService {
     }
   }
 
+  // ── master switch ──────────────────────────────────────────────────────────
+
+  /** Whether forwarding is on overall (default on when never set). */
+  async masterEnabled(): Promise<boolean> {
+    const row = await this.prisma.relaySettings.findUnique({ where: { id: 'default' }, select: { enabled: true } });
+    return row?.enabled ?? true;
+  }
+
+  /** Turns all forwarding on or off; targets keep their own on/off and settings. Applies within about a minute. */
+  async setMasterEnabled(ctx: AuthContext, enabled: boolean): Promise<{ enabled: boolean }> {
+    const before = await this.masterEnabled();
+    await this.prisma.relaySettings.upsert({
+      where: { id: 'default' },
+      create: { id: 'default', enabled, updatedById: ctx.userId },
+      update: { enabled, updatedById: ctx.userId },
+    });
+    if (before !== enabled) {
+      await this.audit.record(ctx, { action: 'UPDATE', entity: 'RelaySettings', entityId: 'default', before: { enabled: before }, after: { enabled } });
+    }
+    await this.publishSafe();
+    return { enabled };
+  }
+
   // ── rule set for gateways / notifiers ──────────────────────────────────────
 
   /** Enabled targets with COMPANY / DEVICES scopes resolved to device unique ids (and assigned objects). */
   async buildRuleSet(): Promise<RelayRuleSet> {
+    // Master switch off: publish no rules (targets keep their own settings).
+    if (!(await this.masterEnabled())) return { at: new Date().toISOString(), rules: [], paused: true };
     const rows = await this.prisma.relayTarget.findMany({ where: { enabled: true }, orderBy: { createdAt: 'asc' } });
     const rules: RelayRuleSpec[] = [];
     for (const r of rows) {
@@ -379,7 +404,7 @@ export class RelayAdminService {
     const set = await this.buildRuleSet();
     // Unchanged rules are not rewritten (gateways reload only when the value changes).
     const current = parseRuleSet(await this.redis.client.get(RedisKeys.relayRules));
-    if (current && JSON.stringify(current.rules) === JSON.stringify(set.rules)) return current;
+    if (current && JSON.stringify(current.rules) === JSON.stringify(set.rules) && !!current.paused === !!set.paused) return current;
     await this.redis.client.multi().set(RedisKeys.relayRules, JSON.stringify(set)).publish(RedisKeys.relayInvalidate, '1').exec();
     return set;
   }

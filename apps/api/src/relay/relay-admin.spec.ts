@@ -35,7 +35,12 @@ const target = (over: Partial<RelayTarget>): RelayTarget =>
 function setup(rows: RelayTarget[] = []) {
   const written: { key: string; value: string }[] = [];
   const published: string[] = [];
+  const master = { row: null as { enabled: boolean } | null };
   const prisma = {
+    relaySettings: {
+      findUnique: async () => master.row,
+      upsert: async ({ update }: { update: { enabled: boolean } }) => (master.row = { enabled: update.enabled }),
+    },
     relayTarget: {
       count: async () => rows.length,
       findMany: async () => rows,
@@ -52,7 +57,7 @@ function setup(rows: RelayTarget[] = []) {
   const redis = { client: { multi: () => multi, get: async () => null } };
   const audit = { record: jest.fn(async () => undefined) };
   const service = new RelayAdminService(prisma as never, redis as never, audit as never, env);
-  return { service, written, published, audit };
+  return { service, written, published, audit, master };
 }
 
 const ctx = { userId: 'u1', companyId: 'c0', ip: null } as unknown as AuthContext;
@@ -90,5 +95,19 @@ describe('RelayAdminService', () => {
       ['c', null, null],
     ]);
     expect(set.rules[1].authorization).toBe('Bearer x');
+  });
+
+  it('master switch off publishes no rules (targets untouched) and is audited; on restores them', async () => {
+    const { service, written, audit } = setup([target({ id: 'a' })]);
+    expect(await service.masterEnabled()).toBe(true);
+    await service.setMasterEnabled(ctx, false);
+    expect(await service.masterEnabled()).toBe(false);
+    const paused = JSON.parse(written[written.length - 1].value);
+    expect(paused).toMatchObject({ rules: [], paused: true });
+    expect(audit.record).toHaveBeenCalledWith(ctx, expect.objectContaining({ entity: 'RelaySettings', before: { enabled: true }, after: { enabled: false } }));
+    await service.setMasterEnabled(ctx, true);
+    const resumed = JSON.parse(written[written.length - 1].value);
+    expect(resumed.rules.map((r: { id: string }) => r.id)).toEqual(['a']);
+    expect(resumed.paused).toBeUndefined();
   });
 });

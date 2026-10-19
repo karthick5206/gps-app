@@ -1535,6 +1535,14 @@ enum RelayScope {
 /// Data forwarding (Super Admin): copy device data to another server. RAW_TCP mirrors the device's original bytes
 /// from the gateway (one upstream connection per device connection); HTTP_JSON posts batches of normalised
 /// positions from the notifier. The API publishes the resolved rule set to Valkey (`vt:relay:rules`).
+/// Data forwarding master switch (one row, id = "default"); off pauses every target without changing them.
+model RelaySettings {
+  id          String   @id @default("default")
+  enabled     Boolean  @default(true)
+  updatedById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt
+}
+
 model RelayTarget {
   id             String          @id @default(uuid()) @db.Uuid
   name           String
