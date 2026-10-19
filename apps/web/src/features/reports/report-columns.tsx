@@ -14,6 +14,7 @@ import {
   CirclePauseIcon,
   ClockIcon,
   CoffeeIcon,
+  FileCheck2Icon,
   GaugeIcon,
   HexagonIcon,
   IdCardIcon,
@@ -53,7 +54,7 @@ export interface ReportColumn {
 
 export interface ReportTypeDef {
   type: ReportType;
-  category: 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices';
+  category: ReportCategory;
   label: string;
   description: string;
   icon: LucideIcon;
@@ -374,8 +375,39 @@ const DRIVERS: ReportColumn[] = [
   { id: 'lastEnd', header: 'Last end', value: time('lastEnd'), render: (r) => (r.lastEnd ? timeCell('lastEnd')(r) : <Badge variant="success">{i18n.t('Driving now')}</Badge>) },
 ];
 
-export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices';
-export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Devices'];
+export const DOCUMENT_REPORT_STATUS: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'muted' }> = {
+  VALID: { label: 'Valid', variant: 'success' },
+  EXPIRING: { label: 'Expiring soon', variant: 'warning' },
+  EXPIRED: { label: 'Expired', variant: 'destructive' },
+  NO_EXPIRY: { label: 'No expiry date', variant: 'muted' },
+  OK: { label: 'OK', variant: 'success' },
+  DUE_SOON: { label: 'Due soon', variant: 'warning' },
+  OVERDUE: { label: 'Overdue', variant: 'destructive' },
+};
+
+const DOCUMENTS: ReportColumn[] = [
+  { id: 'vehicle', header: 'Vehicle', value: str('vehicle'), render: (r) => (r.vehicle ? <span className="font-medium">{r.vehicle as string}</span> : <span className="text-muted-foreground">—</span>) },
+  { id: 'driver', header: 'Driver', value: str('driver'), render: text('driver') },
+  { id: 'kind', header: 'Type', value: str('kind'), render: (r) => (r.kind === 'SERVICE' ? i18n.t('Service') : i18n.t('Document')) },
+  { id: 'item', header: 'Item', value: (r) => (r.kind === 'SERVICE' ? (r.item as string) : i18n.t(r.item as string)), render: (r) => (r.kind === 'SERVICE' ? (r.item as string) : i18n.t(r.item as string)) },
+  { id: 'number', header: 'Number', value: str('number'), render: text('number', 'font-mono text-xs') },
+  { id: 'dueOn', header: 'Expires / due on', value: str('dueOn'), render: (r) => <span className="tabular-nums">{(r.dueOn as string) ?? '—'}</span> },
+  { id: 'dueOdometerKm', header: 'Due at (km)', value: num('dueOdometerKm'), numeric: true, format: int },
+  { id: 'daysLeft', header: 'Days left', value: num('daysLeft'), numeric: true, format: int },
+  { id: 'kmLeft', header: 'Km left', value: num('kmLeft'), numeric: true, format: int },
+  {
+    id: 'status',
+    header: 'Status',
+    value: str('status'),
+    render: (r) => {
+      const m = DOCUMENT_REPORT_STATUS[r.status as string];
+      return <Badge variant={m?.variant ?? 'secondary'}>{m ? i18n.t(m.label) : (r.status as string)}</Badge>;
+    },
+  },
+];
+
+export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices' | 'Compliance';
+export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Devices', 'Compliance'];
 
 export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'SUMMARY', category: 'Activity', label: 'Summary', description: 'Distance, running/idle/stop time and trips per vehicle by day, week or month.', icon: SigmaIcon, columns: SUMMARY },
@@ -396,6 +428,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS },
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
   { type: 'DEVICE_STATUS', category: 'Devices', label: 'Device status', description: 'Active, inactive, no-GPS and never-connected devices right now.', icon: ActivityIcon, columns: DEVICE_STATUS },
+  { type: 'DOCUMENTS', category: 'Compliance', label: 'Documents & services', description: 'Document expiry and service status of every vehicle as of today (the date range is not used).', icon: FileCheck2Icon, columns: DOCUMENTS },
 ];
 
 export const REPORT_DEF_MAP = Object.fromEntries(REPORT_DEFS.map((d) => [d.type, d])) as Record<ReportType, ReportTypeDef>;

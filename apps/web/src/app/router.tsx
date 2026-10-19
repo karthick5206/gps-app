@@ -20,6 +20,7 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   live_map: page(() => import('@/features/live/LiveMapPage'), 'LiveMapPage'),
   objects: page(() => import('@/features/masters/pages/ObjectsPage'), 'ObjectsPage'),
   drivers: page(() => import('@/features/masters/pages/DriversPage'), 'DriversPage'),
+  documents: page(() => import('@/features/documents/DocumentsPage'), 'DocumentsPage'),
   devices: page(() => import('@/features/masters/pages/DevicesPage'), 'DevicesPage'),
   vehicle_groups: page(() => import('@/features/masters/pages/VehicleGroupsPage'), 'VehicleGroupsPage'),
   branches: page(() => import('@/features/masters/pages/BranchesPage'), 'BranchesPage'),

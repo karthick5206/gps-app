@@ -64,6 +64,7 @@ export interface AlertVarsContext {
 }
 
 const n = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 /** Template variables for an alert (COMMON_PLACEHOLDERS + type-specific ones). */
 export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string, string> {
@@ -88,6 +89,12 @@ export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string
     geofence: a.geofenceName ?? (typeof d.geofence === 'string' ? d.geofence : ''),
     battery: n(d.batteryPct) === null ? '' : `${Math.round(n(d.batteryPct)!)}%`,
     voltage: n(d.voltage) === null ? '' : `${n(d.voltage)!.toFixed(1)} V`,
+    // Reminder alerts (documents, services).
+    document: str(d.document),
+    expires_on: str(d.expiresOn),
+    days_left: n(d.daysLeft) === null ? '' : n(d.daysLeft)! <= 0 ? 'today' : n(d.daysLeft) === 1 ? 'in 1 day' : `in ${n(d.daysLeft)} days`,
+    service: str(d.service),
+    due: str(d.due),
   };
 }
 

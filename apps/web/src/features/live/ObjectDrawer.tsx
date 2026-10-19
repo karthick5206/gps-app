@@ -19,6 +19,7 @@ import { useAddress } from '@/features/geocoding/use-address';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, formatDuration, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { CompliancePanel } from '@/features/documents/CompliancePanel';
 import { CommandsTab } from './CommandsTab';
 import { DriverControl } from './DriverControl';
 
@@ -227,6 +228,7 @@ export function ObjectDrawer({
           <TabsTrigger value="overview">{t('Overview')}</TabsTrigger>
           <TabsTrigger value="device">{t('Device')}</TabsTrigger>
           {canCommand && <TabsTrigger value="commands">{t('Commands')}</TabsTrigger>}
+          {can('documents') && object.type === 'VEHICLE' && <TabsTrigger value="documents">{t('Documents')}</TabsTrigger>}
         </TabsList>
         <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <Overview o={object} now={now} />
@@ -234,6 +236,11 @@ export function ObjectDrawer({
         <TabsContent value="device" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <DeviceTab o={object} />
         </TabsContent>
+        {can('documents') && object.type === 'VEHICLE' && (
+          <TabsContent value="documents" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <CompliancePanel target={{ objectId: object.objectId, label: object.name }} />
+          </TabsContent>
+        )}
         {canCommand && (
           <TabsContent value="commands" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
             <CommandsTab object={object} />

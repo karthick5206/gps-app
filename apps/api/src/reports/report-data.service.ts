@@ -20,7 +20,7 @@ import { AuthContext } from '../access/auth-context';
 import { toAlertDto } from '../alerts/alert-dto';
 import { stopDto, tripDto } from '../history/history.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { addDays, daysBetween, isDayKey, localMidnight } from '../summarizer/tz';
+import { addDays, daysBetween, isDayKey, localDayKey, localMidnight } from '../summarizer/tz';
 import { aggregateSummaries, intersectScope, summaryTotals } from './aggregate';
 import {
   alertTypeFilter,
@@ -36,6 +36,7 @@ import {
   positions,
   QueryCtx,
 } from './report-queries';
+import { documentsReport } from './documents-report';
 
 export const REPORT_JSON_MAX_ROWS = 10_000;
 export const REPORT_MAX_DAYS = 366;
@@ -178,6 +179,12 @@ export class ReportDataService {
                         : req.type === 'DRIVERS'
                           ? await driversReport(q)
                           : await deviceStatusReport(q, Date.now());
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'DOCUMENTS': {
+        // Status as of today (like the device status report); the date range is not used.
+        const r = await documentsReport(this.prisma, ctx, objects, req.scope ?? { branchIds: [], groupIds: [], objectIds: [] }, localDayKey(Date.now(), tz), maxRows);
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 

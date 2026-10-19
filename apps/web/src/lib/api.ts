@@ -20,6 +20,8 @@ export type QueryParams = Record<string, QueryValue>;
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
+  /** Multipart body (file uploads); the browser sets the Content-Type boundary. */
+  form?: FormData;
   query?: QueryParams;
   signal?: AbortSignal;
   /** Skip the Authorization header and 401 refresh handling (auth endpoints). */
@@ -77,7 +79,7 @@ function send(path: string, opts: RequestOptions): Promise<Response> {
   return fetch(`${BASE}${path}${buildQuery(opts.query)}`, {
     method: opts.method ?? 'GET',
     headers: headers(opts),
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    body: opts.form ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
     signal: opts.signal,
   });
 }
@@ -131,6 +133,8 @@ export const api = {
     request<T>(path, { method: 'POST', body: body ?? {}, ...opts }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: 'PATCH', body }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  /** POST multipart/form-data (e.g. a document scan). */
+  upload: <T>(path: string, form: FormData) => request<T>(path, { method: 'POST', form }),
 };
 
 function filenameFrom(res: Response, fallback: string): string {
@@ -142,6 +146,20 @@ function filenameFrom(res: Response, fallback: string): string {
 /** Downloads a CSV export (`format=csv`) through the authorised fetch and saves it via a temporary link. */
 export async function downloadCsv(path: string, query: QueryParams, fallbackName: string): Promise<void> {
   const res = await authorizedFetch(path, { query: { ...query, format: 'csv', page: undefined, pageSize: undefined } });
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filenameFrom(res, fallbackName);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Downloads a file (GET) through the authorised fetch and saves it via a temporary link. */
+export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const res = await authorizedFetch(path, {});
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

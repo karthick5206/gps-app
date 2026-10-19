@@ -81,6 +81,7 @@ model Company {
   objects       TrackedObject[]
   vehicleGroups VehicleGroup[]
   drivers       Driver[]
+  documents     Document[]
   lookups       Lookup[]
   auditLogs     AuditLog[]
 }
@@ -261,6 +262,9 @@ model TrackedObject {
   remarks     ObjectRemark[]
   commands    DeviceCommand[]
   drivers     DriverAssignment[]
+  documents   Document[]
+  services    ServiceReminder[]
+  serviceLog  ServiceRecord[]
 
   @@index([companyId, branchId])
 }
@@ -296,24 +300,27 @@ model DeviceAssignment {
 
 /// A person who drives company vehicles; identified on the tracker by an RFID card / iButton (`rfidTag`).
 model Driver {
-  id            String    @id @default(uuid()) @db.Uuid
-  companyId     String    @db.Uuid
-  branchId      String?   @db.Uuid
-  name          String
-  mobile        String?
-  employeeId    String?
-  licenseNo     String?
-  licenseExpiry DateTime? @db.Date
+  id                   String    @id @default(uuid()) @db.Uuid
+  companyId            String    @db.Uuid
+  branchId             String?   @db.Uuid
+  name                 String
+  mobile               String?
+  employeeId           String?
+  licenseNo            String?
+  licenseExpiry        DateTime? @db.Date
   /// Hex, upper case, without leading zeros (normalizeRfidTag); unique per company.
-  rfidTag       String?
-  notes         String?
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  rfidTag              String?
+  notes                String?
+  isActive             Boolean   @default(true)
+  /// Last licence-expiry reminder raised (EXPIRING | EXPIRED) for licenseExpiry; reset when the expiry changes.
+  licenseNotifiedState String?
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
 
   company     Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   branch      Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
   assignments DriverAssignment[]
+  documents   Document[]
 
   @@unique([companyId, rfidTag])
   @@unique([companyId, employeeId])
@@ -338,6 +345,90 @@ model DriverAssignment {
   @@index([objectId, fromTime(sort: Desc)])
   @@index([driverId, fromTime(sort: Desc)])
   @@index([companyId, fromTime(sort: Desc)])
+}
+
+/// RC, insurance, PUC, licence… of a vehicle (objectId) or a driver (driverId); exactly one is set (CHECK in the migration).
+model Document {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @db.Uuid
+  objectId      String?   @db.Uuid
+  driverId      String?   @db.Uuid
+  /// DOCUMENT_TYPE lookup code.
+  type          String
+  number        String?
+  issuedOn      DateTime? @db.Date
+  expiresOn     DateTime? @db.Date
+  reminderDays  Int       @default(30)
+  notes         String?
+  /// Attached scan / photo, stored under var/documents/.
+  fileName      String?
+  filePath      String?
+  fileType      String?
+  fileSize      Int?
+  /// Last reminder alert raised (EXPIRING | EXPIRED); reset when the expiry changes. Makes the reminders job idempotent.
+  notifiedState String?
+  createdById   String?   @db.Uuid
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  object  TrackedObject? @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  driver  Driver?        @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, expiresOn])
+  @@index([objectId])
+  @@index([driverId])
+}
+
+/// Periodic maintenance of a vehicle by date and/or odometer; dueAt / dueOdometerKm = last service + interval.
+model ServiceReminder {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @db.Uuid
+  objectId           String    @db.Uuid
+  title              String
+  intervalKm         Int?
+  intervalDays       Int?
+  lastDoneAt         DateTime? @db.Date
+  lastDoneOdometerKm Float?
+  dueAt              DateTime? @db.Date
+  dueOdometerKm      Float?
+  notifyBeforeKm     Int       @default(500)
+  notifyBeforeDays   Int       @default(7)
+  notes              String?
+  isActive           Boolean   @default(true)
+  /// Last reminder alert raised for the current due point (DUE_SOON | OVERDUE); reset when it rolls forward.
+  notifiedState      String?
+  createdById        String?   @db.Uuid
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  object  TrackedObject   @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  records ServiceRecord[]
+
+  @@index([companyId])
+  @@index([objectId])
+}
+
+/// One completed service (history), optionally of a reminder.
+model ServiceRecord {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  objectId    String   @db.Uuid
+  reminderId  String?  @db.Uuid
+  title       String
+  doneAt      DateTime @db.Date
+  odometerKm  Float?
+  cost        Float?
+  notes       String?
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  object   TrackedObject    @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  reminder ServiceReminder? @relation(fields: [reminderId], references: [id], onDelete: SetNull)
+
+  @@index([objectId, doneAt(sort: Desc)])
+  @@index([reminderId])
+  @@index([companyId, doneAt(sort: Desc)])
 }
 
 model VehicleGroup {

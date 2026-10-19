@@ -10,6 +10,7 @@ import {
 import type { LucideIcon } from 'lucide-react-native';
 import {
   ActivityIcon,
+  FileCheck2Icon,
   BellIcon,
   CirclePauseIcon,
   ClockIcon,
@@ -54,7 +55,7 @@ export interface ReportColumn {
 
 export interface ReportTypeDef {
   type: ReportType;
-  category: 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices';
+  category: ReportCategory;
   label: string;
   description: string;
   icon: LucideIcon;
@@ -332,8 +333,31 @@ const DEVICE_STATUS: ReportColumn[] = [
   optNum('extVoltage', 'Ext. V', 2),
 ];
 
-export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices';
-export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Devices'];
+export const DOCUMENT_REPORT_STATUS_LABELS: Record<string, string> = {
+  VALID: 'Valid',
+  EXPIRING: 'Expiring soon',
+  EXPIRED: 'Expired',
+  NO_EXPIRY: 'No expiry date',
+  OK: 'OK',
+  DUE_SOON: 'Due soon',
+  OVERDUE: 'Overdue',
+};
+
+const DOCUMENTS: ReportColumn[] = [
+  { id: 'vehicle', header: 'Vehicle', value: str('vehicle') },
+  { id: 'driver', header: 'Driver', value: str('driver') },
+  { id: 'kind', header: 'Type', value: str('kind'), display: (r) => (r.kind === 'SERVICE' ? i18n.t('Service') : i18n.t('Document')) },
+  { id: 'item', header: 'Item', value: str('item'), display: (r) => (r.kind === 'SERVICE' ? (r.item as string) : i18n.t(r.item as string)) },
+  { id: 'number', header: 'Number', value: str('number') },
+  { id: 'dueOn', header: 'Expires / due on', value: str('dueOn') },
+  { id: 'dueOdometerKm', header: 'Due at (km)', value: num('dueOdometerKm'), numeric: true, format: int },
+  { id: 'daysLeft', header: 'Days left', value: num('daysLeft'), numeric: true, format: int },
+  { id: 'kmLeft', header: 'Km left', value: num('kmLeft'), numeric: true, format: int },
+  { id: 'status', header: 'Status', value: str('status'), display: (r) => i18n.t(DOCUMENT_REPORT_STATUS_LABELS[r.status as string] ?? (r.status as string)) },
+];
+
+export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Devices' | 'Compliance';
+export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Devices', 'Compliance'];
 
 export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'SUMMARY', category: 'Activity', label: 'Summary', description: 'Distance, running/idle/stop time and trips per vehicle by day, week or month.', icon: SigmaIcon, columns: SUMMARY },
@@ -354,6 +378,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS },
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
   { type: 'DEVICE_STATUS', category: 'Devices', label: 'Device status', description: 'Active, inactive, no-GPS and never-connected devices right now.', icon: ActivityIcon, columns: DEVICE_STATUS },
+  { type: 'DOCUMENTS', category: 'Compliance', label: 'Documents & services', description: 'Document expiry and service status of every vehicle as of today.', icon: FileCheck2Icon, columns: DOCUMENTS },
 ];
 
 export const REPORT_DEF_MAP = Object.fromEntries(REPORT_DEFS.map((d) => [d.type, d])) as Record<ReportType, ReportTypeDef>;

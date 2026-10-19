@@ -9,12 +9,14 @@ import {
   type VehicleGroupDto,
   type VehicleType,
 } from '@veetracer/shared';
-import { TruckIcon } from 'lucide-react';
+import { FileCheck2Icon, TruckIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import type { Option } from '@/components/ui/multi-select';
+import { ComplianceSheet, type ComplianceTarget } from '@/features/documents/CompliancePanel';
 import { useAuth } from '@/features/auth/auth-context';
 import { ActiveBadge, Dash, DateCell, Muted, NameList } from '../cells';
 import { humanize } from '@/lib/format';
@@ -180,7 +182,9 @@ const columns: MasterColumn<TrackedObjectDto>[] = [
 const rowLabel = (r: TrackedObjectDto) => (r.plateNumber ? `${r.name} (${r.plateNumber})` : r.name);
 
 export function ObjectsPage() {
+  const { t } = useTranslation();
   const { can } = useAuth();
+  const [compliance, setCompliance] = useState<ComplianceTarget | null>(null);
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
   const groups = useEntityOptions<VehicleGroupDto>('/vehicle-groups', named, { enabled: can('vehicle_groups') });
   const filters = useMemo<MasterFilter[]>(
@@ -194,6 +198,7 @@ export function ObjectsPage() {
   );
 
   return (
+    <>
     <MasterPage
       menu="objects"
       title="Vehicles & Objects"
@@ -205,6 +210,17 @@ export function ObjectsPage() {
       defaultSort={{ id: 'name', desc: false }}
       Form={ObjectForm}
       emptyIcon={TruckIcon}
+      rowActions={
+        can('documents')
+          ? (r) => (
+              <DropdownMenuItem onSelect={() => setCompliance({ objectId: r.id, label: rowLabel(r) })}>
+                <FileCheck2Icon /> {t('Documents & service')}
+              </DropdownMenuItem>
+            )
+          : undefined
+      }
     />
+    <ComplianceSheet target={compliance} onClose={() => setCompliance(null)} />
+    </>
   );
 }

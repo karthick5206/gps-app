@@ -43,6 +43,9 @@ function RootStack() {
           <Stack.Screen name="alert-settings" options={{ title: t('Alert settings') }} />
           <Stack.Screen name="reports/index" options={{ title: t('Reports') }} />
           <Stack.Screen name="reports/[type]" options={{ title: t('Report') }} />
+          <Stack.Screen name="documents/index" options={{ title: t('Documents & service') }} />
+          <Stack.Screen name="documents/[id]" options={{ title: t('Document') }} />
+          <Stack.Screen name="documents/service/[id]" options={{ title: t('Service reminder') }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="login" options={{ headerShown: false }} />

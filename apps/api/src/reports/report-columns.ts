@@ -6,6 +6,7 @@ import {
   ContinuousDrivingReportRow,
   DeviceStatusReportRow,
   DriverReportRow,
+  DocumentsReportRow,
   DistanceReportRow,
   EngineHoursReportRow,
   EventSummaryReportRow,
@@ -51,6 +52,7 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   GEOFENCE_SUMMARY: 'Geofence summary report',
   DEVICE_STATUS: 'Device status report',
   DRIVERS: 'Driver activity report',
+  DOCUMENTS: 'Documents & services report',
 };
 
 const col = <T>(c: Omit<ReportColumn, 'value'> & { value: (row: T, tz: string) => Cell }): ReportColumn => c as ReportColumn;
@@ -275,6 +277,29 @@ const DRIVERS: ReportColumn[] = [
   col<DriverReportRow>({ header: 'Last end', width: 19, value: (r, tz) => (r.lastEnd ? localTime(r.lastEnd, tz) : 'Driving now') }),
 ];
 
+const DOCUMENT_STATUS_LABELS: Record<DocumentsReportRow['status'], string> = {
+  VALID: 'Valid',
+  EXPIRING: 'Expiring soon',
+  EXPIRED: 'Expired',
+  NO_EXPIRY: 'No expiry',
+  OK: 'OK',
+  DUE_SOON: 'Due soon',
+  OVERDUE: 'Overdue',
+};
+
+const DOCUMENTS: ReportColumn[] = [
+  col<DocumentsReportRow>({ header: 'Vehicle', width: 20, value: (r) => r.vehicle ?? '', total: (t) => `${t.count ?? 0} items · ${t.expired ?? 0} expired / overdue · ${t.dueSoon ?? 0} due soon` }),
+  col<DocumentsReportRow>({ header: 'Driver', width: 18, value: (r) => r.driver ?? '' }),
+  col<DocumentsReportRow>({ header: 'Type', width: 10, value: (r) => (r.kind === 'SERVICE' ? 'Service' : 'Document') }),
+  col<DocumentsReportRow>({ header: 'Item', width: 24, value: (r) => r.item }),
+  col<DocumentsReportRow>({ header: 'Number', width: 16, value: (r) => r.number ?? '' }),
+  col<DocumentsReportRow>({ header: 'Expires / due on', width: 14, value: (r) => r.dueOn ?? '' }),
+  col<DocumentsReportRow>({ header: 'Due at (km)', width: 11, numeric: true, value: (r) => r.dueOdometerKm ?? '' }),
+  col<DocumentsReportRow>({ header: 'Days left', width: 9, numeric: true, value: (r) => r.daysLeft ?? '' }),
+  col<DocumentsReportRow>({ header: 'Km left', width: 9, numeric: true, value: (r) => r.kmLeft ?? '' }),
+  col<DocumentsReportRow>({ header: 'Status', width: 13, value: (r) => DOCUMENT_STATUS_LABELS[r.status] }),
+];
+
 export function columnsFor(type: ReportType): ReportColumn[] {
   switch (type) {
     case 'SUMMARY':
@@ -313,6 +338,8 @@ export function columnsFor(type: ReportType): ReportColumn[] {
       return DEVICE_STATUS;
     case 'DRIVERS':
       return DRIVERS;
+    case 'DOCUMENTS':
+      return DOCUMENTS;
   }
 }
 

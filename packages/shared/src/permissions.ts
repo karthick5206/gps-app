@@ -25,6 +25,7 @@ export const MENU_KEYS = [
   'reports',
   'objects',
   'drivers',
+  'documents',
   'devices',
   'vehicle_groups',
   'branches',
@@ -54,6 +55,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'reports', label: 'Reports', group: 'main', path: '/reports', actions: ['view', 'export'] },
   { key: 'objects', label: 'Vehicles & Objects', group: 'masters', path: '/masters/objects', actions: CRUD },
   { key: 'drivers', label: 'Drivers', group: 'masters', path: '/masters/drivers', actions: CRUD },
+  { key: 'documents', label: 'Documents & Service', group: 'masters', path: '/masters/documents', actions: CRUD },
   { key: 'devices', label: 'Devices', group: 'masters', path: '/masters/devices', actions: CRUD },
   { key: 'vehicle_groups', label: 'Vehicle Groups', group: 'masters', path: '/masters/vehicle-groups', actions: CRUD },
   { key: 'branches', label: 'Branches', group: 'masters', path: '/masters/branches', actions: CRUD },
@@ -107,6 +109,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
       report_schedules: ['view', 'create', 'edit', 'delete'],
       objects: ['view', 'edit', 'export'],
       drivers: ['view', 'create', 'edit', 'export'],
+      documents: ['view', 'create', 'edit', 'delete', 'export'],
       devices: ['view'],
       vehicle_groups: ['view', 'create', 'edit', 'export'],
       branches: ['view'],
@@ -120,7 +123,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     dataScope: 'ASSIGNED',
     permissions: {
       dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], reports: ['view'],
-      geofences: ['view'], report_schedules: ['view', 'create', 'edit', 'delete'], objects: ['view'], drivers: ['view'], vehicle_groups: ['view'],
+      geofences: ['view'], report_schedules: ['view', 'create', 'edit', 'delete'], objects: ['view'], drivers: ['view'], documents: ['view'], vehicle_groups: ['view'],
     },
   },
   {

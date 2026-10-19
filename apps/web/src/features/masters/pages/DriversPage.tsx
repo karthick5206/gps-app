@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery } from '@tanstack/react-query';
 import { LICENSE_WARN_DAYS, type BranchDto, type DriverAssignmentDto, type DriverDto } from '@veetracer/shared';
-import { IdCardIcon, ListIcon } from 'lucide-react';
+import { FileCheck2Icon, IdCardIcon, ListIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,7 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/features/auth/auth-context';
+import { ComplianceSheet, type ComplianceTarget } from '@/features/documents/CompliancePanel';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, formatDuration } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
@@ -181,6 +182,7 @@ export function DriversPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const [sessions, setSessions] = useState<{ driverId: string; label: string } | null>(null);
+  const [compliance, setCompliance] = useState<ComplianceTarget | null>(null);
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
   const filters = useMemo<MasterFilter[]>(
     () => [
@@ -210,12 +212,20 @@ export function DriversPage() {
         Form={DriverForm}
         emptyIcon={IdCardIcon}
         rowActions={(r) => (
-          <DropdownMenuItem onSelect={() => setSessions({ driverId: r.id, label: r.name })}>
-            <ListIcon /> {t('Sessions')}
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem onSelect={() => setSessions({ driverId: r.id, label: r.name })}>
+              <ListIcon /> {t('Sessions')}
+            </DropdownMenuItem>
+            {can('documents') && (
+              <DropdownMenuItem onSelect={() => setCompliance({ driverId: r.id, label: r.name })}>
+                <FileCheck2Icon /> {t('Documents')}
+              </DropdownMenuItem>
+            )}
+          </>
         )}
       />
       <DriverSessionsSheet target={sessions} onClose={() => setSessions(null)} />
+      <ComplianceSheet target={compliance} onClose={() => setCompliance(null)} />
     </>
   );
 }
