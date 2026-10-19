@@ -1,3 +1,5 @@
+import type { RelayTargetStats } from './relay';
+
 /**
  * System Health (Super Admin): heartbeats written by every process, the report served by
  * `GET /api/admin/system-health` and the `system:health` socket event.
@@ -39,6 +41,8 @@ export interface GatewayListenerMetrics {
 
 export interface GatewayMetrics {
   listeners: GatewayListenerMetrics[];
+  /** RAW_TCP data forwarding targets handled by this gateway. */
+  relay?: RelayTargetStats[];
 }
 
 export interface ProcessorMetrics {
@@ -65,6 +69,8 @@ export interface NotifierMetrics {
   failed: Record<string, number>;
   skipped: number;
   lastError: HealthError | null;
+  /** HTTP_JSON data forwarding targets handled by this notifier. */
+  relay?: RelayTargetStats[];
 }
 
 export interface SummarizerMetrics {

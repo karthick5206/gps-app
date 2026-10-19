@@ -19,6 +19,9 @@ import { BaseSession, ProtocolDecoder } from './protocol';
 import { TcpGatewayServer } from './tcp-server';
 import { TeltonikaDecoder } from './teltonika/decoder';
 import { UnparsedLog } from './unparsed-log';
+import { RelayManager } from './relay/relay-manager';
+import { RELAY_LIMITS, relayPolicy } from '../relay/guard';
+import { watchRuleSet } from '../relay/sync';
 
 const STATS_INTERVAL_MS = 30_000;
 /** A listener that failed to bind (port in use) is retried this often; System Health shows it as not listening. */
@@ -58,6 +61,14 @@ async function main(): Promise<void> {
     [new Ais140Decoder() as ProtocolDecoder<BaseSession>, env.ais140Port],
   ];
   const servers: TcpGatewayServer<BaseSession>[] = [];
+  // Data forwarding (RAW_TCP): rules come from Valkey (published by the API), so the gateway stays database-free.
+  const relay = new RelayManager({
+    policy: relayPolicy(env),
+    limits: { maxSocketsPerTarget: RELAY_LIMITS.maxSocketsPerTarget(), bufferBytes: RELAY_LIMITS.bufferBytes(), bufferFrames: RELAY_LIMITS.bufferFrames() },
+  });
+  const relaySub = new Redis(env.redisUrl);
+  relaySub.on('error', (error) => logger.error(`Valkey (relay) error: ${error.message}`));
+  const stopRelaySync = await watchRuleSet(redis, relaySub, (set) => relay.setRules(set));
   // Driver event photos / clips (0x0801 snapshots, alarm attachments) → var/driver-media + vt:driver-media.
   const sink = new MediaSink(redis);
   const retries: NodeJS.Timeout[] = [];
@@ -74,7 +85,7 @@ async function main(): Promise<void> {
   };
   for (const [decoder, port] of listeners) {
     if (!port) continue;
-    const server = new TcpGatewayServer(decoder, { redis, gatewayId, unparsed, capture, onMedia: (m) => sink.accept(m) });
+    const server = new TcpGatewayServer(decoder, { redis, gatewayId, unparsed, capture, onMedia: (m) => sink.accept(m), relay });
     servers.push(server);
     await listen(server, port);
   }
@@ -176,6 +187,7 @@ async function main(): Promise<void> {
         lastPositionAt: iso(s.lastPositionAt),
       };
     }),
+    relay: relay.snapshot(),
   }));
 
   const shutdown = async () => {
@@ -186,6 +198,9 @@ async function main(): Promise<void> {
     await videoSub?.quit().catch(() => undefined);
     retries.forEach(clearTimeout);
     await heartbeat.stop();
+    stopRelaySync();
+    relay.closeAll();
+    await relaySub.quit().catch(() => undefined);
     await Promise.all(servers.map((s) => s.close()));
     await commands.quit().catch(() => undefined);
     await redis.quit();

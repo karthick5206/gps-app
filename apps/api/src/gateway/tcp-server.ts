@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { CommandDispatch, CommandUpdate, NormalizedPosition } from '@veetracer/shared';
 import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { BaseSession, DecodeContext, DecodedMedia, ProtocolDecoder } from './protocol';
+import { RelayHook, RelaySessionHandle } from './relay/relay-manager';
 import { RateLimitedWarn, UnparsedLog } from './unparsed-log';
 
 const IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -51,6 +52,8 @@ export interface TcpGatewayOptions {
   capture?: { dir: string; ids: Set<string> | 'all' } | null;
   /** Photos / clips decoded from device uploads (stored by the gateway's media sink). */
   onMedia?: (media: DecodedMedia[]) => void;
+  /** Data forwarding (RAW_TCP): receives every chunk exactly as the device sent it. */
+  relay?: RelayHook | null;
 }
 
 interface Connection<S extends BaseSession> {
@@ -71,6 +74,8 @@ interface Connection<S extends BaseSession> {
    * order it sent the frames. Null when nothing is pending (replies are written immediately).
    */
   writeChain: Promise<void> | null;
+  /** Data forwarding of this connection (null when forwarding is off). */
+  relay: RelaySessionHandle | null;
 }
 
 /**
@@ -158,7 +163,17 @@ export class TcpGatewayServer<S extends BaseSession> {
       identified: false,
       pending: new Map(),
       writeChain: null,
+      relay: null,
     };
+    if (this.options.relay) {
+      try {
+        conn.relay = this.options.relay.open(this.decoder.name, (data) => {
+          if (!socket.destroyed && !socket.writableEnded) socket.write(data);
+        });
+      } catch (error) {
+        this.warnings.warn('relay', `Relay open failed: ${(error as Error).message}`);
+      }
+    }
     this.connections.add(conn);
     this.stats.connections = this.connections.size;
     socket.setNoDelay(true);
@@ -172,6 +187,7 @@ export class TcpGatewayServer<S extends BaseSession> {
     socket.on('close', () => {
       if (conn.flushTimer) clearTimeout(conn.flushTimer);
       if (conn.loginTimer) clearTimeout(conn.loginTimer);
+      conn.relay?.close();
       this.connections.delete(conn);
       const id = conn.session.uniqueId;
       if (id && this.byId.get(id) === conn) this.byId.delete(id);
@@ -208,6 +224,7 @@ export class TcpGatewayServer<S extends BaseSession> {
     // A partial frame that never completes is garbage; don't let it grow without bound.
     conn.rest = split.rest.length > this.decoder.maxFrameBytes ? Buffer.alloc(0) : Buffer.from(split.rest);
     this.process(conn, split.frames);
+    this.relayChunk(conn, chunk);
     if (split.fatal) {
       this.warnings.warn(`fatal:${conn.remote}`, `Closing ${conn.session.uniqueId ?? conn.remote}: ${split.fatal}`);
       conn.socket.end();
@@ -221,6 +238,17 @@ export class TcpGatewayServer<S extends BaseSession> {
         this.process(conn, flushed.frames);
       }, this.decoder.flushAfterMs);
       conn.flushTimer.unref();
+    }
+  }
+
+  /** Hands the original bytes to data forwarding (after decoding, so the device id of a login chunk is known). */
+  private relayChunk(conn: Connection<S>, chunk: Buffer): void {
+    if (!conn.relay) return;
+    try {
+      conn.relay.data(chunk, conn.session.uniqueId);
+    } catch (error) {
+      // Forwarding must never affect device handling.
+      this.warnings.warn('relay', `Relay failed for ${conn.session.uniqueId ?? conn.remote}: ${(error as Error).message}`);
     }
   }
 

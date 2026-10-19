@@ -53,6 +53,13 @@ export const RedisKeys = {
   webhooksGroup: 'webhooks',
   /** Set of company ids with at least one active webhook endpoint (producers skip everyone else). */
   webhookCompanies: 'vt:wh:companies',
+  // ── Data forwarding (relay) ──
+  /** Resolved forwarding rules (`RelayRuleSet` JSON) written by the API, read by gateways and notifiers. */
+  relayRules: 'vt:relay:rules',
+  /** Pub/sub: the rule set changed (reload `vt:relay:rules`). */
+  relayInvalidate: 'vt:relay:invalidate',
+  /** Consumer group of the notifier's HTTP_JSON forwarder on `vt:positions`. */
+  relayGroup: 'relay',
   // ── System health ──
   /** Heartbeat of one process instance (JSON `ProcessHeartbeat`, EX 20 s). */
   healthProcess: (role: string, instanceId: string) => `vt:health:proc:${role}:${instanceId}`,

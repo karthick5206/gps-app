@@ -17,3 +17,4 @@ export * from './licences';
 export * from './video';
 export * from './driver-events';
 export * from './system-health';
+export * from './relay';

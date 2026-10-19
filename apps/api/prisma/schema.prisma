@@ -1519,3 +1519,49 @@ model DriverEventMedia {
   @@index([eventId])
   @@index([companyId, createdAt])
 }
+
+enum RelayTargetType {
+  RAW_TCP
+  HTTP_JSON
+}
+
+enum RelayScope {
+  ALL
+  COMPANY
+  DEVICES
+  PROTOCOL
+}
+
+/// Data forwarding (Super Admin): copy device data to another server. RAW_TCP mirrors the device's original bytes
+/// from the gateway (one upstream connection per device connection); HTTP_JSON posts batches of normalised
+/// positions from the notifier. The API publishes the resolved rule set to Valkey (`vt:relay:rules`).
+model RelayTarget {
+  id             String          @id @default(uuid()) @db.Uuid
+  name           String
+  type           RelayTargetType
+  enabled        Boolean         @default(true)
+  /// RAW_TCP
+  host           String?
+  port           Int?
+  /// Write upstream replies back to the device (only for protocols where VeeTrax sends no replies). Default off.
+  passDownstream Boolean         @default(false)
+  /// HTTP_JSON
+  url            String?
+  /// NONE | BEARER | BASIC
+  authType       String          @default("NONE")
+  /// Bearer token, or `user:password` for BASIC.
+  authValue      String?
+  /// HMAC secret for the X-VeeTrax-Signature header.
+  secret         String
+  includeAlerts  Boolean         @default(false)
+  scope          RelayScope      @default(ALL)
+  companyId      String?         @db.Uuid
+  deviceIds      String[]        @db.Uuid
+  protocol       String?
+  /// Filters: skip history / re-uploaded records; skip positions without a valid GPS fix.
+  liveOnly       Boolean         @default(false)
+  validOnly      Boolean         @default(false)
+  createdById    String?         @db.Uuid
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+}
