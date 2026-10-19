@@ -16,6 +16,7 @@ import { RedisModule } from './redis/redis.module';
 import { ReportSchedulesModule } from './report-schedules/report-schedules.module';
 import { CommandsModule } from './commands/commands.module';
 import { VideoModule } from './video/video.module';
+import { DriverEventsModule } from './driver-events/driver-events.module';
 import { DriversModule } from './drivers/drivers.module';
 import { DocumentsModule } from './documents/documents.module';
 import { PoisModule } from './pois/pois.module';
@@ -52,6 +53,7 @@ import { TemplatesModule } from './templates/templates.module';
     RetentionModule,
     CommandsModule,
     VideoModule,
+    DriverEventsModule,
     DriversModule,
     DocumentsModule,
     PoisModule,

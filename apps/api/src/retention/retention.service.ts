@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Interval, Timeout } from '@nestjs/schedule';
 import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, WEBHOOK_LOG_RETENTION_DAYS } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
+import { purgeDriverEvents, sweepIncoming } from '../driver-events/media-retention';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -99,7 +100,7 @@ export class RetentionService {
     const ago = (days: number) => new Date(now - days * DAY_MS);
 
     let complete = true;
-    const companies = await this.prisma.company.findMany({ select: { id: true, retentionDays: true } });
+    const companies = await this.prisma.company.findMany({ select: { id: true, retentionDays: true, settings: true } });
     const maxDays = Math.max(RETENTION_MIN_DAYS, ...companies.map((c) => effectiveRetentionDays(c.retentionDays)));
 
     for (const c of companies) {
@@ -130,6 +131,25 @@ export class RetentionService {
       ];
       for (const [key, step] of steps) if (!(await drain(key, step))) complete = false;
       if (!complete) break;
+    }
+
+    // Driver events and their photos / clips (own retention setting, files deleted from disk first).
+    if (complete) {
+      const p = this.prisma;
+      complete = await purgeDriverEvents(
+        {
+          oldMedia: (companyId, cutoff, take) =>
+            p.driverEventMedia.findMany({ where: { companyId, event: { occurredAt: { lt: cutoff } } }, select: { id: true, filePath: true }, take }),
+          deleteMedia: async (ids) => (await p.driverEventMedia.deleteMany({ where: { id: { in: ids } } })).count,
+          deleteEvents: (companyId, cutoff, take) =>
+            p.$executeRaw`DELETE FROM "DriverEvent" WHERE id IN (SELECT id FROM "DriverEvent" WHERE "companyId" = ${companyId}::uuid AND "occurredAt" < ${cutoff} LIMIT ${take})`,
+        },
+        companies,
+        now,
+        deadline,
+        add,
+      );
+      add('driverMediaIncomingDays', await sweepIncoming(now).catch(() => 0));
     }
 
     if (complete) {
