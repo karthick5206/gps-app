@@ -5,6 +5,8 @@
  * PUSH_PROVIDER=none disables sending (pushes are logged as SKIPPED).
  */
 
+import { isEmergencyAlert } from '@veetracer/shared';
+
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const TIMEOUT_MS = 10_000;
 /** Expo accepts at most 100 messages per request. */
@@ -16,6 +18,13 @@ export interface PushMessage {
   data?: Record<string, unknown>;
   /** Android notification channel created by the app ('alerts' plays the alert sound). */
   channelId?: string;
+  /** 'default', or a sound file bundled in the app (iOS plays it by name; Android uses the channel's sound). */
+  sound?: string;
+}
+
+/** SOS / crash pushes use the app's 'sos' channel and bundled siren; everything else the normal alert channel. */
+export function pushStyle(alertType: unknown): Pick<PushMessage, 'channelId' | 'sound'> {
+  return typeof alertType === 'string' && isEmergencyAlert(alertType) ? { channelId: 'sos', sound: 'sos_siren.wav' } : { channelId: 'alerts', sound: 'default' };
 }
 
 export interface PushResult {
@@ -57,7 +66,7 @@ export class ExpoPushProvider implements PushProvider {
           ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
         },
         body: JSON.stringify(
-          chunk.map((to) => ({ to, title: m.title, body: m.body, data: m.data ?? {}, sound: 'default', priority: 'high', channelId: m.channelId ?? 'alerts' })),
+          chunk.map((to) => ({ to, title: m.title, body: m.body, data: m.data ?? {}, sound: m.sound ?? 'default', priority: 'high', channelId: m.channelId ?? 'alerts' })),
         ),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });

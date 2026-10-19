@@ -228,6 +228,13 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
 
 export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEntries(ALERT_TYPES.map((t) => [t.code, t])) as Record<AlertTypeCode, AlertTypeDef>;
 
+/** Emergency alerts: the mobile app plays a loud siren (push channel 'sos') and opens a full-screen alarm. */
+export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH'] as const satisfies readonly AlertTypeCode[];
+
+export function isEmergencyAlert(type: string | null | undefined): boolean {
+  return !!type && (EMERGENCY_ALERT_TYPES as readonly string[]).includes(type);
+}
+
 /** Days 1–7 = Monday–Sunday; times are HH:mm in the company timezone; `from` > `to` wraps midnight. */
 export interface TimeWindow {
   days: number[];

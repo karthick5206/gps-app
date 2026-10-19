@@ -1,4 +1,4 @@
-import { createPushProvider, ExpoPushProvider } from './push';
+import { createPushProvider, ExpoPushProvider, pushStyle } from './push';
 
 describe('ExpoPushProvider', () => {
   const realFetch = global.fetch;
@@ -37,5 +37,35 @@ describe('ExpoPushProvider', () => {
     const p = createPushProvider();
     expect(p.enabled).toBe(false);
     await expect(p.send([], { title: 't', body: 'b' })).rejects.toThrow('Push not configured');
+  });
+});
+
+describe('pushStyle', () => {
+  const realFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
+
+  it('routes SOS and CRASH to the sos channel with the siren', () => {
+    expect(pushStyle('SOS')).toEqual({ channelId: 'sos', sound: 'sos_siren.wav' });
+    expect(pushStyle('CRASH')).toEqual({ channelId: 'sos', sound: 'sos_siren.wav' });
+  });
+
+  it('keeps normal alerts on the alerts channel with the default sound', () => {
+    expect(pushStyle('OVERSPEED')).toEqual({ channelId: 'alerts', sound: 'default' });
+    expect(pushStyle(undefined)).toEqual({ channelId: 'alerts', sound: 'default' });
+  });
+
+  it('sends emergency pushes with channel sos, the siren sound, high priority and the alert type', async () => {
+    const bodies: unknown[][] = [];
+    global.fetch = jest.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 });
+    }) as typeof fetch;
+    const data = { alertId: 'a1', type: 'SOS' };
+    await new ExpoPushProvider().send(['ExponentPushToken[a]'], { title: 'SOS', body: 'Help', data, ...pushStyle(data.type) });
+    expect(bodies[0][0]).toMatchObject({ channelId: 'sos', sound: 'sos_siren.wav', priority: 'high', data: { type: 'SOS' } });
+    await new ExpoPushProvider().send(['ExponentPushToken[a]'], { title: 'Overspeed', body: 'x', data: { type: 'OVERSPEED' }, ...pushStyle('OVERSPEED') });
+    expect(bodies[1][0]).toMatchObject({ channelId: 'alerts', sound: 'default' });
   });
 });

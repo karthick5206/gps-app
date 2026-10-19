@@ -19,7 +19,7 @@ import { RedisService } from '../redis/redis.service';
 import { htmlToText, isSendable } from '../templates/render';
 import { loadAlertContext, Rendered, renderTemplate } from '../templates/template-renderer';
 import { withRetries } from './retry';
-import { createPushProvider, PushProvider } from './push';
+import { createPushProvider, PushProvider, pushStyle } from './push';
 import { createSmsProvider, SmsProvider } from './sms';
 
 const READ_COUNT = 50;
@@ -360,7 +360,7 @@ Driver event: ${link}`,
     const body = (msg.text || htmlToText(msg.body)).slice(0, 500);
     let result: Awaited<ReturnType<PushProvider['send']>> | null = null;
     const { error } = await withRetries(async () => {
-      result = await this.push.send(rows.map((r) => r.token), { title, body, data });
+      result = await this.push.send(rows.map((r) => r.token), { title, body, data, ...pushStyle(data.type) });
     });
     const res = result as Awaited<ReturnType<PushProvider['send']>> | null;
     if (res?.invalidTokens.length) await this.prisma.pushToken.deleteMany({ where: { token: { in: res.invalidTokens } } });
