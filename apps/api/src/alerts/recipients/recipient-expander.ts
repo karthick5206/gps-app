@@ -31,6 +31,7 @@ interface CandidateUser {
   email: string | null;
   mobile: string | null;
   isActive: boolean;
+  isSuperAdmin?: boolean;
   companyId: string;
   roles: { role: { id: string; name: string; dataScope: string } }[];
   branches: { branchId: string }[];
@@ -43,6 +44,7 @@ const userSelect = {
   email: true,
   mobile: true,
   isActive: true,
+  isSuperAdmin: true,
   companyId: true,
   roles: { select: { role: { select: { id: true, name: true, dataScope: true } } } },
   branches: { select: { branchId: true } },
@@ -52,7 +54,8 @@ const userSelect = {
 /** Active user of the company whose data scope includes the object (COMPANY role, the object's branch, or mapped). */
 export function userCanSee(u: CandidateUser, object: ObjectRef): boolean {
   if (!u.isActive || u.companyId !== object.companyId) return false;
-  if (u.roles.some((r) => r.role.dataScope === 'COMPANY')) return true;
+  // Super Admin has no role but sees everything.
+  if (u.isSuperAdmin || u.roles.some((r) => r.role.dataScope === 'COMPANY')) return true;
   if (object.branchId && u.branches.some((b) => b.branchId === object.branchId)) return true;
   return u.objects.some((o) => o.objectId === object.id);
 }
