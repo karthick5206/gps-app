@@ -1,6 +1,7 @@
-import { LaptopIcon, LogOutIcon, ShieldIcon } from 'lucide-react';
+import { BookOpenIcon, LaptopIcon, LogOutIcon, ShieldIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +23,7 @@ function initials(name: string): string {
 }
 
 export function UserMenu() {
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const me = useMe();
   const { signOut } = useAuth();
@@ -50,6 +52,9 @@ export function UserMenu() {
           </DropdownMenuLabel>
         )}
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigate('/guide')}>
+          <BookOpenIcon /> {t('Getting-started guide')}
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setSessionsOpen(true)}>
           <LaptopIcon /> {t('Signed-in devices')}
         </DropdownMenuItem>

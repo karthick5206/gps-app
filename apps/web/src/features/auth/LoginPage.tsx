@@ -182,6 +182,10 @@ export function LoginPage() {
         <Link to="/signup" className="font-medium text-primary hover:underline">
           {t('Create personal account')}
         </Link>
+        {' · '}
+        <Link to="/guide" className="font-medium text-primary hover:underline">
+          {t('Getting-started guide')}
+        </Link>
       </p>
     </AuthLayout>
   );

@@ -5,6 +5,7 @@ import { ensureSystemRoles } from '../access/system-roles';
 import { MailerService } from '../auth/mailer.service';
 import { hashPassword, hmac } from '../common/secrets';
 import { loadEnv } from '../config/env';
+import { GuideService } from '../guide/guide.service';
 import { LicenceSettingsService } from '../licences/licence-settings.service';
 import { DEFAULT_PARTNER_SLUG } from '../masters/companies/companies.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -42,6 +43,7 @@ export class SignupService {
     private readonly prisma: PrismaService,
     private readonly mailer: MailerService,
     private readonly licences: LicenceSettingsService,
+    private readonly guide: GuideService,
   ) {}
 
   private hash(email: string, code: string): string {
@@ -128,6 +130,8 @@ export class SignupService {
       await tx.billingProfile.create({ data: { companyId: company.id, billingName: name, address: '', city: d.city?.trim() ?? '', stateCode: state.code, email } });
     });
     this.logger.log(`Personal account created for ${email}`);
+    // Welcome email with the getting-started guide PDF (best effort, after the account exists).
+    this.guide.welcome(email, name);
     return { ok: true, email };
   }
 }

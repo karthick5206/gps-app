@@ -20,3 +20,4 @@ export * from './system-health';
 export * from './relay';
 export * from './io-sensors';
 export * from './mobile-tracker';
+export * from './guide';

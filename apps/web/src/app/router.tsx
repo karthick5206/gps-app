@@ -6,6 +6,7 @@ import { useAuth } from '@/features/auth/auth-context';
 import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage';
 import { SignupPage } from '@/features/auth/SignupPage';
 import { ClaimPage } from '@/features/claim/ClaimPage';
+import { GuidePage } from '@/features/guide/GuidePage';
 import { RedirectIfAuthenticated, RequireAuth, RequirePermission } from '@/features/auth/guards';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage';
@@ -80,6 +81,8 @@ export const router = createBrowserRouter([
     ],
   },
   { path: '/reset-password', element: <ResetPasswordPage /> },
+  // Public: linked from the mobile apps, help sheets and emails.
+  { path: '/guide', element: <GuidePage /> },
   {
     element: <RequireAuth />,
     children: [

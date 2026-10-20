@@ -25,6 +25,7 @@ import { FuelModule } from './fuel/fuel.module';
 import { IoSensorsModule } from './io-sensors/io-sensors.module';
 import { MobileTrackerModule } from './mobile-tracker/mobile-tracker.module';
 import { SignupModule } from './signup/signup.module';
+import { GuideModule } from './guide/guide.module';
 import { DeviceClaimModule } from './device-claim/device-claim.module';
 import { LicencesModule } from './licences/licences.module';
 import { DeveloperModule } from './developer/developer.module';
@@ -67,6 +68,7 @@ import { RelayModule } from './relay/relay.controller';
     IoSensorsModule,
     MobileTrackerModule,
     SignupModule,
+    GuideModule,
     DeviceClaimModule,
     DeveloperModule,
     RelayModule,

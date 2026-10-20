@@ -115,7 +115,7 @@ export function ClaimPage() {
         <CardContent>
           <form className="space-y-4" noValidate onSubmit={submit}>
             <FormError message={problem ?? (claim.isError ? errorMessage(claim.error) : null)} />
-            <Field label={t('IMEI')} htmlFor="cl-imei" hint={hint ?? undefined}>
+            <Field label={t('IMEI (dashcam: terminal ID)')} htmlFor="cl-imei" hint={hint ?? undefined}>
               <Input id="cl-imei" inputMode="numeric" value={imei} onChange={(e) => setImei(e.target.value)} placeholder="868120000000001" />
             </Field>
             {!byod && (

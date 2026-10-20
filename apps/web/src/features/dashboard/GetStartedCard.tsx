@@ -93,7 +93,12 @@ export function GetStartedCard() {
     <Card className="space-y-4 p-4">
       <div>
         <h2 className="text-lg font-semibold">{t('Get started')}</h2>
-        <p className="text-sm text-muted-foreground">{t('Add what you want to track. Each tracker or phone needs a yearly licence.')}</p>
+        <p className="text-sm text-muted-foreground">
+          {t('Add what you want to track. Each tracker or phone needs a yearly licence.')}{' '}
+          <Link to="/guide" className="font-medium text-primary hover:underline">
+            {t('Step-by-step guide')}
+          </Link>
+        </p>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         {step(
