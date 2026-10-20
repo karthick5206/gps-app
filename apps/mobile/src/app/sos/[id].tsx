@@ -62,7 +62,6 @@ export default function SosScreen() {
   const { can } = useAuth();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { ringing, silence } = useSiren(true);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -75,6 +74,9 @@ export default function SosScreen() {
     queryFn: ({ signal }) => api.get<AlertDto>(`/alerts/${id}`, undefined, signal),
     enabled: !isTest,
   });
+  // Ring for new emergencies only; an alert someone already acknowledged opens silently. If the alert can't be
+  // loaded (offline, server down) ring anyway — a missed SOS is worse than a needless siren.
+  const { ringing, silence } = useSiren(isTest || alert.data?.status === 'NEW' || alert.isError);
   const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
   const ack = useMutation({
     mutationFn: () => api.post<AlertDto>(`/alerts/${id}/ack`, {}),
