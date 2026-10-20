@@ -76,4 +76,11 @@ describe('AC / door alerts', () => {
     expect(run([at(sec(0), { ignition: false })], ctx(settings(CAPS)))).toHaveLength(0);
     expect(run([at(sec(0), { speedKph: 50, io: io({ doorOpen: true }) })], ctx(settings(['ignition'])))).toHaveLength(0);
   });
+
+  it('extVoltage wired to the AC (GT800 purple wire) is not treated as a low vehicle battery', () => {
+    const c = ctx(settings(CAPS, { POWER_LOW: { params: { afterMin: 0 } } }));
+    const v9 = (t: number, wired?: string[]) => at(sec(t), { attributes: { extVoltage: 9 }, io: io({ acOn: true, wired }) });
+    expect(run([v9(0, ['extVoltage']), v9(60, ['extVoltage'])], c).map((a) => a.type)).not.toContain('POWER_LOW');
+    expect(run([v9(0), v9(60)], c).map((a) => a.type)).toContain('POWER_LOW');
+  });
 });

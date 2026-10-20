@@ -242,7 +242,7 @@ export class PositionProcessor {
     if (!sensors.length || !state) return { live: {}, rule: undefined };
     const attrs = position.attributes ?? {};
     const live: Partial<LiveObject> = {};
-    const rule: IoAlertInput = { acOn: null, doorOpen: null, transitions: [] };
+    const rule: IoAlertInput = { acOn: null, doorOpen: null, transitions: [], wired: sensors.map((s) => s.attribute) };
     const usable = attrs.reupload !== true;
     for (const cfg of sensors) {
       const st = (state[cfg.kind] ??= emptyIoKindState());

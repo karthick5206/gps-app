@@ -117,6 +117,8 @@ export interface IoAlertInput {
   acOn: boolean | null;
   doorOpen: boolean | null;
   transitions: { kind: 'AC' | 'DOOR'; on: boolean; at: number; previousSec: number | null }[];
+  /** Attributes wired to a sensor (e.g. GT800 extVoltage = AC blower wire): not the vehicle battery. */
+  wired?: string[];
 }
 
 export interface FuelAlertEvent {
@@ -453,13 +455,13 @@ class Evaluator {
   private idling(): void {
     const setting = this.ctx.settings.get('IDLING');
     const p = setting?.params ?? {};
-    const { fixTime, speedKph, ignition, lat, lng, attributes } = this.input;
+    const { fixTime, speedKph, ignition, lat, lng } = this.input;
     let ep = this.state.idle;
     if (ep && fixTime - ep.last > EPISODE_GAP_MS) {
       this.endIdle(ep);
       ep = undefined;
     }
-    const extVoltage = num(attributes.extVoltage);
+    const extVoltage = this.batteryVoltage();
     const engineOn = ignition === true || (ignition === null && extVoltage !== null && extVoltage > ENGINE_ON_VOLTAGE);
     const idleNow = engineOn && speedKph < num(p.speedBelowKph, 3)!;
     if (!idleNow) {
@@ -596,6 +598,11 @@ class Evaluator {
     }
   }
 
+  /** extVoltage as the vehicle battery, unless an AC / door sensor is wired to it. */
+  private batteryVoltage(): number | null {
+    return this.input.io?.wired?.includes('extVoltage') ? null : num(this.input.attributes.extVoltage);
+  }
+
   // ───────────── AC / door sensors (state debounced by the processor) ─────────────
   private ioSensors(): void {
     const io = this.input.io;
@@ -671,7 +678,7 @@ class Evaluator {
       }
 
       // Power source: main power removed (voltage drops to ~0) or vehicle battery low.
-      const v = num(attributes.extVoltage);
+      const v = this.batteryVoltage();
       if (v !== null) {
         const prev = this.state.extV;
         if (prev !== undefined && prev >= 6 && v < 1) {
