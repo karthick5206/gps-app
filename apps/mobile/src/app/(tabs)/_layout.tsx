@@ -31,7 +31,7 @@ export default function TabsLayout() {
     refetchInterval: 60_000,
   });
   // New alerts arrive over the live socket: refresh the badge and any open alert list.
-  // An emergency (SOS, crash, power cut) seen live while the app is open rings the alarm at once, without waiting for
+  // An emergency (SOS, crash, power cut, tamper) seen live while the app is open rings the alarm at once, without waiting for
   // the push (which may be late, or not sent when push is off for this user). openSos ignores the later push.
   useEffect(
     () =>

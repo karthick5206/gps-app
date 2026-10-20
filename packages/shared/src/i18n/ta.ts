@@ -2131,6 +2131,7 @@ export const TA: Record<string, string> = {
   'SOS / panic': 'SOS / அவசர உதவி',
   'SOS and crash alerts play a loud siren and open a full-screen alarm until someone acknowledges them.': 'SOS மற்றும் விபத்து எச்சரிக்கைகள் உரத்த சைரனை ஒலிக்கச் செய்து, யாராவது ஏற்கும் வரை முழுத் திரை அலாரத்தைத் திறக்கும்.',
   'SOS, crash and power cut alerts play a loud siren and open a full-screen alarm until someone acknowledges them.': 'SOS, விபத்து மற்றும் மின்வெட்டு எச்சரிக்கைகள் உரத்த சைரனை ஒலிக்கச் செய்து, யாராவது ஏற்கும் வரை முழுத்திரை அலாரத்தைக் காட்டும்.',
+  'SOS, crash, power cut and tamper alerts play a loud siren and open a full-screen alarm until someone acknowledges them.': 'SOS, விபத்து, மின்வெட்டு மற்றும் சேதப்படுத்தல் எச்சரிக்கைகள் உரத்த சைரனை ஒலிக்கச் செய்து, யாராவது ஏற்கும் வரை முழுத்திரை அலாரத்தைக் காட்டும்.',
   'Sound off — click to turn on': 'ஒலி அணைப்பில் — இயக்க கிளிக் செய்யவும்',
   'Sound on for Warning and Critical — click to mute': 'எச்சரிக்கை நிலை மற்றும் அவசரத்துக்கு ஒலி இயக்கத்தில் — முடக்க கிளிக் செய்யவும்',
   'Source': 'மூலம்',

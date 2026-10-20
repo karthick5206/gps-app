@@ -35,7 +35,7 @@ export function EmergencyAlertsCard() {
   const { t } = useTranslation();
   return (
     <Card style={{ gap: SPACE.md }}>
-      <Text size="sm">{t('SOS, crash and power cut alerts play a loud siren and open a full-screen alarm until someone acknowledges them.')}</Text>
+      <Text size="sm">{t('SOS, crash, power cut and tamper alerts play a loud siren and open a full-screen alarm until someone acknowledges them.')}</Text>
       <Button title={t('Test emergency alert')} icon={BellRingIcon} variant="outline" onPress={() => void runEmergencyTest(t)} />
       {Platform.OS === 'android' && (
         <View style={{ gap: SPACE.xs }}>

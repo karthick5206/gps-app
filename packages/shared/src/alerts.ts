@@ -262,9 +262,10 @@ export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEn
 
 /**
  * Emergency alerts: the mobile app plays a loud siren (push channel 'sos') and opens a full-screen alarm; the web
- * repeats a siren until acknowledged. POWER_CUT = tracker power removed / tampered (possible theft).
+ * repeats a siren until acknowledged. POWER_CUT = tracker power removed; DEVICE_TAMPER = case opened / tracker
+ * removed / GPS-GSM jamming (both: possible theft).
  */
-export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH', 'POWER_CUT'] as const satisfies readonly AlertTypeCode[];
+export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH', 'POWER_CUT', 'DEVICE_TAMPER'] as const satisfies readonly AlertTypeCode[];
 
 export function isEmergencyAlert(type: string | null | undefined): boolean {
   return !!type && (EMERGENCY_ALERT_TYPES as readonly string[]).includes(type);
