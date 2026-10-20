@@ -22,6 +22,7 @@ import { DriversModule } from './drivers/drivers.module';
 import { DocumentsModule } from './documents/documents.module';
 import { PoisModule } from './pois/pois.module';
 import { FuelModule } from './fuel/fuel.module';
+import { IoSensorsModule } from './io-sensors/io-sensors.module';
 import { LicencesModule } from './licences/licences.module';
 import { DeveloperModule } from './developer/developer.module';
 import { PublicApiModule } from './public-api/public-api.module';
@@ -60,6 +61,7 @@ import { RelayModule } from './relay/relay.controller';
     DocumentsModule,
     PoisModule,
     FuelModule,
+    IoSensorsModule,
     DeveloperModule,
     RelayModule,
     PublicApiModule,
