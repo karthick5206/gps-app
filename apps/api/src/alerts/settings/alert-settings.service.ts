@@ -19,7 +19,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AlertTargetsService, targetKey } from '../alert-targets.service';
 import { findGroupConflicts, GroupConflict, validateOverride } from '../logic/settings-resolution';
 import { isValidTimeWindow } from '../logic/time-window';
-import { loadCompanyRules } from '../rules-data';
+import { deviceCapabilities, loadCompanyRules } from '../rules-data';
 import { BulkEnableDto, CopySettingsDto, PutAlertSettingDto } from './alert-settings.dto';
 
 export const SETTINGS_AUDIT_ENTITIES = ['alert_setting', 'recipient_list', 'alert_snooze'];
@@ -74,9 +74,9 @@ export class AlertSettingsService {
   async alertTypes(ctx: AuthContext): Promise<AlertTypeWithSupport[]> {
     const objects = await this.prisma.trackedObject.findMany({
       where: { companyId: ctx.companyId, isActive: true },
-      select: { assignments: { where: { toTime: null }, select: { device: { select: { model: { select: { capabilities: true } } } } } } },
+      select: { assignments: { where: { toTime: null }, select: { device: { select: { model: { select: { capabilities: true } }, ioSensors: { where: { enabled: true }, select: { kind: true } } } } } } },
     });
-    const caps = objects.map((o) => o.assignments[0]?.device.model.capabilities ?? []);
+    const caps = objects.map((o) => deviceCapabilities(o.assignments[0]?.device));
     return ALERT_TYPES.map((t) => ({
       ...t,
       supportedBy: {

@@ -47,6 +47,8 @@ export const RedisKeys = {
   alertState: (objectId: string) => `vt:alertstate:${objectId}`,
   /** Fuel refill / drain detector state per object (smoothing buffer, open episode). */
   fuelState: (objectId: string) => `vt:fuel:${objectId}`,
+  /** AC / door detector state per object (debounce, open session). */
+  ioState: (objectId: string) => `vt:io:${objectId}`,
   // ── Customer API / webhooks ──
   /** Stream of webhook work (`event` fan-out or `deliveryId` send-now) consumed in the notifier process. */
   webhooksStream: 'vt:webhooks',

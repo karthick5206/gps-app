@@ -10,13 +10,15 @@ import { nextStatus, StatusState } from '../tracking/movement-status';
 import { EMPTY_TRACK_STATE, filterPosition, TrackState } from '../tracking/position-filter';
 import { DeviceCache, ResolvedDevice } from './device-cache';
 import { DriverIdentification } from './driver-identification';
-import { FuelEventRow, PositionRow, RawPacketRow, UnknownDeviceRow, WriteBatch, writeBatch } from './position-writer';
-import { RuleInput } from './rules/evaluate';
+import { FuelEventRow, IoSessionRow, PositionRow, RawPacketRow, UnknownDeviceRow, WriteBatch, writeBatch } from './position-writer';
+import { IoAlertInput, RuleInput } from './rules/evaluate';
+import { emptyIoKindState, ioReading, IoState, parseIoState, stepIo } from '../io-sensors/io-logic';
 import { RulesBatch, RulesEngine } from './rules/rules-engine';
 import { statusChangedEvent, vehicleState, WebhookEventMessage, WebhookEventPublisher } from '../webhooks/events';
 
 const LAST_SEEN_THROTTLE_MS = 10_000;
 const FUEL_STATE_TTL_SEC = 7 * 24 * 3600;
+const IO_STATE_TTL_SEC = 7 * 24 * 3600;
 
 /** Fuel detector state of the objects in one batch. */
 interface FuelBatch {
@@ -24,6 +26,14 @@ interface FuelBatch {
   changed: Set<string>;
   events: FuelEventRow[];
 }
+
+/** AC / door detector state of the objects in one batch. */
+interface IoBatch {
+  states: Map<string, IoState>;
+  changed: Set<string>;
+  sessions: IoSessionRow[];
+}
+const emptyIoBatch = (): IoBatch => ({ states: new Map(), changed: new Set(), sessions: [] });
 
 function parseFuelState(json: string | null): FuelState | null {
   if (!json) return null;
@@ -108,6 +118,7 @@ export class PositionProcessor {
     const { lives, tracks } = await this.loadState([...objectIds]);
     const statusBefore = new Map([...lives].map(([id, l]) => [id, l.status]));
     const fuel = await this.loadFuel(parsed.map((p) => devices.get(p.position.uniqueId)));
+    const io = await this.loadIo(parsed.map((p) => devices.get(p.position.uniqueId)));
 
     const batch: WriteBatch = { positions: [], rawPackets: [], unknownDevices: [], lastSeen: [] };
     const unknown = new Map<string, UnknownDeviceRow>();
@@ -134,12 +145,13 @@ export class PositionProcessor {
       }
       if (!device.accepted) continue;
       if (this.drivers && device.object) await this.drivers.apply(device.object, position);
-      batch.positions.push(this.evaluate(position, device, lives, tracks, changed, now, serverTime, ruleInputs, fuel));
+      batch.positions.push(this.evaluate(position, device, lives, tracks, changed, now, serverTime, ruleInputs, fuel, io));
       if (position.raw) batch.rawPackets.push(this.rawPacket(position, entry.remote));
       this.trackLastSeen(device.deviceId, now, serverTime, batch);
     }
     batch.unknownDevices = [...unknown.values()];
     batch.fuelEvents = fuel.events;
+    batch.ioSessions = io.sessions;
 
     let rules = await this.evaluateRules(ruleInputs);
     if (changed.size) await this.publish(changed, tracks);
@@ -154,6 +166,7 @@ export class PositionProcessor {
       await writeBatch(this.prisma, batch);
     }
     await this.saveFuel(fuel);
+    await this.saveIo(io);
     await this.redis.xack(RedisKeys.positionsStream, RedisKeys.processorGroup, ...entries.map((e) => e.id));
     if (rules) await this.commitRules(rules);
     return entries.length;
@@ -192,6 +205,79 @@ export class PositionProcessor {
     if (failed?.[0]) this.logger.error(`Fuel state update failed: ${failed[0].message}`);
   }
 
+  private async loadIo(devices: (ResolvedDevice | null | undefined)[]): Promise<IoBatch> {
+    const out = emptyIoBatch();
+    const ids = [...new Set(devices.filter((d) => d?.accepted && d.object && d.io?.length).map((d) => d!.object!.objectId))];
+    if (!ids.length) return out;
+    const values = await this.redis.mget(...ids.map(RedisKeys.ioState));
+    ids.forEach((id, i) => out.states.set(id, parseIoState(values[i])));
+    return out;
+  }
+
+  /** After the batch (and its session rows) was written: persist the AC / door detector state. */
+  private async saveIo(io: IoBatch): Promise<void> {
+    if (!io.changed.size) return;
+    const pipeline = this.redis.pipeline();
+    for (const id of io.changed) pipeline.set(RedisKeys.ioState(id), JSON.stringify(io.states.get(id)), 'EX', IO_STATE_TTL_SEC);
+    const results = await pipeline.exec();
+    const failed = results?.find(([error]) => error);
+    if (failed?.[0]) this.logger.error(`AC / door state update failed: ${failed[0].message}`);
+  }
+
+  /**
+   * AC / door sensors on a live point: reading → debounced state → session rows; the state goes into the position
+   * attributes (`ac`, `doorOpen`) and LiveObject. Buffered history uploads only show their reading, never move the state.
+   */
+  private applyIo(
+    object: NonNullable<ResolvedDevice['object']>,
+    device: ResolvedDevice,
+    position: NormalizedPosition,
+    fixTime: number,
+    loc: { lat: number | null; lng: number | null; trusted: boolean },
+    prev: LiveObject | undefined,
+    io: IoBatch,
+  ): { live: Partial<LiveObject>; rule: IoAlertInput | undefined } {
+    const sensors = device.io ?? [];
+    const state = io.states.get(object.objectId);
+    if (!sensors.length || !state) return { live: {}, rule: undefined };
+    const attrs = position.attributes ?? {};
+    const live: Partial<LiveObject> = {};
+    const rule: IoAlertInput = { acOn: null, doorOpen: null, transitions: [] };
+    const usable = attrs.reupload !== true;
+    for (const cfg of sensors) {
+      const st = (state[cfg.kind] ??= emptyIoKindState());
+      const reading = ioReading(attrs, cfg, st.s);
+      if (usable) {
+        const step = stepIo(st, { t: fixTime, raw: reading.on, lat: loc.lat, lng: loc.lng, valid: loc.trusted, ignition: position.ignition }, cfg, randomUUID);
+        io.changed.add(object.objectId);
+        for (const r of step.rows) {
+          io.sessions.push({
+            ...r,
+            companyId: object.companyId,
+            objectId: object.objectId,
+            startTime: new Date(r.startTime).toISOString(),
+            endTime: r.endTime === null ? null : new Date(r.endTime).toISOString(),
+          });
+        }
+        if (step.transition) rule.transitions.push(step.transition);
+      }
+      const on = st.s;
+      if (cfg.kind === 'AC') {
+        live.acOn = on;
+        live.acVoltage = cfg.source === 'ANALOG' ? (reading.voltage ?? prev?.acVoltage ?? null) : null;
+        rule.acOn = on;
+        if (on !== null) attrs.ac = on;
+      } else {
+        live.doorOpen = on;
+        live.doorVoltage = cfg.source === 'ANALOG' ? (reading.voltage ?? prev?.doorVoltage ?? null) : null;
+        rule.doorOpen = on;
+        if (on !== null) attrs.doorOpen = on;
+      }
+    }
+    position.attributes = attrs;
+    return { live, rule };
+  }
+
   private evaluate(
     position: NormalizedPosition,
     device: ResolvedDevice,
@@ -202,6 +288,7 @@ export class PositionProcessor {
     serverTime: string,
     ruleInputs: RuleInput[],
     fuel: FuelBatch = { states: new Map(), changed: new Set(), events: [] },
+    io: IoBatch = emptyIoBatch(),
   ): PositionRow {
     const fixTime = Date.parse(position.fixTime);
     const object = device.object;
@@ -243,6 +330,7 @@ export class PositionProcessor {
         );
         const attrs = position.attributes;
         const trusted = (flags & (POSITION_FLAGS.INVALID_FIX | POSITION_FLAGS.JUMP)) === 0;
+        const ioOut = this.applyIo(object, device, position, fixTime, { lat: result.lat, lng: result.lng, trusted }, prev, io);
         const live: LiveObject = {
           ...object,
           status: status.status,
@@ -258,6 +346,7 @@ export class PositionProcessor {
           extVoltage: numberAttr(attrs, 'extVoltage') ?? prev?.extVoltage ?? null,
           fuelL: device.fuel ? (numberAttr(attrs, 'fuelL') ?? prev?.fuelL ?? null) : null,
           fuelPct: device.fuel ? (numberAttr(attrs, 'fuelPct') ?? prev?.fuelPct ?? null) : null,
+          ...ioOut.live,
           fixTime: position.fixTime,
           serverTime,
         };
@@ -279,6 +368,7 @@ export class PositionProcessor {
             locationValid: (flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null,
             receivedAt: now,
             ...(fuelEvents.length ? { fuelEvents } : {}),
+            ...(ioOut.rule ? { io: ioOut.rule } : {}),
           });
         }
       } else if ((flags & POSITION_FLAGS.FUTURE) !== 0 && !object.inMaintenance) {

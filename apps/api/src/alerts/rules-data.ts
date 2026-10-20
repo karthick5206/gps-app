@@ -148,7 +148,7 @@ export async function loadCompanyRules(prisma: PrismaClient, companyId: string, 
         id: true,
         branchId: true,
         groups: { select: { groupId: true } },
-        assignments: { where: { toTime: null }, select: { device: { select: { model: { select: { capabilities: true } } } } } },
+        assignments: { where: { toTime: null }, select: { device: { select: { model: { select: { capabilities: true } }, ioSensors: { where: { enabled: true }, select: { kind: true } } } } } },
       },
     }),
     opts.geofences === false
@@ -172,7 +172,7 @@ export async function loadCompanyRules(prisma: PrismaClient, companyId: string, 
         id: o.id,
         branchId: o.branchId,
         groupIds: o.groups.map((g) => g.groupId).filter((id) => groups.has(id)),
-        capabilities: o.assignments[0]?.device.model.capabilities ?? [],
+        capabilities: deviceCapabilities(o.assignments[0]?.device),
       },
     ]),
   );
@@ -281,4 +281,11 @@ export class RulesRepository {
         e.loading = null;
       });
   }
+}
+
+/** Model capabilities plus 'ac' / 'door' when the device has that sensor configured (AC / door alerts need the wiring). */
+export function deviceCapabilities(device: { model: { capabilities: string[] }; ioSensors?: { kind: string }[] } | undefined): string[] {
+  if (!device) return [];
+  const io = (device.ioSensors ?? []).map((s) => s.kind.toLowerCase());
+  return io.length ? [...device.model.capabilities, ...io] : device.model.capabilities;
 }

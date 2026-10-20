@@ -56,6 +56,10 @@ export interface AlertState {
   extV?: number;
   /** Dashcam video alarm flags on the last point (they stay set while the fault lasts). */
   vid?: string[];
+  /** AC on with the ignition off: since when, and whether AC_ON_ENGINE_OFF was raised. */
+  acEo?: { since: number; alerted: boolean };
+  /** DOOR_OPEN_WHILE_MOVING raised for the current door-open period. */
+  doorMv?: boolean;
   /** Last alert time per cooldown key (alert type, or type:geofenceId). */
   cd: Record<string, number>;
 }
@@ -105,6 +109,14 @@ export interface RuleInput {
   healthOnly?: boolean;
   /** Refills / drains the fuel detector reported on this point (already stored as FuelEvent rows). */
   fuelEvents?: FuelAlertEvent[];
+  /** AC / door sensor state (debounced) and changes on this point, when the vehicle's tracker has them configured. */
+  io?: IoAlertInput;
+}
+
+export interface IoAlertInput {
+  acOn: boolean | null;
+  doorOpen: boolean | null;
+  transitions: { kind: 'AC' | 'DOOR'; on: boolean; at: number; previousSec: number | null }[];
 }
 
 export interface FuelAlertEvent {
@@ -257,6 +269,7 @@ class Evaluator {
     this.dashcam();
     this.battery();
     this.fuel();
+    this.ioSensors();
     this.health();
     this.pruneCooldowns();
     return this.out;
@@ -577,6 +590,37 @@ class Evaluator {
         this.emit('FUEL_REFILL', { at: e.endTime, message: `Refuelled ${e.deltaL.toFixed(1)} L (${level})`, data, cooldownKey: `FUEL_REFILL:${e.id}` });
       }
     }
+  }
+
+  // ───────────── AC / door sensors (state debounced by the processor) ─────────────
+  private ioSensors(): void {
+    const io = this.input.io;
+    if (!io) return;
+    for (const t of io.transitions) {
+      const data = t.previousSec === null ? {} : { durationSec: t.previousSec };
+      if (t.kind === 'AC') this.emit(t.on ? 'AC_ON' : 'AC_OFF', { at: t.at, message: t.on ? 'AC switched on' : 'AC switched off', data: t.on ? {} : data });
+      else this.emit(t.on ? 'DOOR_OPEN' : 'DOOR_CLOSED', { at: t.at, message: t.on ? 'Door opened' : 'Door closed', data: t.on ? {} : data });
+    }
+    const { fixTime, ignition, speedKph } = this.input;
+
+    // AC running with the ignition off for N minutes (drains the battery).
+    if (io.acOn === true && ignition === false) {
+      const ep = (this.state.acEo ??= { since: fixTime, alerted: false });
+      const durationSec = Math.round((fixTime - ep.since) / 1000);
+      if (!ep.alerted && durationSec >= this.param('AC_ON_ENGINE_OFF', 'minutes', 10) * 60) {
+        ep.alerted = true;
+        this.emit('AC_ON_ENGINE_OFF', { message: `AC running with the ignition off for ${formatDuration(durationSec)}`, data: { durationSec } });
+      }
+    } else delete this.state.acEo;
+
+    // Door open while driving: once per door-open period.
+    if (io.doorOpen === true) {
+      const limit = this.param('DOOR_OPEN_WHILE_MOVING', 'speedKph', 10);
+      if (!this.state.doorMv && this.input.locationValid !== false && speedKph > limit) {
+        this.state.doorMv = true;
+        this.emit('DOOR_OPEN_WHILE_MOVING', { message: `Door open while moving at ${Math.round(speedKph)} km/h`, data: { limitKph: limit } });
+      }
+    } else if (io.doorOpen === false) delete this.state.doorMv;
   }
 
   // ───────────── device health (data-driven) ─────────────
