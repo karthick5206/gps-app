@@ -130,7 +130,12 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
           break;
         }
         if (message.extVoltage !== undefined) session.status.extVoltage = message.extVoltage;
-        if (message.iccid) session.iccid = message.iccid;
+        if (message.iccid) {
+          // Reported after login: as an event position so the rules can compare it with the last SIM (SIM_CHANGED).
+          const changed = message.iccid !== session.iccid;
+          session.iccid = message.iccid;
+          if (changed && session.uniqueId) result.positions.push(this.eventPosition(session, frame, ctx, { iccid: message.iccid, event: 'sim' }));
+        }
         if (message.fuelSensorRaw !== undefined) session.sensors.fuelSensorRaw = message.fuelSensorRaw;
         if (message.fuelSensorTemp !== undefined) session.sensors.fuelSensorTemp = message.fuelSensorTemp;
         if (message.inputs) {

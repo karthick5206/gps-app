@@ -25,6 +25,8 @@ const DETAIL: Record<AlertTypeCode, string> = {
   SOS: 'SOS / panic button was pressed',
   LOW_BATTERY: 'tracker battery is low ({{battery}})',
   DEVICE_OFFLINE: 'tracker has sent no data for {{duration}}',
+  DEVICE_ONLINE: 'tracker is back online after {{duration}} without data',
+  SIM_CHANGED: 'tracker has a different SIM card (SIM removed and another inserted)',
   GPS_LOST: 'tracker has had no GPS fix for {{duration}}',
   GSM_WEAK: 'tracker mobile signal has been weak for {{duration}}',
   DATA_DELAYED: 'tracker data is arriving {{duration}} late (network problem)',

@@ -60,6 +60,8 @@ export interface AlertState {
   acEo?: { since: number; alerted: boolean };
   /** DOOR_OPEN_WHILE_MOVING raised for the current door-open period. */
   doorMv?: boolean;
+  /** Last SIM ICCID the tracker reported: a different one = SIM_CHANGED. */
+  iccid?: string;
   /** Last alert time per cooldown key (alert type, or type:geofenceId). */
   cd: Record<string, number>;
 }
@@ -105,6 +107,8 @@ export interface RuleInput {
   /** When the server received the point (ms). Defaults to fixTime. Used for health durations and for alerts from
    * points without a fix, whose device time can't be trusted. */
   receivedAt?: number;
+  /** The object was OFFLINE (offline sweeper) until this point: server time of its last data before. */
+  offlineSince?: number;
   /** Only run device-health checks (points that don't update live state, e.g. a clock running ahead). */
   healthOnly?: boolean;
   /** Refills / drains the fuel detector reported on this point (already stored as FuelEvent rows). */
@@ -263,6 +267,7 @@ class Evaluator {
   run(): EvalOutput {
     if (this.input.healthOnly) {
       this.health();
+      this.connection();
       return this.out;
     }
     if (this.input.locationValid !== false) {
@@ -277,6 +282,7 @@ class Evaluator {
     this.fuel();
     this.ioSensors();
     this.health();
+    this.connection();
     this.pruneCooldowns();
     return this.out;
   }
@@ -601,6 +607,25 @@ class Evaluator {
   /** extVoltage as the vehicle battery, unless an AC / door sensor is wired to it. */
   private batteryVoltage(): number | null {
     return this.input.io?.wired?.includes('extVoltage') ? null : num(this.input.attributes.extVoltage);
+  }
+
+  // ───────────── connection: back online after a silence (SIM / power / network restored); SIM card swapped ─────────────
+  private connection(): void {
+    // Back from OFFLINE (the same status that raised DEVICE_OFFLINE), so sleeping trackers with long report intervals
+    // don't alert unless they were actually marked offline.
+    const since = this.input.offlineSince;
+    if (since !== undefined && this.now > since) {
+      const durationSec = Math.round((this.now - since) / 1000);
+      this.emit('DEVICE_ONLINE', { message: `Back online after ${formatDuration(durationSec)} without data`, data: { durationSec, lastSeen: new Date(since).toISOString() } });
+    }
+    const iccid = typeof this.input.attributes.iccid === 'string' && this.input.attributes.iccid ? this.input.attributes.iccid : null;
+    if (iccid) {
+      const previous = this.state.iccid;
+      if (previous && previous !== iccid) {
+        this.emit('SIM_CHANGED', { message: `SIM card changed (…${previous.slice(-6)} → …${iccid.slice(-6)})`, data: { previousIccid: previous, iccid } });
+      }
+      this.state.iccid = iccid;
+    }
   }
 
   // ───────────── AC / door sensors (state debounced by the processor) ─────────────

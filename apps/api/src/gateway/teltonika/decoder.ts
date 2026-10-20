@@ -114,6 +114,14 @@ export function mapIo(rec: TeltonikaRecord): { ignition: boolean | null; attribu
       if (c < 850) attrs[key] = round(c, 1);
     }
   }
+  // SIM ICCID (IO 11 = first part, IO 14 = second part; only when enabled in Configurator).
+  const iccid1 = take(11);
+  const iccid2 = take(14);
+  const part = (x: typeof iccid1) => (x === undefined ? '' : typeof x.value === 'number' ? String(x.value) : BigInt(`0x${x.value.toString('hex') || '0'}`).toString());
+  if (iccid1 || iccid2) {
+    const iccid = `${part(iccid1)}${part(iccid2)}`;
+    if (/^[1-9]\d{9,}$/.test(iccid)) attrs.iccid = iccid;
+  }
   const ibutton = take(78);
   if (ibutton) {
     const id = typeof ibutton.value === 'number' ? ibutton.value.toString(16) : ibutton.value.toString('hex');

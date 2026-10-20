@@ -367,6 +367,7 @@ export class PositionProcessor {
             attributes: attrs,
             locationValid: (flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null,
             receivedAt: now,
+            ...(prev?.status === 'OFFLINE' && prev.serverTime ? { offlineSince: Date.parse(prev.serverTime) } : {}),
             ...(fuelEvents.length ? { fuelEvents } : {}),
             ...(ioOut.rule ? { io: ioOut.rule } : {}),
           });

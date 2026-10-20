@@ -120,6 +120,13 @@ describe('Teltonika round trips', () => {
     expect(attributes).toMatchObject({ motion: true, gsmSignal: 4, extVoltage: 12.65, batteryVoltage: 4.1, odometerM: 1234567, temp1: -5, driverId: '1A2B3C4D5' });
   });
 
+  it('SIM ICCID from IO 11 + IO 14', () => {
+    const pkt = encodeAvlPacket([{ timestamp: ts, lat: 1, lng: 2, satellites: 5, io: { 239: 0, 11: 8991450000, 14: 1234567890 }, sizes: { 11: 8, 14: 8 } }]);
+    const d = decodeTeltonika(pkt, true);
+    if (d.type !== 'avl') throw new Error('expected avl');
+    expect(mapIo(d.records[0]).attributes.iccid).toBe('89914500001234567890');
+  });
+
   it('Codec 8E with NX values', () => {
     const pkt = encodeAvlPacket([{ timestamp: ts, lat: 1, lng: 2, satellites: 5, io: { 239: 0 }, nx: { 256: Buffer.from('WVWZZZ1JZXW000001') } }], TeltonikaCodec.CODEC_8E);
     const d = decodeTeltonika(pkt, true);

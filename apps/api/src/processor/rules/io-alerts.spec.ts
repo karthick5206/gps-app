@@ -84,3 +84,27 @@ describe('AC / door alerts', () => {
     expect(run([v9(0), v9(60)], c).map((a) => a.type)).toContain('POWER_LOW');
   });
 });
+
+describe('connection alerts', () => {
+  const all = (points: RuleInput[], c: EvalContext, state: AlertState) => points.flatMap((p) => evaluatePosition(p, state, c).alerts);
+  const rx = (s: number, attributes: Record<string, unknown> = {}) => at(sec(s), { receivedAt: sec(s), attributes });
+
+  it('DEVICE_ONLINE once when an object marked OFFLINE sends data again', () => {
+    const c = ctx(settings(CAPS));
+    const state = emptyAlertState();
+    expect(all([rx(0), rx(60)], c, state).map((a) => a.type)).not.toContain('DEVICE_ONLINE');
+    const back = all([{ ...rx(4000), offlineSince: sec(60) }], c, state).filter((a) => a.type === 'DEVICE_ONLINE');
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ severity: 'INFO', data: expect.objectContaining({ durationSec: 3940 }) });
+  });
+
+  it('SIM_CHANGED only when a different ICCID follows a known one', () => {
+    const c = ctx(settings(CAPS));
+    const state = emptyAlertState();
+    const types = (pts: RuleInput[]) => all(pts, c, state).map((a) => a.type);
+    expect(types([rx(0, { iccid: '89914500001234567890' }), rx(60, { iccid: '89914500001234567890' }), rx(120)])).not.toContain('SIM_CHANGED');
+    const changed = all([rx(180, { iccid: '89914599998888777766' })], c, state).filter((a) => a.type === 'SIM_CHANGED');
+    expect(changed).toHaveLength(1);
+    expect(changed[0]).toMatchObject({ severity: 'CRITICAL', data: { previousIccid: '89914500001234567890', iccid: '89914599998888777766' } });
+  });
+});

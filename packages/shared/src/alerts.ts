@@ -55,6 +55,8 @@ export const ALERT_TYPE_CODES = [
   'SOS',
   'LOW_BATTERY',
   'DEVICE_OFFLINE',
+  'DEVICE_ONLINE',
+  'SIM_CHANGED',
   'GPS_LOST',
   'GSM_WEAK',
   'DATA_DELAYED',
@@ -140,6 +142,14 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
     params: [{ key: 'afterMin', label: 'Offline after', type: 'number', unit: 'min', default: null, min: 5, max: 1440, hint: 'Empty = company offline threshold' }],
     placeholders: ['duration'],
   },
+  {
+    code: 'DEVICE_ONLINE', label: 'Device back online', category: 'Device', capability: null, defaultSeverity: 'INFO', defaultEnabled: true, mandatory: false,
+    // When a tracker marked offline (e.g. SIM removed, power or network lost) sends data again.
+    params: [],
+    placeholders: ['duration'],
+  },
+  // Trackers that report the SIM ICCID (Concox info packet, Teltonika IO 11/14): a different SIM = possible theft / misuse.
+  { code: 'SIM_CHANGED', label: 'SIM card changed', category: 'Device', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // ── Device health (computed from the data the tracker sends) ──
   {
     code: 'GPS_LOST', label: 'GPS signal lost', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
@@ -224,6 +234,8 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   SOS: 1,
   LOW_BATTERY: 60,
   DEVICE_OFFLINE: 0,
+  DEVICE_ONLINE: 0,
+  SIM_CHANGED: 5,
   GPS_LOST: 0,
   GSM_WEAK: 0,
   DATA_DELAYED: 60,
@@ -263,9 +275,9 @@ export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEn
 /**
  * Emergency alerts: the mobile app plays a loud siren (push channel 'sos') and opens a full-screen alarm; the web
  * repeats a siren until acknowledged. POWER_CUT = tracker power removed; DEVICE_TAMPER = case opened / tracker
- * removed / GPS-GSM jamming (both: possible theft).
+ * removed / GPS-GSM jamming; SIM_CHANGED = a different SIM card in the tracker (all: possible theft).
  */
-export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH', 'POWER_CUT', 'DEVICE_TAMPER'] as const satisfies readonly AlertTypeCode[];
+export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH', 'POWER_CUT', 'DEVICE_TAMPER', 'SIM_CHANGED'] as const satisfies readonly AlertTypeCode[];
 
 export function isEmergencyAlert(type: string | null | undefined): boolean {
   return !!type && (EMERGENCY_ALERT_TYPES as readonly string[]).includes(type);
