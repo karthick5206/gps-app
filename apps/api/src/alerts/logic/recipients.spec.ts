@@ -15,6 +15,13 @@ const values = (r: ReturnType<typeof resolveRecipientEntries>) => r.entries.map(
 const companyDefault = row({ level: 'COMPANY', targetId: 'c', entries: [email('admin@x.in'), email('ops@x.in')] });
 
 describe('recipient resolution', () => {
+  it('PUSH with no list at any level goes to everyone who can see the object; a configured list is respected', () => {
+    expect(resolveRecipientEntries([], chain, 'SOS', 'CRITICAL', 'PUSH').entries).toEqual([expect.objectContaining({ kind: 'DYNAMIC', value: 'ALL_VIEWERS' })]);
+    expect(resolveRecipientEntries([], chain, 'SOS', 'CRITICAL', 'EMAIL').entries).toEqual([]);
+    const none = row({ level: 'COMPANY', targetId: 'c', channel: 'PUSH', mode: 'NONE', entries: [] });
+    expect(resolveRecipientEntries([none], chain, 'SOS', 'CRITICAL', 'PUSH').entries).toEqual([]);
+  });
+
   it('DEFAULT: falls back to the company default list', () => {
     const r = resolveRecipientEntries([companyDefault], chain, 'OVERSPEED', 'WARNING', 'EMAIL');
     expect(r.mode).toBe('DEFAULT');

@@ -26,6 +26,9 @@ export interface ResolvedEntries {
 }
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** PUSH recipients when the company has no push list: every user who can see the object. */
+export const PUSH_FALLBACK: RecipientEntry = { kind: 'DYNAMIC', value: 'ALL_VIEWERS', label: 'Everyone who can see it' };
+
 /** Indian mobile numbers in E.164: +91 followed by 10 digits. */
 export const INDIA_MOBILE_PATTERN = /^\+91\d{10}$/;
 
@@ -57,7 +60,7 @@ export function validateEntries(entries: RecipientEntry[]): string | null {
         if (!INDIA_MOBILE_PATTERN.test(e.value.trim())) return `Invalid mobile "${e.value}" — use +91 followed by 10 digits`;
         break;
       case 'DYNAMIC':
-        if (e.value !== 'OBJECT_USERS' && e.value !== 'BRANCH_MANAGERS') return `Unknown dynamic recipient "${e.value}"`;
+        if (e.value !== 'OBJECT_USERS' && e.value !== 'BRANCH_MANAGERS' && e.value !== 'ALL_VIEWERS') return `Unknown dynamic recipient "${e.value}"`;
         break;
       case 'USER':
       case 'ROLE':
@@ -108,6 +111,8 @@ export function resolveRecipientEntries(
 ): ResolvedEntries {
   const levels = levelsAsc(chain);
   const forChannel = rows.filter((r) => r.channel === channel);
+  // Nothing set up for push at any level: phones of everyone who can see the object (an SOS must never go nowhere).
+  if (channel === 'PUSH' && !forChannel.length) return { mode: 'DEFAULT', decidedBy: null, entries: [PUSH_FALLBACK] };
   const at = (level: AlertLevel, targetId: string) => forChannel.filter((r) => r.level === level && r.targetId === targetId);
 
   let defaults: RecipientEntry[] = [];

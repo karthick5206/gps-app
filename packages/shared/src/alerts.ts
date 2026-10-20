@@ -345,8 +345,11 @@ export interface EffectiveAlertSetting {
 
 export type RecipientMode = 'DEFAULT' | 'ADD' | 'ONLY' | 'NONE';
 export type RecipientKind = 'USER' | 'ROLE' | 'DYNAMIC' | 'EMAIL' | 'MOBILE';
-/** DYNAMIC values: OBJECT_USERS (users mapped to the object or its branch), BRANCH_MANAGERS. */
-export type DynamicRecipient = 'OBJECT_USERS' | 'BRANCH_MANAGERS';
+/**
+ * DYNAMIC values: OBJECT_USERS (users mapped to the object or its branch), BRANCH_MANAGERS, ALL_VIEWERS (every active
+ * user who can see the object, incl. company-wide roles). ALL_VIEWERS is also the PUSH default when no push list exists.
+ */
+export type DynamicRecipient = 'OBJECT_USERS' | 'BRANCH_MANAGERS' | 'ALL_VIEWERS';
 
 export interface RecipientEntry {
   kind: RecipientKind;

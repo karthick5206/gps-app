@@ -128,6 +128,8 @@ export class RecipientExpander {
       or.push({ objects: { some: { objectId: object.id } } });
       if (object.branchId) or.push({ branches: { some: { branchId: object.branchId } } });
     }
+    // Every company user; userCanSee below keeps only those who can see the object.
+    if (dynamic.has('ALL_VIEWERS')) or.push({ companyId: object.companyId });
     if (dynamic.has('BRANCH_MANAGERS') && object.branchId) {
       or.push({ AND: [{ branches: { some: { branchId: object.branchId } } }, { roles: { some: { role: { name: 'Manager' } } } }] });
     }

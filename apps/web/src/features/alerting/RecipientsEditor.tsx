@@ -36,6 +36,7 @@ const MODES: RecipientMode[] = ['DEFAULT', 'ADD', 'ONLY', 'NONE'];
 const DYNAMIC: { value: string; label: string; hint: string }[] = [
   { value: 'OBJECT_USERS', label: 'Assigned users', hint: 'Users mapped to the vehicle or its branch' },
   { value: 'BRANCH_MANAGERS', label: 'Branch managers', hint: "Managers of the vehicle's branch" },
+  { value: 'ALL_VIEWERS', label: 'Everyone who can see it', hint: 'Every user with access to the vehicle (push default)' },
 ];
 
 /** Entry kinds that make sense per channel (contacts without a login only on email/SMS/WhatsApp). */
