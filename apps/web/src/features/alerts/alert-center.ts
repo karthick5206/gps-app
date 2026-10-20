@@ -1,16 +1,17 @@
-import { ALERT_TYPE_MAP, type AlertDto, type AlertsAckedEvent, type AlertsReadEvent, type AlertUnreadCount, type Paginated } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, EMERGENCY_ALERT_TYPES, type AlertDto, type AlertsAckedEvent, type AlertsReadEvent, type AlertUnreadCount, type Paginated } from '@veetracer/shared';
 import { realtime } from '@/features/live/realtime';
 import { api } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { isUnread, withRead } from './read-state';
-import { bindAudioUnlock, playAlertSound } from './sound';
+import { bindAudioUnlock, playAlertSound, playSiren } from './sound';
 
 const LATEST = 20;
 const MUTE_KEY = 'vt.alerts.muted';
 const POPUP_KEY = 'vt.alerts.criticalPopup';
-/** Only emergencies block the screen; other CRITICAL alerts still get a toast and sound. */
-const POPUP_TYPES: ReadonlySet<string> = new Set(['SOS', 'POWER_CUT']);
+/** Only emergencies block the screen (and repeat a siren until acknowledged); other CRITICAL alerts get a toast and beeps. */
+const POPUP_TYPES: ReadonlySet<string> = new Set(EMERGENCY_ALERT_TYPES);
+const SIREN_REPEAT_MS = 3000;
 
 export interface AlertCenterState {
   latest: AlertDto[];
@@ -90,9 +91,24 @@ class AlertCenter {
     };
   }
 
+  private siren: ReturnType<typeof setInterval> | null = null;
+
   private set(patch: Partial<AlertCenterState>) {
     this.state = { ...this.state, ...patch };
+    this.syncSiren();
     this.listeners.forEach((l) => l());
+  }
+
+  /** Siren every few seconds while an emergency popup is open (until acknowledged or dismissed), unless muted. */
+  private syncSiren() {
+    const on = this.state.critical.length > 0 && !this.state.muted;
+    if (on && !this.siren) {
+      playSiren();
+      this.siren = setInterval(playSiren, SIREN_REPEAT_MS);
+    } else if (!on && this.siren) {
+      clearInterval(this.siren);
+      this.siren = null;
+    }
   }
 
   start() {
@@ -148,7 +164,7 @@ class AlertCenter {
     const latest = [a, ...this.state.latest].slice(0, LATEST);
     const critical = this.state.criticalPopup && a.severity === 'CRITICAL' && POPUP_TYPES.has(a.type) && a.status === 'NEW' ? [...this.state.critical, a] : this.state.critical;
     this.set({ latest, critical, unread: this.state.unread + (isUnread(a) ? 1 : 0), pendingAck: this.state.pendingAck + (a.ackRequired && a.status === 'NEW' ? 1 : 0) });
-    if (!this.state.muted) playAlertSound(a.severity);
+    if (!this.state.muted && !POPUP_TYPES.has(a.type)) playAlertSound(a.severity);
     this.alertListeners.forEach((l) => l(a));
   }
 

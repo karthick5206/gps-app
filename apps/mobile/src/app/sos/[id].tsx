@@ -55,7 +55,7 @@ function openDirections(lat: number, lng: number) {
   Linking.openURL(url).catch(() => Linking.openURL(web).catch(() => undefined));
 }
 
-/** Full-screen alarm for SOS / crash alerts: loops the siren until acknowledged or silenced. `?test=1` uses no API. */
+/** Full-screen alarm for emergency alerts (SOS, crash, power cut): loops the siren until acknowledged or silenced. `?test=1` uses no API. */
 export default function SosScreen() {
   const { id, test } = useLocalSearchParams<{ id: string; test?: string }>();
   const isTest = test === '1';

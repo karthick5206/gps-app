@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AlertUnreadCount } from '@veetracer/shared';
+import { isEmergencyAlert, type AlertDto, type AlertUnreadCount } from '@veetracer/shared';
 import { Tabs } from 'expo-router';
 import { BellIcon, LayoutDashboardIcon, ListIcon, MapIcon, MenuIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
@@ -9,7 +9,7 @@ import { refreshAlertLists } from '@/features/alerts/read';
 import { useAuth } from '@/features/auth/auth';
 import { realtime } from '@/features/live/realtime';
 import { useLiveConnection } from '@/features/live/use-live-connection';
-import { handleNotificationTaps, registerForPush } from '@/features/notifications/push';
+import { handleNotificationTaps, openSos, registerForPush } from '@/features/notifications/push';
 import { api } from '@/lib/api';
 import { useColors } from '@/lib/theme';
 
@@ -31,7 +31,16 @@ export default function TabsLayout() {
     refetchInterval: 60_000,
   });
   // New alerts arrive over the live socket: refresh the badge and any open alert list.
-  useEffect(() => realtime.on('alert', () => queryClient.invalidateQueries({ queryKey: ['alerts'] })), [queryClient]);
+  // An emergency (SOS, crash, power cut) seen live while the app is open rings the alarm at once, without waiting for
+  // the push (which may be late, or not sent when push is off for this user). openSos ignores the later push.
+  useEffect(
+    () =>
+      realtime.on('alert', (a?: AlertDto) => {
+        void queryClient.invalidateQueries({ queryKey: ['alerts'] });
+        if (a?.id && isEmergencyAlert(a.type) && a.status === 'NEW') openSos(a.id);
+      }),
+    [queryClient],
+  );
   // Read on the web or another phone (same user): badge and lists. Acknowledged by anyone: everything, open alerts too.
   useEffect(() => realtime.on('alerts:read', () => void refreshAlertLists(queryClient)), [queryClient]);
   useEffect(() => realtime.on('alerts:acked', () => queryClient.invalidateQueries({ queryKey: ['alerts'] })), [queryClient]);

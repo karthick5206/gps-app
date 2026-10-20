@@ -260,8 +260,11 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
 
 export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEntries(ALERT_TYPES.map((t) => [t.code, t])) as Record<AlertTypeCode, AlertTypeDef>;
 
-/** Emergency alerts: the mobile app plays a loud siren (push channel 'sos') and opens a full-screen alarm. */
-export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH'] as const satisfies readonly AlertTypeCode[];
+/**
+ * Emergency alerts: the mobile app plays a loud siren (push channel 'sos') and opens a full-screen alarm; the web
+ * repeats a siren until acknowledged. POWER_CUT = tracker power removed / tampered (possible theft).
+ */
+export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH', 'POWER_CUT'] as const satisfies readonly AlertTypeCode[];
 
 export function isEmergencyAlert(type: string | null | undefined): boolean {
   return !!type && (EMERGENCY_ALERT_TYPES as readonly string[]).includes(type);
@@ -272,15 +275,18 @@ export function isEmergencyAlert(type: string | null | undefined): boolean {
  * device disconnection, plus every alert raised as CRITICAL. Configurable per alert type at Company → Branch → Vehicle
  * group → Vehicle (`AlertSettingDto.requireAck`); the value is stored on each alert when it is raised.
  */
-export const ACK_REQUIRED_ALERT_TYPES = [...EMERGENCY_ALERT_TYPES, 'POWER_CUT', 'DEVICE_OFFLINE'] as const satisfies readonly AlertTypeCode[];
+export const ACK_REQUIRED_ALERT_TYPES = [...EMERGENCY_ALERT_TYPES, 'DEVICE_OFFLINE'] as const satisfies readonly AlertTypeCode[];
 
 export function defaultRequireAck(type: string, severity: string): boolean {
   return severity === 'CRITICAL' || (ACK_REQUIRED_ALERT_TYPES as readonly string[]).includes(type);
 }
 
 /** SOS and crash always require acknowledgement: `requireAck: false` is rejected at every level. */
+/** Life-safety alerts whose acknowledgement can't be turned off (power cut rings like one but stays configurable). */
+const ACK_MANDATORY_TYPES: readonly string[] = ['SOS', 'CRASH'];
+
 export function isAckMandatory(type: string): boolean {
-  return isEmergencyAlert(type);
+  return ACK_MANDATORY_TYPES.includes(type);
 }
 
 /**

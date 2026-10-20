@@ -2130,6 +2130,7 @@ export const HI: Record<string, string> = {
   'SOS / Emergency': 'SOS / आपातकाल',
   'SOS / panic': 'SOS / पैनिक',
   'SOS and crash alerts play a loud siren and open a full-screen alarm until someone acknowledges them.': 'SOS और दुर्घटना अलर्ट पर तेज़ सायरन बजता है और पूरी स्क्रीन पर अलार्म खुलता है, जब तक कोई उसे स्वीकार न करे।',
+  'SOS, crash and power cut alerts play a loud siren and open a full-screen alarm until someone acknowledges them.': 'SOS, दुर्घटना और पावर कट अलर्ट तेज़ सायरन बजाते हैं और किसी के स्वीकार करने तक पूरी स्क्रीन पर अलार्म दिखाते हैं।',
   'Sound off — click to turn on': 'आवाज़ बंद — चालू करने के लिए क्लिक करें',
   'Sound on for Warning and Critical — click to mute': 'चेतावनी और गंभीर के लिए आवाज़ चालू — म्यूट करने के लिए क्लिक करें',
   'Source': 'स्रोत',
