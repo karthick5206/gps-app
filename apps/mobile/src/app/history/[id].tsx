@@ -1,6 +1,6 @@
 import { Camera, GeoJSONSource, Images, Layer, Map, type CameraRef } from '@maplibre/maplibre-react-native';
 import { useQuery } from '@tanstack/react-query';
-import { ALERT_TYPE_MAP, type HistoryResponse } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, STATUS_META, type HistoryResponse } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { PauseIcon, PlayIcon, RouteIcon, SkipBackIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -11,7 +11,8 @@ import { Card, Chips, EmptyState, ErrorBanner, Text } from '@/components/ui';
 import { AlertTypeIcon } from '@/features/alerts/alert-icons';
 import { formatClock, formatKm, trackStatus } from '@/features/history/history-format';
 import { PlaybackAddress } from '@/features/history/PlaybackAddress';
-import { buildTrackIndex, PLAYBACK_RATES, type PlaybackRate, type Sample } from '@/features/history/playback-core';
+import { buildRuns, buildTrackIndex, coordsOf, PLAYBACK_RATES, type PlaybackRate, type Sample } from '@/features/history/playback-core';
+import { TrackLegend, trackColorExpr, type ColorMode } from '@/features/history/TrackLegend';
 import { PlaybackEngine } from '@/features/history/playback-engine';
 import { presetRange, type RangePreset } from '@/features/history/time-range';
 import { useDisplay } from '@/features/display/display';
@@ -47,6 +48,7 @@ export default function HistoryScreen() {
   const vehicle = liveStore.get(id);
   const [preset, setPreset] = useState<Preset>('today');
   const [tab, setTab] = useState<Tab>('trips');
+  const [colorMode, setColorMode] = useState<ColorMode>('status');
   const range = useMemo(() => presetRange(preset), [preset]);
   const camera = useRef<CameraRef>(null);
   const { iconScale } = useDisplay();
@@ -88,12 +90,16 @@ export default function HistoryScreen() {
     setTimeout(() => camera.current?.fitBounds([w, s, e, n], { padding: { top: 40, bottom: 40, left: 40, right: 40 }, duration: 0 }), 300);
   }, [h]);
 
+  // One feature per run of equal status / speed band, so the line can be coloured by either.
   const track = useMemo<GeoJSON.FeatureCollection>(
     () => ({
       type: 'FeatureCollection',
-      features: h && h.points.length > 1 ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: h.points.map((p) => [p[2], p[1]]) }, properties: {} }] : [],
+      features:
+        index && index.n > 1
+          ? buildRuns(index).map((r) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coordsOf(index, r.a, r.b) }, properties: { s: r.status, b: r.band, gap: r.gap } }))
+          : [],
     }),
-    [h],
+    [index],
   );
   const stops = useMemo<GeoJSON.FeatureCollection>(
     () => ({ type: 'FeatureCollection', features: (h?.stops ?? []).map((s) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lng, s.lat] }, properties: { idle: s.ignitionOn } })) }),
@@ -136,7 +142,8 @@ export default function HistoryScreen() {
           <Images images={VEHICLE_ICON_IMAGES} />
           <GeoJSONSource id="track" data={track}>
             <Layer id="track-casing" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }} paint={{ 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.9 }} />
-            <Layer id="track-line" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }} paint={{ 'line-color': c.primary, 'line-width': 3.5 }} />
+            <Layer id="track-line" type="line" filter={['!', ['get', 'gap']]} layout={{ 'line-cap': 'round', 'line-join': 'round' }} paint={{ 'line-color': trackColorExpr(colorMode, scheme) as never, 'line-width': 3.5 }} />
+            <Layer id="track-gap" type="line" filter={['get', 'gap']} paint={{ 'line-color': STATUS_META.OFFLINE[scheme], 'line-width': 3, 'line-dasharray': [1.5, 1.5] }} />
           </GeoJSONSource>
           <GeoJSONSource id="stops" data={stops}>
             <Layer
@@ -149,6 +156,7 @@ export default function HistoryScreen() {
             <Layer id="cursor-icon" type="symbol" layout={{ 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': 1.1 * iconScale }} />
           </GeoJSONSource>
         </Map>
+        {index && index.n > 1 && <TrackLegend mode={colorMode} onModeChange={setColorMode} scheme={scheme} />}
         {history.isFetching && (
           <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#00000022' }]}>
             <ActivityIndicator color={c.primary} size="large" />

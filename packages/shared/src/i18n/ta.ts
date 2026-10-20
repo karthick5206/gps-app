@@ -1425,6 +1425,7 @@ export const TA: Record<string, string> = {
   'No consumers in group {{group}}': '{{group}} குழுவில் நுகர்வோர் இல்லை',
   'No customers yet': 'இன்னும் வாடிக்கையாளர்கள் இல்லை',
   'No data': 'தரவு இல்லை',
+  'No data (gap)': 'தரவு இல்லை (இடைவெளி)',
   'No data for': 'தரவு இல்லை:',
   'No data for longer than {{duration}}: check power, SIM balance or the device.': '{{duration}}க்கு மேல் தரவு இல்லை: மின்சாரம், SIM இருப்பு அல்லது சாதனத்தைச் சரிபார்க்கவும்.',
   'No data for more than a day.': 'ஒரு நாளுக்கு மேல் தரவு இல்லை.',

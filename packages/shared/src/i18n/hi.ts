@@ -1425,6 +1425,7 @@ export const HI: Record<string, string> = {
   'No consumers in group {{group}}': 'समूह {{group}} में कोई उपभोक्ता नहीं',
   'No customers yet': 'अभी कोई ग्राहक नहीं',
   'No data': 'कोई डेटा नहीं',
+  'No data (gap)': 'डेटा नहीं (अंतराल)',
   'No data for': 'डेटा नहीं मिला:',
   'No data for longer than {{duration}}: check power, SIM balance or the device.': '{{duration}} से अधिक समय से डेटा नहीं: पावर, SIM बैलेंस या डिवाइस जाँचें।',
   'No data for more than a day.': 'एक दिन से अधिक समय से कोई डेटा नहीं।',
