@@ -4,6 +4,8 @@ import { createBrowserRouter, Navigate } from 'react-router';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/features/auth/auth-context';
 import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage';
+import { SignupPage } from '@/features/auth/SignupPage';
+import { ClaimPage } from '@/features/claim/ClaimPage';
 import { RedirectIfAuthenticated, RequireAuth, RequirePermission } from '@/features/auth/guards';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage';
@@ -74,6 +76,7 @@ export const router = createBrowserRouter([
     children: [
       { path: '/login', element: <LoginPage /> },
       { path: '/forgot-password', element: <ForgotPasswordPage /> },
+      { path: '/signup', element: <SignupPage /> },
     ],
   },
   { path: '/reset-password', element: <ResetPasswordPage /> },
@@ -98,6 +101,16 @@ export const router = createBrowserRouter([
               ),
             };
           }),
+          {
+            path: '/claim',
+            element: (
+              <RequirePermission menu="devices">
+                <Suspense fallback={<PageFallback />}>
+                  <ClaimPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
           { path: '/403', element: <ForbiddenPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],

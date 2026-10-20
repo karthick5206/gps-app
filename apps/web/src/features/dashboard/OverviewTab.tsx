@@ -16,6 +16,7 @@ import { statusColor } from '@/lib/status-tokens';
 import { cn } from '@/lib/utils';
 import { BarList, Donut, type Slice } from './charts';
 import { CountUp } from './CountUp';
+import { GetStartedCard } from './GetStartedCard';
 import { IoCards } from './IoCards';
 
 const overviewKey = (top: number) => ['dashboard-overview', top] as const;
@@ -128,8 +129,9 @@ function ComplianceCards() {
 
 export function OverviewTab() {
   const { t } = useTranslation();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const navigate = useNavigate();
+  const personal = me?.company.accountType === 'INDIVIDUAL';
   const canMap = can('live_map');
   const [top, setTop] = useState(5);
   const query = useQuery({
@@ -160,6 +162,7 @@ export function OverviewTab() {
   return (
     <div className="space-y-6">
       {query.isError && <FormError message={errorMessage(query.error)} />}
+      {personal && d && d.total === 0 && <GetStartedCard />}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard label={t('Vehicles')} value={d?.total} icon={TruckIcon} to={canMap ? '/live' : undefined} />

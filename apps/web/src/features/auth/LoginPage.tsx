@@ -177,6 +177,12 @@ export function LoginPage() {
           <OtpForm />
         </TabsContent>
       </Tabs>
+      <p className="text-center text-sm text-muted-foreground">
+        {t('New to VeeTrax?')}{' '}
+        <Link to="/signup" className="font-medium text-primary hover:underline">
+          {t('Create personal account')}
+        </Link>
+      </p>
     </AuthLayout>
   );
 }

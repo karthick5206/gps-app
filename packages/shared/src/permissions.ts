@@ -94,6 +94,9 @@ export const MENUS: readonly MenuDef[] = [
 
 export type PermissionMap = Partial<Record<MenuKey, Action[]>>;
 
+/** Menus hidden for personal (INDIVIDUAL) accounts: business structure they don't need. Permissions are unchanged. */
+export const PERSONAL_HIDDEN_MENUS: readonly MenuKey[] = ['branches', 'vehicle_groups', 'lookups', 'roles', 'audit_log', 'api', 'message_templates', 'drivers'];
+
 /** Data scope of a role: whole company, or only assigned branches/objects. */
 export type DataScope = 'COMPANY' | 'ASSIGNED';
 

@@ -21,7 +21,8 @@ export function Sidebar({
 }) {
   const { t } = useTranslation();
   const me = useMe();
-  const groups = useMemo(() => buildNav(me.permissions), [me.permissions]);
+  const personal = me.company.accountType === 'INDIVIDUAL';
+  const groups = useMemo(() => buildNav(me.permissions, personal), [me.permissions, personal]);
 
   return (
     <nav aria-label={t('Main navigation')} className={cn('flex h-full flex-col bg-sidebar text-sidebar-foreground', className)}>

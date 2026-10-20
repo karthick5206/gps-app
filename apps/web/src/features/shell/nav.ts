@@ -1,4 +1,4 @@
-import { MENUS, type MenuDef, type MenuGroup, type MenuKey, type PermissionMap } from '@veetracer/shared';
+import { MENUS, PERSONAL_HIDDEN_MENUS, type MenuDef, type MenuGroup, type MenuKey, type PermissionMap } from '@veetracer/shared';
 import {
   ActivityIcon,
   IdCardIcon,
@@ -88,11 +88,11 @@ export interface NavGroup {
 }
 
 /** Menus the user may view, grouped in display order. */
-export function buildNav(perms: PermissionMap): NavGroup[] {
+export function buildNav(perms: PermissionMap, personal = false): NavGroup[] {
   return GROUP_ORDER.map((group) => ({
     group,
     label: GROUP_LABELS[group],
-    items: MENUS.filter((m) => m.group === group && perms[m.key]?.includes('view')),
+    items: MENUS.filter((m) => m.group === group && perms[m.key]?.includes('view') && !(personal && PERSONAL_HIDDEN_MENUS.includes(m.key))),
   })).filter((g) => g.items.length > 0);
 }
 

@@ -3,7 +3,7 @@ import type { LoginResponse } from '@veetracer/shared';
 import { KeyRoundIcon, SmartphoneIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chips, ErrorBanner, Field, Text } from '@/components/ui';
 import { BrandMark } from '@/components/BrandMark';
@@ -129,6 +129,15 @@ export default function LoginScreen() {
               ]}
             />
             {mode === 'password' ? <PasswordForm /> : <OtpForm />}
+            {/* Personal accounts sign up on the web (email code), then sign in here. */}
+            <Pressable onPress={() => Linking.openURL(`${SERVER_URL}/signup`).catch(() => undefined)} accessibilityRole="link" style={{ alignSelf: 'center', paddingVertical: SPACE.sm }}>
+              <Text size="sm">
+                {t('New to VeeTrax?')}{' '}
+                <Text size="sm" weight="600" style={{ color: c.primary }}>
+                  {t('Create personal account')}
+                </Text>
+              </Text>
+            </Pressable>
             <View style={{ flex: 1 }} />
             <View style={{ alignItems: 'center' }}>
               <LanguageChips signedIn={false} />

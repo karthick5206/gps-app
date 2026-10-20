@@ -233,18 +233,28 @@ model DeviceModel {
 }
 
 model Device {
-  id          String    @id @default(uuid()) @db.Uuid
-  companyId   String?   @db.Uuid
-  modelId     String    @db.Uuid
-  uniqueId    String    @unique
-  simNumber   String?
-  simOperator String?
-  firmware    String?
-  ingestToken String    @unique
-  isActive    Boolean   @default(true)
-  lastSeenAt  DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String?   @db.Uuid
+  modelId        String    @db.Uuid
+  uniqueId       String    @unique
+  simNumber      String?
+  simOperator    String?
+  firmware       String?
+  ingestToken    String    @unique
+  /// Shipped to a customer: code printed on the help sheet; the customer claims the device with IMEI + code.
+  claimCode      String?   @unique
+  /// Only this customer (email or +91 mobile) may claim it.
+  reservedEmail  String?
+  reservedMobile String?
+  reservedName   String?
+  /// Courier / order note shown in Shipments (e.g. "DTDC D12345678 · order 1024").
+  shipmentNote   String?
+  shippedAt      DateTime? @db.Timestamptz(3)
+  claimedAt      DateTime? @db.Timestamptz(3)
+  isActive       Boolean   @default(true)
+  lastSeenAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   company         Company?               @relation(fields: [companyId], references: [id], onDelete: Restrict)
   model           DeviceModel            @relation(fields: [modelId], references: [id], onDelete: Restrict)
@@ -1679,4 +1689,18 @@ model MobileTrackerSession {
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId])
+}
+
+/// Email verification code for a personal (individual) account sign-up.
+model SignupCode {
+  id         String    @id @default(uuid()) @db.Uuid
+  email      String
+  codeHash   String
+  expiresAt  DateTime  @db.Timestamptz(3)
+  attempts   Int       @default(0)
+  consumedAt DateTime? @db.Timestamptz(3)
+  ip         String?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([email, createdAt(sort: Desc)])
 }
