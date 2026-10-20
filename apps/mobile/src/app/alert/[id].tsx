@@ -3,13 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, isDriverEventType, type AlertDto, type DriverEventDto } from '@veetracer/shared';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { CarIcon, CheckIcon, ScanFaceIcon } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
 import { mediaUri } from '@/features/driver-events/driver-events';
 import { Button, Card, ErrorBanner, Field, InfoRow, Pill, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { AlertTypeIcon, SEVERITY_COLOR, SEVERITY_LABEL } from '@/features/alerts/alert-icons';
+import { markAlertRead } from '@/features/alerts/read';
 import { api, errorMessage } from '@/lib/api';
 import { MAP_STYLE } from '@/lib/config';
 import { formatDateTime } from '@/lib/format';
@@ -35,6 +36,11 @@ export default function AlertScreen() {
     mutationFn: () => api.post<AlertDto>(`/alerts/${id}/ack`, note.trim() ? { note: note.trim() } : {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['alerts'] }),
   });
+  // Opening an alert (from the list or a push tap) marks it read for this user only; the tab badge and list refresh.
+  const unreadId = alert.data && !alert.data.read ? alert.data.id : null;
+  useEffect(() => {
+    if (unreadId) void markAlertRead(queryClient, unreadId);
+  }, [unreadId, queryClient]);
 
   if (alert.isPending) return <ActivityIndicator style={{ margin: SPACE.xl }} />;
   if (alert.isError) {
@@ -79,7 +85,8 @@ export default function AlertScreen() {
           <InfoRow label={t('Time')} value={formatDateTime(a.occurredAt)} />
           {a.geofenceName && <InfoRow label={t('Geofence')} value={a.geofenceName} />}
           {a.address && <InfoRow label={t('Address')} value={a.address} />}
-          <InfoRow label={t('Status')} value={t(STATUS_LABEL[a.status])} />
+          {/* Alerts that don't need acknowledgement are done once opened: no status to show. */}
+          {(a.ackRequired || a.status !== 'NEW') && <InfoRow label={t('Status')} value={a.status === 'NEW' ? t('Needs acknowledgement') : t(STATUS_LABEL[a.status])} />}
           {a.ackByName && <InfoRow label={t('Acknowledged by')} value={`${a.ackByName} · ${formatDateTime(a.ackAt)}`} />}
           {a.ackNote && <InfoRow label={t('Note')} value={a.ackNote} />}
         </Card>
@@ -94,7 +101,7 @@ export default function AlertScreen() {
         )}
         <Button title={t('Open vehicle')} icon={CarIcon} variant="outline" onPress={() => router.push(`/vehicle/${a.objectId}`)} />
 
-        {a.status === 'NEW' && can('alerts', 'edit') && (
+        {a.status === 'NEW' && a.ackRequired && can('alerts', 'edit') && (
           <Card style={{ gap: SPACE.md }}>
             <Field label={t('Note (optional)')} value={note} onChangeText={setNote} placeholder={t('What was done?')} maxLength={500} />
             {ack.isError && <ErrorBanner message={errorMessage(ack.error)} />}

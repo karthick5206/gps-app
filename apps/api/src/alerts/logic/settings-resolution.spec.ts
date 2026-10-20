@@ -120,3 +120,39 @@ describe('alert settings resolution', () => {
     expect(validateOverride('NOPE', 'OBJECT', {})).toMatch(/Unknown alert type/);
   });
 });
+
+describe('require acknowledgement', () => {
+  it('defaults: SOS/crash/power cut/offline and CRITICAL severity; inherits Company → Branch → Group → Object with sources', () => {
+    const list = resolveEffectiveSettings({ groups: [] }, GT06, [], now);
+    expect(get(list, 'SOS')).toMatchObject({ requireAck: true, sources: expect.objectContaining({ requireAck: 'DEFAULT' }) });
+    expect(get(list, 'POWER_CUT').requireAck).toBe(true);
+    expect(get(list, 'DEVICE_OFFLINE').requireAck).toBe(true);
+    expect(get(list, 'OVERSPEED').requireAck).toBe(false);
+    expect(get(list, 'DEVICE_TAMPER').requireAck).toBe(true); // catalogue severity CRITICAL
+
+    const chain: SettingsChain = {
+      company: { OVERSPEED: o({ requireAck: true }), POWER_CUT: o({ requireAck: false }), IGNITION_ON: o({ severity: 'CRITICAL' }) },
+      branch: { OVERSPEED: o({ requireAck: false }) },
+      groups: [{ groupId: 'g1', name: 'Heavy', priority: 0, rows: { OVERSPEED: o({ requireAck: true }) } }],
+      object: {},
+    };
+    const r = resolveEffectiveSettings(chain, GT06, [], now);
+    expect(get(r, 'OVERSPEED')).toMatchObject({ requireAck: true, sources: expect.objectContaining({ requireAck: 'GROUP' }) });
+    expect(get(r, 'POWER_CUT')).toMatchObject({ requireAck: false, sources: expect.objectContaining({ requireAck: 'COMPANY' }) });
+    // Default follows the effective severity.
+    expect(get(r, 'IGNITION_ON')).toMatchObject({ requireAck: true, sources: expect.objectContaining({ requireAck: 'DEFAULT' }) });
+    const objectOff = resolveEffectiveSettings({ ...chain, object: { OVERSPEED: o({ requireAck: false }) } }, GT06, [], now);
+    expect(get(objectOff, 'OVERSPEED')).toMatchObject({ requireAck: false, sources: expect.objectContaining({ requireAck: 'OBJECT' }) });
+  });
+
+  it('SOS and crash always require it: false is rejected at every level and ignored if stored', () => {
+    for (const level of ['COMPANY', 'BRANCH', 'GROUP', 'OBJECT'] as const) {
+      expect(validateOverride('SOS', level, { requireAck: false })).toMatch(/always requires acknowledgement/);
+      expect(validateOverride('CRASH', level, { requireAck: false })).toMatch(/always requires acknowledgement/);
+    }
+    expect(validateOverride('SOS', 'OBJECT', { requireAck: true })).toBeNull();
+    expect(validateOverride('POWER_CUT', 'OBJECT', { requireAck: false })).toBeNull();
+    const r = resolveEffectiveSettings({ groups: [], company: { SOS: o({ requireAck: false }) } }, GT06, [], now);
+    expect(get(r, 'SOS').requireAck).toBe(true);
+  });
+});

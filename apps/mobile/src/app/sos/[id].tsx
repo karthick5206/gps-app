@@ -10,6 +10,7 @@ import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, View } fro
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
+import { markAlertRead } from '@/features/alerts/read';
 import { useSiren } from '@/features/notifications/siren';
 import { api, errorMessage } from '@/lib/api';
 import { MAP_STYLE } from '@/lib/config';
@@ -62,7 +63,6 @@ export default function SosScreen() {
   const { can } = useAuth();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { ringing, silence } = useSiren(true);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -75,6 +75,14 @@ export default function SosScreen() {
     queryFn: ({ signal }) => api.get<AlertDto>(`/alerts/${id}`, undefined, signal),
     enabled: !isTest,
   });
+  // Ring for new emergencies only; an alert someone already acknowledged opens silently. If the alert can't be
+  // loaded (offline, server down) ring anyway — a missed SOS is worse than a needless siren.
+  const { ringing, silence } = useSiren(isTest || alert.data?.status === 'NEW' || alert.isError);
+  // Seen = read for this user (badge clears); the siren above still follows the shared status (NEW until acknowledged).
+  const unreadId = !isTest && alert.data && !alert.data.read ? alert.data.id : null;
+  useEffect(() => {
+    if (unreadId) void markAlertRead(queryClient, unreadId);
+  }, [unreadId, queryClient]);
   const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
   const ack = useMutation({
     mutationFn: () => api.post<AlertDto>(`/alerts/${id}/ack`, {}),

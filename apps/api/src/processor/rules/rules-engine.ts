@@ -46,6 +46,8 @@ export function pendingToDto(a: CreatedAlert): AlertDto {
     ackByName: null,
     ackAt: null,
     ackNote: null,
+    read: false,
+    ackRequired: a.ackRequired,
   };
 }
 
@@ -65,7 +67,7 @@ export class RulesBatch {
     if (a.length) {
       out.push(prisma.$executeRaw`
         INSERT INTO "Alert" ("id", "companyId", "objectId", "deviceId", "type", "severity", "message", "lat", "lng",
-                             "geofenceId", "data", "occurredAt")
+                             "geofenceId", "data", "occurredAt", "ackRequired")
         SELECT * FROM unnest(
           ${a.map((x) => x.id)}::text[]::uuid[],
           ${a.map((x) => x.object.companyId)}::text[]::uuid[],
@@ -78,7 +80,8 @@ export class RulesBatch {
           ${a.map((x) => (x.lng === null ? null : String(x.lng)))}::text[]::float8[],
           ${a.map((x) => x.geofenceId)}::text[]::uuid[],
           ${a.map((x) => JSON.stringify(x.data))}::text[]::jsonb[],
-          ${a.map((x) => new Date(x.occurredAt).toISOString())}::text[]::timestamptz[]
+          ${a.map((x) => new Date(x.occurredAt).toISOString())}::text[]::timestamptz[],
+          ${a.map((x) => x.ackRequired)}::boolean[]
         )`);
     }
     const opens = this.visits.filter((v) => v.op.kind === 'open') as { companyId: string; objectId: string; op: Extract<VisitOp, { kind: 'open' }> }[];

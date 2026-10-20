@@ -1,5 +1,5 @@
 import type { AlertDto } from '@veetracer/shared';
-import { BellIcon, CheckCheckIcon, MapPinIcon, MonitorIcon, MonitorOffIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, Volume2Icon, VolumeXIcon } from 'lucide-react';
+import { BellIcon, CheckCheckIcon, MailOpenIcon, MapPinIcon, MonitorIcon, MonitorOffIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, Volume2Icon, VolumeXIcon } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { alertCenter, alertTitle } from './alert-center';
 import { alertIcon, AlertTypeIcon } from './alert-icons';
 import { desktopNotify, useDesktopNotify } from './desktop-notify';
+import { isUnread } from './read-state';
 import { SEVERITY_COLOR } from './severity';
 
 // Lazy so maplibre stays out of the main bundle (the bell is in the shell).
@@ -27,11 +28,15 @@ export function useAlertCenter() {
   return useSyncExternalStore(alertCenter.subscribe, alertCenter.getState);
 }
 
-/** Where clicking an alert goes: the live map focused on the vehicle (falls back to the alerts page). */
+/**
+ * Where clicking an alert goes: the live map focused on the vehicle (falls back to the alerts page).
+ * Opening an alert marks it read for this user (bell item, toast "View", desktop notification, pop-up "View on map").
+ */
 export function useOpenAlert() {
   const navigate = useNavigate();
   const { can } = useAuth();
   return (a: AlertDto) => {
+    alertCenter.markRead(a).catch(() => undefined);
     if (can('live_map')) navigate(`/live?focus=${encodeURIComponent(a.objectId)}&alert=${encodeURIComponent(a.id)}`);
     else navigate(`/alerts?alertId=${encodeURIComponent(a.id)}`);
   };
@@ -114,7 +119,8 @@ function CriticalAlertModal() {
   const [note, setNote] = useState('');
   const [pending, setPending] = useState(false);
   const current = critical[0];
-  const canAck = can('alerts', 'edit');
+  // Power cut can be configured not to need acknowledgement: then the pop-up only offers View / Dismiss.
+  const canAck = can('alerts', 'edit') && !!current?.ackRequired;
 
   useEffect(() => setNote(''), [current?.id]);
 
@@ -137,7 +143,7 @@ function CriticalAlertModal() {
     setPending(true);
     try {
       await alertCenter.ackAll(
-        critical.map((c) => c.id),
+        critical.filter((c) => c.ackRequired).map((c) => c.id),
         note.trim() || undefined,
       );
       toast.success(t('{{count}} critical alerts acknowledged', { count: critical.length }));
@@ -234,14 +240,15 @@ function CriticalAlertModal() {
 
 function AlertRow({ a, onOpen }: { a: AlertDto; onOpen: () => void }) {
   const { t } = useTranslation();
+  const unread = isUnread(a);
   return (
     <li>
       <button type="button" onClick={onOpen} className="flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none">
         <AlertTypeIcon type={a.type} severity={a.severity} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
-            <span className={cn('truncate text-sm', a.status === 'NEW' ? 'font-semibold' : 'font-medium text-muted-foreground')}>{alertTitle(a)}</span>
-            {a.status === 'NEW' && <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={t('Unread')} />}
+            <span className={cn('truncate text-sm', unread ? 'font-semibold' : 'font-medium text-muted-foreground')}>{alertTitle(a)}</span>
+            {unread && <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={t('Unread')} />}
             <span className="ml-auto shrink-0 text-[11px] text-muted-foreground" title={formatDateTime(a.occurredAt)}>
               {relativeTime(a.occurredAt)}
             </span>
@@ -264,6 +271,7 @@ export function AlertBell() {
   const openAlert = useOpenAlert();
   const navigate = useNavigate();
   const [acking, setAcking] = useState(false);
+  const [reading, setReading] = useState(false);
   useAlertToasts();
 
   useEffect(() => {
@@ -271,7 +279,8 @@ export function AlertBell() {
     return () => alertCenter.stop();
   }, []);
 
-  const unreadShown = state.latest.filter((a) => a.status === 'NEW').map((a) => a.id);
+  // Acknowledge applies only to alerts that need it (emergencies, power cut, offline, CRITICAL).
+  const unreadShown = state.latest.filter((a) => a.status === 'NEW' && a.ackRequired).map((a) => a.id);
   const markShownRead = async () => {
     setAcking(true);
     try {
@@ -280,6 +289,16 @@ export function AlertBell() {
       toast.error(errorMessage(e));
     } finally {
       setAcking(false);
+    }
+  };
+  const markAllRead = async () => {
+    setReading(true);
+    try {
+      await alertCenter.markAllRead();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setReading(false);
     }
   };
   const label = state.unread ? t('Alerts, {{count}} unread', { count: state.unread }) : t('Alerts');
@@ -311,6 +330,11 @@ export function AlertBell() {
           <div className="flex items-center gap-2 border-b px-3 py-2.5">
             <p className="text-sm font-semibold">{t('Alerts')}</p>
             {state.unread > 0 && <Badge variant="destructive">{t('{{count}} unread', { count: state.unread })}</Badge>}
+            {state.pendingAck > 0 && (
+              <Tooltip content={t('Alerts that still need acknowledgement')}>
+                <Badge variant="warning">{t('{{count}} need acknowledgement', { count: state.pendingAck })}</Badge>
+              </Tooltip>
+            )}
             <span className="flex-1" />
             <Tooltip content={state.muted ? t('Sound off — click to turn on') : t('Sound on for Warning and Critical — click to mute')}>
               <Button variant="ghost" size="icon-sm" aria-label={state.muted ? t('Unmute alert sound') : t('Mute alert sound')} aria-pressed={state.muted} onClick={() => alertCenter.setMuted(!state.muted)}>
@@ -330,7 +354,7 @@ export function AlertBell() {
             </Tooltip>
             <DesktopNotifyToggle />
             {can('alerts', 'edit') && unreadShown.length > 0 && (
-              <Tooltip content={t('Acknowledge the unread alerts shown')}>
+              <Tooltip content={t('Acknowledge the alerts shown that need it')}>
                 <Button variant="ghost" size="icon-sm" aria-label={t('Acknowledge shown alerts')} onClick={markShownRead} disabled={acking}>
                   {acking ? <Spinner /> : <CheckCheckIcon />}
                 </Button>
@@ -351,11 +375,17 @@ export function AlertBell() {
               />
             ))}
           </ul>
-          <div className="border-t p-1.5">
+          <div className="flex gap-1 border-t p-1.5">
+            {state.unread > 0 && (
+              <Button variant="ghost" size="sm" className="flex-1" onClick={markAllRead} disabled={reading}>
+                {reading ? <Spinner /> : <MailOpenIcon />}
+                {t('Mark all as read')}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
-              className="w-full"
+              className="flex-1"
               onClick={() => {
                 setOpen(false);
                 navigate('/alerts');

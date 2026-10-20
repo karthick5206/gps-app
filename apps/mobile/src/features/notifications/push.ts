@@ -124,9 +124,17 @@ function openFromNotification(n: Notifications.Notification, tapped: boolean): v
  * Emergency pushes received while the app is open go straight to the SOS screen.
  */
 export function handleNotificationTaps(): () => void {
+  // iOS keeps returning the last tapped notification on every launch until it is cleared; without clearing, an old
+  // SOS tap re-opened the alarm each time the app started.
   const last = Notifications.getLastNotificationResponse();
-  if (last) openFromNotification(last.notification, true);
-  const tap = Notifications.addNotificationResponseReceivedListener((r) => openFromNotification(r.notification, true));
+  if (last) {
+    Notifications.clearLastNotificationResponse();
+    openFromNotification(last.notification, true);
+  }
+  const tap = Notifications.addNotificationResponseReceivedListener((r) => {
+    Notifications.clearLastNotificationResponse();
+    openFromNotification(r.notification, true);
+  });
   const received = Notifications.addNotificationReceivedListener((n) => {
     const data = n.request.content.data ?? {};
     if (isEmergencyAlert(data.type as string | undefined)) openFromNotification(n, false);

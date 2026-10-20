@@ -1,9 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AlertUnreadCount } from '@veetracer/shared';
 import { Tabs } from 'expo-router';
 import { BellIcon, LayoutDashboardIcon, ListIcon, MapIcon, MenuIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SosIntroNotice } from '@/components/SosIntroNotice';
+import { refreshAlertLists } from '@/features/alerts/read';
 import { useAuth } from '@/features/auth/auth';
 import { realtime } from '@/features/live/realtime';
 import { useLiveConnection } from '@/features/live/use-live-connection';
@@ -24,12 +26,15 @@ export default function TabsLayout() {
 
   const unread = useQuery({
     queryKey: ['alerts', 'unread-count'],
-    queryFn: ({ signal }) => api.get<{ count: number }>('/alerts/unread-count', undefined, signal),
+    queryFn: ({ signal }) => api.get<AlertUnreadCount>('/alerts/unread-count', undefined, signal),
     enabled: can('alerts'),
     refetchInterval: 60_000,
   });
   // New alerts arrive over the live socket: refresh the badge and any open alert list.
   useEffect(() => realtime.on('alert', () => queryClient.invalidateQueries({ queryKey: ['alerts'] })), [queryClient]);
+  // Read on the web or another phone (same user): badge and lists. Acknowledged by anyone: everything, open alerts too.
+  useEffect(() => realtime.on('alerts:read', () => void refreshAlertLists(queryClient)), [queryClient]);
+  useEffect(() => realtime.on('alerts:acked', () => queryClient.invalidateQueries({ queryKey: ['alerts'] })), [queryClient]);
   const count = unread.data?.count ?? 0;
 
   return (

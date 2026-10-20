@@ -38,6 +38,8 @@ export class PutAlertSettingDto {
   @IsOptional() @IsIn(ALERT_SEVERITIES) severity?: AlertSeverity | null;
   /** Per severity; a severity set to null is removed. `channels: null` clears all channel overrides. */
   @IsOptional() @IsObject() channels?: Record<string, unknown> | null;
+  /** Require acknowledgement; null = inherit. `false` is rejected for SOS / crash. */
+  @IsOptional() @IsBoolean() requireAck?: boolean | null;
 }
 
 export class CopySettingsDto {

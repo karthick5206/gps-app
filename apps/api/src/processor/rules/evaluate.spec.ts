@@ -455,3 +455,20 @@ describe('fuel refill / drain alerts', () => {
     expect(run([at(sec(310), { fuelEvents: [drain, refill] })], ctx(withFuel(GT06))).alerts).toEqual([]);
   });
 });
+
+describe('stored ackRequired on raised alerts', () => {
+  const overspeed = (c: EvalContext) => run([at(sec(0), { speedKph: 70 }), at(sec(5), { speedKph: 72 }), at(sec(15), { speedKph: 75 })], c);
+
+  it('defaults: overspeed WARNING does not need it, escalated CRITICAL and SOS do', () => {
+    expect(overspeed(ctx()).alerts[0]).toMatchObject({ type: 'OVERSPEED', severity: 'WARNING', ackRequired: false });
+    const critical = run([at(sec(0), { speedKph: 120 }), at(sec(5), { speedKph: 120 }), at(sec(15), { speedKph: 120 })], ctx());
+    expect(critical.alerts[0]).toMatchObject({ severity: 'CRITICAL', ackRequired: true });
+    expect(run([at(sec(0), { attributes: { alarm: 'sos' } })], ctx()).alerts[0]).toMatchObject({ type: 'SOS', ackRequired: true });
+  });
+
+  it('follows the configured requireAck', () => {
+    expect(overspeed(ctx(settings({ OVERSPEED: { requireAck: true } }))).alerts[0].ackRequired).toBe(true);
+    const off = run([at(sec(0), { speedKph: 120 }), at(sec(5), { speedKph: 120 }), at(sec(15), { speedKph: 120 })], ctx(settings({ OVERSPEED: { requireAck: false } })));
+    expect(off.alerts[0]).toMatchObject({ severity: 'CRITICAL', ackRequired: false });
+  });
+});

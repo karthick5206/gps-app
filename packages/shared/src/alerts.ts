@@ -267,6 +267,32 @@ export function isEmergencyAlert(type: string | null | undefined): boolean {
   return !!type && (EMERGENCY_ALERT_TYPES as readonly string[]).includes(type);
 }
 
+/**
+ * Default "require acknowledgement" (someone takes responsibility) when no Alert Settings level sets it: emergencies and
+ * device disconnection, plus every alert raised as CRITICAL. Configurable per alert type at Company → Branch → Vehicle
+ * group → Vehicle (`AlertSettingDto.requireAck`); the value is stored on each alert when it is raised.
+ */
+export const ACK_REQUIRED_ALERT_TYPES = [...EMERGENCY_ALERT_TYPES, 'POWER_CUT', 'DEVICE_OFFLINE'] as const satisfies readonly AlertTypeCode[];
+
+export function defaultRequireAck(type: string, severity: string): boolean {
+  return severity === 'CRITICAL' || (ACK_REQUIRED_ALERT_TYPES as readonly string[]).includes(type);
+}
+
+/** SOS and crash always require acknowledgement: `requireAck: false` is rejected at every level. */
+export function isAckMandatory(type: string): boolean {
+  return isEmergencyAlert(type);
+}
+
+/**
+ * Whether an alert being raised needs acknowledgement: mandatory types always; a value set at some settings level wins;
+ * otherwise the default rule on the alert's own severity (rules may escalate one alert to CRITICAL).
+ */
+export function ackRequiredFor(setting: Pick<EffectiveAlertSetting, 'alertType' | 'requireAck' | 'sources'> | undefined, type: string, severity: string): boolean {
+  if (isAckMandatory(type)) return true;
+  if (!setting || (setting.sources?.requireAck ?? 'DEFAULT') === 'DEFAULT') return defaultRequireAck(type, severity);
+  return setting.requireAck;
+}
+
 /** Days 1–7 = Monday–Sunday; times are HH:mm in the company timezone; `from` > `to` wraps midnight. */
 export interface TimeWindow {
   days: number[];
@@ -295,6 +321,8 @@ export interface AlertSettingDto {
   cooldownMin: number | null;
   severity: AlertSeverity | null;
   channels: Partial<ChannelsBySeverity> | null;
+  /** Require acknowledgement for this alert type; null = inherit (default: `defaultRequireAck`). */
+  requireAck: boolean | null;
   updatedAt: string;
 }
 
@@ -308,6 +336,8 @@ export interface EffectiveAlertSetting {
   cooldownMin: number;
   severity: AlertSeverity;
   channels: ChannelsBySeverity;
+  /** Require acknowledgement (source DEFAULT = `defaultRequireAck` on the effective severity; alerts escalated to CRITICAL also need it). */
+  requireAck: boolean;
   snoozedUntil: string | null;
   /** field name ('enabled', 'params.toleranceKph', 'channels', …) → level it came from ('DEFAULT' when catalogue default). */
   sources: Record<string, AlertLevel | 'DEFAULT'>;
@@ -368,8 +398,34 @@ export interface AlertDto {
   ackByName: string | null;
   ackAt: string | null;
   ackNote: string | null;
+  /**
+   * Read by the calling user: they opened it (or marked it / all read), or it is no longer NEW (acknowledged or
+   * resolved alerts are handled, so read for everyone). Separate from acknowledging, which is shared.
+   */
+  read: boolean;
+  /** Needs acknowledgement: decided when the alert was raised (Alert Settings `requireAck`, else `defaultRequireAck`). */
+  ackRequired: boolean;
   /** GET /alerts/:id of an emergency alert only: who to call (driver on the vehicle at the time, device SIM). */
   contacts?: { driverName: string | null; driverMobile: string | null; deviceSim: string | null };
+}
+
+/** GET /alerts/unread-count: unread for the caller, and NEW alerts that still need acknowledgement (shared, in scope). */
+export interface AlertUnreadCount {
+  count: number;
+  pendingAck: number;
+}
+
+/** Socket `alerts:read`, sent to the reading user's own sockets (web + phone): `ids` are now read, or `all` of them. */
+export interface AlertsReadEvent {
+  ids?: string[];
+  all?: boolean;
+}
+
+/** Socket `alerts:acked`, sent to in-scope sockets: these alerts were acknowledged. No `ids` = many, refetch. */
+export interface AlertsAckedEvent {
+  ids?: string[];
+  ackByName: string | null;
+  ackAt: string;
 }
 
 export type NotificationStatus = 'QUEUED' | 'SENT' | 'FAILED' | 'SKIPPED';

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ALERT_TYPES,
   DEFAULT_CHANNELS,
+  defaultRequireAck,
+  isAckMandatory,
   type AlertLevel,
   type AlertSettingDto,
   type AlertSeverity,
@@ -64,6 +66,8 @@ export function catalogueDefaults(def: AlertTypeDef): Defaults {
     cooldownMin: DEFAULT_COOLDOWN_MIN[def.code] ?? 0,
     params: Object.fromEntries(def.params.map((p) => [p.key, p.default])),
     channels: { ...DEFAULT_CHANNELS },
+    requireAck: (severity) => defaultRequireAck(def.code, severity),
+    ackMandatory: isAckMandatory(def.code),
   };
 }
 
@@ -121,6 +125,7 @@ export interface SettingPatch {
   cooldownMin?: number | null;
   severity?: AlertSeverity | null;
   channels?: Partial<Record<AlertSeverity, NotifyChannel[] | null>> | null;
+  requireAck?: boolean | null;
 }
 
 /**

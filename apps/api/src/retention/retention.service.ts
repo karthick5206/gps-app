@@ -127,6 +127,13 @@ export class RetentionService {
             SELECT n.id FROM "NotificationLog" n JOIN "Alert" a ON a.id = n."alertId"
             WHERE a."companyId" = ${c.id}::uuid AND a."occurredAt" < ${cutoff} LIMIT ${BATCH})`,
         ],
+        // Per-user read marks have no foreign key either: removed with their alerts.
+        [
+          'alertReads',
+          () => this.prisma.$executeRaw`DELETE FROM "AlertRead" WHERE ("alertId", "userId") IN (
+            SELECT r."alertId", r."userId" FROM "AlertRead" r JOIN "Alert" a ON a.id = r."alertId"
+            WHERE a."companyId" = ${c.id}::uuid AND a."occurredAt" < ${cutoff} LIMIT ${BATCH})`,
+        ],
         ['alerts', () => this.prisma.$executeRaw`DELETE FROM "Alert" WHERE id IN (SELECT id FROM "Alert" WHERE "companyId" = ${c.id}::uuid AND "occurredAt" < ${cutoff} LIMIT ${BATCH})`],
       ];
       for (const [key, step] of steps) if (!(await drain(key, step))) complete = false;
@@ -160,6 +167,8 @@ export class RetentionService {
           () => this.prisma.$executeRaw`DELETE FROM "Position" WHERE ("deviceId", "fixTime") IN (
             SELECT "deviceId", "fixTime" FROM "Position" WHERE "objectId" IS NULL AND "fixTime" < ${ago(maxDays)} LIMIT ${BATCH})`,
         ],
+        // Read marks older than the longest retention can only belong to deleted alerts (an alert is read after it occurs).
+        ['alertReads', () => this.prisma.$executeRaw`DELETE FROM "AlertRead" WHERE ("alertId", "userId") IN (SELECT "alertId", "userId" FROM "AlertRead" WHERE "readAt" < ${ago(maxDays)} LIMIT ${BATCH})`],
         ['rawPackets', () => this.prisma.$executeRaw`DELETE FROM "RawPacket" WHERE id IN (SELECT id FROM "RawPacket" WHERE "receivedAt" < ${ago(LIMITS.rawPackets)} LIMIT ${BATCH})`],
         [
           'notificationLogs',

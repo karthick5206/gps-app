@@ -123,19 +123,21 @@ model Branch {
 }
 
 model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  companyId    String    @db.Uuid
-  name         String
-  email        String?   @unique
-  mobile       String?   @unique
-  passwordHash String?
-  isSuperAdmin Boolean   @default(false)
-  managerId    String?   @db.Uuid
-  isActive     Boolean   @default(true)
-  preferences  Json      @default("{\"theme\":\"system\"}")
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id               String    @id @default(uuid()) @db.Uuid
+  companyId        String    @db.Uuid
+  name             String
+  email            String?   @unique
+  mobile           String?   @unique
+  passwordHash     String?
+  isSuperAdmin     Boolean   @default(false)
+  managerId        String?   @db.Uuid
+  isActive         Boolean   @default(true)
+  preferences      Json      @default("{\"theme\":\"system\"}")
+  lastLoginAt      DateTime?
+  /// "Mark all alerts as read": alerts that occurred at or before this time count as read for this user.
+  alertsReadBefore DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
   manager        User?           @relation("UserManager", fields: [managerId], references: [id], onDelete: Restrict)
@@ -872,6 +874,8 @@ model AlertSetting {
   cooldownMin Int?
   severity    AlertSeverity?
   channels    Json?
+  /// Require acknowledgement for this alert type; null = inherit (default: shared `defaultRequireAck`).
+  requireAck  Boolean?
   updatedById String?        @db.Uuid
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
@@ -946,10 +950,24 @@ model Alert {
   ackById    String?       @db.Uuid
   ackAt      DateTime?
   ackNote    String?
+  /// Needs acknowledgement: resolved from Alert Settings when the alert is raised (later setting changes don't rewrite it).
+  ackRequired Boolean     @default(false)
 
   @@index([companyId, occurredAt(sort: Desc)])
   @@index([objectId, occurredAt(sort: Desc)])
-  @@index([companyId, status])
+  /// Unread count / NEW filters: company + status + recent first.
+  @@index([companyId, status, occurredAt(sort: Desc)])
+}
+
+/// Per-user "read" mark for one alert (opening it). No foreign keys: Alert is high-volume and has none;
+/// retention removes reads together with their alerts. Acknowledged alerts count as read for everyone.
+model AlertRead {
+  alertId String   @db.Uuid
+  userId  String   @db.Uuid
+  readAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([alertId, userId])
+  @@index([userId, readAt])
 }
 
 model NotificationLog {

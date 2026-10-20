@@ -1,10 +1,11 @@
 import { Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, WebSocketGateway } from '@nestjs/websockets';
-import { AlertDto, LiveObject, SystemHealthSummary } from '@veetracer/shared';
+import { AlertDto, AlertsAckedEvent, LiveObject, SystemHealthSummary } from '@veetracer/shared';
 import { Namespace, Socket } from 'socket.io';
 import { hasPermission, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuthContextService } from '../access/auth-context.service';
+import type { AlertStateMessage } from '../alerts/alerts/alert-sync.service';
 import { loadEnv } from '../config/env';
 import { LicencePolicyService } from '../licences/licence-policy.service';
 import { apiMetrics } from '../monitoring/api-metrics';
@@ -68,9 +69,10 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         .catch((error: Error) => next(new Error(error.message || 'Unauthorized')));
     });
 
-    this.redis.subscribe([RedisKeys.liveUpdates, RedisKeys.cacheInvalidate, RedisKeys.alertsChannel, RedisKeys.healthUpdates], (channel, message) => {
+    this.redis.subscribe([RedisKeys.liveUpdates, RedisKeys.cacheInvalidate, RedisKeys.alertsChannel, RedisKeys.alertsState, RedisKeys.healthUpdates], (channel, message) => {
       if (channel === RedisKeys.liveUpdates) this.onUpdate(message);
       else if (channel === RedisKeys.alertsChannel) this.onAlert(message);
+      else if (channel === RedisKeys.alertsState) this.onAlertState(message);
       else if (channel === RedisKeys.healthUpdates) this.onSystemHealth(message);
       else this.scheduleRefresh();
     });
@@ -138,6 +140,32 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     for (const client of clients) {
       if (!hasPermission(client.ctx, 'alerts', 'view')) continue;
       if (client.allowed === null || client.allowed.has(event.alert.objectId)) client.socket.emit('alert', event.alert);
+    }
+  }
+
+  /**
+   * Alerts read / acknowledged. `alerts:read` goes to the reading user's own sockets (their other tab or phone);
+   * `alerts:acked` to in-scope sockets of the company holding `alerts:view`, so everyone's bell and badge update.
+   */
+  private onAlertState(message: string): void {
+    let msg: AlertStateMessage;
+    try {
+      msg = JSON.parse(message) as AlertStateMessage;
+    } catch {
+      return;
+    }
+    if (msg.kind === 'read') {
+      for (const client of this.clients.values()) if (client.ctx.userId === msg.userId) client.socket.emit('alerts:read', msg.event);
+      return;
+    }
+    const clients = this.byCompany.get(msg.companyId);
+    if (!clients) return;
+    for (const client of clients) {
+      if (!hasPermission(client.ctx, 'alerts', 'view')) continue;
+      const ids = msg.items && msg.items.filter((i) => client.allowed === null || client.allowed.has(i.objectId)).map((i) => i.id);
+      if (ids && !ids.length) continue;
+      const event: AlertsAckedEvent = { ...(ids ? { ids } : {}), ackByName: msg.ackByName, ackAt: msg.ackAt };
+      client.socket.emit('alerts:acked', event);
     }
   }
 

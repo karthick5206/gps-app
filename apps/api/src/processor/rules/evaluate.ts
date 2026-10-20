@@ -1,4 +1,4 @@
-import { AlertSeverity, AlertTypeCode, EffectiveAlertSetting } from '@veetracer/shared';
+import { ackRequiredFor, AlertSeverity, AlertTypeCode, EffectiveAlertSetting } from '@veetracer/shared';
 import { GeofenceRuntime, isSnoozed } from '../../alerts/rules-data';
 import { GEOFENCE_BUFFER_M, inBBox, signedDistanceM, updateMembership } from '../../alerts/logic/geofence-geometry';
 import { formatDuration, inAnyTimeWindow, inDailyRange } from '../../alerts/logic/time-window';
@@ -142,6 +142,8 @@ export interface PendingAlert {
   geofenceId: string | null;
   geofenceName: string | null;
   data: Record<string, unknown>;
+  /** Resolved when raised (Alert Settings `requireAck`, else the default rule on this alert's severity); stored on the alert. */
+  ackRequired: boolean;
 }
 
 export type VisitOp =
@@ -234,10 +236,12 @@ class Evaluator {
     if (!canEmit(setting, this.state, cdKey, at, this.ctx.timezone)) return null;
     this.state.cd[cdKey] = at;
     const id = this.ctx.newId();
+    const severity = opts.severity ?? setting.severity;
     this.out.alerts.push({
       id,
       type,
-      severity: opts.severity ?? setting.severity,
+      severity,
+      ackRequired: ackRequiredFor(setting, type, severity),
       message: opts.message,
       occurredAt: at,
       lat: Number.isFinite(this.input.lat) ? this.input.lat : null,
