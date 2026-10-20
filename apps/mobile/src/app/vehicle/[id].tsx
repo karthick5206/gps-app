@@ -118,6 +118,12 @@ export default function VehicleScreen() {
           <InfoRow label={t('Satellites')} value={o.satellites === null ? '—' : String(o.satellites)} />
           <InfoRow label={t('Mobile signal')} value={o.gsmSignal === null ? '—' : `${o.gsmSignal} / 4`} />
           <InfoRow label={t('Vehicle voltage')} value={or(o.extVoltage, 'V', 1)} />
+          {o.acOn !== undefined && (
+            <InfoRow label={t('AC')} value={`${o.acOn === null ? '—' : o.acOn ? t('On') : t('Off')}${o.acVoltage != null ? ` (${o.acVoltage.toFixed(1)} V)` : ''}`} />
+          )}
+          {o.doorOpen !== undefined && (
+            <InfoRow label={t('Door')} value={`${o.doorOpen === null ? '—' : o.doorOpen ? t('Open') : t('Closed')}${o.doorVoltage != null ? ` (${o.doorVoltage.toFixed(1)} V)` : ''}`} />
+          )}
           {o.fuelL != null && <InfoRow label={t('Fuel')} value={`${o.fuelL.toFixed(1)} L${o.fuelPct != null ? ` · ${Math.round(o.fuelPct)}%` : ''}`} />}
           <InfoRow label={t('Device battery')} value={or(o.batteryLevel, '%')} />
           {o.inMaintenance && <InfoRow label={t('Maintenance')} value={t('In maintenance (alerts off)')} />}

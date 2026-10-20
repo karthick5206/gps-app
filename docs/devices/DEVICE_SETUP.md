@@ -162,6 +162,30 @@ Evidence comes two ways:
 - that the 0x0801 embedded location time is right (device clock zone) and the photo opens on the event;
 - for attachments: `Alarm attachments on tcp://…:7613` at start-up, a connection from the dashcam after an alarm, `[Media] attachment …` lines, and the file name format (`<type>_<channel>_<alarm>_<n>_<alarm number>.<ext>`). Variants with a 30-byte terminal id in the alarm identification (some 2019 firmware) are **not** handled yet — send `capture-jt808.log` and the gateway log if attachments do not arrive.
 
+## 4d. AC / Door sensor (GT800 purple wire, Teltonika inputs)
+
+VeeTrax shows **AC On / Off** and **Door Open / Closed** in the live view, raises AC / door alerts and has an **AC / Door report**.
+Set it up per tracker in **Devices → edit device → Advanced settings → AC / Door sensors**.
+
+**Wiring**
+- **Concox GT800:** connect the **purple wire** to the **AC blower (fan) socket**. Its voltage changes with fan speed.
+- **Teltonika:** use **AIN1** (analog, same as the blower wire) or a digital input **DIN2 / DIN3** (DIN1 is normally ignition).
+- **Door:** a door switch on a digital input, or a voltage input with its own min / max.
+
+**Calibrating the AC (analog voltage)**
+1. Pick the tracker input (GT800 purple wire = `adc1`; Teltonika AIN1 = `adc1`, AIN2 = `adc2`). The screen shows the **live reading** next to the fields.
+2. With the engine running, note the reading with the **fan off**, at **speed 1** and at **max speed**.
+3. Set **Minimum** just below the lowest fan-on reading and **Maximum** just above the highest, so the **fan-off reading is outside** the range.
+   Example: fan off 12.6 V, speed 1 9.8 V, max 4.2 V → min **3.5 V**, max **10.5 V**. Some cars rise with fan speed, others fall; the range works either way.
+4. Leave **Hysteresis** at 0.2 V and **Debounce** at 10 s unless the status flickers.
+5. "Currently reads as: AC ON / OFF" confirms the setting live.
+
+**Digital inputs:** choose the input (`in1`–`in4`, `door`); tick **inverted** if the input is active when off.
+
+**Alerts** (Alert settings → Sensors): AC running with ignition off (default 10 min), door open while moving, and optional AC on / off and door open / closed notices.
+
+**Verify the first install of each model:** turn the AC on and off a few times with raw capture on (`GATEWAY_CAPTURE=<imei>`) so the input's packet layout can be checked, especially the GT800, whose purple-wire value is decoded from the Concox information packet per the published protocol.
+
 ## 5. Checking a device
 1. **Live map:** the vehicle should leave **No data** within a minute of the device connecting.
 2. **Unknown Devices:** if the IMEI shows up there, the device is connecting but isn't registered, or was registered with a different IMEI.
