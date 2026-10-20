@@ -84,7 +84,7 @@ export class RemindersService {
     const id = randomUUID();
     const occurredAt = new Date(a.occurredAt);
     await this.prisma.alert.create({
-      data: { id, companyId: a.companyId, objectId: a.object.id, type: a.type, severity: a.severity, message: a.message, data: a.data as object, occurredAt },
+      data: { id, companyId: a.companyId, objectId: a.object.id, type: a.type, severity: a.severity, message: a.message, data: a.data as object, occurredAt, ackRequired: a.ackRequired },
     });
     const dto: AlertDto = {
       id,
@@ -106,6 +106,8 @@ export class RemindersService {
       ackByName: null,
       ackAt: null,
       ackNote: null,
+      read: false,
+      ackRequired: a.ackRequired,
     };
     await this.redis.client
       .pipeline()

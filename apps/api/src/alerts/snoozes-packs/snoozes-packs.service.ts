@@ -30,10 +30,11 @@ export function cleanPackSettings(input: Record<string, unknown>[]): PackSetting
       cooldownMin: typeof raw.cooldownMin === 'number' ? raw.cooldownMin : null,
       severity: typeof raw.severity === 'string' ? raw.severity : null,
       channels: raw.channels ?? null,
+      requireAck: typeof raw.requireAck === 'boolean' ? raw.requireAck : null,
     });
     const err = validateOverride(alertType, 'COMPANY', { ...o, schedule: raw.schedule ?? null, channels: raw.channels ?? null });
     if (err) throw new BadRequestException(err);
-    return { alertType, ...o };
+    return { alertType, ...o, requireAck: o.requireAck ?? null };
   });
 }
 
@@ -201,6 +202,7 @@ export class SnoozesPacksService {
             cooldownMin: s.cooldownMin,
             severity: s.severity,
             channels: s.channels ? (s.channels as Prisma.InputJsonValue) : Prisma.DbNull,
+            requireAck: s.requireAck ?? null,
             updatedById: ctx.userId,
           };
           await tx.alertSetting.upsert({

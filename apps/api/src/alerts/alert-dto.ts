@@ -11,7 +11,8 @@ export interface AlertNames {
   users: Map<string, string>;
 }
 
-export function toAlertDto(a: Alert, names: AlertNames): AlertDto {
+/** `read` is per user (see logic/alert-read); callers without a user default to "no longer NEW". */
+export function toAlertDto(a: Alert, names: AlertNames, read: boolean = a.status !== 'NEW'): AlertDto {
   const o = names.objects.get(a.objectId);
   return {
     id: a.id,
@@ -33,6 +34,8 @@ export function toAlertDto(a: Alert, names: AlertNames): AlertDto {
     ackByName: a.ackById ? (names.users.get(a.ackById) ?? null) : null,
     ackAt: isoOrNull(a.ackAt),
     ackNote: a.ackNote,
+    read,
+    ackRequired: a.ackRequired,
   };
 }
 

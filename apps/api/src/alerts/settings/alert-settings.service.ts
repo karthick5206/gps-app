@@ -24,7 +24,7 @@ import { BulkEnableDto, CopySettingsDto, PutAlertSettingDto } from './alert-sett
 
 export const SETTINGS_AUDIT_ENTITIES = ['alert_setting', 'recipient_list', 'alert_snooze'];
 
-type Fields = Pick<AlertSetting, 'enabled' | 'params' | 'schedule' | 'cooldownMin' | 'severity' | 'channels'>;
+type Fields = Pick<AlertSetting, 'enabled' | 'params' | 'schedule' | 'cooldownMin' | 'severity' | 'channels' | 'requireAck'>;
 
 export function settingSnapshot(row: Fields | null): Record<string, unknown> | null {
   if (!row) return null;
@@ -35,11 +35,12 @@ export function settingSnapshot(row: Fields | null): Record<string, unknown> | n
     cooldownMin: row.cooldownMin,
     severity: row.severity,
     channels: row.channels ?? null,
+    requireAck: row.requireAck ?? null,
   };
 }
 
-function isEmpty(f: { enabled: boolean | null; params: Record<string, unknown>; schedule: unknown; cooldownMin: number | null; severity: string | null; channels: unknown }) {
-  return f.enabled === null && Object.keys(f.params).length === 0 && f.schedule === null && f.cooldownMin === null && f.severity === null && f.channels === null;
+function isEmpty(f: { enabled: boolean | null; params: Record<string, unknown>; schedule: unknown; cooldownMin: number | null; severity: string | null; channels: unknown; requireAck: boolean | null }) {
+  return f.enabled === null && Object.keys(f.params).length === 0 && f.schedule === null && f.cooldownMin === null && f.severity === null && f.channels === null && f.requireAck === null;
 }
 
 export interface AlertTypeWithSupport extends AlertTypeDef {
@@ -67,6 +68,7 @@ export class AlertSettingsService {
       cooldownMin: row.cooldownMin,
       severity: row.severity,
       channels: (row.channels as Partial<ChannelsBySeverity> | null) ?? null,
+      requireAck: row.requireAck,
       updatedAt: iso(row.updatedAt),
     };
   }
@@ -117,6 +119,7 @@ export class AlertSettingsService {
       cooldownMin: dto.cooldownMin !== undefined ? dto.cooldownMin : (existing?.cooldownMin ?? null),
       severity: dto.severity !== undefined ? dto.severity : (existing?.severity ?? null),
       channels,
+      requireAck: dto.requireAck !== undefined ? dto.requireAck : (existing?.requireAck ?? null),
     };
 
     let row: AlertSetting | null = null;
@@ -130,6 +133,7 @@ export class AlertSettingsService {
         cooldownMin: merged.cooldownMin,
         severity: merged.severity,
         channels: merged.channels === null ? Prisma.DbNull : (merged.channels as Prisma.InputJsonValue),
+        requireAck: merged.requireAck,
         updatedById: ctx.userId,
       };
       row = await this.prisma.alertSetting.upsert({
@@ -190,6 +194,7 @@ export class AlertSettingsService {
               cooldownMin: s.cooldownMin,
               severity: s.severity,
               channels: s.channels === null ? Prisma.DbNull : (s.channels as Prisma.InputJsonValue),
+              requireAck: s.requireAck,
               updatedById: ctx.userId,
             })),
           });
