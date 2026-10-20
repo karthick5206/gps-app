@@ -54,7 +54,8 @@ export class IoSensorsService {
 
   private async device(ctx: AuthContext, deviceId: string) {
     const d = await this.prisma.device.findFirst({
-      where: { AND: [deviceScopeWhere(ctx), { id: deviceId }] },
+      // Super Admin sets sensors from Device Inventory on any company's device.
+      where: ctx.isSuperAdmin ? { id: deviceId } : { AND: [deviceScopeWhere(ctx), { id: deviceId }] },
       select: { id: true, companyId: true, uniqueId: true, assignments: { where: { toTime: null }, select: { objectId: true } } },
     });
     if (!d) throw new NotFoundException('Device not found');

@@ -77,8 +77,8 @@ export function DeviceForm({
   const vehicle = !withCompany ? record?.object ?? null : null;
   const canSetLimit = !!vehicle && can('objects', 'edit');
   const typeDefault = vehicle?.vehicleType ? DEFAULT_SPEED_LIMIT_KPH[vehicle.vehicleType] : null;
-  // AC / door sensors are wired to the tracker: company devices only, once the device exists.
-  const withIo = !withCompany && !!record;
+  // AC / door sensors are wired to the tracker: shown once the device exists (company Devices and Super Admin inventory).
+  const withIo = !!record;
   const io = useIoSensors(withIo ? record.id : null, open && withIo);
 
   const submit = form.handleSubmit(async (v) => {
