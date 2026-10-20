@@ -158,7 +158,7 @@ export class RecipientListsService {
         });
       }
     }
-    if (!messages.length) throw new BadRequestException('No recipients for the enabled channels of this alert');
+    if (!messages.length) throw new BadRequestException('Nothing to send: this alert only shows in the app (no Push, Email or SMS recipients). Turn on Push, Email or SMS under Notify by, then test again.');
     return { logIds: await this.queue.enqueueMessages(ctx.companyId, messages) };
   }
 
