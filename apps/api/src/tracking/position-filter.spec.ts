@@ -19,6 +19,17 @@ const anchored: TrackState = {
 };
 
 describe('filterPosition', () => {
+  it('phones: the real 180 m out-and-back spike at reported 0 km/h is a jump, not movement (919444907658, 00:58:59)', () => {
+    const st: TrackState = { ...EMPTY_TRACK_STATE, lastValid: { lat: 12.971981, lng: 80.185516, fixTime: NOW - 9_000 }, lastFixTime: NOW - 9_000 };
+    const spike = { ...base, fixTime: NOW, satellites: null, ignition: null, lat: 12.971922, lng: 80.183845, speedKph: 0, accuracyM: 100 };
+    const r = filterPosition(spike, st, ctx);
+    expect(r.flags & POSITION_FLAGS.JUMP).toBeTruthy();
+    expect(r.lat).toBeCloseTo(12.971981, 6); // map stays put
+    // A real walk/drive reports its speed, so it is accepted.
+    const drive = { ...spike, speedKph: 40, accuracyM: 6 };
+    expect(filterPosition(drive, st, ctx).flags & (POSITION_FLAGS.JUMP | POSITION_FLAGS.DRIFT)).toBe(0);
+  });
+
   it('phones: a standing phone wobbling within its accuracy radius is drift, a real walk is not', () => {
     // ~45 m away, 4 km/h reported, accuracy 50 m, no ignition / satellites (phone).
     const phone = { ...base, satellites: null, ignition: null, speedKph: 4, accuracyM: 50, lat: 13.0504 };
