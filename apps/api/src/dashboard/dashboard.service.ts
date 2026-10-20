@@ -3,6 +3,7 @@ import {
   ConsolidatedReportRow,
   DashboardCompare,
   DashboardHealth,
+  DashboardIoSummary,
   DashboardOverview,
   DashboardVehicleDistance,
   POSITION_FLAGS,
@@ -62,6 +63,7 @@ export class DashboardService {
       vehiclesInsideGeofences: 0,
       top: [],
       bottom: [],
+      io: null,
     };
     if (!ids.length) return empty;
 
@@ -107,6 +109,57 @@ export class DashboardService {
       vehiclesInsideGeofences: insideObjects.length,
       top: sorted.slice(0, topN),
       bottom: sorted.slice(-topN).reverse(),
+      io: await this.ioSummary(objects, ids, day, start),
+    };
+  }
+
+  /** AC / door sensor KPIs: live state from the snapshot, today's and the last 7 days' totals from the sensor sessions. */
+  private async ioSummary(
+    objects: { objectId: string; name: string; plateNumber: string | null; acOn?: boolean | null; doorOpen?: boolean | null }[],
+    ids: string[],
+    day: string,
+    start: Date,
+  ): Promise<DashboardIoSummary | null> {
+    const configs = await this.prisma.ioSensorConfig.findMany({
+      where: { enabled: true, device: { assignments: { some: { toTime: null, objectId: { in: ids } } } } },
+      select: { kind: true },
+    });
+    if (!configs.length) return null;
+    const now = Date.now();
+    // Day buckets back from today's local midnight (24 h each; fine for India, ±1 h around a DST change elsewhere).
+    const DAY = 86_400_000;
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const from = start.getTime() - (6 - i) * DAY;
+      return { day: new Date(Date.parse(`${day}T00:00:00Z`) - (6 - i) * DAY).toISOString().slice(0, 10), from, to: Math.min(from + DAY, now) };
+    });
+    const [acSessions, doorOpenings] = await Promise.all([
+      this.prisma.ioSession.findMany({
+        where: { objectId: { in: ids }, kind: 'AC', on: true, startTime: { lt: new Date(now) }, OR: [{ endTime: null }, { endTime: { gt: new Date(days[0].from) } }] },
+        select: { objectId: true, startTime: true, endTime: true },
+      }),
+      this.prisma.ioSession.count({ where: { objectId: { in: ids }, kind: 'DOOR', on: true, startTime: { gte: start } } }),
+    ]);
+    const overlap = (r: { startTime: Date; endTime: Date | null }, from: number, to: number) =>
+      Math.max(0, Math.round((Math.min(r.endTime?.getTime() ?? now, now, to) - Math.max(r.startTime.getTime(), from)) / 1000));
+    const today = days[6];
+    const perVehicle = new Map<string, number>();
+    for (const r of acSessions) {
+      const sec = overlap(r, today.from, today.to);
+      if (sec) perVehicle.set(r.objectId, (perVehicle.get(r.objectId) ?? 0) + sec);
+    }
+    const meta = new Map(objects.map((o) => [o.objectId, o]));
+    return {
+      acVehicles: configs.filter((c) => c.kind === 'AC').length,
+      acOnNow: objects.filter((o) => o.acOn === true).length,
+      acOnTodaySec: [...perVehicle.values()].reduce((a, v) => a + v, 0),
+      doorVehicles: configs.filter((c) => c.kind === 'DOOR').length,
+      doorOpenNow: objects.filter((o) => o.doorOpen === true).length,
+      doorOpeningsToday: doorOpenings,
+      acByVehicle: [...perVehicle.entries()]
+        .map(([objectId, onSec]) => ({ objectId, name: meta.get(objectId)?.name ?? '', plateNumber: meta.get(objectId)?.plateNumber ?? null, onSec }))
+        .sort((a, b) => b.onSec - a.onSec)
+        .slice(0, 10),
+      acByDay: days.map((d) => ({ day: d.day, onSec: acSessions.reduce((a, r) => a + overlap(r, d.from, d.to), 0) })),
     };
   }
 

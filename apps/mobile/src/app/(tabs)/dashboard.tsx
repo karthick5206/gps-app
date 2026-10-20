@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ALERT_TYPE_MAP, MOVEMENT_STATUSES, STATUS_META, type AlertTypeCode, type DashboardOverview, type DashboardVehicleDistance } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, MOVEMENT_STATUSES, STATUS_META, type AlertTypeCode, type DashboardIoSummary, type DashboardOverview, type DashboardVehicleDistance } from '@veetracer/shared';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
@@ -58,6 +58,78 @@ function DistanceList({ rows }: { rows: DashboardVehicleDistance[] }) {
         </Pressable>
       ))}
     </Card>
+  );
+}
+
+const hours = (sec: number) => `${(sec / 3600).toLocaleString(undefined, { maximumFractionDigits: 1 })} h`;
+
+/** AC / door sensors: live counts, AC hours today and per day for the last 7 days (web dashboard parity). */
+function IoSection({ io }: { io: DashboardIoSummary }) {
+  const c = useColors();
+  const { t, i18n } = useTranslation();
+  const maxDay = Math.max(1, ...io.acByDay.map((d) => d.onSec));
+  const maxVehicle = Math.max(1, ...io.acByVehicle.map((v) => v.onSec));
+  return (
+    <>
+      <SectionTitle>{t('AC / Door')}</SectionTitle>
+      <View style={styles.grid}>
+        {io.acVehicles > 0 && (
+          <>
+            <Kpi label={t('AC on now')} value={`${io.acOnNow} / ${io.acVehicles}`} hint={t('Vehicles with an AC sensor')} />
+            <Kpi label={t('AC hours today')} value={hours(io.acOnTodaySec)} />
+          </>
+        )}
+        {io.doorVehicles > 0 && (
+          <>
+            <Kpi label={t('Door open now')} value={`${io.doorOpenNow} / ${io.doorVehicles}`} hint={t('Vehicles with a door sensor')} />
+            <Kpi label={t('Door openings today')} value={io.doorOpeningsToday.toLocaleString()} />
+          </>
+        )}
+      </View>
+      {io.acVehicles > 0 && (
+        <>
+          <SectionTitle>{t('AC usage, last 7 days')}</SectionTitle>
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 140, gap: SPACE.sm }} accessibilityLabel={t('AC hours per day')}>
+              {io.acByDay.map((d, i) => (
+                <View key={d.day} style={{ flex: 1, height: '100%', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+                  <Text size="xs" tone="muted">
+                    {d.onSec ? (d.onSec / 3600).toFixed(1) : ''}
+                  </Text>
+                  <View style={{ width: '70%', height: `${Math.max(d.onSec ? 4 : 1, (d.onSec / maxDay) * 75)}%`, borderTopLeftRadius: 4, borderTopRightRadius: 4, backgroundColor: c.primary, opacity: i === io.acByDay.length - 1 ? 1 : 0.7 }} />
+                  <Text size="xs" tone="muted">
+                    {new Date(`${d.day}T00:00:00Z`).toLocaleDateString(i18n.language, { weekday: 'short', timeZone: 'UTC' })}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </Card>
+          <SectionTitle>{t('AC hours today by vehicle')}</SectionTitle>
+          <Card style={{ gap: SPACE.md }}>
+            {io.acByVehicle.length === 0 && (
+              <Text size="sm" tone="muted">
+                {t('No AC use today.')}
+              </Text>
+            )}
+            {io.acByVehicle.map((v) => (
+              <Pressable key={v.objectId} onPress={() => router.push(`/vehicle/${v.objectId}`)} style={{ gap: 4 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: SPACE.sm }}>
+                  <Text size="sm" weight="500" numberOfLines={1} style={{ flex: 1 }}>
+                    {v.plateNumber || v.name}
+                  </Text>
+                  <Text size="sm" weight="600">
+                    {formatDuration(v.onSec)}
+                  </Text>
+                </View>
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: c.muted }}>
+                  <View style={{ width: `${(v.onSec / maxVehicle) * 100}%`, height: 6, borderRadius: 3, backgroundColor: c.primary }} />
+                </View>
+              </Pressable>
+            ))}
+          </Card>
+        </>
+      )}
+    </>
   );
 }
 
@@ -122,6 +194,8 @@ export default function DashboardScreen() {
               </Card>
             </>
           )}
+
+          {d.io && <IoSection io={d.io} />}
 
           <SectionTitle>{t('Top distance today')}</SectionTitle>
           <DistanceList rows={d.top} />

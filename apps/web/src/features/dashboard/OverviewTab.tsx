@@ -16,6 +16,7 @@ import { statusColor } from '@/lib/status-tokens';
 import { cn } from '@/lib/utils';
 import { BarList, Donut, type Slice } from './charts';
 import { CountUp } from './CountUp';
+import { IoCards } from './IoCards';
 
 const overviewKey = (top: number) => ['dashboard-overview', top] as const;
 /** Live batches trigger an overview refetch at most this often. */
@@ -179,6 +180,8 @@ export function OverviewTab() {
           ))}
         </div>
       </section>
+
+      {d?.io && <IoCards io={d.io} />}
 
       {can('documents') && <ComplianceCards />}
 

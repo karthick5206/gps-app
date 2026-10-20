@@ -145,6 +145,8 @@ export function stepIo(st: IoKindState, pt: IoPoint, cfg: IoSensorRuntime, newId
   const rows: IoSessionWrite[] = [];
   if (st.t && pt.t < st.t) return { rows, transition: null };
   const kind = cfg.kind;
+  // No reading since the sensor was set up (fresh state, not a data gap): an ON first reading still alerts.
+  const fresh = !st.t;
   if (st.sess && st.t && pt.t - st.t > IO_GAP_MS) {
     rows.push(snapshot(kind, st.sess, st.t, { lat: st.lat, lng: st.lng }));
     st.sess = null;
@@ -169,6 +171,7 @@ export function stepIo(st: IoKindState, pt: IoPoint, cfg: IoSensorRuntime, newId
       st.p = null;
       st.sess = open(pt.raw, pt.t, st.lat, st.lng);
       rows.push(snapshot(kind, st.sess, pt.t, null));
+      if (fresh && pt.raw) transition = { kind, on: true, at: pt.t, previousSec: null };
     } else if (pt.raw === st.s) {
       st.p = null;
     } else {

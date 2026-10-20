@@ -44,6 +44,15 @@ describe('ioReading', () => {
 });
 
 describe('stepIo', () => {
+  it('alerts ON when the very first reading is ON (sensor set up while the AC runs), not after a data gap', () => {
+    const st = emptyIoKindState();
+    const id = ids();
+    expect(stepIo(st, pt(0, true), AC, id).transition).toEqual({ kind: 'AC', on: true, at: T0, previousSec: null });
+    expect(stepIo(st, pt(10, true), AC, id).transition).toBeNull();
+    // Data stops for longer than the gap: the next ON reading starts a new period without a second alert.
+    expect(stepIo(st, pt(IO_GAP_MS / 1000 + 20, true), AC, id).transition).toBeNull();
+  });
+
   it('opens a session on the first reading without a transition', () => {
     const st = emptyIoKindState();
     const r = stepIo(st, pt(0, false), AC, ids());

@@ -17,6 +17,22 @@ export interface DashboardOverview {
   vehiclesInsideGeofences: number;
   top: DashboardVehicleDistance[];
   bottom: DashboardVehicleDistance[];
+  /** AC / door sensors (Devices → Advanced settings); null when no vehicle has one set up. */
+  io: DashboardIoSummary | null;
+}
+
+export interface DashboardIoSummary {
+  acVehicles: number;
+  acOnNow: number;
+  /** AC running time since midnight, all vehicles. */
+  acOnTodaySec: number;
+  doorVehicles: number;
+  doorOpenNow: number;
+  doorOpeningsToday: number;
+  /** AC running time today per vehicle (most first). */
+  acByVehicle: { objectId: string; name: string; plateNumber: string | null; onSec: number }[];
+  /** AC running time per day, oldest first, the last 7 days including today. */
+  acByDay: { day: string; onSec: number }[];
 }
 
 export interface DashboardVehicleDistance {
