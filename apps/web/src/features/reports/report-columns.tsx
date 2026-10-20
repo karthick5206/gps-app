@@ -15,6 +15,7 @@ import {
   ClockIcon,
   CoffeeIcon,
   FileCheck2Icon,
+  DoorOpenIcon,
   DropletOffIcon,
   FuelIcon,
   GaugeIcon,
@@ -30,6 +31,7 @@ import {
   RulerIcon,
   ShapesIcon,
   SigmaIcon,
+  SnowflakeIcon,
   TimerIcon,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -472,8 +474,41 @@ const FUEL_EVENTS: ReportColumn[] = [
   { id: 'address', header: 'Location', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
 ];
 
-export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Devices' | 'Compliance';
-export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Fuel', 'Devices', 'Compliance'];
+const ioStatus = (r: Row) => (r.kind === 'AC' ? (r.on ? 'On' : 'Off') : r.on ? 'Open' : 'Closed');
+
+const AC_DOOR: ReportColumn[] = [
+  vehicle,
+  plate,
+  { id: 'kind', header: 'Sensor', value: (r) => (r.kind === 'AC' ? 'AC' : 'Door'), render: (r) => (r.kind === 'AC' ? i18n.t('AC') : i18n.t('Door')) },
+  {
+    id: 'on',
+    header: 'Status',
+    value: ioStatus,
+    render: (r) => <Badge variant={r.on ? 'success' : 'secondary'}>{i18n.t(ioStatus(r))}</Badge>,
+  },
+  { id: 'startTime', header: 'Start', value: time('startTime'), render: timeCell('startTime') },
+  { id: 'endTime', header: 'End', value: time('endTime'), render: (r) => (r.endTime ? timeCell('endTime')(r) : <span className="text-muted-foreground">{i18n.t('Ongoing')}</span>) },
+  duration('durationSec', 'Duration', undefined),
+  duration('engineOffSec', 'Engine off', undefined),
+  kmCol('distanceKm', undefined),
+  { id: 'startAddress', header: 'Start address', value: place('startAddress', 'startLat', 'startLng'), render: placeCell('startAddress', 'startLat', 'startLng') },
+  { id: 'endAddress', header: 'End address', value: place('endAddress', 'endLat', 'endLng'), render: placeCell('endAddress', 'endLat', 'endLng') },
+];
+
+const AC_DOOR_DAILY: ReportColumn[] = [
+  vehicle,
+  plate,
+  { id: 'day', header: 'Day', value: str('day'), render: text('day') },
+  duration('acOnSec', 'AC on'),
+  duration('acOnEngineOffSec', 'AC on, engine off'),
+  count('acOnCount', 'AC switch-ons'),
+  kmCol('acDistanceKm'),
+  count('doorOpenCount', 'Door opened'),
+  duration('doorOpenSec', 'Door open time'),
+];
+
+export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Sensors' | 'Devices' | 'Compliance';
+export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Fuel', 'Sensors', 'Devices', 'Compliance'];
 
 export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'SUMMARY', category: 'Activity', label: 'Summary', description: 'Distance, running/idle/stop time and trips per vehicle by day, week or month.', icon: SigmaIcon, columns: SUMMARY },
@@ -496,6 +531,8 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },
   { type: 'FUEL', category: 'Fuel', label: 'Fuel', description: 'Per vehicle per day: start and end level, refills, drains, consumption and km/L (vehicles with a fuel sensor).', icon: FuelIcon, columns: FUEL },
   { type: 'FUEL_EVENTS', category: 'Fuel', label: 'Fuel refills & drains', description: 'Every detected refill and drain (possible fuel theft) with the level before and after.', icon: DropletOffIcon, columns: FUEL_EVENTS },
+  { type: 'AC_DOOR', category: 'Sensors', label: 'AC / Door', description: 'Every AC on / off and door open / closed period with duration, distance and start / end address.', icon: SnowflakeIcon, columns: AC_DOOR },
+  { type: 'AC_DOOR_DAILY', category: 'Sensors', label: 'AC / Door daily totals', description: 'Per vehicle per day: hours with AC on, AC on with the engine off, door openings and open time.', icon: DoorOpenIcon, columns: AC_DOOR_DAILY },
   { type: 'DEVICE_STATUS', category: 'Devices', label: 'Device status', description: 'Active, inactive, no-GPS and never-connected devices right now.', icon: ActivityIcon, columns: DEVICE_STATUS },
   { type: 'DOCUMENTS', category: 'Compliance', label: 'Documents & services', description: 'Document expiry and service status of every vehicle as of today (the date range is not used).', icon: FileCheck2Icon, columns: DOCUMENTS },
 ];

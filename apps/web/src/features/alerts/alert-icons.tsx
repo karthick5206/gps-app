@@ -1,6 +1,10 @@
 import type { AlertSeverity, AlertTypeCode } from '@veetracer/shared';
 import {
+  AirVentIcon,
   ArrowDownToDotIcon,
+  DoorClosedIcon,
+  DoorOpenIcon,
+  SnowflakeIcon,
   BatteryLowIcon,
   BatteryWarningIcon,
   BellIcon,
@@ -77,6 +81,12 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   SERVICE_DUE: WrenchIcon,
   FUEL_DRAIN: DropletOffIcon,
   FUEL_REFILL: FuelIcon,
+  AC_ON: SnowflakeIcon,
+  AC_OFF: SnowflakeIcon,
+  AC_ON_ENGINE_OFF: AirVentIcon,
+  DOOR_OPEN: DoorOpenIcon,
+  DOOR_CLOSED: DoorClosedIcon,
+  DOOR_OPEN_WHILE_MOVING: DoorOpenIcon,
 };
 
 export const alertIcon = (type: string): LucideIcon => ALERT_ICON[type as AlertTypeCode] ?? BellIcon;

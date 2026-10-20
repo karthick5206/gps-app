@@ -40,6 +40,7 @@ import {
 import { documentsReport } from './documents-report';
 import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
 import { fuelEventsReport, fuelReport } from './fuel-report';
+import { ioDailyReport, ioSessionsReport } from './io-report';
 import { AddressEnricher } from './address-enricher';
 
 export const REPORT_JSON_MAX_ROWS = 10_000;
@@ -212,6 +213,16 @@ export class ReportDataService {
 
       case 'FUEL_EVENTS': {
         const r = await fuelEventsReport(this.prisma, ctx.companyId, objects, range, maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'AC_DOOR': {
+        const r = await ioSessionsReport(this.prisma, ctx.companyId, objects, range, maxRows, Date.now());
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'AC_DOOR_DAILY': {
+        const r = await ioDailyReport(this.prisma, ctx.companyId, objects, range, req.from, req.to, tz, maxRows, Date.now());
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 

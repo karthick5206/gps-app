@@ -72,6 +72,7 @@ export function addressFieldsFor(type: ReportType): AddressField<never>[] | null
       return [pointField() as AddressField<never>];
     case 'TRIPS':
     case 'CONTINUOUS_DRIVING':
+    case 'AC_DOOR':
       return [startField() as AddressField<never>, endField() as AddressField<never>];
     default:
       return null;

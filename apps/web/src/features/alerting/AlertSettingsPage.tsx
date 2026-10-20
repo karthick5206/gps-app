@@ -33,7 +33,7 @@ import { LevelTree, type Target } from './LevelTree';
 import { BulkEnableDialog, CopyDialog, EffectivePanel, HistoryPanel, PacksDialog, SendTestDialog, SnoozesPanel } from './panels';
 import { RecipientsEditor } from './RecipientsEditor';
 
-const CATEGORY_ORDER: AlertTypeWithSupport['category'][] = ['Driving', 'Driver safety', 'Location', 'Vehicle', 'Device', 'Device health', 'Safety', 'Compliance'];
+const CATEGORY_ORDER: AlertTypeWithSupport['category'][] = ['Driving', 'Driver safety', 'Location', 'Vehicle', 'Device', 'Device health', 'Sensors', 'Safety', 'Compliance'];
 const LEVEL_ICON = { COMPANY: Building2Icon, BRANCH: WarehouseIcon, GROUP: LayersIcon, OBJECT: TruckIcon } as const;
 
 function conflictText(c: GroupConflict): string {
