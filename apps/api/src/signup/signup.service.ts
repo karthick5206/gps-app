@@ -1,4 +1,4 @@
-import { ConflictException, HttpException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, HttpException, Injectable, Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { normalizeMobile, stateByCode } from '@veetracer/shared';
 import { randomInt } from 'node:crypto';
 import { ensureSystemRoles } from '../access/system-roles';
@@ -59,16 +59,23 @@ export class SignupService {
     if (recent[0] && Date.now() - recent[0].createdAt.getTime() < RESEND_MS) throw tooMany('Please wait 30 seconds before asking for a new code.');
     if (recent.length >= MAX_CODES_PER_DAY) throw tooMany('Too many codes for this email today. Try again tomorrow.');
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-    await this.prisma.signupCode.create({ data: { email, codeHash: this.hash(email, code), expiresAt: new Date(Date.now() + SIGNUP_CODE_TTL_MS), ip } });
+    const row = await this.prisma.signupCode.create({ data: { email, codeHash: this.hash(email, code), expiresAt: new Date(Date.now() + SIGNUP_CODE_TTL_MS), ip } });
     const minutes = SIGNUP_CODE_TTL_MS / 60_000;
-    await this.mailer.send({
+    try {
+      await this.mailer.send({
       to: email,
       subject: `${code} is your VeeTrax sign-up code`,
       text: `Your VeeTrax verification code is ${code}. It expires in ${minutes} minutes.\n\nIf you didn't try to create a VeeTrax account, ignore this email.`,
       html:
         `<p>Your VeeTrax verification code is</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p>` +
         `<p>It expires in ${minutes} minutes.</p><p style="color:#666">If you didn't try to create a VeeTrax account, ignore this email.</p>`,
-    });
+      });
+    } catch (e) {
+      // e.g. the mail provider rejects the sender: don't count it against the user's limits, say what happened.
+      this.logger.error(`Sign-up code email to ${email} failed: ${(e as Error).message}`);
+      await this.prisma.signupCode.delete({ where: { id: row.id } }).catch(() => undefined);
+      throw new ServiceUnavailableException("We couldn't send the email right now. Please try again later.");
+    }
     return { ok: true, email, expiresInSec: SIGNUP_CODE_TTL_MS / 1000 };
   }
 

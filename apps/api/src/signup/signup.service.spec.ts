@@ -9,7 +9,8 @@ function setup(opts: { userCount?: number; recent?: Date[]; code?: { id: string;
     user: { count: jest.fn(async () => opts.userCount ?? 0) },
     signupCode: {
       findMany: jest.fn(async () => (opts.recent ?? []).map((createdAt) => ({ createdAt }))),
-      create: jest.fn(async (a: unknown) => (created.push(a), {})),
+      create: jest.fn(async (a: unknown) => (created.push(a), { id: 'c1' })),
+      delete: jest.fn(async () => ({})),
       findFirst: jest.fn(async () => opts.code ?? null),
       update: jest.fn(async (a: unknown) => (updates.push(a), {})),
     },
@@ -28,6 +29,12 @@ describe('SignupService', () => {
     expect(sent[0].to).toBe('ravi@example.com');
     const code = /(\d{6})/.exec(sent[0].subject)![1];
     expect(JSON.stringify(created)).not.toContain(code);
+  });
+
+  it('a mail failure (e.g. sender not verified) becomes a clear 503 and the code is discarded', async () => {
+    const s = setup();
+    (s.svc as unknown as { mailer: { send: jest.Mock } }).mailer.send.mockRejectedValueOnce(new Error('Zoho mail HTTP 401: Sender address not verified'));
+    await expect(s.svc.requestCode('a@b.in', null)).rejects.toThrow("We couldn't send the email");
   });
 
   it('refuses an email that already has an account, a resend within 30 s and more than 10 codes a day', async () => {
