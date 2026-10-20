@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { emptyFuelState, fuelLitres, FuelState, stepFuel } from '../fuel/fuel-logic';
 import { RedisKeys } from '../redis/keys';
 import { parseLive } from '../tracking/live-object';
+import { correctClock } from '../tracking/clock-correction';
 import { nextStatus, StatusState } from '../tracking/movement-status';
 import { EMPTY_TRACK_STATE, filterPosition, TrackState } from '../tracking/position-filter';
 import { DeviceCache, ResolvedDevice } from './device-cache';
@@ -290,6 +291,8 @@ export class PositionProcessor {
     fuel: FuelBatch = { states: new Map(), changed: new Set(), events: [] },
     io: IoBatch = emptyIoBatch(),
   ): PositionRow {
+    // Impossible device times (reset clock, GPS week rollover) would drop live data and alarms as "late".
+    position = correctClock(position).position;
     const fixTime = Date.parse(position.fixTime);
     const object = device.object;
     // Ignition is only wired in vehicles; personal / asset / pet trackers report a meaningless ACC bit, which would

@@ -727,6 +727,10 @@ class Evaluator {
       }
     }
 
+    // Clock: an impossible device time the processor replaced (reset clock: firmware / GPS problem).
+    if (this.input.attributes.timeCorrected === 'device-clock') {
+      this.emit('CLOCK_ERROR', { at: this.now, message: `Device clock is wrong (reports ${String(this.input.attributes.deviceTime ?? '?').slice(0, 10)}) — check the tracker's GPS / firmware`, data: { deviceTime: this.input.attributes.deviceTime } });
+    }
     // Clock: device time ahead of the server (wrong time zone on the tracker).
     const aheadSec = Math.round((this.input.fixTime - this.now) / 1000);
     if (this.input.locationValid !== false && aheadSec >= this.param('CLOCK_ERROR', 'thresholdMin', 15) * 60) {
