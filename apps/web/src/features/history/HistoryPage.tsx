@@ -11,7 +11,7 @@ import { downloadCsv, errorMessage } from '@/lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '@/features/auth/auth-context';
 import { cn } from '@/lib/utils';
-import { HistoryMap, SPEED_BAND_COLORS, SPEED_BAND_LABELS, type ColorMode, type MarkClick } from './history-map';
+import { HistoryMap, SPEED_BAND_COLORS, SPEED_BAND_LABELS, STOP_COLORS, type ColorMode, type MarkClick } from './history-map';
 import { HistorySidePanel, type SideTab } from './HistorySidePanel';
 import { HistoryToolbar } from './HistoryToolbar';
 import { LiveDataPanel } from './LiveDataPanel';
@@ -89,7 +89,8 @@ function Legend({ mode, onModeChange }: { mode: ColorMode; onModeChange: (m: Col
           </button>
         ))}
       </div>
-      <ul className="mt-1.5 hidden grid-cols-2 gap-x-3 gap-y-1 px-0.5 sm:grid">
+      {/* Always shown (phones too): compact text below the sm breakpoint. */}
+      <ul className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-0.5 px-0.5 text-[11px] sm:gap-x-3 sm:gap-y-1 sm:text-xs">
         {items.map((i) => (
           <li key={i.label} className="flex items-center gap-1.5 whitespace-nowrap">
             <span className="h-1 w-3.5 rounded-full" style={{ backgroundColor: i.color }} aria-hidden />
@@ -97,6 +98,18 @@ function Legend({ mode, onModeChange }: { mode: ColorMode; onModeChange: (m: Col
             {mode === 'speed' && <span className="sr-only"> km/h</span>}
           </li>
         ))}
+        <li className="flex items-center gap-1.5 whitespace-nowrap">
+          <span className="h-0 w-3.5 border-t-2 border-dashed" style={{ borderColor: STATUS_META.OFFLINE[resolved] }} aria-hidden />
+          {t('No data (gap)')}
+        </li>
+        <li className="flex items-center gap-1.5 whitespace-nowrap">
+          <span className="size-2.5 rounded-full border border-white" style={{ backgroundColor: STOP_COLORS.idle[resolved] }} aria-hidden />
+          {t('Idle stop')}
+        </li>
+        <li className="flex items-center gap-1.5 whitespace-nowrap">
+          <span className="size-2.5 rounded-full border border-white" style={{ backgroundColor: STOP_COLORS.parked[resolved] }} aria-hidden />
+          {t('Parked')}
+        </li>
       </ul>
     </div>
   );

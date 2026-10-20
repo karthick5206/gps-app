@@ -13,7 +13,7 @@ export const SPEED_BAND_COLORS: Record<ResolvedTheme, string[]> = {
   dark: ['#60a5fa', '#4ade80', '#facc15', '#fb923c', '#f87171'],
 };
 export const SPEED_BAND_LABELS = ['< 20', '20–40', '40–60', '60–80', '80+'];
-const STOP_COLORS = { parked: { light: '#1d4ed8', dark: '#60a5fa' }, idle: STATUS_META.IDLE };
+export const STOP_COLORS = { parked: { light: '#1d4ed8', dark: '#60a5fa' }, idle: STATUS_META.IDLE };
 const ALERT_COLORS = { INFO: { light: '#0284c7', dark: '#38bdf8' }, WARNING: STATUS_META.IDLE, CRITICAL: STATUS_META.OFF };
 
 const SRC = { track: 'h-track', played: 'h-played', trip: 'h-trip', marks: 'h-marks', cursor: 'h-cursor' } as const;
