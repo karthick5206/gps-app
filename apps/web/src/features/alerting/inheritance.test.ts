@@ -60,7 +60,25 @@ test('clearField and toPutBody', () => {
   const b = clearField(clearField(clearField(a, 'params.minDurationSec'), 'channels.WARNING'), 'enabled');
   assert.equal(isEmptyRow(b), true);
   assert.deepEqual(toPutBody('BRANCH', 'b1', 'OVERSPEED', b), {
-    level: 'BRANCH', targetId: 'b1', alertType: 'OVERSPEED', enabled: null, params: null, schedule: null, cooldownMin: null, severity: null, channels: null,
+    level: 'BRANCH', targetId: 'b1', alertType: 'OVERSPEED', enabled: null, params: null, schedule: null, cooldownMin: null, severity: null, channels: null, requireAck: null,
   });
   assert.equal(toPutBody('BRANCH', 'b1', 'OVERSPEED', row).enabled, false);
+});
+
+test('requireAck: default follows the resolved severity, inherits like other fields, mandatory stays on', () => {
+  const base = { ...defaults, requireAck: (sev: string) => sev === 'CRITICAL' };
+  assert.equal(resolveChain(base, [{ level: 'COMPANY', row: null }]).requireAck, false);
+  const crit = resolveChain(base, [{ level: 'COMPANY', row: { ...EMPTY_ROW, severity: 'CRITICAL' } }]);
+  assert.equal(crit.requireAck, true);
+  assert.equal(crit.sources.requireAck.level, 'DEFAULT');
+  const set = resolveChain(base, [
+    { level: 'COMPANY', row: { ...EMPTY_ROW, requireAck: true } },
+    { level: 'BRANCH', name: 'Chennai', row: { ...EMPTY_ROW, requireAck: false } },
+  ]);
+  assert.equal(set.requireAck, false);
+  assert.deepEqual(set.sources.requireAck, { level: 'BRANCH', name: 'Chennai' });
+  const sos = resolveChain({ ...base, ackMandatory: true }, [{ level: 'COMPANY', row: { ...EMPTY_ROW, requireAck: false } }]);
+  assert.equal(sos.requireAck, true);
+  assert.equal(isEmptyRow(clearField({ ...EMPTY_ROW, requireAck: true }, 'requireAck')), true);
+  assert.equal(toPutBody('COMPANY', 'c', 'OVERSPEED', { ...EMPTY_ROW, requireAck: true }).requireAck, true);
 });

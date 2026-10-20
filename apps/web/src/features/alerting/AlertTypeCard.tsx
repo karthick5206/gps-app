@@ -1,5 +1,6 @@
 import {
   ALERT_SEVERITIES,
+  isAckMandatory,
   isEmergencyAlert,
   NOTIFY_CHANNELS,
   type AlertLevel,
@@ -352,6 +353,29 @@ export function AlertTypeCard({
                 onSet={(v) => patch({ params: { [p.key]: v } })}
               />
             ))}
+            <SettingRow
+              label={t('Require acknowledgement')}
+              hint={
+                isAckMandatory(def.code)
+                  ? t('Always required for SOS and crash alerts')
+                  : t('Someone must acknowledge these alerts; others are done once opened. Default: on for SOS, crash, power cut, device offline and every critical alert.')
+              }
+              source={<SourceBadge source={sources.requireAck} level={level} onReset={() => patch({ requireAck: null })} disabled={disabled || isAckMandatory(def.code)} />}
+            >
+              <span className="flex items-center gap-2">
+                <Switch
+                  checked={values.requireAck}
+                  onCheckedChange={(v) => patch({ requireAck: v })}
+                  disabled={disabled || isAckMandatory(def.code)}
+                  aria-label={t('{{alert}}: require acknowledgement', { alert: t(def.label) })}
+                />
+                {isAckMandatory(def.code) && (
+                  <Tooltip content={t('Always required for SOS and crash alerts')}>
+                    <LockIcon className="size-3.5 text-muted-foreground" aria-label={t('Mandatory')} />
+                  </Tooltip>
+                )}
+              </span>
+            </SettingRow>
             <SettingRow
               label={t('Cooldown')}
               htmlFor={`cooldown-${def.code}`}

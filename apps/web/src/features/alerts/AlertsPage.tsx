@@ -8,7 +8,7 @@ import {
   type Paginated,
   type TrackedObjectDto,
 } from '@veetracer/shared';
-import { BellIcon, CheckCheckIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, RefreshCwIcon, SearchIcon, XIcon } from 'lucide-react';
+import { BellIcon, CheckCheckIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MailOpenIcon, RefreshCwIcon, SearchIcon, XIcon } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
@@ -32,10 +32,12 @@ import { api, downloadCsv, errorMessage, type QueryParams } from '@/lib/api';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { alertCenter, alertTitle } from './alert-center';
+import { useAlertCenter } from './AlertBell';
+import { isUnread, withRead } from './read-state';
 import { AlertDetailSheet } from './AlertDetailSheet';
 import { AlertTypeIcon } from './alert-icons';
 import { DateRangePicker, rangeFromPreset, type DateRangeValue } from './DateRangePicker';
-import { AlertStatusBadge, SeverityBadge } from './badges';
+import { AlertStateBadge, SeverityBadge } from './badges';
 import { SEVERITY_LABEL, STATUS_LABEL } from './severity';
 
 const ALL = '__all';
@@ -118,6 +120,9 @@ export function AlertsPage() {
   const [type, setType] = useState<string | null>(params.get('type'));
   const [severity, setSeverity] = useState<string | null>(params.get('severity'));
   const [status, setStatus] = useState<string | null>(params.get('status'));
+  const [read, setRead] = useState<string | null>(params.get('read'));
+  const [pendingAck, setPendingAck] = useState(params.get('pendingAck') === 'true');
+  const { pendingAck: pendingAckCount } = useAlertCenter();
   const [search, setSearch] = useState('');
   const q = useDeferredValue(search.trim());
   const [page, setPage] = useState(1);
@@ -134,7 +139,7 @@ export function AlertsPage() {
   useEffect(() => {
     setPage(1);
     setSelected(new Set());
-  }, [range, objectId, branchId, type, severity, status, q, pageSize]);
+  }, [range, objectId, branchId, type, severity, status, read, pendingAck, q, pageSize]);
 
   const query: QueryParams = {
     from: range.from.toISOString(),
@@ -144,6 +149,8 @@ export function AlertsPage() {
     type,
     severity,
     status,
+    read,
+    pendingAck: pendingAck || undefined,
     q,
     page,
     pageSize,
@@ -161,6 +168,23 @@ export function AlertsPage() {
 
   // New alerts arrive over the socket: show a banner instead of shifting rows under the user's cursor.
   useEffect(() => alertCenter.onAlert(() => setIncoming((n) => n + 1)), []);
+  // Read / acknowledged here, in another tab, on the phone or by someone else: update rows in place, else refetch.
+  useEffect(
+    () =>
+      alertCenter.onSync((e) => {
+        if (e.kind === 'read' && e.ids) {
+          const ids = new Set(e.ids);
+          queryClient.setQueriesData<Paginated<AlertDto>>({ queryKey: ['alerts', 'list'] }, (d) => (d ? { ...d, items: withRead(d.items, ids) } : d));
+          e.ids.forEach((id) => queryClient.setQueryData<AlertDto>(['alerts', 'detail', id], (d) => (d ? { ...d, read: true } : d)));
+        } else queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      }),
+    [queryClient],
+  );
+  const markAllRead = useMutation({
+    mutationFn: () => alertCenter.markAllRead(),
+    onSuccess: () => toast.success(t('All alerts marked as read')),
+    onError: (e) => toast.error(errorMessage(e)),
+  });
   const refresh = () => {
     setIncoming(0);
     queryClient.invalidateQueries({ queryKey: ['alerts'] });
@@ -173,7 +197,7 @@ export function AlertsPage() {
       return ids?.length;
     },
     onSuccess: (n) => {
-      toast.success(n === undefined ? t('All new alerts acknowledged') : t('{{count}} alert(s) acknowledged', { count: n }));
+      toast.success(n === undefined ? t('All alerts that need acknowledgement were acknowledged') : t('{{count}} alert(s) acknowledged', { count: n }));
       setAckTarget(null);
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
@@ -193,7 +217,7 @@ export function AlertsPage() {
     }
   };
 
-  const newOnPage = rows.filter((r) => r.status === 'NEW');
+  const newOnPage = rows.filter((r) => r.status === 'NEW' && r.ackRequired);
   const allNewSelected = newOnPage.length > 0 && newOnPage.every((r) => selected.has(r.id));
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -202,7 +226,7 @@ export function AlertsPage() {
       else n.add(id);
       return n;
     });
-  const hasFilters = !!(objectId || branchId || type || severity || status || q || range.preset !== '7d');
+  const hasFilters = !!(objectId || branchId || type || severity || status || read || pendingAck || q || range.preset !== '7d');
   const clearFilters = () => {
     setRange(rangeFromPreset('7d'));
     setObjectId(null);
@@ -210,6 +234,8 @@ export function AlertsPage() {
     setType(null);
     setSeverity(null);
     setStatus(null);
+    setRead(null);
+    setPendingAck(false);
     setSearch('');
   };
   const openDetail = (id: string | null) =>
@@ -230,7 +256,7 @@ export function AlertsPage() {
     <div className="flex h-full min-h-[560px] w-full flex-col gap-5 p-4 sm:p-6">
       <PageHeader
         title={t('Alerts')}
-        description={t('Every alert raised for vehicles in your scope. Acknowledge to clear them from the bell.')}
+        description={t('Every alert raised for vehicles in your scope. Opening an alert marks it read for you; acknowledging marks it handled for everyone.')}
         actions={
           <>
             {can('alerts', 'export') && (
@@ -239,8 +265,12 @@ export function AlertsPage() {
                 {t('Export CSV')}
               </Button>
             )}
+            <Button variant="outline" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending}>
+              {markAllRead.isPending ? <Spinner /> : <MailOpenIcon />}
+              {t('Mark all as read')}
+            </Button>
             {canAck && (
-              <Button onClick={() => setAckTarget({ label: t('all new alerts in your scope') })}>
+              <Button onClick={() => setAckTarget({ label: t('all alerts in your scope that need acknowledgement') })}>
                 <CheckCheckIcon /> {t('Acknowledge all')}
               </Button>
             )}
@@ -265,6 +295,19 @@ export function AlertsPage() {
             <FilterSelect label={t('Types')} value={type} onChange={setType} options={TYPE_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))} />
             <FilterSelect label={t('Severities')} value={severity} onChange={setSeverity} options={ALERT_SEVERITIES.map((s) => ({ value: s, label: t(SEVERITY_LABEL[s]) }))} />
             <FilterSelect label={t('Statuses')} value={status} onChange={setStatus} options={(['NEW', 'ACKNOWLEDGED', 'RESOLVED'] as AlertStatus[]).map((s) => ({ value: s, label: t(STATUS_LABEL[s]) }))} />
+            <FilterSelect
+              label={t('Read states')}
+              value={read}
+              onChange={setRead}
+              options={[
+                { value: 'false', label: t('Unread') },
+                { value: 'true', label: t('Read') },
+              ]}
+            />
+            <Button variant={pendingAck ? 'default' : 'outline'} size="sm" className="h-9" aria-pressed={pendingAck} onClick={() => setPendingAck((v) => !v)}>
+              {t('Needs acknowledgement')}
+              {pendingAckCount > 0 && <span className="tabular-nums">({pendingAckCount})</span>}
+            </Button>
             {hasFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters}>
                 <XIcon /> {t('Clear')}
@@ -305,7 +348,7 @@ export function AlertsPage() {
               {canAck && (
                 <TableHead className="w-10">
                   <Checkbox
-                    aria-label={t('Select all new alerts on this page')}
+                    aria-label={t('Select all alerts on this page that need acknowledgement')}
                     checked={allNewSelected ? true : newOnPage.some((r) => selected.has(r.id)) ? 'indeterminate' : false}
                     disabled={!newOnPage.length}
                     onCheckedChange={(v) => setSelected(v ? new Set(newOnPage.map((r) => r.id)) : new Set())}
@@ -339,7 +382,7 @@ export function AlertsPage() {
               <TableRow key={a.id} data-state={selected.has(a.id) ? 'selected' : undefined} className="cursor-pointer" onClick={() => openDetail(a.id)}>
                 {canAck && (
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Checkbox aria-label={t('Select {{alert}} for {{vehicle}}', { alert: alertTitle(a), vehicle: a.objectName })} checked={selected.has(a.id)} disabled={a.status !== 'NEW'} onCheckedChange={() => toggle(a.id)} />
+                    <Checkbox aria-label={t('Select {{alert}} for {{vehicle}}', { alert: alertTitle(a), vehicle: a.objectName })} checked={selected.has(a.id)} disabled={a.status !== 'NEW' || !a.ackRequired} onCheckedChange={() => toggle(a.id)} />
                   </TableCell>
                 )}
                 <TableCell className="whitespace-nowrap" title={formatDateTime(a.occurredAt)}>
@@ -350,9 +393,10 @@ export function AlertsPage() {
                   <SeverityBadge severity={a.severity} />
                 </TableCell>
                 <TableCell>
-                  <span className="flex items-center gap-2 font-medium whitespace-nowrap">
+                  <span className={cn('flex items-center gap-2 whitespace-nowrap', isUnread(a) ? 'font-semibold' : 'font-medium')}>
                     <AlertTypeIcon type={a.type} severity={a.severity} size="sm" />
                     {alertTitle(a)}
+                    {isUnread(a) && <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={t('Unread')} />}
                   </span>
                 </TableCell>
                 <TableCell>
@@ -366,11 +410,11 @@ export function AlertsPage() {
                   <span className="line-clamp-2 block max-w-[15rem] min-w-[9rem] text-xs whitespace-normal text-muted-foreground">{a.geofenceName ? `${a.geofenceName} · ` : ''}{a.address ?? (a.lat !== null ? `${a.lat.toFixed(5)}, ${a.lng?.toFixed(5)}` : '—')}</span>
                 </TableCell>
                 <TableCell>
-                  <AlertStatusBadge status={a.status} />
+                  <AlertStateBadge a={a} />
                   {a.ackByName && <span className="mt-0.5 block text-xs whitespace-nowrap text-muted-foreground">{t('by {{name}}', { name: a.ackByName })}</span>}
                 </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
-                  {canAck && a.status === 'NEW' && (
+                  {canAck && a.status === 'NEW' && a.ackRequired && (
                     <Button variant="ghost" size="icon-sm" aria-label={t('Acknowledge {{alert}}', { alert: alertTitle(a) })} onClick={() => setAckTarget({ ids: [a.id], label: `${alertTitle(a)} — ${a.objectName}` })}>
                       <CheckIcon />
                     </Button>
