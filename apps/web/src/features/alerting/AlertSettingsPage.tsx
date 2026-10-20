@@ -115,7 +115,7 @@ export function AlertSettingsPage() {
         const sources: Record<string, SourceRef> = {};
         for (const [k, v] of Object.entries(e.sources)) sources[k] = { level: v, name: nameFor(v) };
         out.set(e.alertType, {
-          values: { enabled: e.enabled, severity: e.severity, cooldownMin: e.cooldownMin, schedule: e.schedule, params: e.params, channels: e.channels },
+          values: { enabled: e.enabled, severity: e.severity, cooldownMin: e.cooldownMin, schedule: e.schedule, params: e.params, channels: e.channels, requireAck: e.requireAck },
           sources,
           supported: e.supported,
           snoozedUntil: e.snoozedUntil,

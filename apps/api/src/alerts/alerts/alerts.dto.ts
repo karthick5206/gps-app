@@ -1,6 +1,8 @@
 import { ALERT_SEVERITIES, ALERT_TYPE_CODES, AlertSeverity, AlertStatus, AlertTypeCode } from '@veetracer/shared';
-import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+
+const toBool = ({ value }: { value: unknown }) => (value === 'true' || value === true ? true : value === 'false' || value === false ? false : value);
 
 export class AlertListQuery {
   @IsOptional() @IsDateString() from?: string;
@@ -10,6 +12,10 @@ export class AlertListQuery {
   @IsOptional() @IsIn(ALERT_TYPE_CODES) type?: AlertTypeCode;
   @IsOptional() @IsIn(ALERT_SEVERITIES) severity?: AlertSeverity;
   @IsOptional() @IsIn(['NEW', 'ACKNOWLEDGED', 'RESOLVED']) status?: AlertStatus;
+  /** Read by the caller (`read=true|false`). */
+  @IsOptional() @Transform(toBool) @IsBoolean() read?: boolean;
+  /** `pendingAck=true`: still NEW and needs acknowledgement (`ackRequired`). */
+  @IsOptional() @Transform(toBool) @IsBoolean() pendingAck?: boolean;
   @IsOptional() @IsString() @MaxLength(100) q?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) pageSize?: number;
@@ -25,4 +31,9 @@ export class AckDto {
 export class AckAllDto {
   @IsOptional() @IsArray() @ArrayMaxSize(5000) @IsUUID('all', { each: true }) ids?: string[];
   @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+export class ReadAllDto {
+  /** Omitted = every alert up to now (the caller's watermark). */
+  @IsOptional() @IsArray() @ArrayMaxSize(5000) @IsUUID('all', { each: true }) ids?: string[];
 }

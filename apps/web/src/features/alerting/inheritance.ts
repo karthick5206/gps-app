@@ -14,7 +14,7 @@ export interface SourceRef {
   name?: string | null;
 }
 
-export type StoredSetting = Pick<AlertSettingDto, 'enabled' | 'params' | 'schedule' | 'cooldownMin' | 'severity' | 'channels'>;
+export type StoredSetting = Pick<AlertSettingDto, 'enabled' | 'params' | 'schedule' | 'cooldownMin' | 'severity' | 'channels'> & Partial<Pick<AlertSettingDto, 'requireAck'>>;
 
 export interface ChainLink {
   level: AlertLevel;
@@ -28,6 +28,10 @@ export interface Defaults {
   cooldownMin: number;
   params: Record<string, unknown>;
   channels: ChannelsBySeverity;
+  /** Default "require acknowledgement" for the resolved severity (shared `defaultRequireAck`); absent = false. */
+  requireAck?: (severity: AlertSeverity) => boolean;
+  /** SOS / crash: always required, can't be turned off. */
+  ackMandatory?: boolean;
 }
 
 export interface Resolved {
@@ -37,6 +41,7 @@ export interface Resolved {
   schedule: TimeWindow | null;
   params: Record<string, unknown>;
   channels: ChannelsBySeverity;
+  requireAck: boolean;
   /** 'enabled' | 'severity' | 'cooldownMin' | 'schedule' | 'params.<key>' | 'channels.<SEVERITY>' → origin. */
   sources: Record<string, SourceRef>;
 }
@@ -51,8 +56,10 @@ export function resolveChain(defaults: Defaults, chain: ChainLink[]): Resolved {
     schedule: null,
     params: { ...defaults.params },
     channels: { ...defaults.channels },
+    requireAck: false,
     sources: {},
   };
+  let requireAck: { value: boolean; src: SourceRef } | null = null;
   const def: SourceRef = { level: 'DEFAULT' };
   out.sources.enabled = def;
   out.sources.severity = def;
@@ -93,6 +100,15 @@ export function resolveChain(defaults: Defaults, chain: ChainLink[]): Resolved {
         out.sources[`channels.${s}`] = src;
       }
     }
+    if (r.requireAck !== null && r.requireAck !== undefined) requireAck = { value: r.requireAck, src };
+  }
+  // The default follows the resolved severity (CRITICAL alerts need acknowledgement); SOS / crash always.
+  if (defaults.ackMandatory || !requireAck) {
+    out.requireAck = defaults.ackMandatory ? true : (defaults.requireAck?.(out.severity) ?? false);
+    out.sources.requireAck = def;
+  } else {
+    out.requireAck = requireAck.value;
+    out.sources.requireAck = requireAck.src;
   }
   return out;
 }
@@ -142,12 +158,13 @@ export function toPutBody(level: AlertLevel, targetId: string, alertType: string
     cooldownMin: row.cooldownMin ?? null,
     severity: row.severity ?? null,
     channels,
+    requireAck: row.requireAck ?? null,
   };
 }
 
 export function isEmptyRow(row: StoredSetting): boolean {
   const b = toPutBody('COMPANY', '', '', row);
-  return b.enabled === null && b.params === null && b.schedule === null && b.cooldownMin === null && b.severity === null && b.channels === null;
+  return b.enabled === null && b.params === null && b.schedule === null && b.cooldownMin === null && b.severity === null && b.channels === null && b.requireAck === null;
 }
 
 /** Removes one field override from a stored row ('params.x', 'channels.WARNING', 'enabled', …). */
@@ -160,6 +177,7 @@ export function clearField(row: StoredSetting, field: string): StoredSetting {
   else if (field === 'severity') next.severity = null;
   else if (field === 'cooldownMin') next.cooldownMin = null;
   else if (field === 'schedule') next.schedule = null;
+  else if (field === 'requireAck') next.requireAck = null;
   return next;
 }
 
@@ -169,4 +187,4 @@ export function sameChannels(a: NotifyChannel[] | undefined, b: NotifyChannel[] 
   return x === y;
 }
 
-export const EMPTY_ROW: StoredSetting = { enabled: null, params: {}, schedule: null, cooldownMin: null, severity: null, channels: null };
+export const EMPTY_ROW: StoredSetting = { enabled: null, params: {}, schedule: null, cooldownMin: null, severity: null, channels: null, requireAck: null };

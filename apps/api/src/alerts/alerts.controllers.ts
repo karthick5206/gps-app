@@ -1,7 +1,7 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { AuthContext } from '../access/auth-context';
 import { Auth, RequireAnyPermission, RequirePermission } from '../access/decorators';
-import { AckAllDto, AckDto, AlertListQuery } from './alerts/alerts.dto';
+import { AckAllDto, AckDto, AlertListQuery, ReadAllDto } from './alerts/alerts.dto';
 import { AlertsService } from './alerts/alerts.service';
 import { RecipientListQuery, PutRecipientListDto, ResolveRecipientsQuery, TestRecipientsDto } from './recipients/recipient-lists.dto';
 import { RecipientListsService } from './recipients/recipient-lists.service';
@@ -164,6 +164,12 @@ export class AlertsController {
     return this.alerts.unreadCount(ctx);
   }
 
+  /** Marks the given alerts read for the caller, or all of them up to now (no `ids`). */
+  @Post('read-all') @HttpCode(200) @RequirePermission('alerts', 'view')
+  readAll(@Auth() ctx: AuthContext, @Body() dto: ReadAllDto) {
+    return this.alerts.readAll(ctx, dto);
+  }
+
   @Post('ack-all') @RequirePermission('alerts', 'edit')
   ackAll(@Auth() ctx: AuthContext, @Body() dto: AckAllDto) {
     return this.alerts.ackAll(ctx, dto);
@@ -177,6 +183,12 @@ export class AlertsController {
   @Get(':id/notifications') @RequirePermission('alerts', 'view')
   notifications(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.alerts.notifications(ctx, id);
+  }
+
+  /** Opening an alert: read for the caller only (idempotent). Acknowledging stays a separate, shared action. */
+  @Post(':id/read') @HttpCode(200) @RequirePermission('alerts', 'view')
+  read(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.alerts.markRead(ctx, id);
   }
 
   @Post(':id/ack') @RequirePermission('alerts', 'edit')

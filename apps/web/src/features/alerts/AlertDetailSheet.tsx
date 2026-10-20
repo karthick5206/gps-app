@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, type AlertDto, type GeofenceDto, type NotificationLogDto, type NotificationStatus } from '@veetracer/shared';
 import { CheckIcon, MailIcon, MapPinIcon, MessageSquareIcon, SmartphoneIcon, BellIcon, VideoIcon } from 'lucide-react';
 import { Link } from 'react-router';
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FormError } from '@/components/form-error';
 import { Badge } from '@/components/ui/badge';
@@ -13,10 +13,10 @@ import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, humanize } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
-import { alertTitle } from './alert-center';
+import { alertCenter, alertTitle } from './alert-center';
 import { useOpenAlert } from './AlertBell';
 import { AlertTypeIcon } from './alert-icons';
-import { AlertStatusBadge, SeverityBadge } from './badges';
+import { AlertStateBadge, SeverityBadge } from './badges';
 import { videoPagePath } from '@/features/video/video-utils';
 import { AlertSnapshot } from '@/features/driver-events/AlertSnapshot';
 
@@ -79,6 +79,11 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
     refetchInterval: (q) => (q.state.data?.some((l) => l.status === 'QUEUED') ? 3000 : false),
   });
   const a = alert.data;
+  // Opening an alert (row click or ?alertId= deep link) marks it read for this user only.
+  const unreadId = a && !a.read ? a.id : null;
+  useEffect(() => {
+    if (unreadId) alertCenter.markRead({ id: unreadId, read: false }).catch(() => undefined);
+  }, [unreadId]);
   const geofence = useQuery({
     queryKey: ['geofence', a?.geofenceId],
     queryFn: ({ signal }) => api.get<GeofenceDto>(`/geofences/${a!.geofenceId}`, undefined, signal),
@@ -122,7 +127,7 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
                     </Link>
                   </Button>
                 )}
-                {can('alerts', 'edit') && a.status === 'NEW' && (
+                {can('alerts', 'edit') && a.status === 'NEW' && a.ackRequired && (
                   <Button size="sm" onClick={() => onAck(a)}>
                     <CheckIcon /> {t('Acknowledge')}
                   </Button>
@@ -135,7 +140,7 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
                 </Row>
                 <Row label={t('Status')}>
                   <span className="flex flex-wrap items-center gap-2">
-                    <AlertStatusBadge status={a.status} />
+                    <AlertStateBadge a={a} />
                     {a.ackAt && <span className="text-xs text-muted-foreground">{`${a.ackByName ? `${t('by {{name}}', { name: a.ackByName })} · ` : ''}${formatDateTime(a.ackAt)}`}</span>}
                   </span>
                 </Row>

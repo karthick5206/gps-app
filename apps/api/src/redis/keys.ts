@@ -38,6 +38,8 @@ export const RedisKeys = {
   // ── M2a ──
   /** Pub/sub: new alert `{ companyId, alert: AlertDto }` for realtime fan-out. */
   alertsChannel: 'vt:alerts',
+  /** Pub/sub: alerts read by a user / acknowledged (`AlertStateMessage`), for syncing open sessions. */
+  alertsState: 'vt:alerts:state',
   /** Stream of notification jobs consumed by the notifier process. */
   notifyStream: 'vt:notify',
   notifierGroup: 'notifier',

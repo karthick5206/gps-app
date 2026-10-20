@@ -3,6 +3,9 @@ import {
   ALERT_SEVERITIES,
   ALERT_TYPES,
   DEFAULT_CHANNELS,
+  defaultRequireAck,
+  isAckMandatory,
+  type AlertLevel,
   type ChannelsBySeverity,
   type NotifyChannel,
   type AlertSeverity,
@@ -33,6 +36,7 @@ const CHANNELS: { key: NotifyChannel; label: string }[] = [
   { key: 'PUSH', label: 'Push' },
 ];
 const sameSet = (a: NotifyChannel[], b: NotifyChannel[]) => a.length === b.length && a.every((x) => b.includes(x));
+const LEVEL_NAME: Record<AlertLevel, string> = { COMPANY: 'Company', BRANCH: 'Branch', GROUP: 'Group', OBJECT: 'Vehicle' };
 const CATEGORY_ORDER: AlertTypeDef['category'][] = ['Driving', 'Driver safety', 'Vehicle', 'Location', 'Safety', 'Device', 'Device health', 'Compliance'];
 
 /** What one alert type looks like at the chosen level: values, and whether this level overrides them. */
@@ -43,6 +47,9 @@ interface Row {
   params: Record<string, unknown>;
   channels: ChannelsBySeverity;
   supported: boolean;
+  requireAck: boolean;
+  /** Where `requireAck` comes from (DEFAULT = catalogue rule). */
+  requireAckSource: AlertLevel | 'DEFAULT';
   /** Override stored at this level (null = all inherited). */
   own: AlertSettingDto | null;
 }
@@ -122,11 +129,19 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
       level === 'OBJECT' ? t('{{name}} goes back to the company / group settings.', { name: t(def.label) }) : t('{{name}} goes back to the default settings.', { name: t(def.label) }),
       [
         { text: t('Cancel'), style: 'cancel' },
-        { text: t('Reset'), style: 'destructive', onPress: () => put.mutate({ enabled: null, severity: null, params: null, channels: null }) },
+        { text: t('Reset'), style: 'destructive', onPress: () => put.mutate({ enabled: null, severity: null, params: null, channels: null, requireAck: null }) },
       ],
     );
 
   const lockOff = def.mandatory && level === 'OBJECT';
+  const ackLocked = isAckMandatory(def.code);
+  const ackHere = row.requireAckSource === level;
+  const ackSourceText =
+    ackLocked || row.requireAckSource === 'DEFAULT'
+      ? t('Default')
+      : ackHere
+        ? t('Set here')
+        : t('Inherited from {{level}}', { level: t(LEVEL_NAME[row.requireAckSource]) });
   return (
     <Card style={!row.supported ? { opacity: 0.6 } : undefined}>
       <Pressable onPress={() => setOpen((o) => !o)} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
@@ -155,6 +170,31 @@ function AlertTypeCard({ row, level, targetId, canEdit, onSaved }: { row: Row; l
               {t('Severity')}
             </Text>
             <Chips value={severity} onChange={setSeverity} options={ALERT_SEVERITIES.map((s) => ({ value: s, label: t(SEVERITY_LABEL[s]), color: SEVERITY_COLOR[s] }))} />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text size="sm" weight="500">
+                  {t('Require acknowledgement')}
+                </Text>
+                {ackLocked && <LockIcon size={13} color={c.mutedForeground} accessibilityLabel={t('Always required for SOS and crash alerts')} />}
+              </View>
+              <Text size="xs" tone="muted">
+                {ackLocked ? t('Always required for SOS and crash alerts') : ackSourceText}
+              </Text>
+            </View>
+            {canEdit && ackHere && !ackLocked && (
+              <Pressable onPress={() => put.mutate({ requireAck: null })} hitSlop={8} accessibilityLabel={t('Reset')}>
+                <RotateCcwIcon size={16} color={c.mutedForeground} />
+              </Pressable>
+            )}
+            <Switch
+              value={row.requireAck}
+              onValueChange={(v) => put.mutate({ requireAck: v })}
+              disabled={!canEdit || ackLocked || put.isPending}
+              trackColor={{ true: c.primary }}
+              accessibilityLabel={t('{{alert}}: require acknowledgement', { alert: t(def.label) })}
+            />
           </View>
           {editable.length > 0 && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: SPACE.md }}>
@@ -252,9 +292,24 @@ export default function AlertSettingsScreen() {
       const o = own.get(def.code) ?? null;
       const e = eff.get(def.code);
       const defaults = Object.fromEntries(def.params.map((p) => [p.key, p.default]));
-      if (level === 'OBJECT' && e) return { def, enabled: e.enabled, severity: e.severity, params: e.params, channels: e.channels, supported: e.supported, own: o };
+      if (level === 'OBJECT' && e) {
+        const requireAckSource = (e.sources.requireAck ?? 'DEFAULT') as Row['requireAckSource'];
+        return { def, enabled: e.enabled, severity: e.severity, params: e.params, channels: e.channels, supported: e.supported, requireAck: e.requireAck, requireAckSource, own: o };
+      }
       const channels = Object.fromEntries(ALERT_SEVERITIES.map((sev) => [sev, [...(o?.channels?.[sev] ?? DEFAULT_CHANNELS[sev])]])) as ChannelsBySeverity;
-      return { def, enabled: o?.enabled ?? def.defaultEnabled, severity: o?.severity ?? def.defaultSeverity, params: { ...defaults, ...(o?.params ?? {}) }, channels, supported: true, own: o };
+      const severity = o?.severity ?? def.defaultSeverity;
+      const ownAck = isAckMandatory(def.code) ? null : (o?.requireAck ?? null);
+      return {
+        def,
+        enabled: o?.enabled ?? def.defaultEnabled,
+        severity,
+        params: { ...defaults, ...(o?.params ?? {}) },
+        channels,
+        supported: true,
+        requireAck: ownAck ?? defaultRequireAck(def.code, severity),
+        requireAckSource: (ownAck === null ? 'DEFAULT' : 'COMPANY') as Row['requireAckSource'],
+        own: o,
+      };
     }).sort((a, b) => CATEGORY_ORDER.indexOf(a.def.category) - CATEGORY_ORDER.indexOf(b.def.category));
   }, [overrides.data, effective.data, level]);
 

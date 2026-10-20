@@ -10,7 +10,9 @@ import {
   AlertTypeDef,
   ChannelsBySeverity,
   DEFAULT_CHANNELS,
+  defaultRequireAck,
   EffectiveAlertSetting,
+  isAckMandatory,
   NOTIFY_CHANNELS,
   NotifyChannel,
   TimeWindow,
@@ -27,6 +29,8 @@ export interface SettingOverride {
   cooldownMin: number | null;
   severity: AlertSeverity | null;
   channels: Partial<ChannelsBySeverity> | null;
+  /** Absent/null = inherit. */
+  requireAck?: boolean | null;
 }
 
 export type OverrideMap = Partial<Record<string, SettingOverride>>; // alertType → override
@@ -127,6 +131,12 @@ export function resolveOne(
   }
   sources.channels = channelsSource;
 
+  // SOS / crash always need acknowledgement; stored `false` rows (none can be saved) are ignored too.
+  const requireAck = isAckMandatory(def.code)
+    ? { value: true, source: 'DEFAULT' as Source }
+    : pick(layers, (r) => r.requireAck, defaultRequireAck(def.code, severity.value));
+  sources.requireAck = requireAck.source;
+
   let snoozedUntil: number | null = null;
   if (!def.mandatory) {
     for (const s of snoozes) {
@@ -145,6 +155,7 @@ export function resolveOne(
     cooldownMin: cooldown.value,
     severity: severity.value,
     channels,
+    requireAck: requireAck.value,
     snoozedUntil: snoozedUntil ? new Date(snoozedUntil).toISOString() : null,
     sources,
   };
@@ -175,6 +186,7 @@ function fieldValues(row: SettingOverride): Record<string, unknown> {
   if (row.severity) out.severity = row.severity;
   if (row.cooldownMin !== null && row.cooldownMin !== undefined) out.cooldownMin = row.cooldownMin;
   if (row.schedule) out.schedule = row.schedule;
+  if (row.requireAck !== null && row.requireAck !== undefined) out.requireAck = row.requireAck;
   for (const [k, v] of Object.entries(row.params ?? {})) if (v !== null && v !== undefined) out[`params.${k}`] = v;
   for (const sev of ALERT_SEVERITIES) if (row.channels?.[sev]) out[`channels.${sev}`] = row.channels[sev];
   return out;
@@ -245,6 +257,7 @@ export interface OverrideInput {
   cooldownMin?: number | null;
   severity?: string | null;
   channels?: unknown;
+  requireAck?: boolean | null;
 }
 
 /** Returns an error message or null. Checks catalogue param types/ranges, schedule, channels and the mandatory rule. */
@@ -253,6 +266,9 @@ export function validateOverride(type: string, level: AlertLevel, input: Overrid
   if (!def) return `Unknown alert type "${type}"`;
   if (def.mandatory && input.enabled === false && level !== 'COMPANY') {
     return `${def.label} is mandatory and can only be switched off at company level`;
+  }
+  if (input.requireAck === false && isAckMandatory(type)) {
+    return `${def.label} always requires acknowledgement`;
   }
   if (input.params) {
     for (const [key, value] of Object.entries(input.params)) {
@@ -294,6 +310,7 @@ export function toOverride(row: {
   cooldownMin: number | null;
   severity: string | null;
   channels: unknown;
+  requireAck?: boolean | null;
 }): SettingOverride {
   const params = typeof row.params === 'object' && row.params !== null && !Array.isArray(row.params) ? (row.params as Record<string, unknown>) : {};
   return {
@@ -306,5 +323,6 @@ export function toOverride(row: {
       typeof row.channels === 'object' && row.channels !== null && !Array.isArray(row.channels)
         ? (row.channels as Partial<ChannelsBySeverity>)
         : null,
+    requireAck: row.requireAck ?? null,
   };
 }

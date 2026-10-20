@@ -1,5 +1,5 @@
 import { Prisma, PrismaClient } from '@prisma/client';
-import { AlertSeverity, AlertTypeCode, documentStatus, documentTypeLabel, EffectiveAlertSetting, LICENSE_WARN_DAYS, serviceStatus } from '@veetracer/shared';
+import { ackRequiredFor, AlertSeverity, AlertTypeCode, documentStatus, documentTypeLabel, EffectiveAlertSetting, LICENSE_WARN_DAYS, serviceStatus } from '@veetracer/shared';
 import { localDayKey } from '../summarizer/tz';
 import { documentTransition, odometers, ReminderTransition, serviceTransition, ymd } from './reminder-logic';
 
@@ -19,6 +19,7 @@ export interface ReminderAlert {
   data: Record<string, unknown>;
   object: ReminderVehicle;
   occurredAt: number;
+  ackRequired: boolean;
 }
 
 export interface ReminderRules {
@@ -79,7 +80,7 @@ export class RemindersJob {
       if (!(await claim(tr.next))) return;
       const setting = (await rulesFor()).effective(vehicle.id).get(tr.alert);
       if (!setting?.supported || !setting.enabled || (setting.snoozedUntil && Date.parse(setting.snoozedUntil) > now)) return;
-      await this.deps.raise({ companyId, type: tr.alert, severity: setting.severity, ...build(), object: vehicle, occurredAt: now });
+      await this.deps.raise({ companyId, type: tr.alert, severity: setting.severity, ...build(), object: vehicle, occurredAt: now, ackRequired: ackRequiredFor(setting, tr.alert, setting.severity) });
       stats.raised++;
     };
 

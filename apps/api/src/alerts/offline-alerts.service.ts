@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { LiveObject } from '@veetracer/shared';
+import { ackRequiredFor, LiveObject } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
@@ -89,7 +89,7 @@ export class OfflineAlertService {
       if (previous && previous.includes(`"episode":"${live.serverTime}"`)) continue;
       if (!allowed) continue;
       try {
-        await this.raise(live, setting.severity, offlineMs, now);
+        await this.raise(live, setting.severity, ackRequiredFor(setting, 'DEVICE_OFFLINE', setting.severity), offlineMs, now);
         raised++;
       } catch (error) {
         this.logger.error(`DEVICE_OFFLINE alert for ${live.objectId} failed: ${(error as Error).message}`);
@@ -99,7 +99,7 @@ export class OfflineAlertService {
     return raised;
   }
 
-  private async raise(live: LiveObject, severity: 'INFO' | 'WARNING' | 'CRITICAL', offlineMs: number, now: number): Promise<void> {
+  private async raise(live: LiveObject, severity: 'INFO' | 'WARNING' | 'CRITICAL', ackRequired: boolean, offlineMs: number, now: number): Promise<void> {
     const durationSec = Math.round(offlineMs / 1000);
     const pending = {
       id: randomUUID(),
@@ -112,6 +112,7 @@ export class OfflineAlertService {
       geofenceId: null,
       geofenceName: null,
       data: { durationSec, lastSeen: live.serverTime },
+      ackRequired,
       object: {
         objectId: live.objectId,
         companyId: live.companyId,
@@ -135,6 +136,7 @@ export class OfflineAlertService {
         lng: live.lng,
         data: pending.data,
         occurredAt: new Date(now),
+        ackRequired,
       },
     });
     await this.redis.client

@@ -8,6 +8,7 @@ import {
   AlertTypesController,
   RecipientListsController,
 } from './alerts.controllers';
+import { AlertSyncService } from './alerts/alert-sync.service';
 import { AlertsService } from './alerts/alerts.service';
 import { NotifyQueueService } from './notify-queue.service';
 import { OfflineAlertService } from './offline-alerts.service';
@@ -32,6 +33,7 @@ import { SnoozesPacksService } from './snoozes-packs/snoozes-packs.service';
     RecipientListsService,
     SnoozesPacksService,
     AlertsService,
+    AlertSyncService,
     NotifyQueueService,
     OfflineAlertService,
   ],

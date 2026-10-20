@@ -34,7 +34,7 @@ export class CreateSnoozeDto {
 export class CreatePackDto {
   @IsString() @Length(1, 100) name!: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string | null;
-  /** AlertSettingDto-like objects without id/level/target: {alertType, enabled, params, schedule, cooldownMin, severity, channels}. */
+  /** AlertSettingDto-like objects without id/level/target: {alertType, enabled, params, schedule, cooldownMin, severity, channels, requireAck}. */
   @IsArray() @ArrayMaxSize(50) settings!: Record<string, unknown>[];
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
