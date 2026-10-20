@@ -76,6 +76,9 @@
       "js",
       "json"
     ],
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/test-env.ts"
+    ]
   }
 }
