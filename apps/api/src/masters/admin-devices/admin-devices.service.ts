@@ -8,6 +8,7 @@ import { listResult, planList } from '../../common/list-query';
 import { randomToken } from '../../common/secrets';
 import { SeatsService } from '../../licences/seats.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizeDeviceUniqueId } from '../device-unique-id';
 import { RedisService } from '../../redis/redis.service';
 import {
   assignedFilter,
@@ -54,6 +55,7 @@ export class AdminDevicesService {
 
   async create(ctx: AuthContext, dto: CreateAdminDeviceDto): Promise<DeviceDto> {
     await this.assertRefs(dto.modelId, dto.companyId);
+    dto = { ...dto, uniqueId: await normalizeDeviceUniqueId(this.prisma, dto.modelId, dto.uniqueId) };
     const row = await this.prisma.$transaction(async (tx) => {
       const created = await tx.device.create({ data: { ...dto, ingestToken: randomToken(24) }, include: DEVICE_INCLUDE });
       if (created.companyId && created.isActive) await this.seats.ensureDevice(tx, ctx, created.companyId, created.id);
@@ -67,6 +69,7 @@ export class AdminDevicesService {
   async update(ctx: AuthContext, id: string, dto: UpdateAdminDeviceDto): Promise<DeviceDto> {
     const before = await this.find(id);
     await this.assertRefs(dto.modelId, dto.companyId);
+    if (dto.uniqueId !== undefined || dto.modelId) dto = { ...dto, uniqueId: await normalizeDeviceUniqueId(this.prisma, dto.modelId ?? before.modelId, dto.uniqueId ?? before.uniqueId) };
     const movesCompany = dto.companyId !== undefined && dto.companyId !== before.companyId;
     const row = await this.prisma.$transaction(async (tx) => {
       // A device moving to another company (or back to stock) leaves the object it was fitted to.

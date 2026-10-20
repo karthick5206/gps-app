@@ -12,7 +12,7 @@ import {
   type SeatStatus,
   type SeatSummaryDto,
 } from '@veetracer/shared';
-import { CarIcon, CctvIcon, CodeIcon, DownloadIcon, FileMinusIcon, FileTextIcon, FuelIcon, LockIcon, UserIcon } from 'lucide-react';
+import { CarIcon, CctvIcon, CodeIcon, DownloadIcon, FileMinusIcon, FileTextIcon, FuelIcon, LockIcon, SmartphoneIcon, UserIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -28,7 +28,7 @@ import { formatDateTime } from '@/lib/format';
 
 export const rupees = (paise: number) => `₹${formatInr(paise)}`;
 
-export const TYPE_ICONS: Record<LicenceType, typeof UserIcon> = { USER: UserIcon, GPS_DEVICE: CarIcon, DASHCAM: CctvIcon, FUEL_SENSOR: FuelIcon, API_ACCESS: CodeIcon };
+export const TYPE_ICONS: Record<LicenceType, typeof UserIcon> = { USER: UserIcon, GPS_DEVICE: CarIcon, DASHCAM: CctvIcon, FUEL_SENSOR: FuelIcon, MOBILE_TRACKER: SmartphoneIcon, API_ACCESS: CodeIcon };
 
 export function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });

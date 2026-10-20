@@ -19,3 +19,4 @@ export * from './driver-events';
 export * from './system-health';
 export * from './relay';
 export * from './io-sensors';
+export * from './mobile-tracker';

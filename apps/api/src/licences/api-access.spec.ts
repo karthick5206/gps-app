@@ -34,7 +34,7 @@ describe('Developer API plans', () => {
     };
     const svc = new LicenceSettingsService(prisma as never);
     const plans = { ...DEFAULT_API_PLANS, STANDARD: { ...DEFAULT_API_PLANS.STANDARD, pricePaise: 1_800_000, maxWebhooks: 8 } };
-    const out = await svc.updatePricing({ pricesPaise: { USER: 1, GPS_DEVICE: 2, DASHCAM: 3, FUEL_SENSOR: 4 }, apiPlans: plans, gstRatePct: 18, graceDays: 15, overrideDays: 30 });
+    const out = await svc.updatePricing({ pricesPaise: { USER: 1, GPS_DEVICE: 2, DASHCAM: 3, FUEL_SENSOR: 4, MOBILE_TRACKER: 5 }, apiPlans: plans, gstRatePct: 18, graceDays: 15, overrideDays: 30 });
     expect(out.apiPlans.STANDARD).toMatchObject({ pricePaise: 1_800_000, maxWebhooks: 8 });
     expect(out.apiPlans.BASIC.pricePaise).toBe(600_000);
   });
@@ -47,7 +47,7 @@ describe('Developer API plans', () => {
   });
 
   it('quotes an API plan at its price; a renewal keeps the seat plan', () => {
-    const prices = { USER: 1, GPS_DEVICE: 1, DASHCAM: 1, FUEL_SENSOR: 1 };
+    const prices = { USER: 1, GPS_DEVICE: 1, DASHCAM: 1, FUEL_SENSOR: 1, MOBILE_TRACKER: 1 };
     const paidAt = new Date(NOW);
     const lines = quoteLines([{ type: 'API_ACCESS', quantity: 1, plan: 'STANDARD' }], [{ id: 'a1', type: 'API_ACCESS', expiresAt: new Date(NOW + 10 * DAY), apiPlan: 'ENTERPRISE' }], prices, paidAt, DEFAULT_API_PLANS);
     expect(lines[0]).toMatchObject({ kind: 'NEW', type: 'API_ACCESS', plan: 'STANDARD', amountPaise: 1_500_000 });

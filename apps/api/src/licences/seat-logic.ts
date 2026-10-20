@@ -26,6 +26,7 @@ export const SUBJECT_COLUMN: Record<SeatLicenceType, 'userId' | 'deviceId' | 'fu
   GPS_DEVICE: 'deviceId',
   DASHCAM: 'deviceId',
   FUEL_SENSOR: 'fuelObjectId',
+  MOBILE_TRACKER: 'deviceId',
 };
 
 export interface SeatLike {

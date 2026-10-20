@@ -29,7 +29,7 @@ import { openCheckout } from './razorpay';
 import { formatDay, rupees, TYPE_ICONS } from './shared';
 
 type Quantities = Record<SeatLicenceType, number>;
-const ZERO: Quantities = { USER: 0, GPS_DEVICE: 0, DASHCAM: 0, FUEL_SENSOR: 0 };
+const ZERO: Quantities = { USER: 0, GPS_DEVICE: 0, DASHCAM: 0, FUEL_SENSOR: 0, MOBILE_TRACKER: 0 };
 
 const today = () => {
   const d = new Date();

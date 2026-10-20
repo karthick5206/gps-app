@@ -23,6 +23,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { PoisModule } from './pois/pois.module';
 import { FuelModule } from './fuel/fuel.module';
 import { IoSensorsModule } from './io-sensors/io-sensors.module';
+import { MobileTrackerModule } from './mobile-tracker/mobile-tracker.module';
 import { LicencesModule } from './licences/licences.module';
 import { DeveloperModule } from './developer/developer.module';
 import { PublicApiModule } from './public-api/public-api.module';
@@ -62,6 +63,7 @@ import { RelayModule } from './relay/relay.controller';
     PoisModule,
     FuelModule,
     IoSensorsModule,
+    MobileTrackerModule,
     DeveloperModule,
     RelayModule,
     PublicApiModule,

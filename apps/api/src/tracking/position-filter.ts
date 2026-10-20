@@ -9,6 +9,8 @@ const WEAK_SATELLITES = 6;
 const STATIONARY_NOISE_KPH = 15;
 /** Drift radius for weak fixes (the normal radius comes from the company thresholds). */
 const WEAK_FIX_DRIFT_RADIUS_M = 80;
+/** Phone fixes with a larger accuracy radius are weak (like a tracker with few satellites). */
+const WEAK_ACCURACY_M = 25;
 /** After this many consecutive jump-flagged points the new location is accepted (the old anchor was wrong). */
 const JUMP_STREAK_ACCEPT = 3;
 
@@ -36,6 +38,8 @@ export interface FilterInput {
   valid: boolean;
   satellites: number | null;
   ignition: boolean | null;
+  /** Accuracy radius in metres when the source reports it (phones); no satellite count then. */
+  accuracyM?: number | null;
 }
 
 export interface FilterContext {
@@ -91,9 +95,11 @@ export function filterPosition(input: FilterInput, state: TrackState, ctx: Filte
     } else if (input.ignition !== true) {
       // Parked / not driving: small moves are GPS drift. A weak fix (few satellites) or ignition off also reports
       // fake low speeds (seen: 6-9 km/h at identical coordinates), so those speeds don't count as movement.
-      const weak = input.satellites !== null && input.satellites <= WEAK_SATELLITES;
+      const acc = input.accuracyM ?? null;
+      const weak = (input.satellites !== null && input.satellites <= WEAK_SATELLITES) || (acc !== null && acc > WEAK_ACCURACY_M);
       const noisySpeed = weak || input.ignition === false ? STATIONARY_NOISE_KPH : ctx.thresholds.runningSpeedKph;
-      const radius = weak ? Math.max(ctx.thresholds.driftRadiusM, WEAK_FIX_DRIFT_RADIUS_M) : ctx.thresholds.driftRadiusM;
+      // A phone's reported accuracy is the radius its position wobbles in while standing still.
+      const radius = Math.max(weak ? Math.max(ctx.thresholds.driftRadiusM, WEAK_FIX_DRIFT_RADIUS_M) : ctx.thresholds.driftRadiusM, acc ?? 0);
       if (input.speedKph < noisySpeed && distance < radius) flags |= POSITION_FLAGS.DRIFT;
     }
   }

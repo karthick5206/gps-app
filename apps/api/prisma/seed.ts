@@ -106,6 +106,15 @@ const PROFILES: Record<string, ModelProfile> = {
     commands: [],
   },
   PHONE: { capabilities: ['battery'], fields: [{ key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }], commands: [] },
+  // VeeTrax Tracker app: the device's uniqueId is the phone's mobile number (91XXXXXXXXXX), activated by OTP.
+  MOBILE: {
+    capabilities: ['mobile', 'battery', 'sos'],
+    fields: [
+      { key: 'batteryLevel', label: 'Phone battery', unit: '%', type: 'number' },
+      { key: 'accuracyM', label: 'GPS accuracy', unit: 'm', type: 'number' },
+    ],
+    commands: [],
+  },
 };
 
 const LOOKUPS: Record<string, string[]> = {
@@ -201,6 +210,7 @@ async function main() {
     ['Mettax', 'MC202', 'JT808', 'JT808'],
     ['Generic', 'JT808 terminal', 'JT808', 'JT808'],
     ['Generic', 'Phone', 'PHONE', 'PHONE'],
+    ['VeeTrax', 'Mobile tracker (Android)', 'MOBILE', 'MOBILE'],
   ]) {
     const p = PROFILES[profile];
     const data = { protocol, capabilities: p.capabilities, fields: p.fields as object[], commands: p.commands as object[] };

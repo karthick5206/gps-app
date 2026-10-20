@@ -4,7 +4,7 @@
  */
 
 /** Licences held by one user / device / fuel sensor. */
-export const SEAT_LICENCE_TYPES = ['USER', 'GPS_DEVICE', 'DASHCAM', 'FUEL_SENSOR'] as const;
+export const SEAT_LICENCE_TYPES = ['USER', 'GPS_DEVICE', 'DASHCAM', 'FUEL_SENSOR', 'MOBILE_TRACKER'] as const;
 export type SeatLicenceType = (typeof SEAT_LICENCE_TYPES)[number];
 
 /** Every licence type: the per-subject seats plus the account-level Developer API licence (one per company). */
@@ -16,6 +16,7 @@ export const LICENCE_TYPE_LABELS: Record<LicenceType, string> = {
   GPS_DEVICE: 'GPS device',
   DASHCAM: 'Dashcam',
   FUEL_SENSOR: 'Fuel sensor',
+  MOBILE_TRACKER: 'Mobile tracker',
   API_ACCESS: 'Developer API',
 };
 
@@ -24,7 +25,11 @@ export const isSeatLicenceType = (t: LicenceType): t is SeatLicenceType => t !==
 /** Device-model capabilities that make a device a dashcam (JT/T 808 video profiles). */
 export const DASHCAM_CAPABILITIES = ['video', 'adas', 'dms'] as const;
 
+/** Device-model capability of a phone running the VeeTrax Tracker app (protocol `mobile`). */
+export const MOBILE_TRACKER_CAPABILITY = 'mobile';
+
 export function deviceLicenceType(capabilities: readonly string[]): SeatLicenceType {
+  if (capabilities.includes(MOBILE_TRACKER_CAPABILITY)) return 'MOBILE_TRACKER';
   return capabilities.some((c) => (DASHCAM_CAPABILITIES as readonly string[]).includes(c)) ? 'DASHCAM' : 'GPS_DEVICE';
 }
 

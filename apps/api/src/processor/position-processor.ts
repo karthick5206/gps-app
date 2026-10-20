@@ -311,7 +311,7 @@ export class PositionProcessor {
     if (object) {
       const track = tracks.get(object.objectId) ?? EMPTY_TRACK_STATE;
       const result = filterPosition(
-        { ...position, fixTime },
+        { ...position, fixTime, accuracyM: numberAttr(position.attributes, 'accuracyM') },
         track,
         { objectType: object.type, thresholds: device.thresholds, now },
       );

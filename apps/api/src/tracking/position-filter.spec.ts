@@ -19,6 +19,15 @@ const anchored: TrackState = {
 };
 
 describe('filterPosition', () => {
+  it('phones: a standing phone wobbling within its accuracy radius is drift, a real walk is not', () => {
+    // ~45 m away, 4 km/h reported, accuracy 50 m, no ignition / satellites (phone).
+    const phone = { ...base, satellites: null, ignition: null, speedKph: 4, accuracyM: 50, lat: 13.0504 };
+    expect(filterPosition(phone, anchored, ctx).flags & POSITION_FLAGS.DRIFT).toBeTruthy();
+    // Same move with a 5 m accuracy and walking speed above the running threshold: movement.
+    const precise = { ...phone, accuracyM: 5, speedKph: 12 };
+    expect(filterPosition(precise, anchored, ctx).flags & POSITION_FLAGS.DRIFT).toBe(0);
+  });
+
   it('accepts a normal first point and makes it the last valid point', () => {
     const r = filterPosition(base, EMPTY_TRACK_STATE, ctx);
     expect(r.flags).toBe(0);

@@ -46,7 +46,7 @@ export function PricingSettings() {
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const q = useQuery({ queryKey: QUERY, queryFn: ({ signal }) => api.get<LicencePricingDto>('/licences/settings/pricing', undefined, signal) });
-  const [prices, setPrices] = useState<Record<SeatLicenceType, string>>({ USER: '', GPS_DEVICE: '', DASHCAM: '', FUEL_SENSOR: '' });
+  const [prices, setPrices] = useState<Record<SeatLicenceType, string>>({ USER: '', GPS_DEVICE: '', DASHCAM: '', FUEL_SENSOR: '', MOBILE_TRACKER: '' });
   const [plans, setPlans] = useState<PlanForm | null>(null);
   const [gst, setGst] = useState('18');
   const [grace, setGrace] = useState('15');

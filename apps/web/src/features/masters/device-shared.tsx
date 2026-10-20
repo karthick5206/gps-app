@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { DEFAULT_SPEED_LIMIT_KPH, type CompanyDto, type DeviceDto, type DeviceModelDto } from '@veetracer/shared';
+import { DEFAULT_SPEED_LIMIT_KPH, MOBILE_TRACKER_PROTOCOL, normalizeMobile, type CompanyDto, type DeviceDto, type DeviceModelDto } from '@veetracer/shared';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ import { useIoSensors } from '@/features/io-sensors/use-io-sensors';
 import { api, errorMessage } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
 import { ActiveBadge, Dash, DateCell, Muted } from './cells';
+import { MobileTrackerSection } from './MobileTrackerSection';
 import { FormDialog, useSaveMutation } from './FormDialog';
 import { ComboboxField, SwitchField, TextField } from './form-fields';
 import { nullIfBlank, numberOrNull, numericText, optionalText, requiredText, str } from './form-schema';
@@ -24,7 +25,8 @@ export const INVENTORY_ENDPOINT = '/admin/devices';
 export const modelOption = (m: DeviceModelDto): Option => ({ value: m.id, label: `${m.brand} ${m.model}`, description: m.protocol });
 
 const schema = z.object({
-  uniqueId: requiredText(32).regex(/^[A-Za-z0-9_-]+$/, 'Letters, digits, - and _ only'),
+  // IMEI-style ids, or a mobile number for the Tracker app model (checked in submit, where the model is known).
+  uniqueId: requiredText(32).regex(/^[A-Za-z0-9_+ -]+$/, 'Letters, digits, - and _ only'),
   modelId: z.string({ invalid_type_error: 'Required' }).min(1, 'Required'),
   companyId: z.string().nullable(),
   simNumber: optionalText(20),
@@ -81,7 +83,18 @@ export function DeviceForm({
   const withIo = !!record;
   const io = useIoSensors(withIo ? record.id : null, open && withIo);
 
+  const modelId = form.watch('modelId');
+  const isMobile = (models.options.find((o) => o.value === modelId)?.description ?? (record?.modelId === modelId ? record?.protocol : null)) === MOBILE_TRACKER_PROTOCOL;
+
   const submit = form.handleSubmit(async (v) => {
+    let uniqueId = v.uniqueId.trim();
+    if (isMobile) {
+      const mobile = normalizeMobile(uniqueId);
+      if (!mobile) return form.setError('uniqueId', { message: t('Enter the 10-digit mobile number of the phone') });
+      uniqueId = mobile;
+    } else if (!/^[A-Za-z0-9_-]+$/.test(uniqueId)) {
+      return form.setError('uniqueId', { message: t('Letters, digits, - and _ only') });
+    }
     if (canSetLimit && numberOrNull(v.speedLimitKph) !== (vehicle.speedLimitKph ?? null)) {
       try {
         await api.patch(`/objects/${vehicle.id}`, { speedLimitKph: numberOrNull(v.speedLimitKph) });
@@ -99,7 +112,7 @@ export function DeviceForm({
       }
     }
     save.mutate({
-      uniqueId: v.uniqueId,
+      uniqueId,
       modelId: v.modelId,
       simNumber: nullIfBlank(v.simNumber),
       simOperator: nullIfBlank(v.simOperator),
@@ -112,7 +125,16 @@ export function DeviceForm({
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} title={record ? 'Edit device' : 'Add device'} pending={save.isPending} error={save.error} onSubmit={submit}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <TextField form={form} name="uniqueId" label="IMEI / unique ID" required className="sm:col-span-2" placeholder="868120000000001" />
+        <TextField
+          form={form}
+          name="uniqueId"
+          label={isMobile ? 'Mobile number' : 'IMEI / unique ID'}
+          required
+          type={isMobile ? 'tel' : 'text'}
+          className="sm:col-span-2"
+          placeholder={isMobile ? '98765 43210' : '868120000000001'}
+          hint={isMobile ? t('The phone activates the VeeTrax Tracker app with this number (OTP). Changing phones keeps the same tracker.') : undefined}
+        />
         <ComboboxField
           form={form}
           name="modelId"
@@ -159,7 +181,8 @@ export function DeviceForm({
         )}
       </div>
       <SwitchField form={form} name="isActive" label="Active" hint="Positions from inactive devices are ignored." />
-      {withIo ? <IoSensorsSection io={io} /> : null}
+      {record && record.protocol === MOBILE_TRACKER_PROTOCOL ? <MobileTrackerSection deviceId={record.id} /> : null}
+      {withIo && !isMobile ? <IoSensorsSection io={io} /> : null}
     </FormDialog>
   );
 }

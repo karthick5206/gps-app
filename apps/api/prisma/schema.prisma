@@ -246,11 +246,13 @@ model Device {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  company     Company?           @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  model       DeviceModel        @relation(fields: [modelId], references: [id], onDelete: Restrict)
-  assignments DeviceAssignment[]
-  licenceSeat LicenceSeat?
-  ioSensors   IoSensorConfig[]
+  company         Company?               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  model           DeviceModel            @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  assignments     DeviceAssignment[]
+  licenceSeat     LicenceSeat?
+  ioSensors       IoSensorConfig[]
+  trackerCodes    MobileTrackerCode[]
+  trackerSessions MobileTrackerSession[]
 
   @@index([companyId])
 }
@@ -277,20 +279,20 @@ model TrackedObject {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  company     Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch      Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  assignments DeviceAssignment[]
-  groups      VehicleGroupMember[]
-  users       UserObject[]
-  remarks     ObjectRemark[]
-  commands    DeviceCommand[]
-  drivers     DriverAssignment[]
-  documents   Document[]
-  services    ServiceReminder[]
-  serviceLog  ServiceRecord[]
-  fuelConfig  FuelConfig?
-  fuelEvents  FuelEvent[]
-  ioSessions  IoSession[]
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch       Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  assignments  DeviceAssignment[]
+  groups       VehicleGroupMember[]
+  users        UserObject[]
+  remarks      ObjectRemark[]
+  commands     DeviceCommand[]
+  drivers      DriverAssignment[]
+  documents    Document[]
+  services     ServiceReminder[]
+  serviceLog   ServiceRecord[]
+  fuelConfig   FuelConfig?
+  fuelEvents   FuelEvent[]
+  ioSessions   IoSession[]
   driverEvents DriverEvent[]
 
   @@index([companyId, branchId])
@@ -344,10 +346,10 @@ model Driver {
   createdAt            DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
 
-  company     Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch      Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  assignments DriverAssignment[]
-  documents   Document[]
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch       Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  assignments  DriverAssignment[]
+  documents    Document[]
   driverEvents DriverEvent[]
 
   @@unique([companyId, rfidTag])
@@ -932,26 +934,26 @@ model AlertPack {
 
 /// High volume: no foreign keys.
 model Alert {
-  id         String        @id @default(uuid()) @db.Uuid
-  companyId  String        @db.Uuid
-  objectId   String        @db.Uuid
-  deviceId   String?       @db.Uuid
-  type       String
-  severity   AlertSeverity
-  message    String
-  lat        Float?
-  lng        Float?
-  address    String?
-  geofenceId String?       @db.Uuid
-  data       Json          @default("{}")
-  occurredAt DateTime      @db.Timestamptz(3)
-  createdAt  DateTime      @default(now())
-  status     AlertStatus   @default(NEW)
-  ackById    String?       @db.Uuid
-  ackAt      DateTime?
-  ackNote    String?
+  id          String        @id @default(uuid()) @db.Uuid
+  companyId   String        @db.Uuid
+  objectId    String        @db.Uuid
+  deviceId    String?       @db.Uuid
+  type        String
+  severity    AlertSeverity
+  message     String
+  lat         Float?
+  lng         Float?
+  address     String?
+  geofenceId  String?       @db.Uuid
+  data        Json          @default("{}")
+  occurredAt  DateTime      @db.Timestamptz(3)
+  createdAt   DateTime      @default(now())
+  status      AlertStatus   @default(NEW)
+  ackById     String?       @db.Uuid
+  ackAt       DateTime?
+  ackNote     String?
   /// Needs acknowledgement: resolved from Alert Settings when the alert is raised (later setting changes don't rewrite it).
-  ackRequired Boolean     @default(false)
+  ackRequired Boolean       @default(false)
 
   @@index([companyId, occurredAt(sort: Desc)])
   @@index([objectId, occurredAt(sort: Desc)])
@@ -1292,6 +1294,8 @@ enum LicenceType {
   GPS_DEVICE
   DASHCAM
   FUEL_SENSOR
+  /// Phone running the VeeTrax Tracker app (device model protocol `mobile`).
+  MOBILE_TRACKER
   /// Developer API (customer API keys / webhooks): one account-level seat per company, plan on the seat.
   API_ACCESS
 }
@@ -1641,4 +1645,38 @@ model RelayTarget {
   createdById    String?         @db.Uuid
   createdAt      DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+}
+
+/// Activation code for a phone running the VeeTrax Tracker app (sent by SMS; admins can read it in Devices).
+model MobileTrackerCode {
+  id         String    @id @default(uuid()) @db.Uuid
+  deviceId   String    @db.Uuid
+  /// 6 digits, shown to admins while pending (short-lived, single use).
+  code       String
+  expiresAt  DateTime  @db.Timestamptz(3)
+  attempts   Int       @default(0)
+  consumedAt DateTime? @db.Timestamptz(3)
+  smsSent    Boolean   @default(false)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt(sort: Desc)])
+}
+
+/// The phone currently tracking for a mobile-tracker device. Activating on another phone revokes the previous one.
+model MobileTrackerSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  deviceId   String    @db.Uuid
+  tokenHash  String    @unique
+  deviceName String?
+  appVersion String?
+  platform   String?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  lastUsedAt DateTime? @db.Timestamptz(3)
+  revokedAt  DateTime? @db.Timestamptz(3)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
 }

@@ -9,6 +9,7 @@ import { listResult, planList } from '../../common/list-query';
 import { randomToken } from '../../common/secrets';
 import { SeatsService } from '../../licences/seats.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizeDeviceUniqueId } from '../device-unique-id';
 import { RedisService } from '../../redis/redis.service';
 import {
   assignedFilter,
@@ -54,6 +55,7 @@ export class DevicesService {
 
   async create(ctx: AuthContext, dto: CreateDeviceDto): Promise<DeviceDto> {
     await this.assertModel(dto.modelId);
+    dto = { ...dto, uniqueId: await normalizeDeviceUniqueId(this.prisma, dto.modelId, dto.uniqueId) };
     // A device takes a GPS_DEVICE / DASHCAM licence seat from the company pool (refused without one).
     const row = await this.prisma.$transaction(async (tx) => {
       const created = await tx.device.create({
@@ -71,6 +73,7 @@ export class DevicesService {
   async update(ctx: AuthContext, id: string, dto: UpdateDeviceDto): Promise<DeviceDto> {
     const before = await this.find(ctx, id);
     if (dto.modelId) await this.assertModel(dto.modelId);
+    if (dto.uniqueId !== undefined || dto.modelId) dto = { ...dto, uniqueId: await normalizeDeviceUniqueId(this.prisma, dto.modelId ?? before.modelId, dto.uniqueId ?? before.uniqueId) };
     const row = await this.prisma.$transaction(async (tx) => {
       if (dto.isActive === true && !before.isActive) await this.seats.ensureDevice(tx, ctx, ctx.companyId, id);
       return tx.device.update({ where: { id }, data: dto, include: DEVICE_INCLUDE });
