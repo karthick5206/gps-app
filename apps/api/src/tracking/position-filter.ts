@@ -17,6 +17,13 @@ const PHONE_SPIKE_IMPLIED_KPH = 25;
 const PHONE_STILL_KPH = 5;
 /** Accuracy is a ~68% radius; standing phones wobble within about twice it. */
 const PHONE_DRIFT_ACCURACY_FACTOR = 2;
+/**
+ * Coarser than this is Android's Wi-Fi / cell fallback (typically exactly 100 m), not GPS: seen jumping 110–260 m to
+ * the same wrong spots and back, sometimes with a made-up speed. Such a fix moves the marker only when it lands well
+ * beyond its own error radius.
+ */
+const PHONE_COARSE_ACCURACY_M = 50;
+const PHONE_COARSE_MOVE_FACTOR = 3;
 /** Phone fixes with a larger accuracy radius are weak (like a tracker with few satellites). */
 const WEAK_ACCURACY_M = 25;
 /** After this many consecutive jump-flagged points the new location is accepted (the old anchor was wrong). */
@@ -102,6 +109,8 @@ export function filterPosition(input: FilterInput, state: TrackState, ctx: Filte
     if ((impliedKph > MAX_PLAUSIBLE_SPEED_KPH[ctx.objectType] || phoneSpike) && state.jumpStreak + 1 < JUMP_STREAK_ACCEPT) {
       flags |= POSITION_FLAGS.JUMP;
       jumpStreak = state.jumpStreak + 1;
+    } else if (acc !== null && acc > PHONE_COARSE_ACCURACY_M && distance < acc * PHONE_COARSE_MOVE_FACTOR) {
+      flags |= POSITION_FLAGS.DRIFT;
     } else if (input.ignition !== true) {
       // Parked / not driving: small moves are GPS drift. A weak fix (few satellites) or ignition off also reports
       // fake low speeds (seen: 6-9 km/h at identical coordinates), so those speeds don't count as movement.

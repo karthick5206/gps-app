@@ -19,6 +19,33 @@ const anchored: TrackState = {
 };
 
 describe('filterPosition', () => {
+  it('phones: replay of the real standing-phone night (919444907658) — the marker never leaves home', () => {
+    const HOME = { lat: 12.972, lng: 80.1855 };
+    // [lat, lng, reported km/h, accuracy m] every ~10 s; the 100 m fixes are Wi-Fi / cell fallbacks seen on 20–21 Oct.
+    const seq: [number, number, number, number][] = [
+      [12.97199, 80.185501, 12.3, 13], [12.971951, 80.184649, 22.2, 100], [12.97199, 80.1855, 1, 20],
+      [12.971922, 80.183845, 0, 100], [12.972017, 80.185549, 17.6, 33.2], [12.972251, 80.183147, 0, 100],
+      [12.972251, 80.183147, 0, 100], [12.972017, 80.185517, 0, 45.5], [12.97125, 80.184891, 0, 100],
+      [12.971988, 80.185589, 0, 100], [12.972017, 80.185518, 0, 87.8], [12.971922, 80.183845, 0, 100],
+      [12.971992, 80.185519, 0.7, 41.7], [12.971922, 80.183845, 0, 100], [12.972001, 80.18552, 0.3, 22.7],
+    ];
+    let st: TrackState = { ...EMPTY_TRACK_STATE, lastValid: { ...HOME, fixTime: NOW - 200_000 }, lastFixTime: NOW - 200_000 };
+    seq.forEach(([lat, lng, speedKph, accuracyM], i) => {
+      const fixTime = NOW - 190_000 + i * 10_000;
+      const r = filterPosition({ ...base, fixTime, satellites: null, ignition: null, lat, lng, speedKph, accuracyM }, st, { ...ctx, now: NOW });
+      st = r.next;
+      // Shown position stays within GPS noise of home (the spikes were 93–258 m away).
+      expect(Math.abs(r.lat! - HOME.lat) * 111_000).toBeLessThan(40);
+      expect(Math.abs(r.lng! - HOME.lng) * 108_000).toBeLessThan(40);
+    });
+  });
+
+  it('phones: a coarse fix far beyond its own error radius is still accepted (phone really moved)', () => {
+    const st: TrackState = { ...EMPTY_TRACK_STATE, lastValid: { lat: 12.972, lng: 80.1855, fixTime: NOW - 600_000 }, lastFixTime: NOW - 600_000 };
+    const far = { ...base, fixTime: NOW, satellites: null, ignition: null, lat: 12.99, lng: 80.1855, speedKph: 0, accuracyM: 100 }; // 2 km, 10 min later
+    expect(filterPosition(far, st, ctx).flags & (POSITION_FLAGS.JUMP | POSITION_FLAGS.DRIFT)).toBe(0);
+  });
+
   it('phones: the real 180 m out-and-back spike at reported 0 km/h is a jump, not movement (919444907658, 00:58:59)', () => {
     const st: TrackState = { ...EMPTY_TRACK_STATE, lastValid: { lat: 12.971981, lng: 80.185516, fixTime: NOW - 9_000 }, lastFixTime: NOW - 9_000 };
     const spike = { ...base, fixTime: NOW, satellites: null, ignition: null, lat: 12.971922, lng: 80.183845, speedKph: 0, accuracyM: 100 };
