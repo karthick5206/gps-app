@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/components/ui/spinner';
 import { api, errorMessage } from '@/lib/api';
 import { openCheckout } from './razorpay';
+import { UpiPayBlock } from './UpiPay';
 import { formatDay, rupees, TYPE_ICONS } from './shared';
 
 type Quantities = Record<SeatLicenceType, number>;
@@ -265,6 +266,18 @@ export function BuyDialog({
                   ))}
               </dl>
             </div>
+          )}
+          {/* Customers (company pool): UPI QR for the exact amount + "I've paid" with the UTR. */}
+          {mode === 'pay' && !overview.onlinePayment.enabled && basePath === '/licences' && hasAny && quote.data && (
+            <UpiPayBlock
+              amountPaise={quote.data.gst.totalPaise}
+              body={body}
+              onSubmitted={() => {
+                toast.success(t('Thank you! We will confirm the payment and activate your licences.'));
+                onOpenChange(false);
+                onDone();
+              }}
+            />
           )}
           <FormError message={pay.error ? errorMessage(pay.error) : record.error ? errorMessage(record.error) : null} />
         </DialogBody>

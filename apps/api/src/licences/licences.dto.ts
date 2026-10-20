@@ -39,6 +39,16 @@ export class OfflinePaymentDto extends PurchaseDto {
   @Type(() => Number) @IsInt() @Min(1) amountPaise!: number;
 }
 
+/** "I've paid by UPI": the purchase plus the UTR from the customer's UPI app. */
+export class UpiClaimBody extends PurchaseDto {
+  @IsString() @Length(8, 30) utr!: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/) paidOn!: string;
+}
+
+export class UpiRejectBody {
+  @IsOptional() @IsString() @MaxLength(300) reason?: string;
+}
+
 export class VerifyCheckoutDto {
   @IsString() @Length(1, 64) razorpayOrderId!: string;
   @IsString() @Length(1, 64) razorpayPaymentId!: string;

@@ -1331,6 +1331,8 @@ model PlatformBillingSettings {
   accountsEmail    String   @default("")
   /// Logo file name under var/billing/ (PNG / JPG / SVG).
   logoFile         String?
+  /// Uploaded UPI QR image (e.g. a GPay QR) shown on the Buy screen and in the welcome email.
+  upiQrFile        String?
   sacCode          String   @default("998314")
   invoicePrefix    String   @default("VTX")
   /// Credit notes have their own gap-free series: VTX/CN/2026-27/0001.
@@ -1703,4 +1705,26 @@ model SignupCode {
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
 
   @@index([email, createdAt(sort: Desc)])
+}
+
+/// "I've paid by UPI" from a customer (UTR); licences activate when a Super Admin confirms it against the bank.
+model UpiPaymentClaim {
+  id          String    @id @default(uuid()) @db.Uuid
+  ownerKind   String
+  ownerId     String    @db.Uuid
+  /// The purchase (PurchaseDto: items + renewSeatIds) as quoted when the customer paid.
+  purchase    Json
+  amountPaise Int
+  utr         String
+  paidOn      String
+  summary     String
+  status      String    @default("PENDING")
+  createdById String?   @db.Uuid
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  decidedAt   DateTime? @db.Timestamptz(3)
+  decidedById String?   @db.Uuid
+  note        String?
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([ownerId])
 }

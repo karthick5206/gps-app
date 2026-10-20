@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Put, Req, StreamableFile } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Headers, HttpCode, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query, Req, StreamableFile } from '@nestjs/common';
 import { CreditNote, Invoice } from '@prisma/client';
 import { Request } from 'express';
 import { AuthContext } from '../access/auth-context';
@@ -6,7 +6,9 @@ import { Auth, Public, RequirePermission } from '../access/decorators';
 import { BillingService } from './billing.service';
 import { CreditNotesService } from './credit-notes.service';
 import { InvoicesService } from './invoices.service';
-import { AllocateDto, BillingProfileBody, OfflinePaymentDto, PurchaseDto, VerifyCheckoutDto } from './licences.dto';
+import { AllocateDto, BillingProfileBody, OfflinePaymentDto, PurchaseDto, UpiClaimBody, VerifyCheckoutDto } from './licences.dto';
+import { LicenceSettingsService } from './licence-settings.service';
+import { UpiService } from './upi.service';
 import { PartnersService } from './partners.service';
 import { PoolsService } from './pools.service';
 
@@ -26,6 +28,8 @@ export class LicencesController {
     private readonly pools: PoolsService,
     private readonly invoices: InvoicesService,
     private readonly creditNotes: CreditNotesService,
+    private readonly upiPay: UpiService,
+    private readonly settings: LicenceSettingsService,
   ) {}
 
   /** Banner data for every signed-in user (no permission needed). */
@@ -52,6 +56,32 @@ export class LicencesController {
   @Post('checkout') @RequirePermission('billing', 'create')
   async checkout(@Auth() ctx: AuthContext, @Body() dto: PurchaseDto) {
     return this.billing.checkout(ctx, await this.billing.companyOwner(ctx.companyId), dto);
+  }
+
+  /** UPI ID / payee, and with ?amountPaise the payment link + QR (SVG) for that exact amount. */
+  @Get('upi') @RequirePermission('billing', 'view')
+  async upi(@Auth() ctx: AuthContext, @Query('amountPaise') amount?: string) {
+    const owner = await this.billing.companyOwner(ctx.companyId);
+    const paise = Number(amount);
+    return this.upiPay.info(Number.isFinite(paise) && paise > 0 ? Math.round(paise) : undefined, `VeeTrax ${owner.name}`.slice(0, 50));
+  }
+
+  @Get('upi/qr-image') @RequirePermission('billing', 'view')
+  async upiImage() {
+    const img = await this.settings.upiQr();
+    if (!img) throw new NotFoundException('No UPI QR uploaded');
+    return new StreamableFile(img.data, { type: img.mime, disposition: 'inline; filename="upi-qr"' });
+  }
+
+  /** "I've paid by UPI" with the UTR; licences activate when VeeTrax confirms the payment. */
+  @Post('upi-claims') @RequirePermission('billing', 'create')
+  async upiClaim(@Auth() ctx: AuthContext, @Body() dto: UpiClaimBody) {
+    return this.upiPay.claim(ctx, await this.billing.companyOwner(ctx.companyId), dto);
+  }
+
+  @Get('upi-claims') @RequirePermission('billing', 'view')
+  async upiClaims(@Auth() ctx: AuthContext) {
+    return this.upiPay.list({ ownerId: (await this.billing.companyOwner(ctx.companyId)).id });
   }
 
   @Post('checkout/verify') @HttpCode(200) @RequirePermission('billing', 'create')

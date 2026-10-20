@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { MailerService } from '../auth/mailer.service';
 import { ApiAccessService } from './api-access.service';
 import { BillingService } from './billing.service';
+import { UpiService } from './upi.service';
 import { CreditNotesService } from './credit-notes.service';
 import { InvoicesService } from './invoices.service';
 import { LicencePolicyService } from './licence-policy.service';
@@ -30,6 +31,7 @@ import { SeatsService } from './seats.service';
     PartnersService,
     InvoicesService,
     BillingService,
+    UpiService,
     LicenceRemindersService,
     MailerService,
   ],

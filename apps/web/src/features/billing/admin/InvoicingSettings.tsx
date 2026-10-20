@@ -16,14 +16,14 @@ import { api, errorMessage, fetchBlob } from '@/lib/api';
 import { StateSelect } from '../BillingProfileForm';
 
 const QUERY = ['licences', 'settings', 'invoicing'];
-type Form = Omit<InvoicingSettingsDto, 'hasLogo' | 'addressLines'> & { address: string };
+type Form = Omit<InvoicingSettingsDto, 'hasLogo' | 'hasUpiQr' | 'addressLines'> & { address: string };
 
-function Logo({ version }: { version: number }) {
+function Logo({ version, path = '/licences/settings/logo' }: { version: number; path?: string }) {
   const { t } = useTranslation();
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let revoked: string | null = null;
-    fetchBlob('/licences/settings/logo')
+    fetchBlob(path)
       .then((b) => {
         revoked = URL.createObjectURL(b);
         setUrl(revoked);
@@ -47,7 +47,7 @@ export function InvoicingSettings() {
   const [form, setForm] = useState<Form | null>(null);
   useEffect(() => {
     if (q.data) {
-      const { hasLogo: _h, addressLines, ...rest } = q.data;
+      const { hasLogo: _h, hasUpiQr: _u, addressLines, ...rest } = q.data;
       setForm({ ...rest, address: addressLines.join('\n') });
     }
   }, [q.data]);
@@ -72,6 +72,26 @@ export function InvoicingSettings() {
       setLogoVersion((v) => v + 1);
       toast.success(t('Logo uploaded'));
     },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const upiRef = useRef<HTMLInputElement>(null);
+  const [upiVersion, setUpiVersion] = useState(0);
+  const uploadUpi = useMutation({
+    mutationFn: (file: File) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return api.upload<InvoicingSettingsDto>('/licences/settings/upi-qr', fd);
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(QUERY, data);
+      setUpiVersion((v) => v + 1);
+      toast.success(t('UPI QR uploaded'));
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const removeUpi = useMutation({
+    mutationFn: () => api.delete<InvoicingSettingsDto>('/licences/settings/upi-qr'),
+    onSuccess: (data) => queryClient.setQueryData(QUERY, data),
     onError: (err) => toast.error(errorMessage(err)),
   });
   const removeLogo = useMutation({
@@ -172,6 +192,35 @@ export function InvoicingSettings() {
             {text('bankIfsc', t('IFSC'), { max: 20, upper: true })}
             {text('bankBranch', t('Branch'), { max: 120 })}
             {text('upiId', t('UPI ID'), { max: 80 })}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {q.data.hasUpiQr && <Logo version={upiVersion} path="/licences/settings/upi-qr" />}
+            {editable && (
+              <>
+                <input
+                  ref={upiRef}
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadUpi.mutate(f);
+                    e.target.value = '';
+                  }}
+                />
+                <Button type="button" variant="outline" onClick={() => upiRef.current?.click()} disabled={uploadUpi.isPending}>
+                  {uploadUpi.isPending ? <Spinner /> : <ImageUpIcon />}
+                  {q.data.hasUpiQr ? t('Change UPI QR') : t('Upload UPI QR')}
+                </Button>
+                {q.data.hasUpiQr && (
+                  <Button type="button" variant="ghost" onClick={() => removeUpi.mutate()} disabled={removeUpi.isPending}>
+                    <Trash2Icon />
+                    {t('Remove UPI QR')}
+                  </Button>
+                )}
+                <span className="text-xs text-muted-foreground">{t('Your GPay / UPI QR (PNG or JPG). Shown on the Buy screen and sent in welcome emails.')}</span>
+              </>
+            )}
           </div>
         </section>
         <Field label={t('Terms')} htmlFor="inv-terms">

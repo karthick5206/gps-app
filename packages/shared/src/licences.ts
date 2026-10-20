@@ -418,6 +418,8 @@ export interface InvoicingSettingsDto {
   /** Copy of every invoice e-mail goes here (optional). */
   accountsEmail: string;
   hasLogo: boolean;
+  /** A UPI QR image is uploaded (shown on the Buy screen and in the welcome email). */
+  hasUpiQr: boolean;
   sacCode: string;
   invoicePrefix: string;
   /** Credit note series prefix, e.g. "VTX/CN" → VTX/CN/2026-27/0001. */
@@ -691,3 +693,45 @@ export interface ApiAccessStatusDto {
 
 /** Customer API error codes for the Developer API licence (HTTP 402). */
 export type ApiLicenceErrorCode = 'LICENCE_EXPIRED' | 'LICENCE_REQUIRED' | 'API_VEHICLE_LIMIT' | 'API_WEBHOOK_LIMIT';
+
+// ───────────── UPI payments (QR on the Buy screen; the Super Admin confirms the UTR) ─────────────
+
+/** `upi://pay` link: scanned as a QR, or opened directly on a phone (GPay / PhonePe / Paytm / BHIM). */
+export function upiPayUri(vpa: string, payeeName: string, amountPaise?: number | null, note?: string | null): string {
+  const q = [`pa=${encodeURIComponent(vpa)}`, `pn=${encodeURIComponent(payeeName)}`, 'cu=INR'];
+  if (amountPaise && amountPaise > 0) q.push(`am=${(amountPaise / 100).toFixed(2)}`);
+  if (note) q.push(`tn=${encodeURIComponent(note.slice(0, 50))}`);
+  return `upi://pay?${q.join('&')}`;
+}
+
+/** GET /licences/upi */
+export interface UpiPayInfoDto {
+  enabled: boolean;
+  vpa: string;
+  payeeName: string;
+  /** An uploaded QR image (e.g. the GPay QR) exists: GET /licences/upi/qr-image. */
+  hasImage: boolean;
+  /** With ?amountPaise: the payment link and its QR as SVG markup. */
+  uri?: string;
+  svg?: string;
+}
+
+export const UPI_CLAIM_STATUSES = ['PENDING', 'CONFIRMED', 'REJECTED'] as const;
+export type UpiClaimStatus = (typeof UPI_CLAIM_STATUSES)[number];
+
+/** A customer's "I've paid by UPI" with the UTR; licences activate when the Super Admin confirms it. */
+export interface UpiClaimDto {
+  id: string;
+  ownerKind: 'COMPANY' | 'PARTNER';
+  ownerId: string;
+  ownerName: string;
+  amountPaise: number;
+  utr: string;
+  paidOn: string;
+  summary: string;
+  status: UpiClaimStatus;
+  createdAt: string;
+  createdByName: string | null;
+  decidedAt: string | null;
+  note: string | null;
+}

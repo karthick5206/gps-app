@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CreditNoteDto, InvoiceDto } from '@veetracer/shared';
-import { FileSpreadsheetIcon, FileTextIcon, HandshakeIcon, ShieldCheckIcon } from 'lucide-react';
+import { FileSpreadsheetIcon, FileTextIcon, QrCodeIcon, HandshakeIcon, ShieldCheckIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -20,6 +20,7 @@ import { CreditNotesTable, InvoicesTable } from '../shared';
 import { CreditNoteDialog } from './CreditNoteDialog';
 import { AdminPartnersTab } from './AdminPartnersTab';
 import { AdminPoolsTab, POOLS_QUERY, type PoolRow } from './AdminPoolsTab';
+import { UpiClaimsTab } from './UpiClaimsTab';
 
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
@@ -109,6 +110,10 @@ export function LicencesAdminPage() {
             <FileTextIcon className="size-4" />
             {t('Invoices')}
           </TabsTrigger>
+          <TabsTrigger value="upi">
+            <QrCodeIcon className="size-4" />
+            {t('UPI payments')}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="pools" className="mt-4">
           <AdminPoolsTab pools={pools.data ?? []} loading={pools.isPending} error={pools.error} onChanged={refresh} />
@@ -118,6 +123,9 @@ export function LicencesAdminPage() {
         </TabsContent>
         <TabsContent value="invoices" className="mt-4">
           <AdminInvoicesTab pools={pools.data ?? []} />
+        </TabsContent>
+        <TabsContent value="upi" className="mt-4">
+          <UpiClaimsTab />
         </TabsContent>
       </Tabs>
     </div>

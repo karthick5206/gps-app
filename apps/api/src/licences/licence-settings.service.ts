@@ -44,6 +44,7 @@ export function toInvoicingDto(s: PlatformBillingSettings): InvoicingSettingsDto
     website: s.website,
     accountsEmail: s.accountsEmail,
     hasLogo: !!s.logoFile,
+    hasUpiQr: !!s.upiQrFile,
     sacCode: s.sacCode,
     invoicePrefix: s.invoicePrefix,
     creditNotePrefix: s.creditNotePrefix,
@@ -123,7 +124,7 @@ export class LicenceSettingsService {
     return toInvoicingDto(await this.get());
   }
 
-  async updateInvoicing(dto: Omit<InvoicingSettingsDto, 'hasLogo'>): Promise<InvoicingSettingsDto> {
+  async updateInvoicing(dto: Omit<InvoicingSettingsDto, 'hasLogo' | 'hasUpiQr'>): Promise<InvoicingSettingsDto> {
     if (!stateByCode(dto.stateCode)) throw new BadRequestException('Select a valid state');
     if (dto.gstin) {
       const err = gstinError(dto.gstin, dto.stateCode);
@@ -165,6 +166,38 @@ export class LicenceSettingsService {
     if (before.logoFile) await unlink(join(BILLING_DIR, before.logoFile)).catch(() => undefined);
     this.invalidate();
     return this.invoicing();
+  }
+
+  async setUpiQr(file: { buffer: Buffer; mimetype: string; size: number } | undefined): Promise<InvoicingSettingsDto> {
+    if (!file) throw new BadRequestException('Choose the QR image');
+    const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/jpeg' ? 'jpg' : null;
+    if (!ext) throw new BadRequestException('QR image must be PNG or JPG');
+    if (file.size > MAX_LOGO_BYTES) throw new BadRequestException('QR image must be 1 MB or smaller');
+    const before = await this.get();
+    await mkdir(BILLING_DIR, { recursive: true });
+    const name = `upi-qr-${Date.now()}.${ext}`;
+    await writeFile(join(BILLING_DIR, name), file.buffer);
+    await this.prisma.platformBillingSettings.update({ where: { id: 'default' }, data: { upiQrFile: name } });
+    if (before.upiQrFile) await unlink(join(BILLING_DIR, before.upiQrFile)).catch(() => undefined);
+    this.invalidate();
+    return this.invoicing();
+  }
+
+  async removeUpiQr(): Promise<InvoicingSettingsDto> {
+    const before = await this.get();
+    await this.prisma.platformBillingSettings.update({ where: { id: 'default' }, data: { upiQrFile: null } });
+    if (before.upiQrFile) await unlink(join(BILLING_DIR, before.upiQrFile)).catch(() => undefined);
+    this.invalidate();
+    return this.invoicing();
+  }
+
+  /** The uploaded UPI QR image, or null. */
+  async upiQr(): Promise<{ data: Buffer; mime: string } | null> {
+    const s = await this.get();
+    if (!s.upiQrFile) return null;
+    const path = join(BILLING_DIR, s.upiQrFile);
+    if (!existsSync(path)) return null;
+    return { data: await readFile(path), mime: s.upiQrFile.endsWith('.png') ? 'image/png' : 'image/jpeg' };
   }
 
   /** The logo file (for the PDF and the settings preview), or null. */

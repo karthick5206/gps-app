@@ -12,7 +12,13 @@ import { setupPdf } from '../reports/report-files';
 export const GUIDE_PDF_NAME = 'VeeTrax-Getting-started.pdf';
 
 /** The getting-started guide (shared GUIDE_SECTIONS) as an A4 PDF. */
-export function guideDocument(appUrl: string, support: { name: string; phone: string | null; email: string | null }, logo: InvoiceLogo | null): TDocumentDefinitions {
+export interface GuideUpi {
+  vpa: string;
+  payee: string;
+  qr: InvoiceLogo | null;
+}
+
+export function guideDocument(appUrl: string, support: { name: string; phone: string | null; email: string | null }, logo: InvoiceLogo | null, upi: GuideUpi | null = null): TDocumentDefinitions {
   const content: Content[] = [];
   if (logo) content.push(logo.mime === 'image/svg+xml' ? { svg: logo.data.toString('utf8'), fit: [120, 44] } : { image: `data:${logo.mime};base64,${logo.data.toString('base64')}`, fit: [120, 44] });
   content.push({ text: GUIDE_TITLE, style: 'h1', margin: [0, logo ? 8 : 0, 0, 2] });
@@ -24,6 +30,16 @@ export function guideDocument(appUrl: string, support: { name: string; phone: st
       ol: s.steps.map((st) => (st.code ? { stack: [st.text, { text: st.code, style: 'code', margin: [0, 2, 0, 2] }] } : st.text)),
     });
     if (s.notes?.length) block.push({ ul: s.notes.map((n) => ({ text: n, style: 'note' })), margin: [0, 3, 0, 0] });
+    if (s.id === 'licences' && upi) {
+      block.push({
+        columns: [
+          ...(upi.qr ? [{ width: 120, image: `data:${upi.qr.mime};base64,${upi.qr.data.toString('base64')}`, fit: [120, 140] as [number, number] }] : []),
+          { width: '*', stack: [{ text: 'Pay by UPI', bold: true }, `UPI ID: ${upi.vpa}`, `Name: ${upi.payee}`, { text: 'Scan with GPay, PhonePe, Paytm or BHIM. In VeeTrax → Billing & Licences → Buy you get a QR with the exact amount; after paying, enter the UTR / transaction ID there so we can activate your licences.', style: 'note' }] },
+        ],
+        columnGap: 12,
+        margin: [0, 6, 0, 0],
+      });
+    }
     content.push({ stack: block, unbreakable: false });
   }
   const contact = [support.phone && `Phone / WhatsApp: ${support.phone}`, support.email && `Email: ${support.email}`].filter(Boolean).join('   ·   ');
@@ -59,7 +75,8 @@ export class GuideService {
   async pdf(): Promise<Buffer> {
     const s = await this.settings.get();
     setupPdf();
-    const doc = guideDocument(this.appUrl, { name: s.legalName || 'VeeTrax', phone: s.phone || null, email: s.email || null }, await this.settings.logo());
+    const upi = s.upiId.trim() ? { vpa: s.upiId.trim(), payee: s.bankAccountName || s.legalName || 'VeeTrax', qr: await this.settings.upiQr() } : null;
+    const doc = guideDocument(this.appUrl, { name: s.legalName || 'VeeTrax', phone: s.phone || null, email: s.email || null }, await this.settings.logo(), upi);
     return pdfmake.createPdf(doc).getBuffer();
   }
 
@@ -75,7 +92,19 @@ export class GuideService {
       `<p>${escapeHtml(lead)}</p><p>The attached guide shows how to:</p><ul><li>buy licences</li><li>track a phone with the VeeTrax Tracker app</li>` +
       `<li>add a GPS tracker (sent by us or bought elsewhere)</li><li>add a dashcam</li><li>assign devices, set alerts and use the mobile app</li></ul>` +
       `<p><a href="${url}/guide">Read the guide online</a> · <a href="${url}">Sign in to VeeTrax</a></p><p style="color:#666">Reply to this email if you need help.</p>`;
-    await this.mailer.send({ to, subject, text, html, attachments: [{ filename: GUIDE_PDF_NAME, content: await this.pdf(), contentType: 'application/pdf' }] });
+    const s = await this.settings.get();
+    const vpa = s.upiId.trim();
+    const qr = vpa ? await this.settings.upiQr() : null;
+    const upiText = vpa ? `
+
+Buy licences: ${url}/admin/billing
+Pay by UPI: ${vpa} (QR attached). After paying, enter the UTR in Billing & Licences so we can activate your licences.` : '';
+    const upiHtml = vpa
+      ? `<p><b>Buy licences:</b> <a href="${url}/admin/billing">Billing &amp; Licences</a>. Pay by UPI to <b>${escapeHtml(vpa)}</b>${qr ? ' (QR attached)' : ''}; after paying, enter the UTR / transaction ID there so we can activate your licences.</p>`
+      : '';
+    const attachments = [{ filename: GUIDE_PDF_NAME, content: await this.pdf(), contentType: 'application/pdf' }];
+    if (qr) attachments.push({ filename: qr.mime === 'image/png' ? 'VeeTrax-UPI-QR.png' : 'VeeTrax-UPI-QR.jpg', content: qr.data, contentType: qr.mime });
+    await this.mailer.send({ to, subject, text: text + upiText, html: html + upiHtml, attachments });
   }
 
   async emailUser(userId: string): Promise<{ ok: true; email: string }> {
