@@ -1,5 +1,5 @@
 import { MOVEMENT_STATUSES, OBJECT_TYPES, STATUS_META, VEHICLE_TYPES, type LiveObject, type MovementStatus } from '@veetracer/shared';
-import { LockIcon, SearchIcon, SearchXIcon, XIcon } from 'lucide-react';
+import { DoorOpenIcon, LockIcon, SearchIcon, SearchXIcon, SnowflakeIcon, XIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StatusDot } from '@/components/status-badge';
@@ -86,6 +86,8 @@ const ObjectRow = memo(function ObjectRow({
           <span className="block truncate text-xs text-muted-foreground">
             {o.plateNumber ?? o.uniqueId ?? '—'}
             {o.status !== 'NO_DATA' && <> · <span className="tabular-nums">{Math.round(o.speedKph)} km/h</span></>}
+            {o.acOn ? <SnowflakeIcon className="ms-1.5 inline size-3 text-sky-600" aria-label={t('AC on')} /> : null}
+            {o.doorOpen ? <DoorOpenIcon className="ms-1 inline size-3 text-amber-600" aria-label={t('Door open')} /> : null}
           </span>
         </span>
         {o.licenceLocked ? (

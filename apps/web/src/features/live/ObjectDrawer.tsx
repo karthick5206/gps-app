@@ -92,6 +92,18 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
           </span>
         </Row>
       )}
+      {o.acOn !== undefined && (
+        <Row label={t('AC')}>
+          {o.acOn === null ? '—' : o.acOn ? t('On') : t('Off')}
+          {o.acVoltage != null && <span className="ms-1 font-normal text-muted-foreground">{`(${o.acVoltage.toFixed(1)} V)`}</span>}
+        </Row>
+      )}
+      {o.doorOpen !== undefined && (
+        <Row label={t('Door')}>
+          {o.doorOpen === null ? '—' : o.doorOpen ? t('Open') : t('Closed')}
+          {o.doorVoltage != null && <span className="ms-1 font-normal text-muted-foreground">{`(${o.doorVoltage.toFixed(1)} V)`}</span>}
+        </Row>
+      )}
       <Row label={t('Satellites')}>{orDash(o.satellites)}</Row>
       <Row label={t('Speed limit')}>{limit === null ? '—' : o.speedLimitKph === null ? t('{{limit}} km/h (default)', { limit }) : `${limit} km/h`}</Row>
     </dl>

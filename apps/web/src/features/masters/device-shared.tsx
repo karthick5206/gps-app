@@ -7,6 +7,8 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type { Option } from '@/components/ui/multi-select';
 import { useAuth } from '@/features/auth/auth-context';
+import { IoSensorsSection } from '@/features/io-sensors/IoSensorsSection';
+import { useIoSensors } from '@/features/io-sensors/use-io-sensors';
 import { api, errorMessage } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
 import { ActiveBadge, Dash, DateCell, Muted } from './cells';
@@ -75,6 +77,9 @@ export function DeviceForm({
   const vehicle = !withCompany ? record?.object ?? null : null;
   const canSetLimit = !!vehicle && can('objects', 'edit');
   const typeDefault = vehicle?.vehicleType ? DEFAULT_SPEED_LIMIT_KPH[vehicle.vehicleType] : null;
+  // AC / door sensors are wired to the tracker: company devices only, once the device exists.
+  const withIo = !withCompany && !!record;
+  const io = useIoSensors(withIo ? record.id : null, open && withIo);
 
   const submit = form.handleSubmit(async (v) => {
     if (canSetLimit && numberOrNull(v.speedLimitKph) !== (vehicle.speedLimitKph ?? null)) {
@@ -82,6 +87,14 @@ export function DeviceForm({
         await api.patch(`/objects/${vehicle.id}`, { speedLimitKph: numberOrNull(v.speedLimitKph) });
       } catch (err) {
         toast.error(t('Speed limit not saved: {{error}}', { error: errorMessage(err) }));
+        return;
+      }
+    }
+    if (withIo && io.dirty) {
+      try {
+        await io.save();
+      } catch (err) {
+        toast.error(t('AC / Door settings not saved: {{error}}', { error: t(errorMessage(err)) }));
         return;
       }
     }
@@ -146,6 +159,7 @@ export function DeviceForm({
         )}
       </div>
       <SwitchField form={form} name="isActive" label="Active" hint="Positions from inactive devices are ignored." />
+      {withIo ? <IoSensorsSection io={io} /> : null}
     </FormDialog>
   );
 }
