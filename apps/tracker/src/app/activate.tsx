@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { MapPin } from 'lucide-react-native';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -60,11 +61,15 @@ export default function ActivateScreen() {
     try {
       const r = await api.verify({ mobile, code, deviceName: deviceName(), appVersion: APP_VERSION, platform: Platform.OS });
       await setToken(r.token);
-      await applyConfig(r.config);
       store.setNotice(null);
       store.setSession({ uniqueId: r.uniqueId, objectName: r.objectName, companyName: r.companyName });
+      // Config is stored for the next start; a failure here must not keep the user on this screen.
+      await applyConfig(r.config).catch(() => undefined);
+      // Go to the home screen explicitly (seen: the protected-route switch alone left the spinner running).
+      router.replace('/');
     } catch (e) {
       setError(errorText(e));
+    } finally {
       setBusy(false);
     }
   };
