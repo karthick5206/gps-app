@@ -45,6 +45,13 @@ export const S = {
   trackingFor: 'Tracking for',
   company: 'Company',
   uploadNow: 'Upload now',
+  mode: 'GPS mode',
+  modeMoving: 'Moving (high accuracy)',
+  modeStationary: 'Stopped (battery saver)',
+  filtered: 'Filtered out',
+  filteredValue: (dropped: number, mock: number) => `${dropped} inaccurate / jumps${mock ? `, ${mock} fake GPS` : ''}`,
+  notRunningTitle: 'Tracking stopped unexpectedly',
+  notRunningBody: 'Android or the phone maker stopped the tracking service. Tap Start tracking again, then check the battery and autostart settings below.',
 
   // SOS
   sos: 'SOS',
@@ -53,12 +60,35 @@ export const S = {
   sosSent: 'SOS sent to your administrator.',
   sosQueued: 'No connection. SOS saved and will be sent as soon as possible.',
   sosNoLocation: 'Could not get your location for SOS. Check that location is on.',
+  sosRejected: 'The server did not accept the SOS. Call your administrator.',
+  sosStopped: 'This phone is no longer allowed to send locations.',
 
   // Battery
   batteryTitle: 'Battery optimisation is on',
   batteryBody:
     'Android may stop tracking to save battery. Allow VeeTrax Tracker to run without battery restrictions.',
   batteryButton: 'Allow unrestricted battery',
+
+  // OEM autostart / background settings
+  oemTitle: 'Keep tracking running',
+  oemBody: (maker: string) => {
+    const m = maker.toLowerCase();
+    if (['xiaomi', 'redmi', 'poco'].includes(m))
+      return 'Xiaomi / Redmi / POCO: turn ON Autostart for VeeTrax Tracker, then App info → Battery saver → No restrictions. Also lock the app in Recents (long-press its card → lock).';
+    if (['oppo', 'realme'].includes(m))
+      return 'Oppo / Realme: allow Auto launch (Startup manager) for VeeTrax Tracker, then App info → Battery usage → Allow background activity (and turn off "Optimise battery use").';
+    if (['vivo', 'iqoo'].includes(m))
+      return 'Vivo / iQOO: allow Autostart / Background startup for VeeTrax Tracker, then Battery → Background power consumption → Allow high background power usage.';
+    if (m === 'oneplus')
+      return 'OnePlus: App info → Battery usage → Allow background activity, and allow Auto launch. Lock the app in Recents.';
+    if (m === 'samsung')
+      return 'Samsung: Settings → Battery → Background usage limits → Never sleeping apps → add VeeTrax Tracker. Make sure it is not in Sleeping / Deep sleeping apps.';
+    if (['huawei', 'honor'].includes(m))
+      return 'Huawei / Honor: Battery → App launch → VeeTrax Tracker → Manage manually, and turn on Auto-launch, Secondary launch and Run in background.';
+    return 'Some phones stop background apps to save battery. In the phone settings, allow VeeTrax Tracker to auto-start and to run in the background without battery restrictions.';
+  },
+  oemButton: 'Open phone settings',
+  oemDone: "I've done this",
 
   // Permissions
   permissionsTitle: 'Permissions',

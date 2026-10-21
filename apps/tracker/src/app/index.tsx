@@ -1,58 +1,58 @@
 import { router } from 'expo-router';
 import { LogOut, Play, Square, UploadCloud } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { BatteryCard, PermissionsCard, useChecks } from '@/components/ChecksCards';
+import { BatteryCard, OemCard, PermissionsCard, useChecks } from '@/components/ChecksCards';
 import { SosButton } from '@/components/SosButton';
 import { Body, Button, Card, Row } from '@/components/ui';
-import { beginTracking, permissionsReady } from '@/lib/control';
-import { queueSize } from '@/lib/db';
+import { beginTracking, isInactive, permissionsReady, recheckInactive, signOut, syncStopReason } from '@/lib/control';
 import { kmh, metres, timeAgo } from '@/lib/format';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
-import { isRunning, resumeIfWanted, stopTracking } from '@/lib/tracking';
-import { flush, recheckBlocked, signOut } from '@/lib/uploader';
+import { resumeIfWanted, stopTracking, Tracker, useTrackerStatus } from '@/lib/tracking';
 
-const UPLOAD_EVERY_MS = 30_000;
+const RECHECK_EVERY_MS = 5 * 60_000;
 
 export default function HomeScreen() {
   useStoreVersion();
   const c = useColors();
   const [checks, refreshChecks] = useChecks();
-  const [running, setRunning] = useState(false);
+  const [status, refreshStatus] = useTrackerStatus();
   const [busy, setBusy] = useState(false);
-  const [, setTick] = useState(0);
-
-  // Refresh the "running" flag and relative times every 2 s; upload every 30 s while the app is open.
+  const statusRef = useRef(status);
   useEffect(() => {
-    const poll = () => isRunning().then(setRunning).catch(() => undefined);
-    poll();
-    const fast = setInterval(() => (poll(), setTick((n) => n + 1)), 2000);
-    const slow = setInterval(() => {
-      flush().catch(() => undefined);
-      recheckBlocked().catch(() => undefined);
-    }, UPLOAD_EVERY_MS);
+    statusRef.current = status;
+  }, [status]);
+
+  // React to stops decided natively (REVOKED / INVALID → sign out).
+  useEffect(() => {
+    syncStopReason(status).catch(() => undefined);
+  }, [status?.stopReason]);
+
+  // On return to the foreground: restart if wanted but killed; every few minutes: INACTIVE re-check (hourly inside).
+  useEffect(() => {
+    const slow = setInterval(() => recheckInactive(statusRef.current).catch(() => undefined), RECHECK_EVERY_MS);
     const sub = AppState.addEventListener('change', (s) => {
       if (s !== 'active') return;
-      resumeIfWanted().then(poll).catch(() => undefined);
-      flush().catch(() => undefined);
+      resumeIfWanted().then(refreshStatus).catch(() => undefined);
+      recheckInactive(statusRef.current).catch(() => undefined);
     });
-    return () => (clearInterval(fast), clearInterval(slow), sub.remove());
+    return () => (clearInterval(slow), sub.remove());
   }, []);
 
   const session = store.session();
-  const status = store.status();
-  const blocked = store.blocked();
-  const on = store.wanted() && running;
-  const queued = queueSize();
+  const blocked = isInactive(status);
+  const on = !!status?.running;
+  const killed = !!status && status.wanted && !status.running && !status.stopReason;
+  const queued = status?.queueSize ?? 0;
 
   const start = async () => {
     if (!(await permissionsReady())) return router.push('/disclosure');
     setBusy(true);
     const r = await beginTracking();
     setBusy(false);
-    setRunning(await isRunning());
+    refreshStatus();
     refreshChecks();
     if (!r.ok) Alert.alert(S.appName, r.message);
   };
@@ -60,7 +60,7 @@ export default function HomeScreen() {
   const stop = () =>
     Alert.alert(S.stopConfirmTitle, S.stopConfirmBody, [
       { text: S.cancel, style: 'cancel' },
-      { text: S.stopTracking, style: 'destructive', onPress: () => stopTracking().then(() => setRunning(false)) },
+      { text: S.stopTracking, style: 'destructive', onPress: () => stopTracking().then(refreshStatus) },
     ]);
 
   const deactivate = () =>
@@ -84,6 +84,13 @@ export default function HomeScreen() {
         </Card>
       ) : null}
 
+      {killed && !busy ? (
+        <Card tone="warn">
+          <Body style={{ color: c.accentText, fontWeight: '700' }}>{S.notRunningTitle}</Body>
+          <Body style={{ color: c.accentText }}>{S.notRunningBody}</Body>
+        </Card>
+      ) : null}
+
       <Card style={[styles.toggleCard, { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.primarySoft : c.card }]}>
         <View style={styles.toggleHead}>
           <View style={[styles.dot, { backgroundColor: on ? c.success : c.muted }]} />
@@ -91,7 +98,7 @@ export default function HomeScreen() {
           <Switch
             value={on}
             onValueChange={(v) => (v ? start() : stop())}
-            disabled={busy || !!blocked}
+            disabled={busy || blocked}
             trackColor={{ true: c.primary, false: c.border }}
             thumbColor={on ? c.accent : '#f4f4f5'}
           />
@@ -99,22 +106,32 @@ export default function HomeScreen() {
         {on ? (
           <Button title={S.stopTracking} variant="outline" icon={<Square color={c.primary} size={18} />} onPress={stop} />
         ) : (
-          <Button title={S.startTracking} icon={<Play color={c.primaryText} size={18} />} onPress={start} busy={busy} disabled={!!blocked} />
+          <Button title={S.startTracking} icon={<Play color={c.primaryText} size={18} />} onPress={start} busy={busy} disabled={blocked} />
         )}
-        <Row label={S.lastFix} value={timeAgo(status.lastFixAt)} />
-        <Row label={S.accuracy} value={metres(status.lastAcc)} />
-        <Row label={S.speed} value={kmh(status.lastSpd)} />
+        <Row label={S.lastFix} value={timeAgo(status?.lastFixAt ?? undefined)} />
+        <Row label={S.accuracy} value={metres(status?.lastAcc)} />
+        <Row label={S.speed} value={kmh(status?.lastSpd)} />
+        {on ? <Row label={S.mode} value={status?.mode === 'stationary' ? S.modeStationary : S.modeMoving} /> : null}
         <Row label={S.waiting} value={S.points(queued)} valueColor={queued > 0 ? c.accentText : undefined} />
-        <Row label={S.lastUpload} value={timeAgo(status.lastUploadAt)} />
-        {status.lastError ? <Row label={S.uploadError} value={status.lastError} valueColor={c.danger} /> : null}
+        <Row label={S.lastUpload} value={timeAgo(status?.lastUploadAt ?? undefined)} />
+        {status && (status.droppedCount > 0 || status.mockCount > 0) ? (
+          <Row label={S.filtered} value={S.filteredValue(status.droppedCount, status.mockCount)} />
+        ) : null}
+        {status?.lastError ? <Row label={S.uploadError} value={status.lastError} valueColor={c.danger} /> : null}
         {queued > 0 ? (
-          <Button title={S.uploadNow} variant="ghost" icon={<UploadCloud color={c.muted} size={18} />} onPress={() => flush(true)} />
+          <Button
+            title={S.uploadNow}
+            variant="ghost"
+            icon={<UploadCloud color={c.muted} size={18} />}
+            onPress={() => Tracker.flush().then(refreshStatus)}
+          />
         ) : null}
       </Card>
 
-      <SosButton />
+      <SosButton onDone={refreshStatus} />
 
       <BatteryCard show={checks.batteryOpt} />
+      <OemCard />
       <PermissionsCard checks={checks} />
 
       <Button title={S.signOut} variant="ghost" icon={<LogOut color={c.muted} size={18} />} onPress={deactivate} />

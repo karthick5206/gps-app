@@ -60,7 +60,8 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "./modules/veetrax-tracker/app.plugin.js"
     ],
     "experiments": {
       "typedRoutes": true,

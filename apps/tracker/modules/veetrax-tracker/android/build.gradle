@@ -1,0 +1,26 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.sasvata.veetrax'
+version = '1.0.0'
+
+android {
+  // Must differ from the app's namespace (com.sasvata.veetrax.tracker).
+  namespace "com.sasvata.veetrax.trackerengine"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // FusedLocationProviderClient, LocationRequest.Builder, Priority, CurrentLocationRequest (21.x API).
+  // expo-location pulls 21.0.1; Gradle resolves both to this newer version.
+  implementation 'com.google.android.gms:play-services-location:21.3.0'
+  // Watchdog (periodic 15 min check that the service is alive).
+  implementation 'androidx.work:work-runtime-ktx:2.10.1'
+  // NotificationCompat, ServiceCompat, ContextCompat (same version as expo-location uses).
+  implementation 'androidx.core:core-ktx:1.17.0'
+}

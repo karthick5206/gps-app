@@ -4,25 +4,38 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { api } from '@/lib/api';
+import { api, SERVER_URL } from '@/lib/api';
+import { handleAuthError, syncStopReason } from '@/lib/control';
 import { getToken, hasToken, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
-import { applyConfig, resumeIfWanted } from '@/lib/tracking';
-import { flush, handleAuthError } from '@/lib/uploader';
+import { applyConfig, resumeIfWanted, Tracker } from '@/lib/tracking';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
-/** Refreshes names/config from the server and resumes tracking if it was on. Runs once per app start. */
+/**
+ * Runs once per app start: handles a stop the native engine decided while the app was closed (REVOKED /
+ * INVALID → sign out), resumes tracking if it is wanted but not running, and refreshes names / config.
+ */
 async function startup(): Promise<void> {
   const token = await getToken();
   if (!token || !store.session()) return;
+  const st = await Tracker.getStatus().catch(() => null);
+  await syncStopReason(st);
+  if (!(await getToken())) return;
+  // Make sure the native engine has the token (e.g. an install that activated before the native engine existed).
+  if (st && !st.hasToken && !st.stopReason) await Tracker.setCredentials(token, SERVER_URL).catch(() => undefined);
   await resumeIfWanted();
   try {
     const me = await api.me(token);
     store.setSession({ uniqueId: me.uniqueId, objectName: me.objectName, companyName: me.companyName });
+    if (store.inactive() || st?.stopReason === 'INACTIVE') {
+      // /me works again, so the administrator switched the device back on; the user taps Start.
+      store.setInactive(false);
+      await Tracker.resetStopReason().catch(() => undefined);
+    }
     await applyConfig(me.config);
-    flush(true).catch(() => undefined);
+    Tracker.flush().catch(() => undefined);
   } catch (e) {
     await handleAuthError(e);
   }

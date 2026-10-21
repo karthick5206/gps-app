@@ -1,0 +1,6 @@
+<!--
+  The service, receivers and permissions are added to the APP manifest by the config plugin
+  (modules/veetrax-tracker/app.plugin.js), referenced from app.json. Nothing is declared here so the
+  components are defined in exactly one place.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

@@ -4,12 +4,12 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Body, Button, Card, Title } from '@/components/ui';
-import { api, ApiError, NetworkError } from '@/lib/api';
+import { api, ApiError, NetworkError, SERVER_URL } from '@/lib/api';
 import { APP_VERSION, deviceName } from '@/lib/device';
 import { setToken, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
-import { applyConfig } from '@/lib/tracking';
+import { applyConfig, Tracker } from '@/lib/tracking';
 
 function errorText(e: unknown): string {
   if (e instanceof ApiError) return e.message;
@@ -61,6 +61,8 @@ export default function ActivateScreen() {
     try {
       const r = await api.verify({ mobile, code, deviceName: deviceName(), appVersion: APP_VERSION, platform: Platform.OS });
       await setToken(r.token);
+      // The native engine keeps its own copy so it can upload with the app closed.
+      await Tracker.setCredentials(r.token, SERVER_URL).catch(() => undefined);
       store.setNotice(null);
       store.setSession({ uniqueId: r.uniqueId, objectName: r.objectName, companyName: r.companyName });
       // Config is stored for the next start; a failure here must not keep the user on this screen.

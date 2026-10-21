@@ -1,4 +1,2 @@
-// The background location task must be defined at the top level of the bundle, before the router loads,
-// so it is registered when Android starts the app headless (app closed) to deliver locations.
-import './src/lib/task';
+// Tracking runs in a native Android foreground service (modules/veetrax-tracker); no JS background task.
 import 'expo-router/entry';

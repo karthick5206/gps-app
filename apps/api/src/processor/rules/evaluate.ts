@@ -54,6 +54,8 @@ export interface AlertState {
   powerLow?: { since: number; alerted: boolean };
   /** Last external voltage, to detect a drop to ~0 V (main power removed). */
   extV?: number;
+  /** Last "external power connected" flag (trackers without a voltage reading, e.g. Concox GT06N). */
+  chg?: boolean;
   /** Dashcam video alarm flags on the last point (they stay set while the fault lasts). */
   vid?: string[];
   /** AC on with the ignition off: since when, and whether AC_ON_ENGINE_OFF was raised. */
@@ -89,6 +91,8 @@ export interface RuleObject {
   speedLimitKph: number | null;
   /** Limit set on the vehicle itself (vehicle / device form); null or absent = not set. */
   ownSpeedLimitKph?: number | null;
+  /** VEHICLE / PERSON / ASSET / PET (power-connected checks only make sense for wired vehicle trackers). */
+  type?: string;
 }
 
 export interface RuleInput {
@@ -536,6 +540,17 @@ class Evaluator {
     else if (alarm === 'powerCut') this.emit('POWER_CUT', { message: 'Tracker main power disconnected', data: { alarm } });
     else if (alarm === 'tamper' || alarm === 'jamming') {
       this.emit('DEVICE_TAMPER', { message: alarm === 'jamming' ? 'Tracker reported GPS/GSM jamming' : 'Tracker reported tampering (case opened or removed)', data: { alarm } });
+    } else if (alarm === 'harshAcceleration' || alarm === 'harshBraking' || alarm === 'harshCornering') {
+      // Driving behaviour the tracker detected itself (Teltonika adds the g-force as greenDrivingValue).
+      const speed = Math.round(this.input.speedKph);
+      const g = typeof this.input.attributes.greenDrivingValue === 'number' ? ` (${this.input.attributes.greenDrivingValue})` : '';
+      const [type, what] =
+        alarm === 'harshAcceleration'
+          ? (['HARSH_ACCELERATION', 'Harsh acceleration'] as const)
+          : alarm === 'harshBraking'
+            ? (['HARSH_BRAKING', 'Harsh braking'] as const)
+            : (['HARSH_CORNERING', 'Harsh cornering'] as const);
+      this.emit(type, { message: `${what} at ${speed} km/h${g}`, data: { alarm } });
     } else if (typeof alarm === 'string' && /^alarm_[1-9]\d*$/.test(alarm)) {
       // Unrecognised alarm code (alarm_0 = none): may be a new model's SOS, so surface it instead of dropping it.
       this.emit('UNKNOWN_ALARM', { message: `Tracker sent unrecognised alarm code ${alarm.slice(6)} — check the device (it may be an SOS)`, data: { alarm } });
@@ -718,6 +733,13 @@ class Evaluator {
           );
         }
         this.state.extV = v;
+      } else if (typeof this.input.attributes.charging === 'boolean' && this.input.object.type === 'VEHICLE') {
+        // No voltage reported (e.g. GT06N): the tracker still says whether the vehicle supply is connected.
+        const chg = this.input.attributes.charging;
+        if (this.state.chg === true && !chg) {
+          this.emit('POWER_CUT', { at: this.now, message: 'Vehicle power disconnected (tracker running on its own battery)', data: { source: 'powerFlag' } });
+        }
+        this.state.chg = chg;
       }
 
       // GPRS: live data arriving late = the tracker buffered it while the network was down.

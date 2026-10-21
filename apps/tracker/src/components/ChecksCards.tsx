@@ -1,10 +1,11 @@
-import { BatteryWarning, ShieldCheck } from 'lucide-react-native';
+import { BatteryWarning, Rocket, ShieldCheck } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, Platform, StyleSheet, View } from 'react-native';
 import { batteryOptimised, notificationsGranted, openAppSettings, openBatterySettings } from '@/lib/device';
+import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
-import { readPermissions, type PermissionState } from '@/lib/tracking';
+import { readPermissions, Tracker, type PermissionState } from '@/lib/tracking';
 import { Body, Button, Card, Row, Title } from './ui';
 
 export interface Checks { perms: PermissionState | null; notifications: boolean; batteryOpt: boolean }
@@ -36,6 +37,28 @@ export function BatteryCard({ show }: { show: boolean }) {
       </View>
       <Body style={{ color: c.accentText }}>{S.batteryBody}</Body>
       <Button title={S.batteryButton} variant="accent" onPress={() => openBatterySettings()} />
+    </Card>
+  );
+}
+
+/**
+ * Phone-maker (OEM) background settings: Xiaomi / Oppo / Realme / Vivo / OnePlus / Samsung / Huawei kill background
+ * apps beyond what Android does. The button tries the maker's autostart screen, else opens App info.
+ * Hidden after the user taps "I've done this".
+ */
+export function OemCard() {
+  useStoreVersion();
+  const c = useColors();
+  if (Platform.OS !== 'android' || store.oemDone()) return null;
+  return (
+    <Card tone="warn">
+      <View style={styles.head}>
+        <Rocket color={c.accent} size={22} />
+        <Title>{S.oemTitle}</Title>
+      </View>
+      <Body style={{ color: c.accentText }}>{S.oemBody(Tracker.manufacturer())}</Body>
+      <Button title={S.oemButton} variant="accent" onPress={() => Tracker.openAutostartSettings().catch(openAppSettings)} />
+      <Button title={S.oemDone} variant="ghost" onPress={() => store.setOemDone(true)} />
     </Card>
   );
 }

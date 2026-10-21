@@ -1,26 +1,16 @@
 import * as SecureStore from 'expo-secure-store';
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_CONFIG, type TrackerConfig } from './api';
-import { kvGet, kvMerge, kvSet } from './db';
+import { kvGet, kvSet } from './db';
 
-/** Persistent app state shared by the UI and the background task, plus a tiny change-notification store. */
+/**
+ * UI-side persistent state plus a tiny change-notification store. Tracking state (wanted, queue, last fix,
+ * upload status, stop reason) is owned by the native engine; read it with `useTrackerStatus()` (tracking.ts).
+ */
 
 const TOKEN_KEY = 'veetrax_tracker_token';
 
 export interface SessionInfo { uniqueId: string; objectName: string; companyName: string }
-
-export interface TrackStatus {
-  lastFixAt?: number;
-  lastAcc?: number | null;
-  lastSpd?: number | null;
-  lastUploadAt?: number;
-  lastError?: string | null;
-  failures?: number;
-  backoffUntil?: number;
-}
-
-/** Set when the server answered 403 INACTIVE: tracking is stopped, token kept, re-checked hourly. */
-export interface Blocked { code: 'INACTIVE'; at: number; nextCheckAt: number }
 
 let tokenCache: string | null | undefined;
 
@@ -44,23 +34,21 @@ export async function setToken(token: string | null): Promise<void> {
 export const store = {
   session: () => kvGet<SessionInfo | null>('session', null),
   setSession: (s: SessionInfo | null) => (kvSet('session', s), emit()),
+  /** Last config from the server; passed to the native engine on start. */
   config: () => ({ ...DEFAULT_CONFIG, ...kvGet<Partial<TrackerConfig>>('config', {}) }),
   setConfig: (c: TrackerConfig) => kvSet('config', c),
-  /** The user wants tracking on (survives restarts; used to auto-resume). */
-  wanted: () => kvGet<boolean>('wanted', false),
-  setWanted: (on: boolean) => (kvSet('wanted', on), emit()),
-  status: () => kvGet<TrackStatus>('status', {}),
-  patchStatus: (p: Partial<TrackStatus>) => (kvMerge<TrackStatus>('status', p), emit()),
-  blocked: () => kvGet<Blocked | null>('blocked', null),
-  setBlocked: (b: Blocked | null) => (kvSet('blocked', b), emit()),
   /** Message shown on the activation screen after a forced sign-out. */
   notice: () => kvGet<string | null>('notice', null),
   setNotice: (n: string | null) => (kvSet('notice', n), emit()),
-  lastT: () => kvGet<number>('lastT', 0),
-  setLastT: (t: number) => kvSet('lastT', t),
-  /** Location-update options changed while the app was in the background; restart when it is active. */
-  pendingRestart: () => kvGet<boolean>('pendingRestart', false),
-  setPendingRestart: (on: boolean) => kvSet('pendingRestart', on),
+  /** /me answered 403 INACTIVE (the native engine sets its own stopReason when an upload gets it). */
+  inactive: () => kvGet<boolean>('inactive', false),
+  setInactive: (on: boolean) => (kvSet('inactive', on), emit()),
+  /** Next time to ask /me whether an INACTIVE device was switched on again. */
+  inactiveCheckAt: () => kvGet<number>('inactiveCheckAt', 0),
+  setInactiveCheckAt: (t: number) => kvSet('inactiveCheckAt', t),
+  /** The user confirmed the OEM autostart / background settings. */
+  oemDone: () => kvGet<boolean>('oemDone', false),
+  setOemDone: (on: boolean) => (kvSet('oemDone', on), emit()),
 };
 
 // ---- change notification for React ----

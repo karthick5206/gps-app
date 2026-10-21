@@ -1,27 +1,33 @@
 import * as Location from 'expo-location';
 import { useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
-import { readBattery, toPoint } from '@/lib/points';
-import { store } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
-import { sendSos } from '@/lib/uploader';
+import { Tracker } from '@/lib/tracking';
 
 const HOLD_MS = 2000;
 const SIZE = 150;
 
-/** Current location for SOS: a fresh fix (up to 15 s), else the last known one. */
-async function sosLocation(): Promise<Location.LocationObject | null> {
+/** SOS needs at least foreground location permission (ask if missing). */
+async function ensureLocationPermission(): Promise<boolean> {
   let perm = await Location.getForegroundPermissionsAsync();
   if (!perm.granted) perm = await Location.requestForegroundPermissionsAsync();
-  if (!perm.granted) return null;
-  const timeout = new Promise<null>((r) => setTimeout(() => r(null), 15_000));
-  const fresh = await Promise.race([Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null), timeout]);
-  return fresh ?? (await Location.getLastKnownPositionAsync().catch(() => null));
+  return perm.granted;
 }
 
-/** Large red SOS button: press and hold for 2 s to send one SOS point with the current location. */
-export function SosButton() {
+const RESULT: Record<string, { text: string; ok: boolean }> = {
+  sent: { text: S.sosSent, ok: true },
+  queued: { text: S.sosQueued, ok: false },
+  rejected: { text: S.sosRejected, ok: false },
+  stopped: { text: S.sosStopped, ok: false },
+  no_location: { text: S.sosNoLocation, ok: false },
+};
+
+/**
+ * Large red SOS button: press and hold for 2 s. The native engine takes a fresh fix (up to 15 s, else the last
+ * known one), queues it with sos=true and sends it alone at once (kept in the queue if offline).
+ */
+export function SosButton({ onDone }: { onDone?: () => void }) {
   const c = useColors();
   const progress = useRef(new Animated.Value(0)).current;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -33,17 +39,13 @@ export function SosButton() {
     setResult(null);
     Vibration.vibrate(300);
     try {
-      const loc = await sosLocation();
-      if (!loc) return setResult({ text: S.sosNoLocation, ok: false });
-      // Keep the fix time, but never reuse the time of a point already queued / sent (the server dedupes on it).
-      const p = toPoint(loc, await readBattery(), true);
-      const point = { ...p, t: Math.max(p.t, store.lastT() + 1) };
-      store.setLastT(point.t);
-      const sent = await sendSos(point);
-      setResult(sent ? { text: S.sosSent, ok: true } : { text: S.sosQueued, ok: false });
+      if (!(await ensureLocationPermission())) return setResult(RESULT.no_location);
+      const r = await Tracker.sendSos().catch(() => 'queued');
+      setResult(RESULT[r] ?? RESULT.no_location);
     } finally {
       setState('idle');
       progress.setValue(0);
+      onDone?.();
     }
   };
 

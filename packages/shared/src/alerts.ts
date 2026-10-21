@@ -74,6 +74,9 @@ export const ALERT_TYPE_CODES = [
   'TAILGATING',
   'CAMERA_FAULT',
   'CRASH',
+  'HARSH_ACCELERATION',
+  'HARSH_BRAKING',
+  'HARSH_CORNERING',
   'DOCUMENT_EXPIRING',
   'DOCUMENT_EXPIRED',
   'SERVICE_DUE',
@@ -196,6 +199,10 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   { code: 'TAILGATING', label: 'Following too close', category: 'Driver safety', capability: 'adas', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
   { code: 'CAMERA_FAULT', label: 'Dashcam camera fault', category: 'Device health', capability: 'video', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   { code: 'CRASH', label: 'Crash / rollover', category: 'Safety', capability: 'crash', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // Driving behaviour reported by the tracker itself (Concox 0x29/0x2A/0x2B, Teltonika green driving, AIS-140 HA/HB/RT).
+  { code: 'HARSH_ACCELERATION', label: 'Harsh acceleration', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['speed'] },
+  { code: 'HARSH_BRAKING', label: 'Harsh braking', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['speed'] },
+  { code: 'HARSH_CORNERING', label: 'Harsh cornering', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['speed'] },
   // ── Compliance (raised by the daily reminders job, not by tracker data) ──
   { code: 'DOCUMENT_EXPIRING', label: 'Document expiring', category: 'Compliance', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['document', 'expires_on', 'days_left'] },
   { code: 'DOCUMENT_EXPIRED', label: 'Document expired', category: 'Compliance', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: ['document', 'expires_on'] },
@@ -254,6 +261,9 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   TAILGATING: 2,
   CAMERA_FAULT: 30,
   CRASH: 5,
+  HARSH_ACCELERATION: 1,
+  HARSH_BRAKING: 1,
+  HARSH_CORNERING: 1,
   // Raised once per document / service state by the reminders job.
   DOCUMENT_EXPIRING: 0,
   DOCUMENT_EXPIRED: 0,

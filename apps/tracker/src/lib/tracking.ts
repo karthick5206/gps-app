@@ -1,68 +1,64 @@
 import * as Location from 'expo-location';
+import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
-import type { TrackerConfig } from './api';
-import { store } from './state';
-import { S } from './strings';
+import * as Tracker from '../../modules/veetrax-tracker';
+import { SERVER_URL, type TrackerConfig } from './api';
+import { getToken, store } from './state';
 
-export const LOCATION_TASK = 'veetrax-tracker-location';
+/**
+ * JS side of tracking: a thin layer over the native engine (modules/veetrax-tracker). expo-location is used only
+ * for permission prompts / checks; fixes, the queue and uploads are native.
+ */
 
-const COLOR = '#0f766e';
+export type { TrackerStatus } from '../../modules/veetrax-tracker';
+export { Tracker };
 
-function options(c: TrackerConfig): Location.LocationTaskOptions {
-  return {
-    accuracy: Location.Accuracy.BestForNavigation,
-    timeInterval: Math.max(1, c.intervalSec) * 1000,
-    distanceInterval: Math.max(0, c.distanceM),
-    pausesUpdatesAutomatically: false,
-    activityType: Location.ActivityType.OtherNavigation,
-    showsBackgroundLocationIndicator: true,
-    foregroundService: {
-      notificationTitle: S.fgTitle,
-      notificationBody: S.fgBody,
-      notificationColor: COLOR,
-      killServiceOnDestroy: false,
-    },
-  };
+const POLL_MS = 2000;
+
+/** Native status, refreshed every 2 s while the app is in the foreground (no polling in the background). */
+export function useTrackerStatus(): [Tracker.TrackerStatus | null, () => void] {
+  const [status, setStatus] = useState<Tracker.TrackerStatus | null>(null);
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const read = () => Tracker.getStatus().then(setStatus).catch(() => undefined);
+    const begin = () => {
+      read();
+      if (!timer) timer = setInterval(read, POLL_MS);
+    };
+    const end = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+    if (AppState.currentState === 'active') begin();
+    const sub = AppState.addEventListener('change', (s) => (s === 'active' ? begin() : end()));
+    return () => (end(), sub.remove());
+  }, [nonce]);
+  return [status, () => setNonce((n) => n + 1)];
 }
 
-export async function isRunning(): Promise<boolean> {
-  try {
-    return await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK);
-  } catch {
-    return false;
-  }
-}
-
-/** Starts (or restarts with new options) the background location updates. Permissions must already be granted. */
-export async function startUpdates(): Promise<void> {
+/** Starts the native service with the stored token and config. Returns null on success, else an error text. */
+export async function startNative(): Promise<string | null> {
+  const token = await getToken();
+  if (!token) return 'Not activated';
   if (Platform.OS === 'android') {
     // Ask for Google's high-accuracy mode (GPS + Wi-Fi + cell). The user can decline; tracking still works.
     await Location.enableNetworkProviderAsync().catch(() => undefined);
   }
-  await Location.startLocationUpdatesAsync(LOCATION_TASK, options(store.config()));
-  store.setPendingRestart(false);
+  const r = await Tracker.start(token, SERVER_URL, store.config());
+  return r === 'started' ? null : r;
 }
 
-export async function stopUpdates(): Promise<void> {
-  if (await isRunning()) await Location.stopLocationUpdatesAsync(LOCATION_TASK).catch(() => undefined);
-}
-
-/** The user (or the server) switches tracking off. */
+/** The user switches tracking off. */
 export async function stopTracking(): Promise<void> {
-  store.setWanted(false);
-  await stopUpdates();
+  await Tracker.stop();
 }
 
-/** Stores a config from the server; restarts location updates if the interval or distance changed. */
+/** Stores a config from the server and hands it to the native engine (which re-requests GPS if needed). */
 export async function applyConfig(next: TrackerConfig | undefined): Promise<void> {
   if (!next) return;
-  const prev = store.config();
   store.setConfig(next);
-  const changed = prev.intervalSec !== next.intervalSec || prev.distanceM !== next.distanceM;
-  if (!changed || !store.wanted() || !(await isRunning())) return;
-  // Android blocks (re)starting a foreground service from the background, so wait until the app is open.
-  if (AppState.currentState === 'active') await startUpdates().catch(() => store.setPendingRestart(true));
-  else store.setPendingRestart(true);
+  await Tracker.setConfig(next).catch(() => undefined);
 }
 
 export interface PermissionState {
@@ -92,12 +88,13 @@ export async function readPermissions(): Promise<PermissionState> {
 }
 
 /**
- * Called when the app opens: resumes tracking if it was on and stopped (e.g. after an update or force-stop),
- * and applies a pending restart. Needs foreground permission at least.
+ * Called when the app opens: if tracking is wanted but the service is not running (force-stop, OEM killer,
+ * a start refused in the background), start it again while we are in the foreground (always allowed).
  */
 export async function resumeIfWanted(): Promise<void> {
-  if (!store.wanted() || store.blocked()) return;
+  const st = await Tracker.getStatus().catch(() => null);
+  if (!st?.wanted || st.running || st.stopReason) return;
   const perms = await readPermissions().catch(() => null);
   if (!perms?.foreground) return;
-  if (!(await isRunning()) || store.pendingRestart()) await startUpdates().catch(() => undefined);
+  await startNative().catch(() => undefined);
 }

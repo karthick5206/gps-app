@@ -108,3 +108,29 @@ describe('connection alerts', () => {
     expect(changed[0]).toMatchObject({ severity: 'CRITICAL', data: { previousIccid: '89914500001234567890', iccid: '89914599998888777766' } });
   });
 });
+
+describe('harsh driving alerts', () => {
+  it('tracker-reported harsh acceleration / braking / cornering become alerts with the speed', () => {
+    const c = ctx(settings(CAPS));
+    const state = emptyAlertState();
+    const out = (alarm: string, t: number, extra: Record<string, unknown> = {}) => evaluatePosition(at(sec(t), { speedKph: 42, attributes: { alarm, ...extra } }), state, c).alerts;
+    expect(out('harshBraking', 0)).toEqual([expect.objectContaining({ type: 'HARSH_BRAKING', severity: 'WARNING', message: 'Harsh braking at 42 km/h' })]);
+    expect(out('harshAcceleration', 100, { greenDrivingValue: 3.1 })[0]).toMatchObject({ type: 'HARSH_ACCELERATION', message: 'Harsh acceleration at 42 km/h (3.1)' });
+    expect(out('harshCornering', 200)[0].type).toBe('HARSH_CORNERING');
+  });
+});
+
+describe('power cut without a voltage reading', () => {
+  it('vehicle tracker: external power connected → disconnected raises POWER_CUT; a person / ID card on a charger does not', () => {
+    const c = ctx(settings([...CAPS, 'power_cut']));
+    const veh = { ...object, type: 'VEHICLE' };
+    const run1 = (o: typeof veh, chg: boolean, t: number, state: AlertState) => evaluatePosition(at(sec(t), { object: o, receivedAt: sec(t), attributes: { charging: chg } }), state, c).alerts.map((a) => a.type);
+    const st = emptyAlertState();
+    expect(run1(veh, true, 0, st)).not.toContain('POWER_CUT');
+    expect(run1(veh, false, 60, st)).toContain('POWER_CUT');
+    const card = { ...object, type: 'PERSON' };
+    const st2 = emptyAlertState();
+    run1(card, true, 0, st2);
+    expect(run1(card, false, 60, st2)).not.toContain('POWER_CUT');
+  });
+});
