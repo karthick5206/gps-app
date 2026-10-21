@@ -35,7 +35,8 @@ export const GUIDE_SECTIONS: readonly GuideSection[] = [
     steps: [
       { text: 'Sign in at app.veetrax.com and open Billing & Licences.' },
       { text: 'Choose how many GPS device, Dashcam and Mobile tracker licences you need and see the price.' },
-      { text: 'Pay online, or by UPI / bank transfer / cash using the payment details shown. We activate the licences once the payment is recorded and email you the GST invoice.' },
+      { text: 'Choose how to pay: UPI (scan the QR with the exact amount, then enter the UTR) or Cash (say you have paid, or where and when to collect it). Bank transfer details are shown too.' },
+      { text: 'We activate the licences once the payment is received and email you the GST invoice.' },
     ],
   },
   {

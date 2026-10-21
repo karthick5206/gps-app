@@ -36,6 +36,13 @@ describe('UPI payments', () => {
     await expect(service(1).svc.claim(ctx, owner, { ...buy, utr: '412345678901' })).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('cash: no UTR needed, note kept, confirmed later as a CASH payment', async () => {
+    const s = service();
+    const dto = await s.svc.claim(ctx, owner, { ...buy, method: 'CASH', customerNote: 'Collect at my shop, Monday' });
+    expect(s.created[0]).toMatchObject({ method: 'CASH', utr: null, customerNote: 'Collect at my shop, Monday', amountPaise: 236000 });
+    expect(dto.method).toBe('CASH');
+  });
+
   it('info: link + QR only when an amount is asked for', async () => {
     const s = service();
     await expect(s.svc.info()).resolves.toMatchObject({ enabled: true, vpa: 'parthanbdl-3@okicici', hasImage: true });

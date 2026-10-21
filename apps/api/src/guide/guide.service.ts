@@ -34,7 +34,7 @@ export function guideDocument(appUrl: string, support: { name: string; phone: st
       block.push({
         columns: [
           ...(upi.qr ? [{ width: 120, image: `data:${upi.qr.mime};base64,${upi.qr.data.toString('base64')}`, fit: [120, 140] as [number, number] }] : []),
-          { width: '*', stack: [{ text: 'Pay by UPI', bold: true }, `UPI ID: ${upi.vpa}`, `Name: ${upi.payee}`, { text: 'Scan with GPay, PhonePe, Paytm or BHIM. In VeeTrax → Billing & Licences → Buy you get a QR with the exact amount; after paying, enter the UTR / transaction ID there so we can activate your licences.', style: 'note' }] },
+          { width: '*', stack: [{ text: 'Pay by UPI or cash', bold: true }, `UPI ID: ${upi.vpa}`, `Name: ${upi.payee}`, { text: 'Scan with GPay, PhonePe, Paytm or BHIM. In VeeTrax → Billing & Licences → Buy you get a QR with the exact amount; after paying, enter the UTR / transaction ID there. No UPI? Choose Cash there and tell us whether you have paid or where to collect it. We activate your licences once the payment is received.', style: 'note' }] },
         ],
         columnGap: 12,
         margin: [0, 6, 0, 0],
@@ -98,9 +98,9 @@ export class GuideService {
     const upiText = vpa ? `
 
 Buy licences: ${url}/admin/billing
-Pay by UPI: ${vpa} (QR attached). After paying, enter the UTR in Billing & Licences so we can activate your licences.` : '';
+Pay by UPI: ${vpa} (QR attached). After paying, enter the UTR in Billing & Licences. No UPI? Choose Cash there and tell us where to collect it.` : '';
     const upiHtml = vpa
-      ? `<p><b>Buy licences:</b> <a href="${url}/admin/billing">Billing &amp; Licences</a>. Pay by UPI to <b>${escapeHtml(vpa)}</b>${qr ? ' (QR attached)' : ''}; after paying, enter the UTR / transaction ID there so we can activate your licences.</p>`
+      ? `<p><b>Buy licences:</b> <a href="${url}/admin/billing">Billing &amp; Licences</a>. Pay by UPI to <b>${escapeHtml(vpa)}</b>${qr ? ' (QR attached)' : ''}; after paying, enter the UTR / transaction ID there. No UPI app? Choose <b>Cash</b> there and tell us whether you have paid or where to collect it.</p>`
       : '';
     const attachments = [{ filename: GUIDE_PDF_NAME, content: await this.pdf(), contentType: 'application/pdf' }];
     if (qr) attachments.push({ filename: qr.mime === 'image/png' ? 'VeeTrax-UPI-QR.png' : 'VeeTrax-UPI-QR.jpg', content: qr.data, contentType: qr.mime });

@@ -112,7 +112,7 @@ export function LicencesAdminPage() {
           </TabsTrigger>
           <TabsTrigger value="upi">
             <QrCodeIcon className="size-4" />
-            {t('UPI payments')}
+            {t('Payments to confirm')}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="pools" className="mt-4">

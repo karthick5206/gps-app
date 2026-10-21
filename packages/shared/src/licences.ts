@@ -719,17 +719,24 @@ export interface UpiPayInfoDto {
 export const UPI_CLAIM_STATUSES = ['PENDING', 'CONFIRMED', 'REJECTED'] as const;
 export type UpiClaimStatus = (typeof UPI_CLAIM_STATUSES)[number];
 
-/** A customer's "I've paid by UPI" with the UTR; licences activate when the Super Admin confirms it. */
+export const CUSTOMER_PAY_METHODS = ['UPI', 'CASH'] as const;
+export type CustomerPayMethod = (typeof CUSTOMER_PAY_METHODS)[number];
+
+/** A customer's "I've paid" (UPI with the UTR, or cash); licences activate when the Super Admin confirms it. */
 export interface UpiClaimDto {
   id: string;
+  method: CustomerPayMethod;
   ownerKind: 'COMPANY' | 'PARTNER';
   ownerId: string;
   ownerName: string;
   amountPaise: number;
-  utr: string;
+  /** UPI: the UTR. Cash: receipt no., if the customer has one. */
+  utr: string | null;
   paidOn: string;
   summary: string;
   status: UpiClaimStatus;
+  /** Customer's note, e.g. when / where to collect cash. */
+  customerNote: string | null;
   createdAt: string;
   createdByName: string | null;
   decidedAt: string | null;

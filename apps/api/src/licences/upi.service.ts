@@ -23,7 +23,7 @@ export function qrSvg(text: string, size = 240): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${total}" height="${total}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><g fill="#000">${rects}</g></svg>`;
 }
 
-type ClaimRow = { id: string; ownerKind: string; ownerId: string; amountPaise: number; utr: string; paidOn: string; summary: string; status: string; createdAt: Date; createdById: string | null; decidedAt: Date | null; note: string | null };
+type ClaimRow = { id: string; method: string; customerNote: string | null; ownerKind: string; ownerId: string; amountPaise: number; utr: string | null; paidOn: string; summary: string; status: string; createdAt: Date; createdById: string | null; decidedAt: Date | null; note: string | null };
 
 /** UPI payments: QR / link for the exact amount, customers' "I've paid" with the UTR, Super Admin confirmation. */
 @Injectable()
@@ -50,14 +50,17 @@ export class UpiService {
   }
 
   /** "I've paid": the amount comes from the server's quote, not the client. */
-  async claim(ctx: AuthContext, owner: Owner, dto: PurchaseDto & { utr: string; paidOn: string }): Promise<UpiClaimDto> {
-    const utr = dto.utr.trim().toUpperCase();
-    if (!/^[A-Z0-9]{8,30}$/.test(utr)) throw new BadRequestException('Enter the UPI transaction ID / UTR (12 digits in most apps)');
-    if (await this.prisma.upiPaymentClaim.count({ where: { utr, status: { not: 'REJECTED' } } })) throw new ConflictException('This UTR was already submitted');
+  async claim(ctx: AuthContext, owner: Owner, dto: PurchaseDto & { method?: 'UPI' | 'CASH'; utr?: string; paidOn: string; customerNote?: string }): Promise<UpiClaimDto> {
+    const method = dto.method ?? 'UPI';
+    const utr = dto.utr?.trim().toUpperCase() || null;
+    if (method === 'UPI') {
+      if (!utr || !/^[A-Z0-9]{8,30}$/.test(utr)) throw new BadRequestException('Enter the UPI transaction ID / UTR (12 digits in most apps)');
+      if (await this.prisma.upiPaymentClaim.count({ where: { utr, status: { not: 'REJECTED' } } })) throw new ConflictException('This UTR was already submitted');
+    }
     const quote = await this.billing.quote(owner, dto);
     const purchase = JSON.parse(JSON.stringify({ items: dto.items, renewSeatIds: dto.renewSeatIds })) as Prisma.InputJsonValue;
     const row = await this.prisma.upiPaymentClaim.create({
-      data: { ownerKind: owner.kind, ownerId: owner.id, purchase, amountPaise: quote.gst.totalPaise, utr, paidOn: dto.paidOn, summary: this.summary(dto), createdById: ctx.userId },
+      data: { ownerKind: owner.kind, ownerId: owner.id, purchase, amountPaise: quote.gst.totalPaise, method, utr, customerNote: dto.customerNote?.trim() || null, paidOn: dto.paidOn, summary: this.summary(dto), createdById: ctx.userId },
     });
     return (await this.toDtos([row]))[0];
   }
@@ -73,7 +76,7 @@ export class UpiService {
     if (!c) throw new NotFoundException('Payment not found');
     if (c.status !== 'PENDING') throw new ConflictException('Already decided');
     const purchase = c.purchase as unknown as PurchaseDto;
-    const result = await this.billing.recordOffline(ctx, await owner(c.ownerKind, c.ownerId), { ...purchase, mode: 'UPI', reference: c.utr, paidOn: c.paidOn, amountPaise: c.amountPaise });
+    const result = await this.billing.recordOffline(ctx, await owner(c.ownerKind, c.ownerId), { ...purchase, mode: c.method === 'CASH' ? 'CASH' : 'UPI', reference: c.utr ?? undefined, paidOn: c.paidOn, amountPaise: c.amountPaise });
     await this.prisma.upiPaymentClaim.update({ where: { id }, data: { status: 'CONFIRMED', decidedAt: new Date(), decidedById: ctx.userId } });
     return result;
   }
@@ -100,7 +103,9 @@ export class UpiService {
       ownerId: r.ownerId,
       ownerName: names.get(r.ownerId) ?? '—',
       amountPaise: r.amountPaise,
+      method: r.method === 'CASH' ? 'CASH' : 'UPI',
       utr: r.utr,
+      customerNote: r.customerNote,
       paidOn: r.paidOn,
       summary: `${r.summary} · ${formatInr(r.amountPaise)}`,
       status: r.status as UpiClaimDto['status'],

@@ -46,7 +46,7 @@ export function UpiClaimsTab() {
   return (
     <Card className="space-y-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{t('Check each UTR and amount on your bank / UPI statement before confirming.')}</p>
+        <p className="text-sm text-muted-foreground">{t('UPI: check the UTR and amount on your bank / UPI statement. Cash: confirm once the cash is in hand.')}</p>
         <Button variant="outline" size="sm" onClick={() => setPendingOnly((x) => !x)}>
           {pendingOnly ? t('Show all') : t('Pending only')}
         </Button>
@@ -59,7 +59,7 @@ export function UpiClaimsTab() {
             <TableRow>
               <TableHead>{t('Customer')}</TableHead>
               <TableHead>{t('Licences')}</TableHead>
-              <TableHead>{t('UTR')}</TableHead>
+              <TableHead>{t('Payment')}</TableHead>
               <TableHead>{t('Paid on')}</TableHead>
               <TableHead>{t('Status')}</TableHead>
               <TableHead />
@@ -75,7 +75,10 @@ export function UpiClaimsTab() {
                   </div>
                 </TableCell>
                 <TableCell className="text-sm">{c.summary}</TableCell>
-                <TableCell className="font-mono">{c.utr}</TableCell>
+                <TableCell>
+                  <Badge variant="outline">{c.method === 'CASH' ? t('Cash') : 'UPI'}</Badge> <span className="font-mono">{c.utr ?? ''}</span>
+                  {c.customerNote && <div className="max-w-xs text-xs text-muted-foreground">{c.customerNote}</div>}
+                </TableCell>
                 <TableCell>{c.paidOn}</TableCell>
                 <TableCell>
                   <Badge variant={STATUS_VARIANT[c.status]}>{t(c.status === 'PENDING' ? 'Pending' : c.status === 'CONFIRMED' ? 'Confirmed' : 'Rejected')}</Badge>
@@ -84,7 +87,7 @@ export function UpiClaimsTab() {
                 <TableCell className="text-right whitespace-nowrap">
                   {c.status === 'PENDING' && can('sa_licences', 'create') && (
                     <>
-                      <Button size="sm" disabled={busy} onClick={() => window.confirm(t('Confirm payment {{utr}}? Licences activate and the invoice is emailed.', { utr: c.utr })) && confirm.mutate(c.id)}>
+                      <Button size="sm" disabled={busy} onClick={() => window.confirm(t('Confirm this {{amount}} payment? Licences activate and the invoice is emailed.', { amount: c.summary.split(' · ').pop() })) && confirm.mutate(c.id)}>
                         <CheckIcon /> {t('Confirm')}
                       </Button>{' '}
                       <Button

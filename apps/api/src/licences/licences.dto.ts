@@ -41,7 +41,12 @@ export class OfflinePaymentDto extends PurchaseDto {
 
 /** "I've paid by UPI": the purchase plus the UTR from the customer's UPI app. */
 export class UpiClaimBody extends PurchaseDto {
-  @IsString() @Length(8, 30) utr!: string;
+  /** UPI (default) or CASH. */
+  @IsOptional() @IsIn(['UPI', 'CASH']) method?: 'UPI' | 'CASH';
+  /** UPI: the UTR (required). Cash: receipt no., if any. */
+  @IsOptional() @IsString() @MaxLength(30) utr?: string;
+  /** Cash: e.g. "collect at my office on Monday" or "paid to Ravi". */
+  @IsOptional() @IsString() @MaxLength(300) customerNote?: string;
   @Matches(/^\d{4}-\d{2}-\d{2}$/) paidOn!: string;
 }
 
