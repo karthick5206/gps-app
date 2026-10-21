@@ -52,6 +52,7 @@ export class DeviceCache {
       select: {
         id: true,
         uniqueId: true,
+        simNumber: true,
         isActive: true,
         companyId: true,
         company: { select: { status: true, settings: true } },
@@ -106,6 +107,7 @@ export class DeviceCache {
                 vehicleType: o.vehicleType,
                 deviceId: d.id,
                 uniqueId: d.uniqueId,
+                simNumber: d.simNumber,
                 speedLimitKph: effectiveSpeedLimit(o.speedLimitKph, o.type, o.vehicleType),
                 ownSpeedLimitKph: o.speedLimitKph,
                 inMaintenance: o.maintenanceSince !== null,

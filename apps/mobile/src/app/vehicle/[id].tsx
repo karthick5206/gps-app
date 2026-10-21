@@ -5,7 +5,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { BellIcon, CarIcon, HistoryIcon, ScanFaceIcon, TerminalIcon, VideoIcon } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ScrollView, View } from 'react-native';
+import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { Button, Card, EmptyState, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { StatusPill, VehicleThumb } from '@/features/live/components';
@@ -115,6 +115,13 @@ export default function VehicleScreen() {
         <SectionTitle>{t('Device')}</SectionTitle>
         <Card style={{ paddingVertical: 0 }}>
           <InfoRow label="IMEI" value={o.uniqueId ?? t('Not assigned')} />
+          {o.simNumber ? (
+            <Pressable onPress={() => Linking.openURL(`tel:${o.simNumber!.replace(/[^\d+]/g, '')}`).catch(() => undefined)} accessibilityRole="link">
+              <InfoRow label={t('SIM number')} value={`${o.simNumber}  ·  ${t('Call')}`} />
+            </Pressable>
+          ) : (
+            <InfoRow label={t('SIM number')} value="—" />
+          )}
           <InfoRow label={t('Satellites')} value={o.satellites === null ? '—' : String(o.satellites)} />
           <InfoRow label={t('Mobile signal')} value={o.gsmSignal === null ? '—' : `${o.gsmSignal} / 4`} />
           <InfoRow label={t('Vehicle voltage')} value={or(o.extVoltage, 'V', 1)} />

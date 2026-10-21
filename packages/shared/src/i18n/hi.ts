@@ -455,6 +455,7 @@ export const HI: Record<string, string> = {
   'By type (period)': 'प्रकार के अनुसार (अवधि)',
   'Cabin camera channel': 'केबिन कैमरा चैनल',
   'Calibration table': 'कैलिब्रेशन तालिका',
+  'Call': 'कॉल करें',
   'Call {{name}}': '{{name}} को कॉल करें',
   'Call device': 'डिवाइस को कॉल करें',
   'Camera {{n}}': 'कैमरा {{n}}',

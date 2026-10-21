@@ -87,6 +87,8 @@ export interface LiveObject {
   vehicleType: VehicleType | null;
   deviceId: string | null;
   uniqueId: string | null;
+  /** Mobile number of the SIM in the tracker (Devices), e.g. to call an ID card or a vehicle tracker. */
+  simNumber?: string | null;
   status: MovementStatus;
   statusSince: string | null;
   lat: number | null;

@@ -455,6 +455,7 @@ export const TA: Record<string, string> = {
   'By type (period)': 'வகை வாரியாக (காலம்)',
   'Cabin camera channel': 'கேபின் கேமரா சேனல்',
   'Calibration table': 'அளவுத்திருத்த அட்டவணை',
+  'Call': 'அழை',
   'Call {{name}}': '{{name}} அவர்களை அழை',
   'Call device': 'சாதனத்தை அழை',
   'Camera {{n}}': 'கேமரா {{n}}',

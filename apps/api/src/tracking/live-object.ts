@@ -11,6 +11,8 @@ export interface ObjectMeta {
   vehicleType: VehicleType | null;
   deviceId: string | null;
   uniqueId: string | null;
+  /** Mobile number of the SIM in the tracker (typed in Devices): shown to everyone who sees the vehicle, to call it. */
+  simNumber?: string | null;
   speedLimitKph: number | null;
   /** The vehicle's own limit as set on the vehicle (null = none, the vehicle-type default applies). */
   ownSpeedLimitKph?: number | null;

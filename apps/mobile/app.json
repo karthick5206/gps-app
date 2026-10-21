@@ -2,7 +2,7 @@
   "expo": {
     "name": "VeeTrax",
     "slug": "veetracer",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "veetrax",
@@ -23,7 +23,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.sasvata.veetrax"
+      "package": "com.sasvata.veetrax",
+      "versionCode": 30
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -47,7 +48,9 @@
         {
           "icon": "./assets/images/notification-icon.png",
           "color": "#0E5E57",
-          "sounds": ["./assets/sounds/sos_siren.wav"]
+          "sounds": [
+            "./assets/sounds/sos_siren.wav"
+          ]
         }
       ],
       "expo-localization"

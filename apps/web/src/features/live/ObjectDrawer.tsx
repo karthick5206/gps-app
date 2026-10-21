@@ -131,7 +131,15 @@ function DeviceTab({ o }: { o: LiveObject }) {
       </Row>
       <Row label={t('Model')}>{value(d?.modelName)}</Row>
       <Row label={t('Protocol')}>{value(d?.protocol)}</Row>
-      <Row label={t('SIM number')}>{value(d?.simNumber)}</Row>
+      <Row label={t('SIM number')}>
+        {(d?.simNumber ?? o.simNumber) ? (
+          <a className="font-medium text-primary hover:underline" href={`tel:${(d?.simNumber ?? o.simNumber)!.replace(/[^\d+]/g, '')}`}>
+            {d?.simNumber ?? o.simNumber}
+          </a>
+        ) : (
+          value(null)
+        )}
+      </Row>
       <Row label={t('SIM operator')}>{value(d?.simOperator)}</Row>
       <Row label={t('Firmware')}>{value(d?.firmware)}</Row>
       {!can('devices') && <p className="pt-3 text-xs text-muted-foreground">{t('Device details require access to the Devices master.')}</p>}
