@@ -88,6 +88,8 @@ function parseEntry(entry: StreamEntry): NormalizedPosition | null {
 export class PositionProcessor {
   private readonly logger = new Logger('Processor');
   private readonly lastSeenWritten = new Map<string, number>();
+  /** Last SIM ICCID saved per device, so a reported ICCID is written once, not with every point. */
+  private readonly iccidSaved = new Map<string, string>();
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -279,6 +281,15 @@ export class PositionProcessor {
     return { live, rule };
   }
 
+  /** The tracker reported its SIM ICCID (Concox info packet, Teltonika IO 11/14): keep it on the device for Super Admin. */
+  private saveIccid(deviceId: string, iccid: unknown): void {
+    if (typeof iccid !== 'string' || !iccid || this.iccidSaved.get(deviceId) === iccid) return;
+    this.iccidSaved.set(deviceId, iccid);
+    this.prisma.device
+      .update({ where: { id: deviceId }, data: { iccid, deviceInfoAt: new Date() } })
+      .catch((e: Error) => this.logger.warn(`ICCID for ${deviceId} not saved: ${e.message}`));
+  }
+
   private evaluate(
     position: NormalizedPosition,
     device: ResolvedDevice,
@@ -293,6 +304,7 @@ export class PositionProcessor {
   ): PositionRow {
     // Impossible device times (reset clock, GPS week rollover) would drop live data and alarms as "late".
     position = correctClock(position).position;
+    this.saveIccid(device.deviceId, position.attributes?.iccid);
     const fixTime = Date.parse(position.fixTime);
     const object = device.object;
     // Ignition is only wired in vehicles; personal / asset / pet trackers report a meaningless ACC bit, which would

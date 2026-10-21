@@ -199,6 +199,14 @@ export function deviceColumns(withCompany: boolean): MasterColumn<DeviceDto>[] {
     { id: 'simNumber', header: 'SIM', cell: (r) => <Dash value={r.simNumber} /> },
     { id: 'simOperator', header: 'Operator', defaultHidden: true, cell: (r) => <Dash value={r.simOperator} /> },
     { id: 'firmware', header: 'Firmware', defaultHidden: true, cell: (r) => <Dash value={r.firmware} /> },
+    // Super Admin inventory: what the tracker itself reports (ICCID# / VERSION# replies, info packets).
+    ...(withCompany
+      ? [
+          { id: 'iccid', header: 'SIM ICCID (reported)', cell: (r: DeviceDto) => (r.iccid ? <span className="font-mono text-xs">{r.iccid}</span> : <Dash value={null} />) },
+          { id: 'firmwareReported', header: 'Version (reported)', cell: (r: DeviceDto) => <Dash value={r.firmwareReported ?? null} /> },
+          { id: 'deviceInfoAt', header: 'Read on', defaultHidden: true, cell: (r: DeviceDto) => <DateCell value={r.deviceInfoAt ?? null} relative /> },
+        ]
+      : []),
     { id: 'lastSeenAt', header: 'Last seen', sortable: true, cell: (r) => <DateCell value={r.lastSeenAt} relative /> },
     { id: 'isActive', header: 'Status', cell: (r) => <ActiveBadge active={r.isActive} /> },
     { id: 'createdAt', header: 'Created', sortable: true, defaultHidden: true, cell: (r) => <DateCell value={r.createdAt} /> },

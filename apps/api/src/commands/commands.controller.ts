@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { AvailableCommand, COMMAND_TYPES, CommandDto, CommandType, SendCommandRequest } from '@veetracer/shared';
 import { IsIn, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
@@ -29,5 +29,16 @@ export class CommandsController {
   @Post() @RequirePermission('live_map', 'command')
   send(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() body: SendCommandDto): Promise<CommandDto> {
     return this.commands.send(ctx, id, body);
+  }
+}
+
+/** Super Admin (Device Inventory): ask a tracker for its SIM ICCID and firmware version. */
+@Controller('admin/devices/:id/read-info')
+export class DeviceInfoController {
+  constructor(private readonly commands: CommandsService) {}
+
+  @Post() @HttpCode(200) @RequirePermission('sa_device_inventory', 'edit')
+  read(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.commands.readDeviceInfo(ctx, id);
   }
 }

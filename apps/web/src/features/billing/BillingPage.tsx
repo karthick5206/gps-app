@@ -1,42 +1,25 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  isApiPlan,
-  LICENCE_TYPES,
-  type LicenceOverviewDto,
-  type LicenceType,
-} from "@veetracer/shared";
-import { BuildingIcon, HandshakeIcon, InfoIcon } from "lucide-react";
-import { useState } from "react";
-import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router";
-import { FormError } from "@/components/form-error";
-import { PageHeader } from "@/components/page-header";
-import { Card } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/features/auth/auth-context";
-import { api, ApiError, errorMessage } from "@/lib/api";
-import { CustomersPanel, type CustomerRow } from "./CustomersPanel";
-import { PoolView } from "./PoolView";
-import { MyUpiClaims } from "./UpiPay";
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { isApiPlan, LICENCE_TYPES, type LicenceOverviewDto, type LicenceType } from '@veetracer/shared';
+import { BuildingIcon, HandshakeIcon, InfoIcon } from 'lucide-react';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router';
+import { FormError } from '@/components/form-error';
+import { PageHeader } from '@/components/page-header';
+import { Card } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAuth } from '@/features/auth/auth-context';
+import { api, ApiError, errorMessage } from '@/lib/api';
+import { CustomersPanel, type CustomerRow } from './CustomersPanel';
+import { PoolView } from './PoolView';
+import { MyUpiClaims } from './UpiPay';
 
 type PartnerOverview = LicenceOverviewDto & { customers: CustomerRow[] };
 
-export const freeByType = (
-  o: LicenceOverviewDto,
-): Record<LicenceType, number> =>
-  Object.fromEntries(
-    LICENCE_TYPES.map((ty) => [
-      ty,
-      o.summary.find((s) => s.type === ty)?.free ?? 0,
-    ]),
-  ) as Record<LicenceType, number>;
+export const freeByType = (o: LicenceOverviewDto): Record<LicenceType, number> =>
+  Object.fromEntries(LICENCE_TYPES.map((ty) => [ty, o.summary.find((s) => s.type === ty)?.free ?? 0])) as Record<LicenceType, number>;
 
 function Loading() {
   return (
@@ -48,19 +31,12 @@ function Loading() {
 }
 
 /** A partner's customer, opened from the reseller tab: record payments, invoices, billing details. */
-function CustomerDialog({
-  customer,
-  onClose,
-}: {
-  customer: { id: string; name: string };
-  onClose: () => void;
-}) {
+function CustomerDialog({ customer, onClose }: { customer: { id: string; name: string }; onClose: () => void }) {
   const { can } = useAuth();
   const base = `/licences/partner/customers/${customer.id}`;
   const q = useQuery({
-    queryKey: [base, "overview"],
-    queryFn: ({ signal }) =>
-      api.get<LicenceOverviewDto>(`${base}/overview`, undefined, signal),
+    queryKey: [base, 'overview'],
+    queryFn: ({ signal }) => api.get<LicenceOverviewDto>(`${base}/overview`, undefined, signal),
   });
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -79,11 +55,9 @@ function CustomerDialog({
             profilePath={`${base}/billing-profile`}
             invoicesPath={`${base}/invoices`}
             pdfPath={(id) => `${base}/invoices/${id}/pdf`}
-            recordPath={
-              can("billing", "create") ? `${base}/payments` : undefined
-            }
+            recordPath={can('billing', 'create') ? `${base}/payments` : undefined}
             canBuy={false}
-            canEditProfile={can("billing", "edit")}
+            canEditProfile={can('billing', 'edit')}
             onChanged={() => void q.refetch()}
           />
         )}
@@ -97,30 +71,25 @@ export function BillingPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const queryClient = useQueryClient();
-  const [customer, setCustomer] = useState<{ id: string; name: string } | null>(
-    null,
-  );
+  const [customer, setCustomer] = useState<{ id: string; name: string } | null>(null);
   // ?apiPlan=STANDARD (Developer API page → buy / renew / upgrade): the buy dialog opens with that plan.
   const [params] = useSearchParams();
-  const apiPlanParam = params.get("apiPlan");
+  const apiPlanParam = params.get('apiPlan');
   const initialApiPlan = isApiPlan(apiPlanParam) ? apiPlanParam : null;
   const company = useQuery({
-    queryKey: ["licences", "overview"],
-    queryFn: ({ signal }) =>
-      api.get<LicenceOverviewDto>("/licences/overview", undefined, signal),
+    queryKey: ['licences', 'overview'],
+    queryFn: ({ signal }) => api.get<LicenceOverviewDto>('/licences/overview', undefined, signal),
     retry: false,
   });
   const partner = useQuery({
-    queryKey: ["licences", "partner"],
-    queryFn: ({ signal }) =>
-      api.get<PartnerOverview>("/licences/partner/overview", undefined, signal),
+    queryKey: ['licences', 'partner'],
+    queryFn: ({ signal }) => api.get<PartnerOverview>('/licences/partner/overview', undefined, signal),
     retry: false,
   });
   const isPartner = partner.isSuccess;
-  const platform =
-    company.error instanceof ApiError && company.error.status === 400;
+  const platform = company.error instanceof ApiError && company.error.status === 400;
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ["licences"] });
+    void queryClient.invalidateQueries({ queryKey: ['licences'] });
   };
 
   const companyView = company.isPending ? (
@@ -128,9 +97,7 @@ export function BillingPage() {
   ) : platform ? (
     <Card className="flex items-start gap-3 p-4 text-sm">
       <InfoIcon className="mt-0.5 size-4 text-primary" />
-      {t(
-        "The platform company does not need licences. Manage customer licences under Platform → Licences & Invoices.",
-      )}
+      {t('The platform company does not need licences. Manage customer licences under Platform → Licences & Invoices.')}
     </Card>
   ) : company.isError ? (
     <FormError message={errorMessage(company.error)} />
@@ -146,8 +113,8 @@ export function BillingPage() {
         creditNotesPath="/licences/credit-notes"
         initialApiPlan={initialApiPlan}
         creditNotePdfPath={(id) => `/licences/credit-notes/${id}/pdf`}
-        canBuy={can("billing", "create")}
-        canEditProfile={can("billing", "edit")}
+        canBuy={can('billing', 'create')}
+        canEditProfile={can('billing', 'edit')}
         onChanged={refresh}
       />
     </div>
@@ -155,22 +122,17 @@ export function BillingPage() {
 
   return (
     <div className="w-full space-y-6 p-4 sm:p-6">
-      <PageHeader
-        title={t("Billing & Licences")}
-        description={t(
-          "Licences for users, GPS devices, dashcams and fuel sensors — each runs 12 months from activation.",
-        )}
-      />
+      <PageHeader title={t('Billing & Licences')} description={t('Licences for users, GPS devices, dashcams and fuel sensors — each runs 12 months from activation.')} />
       {isPartner ? (
         <Tabs defaultValue="company">
           <TabsList>
             <TabsTrigger value="company">
               <BuildingIcon className="size-4" />
-              {t("My company")}
+              {t('My company')}
             </TabsTrigger>
             <TabsTrigger value="partner">
               <HandshakeIcon className="size-4" />
-              {t("Reseller pool")}
+              {t('Reseller pool')}
             </TabsTrigger>
           </TabsList>
           <TabsContent value="company" className="mt-4">
@@ -184,16 +146,14 @@ export function BillingPage() {
               invoicesPath="/licences/partner/invoices"
               pdfPath={(id) => `/licences/partner/invoices/${id}/pdf`}
               creditNotesPath="/licences/partner/credit-notes"
-              creditNotePdfPath={(id) =>
-                `/licences/partner/credit-notes/${id}/pdf`
-              }
-              canBuy={can("billing", "create")}
-              canEditProfile={can("billing", "edit")}
+              creditNotePdfPath={(id) => `/licences/partner/credit-notes/${id}/pdf`}
+              canBuy={can('billing', 'create')}
+              canEditProfile={can('billing', 'edit')}
               onChanged={refresh}
               extraTabs={[
                 {
-                  value: "customers",
-                  label: t("Customers"),
+                  value: 'customers',
+                  label: t('Customers'),
                   content: (
                     <CustomersPanel
                       customers={partner.data.customers}
@@ -211,9 +171,7 @@ export function BillingPage() {
       ) : (
         companyView
       )}
-      {customer && (
-        <CustomerDialog customer={customer} onClose={() => setCustomer(null)} />
-      )}
+      {customer && <CustomerDialog customer={customer} onClose={() => setCustomer(null)} />}
     </div>
   );
 }

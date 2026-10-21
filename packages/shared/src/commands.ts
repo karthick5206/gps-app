@@ -92,3 +92,21 @@ export interface SessionDto {
   expiresAt: string;
   current: boolean;
 }
+
+/** Commands that make a tracker report its SIM ICCID and firmware version (Super Admin "Read SIM & version"). */
+export const DEVICE_INFO_QUERIES: Record<string, string[]> = {
+  GT06: ['VERSION#', 'ICCID#'],
+  TELTONIKA: ['getver', 'getimeiccid'],
+};
+
+/** ICCID (89…, 18–22 digits) and firmware version found in a command reply, if any. */
+export function parseDeviceInfo(text: string | null | undefined): { iccid?: string; version?: string } {
+  const out: { iccid?: string; version?: string } = {};
+  if (!text) return out;
+  const iccid = /\b(89\d{16,20})F?\b/i.exec(text);
+  if (iccid) out.iccid = iccid[1];
+  // Concox "[VERSION]GT06N_20_A1D_D23_R0_V02" / "VERSION:…", Teltonika "Ver:03.27.07_04 GPS:…".
+  const ver = /(?:\[VERSION\]|\bversion\s*[:=]|\bver\s*[:=])\s*([A-Za-z0-9][A-Za-z0-9._\-/]{2,60})/i.exec(text);
+  if (ver) out.version = ver[1];
+  return out;
+}

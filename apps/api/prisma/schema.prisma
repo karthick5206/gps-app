@@ -233,28 +233,33 @@ model DeviceModel {
 }
 
 model Device {
-  id             String    @id @default(uuid()) @db.Uuid
-  companyId      String?   @db.Uuid
-  modelId        String    @db.Uuid
-  uniqueId       String    @unique
-  simNumber      String?
-  simOperator    String?
-  firmware       String?
-  ingestToken    String    @unique
+  id               String    @id @default(uuid()) @db.Uuid
+  companyId        String?   @db.Uuid
+  modelId          String    @db.Uuid
+  uniqueId         String    @unique
+  simNumber        String?
+  simOperator      String?
+  firmware         String?
+  /// SIM ICCID reported by the tracker itself (Concox info packet, Teltonika IO 11/14, ICCID# / getimeiccid reply).
+  iccid            String?
+  /// Firmware version reported by the tracker (VERSION# / getver reply); `firmware` stays the admin's own note.
+  firmwareReported String?
+  deviceInfoAt     DateTime? @db.Timestamptz(3)
+  ingestToken      String    @unique
   /// Shipped to a customer: code printed on the help sheet; the customer claims the device with IMEI + code.
-  claimCode      String?   @unique
+  claimCode        String?   @unique
   /// Only this customer (email or +91 mobile) may claim it.
-  reservedEmail  String?
-  reservedMobile String?
-  reservedName   String?
+  reservedEmail    String?
+  reservedMobile   String?
+  reservedName     String?
   /// Courier / order note shown in Shipments (e.g. "DTDC D12345678 · order 1024").
-  shipmentNote   String?
-  shippedAt      DateTime? @db.Timestamptz(3)
-  claimedAt      DateTime? @db.Timestamptz(3)
-  isActive       Boolean   @default(true)
-  lastSeenAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  shipmentNote     String?
+  shippedAt        DateTime? @db.Timestamptz(3)
+  claimedAt        DateTime? @db.Timestamptz(3)
+  isActive         Boolean   @default(true)
+  lastSeenAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   company         Company?               @relation(fields: [companyId], references: [id], onDelete: Restrict)
   model           DeviceModel            @relation(fields: [modelId], references: [id], onDelete: Restrict)

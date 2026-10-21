@@ -6,6 +6,8 @@ import {
   COMMAND_DEF_MAP,
   COMMAND_DEFS,
   COMMAND_TTL_HOURS,
+  DEVICE_INFO_QUERIES,
+  parseDeviceInfo,
   CommandDispatch,
   CommandDto,
   CommandType,
@@ -145,6 +147,38 @@ export class CommandsService implements OnModuleInit {
     }
   }
 
+  /** A reply carrying the SIM ICCID or firmware version (e.g. VERSION# / ICCID# / getver) is saved on the device. */
+  private async saveDeviceInfo(commandId: string, response: string, at: Date): Promise<void> {
+    const info = parseDeviceInfo(response);
+    if (!info.iccid && !info.version) return;
+    const cmd = await this.prisma.deviceCommand.findUnique({ where: { id: commandId }, select: { deviceId: true } });
+    if (!cmd) return;
+    await this.prisma.device.update({
+      where: { id: cmd.deviceId },
+      data: { ...(info.iccid ? { iccid: info.iccid } : {}), ...(info.version ? { firmwareReported: info.version } : {}), deviceInfoAt: at },
+    });
+  }
+
+  /** Super Admin: ask the tracker for its SIM ICCID and firmware version (answers are saved by saveDeviceInfo). */
+  async readDeviceInfo(ctx: AuthContext, deviceId: string): Promise<{ sent: string[] }> {
+    const d = await this.prisma.device.findUnique({
+      where: { id: deviceId },
+      select: { id: true, uniqueId: true, companyId: true, model: { select: { protocol: true } }, assignments: { where: { toTime: null }, select: { objectId: true } } },
+    });
+    if (!d) throw new NotFoundException('Device not found');
+    const texts = DEVICE_INFO_QUERIES[d.model.protocol] ?? [];
+    if (!texts.length) throw new BadRequestException('This tracker type has no SIM / version query. Read them from the device label or the vendor tool.');
+    const objectId = d.assignments[0]?.objectId;
+    if (!objectId || !d.companyId) throw new BadRequestException('Fit the device to a vehicle or person first (commands are sent through it)');
+    for (const text of texts) {
+      const row = await this.prisma.deviceCommand.create({
+        data: { companyId: d.companyId, objectId, deviceId: d.id, uniqueId: d.uniqueId, type: 'custom', payload: text, createdById: ctx.userId, expiresAt: new Date(Date.now() + COMMAND_TTL_HOURS * 3600_000) },
+      });
+      await this.dispatch({ commandId: row.id, uniqueId: d.uniqueId, text });
+    }
+    return { sent: texts };
+  }
+
   /** Online: publish to the device's gateway. Offline (or a stale gateway id): queue for its next connection. */
   private async dispatch(d: CommandDispatch): Promise<void> {
     const json = JSON.stringify(d);
@@ -189,6 +223,7 @@ export class CommandsService implements OnModuleInit {
       const r = await this.prisma.deviceCommand.updateMany({ where: { id: u.commandId, status: { in: from } }, data });
       // A reply can arrive before the SENT update was applied; record when it was sent too.
       if (u.status === 'ACKED' && r.count) await this.prisma.deviceCommand.updateMany({ where: { id: u.commandId, sentAt: null }, data: { sentAt: at } });
+      if (u.status === 'ACKED' && r.count && u.response) await this.saveDeviceInfo(u.commandId, u.response, at);
       return r.count > 0;
     } catch (error) {
       this.logger.error(`Command update ${u.commandId} failed: ${(error as Error).message}`);

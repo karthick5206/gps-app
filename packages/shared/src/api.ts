@@ -121,6 +121,8 @@ export interface DeviceDto {
   modelId: string; modelName: string; protocol: string;
   simNumber: string | null; simOperator: string | null; firmware: string | null;
   isActive: boolean; lastSeenAt: string | null;
+  /** Reported by the tracker itself (Super Admin): SIM ICCID, firmware version, and when they were last read. */
+  iccid?: string | null; firmwareReported?: string | null; deviceInfoAt?: string | null;
   /** Vehicle the device is fitted to; `speedLimitKph` = its own overspeed limit (null = vehicle-type default). */
   object: { id: string; name: string; speedLimitKph: number | null; vehicleType: VehicleType | null } | null;
   createdAt: string; updatedAt: string;
