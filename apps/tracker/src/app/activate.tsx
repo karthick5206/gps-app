@@ -60,6 +60,9 @@ export default function ActivateScreen() {
     setError(null);
     try {
       const r = await api.verify({ mobile, code, deviceName: deviceName(), appVersion: APP_VERSION, platform: Platform.OS });
+      // A new activation starts the native engine from scratch: an old token, queue or stop reason (e.g. left by an
+      // earlier install) must not reject the new one or sign this activation out again.
+      await Tracker.clear().catch(() => undefined);
       await setToken(r.token);
       // The native engine keeps its own copy so it can upload with the app closed.
       await Tracker.setCredentials(r.token, SERVER_URL).catch(() => undefined);

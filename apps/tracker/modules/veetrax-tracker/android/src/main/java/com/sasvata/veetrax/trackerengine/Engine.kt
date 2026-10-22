@@ -222,8 +222,10 @@ class Engine private constructor(context: Context) {
 
   private fun runUpload() {
     lastUploadElapsed = elapsed()
+    val used = prefs.token
     when (val o = uploader.drain()) {
-      is Uploader.Outcome.Stop -> stopFromServer(o)
+      // A 401 for a token that was replaced meanwhile (re-activation) must not sign out the new one.
+      is Uploader.Outcome.Stop -> if (prefs.token == used) stopFromServer(o) else Log.i(TAG, "ignored ${o.reason} for a replaced token")
       Uploader.Outcome.Retry -> requestUpload(force = false)
       else -> Unit
     }
