@@ -12,6 +12,8 @@ android {
   defaultConfig {
     versionCode 1
     versionName "1.0.0"
+    // Release builds are minified (R8): keep what WorkManager / Room create by reflection, and our receivers.
+    consumerProguardFiles "consumer-rules.pro"
   }
 }
 
