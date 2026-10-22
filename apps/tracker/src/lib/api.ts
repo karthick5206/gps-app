@@ -71,4 +71,6 @@ export const api = {
   verify: (body: { mobile: string; code: string; deviceName: string; appVersion: string; platform: string }) =>
     request<VerifyResponse>('POST', '/activate/verify', body),
   me: (token: string) => request<MeResponse>('GET', '/me', undefined, token),
+  diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>
+    request<{ ok: true }>('POST', '/diagnostics', body),
 };

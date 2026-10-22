@@ -51,8 +51,10 @@ class Engine private constructor(context: Context) {
     @Volatile
     private var instance: Engine? = null
 
-    fun get(context: Context): Engine =
-      instance ?: synchronized(this) { instance ?: Engine(context.applicationContext).also { instance = it } }
+    fun get(context: Context): Engine {
+      CrashLog.install(context)
+      return instance ?: synchronized(this) { instance ?: Engine(context.applicationContext).also { instance = it } }
+    }
   }
 
   val context: Context = context.applicationContext

@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -14,6 +15,10 @@ import androidx.core.content.ContextCompat
 object Starter {
   private const val TAG = "VeeTraxTracker"
   const val ACTION_RESTART = "com.sasvata.veetrax.trackerengine.RESTART"
+
+  /** "Allow all the time": needed to start / keep a location service while the app is not on screen (Android 10+). */
+  fun hasBackgroundPermission(context: Context): Boolean =
+    Build.VERSION.SDK_INT < 29 || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
 
   fun hasLocationPermission(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
@@ -38,9 +43,21 @@ object Starter {
    * MY_PACKAGE_REPLACED receivers, and apps the user exempted from battery optimisation. Everything else is caught.
    */
   fun start(context: Context, why: String): Boolean = try {
-    ContextCompat.startForegroundService(context, Intent(context, TrackerService::class.java))
-    Log.i(TAG, "service start requested ($why)")
-    true
+    // Never ask for a start Android will refuse: a foreground service that can't call startForeground() crashes
+    // the whole app ("did not then call startForeground"). Starts from the background (boot, watchdog, alarm,
+    // update) need location "Allow all the time" on Android 10+; the app on screen only needs location.
+    if (!hasLocationPermission(context)) {
+      Prefs(context).lastError = "Location permission is off. Open the app and allow location."
+      false
+    } else if (why != "app" && !hasBackgroundPermission(context)) {
+      Prefs(context).lastError = "Tracking paused: allow location \"All the time\" so it can restart in the background. Open the app."
+      Log.w(TAG, "background start skipped ($why): no background location permission")
+      false
+    } else {
+      ContextCompat.startForegroundService(context, Intent(context, TrackerService::class.java))
+      Log.i(TAG, "service start requested ($why)")
+      true
+    }
   } catch (e: Exception) {
     Log.w(TAG, "service start refused ($why): $e")
     Prefs(context).lastError = "Android blocked the tracking restart ($why). Open the app."

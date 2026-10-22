@@ -22,6 +22,10 @@ class VeetraxTrackerModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("VeetraxTracker")
 
+    OnCreate {
+      appContext.reactContext?.let { CrashLog.install(it) }
+    }
+
     /** Saves credentials + config, sets wanted and starts the service. Returns "started", "no_token", "no_permission" or an error text. */
     AsyncFunction("start") { token: String, serverUrl: String?, config: Map<String, Any?>? ->
       val prefs = engine.prefs
@@ -107,6 +111,16 @@ class VeetraxTrackerModule : Module() {
 
     Function("manufacturer") {
       Build.MANUFACTURER ?: ""
+    }
+
+    /** The last native crash report (then cleared), or null: the app sends it to the server on start. */
+    Function("takeCrash") {
+      CrashLog.take(context)
+    }
+
+    /** Phone details for crash / support reports. */
+    Function("deviceInfo") {
+      mapOf("manufacturer" to (Build.MANUFACTURER ?: ""), "model" to (Build.MODEL ?: ""), "android" to (Build.VERSION.RELEASE ?: ""), "sdk" to Build.VERSION.SDK_INT.toDouble())
     }
   }
 }

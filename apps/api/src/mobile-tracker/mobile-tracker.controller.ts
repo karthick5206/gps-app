@@ -1,14 +1,16 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Logger, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { SkipThrottle, Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthContext } from '../access/auth-context';
 import { Auth, Public, RequirePermission } from '../access/decorators';
-import { TrackerPositionsBody, TrackerRequestCodeBody, TrackerVerifyBody } from './mobile-tracker.dto';
+import { TrackerDiagnosticsBody, TrackerPositionsBody, TrackerRequestCodeBody, TrackerVerifyBody } from './mobile-tracker.dto';
 import { MobileTrackerService } from './mobile-tracker.service';
 
 /** VeeTrax Tracker app (docs/mobile-tracker/API.md): activation by OTP and position upload with the phone's token. */
 @Controller('tracker/v1')
 @UseGuards(ThrottlerGuard)
 export class MobileTrackerController {
+  private readonly logger = new Logger('MobileTracker');
+
   constructor(private readonly service: MobileTrackerService) {}
 
   @Public() @Post('activate/request') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 5 } })
@@ -29,6 +31,15 @@ export class MobileTrackerController {
   @Public() @SkipThrottle() @Post('positions') @HttpCode(200)
   positions(@Headers('authorization') authorization: string | undefined, @Body() body: TrackerPositionsBody) {
     return this.service.upload(authorization, body.positions);
+  }
+
+  /** Crash reports from the app (stack traces only, no location or personal data). Logged for support. */
+  @Public() @Post('diagnostics') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  diagnostics(@Body() body: TrackerDiagnosticsBody) {
+    const head = `tracker crash: app ${body.appVersion ?? '?'} on ${body.device ?? body.platform ?? '?'}`;
+    if (body.nativeCrash) this.logger.warn(`${head} [native]\n${body.nativeCrash}`);
+    if (body.jsCrash) this.logger.warn(`${head} [js]\n${body.jsCrash}`);
+    return { ok: true as const };
   }
 }
 

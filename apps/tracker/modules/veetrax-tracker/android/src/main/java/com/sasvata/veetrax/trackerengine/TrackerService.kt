@@ -47,6 +47,7 @@ class TrackerService : Service() {
 
   override fun onCreate() {
     super.onCreate()
+    CrashLog.install(this)
     engine = Engine.get(this)
     fused = LocationServices.getFusedLocationProviderClient(this)
   }

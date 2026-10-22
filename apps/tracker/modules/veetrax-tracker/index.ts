@@ -55,6 +55,15 @@ interface NativeModuleShape {
   openAutostartSettings(): Promise<'oem' | 'app_details' | 'none'>;
   hasOemAutostart(): boolean;
   manufacturer(): string;
+  takeCrash(): string | null;
+  deviceInfo(): DeviceInfo;
+}
+
+export interface DeviceInfo {
+  manufacturer: string;
+  model: string;
+  android: string;
+  sdk: number;
 }
 
 /** Null on platforms without the native module (iOS / web for now). */
@@ -114,4 +123,21 @@ export function hasOemAutostart(): boolean {
 
 export function manufacturer(): string {
   return Native ? Native.manufacturer() : '';
+}
+
+/** The last native crash (stack trace) saved by CrashLog, cleared once read. */
+export function takeCrash(): string | null {
+  try {
+    return Native ? Native.takeCrash() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function deviceInfo(): DeviceInfo | null {
+  try {
+    return Native ? Native.deviceInfo() : null;
+  } catch {
+    return null;
+  }
 }

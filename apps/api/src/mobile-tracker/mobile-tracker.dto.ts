@@ -16,3 +16,12 @@ export class TrackerVerifyBody {
 export class TrackerPositionsBody {
   @IsArray() @ArrayMaxSize(500) positions!: unknown[];
 }
+
+/** Crash report the app sends on the next start after a crash (no token: it may crash before activation). */
+export class TrackerDiagnosticsBody {
+  @IsOptional() @IsString() @MaxLength(20) appVersion?: string;
+  @IsOptional() @IsString() @MaxLength(20) platform?: string;
+  @IsOptional() @IsString() @MaxLength(160) device?: string;
+  @IsOptional() @IsString() @MaxLength(10_000) nativeCrash?: string | null;
+  @IsOptional() @IsString() @MaxLength(10_000) jsCrash?: string | null;
+}

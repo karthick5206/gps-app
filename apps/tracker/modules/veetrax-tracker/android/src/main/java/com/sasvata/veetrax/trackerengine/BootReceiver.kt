@@ -22,6 +22,7 @@ class BootReceiver : BroadcastReceiver() {
       "com.htc.intent.action.QUICKBOOT_POWERON",
       Starter.ACTION_RESTART -> {
         val app = context.applicationContext
+        CrashLog.install(app)
         if (Starter.shouldRun(app)) {
           Starter.ensureRunning(app, intent.action ?: "receiver")
           WatchdogWorker.schedule(app)

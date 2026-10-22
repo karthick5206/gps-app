@@ -5,12 +5,14 @@ import { useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api, SERVER_URL } from '@/lib/api';
+import { installJsCrashHandler, reportCrashes } from '@/lib/crash';
 import { handleAuthError, syncStopReason } from '@/lib/control';
 import { getToken, hasToken, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 import { applyConfig, resumeIfWanted, Tracker } from '@/lib/tracking';
 
+installJsCrashHandler();
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 /**
@@ -18,6 +20,8 @@ SplashScreen.preventAutoHideAsync().catch(() => undefined);
  * INVALID → sign out), resumes tracking if it is wanted but not running, and refreshes names / config.
  */
 async function startup(): Promise<void> {
+  // Works signed in or not: a crash during activation is the one we most need to see.
+  reportCrashes().catch(() => undefined);
   const token = await getToken();
   if (!token || !store.session()) return;
   const st = await Tracker.getStatus().catch(() => null);
