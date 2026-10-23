@@ -1,11 +1,12 @@
 import { ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
-import { formatMobile, TRIAL_DAYS, TRIAL_PHONES } from '@veetracer/shared';
+import { formatMobile } from '@veetracer/shared';
 import { Prisma } from '@prisma/client';
 import { ensureSystemRoles } from '../access/system-roles';
 import { MailerService } from '../auth/mailer.service';
 import { randomToken, sha256 } from '../common/secrets';
 import { loadEnv } from '../config/env';
 import { LicenceSettingsService } from '../licences/licence-settings.service';
+import { grantTrialSeat } from '../licences/trial';
 import { DEFAULT_PARTNER_SLUG } from '../masters/companies/companies.service';
 import { MOBILE_MODEL_PROTOCOL } from './mobile-tracker.logic';
 
@@ -121,23 +122,17 @@ export class TrackerSelfService {
     const object = await tx.trackedObject.create({ data: { companyId: owner.companyId, branchId: home?.id ?? null, name: personName, type: 'PERSON' } });
     await tx.deviceAssignment.create({ data: { deviceId: device.id, objectId: object.id, fromTime: now } });
 
-    // Free trial: one seat per phone for the account's first TRIAL_PHONES phones.
+    // A bought, unused Mobile-tracker seat first; otherwise the free trial (first TRIAL_PHONES phones); else locked.
     let trialEndsAt: Date | null = null;
-    const trials = await tx.licenceSeat.count({ where: { companyId: owner.companyId, source: 'TRIAL' } });
-    if (trials < TRIAL_PHONES) {
-      trialEndsAt = new Date(now.getTime() + TRIAL_DAYS * DAY_MS);
-      await tx.licenceSeat.create({
-        data: { type: 'MOBILE_TRACKER', companyId: owner.companyId, source: 'TRIAL', activatedAt: now, expiresAt: trialEndsAt, deviceId: device.id, assignedAt: now, note: `Free trial (${TRIAL_DAYS} days)` },
-      });
+    const bought = await tx.licenceSeat.findFirst({
+      where: { companyId: owner.companyId, type: 'MOBILE_TRACKER', deviceId: null, expiresAt: { gt: now }, source: { not: 'TRIAL' } },
+      orderBy: { expiresAt: 'asc' },
+    });
+    if (bought) {
+      await tx.licenceSeat.update({ where: { id: bought.id }, data: { deviceId: device.id, assignedAt: now } });
     } else {
-      // Past the trial: use a bought, unused Mobile-tracker seat if there is one; otherwise the phone stays locked.
-      const free = await tx.licenceSeat.findFirst({
-        where: { companyId: owner.companyId, type: 'MOBILE_TRACKER', deviceId: null, expiresAt: { gt: now }, source: { not: 'TRIAL' } },
-        orderBy: { expiresAt: 'desc' },
-      });
-      if (free) await tx.licenceSeat.update({ where: { id: free.id }, data: { deviceId: device.id, assignedAt: now } });
+      trialEndsAt = (await grantTrialSeat(tx, owner.companyId, 'MOBILE_TRACKER', device.id))?.expiresAt ?? null;
     }
-
     // Two or more phones: a family account.
     const phones = await tx.device.count({ where: { companyId: owner.companyId, model: { protocol: MOBILE_MODEL_PROTOCOL } } });
     if (phones >= 2 && owner.accountType === 'INDIVIDUAL') await tx.company.update({ where: { id: owner.companyId }, data: { accountType: 'FAMILY' } });

@@ -59,6 +59,8 @@ describe('seat assignment and reuse', () => {
     const svc = new SeatsService(policy, settings as never, audit as never);
     const tx = {
       $queryRaw: jest.fn(async () => free.splice(0, 1)),
+      // A business account: no free trial, so "no free seat" still means LICENCE_REQUIRED.
+      company: { findUnique: jest.fn(async () => ({ accountType: 'BUSINESS' })) },
       licenceSeat: { create: jest.fn(async ({ data }: { data: unknown }) => (created.push(data), { id: 'new' })) },
     };
     return { svc, tx, created, audits };

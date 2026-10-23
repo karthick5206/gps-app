@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
+import { TrackerAppInfo } from './TrackerAppInfo';
 
 const KEY = ['family-members'];
 const dateOnly = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -87,6 +88,7 @@ export function FamilyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               <Button onClick={() => setStep('details')}>
                 <UserPlusIcon /> {t('Add family member')}
               </Button>
+              <TrackerAppInfo />
             </>
           )}
           {step === 'details' && (

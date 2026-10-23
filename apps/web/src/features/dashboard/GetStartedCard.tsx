@@ -3,6 +3,7 @@ import { MOBILE_TRACKER_PROTOCOL, normalizeMobile, type DeviceModelDto, type Pag
 import { CreditCardIcon, PackageCheckIcon, SmartphoneIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { TrackerAppInfo } from '@/features/family/TrackerAppInfo';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { FormError } from '@/components/form-error';
@@ -61,6 +62,7 @@ function TrackPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
           <Field label={t('Name')} htmlFor="tp-name">
             <Input id="tp-name" placeholder={t('e.g. Me, Amma, Ravi')} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
+          <TrackerAppInfo />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t('Cancel')}
@@ -94,7 +96,7 @@ export function GetStartedCard() {
       <div>
         <h2 className="text-lg font-semibold">{t('Get started')}</h2>
         <p className="text-sm text-muted-foreground">
-          {t('Add what you want to track. Each tracker or phone needs a yearly licence.')}{' '}
+          {t('Add what you want to track: it starts on a free trial (phones 100 days, GPS trackers and dashcams 30 days). Buy a yearly licence before the trial ends.')}{' '}
           <Link to="/guide" className="font-medium text-primary hover:underline">
             {t('Step-by-step guide')}
           </Link>
@@ -103,15 +105,15 @@ export function GetStartedCard() {
       <div className="grid gap-3 md:grid-cols-3">
         {step(
           <CreditCardIcon className="size-4" />,
-          t('1. Buy licences'),
-          t('Choose how many trackers and phones. Pay online or by UPI / cash; we activate them once paid.'),
+          t('3. Licence after the trial'),
+          t('When the free trial ends, choose how many trackers and phones to keep. Pay by UPI or cash; we activate them once paid.'),
           <Button asChild variant="outline">
             <Link to="/admin/billing">{t('Billing & Licences')}</Link>
           </Button>,
         )}
         {step(
           <PackageCheckIcon className="size-4" />,
-          t('2. Add a GPS tracker'),
+          t('1. Add a GPS tracker'),
           t('Use the IMEI and claim code from the help sheet in the box, or a tracker you bought elsewhere.'),
           <Button asChild>
             <Link to="/claim">{t('Add a tracker')}</Link>
@@ -119,7 +121,7 @@ export function GetStartedCard() {
         )}
         {step(
           <SmartphoneIcon className="size-4" />,
-          t('…or track a phone'),
+          t('2. …or track a phone'),
           t('Share a phone’s location with the VeeTrax Tracker app, for yourself or family.'),
           <Button variant="outline" onClick={() => setPhone(true)}>
             {t('Track a phone')}

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
+import { TrackerAppInfo } from '@/features/family/TrackerAppInfo';
 import { formatDateTime } from '@/lib/format';
 
 /**
@@ -59,6 +60,7 @@ export function MobileTrackerSection({ deviceId }: { deviceId: string }) {
           <p className="text-sm text-muted-foreground">
             {t('Install VeeTrax Tracker on the phone and activate it with {{mobile}}. Activating on a new phone stops the old one automatically.', { mobile: d.mobile })}
           </p>
+          {!active && <TrackerAppInfo />}
           {d.pendingCode && (
             <div className="flex flex-wrap items-center gap-3 rounded-md bg-muted px-3 py-2">
               <KeyRoundIcon className="size-4 text-muted-foreground" />

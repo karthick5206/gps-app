@@ -86,10 +86,10 @@ export class GuideService {
     const subject = welcome ? 'Welcome to VeeTrax — how to add your trackers' : 'VeeTrax getting-started guide';
     const lead = welcome ? `Welcome to VeeTrax, ${name}! Your account is ready.` : `Hi ${name}, here is the VeeTrax getting-started guide you asked for.`;
     const text =
-      `${lead}\n\nThe attached guide shows how to:\n- buy licences\n- track a phone with the VeeTrax Tracker app\n- add a GPS tracker (sent by us or bought elsewhere)\n- add a dashcam\n- assign devices, set alerts and use the mobile app\n\n` +
+      `${lead}\n\nThe attached guide shows how to:\n- start free, then buy licences\n- track a phone with the VeeTrax Tracker app\n- add a GPS tracker (sent by us or bought elsewhere)\n- add a dashcam\n- assign devices, set alerts and use the mobile app\n\n` +
       `Read it online: ${url}/guide\nSign in: ${url}\n\nReply to this email if you need help.`;
     const html =
-      `<p>${escapeHtml(lead)}</p><p>The attached guide shows how to:</p><ul><li>buy licences</li><li>track a phone with the VeeTrax Tracker app</li>` +
+      `<p>${escapeHtml(lead)}</p><p>The attached guide shows how to:</p><ul><li>start free, then buy licences</li><li>track a phone with the VeeTrax Tracker app</li>` +
       `<li>add a GPS tracker (sent by us or bought elsewhere)</li><li>add a dashcam</li><li>assign devices, set alerts and use the mobile app</li></ul>` +
       `<p><a href="${url}/guide">Read the guide online</a> · <a href="${url}">Sign in to VeeTrax</a></p><p style="color:#666">Reply to this email if you need help.</p>`;
     const s = await this.settings.get();

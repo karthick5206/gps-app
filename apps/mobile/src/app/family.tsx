@@ -4,6 +4,7 @@ import { SmartphoneIcon, UserPlusIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, ScrollView, View } from 'react-native';
+import { TrackerAppInfo } from '@/components/TrackerAppInfo';
 import { Button, Card, EmptyState, ErrorBanner, Field, Pill, SectionTitle, Text } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { SPACE, useColors } from '@/lib/theme';
@@ -73,6 +74,7 @@ export default function FamilyScreen() {
             </Card>
           ))}
           <Button title={t('Add family member')} icon={UserPlusIcon} onPress={() => setStep('details')} />
+          <TrackerAppInfo />
         </>
       )}
 

@@ -6,6 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import { LicencePolicyService } from './licence-policy.service';
 import { LicenceSettingsService } from './licence-settings.service';
 import { SUBJECT_COLUMN } from './seat-logic';
+import { grantTrialSeat } from './trial';
 
 const DAY_MS = 86_400_000;
 type Tx = Prisma.TransactionClient;
@@ -53,6 +54,11 @@ export class SeatsService {
       RETURNING "id"`;
     this.policy.invalidate(companyId);
     if (rows.length) return rows[0].id;
+    // Personal / family accounts try devices first: a free-trial seat instead of "licence required".
+    if (type !== 'USER' && type !== 'FUEL_SENSOR') {
+      const trial = await grantTrialSeat(tx, companyId, type, subjectId);
+      if (trial) return trial.id;
+    }
     const reason = ctx?.isSuperAdmin ? ctx.licenceOverride?.trim() : null;
     if (!reason) throw new LicenceRequiredException(type);
     const days = (await this.settings.get()).overrideDays;

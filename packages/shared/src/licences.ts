@@ -126,11 +126,22 @@ export const apiPlanPriceKey = (plan: ApiPlan) => `API_ACCESS:${plan}`;
 export type SeatSource = 'PURCHASE' | 'MIGRATION' | 'OVERRIDE' | 'ALLOCATION' | 'TRIAL';
 
 /**
- * Free trial for personal / family accounts: each of the first TRIAL_PHONES phone trackers activated in an account gets a
- * TRIAL_DAYS Mobile-tracker seat. Trial seats lock at expiry (no grace period); then a licence must be bought.
+ * Free trial for personal / family accounts (self-registered), so they can try VeeTrax before buying: a device added
+ * without a free bought seat gets a TRIAL seat instead of being refused. Phones: TRIAL_DAYS for the first TRIAL_PHONES;
+ * GPS trackers and dashcams: TRIAL_DEVICE_DAYS for the first TRIAL_DEVICES. Trial seats lock at expiry (no grace
+ * period); then a licence must be bought. Business accounts are set up by the platform and don't get trials.
  */
 export const TRIAL_DAYS = 100;
 export const TRIAL_PHONES = 5;
+export const TRIAL_DEVICE_DAYS = 30;
+export const TRIAL_DEVICES = 5;
+
+/** Trial terms for a seat type: days, how many per account, and which seat types share that count. */
+export function trialPlan(type: SeatLicenceType): { days: number; max: number; countTypes: SeatLicenceType[] } | null {
+  if (type === 'MOBILE_TRACKER') return { days: TRIAL_DAYS, max: TRIAL_PHONES, countTypes: ['MOBILE_TRACKER'] };
+  if (type === 'GPS_DEVICE' || type === 'DASHCAM') return { days: TRIAL_DEVICE_DAYS, max: TRIAL_DEVICES, countTypes: ['GPS_DEVICE', 'DASHCAM'] };
+  return null;
+}
 
 /** Grace period after expiry for a seat: none for a free trial. */
 export function seatGraceDays(source: string, graceDays: number): number {

@@ -30,9 +30,10 @@ export const GUIDE_TITLE = 'VeeTrax — Getting started';
 export const GUIDE_SECTIONS: readonly GuideSection[] = [
   {
     id: 'licences',
-    title: '1. Licences first',
-    intro: 'Every tracker, dashcam and phone needs a yearly licence. Prices include GST.',
+    title: '1. Free trial, then a licence',
+    intro: 'Start free: a new personal account tries each phone for 100 days (first 5 phones) and each GPS tracker or dashcam for 30 days (first 5). After the trial, every tracker, dashcam and phone needs a yearly licence. Prices include GST.',
     steps: [
+      { text: 'Nothing to buy to start: add your phone or tracker (sections 2–4) and it is tracked straight away on the free trial.' },
       { text: 'Sign in at app.veetrax.com and open Billing & Licences.' },
       { text: 'Choose how many GPS device, Dashcam and Mobile tracker licences you need and see the price.' },
       { text: 'Choose how to pay: UPI (scan the QR with the exact amount, then enter the UTR) or Cash (say you have paid, or where and when to collect it). Bank transfer details are shown too.' },
