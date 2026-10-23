@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { COMMAND_DEF_MAP, ENGINE_STOP_MAX_SPEED_KPH, type AvailableCommand, type CommandDto, type CommandStatusValue } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { PowerIcon, PowerOffIcon, RadarIcon, RotateCwIcon, SendIcon, TerminalIcon, type LucideIcon } from 'lucide-react-native';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, ErrorBanner, Field, Pill, SectionTitle, Text } from '@/components/ui';
@@ -27,8 +27,10 @@ export default function CommandsScreen() {
   const c = useColors();
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  useLiveVersion(2000);
-  const object = liveStore.get(id);
+  // The React Compiler memoises store reads: tie this one to the live-store version explicitly.
+  const version = useLiveVersion(2000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const object = useMemo(() => liveStore.get(id), [id, version]);
   const [pending, setPending] = useState<AvailableCommand | null>(null);
   const [password, setPassword] = useState('');
   const [text, setText] = useState('');
