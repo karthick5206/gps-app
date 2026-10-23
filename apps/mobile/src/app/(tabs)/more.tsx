@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, BookOpenIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
+import { BellRingIcon, BookOpenIcon, Building2Icon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
@@ -60,6 +60,27 @@ export default function MoreScreen() {
           <ChevronRightIcon size={18} color={c.mutedForeground} />
         </View>
       </Card>
+
+      {me?.user.isSuperAdmin && (
+        // Super Admin acts in one company at a time (same as the web company switcher).
+        <Card onPress={() => router.push('/company')}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
+            <Building2Icon size={22} color={c.primary} />
+            <View style={{ flex: 1 }}>
+              <Text size="sm" tone="muted">
+                {t('Company')}
+              </Text>
+              <Text weight="700" numberOfLines={1}>
+                {me.company.name}
+              </Text>
+            </View>
+            <Text size="sm" style={{ color: c.primary }}>
+              {t('Switch')}
+            </Text>
+            <ChevronRightIcon size={18} color={c.mutedForeground} />
+          </View>
+        </Card>
+      )}
 
       <Card style={{ paddingVertical: 0 }}>
         {can('driver_events') && <MenuItem icon={ScanFaceIcon} label={t('Driver events')} href="/driver-events" />}
