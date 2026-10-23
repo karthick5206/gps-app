@@ -37,15 +37,24 @@ const ALARM_BITS: [bit: number, name: string][] = [
   [26, 'tamper'], // vehicle stolen (anti-theft)
   [28, 'towing'], // illegal displacement
   [27, 'illegalIgnition'],
-  [31, 'doorOpen'],
+  [31, 'illegalDoorOpen'],
   [1, 'overspeed'],
   [2, 'fatigue'],
-  [7, 'lowBattery'], // main power under-voltage
+  [7, 'powerLow'], // main power under-voltage (vehicle battery, not the tracker's)
   [5, 'gpsAntennaCut'],
   [6, 'gpsAntennaShort'],
   [4, 'gnssFault'],
   [11, 'cameraFault'],
 ];
+
+/**
+ * Alarm bits that are known but deliberately not alerted: pre-warnings and display / IC-card / TTS module faults (3, 9,
+ * 10, 12–14), platform-configured area / route / driving-time rules VeeTrax doesn't push to terminals (18–23), VSS
+ * fault and abnormal fuel (24–25; fuel drain is detected from the fuel level). Any other bit (the reserved 15–17,
+ * which vendors use for their own alarms) is reported as alarm_bit<n> so it is noticed, not dropped.
+ */
+const IGNORED_ALARM_BITS = [3, 9, 10, 12, 13, 14, 18, 19, 20, 21, 22, 23, 24, 25];
+const KNOWN_ALARM_MASK = [...ALARM_BITS.map(([b]) => b), ...IGNORED_ALARM_BITS].reduce((m, b) => (m | (1 << b)) >>> 0, 0);
 
 /** Video alarm TLV 0x14 bits (JT/T 1078 table 14). */
 const VIDEO_ALARM_BITS: [number, string][] = [
@@ -408,7 +417,8 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
     // Alarms: report a bit once when it rises (terminals keep it set until the condition clears / is confirmed).
     const risen = (loc.alarmFlags & ~session.alarmFlags) >>> 0;
     if (!history) session.alarmFlags = loc.alarmFlags;
-    const alarm = history ? null : (ALARM_BITS.find(([b]) => bit(risen, b))?.[1] ?? null);
+    const unknownBit = Array.from({ length: 32 }, (_, b) => b).find((b) => bit((risen & ~KNOWN_ALARM_MASK) >>> 0, b));
+    const alarm = history ? null : (ALARM_BITS.find(([b]) => bit(risen, b))?.[1] ?? (unknownBit !== undefined ? `alarm_bit${unknownBit}` : null));
 
     const videoAlarm = loc.extras.get(0x14);
     const videoFlags = videoAlarm && videoAlarm.length >= 4 ? videoAlarm.readUInt32BE(0) : 0;

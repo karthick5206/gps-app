@@ -134,3 +134,54 @@ describe('power cut without a voltage reading', () => {
     expect(run1(card, false, 60, st2)).not.toContain('POWER_CUT');
   });
 });
+
+describe('device alarms', () => {
+  const types = (alarm: string, attrs: Record<string, unknown> = {}, caps: string[] = CAPS, enable: Partial<Record<AlertTypeCode, Partial<SettingOverride>>> = {}) =>
+    evaluatePosition(at(sec(0), { attributes: { alarm, ...attrs } }), emptyAlertState(), ctx(settings(caps, enable))).alerts.map((a) => [a.type, a.message]);
+
+  it('anti-theft, GPS and power alarms map to their alert types', () => {
+    expect(types('towing')).toEqual([['TOWING', 'Vehicle moved with the engine off (towing?)']]);
+    expect(types('illegalIgnition')[0][0]).toBe('TOWING');
+    expect(types('illegalDoorOpen')[0][0]).toBe('TOWING');
+    expect(types('gpsAntennaCut')).toEqual([['DEVICE_TAMPER', 'GPS antenna disconnected (possible tampering)']]);
+    expect(types('gpsAntennaShort')[0][0]).toBe('GPS_FAULT');
+    expect(types('gnssFault')[0][0]).toBe('GPS_FAULT');
+    expect(types('powerLow')[0][0]).toBe('POWER_LOW');
+  });
+
+  it('vibration is off by default and alerts once enabled', () => {
+    expect(types('vibration')).toEqual([]);
+    expect(types('vibration', {}, CAPS, { VIBRATION: { enabled: true } })[0][0]).toBe('VIBRATION');
+  });
+
+  it('device-side overspeed and geofence alarms are left to the server rules', () => {
+    expect(types('overspeed')).toEqual([]);
+    expect(types('geofenceEnter')).toEqual([]);
+  });
+
+  it("the tracker's low-battery alarm alerts without a battery %; with one it is not raised twice", () => {
+    expect(types('lowBattery')).toEqual([['LOW_BATTERY', 'Tracker battery low']]);
+    expect(types('lowBattery', { batteryLevel: 12 })).toEqual([['LOW_BATTERY', 'Tracker battery low (12%)']]);
+  });
+
+  it('unrecognised codes from any protocol become UNKNOWN_ALARM; alarm_0 is no alarm', () => {
+    for (const code of ['alarm_52', 'alarm_bit15', 'alarm_XY', 'alarm_XY_31']) expect(types(code)[0][0]).toBe('UNKNOWN_ALARM');
+    expect(types('alarm_0')).toEqual([]);
+  });
+
+  it('safety alarms alert even when the device model lacks the capability', () => {
+    expect(types('sos', {}, [])[0][0]).toBe('SOS');
+    expect(types('powerCut', {}, [])[0][0]).toBe('POWER_CUT');
+    expect(types('crash', {}, [])[0][0]).toBe('CRASH');
+  });
+
+  it('late points (alarmsOnly): the alarm alerts, dated by the server clock; other rules do not run', () => {
+    const c = ctx(settings(CAPS));
+    const late = (alarm: string) =>
+      evaluatePosition(at(sec(-3600), { receivedAt: sec(0), alarmsOnly: true, ignition: false, attributes: { alarm, batteryLevel: 5 } }), emptyAlertState(), c).alerts;
+    const sos = late('sos');
+    expect(sos.map((a) => a.type)).toEqual(['SOS']); // no LOW_BATTERY from the stale reading
+    expect(sos[0].occurredAt).toBe(sec(0));
+    expect(late('crash').map((a) => a.type)).toEqual(['CRASH']);
+  });
+});

@@ -100,6 +100,12 @@ describe('Ais140Decoder', () => {
     expect(ign.positions[0].attributes.alarm).toBeUndefined();
   });
 
+  it('an alert packet type it does not know is surfaced as an unknown alarm', () => {
+    const { feed } = harness();
+    const [r] = feed(withXor(nr({ type: 'XY', alert: '31' })));
+    expect(r.positions[0].attributes).toMatchObject({ alarm: 'alarm_XY_31', event: 'ais140_XY_31' });
+  });
+
   it('decodes an emergency ($EPB,EMR) message as an SOS', () => {
     const { feed } = harness();
     const [r] = feed(withXor(`EPB,EMR,${IMEI},NM,19102026063015,A,13.082700,N,80.270700,E,12.0,40.0,0.0,G,TN01AB1234,+919999900000`));
