@@ -15,6 +15,7 @@ import { FuelSettingsDialog, type FuelTarget } from '@/features/fuel/FuelSetting
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
+import { usePurgeAction } from '@/features/platform/PurgeDialog';
 import { z } from 'zod';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import type { Option } from '@/components/ui/multi-select';
@@ -202,6 +203,7 @@ export function ObjectsPage() {
   const [compliance, setCompliance] = useState<ComplianceTarget | null>(null);
   const [fuel, setFuel] = useState<FuelTarget | null>(null);
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
+  const purge = usePurgeAction('object');
   const groups = useEntityOptions<VehicleGroupDto>('/vehicle-groups', named, { enabled: can('vehicle_groups') });
   const filters = useMemo<MasterFilter[]>(
     () => [
@@ -226,9 +228,7 @@ export function ObjectsPage() {
       defaultSort={{ id: 'name', desc: false }}
       Form={ObjectForm}
       emptyIcon={TruckIcon}
-      rowActions={
-        can('documents') || can('objects', 'edit')
-          ? (r) => (
+      rowActions={(r) => (
               <>
                 {can('documents') && (
                   <DropdownMenuItem onSelect={() => setCompliance({ objectId: r.id, label: rowLabel(r) })}>
@@ -240,13 +240,13 @@ export function ObjectsPage() {
                     <FuelIcon /> {t('Fuel settings')}
                   </DropdownMenuItem>
                 )}
+                {purge.item(r.id)}
               </>
-            )
-          : undefined
-      }
+            )}
     />
     <ComplianceSheet target={compliance} onClose={() => setCompliance(null)} />
     <FuelSettingsDialog target={fuel} onClose={() => setFuel(null)} />
+    {purge.dialog}
     </>
   );
 }

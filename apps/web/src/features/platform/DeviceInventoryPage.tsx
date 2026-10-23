@@ -4,6 +4,7 @@ import { CpuIcon, HardDriveIcon, PackageIcon, TruckIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { usePurgeAction } from '@/features/platform/PurgeDialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { api, errorMessage } from '@/lib/api';
@@ -23,6 +24,7 @@ export function DeviceInventoryPage() {
   const { t } = useTranslation();
   const [shipping, setShipping] = useState<DeviceDto | null>(null);
   const [shipments, setShipments] = useState(false);
+  const purge = usePurgeAction('device');
   const readInfo = useMutation({
     mutationFn: (d: DeviceDto) => api.post<{ sent: string[] }>(`/admin/devices/${d.id}/read-info`, {}),
     onSuccess: (r) => toast.success(t('Asked the tracker ({{cmds}}). The SIM ICCID and version appear here when it replies.', { cmds: r.sent.join(', ') })),
@@ -68,11 +70,13 @@ export function DeviceInventoryPage() {
                 <TruckIcon /> {t('Ship to customer')}
               </DropdownMenuItem>
             )}
+            {purge.item(r.id)}
           </>
         )}
       />
       <ShipDialog device={shipping} onOpenChange={(o) => !o && setShipping(null)} />
       <ShipmentsSheet open={shipments} onOpenChange={setShipments} />
+      {purge.dialog}
     </>
   );
 }

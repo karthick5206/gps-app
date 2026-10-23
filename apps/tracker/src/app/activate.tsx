@@ -1,11 +1,13 @@
-import { MapPin } from 'lucide-react-native';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { InfoSteps } from '@/components/InfoSteps';
+import { TrackerLogo } from '@/components/TrackerLogo';
+import { TrackingScene } from '@/components/TrackingScene';
 import { Body, Button, Card, Title } from '@/components/ui';
 import { api, ApiError, NetworkError, SERVER_URL } from '@/lib/api';
 import { APP_VERSION, deviceName } from '@/lib/device';
-import { setToken, store, useStoreVersion } from '@/lib/state';
+import { sessionFrom, setToken, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 import { applyConfig, Tracker } from '@/lib/tracking';
@@ -29,6 +31,8 @@ export default function ActivateScreen() {
   const c = useColors();
   const notice = store.notice();
   const [digits, setDigits] = useState('');
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [step, setStep] = useState<'mobile' | 'code'>('mobile');
   const [mobile, setMobile] = useState(''); // normalised by the server, e.g. 919876543210
   const [smsSent, setSmsSent] = useState(true);
@@ -39,10 +43,12 @@ export default function ActivateScreen() {
 
   const requestCode = async () => {
     if (!/^\d{10}$/.test(digits)) return setError(S.mobileInvalid);
+    const mail = email.trim();
+    if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return setError(S.emailInvalid);
     setBusy(true);
     setError(null);
     try {
-      const r = await api.requestCode(`+91${digits}`);
+      const r = await api.requestCode(`+91${digits}`, mail || undefined, name.trim() || undefined);
       setMobile(r.mobile);
       setSmsSent(r.smsSent);
       setSentTo(r.sentTo ?? []);
@@ -68,7 +74,7 @@ export default function ActivateScreen() {
       // The native engine keeps its own copy so it can upload with the app closed.
       await Tracker.setCredentials(r.token, SERVER_URL).catch(() => undefined);
       store.setNotice(null);
-      store.setSession({ uniqueId: r.uniqueId, objectName: r.objectName, companyName: r.companyName });
+      store.setSession(sessionFrom(r));
       // Config is stored for the next start; a failure here must not keep the user on this screen.
       await applyConfig(r.config).catch(() => undefined);
       // The root layout moves to Home once it has re-rendered signed in (see _layout.tsx).
@@ -86,11 +92,14 @@ export default function ActivateScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.brand}>
-            <View style={[styles.logo, { backgroundColor: c.primary }]}>
-              <MapPin color="#ffffff" size={34} />
-            </View>
+            <TrackerLogo size={68} />
             <Text style={[styles.appName, { color: c.text }]}>{S.appName}</Text>
           </View>
+          {step === 'mobile' ? (
+            <View style={[styles.hero, { backgroundColor: c.primary }]}>
+              <TrackingScene color="#ffffff" style={{ width: '100%', height: 110 }} />
+            </View>
+          ) : null}
 
           {notice ? (
             <Card tone="warn">
@@ -121,6 +130,21 @@ export default function ActivateScreen() {
                     onSubmitEditing={requestCode}
                   />
                 </View>
+                <Text style={[styles.label, { color: c.muted }]}>{S.emailLabel}</Text>
+                <TextInput
+                  style={input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder={S.emailPlaceholder}
+                  placeholderTextColor={c.muted}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  autoCorrect={false}
+                />
+                <Body muted style={{ fontSize: 13 }}>{S.emailHint}</Body>
+                <Text style={[styles.label, { color: c.muted }]}>{S.nameLabel}</Text>
+                <TextInput style={input} value={name} onChangeText={setName} placeholder={S.namePlaceholder} placeholderTextColor={c.muted} autoComplete="name" />
                 <Button title={S.sendCode} onPress={requestCode} busy={busy} />
               </>
             ) : (
@@ -150,6 +174,11 @@ export default function ActivateScreen() {
             )}
             {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
           </Card>
+          {step === 'mobile' ? (
+            <Card>
+              <InfoSteps steps={S.steps} />
+            </Card>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -159,7 +188,7 @@ export default function ActivateScreen() {
 const styles = StyleSheet.create({
   scroll: { padding: 20, gap: 16, flexGrow: 1, justifyContent: 'center' },
   brand: { alignItems: 'center', gap: 10, marginBottom: 8 },
-  logo: { width: 64, height: 64, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  hero: { borderRadius: 18, overflow: 'hidden', paddingVertical: 6 },
   appName: { fontSize: 24, fontWeight: '800' },
   label: { fontSize: 14, fontWeight: '600', marginTop: 4 },
   phoneRow: { flexDirection: 'row', gap: 8 },

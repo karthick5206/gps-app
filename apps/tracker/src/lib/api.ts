@@ -18,7 +18,18 @@ export const DEFAULT_CONFIG: TrackerConfig = { intervalSec: 10, stoppedIntervalS
 
 /** sentTo: masked e-mail addresses the code went to (device admins + the device's activation e-mail). */
 export interface ActivateRequestResponse { ok: true; mobile: string; smsSent: boolean; emailSent?: boolean; sentTo?: string[]; expiresInSec: number }
-export interface MeResponse { uniqueId: string; objectName: string; companyName: string; config: TrackerConfig }
+export interface MeResponse {
+  uniqueId: string;
+  objectName: string;
+  companyName: string;
+  config: TrackerConfig;
+  /** "+91 98765 43210" */
+  mobile?: string;
+  email?: string | null;
+  accountType?: 'BUSINESS' | 'INDIVIDUAL' | 'FAMILY' | null;
+  trialEndsAt?: string | null;
+  licenceEndsAt?: string | null;
+}
 export interface VerifyResponse extends MeResponse { token: string }
 /** HTTP error from the server: status + message (+ code such as REVOKED / INVALID / INACTIVE). */
 export class ApiError extends Error {
@@ -68,7 +79,7 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown, 
 }
 
 export const api = {
-  requestCode: (mobile: string) => request<ActivateRequestResponse>('POST', '/activate/request', { mobile }),
+  requestCode: (mobile: string, email?: string, name?: string) => request<ActivateRequestResponse>('POST', '/activate/request', { mobile, email, name }),
   verify: (body: { mobile: string; code: string; deviceName: string; appVersion: string; platform: string }) =>
     request<VerifyResponse>('POST', '/activate/verify', body),
   me: (token: string) => request<MeResponse>('GET', '/me', undefined, token),

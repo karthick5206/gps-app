@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { SystemMessagesService } from '../templates/system-messages.service';
+import { TrackerSelfService } from './self-service';
 import {
   CODE_MAX_ATTEMPTS,
   CODE_MAX_PER_DAY,
@@ -57,16 +58,28 @@ export class MobileTrackerService {
     private readonly redis: RedisService,
     private readonly messages: SystemMessagesService,
     private readonly mailer: MailerService,
+    private readonly self: TrackerSelfService,
   ) {}
 
   config(): TrackerConfig {
     return DEFAULT_TRACKER_CONFIG;
   }
 
-  private async deviceByMobile(mobile: string) {
+  private normalize(mobile: string): string {
     const uniqueId = normalizeMobile(mobile);
     if (!uniqueId) throw trackerError(400, 'BAD_NUMBER', 'Enter a valid mobile number');
-    const device = await this.prisma.device.findFirst({
+    return uniqueId;
+  }
+
+  private async deviceByMobile(mobile: string) {
+    const device = await this.findDevice(this.normalize(mobile));
+    if (!device || !device.companyId) throw trackerError(404, 'NOT_REGISTERED', 'This number is not registered for tracking. Ask your administrator to add it in VeeTrax → Devices.');
+    if (!device.isActive) throw trackerError(403, 'INACTIVE', 'Tracking for this number is switched off by your administrator.');
+    return device;
+  }
+
+  private findDevice(uniqueId: string) {
+    return this.prisma.device.findFirst({
       where: { uniqueId, model: { protocol: MOBILE_MODEL_PROTOCOL } },
       select: {
         id: true,
@@ -74,16 +87,21 @@ export class MobileTrackerService {
         isActive: true,
         companyId: true,
         activationEmail: true,
-        company: { select: { name: true } },
+        company: { select: { name: true, accountType: true } },
+        licenceSeat: { select: { source: true, expiresAt: true } },
         assignments: { where: { toTime: null }, select: { object: { select: { id: true, name: true, branchId: true } } } },
       },
     });
-    if (!device || !device.companyId) throw trackerError(404, 'NOT_REGISTERED', 'This number is not registered for tracking. Ask your administrator to add it in VeeTrax → Devices.');
-    if (!device.isActive) throw trackerError(403, 'INACTIVE', 'Tracking for this number is switched off by your administrator.');
-    return device;
   }
 
-  async requestCode(mobile: string): Promise<{ ok: true; mobile: string; smsSent: boolean; emailSent: boolean; sentTo: string[]; expiresInSec: number }> {
+  async requestCode(
+    mobile: string,
+    email?: string,
+    name?: string,
+  ): Promise<{ ok: true; mobile: string; smsSent: boolean; emailSent: boolean; sentTo: string[]; expiresInSec: number; selfService: boolean }> {
+    const uniqueId = this.normalize(mobile);
+    const existing = await this.findDevice(uniqueId);
+    if (!existing || !existing.companyId) return this.requestSelfService(uniqueId, email, name);
     const device = await this.deviceByMobile(mobile);
     const recent = await this.prisma.mobileTrackerCode.findMany({
       where: { deviceId: device.id, createdAt: { gt: new Date(Date.now() - DAY_MS) } },
@@ -94,9 +112,45 @@ export class MobileTrackerService {
     if (recent.length >= CODE_MAX_PER_DAY) throw trackerError(429, 'TOO_MANY', 'Too many codes for this number today. Try again tomorrow or ask your administrator.');
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const row = await this.prisma.mobileTrackerCode.create({ data: { deviceId: device.id, code, expiresAt: new Date(Date.now() + CODE_TTL_MS) } });
-    const [smsSent, emailed] = await Promise.all([this.sendCode(device.companyId!, device.uniqueId, code), this.emailCode(device, code)]);
+    const [smsSent, emailed] = await Promise.all([this.sendOtpSms(device.companyId!, device.uniqueId, code), this.emailCode(device, code)]);
     if (smsSent || emailed.length) await this.prisma.mobileTrackerCode.update({ where: { id: row.id }, data: { smsSent, emailCount: emailed.length } });
-    return { ok: true, mobile: device.uniqueId, smsSent, emailSent: emailed.length > 0, sentTo: emailed.map(maskEmail), expiresInSec: CODE_TTL_MS / 1000 };
+    return { ok: true, mobile: device.uniqueId, smsSent, emailSent: emailed.length > 0, sentTo: emailed.map(maskEmail), expiresInSec: CODE_TTL_MS / 1000, selfService: false };
+  }
+
+  /**
+   * Number not registered by an administrator: OTP by SMS to the phone (and to the e-mail as a fallback). On verify the
+   * phone joins the personal / family account of that e-mail or mobile, or a new personal account is created.
+   */
+  private async requestSelfService(uniqueId: string, email: string | undefined, name: string | undefined) {
+    const mail = email?.trim().toLowerCase();
+    if (!mail) throw trackerError(400, 'EMAIL_REQUIRED', 'This number is not registered yet. Enter your e-mail address: the phone will be added to your VeeTrax account (or a new one).');
+    const owner = await this.self.findOwner(this.prisma, mail, uniqueId);
+    const recent = await this.prisma.mobileTrackerCode.findMany({
+      where: { deviceId: null, mobile: uniqueId, createdAt: { gt: new Date(Date.now() - DAY_MS) } },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (recent[0] && Date.now() - recent[0].createdAt.getTime() < CODE_RESEND_MS) throw trackerError(429, 'TOO_SOON', 'Please wait 30 seconds before asking for a new code.');
+    if (recent.length >= CODE_MAX_PER_DAY) throw trackerError(429, 'TOO_MANY', 'Too many codes for this number today. Try again tomorrow.');
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const row = await this.prisma.mobileTrackerCode.create({
+      data: { mobile: uniqueId, email: mail, name: name?.trim() || null, companyId: owner?.companyId ?? null, code, expiresAt: new Date(Date.now() + CODE_TTL_MS) },
+    });
+    const minutes = CODE_TTL_MS / 60_000;
+    const [smsSent, mailed] = await Promise.all([
+      this.sendOtpSms(owner?.companyId ?? null, uniqueId, code),
+      this.mailer
+        .send({
+          to: mail,
+          subject: `${code} is your VeeTrax Tracker code for ${formatMobile(uniqueId)}`,
+          text: `Your VeeTrax Tracker code for ${formatMobile(uniqueId)} is ${code}. It expires in ${minutes} minutes. Do not share it with anyone.`,
+          html: `<p>Your VeeTrax Tracker code for <b>${formatMobile(uniqueId)}</b> is</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>It expires in ${minutes} minutes. Do not share it with anyone.</p>`,
+        })
+        .then(() => true)
+        .catch((e: Error) => (this.logger.warn(`Tracker code email to ${mail} failed: ${e.message}`), false)),
+    ]);
+    if (smsSent || mailed) await this.prisma.mobileTrackerCode.update({ where: { id: row.id }, data: { smsSent, emailCount: mailed ? 1 : 0 } });
+    return { ok: true as const, mobile: uniqueId, smsSent, emailSent: mailed, sentTo: mailed ? [maskEmail(mail)] : [], expiresInSec: CODE_TTL_MS / 1000, selfService: true };
   }
 
   /** E-mails the code to the device admins and the device's activation e-mail (see codeRecipients). Returns who got it. */
@@ -155,9 +209,9 @@ export class MobileTrackerService {
   }
 
   /** SYSTEM_OTP SMS (the registered DLT template); false when no SMS provider is set up or sending failed. */
-  private async sendCode(companyId: string, uniqueId: string, code: string): Promise<boolean> {
+  async sendOtpSms(companyId: string | null, uniqueId: string, code: string): Promise<boolean> {
     if (this.messages.sms.name === 'console') return false;
-    const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { name: true } });
+    const company = companyId ? await this.prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }) : null;
     const vars = { code, expires_min: String(CODE_TTL_MS / 60_000), company: company?.name ?? 'VeeTrax' };
     const rendered = await this.messages.render(companyId, 'SYSTEM_OTP', 'SMS', vars);
     const text = rendered?.text ?? `${code} is your VeeTrax Tracker activation code. It expires in ${vars.expires_min} minutes.`;
@@ -169,11 +223,14 @@ export class MobileTrackerService {
       error = (e as Error).message;
       this.logger.warn(`Tracker code SMS to ${to} failed: ${error}`);
     }
-    await this.messages.log({ companyId, channel: 'SMS', recipient: to, templateId: rendered?.templateId ?? null, subject: null, body: text, status: error ? 'FAILED' : 'SENT', error, provider: this.messages.sms.name, secrets: [code] });
+    if (companyId) await this.messages.log({ companyId, channel: 'SMS', recipient: to, templateId: rendered?.templateId ?? null, subject: null, body: text, status: error ? 'FAILED' : 'SENT', error, provider: this.messages.sms.name, secrets: [code] });
     return !error;
   }
 
   async verify(body: { mobile: string; code: string; deviceName?: string; appVersion?: string; platform?: string }) {
+    const uniqueId = this.normalize(body.mobile);
+    const known = await this.findDevice(uniqueId);
+    if (!known || !known.companyId) return this.verifySelfService(uniqueId, body);
     const device = await this.deviceByMobile(body.mobile);
     const row = await this.prisma.mobileTrackerCode.findFirst({ where: { deviceId: device.id, consumedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } });
     if (!row) throw trackerError(401, 'CODE_EXPIRED', 'The code has expired or was not requested. Ask for a new code.');
@@ -185,6 +242,34 @@ export class MobileTrackerService {
     const { count } = await this.prisma.mobileTrackerCode.updateMany({ where: { id: row.id, consumedAt: null }, data: { consumedAt: new Date() } });
     if (!count) throw trackerError(401, 'CODE_EXPIRED', 'The code was already used. Ask for a new code.');
 
+    return this.startSession(device, body);
+  }
+
+  /** Self-service verify: the code proves the number; the phone joins / creates the personal account, then starts. */
+  private async verifySelfService(uniqueId: string, body: { code: string; deviceName?: string; appVersion?: string; platform?: string }) {
+    const row = await this.prisma.mobileTrackerCode.findFirst({
+      where: { deviceId: null, mobile: uniqueId, purpose: 'ACTIVATE', consumedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!row || !row.email) throw trackerError(401, 'CODE_EXPIRED', 'The code has expired or was not requested. Ask for a new code.');
+    if (row.attempts >= CODE_MAX_ATTEMPTS) throw trackerError(401, 'TOO_MANY', 'Too many wrong attempts. Ask for a new code.');
+    if (row.code !== (body.code ?? '').trim()) {
+      await this.prisma.mobileTrackerCode.update({ where: { id: row.id }, data: { attempts: { increment: 1 } } });
+      throw trackerError(401, 'WRONG_CODE', 'Wrong code.');
+    }
+    const email = row.email;
+    const provisioned = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.mobileTrackerCode.updateMany({ where: { id: row.id, consumedAt: null }, data: { consumedAt: new Date() } });
+      if (!count) throw trackerError(401, 'CODE_EXPIRED', 'The code was already used. Ask for a new code.');
+      return this.self.provision(tx, { mobile: uniqueId, email, name: row.name });
+    });
+    this.logger.log(`Self-service tracker ${uniqueId} → company ${provisioned.companyId}${provisioned.newAccount ? ' (new account)' : ''}`);
+    const device = await this.deviceByMobile(uniqueId);
+    void this.self.notifyStarted(this.prisma, { ...provisioned, mobile: uniqueId, email });
+    return this.startSession(device, body);
+  }
+
+  private async startSession(device: Awaited<ReturnType<MobileTrackerService['deviceByMobile']>>, body: { deviceName?: string; appVersion?: string; platform?: string }) {
     const token = randomBytes(32).toString('base64url');
     const now = new Date();
     // One phone per number: activating here stops every earlier phone.
@@ -198,8 +283,24 @@ export class MobileTrackerService {
     return { token, ...this.describe(device), config: this.config() };
   }
 
-  private describe(device: { uniqueId: string; company: { name: string } | null; assignments: { object: { name: string } }[] }) {
-    return { uniqueId: device.uniqueId, mobile: formatMobile(device.uniqueId), objectName: device.assignments[0]?.object.name ?? null, companyName: device.company?.name ?? null };
+  /** What the Tracker app shows: who / what is tracked, the account (type, e-mail) and the free-trial end. */
+  private describe(device: {
+    uniqueId: string;
+    activationEmail?: string | null;
+    company: { name: string; accountType?: string } | null;
+    licenceSeat?: { source: string; expiresAt: Date } | null;
+    assignments: { object: { name: string } }[];
+  }) {
+    return {
+      uniqueId: device.uniqueId,
+      mobile: formatMobile(device.uniqueId),
+      objectName: device.assignments[0]?.object.name ?? null,
+      companyName: device.company?.name ?? null,
+      accountType: device.company?.accountType ?? null,
+      email: device.activationEmail ?? null,
+      trialEndsAt: device.licenceSeat?.source === 'TRIAL' ? device.licenceSeat.expiresAt.toISOString() : null,
+      licenceEndsAt: device.licenceSeat?.expiresAt.toISOString() ?? null,
+    };
   }
 
   /** Resolves the Bearer token: 401 REVOKED / INVALID, 403 INACTIVE. */
@@ -225,7 +326,13 @@ export class MobileTrackerService {
     const s = await this.session(authorization);
     const device = await this.prisma.device.findUniqueOrThrow({
       where: { id: s.deviceId },
-      select: { uniqueId: true, company: { select: { name: true } }, assignments: { where: { toTime: null }, select: { object: { select: { name: true } } } } },
+      select: {
+        uniqueId: true,
+        activationEmail: true,
+        company: { select: { name: true, accountType: true } },
+        licenceSeat: { select: { source: true, expiresAt: true } },
+        assignments: { where: { toTime: null }, select: { object: { select: { name: true } } } },
+      },
     });
     return { ...this.describe(device), config: this.config() };
   }

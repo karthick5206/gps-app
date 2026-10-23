@@ -1,7 +1,7 @@
 import * as Location from 'expo-location';
 import { api, ApiError } from './api';
 import { requestNotifications } from './device';
-import { getToken, setToken, store } from './state';
+import { getToken, sessionFrom, setToken, store } from './state';
 import { S } from './strings';
 import { applyConfig, startNative, Tracker, type TrackerStatus } from './tracking';
 
@@ -85,7 +85,7 @@ export async function recheckInactive(st: TrackerStatus | null, force = false): 
     const me = await api.me(token);
     await Tracker.resetStopReason();
     store.setInactive(false);
-    store.setSession({ uniqueId: me.uniqueId, objectName: me.objectName, companyName: me.companyName });
+    store.setSession(sessionFrom(me));
     await applyConfig(me.config);
   } catch (e) {
     await handleAuthError(e);

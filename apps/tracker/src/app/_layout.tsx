@@ -7,7 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api, SERVER_URL } from '@/lib/api';
 import { installJsCrashHandler, reportCrashes } from '@/lib/crash';
 import { handleAuthError, syncStopReason } from '@/lib/control';
-import { getToken, hasToken, store, useStoreVersion } from '@/lib/state';
+import { getToken, hasToken, sessionFrom, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 import { applyConfig, resumeIfWanted, Tracker } from '@/lib/tracking';
@@ -32,7 +32,7 @@ async function startup(): Promise<void> {
   await resumeIfWanted();
   try {
     const me = await api.me(token);
-    store.setSession({ uniqueId: me.uniqueId, objectName: me.objectName, companyName: me.companyName });
+    store.setSession(sessionFrom(me));
     if (store.inactive() || st?.stopReason === 'INACTIVE') {
       // /me works again, so the administrator switched the device back on; the user taps Start.
       store.setInactive(false);

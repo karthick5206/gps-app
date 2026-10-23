@@ -10,7 +10,39 @@ import { kvGet, kvSet } from './db';
 
 const TOKEN_KEY = 'veetrax_tracker_token';
 
-export interface SessionInfo { uniqueId: string; objectName: string; companyName: string }
+export interface SessionInfo {
+  uniqueId: string;
+  objectName: string;
+  companyName: string;
+  mobile?: string;
+  email?: string | null;
+  accountType?: string | null;
+  trialEndsAt?: string | null;
+  licenceEndsAt?: string | null;
+}
+
+/** Session row from a /me or /activate/verify response. */
+export function sessionFrom(r: {
+  uniqueId: string;
+  objectName: string;
+  companyName: string;
+  mobile?: string;
+  email?: string | null;
+  accountType?: string | null;
+  trialEndsAt?: string | null;
+  licenceEndsAt?: string | null;
+}): SessionInfo {
+  return {
+    uniqueId: r.uniqueId,
+    objectName: r.objectName,
+    companyName: r.companyName,
+    mobile: r.mobile,
+    email: r.email ?? null,
+    accountType: r.accountType ?? null,
+    trialEndsAt: r.trialEndsAt ?? null,
+    licenceEndsAt: r.licenceEndsAt ?? null,
+  };
+}
 
 let tokenCache: string | null | undefined;
 

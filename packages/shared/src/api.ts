@@ -63,7 +63,7 @@ export interface AuthTokens {
 export interface CompanySummary {
   id: string;
   name: string;
-  accountType: 'BUSINESS' | 'INDIVIDUAL';
+  accountType: 'BUSINESS' | 'INDIVIDUAL' | 'FAMILY';
   status: 'ACTIVE' | 'SUSPENDED';
   timezone: string;
   thresholds: StatusThresholds;

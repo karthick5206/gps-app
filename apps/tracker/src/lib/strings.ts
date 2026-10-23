@@ -4,9 +4,15 @@ export const S = {
 
   // Activation
   activateTitle: 'Activate this phone',
-  activateIntro:
-    'Your administrator must first add this mobile number as a tracker in VeeTrax (Devices). Then enter the number below to get a 6-digit code.',
+  activateIntro: 'Enter this phone\'s mobile number and your e-mail. We send a 6-digit code to the phone.',
+  steps: ['Enter your mobile number and e-mail', 'Type the 6-digit code from the SMS', 'Tracking runs in the background until you stop it', 'See your location and history in the VeeTrax app'],
   mobileLabel: 'Mobile number',
+  emailLabel: 'E-mail',
+  emailHint: 'The phone is added to the VeeTrax account of this e-mail (a new one is created if needed). Company phones: your administrator\'s setup is used.',
+  emailPlaceholder: 'you@example.com',
+  emailInvalid: 'Enter a valid e-mail address.',
+  nameLabel: 'Your name (optional)',
+  namePlaceholder: 'e.g. Ravi',
   mobilePlaceholder: '98765 43210',
   mobileInvalid: 'Enter a 10-digit mobile number.',
   sendCode: 'Send code',
@@ -27,6 +33,19 @@ export const S = {
   reasonInvalid: 'Please activate again.',
   reasonInactive: 'Tracking switched off by your administrator.',
   reasonSignedOut: 'This phone was deactivated.',
+
+  // Account details and the VeeTrax app
+  mobile: 'Mobile',
+  email: 'E-mail',
+  accountType: 'Account',
+  accountTypes: { BUSINESS: 'Company', INDIVIDUAL: 'Individual', FAMILY: 'Family' } as Record<string, string>,
+  freeTrialUntil: 'Free tracking until',
+  licenceUntil: 'Licence until',
+  trialEnded: 'Free trial ended: buy a licence in the VeeTrax app to see this phone\'s location.',
+  viewInAppTitle: 'See your tracking in the VeeTrax app',
+  viewInAppBody: (email: string | null, mobile: string) =>
+    `Sign in to the VeeTrax app or app.veetrax.com with ${email ? `${email} or ` : ''}an OTP on ${mobile} to see this phone's location, history and alerts.`,
+  openVeetrax: 'Open VeeTrax',
 
   // Home
   trackingOn: 'Tracking is ON',

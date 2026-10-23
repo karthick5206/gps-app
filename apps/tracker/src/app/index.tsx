@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
-import { LogOut, Play, Square, UploadCloud } from 'lucide-react-native';
+import { ExternalLink, LogOut, Play, Square, UploadCloud } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, AppState, Linking, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { BatteryCard, OemCard, PermissionsCard, useChecks } from '@/components/ChecksCards';
 import { SosButton } from '@/components/SosButton';
 import { Body, Button, Card, Row } from '@/components/ui';
@@ -13,6 +13,14 @@ import { useColors } from '@/lib/theme';
 import { resumeIfWanted, stopTracking, Tracker, useTrackerStatus } from '@/lib/tracking';
 
 const RECHECK_EVERY_MS = 5 * 60_000;
+const WEB_URL = 'https://app.veetrax.com';
+
+/** Opens the VeeTrax app (its veetrax:// scheme), else the download page. */
+function openVeetrax() {
+  Linking.openURL('veetrax://').catch(() => Linking.openURL(`${WEB_URL}/download`).catch(() => undefined));
+}
+
+const dateOnly = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
 export default function HomeScreen() {
   useStoreVersion();
@@ -74,7 +82,21 @@ export default function HomeScreen() {
       {session ? (
         <Card>
           <Row label={S.trackingFor} value={session.objectName || `+${session.uniqueId}`} />
+          <Row label={S.mobile} value={session.mobile || `+${session.uniqueId}`} />
+          {session.email ? <Row label={S.email} value={session.email} /> : null}
+          {session.accountType ? <Row label={S.accountType} value={S.accountTypes[session.accountType] ?? session.accountType} /> : null}
           <Row label={S.company} value={session.companyName || '—'} />
+          {session.trialEndsAt ? (
+            <Row label={S.freeTrialUntil} value={dateOnly(session.trialEndsAt)} />
+          ) : session.licenceEndsAt ? (
+            <Row label={S.licenceUntil} value={dateOnly(session.licenceEndsAt)} />
+          ) : null}
+        </Card>
+      ) : null}
+
+      {session?.trialEndsAt && Date.parse(session.trialEndsAt) < Date.now() ? (
+        <Card tone="warn">
+          <Body style={{ color: c.accentText, fontWeight: '700' }}>{S.trialEnded}</Body>
         </Card>
       ) : null}
 
@@ -133,6 +155,14 @@ export default function HomeScreen() {
       <BatteryCard show={checks.batteryOpt} />
       <OemCard />
       <PermissionsCard checks={checks} />
+
+      {session ? (
+        <Card>
+          <Body style={{ fontWeight: '700' }}>{S.viewInAppTitle}</Body>
+          <Body muted>{S.viewInAppBody(session.email ?? null, session.mobile || `+${session.uniqueId}`)}</Body>
+          <Button title={S.openVeetrax} variant="outline" icon={<ExternalLink color={c.primary} size={18} />} onPress={openVeetrax} />
+        </Card>
+      ) : null}
 
       <Button title={S.signOut} variant="ghost" icon={<LogOut color={c.muted} size={18} />} onPress={deactivate} />
     </ScrollView>

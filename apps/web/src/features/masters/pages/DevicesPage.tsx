@@ -2,6 +2,10 @@ import type { DeviceDto, DeviceModelDto } from '@veetracer/shared';
 import { BinaryIcon, CpuIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { usePurgeAction } from '@/features/platform/PurgeDialog';
+import { FamilyDialog } from '@/features/family/FamilyDialog';
+import { UsersRoundIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/features/auth/auth-context';
 import { ASSIGNED_OPTIONS, DeviceForm, deviceColumns, deviceRowLabel, modelOption } from '../device-shared';
@@ -20,15 +24,23 @@ function CompanyDeviceForm(props: MasterFormProps<DeviceDto>) {
 export function DevicesPage() {
   const { t } = useTranslation();
   const models = useEntityOptions<DeviceModelDto>('/device-models', modelOption);
-  const { can } = useAuth();
+  const { can, me } = useAuth();
+  const personal = !!me && me.company.accountType !== 'BUSINESS';
+  const [family, setFamily] = useState(false);
   const [rawFor, setRawFor] = useState<DeviceDto | null>(null);
+  const purge = usePurgeAction('device');
   const rowActions = useCallback(
     (r: DeviceDto) => (
-      <DropdownMenuItem onSelect={() => setRawFor(r)}>
-        <BinaryIcon /> {t('Raw data')}
-      </DropdownMenuItem>
+      <>
+        {can('devices', 'edit') && (
+          <DropdownMenuItem onSelect={() => setRawFor(r)}>
+            <BinaryIcon /> {t('Raw data')}
+          </DropdownMenuItem>
+        )}
+        {purge.item(r.id)}
+      </>
     ),
-    [t],
+    [t, can, purge],
   );
   const filters = useMemo<MasterFilter[]>(
     () => [
@@ -50,9 +62,18 @@ export function DevicesPage() {
       defaultSort={{ id: 'uniqueId', desc: false }}
       Form={CompanyDeviceForm}
       emptyIcon={CpuIcon}
-      rowActions={can('devices', 'edit') ? rowActions : undefined}
+      rowActions={rowActions}
+      headerActions={
+        personal && can('devices', 'create') ? (
+          <Button variant="outline" onClick={() => setFamily(true)}>
+            <UsersRoundIcon /> {t('Family members')}
+          </Button>
+        ) : undefined
+      }
     />
+    <FamilyDialog open={family} onOpenChange={setFamily} />
     <RawPacketsSheet device={rawFor} onClose={() => setRawFor(null)} />
+    {purge.dialog}
     </>
   );
 }

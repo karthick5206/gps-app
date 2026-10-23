@@ -2,6 +2,9 @@ import { ArrayMaxSize, IsArray, IsEmail, IsIn, IsObject, IsOptional, IsString, L
 
 export class TrackerRequestCodeBody {
   @IsString() @MaxLength(24) mobile!: string;
+  /** Needed when the number isn't registered yet: the phone joins (or creates) the personal account of this e-mail. */
+  @IsOptional() @IsEmail() @MaxLength(254) email?: string;
+  @IsOptional() @IsString() @MaxLength(80) name?: string;
 }
 
 export class TrackerVerifyBody {

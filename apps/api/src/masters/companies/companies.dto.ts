@@ -17,7 +17,7 @@ import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS } from '@veetracer/shared';
 import { ListQueryDto } from '../../common/list-query';
 import { MOBILE_MESSAGE, MOBILE_PATTERN, PASSWORD_MESSAGE, PASSWORD_PATTERN } from '../../common/secrets';
 
-const ACCOUNT_TYPES = ['BUSINESS', 'INDIVIDUAL'] as const;
+const ACCOUNT_TYPES = ['BUSINESS', 'INDIVIDUAL', 'FAMILY'] as const;
 type AccountTypeValue = (typeof ACCOUNT_TYPES)[number];
 
 export class CompanyListQuery extends ListQueryDto {

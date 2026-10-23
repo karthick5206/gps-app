@@ -137,3 +137,19 @@ export function trackerHealthIssues(h: TrackerHealth | null | undefined): Tracke
   if (h.notif === false) add('NOTIFICATIONS_OFF', 'warning', 'Notifications are off for the app (some phones then stop the tracking service)', 'Settings → Apps → VeeTrax Tracker → Notifications → On');
   return out.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1));
 }
+
+/** GET /family/members (personal / family accounts): the account's phone trackers and the free-trial count. */
+export interface FamilyMembersDto {
+  accountType: 'INDIVIDUAL' | 'FAMILY';
+  trialPhones: { used: number; max: number };
+  members: {
+    deviceId: string;
+    mobile: string;
+    name: string;
+    /** The Tracker app is activated on the phone. */
+    activated: boolean;
+    lastSeenAt: string | null;
+    trialEndsAt: string | null;
+    licenceEndsAt: string | null;
+  }[];
+}

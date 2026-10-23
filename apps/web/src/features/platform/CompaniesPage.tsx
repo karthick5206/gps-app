@@ -4,6 +4,7 @@ import { Building2Icon, LogInIcon } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
+import { usePurgeAction } from '@/features/platform/PurgeDialog';
 import { useNavigate } from 'react-router';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +26,7 @@ const ENDPOINT = '/admin/companies';
 const ACCOUNT_TYPES: Option[] = [
   { value: 'BUSINESS', label: 'Business' },
   { value: 'INDIVIDUAL', label: 'Individual' },
+  { value: 'FAMILY', label: 'Family' },
 ];
 const STATUS_OPTIONS: Option[] = [
   { value: 'ACTIVE', label: 'Active' },
@@ -39,7 +41,7 @@ function schemaFor(isCreate: boolean) {
   return z
     .object({
       name: requiredText(120),
-      accountType: z.enum(['BUSINESS', 'INDIVIDUAL']),
+      accountType: z.enum(['BUSINESS', 'INDIVIDUAL', 'FAMILY']),
       timezone: z.string({ invalid_type_error: 'Required' }).min(1, 'Required'),
       status: z.enum(['ACTIVE', 'SUSPENDED']),
       retentionDays: z.string().min(1, 'Required'),
@@ -138,6 +140,7 @@ export function CompaniesPage() {
   const { t } = useTranslation();
   const { switchCompany } = useAuth();
   const navigate = useNavigate();
+  const purge = usePurgeAction('company');
   const rowActions = useCallback(
     (r: CompanyDto) => (
       <DropdownMenuItem
@@ -152,6 +155,7 @@ export function CompaniesPage() {
     [switchCompany, navigate, t],
   );
   return (
+    <>
     <MasterPage
       menu="sa_companies"
       title="Companies"
@@ -161,8 +165,15 @@ export function CompaniesPage() {
       rowLabel={rowLabel}
       defaultSort={{ id: 'name', desc: false }}
       Form={CompanyForm}
-      rowActions={rowActions}
+      rowActions={(r) => (
+        <>
+          {rowActions(r)}
+          {purge.item(r.id)}
+        </>
+      )}
       emptyIcon={Building2Icon}
     />
+    {purge.dialog}
+    </>
   );
 }

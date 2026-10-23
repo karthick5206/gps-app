@@ -2,7 +2,7 @@
   "expo": {
     "name": "VeeTrax Tracker",
     "slug": "veetrax-tracker",
-    "version": "1.1.10",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "veetrax-tracker",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.sasvata.veetrax.tracker",
-      "versionCode": 12,
+      "versionCode": 13,
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#0E5E57",

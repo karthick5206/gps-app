@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { BranchDto, RoleDto, TrackedObjectDto, UserDto } from '@veetracer/shared';
 import { UsersIcon } from 'lucide-react';
+import { usePurgeAction } from '@/features/platform/PurgeDialog';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -159,6 +160,7 @@ const rowLabel = (r: UserDto) => r.name;
 
 export function UsersPage() {
   const { can } = useAuth();
+  const purge = usePurgeAction('user');
   const roles = useEntityOptions<RoleDto>('/roles', roleOption, { enabled: can('roles'), params: ROLE_PARAMS });
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
   const filters = useMemo<MasterFilter[]>(
@@ -169,6 +171,7 @@ export function UsersPage() {
     [can, roles.options, branches.options],
   );
   return (
+    <>
     <MasterPage
       menu="users"
       title="Users"
@@ -180,6 +183,9 @@ export function UsersPage() {
       defaultSort={{ id: 'name', desc: false }}
       Form={UserForm}
       emptyIcon={UsersIcon}
+      rowActions={(r) => purge.item(r.id)}
     />
+    {purge.dialog}
+    </>
   );
 }

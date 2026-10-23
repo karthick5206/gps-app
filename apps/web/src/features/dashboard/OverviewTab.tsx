@@ -131,7 +131,7 @@ export function OverviewTab() {
   const { t } = useTranslation();
   const { can, me } = useAuth();
   const navigate = useNavigate();
-  const personal = me?.company.accountType === 'INDIVIDUAL';
+  const personal = !!me && me.company.accountType !== 'BUSINESS';
   const canMap = can('live_map');
   const [top, setTop] = useState(5);
   const query = useQuery({

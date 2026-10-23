@@ -40,6 +40,7 @@ function RootStack() {
           <Stack.Screen name="manage/[kind]/[id]" options={{ title: t('Edit') }} />
           <Stack.Screen name="profile" options={{ title: t('Profile') }} />
           <Stack.Screen name="company" options={{ title: t('Switch company') }} />
+          <Stack.Screen name="family" options={{ title: t('Family members') }} />
           <Stack.Screen name="geofences/index" options={{ title: t('Geofences') }} />
           <Stack.Screen name="geofences/[id]" options={{ title: t('Geofence') }} />
           <Stack.Screen name="pois/index" options={{ title: t('Points of interest') }} />

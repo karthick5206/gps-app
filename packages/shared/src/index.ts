@@ -21,3 +21,4 @@ export * from './relay';
 export * from './io-sensors';
 export * from './mobile-tracker';
 export * from './guide';
+export * from './purge';

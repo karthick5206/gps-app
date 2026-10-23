@@ -15,7 +15,7 @@ export class MobileTrackerController {
 
   @Public() @Post('activate/request') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 5 } })
   request(@Body() body: TrackerRequestCodeBody) {
-    return this.service.requestCode(body.mobile);
+    return this.service.requestCode(body.mobile, body.email, body.name);
   }
 
   @Public() @Post('activate/verify') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 10 } })

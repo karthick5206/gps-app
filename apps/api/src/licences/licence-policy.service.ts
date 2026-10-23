@@ -59,7 +59,8 @@ export class LicencePolicyService {
     return {
       OR: [
         { assignments: { none: { toTime: null } } },
-        { assignments: { some: { toTime: null, device: { licenceSeat: { is: { expiresAt: { gt: cutoff } } } } } } },
+        // Free-trial seats lock at expiry (no grace period).
+        { assignments: { some: { toTime: null, device: { licenceSeat: { is: { expiresAt: { gt: cutoff }, OR: [{ source: { not: 'TRIAL' } }, { expiresAt: { gt: new Date(now) } }] } } } } } },
       ],
     };
   }

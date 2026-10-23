@@ -3,7 +3,9 @@ import { displayStore } from '@/features/display/display-store';
 import maplibregl, { type ExpressionSpecification, type GeoJSONSource, type Map as MlMap, type StyleSpecification } from 'maplibre-gl';
 import { ARROW_IMAGE, LABEL_FONT, createArrowImage, cssToken, styleUrl } from '@/features/live/map/map-style';
 import type { ResolvedTheme } from '@/features/theme/theme-store';
+import { formatDateTime } from '@/lib/format';
 import { coordsOf, findRun, type Sample, type TrackIndex, type TrackRun } from './playback-core';
+import { reverseGeocode } from './use-history';
 
 export type ColorMode = 'status' | 'speed';
 
@@ -40,6 +42,11 @@ const DEFAULT_CENTER: [number, number] = [80.24, 13.07];
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
 export type MarkClick = { kind: 'stop'; index: number } | { kind: 'alert'; index: number };
+
+/** Hovering the track shows the nearest recorded point within this many pixels. */
+const HOVER_PX = 18;
+
+const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 export interface HistoryMapOptions {
   container: HTMLElement;
@@ -132,7 +139,63 @@ export class HistoryMap {
   }
 
   destroy() {
+    this.hoverPopup?.remove();
     this.map.remove();
+  }
+
+  // ───────────── hover: time, speed and address of the nearest recorded point ─────────────
+
+  private hoverPopup: maplibregl.Popup | null = null;
+  private hoverIndex = -1;
+  private hoverFrame = 0;
+  private readonly addresses = new Map<string, string | null>();
+
+  private onTrackHover(point: maplibregl.Point) {
+    cancelAnimationFrame(this.hoverFrame);
+    this.hoverFrame = requestAnimationFrame(() => this.showHover(point));
+  }
+
+  private showHover(point: maplibregl.Point) {
+    const idx = this.idx;
+    if (!idx || !idx.n) return this.hideHover();
+    // Nearest point in screen space (projecting is cheap enough for a few thousand points per frame).
+    let best = -1;
+    let bestD = HOVER_PX * HOVER_PX;
+    const ll = this.map.unproject(point);
+    const span = this.map.unproject([point.x + HOVER_PX * 4, point.y]).lng - ll.lng;
+    for (let i = 0; i < idx.n; i++) {
+      if (Math.abs(idx.lng[i] - ll.lng) > Math.abs(span) || Math.abs(idx.lat[i] - ll.lat) > Math.abs(span)) continue;
+      const p = this.map.project([idx.lng[i], idx.lat[i]]);
+      const d = (p.x - point.x) ** 2 + (p.y - point.y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best < 0) return this.hideHover();
+    if (best === this.hoverIndex && this.hoverPopup) return;
+    this.hoverIndex = best;
+    const lat = idx.lat[best];
+    const lng = idx.lng[best];
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    const popup = (this.hoverPopup ??= new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, maxWidth: '280px', className: 'vt-hover-popup' }));
+    const render = (address: string | null | undefined) =>
+      `<div style="font-size:12px;line-height:1.45"><div style="font-weight:600">${escapeHtml(formatDateTime(new Date(idx.t[best]).toISOString()))}</div>` +
+      `<div>${Math.round(idx.speed[best])} km/h · ${lat.toFixed(5)}, ${lng.toFixed(5)}</div>` +
+      `<div style="opacity:.8">${address === undefined ? '…' : escapeHtml(address ?? '')}</div></div>`;
+    popup.setLngLat([lng, lat]).setHTML(render(this.addresses.get(key))).addTo(this.map);
+    if (!this.addresses.has(key)) {
+      void reverseGeocode(lat, lng).then((address) => {
+        this.addresses.set(key, address);
+        if (this.hoverIndex === best && this.hoverPopup) this.hoverPopup.setHTML(render(address));
+      });
+    }
+  }
+
+  private hideHover() {
+    cancelAnimationFrame(this.hoverFrame);
+    this.hoverIndex = -1;
+    this.hoverPopup?.remove();
   }
 
   resize() {
@@ -190,6 +253,11 @@ export class HistoryMap {
       });
       map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'));
       map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''));
+    }
+    // Track hover: nearest recorded point with its time, speed and address.
+    for (const layer of [LYR.trackCasing, LYR.played]) {
+      map.on('mousemove', layer, (e) => this.onTrackHover(e.point));
+      map.on('mouseleave', layer, () => this.hideHover());
     }
 
     this.loaded = true;

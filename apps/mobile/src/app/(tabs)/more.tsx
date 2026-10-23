@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, BookOpenIcon, Building2Icon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
+import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
@@ -16,10 +16,10 @@ import { LanguageChips } from '@/components/LanguageChips';
 import { SERVER_URL } from '@/lib/config';
 import { SPACE, useColors } from '@/lib/theme';
 
-function MenuItem({ icon: Icon, label, href, url }: { icon: LucideIcon; label: string; href?: Href; url?: string }) {
+function MenuItem({ icon: Icon, label, href, url, onPress }: { icon: LucideIcon; label: string; href?: Href; url?: string; onPress?: () => void }) {
   const c = useColors();
   return (
-    <Pressable onPress={() => (url ? Linking.openURL(url).catch(() => undefined) : href && router.push(href))} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }, pressed && { opacity: 0.6 }]}>
+    <Pressable onPress={() => (onPress ? onPress() : url ? Linking.openURL(url).catch(() => undefined) : href && router.push(href))} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }, pressed && { opacity: 0.6 }]}>
       <Icon size={20} color={c.primary} />
       <Text style={{ flex: 1 }}>{label}</Text>
       <ChevronRightIcon size={18} color={c.mutedForeground} />
@@ -93,6 +93,9 @@ export default function MoreScreen() {
         {can('pois') && <MenuItem icon={MapPinIcon} label={t('Points of interest')} href="/pois" />}
         {can('alert_settings') && <MenuItem icon={BellRingIcon} label={t('Alert settings')} href="/alert-settings" />}
         {can('billing') && !me?.user.isSuperAdmin && <MenuItem icon={ReceiptIndianRupeeIcon} label={t('Licences & invoices')} href="/licences" />}
+        {me && me.company.accountType !== 'BUSINESS' && can('devices', 'create') && <MenuItem icon={UsersRoundIcon} label={t('Family members')} href="/family" />}
+        {/* Opens VeeTrax Tracker (its veetrax-tracker:// scheme), else the download page. */}
+        <MenuItem icon={SmartphoneIcon} label={t('Track this phone')} onPress={() => Linking.openURL('veetrax-tracker://').catch(() => Linking.openURL(`${SERVER_URL}/download`).catch(() => undefined))} />
         {/* Public web page (same content as the PDF emailed on sign-up). */}
         <MenuItem icon={BookOpenIcon} label={t('Getting-started guide')} url={`${SERVER_URL}/guide`} />
       </Card>

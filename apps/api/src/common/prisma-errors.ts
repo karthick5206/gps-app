@@ -1,7 +1,7 @@
 import { ConflictException, HttpException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-export const IN_USE_MESSAGE = 'In use — deactivate instead';
+export const IN_USE_MESSAGE = 'In use (has history or links) — deactivate it instead, or ask a Super Admin to delete it permanently';
 
 /** Translate known Prisma errors into HTTP errors; returns null for anything else. */
 export function httpErrorFromPrisma(error: unknown): HttpException | null {

@@ -10,6 +10,8 @@ datasource db {
 enum AccountType {
   BUSINESS
   INDIVIDUAL
+  /// Personal account with phones of other people (added with their OTP consent) or several own phones.
+  FAMILY
 }
 
 enum CompanyStatus {
@@ -1672,7 +1674,15 @@ model RelayTarget {
 /// Activation code for a phone running the VeeTrax Tracker app (sent by SMS; admins can read it in Devices).
 model MobileTrackerCode {
   id         String    @id @default(uuid()) @db.Uuid
-  deviceId   String    @db.Uuid
+  /// Null for a self-service activation (number not registered yet): the device is created on verify.
+  deviceId   String?   @db.Uuid
+  /// Self-service / family consent: the number, owner e-mail and name the code was asked for.
+  mobile     String?
+  email      String?
+  name       String?
+  /// FAMILY_ADD: OTP sent to a family member's phone, verified by the account owner (consent).
+  purpose    String    @default("ACTIVATE")
+  companyId  String?   @db.Uuid
   /// 6 digits, shown to admins while pending (short-lived, single use).
   code       String
   expiresAt  DateTime  @db.Timestamptz(3)
@@ -1683,9 +1693,10 @@ model MobileTrackerCode {
   emailCount Int       @default(0)
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
 
-  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId, createdAt(sort: Desc)])
+  @@index([mobile, createdAt(sort: Desc)])
 }
 
 /// The phone currently tracking for a mobile-tracker device. Activating on another phone revokes the previous one.

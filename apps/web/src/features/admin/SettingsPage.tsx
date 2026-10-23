@@ -103,7 +103,7 @@ export function SettingsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>{t('Profile')}</CardTitle>
-                <CardDescription>{company.accountType === 'BUSINESS' ? t('Business account') : t('Individual account')}</CardDescription>
+                <CardDescription>{company.accountType === 'BUSINESS' ? t('Business account') : company.accountType === 'FAMILY' ? t('Family account') : t('Individual account')}</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <TextField form={form} name="name" label="Company name" required />

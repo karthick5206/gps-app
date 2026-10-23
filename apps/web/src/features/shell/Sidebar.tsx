@@ -21,7 +21,7 @@ export function Sidebar({
 }) {
   const { t } = useTranslation();
   const me = useMe();
-  const personal = me.company.accountType === 'INDIVIDUAL';
+  const personal = me.company.accountType !== 'BUSINESS';
   const groups = useMemo(() => buildNav(me.permissions, personal), [me.permissions, personal]);
 
   return (

@@ -13,6 +13,8 @@ import { GeofencesModule } from './masters/geofences/geofences.module';
 import { MastersModule } from './masters/masters.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { DownloadsModule } from './downloads/downloads.module';
+import { PurgeModule } from './purge/purge.module';
 import { RedisModule } from './redis/redis.module';
 import { ReportSchedulesModule } from './report-schedules/report-schedules.module';
 import { CommandsModule } from './commands/commands.module';
@@ -41,6 +43,8 @@ import { RelayModule } from './relay/relay.controller';
     AppConfigModule,
     PrismaModule,
     RedisModule,
+    PurgeModule,
+    DownloadsModule,
     GeocodingModule,
     ScheduleModule.forRoot(),
     AccessModule,

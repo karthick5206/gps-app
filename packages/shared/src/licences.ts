@@ -123,7 +123,19 @@ export function cappedKeyRates(key: { ratePerMinute: number; ratePerDay: number 
 export const apiPlanPriceKey = (plan: ApiPlan) => `API_ACCESS:${plan}`;
 
 /** Where a seat came from. */
-export type SeatSource = 'PURCHASE' | 'MIGRATION' | 'OVERRIDE' | 'ALLOCATION';
+export type SeatSource = 'PURCHASE' | 'MIGRATION' | 'OVERRIDE' | 'ALLOCATION' | 'TRIAL';
+
+/**
+ * Free trial for personal / family accounts: each of the first TRIAL_PHONES phone trackers activated in an account gets a
+ * TRIAL_DAYS Mobile-tracker seat. Trial seats lock at expiry (no grace period); then a licence must be bought.
+ */
+export const TRIAL_DAYS = 100;
+export const TRIAL_PHONES = 5;
+
+/** Grace period after expiry for a seat: none for a free trial. */
+export function seatGraceDays(source: string, graceDays: number): number {
+  return source === 'TRIAL' ? 0 : graceDays;
+}
 
 /** Seat status for display: ACTIVE, EXPIRING (within 30 days), GRACE (expired, still usable), EXPIRED (locked). */
 export type SeatStatus = 'ACTIVE' | 'EXPIRING' | 'GRACE' | 'EXPIRED';
