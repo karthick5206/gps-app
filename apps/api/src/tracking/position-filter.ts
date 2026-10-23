@@ -24,6 +24,11 @@ const PHONE_DRIFT_ACCURACY_FACTOR = 2;
  */
 const PHONE_COARSE_ACCURACY_M = 50;
 const PHONE_COARSE_MOVE_FACTOR = 3;
+/**
+ * Phones: the reported (Doppler) speed must be confirmed by the position. Indoors it can read 20 km/h while the fix
+ * moved 41 m in 3 minutes; when the implied speed is under 1/this of the reported one, the speed is noise.
+ */
+const PHONE_SPEED_CONFIRM_FACTOR = 4;
 /** Phone fixes with a larger accuracy radius are weak (like a tracker with few satellites). */
 const WEAK_ACCURACY_M = 25;
 /** After this many consecutive jump-flagged points the new location is accepted (the old anchor was wrong). */
@@ -118,7 +123,8 @@ export function filterPosition(input: FilterInput, state: TrackState, ctx: Filte
       const noisySpeed = weak || input.ignition === false ? STATIONARY_NOISE_KPH : ctx.thresholds.runningSpeedKph;
       // A phone's reported accuracy is the radius its position wobbles in while standing still.
       const radius = Math.max(weak ? Math.max(ctx.thresholds.driftRadiusM, WEAK_FIX_DRIFT_RADIUS_M) : ctx.thresholds.driftRadiusM, (acc ?? 0) * PHONE_DRIFT_ACCURACY_FACTOR);
-      if (input.speedKph < noisySpeed && distance < radius) flags |= POSITION_FLAGS.DRIFT;
+      const unconfirmedSpeed = acc !== null && impliedKph < input.speedKph / PHONE_SPEED_CONFIRM_FACTOR;
+      if ((input.speedKph < noisySpeed || unconfirmedSpeed) && distance < radius) flags |= POSITION_FLAGS.DRIFT;
     }
   }
 

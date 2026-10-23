@@ -66,6 +66,20 @@ describe('filterPosition', () => {
     expect(filterPosition(precise, anchored, ctx).flags & POSITION_FLAGS.DRIFT).toBe(0);
   });
 
+  it('phones: a reported speed the position does not confirm is noise (919036353003, 23 Oct 09:22, at home)', () => {
+    // Last accepted fix 08:41:52; at 09:22:08 the phone reported 20.2 km/h at ±43 m, 41 m away: drift, speed 0.
+    const home: TrackState = { ...EMPTY_TRACK_STATE, lastValid: { lat: 39.287301, lng: -76.800455, fixTime: NOW - 40 * 60_000 }, lastFixTime: NOW - 3 * 60_000 };
+    const fake = { ...base, fixTime: NOW, satellites: null, ignition: null, lat: 39.287477, lng: -76.800371, speedKph: 20.2, accuracyM: 43.2 };
+    const r = filterPosition(fake, home, ctx);
+    expect(r.flags & POSITION_FLAGS.DRIFT).toBeTruthy();
+    expect(r.speedKph).toBe(0);
+    expect([r.lat, r.lng]).toEqual([39.287301, -76.800455]);
+    // Really starting to drive: 20 km/h over 10 s from a fresh anchor is ~55 m, beyond the ±43 m wobble → movement.
+    const fresh: TrackState = { ...home, lastValid: { lat: 39.287301, lng: -76.800455, fixTime: NOW - 10_000 } };
+    const drive = { ...fake, lat: 39.287301 + 0.0005 };
+    expect(filterPosition(drive, fresh, ctx).flags & POSITION_FLAGS.DRIFT).toBe(0);
+  });
+
   it('accepts a normal first point and makes it the last valid point', () => {
     const r = filterPosition(base, EMPTY_TRACK_STATE, ctx);
     expect(r.flags).toBe(0);
