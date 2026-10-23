@@ -7,6 +7,7 @@ import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSh
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chips, ErrorBanner, Field, Text } from '@/components/ui';
 import { BrandMark } from '@/components/BrandMark';
+import { TrackingScene } from '@/components/TrackingScene';
 import { LanguageChips } from '@/components/LanguageChips';
 import { useAuth } from '@/features/auth/auth';
 import { api, errorMessage } from '@/lib/api';
@@ -115,6 +116,7 @@ export default function LoginScreen() {
             <BrandMark size={64} onLight={lightHero} />
             <Text style={{ color: c.brandForeground, fontSize: 28, fontWeight: '800', letterSpacing: -0.8 }}>VeeTrax</Text>
             <Text style={{ color: c.brandForeground, opacity: 0.8, fontSize: 14 }}>{t('Every vehicle, every second, one screen.')}</Text>
+            <TrackingScene color={c.brandForeground} style={{ width: '100%', maxWidth: 420, height: 120, marginTop: SPACE.sm }} />
           </View>
           <View style={[styles.sheet, { backgroundColor: c.background }]}>
             <Text size="xl" weight="700">

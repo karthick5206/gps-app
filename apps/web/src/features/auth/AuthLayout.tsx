@@ -3,6 +3,7 @@ import { LanguageToggle } from '@/features/shell/LanguageToggle';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Logo, LogoMark, Wordmark } from '@/components/logo';
+import { TrackingScene } from './TrackingScene';
 
 const HIGHLIGHTS = [
   { icon: MapPinnedIcon, text: 'Live fleet map with second-by-second updates' },
@@ -25,6 +26,7 @@ export function AuthLayout({ title, description, children }: { title: string; de
           <Wordmark className="text-xl text-sidebar-accent-foreground" />
         </span>
         <div className="relative max-w-md space-y-6">
+          <TrackingScene className="w-full text-sidebar-foreground" />
           <h2 className="text-3xl leading-tight font-semibold text-sidebar-accent-foreground">{t('Every vehicle, every second, one screen.')}</h2>
           <ul className="space-y-3">
             {HIGHLIGHTS.map(({ icon: Icon, text }) => (
@@ -45,6 +47,7 @@ export function AuthLayout({ title, description, children }: { title: string; de
         </div>
         <div className="w-full max-w-sm space-y-7">
           <Logo className="lg:hidden" />
+          <TrackingScene compact className="-my-2 h-28 w-full text-primary lg:hidden" />
           <div className="space-y-1.5">
             <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
             {description && <p className="text-sm text-muted-foreground">{description}</p>}

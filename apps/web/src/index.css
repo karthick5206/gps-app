@@ -316,3 +316,40 @@
 .dark .maplibregl-ctrl-attrib-button {
   filter: invert(1);
 }
+
+/* Sign-in pages: live-tracking scene (features/auth/TrackingScene.tsx). */
+.vt-scene .vt-trace {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: vt-trace 9s linear infinite;
+}
+.vt-scene .vt-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: vt-ping 2s ease-out infinite;
+}
+.vt-scene .vt-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: vt-spin 24s linear infinite;
+}
+@keyframes vt-trace {
+  0% { stroke-dashoffset: 100; opacity: 1; }
+  85% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes vt-ping {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+@keyframes vt-spin {
+  to { transform: rotate(360deg); }
+}
+.vt-scene.vt-still .vt-trace { animation: none; stroke-dashoffset: 45; }
+.vt-scene.vt-still .vt-ping,
+.vt-scene.vt-still .vt-spin { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .vt-scene .vt-trace { animation: none; stroke-dashoffset: 45; }
+  .vt-scene .vt-ping,
+  .vt-scene .vt-spin { animation: none; }
+}
