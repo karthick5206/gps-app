@@ -2,7 +2,7 @@
   "expo": {
     "name": "VeeTrax",
     "slug": "veetracer",
-    "version": "0.3.2",
+    "version": "0.3.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "veetrax",
@@ -24,7 +24,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.sasvata.veetrax",
-      "versionCode": 32
+      "versionCode": 33
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -53,7 +53,13 @@
           ]
         }
       ],
-      "expo-localization"
+      "expo-localization",
+      [
+        "../../tooling/expo/with-release-signing.js",
+        {
+          "keyAlias": "veetrax"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
