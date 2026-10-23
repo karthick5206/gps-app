@@ -15,6 +15,12 @@ export interface IoSensorRuntime {
 
 /** No data for this long closes the open session at the last point (device offline / switched off). */
 export const IO_GAP_MS = 30 * 60_000;
+/**
+ * After a gap at least this long (vehicle parked with the tracker asleep), an ON first reading alerts again even if
+ * the sensor was ON before the gap: the AC was switched off and on in between (seen: 3 days silent, AC on at
+ * start-up, no AC_ON). Shorter gaps (network loss while driving) alert only if it wasn't ON before.
+ */
+export const IO_REALERT_GAP_MS = 2 * 60 * 60_000;
 /** An open session row is refreshed (duration, distance so far) at most this often. */
 export const IO_OPEN_WRITE_MS = 5 * 60_000;
 
@@ -147,7 +153,10 @@ export function stepIo(st: IoKindState, pt: IoPoint, cfg: IoSensorRuntime, newId
   const kind = cfg.kind;
   // No reading since the sensor was set up (fresh state, not a data gap): an ON first reading still alerts.
   const fresh = !st.t;
+  // After a data gap the state restarts; an ON first reading alerts unless it plainly continues an ON period.
+  let gapAlert = false;
   if (st.sess && st.t && pt.t - st.t > IO_GAP_MS) {
+    gapAlert = st.s !== true || pt.t - st.t >= IO_REALERT_GAP_MS;
     rows.push(snapshot(kind, st.sess, st.t, { lat: st.lat, lng: st.lng }));
     st.sess = null;
     st.s = null;
@@ -171,7 +180,7 @@ export function stepIo(st: IoKindState, pt: IoPoint, cfg: IoSensorRuntime, newId
       st.p = null;
       st.sess = open(pt.raw, pt.t, st.lat, st.lng);
       rows.push(snapshot(kind, st.sess, pt.t, null));
-      if (fresh && pt.raw) transition = { kind, on: true, at: pt.t, previousSec: null };
+      if ((fresh || gapAlert) && pt.raw) transition = { kind, on: true, at: pt.t, previousSec: null };
     } else if (pt.raw === st.s) {
       st.p = null;
     } else {

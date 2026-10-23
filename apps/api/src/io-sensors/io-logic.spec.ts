@@ -44,13 +44,30 @@ describe('ioReading', () => {
 });
 
 describe('stepIo', () => {
-  it('alerts ON when the very first reading is ON (sensor set up while the AC runs), not after a data gap', () => {
+  it('alerts ON when the very first reading is ON (sensor set up while the AC runs), not after a short gap while ON', () => {
     const st = emptyIoKindState();
     const id = ids();
     expect(stepIo(st, pt(0, true), AC, id).transition).toEqual({ kind: 'AC', on: true, at: T0, previousSec: null });
     expect(stepIo(st, pt(10, true), AC, id).transition).toBeNull();
     // Data stops for longer than the gap: the next ON reading starts a new period without a second alert.
     expect(stepIo(st, pt(IO_GAP_MS / 1000 + 20, true), AC, id).transition).toBeNull();
+  });
+
+  it('alerts ON after a long gap (parked for days, 351510095076652) or after a gap that followed an OFF period', () => {
+    const id = ids();
+    // ON before, silent 3 days, ON at start-up: the AC was switched off and on in between → AC_ON.
+    const parked = emptyIoKindState();
+    stepIo(parked, pt(0, true), AC, id);
+    const threeDays = 3 * 24 * 3600;
+    expect(stepIo(parked, pt(threeDays, true), AC, id).transition).toEqual({ kind: 'AC', on: true, at: T0 + threeDays * 1000, previousSec: null });
+    // OFF before a 40 min gap, ON after it → AC_ON.
+    const off = emptyIoKindState();
+    stepIo(off, pt(0, false), AC, id);
+    expect(stepIo(off, pt(40 * 60, true), AC, id).transition).toMatchObject({ kind: 'AC', on: true });
+    // OFF after a gap never alerts on its own.
+    const toOff = emptyIoKindState();
+    stepIo(toOff, pt(0, true), AC, id);
+    expect(stepIo(toOff, pt(threeDays, false), AC, id).transition).toBeNull();
   });
 
   it('opens a session on the first reading without a transition', () => {
