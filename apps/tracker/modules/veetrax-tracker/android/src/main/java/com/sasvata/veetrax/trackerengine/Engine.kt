@@ -184,7 +184,8 @@ class Engine private constructor(context: Context) {
     if (p.mock) return
     val acc = p.acc ?: 0f
     if (acc > JumpFilter.FALLBACK_ACCURACY_M) return // too vague to say anything about movement
-    val fast = (p.spd ?: 0f) > MOVE_SPEED_MPS
+    // A fake indoor speed must not wake full-power GPS: use the speed the position confirms.
+    val fast = (JumpFilter.confirmedSpeed(p, anchor) ?: 0f) > MOVE_SPEED_MPS
     val far = anchor != null && JumpFilter.distance(anchor, p) > max(MOVE_MIN_DISTANCE_M, 2f * acc)
     when (mode) {
       Mode.STATIONARY -> if (fast || far) setMode(Mode.MOVING)

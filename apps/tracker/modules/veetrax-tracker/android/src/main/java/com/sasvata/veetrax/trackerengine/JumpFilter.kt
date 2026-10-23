@@ -12,7 +12,7 @@ import kotlin.math.max
  *     to 150 m so tracking never goes silent in poor-signal places.
  *  4. Jump: implied speed from the last accepted fix (the anchor) above 55 m/s (~200 km/h) → drop, unless
  *     3 consecutive such fixes agree with each other (then the anchor was the wrong one: accept and re-anchor).
- *  5. Stationary: reported speed < 1 m/s and within max(15 m, 2 × accuracy) of the anchor → send at most one
+ *  5. Stationary: confirmed speed (see confirmedSpeed) < 1 m/s and within max(15 m, 2 × accuracy) of the anchor → send at most one
  *     point per stoppedIntervalSec as a heartbeat; the rest are skipped (not an error, not counted as dropped).
  *
  * The anchor is persisted, the jump "suspects" are not (a restart simply starts collecting them again).
@@ -43,9 +43,23 @@ class JumpFilter(private val prefs: Prefs) {
       return distance(lat1, lng1, lat2, lng2) / dt
     }
 
-    /** "Standing still" relative to the anchor: slow reported speed and inside the GPS drift radius. */
+    /**
+     * The reported (Doppler) speed, unless the position doesn't back it up: indoors a phone can report 20 km/h while
+     * the fix moved 41 m in 3 minutes. When the implied speed from the anchor is under 1/SPEED_CONFIRM_FACTOR of
+     * the reported one, the implied speed is used instead. Same rule as the server (position-filter.ts).
+     */
+    const val SPEED_CONFIRM_FACTOR = 4f
+
+    fun confirmedSpeed(p: Point, a: Anchor?): Float? {
+      val spd = p.spd ?: return null
+      if (a == null) return spd
+      val implied = impliedSpeed(a.t, a.lat, a.lng, p.t, p.lat, p.lng).toFloat()
+      return if (implied < spd / SPEED_CONFIRM_FACTOR) implied else spd
+    }
+
+    /** "Standing still" relative to the anchor: slow (confirmed) speed and inside the GPS drift radius. */
     fun isStill(p: Point, a: Anchor): Boolean {
-      val spd = p.spd ?: return false
+      val spd = confirmedSpeed(p, a) ?: return false
       val radius = max(15f, 2f * (p.acc ?: 0f))
       return spd < STILL_SPEED_MPS && distance(a, p) <= radius
     }
