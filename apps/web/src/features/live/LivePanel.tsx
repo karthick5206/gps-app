@@ -1,4 +1,4 @@
-import { MOVEMENT_STATUSES, OBJECT_TYPES, STATUS_META, VEHICLE_TYPES, type LiveObject, type MovementStatus } from '@veetracer/shared';
+import { MOVEMENT_STATUSES, OBJECT_TYPES, STATUS_META, displayStatus, displayStatusLabel, personActivity, VEHICLE_TYPES, type LiveObject, type MovementStatus } from '@veetracer/shared';
 import { DoorOpenIcon, LockIcon, SearchIcon, SearchXIcon, SnowflakeIcon, XIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -70,7 +70,10 @@ const ObjectRow = memo(function ObjectRow({
   onToggle: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const since = timeInStatus(t(STATUS_META[o.status].label), o.statusSince, now);
+  // People show their activity (from speed) without a duration: the stored status changes don't match activity changes.
+  const activity = personActivity(o);
+  const shown = displayStatus(o);
+  const since = activity ? null : timeInStatus(t(STATUS_META[o.status].label), o.statusSince, now);
   return (
     <div
       className={cn(
@@ -80,7 +83,7 @@ const ObjectRow = memo(function ObjectRow({
     >
       <Checkbox checked={checked} onCheckedChange={() => onToggle(o.objectId)} aria-label={t('Select {{name}}', { name: o.name })} />
       <button type="button" onClick={() => onPick(o.objectId)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none focus-visible:underline">
-        <StatusDot status={o.status} />
+        <StatusDot status={shown} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{o.name}</span>
           <span className="block truncate text-xs text-muted-foreground">
@@ -97,8 +100,8 @@ const ObjectRow = memo(function ObjectRow({
           </span>
         ) : (
           <span className="shrink-0 text-right">
-            <span className="block text-xs font-medium" style={{ color: statusColor(o.status) }}>
-              {since ?? t(STATUS_META[o.status].label)}
+            <span className="block text-xs font-medium" style={{ color: statusColor(shown) }}>
+              {since ?? t(displayStatusLabel(o))}
             </span>
             <span className="block text-[11px] text-muted-foreground">{relativeTime(o.serverTime, now)}</span>
           </span>

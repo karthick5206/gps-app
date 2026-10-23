@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { DEFAULT_SPEED_LIMIT_KPH, type DeviceDto, type LiveObject } from '@veetracer/shared';
+import { DEFAULT_SPEED_LIMIT_KPH, displayStatus, displayStatusLabel, personActivity, type DeviceDto, type LiveObject } from '@veetracer/shared';
 import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, LockIcon, WrenchIcon, XIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -49,13 +49,14 @@ const GSM_LABELS = ['No signal', 'Weak', 'Fair', 'Good', 'Excellent'];
 
 function Overview({ o, now }: { o: LiveObject; now: number }) {
   const { t } = useTranslation();
-  const since = o.statusSince ? formatDuration((now - Date.parse(o.statusSince)) / 1000) : null;
+  const activity = personActivity(o);
+  const since = !activity && o.statusSince ? formatDuration((now - Date.parse(o.statusSince)) / 1000) : null;
   const limit = o.speedLimitKph ?? (o.vehicleType ? DEFAULT_SPEED_LIMIT_KPH[o.vehicleType] : null);
   return (
     <dl className="divide-y">
       <Row label={t('Status')}>
         <span className="flex flex-col items-end gap-1">
-          <StatusBadge status={o.status} />
+          <StatusBadge status={displayStatus(o)} label={activity ? displayStatusLabel(o) : undefined} />
           {since && <span className="text-xs font-normal text-muted-foreground">{t('for {{duration}}', { duration: since })}</span>}
         </span>
       </Row>

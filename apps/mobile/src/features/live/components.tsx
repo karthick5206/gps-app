@@ -1,4 +1,4 @@
-import { MOVEMENT_STATUSES, STATUS_META, type LiveObject, type MovementStatus } from '@veetracer/shared';
+import { MOVEMENT_STATUSES, STATUS_META, displayStatus, displayStatusLabel, personActivity, type LiveObject, type MovementStatus } from '@veetracer/shared';
 import { Image } from 'expo-image';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +16,8 @@ export function StatusPill({ o, now }: { o: LiveObject; now?: number }) {
   const meta = STATUS_META[o.status];
   // Licence expired past grace: no position or status is shown until it is renewed.
   if (o.licenceLocked) return <Pill label={t('Licence expired')} color="#dc2626" />;
+  // People: activity from speed, without a duration (see displayStatusLabel).
+  if (personActivity(o)) return <Pill label={t(displayStatusLabel(o))} color={statusColor(displayStatus(o), scheme)} />;
   return <Pill label={timeInStatus(t(meta.label), o.statusSince, now) ?? t(meta.label)} color={statusColor(o.status, scheme)} />;
 }
 

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { STATUS_META, type VideoChannelsDto } from '@veetracer/shared';
+import { displayStatusLabel, type VideoChannelsDto } from '@veetracer/shared';
 import * as WebBrowser from 'expo-web-browser';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { BellIcon, CarIcon, HistoryIcon, ScanFaceIcon, TerminalIcon, VideoIcon } from 'lucide-react-native';
@@ -101,7 +101,7 @@ export default function VehicleScreen() {
 
         <SectionTitle>{t('Status')}</SectionTitle>
         <Card style={{ paddingVertical: 0 }}>
-          <InfoRow label={t('Status')} value={t(STATUS_META[o.status].label)} />
+          <InfoRow label={t('Status')} value={t(displayStatusLabel(o))} />
           <InfoRow label={t('Since')} value={formatDateTime(o.statusSince)} />
           <InfoRow label={t('Driver')} value={o.driverName ? `${o.driverName}${o.driverSource === 'RFID' ? ` ${t('(card)')}` : ''}` : '—'} />
           <InfoRow label={t('Ignition')} value={yesNo(o.ignition)} />

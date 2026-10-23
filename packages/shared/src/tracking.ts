@@ -12,6 +12,43 @@ export const STATUS_META: Record<MovementStatus, { label: string; light: string;
   NO_DATA: { label: 'No data', light: '#94a3b8', dark: '#64748b' },
 };
 
+/**
+ * What a tracked person is doing, derived from speed (phones and ID cards have no ignition, so the vehicle
+ * statuses would say "Off" / "Idle"). Display only: the stored status, alerts and reports are unchanged.
+ * `status` is the movement status whose colour the activity uses on the map and in lists.
+ */
+export const PERSON_ACTIVITIES = ['STILL', 'WALKING', 'RUNNING', 'IN_VEHICLE'] as const;
+export type PersonActivity = (typeof PERSON_ACTIVITIES)[number];
+
+export const ACTIVITY_META: Record<PersonActivity, { label: string; maxKph: number; status: MovementStatus }> = {
+  STILL: { label: 'Still', maxKph: 1.5, status: 'IDLE' },
+  WALKING: { label: 'Walking', maxKph: 7, status: 'RUNNING' },
+  RUNNING: { label: 'Running (on foot)', maxKph: 16, status: 'RUNNING' },
+  IN_VEHICLE: { label: 'In vehicle', maxKph: Infinity, status: 'RUNNING' },
+};
+
+export function activityFromSpeed(speedKph: number): PersonActivity {
+  return PERSON_ACTIVITIES.find((a) => speedKph < ACTIVITY_META[a].maxKph) ?? 'IN_VEHICLE';
+}
+
+/** The person's activity while reporting; null for other object types and when offline / no data. */
+export function personActivity(o: { type: string; status: MovementStatus; speedKph: number }): PersonActivity | null {
+  if (o.type !== 'PERSON' || o.status === 'OFFLINE' || o.status === 'NO_DATA') return null;
+  return activityFromSpeed(o.speedKph);
+}
+
+/** Status to colour an object by: a person's activity colour, otherwise its own status. */
+export function displayStatus(o: { type: string; status: MovementStatus; speedKph: number }): MovementStatus {
+  const a = personActivity(o);
+  return a ? ACTIVITY_META[a].status : o.status;
+}
+
+/** Label (untranslated i18n key) for an object's state: the activity for people, the movement status otherwise. */
+export function displayStatusLabel(o: { type: string; status: MovementStatus; speedKph: number }): string {
+  const a = personActivity(o);
+  return a ? ACTIVITY_META[a].label : STATUS_META[o.status].label;
+}
+
 export const OBJECT_TYPES = ['VEHICLE', 'PERSON', 'ASSET', 'PET'] as const;
 export type ObjectType = (typeof OBJECT_TYPES)[number];
 

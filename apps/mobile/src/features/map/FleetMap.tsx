@@ -1,5 +1,5 @@
 import { Camera, GeoJSONSource, Images, Layer, Map, type CameraRef, type LngLatBounds } from '@maplibre/maplibre-react-native';
-import type { LiveObject } from '@veetracer/shared';
+import { displayStatus, type LiveObject } from '@veetracer/shared';
 import { forwardRef, useImperativeHandle, useMemo, useRef, type ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useDisplay } from '@/features/display/display';
@@ -50,7 +50,7 @@ function toFeatures(objects: LiveObject[], selectedId: string | null): GeoJSON.F
       geometry: { type: 'Point', coordinates: [o.lng, o.lat] },
       properties: {
         id: o.objectId,
-        icon: iconName(kind, o.status),
+        icon: iconName(kind, displayStatus(o)),
         rot: rotates(kind) ? o.course : 0,
         label: o.plateNumber || o.name,
         selected: o.objectId === selectedId,

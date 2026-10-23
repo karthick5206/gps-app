@@ -12,7 +12,8 @@ export function StatusDot({ status, className, pulse }: { status: MovementStatus
   );
 }
 
-export function StatusBadge({ status, className }: { status: MovementStatus; className?: string }) {
+/** `label` overrides the status name (e.g. a person's activity), `status` still picks the colour. */
+export function StatusBadge({ status, label, className }: { status: MovementStatus; label?: string; className?: string }) {
   const { t } = useTranslation();
   return (
     <span
@@ -20,7 +21,7 @@ export function StatusBadge({ status, className }: { status: MovementStatus; cla
       style={{ backgroundColor: `color-mix(in oklab, ${statusColor(status)} 14%, transparent)`, color: statusColor(status) }}
     >
       <StatusDot status={status} className="size-2" />
-      {t(STATUS_META[status].label)}
+      {t(label ?? STATUS_META[status].label)}
     </span>
   );
 }

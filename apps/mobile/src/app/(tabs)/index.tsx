@@ -4,6 +4,9 @@ import {
   OBJECT_TYPES,
   STATUS_META,
   VEHICLE_TYPES,
+  displayStatus,
+  displayStatusLabel,
+  personActivity,
   type BranchDto,
   type LiveObject,
   type MovementStatus,
@@ -49,9 +52,10 @@ function matchesSearch(o: LiveObject, q: string) {
 function VehicleRow({ o, now, onPress }: { o: LiveObject; now: number; onPress: () => void }) {
   const c = useColors();
   const scheme = useScheme();
-  const color = statusColor(o.status, scheme);
+  const color = statusColor(displayStatus(o), scheme);
   const { t } = useTranslation();
   const meta = STATUS_META[o.status];
+  const activity = personActivity(o);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, { borderBottomColor: c.border }, pressed && { backgroundColor: c.muted }]}>
       <View style={[styles.dot, { backgroundColor: color }]} />
@@ -65,7 +69,7 @@ function VehicleRow({ o, now, onPress }: { o: LiveObject; now: number; onPress: 
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <Text size="sm" weight="600" style={{ color }}>
-          {timeInStatus(t(meta.label), o.statusSince, now) ?? t(meta.label)}
+          {activity ? t(displayStatusLabel(o)) : (timeInStatus(t(meta.label), o.statusSince, now) ?? t(meta.label))}
         </Text>
         <Text size="xs" tone="muted">
           {relativeTime(o.serverTime ?? o.fixTime, now)}

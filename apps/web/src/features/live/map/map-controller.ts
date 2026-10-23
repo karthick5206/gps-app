@@ -1,4 +1,4 @@
-import type { LiveObject } from '@veetracer/shared';
+import { displayStatus, type LiveObject } from '@veetracer/shared';
 import maplibregl, { type GeoJSONSource, type GeoJSONSourceDiff, type Map as MlMap } from 'maplibre-gl';
 import type { ResolvedTheme } from '@/features/theme/theme-store';
 import { interpolatePose, type Pose } from '@/lib/geo';
@@ -51,7 +51,7 @@ function properties(o: LiveObject, bearing: number) {
   const rotating = rotates(kind);
   return {
     id: o.objectId,
-    status: o.status,
+    status: displayStatus(o),
     label: o.plateNumber || o.name,
     kind,
     rotating,
