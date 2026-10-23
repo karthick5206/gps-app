@@ -1,3 +1,4 @@
+import { sanitizeTrackerHealth, trackerHealthIssues } from '@veetracer/shared';
 import { codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, toNormalized } from './mobile-tracker.logic';
 
 const NOW = Date.parse('2026-10-21T06:00:00Z');
@@ -55,5 +56,21 @@ describe('activation code e-mail', () => {
   it('masks addresses for the app', () => {
     expect(maskEmail('ramesh@acme.com')).toBe('r****@acme.com');
     expect(maskEmail('x')).toBe('****');
+  });
+});
+
+describe('phone health', () => {
+  it('keeps only known keys with the right types', () => {
+    const h = sanitizeTrackerHealth({ locBg: false, battOpt: 'yes', bucket: 45, dataSaver: 'on', evil: '<script>', stop: { at: 1761200000000, why: 'killed while tracking' }, mfr: 'Xiaomi' });
+    expect(h).toEqual({ locBg: false, bucket: 45, dataSaver: 'on', stop: { at: 1761200000000, why: 'killed while tracking' }, mfr: 'Xiaomi' });
+    expect(sanitizeTrackerHealth('x')).toBeNull();
+    expect(sanitizeTrackerHealth({})).toBeNull();
+  });
+
+  it('lists problems, blocking ones first (the Redmi 9A case: while-using location + Data Saver)', () => {
+    const issues = trackerHealthIssues({ locOn: true, locFine: true, locBg: false, battOpt: true, dataSaver: 'on', bucket: 40, failures: 5 });
+    expect(issues.map((i) => i.code)).toEqual(['LOCATION_NOT_ALWAYS', 'DATA_SAVER', 'BATTERY_OPTIMISED', 'STANDBY_RESTRICTED', 'UPLOADS_FAILING']);
+    expect(trackerHealthIssues({ locOn: true, locFine: true, locBg: true, battOpt: false, dataSaver: 'allowed', bucket: 10, notif: true })).toEqual([]);
+    expect(trackerHealthIssues(null)).toEqual([]);
   });
 });

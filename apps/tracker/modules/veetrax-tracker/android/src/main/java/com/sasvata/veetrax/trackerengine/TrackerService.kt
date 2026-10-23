@@ -132,6 +132,8 @@ class TrackerService : Service() {
       fused.removeLocationUpdates(callback)
     } catch (_: Exception) {
     }
+    // Why the service ended, for Phone health: killed while wanted (OEM / system) or a user / server stop.
+    engine.prefs.recordEvent("stop", if (engine.prefs.wanted) "killed while tracking" else (engine.prefs.stopReason ?: "stopped by user"))
     val wasRunning = isRunning
     isRunning = false
     engine.service = null

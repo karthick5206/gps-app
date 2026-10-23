@@ -48,19 +48,23 @@ object Starter {
     // update) need location "Allow all the time" on Android 10+; the app on screen only needs location.
     if (!hasLocationPermission(context)) {
       Prefs(context).lastError = "Location permission is off. Open the app and allow location."
+      Prefs(context).recordEvent("refused", "$why: no location permission")
       false
     } else if (why != "app" && !hasBackgroundPermission(context)) {
       Prefs(context).lastError = "Tracking paused: allow location \"All the time\" so it can restart in the background. Open the app."
       Log.w(TAG, "background start skipped ($why): no background location permission")
+      Prefs(context).recordEvent("refused", "$why: location not allowed all the time")
       false
     } else {
       ContextCompat.startForegroundService(context, Intent(context, TrackerService::class.java))
       Log.i(TAG, "service start requested ($why)")
+      Prefs(context).recordEvent("start", why)
       true
     }
   } catch (e: Exception) {
     Log.w(TAG, "service start refused ($why): $e")
     Prefs(context).lastError = "Android blocked the tracking restart ($why). Open the app."
+    Prefs(context).recordEvent("refused", "$why: blocked by Android")
     false
   }
 

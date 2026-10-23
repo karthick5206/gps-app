@@ -154,6 +154,16 @@ class Prefs(context: Context) {
     get() = long("backoffUntil")
     set(v) { sp.edit().putLong("backoffUntil", v).apply() }
 
+  /** Last service start / stop / refused restart and why (reported in Health). */
+  fun recordEvent(kind: String, why: String) {
+    sp.edit().putLong("ev_${kind}_at", System.currentTimeMillis()).putString("ev_${kind}_why", why.take(80)).apply()
+  }
+
+  fun event(kind: String): Pair<Long, String>? {
+    val at = long("ev_${kind}_at")
+    return if (at > 0) at to (str("ev_${kind}_why") ?: "") else null
+  }
+
   fun bump(counter: String) {
     sp.edit().putLong(counter, long(counter) + 1).apply()
   }

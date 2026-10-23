@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ackRequiredFor, LiveObject } from '@veetracer/shared';
+import { ackRequiredFor, LiveObject, MOBILE_TRACKER_PROTOCOL, sanitizeTrackerHealth, trackerHealthIssues } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
@@ -99,19 +99,37 @@ export class OfflineAlertService {
     return raised;
   }
 
+  /**
+   * Tracker app phones report their health with every upload: the most serious problem in the last report is the
+   * likely reason the phone went quiet (e.g. location only while using the app, Data Saver).
+   */
+  private async phoneCause(deviceId: string | null): Promise<{ text: string; codes: string[] } | null> {
+    if (!deviceId) return null;
+    const d = await this.prisma.device
+      .findUnique({ where: { id: deviceId }, select: { trackerHealth: true, model: { select: { protocol: true } } } })
+      .catch(() => null);
+    if (!d || d.model.protocol !== MOBILE_TRACKER_PROTOCOL) return null;
+    const health = sanitizeTrackerHealth(d.trackerHealth);
+    const issues = trackerHealthIssues(health);
+    if (issues.length) return { text: issues[0].text, codes: issues.map((i) => i.code) };
+    if (health?.stop?.why === 'killed while tracking') return { text: 'the phone stopped the tracking app (check Autostart / battery settings)', codes: ['KILLED'] };
+    return null;
+  }
+
   private async raise(live: LiveObject, severity: 'INFO' | 'WARNING' | 'CRITICAL', ackRequired: boolean, offlineMs: number, now: number): Promise<void> {
     const durationSec = Math.round(offlineMs / 1000);
+    const cause = await this.phoneCause(live.deviceId);
     const pending = {
       id: randomUUID(),
       type: 'DEVICE_OFFLINE' as const,
       severity,
-      message: `No data for ${formatDuration(durationSec)}`,
+      message: cause ? `No data for ${formatDuration(durationSec)} · likely: ${cause.text}` : `No data for ${formatDuration(durationSec)}`,
       occurredAt: now,
       lat: live.lat,
       lng: live.lng,
       geofenceId: null,
       geofenceName: null,
-      data: { durationSec, lastSeen: live.serverTime },
+      data: { durationSec, lastSeen: live.serverTime, ...(cause ? { cause: cause.codes } : {}) },
       ackRequired,
       object: {
         objectId: live.objectId,

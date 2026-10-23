@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsEmail, IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsEmail, IsIn, IsObject, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class TrackerRequestCodeBody {
   @IsString() @MaxLength(24) mobile!: string;
@@ -15,6 +15,8 @@ export class TrackerVerifyBody {
 /** Points are validated one by one in the service (a bad point is skipped, not the whole batch). */
 export class TrackerPositionsBody {
   @IsArray() @ArrayMaxSize(500) positions!: unknown[];
+  /** Phone health report (app 1.1.7+), sanitised in the service. */
+  @IsOptional() @IsObject() health?: Record<string, unknown>;
 }
 
 /** Crash report the app sends on the next start after a crash (no token: it may crash before activation). */

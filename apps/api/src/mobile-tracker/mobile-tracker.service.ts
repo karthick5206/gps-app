@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { MobileTrackerStatusDto } from '@veetracer/shared';
+import { MobileTrackerStatusDto, sanitizeTrackerHealth, TrackerHealth } from '@veetracer/shared';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { AuthContext } from '../access/auth-context';
 import { MailerService } from '../auth/mailer.service';
@@ -30,6 +30,8 @@ const hashToken = (token: string) => createHash('sha256').update(token).digest('
 const SESSION_CACHE_MS = 60_000;
 const LAST_USED_WRITE_MS = 5 * 60_000;
 const DAY_MS = 24 * 3600_000;
+/** A phone's health report is written when it changes, else at most this often (it comes with every upload). */
+const HEALTH_WRITE_MS = 10 * 60_000;
 
 interface CachedSession {
   sessionId: string;
@@ -48,6 +50,7 @@ const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => HTML_ESCAPES[c]);
 export class MobileTrackerService {
   private readonly logger = new Logger(MobileTrackerService.name);
   private readonly sessions = new Map<string, CachedSession>();
+  private readonly healthWritten = new Map<string, { key: string; at: number }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -228,9 +231,10 @@ export class MobileTrackerService {
   }
 
   /** Validates the points and adds them to the positions stream (the gateway's path into the processor). */
-  async upload(authorization: string | undefined, points: unknown[]): Promise<{ ok: true; accepted: number; config: TrackerConfig }> {
+  async upload(authorization: string | undefined, points: unknown[], health?: unknown): Promise<{ ok: true; accepted: number; config: TrackerConfig }> {
     const s = await this.session(authorization);
     const now = Date.now();
+    this.saveHealth(s.deviceId, sanitizeTrackerHealth(health), now);
     const config = this.config();
     const parsed = points
       .slice(0, MAX_POINTS_PER_CALL)
@@ -250,12 +254,25 @@ export class MobileTrackerService {
     return { ok: true, accepted: parsed.length, config };
   }
 
+  /** Keeps the latest health report on the device: on change (ignoring counters), else every HEALTH_WRITE_MS. */
+  private saveHealth(deviceId: string, health: TrackerHealth | null, now: number): void {
+    if (!health) return;
+    const { failures: _f, mode: _m, ...stable } = health;
+    const key = JSON.stringify(stable);
+    const last = this.healthWritten.get(deviceId);
+    if (last && last.key === key && now - last.at < HEALTH_WRITE_MS) return;
+    this.healthWritten.set(deviceId, { key, at: now });
+    this.prisma.device
+      .update({ where: { id: deviceId }, data: { trackerHealth: health as object, trackerHealthAt: new Date(now) } })
+      .catch((e: Error) => this.logger.warn(`Tracker health for ${deviceId} not saved: ${e.message}`));
+  }
+
   // ───────────── admin (Devices page) ─────────────
 
   private async ownDevice(ctx: AuthContext, deviceId: string) {
     const d = await this.prisma.device.findFirst({
       where: ctx.isSuperAdmin ? { id: deviceId } : { AND: [deviceScopeWhere(ctx), { id: deviceId }] },
-      select: { id: true, uniqueId: true, activationEmail: true, model: { select: { protocol: true } } },
+      select: { id: true, uniqueId: true, activationEmail: true, trackerHealth: true, trackerHealthAt: true, model: { select: { protocol: true } } },
     });
     if (!d) throw new NotFoundException('Device not found');
     if (d.model.protocol !== MOBILE_MODEL_PROTOCOL) throw new ForbiddenException('Not a mobile tracker');
@@ -273,6 +290,8 @@ export class MobileTrackerService {
       mobile: formatMobile(d.uniqueId),
       pendingCode: code ? { code: code.code, expiresAt: code.expiresAt.toISOString(), smsSent: code.smsSent, emailCount: code.emailCount } : null,
       activationEmail: d.activationEmail,
+      health: sanitizeTrackerHealth(d.trackerHealth),
+      healthAt: d.trackerHealthAt?.toISOString() ?? null,
       sessions: sessions.map((x) => ({
         id: x.id,
         deviceName: x.deviceName,

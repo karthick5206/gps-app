@@ -61,7 +61,9 @@ class Engine private constructor(context: Context) {
   val prefs = Prefs(this.context)
   private val queue = PointQueue(this.context)
   private val filter = JumpFilter(prefs)
-  private val uploader = Uploader(this.context, prefs, queue)
+  private val uploader = Uploader(this.context, prefs, queue).also { u ->
+    u.health = { Health.snapshot(context, prefs, TrackerService.isRunning, mode.name.lowercase()) }
+  }
 
   private val thread = HandlerThread("veetrax-tracker").apply { start() }
   val looper: Looper get() = thread.looper

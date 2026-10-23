@@ -28,6 +28,9 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
 
   private class Http(val code: Int, val body: String)
 
+  /** Phone health (Health.snapshot) sent with every batch; set by the Engine. */
+  var health: (() -> JSONObject)? = null
+
   companion object {
     private const val TIMEOUT_MS = 12_000
     private const val WAKELOCK_MS = 30_000L
@@ -62,7 +65,9 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
    * Sends one batch and updates status / backoff. Done or Rejected = the caller removes the batch from the queue.
    */
   fun send(token: String, batch: List<Point>): Outcome {
-    val body = JSONObject().put("positions", JSONArray().apply { batch.forEach { put(it.toJson()) } }).toString()
+    val payload = JSONObject().put("positions", JSONArray().apply { batch.forEach { put(it.toJson()) } })
+    runCatching { health?.invoke() }.getOrNull()?.let { payload.put("health", it) }
+    val body = payload.toString()
     val res = try {
       post("${prefs.serverUrl}/api/tracker/v1/positions", token, body)
     } catch (e: IOException) {

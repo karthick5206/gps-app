@@ -30,7 +30,7 @@ export class MobileTrackerController {
 
   @Public() @SkipThrottle() @Post('positions') @HttpCode(200)
   positions(@Headers('authorization') authorization: string | undefined, @Body() body: TrackerPositionsBody) {
-    return this.service.upload(authorization, body.positions);
+    return this.service.upload(authorization, body.positions, body.health);
   }
 
   /** Crash reports from the app (stack traces only, no location or personal data). Logged for support. */

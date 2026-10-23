@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { MobileTrackerStatusDto } from '@veetracer/shared';
-import { KeyRoundIcon, MailIcon, SmartphoneIcon } from 'lucide-react';
+import { trackerHealthIssues, type MobileTrackerStatusDto, type TrackerHealth } from '@veetracer/shared';
+import { CircleCheckIcon, KeyRoundIcon, MailIcon, ShieldCheckIcon, SmartphoneIcon, TriangleAlertIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -88,6 +88,7 @@ export function MobileTrackerSection({ deviceId }: { deviceId: string }) {
               <p className="text-xs text-muted-foreground">{t('Optional, e.g. the employee who uses this phone. Administrators who can edit this device always get the code too.')}</p>
             </div>
           )}
+          {active && <PhoneHealth health={d.health} at={d.healthAt} />}
           {active ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm">
@@ -113,5 +114,60 @@ export function MobileTrackerSection({ deviceId }: { deviceId: string }) {
         </>
       )}
     </section>
+  );
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  start: 'Last start',
+  stop: 'Last stop',
+  refused: 'Last refused restart',
+};
+
+/** Phone settings reported by the Tracker app (1.1.7+): what can stop tracking in the background, and the fix. */
+function PhoneHealth({ health, at }: { health: TrackerHealth | null; at: string | null }) {
+  const { t } = useTranslation();
+  if (!health) {
+    return <p className="text-xs text-muted-foreground">{t('Phone health: not reported yet (needs Tracker app 1.1.7 or newer).')}</p>;
+  }
+  const issues = trackerHealthIssues(health);
+  const events = (['start', 'stop', 'refused'] as const).filter((k) => health[k]);
+  return (
+    <div className="space-y-2 rounded-md border p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium">
+        <span className="flex items-center gap-1.5">
+          <ShieldCheckIcon className="size-4" /> {t('Phone health')}
+        </span>
+        <span className="text-xs font-normal text-muted-foreground">
+          {[health.mfr, health.model].filter(Boolean).join(' ')}
+          {health.sdk ? ` · Android API ${health.sdk}` : ''}
+          {at ? ` · ${t('reported {{time}}', { time: formatDateTime(at) })}` : ''}
+        </span>
+      </div>
+      {issues.length === 0 ? (
+        <p className="flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
+          <CircleCheckIcon className="size-4" /> {t('All background settings are OK.')}
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {issues.map((i) => (
+            <li key={i.code} className="text-sm">
+              <span className={i.severity === 'error' ? 'font-medium text-destructive' : 'font-medium text-amber-700 dark:text-amber-400'}>
+                <TriangleAlertIcon className="me-1 inline size-3.5" />
+                {t(i.text)}
+                {i.code === 'UPLOADS_FAILING' && health.lastError ? `: ${health.lastError}` : ''}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {t('Fix')}: {t(i.fix)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {events.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {events.map((k) => `${t(EVENT_LABELS[k])}: ${formatDateTime(new Date(health[k]!.at).toISOString())} (${health[k]!.why})`).join(' · ')}
+        </p>
+      )}
+    </div>
   );
 }

@@ -258,6 +258,9 @@ model Device {
   claimedAt        DateTime? @db.Timestamptz(3)
   /// Tracker app (mobile tracker model): extra address that gets the activation code (admins always get it).
   activationEmail  String?
+  /// Tracker app: latest phone health report (permissions, battery / data restrictions, last stop) and when.
+  trackerHealth    Json?
+  trackerHealthAt  DateTime? @db.Timestamptz(3)
   isActive         Boolean   @default(true)
   lastSeenAt       DateTime?
   createdAt        DateTime  @default(now())
