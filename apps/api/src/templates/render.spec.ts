@@ -85,14 +85,15 @@ describe('system templates', () => {
     expect(all.some((x) => x.purpose === 'SYSTEM_OTP' && x.channel === 'SMS')).toBe(true);
   });
 
-  it('use only known placeholders; SMS rows are approved with placeholder DLT ids', () => {
+  it('use only known placeholders; SMS rows are approved with a registered or placeholder DLT id', () => {
     for (const t of all) {
       const known = new Set(placeholdersFor(t.purpose));
       const unknown = templateVariables(`${t.subject ?? ''} ${t.body}`).filter((v) => !known.has(v));
       expect({ purpose: t.purpose, channel: t.channel, unknown }).toEqual({ purpose: t.purpose, channel: t.channel, unknown: [] });
       if (t.channel === 'SMS') {
         expect(t.approvalStatus).toBe('APPROVED');
-        expect(t.dltTemplateId).toMatch(/^DLT-PENDING-\d+$/);
+        // Registered on DLT (19 digits, e.g. the Smartping OTP template) or still pending.
+        expect(t.dltTemplateId).toMatch(/^(DLT-PENDING-\d+|\d{19})$/);
       }
     }
     expect(new Set(all.filter((t) => t.channel === 'SMS').map((t) => t.dltTemplateId)).size).toBe(all.filter((t) => t.channel === 'SMS').length);

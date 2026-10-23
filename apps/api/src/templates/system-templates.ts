@@ -134,6 +134,11 @@ function alertEmail(code: AlertTypeCode, label: string): string {
 let dltCounter = 0;
 const nextDlt = () => `DLT-PENDING-${++dltCounter}`;
 
+/** OTP SMS registered on DLT (Smartping): sign-up, login and Tracker activation codes. */
+export const OTP_SMS_DLT_TEMPLATE_ID = '1777179276261487525';
+export const OTP_SMS_DLT_BODY =
+  'Thanks for choosing Vibhav Enterprise Solutions VeeTrax fleet tracking solutions platform. Your signup and acitvation code for VeeTrax app is {{code}} . Do not share with anyone. For support please call 9444907658 or https://vibhaventerprise.com';
+
 /** All system templates: every alert type × EMAIL/SMS/PUSH, plus SYSTEM_* e-mails and the OTP SMS. */
 export function systemTemplates(): SystemTemplateDef[] {
   dltCounter = 0;
@@ -175,10 +180,11 @@ export function systemTemplates(): SystemTemplateDef[] {
     channel: 'SMS',
     name: 'Login OTP — SMS',
     subject: null,
-    body: '{{code}} is your VeeTrax login code. It expires in {{expires_min}} minutes. Do not share it with anyone. -VeeTrax',
+    // Registered DLT text (Smartping, header VIBHAV), word for word: only {#num#} → {{code}}. Any edit breaks delivery.
+    body: OTP_SMS_DLT_BODY,
     approvalStatus: 'APPROVED',
-    dltTemplateId: nextDlt(),
-    senderId: 'VEETRC',
+    dltTemplateId: OTP_SMS_DLT_TEMPLATE_ID,
+    senderId: 'VIBHAV',
   });
   out.push({
     purpose: 'SYSTEM_OTP',

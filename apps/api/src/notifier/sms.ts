@@ -52,8 +52,58 @@ export class Msg91SmsProvider implements SmsProvider {
   }
 }
 
+/**
+ * Smartping (DLT, India): GET {SMARTPING_URL}?username&password&from&to&text&unicode&dltPrincipalEntityId&dltContentId.
+ * The text must match the registered DLT template exactly, with only the {#var#} slots filled. The response is JSON
+ * { transactionId, state, statusCode, description }; e.g. state SUBMIT_FAILED / statusCode 2070 = authentication failure.
+ * Env: SMARTPING_USERNAME, SMARTPING_PASSWORD (transactional account for OTPs), SMARTPING_SENDER (6-letter header),
+ * SMARTPING_ENTITY_ID (DLT principal entity id), optional SMARTPING_URL.
+ */
+export class SmartpingSmsProvider implements SmsProvider {
+  readonly name = 'smartping';
+  constructor(
+    private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly fetchImpl: typeof fetch = fetch,
+  ) {}
+
+  async send(m: SmsMessage): Promise<SmsResult> {
+    const { SMARTPING_USERNAME: username, SMARTPING_PASSWORD: password, SMARTPING_ENTITY_ID: entityId } = this.env;
+    if (!username || !password || !entityId) throw new Error('Smartping is not configured (SMARTPING_USERNAME / SMARTPING_PASSWORD / SMARTPING_ENTITY_ID)');
+    const sender = m.senderId || this.env.SMARTPING_SENDER;
+    if (!sender) throw new Error('No SMS sender id (template senderId or SMARTPING_SENDER)');
+    if (!m.dltTemplateId || m.dltTemplateId.startsWith('DLT-PENDING')) throw new Error('The SMS template has no registered DLT template id');
+    const digits = m.to.replace(/\D/g, '');
+    const params = new URLSearchParams({
+      username,
+      password,
+      from: sender,
+      to: digits.length === 10 ? `91${digits}` : digits,
+      text: m.text,
+      unicode: /[^\u0000-\u007f]/.test(m.text) ? 'true' : 'false',
+      dltPrincipalEntityId: entityId,
+      dltContentId: m.dltTemplateId,
+    });
+    const url = this.env.SMARTPING_URL || 'https://pgapi.smartping.io/fe/api/v1/send';
+    const res = await this.fetchImpl(`${url}?${params.toString()}`, { method: 'GET', signal: AbortSignal.timeout(20_000) });
+    const body = await res.text();
+    let json: { transactionId?: unknown; state?: string; statusCode?: number; description?: string; detail?: string } = {};
+    try {
+      json = JSON.parse(body);
+    } catch {
+      // non-JSON error page
+    }
+    const state = json.state ?? '';
+    if (!res.ok || /FAIL|REJECT|ERROR/i.test(state)) {
+      throw new Error(`Smartping ${res.status} ${state} ${json.statusCode ?? ''}: ${json.description ?? json.detail ?? body.slice(0, 200)}`.replace(/\s+/g, ' ').trim());
+    }
+    return { provider: this.name, messageId: json.transactionId != null ? String(json.transactionId) : null };
+  }
+}
+
 export function createSmsProvider(name = process.env.SMS_PROVIDER ?? 'console'): SmsProvider {
   switch (name.toLowerCase()) {
+    case 'smartping':
+      return new SmartpingSmsProvider();
     case 'msg91':
     case 'gupshup':
       return new Msg91SmsProvider();
