@@ -121,6 +121,8 @@ export interface RuleInput {
    * by the server clock.
    */
   alarmsOnly?: boolean;
+  /** Fix time (ms) of the last valid GPS position the shown lat/lng come from, when this point has no fix. */
+  lastFixAt?: number;
   /** Refills / drains the fuel detector reported on this point (already stored as FuelEvent rows). */
   fuelEvents?: FuelAlertEvent[];
   /** AC / door sensor state (debounced) and changes on this point, when the vehicle's tracker has them configured. */
@@ -272,9 +274,19 @@ class Evaluator {
       lng: Number.isFinite(this.input.lng) ? this.input.lng : null,
       geofenceId: opts.geofence?.id ?? null,
       geofenceName: opts.geofence?.name ?? null,
-      data: { speedKph: Math.round(this.input.speedKph), ...(opts.data ?? {}) },
+      data: { speedKph: Math.round(this.input.speedKph), ...this.noFixData(), ...(opts.data ?? {}) },
     });
     return id;
+  }
+
+  /**
+   * No GPS fix on this point: the alert's lat/lng are the last known location (or none), so say so, with the time of
+   * that last fix. Shown in the apps and in the {{location}} of e-mails / custom templates.
+   */
+  private noFixData(): Record<string, unknown> {
+    if (this.input.locationValid !== false) return {};
+    const last = this.input.lastFixAt;
+    return { noFix: true, ...(last !== undefined && Number.isFinite(this.input.lat) ? { lastFixAt: new Date(last).toISOString() } : {}) };
   }
 
   /** Server time of the point. */

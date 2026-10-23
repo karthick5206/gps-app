@@ -13,6 +13,7 @@ import { AlertTypeIcon, SEVERITY_COLOR, SEVERITY_LABEL } from '@/features/alerts
 import { markAlertRead } from '@/features/alerts/read';
 import { api, errorMessage } from '@/lib/api';
 import { MAP_STYLE } from '@/lib/config';
+import { noFixText } from '@/features/alerts/no-fix';
 import { formatDateTime } from '@/lib/format';
 import { SPACE, useScheme } from '@/lib/theme';
 
@@ -85,6 +86,7 @@ export default function AlertScreen() {
           <InfoRow label={t('Time')} value={formatDateTime(a.occurredAt)} />
           {a.geofenceName && <InfoRow label={t('Geofence')} value={a.geofenceName} />}
           {a.address && <InfoRow label={t('Address')} value={a.address} />}
+          {noFixText(t, a) && <InfoRow label={t('Location')} value={noFixText(t, a)!} />}
           {/* Alerts that don't need acknowledgement are done once opened: no status to show. */}
           {(a.ackRequired || a.status !== 'NEW') && <InfoRow label={t('Status')} value={a.status === 'NEW' ? t('Needs acknowledgement') : t(STATUS_LABEL[a.status])} />}
           {a.ackByName && <InfoRow label={t('Acknowledged by')} value={`${a.ackByName} · ${formatDateTime(a.ackAt)}`} />}

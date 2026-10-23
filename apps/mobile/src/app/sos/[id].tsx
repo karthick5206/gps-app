@@ -10,6 +10,7 @@ import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, View } fro
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
+import { noFixText } from '@/features/alerts/no-fix';
 import { markAlertRead } from '@/features/alerts/read';
 import { useSiren } from '@/features/notifications/siren';
 import { api, errorMessage } from '@/lib/api';
@@ -132,6 +133,7 @@ export default function SosScreen() {
           )}
           {a?.message ? <Text style={{ color: '#ffffff' }}>{a.message}</Text> : null}
           {a?.address ? <Text style={{ color: '#ffffffd0' }}>{a.address}</Text> : null}
+          {a && noFixText(t, a) ? <Text style={{ color: '#ffffff' }}>{noFixText(t, a)}</Text> : null}
           {acked && a.ackByName ? <Text style={{ color: '#ffffff' }}>{t('Acknowledged by')}: {a.ackByName}</Text> : null}
         </View>
 

@@ -23,6 +23,13 @@ describe('correctClock', () => {
     expect(position.valid).toBe(true);
   });
 
+  it('buffered history from days ago that is also 1024 weeks behind → shifted forward to its real time', () => {
+    const real = Date.parse('2026-10-11T09:00:00.000Z'); // 9 days before it was received
+    const { position, correction } = correctClock(pos(new Date(real - GPS_ROLLOVER_MS).toISOString()));
+    expect(correction).toBe('gps-week-rollover');
+    expect(Date.parse(position.fixTime)).toBe(real);
+  });
+
   it('normal, buffered and slightly-ahead times are untouched', () => {
     for (const t of ['2026-10-20T16:57:40.000Z', '2026-10-12T08:00:00.000Z', '2026-10-20T17:30:00.000Z']) expect(correctClock(pos(t)).correction).toBeNull();
   });

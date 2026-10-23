@@ -381,6 +381,7 @@ export class PositionProcessor {
             ignition: position.ignition,
             attributes: attrs,
             locationValid: (flags & POSITION_FLAGS.INVALID_FIX) === 0 && live.lat !== null && live.lng !== null,
+            ...(track.lastValid ? { lastFixAt: track.lastValid.fixTime } : {}),
             receivedAt: now,
             ...(prev?.status === 'OFFLINE' && prev.serverTime ? { offlineSince: Date.parse(prev.serverTime) } : {}),
             ...(fuelEvents.length ? { fuelEvents } : {}),
@@ -413,7 +414,8 @@ export class PositionProcessor {
           speedKph: position.speedKph,
           ignition: position.ignition,
           attributes: position.attributes,
-          locationValid: ownFix || result.lat !== null,
+          locationValid: ownFix,
+          ...(!ownFix && track.lastValid ? { lastFixAt: track.lastValid.fixTime } : {}),
           receivedAt: now,
           alarmsOnly: true,
         });

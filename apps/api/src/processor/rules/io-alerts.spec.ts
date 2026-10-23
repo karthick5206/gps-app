@@ -185,3 +185,16 @@ describe('device alarms', () => {
     expect(late('crash').map((a) => a.type)).toEqual(['CRASH']);
   });
 });
+
+describe('alerts without a GPS fix', () => {
+  it('carry noFix and the time of the last fix their location comes from; normal alerts do not', () => {
+    const c = ctx(settings(CAPS));
+    const noFix = evaluatePosition(at(sec(0), { locationValid: false, lastFixAt: sec(-600), receivedAt: sec(0), attributes: { alarm: 'sos' } }), emptyAlertState(), c).alerts[0];
+    expect(noFix.data).toMatchObject({ noFix: true, lastFixAt: new Date(sec(-600)).toISOString() });
+    const unknown = evaluatePosition(at(sec(0), { locationValid: false, lat: Number.NaN, lng: Number.NaN, attributes: { alarm: 'sos' } }), emptyAlertState(), c).alerts[0];
+    expect(unknown).toMatchObject({ lat: null, data: { noFix: true } });
+    expect(unknown.data.lastFixAt).toBeUndefined();
+    const ok = evaluatePosition(at(sec(0), { attributes: { alarm: 'sos' } }), emptyAlertState(), c).alerts[0];
+    expect(ok.data.noFix).toBeUndefined();
+  });
+});

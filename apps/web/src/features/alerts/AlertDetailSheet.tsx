@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ALERT_TYPE_MAP, type AlertDto, type GeofenceDto, type NotificationLogDto, type NotificationStatus } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, alertNoFix, type AlertDto, type GeofenceDto, type NotificationLogDto, type NotificationStatus } from '@veetracer/shared';
 import { CheckIcon, MailIcon, MapPinIcon, MessageSquareIcon, SmartphoneIcon, BellIcon, VideoIcon } from 'lucide-react';
 import { Link } from 'react-router';
 import { lazy, Suspense, useEffect, type ReactNode } from 'react';
@@ -57,6 +57,17 @@ function showValue(key: string, v: unknown): string {
   return JSON.stringify(v);
 }
 
+/** Raised without a GPS fix: the location is where the tracker last had one (or unknown). */
+function NoFixNote({ noFix, hasLocation }: { noFix: { lastFixAt: string | null }; hasLocation: boolean }) {
+  const { t } = useTranslation();
+  const text = !hasLocation
+    ? t('No GPS fix: location unknown')
+    : noFix.lastFixAt
+      ? t('No GPS fix: last known location ({{time}})', { time: formatDateTime(noFix.lastFixAt) })
+      : t('No GPS fix: last known location');
+  return <span className="mb-0.5 block text-xs font-medium text-amber-700 dark:text-amber-400">{text}</span>;
+}
+
 function labelOf(key: string): string {
   return humanize(key.replace(/([a-z])([A-Z])/g, '$1_$2'));
 }
@@ -90,7 +101,8 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
     enabled: !!a?.geofenceId && can('geofences'),
     staleTime: 5 * 60_000,
   });
-  const dataEntries = Object.entries(a?.data ?? {}).filter(([, v]) => v !== null && v !== undefined && v !== '');
+  const noFix = alertNoFix(a?.data);
+  const dataEntries = Object.entries(a?.data ?? {}).filter(([k, v]) => v !== null && v !== undefined && v !== '' && k !== 'noFix' && k !== 'lastFixAt');
 
   return (
     <Sheet open={!!alertId} onOpenChange={(o) => !o && onClose()}>
@@ -148,7 +160,8 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
                 <Row label={t('Time')}>{formatDateTime(a.occurredAt)}</Row>
                 <Row label={t('Message')}>{a.message}</Row>
                 <Row label={t('Location')}>
-                  {a.address ?? <span className="text-muted-foreground">{t('Address pending')}</span>}
+                  {noFix && <NoFixNote noFix={noFix} hasLocation={a.lat !== null} />}
+                  {a.address ?? (noFix && a.lat === null ? null : <span className="text-muted-foreground">{t('Address pending')}</span>)}
                   {a.lat !== null && <span className="block font-mono text-xs text-muted-foreground">{`${a.lat.toFixed(6)}, ${a.lng?.toFixed(6)}`}</span>}
                 </Row>
                 {a.geofenceName && <Row label={t('Geofence')}>{a.geofenceName}</Row>}

@@ -113,4 +113,14 @@ describe('system templates', () => {
     expect(r.body).toContain('View on map');
     expect(r.missing).toEqual([]);
   });
+
+  it('an alert without a GPS fix says the location is the last known one, with its time', () => {
+    const c = { objectName: 'Car 01', plateNumber: null, branchName: null, companyName: 'Demo', timezone: 'Asia/Kolkata' };
+    const base = { type: 'SOS', severity: 'CRITICAL', occurredAt: new Date('2026-10-18T08:35:00Z'), address: 'Anna Salai, Chennai', geofenceName: null };
+    const last = alertVars({ ...base, lat: 13.06, lng: 80.25, data: { noFix: true, lastFixAt: '2026-10-18T06:10:00Z' } }, c);
+    expect(last.location).toBe('Anna Salai, Chennai (last known location, 18 Oct 2026, 11:40; no GPS fix)');
+    expect(last.map_link).toContain('13.060000,80.250000');
+    expect(alertVars({ ...base, address: null, lat: null, lng: null, data: { noFix: true } }, c).location).toBe('Unknown (no GPS fix)');
+    expect(alertVars({ ...base, lat: 13.06, lng: 80.25, data: {} }, c).location).toBe('Anna Salai, Chennai');
+  });
 });

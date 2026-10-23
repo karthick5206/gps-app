@@ -302,6 +302,15 @@ export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEn
  */
 export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH', 'POWER_CUT', 'DEVICE_TAMPER', 'SIM_CHANGED', 'TOWING'] as const satisfies readonly AlertTypeCode[];
 
+/**
+ * Alert raised on a point without a GPS fix (`data.noFix`): its lat/lng are the last known location, fixed at
+ * `lastFixAt`, or there is no location at all. Null for a normal alert.
+ */
+export function alertNoFix(data: Record<string, unknown> | null | undefined): { lastFixAt: string | null } | null {
+  if (data?.noFix !== true) return null;
+  return { lastFixAt: typeof data.lastFixAt === 'string' ? data.lastFixAt : null };
+}
+
 export function isEmergencyAlert(type: string | null | undefined): boolean {
   return !!type && (EMERGENCY_ALERT_TYPES as readonly string[]).includes(type);
 }

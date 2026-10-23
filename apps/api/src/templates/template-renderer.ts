@@ -72,6 +72,11 @@ export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string
   const d = a.data;
   const kph = (v: unknown) => (n(v) === null ? '' : `${Math.round(n(v)!)} km/h`);
   const coords = a.lat !== null && a.lng !== null ? `${a.lat.toFixed(5)}, ${a.lng.toFixed(5)}` : '';
+  const place = a.address ?? coords;
+  // Raised without a GPS fix: the coordinates are where the tracker last had one (see Evaluator.noFixData).
+  const lastFix = typeof d.lastFixAt === 'string' && Number.isFinite(Date.parse(d.lastFixAt)) ? formatLocal(Date.parse(d.lastFixAt), c.timezone) : null;
+  const location =
+    d.noFix !== true ? place : place ? `${place} (last known location${lastFix ? `, ${lastFix}` : ''}; no GPS fix)` : 'Unknown (no GPS fix)';
   return {
     vehicle_name: c.objectName,
     plate: c.plateNumber ?? '',
@@ -79,7 +84,7 @@ export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string
     alert_type: ALERT_TYPE_MAP[a.type as AlertTypeCode]?.label ?? a.type,
     severity: a.severity,
     time: formatLocal(a.occurredAt.getTime(), c.timezone),
-    location: a.address ?? coords,
+    location,
     map_link: a.lat !== null && a.lng !== null ? `https://maps.google.com/?q=${a.lat.toFixed(6)},${a.lng.toFixed(6)}` : '',
     speed: kph(d.speedKph),
     driver_name: '—',
