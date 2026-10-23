@@ -256,6 +256,8 @@ model Device {
   shipmentNote     String?
   shippedAt        DateTime? @db.Timestamptz(3)
   claimedAt        DateTime? @db.Timestamptz(3)
+  /// Tracker app (mobile tracker model): extra address that gets the activation code (admins always get it).
+  activationEmail  String?
   isActive         Boolean   @default(true)
   lastSeenAt       DateTime?
   createdAt        DateTime  @default(now())
@@ -1674,6 +1676,8 @@ model MobileTrackerCode {
   attempts   Int       @default(0)
   consumedAt DateTime? @db.Timestamptz(3)
   smsSent    Boolean   @default(false)
+  /// Number of e-mails the code was sent to (device admins + the device's activation e-mail).
+  emailCount Int       @default(0)
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
 
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)

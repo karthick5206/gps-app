@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsEmail, IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class TrackerRequestCodeBody {
   @IsString() @MaxLength(24) mobile!: string;
@@ -24,4 +24,9 @@ export class TrackerDiagnosticsBody {
   @IsOptional() @IsString() @MaxLength(160) device?: string;
   @IsOptional() @IsString() @MaxLength(10_000) nativeCrash?: string | null;
   @IsOptional() @IsString() @MaxLength(10_000) jsCrash?: string | null;
+}
+
+/** Devices → edit → Tracker app: extra address for the activation code; null / empty clears it. */
+export class TrackerActivationEmailBody {
+  @IsOptional() @IsEmail() @MaxLength(254) activationEmail?: string | null;
 }

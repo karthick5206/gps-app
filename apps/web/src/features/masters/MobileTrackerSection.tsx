@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { MobileTrackerStatusDto } from '@veetracer/shared';
-import { KeyRoundIcon, SmartphoneIcon } from 'lucide-react';
+import { KeyRoundIcon, MailIcon, SmartphoneIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
@@ -33,6 +35,17 @@ export function MobileTrackerSection({ deviceId }: { deviceId: string }) {
     onError: (e) => toast.error(errorMessage(e)),
   });
   const d = q.data;
+  const [email, setEmail] = useState('');
+  useEffect(() => setEmail(d?.activationEmail ?? ''), [d?.activationEmail]);
+  const saveEmail = useMutation({
+    mutationFn: () => api.patch<MobileTrackerStatusDto>(`/devices/${deviceId}/mobile-tracker`, { activationEmail: email.trim() || null }),
+    onSuccess: (r) => {
+      queryClient.setQueryData(key, r);
+      toast.success(r.activationEmail ? t('Activation codes will also be e-mailed to {{email}}.', { email: r.activationEmail }) : t('Extra activation e-mail removed.'));
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const emailDirty = email.trim() !== (d?.activationEmail ?? '');
   const active = d?.sessions.find((s) => s.active) ?? null;
 
   return (
@@ -52,8 +65,27 @@ export function MobileTrackerSection({ deviceId }: { deviceId: string }) {
               <span className="text-sm">{t('Activation code')}</span>
               <span className="font-mono text-lg font-semibold tracking-widest">{d.pendingCode.code}</span>
               <span className="text-xs text-muted-foreground">
-                {d.pendingCode.smsSent ? t('Sent by SMS') : t('SMS not set up: read this code to the user')} · {t('valid until {{time}}', { time: formatDateTime(d.pendingCode.expiresAt) })}
+                {d.pendingCode.smsSent
+                  ? t('Sent by SMS')
+                  : d.pendingCode.emailCount > 0
+                    ? t('E-mailed to {{n}} address(es)', { n: d.pendingCode.emailCount })
+                    : t('Not sent: read this code to the user')}{' '}
+                · {t('valid until {{time}}', { time: formatDateTime(d.pendingCode.expiresAt) })}
               </span>
+            </div>
+          )}
+          {can('devices', 'edit') && (
+            <div className="space-y-1.5">
+              <label htmlFor="activation-email" className="flex items-center gap-1.5 text-sm font-medium">
+                <MailIcon className="size-3.5" /> {t('Send activation code to (e-mail)')}
+              </label>
+              <div className="flex gap-2">
+                <Input id="activation-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="employee@example.com" className="flex-1" />
+                <Button type="button" variant="outline" size="sm" className="h-9" disabled={!emailDirty || saveEmail.isPending} onClick={() => saveEmail.mutate()}>
+                  {t('Save')}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('Optional, e.g. the employee who uses this phone. Administrators who can edit this device always get the code too.')}</p>
             </div>
           )}
           {active ? (

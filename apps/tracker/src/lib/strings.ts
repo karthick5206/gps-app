@@ -12,6 +12,7 @@ export const S = {
   sendCode: 'Send code',
   codeLabel: '6-digit code',
   codeSentSms: (mobile: string) => `We sent a code by SMS to +${mobile}. It is valid for 10 minutes.`,
+  codeSentEmail: (to: string[]) => `We e-mailed the code to ${to.join(", ")}. Ask them for it; it is valid for 10 minutes.`,
   codeNoSms: (mobile: string) =>
     `SMS is not available. Ask your administrator to read the code from the Devices page in VeeTrax (number +${mobile}).`,
   codeHelp: "If the SMS doesn't arrive, your administrator can read the code from the Devices page in VeeTrax.",

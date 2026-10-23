@@ -33,6 +33,7 @@ export default function ActivateScreen() {
   const [step, setStep] = useState<'mobile' | 'code'>('mobile');
   const [mobile, setMobile] = useState(''); // normalised by the server, e.g. 919876543210
   const [smsSent, setSmsSent] = useState(true);
+  const [sentTo, setSentTo] = useState<string[]>([]);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +46,7 @@ export default function ActivateScreen() {
       const r = await api.requestCode(`+91${digits}`);
       setMobile(r.mobile);
       setSmsSent(r.smsSent);
+      setSentTo(r.sentTo ?? []);
       setCode('');
       setStep('code');
     } catch (e) {
@@ -125,7 +127,7 @@ export default function ActivateScreen() {
               </>
             ) : (
               <>
-                <Body muted>{smsSent ? S.codeSentSms(mobile) : S.codeNoSms(mobile)}</Body>
+                <Body muted>{smsSent ? S.codeSentSms(mobile) : sentTo.length ? S.codeSentEmail(sentTo) : S.codeNoSms(mobile)}</Body>
                 <Text style={[styles.label, { color: c.muted }]}>{S.codeLabel}</Text>
                 <TextInput
                   style={[input, styles.code]}

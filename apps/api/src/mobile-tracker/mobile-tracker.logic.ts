@@ -9,7 +9,47 @@ export const MOBILE_MODEL_PROTOCOL = MOBILE_TRACKER_PROTOCOL;
 export const CODE_TTL_MS = 10 * 60_000;
 export const CODE_RESEND_MS = 30_000;
 export const CODE_MAX_ATTEMPTS = 5;
+/** Codes (and so code e-mails) per device per 24 h. */
+export const CODE_MAX_PER_DAY = 10;
 export const MAX_POINTS_PER_CALL = 500;
+
+/** "ramesh@acme.com" → "r****@acme.com": shown in the app so the user knows where to look, without revealing it. */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at < 1) return '****';
+  return `${email[0]}****${email.slice(at)}`;
+}
+
+export interface CodeCandidate {
+  email: string | null;
+  scopes: string[];
+  branchIds: string[];
+  objectIds: string[];
+}
+
+/**
+ * Who gets a tracker activation code by e-mail: the device admins (Devices → edit, checked by the query) whose data
+ * scope covers the device's object, plus the device's own activation e-mail. An unassigned device only reaches
+ * company-wide admins. Never an address typed in the app (that would let anyone take a tracker over).
+ */
+export function codeRecipients(
+  admins: CodeCandidate[],
+  object: { id: string; branchId: string | null } | null,
+  activationEmail: string | null,
+): string[] {
+  const out = new Map<string, string>();
+  const add = (e: string | null) => {
+    const v = e?.trim();
+    if (v && v.includes('@')) out.set(v.toLowerCase(), v);
+  };
+  for (const a of admins) {
+    const sees =
+      a.scopes.includes('COMPANY') || (!!object && ((!!object.branchId && a.branchIds.includes(object.branchId)) || a.objectIds.includes(object.id)));
+    if (sees) add(a.email);
+  }
+  add(activationEmail);
+  return [...out.values()];
+}
 
 /** Sent to the app on activation and with every upload (it applies changes). */
 export interface TrackerConfig {

@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Headers, HttpCode, Logger, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Logger, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
 import { SkipThrottle, Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthContext } from '../access/auth-context';
 import { Auth, Public, RequirePermission } from '../access/decorators';
-import { TrackerDiagnosticsBody, TrackerPositionsBody, TrackerRequestCodeBody, TrackerVerifyBody } from './mobile-tracker.dto';
+import { TrackerActivationEmailBody, TrackerDiagnosticsBody, TrackerPositionsBody, TrackerRequestCodeBody, TrackerVerifyBody } from './mobile-tracker.dto';
 import { MobileTrackerService } from './mobile-tracker.service';
 
 /** VeeTrax Tracker app (docs/mobile-tracker/API.md): activation by OTP and position upload with the phone's token. */
@@ -51,6 +51,11 @@ export class MobileTrackerAdminController {
   @Get(':id/mobile-tracker') @RequirePermission('devices', 'view')
   status(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.service.adminStatus(ctx, id);
+  }
+
+  @Patch(':id/mobile-tracker') @RequirePermission('devices', 'edit')
+  setEmail(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() body: TrackerActivationEmailBody) {
+    return this.service.adminSetActivationEmail(ctx, id, body.activationEmail?.trim() || null);
   }
 
   @Post(':id/mobile-tracker/revoke') @HttpCode(200) @RequirePermission('devices', 'edit')

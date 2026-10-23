@@ -1,4 +1,4 @@
-import { DEFAULT_TRACKER_CONFIG, formatMobile, normalizeMobile, parsePoint, toNormalized } from './mobile-tracker.logic';
+import { codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, toNormalized } from './mobile-tracker.logic';
 
 const NOW = Date.parse('2026-10-21T06:00:00Z');
 
@@ -29,5 +29,31 @@ describe('mobile tracker logic', () => {
     expect(mock.attributes.mock).toBe(true);
     expect(toNormalized({ ...base, sos: true }, 'x', NOW, DEFAULT_TRACKER_CONFIG).attributes.alarm).toBe('sos');
     expect(toNormalized({ ...base, spd: null, brg: null }, 'x', NOW, DEFAULT_TRACKER_CONFIG)).toMatchObject({ speedKph: 0, course: 0 });
+  });
+});
+
+describe('activation code e-mail', () => {
+  const company = { email: 'Admin@Acme.com', scopes: ['COMPANY'], branchIds: [], objectIds: [] };
+  const branch = { email: 'chennai@acme.com', scopes: ['ASSIGNED'], branchIds: ['b1'], objectIds: [] };
+  const mapped = { email: 'sup@acme.com', scopes: ['ASSIGNED'], branchIds: [], objectIds: ['o1'] };
+  const other = { email: 'madurai@acme.com', scopes: ['ASSIGNED'], branchIds: ['b2'], objectIds: [] };
+
+  it('admins whose scope covers the device, plus its activation e-mail, without duplicates', () => {
+    expect(codeRecipients([company, branch, mapped, other], { id: 'o1', branchId: 'b1' }, 'ravi@gmail.com')).toEqual([
+      'Admin@Acme.com',
+      'chennai@acme.com',
+      'sup@acme.com',
+      'ravi@gmail.com',
+    ]);
+    expect(codeRecipients([company], null, 'admin@acme.com')).toEqual(['admin@acme.com']);
+  });
+
+  it('an unassigned device reaches company-wide admins only; blanks and no-email users are skipped', () => {
+    expect(codeRecipients([company, branch, mapped, { ...company, email: null }], null, '  ')).toEqual(['Admin@Acme.com']);
+  });
+
+  it('masks addresses for the app', () => {
+    expect(maskEmail('ramesh@acme.com')).toBe('r****@acme.com');
+    expect(maskEmail('x')).toBe('****');
   });
 });

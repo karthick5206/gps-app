@@ -26,7 +26,9 @@ export function formatMobile(uniqueId: string): string {
 export interface MobileTrackerStatusDto {
   mobile: string;
   /** Pending activation code: read it out to the user when SMS isn't set up. */
-  pendingCode: { code: string; expiresAt: string; smsSent: boolean } | null;
+  pendingCode: { code: string; expiresAt: string; smsSent: boolean; emailCount: number } | null;
+  /** Extra address that gets the activation code by e-mail (device admins always get it). */
+  activationEmail: string | null;
   /** Latest phones first; at most one is active. */
   sessions: { id: string; deviceName: string | null; appVersion: string | null; platform: string | null; createdAt: string; lastUsedAt: string | null; active: boolean }[];
 }

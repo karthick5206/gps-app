@@ -16,7 +16,8 @@ export interface TrackerConfig {
 
 export const DEFAULT_CONFIG: TrackerConfig = { intervalSec: 10, stoppedIntervalSec: 60, distanceM: 10, maxAccuracyM: 100, batchMax: 100 };
 
-export interface ActivateRequestResponse { ok: true; mobile: string; smsSent: boolean; expiresInSec: number }
+/** sentTo: masked e-mail addresses the code went to (device admins + the device's activation e-mail). */
+export interface ActivateRequestResponse { ok: true; mobile: string; smsSent: boolean; emailSent?: boolean; sentTo?: string[]; expiresInSec: number }
 export interface MeResponse { uniqueId: string; objectName: string; companyName: string; config: TrackerConfig }
 export interface VerifyResponse extends MeResponse { token: string }
 /** HTTP error from the server: status + message (+ code such as REVOKED / INVALID / INACTIVE). */
