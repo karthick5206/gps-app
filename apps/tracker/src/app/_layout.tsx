@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { router, Stack, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
@@ -50,6 +50,19 @@ export default function RootLayout() {
   useStoreVersion();
   const c = useColors();
   const scheme = useColorScheme();
+  const segments = useSegments();
+  // The session row is written together with the token on activation and cleared on sign-out.
+  const signedIn = ready && hasToken() && !!store.session();
+
+  // Move between Activate and Home only after this layout has re-rendered with the new sign-in state. Navigating
+  // from the Activate screen right after saving the token raced the guard (still signed out) and left the user on
+  // Activate until the app was reopened.
+  useEffect(() => {
+    if (!ready) return;
+    const onActivate = segments[0] === 'activate';
+    if (signedIn && onActivate) router.replace('/');
+    else if (!signedIn && !onActivate) router.replace('/activate');
+  }, [ready, signedIn, segments]);
 
   useEffect(() => {
     getToken()
@@ -62,8 +75,6 @@ export default function RootLayout() {
   }, []);
 
   if (!ready) return null;
-  // The session row is written together with the token on activation and cleared on sign-out.
-  const signedIn = hasToken() && !!store.session();
 
   return (
     <SafeAreaProvider>

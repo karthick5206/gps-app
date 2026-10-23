@@ -29,6 +29,7 @@ export async function setToken(token: string | null): Promise<void> {
   tokenCache = token;
   if (token) await SecureStore.setItemAsync(TOKEN_KEY, token);
   else await SecureStore.deleteItemAsync(TOKEN_KEY);
+  emit();
 }
 
 export const store = {
