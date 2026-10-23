@@ -64,6 +64,8 @@ export const ALERT_TYPE_CODES = [
   'POWER_LOW',
   'DEVICE_TAMPER',
   'UNKNOWN_ALARM',
+  'GPS_FAULT',
+  'VIBRATION',
   'DRIVER_FATIGUE',
   'DRIVER_PHONE',
   'DRIVER_SMOKING',
@@ -74,6 +76,7 @@ export const ALERT_TYPE_CODES = [
   'TAILGATING',
   'CAMERA_FAULT',
   'CRASH',
+  'TOWING',
   'HARSH_ACCELERATION',
   'HARSH_BRAKING',
   'HARSH_CORNERING',
@@ -188,6 +191,10 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   { code: 'DEVICE_TAMPER', label: 'Tracker tamper / GPS jamming', category: 'Device health', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // A device sent an alarm code VeeTrax doesn't recognise (e.g. a new model's SOS) — so it is noticed, not dropped.
   { code: 'UNKNOWN_ALARM', label: 'Unrecognised device alarm', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // GPS antenna short-circuited or GNSS module failure reported by the tracker (JT/T 808). A cut antenna is DEVICE_TAMPER.
+  { code: 'GPS_FAULT', label: 'GPS antenna / module fault', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // Shock sensor (Concox 0x03). Off by default: parked vehicles get bumped, so it is noisy unless the customer wants it.
+  { code: 'VIBRATION', label: 'Vibration / shock', category: 'Device', capability: null, defaultSeverity: 'WARNING', defaultEnabled: false, mandatory: false, params: [], placeholders: [] },
   // ── Driver safety (dashcam DMS = driver camera, ADAS = road camera) ──
   { code: 'DRIVER_FATIGUE', label: 'Driver fatigue', category: 'Driver safety', capability: 'dms', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
   { code: 'DRIVER_PHONE', label: 'Driver using phone', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
@@ -199,6 +206,8 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   { code: 'TAILGATING', label: 'Following too close', category: 'Driver safety', capability: 'adas', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
   { code: 'CAMERA_FAULT', label: 'Dashcam camera fault', category: 'Device health', capability: 'video', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   { code: 'CRASH', label: 'Crash / rollover', category: 'Safety', capability: 'crash', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // Anti-theft alarms from the tracker: moved with the engine off (towing), ignition or door without authorisation.
+  { code: 'TOWING', label: 'Towing / unauthorised use', category: 'Safety', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // Driving behaviour reported by the tracker itself (Concox 0x29/0x2A/0x2B, Teltonika green driving, AIS-140 HA/HB/RT).
   { code: 'HARSH_ACCELERATION', label: 'Harsh acceleration', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['speed'] },
   { code: 'HARSH_BRAKING', label: 'Harsh braking', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['speed'] },
@@ -250,6 +259,8 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   POWER_LOW: 0,
   DEVICE_TAMPER: 5,
   UNKNOWN_ALARM: 60,
+  GPS_FAULT: 60,
+  VIBRATION: 5,
   // Dashcams repeat an event every few seconds while it lasts: one alert per short window.
   DRIVER_FATIGUE: 2,
   DRIVER_PHONE: 2,
@@ -261,6 +272,7 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   TAILGATING: 2,
   CAMERA_FAULT: 30,
   CRASH: 5,
+  TOWING: 5,
   HARSH_ACCELERATION: 1,
   HARSH_BRAKING: 1,
   HARSH_CORNERING: 1,
@@ -285,9 +297,10 @@ export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEn
 /**
  * Emergency alerts: the mobile app plays a loud siren (push channel 'sos') and opens a full-screen alarm; the web
  * repeats a siren until acknowledged. POWER_CUT = tracker power removed; DEVICE_TAMPER = case opened / tracker
- * removed / GPS-GSM jamming; SIM_CHANGED = a different SIM card in the tracker (all: possible theft).
+ * removed / GPS-GSM jamming; SIM_CHANGED = a different SIM card in the tracker; TOWING = moved with the engine off or
+ * used without authorisation (all: possible theft).
  */
-export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH', 'POWER_CUT', 'DEVICE_TAMPER', 'SIM_CHANGED'] as const satisfies readonly AlertTypeCode[];
+export const EMERGENCY_ALERT_TYPES = ['SOS', 'CRASH', 'POWER_CUT', 'DEVICE_TAMPER', 'SIM_CHANGED', 'TOWING'] as const satisfies readonly AlertTypeCode[];
 
 export function isEmergencyAlert(type: string | null | undefined): boolean {
   return !!type && (EMERGENCY_ALERT_TYPES as readonly string[]).includes(type);

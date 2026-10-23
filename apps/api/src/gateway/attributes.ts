@@ -18,7 +18,18 @@ export const NORMALIZED_ALARMS = [
   'jamming',
   'geofenceEnter',
   'geofenceExit',
+  // JT/T 808 (dashcams / Chinese-standard trackers)
+  'rollover',
+  'fatigue',
+  'cameraFault',
+  'powerLow', // vehicle battery under-voltage
+  'gpsAntennaCut',
+  'gpsAntennaShort',
+  'gnssFault',
+  'illegalIgnition',
+  'illegalDoorOpen',
 ] as const;
+// Codes a decoder can't name are sent as `alarm_<code>` (e.g. alarm_52, alarm_bit15, alarm_XY) → UNKNOWN_ALARM.
 export type NormalizedAlarm = (typeof NORMALIZED_ALARMS)[number];
 
 /** Keys used by decoders (documentation + typo guard in tests). */

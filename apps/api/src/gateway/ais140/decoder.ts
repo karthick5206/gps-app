@@ -126,7 +126,8 @@ export class Ais140Decoder implements ProtocolDecoder<Ais140Session> {
       valid: m.valid,
       ignition: m.ignition,
       attributes: compact({
-        alarm: mapped.alarm,
+        // An alert packet type VeeTrax doesn't know (a vendor's own panic code?) is surfaced as UNKNOWN_ALARM.
+        alarm: mapped.alarm ?? (unknownAlert ? `alarm_${m.packetType}${m.alertId !== null ? `_${m.alertId}` : ''}` : undefined),
         event: mapped.event ?? (unknownAlert ? `ais140_${m.packetType}${m.alertId !== null ? `_${m.alertId}` : ''}` : undefined),
         reupload: m.history ? true : undefined,
         hdop: m.hdop,

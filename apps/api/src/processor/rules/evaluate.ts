@@ -115,6 +115,12 @@ export interface RuleInput {
   offlineSince?: number;
   /** Only run device-health checks (points that don't update live state, e.g. a clock running ahead). */
   healthOnly?: boolean;
+  /**
+   * Only the tracker's own alarms (SOS, power cut, tamper, crash, towing…): a point dated before the last one (e.g. an
+   * alarm packet stamped with an old GPS fix), which must not move live state but must still alert. Alerts are dated
+   * by the server clock.
+   */
+  alarmsOnly?: boolean;
   /** Refills / drains the fuel detector reported on this point (already stored as FuelEvent rows). */
   fuelEvents?: FuelAlertEvent[];
   /** AC / door sensor state (debounced) and changes on this point, when the vehicle's tracker has them configured. */
@@ -237,11 +243,19 @@ class Evaluator {
       geofence?: GeofenceRuntime;
       at?: number;
       cooldownKey?: string;
+      /**
+       * The tracker itself raised this alarm: it proves the capability, so alert even when the device model doesn't
+       * list it (a mis-set model must never swallow an SOS). Enabled / schedule / snooze / cooldown still apply.
+       */
+      deviceReported?: boolean;
     },
   ): string | null {
-    const setting = this.ctx.settings.get(type);
-    // A point without a GPS fix may carry a default device date (years off): date those alerts by the server clock.
-    const at = opts.at ?? (this.input.locationValid === false ? this.now : this.input.fixTime);
+    const resolved = this.ctx.settings.get(type);
+    const setting = opts.deviceReported && resolved && !resolved.supported ? { ...resolved, supported: true } : resolved;
+    // A point without a GPS fix may carry a default device date (years off), and late / clock-ahead points aren't "now":
+    // date those alerts by the server clock.
+    const serverClock = this.input.locationValid === false || this.input.alarmsOnly === true || this.input.healthOnly === true;
+    const at = opts.at ?? (serverClock ? this.now : this.input.fixTime);
     const cdKey = opts.cooldownKey ?? type;
     if (!canEmit(setting, this.state, cdKey, at, this.ctx.timezone)) return null;
     this.state.cd[cdKey] = at;
@@ -269,9 +283,18 @@ class Evaluator {
   }
 
   run(): EvalOutput {
+    if (this.input.alarmsOnly) {
+      this.alarms();
+      this.dashcamAlarm();
+      this.pruneCooldowns();
+      return this.out;
+    }
     if (this.input.healthOnly) {
       this.health();
       this.connection();
+      // Clock running ahead: the alarm itself is still real and current.
+      this.alarms();
+      this.dashcamAlarm();
       return this.out;
     }
     if (this.input.locationValid !== false) {
@@ -534,12 +557,34 @@ class Evaluator {
     if (ignition !== null) this.state.ign = ignition;
   }
 
+  /**
+   * Alarms the tracker raised itself (attributes.alarm, normalised by the decoders; see gateway/attributes.ts).
+   * Device-side overspeed and geofence alarms are deliberately ignored: VeeTrax evaluates speed limits and geofences
+   * itself, with the customer's own limits and zones. crash / rollover / fatigue / cameraFault: see dashcamAlarm().
+   */
   private alarms(): void {
     const alarm = this.input.attributes.alarm;
-    if (alarm === 'sos') this.emit('SOS', { message: 'SOS / panic button pressed', data: { alarm } });
-    else if (alarm === 'powerCut') this.emit('POWER_CUT', { message: 'Tracker main power disconnected', data: { alarm } });
-    else if (alarm === 'tamper' || alarm === 'jamming') {
-      this.emit('DEVICE_TAMPER', { message: alarm === 'jamming' ? 'Tracker reported GPS/GSM jamming' : 'Tracker reported tampering (case opened or removed)', data: { alarm } });
+    const raise = (type: AlertTypeCode, message: string) => this.emit(type, { message, data: { alarm }, deviceReported: true });
+    if (alarm === 'sos') raise('SOS', 'SOS / panic button pressed');
+    else if (alarm === 'powerCut') raise('POWER_CUT', 'Tracker main power disconnected');
+    else if (alarm === 'tamper') raise('DEVICE_TAMPER', 'Tracker reported tampering (case opened or removed)');
+    else if (alarm === 'jamming') raise('DEVICE_TAMPER', 'Tracker reported GPS/GSM jamming');
+    else if (alarm === 'gpsAntennaCut') raise('DEVICE_TAMPER', 'GPS antenna disconnected (possible tampering)');
+    else if (alarm === 'gpsAntennaShort') raise('GPS_FAULT', 'GPS antenna short-circuited');
+    else if (alarm === 'gnssFault') raise('GPS_FAULT', 'Tracker reported a GPS module fault');
+    else if (alarm === 'towing') raise('TOWING', 'Vehicle moved with the engine off (towing?)');
+    else if (alarm === 'illegalIgnition') raise('TOWING', 'Ignition switched on without authorisation');
+    else if (alarm === 'illegalDoorOpen') raise('TOWING', 'Door opened without authorisation');
+    else if (alarm === 'vibration') raise('VIBRATION', 'Tracker detected vibration / a shock');
+    else if (alarm === 'powerLow') raise('POWER_LOW', 'Tracker reported low vehicle battery voltage');
+    else if (alarm === 'lowBattery') {
+      // The tracker's own low-battery alarm, for trackers that report no battery %. With a %, battery() decides.
+      const level = num(this.input.attributes.batteryLevel);
+      if (level === null) raise('LOW_BATTERY', 'Tracker battery low');
+      else if (!this.state.batLow) {
+        this.state.batLow = true;
+        this.emit('LOW_BATTERY', { message: `Tracker battery low (${Math.round(level)}%)`, data: { alarm, batteryPct: Math.round(level) }, deviceReported: true });
+      }
     } else if (alarm === 'harshAcceleration' || alarm === 'harshBraking' || alarm === 'harshCornering') {
       // Driving behaviour the tracker detected itself (Teltonika adds the g-force as greenDrivingValue).
       const speed = Math.round(this.input.speedKph);
@@ -551,7 +596,7 @@ class Evaluator {
             ? (['HARSH_BRAKING', 'Harsh braking'] as const)
             : (['HARSH_CORNERING', 'Harsh cornering'] as const);
       this.emit(type, { message: `${what} at ${speed} km/h${g}`, data: { alarm } });
-    } else if (typeof alarm === 'string' && /^alarm_[1-9]\d*$/.test(alarm)) {
+    } else if (typeof alarm === 'string' && /^alarm_(?!0$)\w+$/.test(alarm)) {
       // Unrecognised alarm code (alarm_0 = none): may be a new model's SOS, so surface it instead of dropping it.
       this.emit('UNKNOWN_ALARM', { message: `Tracker sent unrecognised alarm code ${alarm.slice(6)} — check the device (it may be an SOS)`, data: { alarm } });
     }
@@ -580,11 +625,7 @@ class Evaluator {
       if (adas) raise(adas[0], `${adas[1]} at ${speed} km/h${atLevel(level)}`, { event: a.adas, source: 'adas' }, level);
     }
 
-    const alarm = a.alarm;
-    if (alarm === 'fatigue') raise('DRIVER_FATIGUE', 'Fatigue driving reported by the tracker', { event: alarm, source: 'alarm' });
-    else if (alarm === 'crash' || alarm === 'rollover') {
-      raise('CRASH', alarm === 'rollover' ? `Vehicle rollover detected at ${speed} km/h` : `Collision detected at ${speed} km/h`, { event: alarm, source: 'alarm' });
-    } else if (alarm === 'cameraFault') raise('CAMERA_FAULT', 'Tracker reported a camera fault', { event: alarm, source: 'alarm' });
+    this.dashcamAlarm();
 
     // Video alarm flags stay set while the fault lasts: alert when a flag appears.
     const flags = typeof a.videoAlarm === 'string' ? a.videoAlarm.split(',').filter((f) => VIDEO_FAULTS[f]) : [];
@@ -592,6 +633,19 @@ class Evaluator {
     if (added.length) raise('CAMERA_FAULT', `Camera fault: ${added.map((f) => VIDEO_FAULTS[f]).join(', ')}`, { event: added.join(','), source: 'video' });
     if (flags.length) this.state.vid = flags;
     else delete this.state.vid;
+  }
+
+  /** Crash / rollover / fatigue / camera fault from the tracker's alarm field (also on late points; not on history). */
+  private dashcamAlarm(): void {
+    const alarm = this.input.attributes.alarm;
+    if (this.input.attributes.reupload === true) return;
+    const speed = Math.round(this.input.speedKph);
+    const raise = (type: AlertTypeCode, message: string) =>
+      this.emit(type, { message, data: { event: alarm, source: 'alarm', level: null, speedKph: speed }, deviceReported: true });
+    if (alarm === 'fatigue') raise('DRIVER_FATIGUE', 'Fatigue driving reported by the tracker');
+    else if (alarm === 'crash') raise('CRASH', `Collision detected at ${speed} km/h`);
+    else if (alarm === 'rollover') raise('CRASH', `Vehicle rollover detected at ${speed} km/h`);
+    else if (alarm === 'cameraFault') raise('CAMERA_FAULT', 'Tracker reported a camera fault');
   }
 
   private battery(): void {

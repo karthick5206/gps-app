@@ -147,6 +147,18 @@ describe('Jt808Decoder', () => {
     expect(send(1)).toBe('sos');
   });
 
+  it('names JT808 power / GPS / anti-theft bits and reports vendor bits as alarm_bit<n>; ignores pre-warnings', () => {
+    const { feed } = harness();
+    const send = (alarm: number) => feed(encodeMessage(Jt808Msg.LOCATION, T2013, 1, locationBody({ alarm, clock: NOW })))[0].positions[0].attributes.alarm;
+    expect(send(1 << 7)).toBe('powerLow');
+    expect(send(1 << 5)).toBe('gpsAntennaCut');
+    expect(send(1 << 28)).toBe('towing');
+    expect(send((1 << 31) >>> 0)).toBe('illegalDoorOpen');
+    expect(send(1 << 15)).toBe('alarm_bit15');
+    expect(send(0)).toBeUndefined();
+    expect(send(1 << 13)).toBeUndefined(); // overspeed pre-warning
+  });
+
   it('decodes ADAS / DMS events', () => {
     const { feed } = harness();
     const adas = Buffer.alloc(47);

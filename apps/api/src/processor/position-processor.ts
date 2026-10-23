@@ -401,6 +401,22 @@ export class PositionProcessor {
           receivedAt: now,
           healthOnly: true,
         });
+      } else if (position.attributes?.alarm && position.attributes.reupload !== true && !object.inMaintenance) {
+        // LATE: dated before the last point (e.g. a GT06 alarm packet stamped with its last GPS fix while indoors). It
+        // must not move live state, but an SOS / power cut / tamper in it is real and still alerts.
+        const ownFix = (flags & POSITION_FLAGS.INVALID_FIX) === 0;
+        ruleInputs.push({
+          object,
+          fixTime,
+          lat: ownFix ? position.lat : (result.lat ?? Number.NaN),
+          lng: ownFix ? position.lng : (result.lng ?? Number.NaN),
+          speedKph: position.speedKph,
+          ignition: position.ignition,
+          attributes: position.attributes,
+          locationValid: ownFix || result.lat !== null,
+          receivedAt: now,
+          alarmsOnly: true,
+        });
       }
     }
 

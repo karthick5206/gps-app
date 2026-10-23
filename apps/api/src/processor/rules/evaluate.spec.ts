@@ -299,10 +299,10 @@ describe('other rules', () => {
     expect(r.alerts.map((a) => a.data.batteryPct)).toEqual([15, 18]);
   });
 
-  it('unsupported capabilities never alert', () => {
-    const noIgnition = new Map(resolveEffectiveSettings({ groups: [] }, [], [], T0).map((s) => [s.alertType, s]));
-    const r = run([at(sec(0), { attributes: { alarm: 'sos' } })], ctx(noIgnition));
-    expect(r.alerts).toHaveLength(0);
+  it('unsupported capabilities never alert from rules, but an alarm the tracker raised itself always does', () => {
+    const noCaps = new Map(resolveEffectiveSettings({ groups: [] }, [], [], T0).map((s) => [s.alertType, s]));
+    const r = run([at(sec(0), { ignition: false }), at(sec(60), { ignition: true, attributes: { alarm: 'sos' } })], ctx(noCaps));
+    expect(r.alerts.map((a) => a.type)).toEqual(['SOS']); // no IGNITION_ON without the 'ignition' capability
   });
 });
 
