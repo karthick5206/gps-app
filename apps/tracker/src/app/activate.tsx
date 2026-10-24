@@ -44,7 +44,8 @@ export default function ActivateScreen() {
   const requestCode = async () => {
     if (!/^\d{10}$/.test(digits)) return setError(S.mobileInvalid);
     const mail = email.trim();
-    if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return setError(S.emailInvalid);
+    if (!mail) return setError(S.emailRequired);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return setError(S.emailInvalid);
     setBusy(true);
     setError(null);
     try {

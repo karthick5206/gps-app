@@ -103,6 +103,12 @@ export class MobileTrackerService {
     const existing = await this.findDevice(uniqueId);
     if (!existing || !existing.companyId) return this.requestSelfService(uniqueId, email, name);
     const device = await this.deviceByMobile(mobile);
+    // Company / admin-added phone: the e-mail typed in the app becomes the device's contact if it has none yet.
+    const contact = email?.trim().toLowerCase();
+    if (contact && !device.activationEmail) {
+      await this.prisma.device.update({ where: { id: device.id }, data: { activationEmail: contact } });
+      device.activationEmail = contact;
+    }
     const recent = await this.prisma.mobileTrackerCode.findMany({
       where: { deviceId: device.id, createdAt: { gt: new Date(Date.now() - DAY_MS) } },
       orderBy: { createdAt: 'desc' },
