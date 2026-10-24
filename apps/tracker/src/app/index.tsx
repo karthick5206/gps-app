@@ -164,12 +164,23 @@ export default function HomeScreen() {
         </Card>
       ) : null}
 
+      <View style={styles.legal}>
+        <Text style={[styles.legalLink, { color: c.muted }]} onPress={() => Linking.openURL(`${WEB_URL}/privacy`).catch(() => undefined)}>
+          {S.privacyPolicy}
+        </Text>
+        <Text style={[styles.legalLink, { color: c.muted }]} onPress={() => Linking.openURL(`${WEB_URL}/delete-account`).catch(() => undefined)}>
+          {S.deleteAccount}
+        </Text>
+      </View>
+
       <Button title={S.signOut} variant="ghost" icon={<LogOut color={c.muted} size={18} />} onPress={deactivate} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  legal: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 4 },
+  legalLink: { fontSize: 13, textDecorationLine: 'underline' },
   scroll: { padding: 16, gap: 14, paddingBottom: 40 },
   toggleCard: { borderWidth: 2 },
   toggleHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },

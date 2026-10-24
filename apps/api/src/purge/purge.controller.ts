@@ -14,6 +14,17 @@ class PurgeBody {
   @IsString() @MaxLength(200) confirm!: string;
 }
 
+/** Any signed-in user: delete my own account (personal) or my login (company user). */
+@Controller('me/account')
+export class AccountDeletionController {
+  constructor(private readonly service: PurgeService) {}
+
+  @Post('delete') @HttpCode(200)
+  delete(@Auth() ctx: AuthContext, @Body() body: PurgeBody) {
+    return this.service.deleteOwnAccount(ctx, body.confirm);
+  }
+}
+
 /** Super Admin only (checked in the service): preview what a permanent delete removes, then do it. */
 @Controller('admin/purge')
 export class PurgeController {

@@ -66,6 +66,15 @@ export function AuthLayout({ title, description, children }: { title: string; de
                 {SUPPORT_PHONE.display}
               </a>
             </p>
+            <p>
+              <a href="/privacy" className="hover:underline">
+                {t('Privacy policy')}
+              </a>
+              {' · '}
+              <a href="/download" className="hover:underline">
+                {t('Download the apps')}
+              </a>
+            </p>
           </footer>
         </div>
       </main>

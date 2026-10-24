@@ -1,14 +1,15 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Me } from '@veetracer/shared';
 import { Stack } from 'expo-router';
-import { KeyRoundIcon, SaveIcon } from 'lucide-react-native';
+import { KeyRoundIcon, SaveIcon, ShieldCheckIcon, Trash2Icon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Alert, KeyboardAvoidingView, Linking, Platform, ScrollView } from 'react-native';
 import { blankToNull } from '@/components/form';
 import { Button, Card, ErrorBanner, Field, SectionTitle, Text } from '@/components/ui';
 import { meQueryKey, useAuth } from '@/features/auth/auth';
 import { api, errorMessage } from '@/lib/api';
+import { SERVER_URL } from '@/lib/config';
 import { SPACE } from '@/lib/theme';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -95,8 +96,47 @@ export default function ProfileScreen() {
               {t('Other devices signed in to your account are signed out.')}
             </Text>
           </Card>
+
+          <SectionTitle>{t('Delete account')}</SectionTitle>
+          <DeleteAccountCard />
+          <Button title={t('Privacy policy')} icon={ShieldCheckIcon} variant="ghost" onPress={() => Linking.openURL(`${SERVER_URL}/privacy`).catch(() => undefined)} />
         </ScrollView>
       </KeyboardAvoidingView>
     </>
+  );
+}
+
+/** In-app account deletion (app stores require it): personal accounts are deleted with everything in them. */
+function DeleteAccountCard() {
+  const { t } = useTranslation();
+  const { me, signOut } = useAuth();
+  const [typed, setTyped] = useState('');
+  const expected = me?.user.email ?? me?.user.mobile ?? '';
+  const personal = !!me && me.company.accountType !== 'BUSINESS';
+  const del = useMutation({
+    mutationFn: () => api.post<{ ok: true }>('/me/account/delete', { confirm: typed }),
+    onSuccess: () => {
+      Alert.alert(t('Delete account'), t('Your account was deleted.'));
+      signOut();
+    },
+  });
+  if (!me || me.user.isSuperAdmin) return null;
+  const confirmDelete = () =>
+    Alert.alert(t('Delete account?'), t('This cannot be undone.'), [
+      { text: t('Cancel'), style: 'cancel' },
+      { text: t('Delete my account'), style: 'destructive', onPress: () => del.mutate() },
+    ]);
+  return (
+    <Card style={{ gap: SPACE.md }}>
+      <Text size="sm" tone="muted">
+        {personal
+          ? t('Deletes this account and everything in it: every phone, tracker and dashcam, with all locations, history and settings.')
+          : t('Deletes your login. The company’s vehicles and data stay with the company.')}{' '}
+        {t('Type {{text}} to confirm.', { text: expected })}
+      </Text>
+      <Field label={t('Confirmation')} value={typed} onChangeText={setTyped} autoCapitalize="none" placeholder={expected} />
+      {del.isError && <ErrorBanner message={errorMessage(del.error)} />}
+      <Button title={t('Delete my account')} icon={Trash2Icon} variant="destructive" onPress={confirmDelete} loading={del.isPending} disabled={typed.trim().toLowerCase() !== expected.toLowerCase()} />
+    </Card>
   );
 }

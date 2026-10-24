@@ -1,4 +1,4 @@
-import { BookOpenIcon, LaptopIcon, LogOutIcon, ShieldIcon } from 'lucide-react';
+import { BookOpenIcon, LaptopIcon, LogOutIcon, ShieldCheckIcon, ShieldIcon, Trash2Icon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
@@ -57,6 +57,12 @@ export function UserMenu() {
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setSessionsOpen(true)}>
           <LaptopIcon /> {t('Signed-in devices')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigate('/privacy')}>
+          <ShieldCheckIcon /> {t('Privacy policy')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigate('/delete-account')}>
+          <Trash2Icon /> {t('Delete account')}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={signOut}>
           <LogOutIcon /> {t('Sign out')}

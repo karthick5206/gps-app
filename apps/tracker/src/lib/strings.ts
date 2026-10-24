@@ -47,6 +47,8 @@ export const S = {
   viewInAppBody: (email: string | null, mobile: string) =>
     `Sign in to the VeeTrax app or app.veetrax.com with ${email ? `${email} or ` : ''}an OTP on ${mobile} to see this phone's location, history and alerts.`,
   openVeetrax: 'Open VeeTrax',
+  privacyPolicy: 'Privacy policy',
+  deleteAccount: 'Delete account and data',
 
   // Home
   trackingOn: 'Tracking is ON',

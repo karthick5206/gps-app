@@ -48,6 +48,32 @@ export class PurgeService {
   async purge(ctx: AuthContext, kind: PurgeKind, id: string, confirm: string): Promise<{ ok: true; deletedRows: number }> {
     const target = await this.target(ctx, kind, id);
     if (confirm.trim().toLowerCase() !== target.confirm.trim().toLowerCase()) throw new BadRequestException(`Type "${target.confirm}" to confirm`);
+    const deletedRows = await this.execute(kind, id, target, { companyId: ctx.homeCompanyId, userId: ctx.userId, ip: ctx.ip }, 'Super Admin');
+    return { ok: true, deletedRows };
+  }
+
+  /**
+   * "Delete my account" (app stores require it): a personal / family account deletes the whole account with all its
+   * phones, trackers and history; a user of a company account deletes only their own login (the company's data stays).
+   * Confirmed by typing the account e-mail (or mobile).
+   */
+  async deleteOwnAccount(ctx: AuthContext, confirm: string): Promise<{ ok: true; scope: 'account' | 'user'; deletedRows: number }> {
+    if (ctx.isSuperAdmin) throw new ForbiddenException('A Super Admin account is not deleted this way');
+    const user = await this.prisma.user.findUnique({ where: { id: ctx.userId }, select: { email: true, mobile: true, name: true, companyId: true, company: { select: { accountType: true, name: true, isPlatform: true } } } });
+    if (!user) throw new NotFoundException('Account not found');
+    const expected = user.email ?? user.mobile ?? '';
+    if (!expected || confirm.trim().toLowerCase() !== expected.toLowerCase()) throw new BadRequestException(`Type "${expected}" to confirm`);
+    const personal = user.company.accountType !== 'BUSINESS' && !user.company.isPlatform;
+    const kind: PurgeKind = personal ? 'company' : 'user';
+    const id = personal ? user.companyId : ctx.userId;
+    const objects = personal ? await this.prisma.trackedObject.findMany({ where: { companyId: id }, select: { id: true } }) : [];
+    const target: Target = { label: personal ? user.company.name : `${user.name} · ${expected}`, confirm: expected, objectIds: objects.map((o) => o.id), companyIds: [user.companyId] };
+    // The account is gone afterwards: the audit entry is kept without a company.
+    const deletedRows = await this.execute(kind, id, target, { companyId: personal ? null : user.companyId, userId: null, ip: ctx.ip }, `self (${expected})`);
+    return { ok: true, scope: personal ? 'account' : 'user', deletedRows };
+  }
+
+  private async execute(kind: PurgeKind, id: string, target: Target, actor: { companyId: string | null; userId: string | null; ip: string | null }, by: string): Promise<number> {
     const steps = await this.steps(kind, id);
     const extra = await this.extraStatements(kind, id);
     const started = Date.now();
@@ -59,12 +85,9 @@ export class PurgeService {
       { timeout: TX_TIMEOUT_MS, maxWait: 10_000 },
     );
     await this.clearLive(target);
-    await this.audit.recordSystem(
-      { companyId: ctx.homeCompanyId, userId: ctx.userId, ip: ctx.ip },
-      { action: 'DELETE', entity: kind, entityId: id, details: { permanent: true, label: target.label, deletedRows, ms: Date.now() - started } },
-    );
-    this.logger.warn(`PURGE ${kind} ${id} (${target.label}) by ${ctx.userId}: ${deletedRows} rows in ${Date.now() - started} ms`);
-    return { ok: true, deletedRows };
+    await this.audit.recordSystem(actor, { action: 'DELETE', entity: kind, entityId: id, details: { permanent: true, label: target.label, by, deletedRows, ms: Date.now() - started } });
+    this.logger.warn(`PURGE ${kind} ${id} (${target.label}) by ${by}: ${deletedRows} rows in ${Date.now() - started} ms`);
+    return deletedRows;
   }
 
   // ───────────── helpers ─────────────

@@ -328,6 +328,7 @@ async function main() {
 
   await seedM2a(demo.id, { chennai: chennai.id }, demoAdmin.email!, demoAdmin.mobile ?? '+919999900001');
   await syncSystemRoleMenus();
+  await seedPlayReview(partner.id);
 
   const counts = {
     companies: await prisma.company.count(),
@@ -563,6 +564,49 @@ async function syncSystemRoleMenus() {
     added += missing.length;
   }
   console.log(`System role menu sync: ${added} grant(s) added`);
+}
+
+// ───────────────────────────── Store review ─────────────────────────────
+
+/**
+ * Google Play review access (only when PLAY_REVIEW_EMAIL / PLAY_REVIEW_PASSWORD / TRACKER_REVIEW_MOBILE are set):
+ * a personal demo account the reviewers sign in with, and a review phone tracker in it that activates with the fixed
+ * TRACKER_REVIEW_CODE (no SMS; see MobileTrackerService). Idempotent; long complimentary seats so it never locks.
+ */
+async function seedPlayReview(partnerId: string) {
+  const email = process.env.PLAY_REVIEW_EMAIL?.trim().toLowerCase();
+  const password = process.env.PLAY_REVIEW_PASSWORD;
+  const mobile = process.env.TRACKER_REVIEW_MOBILE?.replace(/\D/g, '');
+  if (!email || !password || !mobile) return;
+  const years = (n: number) => new Date(Date.now() + n * 365 * 24 * 3600_000);
+  let user = await prisma.user.findUnique({ where: { email }, select: { id: true, companyId: true } });
+  if (!user) {
+    const company = await prisma.company.create({ data: { partnerId, name: 'VeeTrax Demo', accountType: 'INDIVIDUAL' } });
+    const roles = await ensureSystemRoles(prisma, company.id);
+    const branch = await prisma.branch.create({ data: { companyId: company.id, name: 'Home' } });
+    const created = await prisma.user.create({
+      data: {
+        companyId: company.id,
+        name: 'Play Review',
+        email,
+        passwordHash: await hashPassword(password),
+        roles: { create: [{ roleId: roles.get('Admin')! }] },
+        branches: { create: [{ branchId: branch.id }] },
+      },
+      select: { id: true, companyId: true },
+    });
+    await prisma.licenceSeat.create({ data: { type: 'USER', companyId: company.id, source: 'OVERRIDE', activatedAt: new Date(), expiresAt: years(5), userId: created.id, assignedAt: new Date(), note: 'Store review account' } });
+    user = created;
+  }
+  if (await prisma.device.count({ where: { uniqueId: mobile } })) return;
+  const model = await prisma.deviceModel.findFirst({ where: { protocol: 'MOBILE' }, select: { id: true } });
+  if (!model) return;
+  const branch = await prisma.branch.findFirst({ where: { companyId: user.companyId }, select: { id: true } });
+  const device = await prisma.device.create({ data: { companyId: user.companyId, modelId: model.id, uniqueId: mobile, activationEmail: email, ingestToken: randomToken(24) } });
+  const object = await prisma.trackedObject.create({ data: { companyId: user.companyId, branchId: branch?.id ?? null, name: 'Demo phone', type: 'PERSON' } });
+  await prisma.deviceAssignment.create({ data: { deviceId: device.id, objectId: object.id } });
+  await prisma.licenceSeat.create({ data: { type: 'MOBILE_TRACKER', companyId: user.companyId, source: 'OVERRIDE', activatedAt: new Date(), expiresAt: years(5), deviceId: device.id, assignedAt: new Date(), note: 'Store review phone' } });
+  console.log('Store review account ready');
 }
 
 main()

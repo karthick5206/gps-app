@@ -8,6 +8,7 @@ import { SignupPage } from '@/features/auth/SignupPage';
 import { ClaimPage } from '@/features/claim/ClaimPage';
 import { GuidePage } from '@/features/guide/GuidePage';
 import { DownloadPage } from '@/features/download/DownloadPage';
+import { DeleteAccountPage, PrivacyPage } from '@/features/legal/LegalPages';
 import { RedirectIfAuthenticated, RequireAuth, RequirePermission } from '@/features/auth/guards';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage';
@@ -85,6 +86,8 @@ export const router = createBrowserRouter([
   // Public: linked from the mobile apps, help sheets and emails.
   { path: '/guide', element: <GuidePage /> },
   { path: '/download', element: <DownloadPage /> },
+  { path: '/privacy', element: <PrivacyPage /> },
+  { path: '/delete-account', element: <DeleteAccountPage /> },
   {
     element: <RequireAuth />,
     children: [

@@ -65,6 +65,16 @@ export class MobileTrackerService {
     return DEFAULT_TRACKER_CONFIG;
   }
 
+  /**
+   * App-store review: TRACKER_REVIEW_MOBILE always gets the fixed TRACKER_REVIEW_CODE (reviewers can't receive our
+   * SMS). Only that one number, only when both are configured.
+   */
+  private reviewCode(uniqueId: string): string | null {
+    const mobile = normalizeMobile(process.env.TRACKER_REVIEW_MOBILE ?? '');
+    const code = process.env.TRACKER_REVIEW_CODE ?? '';
+    return mobile && mobile === uniqueId && /^[0-9]{6}$/.test(code) ? code : null;
+  }
+
   private normalize(mobile: string): string {
     const uniqueId = normalizeMobile(mobile);
     if (!uniqueId) throw trackerError(400, 'BAD_NUMBER', 'Enter a valid mobile number');
@@ -116,9 +126,11 @@ export class MobileTrackerService {
     });
     if (recent[0] && Date.now() - recent[0].createdAt.getTime() < CODE_RESEND_MS) throw trackerError(429, 'TOO_SOON', 'Please wait 30 seconds before asking for a new code.');
     if (recent.length >= CODE_MAX_PER_DAY) throw trackerError(429, 'TOO_MANY', 'Too many codes for this number today. Try again tomorrow or ask your administrator.');
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const review = this.reviewCode(device.uniqueId);
+    const code = review ?? String(randomInt(0, 1_000_000)).padStart(6, '0');
     const row = await this.prisma.mobileTrackerCode.create({ data: { deviceId: device.id, code, expiresAt: new Date(Date.now() + CODE_TTL_MS) } });
-    const [smsSent, emailed] = await Promise.all([this.sendOtpSms(device.companyId!, device.uniqueId, code), this.emailCode(device, code)]);
+    // Store review number: fixed code, nothing is sent.
+    const [smsSent, emailed] = review ? [true, [] as string[]] : await Promise.all([this.sendOtpSms(device.companyId!, device.uniqueId, code), this.emailCode(device, code)]);
     if (smsSent || emailed.length) await this.prisma.mobileTrackerCode.update({ where: { id: row.id }, data: { smsSent, emailCount: emailed.length } });
     return { ok: true, mobile: device.uniqueId, smsSent, emailSent: emailed.length > 0, sentTo: emailed.map(maskEmail), expiresInSec: CODE_TTL_MS / 1000, selfService: false };
   }
