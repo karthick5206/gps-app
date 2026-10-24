@@ -580,6 +580,8 @@ async function seedPlayReview(partnerId: string) {
   if (!email || !password || !mobile) return;
   const years = (n: number) => new Date(Date.now() + n * 365 * 24 * 3600_000);
   let user = await prisma.user.findUnique({ where: { email }, select: { id: true, companyId: true } });
+  // Keep the review password in step with the server settings (it may be rotated there).
+  if (user) await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(password), isActive: true } });
   if (!user) {
     const company = await prisma.company.create({ data: { partnerId, name: 'VeeTrax Demo', accountType: 'INDIVIDUAL' } });
     const roles = await ensureSystemRoles(prisma, company.id);
