@@ -14,7 +14,7 @@ import { api, errorMessage } from "@/lib/api";
 
 const COMPANY = "Vibhav Enterprise Solutions";
 const SUPPORT_PHONE = "94449 07658";
-const SUPPORT_EMAIL = "info@vaidhika.in";
+const SUPPORT_EMAIL = "info@sasvatamobility.com";
 const UPDATED = "24 October 2026";
 
 function Shell({ title, children }: { title: string; children: ReactNode }) {
