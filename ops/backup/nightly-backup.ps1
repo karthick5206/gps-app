@@ -143,14 +143,44 @@ try {
     }
   }
   $pruned = 0
+  $prunedTags = @{}
   foreach ($r in $backups) {
     $t = TagTime $r.tag_name
     if ($t -ge $cutoff -or $keptBases[$r.tag_name] -or $r.tag_name -eq $state.lastFullTag -or $r.tag_name -eq $tag) { continue }
     Invoke-RestMethod -Method Delete -Uri "$api/releases/$($r.id)" -Headers $gh | Out-Null
     try { Invoke-RestMethod -Method Delete -Uri "$api/git/refs/tags/$($r.tag_name)" -Headers $gh | Out-Null } catch { }
     Log "pruned $($r.tag_name)"
+    $prunedTags[$r.tag_name] = $true
     $pruned++
   }
+
+  # README.md of the repo: the kept backups listed like folders (Full / Differential). A failure here only logs.
+  try {
+    $kept = @($backups | Where-Object { -not $prunedTags[$_.tag_name] } | Sort-Object { TagTime $_.tag_name } -Descending)
+    function Row($r) {
+      $meta = try { ConvertFrom-Json $r.body } catch { $null }
+      $size = ($r.assets | Measure-Object size -Sum).Sum
+      $rows = if ($meta.rows -and -not ($meta.rows.Position -eq 1 -and $meta.rows.RawPacket -eq 1)) { '{0:N0} positions, {1:N0} raw packets' -f $meta.rows.Position, $meta.rows.RawPacket } else { '-' }
+      @{ when = (TagTime $r.tag_name).ToString('dd MMM yyyy HH:mm'); name = $r.tag_name; size = '{0:N2} MB' -f ($size / 1MB); url = $r.html_url; base = $meta.base; rows = $rows }
+    }
+    $fulls = @($kept | Where-Object { $_.tag_name -like 'full-*' -or $_.tag_name -like 'backup-*' } | ForEach-Object { Row $_ })
+    $diffs = @($kept | Where-Object { $_.tag_name -like 'diff-*' } | ForEach-Object { Row $_ })
+    $md = @(
+      '# VeeTrax database backups', '',
+      "Updated automatically after every backup. Last update: $($started.ToString('dd MMM yyyy HH:mm')) (server time, IST). Kept: $keepDays days.", '',
+      'Every file is encrypted with age; only the offline key (`C:\VeeTrax-Backup-Key`) can open it. Restore = a **Full** backup + the newest **Differential** based on it (`restore.ps1`).', '',
+      "## Full backups ($($fulls.Count))", 'Weekly, Sunday 02:30: the whole database.', '',
+      '| Date | Backup | Size |', '|---|---|---|'
+    ) + ($fulls | ForEach-Object { "| $($_.when) | [$($_.name)]($($_.url)) | $($_.size) |" }) + @(
+      '', "## Differential backups ($($diffs.Count))", 'Every 8 hours (02:30, 10:30, 18:30): all tables except the big location tables, plus the location rows received since its Full backup.', '',
+      '| Date | Backup | Size | Location rows since the Full | Based on |', '|---|---|---|---|---|'
+    ) + ($diffs | ForEach-Object { "| $($_.when) | [$($_.name)]($($_.url)) | $($_.size) | $($_.rows) | $($_.base) |" })
+    $content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($md -join "`n") + "`n"))
+    $sha = try { (Invoke-RestMethod -Uri "$api/contents/README.md" -Headers $gh).sha } catch { $null }
+    $put = @{ message = "Backup list after $tag"; content = $content }
+    if ($sha) { $put.sha = $sha }
+    Invoke-RestMethod -Method Put -Uri "$api/contents/README.md" -Headers $gh -ContentType 'application/json' -Body ($put | ConvertTo-Json) | Out-Null
+  } catch { Log "README update failed: $($_.Exception.Message)" }
 
   # Local copies: the newest keepLocal encrypted files.
   Get-ChildItem "$root\backups\*.age" | Where-Object { $_.Name -match '^(nightly|full|diff)-' } | Sort-Object LastWriteTime -Descending | Select-Object -Skip $keepLocal | Remove-Item -Force
