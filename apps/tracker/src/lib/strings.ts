@@ -56,7 +56,7 @@ export const S = {
   startTracking: 'Start tracking',
   stopTracking: 'Stop tracking',
   stopConfirmTitle: 'Stop tracking?',
-  stopConfirmBody: 'Your location will no longer be shared with your administrator.',
+  stopConfirmBody: 'Your location will no longer be shared with your VeeTrax account.',
   lastFix: 'Last location',
   accuracy: 'Accuracy',
   speed: 'Speed',
@@ -80,7 +80,7 @@ export const S = {
   sos: 'SOS',
   sosHint: 'Press and hold for 2 seconds',
   sosSending: 'Sending SOS…',
-  sosSent: 'SOS sent to your administrator.',
+  sosSent: 'SOS sent to your VeeTrax account.',
   sosQueued: 'No connection. SOS saved and will be sent as soon as possible.',
   sosNoLocation: 'Could not get your location for SOS. Check that location is on.',
   sosRejected: 'The server did not accept the SOS. Call your administrator.',
@@ -128,8 +128,8 @@ export const S = {
   // Disclosure (shown before the system permission dialogs; Google Play prominent disclosure)
   disclosureTitle: 'Location sharing',
   disclosureBody: [
-    'VeeTrax Tracker collects this phone\'s location data to enable fleet and workforce tracking by your employer, even when the app is closed or not in use.',
-    'While tracking is ON, your location, speed, and battery level are sent to your employer\'s VeeTrax account. A notification is always shown while tracking.',
+    'VeeTrax Tracker collects this phone\'s location data to share it with the VeeTrax account this phone is activated for (your company, your family or your own account), even when the app is closed or not in use.',
+    'While tracking is ON, your location, speed and battery level are sent to that VeeTrax account, where its users can see them. A notification is always shown while tracking.',
     'You can stop tracking at any time with the Stop button. Location is not collected while tracking is OFF.',
   ],
   disclosureNext: 'On the next screens, choose "While using the app", then "Allow all the time".',
