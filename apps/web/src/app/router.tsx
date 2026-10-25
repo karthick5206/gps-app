@@ -87,9 +87,8 @@ export const router = createBrowserRouter([
   { path: '/guide', element: <GuidePage /> },
   { path: '/download', element: <DownloadPage /> },
   { path: '/privacy', element: <PrivacyPage /> },
+  // Interactive deletion page. App stores get the static public/delete-account.html (readable without JavaScript).
   { path: '/delete-account', element: <DeleteAccountPage /> },
-  // Interactive deletion page; a full page load of /delete-account gets the static public/delete-account for app stores.
-  { path: '/account/delete', element: <DeleteAccountPage /> },
   {
     element: <RequireAuth />,
     children: [
