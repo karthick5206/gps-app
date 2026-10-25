@@ -100,9 +100,13 @@ try {
         "\copy (SELECT * FROM public.`"$($_.name)`" WHERE `"$($_.since)`" >= '$since'::timestamptz) TO '$csv' WITH (FORMAT csv)"
       }) -join "`n"
     Set-Content -Path "$work\copy.sql" -Value $copySql -Encoding ascii
-    Run "$pgBin\psql.exe" @('-v', 'ON_ERROR_STOP=1', '-q', '-d', $dbUrl, '-f', "$work\copy.sql") 'psql copy'
+    # Not -q: psql prints "COPY <rows>" per table, the exact row counts for the manifest and the log.
+    $out = @(& "$pgBin\psql.exe" -v ON_ERROR_STOP=1 -d $dbUrl -f "$work\copy.sql" 2>&1)
+    if ($LASTEXITCODE -ne 0) { $out | ForEach-Object { Log "psql copy: $_" }; throw "psql copy failed (exit $LASTEXITCODE)" }
+    $counts = @($out | ForEach-Object { if ("$_" -match '^COPY (\d+)$') { [int]$Matches[1] } })
+    if ($counts.Count -ne $BIG_TABLES.Count) { throw "psql copy: expected $($BIG_TABLES.Count) COPY results, got: $($out -join ' | ')" }
     $rows = @{}
-    foreach ($t in $BIG_TABLES) { $rows[$t.name] = @(Get-Content "$dir\$($t.name).csv" -ReadCount 0).Count }
+    for ($i = 0; $i -lt $BIG_TABLES.Count; $i++) { $rows[$BIG_TABLES[$i].name] = $counts[$i] }
     @{ kind = 'diff'; base = $state.lastFullTag; since = $since; at = $started.ToString('o'); rows = $rows } | ConvertTo-Json | Set-Content "$dir\manifest.json" -Encoding utf8
     $plain = Join-Path $work "diff-$stamp.zip"
     Compress-Archive -Path "$dir\*" -DestinationPath $plain -CompressionLevel Optimal
