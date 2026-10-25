@@ -1,11 +1,29 @@
 {
-  "total": 2618,
+  "total": 2713,
   "missing": {
     "hi": [
-      ")} {unknownUsed.map((u) => `{{${u}}}`).join("
+      ")} {unknownUsed.map((u) => `{{${u}}}`).join(",
+      "Children",
+      "Consent for tracking people",
+      "Contact",
+      "How long we keep it",
+      "Security",
+      "What we collect",
+      "Who we share it with",
+      "Why we use it",
+      "Your choices and rights"
     ],
     "ta": [
-      ")} {unknownUsed.map((u) => `{{${u}}}`).join("
+      ")} {unknownUsed.map((u) => `{{${u}}}`).join(",
+      "Children",
+      "Consent for tracking people",
+      "Contact",
+      "How long we keep it",
+      "Security",
+      "What we collect",
+      "Who we share it with",
+      "Why we use it",
+      "Your choices and rights"
     ]
   }
 }
