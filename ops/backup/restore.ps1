@@ -3,6 +3,7 @@
 #   .\restore.ps1 -Full full-20261026-0230.dump.age [-Diff diff-20261028-1830.zip.age] -Target "postgresql://user:pass@host:5432/newdb"
 #
 # - Download the files from GitHub (veetrax/dailydbbackup → Releases). A DIFF's release text names its base FULL.
+#   A big backup has several files (.part001, .part002, ...): download all of them into one folder.
 # - The target database must exist and be EMPTY (create it first, e.g. CREATE DATABASE veetrax_restore;).
 # - Needs: this folder's age.exe and veetrax-backup-key.txt (private key), PostgreSQL client tools (-PgBin).
 #
@@ -32,16 +33,29 @@ function Decrypt([string]$file, [string]$out) {
   if ($file -like '*.age') { Run $Age @('-d', '-i', $Key, '-o', $out, $file); return $out }
   return $file
 }
+# Big backups are uploaded in parts (<name>.part001, .part002, ...): pass the name without .partNNN, or any part,
+# with all parts downloaded into the same folder; they are joined here.
+function Assemble([string]$path) {
+  $whole = $path -replace '\.part\d{3}$', ''
+  if (Test-Path $whole) { return (Resolve-Path $whole).Path }
+  $parts = @(Get-ChildItem "$whole.part*" | Where-Object { $_.Name -match '\.part\d{3}$' } | Sort-Object Name)
+  if (-not $parts.Count) { throw "Not found: $whole (nor $whole.part001, ...)" }
+  $out = Join-Path $work (Split-Path $whole -Leaf)
+  $o = [IO.File]::Create($out)
+  try { foreach ($f in $parts) { $i = [IO.File]::OpenRead($f.FullName); try { $i.CopyTo($o) } finally { $i.Dispose() } } } finally { $o.Dispose() }
+  Write-Host "Joined $($parts.Count) parts of $(Split-Path $whole -Leaf)"
+  return $out
+}
 
 $work = Join-Path ([IO.Path]::GetTempPath()) "veetrax-restore-$(Get-Date -Format yyyyMMddHHmmss)"
 New-Item -ItemType Directory -Force $work | Out-Null
 try {
-  $fullDump = Decrypt (Resolve-Path $Full).Path (Join-Path $work 'full.dump')
+  $fullDump = Decrypt (Assemble $Full) (Join-Path $work 'full.dump')
   if (-not $Diff) {
     Write-Host 'Restoring FULL backup...'
     Run "$PgBin\pg_restore.exe" @('--no-owner', '--no-privileges', '-d', $Target, $fullDump)
   } else {
-    $zip = Decrypt (Resolve-Path $Diff).Path (Join-Path $work 'diff.zip')
+    $zip = Decrypt (Assemble $Diff) (Join-Path $work 'diff.zip')
     $dir = Join-Path $work 'diff'
     Expand-Archive -Path $zip -DestinationPath $dir
     $manifest = Get-Content "$dir\manifest.json" -Raw | ConvertFrom-Json

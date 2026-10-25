@@ -12,7 +12,11 @@
 # Files (C:\apps\veetracer): secrets\github-backup-token.txt, backup\config.json { repo, recipient, alertTo,
 # keepDays, keepLocal }, backup\state.json { lastFullTag, lastFullSince }, tools\age\age.exe, logs\backup.log,
 # backup\last-status.json.
-param([ValidateSet('auto', 'full', 'diff')][string]$Mode = 'auto')
+param(
+  [ValidateSet('auto', 'full', 'diff')][string]$Mode = 'auto',
+  # Largest file uploaded to a release; GitHub's limit is 2 GiB per file. Lower only to test splitting.
+  [double]$PartMB = 1900
+)
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -49,6 +53,58 @@ function SendAlert([string]$subject, [string]$text) {
 function Run([string]$exe, [string[]]$arguments, [string]$what) {
   & $exe @arguments 2>&1 | ForEach-Object { Log "${what}: $_" }
   if ($LASTEXITCODE -ne 0) { throw "$what failed (exit $LASTEXITCODE)" }
+}
+# Returns @($file) when it fits in one part, else writes <name>.part001, .part002, ... (each <= $partBytes) to $outDir.
+function SplitFile([string]$file, [long]$partBytes, [string]$outDir) {
+  $len = (Get-Item $file).Length
+  if ($len -le $partBytes) { return , @($file) }
+  New-Item -ItemType Directory -Force $outDir | Out-Null
+  $leaf = Split-Path $file -Leaf
+  $buf = New-Object byte[] ([Math]::Min(64MB, $partBytes))
+  $parts = @()
+  $in = [IO.File]::OpenRead($file)
+  try {
+    $n = 0
+    while ($in.Position -lt $len) {
+      $n++
+      $p = Join-Path $outDir ('{0}.part{1:D3}' -f $leaf, $n)
+      $out = [IO.File]::Create($p)
+      try {
+        $left = [Math]::Min($partBytes, $len - $in.Position)
+        while ($left -gt 0) {
+          $r = $in.Read($buf, 0, [int][Math]::Min([long]$buf.Length, $left))
+          if ($r -le 0) { throw "short read splitting $leaf" }
+          $out.Write($buf, 0, $r)
+          $left -= $r
+        }
+      } finally { $out.Dispose() }
+      $parts += $p
+    }
+  } finally { $in.Dispose() }
+  return , $parts
+}
+# Uploads one release asset, streaming the file (Invoke-RestMethod -InFile would hold a 2 GB part in memory).
+function UploadAsset([string]$url, [string]$file, [string]$token) {
+  $req = [Net.HttpWebRequest]::Create($url)
+  $req.Method = 'POST'
+  $req.ContentType = 'application/octet-stream'
+  $req.Accept = 'application/vnd.github+json'
+  $req.UserAgent = 'veetrax-backup'
+  $req.Headers.Add('Authorization', "Bearer $token")
+  $req.AllowWriteStreamBuffering = $false
+  $req.ContentLength = (Get-Item $file).Length
+  $req.Timeout = 3 * 3600 * 1000
+  $req.ReadWriteTimeout = 3 * 3600 * 1000
+  $in = [IO.File]::OpenRead($file)
+  try {
+    $out = $req.GetRequestStream()
+    try { $in.CopyTo($out, 4MB) } finally { $out.Dispose() }
+  } finally { $in.Dispose() }
+  try { $resp = $req.GetResponse() } catch [Net.WebException] {
+    $body = if ($_.Exception.Response) { (New-Object IO.StreamReader($_.Exception.Response.GetResponseStream())).ReadToEnd() } else { '' }
+    throw "upload of $(Split-Path $file -Leaf) failed: $($_.Exception.Message) $body"
+  }
+  try { return (New-Object IO.StreamReader($resp.GetResponseStream())).ReadToEnd() | ConvertFrom-Json } finally { $resp.Dispose() }
 }
 # Tag date (UTC-agnostic local stamp) of full-/diff-/backup- releases.
 function TagTime([string]$tag) {
@@ -119,12 +175,25 @@ try {
   Run "$root\tools\age\age.exe" @('-r', $cfg.recipient, '-o', $enc, $plain) 'age'
   $size = (Get-Item $enc).Length
 
+  # GitHub release files must be under 2 GB: bigger backups go up as <name>.part001, .part002, ... (restore.ps1 joins them).
+  $files = SplitFile $enc ([long]($PartMB * 1MB)) (Join-Path $work 'parts')
+  $meta.parts = $files.Count
+
   # Upload as a release (body = JSON metadata, used for pruning and by restore.ps1).
   $relBody = @{ tag_name = $tag; name = "$tag ($kind)"; body = ($meta | ConvertTo-Json -Compress); draft = $false; prerelease = $false } | ConvertTo-Json
   $rel = Invoke-RestMethod -Method Post -Uri "$api/releases" -Headers $gh -ContentType 'application/json' -Body $relBody
-  $asset = Invoke-RestMethod -Method Post -Uri "https://uploads.github.com/repos/$($cfg.repo)/releases/$($rel.id)/assets?name=$(Split-Path $enc -Leaf)" -Headers $gh -ContentType 'application/octet-stream' -InFile $enc
-  if ($asset.size -ne $size) { throw "upload size mismatch: $($asset.size) <> $size" }
-  Log "uploaded $tag $([math]::Round($size / 1MB, 2)) MB$(if ($kind -eq 'diff') { " (rows since $since`: $(($meta.rows.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', '))" })"
+  try {
+    foreach ($f in $files) {
+      $name = Split-Path $f -Leaf
+      $asset = UploadAsset "https://uploads.github.com/repos/$($cfg.repo)/releases/$($rel.id)/assets?name=$name" $f $token
+      if ($asset.size -ne (Get-Item $f).Length) { throw "upload size mismatch for ${name}: $($asset.size) <> $((Get-Item $f).Length)" }
+    }
+  } catch {
+    # Leave no half-uploaded release behind (it would look like a backup).
+    try { Invoke-RestMethod -Method Delete -Uri "$api/releases/$($rel.id)" -Headers $gh | Out-Null; Invoke-RestMethod -Method Delete -Uri "$api/git/refs/tags/$tag" -Headers $gh | Out-Null } catch { }
+    throw
+  }
+  Log "uploaded $tag $([math]::Round($size / 1MB, 2)) MB$(if ($files.Count -gt 1) { " in $($files.Count) parts" })$(if ($kind -eq 'diff') { " (rows since $since`: $(($meta.rows.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', '))" })"
   if ($kind -eq 'full') { @{ lastFullTag = $tag; lastFullSince = $since } | ConvertTo-Json | Set-Content $statePath -Encoding utf8 }
 
   # Prune GitHub: older than keepDays, except a FULL that a kept DIFF is based on.
@@ -161,7 +230,7 @@ try {
       $meta = try { ConvertFrom-Json $r.body } catch { $null }
       $size = ($r.assets | Measure-Object size -Sum).Sum
       $rows = if ($meta.rows -and -not ($meta.rows.Position -eq 1 -and $meta.rows.RawPacket -eq 1)) { '{0:N0} positions, {1:N0} raw packets' -f $meta.rows.Position, $meta.rows.RawPacket } else { '-' }
-      @{ when = (TagTime $r.tag_name).ToString('dd MMM yyyy HH:mm'); name = $r.tag_name; size = '{0:N2} MB' -f ($size / 1MB); url = $r.html_url; base = $meta.base; rows = $rows }
+      @{ when = (TagTime $r.tag_name).ToString('dd MMM yyyy HH:mm'); name = $r.tag_name; size = ('{0:N2} MB' -f ($size / 1MB)) + $(if (@($r.assets).Count -gt 1) { " ($(@($r.assets).Count) parts)" }); url = $r.html_url; base = $meta.base; rows = $rows }
     }
     $fulls = @($kept | Where-Object { $_.tag_name -like 'full-*' -or $_.tag_name -like 'backup-*' } | ForEach-Object { Row $_ })
     $diffs = @($kept | Where-Object { $_.tag_name -like 'diff-*' } | ForEach-Object { Row $_ })
