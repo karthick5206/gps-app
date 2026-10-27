@@ -16,10 +16,12 @@ export const SPEED_BAND_COLORS: Record<ResolvedTheme, string[]> = {
 };
 export const SPEED_BAND_LABELS = ['< 20', '20–40', '40–60', '60–80', '80+'];
 export const STOP_COLORS = { parked: { light: '#1d4ed8', dark: '#60a5fa' }, idle: STATUS_META.IDLE };
+export const ESTIMATE_COLOR = { light: '#7c3aed', dark: '#a78bfa' };
 const ALERT_COLORS = { INFO: { light: '#0284c7', dark: '#38bdf8' }, WARNING: STATUS_META.IDLE, CRITICAL: STATUS_META.OFF };
 
-const SRC = { track: 'h-track', played: 'h-played', trip: 'h-trip', marks: 'h-marks', cursor: 'h-cursor' } as const;
+const SRC = { track: 'h-track', played: 'h-played', trip: 'h-trip', marks: 'h-marks', cursor: 'h-cursor', estimate: 'h-estimate' } as const;
 const LYR = {
+  estimate: 'h-estimate-line',
   trackCasing: 'h-track-casing',
   track: 'h-track-line',
   trackGap: 'h-track-gap',
@@ -102,6 +104,7 @@ export class HistoryMap {
   private runs: TrackRun[] = [];
   private stops: StopDto[] = [];
   private alertPositions: { alert: AlertDto; lat: number; lng: number }[] = [];
+  private estimates: [number, number][][] = [];
   private tailPresent = false;
   private highlighted: [number | null, number | null] = [null, null];
   private playedRuns = 0; // runs [0, playedRuns) are present as completed features
@@ -213,6 +216,8 @@ export class HistoryMap {
     const round = { 'line-cap': 'round', 'line-join': 'round' } as const;
     const solid: maplibregl.FilterSpecification = ['==', ['get', 'gap'], false];
     const gap: maplibregl.FilterSpecification = ['==', ['get', 'gap'], true];
+    // Likely road through data gaps (routing engine), under the recorded track.
+    map.addLayer({ id: LYR.estimate, type: 'line', source: SRC.estimate, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 4.5], 'line-dasharray': [0.6, 1.6], 'line-opacity': 0.8 } });
     map.addLayer({ id: LYR.trackCasing, type: 'line', source: SRC.track, filter: solid, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 16, 9] } });
     map.addLayer({ id: LYR.track, type: 'line', source: SRC.track, filter: solid, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 5] } });
     map.addLayer({ id: LYR.trackGap, type: 'line', source: SRC.track, filter: gap, paint: { 'line-width': 2, 'line-dasharray': [2, 2], 'line-opacity': 0.7 } });
@@ -278,6 +283,7 @@ export class HistoryMap {
     map.setPaintProperty(LYR.track, 'line-color', line);
     map.setPaintProperty(LYR.track, 'line-opacity', this.playedActive ? 0.32 : 1);
     map.setPaintProperty(LYR.trackGap, 'line-color', STATUS_META.OFFLINE[t]);
+    map.setPaintProperty(LYR.estimate, 'line-color', ESTIMATE_COLOR[t]);
     map.setPaintProperty(LYR.trip, 'line-color', cssToken('--primary'));
     map.setPaintProperty(LYR.played, 'line-color', line);
     map.setPaintProperty(LYR.playedGap, 'line-color', STATUS_META.OFFLINE[t]);
@@ -334,6 +340,7 @@ export class HistoryMap {
     this.runs = runs;
     this.stops = stops;
     this.alertPositions = alerts;
+    this.estimates = [];
     this.playedRuns = 0;
     this.playedActive = false;
     this.lastSample = null;
@@ -363,6 +370,20 @@ export class HistoryMap {
       if (idx.n > 1) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [idx.lng[idx.n - 1], idx.lat[idx.n - 1]] }, properties: { kind: 'end', label: 'E' } });
     }
     marks.setData({ type: 'FeatureCollection', features });
+    this.pushEstimates();
+  }
+
+  /** Likely roads through the track's data gaps, as [lng, lat] lines; drawn dashed under the track. */
+  setEstimates(lines: [number, number][][]) {
+    this.estimates = lines;
+    this.pushEstimates();
+  }
+
+  private pushEstimates() {
+    this.src(SRC.estimate)?.setData({
+      type: 'FeatureCollection',
+      features: this.estimates.map((coordinates) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates }, properties: {} })),
+    });
   }
 
   clear() {
@@ -370,6 +391,7 @@ export class HistoryMap {
     this.runs = [];
     this.stops = [];
     this.alertPositions = [];
+    this.estimates = [];
     for (const id of Object.values(SRC)) this.src(id)?.setData(EMPTY);
     this.tailPresent = false;
   }

@@ -61,7 +61,8 @@ export interface TrackerConfig {
   batchMax: number;
 }
 
-export const DEFAULT_TRACKER_CONFIG: TrackerConfig = { intervalSec: 10, stoppedIntervalSec: 60, distanceM: 10, maxAccuracyM: 100, batchMax: 100 };
+// One fix every 5 s while moving (was 10 s; the phones met that, p90 11 s). distanceM 10 still drops fixes when crawling.
+export const DEFAULT_TRACKER_CONFIG: TrackerConfig = { intervalSec: 5, stoppedIntervalSec: 60, distanceM: 10, maxAccuracyM: 100, batchMax: 100 };
 
 export interface TrackerPoint {
   t: number;

@@ -46,6 +46,9 @@ export interface TrackState {
   lastFixTime: number | null;
   stoppedSince: number | null;
   jumpStreak: number;
+  /** Phone trackers (processor/parked-thinning): fixTime of the last stored row, and the last parked row not stored. */
+  storedAt?: number | null;
+  heldRow?: unknown;
 }
 
 export const EMPTY_TRACK_STATE: TrackState = { lastValid: null, lastFixTime: null, stoppedSince: null, jumpStreak: 0 };

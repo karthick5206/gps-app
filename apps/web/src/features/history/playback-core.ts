@@ -8,7 +8,7 @@
  * Each animation frame advances `v`, maps it to real time with one binary search and samples the
  * interpolated pose with a second one (both O(log n), with an O(1) fast path for the previous segment).
  */
-import type { TrackPoint } from '@veetracer/shared';
+import type { GapEstimateSegment, TrackPoint } from '@veetracer/shared';
 import { lerp, lerpBearing, normalizeBearing } from '../../lib/geo.ts';
 
 /** Track seconds played per wall-clock second at 1×. */
@@ -70,6 +70,26 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
   const dLng = rad(lng2 - lng1);
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** Consecutive points this far apart in time and distance get a road estimate (a gap, or missed points while moving). */
+export const ESTIMATE_MIN_GAP_MS = 2 * 60_000;
+export const ESTIMATE_MIN_GAP_KM = 0.5;
+
+/** Segments worth a road estimate, longest first, at most `max`. */
+export function gapSegments(idx: TrackIndex, max: number): GapEstimateSegment[] {
+  const found: { km: number; seg: GapEstimateSegment }[] = [];
+  for (let i = 0; i < idx.n - 1; i++) {
+    const dt = idx.t[i + 1] - idx.t[i];
+    if (dt < ESTIMATE_MIN_GAP_MS) continue;
+    const km = haversineKm(idx.lat[i], idx.lng[i], idx.lat[i + 1], idx.lng[i + 1]);
+    if (km < ESTIMATE_MIN_GAP_KM) continue;
+    found.push({ km, seg: { fromLat: idx.lat[i], fromLng: idx.lng[i], toLat: idx.lat[i + 1], toLng: idx.lng[i + 1], seconds: Math.round(dt / 1000) } });
+  }
+  return found
+    .sort((a, b) => b.km - a.km)
+    .slice(0, max)
+    .map((f) => f.seg);
 }
 
 /** Initial great-circle bearing in degrees [0, 360). */

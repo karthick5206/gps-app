@@ -26,6 +26,25 @@ export interface StopDto {
   poiName?: string | null;
 }
 
+/** A data gap in a track: the last point before it, the first after it, and the time between them. */
+export interface GapEstimateSegment {
+  fromLat: number;
+  fromLng: number;
+  toLat: number;
+  toLng: number;
+  seconds: number;
+}
+
+/** `POST /routing/estimate-gaps`: at most this many segments per call. */
+export const MAX_GAP_ESTIMATES = 30;
+
+export interface GapEstimateResponse {
+  /** False when no routing engine is configured (nothing is estimated). */
+  enabled: boolean;
+  /** Per requested segment, in order: the likely road as [lng, lat] pairs, or null when there is no believable one. */
+  routes: ([number, number][] | null)[];
+}
+
 export interface HistoryResponse {
   objectId: string;
   from: string;

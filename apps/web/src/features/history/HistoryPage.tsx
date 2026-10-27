@@ -11,17 +11,17 @@ import { downloadCsv, errorMessage } from '@/lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '@/features/auth/auth-context';
 import { cn } from '@/lib/utils';
-import { HistoryMap, SPEED_BAND_COLORS, SPEED_BAND_LABELS, STOP_COLORS, type ColorMode, type MarkClick } from './history-map';
+import { ESTIMATE_COLOR, HistoryMap, SPEED_BAND_COLORS, SPEED_BAND_LABELS, STOP_COLORS, type ColorMode, type MarkClick } from './history-map';
 import { HistorySidePanel, type SideTab } from './HistorySidePanel';
 import { HistoryToolbar } from './HistoryToolbar';
 import { LiveDataPanel } from './LiveDataPanel';
 import { PlaybackBar } from './PlaybackBar';
-import { boundsBetween, buildRuns, buildTrackIndex, sampleAt } from './playback-core';
+import { boundsBetween, buildRuns, buildTrackIndex, gapSegments, sampleAt } from './playback-core';
 import { PlaybackEngine } from './playback-engine';
 import { detectPreset, rangeFromParams, type TimeRange } from './time-range';
-import { useHistory, useMediaQuery } from './use-history';
+import { useGapEstimates, useHistory, useMediaQuery } from './use-history';
 import { useTheme } from '@/features/theme/use-theme';
-import { STATUS_META, TRACK_STATUS_CODES } from '@veetracer/shared';
+import { MAX_GAP_ESTIMATES, STATUS_META, TRACK_STATUS_CODES } from '@veetracer/shared';
 
 function useHistoryMap(containerRef: RefObject<HTMLDivElement | null>, onMarkClick: (m: MarkClick) => void, onFollowInterrupted: () => void) {
   const [map, setMap] = useState<HistoryMap | null>(null);
@@ -67,7 +67,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
   return el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(el.tagName) || el.getAttribute('role') === 'combobox';
 }
 
-function Legend({ mode, onModeChange }: { mode: ColorMode; onModeChange: (m: ColorMode) => void }) {
+function Legend({ mode, onModeChange, estimated }: { mode: ColorMode; onModeChange: (m: ColorMode) => void; estimated: boolean }) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
   const items =
@@ -102,6 +102,12 @@ function Legend({ mode, onModeChange }: { mode: ColorMode; onModeChange: (m: Col
           <span className="h-0 w-3.5 border-t-2 border-dashed" style={{ borderColor: STATUS_META.OFFLINE[resolved] }} aria-hidden />
           {t('No data (gap)')}
         </li>
+        {estimated && (
+          <li className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="h-0 w-3.5 border-t-2 border-dotted" style={{ borderColor: ESTIMATE_COLOR[resolved] }} aria-hidden />
+            {t('Estimated road (no data)')}
+          </li>
+        )}
         <li className="flex items-center gap-1.5 whitespace-nowrap">
           <span className="size-2.5 rounded-full border border-white" style={{ backgroundColor: STOP_COLORS.idle[resolved] }} aria-hidden />
           {t('Idle stop')}
@@ -188,6 +194,13 @@ export function HistoryPage() {
     // idx geometry is identical across skip-stops toggles; re-run only for a new dataset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, engine]);
+
+  // Likely roads through data gaps (when the server has a routing engine), drawn under the track.
+  const gaps = useMemo(() => (idx ? gapSegments(idx, MAX_GAP_ESTIMATES) : []), [idx]);
+  const estimates = useGapEstimates(data ? `${data.objectId}|${data.from}|${data.to}` : null, gaps);
+  useEffect(() => {
+    if (map && engine) map.setEstimates(estimates);
+  }, [map, engine, estimates]);
 
   useEffect(() => map?.setColorMode(colorMode), [map, colorMode]);
   useEffect(() => map?.setFollow(follow), [map, follow]);
@@ -338,7 +351,7 @@ export function HistoryPage() {
             )}
             {hasTrack && (
               <div className="pointer-events-none absolute right-2 bottom-7 sm:right-3">
-                <Legend mode={colorMode} onModeChange={setColorMode} />
+                <Legend mode={colorMode} onModeChange={setColorMode} estimated={estimates.length > 0} />
               </div>
             )}
             {!objectId && (

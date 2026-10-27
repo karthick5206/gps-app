@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { HistoryResponse, LiveObject, TrackedObjectDto } from '@veetracer/shared';
+import type { GapEstimateResponse, GapEstimateSegment, HistoryResponse, LiveObject, TrackedObjectDto } from '@veetracer/shared';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Option } from '@/components/ui/multi-select';
 import { useAuth } from '@/features/auth/auth-context';
@@ -17,6 +17,20 @@ export function useHistory(objectId: string | null, from: Date, to: Date) {
     staleTime: 30_000,
     retry: (count, err) => !(err instanceof ApiError && err.status < 500) && count < 2,
   });
+}
+
+const NO_LINES: [number, number][][] = [];
+
+/** Likely roads through the track's data gaps (`POST /routing/estimate-gaps`); none when the server has no engine. */
+export function useGapEstimates(trackKey: string | null, segments: GapEstimateSegment[]) {
+  const q = useQuery({
+    queryKey: ['gap-estimates', trackKey, segments.length],
+    queryFn: () => api.post<GapEstimateResponse>('/routing/estimate-gaps', { segments }),
+    enabled: !!trackKey && segments.length > 0,
+    staleTime: Infinity,
+    retry: false,
+  });
+  return useMemo(() => q.data?.routes.filter((r): r is [number, number][] => r !== null) ?? NO_LINES, [q.data]);
 }
 
 const liveOption = (o: LiveObject): Option => ({ value: o.objectId, label: o.name, description: o.plateNumber ?? undefined });

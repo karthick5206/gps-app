@@ -6,6 +6,7 @@ import {
   buildTrackIndex,
   findRun,
   findSegment,
+  gapSegments,
   realToVirtual,
   sampleAt,
   speedBand,
@@ -144,4 +145,21 @@ test('sampling a 17k-point track 10k times is fast', () => {
     hint = sampleAt(idx, t, hint).i;
   }
   assert.ok(performance.now() - t0 < 200);
+});
+
+test('gapSegments picks points ≥ 2 min and ≥ 500 m apart, longest first', () => {
+  const idx = buildTrackIndex([
+    pt(0, 13.0, 80.0),
+    pt(10, 13.0005, 80.0), // normal 10 s step
+    pt(400, 13.01, 80.0), // ~1 km after 6.5 min: gap
+    pt(410, 13.0105, 80.0),
+    pt(2000, 13.0108, 80.0), // 26 min but ~33 m: parked, not a gap to route
+    pt(2200, 13.05, 80.0), // ~4.4 km after 3.3 min: gap
+  ]);
+  const segs = gapSegments(idx, 30);
+  assert.equal(segs.length, 2);
+  assert.equal(segs[0].toLat, 13.05); // longest first
+  assert.equal(segs[0].seconds, 200);
+  assert.equal(segs[1].fromLat, 13.0005);
+  assert.equal(gapSegments(idx, 1).length, 1);
 });

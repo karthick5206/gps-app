@@ -9,7 +9,9 @@ import { parseLive } from '../tracking/live-object';
 import { correctClock } from '../tracking/clock-correction';
 import { nextStatus, StatusState } from '../tracking/movement-status';
 import { EMPTY_TRACK_STATE, filterPosition, TrackState } from '../tracking/position-filter';
+import { MOBILE_PROTOCOL } from '../mobile-tracker/mobile-tracker.logic';
 import { DeviceCache, ResolvedDevice } from './device-cache';
+import { isParkedRepeat } from './parked-thinning';
 import { DriverIdentification } from './driver-identification';
 import { FuelEventRow, IoSessionRow, PositionRow, RawPacketRow, UnknownDeviceRow, WriteBatch, writeBatch } from './position-writer';
 import { IoAlertInput, RuleInput } from './rules/evaluate';
@@ -148,7 +150,7 @@ export class PositionProcessor {
       }
       if (!device.accepted) continue;
       if (this.drivers && device.object) await this.drivers.apply(device.object, position);
-      batch.positions.push(this.evaluate(position, device, lives, tracks, changed, now, serverTime, ruleInputs, fuel, io));
+      batch.positions.push(...this.evaluate(position, device, lives, tracks, changed, now, serverTime, ruleInputs, fuel, io));
       if (position.raw) batch.rawPackets.push(this.rawPacket(position, entry.remote));
       this.trackLastSeen(device.deviceId, now, serverTime, batch);
     }
@@ -301,7 +303,7 @@ export class PositionProcessor {
     ruleInputs: RuleInput[],
     fuel: FuelBatch = { states: new Map(), changed: new Set(), events: [] },
     io: IoBatch = emptyIoBatch(),
-  ): PositionRow {
+  ): PositionRow[] {
     // Impossible device times (reset clock, GPS week rollover) would drop live data and alarms as "late".
     position = correctClock(position).position;
     this.saveIccid(device.deviceId, position.attributes?.iccid);
@@ -311,6 +313,8 @@ export class PositionProcessor {
     // otherwise drive status, drift filtering and ignition alerts (seen: an ID card tracker always "ignition off").
     if (object && object.type !== 'VEHICLE' && position.ignition !== null) position = { ...position, ignition: null };
     let flags = 0;
+    // Phone trackers only: whether this row is a parked repeat (not stored), see parked-thinning.ts.
+    let parked: boolean | null = null;
 
     // Calibrated fuel level (litres, % of the tank) per the vehicle's fuel settings, stored with the position.
     let litres: number | null = null;
@@ -366,7 +370,21 @@ export class PositionProcessor {
           serverTime,
         };
         lives.set(object.objectId, live);
-        tracks.set(object.objectId, { ...result.next, stoppedSince: status.stoppedSince });
+        if (position.protocol === MOBILE_PROTOCOL) {
+          parked = isParkedRepeat({
+            speedKph: result.speedKph,
+            flags,
+            lat: position.lat,
+            lng: position.lng,
+            accuracyM: numberAttr(attrs, 'accuracyM'),
+            fixTime,
+            alarm: !!attrs?.alarm,
+            statusChanged: prev?.status !== status.status,
+            lastValid: track.lastValid,
+            storedAt: track.storedAt ?? null,
+          });
+        }
+        tracks.set(object.objectId, { ...result.next, stoppedSince: status.stoppedSince, storedAt: track.storedAt ?? null, heldRow: track.heldRow ?? null });
         changed.set(object.objectId, live);
         const fuelEvents = this.detectFuel(object.objectId, object.companyId, device, litres, fixTime, live, trusted && attrs.reupload !== true, fuel);
         // Vehicles in maintenance (workshop, testing) raise no alerts. Without a GPS fix only location-independent
@@ -422,7 +440,7 @@ export class PositionProcessor {
       }
     }
 
-    return {
+    const row: PositionRow = {
       objectId: object?.objectId ?? null,
       deviceId: device.deviceId,
       fixTime: position.fixTime,
@@ -438,6 +456,16 @@ export class PositionProcessor {
       flags,
       attributes: JSON.stringify(position.attributes ?? {}),
     };
+    if (parked === null || !object) return [row];
+    const t = tracks.get(object.objectId)!;
+    if (parked) {
+      tracks.set(object.objectId, { ...t, heldRow: row });
+      return [];
+    }
+    // Stored: write the last skipped parked point first, so a departure keeps its exact time.
+    const held = t.heldRow as PositionRow | null | undefined;
+    tracks.set(object.objectId, { ...t, storedAt: fixTime, heldRow: null });
+    return held ? [held, row] : [row];
   }
 
   /** Run the refill / drain detector on a trusted live point; detected events become FuelEvent rows and rule input. */
