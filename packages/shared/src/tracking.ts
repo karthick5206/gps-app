@@ -91,6 +91,7 @@ export const POSITION_FLAGS = {
   FUTURE: 8, // timestamp in the future
   LATE: 16, // arrived out of order (older than latest)
   LBS: 32, // approximate location from cell tower / Wi-Fi
+  OUTLIER: 64, // point analysis: spike / jump / inaccurate / fake / invalid (left out when PointQualitySettings.useInReports)
 } as const;
 
 /** Position produced by any protocol decoder, before processing. */

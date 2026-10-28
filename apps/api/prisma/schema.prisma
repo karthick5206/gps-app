@@ -1637,6 +1637,8 @@ enum RelayScope {
 model PointQualitySettings {
   id          String   @id @default("default")
   enabled     Boolean  @default(true)
+  /// Phase 3: trips, daily distance and the History track leave out points flagged OUTLIER by the analysis job.
+  useInReports Boolean @default(false)
   updatedById String?  @db.Uuid
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 }

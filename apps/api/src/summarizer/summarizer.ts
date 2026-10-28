@@ -2,7 +2,8 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import type Redis from 'ioredis';
 import { LateDetector } from './late-detector';
 import { POSITION_FLAGS } from '@veetracer/shared';
-import { fetchPositionsMany, loadObjectMeta, ObjectMeta, SKIP_FLAGS, toSegPoint } from './positions';
+import { OutlierFlagger } from './outlier-flagger';
+import { fetchPositionsMany, loadObjectMeta, ObjectMeta, SKIP_FLAGS, skipFlags, toSegPoint } from './positions';
 import {
   avgMovingSpeed,
   cloneState,
@@ -80,6 +81,9 @@ export class Summarizer {
   private readonly chunkSize: number;
   private readonly pageSize: number;
   readonly detector: LateDetector;
+  private readonly flagger: OutlierFlagger;
+  /** Position flags left out of this run (outliers too while point analysis is used for reports). */
+  private skip = SKIP_FLAGS;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -89,6 +93,7 @@ export class Summarizer {
     this.chunkSize = opts.chunkSize ?? 100;
     this.pageSize = opts.pageSize ?? 20_000;
     this.detector = new LateDetector(prisma, redis);
+    this.flagger = new OutlierFlagger(prisma);
     this.webhooks = typeof redis?.smembers === 'function' ? new WebhookEventPublisher(redis) : null;
   }
 
@@ -146,6 +151,13 @@ export class Summarizer {
       ms: 0,
     };
     const meta = await loadObjectMeta(this.prisma);
+    // Point analysis phase 3: flag outliers first, so this run already leaves them out while that is switched on.
+    try {
+      await this.flagger.run(now, meta);
+    } catch (error) {
+      console.error(`Outlier flags failed: ${(error as Error).message}`);
+    }
+    this.skip = skipFlags(await this.flagger.useInReports().catch(() => false));
     const cursorRows = await this.prisma.$queryRaw<{ oid: string; pu: number; lt: number | null }[]>`
       SELECT "objectId"::text AS oid, (extract(epoch from "processedUntil") * 1000)::float8 AS pu,
              (state->'seg'->'last'->>'t')::float8 AS lt
@@ -244,7 +256,7 @@ export class Summarizer {
         WHERE "objectId" = c.oid::uuid
           AND "fixTime" >= to_timestamp(c.mn::float8 / 1000) AND "fixTime" <= to_timestamp(c.pu::float8 / 1000)
           AND "serverTime" > to_timestamp(${sinceMs}::float8 / 1000)
-          AND valid AND (flags & ${SKIP_FLAGS}) = 0
+          AND valid AND (flags & ${this.skip}) = 0
           AND ((flags & ${POSITION_FLAGS.LATE}) <> 0 OR "fixTime" > to_timestamp(c.lt::float8 / 1000))
         ORDER BY "fixTime"
         LIMIT 1
@@ -291,6 +303,7 @@ export class Summarizer {
         pending.map((c) => ({ objectId: c.meta.id, afterMs: c.after })),
         now,
         this.pageSize,
+        this.skip,
       );
       const next: Ctx[] = [];
       for (const c of pending) {

@@ -42,6 +42,8 @@ export interface QualityResult {
   labels: PointLabel[];
   /** Cleaned track [t, lat, lng]: smoothed moving parts; each stop as its centre at its start and end time. */
   clean: [number, number, number][];
+  /** Moving parts (indexes of the accepted fixes, oldest first), split at stops and long gaps: what road matching uses. */
+  segments: number[][];
 }
 
 /**
@@ -124,8 +126,13 @@ export function analyzeTrack(points: InPoint[]): QualityResult {
 
   // 4. Moving parts: Kalman filter + smoother per segment (split at stops and long gaps).
   let seg: number[] = [];
+  const segments: number[][] = [];
   const flush = () => {
-    if (seg.length) for (const c of smoothSegment(points, seg, acc, labels)) clean.push(c);
+    if (seg.length) {
+      for (const c of smoothSegment(points, seg, acc, labels)) clean.push(c);
+      const kept = seg.filter((i) => labels[i] === 'good');
+      if (kept.length >= 2) segments.push(kept);
+    }
     seg = [];
   };
   for (const i of cand) {
@@ -138,7 +145,7 @@ export function analyzeTrack(points: InPoint[]): QualityResult {
   }
   flush();
   clean.sort((a, b) => a[0] - b[0]);
-  return { labels, clean };
+  return { labels, clean, segments };
 }
 
 const indexesOf = (labels: PointLabel[], label: PointLabel) => labels.flatMap((l, i) => (l === label ? [i] : []));

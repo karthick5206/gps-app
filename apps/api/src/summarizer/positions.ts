@@ -8,6 +8,9 @@ import { SegConfig, SegPoint } from './segmenter';
 export const SKIP_FLAGS =
   POSITION_FLAGS.INVALID_FIX | POSITION_FLAGS.JUMP | POSITION_FLAGS.FUTURE | POSITION_FLAGS.LBS;
 
+/** SKIP_FLAGS, plus the analysis outliers while "use cleaned points" is on (point analysis phase 3). */
+export const skipFlags = (cleaned: boolean): number => SKIP_FLAGS | (cleaned ? POSITION_FLAGS.OUTLIER : 0);
+
 export interface PosRow {
   t: number; // epoch ms
   lat: number;
@@ -29,14 +32,14 @@ export function toSegPoint(r: PosRow, prev: SegPoint | null): SegPoint {
 type Db = PrismaClient | Prisma.TransactionClient;
 
 /** Clean positions of one object with fromMs < fixTime ≤ toMs, ascending. */
-export async function fetchPositions(db: Db, objectId: string, fromMs: number, toMs: number, limit = 1_000_000): Promise<PosRow[]> {
+export async function fetchPositions(db: Db, objectId: string, fromMs: number, toMs: number, limit = 1_000_000, skip = SKIP_FLAGS): Promise<PosRow[]> {
   return db.$queryRaw<PosRow[]>`
     SELECT (extract(epoch from "fixTime") * 1000)::float8 AS t, lat, lng, "speedKph"::float8 AS speed,
            course::int AS course, ignition AS ign, flags
     FROM "Position"
     WHERE "objectId" = ${objectId}::uuid
       AND "fixTime" > to_timestamp(${fromMs}::float8 / 1000) AND "fixTime" <= to_timestamp(${toMs}::float8 / 1000)
-      AND valid AND (flags & ${SKIP_FLAGS}) = 0
+      AND valid AND (flags & ${skip}) = 0
     ORDER BY "fixTime"
     LIMIT ${limit}`;
 }
@@ -47,6 +50,7 @@ export async function fetchPositionsMany(
   items: { objectId: string; afterMs: number }[],
   toMs: number,
   perObject: number,
+  skip = SKIP_FLAGS,
 ): Promise<Map<string, PosRow[]>> {
   const result = new Map<string, PosRow[]>();
   if (!items.length) return result;
@@ -59,7 +63,7 @@ export async function fetchPositionsMany(
       FROM "Position"
       WHERE "objectId" = c.oid::uuid
         AND "fixTime" > to_timestamp(c.after::float8 / 1000) AND "fixTime" <= to_timestamp(${toMs}::float8 / 1000)
-        AND valid AND (flags & ${SKIP_FLAGS}) = 0
+        AND valid AND (flags & ${skip}) = 0
       ORDER BY "fixTime"
       LIMIT ${perObject}
     ) p

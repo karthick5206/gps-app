@@ -1,13 +1,14 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Put, Query } from '@nestjs/common';
 import type { PointQualityResponse, PointQualitySettingsDto } from '@veetracer/shared';
-import { IsBoolean } from 'class-validator';
+import { IsBoolean, IsOptional } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
 import { Auth, RequirePermission } from '../access/decorators';
 import { HistoryQuery } from '../history/history.controller';
 import { PointQualityService } from './point-quality.service';
 
 class PointQualitySettingsBody {
-  @IsBoolean() enabled!: boolean;
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsBoolean() useInReports?: boolean;
 }
 
 @Controller()
@@ -26,9 +27,9 @@ export class PointQualityController {
     return this.quality.settings();
   }
 
-  /** Super Admin: switch the feature on or off for everyone. */
+  /** Super Admin: switch the analysis, and its use in trips / distance, on or off for everyone. */
   @Put('point-quality/settings')
   setSettings(@Auth() ctx: AuthContext, @Body() body: PointQualitySettingsBody): Promise<PointQualitySettingsDto> {
-    return this.quality.setEnabled(ctx, body.enabled);
+    return this.quality.setSettings(ctx, body);
   }
 }

@@ -2,7 +2,11 @@
  * Point quality analysis (History → All points): every recorded point with a verdict, and the cleaned track.
  * Labels are indexes into POINT_LABELS (compact JSON); reasons are shown in the legend and the hover.
  */
-export const POINT_LABELS = ['good', 'drift', 'spike', 'jump', 'inaccurate', 'mock', 'invalid', 'duplicate'] as const;
+// New labels go at the end: the index is what the API sends.
+export const POINT_LABELS = ['good', 'drift', 'spike', 'jump', 'inaccurate', 'mock', 'invalid', 'duplicate', 'offroad'] as const;
+
+/** Labels whose points are left out of trips and distance when PointQualitySettings.useInReports is on (Position flag OUTLIER). */
+export const OUTLIER_LABELS: readonly PointLabel[] = ['spike', 'jump', 'inaccurate', 'mock', 'invalid'];
 export type PointLabel = (typeof POINT_LABELS)[number];
 
 /** Where a point came from: the stored position, or (phones) the raw record the server keeps for 7 days. */
@@ -22,8 +26,14 @@ export interface PointQualityResponse {
   counts: Record<PointLabel, number>;
   /** True when the range had more points than the cap (the newest were dropped). */
   truncated: boolean;
+  /** True when the moving parts were snapped to roads (the clean track follows them; off-road points are labelled). */
+  roadMatched: boolean;
+  /** Distance of the recorded points vs the clean track, in km. */
+  distanceKm: { recorded: number; clean: number };
 }
 
 export interface PointQualitySettingsDto {
   enabled: boolean;
+  /** Trips, daily distance and the History track leave out spikes, jumps, inaccurate, fake and invalid points. */
+  useInReports: boolean;
 }

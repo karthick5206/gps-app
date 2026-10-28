@@ -6,7 +6,7 @@ import { AuthContext } from '../access/auth-context';
 import { toAlertDto } from '../alerts/alert-dto';
 import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { fetchPositions, isDrift, ObjectMeta, PosRow, toMeta, toSegPoint } from '../summarizer/positions';
+import { fetchPositions, isDrift, ObjectMeta, PosRow, skipFlags, toMeta, toSegPoint } from '../summarizer/positions';
 import {
   avgMovingSpeed,
   createState,
@@ -82,10 +82,21 @@ export class HistoryService {
     return { from: Math.min(Math.max(from, floor), to), to };
   }
 
+  private skipCache: { at: number; flags: number } | null = null;
+
+  /** Flags left out of the track: outliers too while point analysis is used for reports (setting cached 30 s). */
+  private async skipFlags(): Promise<number> {
+    if (this.skipCache && Date.now() - this.skipCache.at < 30_000) return this.skipCache.flags;
+    const s = await this.prisma.pointQualitySettings.findUnique({ where: { id: 'default' }, select: { enabled: true, useInReports: true } });
+    const flags = skipFlags((s?.enabled ?? true) && (s?.useInReports ?? false));
+    this.skipCache = { at: Date.now(), flags };
+    return flags;
+  }
+
   async history(ctx: AuthContext, objectId: string, fromRaw?: string, toRaw?: string): Promise<HistoryResponse> {
     const meta = await this.objectMeta(ctx, objectId);
     const { from, to } = this.resolveRange(fromRaw, toRaw, meta);
-    const [rows, alerts, fuel] = await Promise.all([fetchPositions(this.prisma, objectId, from - 1, to), this.alerts(meta, from, to), this.fuelSeries(objectId, from, to)]);
+    const [rows, alerts, fuel] = await Promise.all([fetchPositions(this.prisma, objectId, from - 1, to, undefined, await this.skipFlags()), this.alerts(meta, from, to), this.fuelSeries(objectId, from, to)]);
     const { trips, stops } = await this.segments(meta, from, to, rows);
 
     // Range summary straight from the points.
@@ -229,7 +240,7 @@ export class HistoryService {
       stops = dbStops.map((s) => stopDto(s, meta));
     }
     if (boundary < to) {
-      const points = rows ? rows.filter((r) => r.t >= boundary) : await fetchPositions(this.prisma, meta.id, boundary - 1, to);
+      const points = rows ? rows.filter((r) => r.t >= boundary) : await fetchPositions(this.prisma, meta.id, boundary - 1, to, undefined, await this.skipFlags());
       const state = createState(boundary);
       const out = emptyOutput();
       for (const r of points) processPoint(state, toSegPoint(r, state.last), meta.cfg, out);
