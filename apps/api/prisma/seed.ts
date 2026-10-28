@@ -1,5 +1,5 @@
 /**
- * Idempotent seed: platform + Super Admin, device models, system lookups and the "Demo Logistics" company with
+ * Idempotent seed: platform + Super Admin, device models, system lookups and (not on production) the "Demo Logistics" company with
  * users, 20 GT06 devices/objects and 2 vehicle groups. Safe to run repeatedly; existing passwords are never reset.
  */
 import { Prisma, PrismaClient, VehicleType } from '@prisma/client';
@@ -231,6 +231,112 @@ async function main() {
     }
   }
 
+  // Sample company (Demo Logistics): local / test databases only, never on production.
+  if (seedDemoData()) await seedDemo(partner.id, models);
+  await syncSystemRoleMenus();
+  await seedPlayReview(partner.id);
+
+  const counts = {
+    companies: await prisma.company.count(),
+    users: await prisma.user.count(),
+    devices: await prisma.device.count(),
+    objects: await prisma.trackedObject.count(),
+    lookups: await prisma.lookup.count({ where: { companyId: null } }),
+    systemTemplates: await prisma.messageTemplate.count({ where: { companyId: null } }),
+    systemPacks: await prisma.alertPack.count({ where: { companyId: null } }),
+    geofences: await prisma.geofence.count(),
+  };
+  console.log('Seed complete', counts);
+}
+
+// ───────────────────────────── M2a ─────────────────────────────
+
+type PackSetting = {
+  alertType: string;
+  enabled?: boolean | null;
+  params?: Record<string, unknown>;
+  severity?: 'INFO' | 'WARNING' | 'CRITICAL' | null;
+  cooldownMin?: number | null;
+};
+
+const SYSTEM_PACKS: { name: string; description: string; settings: PackSetting[] }[] = [
+  {
+    name: 'School bus',
+    description: 'Strict 40 km/h limit, short idling, entry/exit at stops and SOS',
+    settings: [
+      { alertType: 'OVERSPEED', enabled: true, params: { limitKph: 40, toleranceKph: 0, minDurationSec: 5, criticalOverKph: 10 } },
+      { alertType: 'IDLING', enabled: true, params: { thresholdMin: 5, criticalMin: 15 } },
+      { alertType: 'GEOFENCE_ENTER', enabled: true },
+      { alertType: 'GEOFENCE_EXIT', enabled: true },
+      { alertType: 'IGNITION_ON', enabled: true },
+      { alertType: 'SOS', enabled: true, severity: 'CRITICAL' },
+      // Dashcam buses (capability-gated: ignored on plain trackers).
+      { alertType: 'DRIVER_FATIGUE', enabled: true },
+      { alertType: 'DRIVER_PHONE', enabled: true, severity: 'CRITICAL' },
+      { alertType: 'DRIVER_SMOKING', enabled: true, severity: 'CRITICAL' },
+      { alertType: 'FORWARD_COLLISION_WARNING', enabled: true },
+      { alertType: 'CRASH', enabled: true },
+    ],
+  },
+  {
+    name: 'Truck',
+    description: '60 km/h limit, long-idle and tamper alerts, long stays at sites',
+    settings: [
+      { alertType: 'OVERSPEED', enabled: true, params: { limitKph: 60, toleranceKph: 5, minDurationSec: 20 } },
+      { alertType: 'IDLING', enabled: true, params: { thresholdMin: 15, criticalMin: 45 } },
+      { alertType: 'POWER_CUT', enabled: true, severity: 'CRITICAL' },
+      { alertType: 'GEOFENCE_STAY', enabled: true },
+      { alertType: 'DRIVER_FATIGUE', enabled: true },
+      { alertType: 'FORWARD_COLLISION_WARNING', enabled: true },
+      { alertType: 'TAILGATING', enabled: true },
+      { alertType: 'CRASH', enabled: true },
+    ],
+  },
+  {
+    name: 'Two-wheeler',
+    description: 'Theft-oriented: ignition on, power cut and low battery',
+    settings: [
+      { alertType: 'OVERSPEED', enabled: true, params: { limitKph: 60 } },
+      { alertType: 'IGNITION_ON', enabled: true },
+      { alertType: 'POWER_CUT', enabled: true, severity: 'CRITICAL' },
+      { alertType: 'LOW_BATTERY', enabled: true, params: { thresholdPct: 30 } },
+      { alertType: 'IDLING', enabled: false },
+    ],
+  },
+  {
+    name: 'Pet',
+    description: 'Location only: leaving a safe zone is critical, battery warnings',
+    settings: [
+      { alertType: 'OVERSPEED', enabled: false },
+      { alertType: 'IDLING', enabled: false },
+      { alertType: 'IGNITION_ON', enabled: false },
+      { alertType: 'IGNITION_OFF', enabled: false },
+      { alertType: 'GEOFENCE_EXIT', enabled: true, severity: 'CRITICAL' },
+      { alertType: 'LOW_BATTERY', enabled: true, params: { thresholdPct: 25 } },
+    ],
+  },
+];
+
+const fullPackSetting = (s: PackSetting) => ({
+  alertType: s.alertType,
+  enabled: s.enabled ?? null,
+  params: s.params ?? {},
+  schedule: null,
+  cooldownMin: s.cooldownMin ?? null,
+  severity: s.severity ?? null,
+  channels: null,
+});
+
+/** Demo data is seeded unless NODE_ENV=production (SEED_DEMO=1 forces it, SEED_DEMO=0 skips it). */
+function seedDemoData(): boolean {
+  if (process.env.SEED_DEMO === '1') return true;
+  if (process.env.SEED_DEMO === '0') return false;
+  return process.env.NODE_ENV !== 'production';
+}
+
+/** Sample company "Demo Logistics": branches, users, vehicles, simulated devices, geofences and alerts. */
+async function seedDemo(partnerId: string, models: Map<string, string>) {
+  const partner = { id: partnerId };
   const demo =
     (await prisma.company.findFirst({ where: { name: 'Demo Logistics', isPlatform: false } })) ??
     (await prisma.company.create({ data: { partnerId: partner.id, name: 'Demo Logistics', accountType: 'BUSINESS' } }));
@@ -327,99 +433,7 @@ async function main() {
   );
 
   await seedM2a(demo.id, { chennai: chennai.id }, demoAdmin.email!, demoAdmin.mobile ?? '+919999900001');
-  await syncSystemRoleMenus();
-  await seedPlayReview(partner.id);
-
-  const counts = {
-    companies: await prisma.company.count(),
-    users: await prisma.user.count(),
-    devices: await prisma.device.count(),
-    objects: await prisma.trackedObject.count(),
-    lookups: await prisma.lookup.count({ where: { companyId: null } }),
-    systemTemplates: await prisma.messageTemplate.count({ where: { companyId: null } }),
-    systemPacks: await prisma.alertPack.count({ where: { companyId: null } }),
-    geofences: await prisma.geofence.count(),
-  };
-  console.log('Seed complete', counts);
 }
-
-// ───────────────────────────── M2a ─────────────────────────────
-
-type PackSetting = {
-  alertType: string;
-  enabled?: boolean | null;
-  params?: Record<string, unknown>;
-  severity?: 'INFO' | 'WARNING' | 'CRITICAL' | null;
-  cooldownMin?: number | null;
-};
-
-const SYSTEM_PACKS: { name: string; description: string; settings: PackSetting[] }[] = [
-  {
-    name: 'School bus',
-    description: 'Strict 40 km/h limit, short idling, entry/exit at stops and SOS',
-    settings: [
-      { alertType: 'OVERSPEED', enabled: true, params: { limitKph: 40, toleranceKph: 0, minDurationSec: 5, criticalOverKph: 10 } },
-      { alertType: 'IDLING', enabled: true, params: { thresholdMin: 5, criticalMin: 15 } },
-      { alertType: 'GEOFENCE_ENTER', enabled: true },
-      { alertType: 'GEOFENCE_EXIT', enabled: true },
-      { alertType: 'IGNITION_ON', enabled: true },
-      { alertType: 'SOS', enabled: true, severity: 'CRITICAL' },
-      // Dashcam buses (capability-gated: ignored on plain trackers).
-      { alertType: 'DRIVER_FATIGUE', enabled: true },
-      { alertType: 'DRIVER_PHONE', enabled: true, severity: 'CRITICAL' },
-      { alertType: 'DRIVER_SMOKING', enabled: true, severity: 'CRITICAL' },
-      { alertType: 'FORWARD_COLLISION_WARNING', enabled: true },
-      { alertType: 'CRASH', enabled: true },
-    ],
-  },
-  {
-    name: 'Truck',
-    description: '60 km/h limit, long-idle and tamper alerts, long stays at sites',
-    settings: [
-      { alertType: 'OVERSPEED', enabled: true, params: { limitKph: 60, toleranceKph: 5, minDurationSec: 20 } },
-      { alertType: 'IDLING', enabled: true, params: { thresholdMin: 15, criticalMin: 45 } },
-      { alertType: 'POWER_CUT', enabled: true, severity: 'CRITICAL' },
-      { alertType: 'GEOFENCE_STAY', enabled: true },
-      { alertType: 'DRIVER_FATIGUE', enabled: true },
-      { alertType: 'FORWARD_COLLISION_WARNING', enabled: true },
-      { alertType: 'TAILGATING', enabled: true },
-      { alertType: 'CRASH', enabled: true },
-    ],
-  },
-  {
-    name: 'Two-wheeler',
-    description: 'Theft-oriented: ignition on, power cut and low battery',
-    settings: [
-      { alertType: 'OVERSPEED', enabled: true, params: { limitKph: 60 } },
-      { alertType: 'IGNITION_ON', enabled: true },
-      { alertType: 'POWER_CUT', enabled: true, severity: 'CRITICAL' },
-      { alertType: 'LOW_BATTERY', enabled: true, params: { thresholdPct: 30 } },
-      { alertType: 'IDLING', enabled: false },
-    ],
-  },
-  {
-    name: 'Pet',
-    description: 'Location only: leaving a safe zone is critical, battery warnings',
-    settings: [
-      { alertType: 'OVERSPEED', enabled: false },
-      { alertType: 'IDLING', enabled: false },
-      { alertType: 'IGNITION_ON', enabled: false },
-      { alertType: 'IGNITION_OFF', enabled: false },
-      { alertType: 'GEOFENCE_EXIT', enabled: true, severity: 'CRITICAL' },
-      { alertType: 'LOW_BATTERY', enabled: true, params: { thresholdPct: 25 } },
-    ],
-  },
-];
-
-const fullPackSetting = (s: PackSetting) => ({
-  alertType: s.alertType,
-  enabled: s.enabled ?? null,
-  params: s.params ?? {},
-  schedule: null,
-  cooldownMin: s.cooldownMin ?? null,
-  severity: s.severity ?? null,
-  channels: null,
-});
 
 async function seedM2a(companyId: string, branches: { chennai: string }, adminEmail: string, adminMobile: string) {
   // System message templates (never overwrite later edits).
