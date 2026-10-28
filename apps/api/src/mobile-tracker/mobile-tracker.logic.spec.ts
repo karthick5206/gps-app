@@ -74,3 +74,28 @@ describe('phone health', () => {
     expect(trackerHealthIssues(null)).toEqual([]);
   });
 });
+
+describe('app 1.3.2 extra fields', () => {
+  const now = Date.parse('2026-10-28T10:00:00Z');
+  const base = { t: now - 5000, lat: 13.08, lng: 80.27, acc: 8, spd: 10 };
+
+  it('keeps the phone verdict, provider, speed accuracy, satellites and mode; drops unknown values', () => {
+    const p = parsePoint({ ...base, flt: 'jump', prov: 'fused', sacc: 0.8, sat: 9, mode: 'moving' }, now)!;
+    expect(p).toMatchObject({ flt: 'jump', prov: 'fused', sacc: 0.8, sat: 9, mode: 'moving' });
+    const bad = parsePoint({ ...base, flt: 'nonsense', prov: 'Fused Provider!', sat: 500, mode: 'flying' }, now)!;
+    expect(bad).toMatchObject({ flt: null, prov: null, sat: null, mode: null });
+  });
+
+  it('marks a point the phone found inaccurate as invalid, but keeps jump / still points for the server filter', () => {
+    const cfg = DEFAULT_TRACKER_CONFIG;
+    expect(toNormalized(parsePoint({ ...base, flt: 'inaccurate' }, now)!, '919000000001', now, cfg).valid).toBe(false);
+    expect(toNormalized(parsePoint({ ...base, flt: 'jump' }, now)!, '919000000001', now, cfg).valid).toBe(true);
+    expect(toNormalized(parsePoint({ ...base, flt: 'still' }, now)!, '919000000001', now, cfg).attributes).toMatchObject({ phoneFilter: 'still' });
+  });
+
+  it('keeps the whole point as raw text for analysis', () => {
+    const n = toNormalized(parsePoint({ ...base, prov: 'gps', sat: 7 }, now)!, '919000000001', now, DEFAULT_TRACKER_CONFIG);
+    expect(JSON.parse(n.raw!)).toMatchObject({ lat: 13.08, prov: 'gps', sat: 7 });
+    expect(n.satellites).toBe(7);
+  });
+});

@@ -23,6 +23,13 @@ data class Point(
   val chg: Boolean?,
   val mock: Boolean,
   val sos: Boolean = false,
+  /** The filter's verdict when it doubts this fix (inaccurate / jump / mock / still); the server decides. */
+  val flt: String? = null,
+  /** Location provider (fused / gps / network), speed accuracy m/s, satellites used, GPS mode at the time. */
+  val prov: String? = null,
+  val sacc: Float? = null,
+  val sat: Int? = null,
+  val mode: String? = null,
 ) {
   fun toJson(): JSONObject = JSONObject()
     .put("t", t)
@@ -36,6 +43,13 @@ data class Point(
     .put("chg", chg ?: JSONObject.NULL)
     .put("mock", mock)
     .put("sos", sos)
+    .apply {
+      if (flt != null) put("flt", flt)
+      if (prov != null) put("prov", prov)
+      if (sacc != null) put("sacc", round1(sacc.toDouble()))
+      if (sat != null) put("sat", sat)
+      if (mode != null) put("mode", mode)
+    }
 
   companion object {
     private fun round1(v: Double) = (v * 10).roundToInt() / 10.0
@@ -56,6 +70,11 @@ data class Point(
         chg = if (o.isNull("chg")) null else o.optBoolean("chg"),
         mock = o.optBoolean("mock", false),
         sos = o.optBoolean("sos", false),
+        flt = o.optString("flt").ifEmpty { null },
+        prov = o.optString("prov").ifEmpty { null },
+        sacc = optFloat(o, "sacc"),
+        sat = if (o.has("sat") && !o.isNull("sat")) o.optInt("sat") else null,
+        mode = o.optString("mode").ifEmpty { null },
       )
     }
 
@@ -63,7 +82,7 @@ data class Point(
     fun isMock(loc: Location): Boolean =
       if (Build.VERSION.SDK_INT >= 31) loc.isMock else @Suppress("DEPRECATION") loc.isFromMockProvider
 
-    fun from(loc: Location, battery: Battery.Info, sos: Boolean = false) = Point(
+    fun from(loc: Location, battery: Battery.Info, sos: Boolean = false, mode: String? = null) = Point(
       t = loc.time,
       lat = loc.latitude,
       lng = loc.longitude,
@@ -75,6 +94,10 @@ data class Point(
       chg = battery.charging,
       mock = isMock(loc),
       sos = sos,
+      prov = loc.provider?.lowercase()?.takeIf { Regex("[a-z_]{1,16}").matches(it) },
+      sacc = if (Build.VERSION.SDK_INT >= 26 && loc.hasSpeedAccuracy()) loc.speedAccuracyMetersPerSecond else null,
+      sat = loc.extras?.getInt("satellites", -1)?.takeIf { it in 0..99 },
+      mode = mode,
     )
   }
 }

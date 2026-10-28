@@ -61,8 +61,9 @@ export interface TrackerConfig {
   batchMax: number;
 }
 
-// One fix every 5 s while moving (was 10 s; the phones met that, p90 11 s). distanceM 10 still drops fixes when crawling.
-export const DEFAULT_TRACKER_CONFIG: TrackerConfig = { intervalSec: 5, stoppedIntervalSec: 60, distanceM: 10, maxAccuracyM: 100, batchMax: 100 };
+// As many fixes as is sensible, the server filters: every 3 s while moving (phones met 10 s and 5 s exactly), no
+// minimum distance (so crawling in traffic is recorded), every 30 s when parked (battery-saver location).
+export const DEFAULT_TRACKER_CONFIG: TrackerConfig = { intervalSec: 3, stoppedIntervalSec: 30, distanceM: 0, maxAccuracyM: 100, batchMax: 200 };
 
 export interface TrackerPoint {
   t: number;
@@ -76,9 +77,20 @@ export interface TrackerPoint {
   chg?: boolean | null;
   mock?: boolean | null;
   sos?: boolean | null;
+  /** App 1.3.2+: the phone's own verdict when it doubts the fix (it sends it anyway; the server decides). */
+  flt?: TrackerFilterVerdict | null;
+  /** Location provider (fused / gps / network), speed accuracy (m/s), satellites used, app GPS mode. */
+  prov?: string | null;
+  sacc?: number | null;
+  sat?: number | null;
+  mode?: 'moving' | 'stationary' | null;
 }
 
+export const TRACKER_FILTER_VERDICTS = ['inaccurate', 'jump', 'mock', 'still'] as const;
+export type TrackerFilterVerdict = (typeof TRACKER_FILTER_VERDICTS)[number];
+
 const finite = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const oneOf = <T extends string>(v: unknown, values: readonly T[]): T | null => (typeof v === 'string' && (values as readonly string[]).includes(v) ? (v as T) : null);
 
 /** Validates one uploaded point; returns null when it is unusable (bad coordinates or time). */
 export function parsePoint(raw: unknown, now: number): TrackerPoint | null {
@@ -103,6 +115,11 @@ export function parsePoint(raw: unknown, now: number): TrackerPoint | null {
     chg: typeof r.chg === 'boolean' ? r.chg : null,
     mock: r.mock === true,
     sos: r.sos === true,
+    flt: oneOf(r.flt, TRACKER_FILTER_VERDICTS),
+    prov: typeof r.prov === 'string' && /^[a-z_]{1,16}$/.test(r.prov) ? r.prov : null,
+    sacc: finite(r.sacc),
+    sat: finite(r.sat) !== null && (r.sat as number) >= 0 && (r.sat as number) < 100 ? Math.round(r.sat as number) : null,
+    mode: oneOf(r.mode, ['moving', 'stationary'] as const),
   };
 }
 
@@ -115,6 +132,10 @@ export function toNormalized(p: TrackerPoint, uniqueId: string, receivedAt: numb
   if (p.chg !== null && p.chg !== undefined) attributes.charging = p.chg;
   if (p.mock) attributes.mock = true;
   if (p.sos) attributes.alarm = 'sos';
+  if (p.flt) attributes.phoneFilter = p.flt;
+  if (p.prov) attributes.provider = p.prov;
+  if (p.sacc !== null && p.sacc !== undefined) attributes.speedAccuracy = Math.round(p.sacc * 10) / 10;
+  if (p.mode) attributes.appMode = p.mode;
   return {
     protocol: MOBILE_PROTOCOL,
     uniqueId,
@@ -125,9 +146,13 @@ export function toNormalized(p: TrackerPoint, uniqueId: string, receivedAt: numb
     speedKph: p.spd !== null && p.spd !== undefined && p.spd >= 0 ? Math.round(p.spd * 3.6 * 10) / 10 : 0,
     course: p.brg !== null && p.brg !== undefined && p.brg >= 0 ? Math.round(p.brg) % 360 : 0,
     altitude: p.alt ?? null,
-    satellites: null,
-    valid: accurate && !p.mock,
+    satellites: p.sat ?? null,
+    // Too vague or fake: stored, but never used for the map, trips or alerts. Jumps and parked drift are judged by
+    // the processor's own filter (the phone's verdict is kept in attributes for analysis).
+    valid: accurate && !p.mock && p.flt !== 'inaccurate' && p.flt !== 'mock',
     ignition: null,
     attributes,
+    // Every app point as received, kept in RawPacket (7 days) for analysis.
+    raw: JSON.stringify(p),
   };
 }

@@ -15,7 +15,7 @@ class PointQueue(context: Context) :
   SQLiteOpenHelper(context.applicationContext, "veetrax_tracker_queue.db", null, 1) {
 
   companion object {
-    const val CAP = 20_000
+    const val CAP = 50_000
   }
 
   override fun onConfigure(db: SQLiteDatabase) {

@@ -158,26 +158,32 @@ class Engine private constructor(context: Context) {
     if (locations.isEmpty()) return@guarded
     val cfg = prefs.config
     val battery = Battery.read(context)
-    val accepted = ArrayList<Point>()
+    // Every fix goes to the server, which does the real filtering (it sees all phones and the whole track). The
+    // phone only labels the ones it doubts; just broken coordinates and duplicates (not newer than the last queued
+    // fix) are skipped. Only accepted fixes move the anchor, so mode switching and the jump check stay as before.
+    val queued = ArrayList<Point>()
     for (loc in locations.sortedBy { it.time }) {
       lastRawFixElapsed = elapsed()
-      val p = Point.from(loc, battery)
+      val p = Point.from(loc, battery, mode = mode.name.lowercase())
       prefs.recordFix(p.t, p.acc, p.spd)
       updateMode(p, prefs.anchor)
-      when (filter.check(p, cfg.stoppedIntervalSec * 1000L)) {
+      val label = when (filter.check(p, cfg.stoppedIntervalSec * 1000L)) {
         JumpFilter.Verdict.ACCEPT -> {
-          accepted.add(p)
           prefs.anchor = Anchor(p.t, p.lat, p.lng, p.acc ?: 0f)
-          prefs.lastQueuedT = p.t
           prefs.lastAcceptedAt = p.t
+          null
         }
-        JumpFilter.Verdict.MOCK -> prefs.bump("mockCount")
-        JumpFilter.Verdict.INACCURATE, JumpFilter.Verdict.JUMP -> prefs.bump("droppedCount")
-        else -> Unit
+        JumpFilter.Verdict.MOCK -> "mock".also { prefs.bump("mockCount") }
+        JumpFilter.Verdict.INACCURATE -> "inaccurate".also { prefs.bump("droppedCount") }
+        JumpFilter.Verdict.JUMP -> "jump".also { prefs.bump("droppedCount") }
+        JumpFilter.Verdict.STATIONARY_SKIP -> "still"
+        JumpFilter.Verdict.INVALID, JumpFilter.Verdict.OLD -> continue
       }
+      queued.add(if (label == null) p else p.copy(flt = label))
+      prefs.lastQueuedT = p.t
     }
-    if (accepted.isNotEmpty()) {
-      queue.add(accepted)
+    if (queued.isNotEmpty()) {
+      queue.add(queued)
       requestUpload(force = false)
     }
   }

@@ -71,7 +71,7 @@ export const S = {
   mode: 'GPS mode',
   modeMoving: 'Moving (high accuracy)',
   modeStationary: 'Stopped (battery saver)',
-  filtered: 'Filtered out',
+  filtered: 'Flagged (still sent)',
   filteredValue: (dropped: number, mock: number) => `${dropped} inaccurate / jumps${mock ? `, ${mock} fake GPS` : ''}`,
   notRunningTitle: 'Tracking stopped unexpectedly',
   notRunningBody: 'Android or the phone maker stopped the tracking service. Tap Start tracking again, then check the battery and autostart settings below.',
