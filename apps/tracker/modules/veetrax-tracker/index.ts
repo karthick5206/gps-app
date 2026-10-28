@@ -57,6 +57,8 @@ interface NativeModuleShape {
   manufacturer(): string;
   takeCrash(): string | null;
   deviceInfo(): DeviceInfo;
+  installId(): string;
+  savedToken(): string;
 }
 
 export interface DeviceInfo {
@@ -131,6 +133,24 @@ export function takeCrash(): string | null {
     return Native ? Native.takeCrash() : null;
   } catch {
     return null;
+  }
+}
+
+/** Android ID for this app on this phone (stable across updates and reinstalls), or '' when unavailable. */
+export function installId(): string {
+  try {
+    return Native ? Native.installId() : '';
+  } catch {
+    return '';
+  }
+}
+
+/** The token held by the native engine, or '' (used when the app's own copy was lost). */
+export function savedToken(): string {
+  try {
+    return Native ? Native.savedToken() : '';
+  } catch {
+    return '';
   }
 }
 

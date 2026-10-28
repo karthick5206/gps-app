@@ -1717,6 +1717,8 @@ model MobileTrackerSession {
   deviceName String?
   appVersion String?
   platform   String?
+  /// HMAC of the phone's Android ID for this app (stable across reinstalls): restores the session after a reinstall.
+  installIdHash String?
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
   lastUsedAt DateTime? @db.Timestamptz(3)
   revokedAt  DateTime? @db.Timestamptz(3)
@@ -1724,6 +1726,7 @@ model MobileTrackerSession {
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId])
+  @@index([installIdHash])
 }
 
 /// Email verification code for a personal (individual) account sign-up.

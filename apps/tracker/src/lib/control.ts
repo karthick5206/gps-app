@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
-import { api, ApiError } from './api';
-import { requestNotifications } from './device';
+import { Platform } from 'react-native';
+import { api, ApiError, SERVER_URL, type VerifyResponse } from './api';
+import { APP_VERSION, deviceName, requestNotifications } from './device';
 import { getToken, sessionFrom, setToken, store } from './state';
 import { S } from './strings';
 import { applyConfig, startNative, Tracker, type TrackerStatus } from './tracking';
@@ -32,6 +33,56 @@ export async function beginTracking(): Promise<BeginResult> {
 export async function permissionsReady(): Promise<boolean> {
   const [fg, bg] = await Promise.all([Location.getForegroundPermissionsAsync(), Location.getBackgroundPermissionsAsync()]);
   return fg.granted && bg.granted;
+}
+
+/** Saves a new activation (code verified, or restored after a reinstall) and hands the token to the native engine. */
+export async function saveActivation(r: VerifyResponse): Promise<void> {
+  // A new activation starts the native engine from scratch: an old token, queue or stop reason (e.g. left by an
+  // earlier install) must not reject the new one or sign this activation out again.
+  await Tracker.clear().catch(() => undefined);
+  await setToken(r.token);
+  // The native engine keeps its own copy so it can upload with the app closed.
+  await Tracker.setCredentials(r.token, SERVER_URL).catch(() => undefined);
+  store.setNotice(null);
+  store.setSession(sessionFrom(r));
+  // Config is stored for the next start; a failure here must not keep the user on this screen.
+  await applyConfig(r.config).catch(() => undefined);
+}
+
+/**
+ * No token in the app (new version installed, or the app reinstalled): picks the activation up again without a code.
+ * 1. The native engine still holds the token (an update that lost the app's secure storage) → check it with /me.
+ * 2. Otherwise the server knows this phone's install id from its last activation → a new token.
+ * Returns true when the phone is signed in again.
+ */
+export async function restoreActivation(): Promise<boolean> {
+  const saved = Tracker.savedToken();
+  if (saved) {
+    try {
+      const me = await api.me(saved);
+      await setToken(saved);
+      store.setSession(sessionFrom(me));
+      await applyConfig(me.config).catch(() => undefined);
+      return true;
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 401) return false; // offline: try again on the next start
+    }
+  }
+  const installId = Tracker.installId();
+  if (!installId) return false;
+  try {
+    await saveActivation(await api.restore({ installId, deviceName: deviceName(), appVersion: APP_VERSION, platform: Platform.OS }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The user deactivated this phone: also ends the session on the server (else a reinstall would restore it). */
+export async function deactivate(): Promise<void> {
+  const token = await getToken();
+  if (token) await api.signOut(token).catch(() => undefined);
+  await signOut(S.reasonSignedOut);
 }
 
 /** Stops tracking and clears the token and all local data. `notice` is shown on the activation screen. */

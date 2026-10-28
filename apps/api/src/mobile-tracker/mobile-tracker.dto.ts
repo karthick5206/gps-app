@@ -7,12 +7,27 @@ export class TrackerRequestCodeBody {
   @IsOptional() @IsString() @MaxLength(80) name?: string;
 }
 
+/** Activation screen: is this number registered, and with which e-mail / name (full only on the same phone). */
+export class TrackerLookupBody {
+  @IsString() @MaxLength(24) mobile!: string;
+  @IsOptional() @IsString() @MaxLength(64) installId?: string;
+}
+
+/** Reinstall on the same phone: the install id of its last activation gets a new token without a code. */
+export class TrackerRestoreBody {
+  @IsString() @Length(8, 64) installId!: string;
+  @IsOptional() @IsString() @MaxLength(80) deviceName?: string;
+  @IsOptional() @IsString() @MaxLength(20) appVersion?: string;
+  @IsOptional() @IsIn(['android', 'ios']) platform?: string;
+}
+
 export class TrackerVerifyBody {
   @IsString() @MaxLength(24) mobile!: string;
   @IsString() @Length(6, 6) @Matches(/^\d{6}$/, { message: 'code must be 6 digits' }) code!: string;
   @IsOptional() @IsString() @MaxLength(80) deviceName?: string;
   @IsOptional() @IsString() @MaxLength(20) appVersion?: string;
   @IsOptional() @IsIn(['android', 'ios']) platform?: string;
+  @IsOptional() @IsString() @MaxLength(64) installId?: string;
 }
 
 /** Points are validated one by one in the service (a bad point is skipped, not the whole batch). */

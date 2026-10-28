@@ -31,6 +31,8 @@ export interface MeResponse {
   licenceEndsAt?: string | null;
 }
 export interface VerifyResponse extends MeResponse { token: string }
+/** Registered number: its e-mail / name (only when this phone activated it before), else a masked e-mail hint. */
+export interface LookupResponse { registered: boolean; samePhone: boolean; email: string | null; name: string | null; emailHint: string | null }
 /** HTTP error from the server: status + message (+ code such as REVOKED / INVALID / INACTIVE). */
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
@@ -80,9 +82,12 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown, 
 
 export const api = {
   requestCode: (mobile: string, email?: string, name?: string) => request<ActivateRequestResponse>('POST', '/activate/request', { mobile, email, name }),
-  verify: (body: { mobile: string; code: string; deviceName: string; appVersion: string; platform: string }) =>
+  verify: (body: { mobile: string; code: string; deviceName: string; appVersion: string; platform: string; installId: string }) =>
     request<VerifyResponse>('POST', '/activate/verify', body),
+  lookup: (mobile: string, installId: string) => request<LookupResponse>('POST', '/activate/lookup', { mobile, installId }),
+  restore: (body: { installId: string; deviceName: string; appVersion: string; platform: string }) => request<VerifyResponse>('POST', '/activate/restore', body),
   me: (token: string) => request<MeResponse>('GET', '/me', undefined, token),
+  signOut: (token: string) => request<{ ok: true }>('POST', '/signout', undefined, token),
   diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>
     request<{ ok: true }>('POST', '/diagnostics', body),
 };

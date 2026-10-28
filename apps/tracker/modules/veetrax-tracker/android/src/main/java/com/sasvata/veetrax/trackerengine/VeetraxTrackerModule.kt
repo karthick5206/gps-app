@@ -2,6 +2,7 @@ package com.sasvata.veetrax.trackerengine
 
 import android.content.Context
 import android.os.Build
+import android.provider.Settings
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
@@ -116,6 +117,16 @@ class VeetraxTrackerModule : Module() {
     /** The last native crash report (then cleared), or null: the app sends it to the server on start. */
     Function("takeCrash") {
       CrashLog.take(context)
+    }
+
+    /** Android ID for this app on this phone: the same after an update or reinstall (restores the activation). */
+    Function("installId") {
+      Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: ""
+    }
+
+    /** The token the engine keeps for uploads (survives an update even if the app's secure storage did not). */
+    Function("savedToken") {
+      engine.prefs.token ?: ""
     }
 
     /** Phone details for crash / support reports. */

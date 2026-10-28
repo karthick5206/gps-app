@@ -1,16 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { InfoSteps } from '@/components/InfoSteps';
 import { TrackerLogo } from '@/components/TrackerLogo';
 import { TrackingScene } from '@/components/TrackingScene';
 import { Body, Button, Card, Title } from '@/components/ui';
-import { api, ApiError, NetworkError, SERVER_URL } from '@/lib/api';
+import { api, ApiError, NetworkError } from '@/lib/api';
 import { APP_VERSION, deviceName } from '@/lib/device';
-import { sessionFrom, setToken, store, useStoreVersion } from '@/lib/state';
+import { saveActivation } from '@/lib/control';
+import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
-import { applyConfig, Tracker } from '@/lib/tracking';
+import { Tracker } from '@/lib/tracking';
 
 function errorText(e: unknown): string {
   if (e instanceof ApiError) return e.message;
@@ -40,12 +41,37 @@ export default function ActivateScreen() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Registered number: its e-mail / name are filled in (same phone) or the e-mail is shown masked; both editable.
+  const [registered, setRegistered] = useState(false);
+  const [emailHint, setEmailHint] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRegistered(false);
+    setEmailHint(null);
+    if (!/^\d{10}$/.test(digits)) return;
+    let live = true;
+    api
+      .lookup(`+91${digits}`, Tracker.installId())
+      .then((r) => {
+        if (!live) return;
+        setRegistered(r.registered);
+        setEmailHint(r.emailHint);
+        // Only fill empty fields: what the user already typed stays.
+        if (r.email) setEmail((cur) => cur || r.email!);
+        if (r.name) setName((cur) => cur || r.name!);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [digits]);
 
   const requestCode = async () => {
     if (!/^\d{10}$/.test(digits)) return setError(S.mobileInvalid);
     const mail = email.trim();
-    if (!mail) return setError(S.emailRequired);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return setError(S.emailInvalid);
+    // A registered number keeps its e-mail when the field is left empty.
+    if (!mail && !registered) return setError(S.emailRequired);
+    if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return setError(S.emailInvalid);
     setBusy(true);
     setError(null);
     try {
@@ -67,17 +93,8 @@ export default function ActivateScreen() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.verify({ mobile, code, deviceName: deviceName(), appVersion: APP_VERSION, platform: Platform.OS });
-      // A new activation starts the native engine from scratch: an old token, queue or stop reason (e.g. left by an
-      // earlier install) must not reject the new one or sign this activation out again.
-      await Tracker.clear().catch(() => undefined);
-      await setToken(r.token);
-      // The native engine keeps its own copy so it can upload with the app closed.
-      await Tracker.setCredentials(r.token, SERVER_URL).catch(() => undefined);
-      store.setNotice(null);
-      store.setSession(sessionFrom(r));
-      // Config is stored for the next start; a failure here must not keep the user on this screen.
-      await applyConfig(r.config).catch(() => undefined);
+      const r = await api.verify({ mobile, code, deviceName: deviceName(), appVersion: APP_VERSION, platform: Platform.OS, installId: Tracker.installId() });
+      await saveActivation(r);
       // The root layout moves to Home once it has re-rendered signed in (see _layout.tsx).
     } catch (e) {
       setError(errorText(e));
@@ -131,7 +148,7 @@ export default function ActivateScreen() {
                     onSubmitEditing={requestCode}
                   />
                 </View>
-                <Text style={[styles.label, { color: c.muted }]}>{S.emailLabel}</Text>
+                <Text style={[styles.label, { color: c.muted }]}>{registered ? S.emailLabelRegistered : S.emailLabel}</Text>
                 <TextInput
                   style={input}
                   value={email}
@@ -143,7 +160,7 @@ export default function ActivateScreen() {
                   autoComplete="email"
                   autoCorrect={false}
                 />
-                <Body muted style={{ fontSize: 13 }}>{S.emailHint}</Body>
+                <Body muted style={{ fontSize: 13 }}>{registered ? (emailHint && !email ? S.emailKeep(emailHint) : S.emailRegisteredHint) : S.emailHint}</Body>
                 <Text style={[styles.label, { color: c.muted }]}>{S.nameLabel}</Text>
                 <TextInput style={input} value={name} onChangeText={setName} placeholder={S.namePlaceholder} placeholderTextColor={c.muted} autoComplete="name" />
                 <Button title={S.sendCode} onPress={requestCode} busy={busy} />

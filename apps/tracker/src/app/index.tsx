@@ -5,7 +5,7 @@ import { Alert, AppState, Linking, ScrollView, StyleSheet, Switch, Text, View } 
 import { BatteryCard, OemCard, PermissionsCard, useChecks } from '@/components/ChecksCards';
 import { SosButton } from '@/components/SosButton';
 import { Body, Button, Card, Row } from '@/components/ui';
-import { beginTracking, isInactive, permissionsReady, recheckInactive, signOut, syncStopReason } from '@/lib/control';
+import { beginTracking, deactivate as deactivatePhone, isInactive, permissionsReady, recheckInactive, syncStopReason } from '@/lib/control';
 import { kmh, metres, timeAgo } from '@/lib/format';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
@@ -75,7 +75,7 @@ export default function HomeScreen() {
   const deactivate = () =>
     Alert.alert(S.signOutConfirmTitle, S.signOutConfirmBody, [
       { text: S.cancel, style: 'cancel' },
-      { text: S.ok, style: 'destructive', onPress: () => signOut(S.reasonSignedOut) },
+      { text: S.ok, style: 'destructive', onPress: () => void deactivatePhone() },
     ]);
 
   return (

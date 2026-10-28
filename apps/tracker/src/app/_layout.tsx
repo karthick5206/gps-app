@@ -6,7 +6,7 @@ import { useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api, SERVER_URL } from '@/lib/api';
 import { installJsCrashHandler, reportCrashes } from '@/lib/crash';
-import { handleAuthError, syncStopReason } from '@/lib/control';
+import { handleAuthError, restoreActivation, syncStopReason } from '@/lib/control';
 import { getToken, hasToken, sessionFrom, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
@@ -66,6 +66,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     getToken()
+      .catch(() => null)
+      // After an update or reinstall the app may have lost its token: take the activation up again (max 8 s).
+      .then((token) => (token ? undefined : Promise.race([restoreActivation(), new Promise((r) => setTimeout(r, 8000))])))
       .catch(() => undefined)
       .finally(() => {
         setReady(true);

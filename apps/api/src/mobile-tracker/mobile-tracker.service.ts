@@ -1,6 +1,6 @@
 import { ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { MobileTrackerStatusDto, sanitizeTrackerHealth, TrackerHealth } from '@veetracer/shared';
-import { createHash, randomBytes, randomInt } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 import { AuthContext } from '../access/auth-context';
 import { MailerService } from '../auth/mailer.service';
 import { deviceScopeWhere } from '../access/access-rules';
@@ -27,6 +27,8 @@ import {
 } from './mobile-tracker.logic';
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+/** Install ids are kept as an HMAC (keyed by the server secret), never in clear. */
+const hashInstallId = (id: string | undefined) => (id && id.length >= 8 ? createHmac('sha256', process.env.JWT_SECRET ?? 'veetrax').update(`tracker-install:${id}`).digest('hex') : null);
 /** Sessions are re-checked against the database at most this often (revocation takes effect within it). */
 const SESSION_CACHE_MS = 60_000;
 const LAST_USED_WRITE_MS = 5 * 60_000;
@@ -113,12 +115,8 @@ export class MobileTrackerService {
     const existing = await this.findDevice(uniqueId);
     if (!existing || !existing.companyId) return this.requestSelfService(uniqueId, email, name);
     const device = await this.deviceByMobile(mobile);
-    // Company / admin-added phone: the e-mail typed in the app becomes the device's contact if it has none yet.
-    const contact = email?.trim().toLowerCase();
-    if (contact && !device.activationEmail) {
-      await this.prisma.device.update({ where: { id: device.id }, data: { activationEmail: contact } });
-      device.activationEmail = contact;
-    }
+    // Registered phone: the e-mail / name typed in the app are applied once the code is verified (see applyContact).
+    const contact = email?.trim().toLowerCase() || null;
     const recent = await this.prisma.mobileTrackerCode.findMany({
       where: { deviceId: device.id, createdAt: { gt: new Date(Date.now() - DAY_MS) } },
       orderBy: { createdAt: 'desc' },
@@ -128,7 +126,9 @@ export class MobileTrackerService {
     if (recent.length >= CODE_MAX_PER_DAY) throw trackerError(429, 'TOO_MANY', 'Too many codes for this number today. Try again tomorrow or ask your administrator.');
     const review = this.reviewCode(device.uniqueId);
     const code = review ?? String(randomInt(0, 1_000_000)).padStart(6, '0');
-    const row = await this.prisma.mobileTrackerCode.create({ data: { deviceId: device.id, code, expiresAt: new Date(Date.now() + CODE_TTL_MS) } });
+    const row = await this.prisma.mobileTrackerCode.create({ data: { deviceId: device.id, code, email: contact, name: name?.trim() || null, expiresAt: new Date(Date.now() + CODE_TTL_MS) } });
+    // A phone without any contact yet also gets the code at the typed address.
+    if (contact && !device.activationEmail) device.activationEmail = contact;
     // Store review number: fixed code, nothing is sent.
     const [smsSent, emailed] = review ? [true, [] as string[]] : await Promise.all([this.sendOtpSms(device.companyId!, device.uniqueId, code), this.emailCode(device, code)]);
     if (smsSent || emailed.length) await this.prisma.mobileTrackerCode.update({ where: { id: row.id }, data: { smsSent, emailCount: emailed.length } });
@@ -245,7 +245,7 @@ export class MobileTrackerService {
     return !error;
   }
 
-  async verify(body: { mobile: string; code: string; deviceName?: string; appVersion?: string; platform?: string }) {
+  async verify(body: { mobile: string; code: string; deviceName?: string; appVersion?: string; platform?: string; installId?: string }) {
     const uniqueId = this.normalize(body.mobile);
     const known = await this.findDevice(uniqueId);
     if (!known || !known.companyId) return this.verifySelfService(uniqueId, body);
@@ -259,12 +259,60 @@ export class MobileTrackerService {
     }
     const { count } = await this.prisma.mobileTrackerCode.updateMany({ where: { id: row.id, consumedAt: null }, data: { consumedAt: new Date() } });
     if (!count) throw trackerError(401, 'CODE_EXPIRED', 'The code was already used. Ask for a new code.');
+    await this.applyContact(device, row.email, row.name);
+    return this.startSession(await this.deviceByMobile(body.mobile), body);
+  }
 
+  /**
+   * After a verified code on a registered phone: the e-mail typed in the app becomes the device's contact, and for
+   * personal / family accounts the typed name renames the tracked person (business vehicles keep the admin's name).
+   */
+  private async applyContact(device: Awaited<ReturnType<MobileTrackerService['deviceByMobile']>>, email: string | null, name: string | null) {
+    if (email && email !== device.activationEmail) await this.prisma.device.update({ where: { id: device.id }, data: { activationEmail: email } });
+    const object = device.assignments[0]?.object;
+    const personal = device.company?.accountType === 'INDIVIDUAL' || device.company?.accountType === 'FAMILY';
+    if (name && object && personal && name !== object.name) await this.prisma.trackedObject.update({ where: { id: object.id }, data: { name } });
+  }
+
+  /**
+   * Activation screen, after the number is typed: whether it is registered and its e-mail / name. Full details only
+   * when this phone (install id) activated that number before; otherwise just a masked e-mail hint, so typing someone
+   * else's number reveals nothing useful.
+   */
+  async lookup(mobile: string, installId?: string): Promise<{ registered: boolean; samePhone: boolean; email: string | null; name: string | null; emailHint: string | null }> {
+    const uniqueId = this.normalize(mobile);
+    const device = await this.findDevice(uniqueId);
+    if (!device || !device.companyId) return { registered: false, samePhone: false, email: null, name: null, emailHint: null };
+    let email = device.activationEmail;
+    if (!email && device.company?.accountType !== 'BUSINESS') {
+      const owner = await this.prisma.user.findFirst({ where: { companyId: device.companyId, isActive: true, email: { not: null } }, orderBy: { createdAt: 'asc' }, select: { email: true } });
+      email = owner?.email ?? null;
+    }
+    const hash = hashInstallId(installId);
+    const samePhone = !!hash && (await this.prisma.mobileTrackerSession.count({ where: { deviceId: device.id, installIdHash: hash } })) > 0;
+    const name = device.assignments[0]?.object.name ?? null;
+    return samePhone
+      ? { registered: true, samePhone, email, name, emailHint: null }
+      : { registered: true, samePhone, email: null, name: null, emailHint: email ? maskEmail(email) : null };
+  }
+
+  /**
+   * Reinstall / app data lost on the phone that is still the active one for its number: the same install id gets a new
+   * token without a code. Only while that session was never signed out or stopped (revoked) and the device is on.
+   */
+  async restore(body: { installId: string; deviceName?: string; appVersion?: string; platform?: string }) {
+    const hash = hashInstallId(body.installId);
+    const row = hash
+      ? await this.prisma.mobileTrackerSession.findFirst({ where: { installIdHash: hash, revokedAt: null }, orderBy: { createdAt: 'desc' }, select: { device: { select: { uniqueId: true } } } })
+      : null;
+    if (!row) throw trackerError(404, 'NOT_FOUND', 'No earlier activation of this phone.');
+    const device = await this.deviceByMobile(row.device.uniqueId);
+    this.logger.log(`Tracker ${device.uniqueId} restored after reinstall (app ${body.appVersion ?? '?'})`);
     return this.startSession(device, body);
   }
 
   /** Self-service verify: the code proves the number; the phone joins / creates the personal account, then starts. */
-  private async verifySelfService(uniqueId: string, body: { code: string; deviceName?: string; appVersion?: string; platform?: string }) {
+  private async verifySelfService(uniqueId: string, body: { code: string; deviceName?: string; appVersion?: string; platform?: string; installId?: string }) {
     const row = await this.prisma.mobileTrackerCode.findFirst({
       where: { deviceId: null, mobile: uniqueId, purpose: 'ACTIVATE', consumedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
@@ -287,14 +335,14 @@ export class MobileTrackerService {
     return this.startSession(device, body);
   }
 
-  private async startSession(device: Awaited<ReturnType<MobileTrackerService['deviceByMobile']>>, body: { deviceName?: string; appVersion?: string; platform?: string }) {
+  private async startSession(device: Awaited<ReturnType<MobileTrackerService['deviceByMobile']>>, body: { deviceName?: string; appVersion?: string; platform?: string; installId?: string }) {
     const token = randomBytes(32).toString('base64url');
     const now = new Date();
     // One phone per number: activating here stops every earlier phone.
     await this.prisma.$transaction([
       this.prisma.mobileTrackerSession.updateMany({ where: { deviceId: device.id, revokedAt: null }, data: { revokedAt: now } }),
       this.prisma.mobileTrackerSession.create({
-        data: { deviceId: device.id, tokenHash: hashToken(token), deviceName: body.deviceName?.slice(0, 80) ?? null, appVersion: body.appVersion?.slice(0, 20) ?? null, platform: body.platform?.slice(0, 20) ?? null, lastUsedAt: now },
+        data: { deviceId: device.id, tokenHash: hashToken(token), deviceName: body.deviceName?.slice(0, 80) ?? null, appVersion: body.appVersion?.slice(0, 20) ?? null, platform: body.platform?.slice(0, 20) ?? null, installIdHash: hashInstallId(body.installId), lastUsedAt: now },
       }),
     ]);
     for (const [k, s] of this.sessions) if (s.deviceId === device.id) this.sessions.delete(k);
@@ -338,6 +386,16 @@ export class MobileTrackerService {
     const next: CachedSession = { sessionId: row.id, deviceId: row.deviceId, uniqueId: row.device.uniqueId, checkedAt: Date.now(), lastUsedWrite: cached?.lastUsedWrite ?? 0 };
     this.sessions.set(key, next);
     return next;
+  }
+
+/** The app's "Sign out / deactivate": ends this phone's session (a reinstall then needs a new code). */
+  async signOut(authorization: string | undefined): Promise<{ ok: true }> {
+    const s = await this.session(authorization).catch(() => null);
+    if (s) {
+      await this.prisma.mobileTrackerSession.updateMany({ where: { id: s.sessionId, revokedAt: null }, data: { revokedAt: new Date() } });
+      for (const [k, c] of this.sessions) if (c.sessionId === s.sessionId) this.sessions.delete(k);
+    }
+    return { ok: true };
   }
 
   async me(authorization: string | undefined) {

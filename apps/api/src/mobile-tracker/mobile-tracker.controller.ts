@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, Logger, Param, ParseUUIDPipe,
 import { SkipThrottle, Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthContext } from '../access/auth-context';
 import { Auth, Public, RequirePermission } from '../access/decorators';
-import { TrackerActivationEmailBody, TrackerDiagnosticsBody, TrackerPositionsBody, TrackerRequestCodeBody, TrackerVerifyBody } from './mobile-tracker.dto';
+import { TrackerActivationEmailBody, TrackerDiagnosticsBody, TrackerLookupBody, TrackerPositionsBody, TrackerRequestCodeBody, TrackerRestoreBody, TrackerVerifyBody } from './mobile-tracker.dto';
 import { MobileTrackerService } from './mobile-tracker.service';
 
 /** VeeTrax Tracker app (docs/mobile-tracker/API.md): activation by OTP and position upload with the phone's token. */
@@ -18,9 +18,24 @@ export class MobileTrackerController {
     return this.service.requestCode(body.mobile, body.email, body.name);
   }
 
+  @Public() @Post('activate/lookup') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  lookup(@Body() body: TrackerLookupBody) {
+    return this.service.lookup(body.mobile, body.installId);
+  }
+
+  @Public() @Post('activate/restore') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  restore(@Body() body: TrackerRestoreBody) {
+    return this.service.restore(body);
+  }
+
   @Public() @Post('activate/verify') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 10 } })
   verify(@Body() body: TrackerVerifyBody) {
     return this.service.verify(body);
+  }
+
+  @Public() @Post('signout') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  signOut(@Headers('authorization') authorization?: string) {
+    return this.service.signOut(authorization);
   }
 
   @Public() @SkipThrottle() @Get('me')
