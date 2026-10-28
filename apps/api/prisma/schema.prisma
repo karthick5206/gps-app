@@ -1633,6 +1633,14 @@ enum RelayScope {
 /// from the gateway (one upstream connection per device connection); HTTP_JSON posts batches of normalised
 /// positions from the notifier. The API publishes the resolved rule set to Valkey (`vt:relay:rules`).
 /// Data forwarding master switch (one row, id = "default"); off pauses every target without changing them.
+/// Point quality analysis (History → All points): platform on/off switch (single row "default"), Super Admin only.
+model PointQualitySettings {
+  id          String   @id @default("default")
+  enabled     Boolean  @default(true)
+  updatedById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+}
+
 model RelaySettings {
   id          String   @id @default("default")
   enabled     Boolean  @default(true)

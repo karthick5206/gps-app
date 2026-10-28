@@ -24,3 +24,4 @@ export * from './guide';
 export * from './purge';
 export * from './store-links';
 export * from './basemap';
+export * from './point-quality';
