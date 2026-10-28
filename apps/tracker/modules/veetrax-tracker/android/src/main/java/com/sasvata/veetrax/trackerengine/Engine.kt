@@ -42,6 +42,8 @@ class Engine private constructor(context: Context) {
     private const val STILL_TO_STATIONARY_MS = 2 * 60_000L
     private const val NO_FIX_TO_STATIONARY_MS = 2 * 60_000L
     private const val IDLE_CHECK_MS = 60_000L
+    private const val STATIONARY_GPS_PROBE_MS = 3 * 60_000L
+    private const val PROBE_TIMEOUT_MS = 15_000L
     private const val UPLOAD_GAP_MOVING_MS = 20_000L
     private const val UPLOAD_GAP_STATIONARY_MS = 60_000L
     private const val MOVE_SPEED_MPS = 2f
@@ -80,6 +82,7 @@ class Engine private constructor(context: Context) {
 
   private var stillSince: Long? = null
   private var lastRawFixElapsed = 0L
+  private var lastProbeElapsed = 0L
   private var lastUploadElapsed = 0L
 
   init {
@@ -139,9 +142,36 @@ class Engine private constructor(context: Context) {
       if (service == null) return
       guarded {
         if (mode == Mode.MOVING && elapsed() - lastRawFixElapsed > NO_FIX_TO_STATIONARY_MS) setMode(Mode.STATIONARY)
+        if (mode == Mode.STATIONARY && elapsed() - lastProbeElapsed >= STATIONARY_GPS_PROBE_MS) probeGps()
         requestUpload(force = false)
       }
       handler.postDelayed(this, IDLE_CHECK_MS)
+    }
+  }
+
+  /**
+   * Parked, the phone only gets Wi-Fi / cell positions, and at night (Doze, MIUI) often none at all, so a drive could
+   * go unnoticed for hours (seen: 17 km missed). One short GPS reading every few minutes catches the movement; the fix
+   * goes through onLocations like any other, so moving away switches to full tracking at once.
+   */
+  @SuppressLint("MissingPermission")
+  private fun probeGps() {
+    lastProbeElapsed = elapsed()
+    if (!Starter.hasLocationPermission(context)) return
+    val request = CurrentLocationRequest.Builder()
+      .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+      .setDurationMillis(PROBE_TIMEOUT_MS)
+      .setMaxUpdateAgeMillis(0)
+      .build()
+    try {
+      LocationServices.getFusedLocationProviderClient(context)
+        .getCurrentLocation(request, CancellationTokenSource().token)
+        .addOnCompleteListener(executor) { task ->
+          val loc: Location? = if (task.isSuccessful) task.result else null
+          if (loc != null && service != null) onLocations(listOf(loc))
+        }
+    } catch (_: SecurityException) {
+      // permission withdrawn meanwhile: health reports it
     }
   }
 
