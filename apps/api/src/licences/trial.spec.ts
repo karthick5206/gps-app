@@ -24,9 +24,8 @@ describe('grantTrialSeat', () => {
     expect(Math.round((phone!.expiresAt.getTime() - Date.now()) / day)).toBe(100);
   });
 
-  it('no trial for business accounts, for user seats, or once 5 devices of that kind used it', async () => {
+  it('no trial for business accounts, or once 5 devices of that kind used it', async () => {
     expect(await grantTrialSeat(fakeTx('BUSINESS').tx, 'c1', 'GPS_DEVICE', 'd1')).toBeNull();
-    expect(await grantTrialSeat(fakeTx('INDIVIDUAL').tx, 'c1', 'USER', 'u1')).toBeNull();
     const five = Array.from({ length: 5 }, () => ({ source: 'TRIAL', type: 'DASHCAM' }));
     expect(await grantTrialSeat(fakeTx('INDIVIDUAL', five).tx, 'c1', 'GPS_DEVICE', 'd1')).toBeNull();
     // Phones have their own count.

@@ -55,7 +55,7 @@ export class SeatsService {
     this.policy.invalidate(companyId);
     if (rows.length) return rows[0].id;
     // Personal / family accounts try devices first: a free-trial seat instead of "licence required".
-    if (type !== 'USER' && type !== 'FUEL_SENSOR') {
+    if (type !== 'FUEL_SENSOR') {
       const trial = await grantTrialSeat(tx, companyId, type, subjectId);
       if (trial) return trial.id;
     }
@@ -83,11 +83,6 @@ export class SeatsService {
       );
     }
     return seat.id;
-  }
-
-  async ensureUser(tx: Tx, ctx: AuthContext | null, companyId: string, userId: string): Promise<void> {
-    if (await tx.licenceSeat.count({ where: { userId } })) return;
-    await this.assign(tx, ctx, companyId, 'USER', userId);
   }
 
   /** Device in a company: keeps its seat, else takes a GPS_DEVICE or DASHCAM seat (by its model's capabilities). */

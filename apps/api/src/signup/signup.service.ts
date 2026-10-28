@@ -6,7 +6,6 @@ import { MailerService } from '../auth/mailer.service';
 import { hashPassword, hmac } from '../common/secrets';
 import { loadEnv } from '../config/env';
 import { GuideService } from '../guide/guide.service';
-import { LicenceSettingsService } from '../licences/licence-settings.service';
 import { DEFAULT_PARTNER_SLUG } from '../masters/companies/companies.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -31,8 +30,7 @@ const tooMany = (message: string) => new HttpException({ statusCode: 429, messag
 
 /**
  * Personal (individual) accounts, self-service: the email is verified with a 6-digit code (Zoho mail), then a company of
- * type INDIVIDUAL is created with its owner as Admin. Pay first: devices and phones need licences bought afterwards;
- * the owner gets the same starter login seat as a new company's first admin.
+ * type INDIVIDUAL is created with its owner as Admin. Users are free; devices and phones need licences (or a trial).
  */
 @Injectable()
 export class SignupService {
@@ -42,7 +40,6 @@ export class SignupService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailer: MailerService,
-    private readonly licences: LicenceSettingsService,
     private readonly guide: GuideService,
   ) {}
 
@@ -101,7 +98,6 @@ export class SignupService {
     if (!state) throw new ConflictException('Choose your state');
 
     const passwordHash = await hashPassword(d.password);
-    const starterDays = (await this.licences.get()).overrideDays;
     const name = d.name.trim();
     await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.signupCode.updateMany({ where: { id: row.id, consumedAt: null }, data: { consumedAt: new Date() } });
@@ -111,7 +107,7 @@ export class SignupService {
       const company = await tx.company.create({ data: { partnerId: partner.id, name, accountType: 'INDIVIDUAL' } });
       const roles = await ensureSystemRoles(tx, company.id);
       const branch = await tx.branch.create({ data: { companyId: company.id, name: 'Home' } });
-      const user = await tx.user.create({
+      await tx.user.create({
         data: {
           companyId: company.id,
           name,
@@ -121,11 +117,6 @@ export class SignupService {
           roles: { create: [{ roleId: roles.get('Admin')! }] },
           branches: { create: [{ branchId: branch.id }] },
         },
-      });
-      // Same complimentary login seat as a new company's first admin, so the owner can sign in and buy licences.
-      const now = new Date();
-      await tx.licenceSeat.create({
-        data: { type: 'USER', companyId: company.id, source: 'OVERRIDE', activatedAt: now, expiresAt: new Date(now.getTime() + starterDays * DAY_MS), userId: user.id, assignedAt: now, note: 'Starter seat: personal sign-up' },
       });
       await tx.billingProfile.create({ data: { companyId: company.id, billingName: name, address: '', city: d.city?.trim() ?? '', stateCode: state.code, email } });
     });

@@ -3,13 +3,15 @@
  * Pure functions, shared by the api (invoices, locking) and the web / mobile apps (price previews, banners).
  */
 
-/** Licences held by one user / device / fuel sensor. */
-export const SEAT_LICENCE_TYPES = ['USER', 'GPS_DEVICE', 'DASHCAM', 'FUEL_SENSOR', 'MOBILE_TRACKER'] as const;
+/** Licences held by one device / fuel sensor. Users are free: an account may have any number of users. */
+export const SEAT_LICENCE_TYPES = ['GPS_DEVICE', 'DASHCAM', 'FUEL_SENSOR', 'MOBILE_TRACKER'] as const;
 export type SeatLicenceType = (typeof SEAT_LICENCE_TYPES)[number];
 
-/** Every licence type: the per-subject seats plus the account-level Developer API licence (one per company). */
+/** Every licence type sold: the per-subject seats plus the account-level Developer API licence (one per company). */
 export const LICENCE_TYPES = [...SEAT_LICENCE_TYPES, 'API_ACCESS'] as const;
-export type LicenceType = (typeof LICENCE_TYPES)[number];
+/** Retired types: user logins needed a licence until 2026-10-29; old seats and invoices still carry the type. */
+export const RETIRED_LICENCE_TYPES = ['USER'] as const;
+export type LicenceType = (typeof LICENCE_TYPES)[number] | (typeof RETIRED_LICENCE_TYPES)[number];
 
 export const LICENCE_TYPE_LABELS: Record<LicenceType, string> = {
   USER: 'User login',
@@ -20,7 +22,7 @@ export const LICENCE_TYPE_LABELS: Record<LicenceType, string> = {
   API_ACCESS: 'Developer API',
 };
 
-export const isSeatLicenceType = (t: LicenceType): t is SeatLicenceType => t !== 'API_ACCESS';
+export const isSeatLicenceType = (t: LicenceType): t is SeatLicenceType => (SEAT_LICENCE_TYPES as readonly string[]).includes(t);
 
 /** Device-model capabilities that make a device a dashcam (JT/T 808 video profiles). */
 export const DASHCAM_CAPABILITIES = ['video', 'adas', 'dms'] as const;
@@ -410,7 +412,8 @@ export interface LicencePricingDto {
 
 /** Unit price of a licence (API_ACCESS: the plan's price; BASIC when no plan is given). */
 export function unitPricePaise(prices: LicencePrices, plans: ApiPlans, type: LicenceType, plan?: ApiPlan | null): number {
-  return type === 'API_ACCESS' ? plans[plan ?? 'BASIC'].pricePaise : prices[type];
+  if (type === 'API_ACCESS') return plans[plan ?? 'BASIC'].pricePaise;
+  return isSeatLicenceType(type) ? prices[type] : 0;
 }
 
 /** "Developer API (Standard)" / "GPS device". */

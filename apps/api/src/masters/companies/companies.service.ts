@@ -9,7 +9,6 @@ import { toCompanySummary } from '../../common/company-summary';
 import { iso } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
 import { hashPassword } from '../../common/secrets';
-import { SeatsService } from '../../licences/seats.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { CompanyListQuery, CreateCompanyDto, UpdateCompanyDto } from './companies.dto';
@@ -64,7 +63,6 @@ export class CompaniesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly redis: RedisService,
-    private readonly seats: SeatsService,
   ) {}
 
   async list(query: CompanyListQuery) {
@@ -96,7 +94,7 @@ export class CompaniesService {
       });
       const roles = await ensureSystemRoles(tx, company.id);
       const branch = await tx.branch.create({ data: { companyId: company.id, name: 'Head Office' } });
-      const admin = await tx.user.create({
+      await tx.user.create({
         data: {
           companyId: company.id,
           name: dto.admin.name.trim(),
@@ -107,8 +105,6 @@ export class CompaniesService {
           branches: { create: [{ branchId: branch.id }] },
         },
       });
-      // The first admin gets a short complimentary user licence (override days) so the customer can sign in and buy.
-      await this.seats.assign(tx, { ...ctx, licenceOverride: ctx.licenceOverride || 'Starter seat for the first admin of a new company' }, company.id, 'USER', admin.id);
       return tx.company.findUniqueOrThrow({ where: { id: company.id }, include: INCLUDE });
     });
     await this.audit.record(ctx, {

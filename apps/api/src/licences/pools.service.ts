@@ -74,7 +74,7 @@ export class PoolsService {
   ) {}
 
   async seats(where: Prisma.LicenceSeatWhereInput, now = Date.now()): Promise<{ seats: SeatDto[]; summary: SeatSummaryDto[] }> {
-    const rows = await this.prisma.licenceSeat.findMany({ where, include: SEAT_INCLUDE, orderBy: [{ type: 'asc' }, { expiresAt: 'asc' }], take: 5000 });
+    const rows = await this.prisma.licenceSeat.findMany({ where: { AND: [where, { type: { not: 'USER' } }] }, include: SEAT_INCLUDE, orderBy: [{ type: 'asc' }, { expiresAt: 'asc' }], take: 5000 });
     const grace = await this.settings.graceDays();
     return { seats: rows.map((r) => seatDto(r, now, grace)), summary: summarise(rows.map((r) => ({ ...r, type: r.type as LicenceType })), now, grace) };
   }
@@ -97,10 +97,7 @@ export class PoolsService {
       });
       if (!free.length) continue;
       let subjects: { id: string; seatId: string | null }[] = [];
-      if (type === 'USER') {
-        const rows = await tx.user.findMany({ where: { companyId, isActive: true, isSuperAdmin: false, ...needsSeat }, select: { id: true, licenceSeat: { select: { id: true } } }, orderBy: { createdAt: 'asc' } });
-        subjects = rows.map((r) => ({ id: r.id, seatId: r.licenceSeat?.id ?? null }));
-      } else if (type === 'FUEL_SENSOR') {
+      if (type === 'FUEL_SENSOR') {
         const rows = await tx.fuelConfig.findMany({ where: { companyId, source: { not: 'none' }, ...needsSeat }, select: { objectId: true, licenceSeat: { select: { id: true } } } });
         subjects = rows.map((r) => ({ id: r.objectId, seatId: r.licenceSeat?.id ?? null }));
       } else {
@@ -111,7 +108,7 @@ export class PoolsService {
         });
         subjects = rows.filter((r) => deviceLicenceType(r.model.capabilities) === type).map((r) => ({ id: r.id, seatId: r.licenceSeat?.id ?? null }));
       }
-      const column = type === 'USER' ? 'userId' : type === 'FUEL_SENSOR' ? 'fuelObjectId' : 'deviceId';
+      const column = type === 'FUEL_SENSOR' ? 'fuelObjectId' : 'deviceId';
       for (let i = 0; i < Math.min(free.length, subjects.length); i++) {
         const s = subjects[i];
         if (s.seatId) await tx.licenceSeat.update({ where: { id: s.seatId }, data: { [column]: null, assignedAt: null } });
@@ -185,7 +182,7 @@ export class PoolsService {
     const canManage = can(ctx.permissions, 'billing', 'create');
     if (await this.policy.isExempt(ctx.companyId)) return { exempt: true, expiringSoon: 0, inGrace: 0, lockedVehicles: [], canManage };
     const grace = await this.settings.graceDays();
-    const assigned = { OR: [{ userId: { not: null } }, { deviceId: { not: null } }, { fuelObjectId: { not: null } }] };
+    const assigned = { OR: [{ deviceId: { not: null } }, { fuelObjectId: { not: null } }] };
     const [expiringSoon, inGrace, lockedIds] = await Promise.all([
       this.prisma.licenceSeat.count({ where: { companyId: ctx.companyId, ...assigned, expiresAt: { gt: new Date(now), lte: new Date(now + LICENCE_EXPIRING_DAYS * DAY_MS) } } }),
       this.prisma.licenceSeat.count({ where: { companyId: ctx.companyId, ...assigned, expiresAt: { lte: new Date(now), gt: new Date(now - grace * DAY_MS) } } }),

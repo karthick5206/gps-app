@@ -5,7 +5,6 @@ import { ensureSystemRoles } from '../access/system-roles';
 import { MailerService } from '../auth/mailer.service';
 import { randomToken, sha256 } from '../common/secrets';
 import { loadEnv } from '../config/env';
-import { LicenceSettingsService } from '../licences/licence-settings.service';
 import { grantTrialSeat } from '../licences/trial';
 import { DEFAULT_PARTNER_SLUG } from '../masters/companies/companies.service';
 import { MOBILE_MODEL_PROTOCOL } from './mobile-tracker.logic';
@@ -46,10 +45,7 @@ export class TrackerSelfService {
   private readonly logger = new Logger(TrackerSelfService.name);
   private readonly webUrl = loadEnv().webUrl;
 
-  constructor(
-    private readonly mailer: MailerService,
-    private readonly licences: LicenceSettingsService,
-  ) {}
+  constructor(private readonly mailer: MailerService) {}
 
   /** The existing account for this e-mail / mobile, or null (a new personal account will be created). */
   async findOwner(db: Tx, email: string, mobile: string): Promise<Owner | null> {
@@ -71,7 +67,6 @@ export class TrackerSelfService {
 
   /** Creates (or reuses) the account, the phone tracker with its person object and, while the trial lasts, its seat. */
   async provision(tx: Tx, input: { mobile: string; email: string; name: string | null }): Promise<Provisioned> {
-    const now = new Date();
     let owner = await this.findOwner(tx, input.email, input.mobile);
     let newAccount = false;
     if (!owner) {
@@ -90,10 +85,6 @@ export class TrackerSelfService {
           roles: { create: [{ roleId: roles.get('Admin')! }] },
           branches: { create: [{ branchId: branch.id }] },
         },
-      });
-      const starterDays = (await this.licences.get()).overrideDays;
-      await tx.licenceSeat.create({
-        data: { type: 'USER', companyId: company.id, source: 'OVERRIDE', activatedAt: now, expiresAt: new Date(now.getTime() + starterDays * DAY_MS), userId: user.id, assignedAt: now, note: 'Starter seat: Tracker app sign-up' },
       });
       owner = { userId: user.id, companyId: company.id, accountType: 'INDIVIDUAL', hasPassword: false, name, email: input.email };
       newAccount = true;

@@ -597,7 +597,6 @@ async function seedPlayReview(partnerId: string) {
       },
       select: { id: true, companyId: true },
     });
-    await prisma.licenceSeat.create({ data: { type: 'USER', companyId: company.id, source: 'OVERRIDE', activatedAt: new Date(), expiresAt: years(5), userId: created.id, assignedAt: new Date(), note: 'Store review account' } });
     user = created;
   }
   if (await prisma.device.count({ where: { uniqueId: mobile } })) return;

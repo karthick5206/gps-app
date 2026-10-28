@@ -16,8 +16,7 @@ function setup(opts: { userCount?: number; recent?: Date[]; code?: { id: string;
     },
   };
   const mailer = { send: jest.fn(async (m: { to: string; subject: string }) => (sent.push(m), 'x')) };
-  const licences = { get: jest.fn(async () => ({ overrideDays: 30 })) };
-  const svc = new SignupService(prisma as never, mailer as never, licences as never, { welcome: jest.fn() } as never);
+  const svc = new SignupService(prisma as never, mailer as never, { welcome: jest.fn() } as never);
   return { svc, sent, created, updates };
 }
 

@@ -1,8 +1,7 @@
-import { ForbiddenException, Inject, Injectable, Optional, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
-import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolvePermissions } from './access-rules';
 import { ALL_COMPANIES } from '@veetracer/shared';
@@ -16,7 +15,6 @@ export class AuthContextService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     @Inject(APP_ENV) private readonly env: AppEnv,
-    @Optional() private readonly licences?: LicencePolicyService,
   ) {}
 
   verifyToken(token: string): AccessTokenPayload {
@@ -43,12 +41,6 @@ export class AuthContextService {
     return { ...ctx, sessionId: payload.sid ?? null };
   }
 
-  /** Users whose licence seat expired past the grace period cannot sign in or use the app (Super Admin never). */
-  async assertLicence(user: { id: string; isSuperAdmin: boolean; companyId: string }): Promise<void> {
-    const lock = await this.licences?.userLock(user.id, user);
-    if (lock) throw new ForbiddenException({ statusCode: 403, code: 'USER_LICENCE_EXPIRED', message: lock });
-  }
-
   async forUser(userId: string, requestedCompanyId: string | undefined, ip: string | null): Promise<AuthContext> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -62,7 +54,6 @@ export class AuthContextService {
     if (!user) throw new UnauthorizedException('Invalid or expired token');
     if (!user.isActive) throw new ForbiddenException('Account inactive');
     if (!user.isSuperAdmin && user.company.status !== 'ACTIVE') throw new ForbiddenException('Company suspended');
-    await this.assertLicence(user);
 
     let companyId = user.companyId;
     const allCompanies = user.isSuperAdmin && requestedCompanyId === ALL_COMPANIES;

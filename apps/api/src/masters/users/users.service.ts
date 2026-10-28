@@ -8,7 +8,6 @@ import { BulkActionDto, runBulk } from '../../common/bulk';
 import { iso, isoOrNull } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
 import { hashPassword } from '../../common/secrets';
-import { SeatsService } from '../../licences/seats.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { CreateUserDto, UpdateUserDto, UserListQuery } from './users.dto';
@@ -79,7 +78,6 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly redis: RedisService,
-    private readonly seats: SeatsService,
   ) {}
 
   async list(ctx: AuthContext, query: UserListQuery) {
@@ -106,7 +104,6 @@ export class UsersService {
     const branchIds = dto.branchIds ?? [];
     const objectIds = dto.objectIds ?? [];
     await this.validateAccess(ctx, roleIds, branchIds, objectIds, dto.managerId);
-    // A new login takes a USER licence seat from the company pool (refused without one).
     const row = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
       data: {
@@ -123,7 +120,6 @@ export class UsersService {
       },
       include: INCLUDE,
       });
-      if (created.isActive) await this.seats.ensureUser(tx, ctx, ctx.companyId, created.id);
       return created;
     });
     await this.audit.record(ctx, { action: 'CREATE', entity: ENTITY, entityId: row.id, after: snapshot(row) });
@@ -147,7 +143,6 @@ export class UsersService {
 
     const row = await this.prisma.$transaction(async (tx) => {
       // Re-activating a user who has no licence seat takes one from the pool.
-      if (dto.isActive === true && !before.isActive) await this.seats.ensureUser(tx, ctx, before.companyId, id);
       if (dto.roleIds) await tx.userRole.deleteMany({ where: { userId: id } });
       if (dto.branchIds) await tx.userBranch.deleteMany({ where: { userId: id } });
       if (dto.objectIds) await tx.userObject.deleteMany({ where: { userId: id } });

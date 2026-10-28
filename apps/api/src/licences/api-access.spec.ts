@@ -34,7 +34,7 @@ describe('Developer API plans', () => {
     };
     const svc = new LicenceSettingsService(prisma as never);
     const plans = { ...DEFAULT_API_PLANS, STANDARD: { ...DEFAULT_API_PLANS.STANDARD, pricePaise: 1_800_000, maxWebhooks: 8 } };
-    const out = await svc.updatePricing({ pricesPaise: { USER: 1, GPS_DEVICE: 2, DASHCAM: 3, FUEL_SENSOR: 4, MOBILE_TRACKER: 5 }, apiPlans: plans, gstRatePct: 18, graceDays: 15, overrideDays: 30 });
+    const out = await svc.updatePricing({ pricesPaise: { GPS_DEVICE: 2, DASHCAM: 3, FUEL_SENSOR: 4, MOBILE_TRACKER: 5 }, apiPlans: plans, gstRatePct: 18, graceDays: 15, overrideDays: 30 });
     expect(out.apiPlans.STANDARD).toMatchObject({ pricePaise: 1_800_000, maxWebhooks: 8 });
     expect(out.apiPlans.BASIC.pricePaise).toBe(600_000);
   });

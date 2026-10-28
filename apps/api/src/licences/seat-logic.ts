@@ -13,7 +13,6 @@ import {
   SeatLicenceType,
   unitPricePaise,
   renewedExpiry,
-  seatLocked,
   seatStatus,
   SeatSummaryDto,
 } from '@veetracer/shared';
@@ -21,8 +20,7 @@ import {
 const DAY_MS = 86_400_000;
 
 /** Column that links a seat of this type to its subject. */
-export const SUBJECT_COLUMN: Record<SeatLicenceType, 'userId' | 'deviceId' | 'fuelObjectId'> = {
-  USER: 'userId',
+export const SUBJECT_COLUMN: Record<SeatLicenceType, 'deviceId' | 'fuelObjectId'> = {
   GPS_DEVICE: 'deviceId',
   DASHCAM: 'deviceId',
   FUEL_SENSOR: 'fuelObjectId',
@@ -73,22 +71,6 @@ export function summarise(seats: SeatLike[], now: number, graceDays: number): Se
       expired: mine.filter((s) => s.expiresAt.getTime() <= now && !isFree(s)).length,
     };
   });
-}
-
-/**
- * Why a user may not sign in (expired USER seat past grace, or none assigned), or null when they may.
- * Super Admins and platform-company users are never locked.
- */
-export function userLockReason(
-  user: { isSuperAdmin: boolean; platform: boolean },
-  seat: { expiresAt: Date } | null,
-  now: number,
-  graceDays: number,
-): string | null {
-  if (user.isSuperAdmin || user.platform) return null;
-  if (!seat) return 'No VeeTrax licence is assigned to your account. Ask your administrator to assign or buy a user licence.';
-  if (seatLocked(seat.expiresAt, now, graceDays)) return 'Your VeeTrax licence has expired. Ask your administrator to renew it.';
-  return null;
 }
 
 /**

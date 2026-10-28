@@ -155,6 +155,7 @@ export class BillingService {
       ? await this.prisma.licenceSeat.findMany({ where: { id: { in: renewIds }, ...ownerWhere(owner) }, select: { id: true, type: true, expiresAt: true, apiPlan: true, notifiedState: true } })
       : [];
     if (renewals.length !== renewIds.length) throw new BadRequestException('Some seats to renew were not found in this pool');
+    if (renewals.some((r) => r.type === 'USER')) throw new BadRequestException('User licences are no longer needed: users are free');
     if (renewals.some((r) => r.type === 'API_ACCESS' && r.notifiedState === 'REPLACED')) throw new BadRequestException('This Developer API licence was replaced by a newer plan');
     if (owner.kind === 'COMPANY' && api.length && renewals.some((r) => r.type === 'API_ACCESS')) throw new BadRequestException('Renew the Developer API licence or buy a new plan, not both');
     const partnerId = owner.kind === 'PARTNER' ? owner.id : null;

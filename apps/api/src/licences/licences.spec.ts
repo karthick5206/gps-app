@@ -5,7 +5,7 @@ import { nextInvoiceSeq } from './invoice-numbering';
 import { LicencePolicyService } from './licence-policy.service';
 import { istHour, reminderText } from './licence-reminders.service';
 import { hmacHex, verifyCheckoutSignature, verifyWebhookSignature, webhookPayment } from './razorpay';
-import { isFree, pickFreeSeat, quoteLines, reminderDue, SeatLike, summarise, userLockReason } from './seat-logic';
+import { isFree, pickFreeSeat, quoteLines, reminderDue, SeatLike, summarise } from './seat-logic';
 import { LicenceRequiredException, SeatsService } from './seats.service';
 
 const DAY = 86_400_000;
@@ -42,9 +42,11 @@ describe('seat assignment and reuse', () => {
   });
 
   it('summarises total / used / free / expiring / expired per type', () => {
-    const s = summarise([seat('a', 200, { deviceId: 'd' }), seat('b', 10), seat('c', -5, { deviceId: 'e' }), seat('u', 90, { userId: 'u1' }, 'USER')], NOW, 15);
+    const s = summarise([seat('a', 200, { deviceId: 'd' }), seat('b', 10), seat('c', -5, { deviceId: 'e' }), seat('u', 90, { deviceId: 'p1' }, 'MOBILE_TRACKER')], NOW, 15);
     expect(s.find((x) => x.type === 'GPS_DEVICE')).toEqual({ type: 'GPS_DEVICE', total: 2, used: 1, free: 1, expiring: 1, expired: 1 });
-    expect(s.find((x) => x.type === 'USER')).toMatchObject({ total: 1, used: 1, free: 0 });
+    expect(s.find((x) => x.type === 'MOBILE_TRACKER')).toMatchObject({ total: 1, used: 1, free: 0 });
+    // Users are free: no USER line any more.
+    expect(s.find((x) => (x.type as string) === 'USER')).toBeUndefined();
   });
 
   const ctx = (sa: boolean, override?: string): AuthContext =>
@@ -68,7 +70,7 @@ describe('seat assignment and reuse', () => {
 
   it('assigns a free seat from the pool', async () => {
     const { svc, tx } = seatsService([{ id: 's1' }]);
-    await expect(svc.assign(tx as never, ctx(false), 'c', 'USER', 'u2')).resolves.toBe('s1');
+    await expect(svc.assign(tx as never, ctx(false), 'c', 'GPS_DEVICE', 'd1')).resolves.toBe('s1');
   });
 
   it('refuses without a free seat (402 LICENCE_REQUIRED); an override from a non-Super Admin is ignored', async () => {
@@ -88,22 +90,12 @@ describe('seat assignment and reuse', () => {
 
   it('platform companies need no seats', async () => {
     const { svc, tx } = seatsService([], true);
-    await expect(svc.assign(tx as never, ctx(false), 'c', 'USER', 'u3')).resolves.toBeNull();
+    await expect(svc.assign(tx as never, ctx(false), 'c', 'GPS_DEVICE', 'd4')).resolves.toBeNull();
     expect(tx.$queryRaw).not.toHaveBeenCalled();
   });
 });
 
 describe('expiry, grace and locking', () => {
-  it('locks an expired user only after the grace period; Super Admin and platform users never', () => {
-    const expired10 = { expiresAt: new Date(NOW - 10 * DAY) };
-    const expired20 = { expiresAt: new Date(NOW - 20 * DAY) };
-    expect(userLockReason({ isSuperAdmin: false, platform: false }, expired10, NOW, 15)).toBeNull();
-    expect(userLockReason({ isSuperAdmin: false, platform: false }, expired20, NOW, 15)).toMatch(/licence has expired/);
-    expect(userLockReason({ isSuperAdmin: false, platform: false }, null, NOW, 15)).toMatch(/No VeeTrax licence/);
-    expect(userLockReason({ isSuperAdmin: true, platform: false }, expired20, NOW, 15)).toBeNull();
-    expect(userLockReason({ isSuperAdmin: false, platform: true }, null, NOW, 15)).toBeNull();
-  });
-
   function policy(platform = false) {
     const findMany = jest.fn(async () => [{ id: 'locked-vehicle' }]);
     const prisma = { company: { findUnique: jest.fn(async () => ({ isPlatform: platform })) }, trackedObject: { findMany } };
@@ -185,8 +177,8 @@ describe('expiry, grace and locking', () => {
 
   it('quote lines: new seats run a year from payment, renewals per seat (no pro-rata)', () => {
     const paidAt = new Date('2026-10-19T06:00:00Z');
-    const prices = { USER: 50_000, GPS_DEVICE: 120_000, DASHCAM: 300_000, FUEL_SENSOR: 80_000, MOBILE_TRACKER: 60_000 };
-    const lines = quoteLines([{ type: 'GPS_DEVICE', quantity: 3 }], [{ id: 's1', type: 'USER', expiresAt: new Date('2026-11-01T00:00:00Z') }, { id: 's2', type: 'USER', expiresAt: new Date('2026-01-01T00:00:00Z') }], prices, paidAt, DEFAULT_API_PLANS);
+    const prices = { GPS_DEVICE: 120_000, DASHCAM: 300_000, FUEL_SENSOR: 80_000, MOBILE_TRACKER: 50_000 };
+    const lines = quoteLines([{ type: 'GPS_DEVICE', quantity: 3 }], [{ id: 's1', type: 'MOBILE_TRACKER', expiresAt: new Date('2026-11-01T00:00:00Z') }, { id: 's2', type: 'MOBILE_TRACKER', expiresAt: new Date('2026-01-01T00:00:00Z') }], prices, paidAt, DEFAULT_API_PLANS);
     expect(lines[0]).toMatchObject({ kind: 'NEW', quantity: 3, amountPaise: 360_000, periodTo: '2027-10-19T06:00:00.000Z' });
     expect(lines[1]).toMatchObject({ kind: 'RENEWAL', periodFrom: '2026-11-01T00:00:00.000Z', periodTo: '2027-11-01T00:00:00.000Z', amountPaise: 50_000 });
     expect(lines[2]).toMatchObject({ kind: 'RENEWAL', periodFrom: paidAt.toISOString(), periodTo: '2027-10-19T06:00:00.000Z' });

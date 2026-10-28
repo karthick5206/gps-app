@@ -120,7 +120,8 @@ export class LicenceRemindersService {
       where: {
         // Up to 20 days ahead, through the grace period and a few days past the lock day (missed runs).
         expiresAt: { lte: new Date(now + (LICENCE_REMINDER_DAYS[0] + 1) * DAY_MS), gt: new Date(now - (grace + 3) * DAY_MS) },
-        OR: [{ companyId: null }, { userId: { not: null } }, { deviceId: { not: null } }, { fuelObjectId: { not: null } }, { type: 'API_ACCESS' }],
+        type: { not: 'USER' },
+        OR: [{ companyId: null }, { deviceId: { not: null } }, { fuelObjectId: { not: null } }, { type: 'API_ACCESS' }],
       },
       include: {
         company: { select: { id: true, name: true, isPlatform: true } },
