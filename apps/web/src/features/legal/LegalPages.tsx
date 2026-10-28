@@ -179,6 +179,12 @@ export function PrivacyPage() {
               permissions are allowed, and crash reports (no location or
               personal data in crash reports).
             </li>
+            <li>
+              <b>Device identifier:</b> the Android ID the phone gives this app,
+              stored only as a one-way code, so the same phone can carry on
+              tracking after the app is updated or reinstalled without a new
+              activation code.
+            </li>
           </ul>
         </Section>
         <Section title="Why VeeTrax Tracker uses it">
