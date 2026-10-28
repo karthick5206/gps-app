@@ -13,7 +13,7 @@ import { useAuth } from '@/features/auth/auth';
 import { useRealtimeStatus } from '@/features/live/use-live';
 import { pushStatus } from '@/features/notifications/push';
 import { LanguageChips } from '@/components/LanguageChips';
-import { PLAY_STORE } from '@veetracer/shared';
+import { ALL_COMPANIES, PLAY_STORE } from '@veetracer/shared';
 import { SERVER_URL } from '@/lib/config';
 import { SPACE, useColors } from '@/lib/theme';
 
@@ -33,7 +33,7 @@ const CONNECTION_LABEL = { idle: 'Not connected', connecting: 'Connecting…', c
 export default function MoreScreen() {
   const c = useColors();
   const { t } = useTranslation();
-  const { me, signOut, can } = useAuth();
+  const { me, signOut, can, companyId } = useAuth();
   const connection = useRealtimeStatus();
   const confirmSignOut = () =>
     Alert.alert(t('Sign out?'), t('You will need to sign in again to see your vehicles.'), [
@@ -72,7 +72,7 @@ export default function MoreScreen() {
                 {t('Company')}
               </Text>
               <Text weight="700" numberOfLines={1}>
-                {me.company.name}
+                {companyId === ALL_COMPANIES ? t('All companies') : me.company.name}
               </Text>
             </View>
             <Text size="sm" style={{ color: c.primary }}>
