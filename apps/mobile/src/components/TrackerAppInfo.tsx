@@ -2,7 +2,7 @@ import { DownloadIcon, SmartphoneIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Linking, View } from 'react-native';
 import { Button, Card, Text } from '@/components/ui';
-import { SERVER_URL } from '@/lib/config';
+import { PLAY_STORE } from '@veetracer/shared';
 import { SPACE, useColors } from '@/lib/theme';
 
 const POINTS = [
@@ -27,7 +27,7 @@ export function TrackerAppInfo() {
           • {t(p)}
         </Text>
       ))}
-      <Button title={t('Download VeeTrax Tracker')} icon={DownloadIcon} variant="outline" onPress={() => Linking.openURL(`${SERVER_URL}/download`).catch(() => undefined)} />
+      <Button title={t('Download VeeTrax Tracker')} icon={DownloadIcon} variant="outline" onPress={() => Linking.openURL(PLAY_STORE.tracker).catch(() => undefined)} />
     </Card>
   );
 }

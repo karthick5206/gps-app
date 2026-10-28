@@ -2771,4 +2771,9 @@ export const TA: Record<string, string> = {
   'the phone belongs to the VeeTrax account of the e-mail or mobile number used to activate it. Sign in below with that e-mail, or with an OTP on that mobile number, to delete the account with the phone and its location history. To only stop sharing, tap Sign out / deactivate in the Tracker.': 'ஃபோன், அதைச் செயல்படுத்தப் பயன்படுத்திய மின்னஞ்சல் அல்லது மொபைல் எண்ணின் VeeTrax கணக்கைச் சேர்ந்தது. ஃபோனையும் அதன் இருப்பிட வரலாற்றையும் சேர்த்து கணக்கை நீக்க, கீழே அந்த மின்னஞ்சலுடன் அல்லது அந்த மொபைல் எண்ணுக்கு வரும் OTP மூலம் உள்நுழையவும். பகிர்வை மட்டும் நிறுத்த, Tracker-இல் Sign out / deactivate ஐத் தட்டவும்.',
   'For the VeeTrax and VeeTrax Tracker apps by {{company}}.': '{{company}} வழங்கும் VeeTrax மற்றும் VeeTrax Tracker ஆப்களுக்கு.',
   'Estimated road (no data)': 'மதிப்பிடப்பட்ட சாலை (தரவு இல்லை)',
+  "Get it on Google Play": "Google Play-இல் பெறுங்கள்",
+  "APK v{{version}} ({{size}} MB)": "APK v{{version}} ({{size}} MB)",
+  "Install from Google Play: updates then come automatically.": "Google Play-இலிருந்து நிறுவுங்கள்: புதுப்பிப்புகள் தானாக வரும்.",
+  "Phone without Google Play? Download the APK and open it. If asked, allow \"Install unknown apps\" for your browser or file manager.": "ஃபோனில் Google Play இல்லையா? APK-ஐப் பதிவிறக்கித் திறக்கவும். கேட்டால், உங்கள் உலாவி அல்லது கோப்பு மேலாளருக்கு \"அறியப்படாத ஆப்களை நிறுவு\" அனுமதியை வழங்கவும்.",
+  "Get VeeTrax Tracker on Google Play": "Google Play-இல் VeeTrax Tracker-ஐப் பெறுங்கள்",
 };

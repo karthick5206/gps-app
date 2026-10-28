@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
-import { formatMobile } from '@veetracer/shared';
+import { formatMobile, PLAY_STORE } from '@veetracer/shared';
 import { Prisma } from '@prisma/client';
 import { ensureSystemRoles } from '../access/system-roles';
 import { MailerService } from '../auth/mailer.service';
@@ -155,14 +155,14 @@ export class TrackerSelfService {
         trial,
         `See its location, history and alerts in the VeeTrax app or at ${this.webUrl}: sign in with ${p.email} or with an OTP on ${phone}.`,
         ...(setPassword ? [`First time? Set your password here (valid 7 days): ${setPassword}`] : []),
-        'Download: ' + `${this.webUrl}/download`,
+        `Get the VeeTrax app on Google Play: ${PLAY_STORE.veetrax}`,
       ];
       const html =
         `<p>Phone <b>${escapeHtml(phone)}</b> is now tracking in VeeTrax and is mapped to your account (<b>${escapeHtml(p.email)}</b>).</p>` +
         `<p>${escapeHtml(trial)}</p>` +
         `<p>See its location, history and alerts in the <b>VeeTrax app</b> or at <a href="${this.webUrl}">${escapeHtml(this.webUrl)}</a>: sign in with <b>${escapeHtml(p.email)}</b> or with an OTP on <b>${escapeHtml(phone)}</b>.</p>` +
         (setPassword ? `<p><a href="${setPassword}" style="display:inline-block;background:#0e5e57;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Set your password</a><br><small>Link valid for 7 days.</small></p>` : '') +
-        `<p><a href="${this.webUrl}/download">Download the VeeTrax app</a></p>` +
+        `<p><a href="${PLAY_STORE.veetrax}">Get the VeeTrax app on Google Play</a></p>` +
         `<p style="color:#666">Thanks for choosing Vibhav Enterprise Solutions VeeTrax. Support: 9444907658.</p>`;
       await this.mailer.send({ to: p.email, subject: `Tracking started for ${phone} · VeeTrax`, text: lines.join('\n\n'), html });
     } catch (e) {

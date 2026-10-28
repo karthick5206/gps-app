@@ -1,3 +1,4 @@
+import { PLAY_STORE } from '@veetracer/shared';
 import { DownloadIcon, SmartphoneIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -28,8 +29,8 @@ export function TrackerAppInfo({ className }: { className?: string }) {
       </ul>
       <div className="flex flex-wrap items-center gap-2">
         <Button asChild size="sm" variant="outline">
-          <a href="/download" target="_blank" rel="noreferrer">
-            <DownloadIcon /> {t('Download VeeTrax Tracker')}
+          <a href={PLAY_STORE.tracker} target="_blank" rel="noreferrer">
+            <DownloadIcon /> {t('Get VeeTrax Tracker on Google Play')}
           </a>
         </Button>
         <span className="text-xs text-muted-foreground">{t('Or open app.veetrax.com/download on that phone.')}</span>

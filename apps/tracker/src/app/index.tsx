@@ -14,10 +14,11 @@ import { resumeIfWanted, stopTracking, Tracker, useTrackerStatus } from '@/lib/t
 
 const RECHECK_EVERY_MS = 5 * 60_000;
 const WEB_URL = 'https://app.veetrax.com';
+const PLAY_STORE_VEETRAX = 'https://play.google.com/store/apps/details?id=com.sasvata.veetrax';
 
 /** Opens the VeeTrax app (its veetrax:// scheme), else the download page. */
 function openVeetrax() {
-  Linking.openURL('veetrax://').catch(() => Linking.openURL(`${WEB_URL}/download`).catch(() => undefined));
+  Linking.openURL('veetrax://').catch(() => Linking.openURL(PLAY_STORE_VEETRAX).catch(() => undefined));
 }
 
 const dateOnly = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });

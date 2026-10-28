@@ -2771,4 +2771,9 @@ export const HI: Record<string, string> = {
   'the phone belongs to the VeeTrax account of the e-mail or mobile number used to activate it. Sign in below with that e-mail, or with an OTP on that mobile number, to delete the account with the phone and its location history. To only stop sharing, tap Sign out / deactivate in the Tracker.': 'फ़ोन उस ई-मेल या मोबाइल नंबर के VeeTrax खाते का है जिससे उसे सक्रिय किया गया था। फ़ोन और उसके लोकेशन इतिहास सहित खाता हटाने के लिए नीचे उसी ई-मेल से, या उस मोबाइल नंबर पर OTP से साइन इन करें। केवल शेयर करना बंद करने के लिए Tracker में Sign out / deactivate दबाएँ।',
   'For the VeeTrax and VeeTrax Tracker apps by {{company}}.': '{{company}} के VeeTrax और VeeTrax Tracker ऐप्स के लिए।',
   'Estimated road (no data)': 'अनुमानित सड़क (डेटा नहीं)',
+  "Get it on Google Play": "Google Play पर पाएं",
+  "APK v{{version}} ({{size}} MB)": "APK v{{version}} ({{size}} MB)",
+  "Install from Google Play: updates then come automatically.": "Google Play से इंस्टॉल करें: अपडेट अपने आप आते हैं।",
+  "Phone without Google Play? Download the APK and open it. If asked, allow \"Install unknown apps\" for your browser or file manager.": "फ़ोन में Google Play नहीं है? APK डाउनलोड करके खोलें। पूछे जाने पर अपने ब्राउज़र या फ़ाइल मैनेजर के लिए \"अज्ञात ऐप्स इंस्टॉल करें\" की अनुमति दें।",
+  "Get VeeTrax Tracker on Google Play": "Google Play पर VeeTrax Tracker पाएं",
 };

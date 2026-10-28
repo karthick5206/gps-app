@@ -13,6 +13,7 @@ import { useAuth } from '@/features/auth/auth';
 import { useRealtimeStatus } from '@/features/live/use-live';
 import { pushStatus } from '@/features/notifications/push';
 import { LanguageChips } from '@/components/LanguageChips';
+import { PLAY_STORE } from '@veetracer/shared';
 import { SERVER_URL } from '@/lib/config';
 import { SPACE, useColors } from '@/lib/theme';
 
@@ -95,7 +96,7 @@ export default function MoreScreen() {
         {can('billing') && !me?.user.isSuperAdmin && <MenuItem icon={ReceiptIndianRupeeIcon} label={t('Licences & invoices')} href="/licences" />}
         {me && me.company.accountType !== 'BUSINESS' && can('devices', 'create') && <MenuItem icon={UsersRoundIcon} label={t('Family members')} href="/family" />}
         {/* Opens VeeTrax Tracker (its veetrax-tracker:// scheme), else the download page. */}
-        <MenuItem icon={SmartphoneIcon} label={t('Track this phone')} onPress={() => Linking.openURL('veetrax-tracker://').catch(() => Linking.openURL(`${SERVER_URL}/download`).catch(() => undefined))} />
+        <MenuItem icon={SmartphoneIcon} label={t('Track this phone')} onPress={() => Linking.openURL('veetrax-tracker://').catch(() => Linking.openURL(PLAY_STORE.tracker).catch(() => undefined))} />
         {/* Public web page (same content as the PDF emailed on sign-up). */}
         <MenuItem icon={BookOpenIcon} label={t('Getting-started guide')} url={`${SERVER_URL}/guide`} />
       </Card>
