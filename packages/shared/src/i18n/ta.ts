@@ -2776,4 +2776,6 @@ export const TA: Record<string, string> = {
   "Install from Google Play: updates then come automatically.": "Google Play-இலிருந்து நிறுவுங்கள்: புதுப்பிப்புகள் தானாக வரும்.",
   "Phone without Google Play? Download the APK and open it. If asked, allow \"Install unknown apps\" for your browser or file manager.": "ஃபோனில் Google Play இல்லையா? APK-ஐப் பதிவிறக்கித் திறக்கவும். கேட்டால், உங்கள் உலாவி அல்லது கோப்பு மேலாளருக்கு \"அறியப்படாத ஆப்களை நிறுவு\" அனுமதியை வழங்கவும்.",
   "Get VeeTrax Tracker on Google Play": "Google Play-இல் VeeTrax Tracker-ஐப் பெறுங்கள்",
+  "Satellite": "செயற்கைக்கோள்",
+  "Map type": "வரைபட வகை",
 };

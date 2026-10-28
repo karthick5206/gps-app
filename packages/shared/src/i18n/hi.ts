@@ -2776,4 +2776,6 @@ export const HI: Record<string, string> = {
   "Install from Google Play: updates then come automatically.": "Google Play से इंस्टॉल करें: अपडेट अपने आप आते हैं।",
   "Phone without Google Play? Download the APK and open it. If asked, allow \"Install unknown apps\" for your browser or file manager.": "फ़ोन में Google Play नहीं है? APK डाउनलोड करके खोलें। पूछे जाने पर अपने ब्राउज़र या फ़ाइल मैनेजर के लिए \"अज्ञात ऐप्स इंस्टॉल करें\" की अनुमति दें।",
   "Get VeeTrax Tracker on Google Play": "Google Play पर VeeTrax Tracker पाएं",
+  "Satellite": "सैटेलाइट",
+  "Map type": "मैप प्रकार",
 };

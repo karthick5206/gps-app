@@ -3,8 +3,8 @@ import { displayStatus, type LiveObject } from '@veetracer/shared';
 import { forwardRef, useImperativeHandle, useMemo, useRef, type ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useDisplay } from '@/features/display/display';
-import { MAP_STYLE } from '@/lib/config';
-import { useColors, useScheme } from '@/lib/theme';
+import { useMapStyle } from '@/features/map/basemap';
+import { useColors } from '@/lib/theme';
 import { iconKind, iconName, rotates } from './vehicle-icons';
 import { VEHICLE_ICON_IMAGES } from './vehicle-icon-images';
 
@@ -75,7 +75,7 @@ export const FleetMap = forwardRef<
     onViewChange?: (view: MapView) => void;
   }
 >(function FleetMap({ objects, selectedId = null, onSelect, style, children, interactive = true, initialZoom, onViewChange }, ref) {
-  const scheme = useScheme();
+  const mapStyle = useMapStyle();
   const c = useColors();
   const camera = useRef<CameraRef>(null);
   const { iconScale } = useDisplay();
@@ -98,7 +98,7 @@ export const FleetMap = forwardRef<
   return (
     <Map
       style={[{ flex: 1 }, style]}
-      mapStyle={MAP_STYLE[scheme]}
+      mapStyle={mapStyle}
       logo={false}
       attribution
       attributionPosition={{ bottom: 4, left: 8 }}

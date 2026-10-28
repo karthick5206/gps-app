@@ -12,15 +12,15 @@ import { useAuth } from '@/features/auth/auth';
 import { AlertTypeIcon, SEVERITY_COLOR } from '@/features/alerts/alert-icons';
 import { eventLabel, eventSeverity, mediaUri, STATUS_COLOR, STATUS_LABEL, videoUrl } from '@/features/driver-events/driver-events';
 import { api, errorMessage } from '@/lib/api';
-import { MAP_STYLE } from '@/lib/config';
+import { useMapStyle } from '@/features/map/basemap';
 import { formatDateTime } from '@/lib/format';
-import { SPACE, useColors, useScheme } from '@/lib/theme';
+import { SPACE, useColors } from '@/lib/theme';
 
 export default function DriverEventScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t } = useTranslation();
   const c = useColors();
-  const scheme = useScheme();
+  const mapStyle = useMapStyle();
   const { width } = useWindowDimensions();
   const { can } = useAuth();
   const qc = useQueryClient();
@@ -96,7 +96,7 @@ export default function DriverEventScreen() {
 
       {point && (
         <View style={{ height: 200, borderRadius: 10, overflow: 'hidden' }}>
-          <Map style={{ flex: 1 }} mapStyle={MAP_STYLE[scheme]} logo={false} attributionPosition={{ bottom: 4, left: 8 }}>
+          <Map style={{ flex: 1 }} mapStyle={mapStyle} logo={false} attributionPosition={{ bottom: 4, left: 8 }}>
             <Camera initialViewState={{ center: point, zoom: 15 }} />
             <GeoJSONSource id="event" data={{ type: 'Feature', geometry: { type: 'Point', coordinates: point }, properties: {} }}>
               <Layer id="event-halo" type="circle" paint={{ 'circle-radius': 16, 'circle-color': color, 'circle-opacity': 0.2 }} />

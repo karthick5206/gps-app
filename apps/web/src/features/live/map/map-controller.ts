@@ -16,8 +16,10 @@ import {
   cssToken,
   statusColorExpression,
   keepOwnLayers,
+  styleKey,
   styleUrl,
 } from './map-style';
+import { basemapStore } from './basemap-store';
 import { createVehicleIcon, iconKind, parseIconId, rotates } from './vehicle-icons';
 
 const GLIDE_MS = 1000;
@@ -97,14 +99,17 @@ export class MapController {
   private lastFrame = 0;
   private fittedOnce = false;
   private unsubscribe: () => void;
+  private styleKey: string;
 
   constructor(opts: MapControllerOptions) {
     this.opts = opts;
     this.theme = opts.theme;
     this.reducedMotion = opts.reducedMotion;
+    const style = styleUrl(opts.theme);
+    this.styleKey = styleKey(style);
     this.map = new maplibregl.Map({
       container: opts.container,
-      style: styleUrl(opts.theme),
+      style,
       center: DEFAULT_CENTER,
       zoom: 11,
       attributionControl: { compact: true },
@@ -132,9 +137,11 @@ export class MapController {
     });
     const offLive = liveStore.subscribe((e) => this.onLiveEvent(e));
     const offDisplay = displayStore.subscribe(() => this.applyIconSize());
+    const offBasemap = basemapStore.subscribe(() => this.restyle());
     this.unsubscribe = () => {
       offLive();
       offDisplay();
+      offBasemap();
     };
   }
 
@@ -288,15 +295,24 @@ export class MapController {
   setTheme(theme: ResolvedTheme) {
     if (theme === this.theme) return;
     this.theme = theme;
+    this.restyle();
+  }
+
+  /** Swaps the basemap for the current theme and map type (no-op when unchanged), keeping our layers. */
+  private restyle() {
+    const style = styleUrl(this.theme);
+    const key = styleKey(style);
+    if (key === this.styleKey) return;
+    this.styleKey = key;
     if (!this.loaded) {
-      this.map.setStyle(styleUrl(theme));
+      this.map.setStyle(style);
       return;
     }
     this.map.once('style.load', () => {
       this.applyThemePaint();
       this.rebuild();
     });
-    this.map.setStyle(styleUrl(theme), { transformStyle: keepOwnLayers });
+    this.map.setStyle(style, { transformStyle: keepOwnLayers });
   }
 
   setReducedMotion(reduced: boolean) {

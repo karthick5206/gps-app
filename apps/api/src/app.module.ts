@@ -9,6 +9,7 @@ import { GeocodingModule } from './geocoding/geocoding.module';
 import { HealthController } from './health.controller';
 import { HistoryModule } from './history/history.module';
 import { RoutingModule } from './routing/routing.module';
+import { MapsModule } from './maps/maps.module';
 import { LiveModule } from './live/live.module';
 import { GeofencesModule } from './masters/geofences/geofences.module';
 import { MastersModule } from './masters/masters.module';
@@ -55,6 +56,7 @@ import { RelayModule } from './relay/relay.controller';
     // Before MastersModule: GET /objects/:id/history (?from&to = track history, else the M1 audit history) is served here.
     HistoryModule,
     RoutingModule,
+    MapsModule,
     MastersModule,
     LiveModule,
     AlertsModule,

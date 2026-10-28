@@ -1,7 +1,8 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type Map as MlMap, type MapOptions } from 'maplibre-gl';
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { styleUrl } from '@/features/live/map/map-style';
+import { basemapStore } from '@/features/live/map/basemap-store';
+import { styleKey, styleUrl } from '@/features/live/map/map-style';
 import { themeStore } from '@/features/theme/theme-store';
 
 export const DEFAULT_CENTER: [number, number] = [80.24, 13.07];
@@ -34,13 +35,20 @@ export function useBasemap(containerRef: RefObject<HTMLDivElement | null>, optio
       setUnsupported(true);
       return;
     }
-    let theme = themeStore.getResolved();
-    const unsubscribe = themeStore.subscribe(() => {
-      const next = themeStore.getResolved();
-      if (next === theme) return;
-      theme = next;
-      m.setStyle(styleUrl(next), { diff: false });
-    });
+    // Theme or map type changed: swap the basemap only when the resulting style differs.
+    let key = styleKey(styleUrl(themeStore.getResolved()));
+    const restyle = () => {
+      const style = styleUrl(themeStore.getResolved());
+      if (styleKey(style) === key) return;
+      key = styleKey(style);
+      m.setStyle(style, { diff: false });
+    };
+    const offTheme = themeStore.subscribe(restyle);
+    const offBasemap = basemapStore.subscribe(restyle);
+    const unsubscribe = () => {
+      offTheme();
+      offBasemap();
+    };
     const ro = new ResizeObserver(() => m.resize());
     ro.observe(el);
     setMap(m);

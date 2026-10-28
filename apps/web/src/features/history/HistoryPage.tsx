@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/features/auth/auth-context';
 import { cn } from '@/lib/utils';
 import { ESTIMATE_COLOR, HistoryMap, SPEED_BAND_COLORS, SPEED_BAND_LABELS, STOP_COLORS, type ColorMode, type MarkClick } from './history-map';
+import { BasemapPicker } from '@/features/live/map/BasemapPicker';
 import { HistorySidePanel, type SideTab } from './HistorySidePanel';
 import { HistoryToolbar } from './HistoryToolbar';
 import { LiveDataPanel } from './LiveDataPanel';
@@ -76,6 +77,7 @@ function Legend({ mode, onModeChange, estimated }: { mode: ColorMode; onModeChan
       : SPEED_BAND_LABELS.map((l, i) => ({ label: l, color: SPEED_BAND_COLORS[resolved][i] }));
   return (
     <div className="pointer-events-auto rounded-xl border bg-card/95 p-2 text-xs shadow-lg backdrop-blur-sm">
+      <BasemapPicker className="mb-1.5" />
       <div className="flex rounded-md bg-muted p-0.5" role="group" aria-label={t('Colour track by')}>
         {(['status', 'speed'] as const).map((m) => (
           <button

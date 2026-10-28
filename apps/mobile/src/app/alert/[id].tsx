@@ -12,16 +12,16 @@ import { useAuth } from '@/features/auth/auth';
 import { AlertTypeIcon, SEVERITY_COLOR, SEVERITY_LABEL } from '@/features/alerts/alert-icons';
 import { markAlertRead } from '@/features/alerts/read';
 import { api, errorMessage } from '@/lib/api';
-import { MAP_STYLE } from '@/lib/config';
+import { useMapStyle } from '@/features/map/basemap';
 import { noFixText } from '@/features/alerts/no-fix';
 import { formatDateTime } from '@/lib/format';
-import { SPACE, useScheme } from '@/lib/theme';
+import { SPACE } from '@/lib/theme';
 
 const STATUS_LABEL = { NEW: 'New', ACKNOWLEDGED: 'Acknowledged', RESOLVED: 'Resolved' } as const;
 
 export default function AlertScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const scheme = useScheme();
+  const mapStyle = useMapStyle();
   const { t } = useTranslation();
   const { can } = useAuth();
   const queryClient = useQueryClient();
@@ -59,7 +59,7 @@ export default function AlertScreen() {
     <ScrollView contentContainerStyle={{ paddingBottom: SPACE.xl }} keyboardShouldPersistTaps="handled">
       <Stack.Screen options={{ title: label }} />
       {point && (
-        <Map style={{ height: 220 }} mapStyle={MAP_STYLE[scheme]} logo={false} attributionPosition={{ bottom: 4, left: 8 }}>
+        <Map style={{ height: 220 }} mapStyle={mapStyle} logo={false} attributionPosition={{ bottom: 4, left: 8 }}>
           <Camera initialViewState={{ center: point, zoom: 15 }} />
           <GeoJSONSource id="alert" data={{ type: 'Feature', geometry: { type: 'Point', coordinates: point }, properties: {} }}>
             <Layer id="alert-halo" type="circle" paint={{ 'circle-radius': 16, 'circle-color': color, 'circle-opacity': 0.2 }} />

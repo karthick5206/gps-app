@@ -23,3 +23,4 @@ export * from './mobile-tracker';
 export * from './guide';
 export * from './purge';
 export * from './store-links';
+export * from './basemap';

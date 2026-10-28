@@ -20,7 +20,7 @@ import { liveStore } from '@/features/live/live-store';
 import { iconKind, iconName, rotates } from '@/features/map/vehicle-icons';
 import { VEHICLE_ICON_IMAGES } from '@/features/map/vehicle-icon-images';
 import { api, errorMessage } from '@/lib/api';
-import { MAP_STYLE } from '@/lib/config';
+import { useMapStyle } from '@/features/map/basemap';
 import { formatDuration } from '@/lib/format';
 import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
 
@@ -44,6 +44,7 @@ export default function HistoryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const c = useColors();
   const scheme = useScheme();
+  const mapStyle = useMapStyle();
   const { t } = useTranslation();
   const vehicle = liveStore.get(id);
   const [preset, setPreset] = useState<Preset>('today');
@@ -137,7 +138,7 @@ export default function HistoryScreen() {
       </View>
 
       <View style={{ height: 300 }}>
-        <Map style={{ flex: 1 }} mapStyle={MAP_STYLE[scheme]} logo={false} attributionPosition={{ bottom: 4, left: 8 }} touchPitch={false}>
+        <Map style={{ flex: 1 }} mapStyle={mapStyle} logo={false} attributionPosition={{ bottom: 4, left: 8 }} touchPitch={false}>
           <Camera ref={camera} initialViewState={vehicle?.lat != null && vehicle.lng != null ? { center: [vehicle.lng, vehicle.lat], zoom: 12 } : { center: [78.9, 21.5], zoom: 4 }} />
           <Images images={VEHICLE_ICON_IMAGES} />
           <GeoJSONSource id="track" data={track}>

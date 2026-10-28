@@ -13,8 +13,8 @@ import { geometryBounds, geometryFeature } from '@/features/geofences/geo-shapes
 import { liveStore } from '@/features/live/live-store';
 import { boundsOf } from '@/features/map/FleetMap';
 import { api, errorMessage } from '@/lib/api';
-import { MAP_STYLE } from '@/lib/config';
-import { RADIUS, SPACE, useColors, useScheme } from '@/lib/theme';
+import { useMapStyle } from '@/features/map/basemap';
+import { RADIUS, SPACE, useColors } from '@/lib/theme';
 
 type Shape = 'CIRCLE' | 'POLYGON';
 const COLORS = ['#0f766e', '#2563eb', '#9333ea', '#dc2626', '#d97706', '#16a34a'];
@@ -24,7 +24,7 @@ export default function GeofenceEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const isNew = id === 'new';
   const c = useColors();
-  const scheme = useScheme();
+  const mapStyle = useMapStyle();
   const { t } = useTranslation();
   const { can } = useAuth();
   const queryClient = useQueryClient();
@@ -129,7 +129,7 @@ export default function GeofenceEditor() {
         }}
       />
       <View style={{ height: 320 }}>
-        <Map style={{ flex: 1 }} mapStyle={MAP_STYLE[scheme]} logo={false} attributionPosition={{ bottom: 4, left: 8 }} touchPitch={false} onPress={(e) => onMapPress(e.nativeEvent.lngLat[0], e.nativeEvent.lngLat[1])}>
+        <Map style={{ flex: 1 }} mapStyle={mapStyle} logo={false} attributionPosition={{ bottom: 4, left: 8 }} touchPitch={false} onPress={(e) => onMapPress(e.nativeEvent.lngLat[0], e.nativeEvent.lngLat[1])}>
           <Camera
             ref={camera}
             initialViewState={start ? { bounds: start, padding: { top: 40, bottom: 40, left: 40, right: 40 } } : { center: [80.27, 13.08], zoom: 11 }}

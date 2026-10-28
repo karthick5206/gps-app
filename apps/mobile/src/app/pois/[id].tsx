@@ -14,8 +14,8 @@ import { liveStore } from '@/features/live/live-store';
 import { boundsOf } from '@/features/map/FleetMap';
 import { formatRadius, usePoiCategories } from '@/features/pois/categories';
 import { api, errorMessage } from '@/lib/api';
-import { MAP_STYLE } from '@/lib/config';
-import { RADIUS, SPACE, useColors, useScheme } from '@/lib/theme';
+import { useMapStyle } from '@/features/map/basemap';
+import { RADIUS, SPACE, useColors } from '@/lib/theme';
 
 const COLORS = [POI_DEFAULT_COLOR, '#0f766e', '#16a34a', '#d97706', '#dc2626', '#9333ea', '#475569'];
 const RADII = [50, 100, 250, 500, 1000];
@@ -30,7 +30,7 @@ export default function PoiScreen() {
   const id = params.id;
   const isNew = id === 'new';
   const c = useColors();
-  const scheme = useScheme();
+  const mapStyle = useMapStyle();
   const { t } = useTranslation();
   const { can, me } = useAuth();
   const queryClient = useQueryClient();
@@ -147,7 +147,7 @@ export default function PoiScreen() {
           <Map
             ref={mapRef}
             style={{ flex: 1 }}
-            mapStyle={MAP_STYLE[scheme]}
+            mapStyle={mapStyle}
             logo={false}
             attributionPosition={{ bottom: 4, left: 8 }}
             touchPitch={false}

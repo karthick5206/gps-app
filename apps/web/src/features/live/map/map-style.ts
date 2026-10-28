@@ -1,6 +1,7 @@
-import { MOVEMENT_STATUSES, STATUS_META } from '@veetracer/shared';
+import { basemapStyle, MOVEMENT_STATUSES, OPENFREEMAP, STATUS_META } from '@veetracer/shared';
 import type { ExpressionSpecification, StyleSpecification } from 'maplibre-gl';
 import type { ResolvedTheme } from '@/features/theme/theme-store';
+import { basemapStore } from './basemap-store';
 
 export const SOURCE_ID = 'objects';
 export const ARROW_IMAGE = 'vt-arrow';
@@ -22,16 +23,24 @@ export const CLUSTER_MAX_ZOOM = 14;
 export const LABEL_MIN_ZOOM = 13;
 
 /**
- * Vector basemap styles per theme. Defaults to OpenFreeMap (free, no API key, OpenMapTiles schema);
- * point these at the self-hosted Martin tile server once it is deployed.
+ * Vector basemap styles. Defaults to OpenFreeMap (free, no API key, OpenMapTiles schema); point these at the
+ * self-hosted Martin tile server once it is deployed.
  */
-const STYLE_URLS: Record<ResolvedTheme, string> = {
-  light: import.meta.env.VITE_MAP_STYLE_LIGHT || 'https://tiles.openfreemap.org/styles/positron',
-  dark: import.meta.env.VITE_MAP_STYLE_DARK || 'https://tiles.openfreemap.org/styles/dark',
+const STYLE_URLS = {
+  standard: import.meta.env.VITE_MAP_STYLE_STANDARD || OPENFREEMAP.standard,
+  light: import.meta.env.VITE_MAP_STYLE_LIGHT || OPENFREEMAP.light,
+  dark: import.meta.env.VITE_MAP_STYLE_DARK || OPENFREEMAP.dark,
 };
 
-export function styleUrl(theme: ResolvedTheme): string {
-  return STYLE_URLS[theme];
+/** Basemap for the theme and the map type chosen in the switcher (see basemap-store). */
+export function styleUrl(theme: ResolvedTheme): string | StyleSpecification {
+  basemapStore.ensureConfig();
+  return basemapStyle(basemapStore.type, theme, basemapStore.satellite, STYLE_URLS) as string | StyleSpecification;
+}
+
+/** Comparable key of a style, so maps re-style only when the basemap really changes. */
+export function styleKey(style: string | StyleSpecification): string {
+  return typeof style === 'string' ? style : JSON.stringify(style);
 }
 
 const OWN_LAYER_IDS = new Set<string>(Object.values(LAYERS));

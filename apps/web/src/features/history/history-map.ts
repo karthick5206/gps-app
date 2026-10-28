@@ -1,7 +1,8 @@
 import { STATUS_META, TRACK_STATUS_CODES, type AlertDto, type StopDto } from '@veetracer/shared';
 import { displayStore } from '@/features/display/display-store';
 import maplibregl, { type ExpressionSpecification, type GeoJSONSource, type Map as MlMap, type StyleSpecification } from 'maplibre-gl';
-import { ARROW_IMAGE, LABEL_FONT, createArrowImage, cssToken, styleUrl } from '@/features/live/map/map-style';
+import { ARROW_IMAGE, LABEL_FONT, createArrowImage, cssToken, styleKey, styleUrl } from '@/features/live/map/map-style';
+import { basemapStore } from '@/features/live/map/basemap-store';
 import type { ResolvedTheme } from '@/features/theme/theme-store';
 import { formatDateTime } from '@/lib/format';
 import { coordsOf, findRun, type Sample, type TrackIndex, type TrackRun } from './playback-core';
@@ -113,14 +114,18 @@ export class HistoryMap {
   private lastSample: Sample | null = null;
   private follow = false;
   private pendingFit: [[number, number], [number, number]] | null = null;
+  private styleKey: string;
+  private readonly offBasemap: () => void;
 
   constructor(opts: HistoryMapOptions) {
     this.opts = opts;
     this.theme = opts.theme;
     this.reducedMotion = opts.reducedMotion;
+    const style = styleUrl(opts.theme);
+    this.styleKey = styleKey(style);
     this.map = new maplibregl.Map({
       container: opts.container,
-      style: styleUrl(opts.theme),
+      style,
       center: DEFAULT_CENTER,
       zoom: 11,
       attributionControl: { compact: true },
@@ -139,9 +144,11 @@ export class HistoryMap {
     };
     this.map.on('dragstart', interrupt);
     this.map.on('wheel', interrupt);
+    this.offBasemap = basemapStore.subscribe(() => this.restyle());
   }
 
   destroy() {
+    this.offBasemap();
     this.hoverPopup?.remove();
     this.map.remove();
   }
@@ -306,8 +313,17 @@ export class HistoryMap {
   setTheme(theme: ResolvedTheme) {
     if (theme === this.theme) return;
     this.theme = theme;
+    this.restyle();
+  }
+
+  /** Swaps the basemap for the current theme and map type (no-op when unchanged), keeping our layers. */
+  private restyle() {
+    const style = styleUrl(this.theme);
+    const key = styleKey(style);
+    if (key === this.styleKey) return;
+    this.styleKey = key;
     if (!this.loaded) {
-      this.map.setStyle(styleUrl(theme));
+      this.map.setStyle(style);
       return;
     }
     this.map.once('style.load', () => {
@@ -317,7 +333,7 @@ export class HistoryMap {
       this.highlight(this.highlighted[0], this.highlighted[1]);
       if (this.lastSample) this.updateCursor(this.lastSample, true);
     });
-    this.map.setStyle(styleUrl(theme), { transformStyle: keepHistoryLayers });
+    this.map.setStyle(style, { transformStyle: keepHistoryLayers });
   }
 
   setReducedMotion(reduced: boolean) {

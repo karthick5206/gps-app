@@ -7,6 +7,7 @@ import {
   displayStatus,
   displayStatusLabel,
   personActivity,
+  type BasemapType,
   type BranchDto,
   type LiveObject,
   type MovementStatus,
@@ -15,7 +16,7 @@ import {
   type VehicleGroupDto,
 } from '@veetracer/shared';
 import { router } from 'expo-router';
-import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, LocateFixedIcon, MapPinIcon, MapPinPlusIcon, MaximizeIcon, SearchIcon, XIcon } from 'lucide-react-native';
+import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, LayersIcon, LocateFixedIcon, MapPinIcon, MapPinPlusIcon, MaximizeIcon, SearchIcon, XIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
@@ -28,6 +29,7 @@ import { VehicleSummary } from '@/features/live/components';
 import { liveStore } from '@/features/live/live-store';
 import { LiveSheet, type SheetSnap } from '@/features/live/LiveSheet';
 import { useLiveVersion, useNow, useRealtimeStatus } from '@/features/live/use-live';
+import { basemap, useBasemap } from '@/features/map/basemap';
 import { FleetMap, type FleetMapHandle, type MapView } from '@/features/map/FleetMap';
 import { usePoiCategories } from '@/features/pois/categories';
 import { PoiLayer } from '@/features/pois/PoiLayer';
@@ -114,6 +116,13 @@ export default function LiveMapScreen() {
   const [follow, setFollow] = useState(false);
   const [view, setView] = useState<MapView | null>(null);
   const [showPois, setShowPois] = useState(false);
+  const [mapTypesOpen, setMapTypesOpen] = useState(false);
+  const { type: mapType, satelliteAvailable } = useBasemap();
+  const mapTypeOptions: { value: BasemapType; label: string }[] = [
+    { value: 'standard', label: t('Standard') },
+    { value: 'light', label: t('Light') },
+    ...(satelliteAvailable ? [{ value: 'satellite' as const, label: t('Satellite') }] : []),
+  ];
   const [poi, setPoi] = useState<PoiDto | null>(null);
   const poiCategories = usePoiCategories();
 
@@ -325,6 +334,34 @@ export default function LiveMapScreen() {
         <Pressable accessibilityLabel={t('Show all vehicles')} onPress={() => map.current?.fitAll(visible)} style={[styles.fab, { backgroundColor: c.card, borderColor: c.border }]}>
           <MaximizeIcon size={20} color={c.foreground} />
         </Pressable>
+        <Pressable
+          accessibilityLabel={t('Map type')}
+          accessibilityState={{ expanded: mapTypesOpen }}
+          onPress={() => setMapTypesOpen((v) => !v)}
+          style={[styles.fab, mapTypesOpen ? { backgroundColor: c.primary, borderColor: c.primary } : { backgroundColor: c.card, borderColor: c.border }]}
+        >
+          <LayersIcon size={20} color={mapTypesOpen ? '#fff' : c.foreground} />
+        </Pressable>
+        {mapTypesOpen && (
+          <View style={[styles.mapTypes, { backgroundColor: c.card, borderColor: c.border }]} accessibilityRole="radiogroup">
+            {mapTypeOptions.map((o) => (
+              <Pressable
+                key={o.value}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: mapType === o.value }}
+                onPress={() => {
+                  basemap.set(o.value);
+                  setMapTypesOpen(false);
+                }}
+                style={[styles.mapTypeOption, mapType === o.value && { backgroundColor: c.accent }]}
+              >
+                <Text size="sm" weight={mapType === o.value ? '600' : '400'}>
+                  {o.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
         {can('pois') && (
           <Pressable
             accessibilityLabel={showPois ? t('Hide points of interest') : t('Show points of interest')}
@@ -400,6 +437,8 @@ const styles = StyleSheet.create({
   top: { position: 'absolute', top: 0, right: 0, left: 0, alignItems: 'flex-end', gap: SPACE.sm, paddingTop: SPACE.sm, paddingHorizontal: SPACE.lg },
   offline: { alignSelf: 'center', paddingHorizontal: SPACE.md, paddingVertical: 4, borderRadius: RADIUS.full },
   fab: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, elevation: 3 },
+  mapTypes: { borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.md, padding: 4, gap: 2, minWidth: 120, elevation: 3 },
+  mapTypeOption: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: RADIUS.sm },
   search: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, height: 46, borderWidth: 1, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 32, borderRadius: RADIUS.full, borderWidth: 1 },

@@ -15,6 +15,7 @@ import { useAllPois, usePoiCategoryOptions } from '@/features/pois/api';
 import { api } from '@/lib/api';
 import { storage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
+import { BasemapPicker } from '../BasemapPicker';
 import { liveStore } from '../../live-store';
 import type { MapController } from '../map-controller';
 import { AlertLayer } from './alert-layer';
@@ -163,7 +164,6 @@ export function LiveMapOverlays({ controller, onFocusObject, className }: { cont
     });
   }, [focusParam, controller, setParams]);
 
-  if (!can('geofences') && !can('alerts') && !can('pois')) return null;
   const activeCount = Number(showGeofences) + Number(showAlerts) + Number(showPois);
 
   return (
@@ -175,6 +175,8 @@ export function LiveMapOverlays({ controller, onFocusObject, className }: { cont
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-1.5">
+        <p className="px-2 pt-1 pb-1.5 text-xs font-medium text-muted-foreground">{t('Map type')}</p>
+        <BasemapPicker className="mx-1 mb-1.5" />
         {can('geofences') && <ToggleRow icon={HexagonIcon} label={t('Geofences')} hint={t('Zones with name labels')} checked={prefs.geofences} onChange={(v) => update({ geofences: v })} />}
         {can('pois') && <ToggleRow icon={MapPinIcon} label={t('Points of interest')} hint={t('Pins with names when zoomed in')} checked={prefs.pois} onChange={(v) => update({ pois: v })} />}
         {can('alerts') && <ToggleRow icon={BellIcon} label={t('Alert markers')} hint={t('Alerts of the last 24 hours')} checked={prefs.alerts} onChange={(v) => update({ alerts: v })} />}
