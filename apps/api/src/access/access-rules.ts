@@ -107,3 +107,8 @@ export function assertCanManageUserAccess(
     throw new ForbiddenException('You cannot assign roles with company-wide scope');
   }
 }
+
+/** Read scope of the live map and the vehicle / device / driver lists: nothing when the Super Admin views all companies. */
+export function allCompaniesOr<T>(ctx: Pick<AuthContext, 'allCompanies'>, scoped: T): T | Record<string, never> {
+  return ctx.allCompanies ? {} : scoped;
+}

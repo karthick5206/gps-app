@@ -11,6 +11,7 @@ import { HistoryModule } from './history/history.module';
 import { RoutingModule } from './routing/routing.module';
 import { MapsModule } from './maps/maps.module';
 import { PointQualityModule } from './point-quality/point-quality.module';
+import { TransferModule } from './transfer/transfer.module';
 import { LiveModule } from './live/live.module';
 import { GeofencesModule } from './masters/geofences/geofences.module';
 import { MastersModule } from './masters/masters.module';
@@ -59,6 +60,7 @@ import { RelayModule } from './relay/relay.controller';
     RoutingModule,
     MapsModule,
     PointQualityModule,
+    TransferModule,
     MastersModule,
     LiveModule,
     AlertsModule,

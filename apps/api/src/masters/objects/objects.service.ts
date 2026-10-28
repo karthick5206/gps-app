@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { TrackedObjectDto } from '@veetracer/shared';
-import { objectScopeWhere } from '../../access/access-rules';
+import { allCompaniesOr, objectScopeWhere } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
@@ -64,6 +64,7 @@ function toDto(o: Row): TrackedObjectDto {
   const device = o.assignments[0]?.device;
   return {
     id: o.id,
+    companyId: o.companyId,
     name: o.name,
     type: o.type,
     vehicleType: o.vehicleType,
@@ -100,7 +101,7 @@ export class ObjectsService {
 
   async list(ctx: AuthContext, query: ObjectListQuery) {
     const plan = planList<Prisma.TrackedObjectWhereInput, Prisma.TrackedObjectOrderByWithRelationInput>(query, LIST);
-    const filters: Prisma.TrackedObjectWhereInput[] = [objectScopeWhere(ctx), plan.where];
+    const filters: Prisma.TrackedObjectWhereInput[] = [allCompaniesOr(ctx, objectScopeWhere(ctx)), plan.where];
     if (query.branchId) filters.push({ branchId: query.branchId });
     if (query.groupId) filters.push({ groups: { some: { groupId: query.groupId } } });
     if (query.type) filters.push({ type: query.type });
@@ -203,7 +204,7 @@ export class ObjectsService {
   }
 
   private async find(ctx: AuthContext, id: string): Promise<Row> {
-    const row = await this.prisma.trackedObject.findFirst({ where: { AND: [objectScopeWhere(ctx), { id }] }, include: INCLUDE });
+    const row = await this.prisma.trackedObject.findFirst({ where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { id }] }, include: INCLUDE });
     if (!row) throw new NotFoundException('Object not found');
     return row;
   }

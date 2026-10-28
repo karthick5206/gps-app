@@ -8,6 +8,7 @@ import { realtime } from '@/features/live/realtime';
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { Sidebar } from './Sidebar';
+import { AllCompaniesBanner } from './AllCompaniesBanner';
 import { SystemHealthBanner } from './SystemHealthBanner';
 import { TopBar } from './TopBar';
 
@@ -53,6 +54,7 @@ export function AppShell() {
         <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
         <LicenceBanner />
         <SystemHealthBanner />
+        <AllCompaniesBanner />
         <main id="main" className="min-h-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>

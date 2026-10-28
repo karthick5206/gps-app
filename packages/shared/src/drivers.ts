@@ -4,6 +4,7 @@ export type DriverAssignmentSource = 'MANUAL' | 'RFID';
 
 export interface DriverDto {
   id: string;
+  companyId: string;
   name: string;
   mobile: string | null;
   employeeId: string | null;

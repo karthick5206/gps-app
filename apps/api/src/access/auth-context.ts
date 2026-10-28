@@ -8,6 +8,11 @@ export interface AuthContext {
   homeCompanyId: string;
   /** Effective company: the user's own, or the one selected by the Super Admin via X-Company-Id. */
   companyId: string;
+  /**
+   * Super Admin with X-Company-Id "all": the live map and the vehicle / device / driver lists show every company
+   * (see allCompaniesOr). Everything else keeps acting in companyId (the Super Admin's own company).
+   */
+  allCompanies?: boolean;
   isSuperAdmin: boolean;
   permissions: PermissionMap;
   dataScope: DataScope;

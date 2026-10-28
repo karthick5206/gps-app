@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DeviceDto, RawPacketDto } from '@veetracer/shared';
-import { deviceScopeWhere } from '../../access/access-rules';
+import { allCompaniesOr, deviceScopeWhere } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
@@ -37,7 +37,7 @@ export class DevicesService {
 
   async list(ctx: AuthContext, query: DeviceListQuery) {
     const plan = planList<Prisma.DeviceWhereInput, Prisma.DeviceOrderByWithRelationInput>(query, DEVICE_LIST);
-    const filters: Prisma.DeviceWhereInput[] = [deviceScopeWhere(ctx), plan.where];
+    const filters: Prisma.DeviceWhereInput[] = [allCompaniesOr(ctx, deviceScopeWhere(ctx)), plan.where];
     if (query.modelId) filters.push({ modelId: query.modelId });
     const assigned = assignedFilter(query.assigned);
     if (assigned) filters.push(assigned);
@@ -116,7 +116,7 @@ export class DevicesService {
   }
 
   private async find(ctx: AuthContext, id: string): Promise<DeviceRow> {
-    const row = await this.prisma.device.findFirst({ where: { AND: [deviceScopeWhere(ctx), { id }] }, include: DEVICE_INCLUDE });
+    const row = await this.prisma.device.findFirst({ where: { AND: [allCompaniesOr(ctx, deviceScopeWhere(ctx)), { id }] }, include: DEVICE_INCLUDE });
     if (!row) throw new NotFoundException('Device not found');
     return row;
   }

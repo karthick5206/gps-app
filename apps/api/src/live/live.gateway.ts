@@ -1,6 +1,6 @@
 import { Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, WebSocketGateway } from '@nestjs/websockets';
-import { AlertDto, AlertsAckedEvent, LiveObject, SystemHealthSummary } from '@veetracer/shared';
+import { ALL_COMPANIES, AlertDto, AlertsAckedEvent, LiveObject, SystemHealthSummary } from '@veetracer/shared';
 import { Namespace, Socket } from 'socket.io';
 import { hasPermission, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
@@ -37,6 +37,10 @@ interface LiveUpdate {
  * Realtime fan-out on namespace `/live`: one Valkey subscription for the whole process, per-socket scope
  * filtering, and a `live:batch` emit per socket every second (latest state per object).
  */
+/** Room of the Super Admin sockets that view all companies (they get every company's updates and alerts). */
+const ALL_COMPANIES_ROOM = '*';
+const roomOf = (client: Client) => (client.ctx.allCompanies ? ALL_COMPANIES_ROOM : client.ctx.companyId);
+
 @WebSocketGateway({ namespace: '/live', cors: { origin: loadEnv().corsOrigins, credentials: true } })
 export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   private readonly logger = new Logger(LiveGateway.name);
@@ -95,7 +99,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const client = this.clients.get(socket.id);
     if (!client) return;
     this.clients.delete(socket.id);
-    this.byCompany.get(client.ctx.companyId)?.delete(client);
+    this.byCompany.get(roomOf(client))?.delete(client);
     apiMetrics.sockets = this.clients.size;
   }
 
@@ -104,10 +108,18 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (this.invalidateTimer) clearTimeout(this.invalidateTimer);
   }
 
+  /** Sockets of a company plus the Super Admins viewing all companies. */
+  private clientsOf(companyId: string): Client[] | undefined {
+    const own = this.byCompany.get(companyId);
+    const all = this.byCompany.get(ALL_COMPANIES_ROOM);
+    if (!all?.size) return own ? [...own] : undefined;
+    return [...(own ?? []), ...all];
+  }
+
   private index(client: Client): void {
-    const set = this.byCompany.get(client.ctx.companyId) ?? new Set<Client>();
+    const set = this.byCompany.get(roomOf(client)) ?? new Set<Client>();
     set.add(client);
-    this.byCompany.set(client.ctx.companyId, set);
+    this.byCompany.set(roomOf(client), set);
   }
 
   private onUpdate(message: string): void {
@@ -117,7 +129,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     } catch {
       return;
     }
-    const clients = this.byCompany.get(update.companyId);
+    const clients = this.clientsOf(update.companyId);
     if (!clients) return;
     const objectId = update.live.objectId;
     for (const client of clients) {
@@ -135,7 +147,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     } catch {
       return;
     }
-    const clients = this.byCompany.get(event.companyId);
+    const clients = this.clientsOf(event.companyId);
     if (!clients) return;
     for (const client of clients) {
       if (!hasPermission(client.ctx, 'alerts', 'view')) continue;
@@ -158,7 +170,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       for (const client of this.clients.values()) if (client.ctx.userId === msg.userId) client.socket.emit('alerts:read', msg.event);
       return;
     }
-    const clients = this.byCompany.get(msg.companyId);
+    const clients = this.clientsOf(msg.companyId);
     if (!clients) return;
     for (const client of clients) {
       if (!hasPermission(client.ctx, 'alerts', 'view')) continue;
@@ -213,7 +225,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     for (const client of [...this.clients.values()]) {
       try {
         const { ctx } = client;
-        const requested = ctx.companyId !== ctx.homeCompanyId ? ctx.companyId : undefined;
+        const requested = ctx.allCompanies ? ALL_COMPANIES : ctx.companyId !== ctx.homeCompanyId ? ctx.companyId : undefined;
         const next = await this.contexts.forUser(ctx.userId, requested, ctx.ip);
         if (!hasPermission(next, 'live_map', 'view') && !hasPermission(next, 'alerts', 'view')) throw new Error('Permission denied');
         client.ctx = next;

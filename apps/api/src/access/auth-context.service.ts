@@ -5,6 +5,7 @@ import { AppEnv } from '../config/env';
 import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolvePermissions } from './access-rules';
+import { ALL_COMPANIES } from '@veetracer/shared';
 import { AccessTokenPayload, AuthContext } from './auth-context';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -64,7 +65,8 @@ export class AuthContextService {
     await this.assertLicence(user);
 
     let companyId = user.companyId;
-    if (user.isSuperAdmin && requestedCompanyId && requestedCompanyId !== companyId) {
+    const allCompanies = user.isSuperAdmin && requestedCompanyId === ALL_COMPANIES;
+    if (user.isSuperAdmin && requestedCompanyId && !allCompanies && requestedCompanyId !== companyId) {
       if (!UUID_RE.test(requestedCompanyId)) throw new ForbiddenException('Unknown company');
       const exists = await this.prisma.company.count({ where: { id: requestedCompanyId } });
       if (!exists) throw new ForbiddenException('Unknown company');
@@ -79,6 +81,7 @@ export class AuthContextService {
       userId: user.id,
       homeCompanyId: user.companyId,
       companyId,
+      ...(allCompanies ? { allCompanies: true } : {}),
       isSuperAdmin: user.isSuperAdmin,
       permissions,
       dataScope,

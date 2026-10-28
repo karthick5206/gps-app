@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DriverAssignmentDto, DriverAssignmentSource, DriverDto, normalizeRfidTag } from '@veetracer/shared';
-import { objectScopeWhere } from '../access/access-rules';
+import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { BulkActionDto, runBulk } from '../common/bulk';
@@ -48,6 +48,7 @@ function toDto(d: Row): DriverDto {
   const a = d.assignments[0];
   return {
     id: d.id,
+    companyId: d.companyId,
     name: d.name,
     mobile: d.mobile,
     employeeId: d.employeeId,
@@ -80,7 +81,7 @@ export class DriversService {
 
   async list(ctx: AuthContext, query: DriverListQuery) {
     const plan = planList<Prisma.DriverWhereInput, Prisma.DriverOrderByWithRelationInput>(query, LIST);
-    const filters: Prisma.DriverWhereInput[] = [driverScopeWhere(ctx), plan.where];
+    const filters: Prisma.DriverWhereInput[] = [allCompaniesOr(ctx, driverScopeWhere(ctx)), plan.where];
     if (query.branchId) filters.push({ branchId: query.branchId });
     if (query.driving) filters.push({ assignments: query.driving === 'on' ? { some: { toTime: null } } : { none: { toTime: null } } });
     const where: Prisma.DriverWhereInput = { AND: filters };
@@ -207,7 +208,7 @@ export class DriversService {
   }
 
   private async find(ctx: AuthContext, id: string): Promise<Row> {
-    const row = await this.prisma.driver.findFirst({ where: { AND: [driverScopeWhere(ctx), { id }] }, include: INCLUDE });
+    const row = await this.prisma.driver.findFirst({ where: { AND: [allCompaniesOr(ctx, driverScopeWhere(ctx)), { id }] }, include: INCLUDE });
     if (!row) throw new NotFoundException('Driver not found');
     return row;
   }

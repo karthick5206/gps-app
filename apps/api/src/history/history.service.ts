@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Stop, Trip } from '@prisma/client';
 import { AlertDto, HistoryResponse, StopDto, TrackPoint, TripDto } from '@veetracer/shared';
-import { objectScopeWhere } from '../access/access-rules';
+import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { toAlertDto } from '../alerts/alert-dto';
 import { LicencePolicyService } from '../licences/licence-policy.service';
@@ -52,7 +52,7 @@ export class HistoryService {
 
   async objectMeta(ctx: AuthContext, objectId: string): Promise<ObjectMeta> {
     const o = await this.prisma.trackedObject.findFirst({
-      where: { AND: [objectScopeWhere(ctx), { id: objectId }] },
+      where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { id: objectId }] },
       select: {
         id: true,
         companyId: true,

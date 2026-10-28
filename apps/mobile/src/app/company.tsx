@@ -5,6 +5,7 @@ import { Building2Icon, CheckIcon } from 'lucide-react-native';
 import { useDeferredValue, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, FlatList, RefreshControl, View } from 'react-native';
+import { ALL_COMPANIES } from '@veetracer/shared';
 import { Card, EmptyState, ErrorBanner, SearchInput, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { api, errorMessage } from '@/lib/api';
@@ -41,7 +42,8 @@ export default function CompanyScreen() {
   };
 
   const platform = { id: null, name: t('Platform (no company)'), hint: t('Super Admin home') };
-  const rows = [platform, ...(list.data?.pages.flatMap((p) => p.items) ?? []).map((co) => ({
+  const all = { id: ALL_COMPANIES as string | null, name: t('All companies'), hint: t('Live map, vehicles, devices and drivers of every company') };
+  const rows = [all, platform, ...(list.data?.pages.flatMap((p) => p.items) ?? []).map((co) => ({
     id: co.id as string | null,
     name: co.name,
     hint: co.status === 'SUSPENDED' ? t('{{count}} objects · suspended', { count: co.objectCount }) : t('{{count}} objects', { count: co.objectCount }),
@@ -52,7 +54,7 @@ export default function CompanyScreen() {
       <View style={{ padding: SPACE.lg, paddingBottom: SPACE.sm, gap: SPACE.sm }}>
         <SearchInput value={q} onChangeText={setQ} placeholder={t('Search companies…')} />
         <Text size="sm" tone="muted">
-          {t('Now viewing: {{name}}', { name: me.company.name })}
+          {t('Now viewing: {{name}}', { name: companyId === ALL_COMPANIES ? t('All companies') : me.company.name })}
         </Text>
       </View>
       {list.isError && (

@@ -1,6 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { DashboardSummary, LiveObject, MOVEMENT_STATUSES } from '@veetracer/shared';
-import { objectScopeWhere } from '../access/access-rules';
+import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,7 +18,7 @@ export class LiveService {
   /** Every active object in scope; DB metadata wins over the cached copy inside the live state. */
   async snapshot(ctx: AuthContext): Promise<LiveObject[]> {
     const objects = await this.prisma.trackedObject.findMany({
-      where: { AND: [objectScopeWhere(ctx), { isActive: true }] },
+      where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { isActive: true }] },
       select: {
         id: true,
         companyId: true,

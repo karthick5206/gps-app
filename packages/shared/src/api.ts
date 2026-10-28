@@ -129,7 +129,7 @@ export interface DeviceDto {
 }
 
 export interface TrackedObjectDto {
-  id: string; name: string; type: ObjectType; vehicleType: VehicleType | null;
+  id: string; companyId: string; name: string; type: ObjectType; vehicleType: VehicleType | null;
   plateNumber: string | null; make: string | null; model: string | null; color: string | null;
   branchId: string | null; branchName: string | null;
   speedLimitKph: number | null; isActive: boolean;
