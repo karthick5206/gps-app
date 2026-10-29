@@ -20,8 +20,19 @@ export const QUALITY = {
   REL_ACC_WINDOW: 10,
   /** Assumed accuracy when the source reports none. */
   DEFAULT_ACC_M: 15,
-  /** Nothing we track moves faster (after subtracting both points' error radius). */
+  /** Nothing we track moves faster (after subtracting both points' error radius); per object type see maxSpeedKph. */
   MAX_SPEED_MPS: 200 / 3.6,
+  /**
+   * Receiver speed check (GPS Doppler speed, unaffected by position error): between fixes at most SPEED_CHECK_GAP_MS
+   * apart whose speed is known, the move may not be faster than FACTOR × the faster reported speed + MARGIN, and never
+   * needs to be slower than FLOOR (90 km/h). Catches jumps of walking or parked phones far below the absolute limit.
+   */
+  SPEED_CHECK_GAP_MS: 60_000,
+  SPEED_CHECK_FLOOR_MPS: 25,
+  SPEED_CHECK_FACTOR: 2,
+  SPEED_CHECK_MARGIN_MPS: 10,
+  /** A reported speed of 0 is trusted (receiver at rest) only from a fix this accurate; network fixes report none. */
+  SPEED_KNOWN_ACC_M: 30,
   /** Out-and-back groups up to this many points are spikes; shorter chains cut off by impossible moves are jumps. */
   SPIKE_MAX_RUN: 5,
   JUMP_MAX_CHAIN: 20,
@@ -38,6 +49,20 @@ export const QUALITY = {
   OUTLIER_D2: 16,
 } as const;
 
+/** Top speed by what is tracked (km/h). People, assets and cars keep the general limit: a person may be on a train. */
+const TYPE_MAX_KPH: Record<string, number> = { AUTO: 90, BIKE: 150, TRUCK: 130, BUS: 130, SCHOOL_BUS: 130, VAN: 160, PET: 150 };
+
+export function maxSpeedKph(objectType?: string | null, vehicleType?: string | null): number {
+  if (objectType === 'VEHICLE' && vehicleType && TYPE_MAX_KPH[vehicleType]) return TYPE_MAX_KPH[vehicleType];
+  if (objectType === 'PET') return TYPE_MAX_KPH.PET;
+  return QUALITY.MAX_SPEED_MPS * 3.6;
+}
+
+export interface AnalyzeOptions {
+  /** Top speed of the tracked object (default QUALITY.MAX_SPEED_MPS). */
+  maxSpeedKph?: number;
+}
+
 export interface QualityResult {
   labels: PointLabel[];
   /** Cleaned track [t, lat, lng]: smoothed moving parts; each stop as its centre at its start and end time. */
@@ -49,14 +74,15 @@ export interface QualityResult {
 /**
  * Labels every point and builds a cleaned track, looking at the whole track (both directions), in four stages:
  *  1. hard checks: bad coordinates, duplicate time, fake GPS, accuracy (absolute and relative to the neighbours);
- *  2. spikes and jumps: moves that need an impossible speed after subtracting both points' error radius; a short
+ *  2. spikes and jumps: moves that need an impossible speed after subtracting both points' error radius (above the
+ *     object's top speed, or far above the speed the receiver itself reported); a short
  *     group that is impossible to enter and to leave while skipping it is fine is a spike (out and back); a short
  *     chain cut off from the rest by impossible moves is a jump;
  *  3. stops: points staying within a small radius for minutes; the wobble far from the stop's centre is drift;
  *  4. moving parts: a Kalman filter (constant velocity, each fix weighted by its accuracy) rejects statistical
  *     outliers as jumps, and an RTS smoother gives the cleaned positions.
  */
-export function analyzeTrack(points: InPoint[]): QualityResult {
+export function analyzeTrack(points: InPoint[], opts: AnalyzeOptions = {}): QualityResult {
   const n = points.length;
   const labels: PointLabel[] = new Array(n).fill('good');
   const acc = (i: number) => points[i].acc ?? QUALITY.DEFAULT_ACC_M;
@@ -85,7 +111,15 @@ export function analyzeTrack(points: InPoint[]): QualityResult {
     const d = haversineMeters(points[a].lat, points[a].lng, points[b].lat, points[b].lng) - acc(a) - acc(b);
     return Math.max(0, d) / Math.max(1, (points[b].t - points[a].t) / 1000);
   };
-  const impossible = (a: number, b: number) => vEff(a, b) > QUALITY.MAX_SPEED_MPS;
+  const maxMps = (opts.maxSpeedKph ?? QUALITY.MAX_SPEED_MPS * 3.6) / 3.6;
+  const speedKnown = (i: number) => points[i].spdKph > 0 || (points[i].acc !== null && points[i].acc! <= QUALITY.SPEED_KNOWN_ACC_M);
+  const impossible = (a: number, b: number) => {
+    const v = vEff(a, b);
+    if (v > maxMps) return true;
+    if (points[b].t - points[a].t > QUALITY.SPEED_CHECK_GAP_MS || !speedKnown(a) || !speedKnown(b)) return false;
+    const reported = Math.max(points[a].spdKph, points[b].spdKph) / 3.6;
+    return v > Math.max(QUALITY.SPEED_CHECK_FLOOR_MPS, QUALITY.SPEED_CHECK_FACTOR * reported + QUALITY.SPEED_CHECK_MARGIN_MPS);
+  };
   for (let pass = 0; pass < 3; pass++) {
     let found = false;
     for (let i = 1; i < cand.length - 1; i++) {

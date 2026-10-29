@@ -1,5 +1,5 @@
 import { haversineMeters } from '../tracking/geo';
-import { analyzeTrack, InPoint } from './analyze';
+import { analyzeTrack, InPoint, maxSpeedKph } from './analyze';
 
 const T0 = Date.parse('2026-10-28T08:00:00Z');
 const LAT = 13.05;
@@ -115,5 +115,38 @@ describe('analyzeTrack', () => {
     const after = drive(20, { start: 3600 }).map((p) => ({ ...p, lat: p.lat + 0.3 }));
     const r = analyzeTrack([...before, ...after]);
     expect(r.labels.every((l) => l === 'good')).toBe(true);
+  });
+  it('uses the receiver speed: a walking phone jumping 250 m for one fix is a spike (far below the 200 km/h limit)', () => {
+    const pts = drive(40, { mps: 1.4, step: 5, acc: 8 });
+    pts[20] = { ...pts[20], lng: pts[20].lng + 250 / 108_000 };
+    const r = analyzeTrack(pts);
+    expect(r.labels[20]).toBe('spike');
+    expect(r.labels.filter((l) => l !== 'good')).toHaveLength(1);
+  });
+
+  it('keeps a car pulling away from rest good (reported speed rises with the movement)', () => {
+    const pts: InPoint[] = [];
+    let y = 0;
+    for (let k = 0; k < 20; k++) {
+      const v = Math.min(20, k * 2); // 0 → 72 km/h in 30 s
+      pts.push({ t: T0 + k * 3000, lat: LAT + y * M_LAT, lng: LNG, acc: 5, spdKph: v * 3.6, mock: false });
+      y += v * 3;
+    }
+    expect(analyzeTrack(pts).labels.every((l) => l === 'good')).toBe(true);
+  });
+
+  it('ignores the speed check for network fixes without speed (fast drive stays good)', () => {
+    const pts = drive(30, { mps: 30, step: 10, acc: 120 }).map((p) => ({ ...p, spdKph: 0 }));
+    expect(analyzeTrack(pts).labels.every((l) => l === 'good')).toBe(true);
+  });
+
+  it('applies the object type top speed: 110 km/h out and back is a spike for an auto, fine for a car', () => {
+    expect(maxSpeedKph('VEHICLE', 'AUTO')).toBe(90);
+    expect(maxSpeedKph('PERSON', null)).toBe(200);
+    const before = drive(20, { mps: 8, step: 10 });
+    // 3 fixes 330 m to the side (10 s apart): ~110 km/h out and back, then on the line again.
+    const pts = before.map((p, k) => (k >= 10 && k <= 12 ? { ...p, lng: p.lng + 330 / 108_000, spdKph: 0, acc: null } : { ...p, spdKph: 0, acc: null }));
+    expect(analyzeTrack(pts, { maxSpeedKph: 200 }).labels.slice(10, 13)).toEqual(['good', 'good', 'good']);
+    expect(analyzeTrack(pts, { maxSpeedKph: 90 }).labels.slice(10, 13)).toEqual(['spike', 'spike', 'spike']);
   });
 });

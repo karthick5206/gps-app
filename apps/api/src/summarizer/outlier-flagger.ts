@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { OUTLIER_LABELS, POSITION_FLAGS, type PointLabel } from '@veetracer/shared';
-import { analyzeTrack } from '../point-quality/analyze';
+import { analyzeTrack, maxSpeedKph } from '../point-quality/analyze';
 import type { ObjectMeta } from './positions';
 import { localDayKey } from './tz';
 
@@ -46,6 +46,9 @@ export class OutlierFlagger {
       FROM "Position"
       WHERE "serverTime" > to_timestamp(${since}::float8 / 1000) AND "objectId" IS NOT NULL
       GROUP BY 1`;
+    const kinds = new Map(
+      (await this.prisma.trackedObject.findMany({ where: { id: { in: objects.map((o) => o.oid) } }, select: { id: true, type: true, vehicleType: true } })).map((k) => [k.id, maxSpeedKph(k.type, k.vehicleType)]),
+    );
     let changed = 0;
     const dirty = new Map<string, string>();
     for (const o of objects) {
@@ -59,7 +62,10 @@ export class OutlierFlagger {
         ORDER BY "fixTime"
         LIMIT ${MAX_ROWS}`;
       if (!rows.length) continue;
-      const { labels } = analyzeTrack(rows.map((r) => ({ t: r.t, lat: r.lat, lng: r.lng, acc: r.acc, spdKph: r.spd, mock: r.mock })));
+      const { labels } = analyzeTrack(
+        rows.map((r) => ({ t: r.t, lat: r.lat, lng: r.lng, acc: r.acc, spdKph: r.spd, mock: r.mock })),
+        { maxSpeedKph: kinds.get(o.oid) },
+      );
       const set: string[] = [];
       const clear: string[] = [];
       let firstChange = Number.POSITIVE_INFINITY;

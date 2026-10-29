@@ -6,7 +6,7 @@ import { HistoryService } from '../history/history.service';
 import { MOBILE_PROTOCOL } from '../mobile-tracker/mobile-tracker.logic';
 import { PrismaService } from '../prisma/prisma.service';
 import { haversineMeters } from '../tracking/geo';
-import { analyzeTrack, type InPoint } from './analyze';
+import { analyzeTrack, maxSpeedKph, type InPoint } from './analyze';
 import { distanceToRoad, lineLengthM, matchSegment, OFFROAD_M } from './road-match';
 
 /** Points analysed per request (a day of a phone at 3 s while moving is well below this). */
@@ -99,7 +99,8 @@ export class PointQualityService {
     const truncated = points.length > POINT_CAP;
     if (truncated) points = points.slice(0, POINT_CAP);
 
-    const analysis = analyzeTrack(points);
+    const kind = await this.prisma.trackedObject.findUnique({ where: { id: objectId }, select: { type: true, vehicleType: true } });
+    const analysis = analyzeTrack(points, { maxSpeedKph: maxSpeedKph(kind?.type, kind?.vehicleType) });
     const { labels } = analysis;
     let clean = analysis.clean;
     const roadMatched = await this.roadMatch(points, analysis.segments, labels, (c) => (clean = c), clean);
