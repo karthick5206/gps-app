@@ -39,12 +39,15 @@ function tone(c: AudioContext, freq: number, start: number, duration: number, ga
 
 let lastPlayed = 0;
 
-/** One ~1.6 s two-tone siren burst (emergencies: repeated by the alert centre until acknowledged). */
-export function playSiren() {
+/**
+ * One ~1.6 s two-tone siren burst (emergencies: repeated by the alert centre until acknowledged). `loud` (parking mode
+ * alarm, meant to wake someone): near full volume.
+ */
+export function playSiren(loud = false) {
   const c = context();
   if (!c || c.state !== 'running') return;
   const t = c.currentTime + 0.01;
-  for (let i = 0; i < 4; i++) tone(c, i % 2 ? 740 : 988, t + i * 0.4, 0.38, 0.2);
+  for (let i = 0; i < 4; i++) tone(c, i % 2 ? 740 : 988, t + i * 0.4, 0.38, loud ? 0.6 : 0.2);
 }
 
 /** WARNING: one soft two-note chime. CRITICAL: three urgent high beeps. INFO: silent. Rate-limited to one per 1.5 s. */

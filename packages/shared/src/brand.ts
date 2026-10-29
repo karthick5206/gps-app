@@ -48,3 +48,11 @@ export function brandTileSvg(c: BrandColors, size = 64): string {
     `<path transform="${BRAND_PIN_TRANSFORM}" d="${BRAND_PIN_PATH}" fill="${c.pin}" fill-rule="evenodd"/></g></svg>`
   );
 }
+
+/** Footer shown in the web app and on the sign-in page (owner, support contact, copyright). */
+export const BRAND_FOOTER = {
+  owner: 'Vibhav Enterprise Solutions',
+  supportPhone: '+91 94449 07658',
+  supportEmail: 'parthan@vibhaventerprise.com',
+  year: 2026,
+} as const;

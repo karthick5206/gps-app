@@ -87,6 +87,7 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   CAMERA_FAULT: CameraOffIcon,
   CRASH: OctagonAlertIcon,
   TOWING: TruckIcon,
+  PARKING_BREACH: TruckIcon,
   HARSH_ACCELERATION: GaugeIcon,
   HARSH_BRAKING: OctagonMinusIcon,
   HARSH_CORNERING: CornerUpRightIcon,

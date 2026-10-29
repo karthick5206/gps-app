@@ -3,7 +3,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { Platform } from 'react-native';
-import { isEmergencyAlert } from '@veetracer/shared';
+import { isAlarmAlert } from '@veetracer/shared';
 import { api } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
 
@@ -27,7 +27,7 @@ Notifications.setNotificationHandler({
   handleNotification: async (n) => ({
     shouldShowBanner: true,
     shouldShowList: true,
-    shouldPlaySound: !isEmergencyAlert(n.request.content.data?.type as string | undefined) && !n.request.content.data?.sosTest,
+    shouldPlaySound: !isAlarmAlert(n.request.content.data?.type as string | undefined, n.request.content.data) && !n.request.content.data?.sosTest,
     shouldSetBadge: false,
   }),
 });
@@ -115,7 +115,7 @@ function openFromNotification(n: Notifications.Notification, tapped: boolean): v
   if (data.sosTest) return openSos('test', true);
   const alertId = data.alertId;
   if (typeof alertId !== 'string') return;
-  if (isEmergencyAlert(data.type as string | undefined) && !openedSos.has(alertId)) openSos(alertId);
+  if (isAlarmAlert(data.type as string | undefined, data) && !openedSos.has(alertId)) openSos(alertId);
   else if (tapped) router.push(`/alert/${alertId}`);
 }
 
@@ -137,7 +137,7 @@ export function handleNotificationTaps(): () => void {
   });
   const received = Notifications.addNotificationReceivedListener((n) => {
     const data = n.request.content.data ?? {};
-    if (isEmergencyAlert(data.type as string | undefined)) openFromNotification(n, false);
+    if (isAlarmAlert(data.type as string | undefined, data)) openFromNotification(n, false);
   });
   return () => {
     tap.remove();

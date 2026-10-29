@@ -1,6 +1,6 @@
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import type { LiveObject } from '@veetracer/shared';
-import { CalendarIcon, CheckIcon, ChevronDownIcon } from 'lucide-react-native';
+import { CalendarIcon, CheckIcon, ChevronDownIcon, ClockIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
@@ -50,6 +50,23 @@ export function DateField({ label, value, onChange, minimumDate, maximumDate }: 
       {iosOpen && Platform.OS === 'ios' && (
         <DateTimePicker value={date} mode="date" display="inline" minimumDate={minimumDate} maximumDate={maximumDate} onChange={(_, d) => d && onChange(toYmd(d))} />
       )}
+    </View>
+  );
+}
+
+/** Time of day as minutes after midnight (0–1439), using the platform time picker. */
+export function TimeField({ label, value, onChange }: { label: string; value: number; onChange: (minutes: number) => void }) {
+  const [iosOpen, setIosOpen] = useState(false);
+  const date = new Date(2000, 0, 1, Math.floor(value / 60), value % 60);
+  const set = (d: Date | undefined) => d && onChange(d.getHours() * 60 + d.getMinutes());
+  const open = () => {
+    if (Platform.OS === 'android') DateTimePickerAndroid.open({ value: date, mode: 'time', is24Hour: true, onChange: (e, d) => e.type === 'set' && set(d) });
+    else setIosOpen((o) => !o);
+  };
+  return (
+    <View style={{ flex: 1, gap: SPACE.sm }}>
+      <SelectField label={label} value={`${pad(Math.floor(value / 60))}:${pad(value % 60)}`} onPress={open} icon={ClockIcon} />
+      {iosOpen && Platform.OS === 'ios' && <DateTimePicker value={date} mode="time" display="spinner" onChange={(_, d) => set(d)} />}
     </View>
   );
 }

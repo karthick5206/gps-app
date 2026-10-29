@@ -11,6 +11,7 @@ import { Sidebar } from './Sidebar';
 import { AllCompaniesBanner } from './AllCompaniesBanner';
 import { SystemHealthBanner } from './SystemHealthBanner';
 import { TopBar } from './TopBar';
+import { AppFooter } from './AppFooter';
 
 /** Keeps one Socket.IO connection per selected company while the user is in the app. */
 function useRealtimeConnection() {
@@ -58,6 +59,7 @@ export function AppShell() {
         <main id="main" className="min-h-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
+        <AppFooter />
       </div>
       <LicenceRequiredDialog />
     </div>

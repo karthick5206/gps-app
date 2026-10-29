@@ -1,3 +1,4 @@
+import { BRAND_FOOTER } from '@veetracer/shared';
 import { MapPinnedIcon, PhoneIcon, ShieldCheckIcon, ZapIcon } from 'lucide-react';
 import { LanguageToggle } from '@/features/shell/LanguageToggle';
 import type { ReactNode } from 'react';
@@ -39,7 +40,12 @@ export function AuthLayout({ title, description, children }: { title: string; de
             ))}
           </ul>
         </div>
-        <p className="relative text-xs text-sidebar-muted">© {new Date().getFullYear()} VeeTrax</p>
+        <p className="relative text-xs text-sidebar-muted">
+          {t('VeeTrax is a product of and powered by {{owner}}', { owner: BRAND_FOOTER.owner })}
+          <br />
+          {t('Support:')} {BRAND_FOOTER.supportPhone} · {BRAND_FOOTER.supportEmail}
+          <br />© {BRAND_FOOTER.year} {BRAND_FOOTER.owner}
+        </p>
       </aside>
       <main className="relative flex items-center justify-center px-4 py-10 sm:px-8">
         <div className="absolute top-4 right-4">

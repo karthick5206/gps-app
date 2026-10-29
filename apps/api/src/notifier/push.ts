@@ -22,9 +22,12 @@ export interface PushMessage {
   sound?: string;
 }
 
-/** SOS / crash pushes use the app's 'sos' channel and bundled siren; everything else the normal alert channel. */
-export function pushStyle(alertType: unknown): Pick<PushMessage, 'channelId' | 'sound'> {
-  return typeof alertType === 'string' && isEmergencyAlert(alertType) ? { channelId: 'sos', sound: 'sos_siren.wav' } : { channelId: 'alerts', sound: 'default' };
+/**
+ * SOS / crash pushes, and every alert of a vehicle in parking mode, use the app's 'sos' channel (bundled siren, may
+ * break through Do Not Disturb); everything else the normal alert channel.
+ */
+export function pushStyle(alertType: unknown, parkingAlarm = false): Pick<PushMessage, 'channelId' | 'sound'> {
+  return parkingAlarm || (typeof alertType === 'string' && isEmergencyAlert(alertType)) ? { channelId: 'sos', sound: 'sos_siren.wav' } : { channelId: 'alerts', sound: 'default' };
 }
 
 export interface PushResult {

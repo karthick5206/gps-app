@@ -1,4 +1,4 @@
-import { ackRequiredFor, AlertSeverity, AlertTypeCode, EffectiveAlertSetting } from '@veetracer/shared';
+import { ackRequiredFor, AlertSeverity, AlertTypeCode, EffectiveAlertSetting, PARKING_MOVE_M, PARKING_SPEED_KPH } from '@veetracer/shared';
 import { GeofenceRuntime, isSnoozed } from '../../alerts/rules-data';
 import { GEOFENCE_BUFFER_M, inBBox, signedDistanceM, updateMembership } from '../../alerts/logic/geofence-geometry';
 import { formatDuration, inAnyTimeWindow, inDailyRange } from '../../alerts/logic/time-window';
@@ -64,9 +64,16 @@ export interface AlertState {
   doorMv?: boolean;
   /** Last SIM ICCID the tracker reported: a different one = SIM_CHANGED. */
   iccid?: string;
+  /**
+   * Parking mode window in progress: its start (identifies the window), where the vehicle was parked when it was armed
+   * (first still fix) and the last breach alert (repeated every PARKING_REPEAT_MS while the breach lasts).
+   */
+  pk?: { win: number; lat: number | null; lng: number | null; lastBreach: number | null };
   /** Last alert time per cooldown key (alert type, or type:geofenceId). */
   cd: Record<string, number>;
 }
+
+const PARKING_REPEAT_MS = 10 * 60_000;
 
 /**
  * Overspeed limit, most specific first: an Alert Settings limit set on this vehicle → the limit set on the vehicle itself
@@ -173,6 +180,8 @@ export interface EvalContext {
   geofences: GeofenceRuntime[];
   timezone: string;
   newId: () => string;
+  /** Parking mode window open now (the vehicle is armed), or null / absent. */
+  parking?: { start: number; end: number; alarmAllAlerts: boolean } | null;
 }
 
 export interface EvalOutput {
@@ -299,7 +308,7 @@ class Evaluator {
       this.alarms();
       this.dashcamAlarm();
       this.pruneCooldowns();
-      return this.out;
+      return this.parkingAlarm();
     }
     if (this.input.healthOnly) {
       this.health();
@@ -307,8 +316,9 @@ class Evaluator {
       // Clock running ahead: the alarm itself is still real and current.
       this.alarms();
       this.dashcamAlarm();
-      return this.out;
+      return this.parkingAlarm();
     }
+    this.parkingBreach();
     if (this.input.locationValid !== false) {
       this.geofences();
       this.overspeed();
@@ -323,6 +333,53 @@ class Evaluator {
     this.health();
     this.connection();
     this.pruneCooldowns();
+    return this.parkingAlarm();
+  }
+
+  /**
+   * Parking mode: while the vehicle is armed, ignition on, moving (speed) or being more than PARKING_MOVE_M from where it
+   * was parked raises PARKING_BREACH, repeated every 10 minutes while it lasts. Ignition / speed need no GPS fix.
+   */
+  private parkingBreach(): void {
+    const w = this.ctx.parking;
+    if (!w) {
+      delete this.state.pk;
+      return;
+    }
+    let pk = this.state.pk;
+    if (!pk || pk.win !== w.start) pk = this.state.pk = { win: w.start, lat: null, lng: null, lastBreach: null };
+    const { lat, lng, ignition } = this.input;
+    const speed = Math.round(this.input.speedKph);
+    const located = this.input.locationValid !== false && Number.isFinite(lat) && Number.isFinite(lng);
+    if (located && pk.lat === null && speed < PARKING_SPEED_KPH) {
+      pk.lat = lat;
+      pk.lng = lng;
+    }
+    const reasons: string[] = [];
+    if (ignition === true) reasons.push('ignition on');
+    if (located && speed >= PARKING_SPEED_KPH) reasons.push(`moving at ${speed} km/h`);
+    const moved = located && pk.lat !== null && pk.lng !== null ? Math.round(haversineMeters(pk.lat, pk.lng, lat, lng)) : 0;
+    if (moved > PARKING_MOVE_M) reasons.push(`${moved} m from where it was parked`);
+    if (!reasons.length) return;
+    if (pk.lastBreach !== null && this.now - pk.lastBreach < PARKING_REPEAT_MS) return;
+    const id = this.emit('PARKING_BREACH', {
+      message: `Parking mode breach: ${reasons.join(', ')}`,
+      data: { parkedLat: pk.lat, parkedLng: pk.lng, movedM: moved, ignition, armedUntil: new Date(w.end).toISOString(), repeat: pk.lastBreach !== null },
+      at: this.now,
+      cooldownKey: `PARKING_BREACH:${w.start}`,
+    });
+    if (id) pk.lastBreach = this.now;
+  }
+
+  /** While armed, alerts ring as an alarm on the apps (the breach always; every other alert when alarmAllAlerts). */
+  private parkingAlarm(): EvalOutput {
+    const w = this.ctx.parking;
+    if (!w) return this.out;
+    for (const a of this.out.alerts) {
+      if (a.type !== 'PARKING_BREACH' && !w.alarmAllAlerts) continue;
+      a.data = { ...a.data, parkingAlarm: true };
+      a.ackRequired = true;
+    }
     return this.out;
   }
 

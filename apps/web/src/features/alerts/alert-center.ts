@@ -1,4 +1,4 @@
-import { ALERT_TYPE_MAP, EMERGENCY_ALERT_TYPES, type AlertDto, type AlertsAckedEvent, type AlertsReadEvent, type AlertUnreadCount, type Paginated } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, EMERGENCY_ALERT_TYPES, isParkingAlarm, type AlertDto, type AlertsAckedEvent, type AlertsReadEvent, type AlertUnreadCount, type Paginated } from '@veetracer/shared';
 import { realtime } from '@/features/live/realtime';
 import { api } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
@@ -101,10 +101,12 @@ class AlertCenter {
 
   /** Siren every few seconds while an emergency popup is open (until acknowledged or dismissed), unless muted. */
   private syncSiren() {
-    const on = this.state.critical.length > 0 && !this.state.muted;
+    // A parking mode alarm rings even when alert sounds are muted: it is there to wake someone.
+    const parking = this.state.critical.some((a) => isParkingAlarm(a.data));
+    const on = this.state.critical.length > 0 && (!this.state.muted || parking);
     if (on && !this.siren) {
-      playSiren();
-      this.siren = setInterval(playSiren, SIREN_REPEAT_MS);
+      playSiren(parking);
+      this.siren = setInterval(() => playSiren(this.state.critical.some((a) => isParkingAlarm(a.data))), SIREN_REPEAT_MS);
     } else if (!on && this.siren) {
       clearInterval(this.siren);
       this.siren = null;
@@ -162,9 +164,11 @@ class AlertCenter {
     if (this.seen.has(a.id)) return;
     this.seen.add(a.id);
     const latest = [a, ...this.state.latest].slice(0, LATEST);
-    const critical = this.state.criticalPopup && a.severity === 'CRITICAL' && POPUP_TYPES.has(a.type) && a.status === 'NEW' ? [...this.state.critical, a] : this.state.critical;
+    // Parking mode alarms always block the screen with the siren (whatever their severity or the popup preference).
+    const alarm = isParkingAlarm(a.data) || (this.state.criticalPopup && a.severity === 'CRITICAL' && POPUP_TYPES.has(a.type));
+    const critical = alarm && a.status === 'NEW' ? [...this.state.critical, a] : this.state.critical;
     this.set({ latest, critical, unread: this.state.unread + (isUnread(a) ? 1 : 0), pendingAck: this.state.pendingAck + (a.ackRequired && a.status === 'NEW' ? 1 : 0) });
-    if (!this.state.muted && !POPUP_TYPES.has(a.type)) playAlertSound(a.severity);
+    if (!this.state.muted && !POPUP_TYPES.has(a.type) && !isParkingAlarm(a.data)) playAlertSound(a.severity);
     this.alertListeners.forEach((l) => l(a));
   }
 

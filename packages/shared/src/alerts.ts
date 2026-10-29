@@ -91,6 +91,7 @@ export const ALERT_TYPE_CODES = [
   'DOOR_OPEN',
   'DOOR_CLOSED',
   'DOOR_OPEN_WHILE_MOVING',
+  'PARKING_BREACH',
 ] as const;
 export type AlertTypeCode = (typeof ALERT_TYPE_CODES)[number];
 
@@ -208,6 +209,8 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   { code: 'CRASH', label: 'Crash / rollover', category: 'Safety', capability: 'crash', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // Anti-theft alarms from the tracker: moved with the engine off (towing), ignition or door without authorisation.
   { code: 'TOWING', label: 'Towing / unauthorised use', category: 'Safety', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // Parking mode: the vehicle moved or was started during its scheduled parking window (always rings as an alarm).
+  { code: 'PARKING_BREACH', label: 'Parking mode breach', category: 'Safety', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: true, params: [], placeholders: [] },
   // Driving behaviour reported by the tracker itself (Concox 0x29/0x2A/0x2B, Teltonika green driving, AIS-140 HA/HB/RT).
   { code: 'HARSH_ACCELERATION', label: 'Harsh acceleration', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['speed'] },
   { code: 'HARSH_BRAKING', label: 'Harsh braking', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['speed'] },
@@ -273,6 +276,7 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   CAMERA_FAULT: 30,
   CRASH: 5,
   TOWING: 5,
+  PARKING_BREACH: 0,
   HARSH_ACCELERATION: 1,
   HARSH_BRAKING: 1,
   HARSH_CORNERING: 1,
@@ -320,7 +324,7 @@ export function isEmergencyAlert(type: string | null | undefined): boolean {
  * device disconnection, plus every alert raised as CRITICAL. Configurable per alert type at Company → Branch → Vehicle
  * group → Vehicle (`AlertSettingDto.requireAck`); the value is stored on each alert when it is raised.
  */
-export const ACK_REQUIRED_ALERT_TYPES = [...EMERGENCY_ALERT_TYPES, 'DEVICE_OFFLINE'] as const satisfies readonly AlertTypeCode[];
+export const ACK_REQUIRED_ALERT_TYPES = [...EMERGENCY_ALERT_TYPES, 'DEVICE_OFFLINE', 'PARKING_BREACH'] as const satisfies readonly AlertTypeCode[];
 
 export function defaultRequireAck(type: string, severity: string): boolean {
   return severity === 'CRITICAL' || (ACK_REQUIRED_ALERT_TYPES as readonly string[]).includes(type);

@@ -89,7 +89,10 @@ export class OfflineAlertService {
       if (previous && previous.includes(`"episode":"${live.serverTime}"`)) continue;
       if (!allowed) continue;
       try {
-        await this.raise(live, setting.severity, ackRequiredFor(setting, 'DEVICE_OFFLINE', setting.severity), offlineMs, now);
+        // Parking mode: a tracker going quiet while armed (power cut, jammer) rings as an alarm.
+        const armed = rules.parkingWindow(live.objectId, now);
+        const alarm = !!armed?.alarmAllAlerts;
+        await this.raise(live, setting.severity, alarm || ackRequiredFor(setting, 'DEVICE_OFFLINE', setting.severity), offlineMs, now, alarm);
         raised++;
       } catch (error) {
         this.logger.error(`DEVICE_OFFLINE alert for ${live.objectId} failed: ${(error as Error).message}`);
@@ -116,7 +119,7 @@ export class OfflineAlertService {
     return null;
   }
 
-  private async raise(live: LiveObject, severity: 'INFO' | 'WARNING' | 'CRITICAL', ackRequired: boolean, offlineMs: number, now: number): Promise<void> {
+  private async raise(live: LiveObject, severity: 'INFO' | 'WARNING' | 'CRITICAL', ackRequired: boolean, offlineMs: number, now: number, parkingAlarm = false): Promise<void> {
     const durationSec = Math.round(offlineMs / 1000);
     const cause = await this.phoneCause(live.deviceId);
     const pending = {
@@ -129,7 +132,7 @@ export class OfflineAlertService {
       lng: live.lng,
       geofenceId: null,
       geofenceName: null,
-      data: { durationSec, lastSeen: live.serverTime, ...(cause ? { cause: cause.codes } : {}) },
+      data: { durationSec, lastSeen: live.serverTime, ...(cause ? { cause: cause.codes } : {}), ...(parkingAlarm ? { parkingAlarm: true } : {}) },
       ackRequired,
       object: {
         objectId: live.objectId,

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 import { Alert, MessageTemplate, NotificationLog, NotificationStatus, NotifyChannel, Prisma } from '@prisma/client';
-import { ALERT_TYPE_MAP, AlertSeverity, AlertTypeCode, NotifierMetrics } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, AlertSeverity, AlertTypeCode, isParkingAlarm, NotifierMetrics } from '@veetracer/shared';
 import { hostname } from 'node:os';
 import { RecipientExpander, Recipient } from '../alerts/recipients/recipient-expander';
 import { RecipientListRow } from '../alerts/logic/recipients';
@@ -225,6 +225,14 @@ export class NotifierService {
   }
 
   // ───────────── alert jobs ─────────────
+  /**
+   * Parking mode alarm escalation when nobody acknowledges (SMS, IVR voice call): reserved, not active yet. The
+   * schedule keeps its settings in ParkingSchedule.escalation; the delayed job will start here.
+   */
+  private escalateAlarm(_alert: Alert): void {
+    // Intentionally empty until SMS / voice-call escalation is enabled.
+  }
+
   async handleAlert(alertId: string): Promise<void> {
     const alert = await this.prisma.alert.findUnique({ where: { id: alertId } });
     if (!alert) return;
@@ -242,11 +250,23 @@ export class NotifierService {
     const rules = await this.rules.get(alert.companyId);
     const setting = rules.effective(alert.objectId).get(alert.type as AlertTypeCode);
     const channels = (setting?.channels[alert.severity as AlertSeverity] ?? []).filter((c) => c !== 'INAPP');
+    // Parking mode alarm: always pushed (siren channel), to everyone who can see the vehicle.
+    const alarm = isParkingAlarm(alert.data as Record<string, unknown> | null);
+    if (alarm && !channels.includes('PUSH')) channels.push('PUSH');
     if (!channels.length) return;
 
     const lists = await this.listsFor(alert.companyId);
     const chain = await this.expander.chainFor(ctx.object);
     const resolved = await this.expander.resolve(ctx.object, alert.type, alert.severity as AlertSeverity, channels, lists, chain);
+    if (alarm) {
+      const viewers = await this.expander.expand(ctx.object, [{ kind: 'DYNAMIC', value: 'ALL_VIEWERS' }], 'PUSH');
+      const push = resolved.find((c) => c.channel === 'PUSH');
+      if (push) {
+        const have = new Set(push.recipients.map((r) => r.address));
+        push.recipients.push(...viewers.filter((v) => !have.has(v.address)));
+      }
+      this.escalateAlarm(alert);
+    }
     const label = ALERT_TYPE_MAP[alert.type as AlertTypeCode]?.label ?? alert.type;
 
     for (const c of resolved) {
@@ -324,7 +344,8 @@ Driver event: ${link}`,
       return;
     }
     if (channel === 'PUSH') {
-      const res = await this.sendPush(r.address, msg, { alertId: alert.id, objectId: alert.objectId, type: alert.type, severity: alert.severity });
+      const parkingAlarm = isParkingAlarm(alert.data as Record<string, unknown> | null);
+      const res = await this.sendPush(r.address, msg, { alertId: alert.id, objectId: alert.objectId, type: alert.type, severity: alert.severity, ...(parkingAlarm ? { parkingAlarm: true } : {}) });
       await this.writeLog({ ...base, ...res, provider: this.push.name });
       return;
     }
@@ -360,7 +381,7 @@ Driver event: ${link}`,
     const body = (msg.text || htmlToText(msg.body)).slice(0, 500);
     let result: Awaited<ReturnType<PushProvider['send']>> | null = null;
     const { error } = await withRetries(async () => {
-      result = await this.push.send(rows.map((r) => r.token), { title, body, data, ...pushStyle(data.type) });
+      result = await this.push.send(rows.map((r) => r.token), { title, body, data, ...pushStyle(data.type, data.parkingAlarm === true) });
     });
     const res = result as Awaited<ReturnType<PushProvider['send']>> | null;
     if (res?.invalidTokens.length) await this.prisma.pushToken.deleteMany({ where: { token: { in: res.invalidTokens } } });

@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { AlertTypeCode, EffectiveAlertSetting, GeofenceGeometry, GeofenceMode, TimeWindow } from '@veetracer/shared';
+import { AlertTypeCode, EffectiveAlertSetting, GeofenceGeometry, GeofenceMode, parkingArmedWindow, readParkingWindows, TimeWindow, type ParkingWindowDto } from '@veetracer/shared';
 import { companyThresholds } from '../tracking/thresholds';
 import { BBox } from './logic/geofence-geometry';
 import {
@@ -47,6 +47,11 @@ export interface SnoozeRuntime {
 
 const key = (level: string, targetId: string) => `${level}:${targetId}`;
 
+export interface ParkingRuntime {
+  windows: ParkingWindowDto[];
+  alarmAllAlerts: boolean;
+}
+
 /** Everything the rules engine needs for one company, with per-object memoisation. */
 export class CompanyRules {
   private readonly effectiveCache = new Map<string, Map<AlertTypeCode, EffectiveAlertSetting>>();
@@ -62,7 +67,17 @@ export class CompanyRules {
     readonly geofences: GeofenceRuntime[],
     readonly snoozes: SnoozeRuntime[],
     readonly loadedAt: number,
+    /** Parking mode schedules (enabled ones) per object. */
+    readonly parking: Map<string, ParkingRuntime> = new Map(),
   ) {}
+
+  /** Open parking window of the object at `at` (company time zone), or null when it is not armed. */
+  parkingWindow(objectId: string, at: number): { start: number; end: number; alarmAllAlerts: boolean } | null {
+    const p = this.parking.get(objectId);
+    if (!p) return null;
+    const w = parkingArmedWindow(p.windows, at, this.timezone);
+    return w ? { ...w, alarmAllAlerts: p.alarmAllAlerts } : null;
+  }
 
   object(objectId: string): ObjectRuntime {
     return this.objects.get(objectId) ?? { id: objectId, branchId: null, groupIds: [], capabilities: [] };
@@ -138,7 +153,7 @@ export interface LoadOptions {
 /** Load a company's rules from the database (optionally only some objects, and without geofences). */
 export async function loadCompanyRules(prisma: PrismaClient, companyId: string, opts: LoadOptions = {}): Promise<CompanyRules> {
   const now = new Date();
-  const [company, settingRows, groupRows, objectRows, geofenceRows, snoozeRows] = await Promise.all([
+  const [company, settingRows, groupRows, objectRows, geofenceRows, snoozeRows, parkingRows] = await Promise.all([
     prisma.company.findUnique({ where: { id: companyId }, select: { timezone: true, settings: true } }),
     prisma.alertSetting.findMany({ where: { companyId } }),
     prisma.vehicleGroup.findMany({ where: { companyId, isActive: true }, select: { id: true, name: true, alertPriority: true } }),
@@ -155,6 +170,7 @@ export async function loadCompanyRules(prisma: PrismaClient, companyId: string, 
       ? Promise.resolve([])
       : prisma.geofence.findMany({ where: { companyId, isActive: true }, include: { targets: true } }),
     prisma.alertSnooze.findMany({ where: { companyId, until: { gt: now } } }),
+    prisma.parkingSchedule.findMany({ where: { companyId, enabled: true }, select: { objectId: true, windows: true, alarmAllAlerts: true } }),
   ]);
 
   const settings = new Map<string, OverrideMap>();
@@ -204,6 +220,7 @@ export async function loadCompanyRules(prisma: PrismaClient, companyId: string, 
     geofences,
     snoozes,
     Date.now(),
+    new Map(parkingRows.map((p) => [p.objectId, { windows: readParkingWindows(p.windows), alarmAllAlerts: p.alarmAllAlerts }])),
   );
 }
 

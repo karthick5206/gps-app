@@ -175,6 +175,8 @@ export class RulesEngine {
         geofences: rules.geofencesFor(objectId),
         timezone: rules.timezone,
         newId: randomUUID,
+        // Armed or not is about now (server clock), not the fix time of a late point.
+        parking: rules.parkingWindow(objectId, input.receivedAt ?? Date.now()),
       });
       for (const a of out.alerts) alerts.push({ ...a, object: input.object });
       for (const op of out.visits) visits.push({ companyId, objectId, op });

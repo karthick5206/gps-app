@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { isEmergencyAlert, type AlertDto, type AlertUnreadCount } from '@veetracer/shared';
+import { isAlarmAlert, type AlertDto, type AlertUnreadCount } from '@veetracer/shared';
 import { Tabs } from 'expo-router';
 import { BellIcon, LayoutDashboardIcon, ListIcon, MapIcon, MenuIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
@@ -37,7 +37,7 @@ export default function TabsLayout() {
     () =>
       realtime.on('alert', (a?: AlertDto) => {
         void queryClient.invalidateQueries({ queryKey: ['alerts'] });
-        if (a?.id && isEmergencyAlert(a.type) && a.status === 'NEW') openSos(a.id);
+        if (a?.id && isAlarmAlert(a.type, a.data) && a.status === 'NEW') openSos(a.id);
       }),
     [queryClient],
   );

@@ -47,6 +47,7 @@ const DETAIL: Record<AlertTypeCode, string> = {
   CAMERA_FAULT: 'dashcam reported a camera or video storage fault',
   CRASH: 'tracker detected a crash or rollover at {{speed}}',
   TOWING: 'tracker reported towing or unauthorised use (possible theft)',
+  PARKING_BREACH: 'moved or was started while in parking mode (possible theft)',
   HARSH_ACCELERATION: 'accelerated harshly at {{speed}}',
   HARSH_BRAKING: 'braked harshly at {{speed}}',
   HARSH_CORNERING: 'cornered harshly at {{speed}}',

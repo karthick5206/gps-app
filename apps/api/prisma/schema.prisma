@@ -301,21 +301,22 @@ model TrackedObject {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  company      Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch       Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  assignments  DeviceAssignment[]
-  groups       VehicleGroupMember[]
-  users        UserObject[]
-  remarks      ObjectRemark[]
-  commands     DeviceCommand[]
-  drivers      DriverAssignment[]
-  documents    Document[]
-  services     ServiceReminder[]
-  serviceLog   ServiceRecord[]
-  fuelConfig   FuelConfig?
-  fuelEvents   FuelEvent[]
-  ioSessions   IoSession[]
-  driverEvents DriverEvent[]
+  company         Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch          Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  assignments     DeviceAssignment[]
+  groups          VehicleGroupMember[]
+  users           UserObject[]
+  remarks         ObjectRemark[]
+  commands        DeviceCommand[]
+  drivers         DriverAssignment[]
+  documents       Document[]
+  services        ServiceReminder[]
+  serviceLog      ServiceRecord[]
+  fuelConfig      FuelConfig?
+  parkingSchedule ParkingSchedule?
+  fuelEvents      FuelEvent[]
+  ioSessions      IoSession[]
+  driverEvents    DriverEvent[]
 
   @@index([companyId, branchId])
 }
@@ -1092,6 +1093,26 @@ model Stop {
   @@index([companyId, startTime(sort: Desc)])
 }
 
+/// Parking mode: weekly windows (company time zone) when the vehicle is armed; see packages/shared/src/parking.ts.
+model ParkingSchedule {
+  objectId       String   @id @db.Uuid
+  companyId      String   @db.Uuid
+  enabled        Boolean  @default(true)
+  /// [{ days: number[] (0 = Sunday), startMin, endMin }]
+  windows        Json     @default("[]")
+  /// Every alert of the vehicle rings as an alarm while armed (else only the parking breach).
+  alarmAllAlerts Boolean  @default(true)
+  /// Reserved for SMS / IVR escalation when nobody acknowledges.
+  escalation     Json     @default("{}")
+  updatedById    String?  @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
 /// Per object per local day (company timezone).
 model DailySummary {
   objectId       String    @db.Uuid
@@ -1635,12 +1656,12 @@ enum RelayScope {
 /// Data forwarding master switch (one row, id = "default"); off pauses every target without changing them.
 /// Point quality analysis (History → All points): platform on/off switch (single row "default"), Super Admin only.
 model PointQualitySettings {
-  id          String   @id @default("default")
-  enabled     Boolean  @default(true)
+  id           String   @id @default("default")
+  enabled      Boolean  @default(true)
   /// Phase 3: trips, daily distance and the History track leave out points flagged OUTLIER by the analysis job.
-  useInReports Boolean @default(false)
-  updatedById String?  @db.Uuid
-  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  useInReports Boolean  @default(false)
+  updatedById  String?  @db.Uuid
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model RelaySettings {
@@ -1711,17 +1732,17 @@ model MobileTrackerCode {
 
 /// The phone currently tracking for a mobile-tracker device. Activating on another phone revokes the previous one.
 model MobileTrackerSession {
-  id         String    @id @default(uuid()) @db.Uuid
-  deviceId   String    @db.Uuid
-  tokenHash  String    @unique
-  deviceName String?
-  appVersion String?
-  platform   String?
+  id            String    @id @default(uuid()) @db.Uuid
+  deviceId      String    @db.Uuid
+  tokenHash     String    @unique
+  deviceName    String?
+  appVersion    String?
+  platform      String?
   /// HMAC of the phone's Android ID for this app (stable across reinstalls): restores the session after a reinstall.
   installIdHash String?
-  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
-  lastUsedAt DateTime? @db.Timestamptz(3)
-  revokedAt  DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  lastUsedAt    DateTime? @db.Timestamptz(3)
+  revokedAt     DateTime? @db.Timestamptz(3)
 
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
