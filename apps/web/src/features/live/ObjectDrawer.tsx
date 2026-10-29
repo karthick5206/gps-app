@@ -24,6 +24,7 @@ import { CommandsTab } from './CommandsTab';
 import { DriverControl } from './DriverControl';
 import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
 import { RecentDriverEvents } from '@/features/driver-events/AlertSnapshot';
+import { ignitionText, TodayCard, useDayStats } from './day-stats';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -52,7 +53,10 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
   const activity = personActivity(o);
   const since = !activity && o.statusSince ? formatDuration((now - Date.parse(o.statusSince)) / 1000) : null;
   const limit = o.speedLimitKph ?? (o.vehicleType ? DEFAULT_SPEED_LIMIT_KPH[o.vehicleType] : null);
+  const dayStats = useDayStats(!o.licenceLocked);
   return (
+    <>
+    {!o.licenceLocked && <TodayCard s={dayStats.data?.[o.objectId]} loading={dayStats.isPending} />}
     <dl className="divide-y">
       <Row label={t('Status')}>
         <span className="flex flex-col items-end gap-1">
@@ -62,7 +66,7 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
       </Row>
       {o.type === 'VEHICLE' && <DriverControl o={o} />}
       <Row label={t('Speed')}>{`${Math.round(o.speedKph)} km/h`}</Row>
-      <Row label={t('Ignition')}>{o.ignition === null ? '—' : o.ignition ? t('On') : t('Off')}</Row>
+      <Row label={t('Ignition')}>{ignitionText(o, now, t) ?? '—'}</Row>
       <AddressRow lat={o.lat} lng={o.lng} />
       <Row label={t('Coordinates')}>
         {o.lat !== null && o.lng !== null ? <span className="font-mono text-xs">{`${o.lat.toFixed(6)}, ${o.lng.toFixed(6)}`}</span> : '—'}
@@ -108,6 +112,7 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
       <Row label={t('Satellites')}>{orDash(o.satellites)}</Row>
       <Row label={t('Speed limit')}>{limit === null ? '—' : o.speedLimitKph === null ? t('{{limit}} km/h (default)', { limit }) : `${limit} km/h`}</Row>
     </dl>
+    </>
   );
 }
 

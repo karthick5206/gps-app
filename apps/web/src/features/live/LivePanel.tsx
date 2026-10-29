@@ -1,6 +1,6 @@
-import { MOVEMENT_STATUSES, OBJECT_TYPES, STATUS_META, displayStatus, displayStatusLabel, personActivity, VEHICLE_TYPES, type LiveObject, type MovementStatus } from '@veetracer/shared';
+import { MOVEMENT_STATUSES, OBJECT_TYPES, STATUS_META, displayStatus, displayStatusLabel, personActivity, VEHICLE_TYPES, type LiveObject, type MovementStatus, type VehicleDayStatsDto } from '@veetracer/shared';
 import { DoorOpenIcon, LockIcon, SearchIcon, SearchXIcon, SnowflakeIcon, XIcon } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StatusDot } from '@/components/status-badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -14,10 +14,22 @@ import { formatNumber, humanize, relativeTime, timeInStatus } from '@/lib/format
 import { statusColor } from '@/lib/status-tokens';
 import { cn } from '@/lib/utils';
 import { useAllCompaniesView, useCompanyNames } from '@/features/platform/all-companies';
+import { RowDayLine, useDayStats } from './day-stats';
 import type { LiveFilters } from './filters';
 import { VirtualList } from './VirtualList';
 
 const ROW_HEIGHT = 64;
+/** Rows with the address and today's figures (List → "Today's figures"). */
+const ROW_HEIGHT_DETAILED = 92;
+const DETAILS_KEY = 'vt.live.rowDetails';
+
+function readDetails(): boolean {
+  try {
+    return localStorage.getItem(DETAILS_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
 const ALL = '__all';
 
 const TYPE_OPTIONS: Option[] = [
@@ -63,9 +75,14 @@ const ObjectRow = memo(function ObjectRow({
   onPick,
   onToggle,
   company,
+  stats,
+  details,
 }: {
   o: LiveObject;
   now: number;
+  /** Today's figures (shown when `details`). */
+  stats?: VehicleDayStatsDto;
+  details: boolean;
   /** Company name, shown while the Super Admin views all companies. */
   company?: string;
   active: boolean;
@@ -81,7 +98,8 @@ const ObjectRow = memo(function ObjectRow({
   return (
     <div
       className={cn(
-        'mx-2 flex h-[60px] items-center gap-2.5 rounded-lg px-2 transition-colors',
+        'mx-2 flex items-center gap-2.5 rounded-lg px-2 transition-colors',
+        details ? 'h-[88px]' : 'h-[60px]',
         active ? 'bg-accent ring-1 ring-primary/30' : 'hover:bg-muted/70',
       )}
     >
@@ -97,6 +115,7 @@ const ObjectRow = memo(function ObjectRow({
             {o.acOn ? <SnowflakeIcon className="ms-1.5 inline size-3 text-sky-600" aria-label={t('AC on')} /> : null}
             {o.doorOpen ? <DoorOpenIcon className="ms-1 inline size-3 text-amber-600" aria-label={t('Door open')} /> : null}
           </span>
+          {details && !o.licenceLocked && <RowDayLine o={o} s={stats} />}
         </span>
         {o.licenceLocked ? (
           <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-destructive" title={t('Licence expired — renew to view')}>
@@ -104,7 +123,7 @@ const ObjectRow = memo(function ObjectRow({
             {t('Licence expired')}
           </span>
         ) : (
-          <span className="shrink-0 text-right">
+          <span className={cn('shrink-0 text-right', details && 'self-start pt-2')}>
             <span className="block text-xs font-medium" style={{ color: statusColor(shown) }}>
               {since ?? t(displayStatusLabel(o))}
             </span>
@@ -150,6 +169,16 @@ export function LivePanel({
   const { t } = useTranslation();
   const allCompanies = useAllCompaniesView();
   const companyNames = useCompanyNames(allCompanies);
+  const [details, setDetailsState] = useState(readDetails);
+  const setDetails = (on: boolean) => {
+    setDetailsState(on);
+    try {
+      localStorage.setItem(DETAILS_KEY, on ? '1' : '0');
+    } catch {
+      /* private window: the choice lasts for this page only */
+    }
+  };
+  const dayStats = useDayStats(details);
   const toggleStatus = (s: MovementStatus) =>
     onFiltersChange({ statuses: filters.statuses.includes(s) ? filters.statuses.filter((x) => x !== s) : [...filters.statuses, s] });
 
@@ -220,6 +249,12 @@ export function LivePanel({
             {t('{{n}} shown', { n: formatNumber(items.length) })}
             {selected.size > 0 && <> · {t('{{n}} selected', { n: formatNumber(selected.size) })}</>}
           </span>
+          {selected.size === 0 && (
+            <label className="flex items-center gap-1.5">
+              <Switch checked={details} onCheckedChange={setDetails} className="scale-90" aria-label={t("Show address and today's figures")} />
+              {t("Today's figures")}
+            </label>
+          )}
           {selected.size > 0 && (
             <span className="flex items-center gap-2">
               <label className="flex items-center gap-1.5">
@@ -246,11 +281,11 @@ export function LivePanel({
         <VirtualList
           label={t('Objects')}
           items={items}
-          rowHeight={ROW_HEIGHT}
+          rowHeight={details ? ROW_HEIGHT_DETAILED : ROW_HEIGHT}
           getKey={(o) => o.objectId}
           className="min-h-0 flex-1 py-1"
           renderRow={(o) => (
-            <ObjectRow o={o} now={now} active={o.objectId === activeId} checked={selected.has(o.objectId)} onPick={onPick} onToggle={onToggleSelected} company={allCompanies ? companyNames.get(o.companyId) : undefined} />
+            <ObjectRow o={o} now={now} active={o.objectId === activeId} checked={selected.has(o.objectId)} onPick={onPick} onToggle={onToggleSelected} company={allCompanies ? companyNames.get(o.companyId) : undefined} details={details} stats={dayStats.data?.[o.objectId]} />
           )}
         />
       )}

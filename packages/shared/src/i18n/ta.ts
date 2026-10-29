@@ -2823,4 +2823,10 @@ export const TA: Record<string, string> = {
   "Ignition off since {{time}} ({{duration}})": "{{time}} முதல் இக்னிஷன் அணைப்பு ({{duration}})",
   "Current trip": "தற்போதைய பயணம்",
   "Last trip": "கடைசி பயணம்",
+  "Off since {{time}} ({{duration}})": "{{time}} முதல் அணைப்பு ({{duration}})",
+  "today": "இன்று",
+  "{{n}} stops": "{{n}} நிறுத்தங்கள்",
+  "Today's figures": "இன்றைய விவரங்கள்",
+  "Show address and today's figures": "முகவரி மற்றும் இன்றைய விவரங்களைக் காட்டு",
+  "{{n}} trips": "{{n}} பயணங்கள்",
 };

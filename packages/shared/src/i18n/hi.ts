@@ -2823,4 +2823,10 @@ export const HI: Record<string, string> = {
   "Ignition off since {{time}} ({{duration}})": "इग्निशन {{time}} से बंद ({{duration}})",
   "Current trip": "वर्तमान यात्रा",
   "Last trip": "पिछली यात्रा",
+  "Off since {{time}} ({{duration}})": "{{time}} से बंद ({{duration}})",
+  "today": "आज",
+  "{{n}} stops": "{{n}} ठहराव",
+  "Today's figures": "आज के आंकड़े",
+  "Show address and today's figures": "पता और आज के आंकड़े दिखाएं",
+  "{{n}} trips": "{{n}} यात्राएं",
 };
