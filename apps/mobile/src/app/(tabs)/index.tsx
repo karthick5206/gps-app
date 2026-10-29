@@ -26,6 +26,7 @@ import { Button, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { AddressLine } from '@/features/geocoding/use-address';
 import { VehicleSummary } from '@/features/live/components';
+import { useDayStats, VehicleDayDetails, type DayStatsMap } from '@/features/live/day-stats';
 import { liveStore } from '@/features/live/live-store';
 import { LiveSheet, type SheetSnap } from '@/features/live/LiveSheet';
 import { useLiveVersion, useNow, useRealtimeStatus } from '@/features/live/use-live';
@@ -51,7 +52,7 @@ function matchesSearch(o: LiveObject, q: string) {
 }
 
 /** One list row: status dot, name, plate · speed, coloured status with its duration, last update. */
-function VehicleRow({ o, now, onPress }: { o: LiveObject; now: number; onPress: () => void }) {
+function VehicleRow({ o, now, onPress, stats }: { o: LiveObject; now: number; onPress: () => void; stats: DayStatsMap | undefined }) {
   const c = useColors();
   const scheme = useScheme();
   const color = statusColor(displayStatus(o), scheme);
@@ -68,8 +69,9 @@ function VehicleRow({ o, now, onPress }: { o: LiveObject; now: number; onPress: 
         <Text size="sm" tone="muted" numberOfLines={1}>
           {[o.plateNumber, `${Math.round(o.speedKph)} km/h`, o.driverName].filter(Boolean).join(' · ')}
         </Text>
+        <VehicleDayDetails o={o} stats={stats?.[o.objectId]} now={now} />
       </View>
-      <View style={{ alignItems: 'flex-end' }}>
+      <View style={{ alignItems: 'flex-end', alignSelf: 'flex-start' }}>
         <Text size="sm" weight="600" style={{ color }}>
           {activity ? t(displayStatusLabel(o)) : (timeInStatus(t(meta.label), o.statusSince, now) ?? t(meta.label))}
         </Text>
@@ -113,6 +115,7 @@ export default function LiveMapScreen() {
   const [type, setType] = useState<string | null>(null);
   const [picker, setPicker] = useState<Picker>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const dayStats = useDayStats();
   const [follow, setFollow] = useState(false);
   const [view, setView] = useState<MapView | null>(null);
   const [showPois, setShowPois] = useState(false);
@@ -289,7 +292,7 @@ export default function LiveMapScreen() {
         </Text>
       </View>
       <VehicleSummary o={selected} now={now} />
-      <AddressLine lat={selected.lat} lng={selected.lng} />
+      <VehicleDayDetails o={selected} stats={dayStats.data?.[selected.objectId]} now={now} />
       {selected.driverName && (
         <Text size="sm" tone="muted">
           {t('Driver:')} <Text size="sm" weight="600">{selected.driverName}</Text>
@@ -413,7 +416,7 @@ export default function LiveMapScreen() {
               keyboardShouldPersistTaps="handled"
               initialNumToRender={20}
               contentContainerStyle={{ paddingBottom: insets.bottom + SPACE.xl }}
-              renderItem={({ item }) => <VehicleRow o={item} now={now} onPress={() => select(item.objectId)} />}
+              renderItem={({ item }) => <VehicleRow o={item} now={now} stats={dayStats.data} onPress={() => select(item.objectId)} />}
               ListEmptyComponent={
                 liveStore.snapshotLoaded ? (
                   <Text tone="muted" style={{ textAlign: 'center', padding: SPACE.xl }}>

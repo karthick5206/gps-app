@@ -2820,4 +2820,7 @@ export const HI: Record<string, string> = {
   "Distance: recorded {{recorded}} km · clean {{clean}} km": "दूरी: दर्ज {{recorded}} किमी · साफ़ {{clean}} किमी",
   "Use cleaned points for trips and distance": "यात्राओं और दूरी के लिए साफ़ किए गए पॉइंट उपयोग करें",
   "Trips, daily distance, reports and the History track leave out points the analysis marks as spike, jump, inaccurate, fake GPS or invalid. Switching recalculates the last 7 days; compare first with the clean distance in History → All points.": "यात्राएं, दैनिक दूरी, रिपोर्ट और इतिहास ट्रैक उन पॉइंट को छोड़ देते हैं जिन्हें विश्लेषण स्पाइक, जंप, अशुद्ध, नकली GPS या अमान्य बताता है। बदलने पर पिछले 7 दिन फिर से गणना होते हैं; पहले इतिहास → सभी पॉइंट में साफ़ दूरी से तुलना करें।",
+  "Ignition off since {{time}} ({{duration}})": "इग्निशन {{time}} से बंद ({{duration}})",
+  "Current trip": "वर्तमान यात्रा",
+  "Last trip": "पिछली यात्रा",
 };

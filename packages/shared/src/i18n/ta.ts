@@ -2820,4 +2820,7 @@ export const TA: Record<string, string> = {
   "Distance: recorded {{recorded}} km · clean {{clean}} km": "தூரம்: பதிவு {{recorded}} கி.மீ · சுத்தம் {{clean}} கி.மீ",
   "Use cleaned points for trips and distance": "பயணங்கள் மற்றும் தூரத்திற்கு சுத்தம் செய்த புள்ளிகளைப் பயன்படுத்து",
   "Trips, daily distance, reports and the History track leave out points the analysis marks as spike, jump, inaccurate, fake GPS or invalid. Switching recalculates the last 7 days; compare first with the clean distance in History → All points.": "பகுப்பாய்வு ஸ்பைக், தாவல், துல்லியமற்றது, போலி GPS அல்லது செல்லாதது எனக் குறிக்கும் புள்ளிகளைப் பயணங்கள், தினசரி தூரம், அறிக்கைகள் மற்றும் வரலாற்றுப் பாதை தவிர்க்கும். மாற்றினால் கடந்த 7 நாட்கள் மீண்டும் கணக்கிடப்படும்; முதலில் வரலாறு → அனைத்துப் புள்ளிகளில் சுத்தமான தூரத்துடன் ஒப்பிடுங்கள்.",
+  "Ignition off since {{time}} ({{duration}})": "{{time}} முதல் இக்னிஷன் அணைப்பு ({{duration}})",
+  "Current trip": "தற்போதைய பயணம்",
+  "Last trip": "கடைசி பயணம்",
 };

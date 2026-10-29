@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { FlatList, RefreshControl, View } from 'react-native';
 import { Card, EmptyState, SearchInput } from '@/components/ui';
 import { matches, StatusChips, VehicleSummary, type StatusFilter } from '@/features/live/components';
+import { useDayStats, VehicleDayDetails } from '@/features/live/day-stats';
 import { liveStore } from '@/features/live/live-store';
 import { useLiveVersion, useNow } from '@/features/live/use-live';
 import { SPACE } from '@/lib/theme';
@@ -16,6 +17,7 @@ export default function VehiclesScreen() {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<StatusFilter>('ALL');
   const [refreshing, setRefreshing] = useState(false);
+  const dayStats = useDayStats();
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const all = useMemo(() => liveStore.all(), [version]);
@@ -24,7 +26,7 @@ export default function VehiclesScreen() {
 
   const refresh = async () => {
     setRefreshing(true);
-    await liveStore.loadSnapshot().catch(() => undefined);
+    await Promise.all([liveStore.loadSnapshot().catch(() => undefined), dayStats.refetch()]);
     setRefreshing(false);
   };
 
@@ -44,6 +46,7 @@ export default function VehiclesScreen() {
         renderItem={({ item }) => (
           <Card onPress={() => router.push(`/vehicle/${item.objectId}`)}>
             <VehicleSummary o={item} now={now} />
+            <VehicleDayDetails o={item} stats={dayStats.data?.[item.objectId]} now={now} />
           </Card>
         )}
         ListEmptyComponent={

@@ -113,6 +113,20 @@ export interface NormalizedPosition {
 }
 
 /** Current state of one tracked object, as shown on the live map. */
+/** Vehicle list / map card figures for today (company time zone), from the summarizer (up to a minute behind). */
+export interface VehicleDayStatsDto {
+  distanceKm: number;
+  movingSec: number;
+  idleSec: number;
+  maxSpeedKph: number;
+  stops: number;
+  trips: number;
+  /** The trip in progress, else today's last trip; null when there was none today. */
+  trip: { distanceKm: number; durationSec: number; ongoing: boolean } | null;
+  /** Total km recorded so far plus the vehicle's odometer offset (Vehicles → edit). */
+  odometerKm: number;
+}
+
 export interface LiveObject {
   /** In maintenance: alerts are suppressed. */
   inMaintenance?: boolean;
