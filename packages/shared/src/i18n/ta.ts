@@ -2900,4 +2900,13 @@ export const TA: Record<string, string> = {
   "Could not connect": "இணைக்க முடியவில்லை",
   "updated {{time}}": "{{time}} புதுப்பிக்கப்பட்டது",
   "Shared by {{name}}": "{{name}} பகிர்ந்தது",
+  "{{alert}} for {{vehicle}}": "{{vehicle}}-க்கு {{alert}}",
+  "Voice announcements are on": "குரல் அறிவிப்புகள் இயக்கத்தில் உள்ளன",
+  "Voice announcements on: every alert is read aloud — click to turn off": "குரல் அறிவிப்புகள் இயக்கத்தில்: ஒவ்வொரு எச்சரிக்கையும் வாசிக்கப்படும் — அணைக்க கிளிக் செய்யவும்",
+  "Voice announcements off — click to read every alert aloud": "குரல் அறிவிப்புகள் அணைப்பு — ஒவ்வொரு எச்சரிக்கையையும் கேட்க கிளிக் செய்யவும்",
+  "Turn off voice announcements": "குரல் அறிவிப்புகளை அணை",
+  "Turn on voice announcements": "குரல் அறிவிப்புகளை இயக்கு",
+  "Voice announcements": "குரல் அறிவிப்புகள்",
+  "Read alerts aloud": "எச்சரிக்கைகளை வாசித்துக் காட்டு",
+  "Every new alert is announced through the speaker while the app is open.": "செயலி திறந்திருக்கும்போது ஒவ்வொரு புதிய எச்சரிக்கையும் ஸ்பீக்கரில் அறிவிக்கப்படும்.",
 };

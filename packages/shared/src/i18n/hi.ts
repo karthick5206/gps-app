@@ -2900,4 +2900,13 @@ export const HI: Record<string, string> = {
   "Could not connect": "कनेक्ट नहीं हो सका",
   "updated {{time}}": "{{time}} पर अपडेट",
   "Shared by {{name}}": "{{name}} द्वारा साझा",
+  "{{alert}} for {{vehicle}}": "{{vehicle}} के लिए {{alert}}",
+  "Voice announcements are on": "आवाज़ घोषणाएं चालू हैं",
+  "Voice announcements on: every alert is read aloud — click to turn off": "आवाज़ घोषणाएं चालू: हर अलर्ट पढ़कर सुनाया जाता है — बंद करने के लिए क्लिक करें",
+  "Voice announcements off — click to read every alert aloud": "आवाज़ घोषणाएं बंद — हर अलर्ट सुनने के लिए क्लिक करें",
+  "Turn off voice announcements": "आवाज़ घोषणाएं बंद करें",
+  "Turn on voice announcements": "आवाज़ घोषणाएं चालू करें",
+  "Voice announcements": "आवाज़ घोषणाएं",
+  "Read alerts aloud": "अलर्ट पढ़कर सुनाएं",
+  "Every new alert is announced through the speaker while the app is open.": "ऐप खुला रहने पर हर नया अलर्ट स्पीकर पर सुनाया जाता है।",
 };

@@ -8,6 +8,7 @@ import { bindAudioUnlock, playAlertSound, playSiren } from './sound';
 
 const LATEST = 20;
 const MUTE_KEY = 'vt.alerts.muted';
+const VOICE_KEY = 'vt.alerts.voice';
 const POPUP_KEY = 'vt.alerts.criticalPopup';
 /** Only emergencies block the screen (and repeat a siren until acknowledged); other CRITICAL alerts get a toast and beeps. */
 const POPUP_TYPES: ReadonlySet<string> = new Set(EMERGENCY_ALERT_TYPES);
@@ -21,6 +22,8 @@ export interface AlertCenterState {
   /** CRITICAL alerts received live in this session and not yet acknowledged/dismissed (oldest first). */
   critical: AlertDto[];
   muted: boolean;
+  /** Read every new alert aloud (this browser). */
+  voice: boolean;
   /** Show the blocking modal for emergency alerts (SOS, power cut) — per-user preference, default on. */
   criticalPopup: boolean;
   loaded: boolean;
@@ -45,7 +48,7 @@ export function alertTitle(a: Pick<AlertDto, 'type'>): string {
  * Fed by `/api/alerts` on start and by the socket `alert` event; React reads it via useSyncExternalStore.
  */
 class AlertCenter {
-  private state: AlertCenterState = { latest: [], unread: 0, pendingAck: 0, critical: [], muted: storage.get(MUTE_KEY) === '1', criticalPopup: storage.get(POPUP_KEY) !== '0', loaded: false };
+  private state: AlertCenterState = { latest: [], unread: 0, pendingAck: 0, critical: [], muted: storage.get(MUTE_KEY) === '1', voice: storage.get(VOICE_KEY) === '1', criticalPopup: storage.get(POPUP_KEY) !== '0', loaded: false };
   private listeners = new Set<Listener>();
   private alertListeners = new Set<AlertListener>();
   private changeListeners = new Set<AlertListener>();
@@ -169,6 +172,7 @@ class AlertCenter {
     const critical = alarm && a.status === 'NEW' ? [...this.state.critical, a] : this.state.critical;
     this.set({ latest, critical, unread: this.state.unread + (isUnread(a) ? 1 : 0), pendingAck: this.state.pendingAck + (a.ackRequired && a.status === 'NEW' ? 1 : 0) });
     if (!this.state.muted && !POPUP_TYPES.has(a.type) && !isParkingAlarm(a.data)) playAlertSound(a.severity);
+    if (this.state.voice && a.status === 'NEW') void import('./voice').then((v) => v.speakAlert(a)).catch(() => undefined);
     this.alertListeners.forEach((l) => l(a));
   }
 
@@ -257,6 +261,11 @@ class AlertCenter {
     storage.set(MUTE_KEY, muted ? '1' : '0');
     this.set({ muted });
     if (!muted) bindAudioUnlock();
+  }
+
+  setVoice(on: boolean) {
+    storage.set(VOICE_KEY, on ? '1' : '0');
+    this.set({ voice: on });
   }
 
   setCriticalPopup(on: boolean) {

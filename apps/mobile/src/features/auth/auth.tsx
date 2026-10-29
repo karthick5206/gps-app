@@ -9,6 +9,7 @@ import { unregisterPush } from '@/features/notifications/push';
 import { applyThemePreference, restoreThemePreference } from '@/features/theme/theme';
 import { i18n, restoreLanguage, setLanguage } from '@/lib/i18n';
 import { display } from '@/features/display/display';
+import { voiceAlerts } from '@/features/notifications/voice';
 import { basemap } from '@/features/map/basemap';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
@@ -36,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await Promise.all([session.load(), restoreThemePreference(), restoreLanguage(), display.restore(), basemap.restore()]);
+      await Promise.all([session.load(), restoreThemePreference(), restoreLanguage(), display.restore(), basemap.restore(), voiceAlerts.restore()]);
       const ok = session.getRefreshToken() ? await refreshAccessToken() : false;
       if (cancelled) return;
       if (!ok) session.clear();

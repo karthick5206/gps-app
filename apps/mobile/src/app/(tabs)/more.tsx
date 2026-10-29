@@ -3,7 +3,7 @@ import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
 import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, View, Switch } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
 import { EmergencyAlertsCard } from '@/components/EmergencyAlertsCard';
 import { PushTestButton } from '@/components/PushTestButton';
@@ -15,6 +15,7 @@ import { pushStatus } from '@/features/notifications/push';
 import { LanguageChips } from '@/components/LanguageChips';
 import { ALL_COMPANIES, PLAY_STORE } from '@veetracer/shared';
 import { SERVER_URL } from '@/lib/config';
+import { useVoiceAlerts, voiceAlerts } from '@/features/notifications/voice';
 import { SPACE, useColors } from '@/lib/theme';
 
 function MenuItem({ icon: Icon, label, href, url, onPress }: { icon: LucideIcon; label: string; href?: Href; url?: string; onPress?: () => void }) {
@@ -142,10 +143,31 @@ export default function MoreScreen() {
       </Card>
       <PushTestButton />
 
+      <SectionTitle>{t('Voice announcements')}</SectionTitle>
+      <VoiceAlertsCard />
+
       <SectionTitle>{t('Emergency alerts')}</SectionTitle>
       <EmergencyAlertsCard />
 
       <Button title={t('Sign out')} icon={LogOutIcon} variant="outline" onPress={confirmSignOut} style={{ marginTop: SPACE.md }} />
     </ScrollView>
+  );
+}
+
+/** Read every new alert aloud through the speaker while the app is open. */
+function VoiceAlertsCard() {
+  const c = useColors();
+  const { t } = useTranslation();
+  const on = useVoiceAlerts();
+  return (
+    <Card style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
+      <View style={{ flex: 1 }}>
+        <Text weight="600">{t('Read alerts aloud')}</Text>
+        <Text size="sm" tone="muted">
+          {t('Every new alert is announced through the speaker while the app is open.')}
+        </Text>
+      </View>
+      <Switch value={on} onValueChange={(v) => voiceAlerts.set(v)} trackColor={{ true: c.primary }} />
+    </Card>
   );
 }

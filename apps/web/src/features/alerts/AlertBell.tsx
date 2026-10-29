@@ -1,5 +1,5 @@
 import type { AlertDto } from '@veetracer/shared';
-import { BellIcon, CheckCheckIcon, MailOpenIcon, MapPinIcon, MonitorIcon, MonitorOffIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, Volume2Icon, VolumeXIcon } from 'lucide-react';
+import { BellIcon, CheckCheckIcon, MailOpenIcon, MapPinIcon, MonitorIcon, MonitorOffIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, Volume2Icon, VolumeXIcon, MegaphoneIcon, MegaphoneOffIcon } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
@@ -16,6 +16,7 @@ import { errorMessage } from '@/lib/api';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { alertCenter, alertTitle } from './alert-center';
+import { speakTest, voiceSupported } from './voice';
 import { alertIcon, AlertTypeIcon } from './alert-icons';
 import { desktopNotify, useDesktopNotify } from './desktop-notify';
 import { isUnread } from './read-state';
@@ -341,6 +342,22 @@ export function AlertBell() {
                 {state.muted ? <VolumeXIcon /> : <Volume2Icon />}
               </Button>
             </Tooltip>
+            {voiceSupported && (
+              <Tooltip content={state.voice ? t('Voice announcements on: every alert is read aloud — click to turn off') : t('Voice announcements off — click to read every alert aloud')}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={state.voice ? t('Turn off voice announcements') : t('Turn on voice announcements')}
+                  aria-pressed={state.voice}
+                  onClick={() => {
+                    alertCenter.setVoice(!state.voice);
+                    if (!state.voice) speakTest();
+                  }}
+                >
+                  {state.voice ? <MegaphoneIcon /> : <MegaphoneOffIcon />}
+                </Button>
+              </Tooltip>
+            )}
             <Tooltip content={state.criticalPopup ? t('Critical alerts open a pop-up until acknowledged — click to turn off') : t('Critical pop-ups off — click to turn on')}>
               <Button
                 variant="ghost"

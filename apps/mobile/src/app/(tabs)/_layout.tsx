@@ -11,6 +11,7 @@ import { realtime } from '@/features/live/realtime';
 import { useLiveConnection } from '@/features/live/use-live-connection';
 import { handleNotificationTaps, openSos, registerForPush } from '@/features/notifications/push';
 import { api } from '@/lib/api';
+import { announceAlert } from '@/features/notifications/voice';
 import { useColors } from '@/lib/theme';
 
 export default function TabsLayout() {
@@ -37,6 +38,7 @@ export default function TabsLayout() {
     () =>
       realtime.on('alert', (a?: AlertDto) => {
         void queryClient.invalidateQueries({ queryKey: ['alerts'] });
+        if (a) announceAlert(a);
         if (a?.id && isAlarmAlert(a.type, a.data) && a.status === 'NEW') openSos(a.id);
       }),
     [queryClient],
