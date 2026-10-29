@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { displayStatusLabel, type VideoChannelsDto } from '@veetracer/shared';
 import * as WebBrowser from 'expo-web-browser';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { BellIcon, CarIcon, HistoryIcon, ScanFaceIcon, TerminalIcon, VideoIcon } from 'lucide-react-native';
+import { BellIcon, CarIcon, HistoryIcon, ScanFaceIcon, TerminalIcon, VideoIcon, Share2Icon } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
@@ -97,6 +97,7 @@ export default function VehicleScreen() {
         {video.isSuccess && can('driver_events') && (
           <Button title={t('Driver events')} icon={ScanFaceIcon} variant="outline" onPress={() => router.push({ pathname: '/driver-events', params: { objectId: o.objectId } })} />
         )}
+        {!o.licenceLocked && o.lat !== null && <Button title={t('Share live location')} icon={Share2Icon} variant="outline" onPress={() => router.push(`/share/${o.objectId}`)} />}
         {can('live_map', 'command') && <Button title={t('Commands')} icon={TerminalIcon} variant="outline" onPress={() => router.push(`/commands/${o.objectId}`)} />}
 
         <SectionTitle>{t('Status')}</SectionTitle>

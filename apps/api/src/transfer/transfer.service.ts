@@ -15,7 +15,7 @@ type Tx = Prisma.TransactionClient;
  * on purpose: GeofenceVisit (its geofences stay there) and past DriverAssignment rows (its drivers stay there).
  * Keep in step with the schema when a table with objectId + companyId is added.
  */
-const OBJECT_HISTORY_TABLES = ['Alert', 'DailySummary', 'DeviceCommand', 'Document', 'DriverEvent', 'FuelEvent', 'IoSession', 'ObjectRemark', 'ParkingSchedule', 'ServiceRecord', 'ServiceReminder', 'Stop', 'Trip'] as const;
+const OBJECT_HISTORY_TABLES = ['Alert', 'DailySummary', 'DeviceCommand', 'Document', 'DriverEvent', 'FuelEvent', 'IoSession', 'LiveShare', 'ObjectRemark', 'ParkingSchedule', 'ServiceRecord', 'ServiceReminder', 'Stop', 'Trip'] as const;
 /** Vehicle fields copied to the new vehicle when it moves "start fresh". */
 const OBJECT_COPY_FIELDS = ['type', 'vehicleType', 'name', 'plateNumber', 'make', 'model', 'color', 'icon', 'speedLimitKph', 'odometerOffsetKm', 'customFields'] as const;
 

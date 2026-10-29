@@ -8,6 +8,7 @@ import { SignupPage } from '@/features/auth/SignupPage';
 import { ClaimPage } from '@/features/claim/ClaimPage';
 import { GuidePage } from '@/features/guide/GuidePage';
 import { DownloadPage } from '@/features/download/DownloadPage';
+import { PublicSharePage } from '@/features/live-share/PublicSharePage';
 import { DeleteAccountPage, PrivacyPage } from '@/features/legal/LegalPages';
 import { RedirectIfAuthenticated, RequireAuth, RequirePermission } from '@/features/auth/guards';
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -88,6 +89,8 @@ export const router = createBrowserRouter([
   { path: '/guide', element: <GuidePage /> },
   { path: '/download', element: <DownloadPage /> },
   { path: '/privacy', element: <PrivacyPage /> },
+  // Live location share link: anyone with the link, no sign-in.
+  { path: '/share/:token', element: <PublicSharePage /> },
   // Interactive deletion page. App stores get the static public/delete-account.html (readable without JavaScript).
   { path: '/delete-account', element: <DeleteAccountPage /> },
   {

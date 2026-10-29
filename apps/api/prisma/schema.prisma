@@ -314,6 +314,7 @@ model TrackedObject {
   serviceLog      ServiceRecord[]
   fuelConfig      FuelConfig?
   parkingSchedule ParkingSchedule?
+  liveShares      LiveShare[]
   fuelEvents      FuelEvent[]
   ioSessions      IoSession[]
   driverEvents    DriverEvent[]
@@ -1110,6 +1111,27 @@ model ParkingSchedule {
 
   object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
 
+  @@index([companyId])
+}
+
+/// Live location share link (public page /share/<token>), valid until expiresAt; the token is stored as a SHA-256 hash.
+model LiveShare {
+  id           String    @id @default(uuid()) @db.Uuid
+  tokenHash    String    @unique
+  companyId    String    @db.Uuid
+  objectId     String    @db.Uuid
+  createdById  String?   @db.Uuid
+  note         String?
+  hours        Int
+  expiresAt    DateTime  @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+  viewCount    Int       @default(0)
+  lastViewedAt DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([objectId, createdAt(sort: Desc)])
   @@index([companyId])
 }
 

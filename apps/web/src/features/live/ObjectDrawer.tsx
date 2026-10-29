@@ -24,6 +24,7 @@ import { CommandsTab } from './CommandsTab';
 import { DriverControl } from './DriverControl';
 import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
 import { RecentDriverEvents } from '@/features/driver-events/AlertSnapshot';
+import { ShareLiveButton } from '@/features/live-share/ShareLiveDialog';
 import { ignitionText, TodayCard, useDayStats } from './day-stats';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -272,6 +273,7 @@ export function ObjectDrawer({
             </Link>
           </Button>
         )}
+        {!object.licenceLocked && hasCoords && <ShareLiveButton objectId={object.objectId} name={object.name} />}
         {can('objects', 'edit') && <MaintenanceControl objectId={object.objectId} inMaintenance={inMaintenance} onChange={(value) => setMaintenance({ id: object.objectId, value })} />}
       </div>
       <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
