@@ -134,16 +134,19 @@ export function PublicSharePage() {
   const lastSeen = data?.live.serverTime ? (now - Date.parse(data.live.serverTime)) / 1000 : null;
 
   return (
-    <div className="flex h-dvh flex-col bg-background">
+    <div className="flex h-dvh w-full flex-col overflow-hidden bg-background">
       <header className="flex items-center gap-2 border-b px-4 py-2">
         <Logo className="h-7" />
-        <span className="ms-auto flex items-center gap-1 text-xs text-muted-foreground">
+        <span className="ms-auto flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground">
           <KeyRoundIcon className="size-3.5" />
           {data ? t('Link valid for {{time}}', { time: formatDuration(expiresIn) }) : t('Live location')}
         </span>
       </header>
       <div className="relative min-h-0 flex-1">
-        <div ref={mapEl} className="absolute inset-0" />
+        {/* maplibre styles its container as position: relative, so it fills a positioned wrapper instead. */}
+        <div className="absolute inset-0">
+          <div ref={mapEl} className="h-full w-full" />
+        </div>
         {data && !follow && (
           <button type="button" onClick={() => setFollow(true)} className="absolute right-3 bottom-3 flex items-center gap-1.5 rounded-full border bg-card px-3 py-2 text-sm font-medium shadow-lg">
             <LocateFixedIcon className="size-4" /> {t('Follow')}
@@ -183,7 +186,7 @@ export function PublicSharePage() {
               )}
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 [&>*]:min-w-0">
             <Stat icon={GaugeIcon} label={t('Speed')}>{`${data.live.speedKph} km/h`}</Stat>
             <Stat icon={NavigationIcon} label={t('Ignition')}>{data.live.ignition === null ? '—' : data.live.ignition ? t('On') : t('Off')}</Stat>
             <Stat icon={RouteIcon} label={t('Today')}>{data.todayKm === null ? '—' : `${data.todayKm.toFixed(1)} km`}</Stat>
