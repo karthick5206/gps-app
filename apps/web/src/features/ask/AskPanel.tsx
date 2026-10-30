@@ -73,7 +73,10 @@ function AskPanel({ onNavigate }: { onNavigate: () => void }) {
     setText('');
     ask.mutate(s);
   };
-  useEffect(() => end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }), [turns]);
+  // Block body: newer browsers return a Promise from scrollIntoView, which React would call as the cleanup.
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [turns]);
   const go = (href: string) => {
     onNavigate();
     navigate(href);
