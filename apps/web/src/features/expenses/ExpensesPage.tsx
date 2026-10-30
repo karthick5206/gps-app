@@ -22,12 +22,14 @@ import { api, downloadFile, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 
 type Period = 'month' | 'lastMonth' | 'last3';
+/** Whole days only: a `to` of "now" would change on every render, giving a new query key (endless refetch) and hiding entries saved later. */
 const range = (p: Period) => {
   const now = new Date();
   const start = (y: number, m: number) => new Date(y, m, 1);
-  if (p === 'month') return { from: start(now.getFullYear(), now.getMonth()), to: now };
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, -1);
+  if (p === 'month') return { from: start(now.getFullYear(), now.getMonth()), to: endOfToday };
   if (p === 'lastMonth') return { from: start(now.getFullYear(), now.getMonth() - 1), to: new Date(start(now.getFullYear(), now.getMonth()).getTime() - 1) };
-  return { from: start(now.getFullYear(), now.getMonth() - 2), to: now };
+  return { from: start(now.getFullYear(), now.getMonth() - 2), to: endOfToday };
 };
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
