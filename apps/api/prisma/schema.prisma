@@ -1127,6 +1127,11 @@ model LiveShare {
   revokedAt    DateTime? @db.Timestamptz(3)
   viewCount    Int       @default(0)
   lastViewedAt DateTime? @db.Timestamptz(3)
+  /// Delivery ETA link: destination (the page shows the live ETA; the link ends 15 min after arrival).
+  destLat      Float?
+  destLng      Float?
+  destLabel    String?
+  arrivedAt    DateTime? @db.Timestamptz(3)
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
 
   object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)

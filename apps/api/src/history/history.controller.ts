@@ -108,6 +108,13 @@ export class HistoryController {
     return csvFile('stops', stops, stopColumns(meta.tz));
   }
 
+  /** Any logged-in user: address / place search (e.g. a delivery destination). */
+  @Get('geocode/search')
+  async search(@Query('q') q: string, @Query('lat') lat?: string, @Query('lng') lng?: string): Promise<{ label: string; lat: number; lng: number }[]> {
+    const near = lat && lng && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) ? { lat: Number(lat), lng: Number(lng) } : undefined;
+    return this.geocoding.search(String(q ?? '').slice(0, 120), near);
+  }
+
   /** Any logged-in user: address for the playback panel. */
   @Get('geocode/reverse')
   async reverse(@Query() q: ReverseGeocodeQuery): Promise<{ address: string | null }> {

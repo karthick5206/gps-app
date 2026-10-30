@@ -9,10 +9,22 @@ export const LIVE_SHARE_DEFAULT_HOURS = 2;
 /** How often the public page asks for the position (seconds). */
 export const LIVE_SHARE_POLL_SEC = 5;
 
+export interface LiveShareDestination {
+  lat: number;
+  lng: number;
+  label: string;
+}
+
+/** The vehicle counts as arrived within this distance of the destination (m); the link then ends after LIVE_SHARE_AFTER_ARRIVAL_MIN. */
+export const LIVE_SHARE_ARRIVAL_M = 150;
+export const LIVE_SHARE_AFTER_ARRIVAL_MIN = 15;
+
 export interface LiveShareCreateInput {
   objectId: string;
   hours: number;
   note?: string;
+  /** Delivery ETA link: where the vehicle is going (live ETA on the page; the link ends soon after arrival). */
+  destination?: LiveShareDestination;
 }
 
 export interface LiveShareDto {
@@ -27,6 +39,8 @@ export interface LiveShareDto {
   viewCount: number;
   lastViewedAt: string | null;
   active: boolean;
+  destination: LiveShareDestination | null;
+  arrivedAt: string | null;
 }
 
 /** Created share: the link is only returned now (the token is not stored in clear). */
@@ -64,4 +78,6 @@ export interface PublicLiveShareDto {
   trail: [number, number, number][];
   /** Today's distance (km), when known. */
   todayKm: number | null;
+  /** Delivery ETA link: destination, remaining road distance / time and route, or the arrival time. */
+  eta: { destination: LiveShareDestination; distanceKm: number | null; minutes: number | null; route: [number, number][]; arrivedAt: string | null; byRoad: boolean } | null;
 }

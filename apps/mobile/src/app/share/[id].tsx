@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LIVE_SHARE_DEFAULT_HOURS, LIVE_SHARE_MAX_HOURS, type LiveShareCreatedDto, type LiveShareDto } from '@veetracer/shared';
+import { LIVE_SHARE_DEFAULT_HOURS, LIVE_SHARE_MAX_HOURS, type LiveShareCreatedDto, type LiveShareDestination, type LiveShareDto } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { Share2Icon } from 'lucide-react-native';
-import { useState } from 'react';
+import { FlagIcon, Share2Icon, XIcon } from 'lucide-react-native';
+import { useDeferredValue, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Pressable, ScrollView, Share, View } from 'react-native';
 import { Button, Card, Field, Text } from '@/components/ui';
@@ -23,14 +23,28 @@ export default function ShareLiveScreen() {
   const name = o?.name ?? t('Vehicle');
   const [hours, setHours] = useState(String(LIVE_SHARE_DEFAULT_HOURS));
   const [note, setNote] = useState('');
+  // Optional destination: a delivery ETA link (live arrival time; the link ends 15 minutes after arrival).
+  const [destination, setDestination] = useState<LiveShareDestination | null>(null);
+  const [placeQ, setPlaceQ] = useState('');
+  const placeSearch = useDeferredValue(placeQ.trim());
+  const places = useQuery({
+    queryKey: ['geocode-search', placeSearch],
+    queryFn: ({ signal }) => api.get<LiveShareDestination[]>('/geocode/search', { q: placeSearch }, signal),
+    enabled: placeSearch.length >= 3 && !destination,
+    staleTime: 60_000,
+  });
   const shares = useQuery({ queryKey: ['live-shares', id], queryFn: ({ signal }) => api.get<LiveShareDto[]>('/live-shares', { objectId: id }, signal) });
   const h = Number(hours);
   const valid = Number.isInteger(h) && h >= 1 && h <= LIVE_SHARE_MAX_HOURS;
 
   const share = (s: LiveShareCreatedDto) =>
-    Share.share({ message: t('Live location of {{name}} (valid for {{hours}} h): {{url}}', { name, hours: s.hours, url: s.url }) }).catch(() => undefined);
+    Share.share({
+      message: s.destination
+        ? t('Track {{name}} on the way to {{place}}: {{url}}', { name, place: s.destination.label, url: s.url })
+        : t('Live location of {{name}} (valid for {{hours}} h): {{url}}', { name, hours: s.hours, url: s.url }),
+    }).catch(() => undefined);
   const create = useMutation({
-    mutationFn: () => api.post<LiveShareCreatedDto>('/live-shares', { objectId: id, hours: h, ...(note.trim() ? { note: note.trim() } : {}) }),
+    mutationFn: () => api.post<LiveShareCreatedDto>('/live-shares', { objectId: id, hours: h, ...(note.trim() ? { note: note.trim() } : {}), ...(destination ? { destination } : {}) }),
     onSuccess: (s) => {
       void qc.invalidateQueries({ queryKey: ['live-shares', id] });
       void share(s);
@@ -70,6 +84,26 @@ export default function ShareLiveScreen() {
               );
             })}
           </View>
+          {destination ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md, padding: 10 }}>
+              <FlagIcon size={18} color="#d97706" />
+              <Text size="sm" style={{ flex: 1 }} numberOfLines={2}>
+                {destination.label}
+              </Text>
+              <Pressable onPress={() => setDestination(null)} hitSlop={8} accessibilityLabel={t('Remove destination')}>
+                <XIcon size={18} color={c.mutedForeground} />
+              </Pressable>
+            </View>
+          ) : (
+            <View style={{ gap: 6 }}>
+              <Field label={t('Destination (optional): delivery ETA')} hint={t('The page shows the live arrival time; the link ends 15 minutes after arrival.')} value={placeQ} onChangeText={setPlaceQ} placeholder={t('Search an address or place')} />
+              {(places.data ?? []).map((p) => (
+                <Pressable key={`${p.lat},${p.lng}`} onPress={() => (setDestination(p), setPlaceQ(''))} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.border }}>
+                  <Text size="sm">{p.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
           <Field label={t('Note (optional)')} value={note} onChangeText={setNote} maxLength={200} placeholder={t('e.g. Delivery to Anna Nagar')} />
           <Button title={t('Create and share link')} icon={Share2Icon} onPress={() => create.mutate()} loading={create.isPending} disabled={!valid} />
         </Card>

@@ -1,5 +1,5 @@
 import { BadRequestException, GoneException, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { LIVE_SHARE_MAX_HOURS, type LiveShareCreatedDto, type LiveShareDto, type PublicLiveShareDto } from '@veetracer/shared';
+import { LIVE_SHARE_AFTER_ARRIVAL_MIN, LIVE_SHARE_ARRIVAL_M, LIVE_SHARE_MAX_HOURS, type LiveShareCreatedDto, type LiveShareDestination, type LiveShareDto, type PublicLiveShareDto } from '@veetracer/shared';
 import { createHash, randomBytes } from 'node:crypto';
 import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
@@ -9,6 +9,8 @@ import { GeocodingService } from '../geocoding/geocoding.service';
 import { LicencePolicyService } from '../licences/licence-policy.service';
 import { LiveStateService } from '../live/live-state.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RoutingService } from '../routing/routing.service';
+import { haversineMeters } from '../tracking/geo';
 import { localDayKey } from '../summarizer/tz';
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -17,7 +19,11 @@ const HOUR_MS = 3_600_000;
 const TRAIL_MS = HOUR_MS;
 const TRAIL_MAX = 720;
 
-type ShareRow = { id: string; objectId: string; note: string | null; hours: number; createdAt: Date; expiresAt: Date; revokedAt: Date | null; createdById: string | null; viewCount: number; lastViewedAt: Date | null };
+type ShareRow = { id: string; objectId: string; note: string | null; hours: number; createdAt: Date; expiresAt: Date; revokedAt: Date | null; createdById: string | null; viewCount: number; lastViewedAt: Date | null; destLat: number | null; destLng: number | null; destLabel: string | null; arrivedAt: Date | null };
+
+const AFTER_ARRIVAL_MS = LIVE_SHARE_AFTER_ARRIVAL_MIN * 60_000;
+const destOf = (r: Pick<ShareRow, 'destLat' | 'destLng' | 'destLabel'>): LiveShareDestination | null =>
+  r.destLat !== null && r.destLng !== null ? { lat: r.destLat, lng: r.destLng, label: r.destLabel ?? '' } : null;
 
 /**
  * Live location share links: a signed-in user with access to the vehicle creates a link valid for N hours; anyone with
@@ -32,6 +38,7 @@ export class LiveShareService {
     private readonly audit: AuditService,
     private readonly liveState: LiveStateService,
     private readonly geocoder: GeocodingService,
+    private readonly routing: RoutingService,
     @Optional() private readonly licences?: LicencePolicyService,
   ) {}
 
@@ -53,7 +60,9 @@ export class LiveShareService {
       createdByName: r.createdById ? (names.get(r.createdById) ?? null) : null,
       viewCount: r.viewCount,
       lastViewedAt: r.lastViewedAt?.toISOString() ?? null,
-      active: !r.revokedAt && r.expiresAt.getTime() > now,
+      active: !r.revokedAt && r.expiresAt.getTime() > now && !(r.arrivedAt && now - r.arrivedAt.getTime() > AFTER_ARRIVAL_MS),
+      destination: destOf(r),
+      arrivedAt: r.arrivedAt?.toISOString() ?? null,
     };
   }
 
@@ -63,7 +72,7 @@ export class LiveShareService {
     return new Map(users.map((u) => [u.id, u.name]));
   }
 
-  async create(ctx: AuthContext, objectId: string, hours: number, note?: string): Promise<LiveShareCreatedDto> {
+  async create(ctx: AuthContext, objectId: string, hours: number, note?: string, destination?: LiveShareDestination): Promise<LiveShareCreatedDto> {
     if (!Number.isFinite(hours) || hours < 1 || hours > LIVE_SHARE_MAX_HOURS) throw new BadRequestException(`Hours must be between 1 and ${LIVE_SHARE_MAX_HOURS}`);
     const o = await this.object(ctx, objectId);
     if ((await this.licences?.lockedObjectIds({ companyId: o.companyId, isSuperAdmin: false }))?.has(o.id)) {
@@ -72,9 +81,9 @@ export class LiveShareService {
     const token = randomBytes(24).toString('base64url');
     const h = Math.round(hours);
     const row = await this.prisma.liveShare.create({
-      data: { tokenHash: hash(token), companyId: o.companyId, objectId: o.id, createdById: ctx.userId, note: note?.trim().slice(0, 200) || null, hours: h, expiresAt: new Date(Date.now() + h * HOUR_MS) },
+      data: { tokenHash: hash(token), companyId: o.companyId, objectId: o.id, createdById: ctx.userId, note: note?.trim().slice(0, 200) || null, hours: h, expiresAt: new Date(Date.now() + h * HOUR_MS), ...(destination ? { destLat: destination.lat, destLng: destination.lng, destLabel: destination.label.trim().slice(0, 200) } : {}) },
     });
-    await this.audit.record({ ...ctx, companyId: o.companyId }, { action: 'CREATE', entity: 'LiveShare', entityId: row.id, after: { objectId: o.id, vehicle: o.name, hours: h, expiresAt: row.expiresAt.toISOString() } });
+    await this.audit.record({ ...ctx, companyId: o.companyId }, { action: 'CREATE', entity: 'LiveShare', entityId: row.id, after: { objectId: o.id, vehicle: o.name, hours: h, expiresAt: row.expiresAt.toISOString(), ...(destination ? { destination: destination.label } : {}) } });
     return { ...this.toDto(row, await this.names([row])), url: `${this.webUrl}/share/${token}` };
   }
 
@@ -104,6 +113,7 @@ export class LiveShareService {
     if (!share || !share.object.isActive) throw new NotFoundException('This link is not valid.');
     if (share.revokedAt) throw new GoneException('Sharing was stopped by the sender.');
     if (share.expiresAt.getTime() <= now) throw new GoneException('This link has expired.');
+    if (share.arrivedAt && now - share.arrivedAt.getTime() > AFTER_ARRIVAL_MS) throw new GoneException('The vehicle has arrived; this link has ended.');
     if ((await this.licences?.lockedObjectIds({ companyId: share.companyId, isSuperAdmin: false }))?.has(share.objectId)) throw new GoneException('This link is not available right now.');
 
     const o = share.object;
@@ -148,6 +158,26 @@ export class LiveShareService {
       },
       trail: trail.reverse().map((p) => [p.t, Math.round(p.lat * 1e6) / 1e6, Math.round(p.lng * 1e6) / 1e6]),
       todayKm: today ? Math.round(today.distanceKm * 10) / 10 : null,
+      eta: await this.eta(share, live?.lat ?? null, live?.lng ?? null, now),
     };
+  }
+
+  /**
+   * Delivery ETA: road distance / time from the current position (routing engine; otherwise straight line × 1.3 at
+   * 25 km/h), and arrival once within LIVE_SHARE_ARRIVAL_M of the destination (stored, so the page keeps saying arrived).
+   */
+  private async eta(share: ShareRow, lat: number | null, lng: number | null, now: number): Promise<PublicLiveShareDto['eta']> {
+    const destination = destOf(share);
+    if (!destination) return null;
+    let arrivedAt = share.arrivedAt;
+    if (!arrivedAt && lat !== null && lng !== null && haversineMeters(lat, lng, destination.lat, destination.lng) <= LIVE_SHARE_ARRIVAL_M) {
+      arrivedAt = new Date(now);
+      await this.prisma.liveShare.update({ where: { id: share.id }, data: { arrivedAt } }).catch(() => undefined);
+    }
+    if (arrivedAt || lat === null || lng === null) return { destination, distanceKm: null, minutes: null, route: [], arrivedAt: arrivedAt?.toISOString() ?? null, byRoad: false };
+    const road = await this.routing.route({ lat, lng }, destination).catch(() => null);
+    if (road) return { destination, distanceKm: Math.round(road.m / 100) / 10, minutes: Math.max(1, Math.round(road.s / 60)), route: road.shape, arrivedAt: null, byRoad: true };
+    const km = (haversineMeters(lat, lng, destination.lat, destination.lng) * 1.3) / 1000;
+    return { destination, distanceKm: Math.round(km * 10) / 10, minutes: Math.max(1, Math.round((km / 25) * 60)), route: [], arrivedAt: null, byRoad: false };
   }
 }

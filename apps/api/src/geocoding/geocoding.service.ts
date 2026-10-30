@@ -50,6 +50,29 @@ export class GeocodingService {
     return address;
   }
 
+  /** Address / place search for picking a destination (Photon only; up to 6 results near India). */
+  async search(q: string, near?: { lat: number; lng: number }): Promise<{ label: string; lat: number; lng: number }[]> {
+    if (!this.enabled || this.provider !== 'photon' || q.trim().length < 3) return [];
+    try {
+      const p = new URLSearchParams({ q: q.trim(), limit: '6', lang: 'en', bbox: '68,6,98,37' });
+      if (near) {
+        p.set('lat', String(near.lat));
+        p.set('lon', String(near.lng));
+      }
+      const res = await fetch(`${this.baseUrl}/api?${p.toString()}`, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) return [];
+      const body = (await res.json()) as { features?: { geometry?: { coordinates?: [number, number] }; properties?: Record<string, string | undefined> }[] };
+      return (body.features ?? []).flatMap((f) => {
+        const c = f.geometry?.coordinates;
+        const label = f.properties ? photonAddress(f.properties) : null;
+        return c && label ? [{ label, lat: c[1], lng: c[0] }] : [];
+      });
+    } catch (error) {
+      this.logger.warn(`Address search failed: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
   /** Serialises provider calls and spaces them by minIntervalMs (rate-limited providers only; self-hosted Photon runs in parallel). */
   private throttled<T>(fn: () => Promise<T>): Promise<T> {
     if (this.minIntervalMs <= 0) return fn();

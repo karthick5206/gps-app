@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LIVE_SHARE_DEFAULT_HOURS, LIVE_SHARE_MAX_HOURS, type LiveShareCreatedDto, type LiveShareDto } from '@veetracer/shared';
-import { CopyIcon, MessageCircleIcon, Share2Icon } from 'lucide-react';
-import { useState } from 'react';
+import { LIVE_SHARE_DEFAULT_HOURS, LIVE_SHARE_MAX_HOURS, type LiveShareCreatedDto, type LiveShareDestination, type LiveShareDto } from '@veetracer/shared';
+import { CopyIcon, FlagIcon, MessageCircleIcon, Share2Icon, XIcon } from 'lucide-react';
+import { useDeferredValue, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -36,11 +36,21 @@ function ShareLiveDialog({ objectId, name, onClose }: { objectId: string; name: 
   const [hours, setHours] = useState(String(LIVE_SHARE_DEFAULT_HOURS));
   const [note, setNote] = useState('');
   const [created, setCreated] = useState<LiveShareCreatedDto | null>(null);
+  // Optional destination: makes it a delivery ETA link (live ETA; the link ends soon after arrival).
+  const [destination, setDestination] = useState<LiveShareDestination | null>(null);
+  const [placeQ, setPlaceQ] = useState('');
+  const placeSearch = useDeferredValue(placeQ.trim());
+  const places = useQuery({
+    queryKey: ['geocode-search', placeSearch],
+    queryFn: ({ signal }) => api.get<LiveShareDestination[]>('/geocode/search', { q: placeSearch }, signal),
+    enabled: placeSearch.length >= 3 && !destination,
+    staleTime: 60_000,
+  });
   const shares = useQuery({ queryKey: ['live-shares', objectId], queryFn: ({ signal }) => api.get<LiveShareDto[]>('/live-shares', { objectId }, signal) });
   const h = Number(hours);
   const valid = Number.isInteger(h) && h >= 1 && h <= LIVE_SHARE_MAX_HOURS;
   const create = useMutation({
-    mutationFn: () => api.post<LiveShareCreatedDto>('/live-shares', { objectId, hours: h, ...(note.trim() ? { note: note.trim() } : {}) }),
+    mutationFn: () => api.post<LiveShareCreatedDto>('/live-shares', { objectId, hours: h, ...(note.trim() ? { note: note.trim() } : {}), ...(destination ? { destination } : {}) }),
     onSuccess: (s) => {
       setCreated(s);
       void qc.invalidateQueries({ queryKey: ['live-shares', objectId] });
@@ -56,7 +66,11 @@ function ShareLiveDialog({ objectId, name, onClose }: { objectId: string; name: 
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
-  const message = created ? t('Live location of {{name}} (valid for {{hours}} h): {{url}}', { name, hours: created.hours, url: created.url }) : '';
+  const message = !created
+    ? ''
+    : created.destination
+      ? t('Track {{name}} on the way to {{place}}: {{url}}', { name, place: created.destination.label, url: created.url })
+      : t('Live location of {{name}} (valid for {{hours}} h): {{url}}', { name, hours: created.hours, url: created.url });
   const active = (shares.data ?? []).filter((s) => s.active);
 
   return (
@@ -99,6 +113,32 @@ function ShareLiveDialog({ objectId, name, onClose }: { objectId: string; name: 
                   </button>
                 ))}
               </div>
+              <Field label={t('Destination (optional): delivery ETA')} htmlFor="share-dest" hint={t('The page shows the live arrival time; the link ends 15 minutes after arrival.')}>
+                {destination ? (
+                  <div className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm">
+                    <FlagIcon className="size-4 shrink-0 text-amber-600" />
+                    <span className="min-w-0 flex-1 truncate">{destination.label}</span>
+                    <button type="button" onClick={() => setDestination(null)} aria-label={t('Remove destination')} className="rounded p-0.5 text-muted-foreground hover:bg-muted">
+                      <XIcon className="size-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Input id="share-dest" value={placeQ} onChange={(e) => setPlaceQ(e.target.value)} placeholder={t('Search an address or place')} autoComplete="off" />
+                    {!!places.data?.length && (
+                      <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-md border bg-popover text-sm shadow-lg">
+                        {places.data.map((p) => (
+                          <li key={`${p.lat},${p.lng}`}>
+                            <button type="button" className="w-full px-2.5 py-1.5 text-left hover:bg-muted" onClick={() => (setDestination(p), setPlaceQ(''))}>
+                              {p.label}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </Field>
               <Field label={t('Note (optional)')} htmlFor="share-note">
                 <Input id="share-note" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder={t('e.g. Delivery to Anna Nagar')} />
               </Field>

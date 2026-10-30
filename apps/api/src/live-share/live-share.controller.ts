@@ -1,15 +1,24 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { LIVE_SHARE_MAX_HOURS, type LiveShareCreatedDto, type LiveShareDto, type PublicLiveShareDto } from '@veetracer/shared';
-import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsLatitude, IsLongitude, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
 import { Auth, Public, RequirePermission } from '../access/decorators';
 import { LiveShareService } from './live-share.service';
+
+class DestinationBody {
+  @IsLatitude() lat!: number;
+  @IsLongitude() lng!: number;
+  @IsString() @MaxLength(200) label!: string;
+}
 
 class CreateShareBody {
   @IsUUID() objectId!: string;
   @IsInt() @Min(1) @Max(LIVE_SHARE_MAX_HOURS) hours!: number;
   @IsOptional() @IsString() @MaxLength(200) note?: string;
+  /** Delivery ETA link. */
+  @IsOptional() @ValidateNested() @Type(() => DestinationBody) destination?: DestinationBody;
 }
 
 class ShareListQuery {
@@ -23,7 +32,7 @@ export class LiveShareController {
 
   @Post() @RequirePermission('live_map', 'view')
   create(@Auth() ctx: AuthContext, @Body() body: CreateShareBody): Promise<LiveShareCreatedDto> {
-    return this.shares.create(ctx, body.objectId, body.hours, body.note);
+    return this.shares.create(ctx, body.objectId, body.hours, body.note, body.destination);
   }
 
   @Get() @RequirePermission('live_map', 'view')

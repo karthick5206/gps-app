@@ -44,6 +44,20 @@ export class RoutingService {
     return route && plausibleRoute(gap, route.m, route.s) ? route.shape : null;
   }
 
+  /**
+   * Road route between two points (delivery ETA): metres, seconds and [lat, lng] shape; null without an engine or
+   * route. Cached 60 s on ~110 m rounded ends so a share page polled every few seconds costs one engine call a minute.
+   */
+  async route(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<{ m: number; s: number; shape: [number, number][] } | null> {
+    if (!this.enabled) return null;
+    const key = `route:eta:${from.lat.toFixed(3)},${from.lng.toFixed(3)}:${to.lat.toFixed(4)},${to.lng.toFixed(4)}`;
+    const cached = await this.redis.client.get(key).catch(() => null);
+    if (cached !== null) return cached === '' ? null : (JSON.parse(cached) as { m: number; s: number; shape: [number, number][] });
+    const r = await this.fetchRoute({ fromLat: from.lat, fromLng: from.lng, toLat: to.lat, toLng: to.lng } as GapEstimateSegment).catch(() => null);
+    await this.redis.client.set(key, r ? JSON.stringify(r) : '', 'EX', 60).catch(() => undefined);
+    return r;
+  }
+
   private fetchRoute(gap: GapEstimateSegment): Promise<{ m: number; s: number; shape: [number, number][] } | null> {
     return this.engine === 'graphhopper' ? this.fetchGraphHopper(gap) : this.fetchValhalla(gap);
   }

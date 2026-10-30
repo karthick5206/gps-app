@@ -56,6 +56,7 @@ export function PublicSharePage() {
   const map = useRef<maplibregl.Map | null>(null);
   const marker = useRef<maplibregl.Marker | null>(null);
   const centred = useRef(false);
+  const destMarker = useRef<maplibregl.Marker | null>(null);
 
   // Poll the share.
   useEffect(() => {
@@ -96,6 +97,9 @@ export function PublicSharePage() {
       m.addSource('trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       m.addLayer({ id: 'trail-casing', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.9 } });
       m.addLayer({ id: 'trail', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2563eb', 'line-width': 4 } });
+      // Delivery ETA: the road still to go, dashed.
+      m.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      m.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#f59e0b', 'line-width': 4, 'line-dasharray': [1.5, 1.5] } }, 'trail-casing');
     });
     m.on('dragstart', () => setFollow(false));
     map.current = m;
@@ -103,6 +107,7 @@ export function PublicSharePage() {
       m.remove();
       map.current = null;
       marker.current = null;
+      destMarker.current = null;
     };
   }, []);
 
@@ -115,6 +120,9 @@ export function PublicSharePage() {
     const apply = () => {
       const src = m.getSource('trail') as maplibregl.GeoJSONSource | undefined;
       src?.setData({ type: 'FeatureCollection', features: data.trail.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: data.trail.map(([, la, ln]) => [ln, la]) } }] : [] });
+      const eta = data.eta;
+      (m.getSource('route') as maplibregl.GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: eta && eta.route.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: eta.route.map(([la, ln]) => [ln, la]) } }] : [] });
+      if (eta && !destMarker.current) destMarker.current = new maplibregl.Marker({ color: '#f59e0b' }).setLngLat([eta.destination.lng, eta.destination.lat]).addTo(m);
       if (lat === null || lng === null) return;
       if (!marker.current) marker.current = new maplibregl.Marker({ element: markerElement(), rotationAlignment: 'map' }).setLngLat([lng, lat]).addTo(m);
       else marker.current.setLngLat([lng, lat]);
@@ -122,7 +130,9 @@ export function PublicSharePage() {
       el.style.backgroundColor = statusColor(status);
       marker.current.setRotation(speedKph > 2 ? course : 0);
       if (!centred.current) {
-        m.jumpTo({ center: [lng, lat], zoom: 15 });
+        // With a destination, show both the vehicle and where it is going.
+        if (eta && !eta.arrivedAt) m.fitBounds([[Math.min(lng, eta.destination.lng), Math.min(lat, eta.destination.lat)], [Math.max(lng, eta.destination.lng), Math.max(lat, eta.destination.lat)]], { padding: 60, maxZoom: 15, duration: 0 });
+        else m.jumpTo({ center: [lng, lat], zoom: 15 });
         centred.current = true;
       } else if (follow) m.easeTo({ center: [lng, lat], duration: 800 });
     };
@@ -167,6 +177,21 @@ export function PublicSharePage() {
       </div>
       {data && (
         <section className="space-y-2 border-t bg-card p-3 sm:p-4" aria-label={t('Details')}>
+          {data.eta && (
+            <div className={`rounded-lg p-2.5 text-sm ${data.eta.arrivedAt ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300' : 'bg-amber-500/15 text-amber-900 dark:text-amber-200'}`}>
+              <div className="font-semibold">
+                {data.eta.arrivedAt
+                  ? t('Arrived at {{time}}', { time: clock.format(Date.parse(data.eta.arrivedAt)) })
+                  : data.eta.minutes !== null
+                    ? t('Arriving in ~{{min}} min · {{km}} km', { min: data.eta.minutes, km: data.eta.distanceKm ?? '—' })
+                    : t('On the way')}
+              </div>
+              <div className="truncate text-xs opacity-80">
+                {t('To: {{place}}', { place: data.eta.destination.label })}
+                {!data.eta.arrivedAt && !data.eta.byRoad && data.eta.minutes !== null && ` · ${t('approximate')}`}
+              </div>
+            </div>
+          )}
           <div className="flex items-start gap-3">
             <span className="mt-1 size-3 shrink-0 rounded-full" style={{ backgroundColor: statusColor(data.live.status) }} aria-hidden />
             <div className="min-w-0 flex-1">
