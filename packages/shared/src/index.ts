@@ -29,3 +29,4 @@ export * from './parking';
 export * from './live-share';
 export * from './smart-search';
 export * from './driver-score';
+export * from './attendance';

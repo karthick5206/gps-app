@@ -1140,6 +1140,22 @@ model LiveShare {
   @@index([companyId])
 }
 
+/// Field staff attendance settings per company (see packages/shared/src/attendance.ts).
+model AttendanceSettings {
+  companyId   String   @id @db.Uuid
+  enabled     Boolean  @default(false)
+  /// Work-site geofence ids.
+  geofenceIds String[] @default([])
+  /// Staff covered; empty = every PERSON object.
+  objectIds   String[] @default([])
+  days        Int[]    @default([1, 2, 3, 4, 5, 6])
+  startMin    Int      @default(570)
+  endMin      Int      @default(1110)
+  graceMin    Int      @default(15)
+  updatedById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+}
+
 /// Per object per local day (company timezone).
 model DailySummary {
   objectId       String    @db.Uuid

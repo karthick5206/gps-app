@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon } from 'lucide-react-native';
+import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View, Switch } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
@@ -88,6 +88,7 @@ export default function MoreScreen() {
         {can('driver_events') && <MenuItem icon={ScanFaceIcon} label={t('Driver events')} href="/driver-events" />}
         {can('reports') && <MenuItem icon={FileBarChartIcon} label={t('Reports')} href="/reports" />}
         {can('driver_scores') && <MenuItem icon={TrophyIcon} label={t('Driver scorecard')} href="/driver-scores" />}
+        {can('attendance') && <MenuItem icon={CalendarCheckIcon} label={t('Staff attendance')} href="/attendance" />}
         {can('objects') && <MenuItem icon={TruckIcon} label={t('Vehicles')} href="/manage/vehicles" />}
         {can('devices') && <MenuItem icon={CpuIcon} label={t('Devices')} href="/manage/devices" />}
         {can('drivers') && <MenuItem icon={IdCardIcon} label={t('Drivers')} href="/manage/drivers" />}

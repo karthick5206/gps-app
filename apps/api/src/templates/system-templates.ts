@@ -48,6 +48,8 @@ const DETAIL: Record<AlertTypeCode, string> = {
   CRASH: 'tracker detected a crash or rollover at {{speed}}',
   TOWING: 'tracker reported towing or unauthorised use (possible theft)',
   PARKING_BREACH: 'moved or was started while in parking mode (possible theft)',
+  ATTENDANCE_NOT_ARRIVED: 'has not arrived at a work site yet',
+  ATTENDANCE_ABSENT: 'did not come to any work site today',
   HARSH_ACCELERATION: 'accelerated harshly at {{speed}}',
   HARSH_BRAKING: 'braked harshly at {{speed}}',
   HARSH_CORNERING: 'cornered harshly at {{speed}}',

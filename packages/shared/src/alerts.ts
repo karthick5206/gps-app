@@ -92,6 +92,8 @@ export const ALERT_TYPE_CODES = [
   'DOOR_CLOSED',
   'DOOR_OPEN_WHILE_MOVING',
   'PARKING_BREACH',
+  'ATTENDANCE_NOT_ARRIVED',
+  'ATTENDANCE_ABSENT',
 ] as const;
 export type AlertTypeCode = (typeof ALERT_TYPE_CODES)[number];
 
@@ -211,6 +213,9 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   { code: 'TOWING', label: 'Towing / unauthorised use', category: 'Safety', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // Parking mode: the vehicle moved or was started during its scheduled parking window (always rings as an alarm).
   { code: 'PARKING_BREACH', label: 'Parking mode breach', category: 'Safety', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: true, params: [], placeholders: [] },
+  // Field staff attendance (work-site geofences, see attendance.ts).
+  { code: 'ATTENDANCE_NOT_ARRIVED', label: 'Staff not arrived', category: 'Compliance', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  { code: 'ATTENDANCE_ABSENT', label: 'Staff absent', category: 'Compliance', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // Driving behaviour reported by the tracker itself (Concox 0x29/0x2A/0x2B, Teltonika green driving, AIS-140 HA/HB/RT).
   { code: 'HARSH_ACCELERATION', label: 'Harsh acceleration', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['speed'] },
   { code: 'HARSH_BRAKING', label: 'Harsh braking', category: 'Driving', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['speed'] },
@@ -277,6 +282,8 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   CRASH: 5,
   TOWING: 5,
   PARKING_BREACH: 0,
+  ATTENDANCE_NOT_ARRIVED: 0,
+  ATTENDANCE_ABSENT: 0,
   HARSH_ACCELERATION: 1,
   HARSH_BRAKING: 1,
   HARSH_CORNERING: 1,
