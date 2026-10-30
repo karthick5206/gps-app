@@ -18,6 +18,7 @@ import {
   DoorOpenIcon,
   DropletOffIcon,
   FuelIcon,
+  NotebookPenIcon,
   GaugeIcon,
   HexagonIcon,
   IdCardIcon,
@@ -457,6 +458,23 @@ const FUEL: ReportColumn[] = [
   { id: 'lPer100Km', header: 'L/100 km', value: num('lPer100Km'), numeric: true, format: (v) => v.toFixed(1) },
 ];
 
+const rupees = (v: number) => `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+const rupeeCol = (id: string, header: string, total?: Total): ReportColumn => ({ id, header, value: num(id), numeric: true, total, format: rupees });
+
+/** Manual calculation from fuel fill-ups entered in Fuel & expenses; separate from the fuel-sensor FUEL report. */
+const MILEAGE: ReportColumn[] = [
+  vehicle,
+  plate,
+  count('fillUps', 'Fill-ups'),
+  { id: 'litres', header: 'Litres', value: num('litres'), numeric: true, total: 'sum', format: litres },
+  rupeeCol('fuelCost', 'Fuel cost', 'sum'),
+  rupeeCol('pricePerL', 'Avg price / L'),
+  rupeeCol('otherCost', 'Other costs', 'sum'),
+  kmCol(),
+  { id: 'kmPerL', header: 'Mileage (km/L)', value: num('kmPerL'), numeric: true, format: (v) => v.toFixed(1), render: (r) => <span className="font-semibold tabular-nums">{typeof r.kmPerL === 'number' ? r.kmPerL.toFixed(1) : '—'}</span> },
+  rupeeCol('costPerKm', 'Cost / km'),
+];
+
 const FUEL_EVENTS: ReportColumn[] = [
   vehicle,
   plate,
@@ -507,8 +525,8 @@ const AC_DOOR_DAILY: ReportColumn[] = [
   duration('doorOpenSec', 'Door open time'),
 ];
 
-export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Sensors' | 'Devices' | 'Compliance';
-export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Fuel', 'Sensors', 'Devices', 'Compliance'];
+export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Fuel log (manual)' | 'Sensors' | 'Devices' | 'Compliance';
+export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Fuel', 'Fuel log (manual)', 'Sensors', 'Devices', 'Compliance'];
 
 export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'SUMMARY', category: 'Activity', label: 'Summary', description: 'Distance, running/idle/stop time and trips per vehicle by day, week or month.', icon: SigmaIcon, columns: SUMMARY },
@@ -529,8 +547,9 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS },
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
   { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },
-  { type: 'FUEL', category: 'Fuel', label: 'Fuel', description: 'Per vehicle per day: start and end level, refills, drains, consumption and km/L (vehicles with a fuel sensor).', icon: FuelIcon, columns: FUEL },
+  { type: 'FUEL', category: 'Fuel', label: 'Fuel (sensor)', description: 'Per vehicle per day: start and end level, refills, drains, consumption and km/L (vehicles with a fuel sensor).', icon: FuelIcon, columns: FUEL },
   { type: 'FUEL_EVENTS', category: 'Fuel', label: 'Fuel refills & drains', description: 'Every detected refill and drain (possible fuel theft) with the level before and after.', icon: DropletOffIcon, columns: FUEL_EVENTS },
+  { type: 'MILEAGE', category: 'Fuel log (manual)', label: 'Mileage (manual fuel entries)', description: 'Per vehicle: fill-ups, litres and fuel cost entered in Fuel & expenses against the GPS distance driven, giving km per litre and cost per km. No fuel sensor needed.', icon: NotebookPenIcon, columns: MILEAGE },
   { type: 'AC_DOOR', category: 'Sensors', label: 'AC / Door', description: 'Every AC on / off and door open / closed period with duration, distance and start / end address.', icon: SnowflakeIcon, columns: AC_DOOR },
   { type: 'AC_DOOR_DAILY', category: 'Sensors', label: 'AC / Door daily totals', description: 'Per vehicle per day: hours with AC on, AC on with the engine off, door openings and open time.', icon: DoorOpenIcon, columns: AC_DOOR_DAILY },
   { type: 'DEVICE_STATUS', category: 'Devices', label: 'Device status', description: 'Active, inactive, no-GPS and never-connected devices right now.', icon: ActivityIcon, columns: DEVICE_STATUS },

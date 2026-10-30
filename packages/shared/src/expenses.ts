@@ -89,3 +89,19 @@ export function parseBillText(text: string): { amount: number | null; litres: nu
   const litres = num(/(?:vol(?:ume)?|qty|quantity|litres?|liters?|ltrs?)\s*(?:\(\s*l(?:tr)?s?\s*\))?\s*[:=]?\s*(\d{1,3}(?:\.\d{1,3})?)/i) ?? num(/(\d{1,3}\.\d{1,3})\s*(?:l|ltr|ltrs|litres?)\b/i);
   return { amount: amount && amount > 0 && amount < 1_000_000 ? amount : null, litres: litres && litres > 0 && litres < 1000 ? litres : null };
 }
+
+/** MILEAGE report: one row per vehicle — fuel log fill-ups against distance driven (no fuel sensor needed). Money in rupees. */
+export interface MileageReportRow {
+  objectId: string;
+  objectName: string;
+  plateNumber: string | null;
+  fillUps: number;
+  litres: number;
+  fuelCost: number;
+  otherCost: number;
+  totalCost: number;
+  distanceKm: number;
+  kmPerL: number | null;
+  costPerKm: number | null;
+  pricePerL: number | null;
+}

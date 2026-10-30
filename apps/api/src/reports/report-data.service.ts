@@ -40,6 +40,7 @@ import {
 import { documentsReport } from './documents-report';
 import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
 import { fuelEventsReport, fuelReport } from './fuel-report';
+import { mileageReport } from './mileage-report';
 import { ioDailyReport, ioSessionsReport } from './io-report';
 import { AddressEnricher } from './address-enricher';
 
@@ -213,6 +214,11 @@ export class ReportDataService {
 
       case 'FUEL_EVENTS': {
         const r = await fuelEventsReport(this.prisma, ctx.companyId, objects, range, maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'MILEAGE': {
+        const r = await mileageReport(this.prisma, objects, range, req.from, req.to, maxRows);
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 

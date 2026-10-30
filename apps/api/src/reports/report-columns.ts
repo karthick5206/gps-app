@@ -17,6 +17,7 @@ import {
   PoiVisitReportRow,
   FuelEventDto,
   FuelReportRow,
+  MileageReportRow,
   IoDailyReportRow,
   IoSessionReportRow,
   PositionReportRow,
@@ -61,6 +62,7 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   POI_VISITS: 'POI visits report',
   FUEL: 'Fuel report',
   FUEL_EVENTS: 'Fuel refills & drains report',
+  MILEAGE: 'Mileage report (manual fuel entries)',
   AC_DOOR: 'AC / Door report',
   AC_DOOR_DAILY: 'AC / Door daily totals report',
 };
@@ -141,6 +143,20 @@ const FUEL_EVENTS: ReportColumn[] = [
   col<FuelEventDto>({ header: 'After (L)', width: 10, numeric: true, value: (r) => r.litresAfter }),
   col<FuelEventDto>({ header: 'Change (L)', width: 10, numeric: true, value: (r) => (r.type === 'REFILL' ? r.deltaL : -r.deltaL) }),
   col<FuelEventDto>({ header: 'Location', width: 36, value: (r) => place(r.address, r.lat, r.lng) }),
+];
+
+const rupees = (v: number | null) => (v === null ? '' : Math.round(v * 100) / 100);
+const MILEAGE: ReportColumn[] = [
+  col<MileageReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.vehicles ?? 0} vehicles)` }),
+  col<MileageReportRow>({ header: 'Plate', width: 14, value: (r) => r.plateNumber ?? '' }),
+  col<MileageReportRow>({ header: 'Fill-ups', width: 8, numeric: true, value: (r) => r.fillUps, total: (t) => t.fillUps ?? 0 }),
+  col<MileageReportRow>({ header: 'Litres', width: 9, numeric: true, value: (r) => r.litres, total: (t) => t.litres ?? 0 }),
+  col<MileageReportRow>({ header: 'Fuel cost (Rs)', width: 12, numeric: true, value: (r) => rupees(r.fuelCost), total: (t) => t.fuelCost ?? 0 }),
+  col<MileageReportRow>({ header: 'Avg price / L (Rs)', width: 12, numeric: true, value: (r) => rupees(r.pricePerL), total: (t) => t.pricePerL || '' }),
+  col<MileageReportRow>({ header: 'Other costs (Rs)', width: 12, numeric: true, value: (r) => rupees(r.otherCost), total: (t) => t.otherCost ?? 0 }),
+  col<MileageReportRow>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => r.distanceKm, total: (t) => t.distanceKm ?? 0 }),
+  col<MileageReportRow>({ header: 'Mileage (km/L)', width: 11, numeric: true, value: (r) => r.kmPerL ?? '', total: (t) => t.kmPerL || '' }),
+  col<MileageReportRow>({ header: 'Cost / km (Rs)', width: 11, numeric: true, value: (r) => rupees(r.costPerKm), total: (t) => t.costPerKm || '' }),
 ];
 
 const ioStatus = (r: IoSessionReportRow) => (r.kind === 'AC' ? (r.on ? 'On' : 'Off') : r.on ? 'Open' : 'Closed');
@@ -433,6 +449,8 @@ export function columnsFor(type: ReportType): ReportColumn[] {
       return FUEL;
     case 'FUEL_EVENTS':
       return FUEL_EVENTS;
+    case 'MILEAGE':
+      return MILEAGE;
     case 'AC_DOOR':
       return AC_DOOR;
     case 'AC_DOOR_DAILY':

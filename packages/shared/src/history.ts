@@ -117,6 +117,7 @@ export const REPORT_TYPES = [
   'POI_VISITS',
   'FUEL',
   'FUEL_EVENTS',
+  'MILEAGE',
   'AC_DOOR',
   'AC_DOOR_DAILY',
 ] as const;

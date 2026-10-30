@@ -3077,4 +3077,13 @@ export const TA: Record<string, string> = {
   "No events": "நிகழ்வுகள் இல்லை",
   "Choose the from and to dates": "தொடக்க மற்றும் முடிவு தேதிகளைத் தேர்ந்தெடுக்கவும்",
   "The to date is before the from date": "முடிவு தேதி தொடக்க தேதிக்கு முன் உள்ளது",
+  "Fuel log (manual)": "எரிபொருள் பதிவு (கைமுறை)",
+  "Mileage (manual fuel entries)": "மைலேஜ் (கைமுறை எரிபொருள் பதிவுகள்)",
+  "Per vehicle: fill-ups, litres and fuel cost entered in Fuel & expenses against the GPS distance driven, giving km per litre and cost per km. No fuel sensor needed.": "ஒவ்வொரு வாகனமும்: எரிபொருள் & செலவுகளில் பதிவு செய்த நிரப்புதல்கள், லிட்டர், எரிபொருள் செலவு — GPS தூரத்துடன் ஒப்பிட்டு கி.மீ/லிட்டர் மற்றும் கி.மீ செலவு. எரிபொருள் சென்சார் தேவையில்லை.",
+  "Fuel (sensor)": "எரிபொருள் (சென்சார்)",
+  "Fill-ups": "நிரப்புதல்கள்",
+  "Fuel cost": "எரிபொருள் செலவு",
+  "Avg price / L": "சராசரி விலை / லி",
+  "Other costs": "பிற செலவுகள்",
+  "Mileage (km/L)": "மைலேஜ் (கி.மீ/லி)",
 };

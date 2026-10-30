@@ -3077,4 +3077,13 @@ export const HI: Record<string, string> = {
   "No events": "कोई घटना नहीं",
   "Choose the from and to dates": "शुरू और अंत की तारीख चुनें",
   "The to date is before the from date": "अंत की तारीख शुरू की तारीख से पहले है",
+  "Fuel log (manual)": "ईंधन लॉग (मैनुअल)",
+  "Mileage (manual fuel entries)": "माइलेज (मैनुअल ईंधन एंट्री)",
+  "Per vehicle: fill-ups, litres and fuel cost entered in Fuel & expenses against the GPS distance driven, giving km per litre and cost per km. No fuel sensor needed.": "हर वाहन: ईंधन और खर्च में दर्ज फ़िल-अप, लीटर और ईंधन लागत की तुलना GPS दूरी से, जिससे किमी प्रति लीटर और प्रति किमी लागत मिलती है। फ़्यूल सेंसर की ज़रूरत नहीं।",
+  "Fuel (sensor)": "ईंधन (सेंसर)",
+  "Fill-ups": "फ़िल-अप",
+  "Fuel cost": "ईंधन लागत",
+  "Avg price / L": "औसत दाम / लीटर",
+  "Other costs": "अन्य खर्च",
+  "Mileage (km/L)": "माइलेज (किमी/लीटर)",
 };

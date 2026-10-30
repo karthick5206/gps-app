@@ -11,6 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { APP_ROOT } from '../config/env';
 import { odometers } from '../documents/reminder-logic';
 import { PrismaService } from '../prisma/prisma.service';
+import { localDayKey } from '../summarizer/tz';
 
 export const EXPENSES_DIR = join(APP_ROOT, 'var', 'expenses');
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -143,7 +144,11 @@ export class ExpensesService {
     if (!Number.isFinite(f.getTime()) || !Number.isFinite(t.getTime()) || f > t) throw new BadRequestException('Choose a valid date range');
     const rows = await this.prisma.expense.findMany({ where: { AND: [this.scope(ctx), { at: { gte: f, lte: t } }] }, include: INCLUDE });
     const ids = [...new Set(rows.map((r) => r.objectId))];
-    const km = await this.prisma.dailySummary.groupBy({ by: ['objectId'], where: { objectId: { in: ids }, day: { gte: new Date(from.slice(0, 10)), lte: new Date(to.slice(0, 10)) } }, _sum: { distanceKm: true } });
+    // DailySummary.day is the company-local calendar day (stored at UTC midnight); a UTC slice of `from` would add the day before.
+    const company = await this.prisma.company.findUnique({ where: { id: ctx.companyId }, select: { timezone: true } });
+    const tz = company?.timezone ?? 'Asia/Kolkata';
+    const dayOf = (d: Date) => new Date(`${localDayKey(d.getTime(), tz)}T00:00:00.000Z`);
+    const km = await this.prisma.dailySummary.groupBy({ by: ['objectId'], where: { objectId: { in: ids }, day: { gte: dayOf(f), lte: dayOf(t) } }, _sum: { distanceKm: true } });
     const kmBy = new Map(km.map((k) => [k.objectId, k._sum.distanceKm ?? 0]));
     const byKind = Object.fromEntries(EXPENSE_KINDS.map((k) => [k, 0])) as Record<ExpenseKind, number>;
     const per = new Map<string, { name: string; litres: number; fuel: number; other: number }>();
