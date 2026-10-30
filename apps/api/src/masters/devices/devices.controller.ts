@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
 import { BulkActionDto } from '../../common/bulk';
-import { CreateDeviceDto, DeviceListQuery, RawQuery, UpdateDeviceDto } from './devices.dto';
+import { CreateDeviceDto, DeviceListQuery, RawQuery, SetOdometerDto, UpdateDeviceDto } from './devices.dto';
 import { DevicesService } from './devices.service';
 
 @Controller('devices')
@@ -18,6 +18,18 @@ export class DevicesController {
   @Get(':id/raw') @RequirePermission('devices', 'edit')
   raw(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query() q: RawQuery) {
     return this.service.raw(ctx, id, q.limit ?? 100);
+  }
+
+  /** Odometer of the vehicle this device is fitted to. */
+  @Get(':id/odometer') @RequirePermission('devices', 'view')
+  odometer(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.odometer(ctx, id);
+  }
+
+  /** Set / reset that odometer (web only); open odometer service reminders move by the same amount. */
+  @Post(':id/odometer') @RequirePermission('devices', 'edit')
+  setOdometer(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() body: SetOdometerDto) {
+    return this.service.setOdometer(ctx, id, body.valueKm, body.note);
   }
 
   @Get(':id') @RequirePermission('devices', 'view')

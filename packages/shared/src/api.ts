@@ -128,6 +128,19 @@ export interface DeviceDto {
   createdAt: string; updatedAt: string;
 }
 
+/** Devices → Odometer: the fitted vehicle's odometer (VeeTrax distance + offset), set / reset from the web. */
+export interface DeviceOdometerDto {
+  deviceId: string;
+  objectId: string | null;
+  objectName: string | null;
+  /** Current odometer (km) = recordedKm + offsetKm. */
+  odometerKm: number | null;
+  recordedKm: number | null;
+  offsetKm: number | null;
+  /** Open service reminders due by odometer (they move with a reset). */
+  remindersByOdometer: number;
+}
+
 export interface TrackedObjectDto {
   id: string; companyId: string; name: string; type: ObjectType; vehicleType: VehicleType | null;
   plateNumber: string | null; make: string | null; model: string | null; color: string | null;

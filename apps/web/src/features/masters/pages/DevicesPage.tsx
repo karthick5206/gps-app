@@ -12,6 +12,7 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/features/auth/auth-context';
 import { ASSIGNED_OPTIONS, DeviceForm, deviceColumns, deviceRowLabel, modelOption } from '../device-shared';
 import { MasterPage } from '../MasterPage';
+import { useOdometerAction } from '../OdometerDialog';
 import { RawPacketsSheet } from '../RawPacketsSheet';
 import type { MasterFilter, MasterFormProps } from '../types';
 import { useEntityOptions } from '../use-options';
@@ -32,6 +33,7 @@ export function DevicesPage() {
   const [rawFor, setRawFor] = useState<DeviceDto | null>(null);
   const purge = usePurgeAction('device');
   const transfer = useTransferAction('device');
+  const odometer = useOdometerAction();
   const cols = useWithCompanyColumn(columns);
   const rowActions = useCallback(
     (r: DeviceDto) => (
@@ -41,11 +43,12 @@ export function DevicesPage() {
             <BinaryIcon /> {t('Raw data')}
           </DropdownMenuItem>
         )}
+        {odometer.item(r)}
         {transfer.item({ id: r.id, name: r.uniqueId, companyId: r.companyId })}
         {purge.item(r.id)}
       </>
     ),
-    [t, can, purge, transfer],
+    [t, can, purge, transfer, odometer],
   );
   const filters = useMemo<MasterFilter[]>(
     () => [
@@ -78,6 +81,7 @@ export function DevicesPage() {
     />
     <FamilyDialog open={family} onOpenChange={setFamily} />
     <RawPacketsSheet device={rawFor} onClose={() => setRawFor(null)} />
+    {odometer.dialog}
     {transfer.dialog}
     {purge.dialog}
     </>

@@ -1,12 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { DeviceDto, RawPacketDto } from '@veetracer/shared';
+import { DeviceDto, DeviceOdometerDto, RawPacketDto } from '@veetracer/shared';
 import { allCompaniesOr, deviceScopeWhere } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
 import { listResult, planList } from '../../common/list-query';
 import { randomToken } from '../../common/secrets';
+import { odometers } from '../../documents/reminder-logic';
 import { SeatsService } from '../../licences/seats.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizeDeviceUniqueId } from '../device-unique-id';
@@ -47,6 +48,56 @@ export class DevicesService {
       this.prisma.device.count({ where }),
     ]);
     return listResult(plan, rows.map(toDeviceDto), total, CSV);
+  }
+
+  /** The vehicle this device is fitted to now (in scope), or null. */
+  private async fittedObject(ctx: AuthContext, deviceId: string) {
+    const device = await this.prisma.device.findFirst({
+      where: { AND: [allCompaniesOr(ctx, deviceScopeWhere(ctx)), { id: deviceId }] },
+      select: { id: true, assignments: { where: { toTime: null }, take: 1, select: { object: { select: { id: true, name: true, companyId: true, odometerOffsetKm: true } } } } },
+    });
+    if (!device) throw new NotFoundException('Device not found');
+    return device.assignments[0]?.object ?? null;
+  }
+
+  async odometer(ctx: AuthContext, deviceId: string): Promise<DeviceOdometerDto> {
+    const o = await this.fittedObject(ctx, deviceId);
+    if (!o) return { deviceId, objectId: null, objectName: null, odometerKm: null, recordedKm: null, offsetKm: null, remindersByOdometer: 0 };
+    const [current, reminders] = await Promise.all([
+      odometers(this.prisma, [o.id]),
+      this.prisma.serviceReminder.count({ where: { objectId: o.id, isActive: true, dueOdometerKm: { not: null } } }),
+    ]);
+    const odometerKm = current.get(o.id) ?? o.odometerOffsetKm;
+    return { deviceId, objectId: o.id, objectName: o.name, odometerKm, recordedKm: Math.round((odometerKm - o.odometerOffsetKm) * 10) / 10, offsetKm: o.odometerOffsetKm, remindersByOdometer: reminders };
+  }
+
+  /**
+   * Sets the fitted vehicle's odometer to `valueKm` (0 = reset) by moving its offset; open service reminders due by
+   * odometer move by the same amount so they stay the same distance away. Audited on the vehicle.
+   */
+  async setOdometer(ctx: AuthContext, deviceId: string, valueKm: number, note?: string): Promise<DeviceOdometerDto> {
+    const before = await this.odometer(ctx, deviceId);
+    if (!before.objectId || before.odometerKm === null || before.recordedKm === null) throw new BadRequestException('This device is not fitted to a vehicle. Assign it to a vehicle first.');
+    const value = Math.round(valueKm * 10) / 10;
+    const delta = Math.round((value - before.odometerKm) * 10) / 10;
+    const offset = Math.round((value - before.recordedKm) * 10) / 10;
+    const objectId = before.objectId;
+    const companyId = (await this.prisma.trackedObject.findUniqueOrThrow({ where: { id: objectId }, select: { companyId: true } })).companyId;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.trackedObject.update({ where: { id: objectId }, data: { odometerOffsetKm: offset } });
+      if (delta !== 0) {
+        await tx.$executeRaw`UPDATE "ServiceReminder" SET "dueOdometerKm" = GREATEST(0, "dueOdometerKm" + ${delta}),
+          "lastDoneOdometerKm" = CASE WHEN "lastDoneOdometerKm" IS NULL THEN NULL ELSE GREATEST(0, "lastDoneOdometerKm" + ${delta}) END
+          WHERE "objectId" = ${objectId}::uuid AND "isActive" = true AND "dueOdometerKm" IS NOT NULL`;
+      }
+      await this.audit.record(
+        { ...ctx, companyId },
+        { action: 'UPDATE', entity: 'OdometerReset', entityId: objectId, before: { odometerKm: before.odometerKm, offsetKm: before.offsetKm }, after: { odometerKm: value, offsetKm: offset, deviceId, note: note?.trim() || null, remindersShiftedKm: delta } },
+        tx,
+      );
+    });
+    await this.redis.invalidateCache('object').catch(() => undefined);
+    return this.odometer(ctx, deviceId);
   }
 
   async get(ctx: AuthContext, id: string): Promise<DeviceDto> {

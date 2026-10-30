@@ -1,6 +1,6 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { ListQueryDto } from '../../common/list-query';
 
 export const UNIQUE_ID_PATTERN = /^[0-9A-Za-z_-]{4,32}$/;
@@ -20,6 +20,12 @@ export class CreateDeviceDto {
 }
 
 export class UpdateDeviceDto extends PartialType(CreateDeviceDto) {}
+
+/** Devices → Set odometer: the reading to show from now on (0 = reset), with an optional reason. */
+export class SetOdometerDto {
+  @IsNumber() @Min(0) @Max(10_000_000) valueKm!: number;
+  @IsOptional() @IsString() @MaxLength(200) note?: string;
+}
 
 export class RawQuery {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) limit?: number;
