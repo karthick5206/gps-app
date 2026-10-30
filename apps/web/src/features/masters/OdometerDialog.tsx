@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DeviceDto, DeviceOdometerDto } from '@veetracer/shared';
 import { GaugeIcon, RotateCcwIcon } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -37,7 +37,12 @@ function OdometerDialog({ device, onClose }: { device: DeviceDto; onClose: () =>
   const { t } = useTranslation();
   const qc = useQueryClient();
   const current = useQuery({ queryKey: ['device-odometer', device.id], queryFn: ({ signal }) => api.get<DeviceOdometerDto>(`/devices/${device.id}/odometer`, undefined, signal) });
-  const [value, setValue] = useState('0');
+  // Starts at the current reading (typed over); Save sets the odometer to exactly what is in the box.
+  const [value, setValue] = useState('');
+  const loaded = current.data?.odometerKm;
+  useEffect(() => {
+    if (loaded !== undefined && loaded !== null) setValue((v) => (v === '' ? String(Math.round(loaded * 10) / 10) : v));
+  }, [loaded]);
   const [note, setNote] = useState('');
   const v = Number(value);
   const valid = value.trim() !== '' && Number.isFinite(v) && v >= 0 && v <= 10_000_000;
@@ -97,7 +102,7 @@ function OdometerDialog({ device, onClose }: { device: DeviceDto; onClose: () =>
           <Button variant="outline" onClick={onClose}>
             {t('Cancel')}
           </Button>
-          <Button onClick={() => save.mutate()} disabled={!valid || save.isPending || current.isPending}>
+          <Button onClick={() => save.mutate()} disabled={!valid || delta === 0 || save.isPending || current.isPending}>
             {save.isPending && <Spinner />} {t('Save odometer')}
           </Button>
         </DialogFooter>
