@@ -3054,4 +3054,6 @@ export const HI: Record<string, string> = {
   "Gallery": "गैलरी",
   "Remove photo": "फ़ोटो हटाएं",
   "Tap the photo to remove it": "हटाने के लिए फ़ोटो पर टैप करें",
+  'Drivers & Staff': 'ड्राइवर और स्टाफ',
+  'Costs & Reports': 'खर्च और रिपोर्ट',
 };

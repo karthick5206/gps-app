@@ -80,14 +80,16 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
 };
 
 export const GROUP_LABELS: Record<MenuGroup, string> = {
-  main: 'Main',
+  main: 'Tracking',
+  people: 'Drivers & Staff',
+  costs: 'Costs & Reports',
   masters: 'Masters',
   alerting: 'Alert Management',
   admin: 'Administration',
   platform: 'Platform',
 };
 
-const GROUP_ORDER: MenuGroup[] = ['main', 'masters', 'alerting', 'admin', 'platform'];
+const GROUP_ORDER: MenuGroup[] = ['main', 'people', 'costs', 'masters', 'alerting', 'admin', 'platform'];
 
 export interface NavGroup {
   group: MenuGroup;

@@ -3054,4 +3054,6 @@ export const TA: Record<string, string> = {
   "Gallery": "கேலரி",
   "Remove photo": "படத்தை நீக்கு",
   "Tap the photo to remove it": "நீக்க படத்தைத் தட்டவும்",
+  'Drivers & Staff': 'ஓட்டுநர்கள் & பணியாளர்கள்',
+  'Costs & Reports': 'செலவுகள் & அறிக்கைகள்',
 };

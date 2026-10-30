@@ -5,7 +5,7 @@
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'command'] as const;
 export type Action = (typeof ACTIONS)[number];
 
-export type MenuGroup = 'main' | 'masters' | 'alerting' | 'admin' | 'platform';
+export type MenuGroup = 'main' | 'people' | 'costs' | 'masters' | 'alerting' | 'admin' | 'platform';
 
 export interface MenuDef {
   key: MenuKey;
@@ -61,43 +61,47 @@ export type MenuKey = (typeof MENU_KEYS)[number];
 const CRUD: readonly Action[] = ['view', 'create', 'edit', 'delete', 'export'];
 
 export const MENUS: readonly MenuDef[] = [
+  // Tracking: where vehicles are and what is happening now.
   { key: 'dashboard', label: 'Dashboard', group: 'main', path: '/dashboard', actions: ['view'] },
   { key: 'live_map', label: 'Live Map', group: 'main', path: '/live', actions: ['view', 'command'] },
-  { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },
-  { key: 'driver_events', label: 'Driver events', group: 'main', path: '/driver-events', actions: ['view', 'edit', 'export'] },
   { key: 'history', label: 'History & Playback', group: 'main', path: '/history', actions: ['view', 'export'] },
   { key: 'alerts', label: 'Alerts', group: 'main', path: '/alerts', actions: ['view', 'edit', 'export'] },
   { key: 'parking_mode', label: 'Parking mode', group: 'main', path: '/parking-mode', actions: ['view', 'edit'] },
-  { key: 'driver_scores', label: 'Driver scorecard', group: 'main', path: '/driver-scores', actions: ['view'] },
-  { key: 'attendance', label: 'Staff attendance', group: 'main', path: '/attendance', actions: ['view', 'edit', 'export'] },
-  { key: 'expenses', label: 'Fuel & expenses', group: 'main', path: '/expenses', actions: ['view', 'create', 'delete'] },
-  { key: 'reports', label: 'Reports', group: 'main', path: '/reports', actions: ['view', 'export'] },
+  { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },
+  // Drivers & staff: behaviour, safety and attendance.
+  { key: 'driver_events', label: 'Driver events', group: 'people', path: '/driver-events', actions: ['view', 'edit', 'export'] },
+  { key: 'driver_scores', label: 'Driver scorecard', group: 'people', path: '/driver-scores', actions: ['view'] },
+  { key: 'attendance', label: 'Staff attendance', group: 'people', path: '/attendance', actions: ['view', 'edit', 'export'] },
+  // Costs & reports.
+  { key: 'expenses', label: 'Fuel & expenses', group: 'costs', path: '/expenses', actions: ['view', 'create', 'delete'] },
+  { key: 'reports', label: 'Reports', group: 'costs', path: '/reports', actions: ['view', 'export'] },
+  { key: 'report_schedules', label: 'Scheduled Reports', group: 'costs', path: '/reports/schedules', actions: ['view', 'create', 'edit', 'delete'] },
+  // Masters: fleet set-up first, then places, then reference data.
   { key: 'objects', label: 'Vehicles & Objects', group: 'masters', path: '/masters/objects', actions: CRUD },
-  { key: 'drivers', label: 'Drivers', group: 'masters', path: '/masters/drivers', actions: CRUD },
-  { key: 'documents', label: 'Documents & Service', group: 'masters', path: '/masters/documents', actions: CRUD },
   { key: 'devices', label: 'Devices', group: 'masters', path: '/masters/devices', actions: CRUD },
+  { key: 'drivers', label: 'Drivers', group: 'masters', path: '/masters/drivers', actions: CRUD },
   { key: 'vehicle_groups', label: 'Vehicle Groups', group: 'masters', path: '/masters/vehicle-groups', actions: CRUD },
   { key: 'branches', label: 'Branches', group: 'masters', path: '/masters/branches', actions: CRUD },
-  { key: 'lookups', label: 'Lookups', group: 'masters', path: '/masters/lookups', actions: CRUD },
+  { key: 'documents', label: 'Documents & Service', group: 'masters', path: '/masters/documents', actions: CRUD },
   { key: 'geofences', label: 'Geofences', group: 'masters', path: '/masters/geofences', actions: CRUD },
   { key: 'pois', label: 'Points of Interest', group: 'masters', path: '/masters/pois', actions: CRUD },
+  { key: 'lookups', label: 'Lookups', group: 'masters', path: '/masters/lookups', actions: CRUD },
   { key: 'alert_settings', label: 'Alert Settings', group: 'alerting', path: '/alerting/settings', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'message_templates', label: 'Message Templates', group: 'alerting', path: '/alerting/templates', actions: ['view', 'create', 'edit', 'delete', 'export'] },
-  { key: 'report_schedules', label: 'Scheduled Reports', group: 'alerting', path: '/reports/schedules', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'users', label: 'Users', group: 'admin', path: '/admin/users', actions: CRUD },
   { key: 'roles', label: 'Roles & Permissions', group: 'admin', path: '/admin/roles', actions: ['view', 'create', 'edit', 'delete'] },
-  { key: 'audit_log', label: 'Audit Log', group: 'admin', path: '/admin/audit-log', actions: ['view', 'export'] },
   { key: 'settings', label: 'Company Settings', group: 'admin', path: '/admin/settings', actions: ['view', 'edit'] },
-  { key: 'api', label: 'Developer API', group: 'admin', path: '/admin/developer-api', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'billing', label: 'Billing & Licences', group: 'admin', path: '/admin/billing', actions: ['view', 'create', 'edit'] },
+  { key: 'api', label: 'Developer API', group: 'admin', path: '/admin/developer-api', actions: ['view', 'create', 'edit', 'delete'] },
+  { key: 'audit_log', label: 'Audit Log', group: 'admin', path: '/admin/audit-log', actions: ['view', 'export'] },
   { key: 'sa_companies', label: 'Companies', group: 'platform', path: '/platform/companies', actions: CRUD, superAdminOnly: true },
+  { key: 'sa_licences', label: 'Licences & Invoices', group: 'platform', path: '/platform/licences', actions: CRUD, superAdminOnly: true },
   { key: 'sa_device_models', label: 'Device Models', group: 'platform', path: '/platform/device-models', actions: CRUD, superAdminOnly: true },
   { key: 'sa_device_inventory', label: 'Device Inventory', group: 'platform', path: '/platform/device-inventory', actions: CRUD, superAdminOnly: true },
   { key: 'sa_unknown_devices', label: 'Unknown Devices', group: 'platform', path: '/platform/unknown-devices', actions: ['view'], superAdminOnly: true },
-  { key: 'sa_licences', label: 'Licences & Invoices', group: 'platform', path: '/platform/licences', actions: CRUD, superAdminOnly: true },
+  { key: 'sa_relay', label: 'Data forwarding', group: 'platform', path: '/platform/data-forwarding', actions: ['view', 'create', 'edit', 'delete'], superAdminOnly: true },
   { key: 'sa_platform_settings', label: 'Platform Settings', group: 'platform', path: '/platform/settings', actions: ['view', 'edit'], superAdminOnly: true },
   { key: 'sa_system_health', label: 'System Health', group: 'platform', path: '/platform/system-health', actions: ['view', 'edit'], superAdminOnly: true },
-  { key: 'sa_relay', label: 'Data forwarding', group: 'platform', path: '/platform/data-forwarding', actions: ['view', 'create', 'edit', 'delete'], superAdminOnly: true },
 ];
 
 export type PermissionMap = Partial<Record<MenuKey, Action[]>>;
