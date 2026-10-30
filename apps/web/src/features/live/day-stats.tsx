@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import type { LiveObject, VehicleDayStatsDto } from '@veetracer/shared';
-import { CircleParkingIcon, GaugeIcon, HourglassIcon, MilestoneIcon, NavigationIcon, RouteIcon, TimerIcon } from 'lucide-react';
+import { chargeState, type LiveObject, type VehicleDayStatsDto } from '@veetracer/shared';
+import { CircleParkingIcon, GaugeIcon, HourglassIcon, MilestoneIcon, NavigationIcon, RouteIcon, TimerIcon, ZapIcon, ZapOffIcon } from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -105,4 +105,26 @@ export function TodayCard({ s, loading }: { s: VehicleDayStatsDto | undefined; l
       )}
     </section>
   );
+}
+
+/** List icon: ⚡ while a phone / ID card charges; a red power-off icon when a vehicle tracker loses main power. */
+export function ChargeIcon({ o }: { o: LiveObject }) {
+  const { t } = useTranslation();
+  const c = chargeState(o);
+  if (!c) return null;
+  if (c.kind === 'CHARGER' && c.on) return <ZapIcon className="ms-1 inline size-3 text-emerald-600" aria-label={t('Charging')} />;
+  if (c.kind === 'MAIN_POWER' && !c.on) return <ZapOffIcon className="ms-1 inline size-3 text-destructive" aria-label={t('Main power disconnected')} />;
+  return null;
+}
+
+/** "Charging since 14:05 (2 h)" / "Not charging", or for vehicles "Connected" / "Disconnected since …". */
+export function chargeText(o: LiveObject, now: number, t: (k: string, v?: Record<string, string>) => string): string | null {
+  const c = chargeState(o);
+  if (!c) return null;
+  const since = o.chargingSince ? Date.parse(o.chargingSince) : NaN;
+  const when = Number.isNaN(since)
+    ? ''
+    : ` ${t('since {{time}} ({{duration}})', { time: (new Date(since).toDateString() === new Date(now).toDateString() ? clock : dayClock).format(since), duration: formatDuration((now - since) / 1000) })}`;
+  if (c.kind === 'CHARGER') return c.on ? `${t('Charging')}${when}` : t('Not charging');
+  return c.on ? t('Connected') : `${t('Disconnected')}${when}`;
 }

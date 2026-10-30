@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { LiveObject, VehicleDayStatsDto } from '@veetracer/shared';
+import { chargeState, type LiveObject, type VehicleDayStatsDto } from '@veetracer/shared';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/ui';
@@ -35,11 +35,28 @@ function ignitionLine(o: LiveObject, now: number, t: (k: string, v?: Record<stri
  * Under each vehicle in the Vehicles list and on the map: address, ignition, and today's distance, moving / idle time,
  * stops, max speed, current (or last) trip and the odometer. Tapping the vehicle still opens its details.
  */
+/** "Charging since 14:05 (2 h)" / "Not charging"; vehicles: "Connected" / "Disconnected since …". Null when not reported. */
+export function chargeText(o: LiveObject, now: number, t: (k: string, v?: Record<string, string>) => string): string | null {
+  const c = chargeState(o);
+  if (!c) return null;
+  const since = o.chargingSince ? Date.parse(o.chargingSince) : NaN;
+  const when = Number.isNaN(since)
+    ? ''
+    : ` ${t('since {{time}} ({{duration}})', { time: formatClock(since, new Date(since).toDateString() !== new Date(now).toDateString(), false), duration: formatDuration((now - since) / 1000) })}`;
+  if (c.kind === 'CHARGER') return c.on ? `${t('Charging')}${when}` : t('Not charging');
+  return c.on ? t('Connected') : `${t('Disconnected')}${when}`;
+}
+
 export function VehicleDayDetails({ o, stats, now }: { o: LiveObject; stats: VehicleDayStatsDto | undefined; now: number }) {
   const c = useColors();
   const { t } = useTranslation();
   if (o.licenceLocked) return null;
   const ign = ignitionLine(o, now, t);
+  // Lists: ⚡ while a phone / ID card charges; a vehicle tracker only when it lost main power.
+  const charge = chargeState(o);
+  const chargeLine = charge && ((charge.kind === 'CHARGER' && charge.on) || (charge.kind === 'MAIN_POWER' && !charge.on))
+    ? `${charge.kind === 'CHARGER' ? '⚡ ' : `${t('Main power')}: `}${chargeText(o, now, t)}`
+    : null;
   const items: [string, string][] = stats
     ? [
         [t('Today'), formatKm(stats.distanceKm)],
@@ -59,6 +76,11 @@ export function VehicleDayDetails({ o, stats, now }: { o: LiveObject; stats: Veh
       {ign && (
         <Text size="xs" tone="muted" numberOfLines={1}>
           {ign}
+        </Text>
+      )}
+      {chargeLine && (
+        <Text size="xs" numberOfLines={1} style={{ color: charge?.kind === 'MAIN_POWER' ? c.destructive : '#059669' }}>
+          {chargeLine}
         </Text>
       )}
       {items.length > 0 && (

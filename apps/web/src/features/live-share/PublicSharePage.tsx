@@ -1,7 +1,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { BRAND_FOOTER, LIVE_SHARE_POLL_SEC, OPENFREEMAP, STATUS_META, type PublicLiveShareDto } from '@veetracer/shared';
 import maplibregl from 'maplibre-gl';
-import { BatteryIcon, ClockIcon, GaugeIcon, KeyRoundIcon, LocateFixedIcon, MapPinIcon, NavigationIcon, RouteIcon, SatelliteIcon } from 'lucide-react';
+import { BatteryIcon, ZapIcon, ClockIcon, GaugeIcon, KeyRoundIcon, LocateFixedIcon, MapPinIcon, NavigationIcon, RouteIcon, SatelliteIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
@@ -191,7 +191,8 @@ export function PublicSharePage() {
             <Stat icon={NavigationIcon} label={t('Ignition')}>{data.live.ignition === null ? '—' : data.live.ignition ? t('On') : t('Off')}</Stat>
             <Stat icon={RouteIcon} label={t('Today')}>{data.todayKm === null ? '—' : `${data.todayKm.toFixed(1)} km`}</Stat>
             <Stat icon={ClockIcon} label={t('Last fix')}>{data.live.fixTime ? dayClock.format(Date.parse(data.live.fixTime)) : '—'}</Stat>
-            <Stat icon={BatteryIcon} label={t('Battery')}>{data.live.batteryLevel === null ? '—' : `${Math.round(data.live.batteryLevel)}%`}</Stat>
+            <Stat icon={BatteryIcon} label={t('Battery')}>{data.live.batteryLevel === null ? '—' : `${Math.round(data.live.batteryLevel)}%`}
+              {data.live.charging && <ZapIcon className="ms-1 inline size-3.5 text-emerald-600" aria-label={t('Charging')} />}</Stat>
             <Stat icon={SatelliteIcon} label={t('Satellites')}>{data.live.satellites ?? '—'}</Stat>
           </div>
           <p className="text-[11px] text-muted-foreground">

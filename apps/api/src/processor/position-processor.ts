@@ -87,6 +87,14 @@ function parseEntry(entry: StreamEntry): NormalizedPosition | null {
  * One batch: resolve devices → filter/flag → status machine → live state + publish → batch insert → XACK.
  * Entries are acknowledged only after the database write succeeded.
  */
+/** Charger / main power flag (attribute 'charging') and since when it has been in that state; kept when a point lacks it. */
+export function chargingLive(attrs: Record<string, unknown> | null | undefined, prev: LiveObject | undefined, fixTime: number): Pick<LiveObject, 'charging' | 'chargingSince'> {
+  const now = typeof attrs?.charging === 'boolean' ? attrs.charging : null;
+  if (now === null) return { charging: prev?.charging ?? null, chargingSince: prev?.chargingSince ?? null };
+  const same = prev?.charging === now && prev.chargingSince;
+  return { charging: now, chargingSince: same ? prev.chargingSince! : new Date(fixTime).toISOString() };
+}
+
 export class PositionProcessor {
   private readonly logger = new Logger('Processor');
   private readonly lastSeenWritten = new Map<string, number>();
@@ -363,6 +371,7 @@ export class PositionProcessor {
           batteryLevel: numberAttr(attrs, 'batteryLevel') ?? prev?.batteryLevel ?? null,
           gsmSignal: numberAttr(attrs, 'gsmSignal') ?? prev?.gsmSignal ?? null,
           extVoltage: numberAttr(attrs, 'extVoltage') ?? prev?.extVoltage ?? null,
+          ...chargingLive(attrs, prev, fixTime),
           fuelL: device.fuel ? (numberAttr(attrs, 'fuelL') ?? prev?.fuelL ?? null) : null,
           fuelPct: device.fuel ? (numberAttr(attrs, 'fuelPct') ?? prev?.fuelPct ?? null) : null,
           ...ioOut.live,

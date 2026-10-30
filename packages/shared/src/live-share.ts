@@ -55,6 +55,8 @@ export interface PublicLiveShareDto {
     fixTime: string | null;
     serverTime: string | null;
     batteryLevel: number | null;
+    /** Charger / main power connected (null = not reported). */
+    charging: boolean | null;
     satellites: number | null;
     address: string | null;
   };

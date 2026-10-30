@@ -14,7 +14,7 @@ import { formatNumber, humanize, relativeTime, timeInStatus } from '@/lib/format
 import { statusColor } from '@/lib/status-tokens';
 import { cn } from '@/lib/utils';
 import { useAllCompaniesView, useCompanyNames } from '@/features/platform/all-companies';
-import { RowDayLine, useDayStats } from './day-stats';
+import { ChargeIcon, RowDayLine, useDayStats } from './day-stats';
 import type { LiveFilters } from './filters';
 import { VirtualList } from './VirtualList';
 
@@ -114,6 +114,7 @@ const ObjectRow = memo(function ObjectRow({
             {o.status !== 'NO_DATA' && <> · <span className="tabular-nums">{Math.round(o.speedKph)} km/h</span></>}
             {o.acOn ? <SnowflakeIcon className="ms-1.5 inline size-3 text-sky-600" aria-label={t('AC on')} /> : null}
             {o.doorOpen ? <DoorOpenIcon className="ms-1 inline size-3 text-amber-600" aria-label={t('Door open')} /> : null}
+            <ChargeIcon o={o} />
           </span>
           {details && !o.licenceLocked && <RowDayLine o={o} s={stats} />}
         </span>

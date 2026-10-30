@@ -127,6 +127,15 @@ export interface VehicleDayStatsDto {
   odometerKm: number;
 }
 
+/**
+ * How to show the charging flag: phones / ID cards / assets say Charging; wired vehicle trackers report their main
+ * power (connected is normal, so only a disconnection is worth flagging in lists). Null when not reported.
+ */
+export function chargeState(o: Pick<LiveObject, 'charging' | 'type'>): { kind: 'CHARGER' | 'MAIN_POWER'; on: boolean } | null {
+  if (o.charging === null || o.charging === undefined) return null;
+  return { kind: o.type === 'VEHICLE' ? 'MAIN_POWER' : 'CHARGER', on: o.charging };
+}
+
 export interface LiveObject {
   /** In maintenance: alerts are suppressed. */
   inMaintenance?: boolean;
@@ -152,6 +161,12 @@ export interface LiveObject {
   batteryLevel: number | null;
   gsmSignal: number | null;
   extVoltage: number | null;
+  /**
+   * Charger / external power connected, from the device (phone charging, ID card on charge, or a wired tracker's main
+   * power); null when the device doesn't report it. `chargingSince`: when it last changed.
+   */
+  charging?: boolean | null;
+  chargingSince?: string | null;
   /** Fuel in the tank (calibrated litres) and % of the tank, when the vehicle has a fuel sensor configured. */
   fuelL?: number | null;
   fuelPct?: number | null;

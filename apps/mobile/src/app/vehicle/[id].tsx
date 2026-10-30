@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { displayStatusLabel, type VideoChannelsDto } from '@veetracer/shared';
+import { displayStatusLabel, type VideoChannelsDto, chargeState } from '@veetracer/shared';
 import * as WebBrowser from 'expo-web-browser';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { BellIcon, CarIcon, HistoryIcon, ScanFaceIcon, TerminalIcon, VideoIcon, Share2Icon } from 'lucide-react-native';
@@ -18,6 +18,7 @@ import { api } from '@/lib/api';
 import { SERVER_URL } from '@/lib/config';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
+import { chargeText } from '@/features/live/day-stats';
 import { SPACE, useColors } from '@/lib/theme';
 
 function AddressRow({ lat, lng }: { lat: number | null; lng: number | null }) {
@@ -133,7 +134,8 @@ export default function VehicleScreen() {
             <InfoRow label={t('Door')} value={`${o.doorOpen === null ? '—' : o.doorOpen ? t('Open') : t('Closed')}${o.doorVoltage != null ? ` (${o.doorVoltage.toFixed(1)} V)` : ''}`} />
           )}
           {o.fuelL != null && <InfoRow label={t('Fuel')} value={`${o.fuelL.toFixed(1)} L${o.fuelPct != null ? ` · ${Math.round(o.fuelPct)}%` : ''}`} />}
-          <InfoRow label={t('Device battery')} value={or(o.batteryLevel, '%')} />
+          <InfoRow label={t('Device battery')} value={`${or(o.batteryLevel, '%')}${chargeState(o)?.kind === 'CHARGER' ? ` · ${chargeText(o, Date.now(), t)}` : ''}`} />
+          {chargeState(o)?.kind === 'MAIN_POWER' && <InfoRow label={t('Main power')} value={chargeText(o, Date.now(), t) ?? '—'} />}
           {o.inMaintenance && <InfoRow label={t('Maintenance')} value={t('In maintenance (alerts off)')} />}
         </Card>
       </View>

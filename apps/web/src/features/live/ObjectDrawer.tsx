@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { DEFAULT_SPEED_LIMIT_KPH, displayStatus, displayStatusLabel, personActivity, type DeviceDto, type LiveObject } from '@veetracer/shared';
+import { chargeState, DEFAULT_SPEED_LIMIT_KPH, displayStatus, displayStatusLabel, personActivity, type DeviceDto, type LiveObject } from '@veetracer/shared';
 import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, LockIcon, WrenchIcon, XIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -25,7 +25,7 @@ import { DriverControl } from './DriverControl';
 import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
 import { RecentDriverEvents } from '@/features/driver-events/AlertSnapshot';
 import { ShareLiveButton } from '@/features/live-share/ShareLiveDialog';
-import { ignitionText, TodayCard, useDayStats } from './day-stats';
+import { chargeText, ignitionText, TodayCard, useDayStats } from './day-stats';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -80,7 +80,15 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
         </span>
       </Row>
       <Row label={t('Server time')}>{formatDateTime(o.serverTime)}</Row>
-      <Row label={t('Battery')}>{orDash(o.batteryLevel, '%')}</Row>
+      <Row label={t('Battery')}>
+        {orDash(o.batteryLevel, '%')}
+        {chargeState(o)?.kind === 'CHARGER' && <span className="ms-1 font-normal text-muted-foreground">· {chargeText(o, now, t)}</span>}
+      </Row>
+      {chargeState(o)?.kind === 'MAIN_POWER' && (
+        <Row label={t('Main power')}>
+          <span className={o.charging ? undefined : 'text-destructive'}>{chargeText(o, now, t)}</span>
+        </Row>
+      )}
       <Row label={t('GSM signal')}>{o.gsmSignal === null ? '—' : t(GSM_LABELS[o.gsmSignal] ?? String(o.gsmSignal))}</Row>
       <Row label={t('External voltage')}>{orDash(o.extVoltage, ' V')}</Row>
       {o.fuelL != null && (

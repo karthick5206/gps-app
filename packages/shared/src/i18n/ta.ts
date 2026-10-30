@@ -2909,4 +2909,11 @@ export const TA: Record<string, string> = {
   "Voice announcements": "குரல் அறிவிப்புகள்",
   "Read alerts aloud": "எச்சரிக்கைகளை வாசித்துக் காட்டு",
   "Every new alert is announced through the speaker while the app is open.": "செயலி திறந்திருக்கும்போது ஒவ்வொரு புதிய எச்சரிக்கையும் ஸ்பீக்கரில் அறிவிக்கப்படும்.",
+  "Charging": "சார்ஜ் ஆகிறது",
+  "Not charging": "சார்ஜ் ஆகவில்லை",
+  "Connected": "இணைக்கப்பட்டுள்ளது",
+  "Disconnected": "துண்டிக்கப்பட்டது",
+  "Main power": "முதன்மை மின்சாரம்",
+  "Main power disconnected": "முதன்மை மின்சாரம் துண்டிக்கப்பட்டது",
+  "since {{time}} ({{duration}})": "{{time}} முதல் ({{duration}})",
 };

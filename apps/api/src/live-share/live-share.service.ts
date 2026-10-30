@@ -142,6 +142,7 @@ export class LiveShareService {
         fixTime: live?.fixTime ?? null,
         serverTime: live?.serverTime ?? null,
         batteryLevel: live?.batteryLevel ?? null,
+        charging: live?.charging ?? null,
         satellites: live?.satellites ?? null,
         address,
       },

@@ -2909,4 +2909,11 @@ export const HI: Record<string, string> = {
   "Voice announcements": "आवाज़ घोषणाएं",
   "Read alerts aloud": "अलर्ट पढ़कर सुनाएं",
   "Every new alert is announced through the speaker while the app is open.": "ऐप खुला रहने पर हर नया अलर्ट स्पीकर पर सुनाया जाता है।",
+  "Charging": "चार्ज हो रहा है",
+  "Not charging": "चार्ज नहीं हो रहा",
+  "Connected": "जुड़ा हुआ",
+  "Disconnected": "कटा हुआ",
+  "Main power": "मुख्य बिजली",
+  "Main power disconnected": "मुख्य बिजली कटी",
+  "since {{time}} ({{duration}})": "{{time}} से ({{duration}})",
 };
