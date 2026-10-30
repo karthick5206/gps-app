@@ -11,7 +11,7 @@ import {
   VehicleHealthRow,
   VehicleRemarkDto,
 } from '@veetracer/shared';
-import { objectScopeWhere } from '../access/access-rules';
+import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { LiveService } from '../live/live.service';
@@ -224,7 +224,7 @@ export class DashboardService {
   // ── Remarks ────────────────────────────────────────────────────────────────
 
   private async assertObject(ctx: AuthContext, objectId: string): Promise<void> {
-    const found = await this.prisma.trackedObject.count({ where: { AND: [objectScopeWhere(ctx), { id: objectId }] } });
+    const found = await this.prisma.trackedObject.count({ where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { id: objectId }] } });
     if (!found) throw new NotFoundException('Vehicle not found');
   }
 

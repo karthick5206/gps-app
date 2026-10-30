@@ -16,7 +16,7 @@ import {
   PROTOCOL_COMMANDS,
   SendCommandRequest,
 } from '@veetracer/shared';
-import { hasPermission, objectScopeWhere } from '../access/access-rules';
+import { hasPermission, allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { verifyPassword } from '../common/secrets';
@@ -68,7 +68,8 @@ export class CommandsService implements OnModuleInit {
 
   private async target(ctx: AuthContext, objectId: string): Promise<Target> {
     const o = await this.prisma.trackedObject.findFirst({
-      where: { AND: [objectScopeWhere(ctx), { id: objectId }] },
+      // Super Admin in the All companies view acts on any company's vehicle.
+      where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { id: objectId }] },
       select: {
         id: true,
         companyId: true,
@@ -133,7 +134,7 @@ export class CommandsService implements OnModuleInit {
         expiresAt: new Date(Date.now() + COMMAND_TTL_HOURS * 3600_000),
       },
     });
-    await this.audit.record(ctx, { action: 'CREATE', entity: 'DeviceCommand', entityId: row.id, after: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, type: req.type, payload: text, ...(ctx.apiKey ? { apiKey: ctx.apiKey.name, apiKeyId: ctx.apiKey.id } : {}) } });
+    await this.audit.record({ ...ctx, companyId: t.companyId }, { action: 'CREATE', entity: 'DeviceCommand', entityId: row.id, after: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, type: req.type, payload: text, ...(ctx.apiKey ? { apiKey: ctx.apiKey.name, apiKeyId: ctx.apiKey.id } : {}) } });
     await this.dispatch({ commandId: row.id, uniqueId: t.uniqueId, text });
     this.logger.log(`${ctx.userId} → ${t.uniqueId} ${req.type} "${text}" (${row.id})`);
     return (await this.toDtos([row]))[0];

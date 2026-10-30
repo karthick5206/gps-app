@@ -11,7 +11,7 @@ import {
   VideoSessionStatusDto,
 } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
-import { objectScopeWhere } from '../access/access-rules';
+import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
@@ -99,7 +99,7 @@ export class VideoService implements OnModuleInit {
   /** Vehicle in the caller's scope whose current device is a JT808 dashcam with the `video` capability. */
   async target(ctx: AuthContext, objectId: string): Promise<VideoTarget> {
     const o = await this.prisma.trackedObject.findFirst({
-      where: { AND: [objectScopeWhere(ctx), { id: objectId }] },
+      where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { id: objectId }] },
       select: {
         id: true,
         companyId: true,

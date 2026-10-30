@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FUEL_CONFIG_DEFAULTS, FuelConfigDto, FuelEventDto, FuelSource } from '@veetracer/shared';
-import { objectScopeWhere } from '../access/access-rules';
+import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { iso } from '../common/dto';
@@ -24,7 +24,7 @@ export class FuelService {
   ) {}
 
   private async object(ctx: AuthContext, objectId: string) {
-    const o = await this.prisma.trackedObject.findFirst({ where: { AND: [objectScopeWhere(ctx), { id: objectId }] }, select: { id: true, name: true, plateNumber: true } });
+    const o = await this.prisma.trackedObject.findFirst({ where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { id: objectId }] }, select: { id: true, name: true, plateNumber: true } });
     if (!o) throw new NotFoundException('Vehicle not found');
     return o;
   }
