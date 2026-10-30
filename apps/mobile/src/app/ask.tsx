@@ -5,11 +5,12 @@ import { router, Stack } from 'expo-router';
 import { BookOpenIcon, MapPinIcon, SendIcon, SparklesIcon } from 'lucide-react-native';
 import { useRef, useState, type ComponentRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Card, Text } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { SERVER_URL } from '@/lib/config';
 import { formatDateTime } from '@/lib/format';
+import { useBottomInset } from '@/lib/keyboard';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
 
 interface Turn {
@@ -37,6 +38,7 @@ export default function AskScreen() {
   const [text, setText] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
+  const bottom = useBottomInset();
   const ask = useMutation({
     mutationFn: (q: string) => api.post<SearchAnswerDto>('/ask', { q }),
     onSuccess: (a, q) => setTurns((ts) => ts.map((x) => (x.q === q && !x.a && !x.error ? { ...x, a } : x))),
@@ -51,7 +53,7 @@ export default function AskScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <View style={{ flex: 1 }}>
       <Stack.Screen options={{ title: t('Ask VeeTrax') }} />
       <ScrollView ref={scroll} contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.md }} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })} keyboardShouldPersistTaps="handled">
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
@@ -78,7 +80,7 @@ export default function AskScreen() {
           </View>
         ))}
       </ScrollView>
-      <View style={{ flexDirection: 'row', gap: SPACE.sm, padding: SPACE.md, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.card }}>
+      <View style={{ flexDirection: 'row', gap: SPACE.sm, padding: SPACE.md, paddingBottom: SPACE.md + bottom, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.card }}>
         <TextInput
           value={text}
           onChangeText={setText}
@@ -93,7 +95,7 @@ export default function AskScreen() {
           <SendIcon size={20} color={c.primaryForeground} />
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
