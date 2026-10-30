@@ -15,6 +15,12 @@ import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import { formatNumber } from '@/lib/format';
 
+/** Value for <input type="datetime-local"> in local time. */
+const localInput = (ms: number) => {
+  const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60_000);
+  return d.toISOString().slice(0, 16);
+};
+
 const km = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${formatNumber(Math.round(v * 10) / 10)} km`);
 
 /** Devices → row menu → Odometer: set or reset the odometer of the vehicle the device is fitted to (web only). */
@@ -44,14 +50,25 @@ function OdometerDialog({ device, onClose }: { device: DeviceDto; onClose: () =>
     if (loaded !== undefined && loaded !== null) setValue((v) => (v === '' ? String(Math.round(loaded * 10) / 10) : v));
   }, [loaded]);
   const [note, setNote] = useState('');
+  // When the reading was taken: now (driver reads it on the spot) or earlier (km driven since then are added).
+  const [when, setWhen] = useState<'now' | 'earlier'>('now');
+  const [takenAt, setTakenAt] = useState(() => localInput(Date.now() - 3_600_000));
+  const takenMs = when === 'earlier' ? Date.parse(takenAt) : NaN;
+  const takenValid = when === 'now' || (Number.isFinite(takenMs) && takenMs <= Date.now() && takenMs >= Date.now() - 30 * 86_400_000);
   const v = Number(value);
   const valid = value.trim() !== '' && Number.isFinite(v) && v >= 0 && v <= 10_000_000;
   const save = useMutation({
-    mutationFn: () => api.post<DeviceOdometerDto>(`/devices/${device.id}/odometer`, { valueKm: v, ...(note.trim() ? { note: note.trim() } : {}) }),
+    mutationFn: () =>
+      api.post<DeviceOdometerDto>(`/devices/${device.id}/odometer`, { valueKm: v, ...(note.trim() ? { note: note.trim() } : {}), ...(when === 'earlier' ? { readingAt: new Date(takenMs).toISOString() } : {}) }),
     onSuccess: (r) => {
       qc.setQueryData(['device-odometer', device.id], r);
       void qc.invalidateQueries({ queryKey: ['live-day-stats'] });
-      toast.success(t('Odometer set to {{km}}', { km: km(r.odometerKm) }));
+      const added = r.odometerKm !== null ? Math.round((r.odometerKm - v) * 10) / 10 : 0;
+      toast.success(
+        when === 'earlier' && added > 0
+          ? t('Odometer set to {{km}} (reading {{reading}} + {{added}} driven since)', { km: km(r.odometerKm), reading: km(v), added: km(added) })
+          : t('Odometer set to {{km}}', { km: km(r.odometerKm) }),
+      );
       onClose();
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -89,6 +106,27 @@ function OdometerDialog({ device, onClose }: { device: DeviceDto; onClose: () =>
               <RotateCcwIcon /> {t('Reset to 0')}
             </Button>
           </div>
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-sm font-medium">{t('Reading taken')}</legend>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="radio" name="odo-when" className="mt-1" checked={when === 'now'} onChange={() => setWhen('now')} />
+              <span>
+                {t('Now (on the spot)')}
+                <span className="block text-xs text-muted-foreground">{t('The driver reads the meter now, or you reset it. Shown exactly as entered.')}</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="radio" name="odo-when" className="mt-1" checked={when === 'earlier'} onChange={() => setWhen('earlier')} />
+              <span className="flex-1">
+                {t('Earlier')}
+                <span className="block text-xs text-muted-foreground">{t('Kilometres driven since the reading are added automatically.')}</span>
+                {when === 'earlier' && (
+                  <Input type="datetime-local" className="mt-1.5 w-56" value={takenAt} max={localInput(Date.now())} onChange={(e) => setTakenAt(e.target.value)} aria-label={t('Reading taken at')} />
+                )}
+              </span>
+            </label>
+            {!takenValid && <p className="text-xs text-destructive">{t('The reading time must be within the last 30 days.')}</p>}
+          </fieldset>
           <Field label={t('Reason (optional)')} htmlFor="odo-note">
             <Input id="odo-note" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder={t('e.g. Odometer replaced at service')} />
           </Field>
@@ -102,7 +140,7 @@ function OdometerDialog({ device, onClose }: { device: DeviceDto; onClose: () =>
           <Button variant="outline" onClick={onClose}>
             {t('Cancel')}
           </Button>
-          <Button onClick={() => save.mutate()} disabled={!valid || delta === 0 || save.isPending || current.isPending}>
+          <Button onClick={() => save.mutate()} disabled={!valid || !takenValid || (delta === 0 && when === 'now') || save.isPending || current.isPending}>
             {save.isPending && <Spinner />} {t('Save odometer')}
           </Button>
         </DialogFooter>

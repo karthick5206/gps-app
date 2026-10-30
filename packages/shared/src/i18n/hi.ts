@@ -2927,4 +2927,12 @@ export const HI: Record<string, string> = {
   "e.g. Odometer replaced at service": "जैसे सर्विस पर ओडोमीटर बदला गया",
   "{{n}} service reminder(s) due by odometer will move by {{km}}, so they stay the same distance away.": "ओडोमीटर से देय {{n}} सर्विस रिमाइंडर {{km}} खिसकेंगे, ताकि उतनी ही दूरी पर रहें।",
   "Save odometer": "ओडोमीटर सहेजें",
+  "Odometer set to {{km}} (reading {{reading}} + {{added}} driven since)": "ओडोमीटर {{km}} सेट (रीडिंग {{reading}} + बाद में चले {{added}})",
+  "Reading taken": "रीडिंग कब ली गई",
+  "Now (on the spot)": "अभी (मौके पर)",
+  "The driver reads the meter now, or you reset it. Shown exactly as entered.": "ड्राइवर अभी मीटर पढ़ता है, या आप रीसेट करते हैं। जैसा दर्ज किया वैसा ही दिखेगा।",
+  "Earlier": "पहले",
+  "Kilometres driven since the reading are added automatically.": "रीडिंग के बाद चले किलोमीटर अपने आप जुड़ जाते हैं।",
+  "Reading taken at": "रीडिंग का समय",
+  "The reading time must be within the last 30 days.": "रीडिंग का समय पिछले 30 दिनों में होना चाहिए।",
 };

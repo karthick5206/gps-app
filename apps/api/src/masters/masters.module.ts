@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { HistoryModule } from '../history/history.module';
 import { AdminDevicesController } from './admin-devices/admin-devices.controller';
 import { AdminDevicesService } from './admin-devices/admin-devices.service';
 import { AuditLogsController } from './audit-logs/audit-logs.controller';
@@ -26,6 +27,7 @@ import { VehicleGroupsController } from './vehicle-groups/vehicle-groups.control
 import { VehicleGroupsService } from './vehicle-groups/vehicle-groups.service';
 
 @Module({
+  imports: [HistoryModule],
   controllers: [
     BranchesController,
     UsersController,

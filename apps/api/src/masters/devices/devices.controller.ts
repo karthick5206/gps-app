@@ -29,7 +29,7 @@ export class DevicesController {
   /** Set / reset that odometer (web only); open odometer service reminders move by the same amount. */
   @Post(':id/odometer') @RequirePermission('devices', 'edit')
   setOdometer(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() body: SetOdometerDto) {
-    return this.service.setOdometer(ctx, id, body.valueKm, body.note);
+    return this.service.setOdometer(ctx, id, body.valueKm, body.note, body.readingAt);
   }
 
   @Get(':id') @RequirePermission('devices', 'view')

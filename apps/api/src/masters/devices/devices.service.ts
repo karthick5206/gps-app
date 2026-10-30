@@ -8,6 +8,7 @@ import { BulkActionDto, runBulk } from '../../common/bulk';
 import { listResult, planList } from '../../common/list-query';
 import { randomToken } from '../../common/secrets';
 import { odometers } from '../../documents/reminder-logic';
+import { HistoryService } from '../../history/history.service';
 import { SeatsService } from '../../licences/seats.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizeDeviceUniqueId } from '../device-unique-id';
@@ -34,6 +35,7 @@ export class DevicesService {
     private readonly audit: AuditService,
     private readonly redis: RedisService,
     private readonly seats: SeatsService,
+    private readonly historyService: HistoryService,
   ) {}
 
   async list(ctx: AuthContext, query: DeviceListQuery) {
@@ -75,10 +77,16 @@ export class DevicesService {
    * Sets the fitted vehicle's odometer to `valueKm` (0 = reset) by moving its offset; open service reminders due by
    * odometer move by the same amount so they stay the same distance away. Audited on the vehicle.
    */
-  async setOdometer(ctx: AuthContext, deviceId: string, valueKm: number, note?: string): Promise<DeviceOdometerDto> {
+  async setOdometer(ctx: AuthContext, deviceId: string, valueKm: number, note?: string, readingAt?: string): Promise<DeviceOdometerDto> {
     const before = await this.odometer(ctx, deviceId);
     if (!before.objectId || before.odometerKm === null || before.recordedKm === null) throw new BadRequestException('This device is not fitted to a vehicle. Assign it to a vehicle first.');
-    const value = Math.round(valueKm * 10) / 10;
+    // A reading taken earlier (e.g. the customer read the dashboard this morning): add the km driven since then.
+    const takenAt = readingAt ? Date.parse(readingAt) : NaN;
+    if (readingAt && (Number.isNaN(takenAt) || takenAt > Date.now() + 60_000 || takenAt < Date.now() - 30 * 86_400_000)) {
+      throw new BadRequestException('The reading time must be within the last 30 days.');
+    }
+    const sinceKm = Number.isNaN(takenAt) || Date.now() - takenAt < 60_000 ? 0 : await this.historyService.distanceSinceKm(ctx, before.objectId, takenAt);
+    const value = Math.round((valueKm + sinceKm) * 10) / 10;
     const delta = Math.round((value - before.odometerKm) * 10) / 10;
     const offset = Math.round((value - before.recordedKm) * 10) / 10;
     const objectId = before.objectId;
@@ -92,7 +100,7 @@ export class DevicesService {
       }
       await this.audit.record(
         { ...ctx, companyId },
-        { action: 'UPDATE', entity: 'OdometerReset', entityId: objectId, before: { odometerKm: before.odometerKm, offsetKm: before.offsetKm }, after: { odometerKm: value, offsetKm: offset, deviceId, note: note?.trim() || null, remindersShiftedKm: delta } },
+        { action: 'UPDATE', entity: 'OdometerReset', entityId: objectId, before: { odometerKm: before.odometerKm, offsetKm: before.offsetKm }, after: { odometerKm: value, offsetKm: offset, deviceId, note: note?.trim() || null, remindersShiftedKm: delta, ...(sinceKm ? { readingKm: valueKm, readingAt, addedSinceReadingKm: sinceKm } : {}) } },
         tx,
       );
     });

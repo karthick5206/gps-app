@@ -2927,4 +2927,12 @@ export const TA: Record<string, string> = {
   "e.g. Odometer replaced at service": "எ.கா. சர்வீஸில் ஓடோமீட்டர் மாற்றப்பட்டது",
   "{{n}} service reminder(s) due by odometer will move by {{km}}, so they stay the same distance away.": "ஓடோமீட்டர் அடிப்படையிலான {{n}} சர்வீஸ் நினைவூட்டல்கள் {{km}} நகரும், அதே தூரத்தில் இருக்க.",
   "Save odometer": "ஓடோமீட்டரைச் சேமி",
+  "Odometer set to {{km}} (reading {{reading}} + {{added}} driven since)": "ஓடோமீட்டர் {{km}} (அளவீடு {{reading}} + பின்னர் ஓட்டியது {{added}})",
+  "Reading taken": "அளவீடு எடுக்கப்பட்டது",
+  "Now (on the spot)": "இப்போது (அந்த இடத்தில்)",
+  "The driver reads the meter now, or you reset it. Shown exactly as entered.": "ஓட்டுநர் இப்போது மீட்டரைப் படிக்கிறார், அல்லது நீங்கள் மீட்டமைக்கிறீர்கள். உள்ளிட்டபடியே காட்டப்படும்.",
+  "Earlier": "முன்பு",
+  "Kilometres driven since the reading are added automatically.": "அளவீட்டுக்குப் பின் ஓட்டிய கிலோமீட்டர் தானாகச் சேர்க்கப்படும்.",
+  "Reading taken at": "அளவீடு எடுத்த நேரம்",
+  "The reading time must be within the last 30 days.": "அளவீட்டு நேரம் கடந்த 30 நாட்களுக்குள் இருக்க வேண்டும்.",
 };

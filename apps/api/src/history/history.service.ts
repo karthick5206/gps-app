@@ -50,6 +50,21 @@ export class HistoryService {
     @Optional() private readonly licences?: LicencePolicyService,
   ) {}
 
+  /**
+   * Distance (km) the object drove from `fromMs` until now, by the same trip rules as trips / daily distance (moving
+   * parts only, outliers skipped when that is switched on). Used to bring an odometer reading taken earlier up to date.
+   */
+  async distanceSinceKm(ctx: AuthContext, objectId: string, fromMs: number): Promise<number> {
+    const meta = await this.objectMeta(ctx, objectId);
+    const rows = await fetchPositions(this.prisma, meta.id, fromMs - 1, Date.now(), undefined, await this.skipFlags());
+    const state = createState(fromMs);
+    const out = emptyOutput();
+    for (const r of rows) processPoint(state, toSegPoint(r, state.last), meta.cfg, out);
+    const open = openSegments(state).trip;
+    const km = out.trips.reduce((s, t) => s + t.distanceKm, 0) + (open?.distanceKm ?? 0);
+    return Math.round(km * 10) / 10;
+  }
+
   async objectMeta(ctx: AuthContext, objectId: string): Promise<ObjectMeta> {
     const o = await this.prisma.trackedObject.findFirst({
       where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { id: objectId }] },
