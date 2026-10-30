@@ -26,6 +26,8 @@ interface RequestOptions {
   signal?: AbortSignal;
   /** Skip the Authorization header and 401 refresh handling (auth endpoints). */
   anonymous?: boolean;
+  /** multipart/form-data body (file upload); the boundary header is set by fetch. */
+  form?: FormData;
 }
 
 let onSessionExpired: () => void = () => {};
@@ -79,7 +81,7 @@ async function send(path: string, opts: RequestOptions): Promise<Response> {
     return await fetch(`${API_URL}${path}${buildQuery(opts.query)}`, {
       method: opts.method ?? 'GET',
       headers: headers(opts),
-      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      body: opts.form ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
       signal: opts.signal,
     });
   } catch (err) {
@@ -136,6 +138,8 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
 export const api = {
   get: <T>(path: string, query?: QueryParams, signal?: AbortSignal) => request<T>(path, { query, signal }),
   post: <T>(path: string, body?: unknown, opts?: Pick<RequestOptions, 'anonymous'>) => request<T>(path, { method: 'POST', body: body ?? {}, ...opts }),
+  /** POST multipart/form-data (e.g. a bill photo). */
+  upload: <T>(path: string, form: FormData) => request<T>(path, { method: 'POST', form }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: 'PATCH', body }),
   put: <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),

@@ -16,6 +16,7 @@ import { LiveShareModule } from './live-share/live-share.module';
 import { SmartSearchModule } from './smart-search/smart-search.module';
 import { DriverScoresModule } from './driver-scores/driver-scores.module';
 import { AttendanceModule } from './attendance/attendance.module';
+import { ExpensesModule } from './expenses/expenses.module';
 import { TransferModule } from './transfer/transfer.module';
 import { LiveModule } from './live/live.module';
 import { GeofencesModule } from './masters/geofences/geofences.module';
@@ -70,6 +71,7 @@ import { RelayModule } from './relay/relay.controller';
     SmartSearchModule,
     DriverScoresModule,
     AttendanceModule,
+    ExpensesModule,
     TransferModule,
     MastersModule,
     LiveModule,

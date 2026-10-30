@@ -132,6 +132,11 @@ export function PrivacyPage() {
               <b>Usage:</b> sign-ins, alerts you receive and settings you change
               (audit log), and the push-notification token of your phone.
             </li>
+            <li>
+              <b>Bill photos (optional):</b> photos of fuel and expense bills
+              you choose to add, taken with the camera or picked from your
+              gallery, stored with the expense entry.
+            </li>
           </ul>
         </Section>
         <Section title="Why VeeTrax uses it">

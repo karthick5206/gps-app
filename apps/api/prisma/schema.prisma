@@ -315,6 +315,7 @@ model TrackedObject {
   fuelConfig      FuelConfig?
   parkingSchedule ParkingSchedule?
   liveShares      LiveShare[]
+  expenses        Expense[]
   fuelEvents      FuelEvent[]
   ioSessions      IoSession[]
   driverEvents    DriverEvent[]
@@ -1154,6 +1155,29 @@ model AttendanceSettings {
   graceMin    Int      @default(15)
   updatedById String?  @db.Uuid
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+}
+
+/// Fuel & expense log entry (bill photo optional); odometerKm = VeeTrax odometer when entered.
+model Expense {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  objectId    String   @db.Uuid
+  kind        String
+  at          DateTime @db.Timestamptz(3)
+  amountPaise Int
+  litres      Float?
+  odometerKm  Float?
+  vendor      String?
+  note        String?
+  photoPath   String?
+  photoType   String?
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([objectId, at(sort: Desc)])
+  @@index([companyId, at(sort: Desc)])
 }
 
 /// Per object per local day (company timezone).
