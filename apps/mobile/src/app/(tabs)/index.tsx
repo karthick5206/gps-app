@@ -16,7 +16,7 @@ import {
   type VehicleGroupDto,
 } from '@veetracer/shared';
 import { router } from 'expo-router';
-import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, LayersIcon, LocateFixedIcon, MapPinIcon, MapPinPlusIcon, MaximizeIcon, SearchIcon, XIcon } from 'lucide-react-native';
+import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, LayersIcon, LocateFixedIcon, MapPinIcon, MapPinPlusIcon, MaximizeIcon, SearchIcon, XIcon, SparklesIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
@@ -334,6 +334,9 @@ export default function LiveMapScreen() {
             </Text>
           </View>
         )}
+        <Pressable accessibilityLabel={t('Ask VeeTrax')} onPress={() => router.push('/ask')} style={[styles.fab, { backgroundColor: c.card, borderColor: c.border }]}>
+          <SparklesIcon size={20} color={c.primary} />
+        </Pressable>
         <Pressable accessibilityLabel={t('Show all vehicles')} onPress={() => map.current?.fitAll(visible)} style={[styles.fab, { backgroundColor: c.card, borderColor: c.border }]}>
           <MaximizeIcon size={20} color={c.foreground} />
         </Pressable>

@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon } from 'lucide-react-native';
+import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View, Switch } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
@@ -101,6 +101,7 @@ export default function MoreScreen() {
         <MenuItem icon={SmartphoneIcon} label={t('Track this phone')} onPress={() => Linking.openURL('veetrax-tracker://').catch(() => Linking.openURL(PLAY_STORE.tracker).catch(() => undefined))} />
         {/* Public web page (same content as the PDF emailed on sign-up). */}
         <MenuItem icon={BookOpenIcon} label={t('Getting-started guide')} url={`${SERVER_URL}/guide`} />
+        {can('live_map') && <MenuItem icon={SparklesIcon} label={t('Ask VeeTrax')} href="/ask" />}
       </Card>
 
       <SectionTitle>{t('Account')}</SectionTitle>

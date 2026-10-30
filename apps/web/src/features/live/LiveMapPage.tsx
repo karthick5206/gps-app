@@ -70,8 +70,9 @@ export function LiveMapPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [filters, setFilters] = useState<LiveFilters>(() => ({ ...EMPTY_FILTERS, statuses: parseStatusParam(params.get('status')) }));
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [following, setFollowing] = useState(false);
+  // ?objectId= (e.g. from Ask VeeTrax) opens with that vehicle selected.
+  const [activeId, setActiveId] = useState<string | null>(() => params.get('objectId'));
+  const [following, setFollowing] = useState(() => !!params.get('objectId'));
   const [mobileView, setMobileView] = useState<'map' | 'list'>('map');
   const [loading, setLoading] = useState(!liveStore.snapshotLoaded);
 

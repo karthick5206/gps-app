@@ -42,6 +42,7 @@ function RootStack() {
           <Stack.Screen name="company" options={{ title: t('Switch company') }} />
           <Stack.Screen name="family" options={{ title: t('Family members') }} />
           <Stack.Screen name="geofences/index" options={{ title: t('Geofences') }} />
+          <Stack.Screen name="ask" options={{ title: t('Ask VeeTrax') }} />
           <Stack.Screen name="share/[id]" options={{ title: t('Share live location') }} />
           <Stack.Screen name="parking/index" options={{ title: t('Parking mode') }} />
           <Stack.Screen name="parking/[id]" options={{ title: t('Parking mode') }} />

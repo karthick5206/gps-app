@@ -5,6 +5,7 @@ import { useLocation } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { AlertBell } from '@/features/alerts/AlertBell';
+import { AskButton } from '@/features/ask/AskPanel';
 import { useAuth, useMe } from '@/features/auth/auth-context';
 import { useRealtimeStatus } from '@/features/live/use-live';
 import type { RealtimeStatus } from '@/features/live/realtime';
@@ -70,6 +71,7 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
           </>
         )}
       </div>
+      {can('live_map') && <AskButton />}
       <RealtimeIndicator />
       {can('alerts') && <AlertBell />}
       <LanguageToggle />

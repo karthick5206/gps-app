@@ -122,4 +122,17 @@ export const GUIDE_SECTIONS: readonly GuideSection[] = [
       { text: 'Reports: trips, stops, distance, overspeed, AC / door and more; download as Excel, PDF or CSV.' },
     ],
   },
+  {
+    id: 'ask',
+    title: '9. Ask VeeTrax (smart search)',
+    intro: 'Type or speak a short question about your vehicles and get the answer at once, with buttons to open the map, History or a report. Open it with the ✨ Ask button at the top of the web app (or Ctrl + K), or from the map / More in the mobile app.',
+    steps: [
+      { text: 'Name the vehicle by its number or name, with or without spaces: "TN 09 BB 9421", "tn09bb9421", the last digits "9421", or a person\x27s name.' },
+      { text: 'Say when: now, today, yesterday, at 3 pm, 30 Oct, this week, last week, this month, last 5 days, last night. Without a time, today is used.' },
+      { text: 'Say what you want: where / location, km / distance, trips, idle, overspeed, alerts, offline, battery, charging, documents / service due, moved at night.' },
+      { text: 'Examples: "Where is TN 09 BB 9421", "Where was 9421 yesterday at 3 pm", "Km 9421 this week", "Most idle this week", "Overspeed today", "Offline vehicles", "Trips 9421 yesterday", "Documents due", "Moved last night".' },
+      { text: 'Tamil and Hindi words work too, for example "9421 எங்கே", "நேற்று கிமீ 9421", "आज ओवरस्पीड". Tap the microphone to speak instead of typing (Chrome or Edge on a computer; any Android phone).' },
+    ],
+    notes: ['Answers only cover the vehicles you are allowed to see. If a question is not understood, VeeTrax shows example questions; if several vehicles match, it asks which one.'],
+  },
 ];
