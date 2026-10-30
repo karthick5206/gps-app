@@ -52,6 +52,7 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   report_schedules: page(() => import('@/features/reports/ScheduledReportsPage'), 'ScheduledReportsPage'),
   alerts: page(() => import('@/features/alerts/AlertsPage'), 'AlertsPage'),
   parking_mode: page(() => import('@/features/parking/ParkingModePage'), 'ParkingModePage'),
+  driver_scores: page(() => import('@/features/driver-scores/DriverScoresPage'), 'DriverScoresPage'),
   geofences: page(() => import('@/features/geofences/GeofencesPage'), 'GeofencesPage'),
   pois: page(() => import('@/features/pois/PoisPage'), 'PoisPage'),
   alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
