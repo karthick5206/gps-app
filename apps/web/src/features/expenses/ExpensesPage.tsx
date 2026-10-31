@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -49,6 +50,7 @@ function AddExpenseDialog({ onClose }: { onClose: () => void }) {
   const [at, setAt] = useState(localInput(new Date()));
   const [amount, setAmount] = useState('');
   const [litres, setLitres] = useState('');
+  const [fullTank, setFullTank] = useState(true);
   const [vendor, setVendor] = useState('');
   const [note, setNote] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
@@ -58,7 +60,7 @@ function AddExpenseDialog({ onClose }: { onClose: () => void }) {
   const valid = !!objectId && amountNum > 0 && (kind !== 'FUEL' || litresNum > 0);
   const save = useMutation({
     mutationFn: async () => {
-      const e = await api.post<ExpenseDto>('/expenses', { objectId, kind, at: new Date(at).toISOString(), amountPaise: Math.round(amountNum * 100), ...(kind === 'FUEL' ? { litres: litresNum } : {}), vendor: vendor.trim() || null, note: note.trim() || null });
+      const e = await api.post<ExpenseDto>('/expenses', { objectId, kind, at: new Date(at).toISOString(), amountPaise: Math.round(amountNum * 100), ...(kind === 'FUEL' ? { litres: litresNum, fullTank } : {}), vendor: vendor.trim() || null, note: note.trim() || null });
       if (photo) {
         const form = new FormData();
         form.append('file', photo);
@@ -137,6 +139,15 @@ function AddExpenseDialog({ onClose }: { onClose: () => void }) {
               </Field>
             )}
           </div>
+          {kind === 'FUEL' && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox checked={fullTank} onCheckedChange={(v) => setFullTank(v === true)} className="mt-0.5" />
+              <span>
+                {t('Tank filled full')}
+                <span className="block text-xs text-muted-foreground">{t('Mileage is measured from one full tank to the next. Untick for a partial fill; its litres count in the next full fill-up.')}</span>
+              </span>
+            </label>
+          )}
           <Field label={t('Fuel station / vendor (optional)')} htmlFor="exp-vendor">
             <Input id="exp-vendor" value={vendor} maxLength={120} onChange={(e) => setVendor(e.target.value)} />
           </Field>
@@ -238,7 +249,9 @@ export function ExpensesPage() {
                   <TableCell className="font-medium">{v.objectName}</TableCell>
                   <TableCell className="text-right tabular-nums">{`${v.km} km`}</TableCell>
                   <TableCell className="text-right tabular-nums">{v.fuelLitres || '—'}</TableCell>
-                  <TableCell className="text-right font-semibold tabular-nums">{v.kmPerLitre ?? '—'}</TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums" title={v.kmPerLitre === null ? t('Needs two full-tank fill-ups') : t('From {{count}} full-tank runs', { count: v.fullTankRuns })}>
+                    {v.kmPerLitre ?? <span className="text-xs font-normal text-muted-foreground">{t('Needs 2 full fills')}</span>}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{formatInr(v.fuelPaise)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatInr(v.otherPaise)}</TableCell>
                   <TableCell className="text-right tabular-nums">{v.costPerKmPaise !== null ? formatInr(v.costPerKmPaise) : '—'}</TableCell>
@@ -275,7 +288,10 @@ export function ExpensesPage() {
                   <TableCell>{e.objectName}</TableCell>
                   <TableCell>{t(EXPENSE_KIND_LABELS[e.kind])}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatInr(e.amountPaise)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{e.litres ?? '—'}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {e.litres ?? '—'}
+                    {e.kind === 'FUEL' && !e.fullTank && <span className="ml-1 text-xs text-muted-foreground">({t('partial')})</span>}
+                  </TableCell>
                   <TableCell className="hidden text-right tabular-nums md:table-cell">{e.odometerKm !== null ? `${Math.round(e.odometerKm)} km` : '—'}</TableCell>
                   <TableCell className="hidden text-muted-foreground md:table-cell">{e.vendor ?? '—'}</TableCell>
                   <TableCell className="text-right">

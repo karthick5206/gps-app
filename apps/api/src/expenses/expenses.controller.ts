@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { EXPENSE_KINDS, type ExpenseDto, type ExpenseKind, type ExpenseSummaryDto } from '@veetracer/shared';
-import { IsIn, IsInt, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
 import { Auth, RequirePermission } from '../access/decorators';
 import { ExpensesService, type UploadedBill } from './expenses.service';
@@ -12,6 +12,7 @@ class ExpenseBody {
   @IsISO8601() at!: string;
   @IsInt() @Min(1) @Max(100_000_000) amountPaise!: number;
   @IsOptional() @IsNumber() @Min(0) @Max(2000) litres?: number | null;
+  @IsOptional() @IsBoolean() fullTank?: boolean;
   @IsOptional() @IsString() @MaxLength(120) vendor?: string | null;
   @IsOptional() @IsString() @MaxLength(300) note?: string | null;
 }

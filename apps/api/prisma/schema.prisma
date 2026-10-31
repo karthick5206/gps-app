@@ -1166,6 +1166,8 @@ model Expense {
   at          DateTime @db.Timestamptz(3)
   amountPaise Int
   litres      Float?
+  /// Fuel only: tank filled to full (mileage is measured between two full fill-ups).
+  fullTank    Boolean  @default(true)
   odometerKm  Float?
   vendor      String?
   note        String?

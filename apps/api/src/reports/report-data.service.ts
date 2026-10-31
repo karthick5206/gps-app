@@ -218,7 +218,7 @@ export class ReportDataService {
       }
 
       case 'MILEAGE': {
-        const r = await mileageReport(this.prisma, objects, range, req.from, req.to, maxRows);
+        const r = await mileageReport(this.prisma, objects, range, maxRows);
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 

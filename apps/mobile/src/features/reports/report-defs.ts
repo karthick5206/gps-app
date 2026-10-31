@@ -402,14 +402,13 @@ const rupeeCol = (id: string, header: string, total?: Total): ReportColumn => ({
 /** Manual calculation from fuel fill-ups entered in Fuel & expenses; separate from the fuel-sensor FUEL report. */
 const MILEAGE: ReportColumn[] = [
   vehicle,
+  { id: 'toAt', header: 'To (full tank)', value: time('toAt') },
   count('fillUps', 'Fill-ups'),
   litresCol('litres', 'Litres', 'sum'),
   rupeeCol('fuelCost', 'Fuel cost', 'sum'),
-  rupeeCol('pricePerL', 'Avg price / L'),
-  rupeeCol('otherCost', 'Other costs', 'sum'),
   kmCol(),
   { id: 'kmPerL', header: 'Mileage (km/L)', value: num('kmPerL'), numeric: true, format: (v) => v.toFixed(1) },
-  rupeeCol('costPerKm', 'Cost / km'),
+  rupeeCol('costPerKm', 'Fuel cost / km'),
 ];
 
 const FUEL_EVENTS: ReportColumn[] = [
@@ -473,7 +472,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },
   { type: 'FUEL', category: 'Fuel', label: 'Fuel (sensor)', description: 'Per vehicle per day: start and end level, refills, drains, consumption and km/L (vehicles with a fuel sensor).', icon: FuelIcon, columns: FUEL },
   { type: 'FUEL_EVENTS', category: 'Fuel', label: 'Fuel refills & drains', description: 'Every detected refill and drain (possible fuel theft) with the level before and after.', icon: DropletOffIcon, columns: FUEL_EVENTS },
-  { type: 'MILEAGE', category: 'Fuel log (manual)', label: 'Mileage (manual fuel entries)', description: 'Per vehicle: fill-ups, litres and fuel cost entered in Fuel & expenses against the GPS distance driven, giving km per litre and cost per km. No fuel sensor needed.', icon: NotebookPenIcon, columns: MILEAGE },
+  { type: 'MILEAGE', category: 'Fuel log (manual)', label: 'Mileage (manual fuel entries)', description: 'Full-tank method from fuel fill-ups entered in Fuel & expenses: one row per run from a full tank to the next, with GPS km, litres, km per litre and fuel cost per km. No fuel sensor needed.', icon: NotebookPenIcon, columns: MILEAGE },
   { type: 'AC_DOOR', category: 'Sensors', label: 'AC / Door', description: 'Every AC on / off and door open / closed period with duration, distance and start / end address.', icon: SnowflakeIcon, columns: AC_DOOR },
   { type: 'AC_DOOR_DAILY', category: 'Sensors', label: 'AC / Door daily totals', description: 'Per vehicle per day: hours with AC on, AC on with the engine off, door openings and open time.', icon: DoorOpenIcon, columns: AC_DOOR_DAILY },
   { type: 'DEVICE_STATUS', category: 'Devices', label: 'Device status', description: 'Active, inactive, no-GPS and never-connected devices right now.', icon: ActivityIcon, columns: DEVICE_STATUS },

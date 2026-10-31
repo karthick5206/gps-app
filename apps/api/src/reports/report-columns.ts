@@ -147,16 +147,16 @@ const FUEL_EVENTS: ReportColumn[] = [
 
 const rupees = (v: number | null) => (v === null ? '' : Math.round(v * 100) / 100);
 const MILEAGE: ReportColumn[] = [
-  col<MileageReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.vehicles ?? 0} vehicles)` }),
+  col<MileageReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.runs ?? 0} full-tank runs)` }),
   col<MileageReportRow>({ header: 'Plate', width: 14, value: (r) => r.plateNumber ?? '' }),
+  col<MileageReportRow>({ header: 'From (full tank)', width: 19, value: (r, tz) => localTime(r.fromAt, tz) }),
+  col<MileageReportRow>({ header: 'To (full tank)', width: 19, value: (r, tz) => localTime(r.toAt, tz) }),
   col<MileageReportRow>({ header: 'Fill-ups', width: 8, numeric: true, value: (r) => r.fillUps, total: (t) => t.fillUps ?? 0 }),
   col<MileageReportRow>({ header: 'Litres', width: 9, numeric: true, value: (r) => r.litres, total: (t) => t.litres ?? 0 }),
   col<MileageReportRow>({ header: 'Fuel cost (Rs)', width: 12, numeric: true, value: (r) => rupees(r.fuelCost), total: (t) => t.fuelCost ?? 0 }),
-  col<MileageReportRow>({ header: 'Avg price / L (Rs)', width: 12, numeric: true, value: (r) => rupees(r.pricePerL), total: (t) => t.pricePerL || '' }),
-  col<MileageReportRow>({ header: 'Other costs (Rs)', width: 12, numeric: true, value: (r) => rupees(r.otherCost), total: (t) => t.otherCost ?? 0 }),
   col<MileageReportRow>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => r.distanceKm, total: (t) => t.distanceKm ?? 0 }),
   col<MileageReportRow>({ header: 'Mileage (km/L)', width: 11, numeric: true, value: (r) => r.kmPerL ?? '', total: (t) => t.kmPerL || '' }),
-  col<MileageReportRow>({ header: 'Cost / km (Rs)', width: 11, numeric: true, value: (r) => rupees(r.costPerKm), total: (t) => t.costPerKm || '' }),
+  col<MileageReportRow>({ header: 'Fuel cost / km (Rs)', width: 12, numeric: true, value: (r) => rupees(r.costPerKm), total: (t) => t.costPerKm || '' }),
 ];
 
 const ioStatus = (r: IoSessionReportRow) => (r.kind === 'AC' ? (r.on ? 'On' : 'Off') : r.on ? 'Open' : 'Closed');

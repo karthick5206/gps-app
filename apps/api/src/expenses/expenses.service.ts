@@ -12,6 +12,7 @@ import { APP_ROOT } from '../config/env';
 import { odometers } from '../documents/reminder-logic';
 import { PrismaService } from '../prisma/prisma.service';
 import { localDayKey } from '../summarizer/tz';
+import { mileageRuns, runsKmPerLitre } from './mileage';
 
 export const EXPENSES_DIR = join(APP_ROOT, 'var', 'expenses');
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -60,6 +61,7 @@ export class ExpensesService {
       at: r.at.toISOString(),
       amountPaise: r.amountPaise,
       litres: r.litres,
+      fullTank: r.kind === 'FUEL' ? r.fullTank : false,
       odometerKm: r.odometerKm,
       vendor: r.vendor,
       note: r.note,
@@ -93,7 +95,7 @@ export class ExpensesService {
     if (!o) throw new NotFoundException('Vehicle not found');
     const odo = (await odometers(this.prisma, [o.id])).get(o.id) ?? null;
     const row = await this.prisma.expense.create({
-      data: { companyId: o.companyId, objectId: o.id, kind: i.kind, at: new Date(i.at), amountPaise: i.amountPaise, litres: i.kind === 'FUEL' ? (i.litres ?? null) : null, odometerKm: odo, vendor: i.vendor?.trim().slice(0, 120) || null, note: i.note?.trim().slice(0, 300) || null, createdById: ctx.userId },
+      data: { companyId: o.companyId, objectId: o.id, kind: i.kind, at: new Date(i.at), amountPaise: i.amountPaise, litres: i.kind === 'FUEL' ? (i.litres ?? null) : null, fullTank: i.kind === 'FUEL' ? (i.fullTank ?? true) : false, odometerKm: odo, vendor: i.vendor?.trim().slice(0, 120) || null, note: i.note?.trim().slice(0, 300) || null, createdById: ctx.userId },
       include: INCLUDE,
     });
     await this.audit.record({ ...ctx, companyId: o.companyId }, { action: 'CREATE', entity: 'Expense', entityId: row.id, after: { objectId: o.id, kind: i.kind, amountPaise: i.amountPaise, litres: row.litres } });
@@ -137,7 +139,7 @@ export class ExpensesService {
     return new StreamableFile(createReadStream(row.photoPath), { type: row.photoType ?? 'application/octet-stream', length: info.size, disposition: 'inline' });
   }
 
-  /** Per-vehicle km / L and cost per km for a period (distance from the day summaries). */
+  /** Per-vehicle costs for a period: km / L by the full-tank method, cost per km over the day-summary distance. */
   async summary(ctx: AuthContext, from: string, to: string): Promise<ExpenseSummaryDto> {
     const f = new Date(from);
     const t = new Date(to);
@@ -150,6 +152,7 @@ export class ExpensesService {
     const dayOf = (d: Date) => new Date(`${localDayKey(d.getTime(), tz)}T00:00:00.000Z`);
     const km = await this.prisma.dailySummary.groupBy({ by: ['objectId'], where: { objectId: { in: ids }, day: { gte: dayOf(f), lte: dayOf(t) } }, _sum: { distanceKm: true } });
     const kmBy = new Map(km.map((k) => [k.objectId, k._sum.distanceKm ?? 0]));
+    const runs = await mileageRuns(this.prisma, ids, { gte: f, lt: new Date(t.getTime() + 1) });
     const byKind = Object.fromEntries(EXPENSE_KINDS.map((k) => [k, 0])) as Record<ExpenseKind, number>;
     const per = new Map<string, { name: string; litres: number; fuel: number; other: number }>();
     for (const r of rows) {
@@ -164,7 +167,8 @@ export class ExpensesService {
     const vehicles = [...per.entries()]
       .map(([objectId, e]) => {
         const d = Math.round((kmBy.get(objectId) ?? 0) * 10) / 10;
-        return { objectId, objectName: e.name, km: d, fuelLitres: Math.round(e.litres * 100) / 100, fuelPaise: e.fuel, otherPaise: e.other, ...vehicleCost(d, e.litres, e.fuel, e.other) };
+        const r = runs.get(objectId) ?? [];
+        return { objectId, objectName: e.name, km: d, fuelLitres: Math.round(e.litres * 100) / 100, fuelPaise: e.fuel, otherPaise: e.other, costPerKmPaise: vehicleCost(d, e.litres, e.fuel, e.other).costPerKmPaise, kmPerLitre: runsKmPerLitre(r), fullTankRuns: r.length };
       })
       .sort((a, b) => b.fuelPaise + b.otherPaise - (a.fuelPaise + a.otherPaise));
     return { from: f.toISOString(), to: t.toISOString(), vehicles, totalPaise: rows.reduce((s, r) => s + r.amountPaise, 0), byKind };

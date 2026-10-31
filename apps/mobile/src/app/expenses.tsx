@@ -5,7 +5,7 @@ import { Stack } from 'expo-router';
 import { CameraIcon, FuelIcon, ImageIcon, PlusIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, RefreshControl, ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SelectField, VehiclePicker } from '@/components/pickers';
 import { Button, Card, Chips, EmptyState, Field, Text } from '@/components/ui';
@@ -39,7 +39,7 @@ export default function ExpensesScreen() {
               <Text weight="700">{formatInr(e.amountPaise)}</Text>
             </View>
             <Text size="sm" tone="muted">
-              {[t(EXPENSE_KIND_LABELS[e.kind]), e.litres ? `${e.litres} L` : null, formatDateTime(e.at), e.vendor].filter(Boolean).join(' · ')}
+              {[t(EXPENSE_KIND_LABELS[e.kind]), e.litres ? `${e.litres} L${e.fullTank ? '' : ` (${t('partial')})`}` : null, formatDateTime(e.at), e.vendor].filter(Boolean).join(' · ')}
               {e.hasPhoto ? ` · ${t('Bill photo')}` : ''}
             </Text>
           </Card>
@@ -62,6 +62,7 @@ function AddExpense({ onClose }: { onClose: () => void }) {
   const [kind, setKind] = useState<ExpenseKind>('FUEL');
   const [amount, setAmount] = useState('');
   const [litres, setLitres] = useState('');
+  const [fullTank, setFullTank] = useState(true);
   const [vendor, setVendor] = useState('');
   const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const valid = !!objectId && Number(amount) > 0 && (kind !== 'FUEL' || Number(litres) > 0);
@@ -79,7 +80,7 @@ function AddExpense({ onClose }: { onClose: () => void }) {
 
   const save = useMutation({
     mutationFn: async () => {
-      const e = await api.post<ExpenseDto>('/expenses', { objectId, kind, at: new Date().toISOString(), amountPaise: Math.round(Number(amount) * 100), ...(kind === 'FUEL' ? { litres: Number(litres) } : {}), vendor: vendor.trim() || null });
+      const e = await api.post<ExpenseDto>('/expenses', { objectId, kind, at: new Date().toISOString(), amountPaise: Math.round(Number(amount) * 100), ...(kind === 'FUEL' ? { litres: Number(litres), fullTank } : {}), vendor: vendor.trim() || null });
       if (photo) {
         const form = new FormData();
         form.append('file', { uri: photo.uri, name: photo.fileName ?? 'bill.jpg', type: photo.mimeType ?? 'image/jpeg' } as unknown as Blob);
@@ -103,6 +104,17 @@ function AddExpense({ onClose }: { onClose: () => void }) {
         <Chips options={EXPENSE_KINDS.map((k) => ({ value: k, label: t(EXPENSE_KIND_LABELS[k]) }))} value={kind} onChange={setKind} />
         <Field label={t('Amount (₹)')} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
         {kind === 'FUEL' && <Field label={t('Litres')} value={litres} onChangeText={setLitres} keyboardType="decimal-pad" />}
+        {kind === 'FUEL' && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+            <View style={{ flex: 1 }}>
+              <Text weight="600">{t('Tank filled full')}</Text>
+              <Text size="xs" tone="muted">
+                {t('Mileage is measured from one full tank to the next. Untick for a partial fill; its litres count in the next full fill-up.')}
+              </Text>
+            </View>
+            <Switch value={fullTank} onValueChange={setFullTank} trackColor={{ true: c.primary }} />
+          </View>
+        )}
         <Field label={t('Fuel station / vendor (optional)')} value={vendor} onChangeText={setVendor} maxLength={120} />
         <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
           <Button title={t('Photo of bill')} icon={CameraIcon} variant="outline" style={{ flex: 1 }} onPress={() => void pick(true)} />
