@@ -42,6 +42,8 @@ object Health {
     safe("locBg") { Starter.hasBackgroundPermission(app) }
     safe("battOpt") { !(app.getSystemService(Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(app.packageName) }
     safe("powerSave") { (app.getSystemService(Context.POWER_SERVICE) as PowerManager).isPowerSaveMode }
+    // Battery saver can switch GPS off with the screen off: 1, 2, 4 = restricted, 3 = apps on screen only.
+    safe("locSave") { (app.getSystemService(Context.POWER_SERVICE) as PowerManager).locationPowerSaveMode }
     safe("dataSaver") {
       when ((app.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).restrictBackgroundStatus) {
         ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED -> "on"
@@ -54,6 +56,8 @@ object Health {
       safe("bucket") { (app.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager).appStandbyBucket }
     }
     safe("notif") { NotificationManagerCompat.from(app).areNotificationsEnabled() }
+    // Tells the server this app delivers the points of a number that moved to another phone before it signs out.
+    o.put("drain", true)
     o.put("wanted", prefs.wanted)
     o.put("running", running)
     o.put("mode", mode)

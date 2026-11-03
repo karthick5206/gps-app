@@ -29,6 +29,8 @@ export async function beginTracking(): Promise<BeginResult> {
   return { ok: true, backgroundDenied: !bg.granted };
 }
 
+const SIGN_OUT_UPLOAD_MS = 20_000;
+
 /** True when tracking can start without showing the disclosure (everything already granted). */
 export async function permissionsReady(): Promise<boolean> {
   const [fg, bg] = await Promise.all([Location.getForegroundPermissionsAsync(), Location.getBackgroundPermissionsAsync()]);
@@ -81,6 +83,8 @@ export async function restoreActivation(): Promise<boolean> {
 /** The user deactivated this phone: also ends the session on the server (else a reinstall would restore it). */
 export async function deactivate(): Promise<void> {
   const token = await getToken();
+  // Signing out deletes the queue, so anything unsent goes first (the screen has already warned if offline).
+  await Promise.race([Tracker.uploadNow().catch(() => 0), new Promise((done) => setTimeout(done, SIGN_OUT_UPLOAD_MS))]);
   if (token) await api.signOut(token).catch(() => undefined);
   await signOut(S.reasonSignedOut);
 }

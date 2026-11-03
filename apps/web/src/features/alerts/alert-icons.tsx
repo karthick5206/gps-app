@@ -68,6 +68,7 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   DEVICE_OFFLINE: WifiOffIcon,
   DEVICE_ONLINE: WifiIcon,
   SIM_CHANGED: CardSimIcon,
+  TRACKER_DEVICE_CHANGED: SmartphoneIcon,
   GPS_LOST: MapPinOffIcon,
   GSM_WEAK: SignalLowIcon,
   DATA_DELAYED: CloudAlertIcon,

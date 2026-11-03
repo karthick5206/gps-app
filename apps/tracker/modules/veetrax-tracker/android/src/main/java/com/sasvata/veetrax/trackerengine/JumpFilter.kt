@@ -28,6 +28,7 @@ class JumpFilter(private val prefs: Prefs) {
     const val MAX_SPEED_MPS = 55.0
     const val JUMP_CONFIRMATIONS = 3
     const val STILL_SPEED_MPS = 1f
+    const val CLOCK_TOLERANCE_MS = 5 * 60_000L
 
     fun distance(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
       val out = FloatArray(1)
@@ -67,11 +68,15 @@ class JumpFilter(private val prefs: Prefs) {
 
   private val suspects = ArrayList<Point>()
 
-  fun check(p: Point, stoppedIntervalMs: Long): Verdict {
+  /** [previous] is the fix before this one in the same delivery (not on disk yet, so not in lastQueuedT). */
+  fun check(p: Point, stoppedIntervalMs: Long, previous: Long? = null): Verdict {
     if (!p.lat.isFinite() || !p.lng.isFinite() || kotlin.math.abs(p.lat) > 90 || kotlin.math.abs(p.lng) > 180 ||
       (p.lat == 0.0 && p.lng == 0.0)
     ) return Verdict.INVALID
-    if (p.t <= prefs.lastQueuedT) return Verdict.OLD
+    // A wrong clock can leave lastQueuedT in the future; every fix would then look old and tracking would go silent.
+    val last = prefs.lastQueuedT
+    if (previous != null && p.t <= previous) return Verdict.OLD
+    if (p.t <= last && last <= System.currentTimeMillis() + CLOCK_TOLERANCE_MS) return Verdict.OLD
     if (p.mock) return Verdict.MOCK
 
     val anchor = prefs.anchor

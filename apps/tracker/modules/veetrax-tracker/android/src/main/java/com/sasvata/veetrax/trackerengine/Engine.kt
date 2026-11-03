@@ -49,6 +49,8 @@ class Engine private constructor(context: Context) {
     private const val MOVE_SPEED_MPS = 2f
     private const val MOVE_MIN_DISTANCE_M = 30f
     private const val SOS_TIMEOUT_MS = 15_000L
+    private const val TRIM_EVENT_GAP_MS = 60 * 60_000L
+    private const val PING_AFTER_MS = 10 * 60_000L
 
     @Volatile
     private var instance: Engine? = null
@@ -64,7 +66,12 @@ class Engine private constructor(context: Context) {
   private val queue = PointQueue(this.context)
   private val filter = JumpFilter(prefs)
   private val uploader = Uploader(this.context, prefs, queue).also { u ->
-    u.health = { Health.snapshot(context, prefs, TrackerService.isRunning, mode.name.lowercase()) }
+    u.health = {
+      Health.snapshot(context, prefs, TrackerService.isRunning, mode.name.lowercase()).apply {
+        put("queue", queue.size())
+        if (prefs.lastFixAt > 0) put("lastFixAt", prefs.lastFixAt)
+      }
+    }
   }
 
   private val thread = HandlerThread("veetrax-tracker").apply { start() }
@@ -84,10 +91,18 @@ class Engine private constructor(context: Context) {
   private var lastRawFixElapsed = 0L
   private var lastProbeElapsed = 0L
   private var lastUploadElapsed = 0L
+  private var lastTrimEventElapsed = 0L
 
   init {
     uploader.onConfig = { cfg -> applyConfig(TrackerConfig.merge(prefs.config, cfg)) }
     uploader.onRequired = { required -> applyRequired(required) }
+    uploader.onRevoked = { startRevokedDrain() }
+    queue.onTrimmed = { dropped ->
+      if (elapsed() - lastTrimEventElapsed > TRIM_EVENT_GAP_MS || lastTrimEventElapsed == 0L) {
+        lastTrimEventElapsed = elapsed()
+        prefs.recordEvent("upload", "queue full: oldest $dropped points dropped")
+      }
+    }
   }
 
   private fun elapsed() = SystemClock.elapsedRealtime()
@@ -148,10 +163,39 @@ class Engine private constructor(context: Context) {
     Starter.ensureRunning(context, "required by the server")
   }
 
+  /** Stops recording, keeps the token until the queue has been delivered (the next empty drain signs out). */
+  private fun startRevokedDrain() {
+    if (prefs.revokedDraining) return
+    prefs.revokedDraining = true
+    prefs.required = false
+    prefs.stopWhy = "moved to another phone"
+    prefs.wanted = false
+    Starter.stop(context)
+  }
+
+  /**
+   * Watchdog: with no points to send the server hears nothing, and "phone off" looks like "no GPS". A short report every
+   * so often tells them apart. Blocks this thread for the HTTP call.
+   */
+  fun ping() {
+    val token = prefs.token ?: return
+    if (queue.size() > 0 || prefs.revokedDraining) return requestUpload(force = false)
+    if (System.currentTimeMillis() - prefs.lastUploadAt < PING_AFTER_MS || System.currentTimeMillis() < prefs.backoffUntil) return
+    val o = uploader.send(token, emptyList())
+    if (o is Uploader.Outcome.Stop && prefs.token == token) stopFromServer(o)
+  }
+
+  /** Sign-out: delivers what can be delivered first. Returns how many points are still waiting. */
+  fun uploadNow(): Long {
+    runUpload()
+    return queue.size()
+  }
+
   /** Watchdog, while tracking is off: asks whether it must be on. Blocks this thread for the HTTP call. */
   fun checkRequired() {
     if (prefs.wanted) return
     val token = prefs.token ?: return
+    if (prefs.revokedDraining) return requestUpload(force = false)
     uploader.fetchRequired(token)?.let { applyRequired(it) }
   }
 
@@ -215,7 +259,7 @@ class Engine private constructor(context: Context) {
       val p = Point.from(loc, battery, mode = mode.name.lowercase())
       prefs.recordFix(p.t, p.acc, p.spd)
       updateMode(p, prefs.anchor)
-      val label = when (filter.check(p, cfg.stoppedIntervalSec * 1000L)) {
+      val label = when (filter.check(p, cfg.stoppedIntervalSec * 1000L, queued.lastOrNull()?.t)) {
         JumpFilter.Verdict.ACCEPT -> {
           prefs.anchor = Anchor(p.t, p.lat, p.lng, p.acc ?: 0f)
           prefs.lastAcceptedAt = p.t
@@ -228,10 +272,11 @@ class Engine private constructor(context: Context) {
         JumpFilter.Verdict.INVALID, JumpFilter.Verdict.OLD -> continue
       }
       queued.add(if (label == null) p else p.copy(flt = label))
-      prefs.lastQueuedT = p.t
     }
     if (queued.isNotEmpty()) {
       queue.add(queued)
+      // Only once they are on disk: if saving fails, these fixes must not count as queued.
+      prefs.lastQueuedT = queued.last().t
       requestUpload(force = false)
     }
   }
@@ -265,7 +310,7 @@ class Engine private constructor(context: Context) {
    * coalescing gap after the previous attempt and the backoff time. Does nothing when the queue is empty.
    */
   fun requestUpload(force: Boolean) {
-    if (prefs.token.isNullOrEmpty() || (queue.size() == 0L && !prefs.hasPendingEvents())) return
+    if (prefs.token.isNullOrEmpty() || (queue.size() == 0L && !prefs.hasPendingEvents() && !prefs.revokedDraining)) return
     handler.removeCallbacks(uploadRunnable)
     if (force) {
       handler.post(uploadRunnable)
@@ -385,11 +430,6 @@ class Engine private constructor(context: Context) {
       is Uploader.Outcome.Stop -> {
         stopFromServer(o)
         "stopped"
-      }
-      is Uploader.Outcome.Rejected -> {
-        // The server refused the content (4xx); keeping it would block the queue.
-        queue.remove(listOf(p.t))
-        "rejected"
       }
       is Uploader.Outcome.Retry -> {
         requestUpload(force = false)

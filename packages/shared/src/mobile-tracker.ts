@@ -88,6 +88,11 @@ export interface TrackerHealth {
   mode?: string;
   failures?: number;
   lastError?: string;
+  /** Battery saver's location rule (Android PowerManager): 1, 2, 4 = restricted with the screen off, 3 = on-screen apps only. */
+  locSave?: number;
+  /** Points waiting to upload, and when the phone last got a location (epoch ms). */
+  queue?: number;
+  lastFixAt?: number;
   start?: { at: number; why: string };
   stop?: { at: number; why: string };
   refused?: { at: number; why: string };
@@ -117,6 +122,9 @@ export function sanitizeTrackerHealth(raw: unknown): TrackerHealth | null {
     if (v !== undefined) h[k] = v;
   };
   set('bucket', int(r.bucket, 100));
+  set('locSave', int(r.locSave, 10));
+  set('queue', int(r.queue, 10_000_000));
+  set('lastFixAt', int(r.lastFixAt, 9_999_999_999_999));
   set('failures', int(r.failures, 1_000_000));
   set('sdk', int(r.sdk, 100));
   set('mode', text(r.mode, 20));
@@ -135,6 +143,7 @@ export type TrackerHealthIssueCode =
   | 'LOCATION_NOT_ALWAYS'
   | 'BATTERY_OPTIMISED'
   | 'POWER_SAVE'
+  | 'BATTERY_SAVER_LOCATION'
   | 'DATA_SAVER'
   | 'BACKGROUND_RESTRICTED'
   | 'STANDBY_RESTRICTED'
@@ -164,6 +173,8 @@ export function trackerHealthIssues(h: TrackerHealth | null | undefined): Tracke
   if (h.battOpt === true) add('BATTERY_OPTIMISED', 'warning', 'Battery optimisation is on for the app', 'Settings → Apps → VeeTrax Tracker → Battery saver → No restrictions');
   if (h.bucket !== undefined && h.bucket >= 40)
     add('STANDBY_RESTRICTED', 'warning', 'Android has put the app in a restricted standby group (limits background work and network)', 'Open the app once a day, and set Battery → No restrictions');
+  if (h.powerSave === true && h.locSave !== undefined && h.locSave > 0)
+    add('BATTERY_SAVER_LOCATION', 'error', "The phone's battery saver can switch off location when the screen is off", 'Turn off Battery saver, or set its location option to keep location on');
   if (h.powerSave === true) add('POWER_SAVE', 'warning', "The phone's battery saver is on", 'Turn off Battery saver in the quick settings');
   if ((h.failures ?? 0) >= 3) add('UPLOADS_FAILING', 'warning', 'Uploads are failing', 'Check mobile data / signal; the app retries automatically');
   if (h.notif === false) add('NOTIFICATIONS_OFF', 'warning', 'Notifications are off for the app (some phones then stop the tracking service)', 'Settings → Apps → VeeTrax Tracker → Notifications → On');

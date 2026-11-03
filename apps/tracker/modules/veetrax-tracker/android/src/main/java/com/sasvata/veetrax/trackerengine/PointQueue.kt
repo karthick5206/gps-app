@@ -28,6 +28,9 @@ class PointQueue(context: Context) :
 
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
 
+  /** Called with how many of the oldest points were dropped because the queue is full. */
+  var onTrimmed: ((Long) -> Unit)? = null
+
   /** Adds points (an existing `t` is kept), then trims the oldest rows above [CAP]. Returns rows added. */
   fun add(points: List<Point>): Int {
     if (points.isEmpty()) return 0
@@ -48,6 +51,7 @@ class PointQueue(context: Context) :
           "DELETE FROM queue WHERE t IN (SELECT t FROM queue ORDER BY t ASC LIMIT ?)",
           arrayOf<Any>(n - CAP),
         )
+        onTrimmed?.invoke(n - CAP)
       }
       db.setTransactionSuccessful()
     } finally {

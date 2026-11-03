@@ -90,6 +90,11 @@ class VeetraxTrackerModule : Module() {
       true
     }
 
+    /** Delivers the queue before signing out; resolves with how many points could not be sent. */
+    AsyncFunction("uploadNow") { promise: Promise ->
+      engine.post { promise.resolve(it.uploadNow().toDouble()) }
+    }
+
     /** Clears the INACTIVE stop reason after the server accepts the token again. */
     AsyncFunction("resetStopReason") {
       engine.prefs.stopReason = null

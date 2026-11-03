@@ -18,9 +18,7 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
   sealed class Outcome {
     /** Accepted (or queue empty / nothing to do). */
     object Done : Outcome()
-    /** Non-retryable 4xx (bad content): the batch is dropped so it can't block the queue for ever. */
-    object Rejected : Outcome()
-    /** Network / 5xx / 408 / 429: try again at prefs.backoffUntil. */
+    /** Network or any other server answer: nothing is dropped, try again at prefs.backoffUntil. */
     object Retry : Outcome()
     /** 401 REVOKED / INVALID (clearToken = true) or 403 INACTIVE: stop tracking. */
     data class Stop(val reason: String, val clearToken: Boolean) : Outcome()
@@ -50,6 +48,9 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
 
   /** Called with the server's answer to "must this phone track?" (app 1.3.4+ servers send it). */
   var onRequired: ((Boolean) -> Unit)? = null
+
+  /** The number moved to another phone; the server still takes the points recorded before that. */
+  var onRevoked: (() -> Unit)? = null
 
   /** While tracking is off there are no uploads to carry the answer, so the watchdog asks. Null when it can't tell. */
   fun fetchRequired(token: String): Boolean? {
@@ -81,12 +82,12 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
     repeat(MAX_BATCHES_PER_RUN) {
       val batch = queue.peek(prefs.config.batchMax)
       if (batch.isEmpty()) {
+        if (prefs.revokedDraining) return Outcome.Stop("REVOKED", clearToken = true)
         // No points, but the server should still hear about a stop or restart (the health report carries them).
-        if (!prefs.hasPendingEvents()) return Outcome.Done
-        return send(token, batch).let { if (it == Outcome.Rejected) Outcome.Done else it }
+        return if (prefs.hasPendingEvents()) send(token, batch) else Outcome.Done
       }
       when (val o = send(token, batch)) {
-        Outcome.Done, Outcome.Rejected -> queue.remove(batch.map { it.t })
+        Outcome.Done -> queue.remove(batch.map { it.t })
         else -> return o
       }
     }
@@ -94,7 +95,7 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
   }
 
   /**
-   * Sends one batch and updates status / backoff. Done or Rejected = the caller removes the batch from the queue.
+   * Sends one batch and updates status / backoff. Done = the server has it, the caller removes it from the queue.
    */
   fun send(token: String, batch: List<Point>): Outcome {
     val payload = JSONObject().put("positions", JSONArray().apply { batch.forEach { put(it.toJson()) } })
@@ -122,15 +123,14 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
         prefs.backoffUntil = 0
         json?.optJSONObject("config")?.let { cfg -> onConfig?.invoke(cfg) }
         if (json?.has("required") == true) onRequired?.invoke(json.optBoolean("required"))
+        if (json?.optBoolean("revoked") == true) onRevoked?.invoke()
         Outcome.Done
       }
       res.code == 401 -> Outcome.Stop(if (code == "REVOKED") "REVOKED" else "INVALID", clearToken = true)
       res.code == 403 && code == "INACTIVE" -> Outcome.Stop("INACTIVE", clearToken = false)
       res.code == 408 || res.code == 429 || res.code >= 500 -> backoff("Server: $message")
-      else -> {
-        prefs.lastError = "Rejected: $message"
-        Outcome.Rejected
-      }
+      // Any other answer is kept and retried too: a proxy or a server bug must never cost points.
+      else -> backoff("Rejected: $message")
     }
   }
 

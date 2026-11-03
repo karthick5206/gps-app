@@ -3111,4 +3111,7 @@ export const HI: Record<string, string> = {
   "Uploads recovered": "अपलोड फिर से चालू हुए",
   "Keep tracking always on": "ट्रैकिंग हमेशा चालू रखें",
   "For company phones. The person cannot stop tracking in the app, and if it was stopped it comes back on within about 15 minutes. Needs Tracker app 1.3.4 or newer. Tell the person before you turn this on. It cannot override a phone that is switched off, a force stop, removed permissions or an uninstall.": "कंपनी के फ़ोन के लिए। व्यक्ति ऐप में ट्रैकिंग बंद नहीं कर सकता, और बंद होने पर यह लगभग 15 मिनट में फिर चालू हो जाती है। Tracker ऐप 1.3.4 या नया चाहिए। चालू करने से पहले व्यक्ति को बताएँ। बंद फ़ोन, फ़ोर्स स्टॉप, हटाई गई अनुमतियों या अनइंस्टॉल पर यह काम नहीं करता।",
+  "Tracker device changed": "ट्रैकर डिवाइस बदला गया",
+  "The phone's battery saver can switch off location when the screen is off": "फ़ोन का बैटरी सेवर स्क्रीन बंद होने पर लोकेशन बंद कर सकता है",
+  "Turn off Battery saver, or set its location option to keep location on": "बैटरी सेवर बंद करें, या उसके लोकेशन विकल्प में लोकेशन चालू रखें",
 };

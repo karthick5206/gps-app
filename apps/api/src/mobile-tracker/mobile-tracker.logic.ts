@@ -156,3 +156,11 @@ export function toNormalized(p: TrackerPoint, uniqueId: string, receivedAt: numb
     raw: JSON.stringify(p),
   };
 }
+
+/** Whether a new activation is on a different phone than the number's latest one (never true for the first activation). */
+export function isDifferentPhone(previous: { installIdHash: string | null; deviceName: string | null } | null, next: { installIdHash: string | null; deviceName: string | null }): boolean {
+  if (!previous) return false;
+  if (previous.installIdHash && next.installIdHash) return previous.installIdHash !== next.installIdHash;
+  // Sessions from before install ids: the phone's name is the best evidence there is.
+  return !!previous.deviceName && !!next.deviceName && previous.deviceName !== next.deviceName;
+}

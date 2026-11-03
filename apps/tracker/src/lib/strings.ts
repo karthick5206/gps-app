@@ -58,6 +58,7 @@ export const S = {
   trackingOff: 'Tracking is OFF',
   startTracking: 'Start tracking',
   stopTracking: 'Stop tracking',
+  signOutUnsent: (n: number) => `${n} locations are not uploaded yet and will be lost if they can't be sent now. Connect to the internet first if you can.`,
   requiredTitle: 'Tracking is required',
   requiredBody: 'Your company requires location tracking on this phone, so it can\'t be switched off here. Please ask your administrator.',
   stopConfirmTitle: 'Stop tracking?',

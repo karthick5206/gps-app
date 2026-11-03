@@ -111,6 +111,11 @@ class Prefs(context: Context) {
     get() = sp.getBoolean("required", false)
     set(v) { sp.edit().putBoolean("required", v).commit() }
 
+  /** This number moved to another phone: tracking is off, the unsent points are still being delivered (then sign-out). */
+  var revokedDraining: Boolean
+    get() = sp.getBoolean("revokedDraining", false)
+    set(v) { sp.edit().putBoolean("revokedDraining", v).commit() }
+
   /** Why tracking stopped on its own: REVOKED, INVALID or INACTIVE (null after a user stop). */
   var stopReason: String?
     get() = str("stopReason")
@@ -234,7 +239,7 @@ class Prefs(context: Context) {
     sp.edit()
       .remove("anchor").remove("lastQueuedT").remove("lastFixAt").remove("lastAcc").remove("lastSpd")
       .remove("lastAcceptedAt").remove("lastUploadAt").remove("lastError").remove("failures")
-      .remove("backoffUntil").remove("mockCount").remove("droppedCount")
+      .remove("backoffUntil").remove("mockCount").remove("droppedCount").remove("revokedDraining")
       .apply()
   }
 }

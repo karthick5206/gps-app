@@ -13,6 +13,7 @@ import { RulesRepository } from './rules-data';
 /** Only alert while the offline period is fresh, so restarts after long downtime don't flood notifications. */
 const MAX_LATE_ALERT_MS = 30 * 60_000;
 const EPISODE_KEY_TTL_SEC = 90 * 24 * 3600;
+const NO_FIX_CAUSE_MS = 10 * 60_000;
 
 interface OfflineMark {
   episode: string; // serverTime of the last data before going offline
@@ -109,16 +110,55 @@ export class OfflineAlertService {
   private async phoneCause(deviceId: string | null): Promise<{ text: string; codes: string[] } | null> {
     if (!deviceId) return null;
     const d = await this.prisma.device
-      .findUnique({ where: { id: deviceId }, select: { trackerHealth: true, model: { select: { protocol: true } } } })
+      .findUnique({ where: { id: deviceId }, select: { trackerHealth: true, trackerHealthAt: true, model: { select: { protocol: true } } } })
       .catch(() => null);
     if (!d || d.model.protocol !== MOBILE_TRACKER_PROTOCOL) return null;
     const health = sanitizeTrackerHealth(d.trackerHealth);
     // Tracking was switched off, so settings on the phone aren't the reason (app 1.3.4+ reports this right after a stop).
     if (health?.wanted === false) return { text: `tracking was switched off on the phone${health.stop?.why ? ` (${health.stop.why})` : ''}`, codes: ['SWITCHED_OFF'] };
     const issues = trackerHealthIssues(health);
+    // App 1.3.4+ keeps reporting without points, so a live phone with no location no longer looks like a dead phone.
+    const lastFix = health?.lastFixAt;
+    if (health?.running && lastFix && d.trackerHealthAt && d.trackerHealthAt.getTime() - lastFix > NO_FIX_CAUSE_MS) return { text: 'the phone is on and tracking, but is getting no location', codes: ['NO_LOCATION', ...issues.map((i) => i.code)] };
     if (issues.length) return { text: issues[0].text, codes: issues.map((i) => i.code) };
     if (health?.stop?.why === 'killed while tracking') return { text: 'the phone stopped the tracking app (check Autostart / battery settings)', codes: ['KILLED'] };
     return null;
+  }
+
+  /** The tracker app was activated on another phone: raised at once (no offline episode or cooldown involved). */
+  async trackerDeviceChanged(
+    change: { companyId: string; deviceId: string; object: { id: string; name: string; branchId: string | null; plateNumber: string | null; speedLimitKph: number | null }; mobile: string; from: string | null; to: string | null },
+    now: number,
+  ): Promise<void> {
+    const rules = await this.repo.get(change.companyId);
+    const setting = rules.effective(change.object.id).get('TRACKER_DEVICE_CHANGED');
+    if (!setting?.enabled) return;
+    const ackRequired = ackRequiredFor(setting, 'TRACKER_DEVICE_CHANGED', setting.severity);
+    const id = randomUUID();
+    const message = `Tracker device changed: ${change.mobile} moved from ${change.from ?? 'the previous phone'} to ${change.to ?? 'another phone'}`;
+    const data = { mobile: change.mobile, fromDevice: change.from, toDevice: change.to };
+    await this.prisma.alert.create({
+      data: { id, companyId: change.companyId, objectId: change.object.id, deviceId: change.deviceId, type: 'TRACKER_DEVICE_CHANGED', severity: setting.severity, message, data, occurredAt: new Date(now), ackRequired },
+    });
+    const dto = pendingToDto({
+      id,
+      type: 'TRACKER_DEVICE_CHANGED',
+      severity: setting.severity,
+      message,
+      occurredAt: now,
+      lat: null,
+      lng: null,
+      geofenceId: null,
+      geofenceName: null,
+      data,
+      ackRequired,
+      object: { objectId: change.object.id, companyId: change.companyId, branchId: change.object.branchId, name: change.object.name, plateNumber: change.object.plateNumber, deviceId: change.deviceId, speedLimitKph: change.object.speedLimitKph },
+    });
+    await this.redis.client
+      .pipeline()
+      .publish(RedisKeys.alertsChannel, JSON.stringify({ companyId: change.companyId, alert: dto }))
+      .xadd(RedisKeys.notifyStream, 'MAXLEN', '~', NOTIFY_STREAM_MAXLEN, '*', 'alertId', id, 'companyId', change.companyId)
+      .exec();
   }
 
   private async raise(live: LiveObject, severity: 'INFO' | 'WARNING' | 'CRITICAL', ackRequired: boolean, offlineMs: number, now: number, parkingAlarm = false): Promise<void> {

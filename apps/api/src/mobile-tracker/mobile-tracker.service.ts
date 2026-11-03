@@ -1,7 +1,8 @@
-import { ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { MobileTrackerStatusDto, sanitizeTrackerEvents, sanitizeTrackerHealth, TrackerEventKind, TrackerHealth } from '@veetracer/shared';
 import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 import { AuthContext } from '../access/auth-context';
+import { OfflineAlertService } from '../alerts/offline-alerts.service';
 import { AuditService } from '../audit/audit.service';
 import { MailerService } from '../auth/mailer.service';
 import { deviceScopeWhere } from '../access/access-rules';
@@ -18,6 +19,7 @@ import {
   codeRecipients,
   DEFAULT_TRACKER_CONFIG,
   formatMobile,
+  isDifferentPhone,
   maskEmail,
   MAX_POINTS_PER_CALL,
   MOBILE_MODEL_PROTOCOL,
@@ -42,6 +44,8 @@ interface CachedSession {
   deviceId: string;
   uniqueId: string;
   required: boolean;
+  /** Set when the number moved to another phone: only for delivering what this phone recorded before that. */
+  revokedAt?: number;
   checkedAt: number;
   lastUsedWrite: number;
 }
@@ -64,6 +68,7 @@ export class MobileTrackerService {
     private readonly mailer: MailerService,
     private readonly self: TrackerSelfService,
     private readonly audit: AuditService,
+    private readonly alerts: OfflineAlertService,
   ) {}
 
   config(): TrackerConfig {
@@ -104,7 +109,7 @@ export class MobileTrackerService {
         activationEmail: true,
         company: { select: { name: true, accountType: true } },
         licenceSeat: { select: { source: true, expiresAt: true } },
-        assignments: { where: { toTime: null }, select: { object: { select: { id: true, name: true, branchId: true } } } },
+        assignments: { where: { toTime: null }, select: { object: { select: { id: true, name: true, branchId: true, plateNumber: true, speedLimitKph: true } } } },
       },
     });
   }
@@ -341,14 +346,23 @@ export class MobileTrackerService {
   private async startSession(device: Awaited<ReturnType<MobileTrackerService['deviceByMobile']>>, body: { deviceName?: string; appVersion?: string; platform?: string; installId?: string }) {
     const token = randomBytes(32).toString('base64url');
     const now = new Date();
+    const next = { installIdHash: hashInstallId(body.installId), deviceName: body.deviceName?.slice(0, 80) ?? null };
+    const previous = await this.prisma.mobileTrackerSession.findFirst({ where: { deviceId: device.id }, orderBy: { createdAt: 'desc' }, select: { installIdHash: true, deviceName: true } });
     // One phone per number: activating here stops every earlier phone.
     await this.prisma.$transaction([
       this.prisma.mobileTrackerSession.updateMany({ where: { deviceId: device.id, revokedAt: null }, data: { revokedAt: now } }),
       this.prisma.mobileTrackerSession.create({
-        data: { deviceId: device.id, tokenHash: hashToken(token), deviceName: body.deviceName?.slice(0, 80) ?? null, appVersion: body.appVersion?.slice(0, 20) ?? null, platform: body.platform?.slice(0, 20) ?? null, installIdHash: hashInstallId(body.installId), lastUsedAt: now },
+        data: { deviceId: device.id, tokenHash: hashToken(token), deviceName: next.deviceName, appVersion: body.appVersion?.slice(0, 20) ?? null, platform: body.platform?.slice(0, 20) ?? null, installIdHash: next.installIdHash, lastUsedAt: now },
       }),
     ]);
     for (const [k, s] of this.sessions) if (s.deviceId === device.id) this.sessions.delete(k);
+    const object = device.assignments[0]?.object;
+    if (object && device.companyId && isDifferentPhone(previous, next)) {
+      // After the new phone is active; a failed alert must not fail the activation.
+      void this.alerts
+        .trackerDeviceChanged({ companyId: device.companyId, deviceId: device.id, object, mobile: formatMobile(device.uniqueId), from: previous?.deviceName ?? null, to: next.deviceName }, now.getTime())
+        .catch((e: Error) => this.logger.error(`Tracker device changed alert for ${device.id} failed: ${e.message}`));
+    }
     return { token, ...this.describe(device), config: this.config() };
   }
 
@@ -373,7 +387,7 @@ export class MobileTrackerService {
   }
 
   /** Resolves the Bearer token: 401 REVOKED / INVALID, 403 INACTIVE. */
-  private async session(authorization: string | undefined): Promise<CachedSession> {
+  private async session(authorization: string | undefined, allowRevoked = false): Promise<CachedSession> {
     const token = /^Bearer\s+(\S+)$/i.exec(authorization ?? '')?.[1];
     if (!token) throw trackerError(401, 'INVALID', 'Not activated');
     const key = hashToken(token);
@@ -383,6 +397,7 @@ export class MobileTrackerService {
     if (!row) throw trackerError(401, 'INVALID', 'Please activate again');
     if (row.revokedAt) {
       this.sessions.delete(key);
+      if (allowRevoked) return { sessionId: row.id, deviceId: row.deviceId, uniqueId: row.device.uniqueId, required: false, revokedAt: row.revokedAt.getTime(), checkedAt: 0, lastUsedWrite: Date.now() };
       throw trackerError(401, 'REVOKED', 'Tracking moved to another phone with the same number');
     }
     if (!row.device.isActive || !row.device.companyId) throw trackerError(403, 'INACTIVE', 'Tracking switched off by your administrator');
@@ -417,23 +432,31 @@ export class MobileTrackerService {
   }
 
   /** Validates the points and adds them to the positions stream (the gateway's path into the processor). */
-  async upload(authorization: string | undefined, points: unknown[], health?: unknown): Promise<{ ok: true; accepted: number; config: TrackerConfig; required: boolean }> {
-    const s = await this.session(authorization);
+  async upload(authorization: string | undefined, points: unknown[], health?: unknown): Promise<{ ok: true; accepted: number; config: TrackerConfig; required: boolean; revoked?: true }> {
+    // App 1.3.4+ says it can deliver its queue after the number moved to another phone (older apps get the 401 and stop).
+    const canDrain = (health as { drain?: unknown } | null | undefined)?.drain === true;
+    const s = await this.session(authorization, canDrain);
     const now = Date.now();
-    this.saveHealth(s.deviceId, sanitizeTrackerHealth(health), now);
-    this.saveEvents(s.deviceId, sanitizeTrackerEvents(health));
+    // An old phone's report must not overwrite the new phone's.
+    if (s.revokedAt === undefined) {
+      this.saveHealth(s.deviceId, sanitizeTrackerHealth(health), now);
+      this.saveEvents(s.deviceId, sanitizeTrackerEvents(health));
+    }
     const config = this.config();
     const parsed = points
       .slice(0, MAX_POINTS_PER_CALL)
       .map((p) => parsePoint(p, now))
-      .filter((p): p is NonNullable<typeof p> => p !== null)
+      .filter((p): p is NonNullable<typeof p> => p !== null && (s.revokedAt === undefined || p.t <= s.revokedAt))
       .sort((a, b) => a.t - b.t);
     if (parsed.length) {
       const pipeline = this.redis.client.pipeline();
       const maxLen = positionsStreamMaxLen();
       for (const p of parsed) pipeline.xadd(RedisKeys.positionsStream, 'MAXLEN', '~', maxLen, '*', 'data', JSON.stringify(toNormalized(p, s.uniqueId, now, config)), 'remote', 'tracker-app');
-      await pipeline.exec();
+      // The phone deletes what we confirm, so a failed write must not be confirmed.
+      const results = await pipeline.exec();
+      if (!results || results.some(([error]) => error)) throw new ServiceUnavailableException('Positions could not be saved, try again.');
     }
+    if (s.revokedAt !== undefined) return { ok: true, accepted: parsed.length, config, required: false, revoked: true };
     if (now - s.lastUsedWrite > LAST_USED_WRITE_MS) {
       s.lastUsedWrite = now;
       await this.prisma.mobileTrackerSession.update({ where: { id: s.sessionId }, data: { lastUsedAt: new Date(now) } }).catch(() => undefined);
@@ -452,7 +475,7 @@ export class MobileTrackerService {
   /** Keeps the latest health report on the device: on change (ignoring counters), else every HEALTH_WRITE_MS. */
   private saveHealth(deviceId: string, health: TrackerHealth | null, now: number): void {
     if (!health) return;
-    const { failures: _f, mode: _m, ...stable } = health;
+    const { failures: _f, mode: _m, queue: _q, lastFixAt: _l, ...stable } = health;
     const key = JSON.stringify(stable);
     const last = this.healthWritten.get(deviceId);
     if (last && last.key === key && now - last.at < HEALTH_WRITE_MS) return;

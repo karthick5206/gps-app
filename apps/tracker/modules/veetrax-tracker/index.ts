@@ -46,6 +46,7 @@ export type SosResult = 'sent' | 'queued' | 'rejected' | 'no_location' | 'no_tok
 interface NativeModuleShape {
   start(token: string, serverUrl: string | null, config: Partial<NativeTrackerConfig> | null): Promise<StartResult>;
   stop(why?: string): Promise<boolean>;
+  uploadNow(): Promise<number>;
   isRunning(): boolean;
   getStatus(): Promise<TrackerStatus>;
   setConfig(config: Partial<NativeTrackerConfig>): Promise<boolean>;
@@ -79,6 +80,11 @@ const unavailable = () => new Error('VeeTrax tracker engine is only available on
 
 export function start(token: string, serverUrl: string, config?: Partial<NativeTrackerConfig>): Promise<StartResult> {
   return Native ? Native.start(token, serverUrl, config ?? null) : Promise.reject(unavailable());
+}
+
+/** Delivers the queue now; resolves with how many points are still waiting. */
+export function uploadNow(): Promise<number> {
+  return Native ? Native.uploadNow() : Promise.resolve(0);
 }
 
 export function stop(why?: string): Promise<boolean> {

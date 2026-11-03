@@ -3111,4 +3111,7 @@ export const TA: Record<string, string> = {
   "Uploads recovered": "பதிவேற்றம் மீண்டும் செயல்பட்டது",
   "Keep tracking always on": "கண்காணிப்பை எப்போதும் இயக்கத்தில் வை",
   "For company phones. The person cannot stop tracking in the app, and if it was stopped it comes back on within about 15 minutes. Needs Tracker app 1.3.4 or newer. Tell the person before you turn this on. It cannot override a phone that is switched off, a force stop, removed permissions or an uninstall.": "நிறுவன தொலைபேசிகளுக்கு. செயலியில் கண்காணிப்பை நிறுத்த முடியாது; நிறுத்தப்பட்டால் சுமார் 15 நிமிடங்களில் மீண்டும் இயங்கும். Tracker செயலி 1.3.4 அல்லது புதியது தேவை. இயக்கும் முன் அந்த நபரிடம் தெரிவிக்கவும். அணைக்கப்பட்ட தொலைபேசி, கட்டாய நிறுத்தம், நீக்கப்பட்ட அனுமதிகள் அல்லது நீக்கம் ஆகியவற்றை இது மீற முடியாது.",
+  "Tracker device changed": "டிராக்கர் சாதனம் மாற்றப்பட்டது",
+  "The phone's battery saver can switch off location when the screen is off": "திரை அணைந்திருக்கும்போது பேட்டரி சேமிப்பு இருப்பிடத்தை நிறுத்தக்கூடும்",
+  "Turn off Battery saver, or set its location option to keep location on": "பேட்டரி சேமிப்பை அணைக்கவும், அல்லது அதன் இருப்பிட விருப்பத்தில் இருப்பிடத்தை இயக்கத்தில் வைக்கவும்",
 };

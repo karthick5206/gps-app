@@ -12,8 +12,8 @@ import java.util.concurrent.TimeUnit
 /**
  * Every 15 minutes (WorkManager's minimum; it batches with other apps' work so it costs ~nothing): if tracking is
  * wanted but the service is gone (killed by an OEM battery manager), start it again. No network constraint: the
- * worker only uses the network while tracking is off, to ask whether the administrator requires it; otherwise it just
- * checks and starts the service, and nudges the uploader.
+ * worker asks whether tracking is required while it is off, and otherwise restarts the service if needed and sends a
+ * short health report when nothing else has reached the server for a while.
  * WorkManager survives reboots and app updates on its own.
  */
 class WatchdogWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
@@ -22,20 +22,26 @@ class WatchdogWorker(context: Context, params: WorkerParameters) : Worker(contex
     val prefs = Prefs(app)
     if (prefs.token.isNullOrEmpty()) return Result.success()
     if (!prefs.wanted) {
-      // Tracking is off: the administrator may require it on. Waits, or Android could freeze the process mid-request.
-      val done = CountDownLatch(1)
-      Engine.get(app).post {
-        try {
-          it.checkRequired()
-        } finally {
-          done.countDown()
-        }
-      }
-      done.await(CHECK_TIMEOUT_SEC, TimeUnit.SECONDS)
+      // Tracking is off: the administrator may require it on.
+      runOnEngine(app) { it.checkRequired() }
       return Result.success()
     }
-    if (Starter.ensureRunning(app, "watchdog")) Engine.get(app).post { it.requestUpload(force = false) }
+    Starter.ensureRunning(app, "watchdog")
+    runOnEngine(app) { it.ping() }
     return Result.success()
+  }
+
+  /** Waits for the work, or Android could freeze the process mid-request. */
+  private fun runOnEngine(app: Context, block: (Engine) -> Unit) {
+    val done = CountDownLatch(1)
+    Engine.get(app).post {
+      try {
+        block(it)
+      } finally {
+        done.countDown()
+      }
+    }
+    done.await(CHECK_TIMEOUT_SEC, TimeUnit.SECONDS)
   }
 
   companion object {

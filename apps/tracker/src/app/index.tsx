@@ -74,7 +74,7 @@ export default function HomeScreen() {
     ]);
 
   const deactivate = () =>
-    required ? Alert.alert(S.requiredTitle, S.requiredBody) : Alert.alert(S.signOutConfirmTitle, S.signOutConfirmBody, [
+    required ? Alert.alert(S.requiredTitle, S.requiredBody) : Alert.alert(S.signOutConfirmTitle, queued > 0 ? `${S.signOutConfirmBody}\n\n${S.signOutUnsent(queued)}` : S.signOutConfirmBody, [
       { text: S.cancel, style: 'cancel' },
       { text: S.ok, style: 'destructive', onPress: () => void deactivatePhone() },
     ]);
