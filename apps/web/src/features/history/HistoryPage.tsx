@@ -8,9 +8,10 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { themeStore } from '@/features/theme/theme-store';
 import { prefersReducedMotion, useReducedMotion } from '@/hooks/use-reduced-motion';
-import { downloadCsv, errorMessage } from '@/lib/api';
+import { ApiError, downloadCsv, errorMessage } from '@/lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '@/features/auth/auth-context';
+import { formatDuration } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CLEAN_TRACK_COLOR, ESTIMATE_COLOR, HistoryMap, POINT_LABEL_COLORS, SPEED_BAND_COLORS, SPEED_BAND_LABELS, STOP_COLORS, type ColorMode, type MarkClick } from './history-map';
 import { BasemapPicker } from '@/features/live/map/BasemapPicker';
@@ -18,10 +19,12 @@ import { HistorySidePanel, type SideTab } from './HistorySidePanel';
 import { HistoryToolbar } from './HistoryToolbar';
 import { LiveDataPanel } from './LiveDataPanel';
 import { PlaybackBar } from './PlaybackBar';
+import { MAX_COMPARE, compareColor, compareFeatures, noDataSeconds, parseCompareIds, unionBounds } from './compare';
+import { formatKm } from './history-format';
 import { boundsBetween, buildRuns, buildTrackIndex, gapSegments, sampleAt } from './playback-core';
 import { PlaybackEngine } from './playback-engine';
 import { detectPreset, rangeFromParams, type TimeRange } from './time-range';
-import { useGapEstimates, useHistory, useMediaQuery, usePointQuality, usePointQualitySettings } from './use-history';
+import { useCompareHistories, useGapEstimates, useHistory, useMediaQuery, usePointQuality, usePointQualitySettings, useVehicleOptions } from './use-history';
 import { useTheme } from '@/features/theme/use-theme';
 import { MAX_GAP_ESTIMATES, POINT_LABELS, STATUS_META, TRACK_STATUS_CODES, type PointLabel, type PointQualityResponse } from '@veetracer/shared';
 
@@ -123,16 +126,61 @@ function AllPointsLegend({ c }: { c: AllPointsControl }) {
   );
 }
 
+interface CompareRow {
+  id: string;
+  name: string;
+  color: string;
+  distanceKm: number | null;
+  noDataSec: number;
+  hasPoints: boolean;
+  loading: boolean;
+  error: boolean;
+}
+
+/** Compare mode: each vehicle's colour, distance and time without data in the period. */
+function CompareLegend({ rows }: { rows: CompareRow[] }) {
+  const { t } = useTranslation();
+  return (
+    <ul className="max-w-64 space-y-1 px-0.5 text-[11px] sm:max-w-72 sm:text-xs" aria-label={t('Compare with…')}>
+      {rows.map((r) => (
+        <li key={r.id} className="flex items-start gap-1.5">
+          <span className="mt-1 h-1 w-3.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
+          <span className="min-w-0">
+            <span className="block truncate font-medium">{r.name}</span>
+            <span className="block text-muted-foreground tabular-nums">
+              {r.loading ? (
+                <Spinner className="size-3" />
+              ) : r.error ? (
+                t("Couldn't load history")
+              ) : !r.hasPoints ? (
+                t('No positions in this period')
+              ) : (
+                <>
+                  {r.distanceKm !== null && formatKm(r.distanceKm)}
+                  {r.noDataSec > 0 && ` · ${t('No data for {{time}}', { time: formatDuration(r.noDataSec) })}`}
+                </>
+              )}
+            </span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Legend({
   mode,
   onModeChange,
   estimated,
   allPoints,
+  compare,
 }: {
   mode: ColorMode;
   onModeChange: (m: ColorMode) => void;
   estimated: boolean;
   allPoints: AllPointsControl | null;
+  /** Compare mode: lines are coloured per vehicle, so this list replaces the status / speed key. */
+  compare: CompareRow[] | null;
 }) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
@@ -143,6 +191,7 @@ function Legend({
   return (
     <div className="pointer-events-auto rounded-xl border bg-card/95 p-2 text-xs shadow-lg backdrop-blur-sm">
       <BasemapPicker className="mb-1.5" />
+      {compare ? <CompareLegend rows={compare} /> : <>
       <div className="flex rounded-md bg-muted p-0.5" role="group" aria-label={t('Colour track by')}>
         {(['status', 'speed'] as const).map((m) => (
           <button
@@ -184,6 +233,7 @@ function Legend({
           {t('Parked')}
         </li>
       </ul>
+      </>}
       {allPoints && <AllPointsLegend c={allPoints} />}
     </div>
   );
@@ -220,6 +270,33 @@ export function HistoryPage() {
 
   const query = useHistory(objectId, range.from, range.to);
   const data = query.data;
+
+  // Other vehicles drawn over the selected one, each in its own colour.
+  const compareParam = params.get('compare');
+  const compareIds = useMemo(() => parseCompareIds(compareParam, objectId), [compareParam, objectId]);
+  const comparing = !!objectId && compareIds.length > 0;
+  const compareQueries = useCompareHistories(comparing ? compareIds : [], range.from, range.to);
+  const compareVersion = compareQueries.map((q) => q.dataUpdatedAt).join();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const compareTracks = useMemo(() => compareQueries.map((q) => (q.data ? buildTrackIndex(q.data.points, { skipStops: false }) : null)), [compareVersion]);
+  const { resolved } = useTheme();
+  const { options: vehicleOptions } = useVehicleOptions('');
+
+  // A vehicle from the URL that this user can't reach (deleted, moved, other company): back to the picker, with a note.
+  const [unavailable, setUnavailable] = useState(false);
+  const notFound = query.error instanceof ApiError && query.error.status === 404;
+  useEffect(() => {
+    if (!notFound) return;
+    setUnavailable(true);
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('objectId');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [notFound, setParams]);
 
   const idx = useMemo(() => (data ? buildTrackIndex(data.points, { skipStops }) : null), [data, skipStops]);
   // One engine per dataset; skip-stops only swaps its index.
@@ -262,6 +339,20 @@ export function HistoryPage() {
     // idx geometry is identical across skip-stops toggles; re-run only for a new dataset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, engine]);
+
+  // After the effect above, so a new dataset picks up the compare colours and the map fits every path.
+  useEffect(() => {
+    if (!map) return;
+    const features = comparing ? compareTracks.flatMap((c, i) => (c ? compareFeatures(c, compareColor(resolved, i + 1), i) : [])) : [];
+    map.setCompare(features, comparing ? compareColor(resolved, 0) : null);
+  }, [map, engine, comparing, compareTracks, resolved]);
+  useEffect(() => {
+    if (!map || !comparing) return;
+    const b = unionBounds([idx, ...compareTracks]);
+    if (b) map.fit(b, true);
+    // idx geometry is identical across skip-stops toggles; `engine` stands for a new dataset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, engine, comparing, compareTracks]);
 
   // All points: every recorded point with its quality label + the cleaned track (feature switched on by Super Admin).
   const qualitySettings = usePointQualitySettings();
@@ -367,9 +458,20 @@ export function HistoryPage() {
   };
 
   const setObject = (id: string | null) => {
+    setUnavailable(false);
     const next = new URLSearchParams(params);
     if (id) next.set('objectId', id);
     else next.delete('objectId');
+    setParams(next, { replace: true });
+  };
+  const setCompare = (ids: string[]) => {
+    if (ids.length > MAX_COMPARE) {
+      toast.info(t('You can compare up to {{count}} more vehicles.', { count: MAX_COMPARE }));
+      return;
+    }
+    const next = new URLSearchParams(params);
+    if (ids.length) next.set('compare', ids.join(','));
+    else next.delete('compare');
     setParams(next, { replace: true });
   };
   const setRange = (r: TimeRange) => {
@@ -381,6 +483,35 @@ export function HistoryPage() {
 
   const multiDay = range.to.getTime() - range.from.getTime() > 86_400_000;
   const hasTrack = !!idx && idx.n > 0;
+  const vehicleName = (id: string) => vehicleOptions.find((o) => o.value === id)?.label ?? t('Selected item');
+  const compareRows: CompareRow[] | null = comparing
+    ? [
+        {
+          id: objectId!,
+          name: vehicleName(objectId!),
+          color: compareColor(resolved, 0),
+          distanceKm: data?.summary.distanceKm ?? null,
+          noDataSec: idx ? noDataSeconds(idx) : 0,
+          hasPoints: hasTrack,
+          loading: query.isFetching,
+          error: query.isError,
+        },
+        ...compareIds.map((id, i) => {
+          const q = compareQueries[i];
+          const track = compareTracks[i];
+          return {
+            id,
+            name: vehicleName(id),
+            color: compareColor(resolved, i + 1),
+            distanceKm: q?.data?.summary.distanceKm ?? null,
+            noDataSec: track ? noDataSeconds(track) : 0,
+            hasPoints: !!track && track.n > 0,
+            loading: !!q?.isFetching,
+            error: !!q?.isError,
+          };
+        }),
+      ]
+    : null;
 
   const side = (
     <HistorySidePanel
@@ -411,9 +542,9 @@ export function HistoryPage() {
   return (
     <div className={cn('flex h-full flex-col', isDesktop ? 'min-h-[600px]' : sheetExpanded ? 'min-h-[820px]' : 'min-h-[640px]')}>
       <div className="border-b bg-card px-3 py-2.5 sm:px-4">
-        <HistoryToolbar objectId={objectId} onObjectChange={setObject} range={range} preset={preset} onRangeChange={setRange} />
+        <HistoryToolbar objectId={objectId} onObjectChange={setObject} compareIds={compareIds} onCompareChange={setCompare} range={range} preset={preset} onRangeChange={setRange} />
       </div>
-      {data?.truncated && (
+      {(data?.truncated || (comparing && compareQueries.some((q) => q.data?.truncated))) && (
         <div role="status" className="flex items-start gap-2 border-b bg-warning/10 px-4 py-2 text-xs text-warning sm:text-sm">
           <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
           <span>{t('This period has more points than can be drawn, so the track was simplified (stops and alert points are kept). Choose a shorter period for full detail.')}</span>
@@ -433,16 +564,18 @@ export function HistoryPage() {
                 <LiveDataPanel engine={engine} />
               </div>
             )}
-            {hasTrack && (
+            {(hasTrack || comparing) && (
               <div className="pointer-events-none absolute right-2 bottom-7 sm:right-3">
-                <Legend mode={colorMode} onModeChange={setColorMode} estimated={estimates.length > 0} allPoints={allPointsControl} />
+                <Legend mode={colorMode} onModeChange={setColorMode} estimated={estimates.length > 0} allPoints={allPointsControl} compare={compareRows} />
               </div>
             )}
             {!objectId && (
               <Overlay>
                 <RouteIcon className="mx-auto size-8 text-primary" />
-                <p className="mt-2 font-medium">{t('Pick a vehicle')}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{t('Choose a vehicle and a period to replay its route, trips, stops and alerts.')}</p>
+                <p className="mt-2 font-medium">{unavailable ? t("This vehicle isn't available") : t('Pick a vehicle')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {unavailable ? t('It may have been deleted or moved, or you may no longer have access. Choose another vehicle.') : t('Choose a vehicle and a period to replay its route, trips, stops and alerts.')}
+                </p>
               </Overlay>
             )}
             {objectId && query.isFetching && (
@@ -452,14 +585,14 @@ export function HistoryPage() {
                 </span>
               </div>
             )}
-            {objectId && query.isError && (
+            {objectId && query.isError && !notFound && (
               <Overlay>
                 <AlertTriangleIcon className="mx-auto size-7 text-destructive" />
                 <p className="mt-2 font-medium">{t("Couldn't load history")}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{errorMessage(query.error)}</p>
               </Overlay>
             )}
-            {objectId && data && !hasTrack && !query.isFetching && (
+            {objectId && data && !hasTrack && !query.isFetching && !comparing && (
               <Overlay>
                 <p className="font-medium">{t('No positions in this period')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{t('Try another day or a longer range.')}</p>

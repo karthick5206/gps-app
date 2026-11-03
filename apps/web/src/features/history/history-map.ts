@@ -42,6 +42,7 @@ const SRC = {
   estimate: 'h-estimate',
   allPoints: 'h-allpts',
   clean: 'h-clean',
+  compare: 'h-compare',
 } as const;
 const LYR = {
   estimate: 'h-estimate-line',
@@ -53,6 +54,8 @@ const LYR = {
   trip: 'h-trip-line',
   played: 'h-played-line',
   playedGap: 'h-played-gap',
+  compareLine: 'h-compare-line',
+  compareGap: 'h-compare-gap',
   stops: 'h-stops',
   stopsText: 'h-stops-text',
   alerts: 'h-alerts',
@@ -137,6 +140,8 @@ export class HistoryMap {
   private alertPositions: { alert: AlertDto; lat: number; lng: number }[] = [];
   private estimates: [number, number][][] = [];
   private allPoints: PointQualityResponse | null = null;
+  private compare: GeoJSON.Feature[] = [];
+  private primaryColor: string | null = null;
   private pointText: PointText = { label: (l) => l, source: (s) => (s ? 'raw' : 'stored') };
   private tailPresent = false;
   private highlighted: [number | null, number | null] = [null, null];
@@ -283,6 +288,10 @@ export class HistoryMap {
     map.addLayer({ id: LYR.trip, type: 'line', source: SRC.trip, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 8, 16, 16], 'line-opacity': 0.22 } });
     map.addLayer({ id: LYR.played, type: 'line', source: SRC.played, filter: solid, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3, 16, 6.5] } });
     map.addLayer({ id: LYR.playedGap, type: 'line', source: SRC.played, filter: gap, paint: { 'line-width': 2.5, 'line-dasharray': [2, 2] } });
+    // History → compare: the other vehicles' paths, above the selected one so a shared road shows all of them.
+    const compareWidth: ExpressionSpecification = ['interpolate', ['linear'], ['zoom'], 8, ['*', ['get', 'w'], 0.6], 16, ['get', 'w']];
+    map.addLayer({ id: LYR.compareLine, type: 'line', source: SRC.compare, filter: solid, layout: round, paint: { 'line-color': ['get', 'color'], 'line-width': compareWidth } });
+    map.addLayer({ id: LYR.compareGap, type: 'line', source: SRC.compare, filter: gap, paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-dasharray': [2, 2], 'line-opacity': 0.8 } });
     // History → All points: the cleaned track and every recorded point coloured by its quality label.
     map.addLayer({ id: LYR.clean, type: 'line', source: SRC.clean, layout: round, paint: { 'line-color': CLEAN_TRACK_COLOR, 'line-width': 3, 'line-opacity': 0.85 } });
     map.addLayer({
@@ -350,17 +359,18 @@ export class HistoryMap {
     if (!this.loaded) return;
     const map = this.map;
     const t = this.theme;
-    const line = this.colorMode === 'status' ? statusExpr(t) : bandExpr(t);
+    const line = this.primaryColor ?? (this.colorMode === 'status' ? statusExpr(t) : bandExpr(t));
+    const gapColor = this.primaryColor ?? STATUS_META.OFFLINE[t];
     const halo = cssToken('--map-marker-stroke') || '#fff';
     map.setPaintProperty(LYR.trackCasing, 'line-color', halo);
     map.setPaintProperty(LYR.trackCasing, 'line-opacity', this.allPoints ? 0.2 : this.playedActive ? 0.35 : 0.9);
     map.setPaintProperty(LYR.track, 'line-color', line);
     map.setPaintProperty(LYR.track, 'line-opacity', this.allPoints ? 0.25 : this.playedActive ? 0.32 : 1);
-    map.setPaintProperty(LYR.trackGap, 'line-color', STATUS_META.OFFLINE[t]);
+    map.setPaintProperty(LYR.trackGap, 'line-color', gapColor);
     map.setPaintProperty(LYR.estimate, 'line-color', ESTIMATE_COLOR[t]);
     map.setPaintProperty(LYR.trip, 'line-color', cssToken('--primary'));
     map.setPaintProperty(LYR.played, 'line-color', line);
-    map.setPaintProperty(LYR.playedGap, 'line-color', STATUS_META.OFFLINE[t]);
+    map.setPaintProperty(LYR.playedGap, 'line-color', gapColor);
     map.setPaintProperty(LYR.stops, 'circle-color', ['case', ['get', 'idle'], STOP_COLORS.idle[t], STOP_COLORS.parked[t]]);
     map.setPaintProperty(LYR.alerts, 'circle-color', [
       'match',
@@ -434,6 +444,7 @@ export class HistoryMap {
   }
 
   private pushStatic() {
+    this.src(SRC.compare)?.setData({ type: 'FeatureCollection', features: this.compare });
     const idx = this.idx;
     const track = this.src(SRC.track);
     const marks = this.src(SRC.marks);
@@ -488,6 +499,17 @@ export class HistoryMap {
   }
 
   /** Likely roads through the track's data gaps, as [lng, lat] lines; drawn dashed under the track. */
+  /**
+   * Compare mode: the other vehicles' paths, and one flat colour for the selected vehicle instead of status / speed
+   * (null: back to those).
+   */
+  setCompare(features: GeoJSON.Feature[], primaryColor: string | null) {
+    this.compare = features;
+    this.primaryColor = primaryColor;
+    this.src(SRC.compare)?.setData({ type: 'FeatureCollection', features });
+    this.applyPaint();
+  }
+
   setEstimates(lines: [number, number][][]) {
     this.estimates = lines;
     this.pushEstimates();
@@ -508,6 +530,8 @@ export class HistoryMap {
     this.estimates = [];
     this.allPoints = null;
     for (const id of Object.values(SRC)) this.src(id)?.setData(EMPTY);
+    // The selected vehicle has no data, but the ones compared with it may.
+    this.src(SRC.compare)?.setData({ type: 'FeatureCollection', features: this.compare });
     this.tailPresent = false;
   }
 

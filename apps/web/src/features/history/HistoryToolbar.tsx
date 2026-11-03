@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Combobox } from '@/components/ui/multi-select';
+import { Combobox, MultiSelect } from '@/components/ui/multi-select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { formatClock } from './history-format';
@@ -79,6 +79,8 @@ function CustomRange({ range, active, onApply }: { range: TimeRange; active: boo
 export function HistoryToolbar({
   objectId,
   onObjectChange,
+  compareIds,
+  onCompareChange,
   range,
   preset,
   onRangeChange,
@@ -86,6 +88,8 @@ export function HistoryToolbar({
 }: {
   objectId: string | null;
   onObjectChange: (id: string | null) => void;
+  compareIds: string[];
+  onCompareChange: (ids: string[]) => void;
   range: TimeRange;
   preset: RangePreset;
   onRangeChange: (r: TimeRange) => void;
@@ -108,6 +112,19 @@ export function HistoryToolbar({
         clearable={false}
         className="w-full sm:w-72"
         id="history-vehicle"
+      />
+      <MultiSelect
+        value={compareIds}
+        onChange={onCompareChange}
+        options={vehicles.options.filter((o) => o.value !== objectId)}
+        loading={vehicles.loading}
+        onSearch={vehicles.remoteSearch ? setSearch : undefined}
+        placeholder={t('Compare with…')}
+        searchPlaceholder={t('Search name or plate…')}
+        emptyText={t('No vehicles found')}
+        disabled={!objectId}
+        className="w-full sm:w-72"
+        id="history-compare"
       />
       <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label={t('Period')}>
         {(['today', 'yesterday', 'last7'] as const).map((p) => (

@@ -1877,6 +1877,9 @@ export const TA: Record<string, string> = {
   'Photos per event': 'ஒரு நிகழ்வுக்கான புகைப்படங்கள்',
   'Pick a period and press Compare': 'காலத்தைத் தேர்ந்தெடுத்து ஒப்பிடு என்பதை அழுத்தவும்',
   'Pick a tool on the left to draw the geofence.': 'ஜியோஃபென்ஸ் வரைய இடப்புறத்தில் ஒரு கருவியைத் தேர்ந்தெடுக்கவும்.',
+  'Selected item': 'தேர்ந்தெடுக்கப்பட்ட உருப்படி',
+  'This vehicle isn\'t available': 'இந்த வாகனம் கிடைக்கவில்லை',
+  'It may have been deleted or moved, or you may no longer have access. Choose another vehicle.': 'இது நீக்கப்பட்டிருக்கலாம் அல்லது மாற்றப்பட்டிருக்கலாம், அல்லது உங்களுக்கு இனி அணுகல் இல்லாமல் இருக்கலாம். வேறு வாகனத்தைத் தேர்ந்தெடுக்கவும்.',
   'Pick a vehicle': 'வாகனத்தைத் தேர்ந்தெடு',
   'Pick a vehicle and period to see trips, stops and alerts.': 'பயணங்கள், நிறுத்தங்கள், எச்சரிக்கைகளைப் பார்க்க வாகனம் மற்றும் காலத்தைத் தேர்ந்தெடுக்கவும்.',
   'Pick a vehicle…': 'வாகனத்தைத் தேர்ந்தெடு…',
@@ -3096,4 +3099,7 @@ export const TA: Record<string, string> = {
   "To (full tank)": "வரை (முழு டேங்க்)",
   "Fuel cost / km": "எரிபொருள் செலவு / கி.மீ",
   "Full-tank method from fuel fill-ups entered in Fuel & expenses: one row per run from a full tank to the next, with GPS km, litres, km per litre and fuel cost per km. No fuel sensor needed.": "எரிபொருள் & செலவுகளில் பதிவு செய்த நிரப்புதல்களிலிருந்து முழு-டேங்க் முறை: ஒரு முழு டேங்கிலிருந்து அடுத்தது வரை ஒவ்வொரு சுற்றுக்கும் ஒரு வரி — GPS கி.மீ, லிட்டர், கி.மீ/லி, கி.மீ எரிபொருள் செலவு. எரிபொருள் சென்சார் தேவையில்லை.",
+  "Compare with…": "இவற்றுடன் ஒப்பிடு…",
+  "No data for {{time}}": "{{time}} தரவு இல்லை",
+  "You can compare up to {{count}} more vehicles.": "மேலும் {{count}} வாகனங்கள் வரை ஒப்பிடலாம்.",
 };

@@ -1877,6 +1877,9 @@ export const HI: Record<string, string> = {
   'Photos per event': 'प्रति घटना फ़ोटो',
   'Pick a period and press Compare': 'अवधि चुनें और तुलना करें दबाएँ',
   'Pick a tool on the left to draw the geofence.': 'जियोफेंस बनाने के लिए बाईं ओर से एक टूल चुनें।',
+  'Selected item': 'चयनित आइटम',
+  'This vehicle isn\'t available': 'यह वाहन उपलब्ध नहीं है',
+  'It may have been deleted or moved, or you may no longer have access. Choose another vehicle.': 'हो सकता है इसे हटा दिया गया हो या स्थानांतरित कर दिया गया हो, या अब आपके पास इसकी पहुँच न हो। कोई दूसरा वाहन चुनें।',
   'Pick a vehicle': 'वाहन चुनें',
   'Pick a vehicle and period to see trips, stops and alerts.': 'यात्राएँ, ठहराव और अलर्ट देखने के लिए वाहन और अवधि चुनें।',
   'Pick a vehicle…': 'वाहन चुनें…',
@@ -3096,4 +3099,7 @@ export const HI: Record<string, string> = {
   "To (full tank)": "तक (पूरी टंकी)",
   "Fuel cost / km": "ईंधन लागत / किमी",
   "Full-tank method from fuel fill-ups entered in Fuel & expenses: one row per run from a full tank to the next, with GPS km, litres, km per litre and fuel cost per km. No fuel sensor needed.": "ईंधन और खर्च में दर्ज भराई से पूरी-टंकी विधि: एक पूरी टंकी से अगली तक हर अवधि की एक पंक्ति — GPS किमी, लीटर, किमी प्रति लीटर और प्रति किमी ईंधन लागत। फ़्यूल सेंसर की ज़रूरत नहीं।",
+  "Compare with…": "इनसे तुलना करें…",
+  "No data for {{time}}": "{{time}} का डेटा नहीं",
+  "You can compare up to {{count}} more vehicles.": "आप अधिकतम {{count}} और वाहनों की तुलना कर सकते हैं।",
 };

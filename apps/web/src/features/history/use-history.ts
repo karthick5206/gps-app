@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import type { GapEstimateResponse, GapEstimateSegment, HistoryResponse, LiveObject, PointQualityResponse, PointQualitySettingsDto, TrackedObjectDto } from '@veetracer/shared';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Option } from '@/components/ui/multi-select';
@@ -16,6 +16,20 @@ export function useHistory(objectId: string | null, from: Date, to: Date) {
     enabled: !!objectId,
     staleTime: 30_000,
     retry: (count, err) => !(err instanceof ApiError && err.status < 500) && count < 2,
+  });
+}
+
+/** The history of each vehicle compared with the selected one (same cache as `useHistory`). */
+export function useCompareHistories(objectIds: string[], from: Date, to: Date) {
+  const fromIso = from.toISOString();
+  const toIso = to.toISOString();
+  return useQueries({
+    queries: objectIds.map((id) => ({
+      queryKey: ['object-history', id, fromIso, toIso],
+      queryFn: ({ signal }: { signal: AbortSignal }) => api.get<HistoryResponse>(`/objects/${id}/history`, { from: fromIso, to: toIso }, signal),
+      staleTime: 30_000,
+      retry: (count: number, err: Error) => !(err instanceof ApiError && err.status < 500) && count < 2,
+    })),
   });
 }
 
