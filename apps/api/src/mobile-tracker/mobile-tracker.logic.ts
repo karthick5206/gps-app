@@ -164,3 +164,20 @@ export function isDifferentPhone(previous: { installIdHash: string | null; devic
   // Sessions from before install ids: the phone's name is the best evidence there is.
   return !!previous.deviceName && !!next.deviceName && previous.deviceName !== next.deviceName;
 }
+
+/** Why parsePoint refused a point (kept with the rejected point and shown in the phone's Tracking history). */
+export function rejectReason(raw: unknown, now: number): string {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const t = finite(r.t);
+  if (t === null) return 'no time';
+  if (t < now - 30 * 86_400_000) return 'older than 30 days';
+  if (t > now + 86_400_000) return 'phone clock ahead';
+  return 'bad coordinates';
+}
+
+/** "2 older than 30 days, 1 bad coordinates" */
+export function summarizeRejected(reasons: string[]): string {
+  const counts = new Map<string, number>();
+  for (const r of reasons) counts.set(r, (counts.get(r) ?? 0) + 1);
+  return [...counts].map(([r, n]) => `${n} ${r}`).join(', ');
+}

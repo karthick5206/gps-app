@@ -144,6 +144,7 @@ const HISTORY_LABELS: Record<TrackerEventKind, string> = {
   exit: 'App ended',
   boot: 'Phone restarted',
   upload: 'Uploads recovered',
+  discard: 'Points rejected',
 };
 
 /** Why tracking stopped and started (Tracker app 1.3.4+): explains a gap in the track. */

@@ -3114,4 +3114,5 @@ export const HI: Record<string, string> = {
   "Tracker device changed": "ट्रैकर डिवाइस बदला गया",
   "The phone's battery saver can switch off location when the screen is off": "फ़ोन का बैटरी सेवर स्क्रीन बंद होने पर लोकेशन बंद कर सकता है",
   "Turn off Battery saver, or set its location option to keep location on": "बैटरी सेवर बंद करें, या उसके लोकेशन विकल्प में लोकेशन चालू रखें",
+  "Points rejected": "पॉइंट अस्वीकृत",
 };

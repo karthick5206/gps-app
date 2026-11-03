@@ -3114,4 +3114,5 @@ export const TA: Record<string, string> = {
   "Tracker device changed": "டிராக்கர் சாதனம் மாற்றப்பட்டது",
   "The phone's battery saver can switch off location when the screen is off": "திரை அணைந்திருக்கும்போது பேட்டரி சேமிப்பு இருப்பிடத்தை நிறுத்தக்கூடும்",
   "Turn off Battery saver, or set its location option to keep location on": "பேட்டரி சேமிப்பை அணைக்கவும், அல்லது அதன் இருப்பிட விருப்பத்தில் இருப்பிடத்தை இயக்கத்தில் வைக்கவும்",
+  "Points rejected": "புள்ளிகள் நிராகரிக்கப்பட்டன",
 };

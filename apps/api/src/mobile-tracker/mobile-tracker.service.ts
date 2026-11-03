@@ -25,6 +25,8 @@ import {
   MOBILE_MODEL_PROTOCOL,
   normalizeMobile,
   parsePoint,
+  rejectReason,
+  summarizeRejected,
   toNormalized,
   TrackerConfig,
 } from './mobile-tracker.logic';
@@ -393,14 +395,17 @@ export class MobileTrackerService {
     const key = hashToken(token);
     const cached = this.sessions.get(key);
     if (cached && Date.now() - cached.checkedAt < SESSION_CACHE_MS) return cached;
-    const row = await this.prisma.mobileTrackerSession.findUnique({ where: { tokenHash: key }, select: { id: true, revokedAt: true, deviceId: true, device: { select: { uniqueId: true, isActive: true, companyId: true, trackingRequired: true } } } });
+    const row = await this.prisma.mobileTrackerSession.findUnique({ where: { tokenHash: key }, select: { id: true, revokedAt: true, deviceId: true, device: { select: { uniqueId: true, isActive: true, companyId: true, trackingRequired: true, company: { select: { status: true } }, assignments: { where: { toTime: null }, select: { object: { select: { isActive: true } } } } } } } });
     if (!row) throw trackerError(401, 'INVALID', 'Please activate again');
+    // The same test as the processor's (device-cache): it would discard what we accept, and the phone would delete it.
+    const blocked = !row.device.isActive || !row.device.companyId || row.device.company?.status !== 'ACTIVE' || row.device.assignments[0]?.object.isActive === false;
     if (row.revokedAt) {
       this.sessions.delete(key);
+      if (allowRevoked && blocked) throw trackerError(403, 'INACTIVE', 'Tracking switched off by your administrator');
       if (allowRevoked) return { sessionId: row.id, deviceId: row.deviceId, uniqueId: row.device.uniqueId, required: false, revokedAt: row.revokedAt.getTime(), checkedAt: 0, lastUsedWrite: Date.now() };
       throw trackerError(401, 'REVOKED', 'Tracking moved to another phone with the same number');
     }
-    if (!row.device.isActive || !row.device.companyId) throw trackerError(403, 'INACTIVE', 'Tracking switched off by your administrator');
+    if (blocked) throw trackerError(403, 'INACTIVE', 'Tracking switched off by your administrator');
     const next: CachedSession = { sessionId: row.id, deviceId: row.deviceId, uniqueId: row.device.uniqueId, required: row.device.trackingRequired, checkedAt: Date.now(), lastUsedWrite: cached?.lastUsedWrite ?? 0 };
     this.sessions.set(key, next);
     return next;
@@ -443,11 +448,15 @@ export class MobileTrackerService {
       this.saveEvents(s.deviceId, sanitizeTrackerEvents(health));
     }
     const config = this.config();
-    const parsed = points
-      .slice(0, MAX_POINTS_PER_CALL)
-      .map((p) => parsePoint(p, now))
-      .filter((p): p is NonNullable<typeof p> => p !== null && (s.revokedAt === undefined || p.t <= s.revokedAt))
-      .sort((a, b) => a.t - b.t);
+    const parsed: NonNullable<ReturnType<typeof parsePoint>>[] = [];
+    const rejected: { raw: unknown; reason: string }[] = [];
+    for (const raw of points.slice(0, MAX_POINTS_PER_CALL)) {
+      const p = parsePoint(raw, now);
+      if (!p) rejected.push({ raw, reason: rejectReason(raw, now) });
+      else if (s.revokedAt !== undefined && p.t > s.revokedAt) rejected.push({ raw, reason: 'after moving to another phone' });
+      else parsed.push(p);
+    }
+    parsed.sort((a, b) => a.t - b.t);
     if (parsed.length) {
       const pipeline = this.redis.client.pipeline();
       const maxLen = positionsStreamMaxLen();
@@ -456,12 +465,25 @@ export class MobileTrackerService {
       const results = await pipeline.exec();
       if (!results || results.some(([error]) => error)) throw new ServiceUnavailableException('Positions could not be saved, try again.');
     }
+    await this.saveRejected(s, rejected, now);
     if (s.revokedAt !== undefined) return { ok: true, accepted: parsed.length, config, required: false, revoked: true };
     if (now - s.lastUsedWrite > LAST_USED_WRITE_MS) {
       s.lastUsedWrite = now;
       await this.prisma.mobileTrackerSession.update({ where: { id: s.sessionId }, data: { lastUsedAt: new Date(now) } }).catch(() => undefined);
     }
     return { ok: true, accepted: parsed.length, config, required: s.required };
+  }
+
+  /** Points we refuse are kept for inspection (raw packets, protocol mobile-rejected) and explained in the phone's history. */
+  private async saveRejected(s: CachedSession, rejected: { raw: unknown; reason: string }[], now: number): Promise<void> {
+    if (!rejected.length) return;
+    const at = new Date(now);
+    const why = `server rejected ${rejected.length}: ${summarizeRejected(rejected.map((r) => r.reason))}`.slice(0, 80);
+    this.logger.warn(`Tracker ${s.uniqueId}: ${why}`);
+    await Promise.all([
+      this.prisma.rawPacket.createMany({ data: rejected.map((r) => ({ uniqueId: s.uniqueId, protocol: 'mobile-rejected', receivedAt: at, hex: JSON.stringify({ reason: r.reason, point: r.raw }).slice(0, 2000) })) }),
+      this.prisma.trackerEvent.createMany({ data: [{ deviceId: s.deviceId, kind: 'discard', at, why }], skipDuplicates: true }),
+    ]).catch((e: Error) => this.logger.warn(`Rejected points of ${s.uniqueId} not saved: ${e.message}`));
   }
 
   /** The phone re-sends events until an upload succeeds, so repeats are expected and ignored. */

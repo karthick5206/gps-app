@@ -156,7 +156,11 @@ export class PositionProcessor {
         }
         continue;
       }
-      if (!device.accepted) continue;
+      // Blocked (the tracker API already refuses these for phones, this covers a stale cache): keep the raw record.
+      if (!device.accepted) {
+        if (position.raw) batch.rawPackets.push(this.rawPacket(position, entry.remote));
+        continue;
+      }
       if (this.drivers && device.object) await this.drivers.apply(device.object, position);
       batch.positions.push(...this.evaluate(position, device, lives, tracks, changed, now, serverTime, ruleInputs, fuel, io));
       if (position.raw) batch.rawPackets.push(this.rawPacket(position, entry.remote));
