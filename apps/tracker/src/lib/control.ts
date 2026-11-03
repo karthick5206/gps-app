@@ -103,7 +103,7 @@ export async function handleAuthError(e: unknown): Promise<boolean> {
     return true;
   }
   if (e.status === 403 && e.code === 'INACTIVE') {
-    await Tracker.stop().catch(() => undefined);
+    await Tracker.stop('server answered INACTIVE (app check)').catch(() => undefined);
     store.setInactive(true);
     store.setInactiveCheckAt(Date.now() + INACTIVE_RECHECK_MS);
     return true;

@@ -36,6 +36,7 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
     private const val WAKELOCK_MS = 30_000L
     private const val BACKOFF_BASE_MS = 5_000L
     private const val BACKOFF_MAX_MS = 10 * 60_000L
+    private const val FAILURES_WORTH_REPORTING = 3
     private const val MAX_BATCHES_PER_RUN = 400 // 400 × 500 > queue cap: one run can always drain it
   }
 
@@ -47,12 +48,43 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
   /** Called with the config the server returns on success. */
   var onConfig: ((JSONObject) -> Unit)? = null
 
+  /** Called with the server's answer to "must this phone track?" (app 1.3.4+ servers send it). */
+  var onRequired: ((Boolean) -> Unit)? = null
+
+  /** While tracking is off there are no uploads to carry the answer, so the watchdog asks. Null when it can't tell. */
+  fun fetchRequired(token: String): Boolean? {
+    wakeLock.acquire(WAKELOCK_MS)
+    var conn: HttpURLConnection? = null
+    return try {
+      conn = (URL("${prefs.serverUrl}/api/tracker/v1/me").openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = TIMEOUT_MS
+        readTimeout = TIMEOUT_MS
+        useCaches = false
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("Authorization", "Bearer $token")
+      }
+      if (conn.responseCode !in 200..299) return null
+      val json = JSONObject(conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+      if (json.has("required")) json.optBoolean("required") else null
+    } catch (_: Exception) {
+      null
+    } finally {
+      conn?.disconnect()
+      if (wakeLock.isHeld) wakeLock.release()
+    }
+  }
+
   /** Uploads the queue oldest first in batches of config.batchMax until it is empty or a call fails. */
   fun drain(): Outcome {
     val token = prefs.token ?: return Outcome.Done
     repeat(MAX_BATCHES_PER_RUN) {
       val batch = queue.peek(prefs.config.batchMax)
-      if (batch.isEmpty()) return Outcome.Done
+      if (batch.isEmpty()) {
+        // No points, but the server should still hear about a stop or restart (the health report carries them).
+        if (!prefs.hasPendingEvents()) return Outcome.Done
+        return send(token, batch).let { if (it == Outcome.Rejected) Outcome.Done else it }
+      }
       when (val o = send(token, batch)) {
         Outcome.Done, Outcome.Rejected -> queue.remove(batch.map { it.t })
         else -> return o
@@ -66,7 +98,8 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
    */
   fun send(token: String, batch: List<Point>): Outcome {
     val payload = JSONObject().put("positions", JSONArray().apply { batch.forEach { put(it.toJson()) } })
-    runCatching { health?.invoke() }.getOrNull()?.let { payload.put("health", it) }
+    val healthReport = runCatching { health?.invoke() }.getOrNull()
+    healthReport?.let { payload.put("health", it) }
     val body = payload.toString()
     val res = try {
       post("${prefs.serverUrl}/api/tracker/v1/positions", token, body)
@@ -80,11 +113,15 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
     val message = json?.let { messageOf(it) } ?: "HTTP ${res.code}"
     return when {
       res.code in 200..299 -> {
+        prefs.ackEvents(healthReport?.optJSONArray("events")?.length() ?: 0)
+        // Late uploads otherwise leave no trace: the error is cleared here, and failures never reach the server themselves.
+        if (prefs.failures >= FAILURES_WORTH_REPORTING) prefs.recordEvent("upload", "worked after ${prefs.failures} failures: ${prefs.lastError ?: "unknown error"}")
         prefs.lastUploadAt = System.currentTimeMillis()
         prefs.lastError = null
         prefs.failures = 0
         prefs.backoffUntil = 0
         json?.optJSONObject("config")?.let { cfg -> onConfig?.invoke(cfg) }
+        if (json?.has("required") == true) onRequired?.invoke(json.optBoolean("required"))
         Outcome.Done
       }
       res.code == 401 -> Outcome.Stop(if (code == "REVOKED") "REVOKED" else "INVALID", clearToken = true)

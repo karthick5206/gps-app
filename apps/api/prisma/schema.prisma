@@ -261,6 +261,8 @@ model Device {
   /// Tracker app (mobile tracker model): extra address that gets the activation code (admins always get it).
   activationEmail  String?
   /// Tracker app: latest phone health report (permissions, battery / data restrictions, last stop) and when.
+  /// Tracker app: the company requires tracking on this phone; the app refuses Stop and undoes any stop (1.3.4+).
+  trackingRequired Boolean   @default(false)
   trackerHealth    Json?
   trackerHealthAt  DateTime? @db.Timestamptz(3)
   isActive         Boolean   @default(true)
@@ -275,6 +277,7 @@ model Device {
   ioSensors       IoSensorConfig[]
   trackerCodes    MobileTrackerCode[]
   trackerSessions MobileTrackerSession[]
+  trackerEvents   TrackerEvent[]
 
   @@index([companyId])
 }
@@ -1800,6 +1803,20 @@ model MobileTrackerCode {
 }
 
 /// The phone currently tracking for a mobile-tracker device. Activating on another phone revokes the previous one.
+/// Why a tracker phone stopped and started, as reported by the app (1.3.4+).
+model TrackerEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  deviceId   String   @db.Uuid
+  kind       String
+  at         DateTime @db.Timestamptz(3)
+  why        String
+  receivedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, at, kind])
+}
+
 model MobileTrackerSession {
   id            String    @id @default(uuid()) @db.Uuid
   deviceId      String    @db.Uuid

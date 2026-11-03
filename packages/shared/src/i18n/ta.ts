@@ -3102,4 +3102,13 @@ export const TA: Record<string, string> = {
   "Compare with…": "இவற்றுடன் ஒப்பிடு…",
   "No data for {{time}}": "{{time}} தரவு இல்லை",
   "You can compare up to {{count}} more vehicles.": "மேலும் {{count}} வாகனங்கள் வரை ஒப்பிடலாம்.",
+  "Tracking history": "கண்காணிப்பு வரலாறு",
+  "Tracking started": "கண்காணிப்பு தொடங்கியது",
+  "Tracking stopped": "கண்காணிப்பு நிறுத்தப்பட்டது",
+  "Restart refused": "மறுதொடக்கம் மறுக்கப்பட்டது",
+  "App ended": "செயலி முடிந்தது",
+  "Phone restarted": "தொலைபேசி மறுதொடங்கியது",
+  "Uploads recovered": "பதிவேற்றம் மீண்டும் செயல்பட்டது",
+  "Keep tracking always on": "கண்காணிப்பை எப்போதும் இயக்கத்தில் வை",
+  "For company phones. The person cannot stop tracking in the app, and if it was stopped it comes back on within about 15 minutes. Needs Tracker app 1.3.4 or newer. Tell the person before you turn this on. It cannot override a phone that is switched off, a force stop, removed permissions or an uninstall.": "நிறுவன தொலைபேசிகளுக்கு. செயலியில் கண்காணிப்பை நிறுத்த முடியாது; நிறுத்தப்பட்டால் சுமார் 15 நிமிடங்களில் மீண்டும் இயங்கும். Tracker செயலி 1.3.4 அல்லது புதியது தேவை. இயக்கும் முன் அந்த நபரிடம் தெரிவிக்கவும். அணைக்கப்பட்ட தொலைபேசி, கட்டாய நிறுத்தம், நீக்கப்பட்ட அனுமதிகள் அல்லது நீக்கம் ஆகியவற்றை இது மீற முடியாது.",
 };

@@ -58,6 +58,8 @@ export const S = {
   trackingOff: 'Tracking is OFF',
   startTracking: 'Start tracking',
   stopTracking: 'Stop tracking',
+  requiredTitle: 'Tracking is required',
+  requiredBody: 'Your company requires location tracking on this phone, so it can\'t be switched off here. Please ask your administrator.',
   stopConfirmTitle: 'Stop tracking?',
   stopConfirmBody: 'Your location will no longer be shared with your VeeTrax account.',
   lastFix: 'Last location',

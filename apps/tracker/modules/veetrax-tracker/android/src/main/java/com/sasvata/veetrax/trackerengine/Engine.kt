@@ -87,6 +87,7 @@ class Engine private constructor(context: Context) {
 
   init {
     uploader.onConfig = { cfg -> applyConfig(TrackerConfig.merge(prefs.config, cfg)) }
+    uploader.onRequired = { required -> applyRequired(required) }
   }
 
   private fun elapsed() = SystemClock.elapsedRealtime()
@@ -135,6 +136,23 @@ class Engine private constructor(context: Context) {
     if (prev.intervalSec != next.intervalSec || prev.distanceM != next.distanceM ||
       prev.stoppedIntervalSec != next.stoppedIntervalSec
     ) reconfigure()
+  }
+
+  /** The server's answer: when tracking is required and off, it comes back on (not after REVOKED / INACTIVE). */
+  private fun applyRequired(required: Boolean) {
+    prefs.required = required
+    if (!required || prefs.wanted || prefs.token.isNullOrEmpty() || prefs.stopReason != null) return
+    prefs.stopWhy = null
+    prefs.wanted = true
+    WatchdogWorker.schedule(context)
+    Starter.ensureRunning(context, "required by the server")
+  }
+
+  /** Watchdog, while tracking is off: asks whether it must be on. Blocks this thread for the HTTP call. */
+  fun checkRequired() {
+    if (prefs.wanted) return
+    val token = prefs.token ?: return
+    uploader.fetchRequired(token)?.let { applyRequired(it) }
   }
 
   private val idleCheck = object : Runnable {
@@ -247,7 +265,7 @@ class Engine private constructor(context: Context) {
    * coalescing gap after the previous attempt and the backoff time. Does nothing when the queue is empty.
    */
   fun requestUpload(force: Boolean) {
-    if (prefs.token.isNullOrEmpty() || queue.size() == 0L) return
+    if (prefs.token.isNullOrEmpty() || (queue.size() == 0L && !prefs.hasPendingEvents())) return
     handler.removeCallbacks(uploadRunnable)
     if (force) {
       handler.post(uploadRunnable)
@@ -273,6 +291,7 @@ class Engine private constructor(context: Context) {
   /** 401 REVOKED / INVALID: stop, clear token & queue. 403 INACTIVE: stop, keep the token. */
   private fun stopFromServer(o: Uploader.Outcome.Stop) {
     Log.i(TAG, "server stopped tracking: ${o.reason}")
+    prefs.stopWhy = "server answered ${o.reason}"
     prefs.wanted = false
     prefs.stopReason = o.reason
     handler.removeCallbacks(uploadRunnable)
@@ -295,6 +314,7 @@ class Engine private constructor(context: Context) {
     queue.clear()
     filter.reset()
     prefs.clearAll()
+    prefs.stopWhy = "signed out"
   }
 
   // ---------------------------------------------------------------- SOS
@@ -378,6 +398,15 @@ class Engine private constructor(context: Context) {
     }
   }
 
+  // Last in the class: runs on the engine thread, which may start before the constructor has finished.
+  init {
+    post {
+      Diagnostics.record(context, prefs)
+      if (!prefs.token.isNullOrEmpty()) WatchdogWorker.schedule(context)
+      requestUpload(force = false)
+    }
+  }
+
   // ---------------------------------------------------------------- status for the app
 
   fun status(): Map<String, Any?> {
@@ -401,6 +430,7 @@ class Engine private constructor(context: Context) {
       "mockCount" to prefs.mockCount.toDouble(),
       "droppedCount" to prefs.droppedCount.toDouble(),
       "stopReason" to prefs.stopReason,
+      "required" to prefs.required,
       "config" to mapOf(
         "intervalSec" to cfg.intervalSec.toDouble(),
         "stoppedIntervalSec" to cfg.stoppedIntervalSec.toDouble(),

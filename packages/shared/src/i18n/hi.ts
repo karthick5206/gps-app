@@ -3102,4 +3102,13 @@ export const HI: Record<string, string> = {
   "Compare with…": "इनसे तुलना करें…",
   "No data for {{time}}": "{{time}} का डेटा नहीं",
   "You can compare up to {{count}} more vehicles.": "आप अधिकतम {{count}} और वाहनों की तुलना कर सकते हैं।",
+  "Tracking history": "ट्रैकिंग इतिहास",
+  "Tracking started": "ट्रैकिंग शुरू हुई",
+  "Tracking stopped": "ट्रैकिंग बंद हुई",
+  "Restart refused": "दोबारा शुरू करने से मना किया गया",
+  "App ended": "ऐप बंद हुआ",
+  "Phone restarted": "फ़ोन दोबारा शुरू हुआ",
+  "Uploads recovered": "अपलोड फिर से चालू हुए",
+  "Keep tracking always on": "ट्रैकिंग हमेशा चालू रखें",
+  "For company phones. The person cannot stop tracking in the app, and if it was stopped it comes back on within about 15 minutes. Needs Tracker app 1.3.4 or newer. Tell the person before you turn this on. It cannot override a phone that is switched off, a force stop, removed permissions or an uninstall.": "कंपनी के फ़ोन के लिए। व्यक्ति ऐप में ट्रैकिंग बंद नहीं कर सकता, और बंद होने पर यह लगभग 15 मिनट में फिर चालू हो जाती है। Tracker ऐप 1.3.4 या नया चाहिए। चालू करने से पहले व्यक्ति को बताएँ। बंद फ़ोन, फ़ोर्स स्टॉप, हटाई गई अनुमतियों या अनइंस्टॉल पर यह काम नहीं करता।",
 };

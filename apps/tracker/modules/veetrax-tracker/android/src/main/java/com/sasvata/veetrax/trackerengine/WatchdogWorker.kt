@@ -6,24 +6,41 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
  * Every 15 minutes (WorkManager's minimum; it batches with other apps' work so it costs ~nothing): if tracking is
  * wanted but the service is gone (killed by an OEM battery manager), start it again. No network constraint: the
- * worker itself never uses the network; it only checks and starts the service, and nudges the uploader.
+ * worker only uses the network while tracking is off, to ask whether the administrator requires it; otherwise it just
+ * checks and starts the service, and nudges the uploader.
  * WorkManager survives reboots and app updates on its own.
  */
 class WatchdogWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
   override fun doWork(): Result {
     val app = applicationContext
-    if (!Prefs(app).wanted) return Result.success()
+    val prefs = Prefs(app)
+    if (prefs.token.isNullOrEmpty()) return Result.success()
+    if (!prefs.wanted) {
+      // Tracking is off: the administrator may require it on. Waits, or Android could freeze the process mid-request.
+      val done = CountDownLatch(1)
+      Engine.get(app).post {
+        try {
+          it.checkRequired()
+        } finally {
+          done.countDown()
+        }
+      }
+      done.await(CHECK_TIMEOUT_SEC, TimeUnit.SECONDS)
+      return Result.success()
+    }
     if (Starter.ensureRunning(app, "watchdog")) Engine.get(app).post { it.requestUpload(force = false) }
     return Result.success()
   }
 
   companion object {
     private const val NAME = "veetrax-tracker-watchdog"
+    private const val CHECK_TIMEOUT_SEC = 30L
 
     fun schedule(context: Context) {
       try {

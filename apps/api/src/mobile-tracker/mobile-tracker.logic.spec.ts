@@ -1,4 +1,4 @@
-import { sanitizeTrackerHealth, trackerHealthIssues } from '@veetracer/shared';
+import { sanitizeTrackerEvents, sanitizeTrackerHealth, trackerHealthIssues } from '@veetracer/shared';
 import { codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, toNormalized } from './mobile-tracker.logic';
 
 const NOW = Date.parse('2026-10-21T06:00:00Z');
@@ -60,6 +60,23 @@ describe('activation code e-mail', () => {
 });
 
 describe('phone health', () => {
+  it('reads the event history, dropping unknown kinds and bad entries', () => {
+    const at = 1761200000000;
+    expect(sanitizeTrackerEvents({ events: [{ k: 'stop', at, why: 'user tapped Stop' }, { k: 'evil', at, why: 'x' }, { k: 'boot', at: -1 }, { k: 'exit', at: 1.5 }, 'x', { k: 'boot', at }] })).toEqual([
+      { kind: 'stop', at, why: 'user tapped Stop' },
+      { kind: 'boot', at, why: '' },
+    ]);
+    expect(sanitizeTrackerEvents({})).toEqual([]);
+    expect(sanitizeTrackerEvents(null)).toEqual([]);
+    expect(sanitizeTrackerEvents({ events: 'x' })).toEqual([]);
+    expect(sanitizeTrackerEvents({ events: Array.from({ length: 60 }, (_, i) => ({ k: 'stop', at: at + i, why: 'x'.repeat(200) })) })).toHaveLength(50);
+    expect(sanitizeTrackerEvents({ events: [{ k: 'stop', at, why: 'x'.repeat(200) }] })[0].why).toHaveLength(80);
+  });
+
+  it('does not keep the event history in the stored health report', () => {
+    expect(sanitizeTrackerHealth({ locBg: true, events: [{ k: 'stop', at: 1761200000000, why: 'x' }] })).toEqual({ locBg: true });
+  });
+
   it('keeps only known keys with the right types', () => {
     const h = sanitizeTrackerHealth({ locBg: false, battOpt: 'yes', bucket: 45, dataSaver: 'on', evil: '<script>', stop: { at: 1761200000000, why: 'killed while tracking' }, mfr: 'Xiaomi' });
     expect(h).toEqual({ locBg: false, bucket: 45, dataSaver: 'on', stop: { at: 1761200000000, why: 'killed while tracking' }, mfr: 'Xiaomi' });

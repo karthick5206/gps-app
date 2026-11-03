@@ -113,6 +113,8 @@ export class OfflineAlertService {
       .catch(() => null);
     if (!d || d.model.protocol !== MOBILE_TRACKER_PROTOCOL) return null;
     const health = sanitizeTrackerHealth(d.trackerHealth);
+    // Tracking was switched off, so settings on the phone aren't the reason (app 1.3.4+ reports this right after a stop).
+    if (health?.wanted === false) return { text: `tracking was switched off on the phone${health.stop?.why ? ` (${health.stop.why})` : ''}`, codes: ['SWITCHED_OFF'] };
     const issues = trackerHealthIssues(health);
     if (issues.length) return { text: issues[0].text, codes: issues.map((i) => i.code) };
     if (health?.stop?.why === 'killed while tracking') return { text: 'the phone stopped the tracking app (check Autostart / battery settings)', codes: ['KILLED'] };

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { trackerHealthIssues, type MobileTrackerStatusDto, type TrackerHealth } from '@veetracer/shared';
+import { trackerHealthIssues, type MobileTrackerStatusDto, type TrackerEventDto, type TrackerEventKind, type TrackerHealth } from '@veetracer/shared';
 import { CircleCheckIcon, KeyRoundIcon, MailIcon, ShieldCheckIcon, SmartphoneIcon, TriangleAlertIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import { TrackerAppInfo } from '@/features/family/TrackerAppInfo';
+import { Switch } from '@/components/ui/switch';
 import { formatDateTime } from '@/lib/format';
 
 /**
@@ -33,6 +34,11 @@ export function MobileTrackerSection({ deviceId }: { deviceId: string }) {
       queryClient.setQueryData(key, d);
       toast.success(t('Phone stopped. It must be activated again to track.'));
     },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const setRequired = useMutation({
+    mutationFn: (required: boolean) => api.put<MobileTrackerStatusDto>(`/devices/${deviceId}/mobile-tracker/required`, { required }),
+    onSuccess: (r) => queryClient.setQueryData(key, r),
     onError: (e) => toast.error(errorMessage(e)),
   });
   const d = q.data;
@@ -90,7 +96,19 @@ export function MobileTrackerSection({ deviceId }: { deviceId: string }) {
               <p className="text-xs text-muted-foreground">{t('Optional, e.g. the employee who uses this phone. Administrators who can edit this device always get the code too.')}</p>
             </div>
           )}
+          {d.canRequireTracking && (
+            <div className="space-y-1 rounded-md border p-2.5">
+              <label className="flex items-center justify-between gap-3 text-sm font-medium">
+                {t('Keep tracking always on')}
+                <Switch checked={d.trackingRequired} disabled={setRequired.isPending} onCheckedChange={(v) => setRequired.mutate(v)} />
+              </label>
+              <p className="text-xs text-muted-foreground">
+                {t('For company phones. The person cannot stop tracking in the app, and if it was stopped it comes back on within about 15 minutes. Needs Tracker app 1.3.4 or newer. Tell the person before you turn this on. It cannot override a phone that is switched off, a force stop, removed permissions or an uninstall.')}
+              </p>
+            </div>
+          )}
           {active && <PhoneHealth health={d.health} at={d.healthAt} />}
+          {active && <TrackingHistory events={d.events ?? []} />}
           {active ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm">
@@ -116,6 +134,34 @@ export function MobileTrackerSection({ deviceId }: { deviceId: string }) {
         </>
       )}
     </section>
+  );
+}
+
+const HISTORY_LABELS: Record<TrackerEventKind, string> = {
+  start: 'Tracking started',
+  stop: 'Tracking stopped',
+  refused: 'Restart refused',
+  exit: 'App ended',
+  boot: 'Phone restarted',
+  upload: 'Uploads recovered',
+};
+
+/** Why tracking stopped and started (Tracker app 1.3.4+): explains a gap in the track. */
+function TrackingHistory({ events }: { events: TrackerEventDto[] }) {
+  const { t } = useTranslation();
+  if (!events.length) return null;
+  return (
+    <div className="space-y-1 rounded-md border p-2.5">
+      <p className="text-sm font-medium">{t('Tracking history')}</p>
+      <ul className="max-h-48 space-y-1 overflow-y-auto text-xs">
+        {events.map((e) => (
+          <li key={`${e.at}|${e.kind}`}>
+            <span className="text-muted-foreground tabular-nums">{formatDateTime(e.at)}</span> · <span className="font-medium">{t(HISTORY_LABELS[e.kind])}</span>
+            {e.why ? <span className="text-muted-foreground"> ({e.why})</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

@@ -60,6 +60,7 @@ object Health {
     o.put("failures", prefs.failures)
     prefs.lastError?.let { o.put("lastError", it.take(200)) }
     for (kind in listOf("start", "stop", "refused")) prefs.event(kind)?.let { (at, why) -> o.put(kind, JSONObject().put("at", at).put("why", why)) }
+    prefs.pendingEvents().takeIf { it.length() > 0 }?.let { o.put("events", it) }
     o.put("mfr", Build.MANUFACTURER ?: "")
     o.put("model", Build.MODEL ?: "")
     o.put("sdk", Build.VERSION.SDK_INT)

@@ -51,7 +51,7 @@ export async function startNative(): Promise<string | null> {
 
 /** The user switches tracking off. */
 export async function stopTracking(): Promise<void> {
-  await Tracker.stop();
+  await Tracker.stop('user tapped Stop');
 }
 
 /** Stores a config from the server and hands it to the native engine (which re-requests GPS if needed). */

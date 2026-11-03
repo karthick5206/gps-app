@@ -2,6 +2,7 @@ package com.sasvata.veetrax.trackerengine
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
 
@@ -77,6 +78,12 @@ data class Anchor(val t: Long, val lat: Double, val lng: Double, val acc: Float)
  * (token, wanted, server URL) are written with commit() so they are on disk before we return.
  */
 class Prefs(context: Context) {
+  private companion object {
+    val EVENT_LOCK = Any()
+    const val EVENT_QUEUE_MAX = 50
+    const val EVENT_WHY_MAX = 80
+  }
+
   private val sp: SharedPreferences =
     context.applicationContext.getSharedPreferences("veetrax_tracker_engine", Context.MODE_PRIVATE)
 
@@ -98,6 +105,11 @@ class Prefs(context: Context) {
   var wanted: Boolean
     get() = sp.getBoolean("wanted", false)
     set(v) { sp.edit().putBoolean("wanted", v).commit() }
+
+  /** The company's administrator requires tracking on this phone: Stop is refused and any stop is undone. */
+  var required: Boolean
+    get() = sp.getBoolean("required", false)
+    set(v) { sp.edit().putBoolean("required", v).commit() }
 
   /** Why tracking stopped on its own: REVOKED, INVALID or INACTIVE (null after a user stop). */
   var stopReason: String?
@@ -154,9 +166,49 @@ class Prefs(context: Context) {
     get() = long("backoffUntil")
     set(v) { sp.edit().putLong("backoffUntil", v).apply() }
 
-  /** Last service start / stop / refused restart and why (reported in Health). */
-  fun recordEvent(kind: String, why: String) {
-    sp.edit().putLong("ev_${kind}_at", System.currentTimeMillis()).putString("ev_${kind}_why", why.take(80)).apply()
+  /** What asked for the next stop (the Stop button, a server answer, ...); read when the service ends. */
+  var stopWhy: String?
+    get() = str("stopWhy")
+    set(v) { sp.edit().putString("stopWhy", v).commit() }
+
+  /** Phone boot time and the newest process exit already reported (Diagnostics). */
+  var bootAt: Long
+    get() = long("bootAt")
+    set(v) { sp.edit().putLong("bootAt", v).apply() }
+
+  var lastExitAt: Long
+    get() = long("lastExitAt")
+    set(v) { sp.edit().putLong("lastExitAt", v).apply() }
+
+  /** Records an event: the latest of each kind for Health, and the history waiting to be sent to the server. */
+  fun recordEvent(kind: String, why: String, at: Long = System.currentTimeMillis()) {
+    synchronized(EVENT_LOCK) {
+      val pending = pendingEvents()
+      pending.put(JSONObject().put("k", kind).put("at", at).put("why", why.take(EVENT_WHY_MAX)))
+      while (pending.length() > EVENT_QUEUE_MAX) pending.remove(0)
+      sp.edit()
+        .putLong("ev_${kind}_at", at)
+        .putString("ev_${kind}_why", why.take(EVENT_WHY_MAX))
+        .putString("ev_pending", pending.toString())
+        .commit()
+    }
+  }
+
+  /** Oldest first; sent with the health report until the server has accepted them. */
+  fun pendingEvents(): JSONArray = synchronized(EVENT_LOCK) {
+    runCatching { JSONArray(str("ev_pending") ?: "[]") }.getOrDefault(JSONArray())
+  }
+
+  fun hasPendingEvents(): Boolean = pendingEvents().length() > 0
+
+  /** The server accepted the [count] oldest pending events. */
+  fun ackEvents(count: Int) {
+    if (count <= 0) return
+    synchronized(EVENT_LOCK) {
+      val pending = pendingEvents()
+      repeat(minOf(count, pending.length())) { pending.remove(0) }
+      sp.edit().putString("ev_pending", pending.toString()).commit()
+    }
   }
 
   fun event(kind: String): Pair<Long, String>? {

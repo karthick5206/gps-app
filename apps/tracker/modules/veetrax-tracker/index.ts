@@ -35,6 +35,8 @@ export interface TrackerStatus {
   mockCount: number;
   droppedCount: number;
   stopReason: StopReason;
+  /** The administrator requires tracking: Stop is refused and any stop is undone. */
+  required: boolean;
   config: NativeTrackerConfig;
 }
 
@@ -43,7 +45,7 @@ export type SosResult = 'sent' | 'queued' | 'rejected' | 'no_location' | 'no_tok
 
 interface NativeModuleShape {
   start(token: string, serverUrl: string | null, config: Partial<NativeTrackerConfig> | null): Promise<StartResult>;
-  stop(): Promise<boolean>;
+  stop(why?: string): Promise<boolean>;
   isRunning(): boolean;
   getStatus(): Promise<TrackerStatus>;
   setConfig(config: Partial<NativeTrackerConfig>): Promise<boolean>;
@@ -79,8 +81,8 @@ export function start(token: string, serverUrl: string, config?: Partial<NativeT
   return Native ? Native.start(token, serverUrl, config ?? null) : Promise.reject(unavailable());
 }
 
-export function stop(): Promise<boolean> {
-  return Native ? Native.stop() : Promise.resolve(false);
+export function stop(why?: string): Promise<boolean> {
+  return Native ? Native.stop(why) : Promise.resolve(false);
 }
 
 export function isRunning(): boolean {

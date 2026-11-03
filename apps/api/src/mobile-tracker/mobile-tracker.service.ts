@@ -1,7 +1,8 @@
 import { ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { MobileTrackerStatusDto, sanitizeTrackerHealth, TrackerHealth } from '@veetracer/shared';
+import { MobileTrackerStatusDto, sanitizeTrackerEvents, sanitizeTrackerHealth, TrackerEventKind, TrackerHealth } from '@veetracer/shared';
 import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 import { AuthContext } from '../access/auth-context';
+import { AuditService } from '../audit/audit.service';
 import { MailerService } from '../auth/mailer.service';
 import { deviceScopeWhere } from '../access/access-rules';
 import { PrismaService } from '../prisma/prisma.service';
@@ -40,6 +41,7 @@ interface CachedSession {
   sessionId: string;
   deviceId: string;
   uniqueId: string;
+  required: boolean;
   checkedAt: number;
   lastUsedWrite: number;
 }
@@ -61,6 +63,7 @@ export class MobileTrackerService {
     private readonly messages: SystemMessagesService,
     private readonly mailer: MailerService,
     private readonly self: TrackerSelfService,
+    private readonly audit: AuditService,
   ) {}
 
   config(): TrackerConfig {
@@ -376,14 +379,14 @@ export class MobileTrackerService {
     const key = hashToken(token);
     const cached = this.sessions.get(key);
     if (cached && Date.now() - cached.checkedAt < SESSION_CACHE_MS) return cached;
-    const row = await this.prisma.mobileTrackerSession.findUnique({ where: { tokenHash: key }, select: { id: true, revokedAt: true, deviceId: true, device: { select: { uniqueId: true, isActive: true, companyId: true } } } });
+    const row = await this.prisma.mobileTrackerSession.findUnique({ where: { tokenHash: key }, select: { id: true, revokedAt: true, deviceId: true, device: { select: { uniqueId: true, isActive: true, companyId: true, trackingRequired: true } } } });
     if (!row) throw trackerError(401, 'INVALID', 'Please activate again');
     if (row.revokedAt) {
       this.sessions.delete(key);
       throw trackerError(401, 'REVOKED', 'Tracking moved to another phone with the same number');
     }
     if (!row.device.isActive || !row.device.companyId) throw trackerError(403, 'INACTIVE', 'Tracking switched off by your administrator');
-    const next: CachedSession = { sessionId: row.id, deviceId: row.deviceId, uniqueId: row.device.uniqueId, checkedAt: Date.now(), lastUsedWrite: cached?.lastUsedWrite ?? 0 };
+    const next: CachedSession = { sessionId: row.id, deviceId: row.deviceId, uniqueId: row.device.uniqueId, required: row.device.trackingRequired, checkedAt: Date.now(), lastUsedWrite: cached?.lastUsedWrite ?? 0 };
     this.sessions.set(key, next);
     return next;
   }
@@ -410,14 +413,15 @@ export class MobileTrackerService {
         assignments: { where: { toTime: null }, select: { object: { select: { name: true } } } },
       },
     });
-    return { ...this.describe(device), config: this.config() };
+    return { ...this.describe(device), config: this.config(), required: s.required };
   }
 
   /** Validates the points and adds them to the positions stream (the gateway's path into the processor). */
-  async upload(authorization: string | undefined, points: unknown[], health?: unknown): Promise<{ ok: true; accepted: number; config: TrackerConfig }> {
+  async upload(authorization: string | undefined, points: unknown[], health?: unknown): Promise<{ ok: true; accepted: number; config: TrackerConfig; required: boolean }> {
     const s = await this.session(authorization);
     const now = Date.now();
     this.saveHealth(s.deviceId, sanitizeTrackerHealth(health), now);
+    this.saveEvents(s.deviceId, sanitizeTrackerEvents(health));
     const config = this.config();
     const parsed = points
       .slice(0, MAX_POINTS_PER_CALL)
@@ -434,7 +438,15 @@ export class MobileTrackerService {
       s.lastUsedWrite = now;
       await this.prisma.mobileTrackerSession.update({ where: { id: s.sessionId }, data: { lastUsedAt: new Date(now) } }).catch(() => undefined);
     }
-    return { ok: true, accepted: parsed.length, config };
+    return { ok: true, accepted: parsed.length, config, required: s.required };
+  }
+
+  /** The phone re-sends events until an upload succeeds, so repeats are expected and ignored. */
+  private saveEvents(deviceId: string, events: { kind: TrackerEventKind; at: number; why: string }[]): void {
+    if (!events.length) return;
+    this.prisma.trackerEvent
+      .createMany({ data: events.map((e) => ({ deviceId, kind: e.kind, at: new Date(e.at), why: e.why })), skipDuplicates: true })
+      .catch((e: Error) => this.logger.warn(`Tracker events for ${deviceId} not saved: ${e.message}`));
   }
 
   /** Keeps the latest health report on the device: on change (ignoring counters), else every HEALTH_WRITE_MS. */
@@ -455,7 +467,7 @@ export class MobileTrackerService {
   private async ownDevice(ctx: AuthContext, deviceId: string) {
     const d = await this.prisma.device.findFirst({
       where: ctx.isSuperAdmin ? { id: deviceId } : { AND: [deviceScopeWhere(ctx), { id: deviceId }] },
-      select: { id: true, uniqueId: true, activationEmail: true, trackerHealth: true, trackerHealthAt: true, model: { select: { protocol: true } } },
+      select: { id: true, companyId: true, uniqueId: true, activationEmail: true, trackingRequired: true, trackerHealth: true, trackerHealthAt: true, company: { select: { accountType: true } }, model: { select: { protocol: true } } },
     });
     if (!d) throw new NotFoundException('Device not found');
     if (d.model.protocol !== MOBILE_MODEL_PROTOCOL) throw new ForbiddenException('Not a mobile tracker');
@@ -465,14 +477,18 @@ export class MobileTrackerService {
   /** Active phone, pending activation code (to read out when SMS isn't set up) and earlier phones. */
   async adminStatus(ctx: AuthContext, deviceId: string): Promise<MobileTrackerStatusDto> {
     const d = await this.ownDevice(ctx, deviceId);
-    const [sessions, code] = await Promise.all([
+    const [sessions, code, events] = await Promise.all([
       this.prisma.mobileTrackerSession.findMany({ where: { deviceId: d.id }, orderBy: { createdAt: 'desc' }, take: 5 }),
       this.prisma.mobileTrackerCode.findFirst({ where: { deviceId: d.id, consumedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.trackerEvent.findMany({ where: { deviceId: d.id }, orderBy: { at: 'desc' }, take: 30 }),
     ]);
     return {
       mobile: formatMobile(d.uniqueId),
+      events: events.map((e) => ({ kind: e.kind as TrackerEventKind, at: e.at.toISOString(), why: e.why })),
       pendingCode: code ? { code: code.code, expiresAt: code.expiresAt.toISOString(), smsSent: code.smsSent, emailCount: code.emailCount } : null,
       activationEmail: d.activationEmail,
+      trackingRequired: d.trackingRequired,
+      canRequireTracking: d.company?.accountType === 'BUSINESS',
       health: sanitizeTrackerHealth(d.trackerHealth),
       healthAt: d.trackerHealthAt?.toISOString() ?? null,
       sessions: sessions.map((x) => ({
@@ -485,6 +501,19 @@ export class MobileTrackerService {
         active: x.revokedAt === null,
       })),
     };
+  }
+
+  /**
+   * Company phones only: tracking stays on whatever happens on the phone. People's own phones on personal and family
+   * accounts always keep their Stop button.
+   */
+  async adminSetRequired(ctx: AuthContext, deviceId: string, required: boolean) {
+    const d = await this.ownDevice(ctx, deviceId);
+    if (d.company?.accountType !== 'BUSINESS') throw new ForbiddenException('Tracking can only be required on company phones.');
+    await this.prisma.device.update({ where: { id: d.id }, data: { trackingRequired: required } });
+    for (const [k, c] of this.sessions) if (c.deviceId === d.id) this.sessions.delete(k);
+    await this.audit.record(ctx, { action: 'UPDATE', entity: 'Device', entityId: d.id, before: { trackingRequired: d.trackingRequired }, after: { trackingRequired: required } });
+    return this.adminStatus(ctx, deviceId);
   }
 
   /** Sets (or clears) the extra address that receives the activation code. */

@@ -132,12 +132,21 @@ class TrackerService : Service() {
       fused.removeLocationUpdates(callback)
     } catch (_: Exception) {
     }
-    // Why the service ended, for Phone health: killed while wanted (OEM / system) or a user / server stop.
-    engine.prefs.recordEvent("stop", if (engine.prefs.wanted) "killed while tracking" else (engine.prefs.stopReason ?: "stopped by user"))
     val wasRunning = isRunning
+    // Why the service ended, for Phone health: killed while wanted (OEM / system), else what asked for the stop. Only
+    // when it was tracking: a sticky restart after a stop also ends here and must not overwrite the time of that stop.
+    if (wasRunning) {
+      val prefs = engine.prefs
+      prefs.recordEvent("stop", if (prefs.wanted) "killed while tracking" else (prefs.stopWhy ?: prefs.stopReason ?: "stopped, cause not recorded"))
+    }
     isRunning = false
     engine.service = null
     if (wasRunning) engine.post { it.onServiceStopped() }
+    // Required by the administrator: a stop from the phone doesn't count, whatever caused it. A server decision
+    // (REVOKED, INACTIVE) or a sign-out still ends tracking.
+    val p = engine.prefs
+    val fromServer = p.stopReason != null || p.stopWhy?.startsWith("server") == true
+    if (wasRunning && !p.wanted && p.required && !fromServer && !p.token.isNullOrEmpty()) p.wanted = true
     // Destroyed although tracking is still wanted (OEM task killer, system): come back.
     if (engine.prefs.wanted && !engine.prefs.token.isNullOrEmpty()) Starter.scheduleRestart(applicationContext, 10_000)
     super.onDestroy()

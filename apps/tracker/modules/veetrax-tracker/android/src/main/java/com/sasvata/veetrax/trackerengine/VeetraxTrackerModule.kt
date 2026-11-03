@@ -36,6 +36,7 @@ class VeetraxTrackerModule : Module() {
       if (config != null) prefs.config = TrackerConfig.merge(prefs.config, config)
       if (!Starter.hasLocationPermission(context)) return@AsyncFunction "no_permission"
       prefs.stopReason = null
+      prefs.stopWhy = null
       prefs.wanted = true
       WatchdogWorker.schedule(context)
       if (TrackerService.isRunning) {
@@ -45,12 +46,15 @@ class VeetraxTrackerModule : Module() {
       if (Starter.start(context, "app")) "started" else (prefs.lastError ?: "Could not start tracking")
     }
 
-    /** The user tapped Stop. Queued points are still uploaded. */
-    AsyncFunction("stop") {
+    /** Stops tracking; [why] says what asked for it (the Stop button or a server check). Queued points are still uploaded. */
+    AsyncFunction("stop") { why: String? ->
       val prefs = engine.prefs
+      // The Stop button can't turn off tracking the administrator requires. A server check still can.
+      if (prefs.required && why?.startsWith("server") != true) return@AsyncFunction false
+      prefs.stopWhy = why ?: "app (no reason given)"
       prefs.wanted = false
       prefs.stopReason = null
-      WatchdogWorker.cancel(context)
+      // The watchdog keeps running: it asks the server whether tracking must be on.
       Starter.stop(context)
       true
     }

@@ -52,6 +52,7 @@ export default function HomeScreen() {
 
   const session = store.session();
   const blocked = isInactive(status);
+  const required = !!status?.required;
   const on = !!status?.running;
   const killed = !!status && status.wanted && !status.running && !status.stopReason;
   const queued = status?.queueSize ?? 0;
@@ -67,13 +68,13 @@ export default function HomeScreen() {
   };
 
   const stop = () =>
-    Alert.alert(S.stopConfirmTitle, S.stopConfirmBody, [
+    required ? Alert.alert(S.requiredTitle, S.requiredBody) : Alert.alert(S.stopConfirmTitle, S.stopConfirmBody, [
       { text: S.cancel, style: 'cancel' },
       { text: S.stopTracking, style: 'destructive', onPress: () => stopTracking().then(refreshStatus) },
     ]);
 
   const deactivate = () =>
-    Alert.alert(S.signOutConfirmTitle, S.signOutConfirmBody, [
+    required ? Alert.alert(S.requiredTitle, S.requiredBody) : Alert.alert(S.signOutConfirmTitle, S.signOutConfirmBody, [
       { text: S.cancel, style: 'cancel' },
       { text: S.ok, style: 'destructive', onPress: () => void deactivatePhone() },
     ]);
@@ -114,6 +115,13 @@ export default function HomeScreen() {
         </Card>
       ) : null}
 
+      {required ? (
+        <Card>
+          <Body style={{ fontWeight: '700' }}>{S.requiredTitle}</Body>
+          <Body>{S.requiredBody}</Body>
+        </Card>
+      ) : null}
+
       <Card style={[styles.toggleCard, { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.primarySoft : c.card }]}>
         <View style={styles.toggleHead}>
           <View style={[styles.dot, { backgroundColor: on ? c.success : c.muted }]} />
@@ -121,12 +129,12 @@ export default function HomeScreen() {
           <Switch
             value={on}
             onValueChange={(v) => (v ? start() : stop())}
-            disabled={busy || blocked}
+            disabled={busy || blocked || (required && on)}
             trackColor={{ true: c.primary, false: c.border }}
             thumbColor={on ? c.accent : '#f4f4f5'}
           />
         </View>
-        {on ? (
+        {on && required ? null : on ? (
           <Button title={S.stopTracking} variant="outline" icon={<Square color={c.primary} size={18} />} onPress={stop} />
         ) : (
           <Button title={S.startTracking} icon={<Play color={c.primaryText} size={18} />} onPress={start} busy={busy} disabled={blocked} />

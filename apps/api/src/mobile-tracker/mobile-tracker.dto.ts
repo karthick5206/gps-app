@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsEmail, IsIn, IsObject, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsObject, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class TrackerRequestCodeBody {
   @IsString() @MaxLength(24) mobile!: string;
@@ -44,6 +44,11 @@ export class TrackerDiagnosticsBody {
   @IsOptional() @IsString() @MaxLength(160) device?: string;
   @IsOptional() @IsString() @MaxLength(10_000) nativeCrash?: string | null;
   @IsOptional() @IsString() @MaxLength(10_000) jsCrash?: string | null;
+}
+
+/** Devices → edit → Tracker app: the phone can't stop tracking. */
+export class TrackerRequiredBody {
+  @IsBoolean() required!: boolean;
 }
 
 /** Devices → edit → Tracker app: extra address for the activation code; null / empty clears it. */

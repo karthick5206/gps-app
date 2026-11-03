@@ -29,11 +29,43 @@ export interface MobileTrackerStatusDto {
   pendingCode: { code: string; expiresAt: string; smsSent: boolean; emailCount: number } | null;
   /** Extra address that gets the activation code by e-mail (device admins always get it). */
   activationEmail: string | null;
+  /** The company requires tracking on this phone (Tracker app 1.3.4+); only offered on business accounts. */
+  trackingRequired: boolean;
+  canRequireTracking: boolean;
   /** Latest phones first; at most one is active. */
   sessions: { id: string; deviceName: string | null; appVersion: string | null; platform: string | null; createdAt: string; lastUsedAt: string | null; active: boolean }[];
   /** Latest phone health report (Tracker app 1.1.7+) and when it arrived. */
   health: TrackerHealth | null;
   healthAt: string | null;
+  /** Why tracking stopped and started, newest first (Tracker app 1.3.4+). */
+  events: TrackerEventDto[];
+}
+
+export const TRACKER_EVENT_KINDS = ['start', 'stop', 'refused', 'exit', 'boot', 'upload'] as const;
+export type TrackerEventKind = (typeof TRACKER_EVENT_KINDS)[number];
+
+/** start / stop / refused restart of tracking, the reason Android gives for ending the app (exit), a phone restart (boot), uploads recovering after failures (upload). */
+export interface TrackerEventDto {
+  kind: TrackerEventKind;
+  at: string;
+  why: string;
+}
+
+const TRACKER_EVENTS_MAX = 50;
+
+/** The event history in a health report (`health.events`); bad entries are dropped. The payload comes from the phone. */
+export function sanitizeTrackerEvents(rawHealth: unknown): { kind: TrackerEventKind; at: number; why: string }[] {
+  const list = (rawHealth as { events?: unknown } | null | undefined)?.events;
+  if (!Array.isArray(list)) return [];
+  const out: { kind: TrackerEventKind; at: number; why: string }[] = [];
+  for (const e of list.slice(-TRACKER_EVENTS_MAX)) {
+    if (!e || typeof e !== 'object') continue;
+    const { k, at, why } = e as Record<string, unknown>;
+    if (!TRACKER_EVENT_KINDS.includes(k as TrackerEventKind)) continue;
+    if (typeof at !== 'number' || !Number.isInteger(at) || at <= 0 || at > 9_999_999_999_999) continue;
+    out.push({ kind: k as TrackerEventKind, at, why: typeof why === 'string' ? why.slice(0, 80) : '' });
+  }
+  return out;
 }
 
 /**
