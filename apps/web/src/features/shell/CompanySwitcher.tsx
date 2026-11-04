@@ -3,17 +3,20 @@ import { ALL_COMPANIES, type CompanyDto, type Paginated } from '@veetracer/share
 import { Building2Icon, CheckIcon, ChevronsUpDownIcon, LayersIcon, SearchIcon } from 'lucide-react';
 import { useDeferredValue, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth, useMe } from '@/features/auth/auth-context';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { withoutCompanyRecords } from './company-switch-params';
 
 /** Super Admin only: choose the company to act in (sent as X-Company-Id and Socket.IO companyId). */
 export function CompanySwitcher() {
   const { t } = useTranslation();
   const me = useMe();
   const { companyId, switchCompany } = useAuth();
+  const [, setParams] = useSearchParams();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const query = useDeferredValue(q);
@@ -25,7 +28,10 @@ export function CompanySwitcher() {
   });
 
   const choose = (id: string | null) => {
-    switchCompany(id);
+    if (id !== companyId) {
+      setParams(withoutCompanyRecords, { replace: true });
+      switchCompany(id);
+    }
     setOpen(false);
   };
 

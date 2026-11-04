@@ -2,6 +2,7 @@ import { CheckIcon, ChevronsUpDownIcon, SearchIcon, XIcon } from 'lucide-react';
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { optionLabel } from './option-label';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
 import { Spinner } from './spinner';
 
@@ -26,11 +27,12 @@ interface OptionPickerProps {
 }
 
 /** Remembers labels of every option ever seen so selected chips keep their names after a remote search. */
-function useLabelCache(options: Option[], known: Option[] = []) {
+function useLabelCache(options: Option[], known: Option[] = [], loading = false) {
+  const { t } = useTranslation();
   const cache = useRef(new Map<string, string>());
   for (const o of known) cache.current.set(o.value, o.label);
   for (const o of options) cache.current.set(o.value, o.label);
-  return (value: string) => cache.current.get(value) ?? value;
+  return (value: string) => optionLabel(cache.current.get(value), value, loading ? t('Loading…') : t('Selected item'));
 }
 
 function SearchableList({
@@ -135,7 +137,7 @@ export function MultiSelect({
 }: OptionPickerProps & { value: string[]; onChange: (value: string[]) => void; selectedOptions?: Option[] }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const labelOf = useLabelCache(listProps.options, selectedOptions);
+  const labelOf = useLabelCache(listProps.options, selectedOptions, listProps.loading);
   const set = useMemo(() => new Set(value), [value]);
 
   const toggle = (o: Option) => onChange(set.has(o.value) ? value.filter((v) => v !== o.value) : [...value, o.value]);
@@ -202,7 +204,7 @@ export function Combobox({
 }) {
   const [open, setOpen] = useState(false);
   const { t } = useTranslation();
-  const labelOf = useLabelCache(listProps.options, selectedOption ? [selectedOption] : []);
+  const labelOf = useLabelCache(listProps.options, selectedOption ? [selectedOption] : [], listProps.loading);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

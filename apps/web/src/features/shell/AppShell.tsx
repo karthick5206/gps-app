@@ -29,6 +29,7 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { pathname } = useLocation();
   const { t } = useTranslation();
+  const { companyId } = useAuth();
   useRealtimeConnection();
 
   useEffect(() => setMobileOpen(false), [pathname]);
@@ -57,7 +58,8 @@ export function AppShell() {
         <SystemHealthBanner />
         <AllCompaniesBanner />
         <main id="main" className="min-h-0 flex-1 overflow-y-auto">
-          <Outlet />
+          {/* A new company starts each page afresh: filters and selections held by the page belong to the old one. */}
+          <Outlet key={companyId ?? 'platform'} />
         </main>
         <AppFooter />
       </div>
