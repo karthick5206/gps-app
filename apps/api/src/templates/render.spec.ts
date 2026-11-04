@@ -11,7 +11,7 @@ import {
   smsVariableOrder,
   templateVariables,
 } from './render';
-import { systemTemplates } from './system-templates';
+import { systemTemplates, deliverableTemplates } from './system-templates';
 import { alertVars, renderTemplate } from './template-renderer';
 
 describe('template rendering', () => {
@@ -123,5 +123,15 @@ describe('system templates', () => {
     expect(last.map_link).toContain('13.060000,80.250000');
     expect(alertVars({ ...base, address: null, lat: null, lng: null, data: { noFix: true } }, c).location).toBe('Unknown (no GPS fix)');
     expect(alertVars({ ...base, lat: 13.06, lng: 80.25, data: {} }, c).location).toBe('Anna Salai, Chennai');
+  });
+});
+
+describe('deliverableTemplates', () => {
+  it('covers e-mail and push of every alert type, and no SMS with a placeholder DLT id', () => {
+    const all = systemTemplates();
+    const kept = deliverableTemplates(all);
+    for (const a of ALERT_TYPES) for (const channel of ['EMAIL', 'PUSH']) expect(kept.some((t) => t.purpose === a.code && t.channel === channel)).toBe(true);
+    expect(kept.some((t) => t.dltTemplateId?.startsWith('DLT-PENDING-'))).toBe(false);
+    expect(kept.some((t) => t.purpose === 'SYSTEM_OTP')).toBe(true);
   });
 });

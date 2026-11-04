@@ -6,7 +6,7 @@ import { Prisma, PrismaClient, VehicleType } from '@prisma/client';
 import { SYSTEM_ROLES, VEHICLE_TYPES } from '@veetracer/shared';
 import { ensureSystemRoles } from '../src/access/system-roles';
 import { geometryBBox } from '../src/alerts/logic/geofence-geometry';
-import { systemTemplates } from '../src/templates/system-templates';
+import { deliverableTemplates, SystemTemplateDef, systemTemplates } from '../src/templates/system-templates';
 import { hashPassword, randomToken } from '../src/common/secrets';
 import { loadEnv } from '../src/config/env';
 
@@ -233,6 +233,8 @@ async function main() {
 
   // Sample company (Demo Logistics): local / test databases only, never on production.
   if (seedDemoData()) await seedDemo(partner.id, models);
+  // Every deploy: a new alert type gets its messages. SMS waits for a registered DLT template.
+  console.log(`System templates added: ${await seedSystemTemplates(deliverableTemplates(systemTemplates()))}`);
   await syncSystemRoleMenus();
   await seedPlayReview(partner.id);
 
@@ -435,11 +437,13 @@ async function seedDemo(partnerId: string, models: Map<string, string>) {
   await seedM2a(demo.id, { chennai: chennai.id }, demoAdmin.email!, demoAdmin.mobile ?? '+919999900001');
 }
 
-async function seedM2a(companyId: string, branches: { chennai: string }, adminEmail: string, adminMobile: string) {
-  // System message templates (never overwrite later edits).
-  for (const t of systemTemplates()) {
-    const existing = await prisma.messageTemplate.findFirst({ where: { companyId: null, purpose: t.purpose, channel: t.channel, language: 'en' } });
-    if (existing) continue;
+/** Adds the system message templates that are missing (never overwrites later edits). */
+async function seedSystemTemplates(templates: SystemTemplateDef[]): Promise<number> {
+  const existing = await prisma.messageTemplate.findMany({ where: { companyId: null, language: 'en' }, select: { purpose: true, channel: true } });
+  const have = new Set(existing.map((e) => `${e.purpose}|${e.channel}`));
+  let added = 0;
+  for (const t of templates) {
+    if (have.has(`${t.purpose}|${t.channel}`)) continue;
     await prisma.messageTemplate.create({
       data: {
         companyId: null,
@@ -457,7 +461,13 @@ async function seedM2a(companyId: string, branches: { chennai: string }, adminEm
         versions: { create: { version: 1, subject: t.subject, body: t.body } },
       },
     });
+    added++;
   }
+  return added;
+}
+
+async function seedM2a(companyId: string, branches: { chennai: string }, adminEmail: string, adminMobile: string) {
+  await seedSystemTemplates(systemTemplates());
 
   for (const pack of SYSTEM_PACKS) {
     const existing = await prisma.alertPack.findFirst({ where: { companyId: null, name: pack.name } });

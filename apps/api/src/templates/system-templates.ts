@@ -146,6 +146,11 @@ export const OTP_SMS_DLT_BODY =
   'Thanks for choosing Vibhav Enterprise Solutions VeeTrax fleet tracking solutions platform. Your signup and acitvation code for VeeTrax app is {{code}} . Do not share with anyone. For support please call 9444907658 or https://vibhaventerprise.com';
 
 /** All system templates: every alert type × EMAIL/SMS/PUSH, plus SYSTEM_* e-mails and the OTP SMS. */
+/** Templates that can really be sent: an SMS with a placeholder DLT id would be refused by the operator. */
+export function deliverableTemplates(templates: SystemTemplateDef[]): SystemTemplateDef[] {
+  return templates.filter((t) => !t.dltTemplateId?.startsWith('DLT-PENDING-'));
+}
+
 export function systemTemplates(): SystemTemplateDef[] {
   dltCounter = 0;
   const out: SystemTemplateDef[] = [];
