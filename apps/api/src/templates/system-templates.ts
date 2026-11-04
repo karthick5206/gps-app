@@ -28,6 +28,8 @@ const DETAIL: Record<AlertTypeCode, string> = {
   DEVICE_ONLINE: 'tracker is back online after {{duration}} without data',
   SIM_CHANGED: 'tracker has a different SIM card (SIM removed and another inserted)',
   TRACKER_DEVICE_CHANGED: 'tracker app was activated on a different phone',
+  TRACKER_STOPPED: 'tracking was switched off on the phone',
+  TRACKER_STARTED: 'tracking was switched on on the phone',
   GPS_LOST: 'tracker has had no GPS fix for {{duration}}',
   GSM_WEAK: 'tracker mobile signal has been weak for {{duration}}',
   DATA_DELAYED: 'tracker data is arriving {{duration}} late (network problem)',

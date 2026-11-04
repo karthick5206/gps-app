@@ -18,7 +18,7 @@ function build(session: { revokedAt: Date | null; status?: string; objectActive?
       update: jest.fn(async () => ({})),
     },
     device: { update: jest.fn(async () => ({})) },
-    trackerEvent: { createMany: jest.fn(async () => ({ count: 0 })) },
+    trackerEvent: { createMany: jest.fn(async () => ({ count: 0 })), createManyAndReturn: jest.fn(async () => []), findFirst: jest.fn(async () => null) },
     rawPacket: { createMany: jest.fn(async () => ({ count: 0 })) },
   };
   const redis = { client: { pipeline: () => pipeline } };
@@ -85,6 +85,37 @@ describe('points the server would discard', () => {
     await service.upload(auth, [point(NOW - 9000), point(NOW - 1000)], { drain: true });
     const event = (prisma.trackerEvent.createMany.mock.calls as unknown as [{ data: { why: string }[] }][])[0][0].data[0];
     expect(event.why).toBe('server rejected 1: 1 after moving to another phone');
+  });
+});
+
+describe('tracking switched off / on alerts', () => {
+  const flush = () => new Promise((done) => setImmediate(done));
+  const withAlerts = (added: { kind: string; at: Date; why: string }[]) => {
+    const built = build({ revokedAt: null }, [[null, '1-0']]);
+    const svc = built.service as unknown as { alerts: { trackerSwitched: jest.Mock }; prisma: { device: { findUnique: jest.Mock }; trackerEvent: { createManyAndReturn: jest.Mock } } };
+    svc.alerts = { trackerSwitched: jest.fn(async () => undefined) };
+    svc.prisma.device.findUnique = jest.fn(async () => ({ companyId: 'c1', assignments: [{ object: { id: 'o1', name: 'Parthan', branchId: null, plateNumber: null, speedLimitKph: null } }] }));
+    svc.prisma.trackerEvent.createManyAndReturn = jest.fn(async () => added);
+    return { service: built.service, trackerSwitched: svc.alerts.trackerSwitched };
+  };
+  const health = (k: string, why: string) => ({ events: [{ k, at: NOW - 60_000, why }] });
+
+  it('alerts when the person stopped tracking, at the time it happened', async () => {
+    const { service, trackerSwitched } = withAlerts([{ kind: 'stop', at: new Date(NOW - 60_000), why: 'user tapped Stop' }]);
+    await service.upload(auth, [], health('stop', 'user tapped Stop'));
+    await flush();
+    await flush();
+    expect(trackerSwitched).toHaveBeenCalledTimes(1);
+    expect(trackerSwitched.mock.calls[0][0]).toMatchObject({ on: false, why: 'user tapped Stop', companyId: 'c1' });
+    expect(trackerSwitched.mock.calls[0][1]).toBe(NOW - 60_000);
+  });
+
+  it('does not alert again for an event the phone sent before', async () => {
+    const { service, trackerSwitched } = withAlerts([]);
+    await service.upload(auth, [], health('stop', 'user tapped Stop'));
+    await flush();
+    await flush();
+    expect(trackerSwitched).not.toHaveBeenCalled();
   });
 });
 

@@ -26,6 +26,12 @@ const offlineKey = (objectId: string) => `${RedisKeys.alertState(objectId)}:offl
  * DEVICE_OFFLINE alerts, driven by the API's offline sweeper. An object alerts once per offline episode, when it has
  * been silent for max(company offline threshold, the setting's `afterMin`).
  */
+interface TrackerAlertTarget {
+  companyId: string;
+  deviceId: string;
+  object: { id: string; name: string; branchId: string | null; plateNumber: string | null; speedLimitKph: number | null };
+}
+
 @Injectable()
 export class OfflineAlertService {
   private readonly logger = new Logger(OfflineAlertService.name);
@@ -127,27 +133,52 @@ export class OfflineAlertService {
 
   /** The tracker app was activated on another phone: raised at once (no offline episode or cooldown involved). */
   async trackerDeviceChanged(
-    change: { companyId: string; deviceId: string; object: { id: string; name: string; branchId: string | null; plateNumber: string | null; speedLimitKph: number | null }; mobile: string; from: string | null; to: string | null },
+    change: TrackerAlertTarget & { mobile: string; from: string | null; to: string | null },
     now: number,
   ): Promise<void> {
-    const rules = await this.repo.get(change.companyId);
-    const setting = rules.effective(change.object.id).get('TRACKER_DEVICE_CHANGED');
-    if (!setting?.enabled) return;
-    const ackRequired = ackRequiredFor(setting, 'TRACKER_DEVICE_CHANGED', setting.severity);
-    const id = randomUUID();
     const message = `Tracker device changed: ${change.mobile} moved from ${change.from ?? 'the previous phone'} to ${change.to ?? 'another phone'}`;
-    const data = { mobile: change.mobile, fromDevice: change.from, toDevice: change.to };
+    await this.raiseTrackerAlert('TRACKER_DEVICE_CHANGED', change, message, { mobile: change.mobile, fromDevice: change.from, toDevice: change.to }, now, null);
+  }
+
+  /** Tracking switched off or on at the phone. `at` is the phone's time, shown with where it last was. */
+  async trackerSwitched(
+    change: TrackerAlertTarget & { mobile: string; on: boolean; why: string },
+    at: number,
+  ): Promise<void> {
+    const position = await this.prisma.position.findFirst({
+      where: { deviceId: change.deviceId, fixTime: { lte: new Date(at) }, valid: true },
+      orderBy: { fixTime: 'desc' },
+      select: { lat: true, lng: true },
+    });
+    const message = `Tracking switched ${change.on ? 'on' : 'off'} on ${change.mobile}${change.why ? ` (${change.why})` : ''}`;
+    await this.raiseTrackerAlert(change.on ? 'TRACKER_STARTED' : 'TRACKER_STOPPED', change, message, { mobile: change.mobile, why: change.why }, at, position);
+  }
+
+  /** Raised at once (no offline episode or cooldown involved). */
+  private async raiseTrackerAlert(
+    type: 'TRACKER_DEVICE_CHANGED' | 'TRACKER_STOPPED' | 'TRACKER_STARTED',
+    change: TrackerAlertTarget,
+    message: string,
+    data: Record<string, string | null>,
+    now: number,
+    position: { lat: number; lng: number } | null,
+  ): Promise<void> {
+    const rules = await this.repo.get(change.companyId);
+    const setting = rules.effective(change.object.id).get(type);
+    if (!setting?.enabled) return;
+    const ackRequired = ackRequiredFor(setting, type, setting.severity);
+    const id = randomUUID();
     await this.prisma.alert.create({
-      data: { id, companyId: change.companyId, objectId: change.object.id, deviceId: change.deviceId, type: 'TRACKER_DEVICE_CHANGED', severity: setting.severity, message, data, occurredAt: new Date(now), ackRequired },
+      data: { id, companyId: change.companyId, objectId: change.object.id, deviceId: change.deviceId, type, severity: setting.severity, message, data, occurredAt: new Date(now), lat: position?.lat ?? null, lng: position?.lng ?? null, ackRequired },
     });
     const dto = pendingToDto({
       id,
-      type: 'TRACKER_DEVICE_CHANGED',
+      type,
       severity: setting.severity,
       message,
       occurredAt: now,
-      lat: null,
-      lng: null,
+      lat: position?.lat ?? null,
+      lng: position?.lng ?? null,
       geofenceId: null,
       geofenceName: null,
       data,

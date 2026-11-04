@@ -3125,4 +3125,6 @@ export const HI: Record<string, string> = {
   "Km from previous": "पिछले से किमी",
   "History on map": "मैप पर इतिहास",
   "From previous": "पिछले से",
+  "Tracking switched off": "ट्रैकिंग बंद की गई",
+  "Tracking switched on": "ट्रैकिंग चालू की गई",
 };

@@ -181,3 +181,27 @@ export function summarizeRejected(reasons: string[]): string {
   for (const r of reasons) counts.set(r, (counts.get(r) ?? 0) + 1);
   return [...counts].map(([r, n]) => `${n} ${r}`).join(', ');
 }
+
+const KILLED_BY_PHONE = 'killed while tracking';
+
+/** A stop the person at the phone chose. Not the phone killing the app (offline alerts cover it) or a server decision. A sign-out is raised by the server. */
+const isPersonStop = (why: string) => why !== KILLED_BY_PHONE && why !== 'signed out' && !why.startsWith('server') && !why.startsWith('moved to');
+
+/**
+ * Which new start / stop events mean tracking was really switched off or on. A restart after the phone killed the app is
+ * not "switched on", and neither is a start while the last thing we know is that tracking was already running.
+ * `before` is the device's latest start / stop older than `events`; `events` is sorted by time.
+ */
+export function trackerOnOffChanges<E extends { kind: string; why: string }>(before: { kind: string; why: string } | null, events: E[]): E[] {
+  const out: E[] = [];
+  let last = before;
+  for (const e of events) {
+    if (e.kind === 'stop') {
+      if (isPersonStop(e.why)) out.push(e);
+    } else if (e.kind === 'start') {
+      if (last ? last.kind === 'stop' && last.why !== KILLED_BY_PHONE : e.why === 'app') out.push(e);
+    } else continue;
+    last = e;
+  }
+  return out;
+}

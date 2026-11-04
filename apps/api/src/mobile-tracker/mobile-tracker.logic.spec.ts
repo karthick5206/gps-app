@@ -1,5 +1,5 @@
 import { sanitizeTrackerEvents, sanitizeTrackerHealth, trackerHealthIssues } from '@veetracer/shared';
-import { codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, toNormalized } from './mobile-tracker.logic';
+import { trackerOnOffChanges, codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, toNormalized } from './mobile-tracker.logic';
 
 const NOW = Date.parse('2026-10-21T06:00:00Z');
 
@@ -114,5 +114,42 @@ describe('app 1.3.2 extra fields', () => {
     const n = toNormalized(parsePoint({ ...base, prov: 'gps', sat: 7 }, now)!, '919000000001', now, DEFAULT_TRACKER_CONFIG);
     expect(JSON.parse(n.raw!)).toMatchObject({ lat: 13.08, prov: 'gps', sat: 7 });
     expect(n.satellites).toBe(7);
+  });
+});
+
+describe('trackerOnOffChanges', () => {
+  const ev = (kind: string, why: string) => ({ kind, why });
+  const kinds = (r: { kind: string; why: string }[]) => r.map((e) => `${e.kind}:${e.why}`);
+
+  it('the person tapped Stop, then started again: both', () => {
+    expect(kinds(trackerOnOffChanges(ev('start', 'app'), [ev('stop', 'user tapped Stop'), ev('start', 'app')]))).toEqual(['stop:user tapped Stop', 'start:app']);
+  });
+
+  it('the very first start from the app counts; a background one does not', () => {
+    expect(trackerOnOffChanges(null, [ev('start', 'app')])).toHaveLength(1);
+    expect(trackerOnOffChanges(null, [ev('start', 'boot')])).toHaveLength(0);
+  });
+
+  it('the phone killing the app and the restart raise nothing', () => {
+    expect(trackerOnOffChanges(ev('start', 'app'), [ev('stop', 'killed while tracking'), ev('start', 'watchdog')])).toEqual([]);
+    expect(trackerOnOffChanges(ev('stop', 'killed while tracking'), [ev('start', 'app')])).toEqual([]);
+  });
+
+  it('a start while tracking was already on raises nothing (a kill that left no stop event)', () => {
+    expect(trackerOnOffChanges(ev('start', 'app'), [ev('start', 'boot')])).toEqual([]);
+  });
+
+  it('a server stop is no alert, but coming back on after it is', () => {
+    expect(trackerOnOffChanges(ev('start', 'app'), [ev('stop', 'server answered INACTIVE')])).toEqual([]);
+    expect(trackerOnOffChanges(ev('stop', 'server answered INACTIVE'), [ev('start', 'app')])).toHaveLength(1);
+  });
+
+  it('after a sign-out, the next activation is switched on', () => {
+    expect(trackerOnOffChanges(ev('stop', 'signed out'), [ev('start', 'app')])).toHaveLength(1);
+    expect(trackerOnOffChanges(ev('start', 'app'), [ev('stop', 'signed out')])).toEqual([]);
+  });
+
+  it('other event kinds do not count', () => {
+    expect(trackerOnOffChanges(ev('stop', 'user tapped Stop'), [ev('upload', 'queue'), ev('start', 'app')])).toHaveLength(1);
   });
 });

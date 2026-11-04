@@ -3125,4 +3125,6 @@ export const TA: Record<string, string> = {
   "Km from previous": "முந்தையதிலிருந்து கி.மீ",
   "History on map": "வரைபடத்தில் வரலாறு",
   "From previous": "முந்தையதிலிருந்து",
+  "Tracking switched off": "கண்காணிப்பு நிறுத்தப்பட்டது",
+  "Tracking switched on": "கண்காணிப்பு இயக்கப்பட்டது",
 };

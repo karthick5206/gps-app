@@ -58,6 +58,8 @@ export const ALERT_TYPE_CODES = [
   'DEVICE_ONLINE',
   'SIM_CHANGED',
   'TRACKER_DEVICE_CHANGED',
+  'TRACKER_STOPPED',
+  'TRACKER_STARTED',
   'GPS_LOST',
   'GSM_WEAK',
   'DATA_DELAYED',
@@ -161,6 +163,9 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   // Trackers that report the SIM ICCID (Concox info packet, Teltonika IO 11/14): a different SIM = possible theft / misuse.
   { code: 'SIM_CHANGED', label: 'SIM card changed', category: 'Device', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   { code: 'TRACKER_DEVICE_CHANGED', label: 'Tracker device changed', category: 'Device', capability: null, defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // Tracker app phones (the app reports these; a stop arrives with its next upload, later if the phone is offline).
+  { code: 'TRACKER_STOPPED', label: 'Tracking switched off', category: 'Device', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  { code: 'TRACKER_STARTED', label: 'Tracking switched on', category: 'Device', capability: null, defaultSeverity: 'INFO', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // ── Device health (computed from the data the tracker sends) ──
   {
     code: 'GPS_LOST', label: 'GPS signal lost', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
@@ -263,6 +268,8 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   DEVICE_ONLINE: 0,
   SIM_CHANGED: 5,
   TRACKER_DEVICE_CHANGED: 0,
+  TRACKER_STOPPED: 0,
+  TRACKER_STARTED: 0,
   GPS_LOST: 0,
   GSM_WEAK: 0,
   DATA_DELAYED: 60,

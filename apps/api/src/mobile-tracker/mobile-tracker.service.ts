@@ -19,6 +19,7 @@ import {
   codeRecipients,
   DEFAULT_TRACKER_CONFIG,
   formatMobile,
+  trackerOnOffChanges,
   isDifferentPhone,
   maskEmail,
   MAX_POINTS_PER_CALL,
@@ -417,8 +418,17 @@ export class MobileTrackerService {
     if (s) {
       await this.prisma.mobileTrackerSession.updateMany({ where: { id: s.sessionId, revokedAt: null }, data: { revokedAt: new Date() } });
       for (const [k, c] of this.sessions) if (c.sessionId === s.sessionId) this.sessions.delete(k);
+      await this.recordSignOut(s).catch((e: Error) => this.logger.error(`Sign-out of tracker ${s.deviceId} not recorded: ${e.message}`));
     }
     return { ok: true };
+  }
+
+  /** Signing out wipes the phone's event list, so the server records this stop itself. It never fails the sign-out. */
+  private async recordSignOut(s: CachedSession): Promise<void> {
+    const at = new Date();
+    await this.prisma.trackerEvent.createMany({ data: [{ deviceId: s.deviceId, kind: 'stop', at, why: 'signed out' }], skipDuplicates: true });
+    const target = await this.alertTarget(s.deviceId);
+    if (target) await this.alerts.trackerSwitched({ ...target, mobile: formatMobile(s.uniqueId), on: false, why: 'signed out of the tracker app' }, at.getTime());
   }
 
   async me(authorization: string | undefined) {
@@ -445,7 +455,7 @@ export class MobileTrackerService {
     // An old phone's report must not overwrite the new phone's.
     if (s.revokedAt === undefined) {
       this.saveHealth(s.deviceId, sanitizeTrackerHealth(health), now);
-      this.saveEvents(s.deviceId, sanitizeTrackerEvents(health));
+      this.saveEvents(s, sanitizeTrackerEvents(health), now);
     }
     const config = this.config();
     const parsed: NonNullable<ReturnType<typeof parsePoint>>[] = [];
@@ -487,11 +497,42 @@ export class MobileTrackerService {
   }
 
   /** The phone re-sends events until an upload succeeds, so repeats are expected and ignored. */
-  private saveEvents(deviceId: string, events: { kind: TrackerEventKind; at: number; why: string }[]): void {
+  private saveEvents(s: CachedSession, events: { kind: TrackerEventKind; at: number; why: string }[], now: number): void {
     if (!events.length) return;
+    const { deviceId } = s;
     this.prisma.trackerEvent
-      .createMany({ data: events.map((e) => ({ deviceId, kind: e.kind, at: new Date(e.at), why: e.why })), skipDuplicates: true })
+      // Only the rows really added come back, so a re-sent event never raises its alert twice.
+      .createManyAndReturn({ data: events.map((e) => ({ deviceId, kind: e.kind, at: new Date(e.at), why: e.why })), skipDuplicates: true, select: { kind: true, at: true, why: true } })
+      .then((added) => this.alertOnOff(s, added, now))
       .catch((e: Error) => this.logger.warn(`Tracker events for ${deviceId} not saved: ${e.message}`));
+  }
+
+  /** Tracking switched off / on at the phone: alerts for the company, with the reason the phone gave. */
+  private async alertOnOff(s: CachedSession, added: { kind: string; at: Date; why: string }[], now: number): Promise<void> {
+    const events = added.filter((e) => e.kind === 'start' || e.kind === 'stop').sort((a, b) => a.at.getTime() - b.at.getTime());
+    if (!events.length) return;
+    const before = await this.prisma.trackerEvent.findFirst({
+      where: { deviceId: s.deviceId, kind: { in: ['start', 'stop'] }, at: { lt: events[0].at } },
+      orderBy: { at: 'desc' },
+      select: { kind: true, why: true },
+    });
+    const changes = trackerOnOffChanges(before, events);
+    if (!changes.length) return;
+    const target = await this.alertTarget(s.deviceId);
+    if (!target) return;
+    const mobile = formatMobile(s.uniqueId);
+    // The phone's clock is only trusted up to now: an alert from the future would sort above everything.
+    for (const e of changes) await this.alerts.trackerSwitched({ ...target, mobile, on: e.kind === 'start', why: e.why === 'app' ? 'from the tracker app' : e.why }, Math.min(e.at.getTime(), now));
+  }
+
+  /** The company and vehicle an alert about this phone belongs to; null when it isn't assigned to one. */
+  private async alertTarget(deviceId: string) {
+    const d = await this.prisma.device.findUnique({
+      where: { id: deviceId },
+      select: { companyId: true, assignments: { where: { toTime: null }, select: { object: { select: { id: true, name: true, branchId: true, plateNumber: true, speedLimitKph: true } } } } },
+    });
+    const object = d?.assignments[0]?.object;
+    return d?.companyId && object ? { companyId: d.companyId, deviceId, object } : null;
   }
 
   /** Keeps the latest health report on the device: on change (ignoring counters), else every HEALTH_WRITE_MS. */
