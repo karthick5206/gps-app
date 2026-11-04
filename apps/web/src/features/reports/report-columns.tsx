@@ -72,25 +72,17 @@ export interface ReportTypeDef {
   columns: ReportColumn[];
 }
 
-/** Opens the visit, and the drive from the previous geofence, on the History map in a new tab (the report stays open). */
-function GeofenceHistoryLinks({ row }: { row: Row }) {
+/** Opens the trip on the History map in a new tab (the report stays open). */
+function GeofenceHistoryLink({ row }: { row: Row }) {
   const { t } = useTranslation();
   const { can } = useAuth();
   if (!can('history')) return null;
-  const objectId = row.objectId as string;
-  const enter = row.enterTime as string;
-  const inside = historyLink(objectId, enter, (row.exitTime as string | null) ?? new Date().toISOString());
-  const previous = row.previousExitTime ? historyLink(objectId, row.previousExitTime as string, enter) : null;
-  const link = (to: string, label: string) => (
-    <Link to={to} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 whitespace-nowrap text-primary underline-offset-2 hover:underline">
-      <MapIcon className="size-3.5" /> {label}
-    </Link>
-  );
+  const to = historyLink(row.objectId as string, row.outTime as string, row.untilTime as string);
+  if (!to) return null;
   return (
-    <span className="flex flex-col items-start gap-0.5">
-      {inside && link(inside, t('Inside'))}
-      {previous && link(previous, t('From previous'))}
-    </span>
+    <Link to={to} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 whitespace-nowrap text-primary underline-offset-2 hover:underline">
+      <MapIcon className="size-3.5" /> {t('View on map')}
+    </Link>
   );
 }
 
@@ -377,14 +369,13 @@ const km2 = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 
 const GEOFENCE_DISTANCE: ReportColumn[] = [
   vehicle,
   plate,
-  { id: 'geofenceName', header: 'Geofence', value: str('geofenceName') },
-  { id: 'enterTime', header: 'In time', value: time('enterTime'), render: timeCell('enterTime') },
-  { id: 'exitTime', header: 'Out time', value: time('exitTime'), render: (r) => (r.exitTime ? timeCell('exitTime')(r) : <Badge variant="default">{i18n.t('Inside')}</Badge>) },
-  duration('durationSec', 'Time inside'),
-  { id: 'insideKm', header: 'Distance inside (km)', value: num('insideKm'), numeric: true, total: 'sum', format: km2 },
-  { id: 'previousGeofenceName', header: 'Previous geofence', value: str('previousGeofenceName') },
-  { id: 'fromPreviousKm', header: 'Km from previous', value: num('fromPreviousKm'), numeric: true, total: 'sum', format: km2 },
-  { id: 'historyLinks', header: 'History on map', value: () => null, render: (r) => <GeofenceHistoryLinks row={r} /> },
+  { id: 'fromGeofenceName', header: 'From geofence', value: str('fromGeofenceName') },
+  { id: 'outTime', header: 'Out time', value: time('outTime'), render: timeCell('outTime') },
+  { id: 'toGeofenceName', header: 'To geofence', value: str('toGeofenceName') },
+  { id: 'inTime', header: 'In time', value: time('inTime'), render: (r) => (r.inTime ? timeCell('inTime')(r) : <Badge variant="secondary">{i18n.t('Not yet')}</Badge>) },
+  duration('travelSec', 'Travel time'),
+  { id: 'distanceKm', header: 'Distance (km)', value: num('distanceKm'), numeric: true, total: 'sum', format: km2 },
+  { id: 'historyLink', header: 'History on map', value: () => null, render: (r) => <GeofenceHistoryLink row={r} /> },
 ];
 
 const GEOFENCE_SUMMARY: ReportColumn[] = [
@@ -587,7 +578,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'EVENT_SUMMARY', category: 'Events', label: 'Event summary', description: 'How many of each alert type per vehicle, with first and last time.', icon: ListChecksIcon, columns: EVENT_SUMMARY },
   { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS },
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
-  { type: 'GEOFENCE_DISTANCE', category: 'Geofences', label: 'Geofence in/out distance', description: 'Per visit: km driven inside the geofence and km from the previous geofence.', icon: RulerIcon, columns: GEOFENCE_DISTANCE },
+  { type: 'GEOFENCE_DISTANCE', category: 'Geofences', label: 'Geofence out-to-in distance', description: 'Km driven from leaving a geofence to entering the next one, with the trip on the map.', icon: RulerIcon, columns: GEOFENCE_DISTANCE },
   { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },
   { type: 'FUEL', category: 'Fuel', label: 'Fuel (sensor)', description: 'Per vehicle per day: start and end level, refills, drains, consumption and km/L (vehicles with a fuel sensor).', icon: FuelIcon, columns: FUEL },
   { type: 'FUEL_EVENTS', category: 'Fuel', label: 'Fuel refills & drains', description: 'Every detected refill and drain (possible fuel theft) with the level before and after.', icon: DropletOffIcon, columns: FUEL_EVENTS },

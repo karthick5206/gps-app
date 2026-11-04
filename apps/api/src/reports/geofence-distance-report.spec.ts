@@ -1,5 +1,5 @@
 import { PosRow } from '../summarizer/positions';
-import { DistanceInterval, IntervalDistance, previousVisits } from './geofence-distance-report';
+import { DistanceInterval, IntervalDistance, geofenceTrips } from './geofence-distance-report';
 
 const MIN = 60_000;
 const T0 = Date.UTC(2026, 10, 1, 4);
@@ -50,22 +50,32 @@ describe('IntervalDistance', () => {
   });
 });
 
-describe('previousVisits', () => {
+describe('geofenceTrips', () => {
   const at = (min: number) => new Date(T0 + min * MIN);
-  const visit = (id: string, from: number, to: number | null) => ({ geofenceId: id, enterTime: at(from), exitTime: to === null ? null : at(to) });
+  const visit = (id: string, from: number, to: number | null) => ({ id, enterTime: at(from), exitTime: to === null ? null : at(to) });
+  const ids = (v: ReturnType<typeof visit>[]) => geofenceTrips(v).map((t) => `${t.from.id}>${t.to?.id ?? '?'}`);
 
-  it('the first visit has none; each later one follows the last exit', () => {
-    const v = [visit('A', 0, 10), visit('B', 20, 30), visit('A', 40, null)];
-    expect(previousVisits(v)).toEqual([null, v[0], v[1]]);
+  it('from each out time to the next in time, and the last one still open', () => {
+    expect(ids([visit('A', 0, 10), visit('B', 20, 30), visit('C', 40, 50)])).toEqual(['A>B', 'B>C', 'C>?']);
   });
 
-  it('a visit inside another geofence has none, and the next one follows the visit that ended last', () => {
-    const v = [visit('outer', 0, 50), visit('inner', 10, 20), visit('C', 60, 70)];
-    expect(previousVisits(v)).toEqual([null, null, v[0]]);
+  it('counts a return to the same geofence', () => {
+    expect(ids([visit('A', 0, 10), visit('A', 20, 30)])).toEqual(['A>A', 'A>?']);
   });
 
-  it('nothing follows a visit still open', () => {
-    const v = [visit('A', 0, null), visit('B', 20, 30)];
-    expect(previousVisits(v)).toEqual([null, null]);
+  it('still inside the last geofence: no open trip', () => {
+    expect(ids([visit('A', 0, 10), visit('B', 20, null)])).toEqual(['A>B']);
+  });
+
+  it('leaving a geofence nested in another is not a trip, until the vehicle leaves the outer one', () => {
+    expect(ids([visit('outer', 0, 50), visit('inner', 10, 20), visit('C', 60, 70)])).toEqual(['outer>C', 'C>?']);
+  });
+
+  it('overlapping geofences: the trip starts at the later exit', () => {
+    expect(ids([visit('A', 0, 10), visit('B', 5, 20), visit('C', 30, 40)])).toEqual(['B>C', 'C>?']);
+  });
+
+  it('no visits, no trips', () => {
+    expect(geofenceTrips([])).toEqual([]);
   });
 });

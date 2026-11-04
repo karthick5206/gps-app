@@ -257,14 +257,15 @@ export interface GeofenceVisitDto {
   enterTime: string; exitTime: string | null; durationSec: number | null;
 }
 
-/** GEOFENCE_DISTANCE: one visit, with the km driven inside and the km from the previous geofence's exit. */
+/** GEOFENCE_DISTANCE: one trip, from a geofence's out time to the next geofence's in time. */
 export interface GeofenceDistanceReportRow {
   objectId: string; objectName: string; plateNumber: string | null;
-  geofenceId: string; geofenceName: string;
-  enterTime: string; exitTime: string | null; durationSec: number;
-  insideKm: number;
-  /** Null for a vehicle's first visit in the period, and while still inside another geofence. */
-  previousGeofenceName: string | null; previousExitTime: string | null; fromPreviousKm: number | null;
+  fromGeofenceName: string; outTime: string;
+  /** Null while the vehicle hasn't entered another geofence. */
+  toGeofenceName: string | null; inTime: string | null;
+  /** End of the measured stretch: the in time, else now or the end of the period. */
+  untilTime: string;
+  travelSec: number; distanceKm: number;
 }
 
 export interface ReportResponse<T = unknown> {

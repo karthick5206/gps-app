@@ -54,34 +54,45 @@ export class IntervalDistance {
 }
 
 interface VisitInput {
-  geofenceId: string;
   enterTime: Date;
   exitTime: Date | null;
 }
 
-/** "From previous" of each visit (sorted by entry): since the latest exit, or null if none yet or still inside another geofence. */
-export function previousVisits<V extends VisitInput>(visits: V[]): (V | null)[] {
+/**
+ * The trips between geofences of one vehicle (visits sorted by entry): from an exit to the next entry. A trip with no
+ * next entry (`to` null) means the vehicle hasn't entered one since. No trip starts while the vehicle is still inside
+ * another geofence, so leaving a small geofence nested in a large one doesn't count until it leaves the large one too.
+ */
+export function geofenceTrips<V extends VisitInput>(visits: V[]): { from: V; to: V | null }[] {
+  const trips: { from: V; to: V | null }[] = [];
   let latest: V | null = null;
-  return visits.map((v) => {
+  for (const v of visits) {
     const prev: V | null = latest;
-    const stillInside = prev !== null && (prev.exitTime === null || prev.exitTime > v.enterTime);
+    if (prev && prev.exitTime !== null && prev.exitTime <= v.enterTime) trips.push({ from: prev, to: v });
     // The visit that ends last stays "latest": a short visit nested in a long one does not replace it.
     if (!prev || (prev.exitTime !== null && (v.exitTime === null || v.exitTime > prev.exitTime))) latest = v;
-    return stillInside ? null : prev;
-  });
+  }
+  const last = latest as V | null;
+  if (last?.exitTime) trips.push({ from: last, to: null });
+  return trips;
 }
 
-/** GEOFENCE_DISTANCE: per visit, the km driven inside the geofence and the km from the previous geofence's exit. */
+/** GEOFENCE_DISTANCE: km driven from a geofence's out time to the next geofence's in time, for out times in the period. */
 export async function geofenceDistanceReport(q: QueryCtx, skipFlags: number, now: number): Promise<QueryResult<GeofenceDistanceReportRow>> {
-  const none = { count: 0, durationSec: 0, insideKm: 0, fromPreviousKm: 0 };
+  const none = { count: 0, travelSec: 0, distanceKm: 0 };
   if (!q.ids.length) return { rows: [], totals: none, totalRows: 0 };
-  const where = { companyId: q.companyId, objectId: { in: q.ids }, enterTime: q.range };
-  const [visits, totalRows, company] = await Promise.all([
+  const scope = { companyId: q.companyId, objectId: { in: q.ids } };
+  // Long visits around the period count too: the vehicle was inside them. A visit never closed from before it doesn't.
+  const where = { ...scope, OR: [{ enterTime: q.range }, { exitTime: q.range }, { enterTime: { lt: q.range.gte }, exitTime: { gte: q.range.lt } }] };
+  const [inPeriod, visitCount, after, company] = await Promise.all([
     q.prisma.geofenceVisit.findMany({ where, orderBy: { enterTime: 'asc' }, take: q.maxRows }),
     q.prisma.geofenceVisit.count({ where }),
+    // Where a trip that left during the period ended, if that was after the period.
+    q.prisma.geofenceVisit.findMany({ where: { ...scope, enterTime: { gte: q.range.lt } }, orderBy: [{ objectId: 'asc' }, { enterTime: 'asc' }], distinct: ['objectId'] }),
     q.prisma.company.findUnique({ where: { id: q.companyId }, select: { settings: true } }),
   ]);
-  if (!visits.length) return { rows: [], totals: none, totalRows: 0 };
+  if (!inPeriod.length) return { rows: [], totals: none, totalRows: 0 };
+  const visits = [...inPeriod, ...after];
 
   const names = await q.prisma.geofence.findMany({ where: { id: { in: [...new Set(visits.map((v) => v.geofenceId))] } }, select: { id: true, name: true } });
   const gName = new Map(names.map((g) => [g.id, g.name]));
@@ -89,7 +100,13 @@ export async function geofenceDistanceReport(q: QueryCtx, skipFlags: number, now
   const runningSpeedKph = companyThresholds(company?.settings).runningSpeedKph;
 
   const byObject = new Map<string, typeof visits>();
-  for (const v of visits) byObject.set(v.objectId, [...(byObject.get(v.objectId) ?? []), v]);
+  for (const v of visits) {
+    const list = byObject.get(v.objectId);
+    if (list) list.push(v);
+    else byObject.set(v.objectId, [v]);
+  }
+  // No next entry yet: measured up to now, or the end of the period if that's earlier.
+  const openEnd = Math.min(now, q.range.lt.getTime());
 
   const rows: GeofenceDistanceReportRow[] = [];
   const queue = [...byObject];
@@ -97,10 +114,9 @@ export async function geofenceDistanceReport(q: QueryCtx, skipFlags: number, now
     for (let next = queue.shift(); next; next = queue.shift()) {
       const [objectId, list] = next;
       const info = q.objects.get(objectId);
-      const previous = previousVisits(list);
-      const inside = list.map((v) => ({ from: v.enterTime.getTime(), to: v.exitTime?.getTime() ?? now, metres: 0 }));
-      const between = list.map((v, i) => ({ from: previous[i]?.exitTime?.getTime() ?? 0, to: previous[i] ? v.enterTime.getTime() : 0, metres: 0 }));
-      const intervals = [...inside, ...between.filter((b) => b.to > b.from)].sort((a, b) => a.from - b.from);
+      const trips = geofenceTrips(list).filter((t) => t.from.exitTime! >= q.range.gte && t.from.exitTime! < q.range.lt);
+      if (!trips.length) continue;
+      const intervals = trips.map((t) => ({ from: t.from.exitTime!.getTime(), to: Math.max(t.to?.enterTime.getTime() ?? openEnd, t.from.exitTime!.getTime()), metres: 0 }));
       const counter = new IntervalDistance(intervals, { runningSpeedKph, maxPlausibleKph: info ? MAX_PLAUSIBLE_SPEED_KPH[info.type] : Infinity });
       const end = Math.max(...intervals.map((v) => v.to));
       let after = intervals[0].from - 1;
@@ -111,32 +127,30 @@ export async function geofenceDistanceReport(q: QueryCtx, skipFlags: number, now
         if (page.length < PAGE || lastT <= after) break;
         after = lastT;
       }
-      list.forEach((v, i) => {
-        const prev = previous[i];
+      trips.forEach((t, i) => {
         rows.push({
           objectId,
           objectName: info?.name ?? 'Unknown object',
           plateNumber: info?.plateNumber ?? null,
-          geofenceId: v.geofenceId,
-          geofenceName: geofenceName(v.geofenceId),
-          enterTime: v.enterTime.toISOString(),
-          exitTime: v.exitTime?.toISOString() ?? null,
-          durationSec: v.durationSec ?? Math.round(((v.exitTime?.getTime() ?? now) - v.enterTime.getTime()) / 1000),
-          insideKm: round3(inside[i].metres / 1000),
-          previousGeofenceName: prev ? geofenceName(prev.geofenceId) : null,
-          previousExitTime: prev?.exitTime?.toISOString() ?? null,
-          fromPreviousKm: prev ? round3(between[i].metres / 1000) : null,
+          fromGeofenceName: geofenceName(t.from.geofenceId),
+          outTime: t.from.exitTime!.toISOString(),
+          toGeofenceName: t.to ? geofenceName(t.to.geofenceId) : null,
+          inTime: t.to?.enterTime.toISOString() ?? null,
+          untilTime: new Date(intervals[i].to).toISOString(),
+          travelSec: Math.round((intervals[i].to - intervals[i].from) / 1000),
+          distanceKm: round3(intervals[i].metres / 1000),
         });
       });
     }
   };
   await Promise.all(Array.from({ length: CONCURRENT_VEHICLES }, worker));
 
-  rows.sort((a, b) => a.objectName.localeCompare(b.objectName) || a.enterTime.localeCompare(b.enterTime));
-  const sum = (f: (r: GeofenceDistanceReportRow) => number) => rows.reduce((s, r) => s + f(r), 0);
+  rows.sort((a, b) => a.objectName.localeCompare(b.objectName) || a.outTime.localeCompare(b.outTime));
+  const shown = rows.slice(0, q.maxRows);
   return {
-    rows,
-    totals: { count: rows.length, durationSec: sum((r) => r.durationSec), insideKm: round3(sum((r) => r.insideKm)), fromPreviousKm: round3(sum((r) => r.fromPreviousKm ?? 0)) },
-    totalRows,
+    rows: shown,
+    totals: { count: rows.length, travelSec: rows.reduce((s, r) => s + r.travelSec, 0), distanceKm: round3(rows.reduce((s, r) => s + r.distanceKm, 0)) },
+    // Visits beyond the limit weren't read: at least that many more trips exist.
+    totalRows: rows.length + (visitCount - inPeriod.length),
   };
 }

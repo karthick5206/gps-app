@@ -57,7 +57,7 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   EVENT_SUMMARY: 'Event summary report',
   GEOFENCE_VISITS: 'Geofence visits report',
   GEOFENCE_SUMMARY: 'Geofence summary report',
-  GEOFENCE_DISTANCE: 'Geofence in/out distance report',
+  GEOFENCE_DISTANCE: 'Geofence out-to-in distance report',
   DEVICE_STATUS: 'Device status report',
   DRIVERS: 'Driver activity report',
   DOCUMENTS: 'Documents & services report',
@@ -336,15 +336,14 @@ const EVENT_SUMMARY: ReportColumn[] = [
 ];
 
 const GEOFENCE_DISTANCE: ReportColumn[] = [
-  col<GeofenceDistanceReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.count ?? 0} visits)` }),
+  col<GeofenceDistanceReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.count ?? 0} trips)` }),
   col<GeofenceDistanceReportRow>({ header: 'Plate', width: 14, value: (r) => r.plateNumber ?? '' }),
-  col<GeofenceDistanceReportRow>({ header: 'Geofence', width: 24, value: (r) => r.geofenceName }),
-  col<GeofenceDistanceReportRow>({ header: 'In time', width: 19, value: (r, tz) => localTime(r.enterTime, tz) }),
-  col<GeofenceDistanceReportRow>({ header: 'Out time', width: 19, value: (r, tz) => (r.exitTime ? localTime(r.exitTime, tz) : 'Inside') }),
-  col<GeofenceDistanceReportRow>({ header: 'Time inside', width: 11, value: (r) => hhmmss(r.durationSec), total: (t) => hhmmss(t.durationSec) }),
-  col<GeofenceDistanceReportRow>({ header: 'Distance inside (km)', width: 12, numeric: true, value: (r) => num(r.insideKm, 2), total: (t) => num(t.insideKm ?? 0, 2) }),
-  col<GeofenceDistanceReportRow>({ header: 'Previous geofence', width: 24, value: (r) => r.previousGeofenceName ?? '' }),
-  col<GeofenceDistanceReportRow>({ header: 'Km from previous', width: 12, numeric: true, value: (r) => (r.fromPreviousKm === null ? '' : num(r.fromPreviousKm, 2)), total: (t) => num(t.fromPreviousKm ?? 0, 2) }),
+  col<GeofenceDistanceReportRow>({ header: 'From geofence', width: 24, value: (r) => r.fromGeofenceName }),
+  col<GeofenceDistanceReportRow>({ header: 'Out time', width: 19, value: (r, tz) => localTime(r.outTime, tz) }),
+  col<GeofenceDistanceReportRow>({ header: 'To geofence', width: 24, value: (r) => r.toGeofenceName ?? '' }),
+  col<GeofenceDistanceReportRow>({ header: 'In time', width: 19, value: (r, tz) => (r.inTime ? localTime(r.inTime, tz) : 'Not yet') }),
+  col<GeofenceDistanceReportRow>({ header: 'Travel time', width: 11, value: (r) => hhmmss(r.travelSec), total: (t) => hhmmss(t.travelSec) }),
+  col<GeofenceDistanceReportRow>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => num(r.distanceKm, 2), total: (t) => num(t.distanceKm ?? 0, 2) }),
 ];
 
 const GEOFENCE_SUMMARY: ReportColumn[] = [
