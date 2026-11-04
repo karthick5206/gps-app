@@ -111,6 +111,7 @@ export const REPORT_TYPES = [
   'EVENT_SUMMARY',
   'GEOFENCE_VISITS',
   'GEOFENCE_SUMMARY',
+  'GEOFENCE_DISTANCE',
   'DEVICE_STATUS',
   'DRIVERS',
   'DOCUMENTS',
@@ -254,6 +255,16 @@ export interface SummaryReportRow {
 export interface GeofenceVisitDto {
   objectId: string; objectName: string; geofenceId: string; geofenceName: string;
   enterTime: string; exitTime: string | null; durationSec: number | null;
+}
+
+/** GEOFENCE_DISTANCE: one visit, with the km driven inside and the km from the previous geofence's exit. */
+export interface GeofenceDistanceReportRow {
+  objectId: string; objectName: string; plateNumber: string | null;
+  geofenceId: string; geofenceName: string;
+  enterTime: string; exitTime: string | null; durationSec: number;
+  insideKm: number;
+  /** Null for a vehicle's first visit in the period, and while still inside another geofence. */
+  previousGeofenceName: string | null; previousExitTime: string | null; fromPreviousKm: number | null;
 }
 
 export interface ReportResponse<T = unknown> {

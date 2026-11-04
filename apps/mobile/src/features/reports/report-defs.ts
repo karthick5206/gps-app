@@ -317,6 +317,19 @@ const DRIVERS: ReportColumn[] = [
   { id: 'lastEnd', header: 'Last end', value: time('lastEnd'), kind: 'time', display: (r) => (r.lastEnd ? null : i18n.t('Driving now')) },
 ];
 
+const km2 = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const GEOFENCE_DISTANCE: ReportColumn[] = [
+  vehicle,
+  plate,
+  { id: 'geofenceName', header: 'Geofence', value: str('geofenceName') },
+  { id: 'enterTime', header: 'In time', value: time('enterTime'), kind: 'time' },
+  { id: 'exitTime', header: 'Out time', value: time('exitTime'), kind: 'time', display: (r) => (r.exitTime ? null : i18n.t('Inside')) },
+  duration('durationSec', 'Time inside'),
+  { id: 'insideKm', header: 'Distance inside (km)', value: num('insideKm'), numeric: true, total: 'sum', format: km2 },
+  { id: 'previousGeofenceName', header: 'Previous geofence', value: str('previousGeofenceName') },
+  { id: 'fromPreviousKm', header: 'Km from previous', value: num('fromPreviousKm'), numeric: true, total: 'sum', format: km2 },
+];
+
 const GEOFENCE_SUMMARY: ReportColumn[] = [
   vehicle,
   { id: 'geofenceName', header: 'Geofence', value: str('geofenceName') },
@@ -469,6 +482,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'EVENT_SUMMARY', category: 'Events', label: 'Event summary', description: 'How many of each alert type per vehicle, with first and last time.', icon: ListChecksIcon, columns: EVENT_SUMMARY },
   { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS },
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
+  { type: 'GEOFENCE_DISTANCE', category: 'Geofences', label: 'Geofence in/out distance', description: 'Per visit: km driven inside the geofence and km from the previous geofence.', icon: RulerIcon, columns: GEOFENCE_DISTANCE },
   { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },
   { type: 'FUEL', category: 'Fuel', label: 'Fuel (sensor)', description: 'Per vehicle per day: start and end level, refills, drains, consumption and km/L (vehicles with a fuel sensor).', icon: FuelIcon, columns: FUEL },
   { type: 'FUEL_EVENTS', category: 'Fuel', label: 'Fuel refills & drains', description: 'Every detected refill and drain (possible fuel theft) with the level before and after.', icon: DropletOffIcon, columns: FUEL_EVENTS },

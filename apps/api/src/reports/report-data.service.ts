@@ -21,6 +21,7 @@ import { toAlertDto } from '../alerts/alert-dto';
 import { stopDto, tripDto } from '../history/history.service';
 import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { skipFlags } from '../summarizer/positions';
 import { addDays, daysBetween, isDayKey, localDayKey, localMidnight } from '../summarizer/tz';
 import { aggregateSummaries, intersectScope, summaryTotals } from './aggregate';
 import {
@@ -40,6 +41,7 @@ import {
 import { documentsReport } from './documents-report';
 import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
 import { fuelEventsReport, fuelReport } from './fuel-report';
+import { GEOFENCE_DISTANCE_MAX_DAYS, geofenceDistanceReport } from './geofence-distance-report';
 import { mileageReport } from './mileage-report';
 import { ioDailyReport, ioSessionsReport } from './io-report';
 import { AddressEnricher } from './address-enricher';
@@ -325,6 +327,14 @@ export class ReportDataService {
         };
         const dtos: AlertDto[] = rows.map((r) => toAlertDto(r, names));
         return { ...base, rows: dtos, totals, truncated: totals.count > rows.length, totalRows: totals.count };
+      }
+
+      case 'GEOFENCE_DISTANCE': {
+        if (daysBetween(req.from, req.to) >= GEOFENCE_DISTANCE_MAX_DAYS) throw new BadRequestException(`Choose at most ${GEOFENCE_DISTANCE_MAX_DAYS} days for this report`);
+        const pq = await this.prisma.pointQualitySettings.findUnique({ where: { id: 'default' }, select: { enabled: true, useInReports: true } });
+        const skip = skipFlags((pq?.enabled ?? true) && (pq?.useInReports ?? false));
+        const r = await geofenceDistanceReport({ prisma: this.prisma, companyId: ctx.companyId, objects, ids, range, maxRows, options: req.options ?? {} }, skip, Date.now());
+        return { ...base, ...r, truncated: r.totalRows > r.rows.length };
       }
 
       case 'GEOFENCE_VISITS': {

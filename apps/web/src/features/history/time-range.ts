@@ -92,3 +92,9 @@ export function rangeFromParams(params: URLSearchParams, now: Date = new Date())
   if (from && to && !validateRange({ from, to })) return { from, to };
   return presetRange('today', now);
 }
+
+/** The History page for a vehicle and period, or null if History can't show that period (longer than its limit). */
+export function historyLink(objectId: string, fromIso: string, toIso: string): string | null {
+  if (validateRange({ from: new Date(fromIso), to: new Date(toIso) })) return null;
+  return `/history?${new URLSearchParams({ objectId, from: fromIso, to: toIso })}`;
+}

@@ -157,7 +157,17 @@ function newDay(t: number, tz: string): DayAcc {
   };
 }
 
-const isMoving = (p: SegPoint, cfg: SegConfig) => p.speed > cfg.runningSpeedKph;
+const isMoving = (p: SegPoint, cfg: Pick<SegConfig, 'runningSpeedKph'>) => p.speed > cfg.runningSpeedKph;
+
+/** Distance counted between two consecutive clean points: impossible jumps and a parked vehicle's position change across a long gap count 0. */
+export function pointDistanceM(last: SegPoint, p: SegPoint, cfg: Pick<SegConfig, 'runningSpeedKph' | 'maxPlausibleKph'>): number {
+  const dt = p.t - last.t;
+  const d = haversineMeters(last.lat, last.lng, p.lat, p.lng);
+  const impliedKph = (d / Math.max(dt / 1000, 1)) * 3.6;
+  if (impliedKph > cfg.maxPlausibleKph) return 0;
+  if (dt > SEG_RULES.DISTANCE_GAP_SEC * 1000 && !isMoving(last, cfg) && !isMoving(p, cfg)) return 0;
+  return d;
+}
 
 function kindOf(p: SegPoint, cfg: SegConfig): Kind {
   if (isMoving(p, cfg)) return cfg.speedLimitKph !== null && p.speed > cfg.speedLimitKph ? 'OVERSPEED' : 'RUNNING';
@@ -298,11 +308,7 @@ export function processPoint(state: SegState, p: SegPoint, cfg: SegConfig, out: 
 
   const dt = p.t - last.t;
   const gap = dt > cfg.offlineAfterSec * 1000;
-  const lastMoving = isMoving(last, cfg);
-  let d = haversineMeters(last.lat, last.lng, p.lat, p.lng);
-  const impliedKph = (d / Math.max(dt / 1000, 1)) * 3.6;
-  if (impliedKph > cfg.maxPlausibleKph) d = 0;
-  else if (dt > SEG_RULES.DISTANCE_GAP_SEC * 1000 && !lastMoving && !moving) d = 0;
+  const d = pointDistanceM(last, p, cfg);
 
   if (gap) account(state, p.t, 'OFFLINE', false, 0, 0, d, cfg, out);
   else account(state, p.t, kindOf(last, cfg), last.ign === true, last.speed, d / Math.max(dt, 1), 0, cfg, out);

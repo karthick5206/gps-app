@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { detectPreset, fromLocalInput, presetRange, rangeFromParams, toLocalInput, validateRange } from './time-range.ts';
+import { historyLink, detectPreset, fromLocalInput, presetRange, rangeFromParams, toLocalInput, validateRange } from './time-range.ts';
 
 const NOW = new Date(2026, 9, 18, 14, 30); // local time
 
@@ -31,4 +31,13 @@ test('deep-link params fall back to today', () => {
   assert.equal(ok.from.toISOString(), '2026-10-17T00:00:00.000Z');
   const bad = rangeFromParams(new URLSearchParams('from=x'), NOW);
   assert.equal(detectPreset(bad, NOW), 'today');
+});
+
+test('historyLink opens the vehicle at exactly that period', () => {
+  const q = new URLSearchParams(historyLink('v1', '2026-11-01T04:00:00.000Z', '2026-11-01T05:00:00.000Z')!.split('?')[1]);
+  assert.deepEqual(Object.fromEntries(q), { objectId: 'v1', from: '2026-11-01T04:00:00.000Z', to: '2026-11-01T05:00:00.000Z' });
+});
+
+test('historyLink gives no link for a period History cannot show', () => {
+  assert.equal(historyLink('v1', '2026-09-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z'), null);
 });
