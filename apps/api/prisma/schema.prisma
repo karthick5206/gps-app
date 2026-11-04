@@ -322,6 +322,8 @@ model TrackedObject {
   fuelEvents      FuelEvent[]
   ioSessions      IoSession[]
   driverEvents    DriverEvent[]
+  attendanceDays    AttendanceDay[]
+  attendanceOutings AttendanceOuting[]
 
   @@index([companyId, branchId])
 }
@@ -1156,8 +1158,57 @@ model AttendanceSettings {
   startMin    Int      @default(570)
   endMin      Int      @default(1110)
   graceMin    Int      @default(15)
+  /// Shifts for particular branches or people (AttendanceShiftDto[]); everyone else is on the default hours above.
+  shifts             Json     @default("[]")
+  shortExitMin       Int      @default(5)
+  noSignalMin        Int      @default(20)
+  halfDayMin         Int      @default(240)
+  fullDayMin         Int      @default(480)
+  outReminderMin     Int      @default(60)
+  /// People who may attend at any branch's work site.
+  anyBranchObjectIds String[] @default([])
   updatedById String?  @db.Uuid
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+}
+
+/// One person's saved day: the figures as they stood and the rules used, so later setting changes or data retention
+/// never alter past attendance. A manual correction is kept next to them.
+model AttendanceDay {
+  companyId      String    @db.Uuid
+  objectId       String    @db.Uuid
+  /// Local day, YYYY-MM-DD.
+  day            String
+  /// AttendanceRowDto as computed, without the correction; null while only a correction exists.
+  row            Json?
+  /// Shift and limits in force that day.
+  rules          Json?
+  overrideStatus String?
+  overrideNote   String?
+  overrideById   String?   @db.Uuid
+  overrideAt     DateTime? @db.Timestamptz(3)
+  savedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@id([objectId, day])
+  @@index([companyId, day])
+}
+
+/// An admin's decision about time outside the work site; leftAt is the exit it belongs to.
+model AttendanceOuting {
+  companyId   String   @db.Uuid
+  objectId    String   @db.Uuid
+  leftAt      DateTime @db.Timestamptz(3)
+  /// OFFICIAL / PERSONAL (no row = unexplained).
+  kind        String
+  note        String?
+  decidedById String?  @db.Uuid
+  decidedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@id([objectId, leftAt])
+  @@index([companyId])
 }
 
 /// Fuel & expense log entry (bill photo optional); odometerKm = VeeTrax odometer when entered.
@@ -1285,6 +1336,13 @@ model GeofenceVisit {
   enterTime   DateTime  @db.Timestamptz(3)
   exitTime    DateTime? @db.Timestamptz(3)
   durationSec Int?
+  /// Where the object was when the entry / exit was confirmed; accuracy in metres when the tracker reports it.
+  enterLat    Float?
+  enterLng    Float?
+  enterAccM   Float?    @db.Real
+  exitLat     Float?
+  exitLng     Float?
+  exitAccM    Float?    @db.Real
 
   @@index([companyId, enterTime(sort: Desc)])
   @@index([objectId, geofenceId, enterTime(sort: Desc)])

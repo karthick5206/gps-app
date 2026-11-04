@@ -52,6 +52,9 @@ export function pendingToDto(a: CreatedAlert): AlertDto {
 }
 
 /** Result of evaluating one processor batch: DB statements to run with the position insert, then `commit()`. */
+/** A number for a text[] parameter; missing or not finite (no fix yet) = NULL. */
+const numText = (n: number | null | undefined): string | null => (n === null || n === undefined || !Number.isFinite(n) ? null : String(n));
+
 export class RulesBatch {
   constructor(
     private readonly redis: Redis,
@@ -87,25 +90,31 @@ export class RulesBatch {
     const opens = this.visits.filter((v) => v.op.kind === 'open') as { companyId: string; objectId: string; op: Extract<VisitOp, { kind: 'open' }> }[];
     if (opens.length) {
       out.push(prisma.$executeRaw`
-        INSERT INTO "GeofenceVisit" ("id", "companyId", "objectId", "geofenceId", "enterTime")
+        INSERT INTO "GeofenceVisit" ("id", "companyId", "objectId", "geofenceId", "enterTime", "enterLat", "enterLng", "enterAccM")
         SELECT * FROM unnest(
           ${opens.map((v) => v.op.id)}::text[]::uuid[],
           ${opens.map((v) => v.companyId)}::text[]::uuid[],
           ${opens.map((v) => v.objectId)}::text[]::uuid[],
           ${opens.map((v) => v.op.geofenceId)}::text[]::uuid[],
-          ${opens.map((v) => new Date(v.op.enterTime).toISOString())}::text[]::timestamptz[]
+          ${opens.map((v) => new Date(v.op.enterTime).toISOString())}::text[]::timestamptz[],
+          ${opens.map((v) => numText(v.op.lat))}::text[]::float8[],
+          ${opens.map((v) => numText(v.op.lng))}::text[]::float8[],
+          ${opens.map((v) => numText(v.op.accuracyM))}::text[]::real[]
         )
         ON CONFLICT DO NOTHING`);
     }
     const closes = this.visits.filter((v) => v.op.kind === 'close').map((v) => v.op as Extract<VisitOp, { kind: 'close' }>);
     if (closes.length) {
       out.push(prisma.$executeRaw`
-        UPDATE "GeofenceVisit" AS v SET "exitTime" = t.exit_time, "durationSec" = t.duration
+        UPDATE "GeofenceVisit" AS v SET "exitTime" = t.exit_time, "durationSec" = t.duration, "exitLat" = t.lat, "exitLng" = t.lng, "exitAccM" = t.acc
         FROM unnest(
           ${closes.map((c) => c.id)}::text[]::uuid[],
           ${closes.map((c) => new Date(c.exitTime).toISOString())}::text[]::timestamptz[],
-          ${closes.map((c) => String(c.durationSec))}::text[]::integer[]
-        ) AS t(id, exit_time, duration)
+          ${closes.map((c) => String(c.durationSec))}::text[]::integer[],
+          ${closes.map((c) => numText(c.lat))}::text[]::float8[],
+          ${closes.map((c) => numText(c.lng))}::text[]::float8[],
+          ${closes.map((c) => numText(c.accuracyM))}::text[]::real[]
+        ) AS t(id, exit_time, duration, lat, lng, acc)
         WHERE v.id = t.id`);
     }
     const u = this.dataUpdates;

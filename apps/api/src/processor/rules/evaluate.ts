@@ -171,9 +171,16 @@ export interface PendingAlert {
   ackRequired: boolean;
 }
 
+/** Where the object was at a fence crossing. */
+export interface VisitFix {
+  lat?: number;
+  lng?: number;
+  accuracyM?: number | null;
+}
+
 export type VisitOp =
-  | { kind: 'open'; id: string; geofenceId: string; enterTime: number }
-  | { kind: 'close'; id: string; exitTime: number; durationSec: number };
+  | ({ kind: 'open'; id: string; geofenceId: string; enterTime: number } & VisitFix)
+  | ({ kind: 'close'; id: string; exitTime: number; durationSec: number } & VisitFix);
 
 export interface EvalContext {
   settings: Map<AlertTypeCode, EffectiveAlertSetting>;
@@ -384,6 +391,12 @@ class Evaluator {
   }
 
   // ───────────── geofences ─────────────
+  /** Where the point that confirmed a fence crossing was. */
+  private visitFix(): VisitFix {
+    const accuracy = this.input.attributes.accuracyM;
+    return { lat: this.input.lat, lng: this.input.lng, accuracyM: typeof accuracy === 'number' ? accuracy : null };
+  }
+
   private geofences(): void {
     const { lat, lng, fixTime, speedKph } = this.input;
     const applicable = new Set<string>();
@@ -402,7 +415,7 @@ class Evaluator {
 
       if (event === 'ENTER') {
         const visitId = this.ctx.newId();
-        this.out.visits.push({ kind: 'open', id: visitId, geofenceId: g.id, enterTime: at });
+        this.out.visits.push({ kind: 'open', id: visitId, geofenceId: g.id, enterTime: at, ...this.visitFix() });
         membership.visitId = visitId;
         membership.stay = false;
         membership.os = false;
@@ -418,7 +431,7 @@ class Evaluator {
         }
       } else if (event === 'EXIT') {
         const durationSec = Math.max(0, Math.round((at - (m?.since ?? at)) / 1000));
-        if (m?.visitId) this.out.visits.push({ kind: 'close', id: m.visitId, exitTime: at, durationSec });
+        if (m?.visitId) this.out.visits.push({ kind: 'close', id: m.visitId, exitTime: at, durationSec, ...this.visitFix() });
         delete membership.visitId;
         if ((g.notifyExit || g.mode === 'KEEP_IN') && windowOk) {
           this.emit('GEOFENCE_EXIT', {

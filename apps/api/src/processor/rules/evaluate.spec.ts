@@ -206,8 +206,8 @@ describe('geofences', () => {
       ['GEOFENCE_EXIT', 60],
     ]);
     expect(r.visits).toEqual([
-      { kind: 'open', id: expect.any(String), geofenceId: 'zone', enterTime: sec(10) },
-      { kind: 'close', id: r.visits[0].id, exitTime: sec(60), durationSec: 50 },
+      { kind: 'open', id: expect.any(String), geofenceId: 'zone', enterTime: sec(10), lat: expect.any(Number), lng: 80.27, accuracyM: null },
+      { kind: 'close', id: r.visits[0].id, exitTime: sec(60), durationSec: 50, lat: expect.any(Number), lng: 80.27, accuracyM: null },
     ]);
     expect(r.state.gf.zone).toBeUndefined();
   });

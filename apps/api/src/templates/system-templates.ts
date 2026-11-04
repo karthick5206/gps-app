@@ -53,6 +53,8 @@ const DETAIL: Record<AlertTypeCode, string> = {
   PARKING_BREACH: 'moved or was started while in parking mode (possible theft)',
   ATTENDANCE_NOT_ARRIVED: 'has not arrived at a work site yet',
   ATTENDANCE_ABSENT: 'did not come to any work site today',
+  ATTENDANCE_LEFT_SITE: 'left the work site during the shift',
+  ATTENDANCE_STILL_OUT: 'is still away from the work site',
   HARSH_ACCELERATION: 'accelerated harshly at {{speed}}',
   HARSH_BRAKING: 'braked harshly at {{speed}}',
   HARSH_CORNERING: 'cornered harshly at {{speed}}',
