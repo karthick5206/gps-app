@@ -3,7 +3,7 @@ import { API_PLAN_LABELS, formatInr, LICENCE_EXPIRING_DAYS, LICENCE_TYPE_LABELS,
 import { Stack } from 'expo-router';
 import { ExternalLinkIcon, FileDownIcon, FileMinusIcon, FileTextIcon, ShieldCheckIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, EmptyState, ErrorBanner, Pill, SectionTitle, Text } from '@/components/ui';
 import { LicenceBanner } from '@/features/licences/LicenceBanner';
 import { api, errorMessage } from '@/lib/api';
@@ -14,7 +14,7 @@ import { SPACE, useColors } from '@/lib/theme';
 const rupees = (paise: number) => `₹${formatInr(paise)}`;
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
 
-/** More → Licences & invoices (admins): seat summary, what expires soon, invoices; buying and renewing happen on the web. */
+/** More → Licences & invoices (admins): seat summary, what expires soon, invoices; buying and renewing happen on the web (no link on iOS). */
 export default function LicencesScreen() {
   const { t } = useTranslation();
   const c = useColors();
@@ -77,7 +77,8 @@ export default function LicencesScreen() {
                 </Text>
               </Card>
             )}
-            <Button title={t('Buy or renew on the web')} icon={ExternalLinkIcon} onPress={() => void Linking.openURL(`${SERVER_URL}/admin/billing`)} />
+            {/* App Store 3.1.1: no link to an outside purchase on iOS. */}
+            {Platform.OS !== 'ios' && <Button title={t('Buy or renew on the web')} icon={ExternalLinkIcon} onPress={() => void Linking.openURL(`${SERVER_URL}/admin/billing`)} />}
 
             <SectionTitle>{t('Expiring or expired')}</SectionTitle>
             {expiring.length ? (
