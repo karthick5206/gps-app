@@ -82,3 +82,13 @@ invalid fixes (not drawn as movement); mock locations are flagged and never move
 ## 4. Status
 
 `GET /me` — Bearer token → `{ "uniqueId", "objectName", "companyName", "config" }` (used on app start).
+
+## Attendance
+
+All with the Bearer token. `{ "enabled": false }` when attendance doesn't cover this phone today.
+
+- `GET /attendance` → `PhoneAttendanceDto`: check-in, state, today's unanswered time outside, whether a selfie is needed.
+- `PUT /attendance/outing` `{ "leftAt", "kind": "OFFICIAL" | "PERSONAL", "note"? }`: counts until an admin decides; 409 after that.
+- `POST /attendance/selfie` multipart `file` (JPEG / PNG / WebP, 8 MB): only while inside the work site and when the company turned selfies on.
+
+The answer to `POST /positions` may carry `attention: { id, title, text }`; the app shows each id once as a notification.

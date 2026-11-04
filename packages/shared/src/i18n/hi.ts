@@ -3202,4 +3202,12 @@ export const HI: Record<string, string> = {
   "Shared": "साझा",
   "Run a report for a shared vehicle on its own": "साझा वाहन की रिपोर्ट अलग से चलाएँ",
   "This report is not available for a shared vehicle": "यह रिपोर्ट साझा वाहन के लिए उपलब्ध नहीं है",
+  "The photo is no longer kept.": "फ़ोटो अब रखी नहीं गई है।",
+  "Check-in selfie": "चेक-इन सेल्फी",
+  "No selfie was taken.": "कोई सेल्फी नहीं ली गई।",
+  "Employee says: {{answer}}": "कर्मचारी का कहना: {{answer}}",
+  "decided by admin": "एडमिन ने तय किया",
+  "No selfie": "सेल्फी नहीं",
+  "Selfie at check-in": "चेक-इन पर सेल्फी",
+  "Staff are asked for a selfie in the Tracker app when they reach their work site. It is kept for 90 days. A missing selfie is flagged and does not change the status. Needs Tracker 1.3.5 or later.": "कार्यस्थल पहुँचने पर Tracker ऐप में स्टाफ से सेल्फी माँगी जाती है। यह 90 दिन रखी जाती है। सेल्फी न होने पर चिह्नित होता है, स्थिति नहीं बदलती। Tracker 1.3.5 या बाद का चाहिए।",
 };

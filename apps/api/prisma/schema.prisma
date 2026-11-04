@@ -326,6 +326,7 @@ model TrackedObject {
   attendanceDays    AttendanceDay[]
   sharedWith        VehicleShare[]
   attendanceOutings AttendanceOuting[]
+  attendanceSelfies AttendanceSelfie[]
 
   @@index([companyId, branchId])
 }
@@ -1169,6 +1170,8 @@ model AttendanceSettings {
   outReminderMin     Int      @default(60)
   /// People who may attend at any branch's work site.
   anyBranchObjectIds String[] @default([])
+  /// Management's choice: staff are asked for a selfie when they check in.
+  selfieRequired     Boolean  @default(false)
   updatedById String?  @db.Uuid
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 }
@@ -1216,15 +1219,36 @@ model AttendanceDay {
   @@index([companyId, day])
 }
 
+/// The selfie an employee took when checking in; the file is removed after ATTENDANCE_SELFIE_KEEP_DAYS.
+model AttendanceSelfie {
+  companyId String   @db.Uuid
+  objectId  String   @db.Uuid
+  /// Local day, YYYY-MM-DD.
+  day       String
+  takenAt   DateTime @db.Timestamptz(3)
+  path      String
+  type      String
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@id([objectId, day])
+  @@index([takenAt])
+}
+
 /// An admin's decision about time outside the work site; leftAt is the exit it belongs to.
 model AttendanceOuting {
   companyId   String   @db.Uuid
   objectId    String   @db.Uuid
   leftAt      DateTime @db.Timestamptz(3)
-  /// OFFICIAL / PERSONAL (no row = unexplained).
+  /// OFFICIAL / PERSONAL / UNEXPLAINED, as it counts now (no row = unexplained). An admin's decision wins over the employee's answer.
   kind        String
   note        String?
+  /// Set when an admin decided; the employee can then no longer change it.
   decidedById String?  @db.Uuid
+  /// What the employee answered in the Tracker app.
+  employeeKind String?
+  employeeNote String?
+  employeeAt   DateTime? @db.Timestamptz(3)
   decidedAt   DateTime @updatedAt @db.Timestamptz(3)
 
   object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)

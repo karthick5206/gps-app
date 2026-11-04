@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { ExternalLink, LogOut, Play, Square, UploadCloud } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Linking, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { AttendanceCard } from '@/components/AttendanceCard';
 import { BatteryCard, OemCard, PermissionsCard, useChecks } from '@/components/ChecksCards';
 import { SosButton } from '@/components/SosButton';
 import { Body, Button, Card, Row } from '@/components/ui';
@@ -162,6 +163,8 @@ export default function HomeScreen() {
       <SosButton onDone={refreshStatus} />
 
       <BatteryCard show={checks.batteryOpt} />
+      <AttendanceCard />
+
       <OemCard />
       <PermissionsCard checks={checks} />
 

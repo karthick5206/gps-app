@@ -1,10 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, StreamableFile } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import type { Prisma } from '@prisma/client';
 import {
   attendanceOf,
+  ATTENDANCE_SELFIE_KEEP_DAYS,
   attendanceSettingsError,
   DEFAULT_ATTENDANCE,
+  phoneAttention,
   shiftOf,
   signalGaps,
   siteCountsFor,
@@ -17,9 +19,14 @@ import {
   type AttendanceStatus,
   type AttendanceWindow,
   type OutingKind,
+  type PhoneAttendanceDto,
+  type PhoneAttention,
   type TimeSpan,
 } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { NOTIFY_STREAM_MAXLEN } from '../alerts/alert-dto';
@@ -29,6 +36,7 @@ import { pendingToDto } from '../processor/rules/rules-engine';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { addDays, isDayKey, localDayKey, localMidnight, zonedTimeToUtc } from '../summarizer/tz';
+import { APP_ROOT } from '../config/env';
 
 const JOB_LOCK = 'vt:attendance:lock';
 const RELEASE_LOCK = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
@@ -36,6 +44,15 @@ const MAX_TIMESHEET_DAYS = 62;
 /** Finished days are saved hourly and refreshed this long, so phones that upload late are still counted. */
 const SAVE_DAYS_BACK = 3;
 const ALERT_CLAIM_SEC = 2 * 86_400;
+
+const SELFIE_DIR = join(APP_ROOT, 'var', 'selfies');
+const SELFIE_MAX_BYTES = 8 * 1024 * 1024;
+const SELFIE_TYPES: Record<string, { ext: string; sig: (b: Buffer) => boolean }> = {
+  'image/jpeg': { ext: 'jpg', sig: (b) => b[0] === 0xff && b[1] === 0xd8 },
+  'image/png': { ext: 'png', sig: (b) => b.subarray(0, 4).toString('hex') === '89504e47' },
+  'image/webp': { ext: 'webp', sig: (b) => b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP' },
+};
+const OFF: PhoneAttendanceDto = { enabled: false, firstIn: null, state: null, site: null, outings: [], selfieNeeded: false, selfieAt: null };
 
 type Settings = AttendanceSettingsDto;
 interface Staff {
@@ -137,6 +154,7 @@ export class AttendanceService {
       fullDayMin: r.fullDayMin,
       outReminderMin: r.outReminderMin,
       anyBranchObjectIds: r.anyBranchObjectIds,
+      selfieRequired: r.selfieRequired,
     };
   }
 
@@ -161,6 +179,7 @@ export class AttendanceService {
       fullDayMin: s.fullDayMin,
       outReminderMin: s.outReminderMin,
       anyBranchObjectIds: [...new Set(s.anyBranchObjectIds)],
+      selfieRequired: s.selfieRequired,
       updatedById: ctx.userId,
     };
     await this.prisma.attendanceSettings.upsert({ where: { companyId: ctx.companyId }, create: { companyId: ctx.companyId, ...data }, update: data });
@@ -226,7 +245,7 @@ export class AttendanceService {
     const dayEnd = localMidnight(addDays(day, 1), tz);
     const ids = staff.map((x) => x.id);
     const branchIds = [...new Set(staff.map((p) => p.branchId).filter((b): b is string => !!b))];
-    const [visits, sites, decisions, branches, signal] = await Promise.all([
+    const [visits, sites, decisions, branches, signal, selfies] = await Promise.all([
       s.geofenceIds.length
         ? this.prisma.geofenceVisit.findMany({
             where: { companyId, objectId: { in: ids }, geofenceId: { in: s.geofenceIds }, enterTime: { lt: new Date(dayEnd) }, OR: [{ exitTime: null }, { exitTime: { gt: new Date(dayStart) } }] },
@@ -234,10 +253,12 @@ export class AttendanceService {
           })
         : [],
       this.prisma.geofence.findMany({ where: { id: { in: s.geofenceIds } }, select: { id: true, name: true, branchId: true } }),
-      this.prisma.attendanceOuting.findMany({ where: { objectId: { in: ids }, leftAt: { gte: new Date(dayStart), lt: new Date(dayEnd) } }, select: { objectId: true, leftAt: true, kind: true, note: true } }),
+      this.prisma.attendanceOuting.findMany({ where: { objectId: { in: ids }, leftAt: { gte: new Date(dayStart), lt: new Date(dayEnd) } }, select: { objectId: true, leftAt: true, kind: true, note: true, employeeKind: true, employeeNote: true, decidedById: true } }),
       branchIds.length ? this.prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } }) : [],
       withSignal ? this.dataPauses(ids, dayStart, Math.min(now, dayEnd), Math.min(s.noSignalMin, ...[...saved.values()].map((x) => (x.rules as DayRules | null)?.noSignalMin ?? s.noSignalMin))) : null,
+      this.prisma.attendanceSelfie.findMany({ where: { objectId: { in: ids }, day }, select: { objectId: true, takenAt: true } }),
     ]);
+    const selfieAt = new Map(selfies.map((x) => [x.objectId, x.takenAt]));
     const siteOf = new Map(sites.map((g) => [g.id, g]));
     const branchName = new Map(branches.map((b) => [b.id, b.name]));
     for (const p of staff) {
@@ -251,7 +272,7 @@ export class AttendanceService {
           enterFix: fix(v.enterLat, v.enterLng, v.enterAccM),
           exitFix: fix(v.exitLat, v.exitLng, v.exitAccM),
         }));
-      const taken = new Map(decisions.filter((d) => d.objectId === p.id).map((d) => [d.leftAt.getTime(), { kind: d.kind as OutingKind, note: d.note }]));
+      const taken = new Map(decisions.filter((d) => d.objectId === p.id).map((d) => [d.leftAt.getTime(), { kind: d.kind as OutingKind, note: d.note, employeeKind: d.employeeKind as OutingKind | null, employeeNote: d.employeeNote, decidedByAdmin: !!d.decidedById }]));
       const mineSignal = signal?.get(p.id);
       const gaps = signal ? signalGaps(mineSignal?.pauses ?? [], mineSignal?.first ?? null, mineSignal?.last ?? null, dayStart, Math.min(now, dayEnd), rules.noSignalMin * 60_000) : [];
       const r = attendanceOf(mine, windowOf(rules, day, tz), now, gaps, taken);
@@ -284,6 +305,8 @@ export class AttendanceService {
           outings: r.outings.map((o) => ({ ...o, leftAt: new Date(o.leftAt).toISOString(), returnedAt: iso(o.returnedAt) })),
           corrected: false,
           correctionNote: null,
+          selfieAt: iso(selfieAt.get(p.id)?.getTime() ?? null),
+          selfieMissing: s.selfieRequired && !!r.firstIn && r.status !== 'DAY_OFF' && !selfieAt.has(p.id),
         },
       });
     }
@@ -356,7 +379,8 @@ export class AttendanceService {
     const note = b.note?.trim() || null;
     const key = { objectId_leftAt: { objectId: p.id, leftAt } };
     const previous = await this.prisma.attendanceOuting.findUnique({ where: key });
-    if (b.kind === 'UNEXPLAINED') await this.prisma.attendanceOuting.deleteMany({ where: { objectId: p.id, leftAt } });
+    // Taking back a decision with no answer from the employee leaves nothing to keep.
+    if (b.kind === 'UNEXPLAINED' && !previous?.employeeKind) await this.prisma.attendanceOuting.deleteMany({ where: { objectId: p.id, leftAt } });
     else {
       const data = { kind: b.kind, note, decidedById: ctx.userId };
       await this.prisma.attendanceOuting.upsert({ where: key, create: { companyId: ctx.companyId, objectId: p.id, leftAt, ...data }, update: data });
@@ -383,6 +407,108 @@ export class AttendanceService {
     return (await this.compute(ctx.companyId, s, [p], b.day, tz, now))[0];
   }
 
+  // ───────────── the employee's phone ─────────────
+
+  /** The person a phone tracks, when attendance covers them. */
+  private async coveredPerson(deviceId: string): Promise<{ s: Settings; p: Staff; companyId: string; tz: string; day: string; now: number } | null> {
+    const a = await this.prisma.deviceAssignment.findFirst({ where: { deviceId, toTime: null }, select: { object: { select: { id: true, name: true, plateNumber: true, branchId: true, companyId: true, type: true, isActive: true } } } });
+    const o = a?.object;
+    if (!o?.isActive) return null;
+    const s = await this.settings(o.companyId);
+    if (!s.enabled) return null;
+    if (s.objectIds.length ? !s.objectIds.includes(o.id) : o.type !== 'PERSON') return null;
+    const now = Date.now();
+    const tz = await this.tz(o.companyId);
+    return { s, p: { id: o.id, name: o.name, plateNumber: o.plateNumber, branchId: o.branchId, deviceId }, companyId: o.companyId, tz, day: localDayKey(now, tz), now };
+  }
+
+  private async phoneRow(c: NonNullable<Awaited<ReturnType<AttendanceService['coveredPerson']>>>): Promise<AttendanceRowDto> {
+    return (await this.workOut(c.companyId, c.s, [c.p], c.day, c.tz, c.now, new Map(), false)).get(c.p.id)!.row;
+  }
+
+  /** What the employee's Tracker app shows. */
+  async phoneStatus(deviceId: string): Promise<PhoneAttendanceDto> {
+    const c = await this.coveredPerson(deviceId);
+    if (!c) return OFF;
+    const r = await this.phoneRow(c);
+    if (r.status === 'DAY_OFF') return OFF;
+    return {
+      enabled: true,
+      firstIn: r.firstIn,
+      state: r.state,
+      site: r.site,
+      outings: r.outings.filter((o) => !o.employeeKind && !o.decidedByAdmin).map((o) => ({ leftAt: o.leftAt, returnedAt: o.returnedAt, minutes: o.minutes, site: o.site })).reverse(),
+      selfieNeeded: !!r.selfieMissing && r.state === 'INSIDE',
+      selfieAt: r.selfieAt ?? null,
+    };
+  }
+
+  /** The notification today's state calls for, for the answer to a position upload. */
+  async phoneNotice(deviceId: string): Promise<PhoneAttention | null> {
+    const c = await this.coveredPerson(deviceId);
+    return c ? phoneAttention(await this.phoneStatus(deviceId), c.day) : null;
+  }
+
+  /** The employee's answer about today's time outside. It counts until an admin decides otherwise. */
+  async phoneAnswer(deviceId: string, b: { leftAt: string; kind: 'OFFICIAL' | 'PERSONAL'; note?: string }): Promise<PhoneAttendanceDto> {
+    const leftAt = new Date(b.leftAt);
+    if (Number.isNaN(leftAt.getTime())) throw new BadRequestException('Invalid time');
+    const c = await this.coveredPerson(deviceId);
+    if (!c) throw new NotFoundException('Attendance is off for this phone');
+    const r = await this.phoneRow(c);
+    if (!r.outings.some((o) => o.leftAt === leftAt.toISOString())) throw new BadRequestException('This time outside is no longer listed');
+    const key = { objectId_leftAt: { objectId: c.p.id, leftAt } };
+    const existing = await this.prisma.attendanceOuting.findUnique({ where: key });
+    if (existing?.decidedById) throw new ConflictException('Your administrator has already decided this');
+    const data = { kind: b.kind, employeeKind: b.kind, employeeNote: b.note?.trim() || null, employeeAt: new Date(c.now) };
+    await this.prisma.attendanceOuting.upsert({ where: key, create: { companyId: c.companyId, objectId: c.p.id, leftAt, ...data }, update: data });
+    return this.phoneStatus(deviceId);
+  }
+
+  /** Today's check-in selfie. Only while inside the work site, so it shows the person there. */
+  async phoneSelfie(deviceId: string, file: { buffer: Buffer; mimetype?: string } | undefined): Promise<PhoneAttendanceDto> {
+    const c = await this.coveredPerson(deviceId);
+    if (!c?.s.selfieRequired) throw new BadRequestException('A selfie is not needed');
+    if (!file?.buffer?.length) throw new BadRequestException('Take a photo');
+    if (file.buffer.length > SELFIE_MAX_BYTES) throw new BadRequestException('The photo is larger than 8 MB');
+    const mime = (file.mimetype ?? '').toLowerCase();
+    const type = SELFIE_TYPES[mime];
+    if (!type || !type.sig(file.buffer)) throw new BadRequestException('Upload a photo (JPEG, PNG, WebP)');
+    const r = await this.phoneRow(c);
+    if (r.state !== 'INSIDE') throw new BadRequestException('Take the selfie at your work site');
+    const dir = join(SELFIE_DIR, c.companyId);
+    await mkdir(dir, { recursive: true });
+    const path = join(dir, `${c.p.id}-${c.day}-${randomUUID()}.${type.ext}`);
+    await writeFile(path, file.buffer);
+    const key = { objectId_day: { objectId: c.p.id, day: c.day } };
+    const previous = await this.prisma.attendanceSelfie.findUnique({ where: key, select: { path: true } });
+    const data = { takenAt: new Date(c.now), path, type: mime };
+    await this.prisma.attendanceSelfie.upsert({ where: key, create: { companyId: c.companyId, objectId: c.p.id, day: c.day, ...data }, update: data });
+    if (previous) await unlink(previous.path).catch(() => undefined);
+    return this.phoneStatus(deviceId);
+  }
+
+  /** The selfie of a day, for those who can see that person's attendance. */
+  async selfie(ctx: AuthContext, objectId: string, day: string): Promise<StreamableFile> {
+    if (!isDayKey(day)) throw new BadRequestException('Choose a valid date');
+    const s = await this.settings(ctx.companyId);
+    await this.person(ctx, s, objectId);
+    const row = await this.prisma.attendanceSelfie.findUnique({ where: { objectId_day: { objectId, day } } });
+    const info = row ? await stat(row.path).catch(() => null) : null;
+    if (!row || !info) throw new NotFoundException('No selfie for this day');
+    return new StreamableFile(createReadStream(row.path), { type: row.type, length: info.size, disposition: 'inline' });
+  }
+
+  /** Selfies are personal data: older ones are deleted, file and row. */
+  async removeOldSelfies(now: number): Promise<number> {
+    const rows = await this.prisma.attendanceSelfie.findMany({ where: { takenAt: { lt: new Date(now - ATTENDANCE_SELFIE_KEEP_DAYS * 86_400_000) } }, select: { objectId: true, day: true, path: true }, take: 500 });
+    for (const r of rows) {
+      await unlink(r.path).catch(() => undefined);
+      await this.prisma.attendanceSelfie.delete({ where: { objectId_day: { objectId: r.objectId, day: r.day } } });
+    }
+    return rows.length;
+  }
+
   // ───────────── job ─────────────
 
   @Interval(60_000)
@@ -397,7 +523,10 @@ export class AttendanceService {
         await this.run(now);
         // Hourly, across instances and restarts.
         const hour = Math.floor(now / 3_600_000);
-        if ((await this.redis.client.set(`vt:attendance:saved:${hour}`, '1', 'EX', 7200, 'NX')) === 'OK') await this.saveFinishedDays(now);
+        if ((await this.redis.client.set(`vt:attendance:saved:${hour}`, '1', 'EX', 7200, 'NX')) === 'OK') {
+          await this.saveFinishedDays(now);
+          await this.removeOldSelfies(now);
+        }
       }
     } catch (error) {
       this.logger.error(`Attendance job failed: ${(error as Error).message}`);

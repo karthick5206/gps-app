@@ -158,6 +158,11 @@ class Prefs(context: Context) {
     get() = long("lastUploadAt")
     set(v) { sp.edit().putLong("lastUploadAt", v).apply() }
 
+  /** The last attendance notification shown, so each is shown once. */
+  var lastAttentionId: String?
+    get() = sp.getString("lastAttentionId", null)
+    set(v) { sp.edit().putString("lastAttentionId", v).apply() }
+
   var lastError: String?
     get() = str("lastError")
     set(v) { sp.edit().putString("lastError", v).apply() }

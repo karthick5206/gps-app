@@ -185,6 +185,13 @@ export function PrivacyPage() {
               personal data in crash reports).
             </li>
             <li>
+              <b>Attendance answers and check-in selfie:</b> if your employer uses
+              attendance, your answer about time outside the work site, and, only if
+              your employer turns it on, a photo you take with the camera when you
+              check in. Selfies are visible to your employer&apos;s attendance
+              administrators and deleted after 90 days.
+            </li>
+            <li>
               <b>Device identifier:</b> the Android ID the phone gives this app,
               stored only as a one-way code, so the same phone can carry on
               tracking after the app is updated or reinstalled without a new

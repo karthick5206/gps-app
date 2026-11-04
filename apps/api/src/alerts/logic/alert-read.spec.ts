@@ -125,7 +125,7 @@ describe('AlertsService read state', () => {
   it('unread count: per user, NEW only, last 7 days, company scope; pendingAck alongside', async () => {
     const { service, raw } = setup();
     await expect(service.unreadCount(ctx())).resolves.toEqual({ count: 3, pendingAck: 2 });
-    expect(raw[0].sql).toContain(`count(*) FILTER (WHERE a."ackRequired")`);
+    expect(raw[0].sql).toContain(`count(*) FILTER (WHERE a."companyId" = ?::uuid AND a."ackRequired")`);
     const sql = raw[0];
     expect(sql.sql).toContain(`a."status" = 'NEW'`);
     expect(sql.sql).toContain('NOT (a."status"');

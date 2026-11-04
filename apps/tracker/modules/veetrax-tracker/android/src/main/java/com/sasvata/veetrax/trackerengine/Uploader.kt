@@ -49,6 +49,9 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
   /** Called with the server's answer to "must this phone track?" (app 1.3.4+ servers send it). */
   var onRequired: ((Boolean) -> Unit)? = null
 
+  /** Something the employee should act on (attendance); the id says when it is a new one. */
+  var onAttention: ((id: String, title: String, text: String) -> Unit)? = null
+
   /** The number moved to another phone; the server still takes the points recorded before that. */
   var onRevoked: (() -> Unit)? = null
 
@@ -124,6 +127,10 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
         json?.optJSONObject("config")?.let { cfg -> onConfig?.invoke(cfg) }
         if (json?.has("required") == true) onRequired?.invoke(json.optBoolean("required"))
         if (json?.optBoolean("revoked") == true) onRevoked?.invoke()
+        json?.optJSONObject("attention")?.let { a ->
+          val id = a.optString("id")
+          if (id.isNotEmpty()) onAttention?.invoke(id, a.optString("title"), a.optString("text"))
+        }
         Outcome.Done
       }
       res.code == 401 -> Outcome.Stop(if (code == "REVOKED") "REVOKED" else "INVALID", clearToken = true)

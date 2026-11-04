@@ -3202,4 +3202,12 @@ export const TA: Record<string, string> = {
   "Shared": "பகிரப்பட்டது",
   "Run a report for a shared vehicle on its own": "பகிரப்பட்ட வாகனத்தின் அறிக்கையைத் தனியாக இயக்கவும்",
   "This report is not available for a shared vehicle": "இந்த அறிக்கை பகிரப்பட்ட வாகனத்திற்குக் கிடைக்காது",
+  "The photo is no longer kept.": "புகைப்படம் இனி வைக்கப்படவில்லை.",
+  "Check-in selfie": "வருகை செல்ஃபி",
+  "No selfie was taken.": "செல்ஃபி எடுக்கப்படவில்லை.",
+  "Employee says: {{answer}}": "பணியாளர் கூறுவது: {{answer}}",
+  "decided by admin": "நிர்வாகி முடிவு செய்தார்",
+  "No selfie": "செல்ஃபி இல்லை",
+  "Selfie at check-in": "வருகையின் போது செல்ஃபி",
+  "Staff are asked for a selfie in the Tracker app when they reach their work site. It is kept for 90 days. A missing selfie is flagged and does not change the status. Needs Tracker 1.3.5 or later.": "பணியிடத்தை அடையும்போது Tracker செயலியில் செல்ஃபி கேட்கப்படும். இது 90 நாட்கள் வைக்கப்படும். செல்ஃபி இல்லையெனில் குறிக்கப்படும், நிலை மாறாது. Tracker 1.3.5 அல்லது அதற்குப் பிந்தையது தேவை.",
 };

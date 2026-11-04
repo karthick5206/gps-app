@@ -28,6 +28,7 @@ import kotlin.math.max
  *  - Adaptive GPS: see [Mode].
  */
 class Engine private constructor(context: Context) {
+  private val appContext: Context = context.applicationContext
 
   /**
    * MOVING: high-accuracy GPS at config.intervalSec. Switch to STATIONARY after 2 min standing still
@@ -97,6 +98,12 @@ class Engine private constructor(context: Context) {
     uploader.onConfig = { cfg -> applyConfig(TrackerConfig.merge(prefs.config, cfg)) }
     uploader.onRequired = { required -> applyRequired(required) }
     uploader.onRevoked = { startRevokedDrain() }
+    uploader.onAttention = { id, title, text ->
+      if (prefs.lastAttentionId != id) {
+        prefs.lastAttentionId = id
+        Notifications.showAttention(appContext, title, text)
+      }
+    }
     queue.onTrimmed = { dropped ->
       if (elapsed() - lastTrimEventElapsed > TRIM_EVENT_GAP_MS || lastTrimEventElapsed == 0L) {
         lastTrimEventElapsed = elapsed()

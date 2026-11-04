@@ -32,6 +32,12 @@ class SettingsBody {
   @IsInt() @Min(0) @Max(1440) fullDayMin!: number;
   @IsInt() @Min(0) @Max(720) outReminderMin!: number;
   @IsArray() @ArrayMaxSize(5000) @IsUUID('all', { each: true }) anyBranchObjectIds!: string[];
+  @IsBoolean() selfieRequired!: boolean;
+}
+
+class SelfieQuery {
+  @IsUUID() objectId!: string;
+  @IsString() day!: string;
 }
 
 class DayQuery {
@@ -96,6 +102,11 @@ export class AttendanceController {
     return this.attendance.day(ctx, q.day, q.branchId);
   }
 
+  @Get('selfie') @RequirePermission('attendance', 'view')
+  selfie(@Auth() ctx: AuthContext, @Query() q: SelfieQuery): Promise<StreamableFile> {
+    return this.attendance.selfie(ctx, q.objectId, q.day);
+  }
+
   @Get('timesheet') @RequirePermission('attendance', 'view')
   async timesheet(@Auth() ctx: AuthContext, @Query() q: SheetQuery): Promise<AttendanceRowDto[] | StreamableFile> {
     const rows = await this.attendance.timesheet(ctx, q.from, q.to, q.branchId);
@@ -122,6 +133,7 @@ export class AttendanceController {
       { header: 'First in accuracy (m)', value: (r) => metres(r.inFix) },
       { header: 'Last out location', value: (r) => place(r.outFix) },
       { header: 'Last out accuracy (m)', value: (r) => metres(r.outFix) },
+      { header: 'Selfie', value: (r) => (r.selfieAt ? time(r.selfieAt) : r.selfieMissing ? 'Missing' : '') },
       { header: 'Corrected', value: (r) => (r.corrected ? `Yes${r.correctionNote ? `: ${r.correctionNote}` : ''}` : '') },
     ]);
   }

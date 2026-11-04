@@ -17,6 +17,8 @@ import androidx.core.app.NotificationCompat
 object Notifications {
   const val CHANNEL_ID = "tracking"
   const val NOTIFICATION_ID = 4711
+  private const val ATTENTION_CHANNEL_ID = "attendance"
+  private const val ATTENTION_NOTIFICATION_ID = 4712
 
   private const val TITLE = "VeeTrax Tracker is sharing your location"
   private const val TEXT = "Tracking is on. Open the app to stop."
@@ -32,6 +34,32 @@ object Notifications {
       setSound(null, null)
     }
     nm.createNotificationChannel(channel)
+  }
+
+  /** An attendance question for the employee: a normal notification they can notice, unlike the silent tracking one. */
+  fun showAttention(context: Context, title: String, text: String) {
+    val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(ATTENTION_CHANNEL_ID) == null) {
+      nm.createNotificationChannel(NotificationChannel(ATTENTION_CHANNEL_ID, "Attendance", NotificationManager.IMPORTANCE_HIGH).apply {
+        description = "Questions about your attendance"
+      })
+    }
+    val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+      ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED }
+    val content = launch?.let {
+      PendingIntent.getActivity(context, 1, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+    val notification = NotificationCompat.Builder(context, ATTENTION_CHANNEL_ID)
+      .setSmallIcon(R.drawable.veetrax_tracker_notification)
+      .setColor(0xFF0F766E.toInt())
+      .setContentTitle(title)
+      .setContentText(text)
+      .setContentIntent(content)
+      .setAutoCancel(true)
+      .setPriority(NotificationCompat.PRIORITY_HIGH)
+      .build()
+    // Android 13+ without the notification permission: nothing is shown, the app's card still asks.
+    runCatching { nm.notify(ATTENTION_NOTIFICATION_ID, notification) }
   }
 
   fun build(context: Context): Notification {

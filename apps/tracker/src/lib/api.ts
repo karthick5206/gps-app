@@ -33,6 +33,17 @@ export interface MeResponse {
 export interface VerifyResponse extends MeResponse { token: string }
 /** Registered number: its e-mail / name (only when this phone activated it before), else a masked e-mail hint. */
 export interface LookupResponse { registered: boolean; samePhone: boolean; email: string | null; name: string | null; emailHint: string | null }
+/** Attendance of the person this phone tracks. */
+export interface PhoneAttendance {
+  enabled: boolean;
+  firstIn: string | null;
+  state: 'INSIDE' | 'OUT' | 'NO_SIGNAL' | null;
+  site: string | null;
+  outings: { leftAt: string; returnedAt: string | null; minutes: number; site: string | null }[];
+  selfieNeeded: boolean;
+  selfieAt: string | null;
+}
+
 /** HTTP error from the server: status + message (+ code such as REVOKED / INVALID / INACTIVE). */
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
@@ -51,15 +62,16 @@ export class NetworkError extends Error {
 
 const TIMEOUT_MS = 30_000;
 
-async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown, token?: string): Promise<T> {
+async function request<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, token?: string): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const isForm = body instanceof FormData;
+  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: ctrl.signal });
+    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : isForm ? body : JSON.stringify(body), signal: ctrl.signal });
   } catch (e) {
     throw new NetworkError(e instanceof Error ? e.message : String(e));
   } finally {
@@ -87,6 +99,14 @@ export const api = {
   lookup: (mobile: string, installId: string) => request<LookupResponse>('POST', '/activate/lookup', { mobile, installId }),
   restore: (body: { installId: string; deviceName: string; appVersion: string; platform: string }) => request<VerifyResponse>('POST', '/activate/restore', body),
   me: (token: string) => request<MeResponse>('GET', '/me', undefined, token),
+  attendance: (token: string) => request<PhoneAttendance>('GET', '/attendance', undefined, token),
+  answerOuting: (token: string, body: { leftAt: string; kind: 'OFFICIAL' | 'PERSONAL'; note?: string }) => request<PhoneAttendance>('PUT', '/attendance/outing', body, token),
+  sendSelfie: (token: string, photo: { uri: string; mimeType?: string | null }) => {
+    const type = photo.mimeType || 'image/jpeg';
+    const form = new FormData();
+    form.append('file', { uri: photo.uri, type, name: `selfie.${type.split('/')[1] ?? 'jpg'}` } as unknown as Blob);
+    return request<PhoneAttendance>('POST', '/attendance/selfie', form, token);
+  },
   signOut: (token: string) => request<{ ok: true }>('POST', '/signout', undefined, token),
   diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>
     request<{ ok: true }>('POST', '/diagnostics', body),

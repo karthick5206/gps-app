@@ -1,8 +1,9 @@
-import { Body, Controller, Put, Get, Headers, HttpCode, Logger, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Put, Get, Headers, HttpCode, Logger, Param, ParseUUIDPipe, Patch, Post, UseGuards, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle, Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthContext } from '../access/auth-context';
 import { Auth, Public, RequirePermission } from '../access/decorators';
-import { TrackerActivationEmailBody, TrackerDiagnosticsBody, TrackerLookupBody, TrackerPositionsBody, TrackerRequestCodeBody, TrackerRequiredBody, TrackerRestoreBody, TrackerVerifyBody } from './mobile-tracker.dto';
+import { TrackerOutingBody, TrackerActivationEmailBody, TrackerDiagnosticsBody, TrackerLookupBody, TrackerPositionsBody, TrackerRequestCodeBody, TrackerRequiredBody, TrackerRestoreBody, TrackerVerifyBody } from './mobile-tracker.dto';
 import { MobileTrackerService } from './mobile-tracker.service';
 
 /** VeeTrax Tracker app (docs/mobile-tracker/API.md): activation by OTP and position upload with the phone's token. */
@@ -46,6 +47,23 @@ export class MobileTrackerController {
   @Public() @SkipThrottle() @Post('positions') @HttpCode(200)
   positions(@Headers('authorization') authorization: string | undefined, @Body() body: TrackerPositionsBody) {
     return this.service.upload(authorization, body.positions, body.health);
+  }
+
+  /** Attendance of the person this phone tracks: what to show, the employee's answers, the check-in selfie. */
+  @Public() @Get('attendance') @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  attendance(@Headers('authorization') authorization?: string) {
+    return this.service.attendanceStatus(authorization);
+  }
+
+  @Public() @Put('attendance/outing') @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  attendanceOuting(@Headers('authorization') authorization: string | undefined, @Body() body: TrackerOutingBody) {
+    return this.service.attendanceAnswer(authorization, body);
+  }
+
+  @Public() @Post('attendance/selfie') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024, files: 1 } }))
+  attendanceSelfie(@Headers('authorization') authorization: string | undefined, @UploadedFile() file?: { buffer: Buffer; mimetype?: string }) {
+    return this.service.attendanceSelfie(authorization, file);
   }
 
   /** Crash reports from the app (stack traces only, no location or personal data). Logged for support. */

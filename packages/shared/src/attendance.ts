@@ -52,6 +52,8 @@ export interface AttendanceSettingsDto {
   outReminderMin: number;
   /** People who may attend at any branch's work site. */
   anyBranchObjectIds: string[];
+  /** Management's choice: staff are asked for a selfie when they check in. It never decides the status by itself. */
+  selfieRequired: boolean;
 }
 
 export const DEFAULT_ATTENDANCE: AttendanceSettingsDto = {
@@ -69,7 +71,11 @@ export const DEFAULT_ATTENDANCE: AttendanceSettingsDto = {
   fullDayMin: 8 * 60,
   outReminderMin: 60,
   anyBranchObjectIds: [],
+  selfieRequired: false,
 };
+
+/** Check-in selfies are personal data: they are kept this long, then deleted. */
+export const ATTENDANCE_SELFIE_KEEP_DAYS = 90;
 
 /** Where a phone was when it crossed the fence. */
 export interface AttendanceFix {
@@ -89,6 +95,11 @@ export interface AttendanceOutingDto {
   note: string | null;
   site: string | null;
   fix: AttendanceFix | null;
+  /** What the employee answered in the Tracker app. */
+  employeeKind?: OutingKind | null;
+  employeeNote?: string | null;
+  /** An admin decided: it no longer follows the employee's answer. */
+  decidedByAdmin?: boolean;
 }
 
 export interface AttendanceRowDto {
@@ -126,6 +137,10 @@ export interface AttendanceRowDto {
   /** Corrected by hand. */
   corrected: boolean;
   correctionNote: string | null;
+  /** When the check-in selfie was taken. */
+  selfieAt?: string | null;
+  /** A selfie was asked for and there is none. */
+  selfieMissing?: boolean;
 }
 
 export interface AttendanceDayDto {
@@ -136,6 +151,36 @@ export interface AttendanceDayDto {
   /** Half-day rows are counted in halfDays, not under their status. */
   counts: Record<AttendanceStatus, number>;
   halfDays: number;
+}
+
+/** What the Tracker app shows its employee (GET /tracker/v1/attendance). */
+export interface PhoneAttendanceDto {
+  /** Attendance covers this phone today. Everything else is empty when it doesn't. */
+  enabled: boolean;
+  firstIn: string | null;
+  state: AttendanceLiveState | null;
+  site: string | null;
+  /** Today's time outside still waiting for an answer, latest first. */
+  outings: { leftAt: string; returnedAt: string | null; minutes: number; site: string | null }[];
+  /** Ask for the check-in selfie now. */
+  selfieNeeded: boolean;
+  selfieAt: string | null;
+}
+
+/** A notification the phone should show (in the answer to a position upload). The id says when it is a new one. */
+export interface PhoneAttention {
+  id: string;
+  title: string;
+  text: string;
+}
+
+/** Which notification, if any, today's state calls for. */
+export function phoneAttention(a: PhoneAttendanceDto, day: string): PhoneAttention | null {
+  if (!a.enabled) return null;
+  if (a.selfieNeeded) return { id: `selfie:${day}`, title: 'Take your check-in selfie', text: 'Open VeeTrax Tracker to take it.' };
+  const out = a.outings[0];
+  if (!out) return null;
+  return { id: `outing:${out.leftAt}`, title: `You left ${out.site ?? 'the work site'}`, text: 'Tap to say if it is official duty or personal.' };
 }
 
 export interface Visit {
@@ -189,6 +234,14 @@ function merged(spans: TimeSpan[]): TimeSpan[] {
   return out;
 }
 
+export interface OutingDecision {
+  kind: OutingKind;
+  note: string | null;
+  employeeKind?: OutingKind | null;
+  employeeNote?: string | null;
+  decidedByAdmin?: boolean;
+}
+
 export interface AttendanceDayResult {
   status: AttendanceStatus;
   halfDay: boolean;
@@ -208,7 +261,7 @@ export interface AttendanceDayResult {
   carriedOver: boolean;
   inFix: AttendanceFix | null;
   outFix: AttendanceFix | null;
-  outings: { leftAt: number; returnedAt: number | null; minutes: number; kind: OutingKind; note: string | null; site: string | null; fix: AttendanceFix | null }[];
+  outings: ({ leftAt: number; returnedAt: number | null; minutes: number; kind: OutingKind; note: string | null; site: string | null; fix: AttendanceFix | null } & Pick<OutingDecision, 'employeeKind' | 'employeeNote' | 'decidedByAdmin'>)[];
 }
 
 /**
@@ -223,7 +276,7 @@ export function attendanceOf(
   w: AttendanceWindow,
   now: number,
   gaps: TimeSpan[] = [],
-  decisions: ReadonlyMap<number, { kind: OutingKind; note: string | null }> = new Map(),
+  decisions: ReadonlyMap<number, OutingDecision> = new Map(),
 ): AttendanceDayResult {
   const windowStart = Math.max(w.dayStart, w.start - ATTENDANCE_BEFORE_SHIFT_MIN * MIN);
   const windowEnd = Math.min(w.dayEnd, w.end + ATTENDANCE_AFTER_SHIFT_MIN * MIN);
@@ -265,7 +318,7 @@ export function attendanceOf(
     const decision = decisions.get(leftAt);
     const kind = decision?.kind ?? 'UNEXPLAINED';
     counted.push({ span, kind });
-    outings.push({ leftAt, returnedAt, minutes: toMin(span.to - span.from), kind, note: decision?.note ?? null, site: stay.site || null, fix: stay.exitFix ?? null });
+    outings.push({ leftAt, returnedAt, minutes: toMin(span.to - span.from), kind, note: decision?.note ?? null, site: stay.site || null, fix: stay.exitFix ?? null, employeeKind: decision?.employeeKind ?? null, employeeNote: decision?.employeeNote ?? null, decidedByAdmin: decision?.decidedByAdmin ?? false });
   };
   stays.forEach((v, i) => {
     const next = stays[i + 1];

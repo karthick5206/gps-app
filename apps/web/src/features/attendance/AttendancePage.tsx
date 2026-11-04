@@ -34,7 +34,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth, useMe } from '@/features/auth/auth-context';
 import { named, useEntityOptions } from '@/features/masters/use-options';
-import { api, downloadCsv, errorMessage } from '@/lib/api';
+import { api, downloadCsv, errorMessage, fetchBlob } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const STATUS: Record<AttendanceStatus, { label: string; cls: string }> = {
@@ -88,6 +88,18 @@ function Place({ fix }: { fix: AttendanceFix | null }) {
       {fix.accuracyM !== null && <span className="text-muted-foreground">{t('±{{n}} m', { n: Math.round(fix.accuracyM) })}</span>}
     </a>
   );
+}
+
+function Selfie({ objectId, day, at }: { objectId: string; day: string; at: string }) {
+  const { t } = useTranslation();
+  const q = useQuery({
+    queryKey: ['attendance-selfie', objectId, day, at],
+    queryFn: async () => URL.createObjectURL(await fetchBlob(`/attendance/selfie?objectId=${objectId}&day=${day}`)),
+    retry: false,
+    staleTime: Infinity,
+  });
+  if (q.isError) return <p className="text-xs text-muted-foreground">{t('The photo is no longer kept.')}</p>;
+  return q.data ? <img src={q.data} alt={t('Check-in selfie')} className="h-40 rounded-md border object-cover" /> : <Skeleton className="h-40 w-32" />;
 }
 
 /** Hours of one person's day, the location at each crossing, approval of outings and manual correction. */
@@ -165,6 +177,19 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
               <Place fix={r.outFix} />
             </div>
           </div>
+          {(r.selfieAt || r.selfieMissing) && (
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-medium">{t('Check-in selfie')}</h3>
+              {r.selfieAt ? (
+                <>
+                  <Selfie objectId={r.objectId} day={r.day} at={r.selfieAt} />
+                  <p className="text-xs text-muted-foreground tabular-nums">{time(r.selfieAt)}</p>
+                </>
+              ) : (
+                <p className="text-sm text-amber-800 dark:text-amber-300">{t('No selfie was taken.')}</p>
+              )}
+            </div>
+          )}
           <div className="space-y-2">
             <h3 className="text-sm font-medium">{t('Time outside during the shift')}</h3>
             {!r.outings.length && <p className="text-sm text-muted-foreground">{t('None')}</p>}
@@ -177,6 +202,13 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
                   <span className={cn('text-xs font-medium', o.kind === 'UNEXPLAINED' ? 'text-rose-700 dark:text-rose-300' : 'text-muted-foreground')}>{t(KINDS[o.kind])}</span>
                 </div>
                 <Place fix={o.fix} />
+                {o.employeeKind && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('Employee says: {{answer}}', { answer: t(KINDS[o.employeeKind]) })}
+                    {o.employeeNote ? ` · ${o.employeeNote}` : ''}
+                    {o.decidedByAdmin ? ` · ${t('decided by admin')}` : ''}
+                  </p>
+                )}
                 {canEdit && (
                   <div className="flex flex-wrap gap-1.5">
                     {(['OFFICIAL', 'PERSONAL', 'UNEXPLAINED'] as OutingKind[]).filter((k) => k !== o.kind).map((kind) => (
@@ -261,6 +293,7 @@ function Rows({ rows, withDay, canEdit }: { rows: AttendanceRowDto[]; withDay?: 
                 {r.earlyMin > 0 && <span className="ms-1.5 text-xs text-muted-foreground">{t('Left {{n}} min early', { n: r.earlyMin })}</span>}
                 {r.overtimeMin > 0 && <span className="ms-1.5 text-xs text-muted-foreground">{t('OT {{n}} min', { n: r.overtimeMin })}</span>}
                 {r.corrected && <span className="ms-1.5 text-xs text-muted-foreground">{t('Corrected')}</span>}
+                {r.selfieMissing && <span className="ms-1.5 text-xs text-amber-800 dark:text-amber-300">{t('No selfie')}</span>}
               </TableCell>
               <TableCell className="tabular-nums">{time(r.firstIn)}</TableCell>
               <TableCell className="tabular-nums">{r.firstIn && !r.lastOut ? t('On site') : time(r.lastOut)}</TableCell>
@@ -468,6 +501,14 @@ function SettingsTab({ canEdit }: { canEdit: boolean }) {
       <Field label={t('Staff who can attend at any branch')} htmlFor="att-any" hint={t('Optional. Everyone else counts only at their own branch.')}>
         <MultiSelect id="att-any" value={s.anyBranchObjectIds} onChange={(anyBranchObjectIds) => set({ anyBranchObjectIds })} options={staff.options} loading={staff.loading} disabled={!canEdit} placeholder={t('Nobody')} />
       </Field>
+
+      <label className="flex items-center justify-between gap-3 border-t pt-4">
+        <span>
+          <span className="block font-medium">{t('Selfie at check-in')}</span>
+          <span className="block text-xs text-muted-foreground">{t('Staff are asked for a selfie in the Tracker app when they reach their work site. It is kept for 90 days. A missing selfie is flagged and does not change the status. Needs Tracker 1.3.5 or later.')}</span>
+        </span>
+        <Switch checked={s.selfieRequired} onCheckedChange={(selfieRequired) => set({ selfieRequired })} disabled={!canEdit} aria-label={t('Selfie at check-in')} />
+      </label>
 
       <div className="space-y-3 border-t pt-4">
         <h3 className="font-medium">{t('Default shift')}</h3>

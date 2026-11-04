@@ -1,4 +1,6 @@
-import { ForbiddenException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import type { PhoneAttendanceDto, PhoneAttention } from '@veetracer/shared';
+import { AttendanceService } from '../attendance/attendance.service';
+import { ForbiddenException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException, Optional } from '@nestjs/common';
 import { MobileTrackerStatusDto, sanitizeTrackerEvents, sanitizeTrackerHealth, TrackerEventKind, TrackerHealth } from '@veetracer/shared';
 import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 import { AuthContext } from '../access/auth-context';
@@ -58,6 +60,8 @@ const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '
 const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => HTML_ESCAPES[c]);
 
 /** Phones running the VeeTrax Tracker app: OTP activation, one active phone per number, position upload. */
+const NOTICE_CACHE_MS = 60_000;
+
 @Injectable()
 export class MobileTrackerService {
   private readonly logger = new Logger(MobileTrackerService.name);
@@ -72,7 +76,11 @@ export class MobileTrackerService {
     private readonly self: TrackerSelfService,
     private readonly audit: AuditService,
     private readonly alerts: OfflineAlertService,
+    @Optional() private readonly attendance?: AttendanceService,
   ) {}
+
+  /** Latest attendance notice per phone: uploads come every few seconds, the answer changes far less often. */
+  private readonly notices = new Map<string, { at: number; value: PhoneAttention | null }>();
 
   config(): TrackerConfig {
     return DEFAULT_TRACKER_CONFIG;
@@ -481,7 +489,41 @@ export class MobileTrackerService {
       s.lastUsedWrite = now;
       await this.prisma.mobileTrackerSession.update({ where: { id: s.sessionId }, data: { lastUsedAt: new Date(now) } }).catch(() => undefined);
     }
-    return { ok: true, accepted: parsed.length, config, required: s.required };
+    const attention = await this.noticeFor(s.deviceId, now);
+    return { ok: true, accepted: parsed.length, config, required: s.required, ...(attention ? { attention } : {}) };
+  }
+
+  /** Never fails an upload: the phone has its points to deliver. */
+  private async noticeFor(deviceId: string, now: number): Promise<PhoneAttention | null> {
+    const hit = this.notices.get(deviceId);
+    if (hit && now - hit.at < NOTICE_CACHE_MS) return hit.value;
+    const value = (await this.attendance?.phoneNotice(deviceId).catch(() => null)) ?? null;
+    this.notices.set(deviceId, { at: now, value });
+    return value;
+  }
+
+  // ───────────── attendance on the phone ─────────────
+
+  private requireAttendance(): AttendanceService {
+    if (!this.attendance) throw new NotFoundException('Attendance is not available');
+    return this.attendance;
+  }
+
+  async attendanceStatus(authorization: string | undefined): Promise<PhoneAttendanceDto> {
+    const s = await this.session(authorization);
+    return this.requireAttendance().phoneStatus(s.deviceId);
+  }
+
+  async attendanceAnswer(authorization: string | undefined, b: { leftAt: string; kind: 'OFFICIAL' | 'PERSONAL'; note?: string }): Promise<PhoneAttendanceDto> {
+    const s = await this.session(authorization);
+    this.notices.delete(s.deviceId);
+    return this.requireAttendance().phoneAnswer(s.deviceId, b);
+  }
+
+  async attendanceSelfie(authorization: string | undefined, file: { buffer: Buffer; mimetype?: string } | undefined): Promise<PhoneAttendanceDto> {
+    const s = await this.session(authorization);
+    this.notices.delete(s.deviceId);
+    return this.requireAttendance().phoneSelfie(s.deviceId, file);
   }
 
   /** Points we refuse are kept for inspection (raw packets, protocol mobile-rejected) and explained in the phone's history. */

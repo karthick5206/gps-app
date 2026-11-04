@@ -2,7 +2,7 @@
   "expo": {
     "name": "VeeTrax Tracker",
     "slug": "veetrax-tracker",
-    "version": "1.3.4",
+    "version": "1.3.5",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "veetrax-tracker",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.sasvata.veetrax.tracker",
-      "versionCode": 19,
+      "versionCode": 20,
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#0E5E57",
@@ -40,6 +40,7 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.POST_NOTIFICATIONS",
+        "android.permission.CAMERA",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         "android.permission.WAKE_LOCK",
         "android.permission.RECEIVE_BOOT_COMPLETED"
@@ -68,6 +69,14 @@
         }
       ],
       "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "VeeTrax Tracker uses the camera for your check-in selfie, if your employer asks for one.",
+          "photosPermission": false,
+          "microphonePermission": false
+        }
+      ],
       "./modules/veetrax-tracker/app.plugin.js",
       [
         "../../tooling/expo/with-release-signing.js",

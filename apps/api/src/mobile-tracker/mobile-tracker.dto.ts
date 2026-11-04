@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsObject, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsISO8601, IsObject, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class TrackerRequestCodeBody {
   @IsString() @MaxLength(24) mobile!: string;
@@ -54,4 +54,10 @@ export class TrackerRequiredBody {
 /** Devices → edit → Tracker app: extra address for the activation code; null / empty clears it. */
 export class TrackerActivationEmailBody {
   @IsOptional() @IsEmail() @MaxLength(254) activationEmail?: string | null;
+}
+
+export class TrackerOutingBody {
+  @IsISO8601() leftAt!: string;
+  @IsIn(['OFFICIAL', 'PERSONAL']) kind!: 'OFFICIAL' | 'PERSONAL';
+  @IsOptional() @IsString() @MaxLength(300) note?: string;
 }
