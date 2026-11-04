@@ -86,6 +86,10 @@ export interface ObjectMeta {
   tz: string;
   retentionDays: number;
   cfg: SegConfig;
+  /** Viewed through a share: nothing from before this time (ms). */
+  notBefore?: number;
+  /** Viewed through a share without alerts. */
+  hideAlerts?: boolean;
 }
 
 /** Objects with their company timezone / thresholds and the segmenter configuration. */

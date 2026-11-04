@@ -10,13 +10,13 @@ export class LiveController {
 
   @Get('live') @RequirePermission('live_map', 'view')
   snapshot(@Auth() ctx: AuthContext): Promise<LiveObject[]> {
-    return this.live.snapshot(ctx);
+    return this.live.snapshot(ctx, true);
   }
 
   /** Vehicle list / map card: today's distance, moving / idle time, stops, max speed, current trip and odometer. */
   @Get('live/day-stats') @RequirePermission('live_map', 'view')
   dayStats(@Auth() ctx: AuthContext): Promise<Record<string, VehicleDayStatsDto>> {
-    return this.live.dayStats(ctx);
+    return this.live.dayStats(ctx, undefined, true);
   }
 
   @Get('dashboard/summary') @RequirePermission('dashboard', 'view')

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { chargeState, DEFAULT_SPEED_LIMIT_KPH, displayStatus, displayStatusLabel, personActivity, type DeviceDto, type LiveObject } from '@veetracer/shared';
-import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, LockIcon, WrenchIcon, XIcon } from 'lucide-react';
+import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, LockIcon, Share2Icon, WrenchIcon, XIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -65,7 +65,7 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
           {since && <span className="text-xs font-normal text-muted-foreground">{t('for {{duration}}', { duration: since })}</span>}
         </span>
       </Row>
-      {o.type === 'VEHICLE' && <DriverControl o={o} />}
+      {o.type === 'VEHICLE' && !o.shared && <DriverControl o={o} />}
       <Row label={t('Speed')}>{`${Math.round(o.speedKph)} km/h`}</Row>
       <Row label={t('Ignition')}>{ignitionText(o, now, t) ?? '—'}</Row>
       <AddressRow lat={o.lat} lng={o.lng} />
@@ -236,9 +236,10 @@ export function ObjectDrawer({
   const { can } = useAuth();
   const [maintenance, setMaintenance] = useState<{ id: string; value: boolean } | null>(null);
   const inMaintenance = maintenance?.id === object.objectId ? maintenance.value : !!object.inMaintenance;
-  const canCommand = can('live_map', 'command') && !!object.deviceId;
+  const owned = !object.shared;
+  const canCommand = owned && can('live_map', 'command') && !!object.deviceId;
   // Dashcams only: the channels call answers NOT_DASHCAM (400) for other trackers, which hides the tab.
-  const video = useVideoChannels(object.objectId, can('video') && !!object.deviceId && !object.licenceLocked);
+  const video = useVideoChannels(object.objectId, owned && can('video') && !!object.deviceId && !object.licenceLocked);
   const hasVideo = video.isSuccess;
   return (
     <aside
@@ -251,6 +252,11 @@ export function ObjectDrawer({
           <p className="truncate text-xs text-muted-foreground">
             {[object.plateNumber, object.vehicleType ?? object.type].filter(Boolean).join(' · ')}
           </p>
+          {object.shared && (
+            <Badge variant="secondary" className="mt-1.5">
+              <Share2Icon className="size-3" /> {t('Shared with your company · view only')}
+            </Badge>
+          )}
           {object.licenceLocked && (
             <Badge variant="destructive" className="mt-1.5">
               <LockIcon className="size-3" /> {t('Licence expired — renew to view')}
@@ -281,25 +287,27 @@ export function ObjectDrawer({
             </Link>
           </Button>
         )}
-        {!object.licenceLocked && hasCoords && <ShareLiveButton objectId={object.objectId} name={object.name} />}
-        {can('objects', 'edit') && <MaintenanceControl objectId={object.objectId} inMaintenance={inMaintenance} onChange={(value) => setMaintenance({ id: object.objectId, value })} />}
+        {owned && !object.licenceLocked && hasCoords && <ShareLiveButton objectId={object.objectId} name={object.name} />}
+        {owned && can('objects', 'edit') && <MaintenanceControl objectId={object.objectId} inMaintenance={inMaintenance} onChange={(value) => setMaintenance({ id: object.objectId, value })} />}
       </div>
       <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
         <TabsList className="mx-4 mt-3 w-[calc(100%-2rem)]">
           <TabsTrigger value="overview">{t('Overview')}</TabsTrigger>
-          <TabsTrigger value="device">{t('Device')}</TabsTrigger>
+          {owned && <TabsTrigger value="device">{t('Device')}</TabsTrigger>}
           {hasVideo && <TabsTrigger value="video">{t('Video')}</TabsTrigger>}
           {canCommand && <TabsTrigger value="commands">{t('Commands')}</TabsTrigger>}
-          {can('documents') && object.type === 'VEHICLE' && <TabsTrigger value="documents">{t('Documents')}</TabsTrigger>}
+          {owned && can('documents') && object.type === 'VEHICLE' && <TabsTrigger value="documents">{t('Documents')}</TabsTrigger>}
         </TabsList>
         <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <Overview o={object} now={now} />
           {hasVideo && <RecentDriverEvents objectId={object.objectId} />}
         </TabsContent>
-        <TabsContent value="device" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-          <DeviceTab o={object} />
-        </TabsContent>
-        {can('documents') && object.type === 'VEHICLE' && (
+        {owned && (
+          <TabsContent value="device" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+            <DeviceTab o={object} />
+          </TabsContent>
+        )}
+        {owned && can('documents') && object.type === 'VEHICLE' && (
           <TabsContent value="documents" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             <CompliancePanel target={{ objectId: object.objectId, label: object.name }} />
           </TabsContent>

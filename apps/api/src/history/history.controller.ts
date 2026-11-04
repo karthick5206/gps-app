@@ -96,7 +96,7 @@ export class HistoryController {
   async trips(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query() q: HistoryQuery) {
     const trips = await this.history.trips(ctx, id, q.from, q.to);
     if (q.format !== 'csv') return trips;
-    const meta = await this.history.objectMeta(ctx, id);
+    const meta = await this.history.readableMeta(ctx, id);
     return csvFile('trips', trips, tripColumns(meta.tz));
   }
 
@@ -104,7 +104,7 @@ export class HistoryController {
   async stops(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query() q: HistoryQuery) {
     const stops = await this.history.stops(ctx, id, q.from, q.to);
     if (q.format !== 'csv') return stops;
-    const meta = await this.history.objectMeta(ctx, id);
+    const meta = await this.history.readableMeta(ctx, id);
     return csvFile('stops', stops, stopColumns(meta.tz));
   }
 

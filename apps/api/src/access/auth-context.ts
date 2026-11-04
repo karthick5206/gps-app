@@ -1,6 +1,15 @@
 import { DataScope, PermissionMap } from '@veetracer/shared';
 import { Request } from 'express';
 
+/** A vehicle of another company that this company may view (see VehicleShare). */
+export interface SharedVehicle {
+  objectId: string;
+  ownerCompanyId: string;
+  /** Nothing from before this time may be shown (ms). */
+  startAt: number;
+  alertsOn: boolean;
+}
+
 /** Who is calling and in which company they act; built per request from the access token. */
 export interface AuthContext {
   userId: string;
@@ -18,6 +27,11 @@ export interface AuthContext {
   dataScope: DataScope;
   branchIds: string[];
   objectIds: string[];
+  /**
+   * Vehicles shared with the company, in force now. Whole-company users only. Read paths opt in to these one by one
+   * (objectReadScopeWhere); objectScopeWhere never includes them, so edits and commands can't reach a shared vehicle.
+   */
+  shares?: SharedVehicle[];
   ip: string | null;
   /** Login session behind the access token (absent for internal contexts such as sockets or schedulers). */
   sessionId?: string | null;

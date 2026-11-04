@@ -17,6 +17,7 @@ import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { usePurgeAction } from '@/features/platform/PurgeDialog';
 import { useWithCompanyColumn } from '@/features/platform/all-companies';
+import { useShareVehicleAction } from '@/features/platform/ShareVehicleDialog';
 import { useTransferAction } from '@/features/platform/TransferDialog';
 import { z } from 'zod';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -207,6 +208,7 @@ export function ObjectsPage() {
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
   const purge = usePurgeAction('object');
   const transfer = useTransferAction('object');
+  const share = useShareVehicleAction();
   const cols = useWithCompanyColumn(columns);
   const groups = useEntityOptions<VehicleGroupDto>('/vehicle-groups', named, { enabled: can('vehicle_groups') });
   const filters = useMemo<MasterFilter[]>(
@@ -245,6 +247,7 @@ export function ObjectsPage() {
                   </DropdownMenuItem>
                 )}
                 {transfer.item({ id: r.id, name: rowLabel(r), companyId: r.companyId })}
+                {share.item({ id: r.id, name: rowLabel(r), companyId: r.companyId })}
                 {purge.item(r.id)}
               </>
             )}
@@ -252,6 +255,7 @@ export function ObjectsPage() {
     <ComplianceSheet target={compliance} onClose={() => setCompliance(null)} />
     <FuelSettingsDialog target={fuel} onClose={() => setFuel(null)} />
     {transfer.dialog}
+    {share.dialog}
     {purge.dialog}
     </>
   );

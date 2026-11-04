@@ -67,6 +67,16 @@ export class LicencePolicyService {
     return ids;
   }
 
+  /** Shared vehicles locked by their owner's expired licence (the viewing company can't renew them). */
+  async lockedSharedIds(shares: { objectId: string; ownerCompanyId: string }[] | undefined): Promise<Set<string>> {
+    const out = new Set<string>();
+    for (const owner of new Set((shares ?? []).map((x) => x.ownerCompanyId))) {
+      const locked = await this.lockedObjectIds({ companyId: owner, isSuperAdmin: false });
+      for (const x of shares ?? []) if (x.ownerCompanyId === owner && locked.has(x.objectId)) out.add(x.objectId);
+    }
+    return out;
+  }
+
   async assertViewable(ctx: Ctx, objectId: string): Promise<void> {
     if ((await this.lockedObjectIds(ctx)).has(objectId)) {
       throw new ForbiddenException({ statusCode: 403, code: 'LICENCE_EXPIRED', message: 'This vehicle’s licence has expired. Renew it to view its location, history and reports.' });

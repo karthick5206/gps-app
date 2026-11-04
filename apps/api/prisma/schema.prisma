@@ -86,6 +86,7 @@ model Company {
 
   partner        Partner           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   branches       Branch[]
+  sharedVehicles VehicleShare[]
   users          User[]
   roles          Role[]
   devices        Device[]
@@ -323,6 +324,7 @@ model TrackedObject {
   ioSessions      IoSession[]
   driverEvents    DriverEvent[]
   attendanceDays    AttendanceDay[]
+  sharedWith        VehicleShare[]
   attendanceOutings AttendanceOuting[]
 
   @@index([companyId, branchId])
@@ -1169,6 +1171,26 @@ model AttendanceSettings {
   anyBranchObjectIds String[] @default([])
   updatedById String?  @db.Uuid
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+}
+
+/// A vehicle of one company shown, view only, to another. The owner keeps the vehicle, its device and its licence.
+/// The other company sees it from startAt until endAt (open-ended when null). Only Super Admin manages these.
+model VehicleShare {
+  id           String    @id @default(uuid()) @db.Uuid
+  objectId     String    @db.Uuid
+  sharedWithId String    @db.Uuid
+  startAt      DateTime  @default(now()) @db.Timestamptz(3)
+  endAt        DateTime? @db.Timestamptz(3)
+  /// The other company also sees the vehicle's alerts.
+  alertsOn     Boolean   @default(false)
+  createdById  String?   @db.Uuid
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  object     TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  sharedWith Company       @relation(fields: [sharedWithId], references: [id], onDelete: Cascade)
+
+  @@unique([objectId, sharedWithId])
+  @@index([sharedWithId])
 }
 
 /// One person's saved day: the figures as they stood and the rules used, so later setting changes or data retention

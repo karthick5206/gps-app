@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Stop, Trip } from '@prisma/client';
 import { AlertDto, HistoryResponse, StopDto, TrackPoint, TripDto } from '@veetracer/shared';
-import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
+import { allCompaniesOr, objectScopeWhere, shareOf } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { toAlertDto } from '../alerts/alert-dto';
 import { LicencePolicyService } from '../licences/licence-policy.service';
@@ -43,6 +43,18 @@ interface Segments {
   stops: StopDto[];
 }
 
+const META_SELECT = {
+  id: true,
+  companyId: true,
+  name: true,
+  plateNumber: true,
+  branchId: true,
+  type: true,
+  vehicleType: true,
+  speedLimitKph: true,
+  company: { select: { timezone: true, retentionDays: true, settings: true } },
+} as const;
+
 @Injectable()
 export class HistoryService {
   constructor(
@@ -68,21 +80,24 @@ export class HistoryService {
   async objectMeta(ctx: AuthContext, objectId: string): Promise<ObjectMeta> {
     const o = await this.prisma.trackedObject.findFirst({
       where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { id: objectId }] },
-      select: {
-        id: true,
-        companyId: true,
-        name: true,
-        plateNumber: true,
-        branchId: true,
-        type: true,
-        vehicleType: true,
-        speedLimitKph: true,
-        company: { select: { timezone: true, retentionDays: true, settings: true } },
-      },
+      select: META_SELECT,
     });
     if (!o) throw new NotFoundException('Object not found');
     await this.licences?.assertViewable(ctx, objectId);
     return toMeta(o);
+  }
+
+  /**
+   * Like objectMeta, for showing a track: also accepts a vehicle shared with the company, limited to the time since
+   * the share began and following the owner's licence.
+   */
+  async readableMeta(ctx: AuthContext, objectId: string): Promise<ObjectMeta> {
+    const share = shareOf(ctx, objectId);
+    if (!share) return this.objectMeta(ctx, objectId);
+    const o = await this.prisma.trackedObject.findUnique({ where: { id: objectId }, select: META_SELECT });
+    if (!o || o.companyId !== share.ownerCompanyId) throw new NotFoundException('Object not found');
+    await this.licences?.assertViewable({ companyId: share.ownerCompanyId, isSuperAdmin: false }, objectId);
+    return { ...toMeta(o), notBefore: share.startAt, hideAlerts: !share.alertsOn };
   }
 
   /** Validates ?from&to (ISO), max 31 days, and clamps the start to the company retention. */
@@ -93,7 +108,7 @@ export class HistoryService {
     if (!Number.isFinite(from) || !Number.isFinite(to)) throw new BadRequestException('from and to must be ISO date-times');
     if (to <= from) throw new BadRequestException('to must be after from');
     if (to - from > HISTORY_MAX_DAYS * DAY_MS) throw new BadRequestException(`Range too long (max ${HISTORY_MAX_DAYS} days)`);
-    const floor = now - meta.retentionDays * DAY_MS;
+    const floor = Math.max(now - meta.retentionDays * DAY_MS, meta.notBefore ?? 0);
     return { from: Math.min(Math.max(from, floor), to), to };
   }
 
@@ -109,7 +124,7 @@ export class HistoryService {
   }
 
   async history(ctx: AuthContext, objectId: string, fromRaw?: string, toRaw?: string): Promise<HistoryResponse> {
-    const meta = await this.objectMeta(ctx, objectId);
+    const meta = await this.readableMeta(ctx, objectId);
     const { from, to } = this.resolveRange(fromRaw, toRaw, meta);
     const [rows, alerts, fuel] = await Promise.all([fetchPositions(this.prisma, objectId, from - 1, to, undefined, await this.skipFlags()), this.alerts(meta, from, to), this.fuelSeries(objectId, from, to)]);
     const { trips, stops } = await this.segments(meta, from, to, rows);
@@ -187,13 +202,13 @@ export class HistoryService {
   }
 
   async trips(ctx: AuthContext, objectId: string, fromRaw?: string, toRaw?: string): Promise<TripDto[]> {
-    const meta = await this.objectMeta(ctx, objectId);
+    const meta = await this.readableMeta(ctx, objectId);
     const { from, to } = this.resolveRange(fromRaw, toRaw, meta);
     return (await this.segments(meta, from, to)).trips;
   }
 
   async stops(ctx: AuthContext, objectId: string, fromRaw?: string, toRaw?: string): Promise<StopDto[]> {
-    const meta = await this.objectMeta(ctx, objectId);
+    const meta = await this.readableMeta(ctx, objectId);
     const { from, to } = this.resolveRange(fromRaw, toRaw, meta);
     return (await this.segments(meta, from, to)).stops;
   }
@@ -251,8 +266,10 @@ export class HistoryService {
         this.prisma.trip.findMany({ where: range, orderBy: { startTime: 'asc' } }),
         this.prisma.stop.findMany({ where: range, orderBy: { startTime: 'asc' } }),
       ]);
-      trips = dbTrips.map((t) => tripDto(t, meta));
-      stops = dbStops.map((s) => stopDto(s, meta));
+      // Through a share: a trip or stop that began before it is left out, or its earlier part would show.
+      const allowed = (r: { startTime: Date }) => r.startTime.getTime() >= (meta.notBefore ?? 0);
+      trips = dbTrips.filter(allowed).map((t) => tripDto(t, meta));
+      stops = dbStops.filter(allowed).map((s) => stopDto(s, meta));
     }
     if (boundary < to) {
       const points = rows ? rows.filter((r) => r.t >= boundary) : await fetchPositions(this.prisma, meta.id, boundary - 1, to, undefined, await this.skipFlags());
@@ -292,6 +309,7 @@ export class HistoryService {
   }
 
   private async alerts(meta: ObjectMeta, from: number, to: number): Promise<AlertDto[]> {
+    if (meta.hideAlerts) return [];
     const rows = await this.prisma.alert.findMany({
       where: { objectId: meta.id, occurredAt: { gte: new Date(from), lte: new Date(to) } },
       orderBy: { occurredAt: 'asc' },

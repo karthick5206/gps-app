@@ -1,6 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { DashboardSummary, LiveObject, MOVEMENT_STATUSES, type VehicleDayStatsDto } from '@veetracer/shared';
-import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
+import { allCompaniesOr, objectReadScopeWhere, objectScopeWhere, shareOf } from '../access/access-rules';
+import { asSharedLive } from './shared-live';
 import { AuthContext } from '../access/auth-context';
 import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -28,15 +29,15 @@ export class LiveService {
    * moving / idle time, max speed, trips), stops started today, the trip in progress (summarizer's open segment) or
    * today's last trip, and the odometer (all recorded km + offset). Licence-locked vehicles are left out.
    */
-  async dayStats(ctx: AuthContext, now = Date.now()): Promise<Record<string, VehicleDayStatsDto>> {
-    const key = `${ctx.userId}:${ctx.allCompanies ? 'all' : ctx.companyId}`;
+  async dayStats(ctx: AuthContext, now = Date.now(), includeShared = false): Promise<Record<string, VehicleDayStatsDto>> {
+    const key = `${ctx.userId}:${ctx.allCompanies ? 'all' : ctx.companyId}:${includeShared}`;
     const hit = this.dayStatsCache.get(key);
     if (hit && now - hit.at < DAY_STATS_CACHE_MS) return hit.value;
     const objects = await this.prisma.trackedObject.findMany({
-      where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { isActive: true }] },
+      where: { AND: [allCompaniesOr(ctx, includeShared ? objectReadScopeWhere(ctx) : objectScopeWhere(ctx)), { isActive: true }] },
       select: { id: true, odometerOffsetKm: true, company: { select: { timezone: true } } },
     });
-    const locked = (await this.licences?.lockedObjectIds(ctx)) ?? new Set<string>();
+    const locked = await this.lockedFor(ctx, includeShared);
     const list = objects.filter((o) => !locked.has(o.id));
     const ids = list.map((o) => o.id);
     const out: Record<string, VehicleDayStatsDto> = {};
@@ -63,6 +64,9 @@ export class LiveService {
     const cursor = new Map(cursors.map((c) => [c.objectId, (c.state as { seg?: SegState } | null)?.seg ?? null]));
     for (const o of list) {
       const { day, start } = dayOf.get(o.company.timezone)!;
+      // Today's figures would include the time before a share that began today.
+      const share = includeShared ? shareOf(ctx, o.id) : undefined;
+      if (share && share.startAt > start.getTime()) continue;
       const s = summaries.find((x) => x.objectId === o.id && x.day.toISOString().slice(0, 10) === day);
       const seg = cursor.get(o.id);
       let open: ReturnType<typeof openSegments>['trip'] = null;
@@ -92,10 +96,20 @@ export class LiveService {
     return out;
   }
 
-  /** Every active object in scope; DB metadata wins over the cached copy inside the live state. */
-  async snapshot(ctx: AuthContext): Promise<LiveObject[]> {
+  /** Own licence locks, plus the shared vehicles whose owner's licence has expired. */
+  private async lockedFor(ctx: AuthContext, includeShared: boolean): Promise<Set<string>> {
+    const own = (await this.licences?.lockedObjectIds(ctx)) ?? new Set<string>();
+    if (!includeShared || !ctx.shares?.length) return own;
+    return new Set([...own, ...((await this.licences?.lockedSharedIds(ctx.shares)) ?? [])]);
+  }
+
+  /**
+   * Every active object in scope; DB metadata wins over the cached copy inside the live state. Only the live map asks
+   * for shared vehicles: company figures such as the dashboard stay the company's own.
+   */
+  async snapshot(ctx: AuthContext, includeShared = false): Promise<LiveObject[]> {
     const objects = await this.prisma.trackedObject.findMany({
-      where: { AND: [allCompaniesOr(ctx, objectScopeWhere(ctx)), { isActive: true }] },
+      where: { AND: [allCompaniesOr(ctx, includeShared ? objectReadScopeWhere(ctx) : objectScopeWhere(ctx)), { isActive: true }] },
       select: {
         id: true,
         companyId: true,
@@ -112,8 +126,9 @@ export class LiveService {
       orderBy: { name: 'asc' },
     });
     const live = await this.liveState.read(objects.map((o) => o.id));
-    const locked = (await this.licences?.lockedObjectIds(ctx)) ?? new Set<string>();
-    return objects.map((o) => {
+    const locked = await this.lockedFor(ctx, includeShared);
+    const list = objects.filter((o) => !(includeShared && shareOf(ctx, o.id) && locked.has(o.id)));
+    return list.map((o) => {
       const device = o.assignments[0]?.device ?? null;
       const meta: ObjectMeta = {
         objectId: o.id,
@@ -135,7 +150,8 @@ export class LiveService {
       // Licence expired past grace: listed (so it can be renewed) but without position or telemetry.
       if (locked.has(o.id)) return { ...noDataLive(meta), licenceLocked: true };
       const state = live.get(o.id);
-      return state ? { ...state, ...meta } : noDataLive(meta);
+      const row = state ? { ...state, ...meta } : noDataLive(meta);
+      return includeShared && shareOf(ctx, o.id) ? asSharedLive(row) : row;
     });
   }
 

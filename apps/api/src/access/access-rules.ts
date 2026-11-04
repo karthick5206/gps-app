@@ -1,7 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Action, ACTIONS, can, DataScope, MENUS, MenuKey, PermissionMap } from '@veetracer/shared';
-import { AuthContext } from './auth-context';
+import { AuthContext, SharedVehicle } from './auth-context';
 
 export interface RoleGrant {
   dataScope: DataScope;
@@ -68,6 +68,17 @@ type ScopeCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'obj
 export function objectScopeWhere(ctx: ScopeCtx): Prisma.TrackedObjectWhereInput {
   if (ctx.dataScope === 'COMPANY') return { companyId: ctx.companyId };
   return { companyId: ctx.companyId, OR: [{ branchId: { in: ctx.branchIds } }, { id: { in: ctx.objectIds } }] };
+}
+
+/** The share behind a vehicle the company doesn't own, if any. */
+export function shareOf(ctx: Pick<AuthContext, 'shares'>, objectId: string): SharedVehicle | undefined {
+  return ctx.shares?.find((x) => x.objectId === objectId);
+}
+
+/** Read paths only: the caller's objects plus those shared with their company. Never use it for a change. */
+export function objectReadScopeWhere(ctx: ScopeCtx & Pick<AuthContext, 'shares'>): Prisma.TrackedObjectWhereInput {
+  const own = objectScopeWhere(ctx);
+  return ctx.shares?.length ? { OR: [own, { id: { in: ctx.shares.map((x) => x.objectId) } }] } : own;
 }
 
 export function branchScopeWhere(ctx: ScopeCtx): Prisma.BranchWhereInput {

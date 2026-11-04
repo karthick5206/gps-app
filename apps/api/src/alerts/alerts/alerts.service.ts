@@ -54,6 +54,21 @@ export class AlertsService {
     return ids === null ? Prisma.sql`a."companyId" = ${ctx.companyId}::uuid` : Prisma.sql`a."companyId" = ${ctx.companyId}::uuid AND a."objectId" = ANY(${ids}::uuid[])`;
   }
 
+  /** To read, not to act on: also the alerts of vehicles shared with the company, since the share began, if it includes them. */
+  private async readScopeWhere(ctx: AuthContext): Promise<Prisma.AlertWhereInput> {
+    const own = await this.scopeWhere(ctx);
+    const shares = (ctx.shares ?? []).filter((x) => x.alertsOn);
+    return shares.length ? { OR: [own, ...shares.map((x) => ({ objectId: x.objectId, occurredAt: { gte: new Date(x.startAt) } }))] } : own;
+  }
+
+  private async readScopeSql(ctx: AuthContext): Promise<Prisma.Sql> {
+    const own = await this.scopeSql(ctx);
+    const shares = (ctx.shares ?? []).filter((x) => x.alertsOn);
+    if (!shares.length) return own;
+    const shared = shares.map((x) => Prisma.sql`(a."objectId" = ${x.objectId}::uuid AND a."occurredAt" >= ${new Date(x.startAt)})`);
+    return Prisma.sql`((${own}) OR ${Prisma.join(shared, ' OR ')})`;
+  }
+
   /** Ids among `ids` that `userId` has read (see `readSql`). */
   async readIds(userId: string, ids: string[]): Promise<Set<string>> {
     if (!ids.length) return new Set();
@@ -84,7 +99,13 @@ export class AlertsService {
   }
 
   private async toUserDtos(ctx: AuthContext, rows: Alert[]): Promise<AlertDto[]> {
-    return this.toDtos(rows, await this.readIds(ctx.userId, rows.map((r) => r.id)));
+    return this.ownerAcks(ctx, rows, await this.toDtos(rows, await this.readIds(ctx.userId, rows.map((r) => r.id))));
+  }
+
+  /** Acknowledging a shared vehicle's alert is the owner's. */
+  private ownerAcks(ctx: AuthContext, rows: Alert[], dtos: AlertDto[]): AlertDto[] {
+    const notOurs = new Set(rows.filter((r) => r.companyId !== ctx.companyId).map((r) => r.id));
+    return notOurs.size ? dtos.map((d) => (notOurs.has(d.id) ? { ...d, ackRequired: false } : d)) : dtos;
   }
 
   /**
@@ -93,14 +114,14 @@ export class AlertsService {
    * primary key serves the EXISTS probe.
    */
   async list(ctx: AuthContext, q: AlertListQuery): Promise<Paginated<AlertDto> | StreamableFile> {
-    const and: Prisma.Sql[] = [await this.scopeSql(ctx)];
+    const and: Prisma.Sql[] = [await this.readScopeSql(ctx)];
     if (q.from) and.push(Prisma.sql`a."occurredAt" >= ${new Date(q.from)}`);
     if (q.to) and.push(Prisma.sql`a."occurredAt" <= ${new Date(q.to)}`);
     if (q.objectId) and.push(Prisma.sql`a."objectId" = ${q.objectId}::uuid`);
     if (q.type) and.push(Prisma.sql`a."type" = ${q.type}`);
     if (q.severity) and.push(Prisma.sql`a."severity" = ${q.severity}::"AlertSeverity"`);
     if (q.status) and.push(Prisma.sql`a."status" = ${q.status}::"AlertStatus"`);
-    if (q.pendingAck !== undefined) and.push(q.pendingAck ? Prisma.sql`a."status" = 'NEW' AND ${ACK_REQUIRED_SQL}` : Prisma.sql`NOT (a."status" = 'NEW' AND ${ACK_REQUIRED_SQL})`);
+    if (q.pendingAck !== undefined) and.push(q.pendingAck ? Prisma.sql`a."companyId" = ${ctx.companyId}::uuid AND a."status" = 'NEW' AND ${ACK_REQUIRED_SQL}` : Prisma.sql`NOT (a."status" = 'NEW' AND ${ACK_REQUIRED_SQL})`);
     if (q.read !== undefined) and.push(q.read ? readSql(ctx.userId) : Prisma.sql`NOT ${readSql(ctx.userId)}`);
     if (q.branchId) {
       const ids = await this.prisma.trackedObject.findMany({ where: { companyId: ctx.companyId, branchId: q.branchId }, select: { id: true } });
@@ -132,7 +153,7 @@ export class AlertsService {
       this.prisma.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM "Alert" a WHERE ${where}`,
     ]);
     const total = counted[0]?.n ?? 0;
-    const items = await this.toDtos(rows, new Set(rows.filter((r) => r.read).map((r) => r.id)));
+    const items = this.ownerAcks(ctx, rows, await this.toDtos(rows, new Set(rows.filter((r) => r.read).map((r) => r.id))));
     if (csv) {
       return csvFile('alerts', items, [
         { header: 'Time', value: (a) => a.occurredAt },
@@ -156,9 +177,9 @@ export class AlertsService {
   }
 
   async get(ctx: AuthContext, id: string): Promise<AlertDto> {
-    const row = await this.find(ctx, id);
+    const row = await this.findReadable(ctx, id);
     const dto = (await this.toUserDtos(ctx, [row]))[0];
-    return isEmergencyAlert(row.type) ? { ...dto, contacts: await this.contacts(row) } : dto;
+    return isEmergencyAlert(row.type) && row.companyId === ctx.companyId ? { ...dto, contacts: await this.contacts(row) } : dto;
   }
 
   /** Phone numbers for the SOS screen: the driver assigned at the time of the alert and the tracker's SIM. */
@@ -178,14 +199,14 @@ export class AlertsService {
   async unreadCount(ctx: AuthContext): Promise<AlertUnreadCount> {
     const since = new Date(Date.now() - UNREAD_WINDOW_MS);
     const rows = await this.prisma.$queryRaw<{ n: number; p: number }[]>`
-      SELECT count(*) FILTER (WHERE NOT ${readSql(ctx.userId)})::int AS n, count(*) FILTER (WHERE ${ACK_REQUIRED_SQL})::int AS p FROM "Alert" a
-      WHERE ${await this.scopeSql(ctx)} AND a."status" = 'NEW' AND a."occurredAt" >= ${since}`;
+      SELECT count(*) FILTER (WHERE NOT ${readSql(ctx.userId)})::int AS n, count(*) FILTER (WHERE a."companyId" = ${ctx.companyId}::uuid AND ${ACK_REQUIRED_SQL})::int AS p FROM "Alert" a
+      WHERE ${await this.readScopeSql(ctx)} AND a."status" = 'NEW' AND a."occurredAt" >= ${since}`;
     return { count: rows[0]?.n ?? 0, pendingAck: rows[0]?.p ?? 0 };
   }
 
   /** Marks one alert read for the caller only (idempotent). */
   async markRead(ctx: AuthContext, id: string): Promise<{ ok: true }> {
-    await this.find(ctx, id);
+    await this.findReadable(ctx, id);
     await this.prisma.alertRead.createMany({ data: [{ alertId: id, userId: ctx.userId }], skipDuplicates: true });
     await this.sync.read(ctx.userId, { ids: [id] });
     return { ok: true };
@@ -201,7 +222,7 @@ export class AlertsService {
       await this.sync.read(ctx.userId, { all: true });
       return { ok: true, count: null };
     }
-    const rows = dto.ids.length ? await this.prisma.alert.findMany({ where: { AND: [await this.scopeWhere(ctx), { id: { in: dto.ids } }] }, select: { id: true } }) : [];
+    const rows = dto.ids.length ? await this.prisma.alert.findMany({ where: { AND: [await this.readScopeWhere(ctx), { id: { in: dto.ids } }] }, select: { id: true } }) : [];
     const ids = rows.map((r) => r.id);
     if (ids.length) {
       await this.prisma.alertRead.createMany({ data: ids.map((alertId) => ({ alertId, userId: ctx.userId })), skipDuplicates: true });
@@ -251,6 +272,12 @@ export class AlertsService {
     await this.find(ctx, id);
     const rows = await this.prisma.notificationLog.findMany({ where: { alertId: id }, orderBy: { createdAt: 'asc' } });
     return rows.map(toNotificationLogDto);
+  }
+
+  private async findReadable(ctx: AuthContext, id: string): Promise<Alert> {
+    const row = await this.prisma.alert.findFirst({ where: { AND: [await this.readScopeWhere(ctx), { id }] } });
+    if (!row) throw new NotFoundException('Alert not found');
+    return row;
   }
 
   private async find(ctx: AuthContext, id: string): Promise<Alert> {

@@ -50,6 +50,8 @@ export class TransferService {
       const current = await tx.deviceAssignment.findMany({ where: { objectId, toTime: null }, select: { deviceId: true } });
       const deviceIds = current.map((a) => a.deviceId);
       await tx.driverAssignment.updateMany({ where: { objectId, toTime: null }, data: { toTime: now } });
+      // Shares were the old owner's decision.
+      await tx.vehicleShare.deleteMany({ where: { objectId } });
       let movedId = objectId;
 
       if (withHistory) {

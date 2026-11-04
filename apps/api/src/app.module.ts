@@ -19,6 +19,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { DmsModule } from './dms/dms.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { TransferModule } from './transfer/transfer.module';
+import { VehicleSharesModule } from './vehicle-shares/vehicle-shares.module';
 import { LiveModule } from './live/live.module';
 import { GeofencesModule } from './masters/geofences/geofences.module';
 import { MastersModule } from './masters/masters.module';
@@ -75,6 +76,7 @@ import { RelayModule } from './relay/relay.controller';
     ExpensesModule,
     DmsModule,
     TransferModule,
+    VehicleSharesModule,
     MastersModule,
     LiveModule,
     AlertsModule,

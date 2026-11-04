@@ -14,9 +14,10 @@ import {
   StopDto,
   SummaryReportRow,
   TripDto,
+  SHARED_VEHICLE_REPORTS,
 } from '@veetracer/shared';
 import { objectScopeWhere } from '../access/access-rules';
-import { AuthContext } from '../access/auth-context';
+import { AuthContext, SharedVehicle } from '../access/auth-context';
 import { toAlertDto } from '../alerts/alert-dto';
 import { stopDto, tripDto } from '../history/history.service';
 import { LicencePolicyService } from '../licences/licence-policy.service';
@@ -58,7 +59,7 @@ export interface ReportData extends ReportResponse {
   totalRows: number;
 }
 
-type ScopeCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'objectIds'>;
+type ScopeCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'objectIds'> & Pick<Partial<AuthContext>, 'shares'>;
 
 @Injectable()
 export class ReportDataService {
@@ -117,18 +118,49 @@ export class ReportDataService {
 
   /** Builds a report section; rows with a location get their addresses filled (cache first, then a bounded number of lookups). */
   async generate(ctx: ScopeCtx, req: ReportRequest, maxRows = REPORT_JSON_MAX_ROWS): Promise<ReportData> {
-    const data = await this.build(ctx, req, maxRows);
+    const shared = req.scope?.objectIds.map((id) => ctx.shares?.find((x) => x.objectId === id)).filter((x) => !!x) ?? [];
+    const data = shared.length ? await this.buildShared(ctx, req, shared[0], maxRows) : await this.build(ctx, req, maxRows);
     await this.addresses.enrichReport(data.type, data.rows);
     return data;
   }
 
-  private async build(ctx: ScopeCtx, req: ReportRequest, maxRows: number): Promise<ReportData> {
+  /**
+   * A shared vehicle's report: one vehicle at a time, its movement only, nothing from before the share. It runs as the
+   * owner company narrowed to that vehicle, because the rows and the licence are the owner's; the viewer's name goes on it.
+   */
+  private async buildShared(ctx: ScopeCtx, req: ReportRequest, share: SharedVehicle, maxRows: number): Promise<ReportData> {
+    this.validate(req);
+    const scope = req.scope!;
+    if (scope.objectIds.length !== 1 || scope.branchIds.length || scope.groupIds.length) throw new BadRequestException('Run a report for a shared vehicle on its own');
+    const allowed = (SHARED_VEHICLE_REPORTS as readonly string[]).includes(req.type) || (req.type === 'ALERTS' && share.alertsOn);
+    if (!allowed) throw new BadRequestException('This report is not available for a shared vehicle');
+    const [viewer, owner] = await Promise.all([
+      this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { name: true } }),
+      this.prisma.company.findUniqueOrThrow({ where: { id: share.ownerCompanyId }, select: { timezone: true } }),
+    ]);
+    const tz = owner.timezone;
+    // Reports by the day can't split a day: they begin the day after a share that began part-way through one.
+    const firstDay = localDayKey(share.startAt, tz);
+    const byDay = req.type === 'SUMMARY' || req.type === 'DISTANCE' || req.type === 'ENGINE_HOURS';
+    const earliest = byDay && localMidnight(firstDay, tz) < share.startAt ? addDays(firstDay, 1) : firstDay;
+    const owned: ScopeCtx = { companyId: share.ownerCompanyId, dataScope: 'ASSIGNED', branchIds: [], objectIds: [share.objectId], shares: [] };
+    const none = earliest > req.to;
+    const data = await this.build(
+      none ? { ...owned, objectIds: [] } : owned,
+      { ...req, from: none ? req.to : earliest > req.from ? earliest : req.from, scope: none ? { branchIds: [], groupIds: [], objectIds: [] } : scope },
+      maxRows,
+      share.startAt,
+    );
+    return { ...data, companyName: viewer.name };
+  }
+
+  private async build(ctx: ScopeCtx, req: ReportRequest, maxRows: number, notBefore = 0): Promise<ReportData> {
     this.validate(req);
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { name: true, timezone: true } });
     const tz = company.timezone;
     const objects = await this.scopeObjects(ctx, req.scope ?? { branchIds: [], groupIds: [], objectIds: [] });
     const ids = [...objects.keys()];
-    const range = { gte: new Date(localMidnight(req.from, tz)), lt: new Date(localMidnight(addDays(req.to, 1), tz)) };
+    const range = { gte: new Date(Math.max(localMidnight(req.from, tz), notBefore)), lt: new Date(localMidnight(addDays(req.to, 1), tz)) };
     const base = { type: req.type, from: req.from, to: req.to, companyName: company.name, tz };
     const empty: ReportData = { ...base, rows: [], totals: {}, truncated: false, totalRows: 0 };
     const name = (id: string) => objects.get(id)?.name ?? 'Unknown object';

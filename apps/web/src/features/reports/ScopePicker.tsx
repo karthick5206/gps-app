@@ -1,4 +1,5 @@
-import type { BranchDto, LiveObject, ReportScope, TrackedObjectDto, VehicleGroupDto } from '@veetracer/shared';
+import { useQuery } from '@tanstack/react-query';
+import type { BranchDto, LiveObject, ReportScope, SharedVehicleDto, TrackedObjectDto, VehicleGroupDto } from '@veetracer/shared';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Field } from '@/components/ui/field';
@@ -6,6 +7,7 @@ import { MultiSelect, type Option } from '@/components/ui/multi-select';
 import { useAuth } from '@/features/auth/auth-context';
 import { liveStore } from '@/features/live/live-store';
 import { named, useEntityOptions } from '@/features/masters/use-options';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const objectOption = (o: TrackedObjectDto): Option => ({ value: o.id, label: o.name, description: o.plateNumber ?? undefined });
@@ -28,7 +30,15 @@ function useScopeVehicles(q: string) {
       .map((o: LiveObject): Option => ({ value: o.objectId, label: o.name, description: o.plateNumber ?? undefined }))
       .sort((a, b) => collator.compare(a.label, b.label));
   }, [version]);
-  if (viaMaster) return { available: true, options: remote.options, loading: remote.loading, onSearch: true };
+  // Other companies' vehicles shared with this one; the Objects master lists only the company's own.
+  const shared = useQuery({ queryKey: ['vehicle-shares-mine'], queryFn: ({ signal }) => api.get<SharedVehicleDto[]>('/vehicle-shares/mine', undefined, signal), enabled: viaMaster, staleTime: 60_000 });
+  const sharedOptions = useMemo(() => {
+    const text = q.trim().toLowerCase();
+    return (shared.data ?? [])
+      .filter((o) => !text || o.name.toLowerCase().includes(text) || o.plateNumber?.toLowerCase().includes(text))
+      .map((o): Option => ({ value: o.objectId, label: o.name, description: o.plateNumber ?? undefined }));
+  }, [shared.data, q]);
+  if (viaMaster) return { available: true, options: [...remote.options, ...sharedOptions], loading: remote.loading, onSearch: true };
   if (viaLive) return { available: true, options: live, loading: !liveStore.snapshotLoaded, onSearch: false };
   return { available: false, options: [] as Option[], loading: false, onSearch: false };
 }

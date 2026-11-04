@@ -137,6 +137,8 @@ export function chargeState(o: Pick<LiveObject, 'charging' | 'type'>): { kind: '
 }
 
 export interface LiveObject {
+  /** Another company's vehicle shared with this company: view only. */
+  shared?: boolean;
   /** In maintenance: alerts are suppressed. */
   inMaintenance?: boolean;
   objectId: string;

@@ -110,6 +110,7 @@ const ObjectRow = memo(function ObjectRow({
           <span className="block truncate text-sm font-medium">{o.name}</span>
           <span className="block truncate text-xs text-muted-foreground">
             {company && <span className="font-medium text-foreground/80">{company} · </span>}
+            {o.shared && <span className="font-medium text-foreground/80">{t('Shared')} · </span>}
             {o.plateNumber ?? o.uniqueId ?? '—'}
             {o.status !== 'NO_DATA' && <> · <span className="tabular-nums">{Math.round(o.speedKph)} km/h</span></>}
             {o.acOn ? <SnowflakeIcon className="ms-1.5 inline size-3 text-sky-600" aria-label={t('AC on')} /> : null}

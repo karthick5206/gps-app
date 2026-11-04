@@ -85,10 +85,10 @@ function SwitchRow({ label, hint, checked, onChange, disabled }: { label: string
 
 /** Vehicle picker fed by the live snapshot (objects with a position). */
 function useVehiclePositions(enabled: boolean) {
-  const [items, setItems] = useState<LiveObject[]>(() => liveStore.all());
+  const [items, setItems] = useState<LiveObject[]>(() => liveStore.all().filter((o) => !o.shared));
   useEffect(() => {
     if (!enabled) return;
-    const refresh = () => setItems(liveStore.all());
+    const refresh = () => setItems(liveStore.all().filter((o) => !o.shared));
     const unsub = liveStore.subscribe((e) => {
       if (e.type !== 'batch') refresh();
     });

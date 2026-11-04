@@ -2,7 +2,8 @@ import { Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, WebSocketGateway } from '@nestjs/websockets';
 import { ALL_COMPANIES, AlertDto, AlertsAckedEvent, LiveObject, SystemHealthSummary } from '@veetracer/shared';
 import { Namespace, Socket } from 'socket.io';
-import { hasPermission, objectScopeWhere } from '../access/access-rules';
+import { hasPermission, objectScopeWhere, shareOf } from '../access/access-rules';
+import { asSharedLive } from './shared-live';
 import { AuthContext } from '../access/auth-context';
 import { AuthContextService } from '../access/auth-context.service';
 import type { AlertStateMessage } from '../alerts/alerts/alert-sync.service';
@@ -46,6 +47,8 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   private readonly logger = new Logger(LiveGateway.name);
   private readonly clients = new Map<string, Client>();
   private readonly byCompany = new Map<string, Set<Client>>();
+  /** Sockets of the companies a vehicle is shared with. */
+  private readonly byShared = new Map<string, Set<Client>>();
   private timers: NodeJS.Timeout[] = [];
   private invalidateTimer: NodeJS.Timeout | null = null;
 
@@ -92,6 +95,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (!socket.connected) return;
     this.clients.set(socket.id, client);
     this.index(client);
+    this.indexShares(client);
     apiMetrics.sockets = this.clients.size;
   }
 
@@ -100,6 +104,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (!client) return;
     this.clients.delete(socket.id);
     this.byCompany.get(roomOf(client))?.delete(client);
+    this.unindexShares(client);
     apiMetrics.sockets = this.clients.size;
   }
 
@@ -122,6 +127,22 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     this.byCompany.set(roomOf(client), set);
   }
 
+  private indexShares(client: Client): void {
+    for (const x of client.ctx.shares ?? []) {
+      const set = this.byShared.get(x.objectId) ?? new Set<Client>();
+      set.add(client);
+      this.byShared.set(x.objectId, set);
+    }
+  }
+
+  private unindexShares(client: Client): void {
+    for (const x of client.ctx.shares ?? []) {
+      const set = this.byShared.get(x.objectId);
+      set?.delete(client);
+      if (set && !set.size) this.byShared.delete(x.objectId);
+    }
+  }
+
   private onUpdate(message: string): void {
     let update: LiveUpdate;
     try {
@@ -129,13 +150,15 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     } catch {
       return;
     }
-    const clients = this.clientsOf(update.companyId);
-    if (!clients) return;
     const objectId = update.live.objectId;
-    for (const client of clients) {
+    for (const client of this.clientsOf(update.companyId) ?? []) {
       if (!hasPermission(client.ctx, 'live_map', 'view')) continue;
       if (client.locked.has(objectId)) continue;
       if (client.allowed === null || client.allowed.has(objectId)) client.pending.set(objectId, update.live);
+    }
+    for (const client of this.byShared.get(objectId) ?? []) {
+      if (!hasPermission(client.ctx, 'live_map', 'view') || client.locked.has(objectId)) continue;
+      client.pending.set(objectId, asSharedLive(update.live));
     }
   }
 
@@ -147,11 +170,14 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     } catch {
       return;
     }
-    const clients = this.clientsOf(event.companyId);
-    if (!clients) return;
-    for (const client of clients) {
+    for (const client of this.clientsOf(event.companyId) ?? []) {
       if (!hasPermission(client.ctx, 'alerts', 'view')) continue;
       if (client.allowed === null || client.allowed.has(event.alert.objectId)) client.socket.emit('alert', event.alert);
+    }
+    // Only when the share includes alerts; acknowledging stays with the owner.
+    for (const client of this.byShared.get(event.alert.objectId) ?? []) {
+      if (!hasPermission(client.ctx, 'alerts', 'view') || client.locked.has(event.alert.objectId)) continue;
+      if (shareOf(client.ctx, event.alert.objectId)?.alertsOn) client.socket.emit('alert', { ...event.alert, ackRequired: false });
     }
   }
 
@@ -209,7 +235,9 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   private async lockedObjects(ctx: AuthContext): Promise<Set<string>> {
-    return (await this.licences?.lockedObjectIds(ctx)) ?? new Set();
+    const own = (await this.licences?.lockedObjectIds(ctx)) ?? new Set<string>();
+    if (!ctx.shares?.length) return own;
+    return new Set([...own, ...((await this.licences?.lockedSharedIds(ctx.shares)) ?? [])]);
   }
 
   private scheduleRefresh(): void {
@@ -228,7 +256,9 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         const requested = ctx.allCompanies ? ALL_COMPANIES : ctx.companyId !== ctx.homeCompanyId ? ctx.companyId : undefined;
         const next = await this.contexts.forUser(ctx.userId, requested, ctx.ip);
         if (!hasPermission(next, 'live_map', 'view') && !hasPermission(next, 'alerts', 'view')) throw new Error('Permission denied');
+        this.unindexShares(client);
         client.ctx = next;
+        this.indexShares(client);
         client.allowed = await this.allowedObjects(next);
         client.locked = await this.lockedObjects(next);
       } catch (error) {

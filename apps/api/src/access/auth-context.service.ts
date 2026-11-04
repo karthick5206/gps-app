@@ -5,7 +5,7 @@ import { AppEnv } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolvePermissions } from './access-rules';
 import { ALL_COMPANIES } from '@veetracer/shared';
-import { AccessTokenPayload, AuthContext } from './auth-context';
+import { AccessTokenPayload, AuthContext, SharedVehicle } from './auth-context';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -78,7 +78,18 @@ export class AuthContextService {
       dataScope,
       branchIds: user.branches.map((b) => b.branchId),
       objectIds: user.objects.map((o) => o.objectId),
+      shares: dataScope === 'COMPANY' && !allCompanies ? await this.sharesOf(companyId) : [],
       ip,
     };
+  }
+
+  /** Vehicles of other companies shared with this one right now. */
+  private async sharesOf(companyId: string): Promise<SharedVehicle[]> {
+    const now = new Date();
+    const rows = await this.prisma.vehicleShare.findMany({
+      where: { sharedWithId: companyId, startAt: { lte: now }, OR: [{ endAt: null }, { endAt: { gt: now } }], object: { isActive: true, companyId: { not: companyId } } },
+      select: { objectId: true, startAt: true, alertsOn: true, object: { select: { companyId: true } } },
+    });
+    return rows.map((r) => ({ objectId: r.objectId, ownerCompanyId: r.object.companyId, startAt: r.startAt.getTime(), alertsOn: r.alertsOn }));
   }
 }
