@@ -16,8 +16,10 @@ android {
 }
 
 dependencies {
-  // AlarmMessagingService extends Expo's push service, so pushes are still shown and handled as before.
-  implementation project(':expo-notifications')
+  // AlarmMessagingService extends Expo's push service, so pushes are still shown and handled as before. Expo ships it
+  // ready-built (local-maven-repo in node_modules/expo-notifications); the app brings it at run time. Keep the version
+  // equal to the installed expo-notifications.
+  compileOnly 'host.exp.exponent:expo.modules.notifications:58.1.5'
   implementation 'com.google.firebase:firebase-messaging:25.0.1'
   implementation 'androidx.core:core-ktx:1.17.0'
 }
