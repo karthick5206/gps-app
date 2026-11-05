@@ -7,9 +7,13 @@ export function timeAgo(ms: number | undefined): string {
   const sameDay = d.toDateString() === new Date().toDateString();
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: sameDay ? '2-digit' : undefined });
   const day = sameDay ? '' : `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })} `;
+  return `${day}${time} (${ago(ms)})`;
+}
+
+/** "10 s ago", "3 min ago", "2 h ago". */
+export function ago(ms: number): string {
   const sec = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  const ago = sec < 60 ? `${sec} s ago` : sec < 3600 ? `${Math.round(sec / 60)} min ago` : `${Math.round(sec / 3600)} h ago`;
-  return `${day}${time} (${ago})`;
+  return sec < 60 ? `${sec} s ago` : sec < 3600 ? `${Math.round(sec / 60)} min ago` : `${Math.round(sec / 3600)} h ago`;
 }
 
 export const metres = (m: number | null | undefined) => (m == null ? '—' : `± ${Math.round(m)} m`);

@@ -1,20 +1,19 @@
 import { router } from 'expo-router';
-import { ExternalLink, LogOut, Play, Square, UploadCloud } from 'lucide-react-native';
+import { ChevronRight, ExternalLink, Play, Square } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Linking, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AttendanceCard } from '@/components/AttendanceCard';
-import { BatteryCard, OemCard, PermissionsCard, useChecks } from '@/components/ChecksCards';
+import { NeedsAttention, useChecks } from '@/components/ChecksCards';
 import { SosButton } from '@/components/SosButton';
-import { Body, Button, Card, Row } from '@/components/ui';
-import { beginTracking, deactivate as deactivatePhone, isInactive, permissionsReady, recheckInactive, syncStopReason } from '@/lib/control';
-import { kmh, metres, timeAgo } from '@/lib/format';
+import { Body, Button, Card } from '@/components/ui';
+import { beginTracking, isInactive, permissionsReady, recheckInactive, syncStopReason } from '@/lib/control';
+import { ago } from '@/lib/format';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
-import { resumeIfWanted, stopTracking, Tracker, useTrackerStatus } from '@/lib/tracking';
+import { resumeIfWanted, stopTracking, useTrackerStatus } from '@/lib/tracking';
 
 const RECHECK_EVERY_MS = 5 * 60_000;
-const WEB_URL = 'https://app.veetrax.com';
 const PLAY_STORE_VEETRAX = 'https://play.google.com/store/apps/details?id=com.sasvata.veetrax';
 
 /** Opens the VeeTrax app (its veetrax:// scheme), else the download page. */
@@ -22,7 +21,15 @@ function openVeetrax() {
   Linking.openURL('veetrax://').catch(() => Linking.openURL(PLAY_STORE_VEETRAX).catch(() => undefined));
 }
 
-const dateOnly = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+function NavRow({ title, onPress }: { title: string; onPress: () => void }) {
+  const c = useColors();
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.navRow, { opacity: pressed ? 0.6 : 1 }]}>
+      <Text style={[styles.navText, { color: c.text }]}>{title}</Text>
+      <ChevronRight color={c.muted} size={20} />
+    </Pressable>
+  );
+}
 
 export default function HomeScreen() {
   useStoreVersion();
@@ -55,8 +62,11 @@ export default function HomeScreen() {
   const blocked = isInactive(status);
   const required = !!status?.required;
   const on = !!status?.running;
-  const killed = !!status && status.wanted && !status.running && !status.stopReason;
+  const killed = !!status && status.wanted && !status.running && !status.stopReason && !busy;
   const queued = status?.queueSize ?? 0;
+  const trialEnded = !!session?.trialEndsAt && Date.parse(session.trialEndsAt) < Date.now();
+  // Running but its points are not getting through: says so instead of a calm "sent 3 h ago".
+  const stuck = on && queued > 0 && !!status?.lastError;
 
   const start = async () => {
     if (!(await permissionsReady())) return router.push('/disclosure');
@@ -74,99 +84,37 @@ export default function HomeScreen() {
       { text: S.stopTracking, style: 'destructive', onPress: () => stopTracking().then(refreshStatus) },
     ]);
 
-  const deactivate = () =>
-    required ? Alert.alert(S.requiredTitle, S.requiredBody) : Alert.alert(S.signOutConfirmTitle, queued > 0 ? `${S.signOutConfirmBody}\n\n${S.signOutUnsent(queued)}` : S.signOutConfirmBody, [
-      { text: S.cancel, style: 'cancel' },
-      { text: S.ok, style: 'destructive', onPress: () => void deactivatePhone() },
-    ]);
+  const dot = blocked ? c.danger : stuck ? c.accent : on ? c.success : c.muted;
+  const line = !on
+    ? S.statusOff
+    : stuck
+      ? S.statusStuck(queued)
+      : status?.lastUploadAt
+        ? S.statusSent(ago(status.lastUploadAt))
+        : S.statusWaiting;
 
   return (
     <ScrollView style={{ backgroundColor: c.background }} contentContainerStyle={styles.scroll}>
-      {session ? (
-        <Card>
-          <Row label={S.trackingFor} value={session.objectName || `+${session.uniqueId}`} />
-          <Row label={S.mobile} value={session.mobile || `+${session.uniqueId}`} />
-          {session.email ? <Row label={S.email} value={session.email} /> : null}
-          {session.accountType ? <Row label={S.accountType} value={S.accountTypes[session.accountType] ?? session.accountType} /> : null}
-          <Row label={S.company} value={session.companyName || '—'} />
-          {session.trialEndsAt ? (
-            <Row label={S.freeTrialUntil} value={dateOnly(session.trialEndsAt)} />
-          ) : session.licenceEndsAt ? (
-            <Row label={S.licenceUntil} value={dateOnly(session.licenceEndsAt)} />
-          ) : null}
-        </Card>
-      ) : null}
-
-      {session?.trialEndsAt && Date.parse(session.trialEndsAt) < Date.now() ? (
-        <Card tone="warn">
-          <Body style={{ color: c.accentText, fontWeight: '700' }}>{S.trialEnded}</Body>
-        </Card>
-      ) : null}
-
-      {blocked ? (
-        <Card tone="danger">
-          <Body style={{ color: c.danger, fontWeight: '700' }}>{S.reasonInactive}</Body>
-        </Card>
-      ) : null}
-
-      {killed && !busy ? (
-        <Card tone="warn">
-          <Body style={{ color: c.accentText, fontWeight: '700' }}>{S.notRunningTitle}</Body>
-          <Body style={{ color: c.accentText }}>{S.notRunningBody}</Body>
-        </Card>
-      ) : null}
-
-      {required ? (
-        <Card>
-          <Body style={{ fontWeight: '700' }}>{S.requiredTitle}</Body>
-          <Body>{S.requiredBody}</Body>
-        </Card>
-      ) : null}
-
-      <Card style={[styles.toggleCard, { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.primarySoft : c.card }]}>
-        <View style={styles.toggleHead}>
-          <View style={[styles.dot, { backgroundColor: on ? c.success : c.muted }]} />
-          <Text style={[styles.toggleTitle, { color: on ? c.primary : c.text }]}>{on ? S.trackingOn : S.trackingOff}</Text>
-          <Switch
-            value={on}
-            onValueChange={(v) => (v ? start() : stop())}
-            disabled={busy || blocked || (required && on)}
-            trackColor={{ true: c.primary, false: c.border }}
-            thumbColor={on ? c.accent : '#f4f4f5'}
-          />
+      <Card style={[styles.statusCard, { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.primarySoft : c.card }]}>
+        {session?.objectName ? <Body muted>{session.objectName}</Body> : null}
+        <View style={styles.statusHead}>
+          <View style={[styles.dot, { backgroundColor: dot }]} />
+          <Text style={[styles.statusTitle, { color: on ? c.primary : c.text }]}>{on ? S.trackingOn : S.trackingOff}</Text>
         </View>
+        <Body>{line}</Body>
+        {required ? <Body muted>{S.requiredShort}</Body> : null}
         {on && required ? null : on ? (
           <Button title={S.stopTracking} variant="outline" icon={<Square color={c.primary} size={18} />} onPress={stop} />
         ) : (
           <Button title={S.startTracking} icon={<Play color={c.primaryText} size={18} />} onPress={start} busy={busy} disabled={blocked} />
         )}
-        <Row label={S.lastFix} value={timeAgo(status?.lastFixAt ?? undefined)} />
-        <Row label={S.accuracy} value={metres(status?.lastAcc)} />
-        <Row label={S.speed} value={kmh(status?.lastSpd)} />
-        {on ? <Row label={S.mode} value={status?.mode === 'stationary' ? S.modeStationary : S.modeMoving} /> : null}
-        <Row label={S.waiting} value={S.points(queued)} valueColor={queued > 0 ? c.accentText : undefined} />
-        <Row label={S.lastUpload} value={timeAgo(status?.lastUploadAt ?? undefined)} />
-        {status && (status.droppedCount > 0 || status.mockCount > 0) ? (
-          <Row label={S.filtered} value={S.filteredValue(status.droppedCount, status.mockCount)} />
-        ) : null}
-        {status?.lastError ? <Row label={S.uploadError} value={status.lastError} valueColor={c.danger} /> : null}
-        {queued > 0 ? (
-          <Button
-            title={S.uploadNow}
-            variant="ghost"
-            icon={<UploadCloud color={c.muted} size={18} />}
-            onPress={() => Tracker.flush().then(refreshStatus)}
-          />
-        ) : null}
       </Card>
 
-      <SosButton onDone={refreshStatus} />
+      <NeedsAttention checks={checks} blocked={blocked} killed={killed} trialEnded={trialEnded} />
 
-      <BatteryCard show={checks.batteryOpt} />
       <AttendanceCard />
 
-      <OemCard />
-      <PermissionsCard checks={checks} />
+      <SosButton onDone={refreshStatus} />
 
       {/* People's own accounts only: on a company phone the company does the viewing. */}
       {session?.accountType === 'INDIVIDUAL' || session?.accountType === 'FAMILY' ? (
@@ -177,26 +125,23 @@ export default function HomeScreen() {
         </Card>
       ) : null}
 
-      <View style={styles.legal}>
-        <Text style={[styles.legalLink, { color: c.muted }]} onPress={() => Linking.openURL(`${WEB_URL}/privacy`).catch(() => undefined)}>
-          {S.privacyPolicy}
-        </Text>
-        <Text style={[styles.legalLink, { color: c.muted }]} onPress={() => Linking.openURL(`${WEB_URL}/delete-account`).catch(() => undefined)}>
-          {S.deleteAccount}
-        </Text>
-      </View>
-
-      <Button title={S.signOut} variant="ghost" icon={<LogOut color={c.muted} size={18} />} onPress={deactivate} />
+      <Card style={styles.nav}>
+        <NavRow title={S.detailsTitle} onPress={() => router.push('/details')} />
+        <View style={[styles.divider, { backgroundColor: c.border }]} />
+        <NavRow title={S.profileTitle} onPress={() => router.push('/profile')} />
+      </Card>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  legal: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 4 },
-  legalLink: { fontSize: 13, textDecorationLine: 'underline' },
   scroll: { padding: 16, gap: 14, paddingBottom: 40 },
-  toggleCard: { borderWidth: 2 },
-  toggleHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dot: { width: 12, height: 12, borderRadius: 6 },
-  toggleTitle: { flex: 1, fontSize: 22, fontWeight: '800' },
+  statusCard: { borderWidth: 2 },
+  statusHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dot: { width: 14, height: 14, borderRadius: 7 },
+  statusTitle: { flex: 1, fontSize: 26, fontWeight: '800' },
+  nav: { paddingVertical: 4, gap: 0 },
+  navRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  navText: { fontSize: 16, fontWeight: '600' },
+  divider: { height: StyleSheet.hairlineWidth },
 });

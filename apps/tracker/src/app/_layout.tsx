@@ -93,6 +93,8 @@ export default function RootLayout() {
         <Stack.Protected guard={signedIn}>
           <Stack.Screen name="index" options={{ title: S.appName }} />
           <Stack.Screen name="disclosure" options={{ title: S.disclosureTitle, presentation: 'modal' }} />
+          <Stack.Screen name="details" options={{ title: S.detailsTitle }} />
+          <Stack.Screen name="profile" options={{ title: S.profileTitle }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="activate" options={{ headerShown: false }} />

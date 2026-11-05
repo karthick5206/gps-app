@@ -58,6 +58,18 @@ export const S = {
   trackingOff: 'Tracking is OFF',
   startTracking: 'Start tracking',
   stopTracking: 'Stop tracking',
+  statusOff: 'Your location is not being shared.',
+  statusSent: (when: string) => `Location sent ${when}`,
+  statusWaiting: 'Waiting for the first location…',
+  statusStuck: (n: number) => `Can't reach the server. ${n} point${n === 1 ? '' : 's'} saved, will keep trying.`,
+  requiredShort: 'Your company requires tracking on this phone.',
+  attentionTitle: 'Needs attention',
+  fix: 'Fix',
+  permMissingTitle: 'Some permissions are missing',
+  permAllowAlways: 'Allow location all the time',
+  locationOffShort: 'Location (GPS) is off',
+  detailsTitle: 'Details',
+  profileTitle: 'Profile',
   signOutUnsent: (n: number) => `${n} locations are not uploaded yet and will be lost if they can't be sent now. Connect to the internet first if you can.`,
   attendanceTitle: 'Attendance',
   shiftToday: (from: string, to: string) => `Your shift today: ${from} to ${to}`,
@@ -110,9 +122,6 @@ export const S = {
 
   // Battery
   batteryTitle: 'Battery optimisation is on',
-  batteryBody:
-    'Android may stop tracking to save battery. Allow VeeTrax Tracker to run without battery restrictions.',
-  batteryButton: 'Allow unrestricted battery',
 
   // OEM autostart / background settings
   oemTitle: 'Keep tracking running',
