@@ -111,6 +111,8 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
   const [timeWindows, setTimeWindows] = useState<TimeWindow[]>(record?.timeWindows ?? []);
   const [focus, setFocus] = useState<{ lat: number; lng: number; key: number } | null>(null);
   const [tab, setTab] = useState('details');
+  const [drawing, setDrawing] = useState(false);
+  const [vehicleId, setVehicleId] = useState<string | null>(null);
 
   const form = useForm<Values>({
     resolver: zodResolver(schema),
@@ -157,12 +159,14 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
     setGeometryError(null);
   };
 
-  const useVehicle = (objectId: string | null) => {
-    const v = vehicles.find((x) => x.objectId === objectId);
+  // Only on the button and only with nothing drawn: choosing a vehicle must never move the map or touch a shape.
+  const placeAtVehicle = () => {
+    const v = vehicles.find((x) => x.objectId === vehicleId);
     if (!v || v.lat === null || v.lng === null) return;
     const center = { lat: v.lat, lng: v.lng };
-    if (!geometry || geometry.type === 'CIRCLE') onGeometry({ type: 'CIRCLE', center, radiusM: geometry?.type === 'CIRCLE' ? geometry.radiusM : 200 });
+    onGeometry({ type: 'CIRCLE', center, radiusM: 200 });
     setFocus({ ...center, key: Date.now() });
+    setVehicleId(null);
     if (!form.getValues('name')) form.setValue('name', `${v.name} location`);
   };
 
@@ -233,6 +237,8 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
         onEscapeKeyDown={(e) => {
           // Escape while drawing cancels the drawing, not the dialog.
           if (document.querySelector('[aria-label="Drawing tools"] [aria-pressed="true"]')) e.preventDefault();
+          // Escape in the address box clears the box, not the dialog.
+          if (document.activeElement?.hasAttribute('data-place-search')) e.preventDefault();
         }}
       >
         <form noValidate onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
@@ -276,6 +282,7 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                 others={others}
                 focus={focus}
                 readOnly={readOnly}
+                onDrawingChange={setDrawing}
                 className="h-[48vh] shrink-0 md:h-auto md:flex-1"
               />
               <div className="w-full shrink-0 md:w-[420px] md:overflow-y-auto md:border-l">
@@ -324,11 +331,16 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                         </Field>
                       </div>
                     )}
-                    {can('live_map') && (
-                      <Field label={t('Use vehicle location')} hint={t("Centres a circle on the vehicle's last position.")}>
+                    {can('live_map') && !geometry && !drawing && (
+                      <Field label={t('Use vehicle location')} hint={t("Optional. Places a 200 m circle at the vehicle's last position.")}>
                         <div className="flex items-center gap-2">
                           <CrosshairIcon className="size-4 shrink-0 text-muted-foreground" />
-                          <Combobox value={null} onChange={useVehicle} options={vehicleOptions} placeholder={t('Pick a vehicle…')} searchPlaceholder={t('Search vehicles…')} />
+                          <div className="min-w-0 flex-1">
+                            <Combobox value={vehicleId} onChange={setVehicleId} options={vehicleOptions} placeholder={t('Pick a vehicle…')} searchPlaceholder={t('Search vehicles…')} />
+                          </div>
+                          <Button variant="outline" onClick={placeAtVehicle} disabled={!vehicleId}>
+                            {t('Place circle')}
+                          </Button>
                         </div>
                       </Field>
                     )}

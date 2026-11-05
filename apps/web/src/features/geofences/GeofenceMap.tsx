@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { GeofenceDraw, type DrawMode } from './draw/geofence-draw';
 import { geometryRing, labelPoint, type Geometry } from './geometry';
 import { onStyleReady, useBasemap } from './map/use-basemap';
+import { PlaceSearch, type Place } from './PlaceSearch';
 
 const OTHERS_SRC = 'gfe-others';
 
@@ -49,6 +50,7 @@ export function GeofenceMap({
   others = [],
   focus,
   readOnly = false,
+  onDrawingChange,
   className,
 }: {
   geometry: Geometry | null;
@@ -57,6 +59,7 @@ export function GeofenceMap({
   others?: GeofenceDto[];
   focus?: { lat: number; lng: number; zoom?: number; key: number } | null;
   readOnly?: boolean;
+  onDrawingChange?: (drawing: boolean) => void;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -68,6 +71,9 @@ export function GeofenceMap({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const initialGeometry = useRef(geometry);
+  const pinRef = useRef<maplibregl.Marker | null>(null);
+
+  useEffect(() => onDrawingChange?.(mode !== 'none'), [mode]);
 
   useEffect(() => {
     if (!map) return;
@@ -152,6 +158,17 @@ export function GeofenceMap({
     });
   }, [map, others]);
 
+  // A searched place: moves the map and drops a pin, the shape stays as it is. The pin lets clicks through for drawing.
+  const showPlace = (place: Place | null) => {
+    pinRef.current?.remove();
+    pinRef.current = null;
+    if (!map || !place) return;
+    const pin = new maplibregl.Marker({ color: '#dc2626' }).setLngLat([place.lng, place.lat]).addTo(map);
+    pin.getElement().style.pointerEvents = 'none';
+    pinRef.current = pin;
+    map.flyTo({ center: [place.lng, place.lat], zoom: Math.max(map.getZoom(), 15), duration: 600 });
+  };
+
   const start = (m: DrawMode) => drawRef.current?.setMode(mode === m ? 'none' : m);
 
   return (
@@ -162,6 +179,7 @@ export function GeofenceMap({
           {t('The map needs WebGL. You can still enter a circle centre and radius in the form.')}
         </div>
       )}
+      {!unsupported && <PlaceSearch near={() => map?.getCenter() ?? null} onPick={showPlace} className="absolute top-3 right-3 left-14 z-10 max-w-sm" />}
       {!readOnly && !unsupported && (
         <>
           <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5" role="toolbar" aria-label="Drawing tools">
