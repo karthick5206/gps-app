@@ -133,3 +133,66 @@ describe('isDifferentPhone', () => {
     expect(isDifferentPhone(null, { installIdHash: 'b', deviceName: 'Y' })).toBe(false);
   });
 });
+
+describe('activating on a number that was active before', () => {
+  const object = { id: 'o1', name: 'Ravi', branchId: null, plateNumber: null, speedLimitKph: null };
+  const device = { id: 'd1', uniqueId: '919000000000', companyId: 'c1', company: { name: 'Acme' }, assignments: [{ object }] };
+  const INSTALL = 'android-id';
+  const flush = () => new Promise((done) => setImmediate(done));
+
+  async function activate(previous: { sameInstall: boolean; revokedAt: Date | null; lastUsedAt: Date | null } | null, signedOutEvents = 0) {
+    const { service, prisma } = build({ revokedAt: null });
+    const hashInstallIdOf = async () => {
+      // The stored hash of this phone: captured from a first activation, so the test doesn't repeat how it is made.
+      const p = prisma as unknown as { mobileTrackerSession: Record<string, unknown>; $transaction: unknown };
+      let stored: string | null = null;
+      p.$transaction = jest.fn(async () => []);
+      p.mobileTrackerSession.findFirst = jest.fn(async () => null);
+      p.mobileTrackerSession.updateMany = jest.fn(() => ({}));
+      p.mobileTrackerSession.create = jest.fn(({ data }: { data: { installIdHash: string } }) => ((stored = data.installIdHash), {}));
+      await (service as unknown as { startSession: (d: unknown, b: unknown) => Promise<unknown> }).startSession(device, { installId: INSTALL, deviceName: 'Pixel 8' });
+      return stored;
+    };
+    const svc = service as unknown as { alerts: unknown; startSession: (d: unknown, b: unknown) => Promise<unknown> };
+    const alerts = { trackerDeviceChanged: jest.fn(async () => undefined), trackerReactivated: jest.fn(async () => undefined) };
+    svc.alerts = alerts;
+    const installIdHash = await hashInstallIdOf();
+    await flush();
+    alerts.trackerReactivated.mockClear();
+    const p = prisma as unknown as { mobileTrackerSession: { findFirst: unknown }; trackerEvent: { count: unknown } };
+    p.trackerEvent.count = jest.fn(async () => signedOutEvents);
+    p.mobileTrackerSession.findFirst = jest.fn(async () => previous && { installIdHash: previous.sameInstall ? installIdHash : 'another', deviceName: 'Pixel 8', revokedAt: previous.revokedAt, lastUsedAt: previous.lastUsedAt });
+    await svc.startSession(device, { installId: INSTALL, deviceName: 'Pixel 8' });
+    await flush();
+    return alerts;
+  }
+
+  it('first activation: no alert', async () => {
+    const alerts = await activate(null);
+    expect(alerts.trackerReactivated).not.toHaveBeenCalled();
+    expect(alerts.trackerDeviceChanged).not.toHaveBeenCalled();
+  });
+
+  it('the app lost its token on the same phone: reinstalled', async () => {
+    const alerts = await activate({ sameInstall: true, revokedAt: null, lastUsedAt: new Date(NOW - 7_200_000) });
+    expect(alerts.trackerReactivated).toHaveBeenCalledTimes(1);
+    expect(alerts.trackerReactivated.mock.calls[0]).toEqual([expect.objectContaining({ how: 'REINSTALLED', companyId: 'c1', message: expect.stringContaining('reinstalled') }), expect.any(Number)]);
+    expect(alerts.trackerDeviceChanged).not.toHaveBeenCalled();
+  });
+
+  it('signed out, then activated on the same phone', async () => {
+    const alerts = await activate({ sameInstall: true, revokedAt: new Date(NOW - 7_200_000), lastUsedAt: new Date(NOW - 7_300_000) }, 1);
+    expect(alerts.trackerReactivated.mock.calls[0]).toEqual([expect.objectContaining({ how: 'SIGNED_OUT', message: expect.stringContaining('after it was signed out') }), expect.any(Number)]);
+  });
+
+  it('stopped from the Devices page, then activated on the same phone', async () => {
+    const alerts = await activate({ sameInstall: true, revokedAt: new Date(NOW - 7_200_000), lastUsedAt: null }, 0);
+    expect(alerts.trackerReactivated.mock.calls[0]).toEqual([expect.objectContaining({ how: 'STOPPED' }), expect.any(Number)]);
+  });
+
+  it('another phone: only the device-changed alert', async () => {
+    const alerts = await activate({ sameInstall: false, revokedAt: null, lastUsedAt: new Date(NOW - 1000) });
+    expect(alerts.trackerDeviceChanged).toHaveBeenCalledTimes(1);
+    expect(alerts.trackerReactivated).not.toHaveBeenCalled();
+  });
+});

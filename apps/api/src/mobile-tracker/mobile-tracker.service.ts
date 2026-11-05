@@ -32,6 +32,8 @@ import {
   summarizeRejected,
   toNormalized,
   TrackerConfig,
+  phoneReturn,
+  phoneReturnMessage,
 } from './mobile-tracker.logic';
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -358,7 +360,7 @@ export class MobileTrackerService {
     const token = randomBytes(32).toString('base64url');
     const now = new Date();
     const next = { installIdHash: hashInstallId(body.installId), deviceName: body.deviceName?.slice(0, 80) ?? null };
-    const previous = await this.prisma.mobileTrackerSession.findFirst({ where: { deviceId: device.id }, orderBy: { createdAt: 'desc' }, select: { installIdHash: true, deviceName: true } });
+    const previous = await this.prisma.mobileTrackerSession.findFirst({ where: { deviceId: device.id }, orderBy: { createdAt: 'desc' }, select: { installIdHash: true, deviceName: true, revokedAt: true, lastUsedAt: true } });
     // One phone per number: activating here stops every earlier phone.
     await this.prisma.$transaction([
       this.prisma.mobileTrackerSession.updateMany({ where: { deviceId: device.id, revokedAt: null }, data: { revokedAt: now } }),
@@ -373,8 +375,27 @@ export class MobileTrackerService {
       void this.alerts
         .trackerDeviceChanged({ companyId: device.companyId, deviceId: device.id, object, mobile: formatMobile(device.uniqueId), from: previous?.deviceName ?? null, to: next.deviceName }, now.getTime())
         .catch((e: Error) => this.logger.error(`Tracker device changed alert for ${device.id} failed: ${e.message}`));
+    } else if (object && device.companyId) {
+      void this.alertPhoneReturn({ companyId: device.companyId, deviceId: device.id, object }, device.uniqueId, previous, next, now).catch((e: Error) => this.logger.error(`Tracker reactivated alert for ${device.id} failed: ${e.message}`));
     }
     return { token, ...this.describe(device), config: this.config() };
+  }
+
+  /** The same phone set up again: says whether it was reinstalled, signed out or stopped by an administrator. */
+  private async alertPhoneReturn(
+    target: { companyId: string; deviceId: string; object: { id: string; name: string; branchId: string | null; plateNumber: string | null; speedLimitKph: number | null } },
+    uniqueId: string,
+    previous: Parameters<typeof phoneReturn>[0],
+    next: { installIdHash: string | null; deviceName: string | null },
+    now: Date,
+  ): Promise<void> {
+    const signedOut = previous?.revokedAt
+      ? (await this.prisma.trackerEvent.count({ where: { deviceId: target.deviceId, kind: 'stop', why: 'signed out', at: { gte: previous.revokedAt } } })) > 0
+      : false;
+    const back = phoneReturn(previous, next, signedOut, now.getTime());
+    if (!back) return;
+    const mobile = formatMobile(uniqueId);
+    await this.alerts.trackerReactivated({ ...target, mobile, how: back.how, message: phoneReturnMessage(mobile, next.deviceName, back.how, back.awayMs) }, now.getTime());
   }
 
   /** What the Tracker app shows: who / what is tracked, the account (type, e-mail) and the free-trial end. */

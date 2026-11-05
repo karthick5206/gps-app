@@ -140,6 +140,11 @@ export class OfflineAlertService {
     await this.raiseTrackerAlert('TRACKER_DEVICE_CHANGED', change, message, { mobile: change.mobile, fromDevice: change.from, toDevice: change.to }, now, null);
   }
 
+  /** The same phone came back: reinstalled or activated again. Raised at once, the message says which. */
+  async trackerReactivated(change: TrackerAlertTarget & { mobile: string; how: string; message: string }, now: number): Promise<void> {
+    await this.raiseTrackerAlert('TRACKER_REACTIVATED', change, change.message, { mobile: change.mobile, how: change.how, whatHappened: change.message.charAt(0).toLowerCase() + change.message.slice(1) }, now, null);
+  }
+
   /** Tracking switched off or on at the phone. `at` is the phone's time, shown with where it last was. */
   async trackerSwitched(
     change: TrackerAlertTarget & { mobile: string; on: boolean; why: string },
@@ -156,7 +161,7 @@ export class OfflineAlertService {
 
   /** Raised at once (no offline episode or cooldown involved). */
   private async raiseTrackerAlert(
-    type: 'TRACKER_DEVICE_CHANGED' | 'TRACKER_STOPPED' | 'TRACKER_STARTED',
+    type: 'TRACKER_DEVICE_CHANGED' | 'TRACKER_REACTIVATED' | 'TRACKER_STOPPED' | 'TRACKER_STARTED',
     change: TrackerAlertTarget,
     message: string,
     data: Record<string, string | null>,

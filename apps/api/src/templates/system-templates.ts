@@ -30,6 +30,7 @@ const DETAIL: Record<AlertTypeCode, string> = {
   TRACKER_DEVICE_CHANGED: 'tracker app was activated on a different phone',
   TRACKER_STOPPED: 'tracking was switched off on the phone',
   TRACKER_STARTED: 'tracking was switched on on the phone',
+  TRACKER_REACTIVATED: '{{what_happened}}',
   GPS_LOST: 'tracker has had no GPS fix for {{duration}}',
   GSM_WEAK: 'tracker mobile signal has been weak for {{duration}}',
   DATA_DELAYED: 'tracker data is arriving {{duration}} late (network problem)',

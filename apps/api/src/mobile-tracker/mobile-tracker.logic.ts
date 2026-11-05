@@ -1,4 +1,5 @@
 import { MOBILE_TRACKER_PROTOCOL, NormalizedPosition } from '@veetracer/shared';
+import { formatDuration } from '../alerts/logic/time-window';
 
 export { formatMobile, normalizeMobile } from '@veetracer/shared';
 
@@ -163,6 +164,39 @@ export function isDifferentPhone(previous: { installIdHash: string | null; devic
   if (previous.installIdHash && next.installIdHash) return previous.installIdHash !== next.installIdHash;
   // Sessions from before install ids: the phone's name is the best evidence there is.
   return !!previous.deviceName && !!next.deviceName && previous.deviceName !== next.deviceName;
+}
+
+export type PhoneReturn = 'REINSTALLED' | 'SIGNED_OUT' | 'STOPPED';
+
+/** Shorter silences are ordinary gaps, not worth mentioning in the alert. */
+const AWAY_WORTH_MENTIONING_MS = 10 * 60_000;
+
+/**
+ * A new activation on the number's latest phone: how it came back and how long it was away. Null for a first activation,
+ * another phone (TRACKER_DEVICE_CHANGED covers that) or when there is no evidence it is the same phone.
+ * A session still open means the phone lost its token: the app was removed or its data cleared.
+ */
+export function phoneReturn(
+  previous: { installIdHash: string | null; deviceName: string | null; revokedAt: Date | null; lastUsedAt: Date | null } | null,
+  next: { installIdHash: string | null; deviceName: string | null },
+  signedOut: boolean,
+  now: number,
+): { how: PhoneReturn; awayMs: number | null } | null {
+  if (!previous) return null;
+  const same = previous.installIdHash && next.installIdHash ? previous.installIdHash === next.installIdHash : !!previous.deviceName && previous.deviceName === next.deviceName;
+  if (!same) return null;
+  const since = previous.revokedAt ?? previous.lastUsedAt;
+  const how = !previous.revokedAt ? 'REINSTALLED' : signedOut ? 'SIGNED_OUT' : 'STOPPED';
+  return { how, awayMs: since ? Math.max(0, now - since.getTime()) : null };
+}
+
+/** The alert text for phoneReturn, for example "Tracker app reinstalled on +91 90000 00000 (Pixel 8): ...". */
+export function phoneReturnMessage(mobile: string, phone: string | null, how: PhoneReturn, awayMs: number | null): string {
+  const where = `${mobile}${phone ? ` (${phone})` : ''}`;
+  const away = awayMs !== null && awayMs >= AWAY_WORTH_MENTIONING_MS ? formatDuration(Math.round(awayMs / 1000)) : null;
+  if (how === 'REINSTALLED') return `Tracker app reinstalled on ${where}: it was removed or its data was cleared, then set up again on the same phone.${away ? ` No contact for ${away} before this.` : ''}`;
+  const after = how === 'SIGNED_OUT' ? 'it was signed out' : 'an administrator stopped it';
+  return `Tracker app activated again on ${where}${away ? `, ${away} after ${after}` : ` after ${after}`}.`;
 }
 
 /** Why parsePoint refused a point (kept with the rejected point and shown in the phone's Tracking history). */

@@ -71,6 +71,7 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   TRACKER_DEVICE_CHANGED: SmartphoneIcon,
   TRACKER_STOPPED: PowerOffIcon,
   TRACKER_STARTED: PowerIcon,
+  TRACKER_REACTIVATED: SmartphoneIcon,
   GPS_LOST: MapPinOffIcon,
   GSM_WEAK: SignalLowIcon,
   DATA_DELAYED: CloudAlertIcon,

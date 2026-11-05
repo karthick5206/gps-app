@@ -1,5 +1,5 @@
 import { sanitizeTrackerEvents, sanitizeTrackerHealth, trackerHealthIssues } from '@veetracer/shared';
-import { trackerOnOffChanges, codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, toNormalized } from './mobile-tracker.logic';
+import { trackerOnOffChanges, codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, phoneReturn, phoneReturnMessage, toNormalized } from './mobile-tracker.logic';
 
 const NOW = Date.parse('2026-10-21T06:00:00Z');
 
@@ -151,5 +151,44 @@ describe('trackerOnOffChanges', () => {
 
   it('other event kinds do not count', () => {
     expect(trackerOnOffChanges(ev('stop', 'user tapped Stop'), [ev('upload', 'queue'), ev('start', 'app')])).toHaveLength(1);
+  });
+});
+
+describe('phoneReturn', () => {
+  const NOW = Date.parse('2026-11-05T12:00:00Z');
+  const ago = (min: number) => new Date(NOW - min * 60_000);
+  const phone = { installIdHash: 'a', deviceName: 'Pixel 8' };
+
+  it('first activation and another phone are not a return', () => {
+    expect(phoneReturn(null, phone, false, NOW)).toBeNull();
+    expect(phoneReturn({ ...phone, installIdHash: 'b', revokedAt: null, lastUsedAt: ago(1) }, phone, false, NOW)).toBeNull();
+    expect(phoneReturn({ installIdHash: null, deviceName: null, revokedAt: null, lastUsedAt: null }, phone, false, NOW)).toBeNull();
+  });
+
+  it('a session still open means the app lost its token: reinstalled, away since last contact', () => {
+    expect(phoneReturn({ ...phone, revokedAt: null, lastUsedAt: ago(90) }, phone, false, NOW)).toEqual({ how: 'REINSTALLED', awayMs: 90 * 60_000 });
+  });
+
+  it('a closed session: signed out by the phone or stopped by an administrator, away since it closed', () => {
+    const closed = { ...phone, revokedAt: ago(30), lastUsedAt: ago(40) };
+    expect(phoneReturn(closed, phone, true, NOW)).toEqual({ how: 'SIGNED_OUT', awayMs: 30 * 60_000 });
+    expect(phoneReturn(closed, phone, false, NOW)).toEqual({ how: 'STOPPED', awayMs: 30 * 60_000 });
+  });
+
+  it('sessions from before install ids go by the phone name', () => {
+    expect(phoneReturn({ installIdHash: null, deviceName: 'Pixel 8', revokedAt: null, lastUsedAt: null }, phone, false, NOW)).toEqual({ how: 'REINSTALLED', awayMs: null });
+  });
+});
+
+describe('phoneReturnMessage', () => {
+  const M = '+91 90000 00000';
+  it('says what happened and how long the phone was away', () => {
+    expect(phoneReturnMessage(M, 'Pixel 8', 'REINSTALLED', 90 * 60_000)).toMatch(/^Tracker app reinstalled on \+91 90000 00000 \(Pixel 8\): it was removed or its data was cleared, then set up again on the same phone\. No contact for .+ before this\.$/);
+    expect(phoneReturnMessage(M, 'Pixel 8', 'SIGNED_OUT', 30 * 60_000)).toMatch(/^Tracker app activated again on \+91 90000 00000 \(Pixel 8\), .+ after it was signed out\.$/);
+    expect(phoneReturnMessage(M, null, 'STOPPED', 30 * 60_000)).toMatch(/^Tracker app activated again on \+91 90000 00000, .+ after an administrator stopped it\.$/);
+  });
+  it('leaves out short or unknown gaps', () => {
+    expect(phoneReturnMessage(M, null, 'REINSTALLED', 60_000)).toBe('Tracker app reinstalled on +91 90000 00000: it was removed or its data was cleared, then set up again on the same phone.');
+    expect(phoneReturnMessage(M, null, 'SIGNED_OUT', null)).toBe('Tracker app activated again on +91 90000 00000 after it was signed out.');
   });
 });

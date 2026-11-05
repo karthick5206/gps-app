@@ -95,6 +95,8 @@ export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string
     geofence: a.geofenceName ?? (typeof d.geofence === 'string' ? d.geofence : ''),
     battery: n(d.batteryPct) === null ? '' : `${Math.round(n(d.batteryPct)!)}%`,
     voltage: n(d.voltage) === null ? '' : `${n(d.voltage)!.toFixed(1)} V`,
+    // The phone came back (TRACKER_REACTIVATED): reinstalled or activated again, and for how long it was away.
+    what_happened: str(d.whatHappened),
     // Reminder alerts (documents, services).
     document: str(d.document),
     expires_on: str(d.expiresOn),

@@ -3124,6 +3124,7 @@ export const TA: Record<string, string> = {
   "Time inside": "உள்ளே இருந்த நேரம்",
   "History on map": "வரைபடத்தில் வரலாறு",
   "Tracking switched off": "கண்காணிப்பு நிறுத்தப்பட்டது",
+  'Tracker reactivated': 'டிராக்கர் மீண்டும் செயல்படுத்தப்பட்டது',
   "Tracking switched on": "கண்காணிப்பு இயக்கப்பட்டது",
   "Geofence out-to-in distance": "ஜியோஃபென்ஸ் வெளியேறி நுழையும் தூரம்",
   "Km driven from leaving a geofence to entering the next one, with the trip on the map.": "ஒரு ஜியோஃபென்ஸிலிருந்து வெளியேறி அடுத்ததில் நுழையும் வரை ஓட்டிய கி.மீ, வரைபடத்தில் பயணத்துடன்.",

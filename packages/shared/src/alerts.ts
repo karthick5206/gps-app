@@ -60,6 +60,7 @@ export const ALERT_TYPE_CODES = [
   'TRACKER_DEVICE_CHANGED',
   'TRACKER_STOPPED',
   'TRACKER_STARTED',
+  'TRACKER_REACTIVATED',
   'GPS_LOST',
   'GSM_WEAK',
   'DATA_DELAYED',
@@ -168,6 +169,8 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   // Tracker app phones (the app reports these; a stop arrives with its next upload, later if the phone is offline).
   { code: 'TRACKER_STOPPED', label: 'Tracking switched off', category: 'Device', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   { code: 'TRACKER_STARTED', label: 'Tracking switched on', category: 'Device', capability: null, defaultSeverity: 'INFO', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  // The same phone set up again: reinstalled / app data cleared, or activated after a sign-out. Android never reports the uninstall itself.
+  { code: 'TRACKER_REACTIVATED', label: 'Tracker reactivated', category: 'Device', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['what_happened'] },
   // ── Device health (computed from the data the tracker sends) ──
   {
     code: 'GPS_LOST', label: 'GPS signal lost', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
@@ -274,6 +277,7 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   TRACKER_DEVICE_CHANGED: 0,
   TRACKER_STOPPED: 0,
   TRACKER_STARTED: 0,
+  TRACKER_REACTIVATED: 0,
   GPS_LOST: 0,
   GSM_WEAK: 0,
   DATA_DELAYED: 60,

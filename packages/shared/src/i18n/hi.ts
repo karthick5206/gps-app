@@ -3124,6 +3124,7 @@ export const HI: Record<string, string> = {
   "Time inside": "अंदर का समय",
   "History on map": "मैप पर इतिहास",
   "Tracking switched off": "ट्रैकिंग बंद की गई",
+  'Tracker reactivated': 'ट्रैकर फिर से सक्रिय हुआ',
   "Tracking switched on": "ट्रैकिंग चालू की गई",
   "Geofence out-to-in distance": "जियोफेंस निकास से प्रवेश तक दूरी",
   "Km driven from leaving a geofence to entering the next one, with the trip on the map.": "एक जियोफेंस से निकलने से अगले में प्रवेश तक चले किमी, मैप पर यात्रा सहित।",
