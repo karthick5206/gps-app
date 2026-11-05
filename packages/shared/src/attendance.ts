@@ -139,6 +139,8 @@ export interface AttendanceRowDto {
   correctionNote: string | null;
   /** When the check-in selfie was taken. */
   selfieAt?: string | null;
+  /** Where the phone was then (selfies from before 2026-11-06 have none). */
+  selfieFix?: AttendanceFix | null;
   /** A selfie was asked for and there is none. */
   selfieMissing?: boolean;
 }

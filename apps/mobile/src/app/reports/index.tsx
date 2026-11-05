@@ -3,12 +3,16 @@ import { ChevronRightIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { SectionList, View } from 'react-native';
 import { Card, SectionTitle, Text } from '@/components/ui';
+import { useAuth } from '@/features/auth/auth';
 import { REPORT_CATEGORIES, REPORT_DEFS } from '@/features/reports/report-defs';
 import { SPACE, useColors } from '@/lib/theme';
 
-const SECTIONS = REPORT_CATEGORIES.map((category) => ({ title: category, data: REPORT_DEFS.filter((d) => d.category === category) }));
+const ALL_SECTIONS = REPORT_CATEGORIES.map((category) => ({ title: category, data: REPORT_DEFS.filter((d) => d.category === category) }));
 
 export default function ReportsScreen() {
+  const { can } = useAuth();
+  // Attendance reports hold people's hours and locations: only for those who can see attendance.
+  const SECTIONS = ALL_SECTIONS.map((x) => ({ ...x, data: x.data.filter((d) => d.category !== 'Staff attendance' || can('attendance')) })).filter((x) => x.data.length);
   const c = useColors();
   const { t } = useTranslation();
   return (

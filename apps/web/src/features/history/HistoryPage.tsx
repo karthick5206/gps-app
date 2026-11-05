@@ -1,6 +1,6 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { AlertDto } from '@veetracer/shared';
-import { AlertTriangleIcon, RouteIcon } from 'lucide-react';
+import { AlertTriangleIcon, ChevronDownIcon, ChevronUpIcon, LayersIcon, RouteIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
@@ -12,6 +12,7 @@ import { ApiError, downloadCsv, errorMessage } from '@/lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '@/features/auth/auth-context';
 import { formatDuration } from '@/lib/format';
+import { storage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { CLEAN_TRACK_COLOR, ESTIMATE_COLOR, HistoryMap, POINT_LABEL_COLORS, SPEED_BAND_COLORS, SPEED_BAND_LABELS, STOP_COLORS, type ColorMode, type MarkClick } from './history-map';
 import { BasemapPicker } from '@/features/live/map/BasemapPicker';
@@ -184,12 +185,25 @@ function Legend({
 }) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
+  const [open, setOpen] = useState(() => storage.get(LEGEND_KEY) !== '0');
+  const toggle = () => {
+    storage.set(LEGEND_KEY, open ? '0' : '1');
+    setOpen(!open);
+  };
   const items =
     mode === 'status'
       ? TRACK_STATUS_CODES.map((s) => ({ label: t(STATUS_META[s].label), color: STATUS_META[s][resolved] }))
       : SPEED_BAND_LABELS.map((l, i) => ({ label: l, color: SPEED_BAND_COLORS[resolved][i] }));
   return (
-    <div className="pointer-events-auto rounded-xl border bg-card/95 p-2 text-xs shadow-lg backdrop-blur-sm">
+    <div className={cn('pointer-events-auto rounded-xl border bg-card/95 text-xs shadow-lg backdrop-blur-sm', open ? 'w-60 p-2 sm:w-72' : 'p-1')}>
+      <button type="button" onClick={toggle} aria-expanded={open} className={cn('flex w-full items-center justify-between gap-2 rounded-md font-medium hover:bg-muted', open ? 'mb-1.5 px-1 py-0.5' : 'px-2 py-1')}>
+        <span className="inline-flex items-center gap-1.5">
+          <LayersIcon className="size-3.5" />
+          {compare ? t('Compare') : t('Map key')}
+        </span>
+        {open ? <ChevronDownIcon className="size-3.5" aria-label={t('Minimise')} /> : <ChevronUpIcon className="size-3.5" aria-label={t('Open')} />}
+      </button>
+      {open && <>
       <BasemapPicker className="mb-1.5" />
       {compare ? <CompareLegend rows={compare} /> : <>
       <div className="flex rounded-md bg-muted p-0.5" role="group" aria-label={t('Colour track by')}>
@@ -235,9 +249,12 @@ function Legend({
       </ul>
       </>}
       {allPoints && <AllPointsLegend c={allPoints} />}
+      </>}
     </div>
   );
 }
+
+const LEGEND_KEY = 'vt.history.legend';
 
 function Overlay({ children }: { children: React.ReactNode }) {
   return (

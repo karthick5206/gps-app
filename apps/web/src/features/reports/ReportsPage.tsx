@@ -80,7 +80,11 @@ export function ReportsPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const canExport = can('reports', 'export');
-  const [type, setType] = useState<ReportType>('SUMMARY');
+  const [type, setType] = useState<ReportType>(() => {
+    const wanted = new URLSearchParams(window.location.search).get('type');
+    return REPORT_DEFS.some((d) => d.type === wanted) ? (wanted as ReportType) : 'SUMMARY';
+  });
+  const visible = (d: { category: string }) => d.category !== 'Staff attendance' || can('attendance');
   const [scope, setScope] = useState<ReportScope>(EMPTY_SCOPE);
   const [[from, to], setDates] = useState<[string, string]>(DATE_PRESETS[2].range);
   const [period, setPeriod] = useState<ReportPeriod>('DAY');
@@ -149,7 +153,7 @@ export function ReportsPage() {
           {REPORT_CATEGORIES.map((category) => (
             <div key={category} className="space-y-0.5">
               <p className="px-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{t(category)}</p>
-              {REPORT_DEFS.filter((d) => d.category === category).map((d) => {
+              {REPORT_DEFS.filter((d) => d.category === category && visible(d)).map((d) => {
                 const active = d.type === type;
                 const Icon = d.icon;
                 return (
@@ -192,7 +196,7 @@ export function ReportsPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {REPORT_DEFS.map((d) => (
+                {REPORT_DEFS.filter(visible).map((d) => (
                   <SelectItem key={d.type} value={d.type}>
                     {t(d.category)} · {t(d.label)}
                   </SelectItem>

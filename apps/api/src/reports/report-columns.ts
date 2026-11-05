@@ -27,6 +27,7 @@ import {
   SummaryReportRow,
   TripDto,
 } from '@veetracer/shared';
+import type { AttendanceCorrectionRow, AttendanceDailyRow, AttendanceOutingRow, AttendanceSummaryRow } from './attendance-reports';
 import { hhmmss, localTime } from './format';
 
 export type Cell = string | number;
@@ -67,6 +68,10 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   MILEAGE: 'Mileage report (manual fuel entries)',
   AC_DOOR: 'AC / Door report',
   AC_DOOR_DAILY: 'AC / Door daily totals report',
+  ATTENDANCE_DAILY: 'Daily attendance report',
+  ATTENDANCE_SUMMARY: 'Attendance summary report',
+  ATTENDANCE_OUTINGS: 'Time outside report',
+  ATTENDANCE_CORRECTIONS: 'Attendance corrections report',
 };
 
 const col = <T>(c: Omit<ReportColumn, 'value'> & { value: (row: T, tz: string) => Cell }): ReportColumn => c as ReportColumn;
@@ -75,6 +80,90 @@ const loc = (lat: number | null | undefined, lng: number | null | undefined) =>
 /** Address, else "lat, lng" (addresses are filled when the report is generated, as far as the lookup budget allows). */
 const place = (address: string | null | undefined, lat: number | null | undefined, lng: number | null | undefined) => address || loc(lat, lng);
 const num = (v: number, digits: number) => Number(v.toFixed(digits));
+
+/** Hours with two decimals, which payroll sheets can add up. */
+const hours = (min: number) => num(min / 60, 2);
+const words = (code: string) => code.charAt(0) + code.slice(1).toLowerCase().replace(/_/g, ' ');
+
+const ATTENDANCE_DAILY: ReportColumn[] = [
+  col<AttendanceDailyRow>({ header: 'Date', width: 11, value: (r) => r.day, total: (t) => `Total (${t.count ?? 0} days)` }),
+  col<AttendanceDailyRow>({ header: 'Staff', width: 20, value: (r) => r.name }),
+  col<AttendanceDailyRow>({ header: 'Staff ID', width: 12, value: (r) => r.employeeId ?? '' }),
+  col<AttendanceDailyRow>({ header: 'Branch', width: 14, value: (r) => r.branch ?? '' }),
+  col<AttendanceDailyRow>({ header: 'Shift', width: 12, value: (r) => r.shift }),
+  col<AttendanceDailyRow>({ header: 'Status', width: 11, value: (r) => words(r.status) }),
+  col<AttendanceDailyRow>({ header: 'First in', width: 19, value: (r, tz) => localTime(r.firstIn, tz) }),
+  col<AttendanceDailyRow>({ header: 'Last out', width: 19, value: (r, tz) => localTime(r.lastOut, tz) }),
+  col<AttendanceDailyRow>({ header: 'Hours worked', width: 9, numeric: true, value: (r) => hours(r.workedMin), total: (t) => hours(t.workedMin ?? 0) }),
+  col<AttendanceDailyRow>({ header: 'Hours on site', width: 9, numeric: true, value: (r) => hours(r.onSiteMin), total: (t) => hours(t.onSiteMin ?? 0) }),
+  col<AttendanceDailyRow>({ header: 'Official duty (h)', width: 9, numeric: true, value: (r) => hours(r.officialMin), total: (t) => hours(t.officialMin ?? 0) }),
+  col<AttendanceDailyRow>({ header: 'Personal (h)', width: 9, numeric: true, value: (r) => hours(r.personalMin), total: (t) => hours(t.personalMin ?? 0) }),
+  col<AttendanceDailyRow>({ header: 'Unexplained (h)', width: 9, numeric: true, value: (r) => hours(r.unexplainedMin), total: (t) => hours(t.unexplainedMin ?? 0) }),
+  col<AttendanceDailyRow>({ header: 'No signal (h)', width: 9, numeric: true, value: (r) => hours(r.noSignalMin), total: (t) => hours(t.noSignalMin ?? 0) }),
+  col<AttendanceDailyRow>({ header: 'Late (min)', width: 8, numeric: true, value: (r) => r.lateMin, total: (t) => t.lateMin ?? 0 }),
+  col<AttendanceDailyRow>({ header: 'Early exit (min)', width: 8, numeric: true, value: (r) => r.earlyMin, total: (t) => t.earlyMin ?? 0 }),
+  col<AttendanceDailyRow>({ header: 'Overtime (min)', width: 8, numeric: true, value: (r) => r.overtimeMin, total: (t) => t.overtimeMin ?? 0 }),
+  col<AttendanceDailyRow>({ header: 'Site', width: 16, value: (r) => r.site ?? '' }),
+  col<AttendanceDailyRow>({ header: 'First in location', width: 22, value: (r) => r.inLocation ?? '' }),
+  col<AttendanceDailyRow>({ header: 'Last out location', width: 22, value: (r) => r.outLocation ?? '' }),
+  col<AttendanceDailyRow>({ header: 'Selfie', width: 8, value: (r) => r.selfie }),
+  col<AttendanceDailyRow>({ header: 'Selfie location', width: 22, value: (r) => r.selfieLocation ?? '' }),
+  col<AttendanceDailyRow>({ header: 'Corrected', width: 18, value: (r) => r.corrected }),
+];
+
+const ATTENDANCE_SUMMARY: ReportColumn[] = [
+  col<AttendanceSummaryRow>({ header: 'Staff', width: 20, value: (r) => r.name, total: (t) => `Total (${t.count ?? 0} staff)` }),
+  col<AttendanceSummaryRow>({ header: 'Staff ID', width: 12, value: (r) => r.employeeId ?? '' }),
+  col<AttendanceSummaryRow>({ header: 'Branch', width: 14, value: (r) => r.branch ?? '' }),
+  col<AttendanceSummaryRow>({ header: 'Working days', width: 8, numeric: true, value: (r) => r.workingDays, total: (t) => t.workingDays ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Present', width: 8, numeric: true, value: (r) => r.presentDays, total: (t) => t.presentDays ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Late', width: 7, numeric: true, value: (r) => r.lateDays, total: (t) => t.lateDays ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Half days', width: 7, numeric: true, value: (r) => r.halfDays, total: (t) => t.halfDays ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Absent', width: 7, numeric: true, value: (r) => r.absentDays, total: (t) => t.absentDays ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Days off', width: 7, numeric: true, value: (r) => r.daysOff, total: (t) => t.daysOff ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Attendance %', width: 9, numeric: true, value: (r) => r.attendancePct }),
+  col<AttendanceSummaryRow>({ header: 'Hours worked', width: 9, numeric: true, value: (r) => hours(r.workedMin), total: (t) => hours(t.workedMin ?? 0) }),
+  col<AttendanceSummaryRow>({ header: 'Avg hours / day', width: 9, numeric: true, value: (r) => hours(r.avgWorkedMin) }),
+  col<AttendanceSummaryRow>({ header: 'Official duty (h)', width: 9, numeric: true, value: (r) => hours(r.officialMin), total: (t) => hours(t.officialMin ?? 0) }),
+  col<AttendanceSummaryRow>({ header: 'Personal (h)', width: 9, numeric: true, value: (r) => hours(r.personalMin), total: (t) => hours(t.personalMin ?? 0) }),
+  col<AttendanceSummaryRow>({ header: 'Unexplained (h)', width: 9, numeric: true, value: (r) => hours(r.unexplainedMin), total: (t) => hours(t.unexplainedMin ?? 0) }),
+  col<AttendanceSummaryRow>({ header: 'No signal (h)', width: 9, numeric: true, value: (r) => hours(r.noSignalMin), total: (t) => hours(t.noSignalMin ?? 0) }),
+  col<AttendanceSummaryRow>({ header: 'Late (min)', width: 8, numeric: true, value: (r) => r.lateMin, total: (t) => t.lateMin ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Early exit (min)', width: 8, numeric: true, value: (r) => r.earlyMin, total: (t) => t.earlyMin ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Overtime (min)', width: 8, numeric: true, value: (r) => r.overtimeMin, total: (t) => t.overtimeMin ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Selfies taken', width: 8, numeric: true, value: (r) => r.selfiesTaken, total: (t) => t.selfiesTaken ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Selfies missing', width: 8, numeric: true, value: (r) => r.selfiesMissing, total: (t) => t.selfiesMissing ?? 0 }),
+  col<AttendanceSummaryRow>({ header: 'Corrected days', width: 8, numeric: true, value: (r) => r.correctedDays, total: (t) => t.correctedDays ?? 0 }),
+];
+
+const ATTENDANCE_OUTINGS: ReportColumn[] = [
+  col<AttendanceOutingRow>({ header: 'Date', width: 11, value: (r) => r.day, total: (t) => `Total (${t.count ?? 0})` }),
+  col<AttendanceOutingRow>({ header: 'Staff', width: 20, value: (r) => r.name }),
+  col<AttendanceOutingRow>({ header: 'Staff ID', width: 12, value: (r) => r.employeeId ?? '' }),
+  col<AttendanceOutingRow>({ header: 'Branch', width: 14, value: (r) => r.branch ?? '' }),
+  col<AttendanceOutingRow>({ header: 'Site', width: 16, value: (r) => r.site ?? '' }),
+  col<AttendanceOutingRow>({ header: 'Left', width: 19, value: (r, tz) => localTime(r.leftAt, tz) }),
+  col<AttendanceOutingRow>({ header: 'Returned', width: 19, value: (r, tz) => localTime(r.returnedAt, tz) }),
+  col<AttendanceOutingRow>({ header: 'Minutes', width: 8, numeric: true, value: (r) => r.minutes, total: (t) => t.minutes ?? 0 }),
+  col<AttendanceOutingRow>({ header: 'Counts as', width: 12, value: (r) => words(r.kind) }),
+  col<AttendanceOutingRow>({ header: 'Employee said', width: 12, value: (r) => (r.employeeSaid ? words(r.employeeSaid) : '') }),
+  col<AttendanceOutingRow>({ header: 'Employee note', width: 22, value: (r) => r.employeeNote ?? '' }),
+  col<AttendanceOutingRow>({ header: 'Decided by', width: 16, value: (r) => r.decidedBy ?? '' }),
+  col<AttendanceOutingRow>({ header: 'Note', width: 22, value: (r) => r.note ?? '' }),
+  col<AttendanceOutingRow>({ header: 'Location', width: 22, value: (r) => r.location ?? '' }),
+];
+
+const ATTENDANCE_CORRECTIONS: ReportColumn[] = [
+  col<AttendanceCorrectionRow>({ header: 'Date', width: 11, value: (r) => r.day, total: (t) => `Total (${t.count ?? 0})` }),
+  col<AttendanceCorrectionRow>({ header: 'Staff', width: 20, value: (r) => r.name }),
+  col<AttendanceCorrectionRow>({ header: 'Staff ID', width: 12, value: (r) => r.employeeId ?? '' }),
+  col<AttendanceCorrectionRow>({ header: 'Branch', width: 14, value: (r) => r.branch ?? '' }),
+  col<AttendanceCorrectionRow>({ header: 'Calculated', width: 12, value: (r) => (r.calculated ? words(r.calculated) : '') }),
+  col<AttendanceCorrectionRow>({ header: 'Corrected to', width: 12, value: (r) => words(r.correctedTo) }),
+  col<AttendanceCorrectionRow>({ header: 'Reason', width: 28, value: (r) => r.note ?? '' }),
+  col<AttendanceCorrectionRow>({ header: 'Corrected by', width: 18, value: (r) => r.correctedBy ?? '' }),
+  col<AttendanceCorrectionRow>({ header: 'Corrected at', width: 19, value: (r, tz) => localTime(r.correctedAt, tz) }),
+];
 
 const SUMMARY: ReportColumn[] = [
   col<SummaryReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: () => 'Total' }),
@@ -470,6 +559,14 @@ export function columnsFor(type: ReportType): ReportColumn[] {
       return AC_DOOR;
     case 'AC_DOOR_DAILY':
       return AC_DOOR_DAILY;
+    case 'ATTENDANCE_DAILY':
+      return ATTENDANCE_DAILY;
+    case 'ATTENDANCE_SUMMARY':
+      return ATTENDANCE_SUMMARY;
+    case 'ATTENDANCE_OUTINGS':
+      return ATTENDANCE_OUTINGS;
+    case 'ATTENDANCE_CORRECTIONS':
+      return ATTENDANCE_CORRECTIONS;
   }
 }
 

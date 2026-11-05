@@ -1228,6 +1228,9 @@ model AttendanceSelfie {
   takenAt   DateTime @db.Timestamptz(3)
   path      String
   type      String
+  /// The phone's last position when the selfie was taken (null before 2026-11-06).
+  lat       Float?
+  lng       Float?
 
   object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
 

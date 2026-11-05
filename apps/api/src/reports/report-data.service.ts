@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   AlertDto,
@@ -39,6 +39,8 @@ import {
   positions,
   QueryCtx,
 } from './report-queries';
+import { AttendanceService } from '../attendance/attendance.service';
+import { attendanceCorrectionsReport, attendanceDailyReport, attendanceOutingsReport, attendanceSummaryReport } from './attendance-reports';
 import { documentsReport } from './documents-report';
 import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
 import { fuelEventsReport, fuelReport } from './fuel-report';
@@ -59,7 +61,7 @@ export interface ReportData extends ReportResponse {
   totalRows: number;
 }
 
-type ScopeCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'objectIds'> & Pick<Partial<AuthContext>, 'shares'>;
+type ScopeCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'objectIds'> & Pick<Partial<AuthContext>, 'shares' | 'isSuperAdmin' | 'permissions'>;
 
 @Injectable()
 export class ReportDataService {
@@ -67,6 +69,7 @@ export class ReportDataService {
     private readonly prisma: PrismaService,
     private readonly addresses: AddressEnricher,
     @Optional() private readonly licences?: LicencePolicyService,
+    @Optional() private readonly attendance?: AttendanceService,
   ) {}
 
   validate(req: ReportRequest): void {
@@ -263,6 +266,24 @@ export class ReportDataService {
 
       case 'AC_DOOR_DAILY': {
         const r = await ioDailyReport(this.prisma, ctx.companyId, objects, range, req.from, req.to, tz, maxRows, Date.now());
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'ATTENDANCE_DAILY':
+      case 'ATTENDANCE_SUMMARY':
+      case 'ATTENDANCE_OUTINGS':
+      case 'ATTENDANCE_CORRECTIONS': {
+        // Holds people's hours and locations: the reports permission alone is not enough.
+        if (!this.attendance || !(ctx.isSuperAdmin || ctx.permissions?.attendance?.includes('view'))) throw new ForbiddenException('You do not have access to attendance');
+        const full = ctx as AuthContext;
+        const r =
+          req.type === 'ATTENDANCE_CORRECTIONS'
+            ? await attendanceCorrectionsReport(this.prisma, ctx.companyId, objects, req.from, req.to, maxRows)
+            : req.type === 'ATTENDANCE_OUTINGS'
+              ? await attendanceOutingsReport(this.prisma, await this.attendance.reportRows(full, req.from, req.to, new Set(ids)), objects, maxRows)
+              : req.type === 'ATTENDANCE_SUMMARY'
+                ? attendanceSummaryReport(await this.attendance.reportRows(full, req.from, req.to, new Set(ids)), objects, maxRows)
+                : attendanceDailyReport(await this.attendance.reportRows(full, req.from, req.to, new Set(ids)), objects, maxRows);
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 

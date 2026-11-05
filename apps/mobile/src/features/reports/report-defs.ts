@@ -12,6 +12,7 @@ import {
   ActivityIcon,
   FileCheck2Icon,
   BellIcon,
+  CalendarCheckIcon,
   CirclePauseIcon,
   ClockIcon,
   CoffeeIcon,
@@ -460,8 +461,99 @@ const AC_DOOR_DAILY: ReportColumn[] = [
   duration('doorOpenSec', 'Door open time'),
 ];
 
-export type ReportCategory = 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Fuel log (manual)' | 'Sensors' | 'Devices' | 'Compliance';
-export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Fuel', 'Fuel log (manual)', 'Sensors', 'Devices', 'Compliance'];
+const hm = (min: number) => `${Math.floor(min / 60)}h ${String(Math.round(min % 60)).padStart(2, '0')}m`;
+const minutes = (id: string, header: string, total: Total | undefined = 'sum'): ReportColumn => ({ id, header, value: num(id), numeric: true, total, format: hm });
+const countCol = (id: string, header: string): ReportColumn => ({ id, header, value: num(id), numeric: true, total: 'sum', format: int });
+const words = (k: string) => (r: Row) => {
+  const v = r[k] as string | null | undefined;
+  return v ? i18n.t(humanize(v)) : null;
+};
+const staffName: ReportColumn = { id: 'name', header: 'Staff', value: str('name') };
+const staffId: ReportColumn = { id: 'employeeId', header: 'Staff ID', value: str('employeeId') };
+const staffBranch: ReportColumn = { id: 'branch', header: 'Branch', value: str('branch') };
+
+const ATTENDANCE_DAILY: ReportColumn[] = [
+  { id: 'day', header: 'Date', value: str('day') },
+  staffName,
+  staffId,
+  staffBranch,
+  { id: 'shift', header: 'Shift', value: str('shift') },
+  { id: 'status', header: 'Status', value: words('status') },
+  { id: 'firstIn', header: 'First in', value: time('firstIn'), kind: 'time' },
+  { id: 'lastOut', header: 'Last out', value: time('lastOut'), kind: 'time' },
+  minutes('workedMin', 'Hours worked'),
+  minutes('onSiteMin', 'Hours on site'),
+  minutes('officialMin', 'Official duty'),
+  minutes('personalMin', 'Personal'),
+  minutes('unexplainedMin', 'Unexplained'),
+  minutes('noSignalMin', 'No signal'),
+  countCol('lateMin', 'Late (min)'),
+  countCol('earlyMin', 'Early exit (min)'),
+  countCol('overtimeMin', 'Overtime (min)'),
+  { id: 'site', header: 'Site', value: str('site') },
+  { id: 'inLocation', header: 'First in location', value: str('inLocation') },
+  { id: 'outLocation', header: 'Last out location', value: str('outLocation') },
+  { id: 'selfie', header: 'Selfie', value: str('selfie') },
+  { id: 'selfieLocation', header: 'Selfie location', value: str('selfieLocation') },
+  { id: 'corrected', header: 'Corrected', value: str('corrected') },
+];
+
+const ATTENDANCE_SUMMARY: ReportColumn[] = [
+  staffName,
+  staffId,
+  staffBranch,
+  countCol('workingDays', 'Working days'),
+  countCol('presentDays', 'Present'),
+  countCol('lateDays', 'Late'),
+  countCol('halfDays', 'Half days'),
+  countCol('absentDays', 'Absent'),
+  countCol('daysOff', 'Days off'),
+  { id: 'attendancePct', header: 'Attendance %', value: num('attendancePct'), numeric: true, format: (v) => `${v}%` },
+  minutes('workedMin', 'Hours worked'),
+  minutes('avgWorkedMin', 'Avg hours / day', undefined),
+  minutes('officialMin', 'Official duty'),
+  minutes('personalMin', 'Personal'),
+  minutes('unexplainedMin', 'Unexplained'),
+  minutes('noSignalMin', 'No signal'),
+  countCol('lateMin', 'Late (min)'),
+  countCol('earlyMin', 'Early exit (min)'),
+  countCol('overtimeMin', 'Overtime (min)'),
+  countCol('selfiesTaken', 'Selfies taken'),
+  countCol('selfiesMissing', 'Selfies missing'),
+  countCol('correctedDays', 'Corrected days'),
+];
+
+const ATTENDANCE_OUTINGS: ReportColumn[] = [
+  { id: 'day', header: 'Date', value: str('day') },
+  staffName,
+  staffId,
+  staffBranch,
+  { id: 'site', header: 'Site', value: str('site') },
+  { id: 'leftAt', header: 'Left', value: time('leftAt'), kind: 'time' },
+  { id: 'returnedAt', header: 'Returned', value: time('returnedAt'), kind: 'time' },
+  countCol('minutes', 'Minutes'),
+  { id: 'kind', header: 'Counts as', value: words('kind') },
+  { id: 'employeeSaid', header: 'Employee said', value: words('employeeSaid') },
+  { id: 'employeeNote', header: 'Employee note', value: str('employeeNote') },
+  { id: 'decidedBy', header: 'Decided by', value: str('decidedBy') },
+  { id: 'note', header: 'Note', value: str('note') },
+  { id: 'location', header: 'Location', value: str('location') },
+];
+
+const ATTENDANCE_CORRECTIONS: ReportColumn[] = [
+  { id: 'day', header: 'Date', value: str('day') },
+  staffName,
+  staffId,
+  staffBranch,
+  { id: 'calculated', header: 'Calculated', value: words('calculated') },
+  { id: 'correctedTo', header: 'Corrected to', value: words('correctedTo') },
+  { id: 'note', header: 'Reason', value: str('note') },
+  { id: 'correctedBy', header: 'Corrected by', value: str('correctedBy') },
+  { id: 'correctedAt', header: 'Corrected at', value: time('correctedAt'), kind: 'time' },
+];
+
+export type ReportCategory = 'Staff attendance' | 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Fuel log (manual)' | 'Sensors' | 'Devices' | 'Compliance';
+export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Fuel', 'Fuel log (manual)', 'Sensors', 'Devices', 'Compliance', 'Staff attendance'];
 
 export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'SUMMARY', category: 'Activity', label: 'Summary', description: 'Distance, running/idle/stop time and trips per vehicle by day, week or month.', icon: SigmaIcon, columns: SUMMARY },
@@ -490,6 +582,10 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'AC_DOOR_DAILY', category: 'Sensors', label: 'AC / Door daily totals', description: 'Per vehicle per day: hours with AC on, AC on with the engine off, door openings and open time.', icon: DoorOpenIcon, columns: AC_DOOR_DAILY },
   { type: 'DEVICE_STATUS', category: 'Devices', label: 'Device status', description: 'Active, inactive, no-GPS and never-connected devices right now.', icon: ActivityIcon, columns: DEVICE_STATUS },
   { type: 'DOCUMENTS', category: 'Compliance', label: 'Documents & services', description: 'Document expiry and service status of every vehicle as of today.', icon: FileCheck2Icon, columns: DOCUMENTS },
+  { type: 'ATTENDANCE_DAILY', category: 'Staff attendance', label: 'Daily attendance', description: 'Each person, each day: shift, first in, last out, hours, late, early exit, overtime, location, selfie and corrections.', icon: CalendarCheckIcon, columns: ATTENDANCE_DAILY },
+  { type: 'ATTENDANCE_SUMMARY', category: 'Staff attendance', label: 'Attendance summary', description: 'One line per person for the period: days present, late, half day and absent, attendance %, hours and overtime.', icon: CalendarCheckIcon, columns: ATTENDANCE_SUMMARY },
+  { type: 'ATTENDANCE_OUTINGS', category: 'Staff attendance', label: 'Time outside', description: 'Every time someone left the site during a shift: how long, official or personal, what they said and who decided.', icon: CalendarCheckIcon, columns: ATTENDANCE_OUTINGS },
+  { type: 'ATTENDANCE_CORRECTIONS', category: 'Staff attendance', label: 'Attendance corrections', description: 'Days changed by hand: what was calculated, what it became, who changed it and why.', icon: CalendarCheckIcon, columns: ATTENDANCE_CORRECTIONS },
 ];
 
 export const REPORT_DEF_MAP = Object.fromEntries(REPORT_DEFS.map((d) => [d.type, d])) as Record<ReportType, ReportTypeDef>;

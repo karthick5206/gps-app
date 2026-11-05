@@ -13,6 +13,7 @@ import { useAuth } from '@/features/auth/auth';
 import { noFixText } from '@/features/alerts/no-fix';
 import { markAlertRead } from '@/features/alerts/read';
 import { useSiren } from '@/features/notifications/siren';
+import { stopAlarm } from '../../../modules/veetrax-alarm';
 import { api, errorMessage } from '@/lib/api';
 import { MAP_STYLE } from '@/lib/config';
 import { formatDateTime, relativeTime } from '@/lib/format';
@@ -65,6 +66,9 @@ export default function SosScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => Date.now());
+
+  // The alarm that rang while the app was closed: this screen takes over (its own siren, acknowledge, silence).
+  useEffect(() => stopAlarm(), []);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000);

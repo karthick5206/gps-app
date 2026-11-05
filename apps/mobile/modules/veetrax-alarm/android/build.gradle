@@ -1,0 +1,23 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.sasvata.veetrax'
+version = '1.0.0'
+
+android {
+  // Must differ from the app's namespace (com.sasvata.veetrax).
+  namespace "com.sasvata.veetrax.alarm"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // AlarmMessagingService extends Expo's push service, so pushes are still shown and handled as before.
+  implementation project(':expo-notifications')
+  implementation 'com.google.firebase:firebase-messaging:25.0.1'
+  implementation 'androidx.core:core-ktx:1.17.0'
+}

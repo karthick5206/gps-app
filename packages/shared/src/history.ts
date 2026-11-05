@@ -121,6 +121,10 @@ export const REPORT_TYPES = [
   'MILEAGE',
   'AC_DOOR',
   'AC_DOOR_DAILY',
+  'ATTENDANCE_DAILY',
+  'ATTENDANCE_SUMMARY',
+  'ATTENDANCE_OUTINGS',
+  'ATTENDANCE_CORRECTIONS',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 

@@ -14,9 +14,10 @@ import {
   type AttendanceStatus,
   type OutingKind,
 } from '@veetracer/shared';
-import { CalendarCheckIcon, DownloadIcon, MapPinIcon, PlusIcon, Trash2Icon } from 'lucide-react';
+import { CalendarCheckIcon, DownloadIcon, FileSpreadsheetIcon, MapPinIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -90,7 +91,8 @@ function Place({ fix }: { fix: AttendanceFix | null }) {
   );
 }
 
-function Selfie({ objectId, day, at }: { objectId: string; day: string; at: string }) {
+/** The selfie with where and when across the bottom (before 2026-11-06 no selfie location was kept: the first-in location is shown). */
+function Selfie({ objectId, day, at, fix }: { objectId: string; day: string; at: string; fix: AttendanceFix | null }) {
   const { t } = useTranslation();
   const q = useQuery({
     queryKey: ['attendance-selfie', objectId, day, at],
@@ -99,7 +101,24 @@ function Selfie({ objectId, day, at }: { objectId: string; day: string; at: stri
     staleTime: Infinity,
   });
   if (q.isError) return <p className="text-xs text-muted-foreground">{t('The photo is no longer kept.')}</p>;
-  return q.data ? <img src={q.data} alt={t('Check-in selfie')} className="h-40 rounded-md border object-cover" /> : <Skeleton className="h-40 w-32" />;
+  if (!q.data) return <Skeleton className="h-56 w-44" />;
+  return (
+    <figure className="relative w-fit overflow-hidden rounded-md border">
+      <img src={q.data} alt={t('Check-in selfie')} className="h-56 max-w-full object-cover" />
+      <figcaption className="absolute inset-x-0 bottom-0 bg-black/65 px-2 py-1 text-xs text-white tabular-nums">
+        {fix ? (
+          <a href={`https://www.google.com/maps?q=${fix.lat},${fix.lng}`} target="_blank" rel="noreferrer" className="block font-medium hover:underline">
+            {fix.lat.toFixed(6)}, {fix.lng.toFixed(6)}
+          </a>
+        ) : (
+          <span className="block">{t('Location not available')}</span>
+        )}
+        <span className="block text-white/80">
+          {day} · {time(at)}
+        </span>
+      </figcaption>
+    </figure>
+  );
 }
 
 /** Hours of one person's day, the location at each crossing, approval of outings and manual correction. */
@@ -182,8 +201,7 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
               <h3 className="text-sm font-medium">{t('Check-in selfie')}</h3>
               {r.selfieAt ? (
                 <>
-                  <Selfie objectId={r.objectId} day={r.day} at={r.selfieAt} />
-                  <p className="text-xs text-muted-foreground tabular-nums">{time(r.selfieAt)}</p>
+                  <Selfie objectId={r.objectId} day={r.day} at={r.selfieAt} fix={r.selfieFix ?? r.inFix} />
                 </>
               ) : (
                 <p className="text-sm text-amber-800 dark:text-amber-300">{t('No selfie was taken.')}</p>
@@ -256,6 +274,38 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
   );
 }
 
+const statusKey = (r: AttendanceRowDto) => (r.halfDay ? 'HALF_DAY' : r.status);
+
+/** Name search and status filter over the rows shown, with a count per status. */
+function useRowFilter(rows: AttendanceRowDto[]) {
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState(ALL);
+  const counts = new Map<string, number>();
+  for (const r of rows) counts.set(statusKey(r), (counts.get(statusKey(r)) ?? 0) + 1);
+  const s = q.trim().toLowerCase();
+  const shown = rows.filter((r) => (status === ALL || statusKey(r) === status) && (!s || r.name.toLowerCase().includes(s)));
+  return { q, setQ, status, setStatus, counts, shown };
+}
+
+function RowFilter({ f, total }: { f: ReturnType<typeof useRowFilter>; total: number }) {
+  const { t } = useTranslation();
+  const chips = [...(Object.keys(STATUS) as AttendanceStatus[]).map((k) => [k, STATUS[k]] as const), ['HALF_DAY', HALF_DAY] as const].filter(([k]) => f.counts.get(k));
+  if (!total) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Input value={f.q} onChange={(e) => f.setQ(e.target.value)} placeholder={t('Search staff')} aria-label={t('Search staff')} className="h-8 w-48" />
+      <button type="button" aria-pressed={f.status === ALL} onClick={() => f.setStatus(ALL)} className={cn('rounded-full border px-2.5 py-1 text-xs font-medium', f.status === ALL ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-muted')}>
+        {t('All')} {total}
+      </button>
+      {chips.map(([k, s]) => (
+        <button key={k} type="button" aria-pressed={f.status === k} onClick={() => f.setStatus(f.status === k ? ALL : k)} className={cn('rounded-full px-2.5 py-1 text-xs font-medium ring-primary', s.cls, f.status === k && 'ring-2')}>
+          {t(s.label)} {f.counts.get(k)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Rows({ rows, withDay, canEdit }: { rows: AttendanceRowDto[]; withDay?: boolean; canEdit: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState<AttendanceRowDto | null>(null);
@@ -275,6 +325,7 @@ function Rows({ rows, withDay, canEdit }: { rows: AttendanceRowDto[]; withDay?: 
             <TableHead className="hidden md:table-cell">{t('Unexplained')}</TableHead>
             <TableHead className="hidden lg:table-cell">{t('No signal')}</TableHead>
             <TableHead className="hidden lg:table-cell">{t('Branch')}</TableHead>
+            <TableHead className="hidden xl:table-cell">{t('Selfie')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -303,12 +354,27 @@ function Rows({ rows, withDay, canEdit }: { rows: AttendanceRowDto[]; withDay?: 
               <TableCell className={cn('hidden tabular-nums md:table-cell', r.unexplainedMin > 0 && 'text-rose-700 dark:text-rose-300')}>{hours(r.unexplainedMin)}</TableCell>
               <TableCell className="hidden tabular-nums lg:table-cell">{hours(r.noSignalMin)}</TableCell>
               <TableCell className="hidden text-muted-foreground lg:table-cell">{r.branch ?? '—'}</TableCell>
+              <TableCell className="hidden tabular-nums xl:table-cell">{r.selfieAt ? time(r.selfieAt) : r.selfieMissing ? <span className="text-amber-800 dark:text-amber-300">{t('Missing')}</span> : '—'}</TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
       {open && <DayDialog key={`${open.day}:${open.objectId}`} row={open} canEdit={canEdit} onClose={() => setOpen(null)} />}
     </>
+  );
+}
+
+/** Excel / PDF, monthly summary, time outside and corrections, which can also be e-mailed on a schedule. */
+function ReportsLink() {
+  const { t } = useTranslation();
+  const { can } = useAuth();
+  if (!can('reports')) return null;
+  return (
+    <Button variant="outline" asChild>
+      <Link to="/reports?type=ATTENDANCE_SUMMARY">
+        <FileSpreadsheetIcon /> {t('Attendance reports')}
+      </Link>
+    </Button>
   );
 }
 
@@ -341,22 +407,15 @@ function TodayTab({ canEdit }: { canEdit: boolean }) {
   const branchId = branch === ALL ? undefined : branch;
   const q = useQuery({ queryKey: ['attendance', day, branch], queryFn: ({ signal }) => api.get<AttendanceDayDto>('/attendance', { day, branchId }, signal), refetchInterval: 60_000 });
   const d = q.data;
+  const filter = useRowFilter(d?.enabled ? d.rows : []);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <Input type="date" value={day} max={today()} onChange={(e) => setDay(e.target.value || today())} className="w-44" aria-label={t('Date')} />
         <BranchFilter value={branch} onChange={setBranch} />
-        {d && (Object.keys(STATUS) as AttendanceStatus[]).filter((s) => d.counts[s] > 0).map((s) => (
-          <span key={s} className={cn('rounded-full px-2.5 py-1 text-xs font-medium', STATUS[s].cls)}>
-            {t(STATUS[s].label)} {d.counts[s]}
-          </span>
-        ))}
-        {d && d.halfDays > 0 && (
-          <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', HALF_DAY.cls)}>
-            {t(HALF_DAY.label)} {d.halfDays}
-          </span>
-        )}
+        <ReportsLink />
       </div>
+      <RowFilter f={filter} total={d?.enabled ? d.rows.length : 0} />
       <Card className="overflow-x-auto p-0">
         {q.isPending ? (
           <Skeleton className="m-4 h-40" />
@@ -365,7 +424,7 @@ function TodayTab({ canEdit }: { canEdit: boolean }) {
         ) : !d.rows.length ? (
           <EmptyState icon={CalendarCheckIcon} title={t('No staff to show')} description={t('People tracked by phone or ID card appear here.')} />
         ) : (
-          <Rows rows={d.rows} canEdit={canEdit} />
+          <Rows rows={filter.shown} canEdit={canEdit} />
         )}
       </Card>
     </div>
@@ -379,6 +438,7 @@ function TimesheetTab({ canEdit }: { canEdit: boolean }) {
   const [branch, setBranch] = useState(ALL);
   const branchId = branch === ALL ? undefined : branch;
   const q = useQuery({ queryKey: ['attendance-sheet', from, to, branch], queryFn: ({ signal }) => api.get<AttendanceRowDto[]>('/attendance/timesheet', { from, to, branchId }, signal), enabled: !!from && !!to && from <= to });
+  const filter = useRowFilter(q.data ?? []);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-2">
@@ -392,8 +452,10 @@ function TimesheetTab({ canEdit }: { canEdit: boolean }) {
         <Button variant="outline" onClick={() => void downloadCsv('/attendance/timesheet', { from, to, branchId }, 'timesheet.csv').catch((e) => toast.error(errorMessage(e)))}>
           <DownloadIcon /> {t('Download CSV')}
         </Button>
+        <ReportsLink />
       </div>
-      <Card className="max-h-[65vh] overflow-auto p-0">{q.isPending ? <Skeleton className="m-4 h-40" /> : q.data?.length ? <Rows rows={q.data} withDay canEdit={canEdit} /> : <EmptyState icon={CalendarCheckIcon} title={t('Nothing in this range')} />}</Card>
+      <RowFilter f={filter} total={q.data?.length ?? 0} />
+      <Card className="max-h-[65vh] overflow-auto p-0">{q.isPending ? <Skeleton className="m-4 h-40" /> : q.data?.length ? <Rows rows={filter.shown} withDay canEdit={canEdit} /> : <EmptyState icon={CalendarCheckIcon} title={t('Nothing in this range')} />}</Card>
     </div>
   );
 }

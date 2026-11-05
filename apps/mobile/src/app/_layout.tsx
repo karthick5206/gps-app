@@ -44,6 +44,7 @@ function RootStack() {
           <Stack.Screen name="geofences/index" options={{ title: t('Geofences') }} />
           <Stack.Screen name="expenses" options={{ title: t('Fuel & expenses') }} />
           <Stack.Screen name="attendance" options={{ title: t('Staff attendance') }} />
+          <Stack.Screen name="attendance-day" options={{ title: t('Staff attendance') }} />
           <Stack.Screen name="driver-scores" options={{ title: t('Driver scorecard') }} />
           <Stack.Screen name="ask" options={{ title: t('Ask VeeTrax') }} />
           <Stack.Screen name="share/[id]" options={{ title: t('Share live location') }} />

@@ -3,7 +3,8 @@ import { BellRingIcon, MoonIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Platform, View } from 'react-native';
 import { Button, Card, Text } from '@/components/ui';
-import { openSos, SOS_CHANNEL, testEmergencyAlert } from '@/features/notifications/push';
+import { SOS_CHANNEL, testEmergencyAlert } from '@/features/notifications/push';
+import { startAlarm } from '../../modules/veetrax-alarm';
 import { errorMessage } from '@/lib/api';
 import { SPACE } from '@/lib/theme';
 
@@ -20,12 +21,15 @@ export async function openSosChannelSettings(): Promise<void> {
   }
 }
 
-/** Plays the siren notification and opens the SOS screen in test mode (no alert is acknowledged). */
+/**
+ * Rings the same loud alarm a real SOS rings when the app is closed. Its notification opens the SOS screen in test mode
+ * (no alert is acknowledged). Press Home to hear it as with the app closed.
+ */
 export async function runEmergencyTest(t: (s: string) => string): Promise<void> {
   try {
     const reason = await testEmergencyAlert();
     if (reason) return Alert.alert(t('Notifications not working'), t(reason));
-    openSos('test', true);
+    startAlarm(t('Test: SOS alarm'), t('This is a test. No action is needed.'), 'test');
   } catch (err) {
     Alert.alert(t('Notifications not working'), errorMessage(err));
   }

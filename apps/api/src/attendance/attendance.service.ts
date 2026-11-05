@@ -3,6 +3,7 @@ import { Interval } from '@nestjs/schedule';
 import type { Prisma } from '@prisma/client';
 import {
   attendanceOf,
+  daysBetween,
   ATTENDANCE_SELFIE_KEEP_DAYS,
   attendanceSettingsError,
   DEFAULT_ATTENDANCE,
@@ -256,9 +257,10 @@ export class AttendanceService {
       this.prisma.attendanceOuting.findMany({ where: { objectId: { in: ids }, leftAt: { gte: new Date(dayStart), lt: new Date(dayEnd) } }, select: { objectId: true, leftAt: true, kind: true, note: true, employeeKind: true, employeeNote: true, decidedById: true } }),
       branchIds.length ? this.prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } }) : [],
       withSignal ? this.dataPauses(ids, dayStart, Math.min(now, dayEnd), Math.min(s.noSignalMin, ...[...saved.values()].map((x) => (x.rules as DayRules | null)?.noSignalMin ?? s.noSignalMin))) : null,
-      this.prisma.attendanceSelfie.findMany({ where: { objectId: { in: ids }, day }, select: { objectId: true, takenAt: true } }),
+      this.prisma.attendanceSelfie.findMany({ where: { objectId: { in: ids }, day }, select: { objectId: true, takenAt: true, lat: true, lng: true } }),
     ]);
     const selfieAt = new Map(selfies.map((x) => [x.objectId, x.takenAt]));
+    const selfieFix = new Map(selfies.map((x) => [x.objectId, x.lat !== null && x.lng !== null ? { lat: x.lat, lng: x.lng, accuracyM: null } : null]));
     const siteOf = new Map(sites.map((g) => [g.id, g]));
     const branchName = new Map(branches.map((b) => [b.id, b.name]));
     for (const p of staff) {
@@ -306,6 +308,7 @@ export class AttendanceService {
           corrected: false,
           correctionNote: null,
           selfieAt: iso(selfieAt.get(p.id)?.getTime() ?? null),
+          selfieFix: selfieFix.get(p.id) ?? null,
           selfieMissing: s.selfieRequired && !!r.firstIn && r.status !== 'DAY_OFF' && !selfieAt.has(p.id),
         },
       });
@@ -349,6 +352,12 @@ export class AttendanceService {
     const out: AttendanceRowDto[] = [];
     for (let d = from, n = 0; d <= to && n < MAX_TIMESHEET_DAYS; d = addDays(d, 1), n++) out.push(...(await this.compute(ctx.companyId, s, staff, d, tz, now)));
     return out;
+  }
+
+  /** Timesheet rows for a report: limited to the people in its scope, and to the days a timesheet can cover. */
+  async reportRows(ctx: AuthContext, from: string, to: string, objectIds: ReadonlySet<string>, now = Date.now()): Promise<AttendanceRowDto[]> {
+    if (daysBetween(from, to) >= MAX_TIMESHEET_DAYS) throw new BadRequestException(`Attendance reports cover up to ${MAX_TIMESHEET_DAYS} days`);
+    return (await this.timesheet(ctx, from, to, undefined, now)).filter((r) => objectIds.has(r.objectId));
   }
 
   // ───────────── admin decisions ─────────────
@@ -485,7 +494,9 @@ export class AttendanceService {
     await writeFile(path, file.buffer);
     const key = { objectId_day: { objectId: c.p.id, day: c.day } };
     const previous = await this.prisma.attendanceSelfie.findUnique({ where: key, select: { path: true } });
-    const data = { takenAt: new Date(c.now), path, type: mime };
+    // The phone uploads positions every few seconds, so its latest one is where the photo was taken.
+    const at = await this.prisma.position.findFirst({ where: { deviceId, valid: true, fixTime: { lte: new Date(c.now) } }, orderBy: { fixTime: 'desc' }, select: { lat: true, lng: true } });
+    const data = { takenAt: new Date(c.now), path, type: mime, lat: at?.lat ?? null, lng: at?.lng ?? null };
     await this.prisma.attendanceSelfie.upsert({ where: key, create: { companyId: c.companyId, objectId: c.p.id, day: c.day, ...data }, update: data });
     if (previous) await unlink(previous.path).catch(() => undefined);
     return this.phoneStatus(deviceId);
