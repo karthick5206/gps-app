@@ -1,15 +1,16 @@
-import { Camera, GeoJSONSource, Layer, Map, type CameraRef } from '@maplibre/maplibre-react-native';
+import { Camera, GeoJSONSource, Layer, Map, type CameraRef, type MapRef } from '@maplibre/maplibre-react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { GeofenceDto, GeofenceGeometry, GeofenceMode, LatLng } from '@veetracer/shared';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { CircleIcon, PentagonIcon, Trash2Icon, Undo2Icon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { blankToNull, SwitchRow } from '@/components/form';
 import { Button, Chips, ErrorBanner, Field, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { geometryBounds, geometryFeature } from '@/features/geofences/geo-shapes';
+import { PlaceSearch, type Place } from '@/features/geofences/PlaceSearch';
 import { liveStore } from '@/features/live/live-store';
 import { boundsOf } from '@/features/map/FleetMap';
 import { api, errorMessage } from '@/lib/api';
@@ -29,6 +30,8 @@ export default function GeofenceEditor() {
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const camera = useRef<CameraRef>(null);
+  const mapRef = useRef<MapRef>(null);
+  const [place, setPlace] = useState<Place | null>(null);
   const canSave = isNew ? can('geofences', 'create') : can('geofences', 'edit');
 
   const record = useQuery({ queryKey: ['geofence', id], queryFn: ({ signal }) => api.get<GeofenceDto>(`/geofences/${id}`, undefined, signal), enabled: !isNew });
@@ -78,6 +81,21 @@ export default function GeofenceEditor() {
     [shape, center, points],
   );
 
+  const pin = useMemo<GeoJSON.FeatureCollection>(
+    () => ({ type: 'FeatureCollection', features: place ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [place.lng, place.lat] }, properties: {} }] : [] }),
+    [place],
+  );
+
+  // A searched place: moves the map and marks it, the shape stays as it is.
+  const showPlace = (p: Place | null) => {
+    setPlace(p);
+    if (p) camera.current?.easeTo({ center: [p.lng, p.lat], zoom: 15, duration: 600 });
+  };
+  const mapCenter = async () => {
+    const at = await mapRef.current?.getCenter();
+    return at ? { lat: at[1], lng: at[0] } : null;
+  };
+
   const done = () => {
     void queryClient.invalidateQueries({ queryKey: ['geofences'] });
     router.back();
@@ -93,6 +111,8 @@ export default function GeofenceEditor() {
   const remove = useMutation({ mutationFn: () => api.delete(`/geofences/${id}`), onSuccess: done, onError: (err) => Alert.alert(t('Not deleted'), errorMessage(err)) });
 
   const onMapPress = (lng: number, lat: number) => {
+    // With the keyboard open, the first tap only closes it: it mustn't place a point by accident.
+    if (Keyboard.isVisible()) return Keyboard.dismiss();
     if (!canSave) return;
     if (shape === 'CIRCLE') setCenter({ lat, lng });
     else setPoints((p) => [...p, { lat, lng }]);
@@ -129,7 +149,7 @@ export default function GeofenceEditor() {
         }}
       />
       <View style={{ height: 320 }}>
-        <Map style={{ flex: 1 }} mapStyle={mapStyle} logo={false} attributionPosition={{ bottom: 4, left: 8 }} touchPitch={false} onPress={(e) => onMapPress(e.nativeEvent.lngLat[0], e.nativeEvent.lngLat[1])}>
+        <Map ref={mapRef} style={{ flex: 1 }} mapStyle={mapStyle} logo={false} attributionPosition={{ bottom: 4, left: 8 }} touchPitch={false} onPress={(e) => onMapPress(e.nativeEvent.lngLat[0], e.nativeEvent.lngLat[1])}>
           <Camera
             ref={camera}
             initialViewState={start ? { bounds: start, padding: { top: 40, bottom: 40, left: 40, right: 40 } } : { center: [80.27, 13.08], zoom: 11 }}
@@ -140,6 +160,9 @@ export default function GeofenceEditor() {
           </GeoJSONSource>
           <GeoJSONSource id="gf-points" data={vertices}>
             <Layer id="gf-vertex" type="circle" paint={{ 'circle-radius': 6, 'circle-color': '#ffffff', 'circle-stroke-color': color, 'circle-stroke-width': 3 }} />
+          </GeoJSONSource>
+          <GeoJSONSource id="gf-place" data={pin}>
+            <Layer id="gf-place-pin" type="circle" paint={{ 'circle-radius': 7, 'circle-color': '#dc2626', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 }} />
           </GeoJSONSource>
         </Map>
         {canSave && (
@@ -154,6 +177,7 @@ export default function GeofenceEditor() {
             )}
           </View>
         )}
+        <PlaceSearch near={mapCenter} onPick={showPlace} />
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -225,7 +249,7 @@ export default function GeofenceEditor() {
 }
 
 const styles = StyleSheet.create({
-  hint: { position: 'absolute', top: SPACE.sm, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.md, paddingVertical: 6, borderRadius: RADIUS.full, elevation: 3 },
+  hint: { position: 'absolute', top: 60, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.md, paddingVertical: 6, borderRadius: RADIUS.full, elevation: 3 },
   shape: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.sm, height: 44, borderRadius: RADIUS.sm, borderWidth: 1 },
   swatch: { width: 32, height: 32, borderRadius: 16, borderWidth: 3 },
 });
