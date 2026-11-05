@@ -9,6 +9,7 @@ import { useColors } from '@/lib/theme';
 
 const REFRESH_MS = 60_000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+const clock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 const message = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e));
 
 /** Today's attendance: check-in time, the questions about time outside, and the selfie if the employer asks for one. */
@@ -59,7 +60,9 @@ export function AttendanceCard() {
   return (
     <Card>
       <Body style={{ fontWeight: '700' }}>{S.attendanceTitle}</Body>
-      {a.firstIn ? <Body muted>{S.checkedInAt(time(a.firstIn), a.site)}</Body> : null}
+      {a.shiftStartMin !== undefined && a.shiftEndMin !== undefined ? <Body muted>{S.shiftToday(clock(a.shiftStartMin), clock(a.shiftEndMin))}</Body> : null}
+      {a.firstIn ? <Body muted>{S.checkedInAt(time(a.firstIn), a.site)}</Body> : <Body>{S.notCheckedIn}</Body>}
+      {a.state === 'INSIDE' ? <Body muted>{S.stateInside}</Body> : a.state === 'OUT' ? <Body muted>{S.stateOut}</Body> : a.state === 'NO_SIGNAL' ? <Body muted>{S.stateNoSignal}</Body> : null}
       {a.selfieAt ? <Body muted>{S.selfieDone(time(a.selfieAt))}</Body> : null}
       {a.selfieNeeded ? (
         <View style={{ gap: 8, marginTop: 8 }}>

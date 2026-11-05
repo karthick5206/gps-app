@@ -42,6 +42,8 @@ export interface PhoneAttendance {
   outings: { leftAt: string; returnedAt: string | null; minutes: number; site: string | null }[];
   selfieNeeded: boolean;
   selfieAt: string | null;
+  shiftStartMin?: number;
+  shiftEndMin?: number;
 }
 
 /** HTTP error from the server: status + message (+ code such as REVOKED / INVALID / INACTIVE). */

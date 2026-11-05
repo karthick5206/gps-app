@@ -432,6 +432,7 @@ export class AttendanceService {
     if (!c) return OFF;
     const r = await this.phoneRow(c);
     if (r.status === 'DAY_OFF') return OFF;
+    const shift = shiftOf(c.s, c.p.id, c.p.branchId);
     return {
       enabled: true,
       firstIn: r.firstIn,
@@ -440,6 +441,8 @@ export class AttendanceService {
       outings: r.outings.filter((o) => !o.employeeKind && !o.decidedByAdmin).map((o) => ({ leftAt: o.leftAt, returnedAt: o.returnedAt, minutes: o.minutes, site: o.site })).reverse(),
       selfieNeeded: !!r.selfieMissing && r.state === 'INSIDE',
       selfieAt: r.selfieAt ?? null,
+      shiftStartMin: shift.startMin,
+      shiftEndMin: shift.endMin,
     };
   }
 

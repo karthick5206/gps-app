@@ -165,6 +165,9 @@ export interface PhoneAttendanceDto {
   /** Ask for the check-in selfie now. */
   selfieNeeded: boolean;
   selfieAt: string | null;
+  /** Today's shift, minutes after midnight (company time). */
+  shiftStartMin?: number;
+  shiftEndMin?: number;
 }
 
 /** A notification the phone should show (in the answer to a position upload). The id says when it is a new one. */
