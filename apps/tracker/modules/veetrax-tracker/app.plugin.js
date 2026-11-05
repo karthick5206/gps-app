@@ -30,6 +30,12 @@ function upsert(list, name, item) {
   else list.push(item);
 }
 
+/**
+ * The CAMERA permission (check-in selfie) makes Google Play assume a camera is required, which hides the app from
+ * phones without one. Selfies are optional, so mark the camera features optional too.
+ */
+const OPTIONAL_FEATURES = ['android.hardware.camera', 'android.hardware.camera.autofocus', 'android.hardware.camera.any', 'android.hardware.camera.front'];
+
 const withVeetraxTracker = (config) => {
   config = AndroidConfig.Permissions.withPermissions(config, PERMISSIONS);
   return withAndroidManifest(config, (cfg) => {
@@ -62,6 +68,13 @@ const withVeetraxTracker = (config) => {
         { action: [{ $: { 'android:name': 'android.intent.action.MY_PACKAGE_REPLACED' } }] },
       ],
     });
+
+    const features = (cfg.modResults.manifest['uses-feature'] ??= []);
+    for (const name of OPTIONAL_FEATURES) {
+      const existing = features.find((x) => x.$['android:name'] === name);
+      if (existing) existing.$['android:required'] = 'false';
+      else features.push({ $: { 'android:name': name, 'android:required': 'false' } });
+    }
     return cfg;
   });
 };
