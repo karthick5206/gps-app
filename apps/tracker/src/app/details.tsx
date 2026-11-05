@@ -3,12 +3,14 @@ import { ScrollView, StyleSheet } from 'react-native';
 import { OemCard, PermissionsCard, useChecks } from '@/components/ChecksCards';
 import { Button, Card, Row } from '@/components/ui';
 import { kmh, metres, timeAgo } from '@/lib/format';
+import { useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 import { Tracker, useTrackerStatus } from '@/lib/tracking';
 
 /** The technical picture, for when something needs checking or support asks. */
 export default function DetailsScreen() {
+  useStoreVersion();
   const c = useColors();
   const [checks] = useChecks();
   const [status, refreshStatus] = useTrackerStatus();

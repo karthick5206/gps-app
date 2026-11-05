@@ -1,6 +1,7 @@
 import { LogOut } from 'lucide-react-native';
 import { Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Button, Card, Row } from '@/components/ui';
+import { LanguagePicker } from '@/components/LanguagePicker';
+import { Body, Button, Card, Row } from '@/components/ui';
 import { deactivate as deactivatePhone } from '@/lib/control';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
@@ -42,6 +43,11 @@ export default function ProfileScreen() {
         </Card>
       ) : null}
 
+      <Card>
+        <Body style={{ fontWeight: '700' }}>{S.languageTitle}</Body>
+        <LanguagePicker />
+      </Card>
+
       <View style={styles.legal}>
         <Text style={[styles.legalLink, { color: c.muted }]} onPress={() => Linking.openURL(`${WEB_URL}/privacy`).catch(() => undefined)}>
           {S.privacyPolicy}
@@ -58,6 +64,6 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 14, paddingBottom: 40 },
-  legal: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 4 },
+  legal: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, columnGap: 20, marginTop: 4 },
   legalLink: { fontSize: 13, textDecorationLine: 'underline' },
 });

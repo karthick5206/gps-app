@@ -13,7 +13,7 @@ export function timeAgo(ms: number | undefined): string {
 /** "10 s ago", "3 min ago", "2 h ago". */
 export function ago(ms: number): string {
   const sec = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  return sec < 60 ? `${sec} s ago` : sec < 3600 ? `${Math.round(sec / 60)} min ago` : `${Math.round(sec / 3600)} h ago`;
+  return sec < 60 ? S.ago(sec, 's') : sec < 3600 ? S.ago(Math.round(sec / 60), 'min') : S.ago(Math.round(sec / 3600), 'h');
 }
 
 export const metres = (m: number | null | undefined) => (m == null ? '—' : `± ${Math.round(m)} m`);

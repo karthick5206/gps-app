@@ -9,12 +9,13 @@ import { api, ApiError, NetworkError } from '@/lib/api';
 import { APP_VERSION, deviceName } from '@/lib/device';
 import { saveActivation } from '@/lib/control';
 import { store, useStoreVersion } from '@/lib/state';
-import { S } from '@/lib/strings';
+import { LanguagePicker } from '@/components/LanguagePicker';
+import { S, serverText } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 import { Tracker } from '@/lib/tracking';
 
 function errorText(e: unknown): string {
-  if (e instanceof ApiError) return e.message;
+  if (e instanceof ApiError) return serverText(e.message);
   if (e instanceof NetworkError) return S.networkError;
   return e instanceof Error ? e.message : String(e);
 }
@@ -113,6 +114,7 @@ export default function ActivateScreen() {
             <TrackerLogo size={68} />
             <Text style={[styles.appName, { color: c.text }]}>{S.appName}</Text>
           </View>
+          <LanguagePicker />
           {step === 'mobile' ? (
             <View style={[styles.hero, { backgroundColor: c.primary }]}>
               <TrackingScene color="#ffffff" style={{ width: '100%', height: 110 }} />

@@ -62,6 +62,7 @@ interface NativeModuleShape {
   deviceInfo(): DeviceInfo;
   installId(): string;
   savedToken(): string;
+  setLanguage(code: string): void;
 }
 
 export interface DeviceInfo {
@@ -150,6 +151,15 @@ export function installId(): string {
     return Native ? Native.installId() : '';
   } catch {
     return '';
+  }
+}
+
+/** The language for the notifications the native engine shows. */
+export function setLanguage(code: string): void {
+  try {
+    Native?.setLanguage(code);
+  } catch {
+    // An older native build: its notifications stay in English.
   }
 }
 

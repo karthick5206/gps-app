@@ -16,11 +16,11 @@ async function ensureLocationPermission(): Promise<boolean> {
 }
 
 const RESULT: Record<string, { text: string; ok: boolean }> = {
-  sent: { text: S.sosSent, ok: true },
-  queued: { text: S.sosQueued, ok: false },
-  rejected: { text: S.sosRejected, ok: false },
-  stopped: { text: S.sosStopped, ok: false },
-  no_location: { text: S.sosNoLocation, ok: false },
+  sent: { get text() { return S.sosSent; }, ok: true },
+  queued: { get text() { return S.sosQueued; }, ok: false },
+  rejected: { get text() { return S.sosRejected; }, ok: false },
+  stopped: { get text() { return S.sosStopped; }, ok: false },
+  no_location: { get text() { return S.sosNoLocation; }, ok: false },
 };
 
 /**

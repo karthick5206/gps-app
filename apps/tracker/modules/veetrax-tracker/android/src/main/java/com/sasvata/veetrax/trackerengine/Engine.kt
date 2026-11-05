@@ -101,7 +101,7 @@ class Engine private constructor(context: Context) {
     uploader.onAttention = { id, title, text ->
       if (prefs.lastAttentionId != id) {
         prefs.lastAttentionId = id
-        Notifications.showAttention(appContext, title, text)
+        Notifications.showAttention(appContext, id, title, text)
       }
     }
     queue.onTrimmed = { dropped ->

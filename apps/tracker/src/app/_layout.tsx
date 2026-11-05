@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api, SERVER_URL } from '@/lib/api';
 import { installJsCrashHandler, reportCrashes } from '@/lib/crash';
 import { handleAuthError, restoreActivation, syncStopReason } from '@/lib/control';
+import { initLanguage } from '@/lib/language';
 import { getToken, hasToken, sessionFrom, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
@@ -44,6 +45,8 @@ async function startup(): Promise<void> {
     await handleAuthError(e);
   }
 }
+
+initLanguage();
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);

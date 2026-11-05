@@ -133,6 +133,12 @@ class VeetraxTrackerModule : Module() {
       Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: ""
     }
 
+    /** The language for the notifications shown here. */
+    Function("setLanguage") { code: String ->
+      engine.prefs.language = code
+      Notifications.refresh(context)
+    }
+
     /** The token the engine keeps for uploads (survives an update even if the app's secure storage did not). */
     Function("savedToken") {
       engine.prefs.token ?: ""

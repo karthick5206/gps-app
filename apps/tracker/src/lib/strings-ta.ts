@@ -1,0 +1,204 @@
+import type { Strings } from './strings';
+
+/** Tamil text. Same keys as English in strings.ts (the compiler checks); brand names and phone menu names stay in English. */
+export const ta: Strings = {
+  appName: 'VeeTrax Tracker',
+
+  // Activation
+  activateTitle: 'இந்த ஃபோனைச் செயல்படுத்தவும்',
+  activateIntro: 'இந்த ஃபோனின் மொபைல் எண்ணையும் உங்கள் மின்னஞ்சலையும் உள்ளிடவும். ஃபோனுக்கு 6 இலக்கக் குறியீட்டை அனுப்புவோம்.',
+  steps: ['உங்கள் மொபைல் எண், மின்னஞ்சலை உள்ளிடவும்', 'SMS-இல் வந்த 6 இலக்கக் குறியீட்டை உள்ளிடவும்', 'நீங்கள் நிறுத்தும் வரை கண்காணிப்பு பின்னணியில் இயங்கும்', 'VeeTrax செயலியில் உங்கள் இருப்பிடம், வரலாற்றைப் பாருங்கள்'],
+  mobileLabel: 'மொபைல் எண்',
+  emailLabel: 'மின்னஞ்சல் (கட்டாயம்)',
+  emailRequired: 'உங்கள் மின்னஞ்சல் முகவரியை உள்ளிடவும்.',
+  emailHint: 'தனிநபர் / குடும்பம்: இந்த மின்னஞ்சலின் VeeTrax கணக்கில் ஃபோன் சேர்க்கப்படும் (தேவைப்பட்டால் புதிய கணக்கு உருவாகும்). நிறுவன ஃபோன்கள் நிறுவனக் கணக்கிலேயே இருக்கும்; மின்னஞ்சல் உங்கள் தொடர்பாக வைக்கப்படும்.',
+  emailPlaceholder: 'you@example.com',
+  emailLabelRegistered: 'மின்னஞ்சல்',
+  emailRegisteredHint: 'இந்த எண் ஏற்கெனவே பதிவு செய்யப்பட்டுள்ளது. விவரங்களை அப்படியே வைக்கலாம் அல்லது மாற்றலாம்.',
+  emailKeep: (masked) => `${masked} உடன் பதிவு செய்யப்பட்டுள்ளது. அதையே வைக்க காலியாக விடவும், அல்லது புதிய மின்னஞ்சலை உள்ளிடவும்.`,
+  emailInvalid: 'சரியான மின்னஞ்சல் முகவரியை உள்ளிடவும்.',
+  nameLabel: 'உங்கள் பெயர் (விருப்பத்தேர்வு)',
+  namePlaceholder: 'எ.கா. ரவி',
+  mobilePlaceholder: '98765 43210',
+  mobileInvalid: '10 இலக்க மொபைல் எண்ணை உள்ளிடவும்.',
+  sendCode: 'குறியீட்டை அனுப்பு',
+  codeLabel: '6 இலக்கக் குறியீடு',
+  codeSentSms: (mobile) => `+${mobile} எண்ணுக்கு SMS மூலம் குறியீடு அனுப்பியுள்ளோம். இது 10 நிமிடங்களுக்குச் செல்லுபடியாகும்.`,
+  codeSentEmail: (to) => `${to.join(', ')} முகவரிக்குக் குறியீட்டை மின்னஞ்சல் செய்துள்ளோம். அவர்களிடம் கேட்டுப் பெறவும்; இது 10 நிமிடங்களுக்குச் செல்லுபடியாகும்.`,
+  codeNoSms: (mobile) => `SMS கிடைக்கவில்லை. VeeTrax-இன் Devices பக்கத்திலிருந்து குறியீட்டைச் சொல்லுமாறு உங்கள் நிர்வாகியிடம் கேளுங்கள் (எண் +${mobile}).`,
+  codeHelp: 'SMS வரவில்லை என்றால், VeeTrax-இன் Devices பக்கத்திலிருந்து உங்கள் நிர்வாகி குறியீட்டைச் சொல்லலாம்.',
+  codeInvalid: '6 இலக்கக் குறியீட்டை உள்ளிடவும்.',
+  verify: 'செயல்படுத்து',
+  changeNumber: 'எண்ணை மாற்று',
+  resendCode: 'குறியீட்டை மீண்டும் அனுப்பு',
+  networkError: 'சர்வரை அடைய முடியவில்லை. இணைய இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.',
+
+  // Sign-out reasons
+  reasonRevoked: 'கண்காணிப்பு இதே எண் கொண்ட வேறொரு ஃபோனுக்கு மாற்றப்பட்டது.',
+  reasonInvalid: 'தயவுசெய்து மீண்டும் செயல்படுத்தவும்.',
+  reasonInactive: 'உங்கள் நிர்வாகி கண்காணிப்பை நிறுத்தியுள்ளார்.',
+  reasonSignedOut: 'இந்த ஃபோன் செயலிழக்கப்பட்டது.',
+
+  // Account details and the VeeTrax app
+  mobile: 'மொபைல்',
+  email: 'மின்னஞ்சல்',
+  accountType: 'கணக்கு',
+  accountTypes: { BUSINESS: 'நிறுவனம்', INDIVIDUAL: 'தனிநபர்', FAMILY: 'குடும்பம்' },
+  freeTrialUntil: 'இலவசக் கண்காணிப்பு வரை',
+  licenceUntil: 'உரிமம் வரை',
+  trialEnded: 'இலவசக் காலம் முடிந்தது: இந்த ஃபோனின் இருப்பிடத்தைப் பார்க்க VeeTrax செயலியில் உரிமம் வாங்கவும்.',
+  viewInAppTitle: 'VeeTrax செயலியில் உங்கள் கண்காணிப்பைப் பாருங்கள்',
+  viewInAppBody: (email, mobile) => `இந்த ஃபோனின் இருப்பிடம், வரலாறு, எச்சரிக்கைகளைப் பார்க்க VeeTrax செயலி அல்லது app.veetrax.com-இல் ${email ? `${email} அல்லது ` : ''}${mobile} எண்ணுக்கு வரும் OTP மூலம் உள்நுழையவும்.`,
+  openVeetrax: 'VeeTrax-ஐத் திற',
+  privacyPolicy: 'தனியுரிமைக் கொள்கை',
+  deleteAccount: 'கணக்கையும் தரவையும் நீக்கு',
+  languageTitle: 'மொழி',
+
+  // Home
+  trackingOn: 'கண்காணிப்பு இயக்கத்தில்',
+  trackingOff: 'கண்காணிப்பு நிறுத்தத்தில்',
+  startTracking: 'கண்காணிப்பைத் தொடங்கு',
+  stopTracking: 'கண்காணிப்பை நிறுத்து',
+  statusOff: 'உங்கள் இருப்பிடம் பகிரப்படவில்லை.',
+  statusSent: (when) => `இருப்பிடம் ${when} அனுப்பப்பட்டது`,
+  statusWaiting: 'முதல் இருப்பிடத்திற்காகக் காத்திருக்கிறது…',
+  statusStuck: (n) => `சர்வரை அடைய முடியவில்லை. ${n} புள்ளிகள் சேமிக்கப்பட்டன, தொடர்ந்து முயற்சிக்கும்.`,
+  requiredShort: 'இந்த ஃபோனில் கண்காணிப்பை உங்கள் நிறுவனம் கட்டாயமாக்கியுள்ளது.',
+  attentionTitle: 'கவனிக்க வேண்டியவை',
+  fix: 'சரிசெய்',
+  permMissingTitle: 'சில அனுமதிகள் வழங்கப்படவில்லை',
+  permAllowAlways: 'இருப்பிடத்தை எப்போதும் அனுமதிக்கவும்',
+  locationOffShort: 'இருப்பிடம் (GPS) அணைக்கப்பட்டுள்ளது',
+  detailsTitle: 'விவரங்கள்',
+  profileTitle: 'சுயவிவரம்',
+  signOutUnsent: (n) => `${n} இருப்பிடங்கள் இன்னும் பதிவேற்றப்படவில்லை, இப்போது அனுப்ப முடியாவிட்டால் இழக்கப்படும். முடிந்தால் முதலில் இணையத்தில் இணையவும்.`,
+  attendanceTitle: 'வருகைப்பதிவு',
+  shiftToday: (from, to) => `இன்றைய உங்கள் ஷிப்ட்: ${from} முதல் ${to} வரை`,
+  notCheckedIn: 'இன்னும் செக்-இன் ஆகவில்லை. ஷிப்ட் நேரத்தில் பணியிடத்தில் இருக்கும்போது தானாகவே செக்-இன் ஆகும்.',
+  stateInside: 'நீங்கள் பணியிடத்தில் உள்ளீர்கள்.',
+  stateOut: 'நீங்கள் பணியிடத்திற்கு வெளியே உள்ளீர்கள்.',
+  stateNoSignal: 'இந்த ஃபோனிலிருந்து சமீபத்திய இருப்பிடம் இல்லை. கண்காணிப்பை இயக்கத்தில் வைத்திருக்கவும்.',
+  checkedInAt: (time, site) => `${time} மணிக்கு செக்-இன்${site ? ` · ${site}` : ''}`,
+  outingQuestion: (from, to, site) => `நீங்கள் ${from} மணிக்கு ${site ? `${site} இடத்திலிருந்து` : 'பணியிடத்திலிருந்து'} வெளியேறினீர்கள்${to ? `, ${to} மணிக்குத் திரும்பினீர்கள்` : ''}. இது வேலைக்காகவா?`,
+  outingOfficial: 'அலுவல் பணி',
+  outingPersonal: 'தனிப்பட்டது',
+  outingNote: 'குறிப்பு சேர்க்கவும் (விருப்பத்தேர்வு)',
+  selfieTitle: 'செக்-இன் செல்ஃபி',
+  selfieBody: 'செக்-இன் செய்யும்போது உங்கள் பணி வழங்குநர் செல்ஃபி கேட்கிறார். இது வருகைப்பதிவுக்கு மட்டுமே பயன்படுத்தப்படும்.',
+  selfieButton: 'செல்ஃபி எடு',
+  selfieDone: (time) => `${time} மணிக்கு செல்ஃபி எடுக்கப்பட்டது`,
+  cameraDenied: 'செல்ஃபி எடுக்க, ஃபோன் அமைப்புகளில் VeeTrax Tracker-க்கு கேமரா அனுமதி வழங்கவும்.',
+  requiredTitle: 'கண்காணிப்பு கட்டாயம்',
+  requiredBody: 'இந்த ஃபோனில் இருப்பிடக் கண்காணிப்பை உங்கள் நிறுவனம் கட்டாயமாக்கியுள்ளது, எனவே இங்கிருந்து நிறுத்த முடியாது. உங்கள் நிர்வாகியிடம் கேளுங்கள்.',
+  stopConfirmTitle: 'கண்காணிப்பை நிறுத்தவா?',
+  stopConfirmBody: 'உங்கள் இருப்பிடம் இனி உங்கள் கணக்குடனோ நிறுவனத்துடனோ பகிரப்படாது.',
+  lastFix: 'கடைசி இருப்பிடம்',
+  accuracy: 'துல்லியம்',
+  speed: 'வேகம்',
+  waiting: 'பதிவேற்றக் காத்திருப்பவை',
+  lastUpload: 'கடைசி பதிவேற்றம்',
+  uploadError: 'பதிவேற்றச் சிக்கல்',
+  never: 'இல்லை',
+  points: (n) => `${n} புள்ளிகள்`,
+  trackingFor: 'யாருக்கான கண்காணிப்பு',
+  company: 'நிறுவனம்',
+  uploadNow: 'இப்போது பதிவேற்று',
+  mode: 'GPS முறை',
+  modeMoving: 'நகர்கிறது (உயர் துல்லியம்)',
+  modeStationary: 'நின்றுள்ளது (பேட்டரி சேமிப்பு)',
+  filtered: 'குறிக்கப்பட்டவை (அனுப்பப்பட்டன)',
+  filteredValue: (dropped, mock) => `${dropped} துல்லியமற்றவை / தாவல்கள்${mock ? `, ${mock} போலி GPS` : ''}`,
+  notRunningTitle: 'கண்காணிப்பு எதிர்பாராமல் நின்றது',
+  notRunningBody: 'Android அல்லது ஃபோன் நிறுவனம் கண்காணிப்புச் சேவையை நிறுத்தியது. கண்காணிப்பைத் தொடங்கு என்பதை மீண்டும் தட்டி, பேட்டரி, ஆட்டோஸ்டார்ட் அமைப்புகளைச் சரிபார்க்கவும்.',
+  ago: (n, unit) => `${n} ${{ s: 'வினாடிக்கு', min: 'நிமிடத்திற்கு', h: 'மணிநேரத்திற்கு' }[unit]} முன்`,
+
+  // SOS
+  sos: 'SOS',
+  sosHint: '2 வினாடிகள் அழுத்திப் பிடிக்கவும்',
+  sosSending: 'SOS அனுப்பப்படுகிறது…',
+  sosSent: 'SOS உங்கள் கணக்கு அல்லது நிறுவனத்திற்கு அனுப்பப்பட்டது.',
+  sosQueued: 'இணைப்பு இல்லை. SOS சேமிக்கப்பட்டது, விரைவில் அனுப்பப்படும்.',
+  sosNoLocation: 'SOS-க்கு உங்கள் இருப்பிடத்தைப் பெற முடியவில்லை. இருப்பிடம் இயக்கத்தில் உள்ளதா எனப் பார்க்கவும்.',
+  sosRejected: 'சர்வர் SOS-ஐ ஏற்கவில்லை. உங்கள் நிர்வாகியை அழைக்கவும்.',
+  sosStopped: 'இந்த ஃபோனுக்கு இனி இருப்பிடம் அனுப்ப அனுமதி இல்லை.',
+
+  // Battery
+  batteryTitle: 'பேட்டரி மேம்படுத்தல் இயக்கத்தில் உள்ளது',
+
+  // OEM autostart / background settings
+  oemTitle: 'கண்காணிப்பைத் தொடர்ந்து இயக்குங்கள்',
+  oemBody: (maker) => {
+    const m = maker.toLowerCase();
+    if (['xiaomi', 'redmi', 'poco'].includes(m))
+      return 'Xiaomi / Redmi / POCO: VeeTrax Tracker-க்கு Autostart-ஐ இயக்கி, பிறகு App info → Battery saver → No restrictions என்பதைத் தேர்ந்தெடுக்கவும். Recents-இலும் செயலியைப் பூட்டவும் (அதன் கார்டை அழுத்திப் பிடித்து → பூட்டு).';
+    if (['oppo', 'realme'].includes(m))
+      return 'Oppo / Realme: VeeTrax Tracker-க்கு Auto launch (Startup manager) அனுமதித்து, பிறகு App info → Battery usage → Allow background activity என்பதைத் தேர்ந்தெடுக்கவும் ("Optimise battery use"-ஐ அணைக்கவும்).';
+    if (['vivo', 'iqoo'].includes(m))
+      return 'Vivo / iQOO: VeeTrax Tracker-க்கு Autostart / Background startup அனுமதித்து, பிறகு Battery → Background power consumption → Allow high background power usage என்பதைத் தேர்ந்தெடுக்கவும்.';
+    if (m === 'oneplus')
+      return 'OnePlus: App info → Battery usage → Allow background activity என்பதைத் தேர்ந்தெடுத்து Auto launch அனுமதிக்கவும். Recents-இல் செயலியைப் பூட்டவும்.';
+    if (m === 'samsung')
+      return 'Samsung: Settings → Battery → Background usage limits → Never sleeping apps-இல் VeeTrax Tracker-ஐச் சேர்க்கவும். அது Sleeping / Deep sleeping apps-இல் இல்லாததை உறுதிசெய்யவும்.';
+    if (['huawei', 'honor'].includes(m))
+      return 'Huawei / Honor: Battery → App launch → VeeTrax Tracker → Manage manually என்பதைத் தேர்ந்தெடுத்து Auto-launch, Secondary launch, Run in background ஆகியவற்றை இயக்கவும்.';
+    return 'சில ஃபோன்கள் பேட்டரியைச் சேமிக்கப் பின்னணிச் செயலிகளை நிறுத்தும். ஃபோன் அமைப்புகளில் VeeTrax Tracker தானாகத் தொடங்கவும், பேட்டரி கட்டுப்பாடின்றிப் பின்னணியில் இயங்கவும் அனுமதிக்கவும்.';
+  },
+  oemButton: 'ஃபோன் அமைப்புகளைத் திற',
+  oemDone: 'இதைச் செய்துவிட்டேன்',
+
+  // Permissions
+  permissionsTitle: 'அனுமதிகள்',
+  permLocation: 'இருப்பிடம்',
+  permPrecise: 'துல்லியமான இருப்பிடம்',
+  permBackground: 'எப்போதும் இருப்பிடம்',
+  permNotifications: 'அறிவிப்புகள்',
+  permGranted: 'அனுமதி உண்டு',
+  permDenied: 'அனுமதி இல்லை',
+  permLocationOff: 'இந்த ஃபோனில் இருப்பிடம் (GPS) அணைக்கப்பட்டுள்ளது.',
+  openSettings: 'செயலி அமைப்புகளைத் திற',
+  permBackgroundHelp: 'செயலி மூடப்பட்டிருக்கும்போதும் கண்காணிப்பு இயங்க, Location-இல் "Allow all the time" என்பதைத் தேர்ந்தெடுக்கவும்.',
+
+  // Disclosure (shown before the system permission dialogs; Google Play prominent disclosure)
+  disclosureTitle: 'இருப்பிடப் பகிர்வு',
+  disclosureBody: [
+    'இந்த ஃபோன் செயல்படுத்தப்பட்ட VeeTrax கணக்குடன் (உங்கள் நிறுவனம், குடும்பம் அல்லது உங்கள் சொந்தக் கணக்கு) பகிர, செயலி மூடப்பட்டிருந்தாலும் பயன்பாட்டில் இல்லாவிட்டாலும், VeeTrax Tracker இந்த ஃபோனின் இருப்பிடத் தரவைச் சேகரிக்கிறது.',
+    'கண்காணிப்பு இயக்கத்தில் இருக்கும்போது உங்கள் இருப்பிடம், வேகம், பேட்டரி நிலை ஆகியவை அந்த VeeTrax கணக்குக்கு அனுப்பப்படும், அதன் பயனர்கள் அவற்றைப் பார்க்கலாம். கண்காணிப்பின்போது எப்போதும் ஓர் அறிவிப்பு காட்டப்படும்.',
+    'நிறுத்து பொத்தானால் எப்போது வேண்டுமானாலும் கண்காணிப்பை நிறுத்தலாம். கண்காணிப்பு நிறுத்தத்தில் இருக்கும்போது இருப்பிடம் சேகரிக்கப்படாது.',
+  ],
+  disclosureNext: 'அடுத்த திரைகளில் "While using the app", பிறகு "Allow all the time" என்பதைத் தேர்ந்தெடுக்கவும்.',
+  disclosureAgree: 'புரிந்தது, தொடரவும்',
+  disclosureCancel: 'இப்போது வேண்டாம்',
+  permDeniedForeground: 'இந்த ஃபோனைக் கண்காணிக்க இருப்பிட அனுமதி தேவை.',
+  permDeniedBackground: 'செயலி திறந்திருக்கும்போது மட்டுமே கண்காணிப்பு இயங்கும். மூடப்பட்டிருக்கும்போதும் கண்காணிக்க, செயலி அமைப்புகளில் இருப்பிடத்தை "All the time" என அனுமதிக்கவும்.',
+
+  // Account
+  signOut: 'வெளியேறு / இந்த ஃபோனைச் செயலிழக்கச் செய்',
+  signOutConfirmTitle: 'இந்த ஃபோனைச் செயலிழக்கச் செய்யவா?',
+  signOutConfirmBody: 'கண்காணிப்பு நிற்கும், மீண்டும் செயல்படுத்த புதிய குறியீடு தேவைப்படும்.',
+  cancel: 'ரத்து செய்',
+  ok: 'சரி',
+
+  // Messages from the server, which always answers in English
+  server: {
+    'Enter a valid mobile number': 'சரியான மொபைல் எண்ணை உள்ளிடவும்',
+    'This number is not registered yet. Enter your e-mail address: the phone will be added to your VeeTrax account (or a new one).': 'இந்த எண் இன்னும் பதிவு செய்யப்படவில்லை. உங்கள் மின்னஞ்சல் முகவரியை உள்ளிடவும்: ஃபோன் உங்கள் VeeTrax கணக்கில் (அல்லது புதிய கணக்கில்) சேர்க்கப்படும்.',
+    'The code has expired or was not requested. Ask for a new code.': 'குறியீடு காலாவதியானது அல்லது கோரப்படவில்லை. புதிய குறியீட்டைக் கேளுங்கள்.',
+    'The code was already used. Ask for a new code.': 'இந்தக் குறியீடு ஏற்கெனவே பயன்படுத்தப்பட்டது. புதிய குறியீட்டைக் கேளுங்கள்.',
+    'Too many wrong attempts. Ask for a new code.': 'பலமுறை தவறாக உள்ளிடப்பட்டது. புதிய குறியீட்டைக் கேளுங்கள்.',
+    'Wrong code.': 'தவறான குறியீடு.',
+    'Tracking for this number is switched off by your administrator.': 'இந்த எண்ணின் கண்காணிப்பை உங்கள் நிர்வாகி நிறுத்தியுள்ளார்.',
+    'Tracking switched off by your administrator': 'உங்கள் நிர்வாகி கண்காணிப்பை நிறுத்தியுள்ளார்',
+    'This number is not registered for tracking. Ask your administrator to add it in VeeTrax → Devices.': 'இந்த எண் கண்காணிப்புக்குப் பதிவு செய்யப்படவில்லை. VeeTrax → Devices-இல் சேர்க்குமாறு உங்கள் நிர்வாகியிடம் கேளுங்கள்.',
+    'Too many codes for this number today. Try again tomorrow or ask your administrator.': 'இன்று இந்த எண்ணுக்குப் பல குறியீடுகள் கோரப்பட்டுவிட்டன. நாளை முயற்சிக்கவும் அல்லது உங்கள் நிர்வாகியிடம் கேளுங்கள்.',
+    'Too many codes for this number today. Try again tomorrow.': 'இன்று இந்த எண்ணுக்குப் பல குறியீடுகள் கோரப்பட்டுவிட்டன. நாளை முயற்சிக்கவும்.',
+    'Please wait 30 seconds before asking for a new code.': 'புதிய குறியீட்டைக் கேட்பதற்கு முன் 30 வினாடிகள் காத்திருக்கவும்.',
+    'A selfie is not needed': 'செல்ஃபி தேவையில்லை',
+    'Attendance is off for this phone': 'இந்த ஃபோனுக்கு வருகைப்பதிவு நிறுத்தப்பட்டுள்ளது',
+    'Take a photo': 'புகைப்படம் எடுக்கவும்',
+    'Take the selfie at your work site': 'உங்கள் பணியிடத்தில் செல்ஃபி எடுக்கவும்',
+    'The photo is larger than 8 MB': 'புகைப்படம் 8 MB-ஐ விடப் பெரியது',
+    'Upload a photo (JPEG, PNG, WebP)': 'புகைப்படத்தைப் பதிவேற்றவும் (JPEG, PNG, WebP)',
+    'This time outside is no longer listed': 'வெளியே இருந்த இந்த நேரம் இனி பட்டியலில் இல்லை',
+    'Your administrator has already decided this': 'இதை உங்கள் நிர்வாகி ஏற்கெனவே முடிவு செய்துள்ளார்',
+  },
+};

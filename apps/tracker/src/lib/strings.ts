@@ -1,5 +1,8 @@
-/** All user-facing text (English only for now). Keep new strings here so translation is easy later. */
-export const S = {
+import { hi } from './strings-hi';
+import { ta } from './strings-ta';
+
+/** All user-facing text. English here is the source; strings-hi.ts and strings-ta.ts have the same keys. */
+const en = {
   appName: 'VeeTrax Tracker',
 
   // Activation
@@ -52,6 +55,7 @@ export const S = {
   openVeetrax: 'Open VeeTrax',
   privacyPolicy: 'Privacy policy',
   deleteAccount: 'Delete account and data',
+  languageTitle: 'Language',
 
   // Home
   trackingOn: 'Tracking is ON',
@@ -108,7 +112,8 @@ export const S = {
   filtered: 'Flagged (still sent)',
   filteredValue: (dropped: number, mock: number) => `${dropped} inaccurate / jumps${mock ? `, ${mock} fake GPS` : ''}`,
   notRunningTitle: 'Tracking stopped unexpectedly',
-  notRunningBody: 'Android or the phone maker stopped the tracking service. Tap Start tracking again, then check the battery and autostart settings below.',
+  notRunningBody: 'Android or the phone maker stopped the tracking service. Tap Start tracking again, then check the battery and autostart settings.',
+  ago: (n: number, unit: 's' | 'min' | 'h') => `${n} ${unit} ago`,
 
   // SOS
   sos: 'SOS',
@@ -125,7 +130,7 @@ export const S = {
 
   // OEM autostart / background settings
   oemTitle: 'Keep tracking running',
-  oemBody: (maker: string) => {
+  oemBody: (maker: string): string => {
     const m = maker.toLowerCase();
     if (['xiaomi', 'redmi', 'poco'].includes(m))
       return 'Xiaomi / Redmi / POCO: turn ON Autostart for VeeTrax Tracker, then App info → Battery saver → No restrictions. Also lock the app in Recents (long-press its card → lock).';
@@ -177,7 +182,22 @@ export const S = {
   cancel: 'Cancel',
   ok: 'OK',
 
-  // Foreground service notification
-  fgTitle: 'VeeTrax Tracker is sharing your location',
-  fgBody: 'Tracking is on. Open the app to stop.',
-} as const;
+  // Messages from the server, which always answers in English: exact text → translation.
+  server: {} as Record<string, string>,
+};
+
+export type Strings = typeof en;
+export type LanguageCode = 'en' | 'hi' | 'ta';
+
+const BY_CODE: Record<LanguageCode, Strings> = { en, hi, ta };
+let current: Strings = en;
+
+export function setCurrentLanguage(code: LanguageCode): void {
+  current = BY_CODE[code];
+}
+
+/** The text in the current language: read it while rendering, not once at import. */
+export const S = new Proxy(en, { get: (_, key) => current[key as keyof Strings] });
+
+/** A server message in the current language; one we don't know stays in English. */
+export const serverText = (message: string): string => current.server[message] ?? message;

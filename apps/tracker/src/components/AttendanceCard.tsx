@@ -4,14 +4,14 @@ import { Alert, AppState, TextInput, View } from 'react-native';
 import { Body, Button, Card } from '@/components/ui';
 import { api, ApiError, type PhoneAttendance } from '@/lib/api';
 import { getToken } from '@/lib/state';
-import { S } from '@/lib/strings';
+import { S, serverText } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 
 /** While the app is on screen, so a change by the admin (shift, selfie setting) shows within seconds. */
 const REFRESH_MS = 15_000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 const clock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
-const message = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e));
+const message = (e: unknown) => (e instanceof ApiError ? serverText(e.message) : e instanceof Error ? e.message : String(e));
 
 /** Today's attendance: check-in time, the questions about time outside, and the selfie if the employer asks for one. */
 export function AttendanceCard() {

@@ -158,6 +158,11 @@ class Prefs(context: Context) {
     get() = long("lastUploadAt")
     set(v) { sp.edit().putLong("lastUploadAt", v).apply() }
 
+  /** Language of the notifications: en, hi or ta, set by the app. */
+  var language: String
+    get() = sp.getString("language", null) ?: "en"
+    set(v) { sp.edit().putString("language", v).apply() }
+
   /** The last attendance notification shown, so each is shown once. */
   var lastAttentionId: String?
     get() = sp.getString("lastAttentionId", null)

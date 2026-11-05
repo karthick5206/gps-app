@@ -8,6 +8,7 @@ import { SosButton } from '@/components/SosButton';
 import { Body, Button, Card } from '@/components/ui';
 import { beginTracking, isInactive, permissionsReady, recheckInactive, syncStopReason } from '@/lib/control';
 import { ago } from '@/lib/format';
+import { LANGUAGES } from '@/lib/language';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
@@ -129,6 +130,9 @@ export default function HomeScreen() {
         <NavRow title={S.detailsTitle} onPress={() => router.push('/details')} />
         <View style={[styles.divider, { backgroundColor: c.border }]} />
         <NavRow title={S.profileTitle} onPress={() => router.push('/profile')} />
+        <View style={[styles.divider, { backgroundColor: c.border }]} />
+        {/* In every language's own script, so someone who can't read the current one still finds theirs. */}
+        <NavRow title={LANGUAGES.map((l) => l.label).join(' · ')} onPress={() => router.push('/profile')} />
       </Card>
     </ScrollView>
   );
