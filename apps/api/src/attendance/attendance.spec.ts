@@ -84,6 +84,11 @@ describe('attendanceOf', () => {
     expect(r).toMatchObject({ carriedOver: true, firstIn: at(6, 30), onSiteMin: 30, inFix: null });
   });
 
+  it('still inside past midnight is no last out; the next day shows it as carried over', () => {
+    const stay = [{ enter: at(20), exit: at(24 + 7), site }];
+    expect(attendanceOf(stay, W, at(24 + 10))).toMatchObject({ lastOut: null, firstIn: at(20) });
+  });
+
   it('neighbouring sites are one stay; the first site is shown', () => {
     const r = attendanceOf([{ enter: at(9, 30), exit: at(12), site: 'A' }, { enter: at(11, 59), exit: at(18, 30), site: 'B' }], W, at(19));
     expect(r).toMatchObject({ site: 'A', outings: [], onSiteMin: 540 });

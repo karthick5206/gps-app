@@ -299,7 +299,8 @@ export function attendanceOf(
   const last = stays[stays.length - 1];
   const open = !!last && last.exit === null;
   const firstIn = first?.from ?? null;
-  const lastOut = last && !open ? last.to : null;
+  // Still inside when the window closed (past midnight, say): that is no exit.
+  const lastOut = last && !open && (last.exit as number) <= windowEnd ? last.to : null;
   const carriedOver = !!first && first.enter < windowStart;
 
   // Outings: only the part inside the shift counts; a final exit before the shift end stays open until the end.
