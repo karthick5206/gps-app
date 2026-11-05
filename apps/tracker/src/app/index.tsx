@@ -168,7 +168,8 @@ export default function HomeScreen() {
       <OemCard />
       <PermissionsCard checks={checks} />
 
-      {session ? (
+      {/* People's own accounts only: on a company phone the company does the viewing. */}
+      {session?.accountType === 'INDIVIDUAL' || session?.accountType === 'FAMILY' ? (
         <Card>
           <Body style={{ fontWeight: '700' }}>{S.viewInAppTitle}</Body>
           <Body muted>{S.viewInAppBody(session.email ?? null, session.mobile || `+${session.uniqueId}`)}</Body>

@@ -63,35 +63,59 @@ export class NetworkError extends Error {
 }
 
 const TIMEOUT_MS = 30_000;
+const UPLOAD_TIMEOUT_MS = 90_000;
 
 async function request<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, token?: string): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
-  const isForm = body instanceof FormData;
-  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : isForm ? body : JSON.stringify(body), signal: ctrl.signal });
+    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: ctrl.signal });
   } catch (e) {
     throw new NetworkError(e instanceof Error ? e.message : String(e));
   } finally {
     clearTimeout(timer);
   }
-  const text = await res.text().catch(() => '');
+  return parseResponse<T>(res.ok, res.status, await res.text().catch(() => ''));
+}
+
+function parseResponse<T>(ok: boolean, status: number, text: string): T {
   let json: unknown = undefined;
   try {
     json = text ? JSON.parse(text) : undefined;
   } catch {
     // non-JSON body (e.g. a proxy error page)
   }
-  if (!res.ok) {
+  if (!ok) {
     const obj = (json ?? {}) as { message?: unknown; code?: unknown };
-    const msg = typeof obj.message === 'string' ? obj.message : Array.isArray(obj.message) ? obj.message.join(', ') : `HTTP ${res.status}`;
-    throw new ApiError(res.status, msg, typeof obj.code === 'string' ? obj.code : undefined);
+    const msg = typeof obj.message === 'string' ? obj.message : Array.isArray(obj.message) ? obj.message.join(', ') : `HTTP ${status}`;
+    throw new ApiError(status, msg, typeof obj.code === 'string' ? obj.code : undefined);
   }
   return json as T;
+}
+
+/** Sends a photo by file uri. Expo's fetch refuses that in FormData ("Unsupported FormDataPart implementation"); XMLHttpRequest takes it. */
+function uploadForm<T>(path: string, form: FormData, token: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}${path}`);
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.timeout = UPLOAD_TIMEOUT_MS;
+    xhr.onload = () => {
+      try {
+        resolve(parseResponse<T>(xhr.status >= 200 && xhr.status < 300, xhr.status, xhr.responseText));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    xhr.onerror = () => reject(new NetworkError('Could not send the photo. Check your internet connection.'));
+    xhr.ontimeout = () => reject(new NetworkError('Sending the photo took too long. Try again.'));
+    xhr.send(form);
+  });
 }
 
 export const api = {
@@ -107,7 +131,7 @@ export const api = {
     const type = photo.mimeType || 'image/jpeg';
     const form = new FormData();
     form.append('file', { uri: photo.uri, type, name: `selfie.${type.split('/')[1] ?? 'jpg'}` } as unknown as Blob);
-    return request<PhoneAttendance>('POST', '/attendance/selfie', form, token);
+    return uploadForm<PhoneAttendance>('/attendance/selfie', form, token);
   },
   signOut: (token: string) => request<{ ok: true }>('POST', '/signout', undefined, token),
   diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>

@@ -7,7 +7,8 @@ import { getToken } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 
-const REFRESH_MS = 60_000;
+/** While the app is on screen, so a change by the admin (shift, selfie setting) shows within seconds. */
+const REFRESH_MS = 15_000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 const clock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 const message = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e));
@@ -21,13 +22,16 @@ export function AttendanceCard() {
 
   const refresh = useCallback(async () => {
     const token = await getToken();
-    // Older servers and offline phones: no card. The rest of the app doesn't depend on this.
-    if (token) setA(await api.attendance(token).catch(() => null));
+    // Older servers: no card. A failed refresh keeps what is shown. The rest of the app doesn't depend on this.
+    const next = token ? await api.attendance(token).catch(() => null) : null;
+    if (next) setA(next);
   }, []);
 
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), REFRESH_MS);
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') void refresh();
+    }, REFRESH_MS);
     const sub = AppState.addEventListener('change', (s) => {
       if (s === 'active') void refresh();
     });
