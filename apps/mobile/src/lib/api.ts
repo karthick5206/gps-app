@@ -26,9 +26,11 @@ interface RequestOptions {
   signal?: AbortSignal;
   /** Skip the Authorization header and 401 refresh handling (auth endpoints). */
   anonymous?: boolean;
-  /** multipart/form-data body (file upload); the boundary header is set by fetch. */
+  /** multipart/form-data body (file upload); the boundary header is set by XMLHttpRequest. */
   form?: FormData;
 }
+
+const UPLOAD_TIMEOUT_MS = 90_000;
 
 let onSessionExpired: () => void = () => {};
 
@@ -76,12 +78,31 @@ function headers(opts: RequestOptions): Record<string, string> {
   return h;
 }
 
+/** Sends a photo by file uri. Expo's fetch refuses that in FormData ("Unsupported FormDataPart implementation"); XMLHttpRequest takes it. */
+function sendForm(path: string, opts: RequestOptions, form: FormData): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const failed = () => reject(new ApiError(0, [i18n.t('No connection to the server. Check your internet and try again.')]));
+    const xhr = new XMLHttpRequest();
+    xhr.open(opts.method ?? 'POST', `${API_URL}${path}${buildQuery(opts.query)}`);
+    for (const [name, value] of Object.entries(headers(opts))) xhr.setRequestHeader(name, value);
+    xhr.timeout = UPLOAD_TIMEOUT_MS;
+    xhr.onload = () => {
+      const text = xhr.responseText;
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, text: async () => text, json: async () => JSON.parse(text) } as Response);
+    };
+    xhr.onerror = failed;
+    xhr.ontimeout = failed;
+    xhr.send(form);
+  });
+}
+
 async function send(path: string, opts: RequestOptions): Promise<Response> {
+  if (opts.form) return sendForm(path, opts, opts.form);
   try {
     return await fetch(`${API_URL}${path}${buildQuery(opts.query)}`, {
       method: opts.method ?? 'GET',
       headers: headers(opts),
-      body: opts.form ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
       signal: opts.signal,
     });
   } catch (err) {
