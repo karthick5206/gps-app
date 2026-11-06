@@ -1,16 +1,17 @@
 import { router } from 'expo-router';
-import { ChevronRight, ExternalLink, Play, Square, UserRound } from 'lucide-react-native';
+import { EllipsisVertical, ExternalLink, Play, Square } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AttendanceCard } from '@/components/AttendanceCard';
 import { NeedsAttention, useChecks } from '@/components/ChecksCards';
+import { HomeMenu } from '@/components/HomeMenu';
+import { LanguagePicker } from '@/components/LanguagePicker';
 import { SosButton } from '@/components/SosButton';
 import { BlinkDot, StatusPulse, type LiveState } from '@/components/StatusPulse';
 import { TrackerMark } from '@/components/TrackerLogo';
-import { Body, Button, Card, HeaderBand, HeaderIconButton, Section, toneColors } from '@/components/ui';
+import { Body, Button, Card, HeaderBand, HeaderIconButton, toneColors } from '@/components/ui';
 import { beginTracking, isInactive, permissionsReady, recheckInactive, syncStopReason } from '@/lib/control';
 import { ago } from '@/lib/format';
-import { LANGUAGES } from '@/lib/language';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
@@ -25,22 +26,13 @@ function openVeetrax() {
   Linking.openURL('veetrax://').catch(() => Linking.openURL(PLAY_STORE_VEETRAX).catch(() => undefined));
 }
 
-function NavRow({ title, onPress }: { title: string; onPress: () => void }) {
-  const c = useColors();
-  return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.navRow, { opacity: pressed ? 0.6 : 1 }]}>
-      <Text style={[styles.navText, { color: c.text }]}>{title}</Text>
-      <ChevronRight color={c.muted} size={20} />
-    </Pressable>
-  );
-}
-
 export default function HomeScreen() {
   useStoreVersion();
   const c = useColors();
   const [checks, refreshChecks] = useChecks();
   const [status, refreshStatus] = useTrackerStatus();
   const [busy, setBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const statusRef = useRef(status);
   useEffect(() => {
     statusRef.current = status;
@@ -105,7 +97,7 @@ export default function HomeScreen() {
         logo={<TrackerMark size={34} />}
         title={S.appName}
         subtitle={session?.objectName || null}
-        right={<HeaderIconButton icon={<UserRound color={c.headerText} size={22} />} label={S.profileTitle} onPress={() => router.push('/profile')} />}
+        right={<HeaderIconButton icon={<EllipsisVertical color={c.headerText} size={22} />} label={S.menu} onPress={() => setMenuOpen(true)} />}
       />
       <ScrollView contentContainerStyle={styles.scroll}>
         <Card style={[styles.statusCard, { borderColor: on || blocked ? tone.dot : c.border }]}>
@@ -137,6 +129,11 @@ export default function HomeScreen() {
 
         <SosButton onDone={refreshStatus} />
 
+        {/* Language after activation: right on the home screen, each in its own script so anyone can find theirs. */}
+        <View style={styles.language}>
+          <LanguagePicker />
+        </View>
+
         {/* People's own accounts only: on a company phone the company does the viewing. */}
         {session?.accountType === 'INDIVIDUAL' || session?.accountType === 'FAMILY' ? (
           <Card>
@@ -146,13 +143,8 @@ export default function HomeScreen() {
           </Card>
         ) : null}
 
-        <Section>
-          <NavRow title={S.detailsTitle} onPress={() => router.push('/details')} />
-          <NavRow title={S.profileTitle} onPress={() => router.push('/profile')} />
-          {/* In every language's own script, so someone who can't read the current one still finds theirs. */}
-          <NavRow title={LANGUAGES.map((l) => l.label).join(' · ')} onPress={() => router.push('/profile')} />
-        </Section>
       </ScrollView>
+      <HomeMenu open={menuOpen} onClose={() => setMenuOpen(false)} status={status} />
     </View>
   );
 }
@@ -165,6 +157,5 @@ const styles = StyleSheet.create({
   statusTitle: { fontSize: 24, fontWeight: '800' },
   lineRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   line: { flex: 1 },
-  navRow: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  navText: { fontSize: 16, fontWeight: '600', flexShrink: 1 },
+  language: { paddingTop: 4 },
 });

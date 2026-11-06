@@ -1,30 +1,17 @@
-import { LogOut } from 'lucide-react-native';
-import { Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { LanguagePicker } from '@/components/LanguagePicker';
-import { Button, Row, Section } from '@/components/ui';
-import { deactivate as deactivatePhone } from '@/lib/control';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { WEB_URL } from '@/components/HomeMenu';
+import { Row, Section } from '@/components/ui';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
-import { useTrackerStatus } from '@/lib/tracking';
 
-const WEB_URL = 'https://app.veetrax.com';
 const dateOnly = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
-/** Whose phone this is, the licence, the legal pages and signing out. */
+/** Whose phone this is and the licence. Sign out, deactivate and delete are in the home screen menu; language is on the home screen. */
 export default function ProfileScreen() {
   useStoreVersion();
   const c = useColors();
-  const [status] = useTrackerStatus();
   const session = store.session();
-  const required = !!status?.required;
-  const queued = status?.queueSize ?? 0;
-
-  const deactivate = () =>
-    required ? Alert.alert(S.requiredTitle, S.requiredBody) : Alert.alert(S.signOutConfirmTitle, queued > 0 ? `${S.signOutConfirmBody}\n\n${S.signOutUnsent(queued)}` : S.signOutConfirmBody, [
-      { text: S.cancel, style: 'cancel' },
-      { text: S.ok, style: 'destructive', onPress: () => void deactivatePhone() },
-    ]);
 
   return (
     <ScrollView style={{ backgroundColor: c.background }} contentContainerStyle={styles.scroll}>
@@ -54,20 +41,12 @@ export default function ProfileScreen() {
         </Section>
       ) : null}
 
-      <Section title={S.languageTitle}>
-        <LanguagePicker />
-      </Section>
-
       <View style={styles.legal}>
         <Text style={[styles.legalLink, { color: c.muted }]} onPress={() => Linking.openURL(`${WEB_URL}/privacy`).catch(() => undefined)}>
           {S.privacyPolicy}
         </Text>
-        <Text style={[styles.legalLink, { color: c.muted }]} onPress={() => Linking.openURL(`${WEB_URL}/delete-account`).catch(() => undefined)}>
-          {S.deleteAccount}
-        </Text>
       </View>
 
-      <Button title={S.signOut} variant="ghost" icon={<LogOut color={c.muted} size={18} />} onPress={deactivate} />
     </ScrollView>
   );
 }

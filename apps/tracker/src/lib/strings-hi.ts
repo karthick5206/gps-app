@@ -71,6 +71,7 @@ export const hi: Strings = {
   locationOffShort: 'स्थान (GPS) बंद है',
   detailsTitle: 'विवरण',
   profileTitle: 'प्रोफ़ाइल',
+  menu: 'मेनू',
   signOutUnsent: (n) => `${n} स्थान अभी अपलोड नहीं हुए हैं और अभी न भेजे जा सके तो खो जाएँगे। हो सके तो पहले इंटरनेट से जुड़ें।`,
   attendanceTitle: 'उपस्थिति',
   shiftToday: (from, to) => `आज आपकी शिफ़्ट: ${from} से ${to} तक`,
@@ -185,6 +186,8 @@ export const hi: Strings = {
 
   // Account
   signOut: 'साइन आउट / इस फ़ोन को निष्क्रिय करें',
+  signOutShort: 'साइन आउट',
+  deactivatePhone: 'इस फ़ोन को निष्क्रिय करें',
   signOutConfirmTitle: 'इस फ़ोन को निष्क्रिय करें?',
   signOutConfirmBody: 'ट्रैकिंग रुक जाएगी और दोबारा सक्रिय करने के लिए नया कोड चाहिए होगा।',
   cancel: 'रद्द करें',

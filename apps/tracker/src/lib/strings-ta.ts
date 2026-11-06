@@ -71,6 +71,7 @@ export const ta: Strings = {
   locationOffShort: 'இருப்பிடம் (GPS) அணைக்கப்பட்டுள்ளது',
   detailsTitle: 'விவரங்கள்',
   profileTitle: 'சுயவிவரம்',
+  menu: 'மெனு',
   signOutUnsent: (n) => `${n} இருப்பிடங்கள் இன்னும் பதிவேற்றப்படவில்லை, இப்போது அனுப்ப முடியாவிட்டால் இழக்கப்படும். முடிந்தால் முதலில் இணையத்தில் இணையவும்.`,
   attendanceTitle: 'வருகைப்பதிவு',
   shiftToday: (from, to) => `இன்றைய உங்கள் ஷிப்ட்: ${from} முதல் ${to} வரை`,
@@ -185,6 +186,8 @@ export const ta: Strings = {
 
   // Account
   signOut: 'வெளியேறு / இந்த ஃபோனைச் செயலிழக்கச் செய்',
+  signOutShort: 'வெளியேறு',
+  deactivatePhone: 'இந்த ஃபோனைச் செயலிழக்கச் செய்',
   signOutConfirmTitle: 'இந்த ஃபோனைச் செயலிழக்கச் செய்யவா?',
   signOutConfirmBody: 'கண்காணிப்பு நிற்கும், மீண்டும் செயல்படுத்த புதிய குறியீடு தேவைப்படும்.',
   cancel: 'ரத்து செய்',

@@ -74,6 +74,7 @@ const en = {
   locationOffShort: 'Location (GPS) is off',
   detailsTitle: 'Details',
   profileTitle: 'Profile',
+  menu: 'Menu',
   signOutUnsent: (n: number) => `${n} locations are not uploaded yet and will be lost if they can't be sent now. Connect to the internet first if you can.`,
   attendanceTitle: 'Attendance',
   shiftToday: (from: string, to: string) => `Your shift today: ${from} to ${to}`,
@@ -189,6 +190,8 @@ const en = {
 
   // Account
   signOut: 'Sign out / deactivate this phone',
+  signOutShort: 'Sign out',
+  deactivatePhone: 'Deactivate this phone',
   signOutConfirmTitle: 'Deactivate this phone?',
   signOutConfirmBody: 'Tracking stops and you will need a new code to activate again.',
   cancel: 'Cancel',
