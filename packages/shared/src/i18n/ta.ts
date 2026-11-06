@@ -3364,4 +3364,5 @@ export const TA: Record<string, string> = {
   'Full screen': 'முழுத் திரை',
   'Exit full screen': 'முழுத் திரையிலிருந்து வெளியேறு',
   'Full screen is not available in this browser': 'இந்த உலாவியில் முழுத் திரை கிடைக்கவில்லை',
+  'Show timeline': 'காலவரிசையைக் காட்டு',
 };
