@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { EllipsisVertical, ExternalLink, Play, Square } from 'lucide-react-native';
+import { ExternalLink, Play, Square, UserRound } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AttendanceCard } from '@/components/AttendanceCard';
@@ -97,7 +97,7 @@ export default function HomeScreen() {
         logo={<TrackerMark size={34} />}
         title={S.appName}
         subtitle={session?.objectName || null}
-        right={<HeaderIconButton icon={<EllipsisVertical color={c.headerText} size={22} />} label={S.menu} onPress={() => setMenuOpen(true)} />}
+        right={<HeaderIconButton icon={<UserRound color={c.headerText} size={22} />} label={S.menu} onPress={() => setMenuOpen(true)} />}
       />
       <ScrollView contentContainerStyle={styles.scroll}>
         <Card style={[styles.statusCard, { borderColor: on || blocked ? tone.dot : c.border }]}>
