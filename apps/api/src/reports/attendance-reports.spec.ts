@@ -1,5 +1,5 @@
 import type { AttendanceRowDto } from '@veetracer/shared';
-import { attendanceDailyReport, attendanceOutingsReport, attendanceSummaryReport } from './attendance-reports';
+import { attendanceDailyReport, attendanceOutingsReport, attendancePayrollReport, attendanceSummaryReport } from './attendance-reports';
 import type { ObjInfo } from './report-queries';
 
 const objects = new Map<string, ObjInfo>([['p1', { name: 'Ravi', plateNumber: 'EMP-7', branchId: null, branchName: 'Chennai', type: 'PERSON', vehicleType: null, speedLimitKph: null }]]);
@@ -31,6 +31,21 @@ describe('attendanceSummaryReport', () => {
 
   it('nobody due: 0 %, not a division by zero', () => {
     expect(attendanceSummaryReport([day({ status: 'DAY_OFF' })], objects, 100).rows[0]).toMatchObject({ workingDays: 0, attendancePct: 0, avgWorkedMin: 0 });
+  });
+});
+
+describe('attendancePayrollReport', () => {
+  it('payable days = present (on time or late) + half of half days + weekly offs; LOP = absent + half of half days', () => {
+    const rows = [
+      day({ day: '2026-11-02', status: 'PRESENT', workedMin: 480, overtimeMin: 45 }),
+      day({ day: '2026-11-03', status: 'LATE', lateMin: 20, workedMin: 460, earlyMin: 10 }),
+      day({ day: '2026-11-04', status: 'LATE', halfDay: true, lateMin: 90, workedMin: 250 }),
+      day({ day: '2026-11-05', status: 'ABSENT', corrected: true }),
+      day({ day: '2026-11-08', status: 'DAY_OFF' }),
+      day({ day: '2026-11-09', status: 'NOT_ARRIVED' }),
+    ];
+    const r = attendancePayrollReport(rows, objects, '2026-11-01', '2026-11-30', 100).rows[0];
+    expect(r).toMatchObject({ employeeId: 'EMP-7', from: '2026-11-01', to: '2026-11-30', workingDays: 4, presentDays: 2, halfDays: 1, absentDays: 1, weeklyOffs: 1, payableDays: 3.5, lopDays: 1.5, lateDays: 2, lateMinutes: 110, earlyLeaveDays: 1, earlyLeaveMinutes: 10, workedHours: 19.83, overtimeHours: 0.75, correctedDays: 1 });
   });
 });
 

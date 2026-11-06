@@ -56,6 +56,37 @@ export interface AttendanceSummaryRow {
   correctedDays: number;
 }
 
+/** One line per person for a pay period, in the units payroll software expects (days and decimal hours). */
+export interface AttendancePayrollRow {
+  objectId: string;
+  employeeId: string | null;
+  name: string;
+  branch: string | null;
+  from: string;
+  to: string;
+  /** Days the person was due to work (present, late, half day and absent). */
+  workingDays: number;
+  /** Full days attended (on time or late). */
+  presentDays: number;
+  halfDays: number;
+  absentDays: number;
+  /** Weekly offs / days off by the shift (or corrected to day off). */
+  weeklyOffs: number;
+  /** Present + half of the half days + weekly offs. */
+  payableDays: number;
+  /** Loss of pay: absent + half of the half days. */
+  lopDays: number;
+  lateDays: number;
+  lateMinutes: number;
+  earlyLeaveDays: number;
+  earlyLeaveMinutes: number;
+  workedHours: number;
+  overtimeHours: number;
+  officialDutyHours: number;
+  unexplainedHours: number;
+  correctedDays: number;
+}
+
 export interface AttendanceOutingRow {
   objectId: string;
   name: string;
@@ -202,6 +233,69 @@ export function attendanceSummaryReport(rows: AttendanceRowDto[], objects: Map<s
     overtimeMin: sum(all, (r) => r.overtimeMin),
     selfiesTaken: sum(all, (r) => r.selfiesTaken),
     selfiesMissing: sum(all, (r) => r.selfiesMissing),
+    correctedDays: sum(all, (r) => r.correctedDays),
+  };
+  return { rows: all.slice(0, maxRows), totals, totalRows: all.length };
+}
+
+const decimalHours = (min: number) => Math.round((min / 60) * 100) / 100;
+
+/**
+ * Payroll figures per person for the period. Payable days = present (on time or late) + half of the half days +
+ * weekly offs; loss of pay = absent + half of the half days. Today's unfinished day (upcoming, not arrived) is left out.
+ */
+export function attendancePayrollReport(rows: AttendanceRowDto[], objects: Map<string, ObjInfo>, from: string, to: string, maxRows: number): Report<AttendancePayrollRow> {
+  const people = new Map<string, AttendanceRowDto[]>();
+  for (const r of rows) people.set(r.objectId, [...(people.get(r.objectId) ?? []), r]);
+  const all: AttendancePayrollRow[] = [...people.entries()].map(([objectId, days]) => {
+    const whole = (s: string) => days.filter((d) => !d.halfDay && d.status === s).length;
+    const presentDays = whole('PRESENT') + whole('LATE');
+    const halfDays = days.filter((d) => d.halfDay).length;
+    const absentDays = whole('ABSENT');
+    const weeklyOffs = whole('DAY_OFF');
+    return {
+      objectId,
+      ...who(objects, objectId),
+      name: days[0].name,
+      branch: days[0].branch,
+      from,
+      to,
+      workingDays: presentDays + halfDays + absentDays,
+      presentDays,
+      halfDays,
+      absentDays,
+      weeklyOffs,
+      payableDays: presentDays + halfDays / 2 + weeklyOffs,
+      lopDays: absentDays + halfDays / 2,
+      lateDays: days.filter((d) => d.lateMin > 0).length,
+      lateMinutes: sum(days, (d) => d.lateMin),
+      earlyLeaveDays: days.filter((d) => d.earlyMin > 0).length,
+      earlyLeaveMinutes: sum(days, (d) => d.earlyMin),
+      workedHours: decimalHours(sum(days, (d) => d.workedMin)),
+      overtimeHours: decimalHours(sum(days, (d) => d.overtimeMin)),
+      officialDutyHours: decimalHours(sum(days, (d) => d.officialMin)),
+      unexplainedHours: decimalHours(sum(days, (d) => d.unexplainedMin)),
+      correctedDays: days.filter((d) => d.corrected).length,
+    };
+  });
+  all.sort((a, b) => a.name.localeCompare(b.name));
+  const totals = {
+    count: all.length,
+    workingDays: sum(all, (r) => r.workingDays),
+    presentDays: sum(all, (r) => r.presentDays),
+    halfDays: sum(all, (r) => r.halfDays),
+    absentDays: sum(all, (r) => r.absentDays),
+    weeklyOffs: sum(all, (r) => r.weeklyOffs),
+    payableDays: sum(all, (r) => r.payableDays),
+    lopDays: sum(all, (r) => r.lopDays),
+    lateDays: sum(all, (r) => r.lateDays),
+    lateMinutes: sum(all, (r) => r.lateMinutes),
+    earlyLeaveDays: sum(all, (r) => r.earlyLeaveDays),
+    earlyLeaveMinutes: sum(all, (r) => r.earlyLeaveMinutes),
+    workedHours: decimalHours(sum(all, (r) => r.workedHours * 60)),
+    overtimeHours: decimalHours(sum(all, (r) => r.overtimeHours * 60)),
+    officialDutyHours: decimalHours(sum(all, (r) => r.officialDutyHours * 60)),
+    unexplainedHours: decimalHours(sum(all, (r) => r.unexplainedHours * 60)),
     correctedDays: sum(all, (r) => r.correctedDays),
   };
   return { rows: all.slice(0, maxRows), totals, totalRows: all.length };

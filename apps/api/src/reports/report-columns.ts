@@ -28,7 +28,7 @@ import {
   TripDto,
   utilisationPct,
 } from '@veetracer/shared';
-import type { AttendanceCorrectionRow, AttendanceDailyRow, AttendanceOutingRow, AttendanceSummaryRow } from './attendance-reports';
+import type { AttendanceCorrectionRow, AttendanceDailyRow, AttendanceOutingRow, AttendanceSummaryRow, AttendancePayrollRow } from './attendance-reports';
 import { hhmmss, localTime } from './format';
 
 export type Cell = string | number;
@@ -71,6 +71,7 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   AC_DOOR_DAILY: 'AC / Door daily totals report',
   ATTENDANCE_DAILY: 'Daily attendance report',
   ATTENDANCE_SUMMARY: 'Attendance summary report',
+  ATTENDANCE_PAYROLL: 'Attendance payroll report',
   ATTENDANCE_OUTINGS: 'Time outside report',
   ATTENDANCE_CORRECTIONS: 'Attendance corrections report',
 };
@@ -111,6 +112,30 @@ const ATTENDANCE_DAILY: ReportColumn[] = [
   col<AttendanceDailyRow>({ header: 'Selfie location', width: 22, value: (r) => r.selfieLocation ?? '' }),
   col<AttendanceDailyRow>({ header: 'Video', width: 9, value: (r) => r.video }),
   col<AttendanceDailyRow>({ header: 'Corrected', width: 18, value: (r) => r.corrected }),
+];
+
+const ATTENDANCE_PAYROLL: ReportColumn[] = [
+  col<AttendancePayrollRow>({ header: 'Staff ID', width: 12, value: (r) => r.employeeId ?? '', total: () => 'Total' }),
+  col<AttendancePayrollRow>({ header: 'Staff', width: 20, value: (r) => r.name, total: (t) => `${t.count ?? 0} staff` }),
+  col<AttendancePayrollRow>({ header: 'Branch', width: 14, value: (r) => r.branch ?? '' }),
+  col<AttendancePayrollRow>({ header: 'From', width: 11, value: (r) => r.from }),
+  col<AttendancePayrollRow>({ header: 'To', width: 11, value: (r) => r.to }),
+  col<AttendancePayrollRow>({ header: 'Working days', width: 8, numeric: true, value: (r) => r.workingDays, total: (t) => t.workingDays ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Present days', width: 8, numeric: true, value: (r) => r.presentDays, total: (t) => t.presentDays ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Half days', width: 7, numeric: true, value: (r) => r.halfDays, total: (t) => t.halfDays ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Absent days', width: 7, numeric: true, value: (r) => r.absentDays, total: (t) => t.absentDays ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Weekly offs', width: 7, numeric: true, value: (r) => r.weeklyOffs, total: (t) => t.weeklyOffs ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Payable days', width: 8, numeric: true, value: (r) => r.payableDays, total: (t) => t.payableDays ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'LOP days', width: 7, numeric: true, value: (r) => r.lopDays, total: (t) => t.lopDays ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Late days', width: 7, numeric: true, value: (r) => r.lateDays, total: (t) => t.lateDays ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Late (min)', width: 8, numeric: true, value: (r) => r.lateMinutes, total: (t) => t.lateMinutes ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Early leave days', width: 8, numeric: true, value: (r) => r.earlyLeaveDays, total: (t) => t.earlyLeaveDays ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Early leave (min)', width: 8, numeric: true, value: (r) => r.earlyLeaveMinutes, total: (t) => t.earlyLeaveMinutes ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Worked (h)', width: 9, numeric: true, value: (r) => r.workedHours, total: (t) => t.workedHours ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Overtime (h)', width: 9, numeric: true, value: (r) => r.overtimeHours, total: (t) => t.overtimeHours ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Official duty (h)', width: 9, numeric: true, value: (r) => r.officialDutyHours, total: (t) => t.officialDutyHours ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Unexplained (h)', width: 9, numeric: true, value: (r) => r.unexplainedHours, total: (t) => t.unexplainedHours ?? 0 }),
+  col<AttendancePayrollRow>({ header: 'Corrected days', width: 8, numeric: true, value: (r) => r.correctedDays, total: (t) => t.correctedDays ?? 0 }),
 ];
 
 const ATTENDANCE_SUMMARY: ReportColumn[] = [
@@ -566,6 +591,8 @@ export function columnsFor(type: ReportType): ReportColumn[] {
       return ATTENDANCE_DAILY;
     case 'ATTENDANCE_SUMMARY':
       return ATTENDANCE_SUMMARY;
+    case 'ATTENDANCE_PAYROLL':
+      return ATTENDANCE_PAYROLL;
     case 'ATTENDANCE_OUTINGS':
       return ATTENDANCE_OUTINGS;
     case 'ATTENDANCE_CORRECTIONS':

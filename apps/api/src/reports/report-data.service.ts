@@ -40,7 +40,7 @@ import {
   QueryCtx,
 } from './report-queries';
 import { AttendanceService } from '../attendance/attendance.service';
-import { attendanceCorrectionsReport, attendanceDailyReport, attendanceOutingsReport, attendanceSummaryReport } from './attendance-reports';
+import { attendanceCorrectionsReport, attendanceDailyReport, attendanceOutingsReport, attendanceSummaryReport, attendancePayrollReport } from './attendance-reports';
 import { documentsReport } from './documents-report';
 import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
 import { fuelEventsReport, fuelReport } from './fuel-report';
@@ -271,6 +271,7 @@ export class ReportDataService {
 
       case 'ATTENDANCE_DAILY':
       case 'ATTENDANCE_SUMMARY':
+      case 'ATTENDANCE_PAYROLL':
       case 'ATTENDANCE_OUTINGS':
       case 'ATTENDANCE_CORRECTIONS': {
         // Holds people's hours and locations: the reports permission alone is not enough.
@@ -281,7 +282,9 @@ export class ReportDataService {
             ? await attendanceCorrectionsReport(this.prisma, ctx.companyId, objects, req.from, req.to, maxRows)
             : req.type === 'ATTENDANCE_OUTINGS'
               ? await attendanceOutingsReport(this.prisma, await this.attendance.reportRows(full, req.from, req.to, new Set(ids)), objects, maxRows)
-              : req.type === 'ATTENDANCE_SUMMARY'
+              : req.type === 'ATTENDANCE_PAYROLL'
+                ? attendancePayrollReport(await this.attendance.reportRows(full, req.from, req.to, new Set(ids)), objects, req.from, req.to, maxRows)
+                : req.type === 'ATTENDANCE_SUMMARY'
                 ? attendanceSummaryReport(await this.attendance.reportRows(full, req.from, req.to, new Set(ids)), objects, maxRows)
                 : attendanceDailyReport(await this.attendance.reportRows(full, req.from, req.to, new Set(ids)), objects, maxRows);
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };

@@ -97,7 +97,7 @@ describe('OpenAPI document', () => {
     const doc = buildOpenApi() as { openapi: string; paths: Record<string, Record<string, unknown>> };
     expect(doc.openapi).toBe('3.0.3');
     expect(Object.keys(doc.paths).sort()).toEqual(
-      ['/v1/alerts', '/v1/reports/{type}', '/v1/stops', '/v1/trips', '/v1/vehicles', '/v1/vehicles/live', '/v1/vehicles/{id}/commands', '/v1/vehicles/{id}/positions', '/v1/webhooks', '/v1/webhooks/{id}'].sort(),
+      ['/v1/alerts', '/v1/attendance/daily', '/v1/attendance/payroll', '/v1/reports/{type}', '/v1/stops', '/v1/trips', '/v1/vehicles', '/v1/vehicles/live', '/v1/vehicles/{id}/commands', '/v1/vehicles/{id}/positions', '/v1/webhooks', '/v1/webhooks/{id}'].sort(),
     );
     expect(JSON.stringify(doc)).toContain('"scheme":"bearer"');
   });

@@ -63,7 +63,8 @@ export class ApiKeysService implements OnModuleDestroy {
       homeCompanyId: key.companyId,
       companyId: key.companyId,
       isSuperAdmin: false,
-      permissions: {},
+      // read:attendance lets the key read attendance and payroll figures; no other menu.
+      permissions: normaliseScopes(key.scopes).includes('read:attendance') ? { attendance: ['view'] } : {},
       dataScope: key.branchId ? 'ASSIGNED' : 'COMPANY',
       branchIds: key.branchId ? [key.branchId] : [],
       objectIds: [],

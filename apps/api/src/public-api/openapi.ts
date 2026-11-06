@@ -238,6 +238,34 @@ export function buildOpenApi(serverUrl = '/api'): Json {
           ok(obj({ data: { type: 'array', items: { type: 'object', additionalProperties: true } }, meta: obj({ report: str(), from: str(), to: str(), timezone: str(), totals: { type: 'object' }, count: int(), totalRows: int(), truncated: bool() }) })),
         ),
       },
+      '/v1/attendance/payroll': {
+        get: op(
+          'Payroll figures per staff member (payable days, loss of pay, late, early leave, worked and overtime hours)',
+          'read:attendance',
+          [
+            q('from', 'First day of the pay period (YYYY-MM-DD, company time zone). At most 62 days', str(undefined, { format: 'date' }), true),
+            q('to', 'Last day (YYYY-MM-DD, inclusive)', str(undefined, { format: 'date' }), true),
+            q('branchId', 'Only this branch (default: all)'),
+            q('staffIds', 'Comma-separated staff ids (default: all)'),
+            q('format', 'json (default) or csv'),
+          ],
+          ok(obj({ data: { type: 'array', items: { type: 'object', additionalProperties: true } }, meta: obj({ from: str(), to: str(), timezone: str(), totals: { type: 'object' }, count: int(), totalRows: int(), truncated: bool() }) })),
+        ),
+      },
+      '/v1/attendance/daily': {
+        get: op(
+          'Attendance per staff member per day (status, first in, last out, worked / late / early leave / overtime minutes)',
+          'read:attendance',
+          [
+            q('from', 'First day (YYYY-MM-DD, company time zone). At most 62 days', str(undefined, { format: 'date' }), true),
+            q('to', 'Last day (YYYY-MM-DD, inclusive)', str(undefined, { format: 'date' }), true),
+            q('branchId', 'Only this branch (default: all)'),
+            q('staffIds', 'Comma-separated staff ids (default: all)'),
+            q('format', 'json (default) or csv'),
+          ],
+          ok(obj({ data: { type: 'array', items: { type: 'object', additionalProperties: true } }, meta: obj({ from: str(), to: str(), timezone: str(), totals: { type: 'object' }, count: int(), totalRows: int(), truncated: bool() }) })),
+        ),
+      },
       '/v1/webhooks': {
         get: op('List webhook endpoints', 'webhooks', [], ok(list('WebhookEndpoint'))),
         post: {

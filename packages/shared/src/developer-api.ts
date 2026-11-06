@@ -6,6 +6,7 @@ export const API_SCOPES = [
   'read:trips',
   'read:alerts',
   'read:reports',
+  'read:attendance',
   'write:commands',
   'write:commands:critical',
   'webhooks',
@@ -26,6 +27,7 @@ export const API_SCOPE_DEFS: readonly ApiScopeDef[] = [
   { scope: 'read:trips', label: 'Trips and stops', description: 'Trips and stops worked out from the positions.' },
   { scope: 'read:alerts', label: 'Alerts', description: 'Alerts raised for the vehicles.' },
   { scope: 'read:reports', label: 'Reports', description: 'Report data as JSON (summary, distance, engine hours…).' },
+  { scope: 'read:attendance', label: 'Staff attendance', description: 'Staff attendance per day and payroll figures (payable days, loss of pay, overtime) for payroll software.', sensitive: true },
   { scope: 'write:commands', label: 'Device commands', description: 'Send locate, status and restart commands to trackers.', sensitive: true },
   {
     scope: 'write:commands:critical',

@@ -88,6 +88,14 @@ export class ReportQueryDto {
   @IsOptional() @IsString() @MaxLength(10) period?: string;
 }
 
+export class AttendanceQueryDto {
+  @IsOptional() @IsString() @MaxLength(10) from?: string;
+  @IsOptional() @IsString() @MaxLength(10) to?: string;
+  @IsOptional() @IsString() @MaxLength(40) branchId?: string;
+  @IsOptional() @IsString() @MaxLength(20_000) staffIds?: string;
+  @IsOptional() @IsString() @MaxLength(10) format?: string;
+}
+
 export const clampLimit = (limit: number | undefined, def: number, max: number) => Math.min(max, Math.max(1, limit ?? def));
 
 export function idList(raw: string | undefined): string[] {

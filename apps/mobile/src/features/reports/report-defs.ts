@@ -499,6 +499,28 @@ const ATTENDANCE_DAILY: ReportColumn[] = [
   { id: 'corrected', header: 'Corrected', value: str('corrected') },
 ];
 
+const ATTENDANCE_PAYROLL: ReportColumn[] = [
+  staffId,
+  staffName,
+  staffBranch,
+  countCol('workingDays', 'Working days'),
+  countCol('presentDays', 'Present days'),
+  countCol('halfDays', 'Half days'),
+  countCol('absentDays', 'Absent days'),
+  countCol('weeklyOffs', 'Weekly offs'),
+  { id: 'payableDays', header: 'Payable days', value: num('payableDays'), numeric: true, total: 'sum', format: (v) => String(v) },
+  { id: 'lopDays', header: 'LOP days', value: num('lopDays'), numeric: true, total: 'sum', format: (v) => String(v) },
+  countCol('lateDays', 'Late days'),
+  countCol('lateMinutes', 'Late (min)'),
+  countCol('earlyLeaveDays', 'Early leave days'),
+  countCol('earlyLeaveMinutes', 'Early leave (min)'),
+  { id: 'workedHours', header: 'Worked (h)', value: num('workedHours'), numeric: true, total: 'sum', format: (v) => v.toFixed(2) },
+  { id: 'overtimeHours', header: 'Overtime (h)', value: num('overtimeHours'), numeric: true, total: 'sum', format: (v) => v.toFixed(2) },
+  { id: 'officialDutyHours', header: 'Official duty (h)', value: num('officialDutyHours'), numeric: true, total: 'sum', format: (v) => v.toFixed(2) },
+  { id: 'unexplainedHours', header: 'Unexplained (h)', value: num('unexplainedHours'), numeric: true, total: 'sum', format: (v) => v.toFixed(2) },
+  countCol('correctedDays', 'Corrected days'),
+];
+
 const ATTENDANCE_SUMMARY: ReportColumn[] = [
   staffName,
   staffId,
@@ -585,6 +607,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'DOCUMENTS', category: 'Compliance', label: 'Documents & services', description: 'Document expiry and service status of every vehicle as of today.', icon: FileCheck2Icon, columns: DOCUMENTS },
   { type: 'ATTENDANCE_DAILY', category: 'Staff attendance', label: 'Daily attendance', description: 'Each person, each day: shift, first in, last out, hours, late, early exit, overtime, location, selfie and corrections.', icon: CalendarCheckIcon, columns: ATTENDANCE_DAILY },
   { type: 'ATTENDANCE_SUMMARY', category: 'Staff attendance', label: 'Attendance summary', description: 'One line per person for the period: days present, late, half day and absent, attendance %, hours and overtime.', icon: CalendarCheckIcon, columns: ATTENDANCE_SUMMARY },
+  { type: 'ATTENDANCE_PAYROLL', category: 'Staff attendance', label: 'Payroll', description: 'For salary processing: payable days, loss-of-pay days, late and early leave, worked and overtime hours per person. Also on the Developer API for payroll software.', icon: CalendarCheckIcon, columns: ATTENDANCE_PAYROLL },
   { type: 'ATTENDANCE_OUTINGS', category: 'Staff attendance', label: 'Time outside', description: 'Every time someone left the site during a shift: how long, official or personal, what they said and who decided.', icon: CalendarCheckIcon, columns: ATTENDANCE_OUTINGS },
   { type: 'ATTENDANCE_CORRECTIONS', category: 'Staff attendance', label: 'Attendance corrections', description: 'Days changed by hand: what was calculated, what it became, who changed it and why.', icon: CalendarCheckIcon, columns: ATTENDANCE_CORRECTIONS },
 ];

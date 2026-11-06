@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { COMMAND_TYPES, CommandType, ReportPeriod, ReportType } from '@veetracer/shared';
 import { IsIn, IsOptional, IsString, Length } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
@@ -10,7 +11,22 @@ import { WebhooksAdminService } from '../webhooks/webhooks-admin.service';
 import { ReportDataService } from '../reports/report-data.service';
 import { daysBetween, isDayKey } from '../summarizer/tz';
 import { PublicApiService } from './public-api.service';
-import { AlertsQueryDto, idList, LiveQueryDto, PageQueryDto, RangeQueryDto, ReportQueryDto, TripsQueryDto } from './v1-query';
+import { AlertsQueryDto, AttendanceQueryDto, idList, LiveQueryDto, PageQueryDto, RangeQueryDto, ReportQueryDto, TripsQueryDto } from './v1-query';
+
+/** Attendance on the API: at most this many days per request (a pay month fits). */
+export const V1_ATTENDANCE_MAX_DAYS = 62;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** CSV with a header row, Excel-safe (formula characters escaped). */
+function toCsv(rows: Record<string, unknown>[]): string {
+  if (!rows.length) return '';
+  const keys = Object.keys(rows[0]);
+  const cell = (v: unknown) => {
+    let s = v === null || v === undefined ? '' : String(v);
+    if (/^[=+\-@]/.test(s)) s = `'${s}`;
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [keys.join(','), ...rows.map((r) => keys.map((k) => cell(r[k])).join(','))].join('\n') + '\n';
+}
 
 /** Report types offered as JSON on the public API (URL form: lower case with dashes, e.g. engine-hours). */
 export const V1_REPORT_TYPES: readonly ReportType[] = [
@@ -82,6 +98,39 @@ export class PublicApiController {
   @Get('alerts') @RequireScope('read:alerts')
   alerts(@Auth() ctx: AuthContext, @Query() q: AlertsQueryDto) {
     return this.api.alerts(ctx, q);
+  }
+
+  /**
+   * Payroll figures per person for a period: payable days, loss of pay, late / early leave, worked and overtime hours.
+   * format=csv gives a spreadsheet-ready file. Staff are matched to payroll by Staff ID (employeeId).
+   */
+  @Get('attendance/payroll') @RequireScope('read:attendance')
+  payroll(@Auth() ctx: AuthContext, @Query() q: AttendanceQueryDto, @Res({ passthrough: true }) res: Response) {
+    return this.attendance(ctx, 'ATTENDANCE_PAYROLL', q, res);
+  }
+
+  /** One line per person per day: status, first in, last out, worked / late / early leave / overtime minutes. */
+  @Get('attendance/daily') @RequireScope('read:attendance')
+  attendanceDaily(@Auth() ctx: AuthContext, @Query() q: AttendanceQueryDto, @Res({ passthrough: true }) res: Response) {
+    return this.attendance(ctx, 'ATTENDANCE_DAILY', q, res);
+  }
+
+  private async attendance(ctx: AuthContext, type: 'ATTENDANCE_PAYROLL' | 'ATTENDANCE_DAILY', q: AttendanceQueryDto, res: Response) {
+    if (!q.from || !q.to || !isDayKey(q.from) || !isDayKey(q.to)) throw new BadRequestException('from and to are required dates (YYYY-MM-DD, company time zone)');
+    if (q.to < q.from) throw new BadRequestException('to must not be before from');
+    if (daysBetween(q.from, q.to) >= V1_ATTENDANCE_MAX_DAYS) throw new BadRequestException(`The range may span at most ${V1_ATTENDANCE_MAX_DAYS} days`);
+    if (q.branchId && !UUID.test(q.branchId)) throw new BadRequestException('branchId must be a branch id');
+    const staffIds = idList(q.staffIds);
+    if (staffIds.some((id) => !UUID.test(id))) throw new BadRequestException('staffIds must be staff ids');
+    const format = (q.format ?? 'json').toLowerCase();
+    if (format !== 'json' && format !== 'csv') throw new BadRequestException('format must be json or csv');
+    const r = await this.reports.generate(ctx, { type, from: q.from, to: q.to, scope: { branchIds: q.branchId ? [q.branchId] : [], groupIds: [], objectIds: staffIds } }, 100_000);
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${type === 'ATTENDANCE_PAYROLL' ? 'payroll' : 'attendance'}-${q.from}-${q.to}.csv"`);
+      return toCsv(r.rows as unknown as Record<string, unknown>[]);
+    }
+    return { data: r.rows, meta: { from: r.from, to: r.to, timezone: r.tz, totals: r.totals, count: r.rows.length, totalRows: r.totalRows, truncated: r.truncated } };
   }
 
   @Get('reports/:type') @RequireScope('read:reports')
