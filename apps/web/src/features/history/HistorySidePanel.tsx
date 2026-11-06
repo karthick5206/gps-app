@@ -38,9 +38,9 @@ function ItemButton({ active, onClick, children, label }: { active: boolean; onC
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-lg border p-3">
+    <div className="rounded-lg border bg-card p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold tabular-nums">{value}</p>
+      <p className="mt-0.5 text-lg font-bold tabular-nums">{value}</p>
       {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
     </div>
   );
