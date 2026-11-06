@@ -215,8 +215,8 @@ export function ParkingModePage() {
           ) : undefined
         }
       />
-      <Card className="flex items-start gap-3 border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-        <BellRingIcon className="mt-0.5 size-4 shrink-0 text-amber-600" />
+      <Card className="flex items-start gap-3 border-warning/40 bg-warning-soft p-3 text-sm">
+        <BellRingIcon className="mt-0.5 size-4 shrink-0 text-warning" />
         <p>
           {t('Armed now: {{n}}.', { n: armed })} {t('Alarms ring in this browser while a VeeTrax tab is open. On phones, open the VeeTrax app once and allow alarms to override Do Not Disturb (More → Parking mode → Alarm on this phone).')}
         </p>

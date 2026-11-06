@@ -178,7 +178,7 @@ export function PublicSharePage() {
       {data && (
         <section className="space-y-2 border-t bg-card p-3 sm:p-4" aria-label={t('Details')}>
           {data.eta && (
-            <div className={`rounded-lg p-2.5 text-sm ${data.eta.arrivedAt ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300' : 'bg-amber-500/15 text-amber-900 dark:text-amber-200'}`}>
+            <div className={`rounded-lg p-2.5 text-sm ${data.eta.arrivedAt ? 'bg-success-soft text-success-fg' : 'bg-warning-soft text-warning-fg'}`}>
               <div className="font-semibold">
                 {data.eta.arrivedAt
                   ? t('Arrived at {{time}}', { time: clock.format(Date.parse(data.eta.arrivedAt)) })
@@ -217,7 +217,7 @@ export function PublicSharePage() {
             <Stat icon={RouteIcon} label={t('Today')}>{data.todayKm === null ? '—' : `${data.todayKm.toFixed(1)} km`}</Stat>
             <Stat icon={ClockIcon} label={t('Last fix')}>{data.live.fixTime ? dayClock.format(Date.parse(data.live.fixTime)) : '—'}</Stat>
             <Stat icon={BatteryIcon} label={t('Battery')}>{data.live.batteryLevel === null ? '—' : `${Math.round(data.live.batteryLevel)}%`}
-              {data.live.charging && <ZapIcon className="ms-1 inline size-3.5 text-emerald-600" aria-label={t('Charging')} />}</Stat>
+              {data.live.charging && <ZapIcon className="ms-1 inline size-3.5 text-success" aria-label={t('Charging')} />}</Stat>
             <Stat icon={SatelliteIcon} label={t('Satellites')}>{data.live.satellites ?? '—'}</Stat>
           </div>
           <p className="text-[11px] text-muted-foreground">

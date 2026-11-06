@@ -9,7 +9,7 @@
  * (see lib/status-tokens.ts) so the shared package stays the single source of truth.
  */
 :root {
-  --radius: 0.625rem;
+  --radius: 0.5rem;
   --background: #f5f8f7;
   --foreground: #0f1d1b;
   --card: #ffffff;
@@ -42,6 +42,18 @@
   --destructive-foreground: #ffffff;
   --success: #15803d;
   --warning: #b45309;
+  --info: #2563eb;
+  /* Soft tones: tinted background + readable text, for badges, chips and icon tiles (all themes). */
+  --success-soft: #e3f4ea;
+  --success-fg: #17683a;
+  --warning-soft: #fdf3dc;
+  --warning-fg: #8a5300;
+  --destructive-soft: #fdecea;
+  --destructive-fg: #a8261a;
+  --info-soft: #e6ecf6;
+  --info-fg: #2c4466;
+  --neutral-soft: #eef1f4;
+  --neutral-fg: #4a5763;
   --overlay: rgb(8 20 32 / 0.5);
   --map-label-halo: #ffffff;
   --map-label: #0f1d2b;
@@ -160,6 +172,17 @@
   --destructive-foreground: #ffffff;
   --success: #22c55e;
   --warning: #f59e0b;
+  --info: #60a5fa;
+  --success-soft: rgb(34 197 94 / 0.15);
+  --success-fg: #86efac;
+  --warning-soft: rgb(245 158 11 / 0.15);
+  --warning-fg: #fcd34d;
+  --destructive-soft: rgb(239 68 68 / 0.15);
+  --destructive-fg: #fca5a5;
+  --info-soft: rgb(96 165 250 / 0.15);
+  --info-fg: #93c5fd;
+  --neutral-soft: rgb(148 163 184 / 0.15);
+  --neutral-fg: #cbd5e1;
   --border: #1c2e42;
   --input: #25394f;
   --ring: #2dd4bf;
@@ -207,6 +230,17 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-success-soft: var(--success-soft);
+  --color-success-fg: var(--success-fg);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-fg: var(--warning-fg);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-destructive-fg: var(--destructive-fg);
+  --color-info-soft: var(--info-soft);
+  --color-info-fg: var(--info-fg);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-neutral-fg: var(--neutral-fg);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -271,6 +305,25 @@
   :focus-visible {
     outline: none;
   }
+}
+
+/*
+ * App header (Enterprise layout): painted with the theme's sidebar colours (dark teal in Teal & Saffron, plum in
+ * Plum & Pink, light in Sky / Light). Controls inside keep their usual classes; these overrides re-point the tokens
+ * they read so ghost buttons, borders and muted text stay legible on the header. Menus and dialogs opened from here
+ * render in a portal outside the header, so they keep the normal page colours.
+ */
+.app-header {
+  background-color: var(--sidebar);
+  color: var(--sidebar-foreground);
+  --foreground: var(--sidebar-accent-foreground);
+  --muted-foreground: var(--sidebar-muted);
+  --accent: var(--sidebar-accent);
+  --accent-foreground: var(--sidebar-accent-foreground);
+  --border: var(--sidebar-border);
+  --input: var(--sidebar-border);
+  --card: var(--sidebar-accent);
+  --ring: var(--sidebar-primary);
 }
 
 /* Smooth theme switch for surfaces; skipped entirely when the user prefers reduced motion. */

@@ -21,10 +21,10 @@ const PERIODS: { value: ScorePeriod; label: string }[] = [
 ];
 
 const GRADE_CLASS: Record<ScoreGrade, string> = {
-  A: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-  B: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
-  C: 'bg-amber-500/15 text-amber-800 dark:text-amber-300',
-  D: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+  A: 'bg-success-soft text-success-fg',
+  B: 'bg-info-soft text-info-fg',
+  C: 'bg-warning-soft text-warning-fg',
+  D: 'bg-destructive-soft text-destructive-fg',
 };
 const MEDAL = ['text-amber-500', 'text-slate-400', 'text-orange-600'];
 

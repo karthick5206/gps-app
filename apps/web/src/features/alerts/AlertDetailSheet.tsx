@@ -65,7 +65,7 @@ function NoFixNote({ noFix, hasLocation }: { noFix: { lastFixAt: string | null }
     : noFix.lastFixAt
       ? t('No GPS fix: last known location ({{time}})', { time: formatDateTime(noFix.lastFixAt) })
       : t('No GPS fix: last known location');
-  return <span className="mb-0.5 block text-xs font-medium text-amber-700 dark:text-amber-400">{text}</span>;
+  return <span className="mb-0.5 block text-xs font-medium text-warning-fg">{text}</span>;
 }
 
 function labelOf(key: string): string {

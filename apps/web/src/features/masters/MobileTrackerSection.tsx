@@ -193,14 +193,14 @@ function PhoneHealth({ health, at }: { health: TrackerHealth | null; at: string 
         </span>
       </div>
       {issues.length === 0 ? (
-        <p className="flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
+        <p className="flex items-center gap-1.5 text-sm text-success-fg">
           <CircleCheckIcon className="size-4" /> {t('All background settings are OK.')}
         </p>
       ) : (
         <ul className="space-y-1.5">
           {issues.map((i) => (
             <li key={i.code} className="text-sm">
-              <span className={i.severity === 'error' ? 'font-medium text-destructive' : 'font-medium text-amber-700 dark:text-amber-400'}>
+              <span className={i.severity === 'error' ? 'font-medium text-destructive' : 'font-medium text-warning-fg'}>
                 <TriangleAlertIcon className="me-1 inline size-3.5" />
                 {t(i.text)}
                 {i.code === 'UPLOADS_FAILING' && health.lastError ? `: ${health.lastError}` : ''}

@@ -83,17 +83,17 @@ export function TodayCard({ s, loading }: { s: VehicleDayStatsDto | undefined; l
       </div>
       <div className="grid grid-cols-3 gap-2">
         <Tile icon={RouteIcon} label={t('Distance')} value={km(s.distanceKm)} tone="bg-primary/15 text-primary" />
-        <Tile icon={TimerIcon} label={t('Moving')} value={formatDuration(s.movingSec)} tone="bg-emerald-500/15 text-emerald-600" />
-        <Tile icon={HourglassIcon} label={t('Idle')} value={formatDuration(s.idleSec)} tone="bg-amber-500/15 text-amber-600" />
-        <Tile icon={CircleParkingIcon} label={t('Stops')} value={formatNumber(s.stops)} tone="bg-slate-500/15 text-slate-600 dark:text-slate-300" />
-        <Tile icon={GaugeIcon} label={t('Max speed')} value={`${s.maxSpeedKph} km/h`} tone="bg-rose-500/15 text-rose-600" />
-        <Tile icon={MilestoneIcon} label={t('Odometer')} value={`${formatNumber(s.odometerKm)} km`} tone="bg-violet-500/15 text-violet-600" />
+        <Tile icon={TimerIcon} label={t('Moving')} value={formatDuration(s.movingSec)} tone="bg-success-soft text-success-fg" />
+        <Tile icon={HourglassIcon} label={t('Idle')} value={formatDuration(s.idleSec)} tone="bg-warning-soft text-warning-fg" />
+        <Tile icon={CircleParkingIcon} label={t('Stops')} value={formatNumber(s.stops)} tone="bg-neutral-soft text-neutral-fg" />
+        <Tile icon={GaugeIcon} label={t('Max speed')} value={`${s.maxSpeedKph} km/h`} tone="bg-destructive-soft text-destructive-fg" />
+        <Tile icon={MilestoneIcon} label={t('Odometer')} value={`${formatNumber(s.odometerKm)} km`} tone="bg-info-soft text-info-fg" />
       </div>
       {s.trip && (
         <div className="flex items-center gap-3 rounded-lg border bg-background/60 p-2.5">
-          <span className="relative flex size-8 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-sky-600">
+          <span className="relative flex size-8 shrink-0 items-center justify-center rounded-full bg-info-soft text-info-fg">
             <NavigationIcon className="size-4" />
-            {s.trip.ongoing && <span className="absolute -top-0.5 -right-0.5 size-2.5 animate-pulse rounded-full bg-emerald-500 ring-2 ring-card" aria-hidden />}
+            {s.trip.ongoing && <span className="absolute -top-0.5 -right-0.5 size-2.5 animate-pulse rounded-full bg-success ring-2 ring-card" aria-hidden />}
           </span>
           <div className="min-w-0 flex-1">
             <div className="text-[11px] text-muted-foreground">{s.trip.ongoing ? t('Current trip') : t('Last trip')}</div>
@@ -112,7 +112,7 @@ export function ChargeIcon({ o }: { o: LiveObject }) {
   const { t } = useTranslation();
   const c = chargeState(o);
   if (!c) return null;
-  if (c.kind === 'CHARGER' && c.on) return <ZapIcon className="ms-1 inline size-3 text-emerald-600" aria-label={t('Charging')} />;
+  if (c.kind === 'CHARGER' && c.on) return <ZapIcon className="ms-1 inline size-3 text-success" aria-label={t('Charging')} />;
   if (c.kind === 'MAIN_POWER' && !c.on) return <ZapOffIcon className="ms-1 inline size-3 text-destructive" aria-label={t('Main power disconnected')} />;
   return null;
 }

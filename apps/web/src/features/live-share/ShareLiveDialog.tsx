@@ -116,7 +116,7 @@ function ShareLiveDialog({ objectId, name, onClose }: { objectId: string; name: 
               <Field label={t('Destination (optional): delivery ETA')} htmlFor="share-dest" hint={t('The page shows the live arrival time; the link ends 15 minutes after arrival.')}>
                 {destination ? (
                   <div className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm">
-                    <FlagIcon className="size-4 shrink-0 text-amber-600" />
+                    <FlagIcon className="size-4 shrink-0 text-warning" />
                     <span className="min-w-0 flex-1 truncate">{destination.label}</span>
                     <button type="button" onClick={() => setDestination(null)} aria-label={t('Remove destination')} className="rounded p-0.5 text-muted-foreground hover:bg-muted">
                       <XIcon className="size-3.5" />

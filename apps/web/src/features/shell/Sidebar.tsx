@@ -8,15 +8,22 @@ import { useMe } from '@/features/auth/auth-context';
 import { cn } from '@/lib/utils';
 import { buildNav, MENU_ICONS } from './nav';
 
+/**
+ * Left menu (Enterprise layout): a light panel under the app header. Every menu the user may view, in the shared
+ * MENUS groups and order; the current page gets the accent tint and the brand-accent (saffron) marker.
+ * `showBrand` repeats the logo at the top — used in the phone drawer, which covers the header.
+ */
 export function Sidebar({
   collapsed = false,
   onToggleCollapsed,
   onNavigate,
+  showBrand = false,
   className,
 }: {
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   onNavigate?: () => void;
+  showBrand?: boolean;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -25,21 +32,21 @@ export function Sidebar({
   const groups = useMemo(() => buildNav(me.permissions, personal), [me.permissions, personal]);
 
   return (
-    <nav aria-label={t('Main navigation')} className={cn('flex h-full flex-col bg-sidebar text-sidebar-foreground', className)}>
-      <div className={cn('flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-4', collapsed && 'justify-center px-0')}>
-        <LogoMark className="size-7" />
-        {!collapsed && (
-          <Wordmark className="text-[17px] text-sidebar-accent-foreground" />
-        )}
-      </div>
+    <nav aria-label={t('Main navigation')} className={cn('flex h-full flex-col border-e bg-card text-foreground', className)}>
+      {showBrand && (
+        <div className="app-header flex h-14 shrink-0 items-center gap-2.5 px-4">
+          <LogoMark className="size-8" />
+          <Wordmark className="text-[18px] text-sidebar-accent-foreground" />
+        </div>
+      )}
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+      <div className={cn('flex-1 space-y-4 overflow-y-auto py-4', collapsed ? 'px-2' : 'px-3')}>
         {groups.map((g) => (
-          <div key={g.group} className="space-y-1">
+          <div key={g.group} className="space-y-0.5">
             {collapsed ? (
-              <div className="mx-auto my-2 h-px w-6 bg-sidebar-border first:hidden" />
+              <div className="mx-auto my-2 h-px w-6 bg-border first:hidden" />
             ) : (
-              <p className="px-2 pb-1 text-[11px] font-semibold tracking-wider text-sidebar-muted uppercase">{t(g.label)}</p>
+              <p className="px-3 pb-1 text-[11px] font-bold tracking-wider text-muted-foreground uppercase">{t(g.label)}</p>
             )}
             {g.items.map((item) => {
               const Icon = MENU_ICONS[item.key];
@@ -51,18 +58,17 @@ export function Sidebar({
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     cn(
-                      'group relative flex h-9 items-center gap-3 rounded-lg px-2.5 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-sidebar-primary/60',
+                      'group relative flex h-9 items-center gap-3 rounded-md px-3 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
                       collapsed && 'justify-center px-0',
                       isActive
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                        : 'text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground',
+                        ? 'bg-accent font-semibold text-accent-foreground shadow-[inset_3px_0_0_var(--brand-accent)]'
+                        : 'font-medium text-muted-foreground hover:bg-muted hover:text-foreground',
                     )
                   }
                 >
                   {({ isActive }) => (
                     <>
-                      {isActive && <span className="absolute top-1.5 bottom-1.5 left-0 w-0.5 rounded-full bg-sidebar-primary" />}
-                      <Icon className={cn('size-[18px] shrink-0', isActive ? 'text-sidebar-primary' : 'text-sidebar-muted group-hover:text-sidebar-accent-foreground')} />
+                      <Icon className={cn('size-[18px] shrink-0', isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
                       {!collapsed && <span className="truncate">{t(item.label)}</span>}
                       {collapsed && <span className="sr-only">{t(item.label)}</span>}
                     </>
@@ -82,13 +88,13 @@ export function Sidebar({
       </div>
 
       {onToggleCollapsed && (
-        <div className="border-t border-sidebar-border p-3">
+        <div className="border-t p-3">
           <button
             type="button"
             onClick={onToggleCollapsed}
             aria-label={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
             className={cn(
-              'flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-sidebar-muted transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-primary/60 focus-visible:outline-none',
+              'flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
               collapsed && 'justify-center px-0',
             )}
           >

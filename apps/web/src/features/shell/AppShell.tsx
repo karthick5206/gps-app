@@ -42,26 +42,28 @@ export function AppShell() {
   };
 
   return (
-    <div className="flex h-dvh overflow-hidden">
-      <aside className={cn('hidden shrink-0 transition-[width] duration-200 lg:block', collapsed ? 'w-16' : 'w-60')}>
-        <Sidebar collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
-      </aside>
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-72 border-sidebar-border bg-sidebar p-0" aria-describedby={undefined}>
-          <SheetTitle className="sr-only">{t('Navigation')}</SheetTitle>
-          <Sidebar onNavigate={() => setMobileOpen(false)} />
-        </SheetContent>
-      </Sheet>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
-        <LicenceBanner />
-        <SystemHealthBanner />
-        <AllCompaniesBanner />
-        <main id="main" className="min-h-0 flex-1 overflow-y-auto">
-          {/* A new company starts each page afresh: filters and selections held by the page belong to the old one. */}
-          <Outlet key={companyId ?? 'platform'} />
-        </main>
-        <AppFooter />
+    <div className="flex h-dvh flex-col overflow-hidden">
+      <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
+      <div className="flex min-h-0 flex-1">
+        <aside className={cn('hidden shrink-0 transition-[width] duration-200 lg:block', collapsed ? 'w-16' : 'w-60')}>
+          <Sidebar collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+        </aside>
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetContent side="left" className="w-72 bg-card p-0" aria-describedby={undefined}>
+            <SheetTitle className="sr-only">{t('Navigation')}</SheetTitle>
+            <Sidebar showBrand onNavigate={() => setMobileOpen(false)} />
+          </SheetContent>
+        </Sheet>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <LicenceBanner />
+          <SystemHealthBanner />
+          <AllCompaniesBanner />
+          <main id="main" className="min-h-0 flex-1 overflow-y-auto">
+            {/* A new company starts each page afresh: filters and selections held by the page belong to the old one. */}
+            <Outlet key={companyId ?? 'platform'} />
+          </main>
+          <AppFooter />
+        </div>
       </div>
       <LicenceRequiredDialog />
     </div>

@@ -129,7 +129,7 @@ export function VideoPlayer({ start, label, onClose, className }: { start: () =>
       <video ref={videoRef} className="aspect-video w-full bg-black object-contain" muted playsInline controls={phase === 'playing'} aria-label={label} />
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between gap-2 bg-gradient-to-b from-black/70 to-transparent px-2 py-1.5 text-xs text-white">
         <span className="truncate font-medium">{label}</span>
-        {phase === 'playing' && <span className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide">LIVE</span>}
+        {phase === 'playing' && <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-semibold tracking-wide">LIVE</span>}
       </div>
       {onClose && (
         <Button size="icon-sm" variant="ghost" className="absolute right-1 bottom-1 text-white hover:bg-white/20 hover:text-white" onClick={onClose} aria-label={t('Stop video')}>

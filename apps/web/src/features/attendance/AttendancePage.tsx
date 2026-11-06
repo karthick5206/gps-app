@@ -41,18 +41,18 @@ import { api, downloadCsv, errorMessage, fetchBlob } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const STATUS: Record<AttendanceStatus, { label: string; cls: string }> = {
-  PRESENT: { label: 'Present', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
-  LATE: { label: 'Late', cls: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
-  NOT_ARRIVED: { label: 'Not arrived', cls: 'bg-orange-500/15 text-orange-700 dark:text-orange-300' },
-  ABSENT: { label: 'Absent', cls: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
+  PRESENT: { label: 'Present', cls: 'bg-success-soft text-success-fg' },
+  LATE: { label: 'Late', cls: 'bg-warning-soft text-warning-fg' },
+  NOT_ARRIVED: { label: 'Not arrived', cls: 'bg-neutral-soft text-neutral-fg' },
+  ABSENT: { label: 'Absent', cls: 'bg-destructive-soft text-destructive-fg' },
   DAY_OFF: { label: 'Day off', cls: 'bg-muted text-muted-foreground' },
   UPCOMING: { label: 'Not started', cls: 'bg-muted text-muted-foreground' },
 };
-const HALF_DAY = { label: 'Half day', cls: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' };
+const HALF_DAY = { label: 'Half day', cls: 'bg-info-soft text-info-fg' };
 const LIVE: Record<AttendanceLiveState, { label: string; cls: string }> = {
-  INSIDE: { label: 'Inside', cls: 'text-emerald-700 dark:text-emerald-300' },
-  OUT: { label: 'Out now', cls: 'text-rose-700 dark:text-rose-300' },
-  NO_SIGNAL: { label: 'No signal', cls: 'text-amber-800 dark:text-amber-300' },
+  INSIDE: { label: 'Inside', cls: 'text-success-fg' },
+  OUT: { label: 'Out now', cls: 'text-destructive-fg' },
+  NO_SIGNAL: { label: 'No signal', cls: 'text-warning-fg' },
 };
 const KINDS: Record<OutingKind, string> = { UNEXPLAINED: 'Unexplained', OFFICIAL: 'Official duty', PERSONAL: 'Personal' };
 const OVERRIDES: { value: AttendanceOverride; label: string }[] = [
@@ -205,7 +205,7 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
               {r.branch ? ` · ${r.branch}` : ''}
             </span>
           </div>
-          {r.carriedOver && <p className="rounded-md bg-amber-500/15 p-2 text-sm text-amber-800 dark:text-amber-300">{t('This phone was already inside before the shift. It may have stayed at the site overnight, so check this day.')}</p>}
+          {r.carriedOver && <p className="rounded-md bg-warning-soft p-2 text-sm text-warning-fg">{t('This phone was already inside before the shift. It may have stayed at the site overnight, so check this day.')}</p>}
           <div className="grid grid-cols-3 gap-2">
             {figures.map(([label, min]) => (
               <div key={label} className="rounded-md border p-2">
@@ -235,10 +235,10 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
                     <Selfie objectId={r.objectId} day={r.day} at={r.selfieAt} fix={r.selfieFix ?? r.inFix} />
                     {r.videoAt && <CheckInVideo objectId={r.objectId} day={r.day} at={r.videoAt} fix={r.selfieFix ?? r.inFix} />}
                   </div>
-                  {r.videoMissing && <p className="text-sm text-amber-800 dark:text-amber-300">{t('No video was recorded.')}</p>}
+                  {r.videoMissing && <p className="text-sm text-warning-fg">{t('No video was recorded.')}</p>}
                 </>
               ) : (
-                <p className="text-sm text-amber-800 dark:text-amber-300">{t('No selfie was taken.')}</p>
+                <p className="text-sm text-warning-fg">{t('No selfie was taken.')}</p>
               )}
             </div>
           )}
@@ -251,7 +251,7 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
                   <span className="font-medium tabular-nums">
                     {time(o.leftAt)} – {o.returnedAt ? time(o.returnedAt) : t('not back')} · {hours(o.minutes)}
                   </span>
-                  <span className={cn('text-xs font-medium', o.kind === 'UNEXPLAINED' ? 'text-rose-700 dark:text-rose-300' : 'text-muted-foreground')}>{t(KINDS[o.kind])}</span>
+                  <span className={cn('text-xs font-medium', o.kind === 'UNEXPLAINED' ? 'text-destructive-fg' : 'text-muted-foreground')}>{t(KINDS[o.kind])}</span>
                 </div>
                 <Place fix={o.fix} />
                 {o.employeeKind && (
@@ -378,17 +378,17 @@ function Rows({ rows, withDay, canEdit }: { rows: AttendanceRowDto[]; withDay?: 
                 {r.earlyMin > 0 && <span className="ms-1.5 text-xs text-muted-foreground">{t('Left {{n}} min early', { n: r.earlyMin })}</span>}
                 {r.overtimeMin > 0 && <span className="ms-1.5 text-xs text-muted-foreground">{t('OT {{n}} min', { n: r.overtimeMin })}</span>}
                 {r.corrected && <span className="ms-1.5 text-xs text-muted-foreground">{t('Corrected')}</span>}
-                {r.selfieMissing && <span className="ms-1.5 text-xs text-amber-800 dark:text-amber-300">{t('No selfie')}</span>}
+                {r.selfieMissing && <span className="ms-1.5 text-xs text-warning-fg">{t('No selfie')}</span>}
               </TableCell>
               <TableCell className="tabular-nums">{time(r.firstIn)}</TableCell>
               <TableCell className="tabular-nums">{r.firstIn && !r.lastOut ? t('On site') : time(r.lastOut)}</TableCell>
               <TableCell className="font-medium tabular-nums">{hours(r.workedMin)}</TableCell>
               <TableCell className="tabular-nums">{hours(r.onSiteMin)}</TableCell>
               <TableCell className="hidden tabular-nums md:table-cell">{hours(r.officialMin)}</TableCell>
-              <TableCell className={cn('hidden tabular-nums md:table-cell', r.unexplainedMin > 0 && 'text-rose-700 dark:text-rose-300')}>{hours(r.unexplainedMin)}</TableCell>
+              <TableCell className={cn('hidden tabular-nums md:table-cell', r.unexplainedMin > 0 && 'text-destructive-fg')}>{hours(r.unexplainedMin)}</TableCell>
               <TableCell className="hidden tabular-nums lg:table-cell">{hours(r.noSignalMin)}</TableCell>
               <TableCell className="hidden text-muted-foreground lg:table-cell">{r.branch ?? '—'}</TableCell>
-              <TableCell className="hidden tabular-nums xl:table-cell">{r.selfieAt ? time(r.selfieAt) : r.selfieMissing ? <span className="text-amber-800 dark:text-amber-300">{t('Missing')}</span> : '—'}</TableCell>
+              <TableCell className="hidden tabular-nums xl:table-cell">{r.selfieAt ? time(r.selfieAt) : r.selfieMissing ? <span className="text-warning-fg">{t('Missing')}</span> : '—'}</TableCell>
             </TableRow>
           ))}
         </TableBody>

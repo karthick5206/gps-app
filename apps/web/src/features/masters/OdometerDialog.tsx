@@ -131,7 +131,7 @@ function OdometerDialog({ device, onClose }: { device: DeviceDto; onClose: () =>
             <Input id="odo-note" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder={t('e.g. Odometer replaced at service')} />
           </Field>
           {!!d?.remindersByOdometer && delta !== 0 && (
-            <p className="rounded-md bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-300">
+            <p className="rounded-md bg-warning-soft p-2 text-xs text-warning-fg">
               {t('{{n}} service reminder(s) due by odometer will move by {{km}}, so they stay the same distance away.', { n: d.remindersByOdometer, km: km(delta) })}
             </p>
           )}

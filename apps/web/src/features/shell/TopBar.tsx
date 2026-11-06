@@ -1,7 +1,8 @@
 import { MENUS } from '@veetracer/shared';
 import { MenuIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useLocation } from 'react-router';
+import { Link, useLocation } from 'react-router';
+import { LogoMark, Wordmark } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { AlertBell } from '@/features/alerts/AlertBell';
@@ -54,10 +55,14 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
   const current = MENUS.filter((m) => pathname === m.path || pathname.startsWith(`${m.path}/`)).sort((a, b) => b.path.length - a.path.length)[0];
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-card/80 px-3 backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:px-4">
+    <header className="app-header flex h-14 shrink-0 items-center gap-2 border-b border-sidebar-border px-3 sm:px-4">
       <Button variant="ghost" size="icon" className="lg:hidden" onClick={onOpenMobileNav} aria-label={t('Open navigation')}>
         <MenuIcon />
       </Button>
+      <Link to="/" className="flex shrink-0 items-center gap-2.5 rounded-lg pe-2 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-primary/60 lg:w-52" aria-label={t('Home')}>
+        <LogoMark className="size-8" />
+        <Wordmark className="hidden text-[18px] text-sidebar-accent-foreground sm:inline" />
+      </Link>
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {me.user.isSuperAdmin ? (
           <CompanySwitcher />
@@ -66,8 +71,8 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
         )}
         {current && (
           <>
-            <span className="hidden text-muted-foreground/50 md:block">/</span>
-            <span className="hidden truncate text-sm font-medium md:block">{t(current.label)}</span>
+            <span className="hidden text-muted-foreground md:block">/</span>
+            <span className="hidden truncate text-sm font-semibold md:block">{t(current.label)}</span>
           </>
         )}
       </div>
