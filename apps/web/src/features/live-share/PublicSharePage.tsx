@@ -224,7 +224,10 @@ export function PublicSharePage() {
             {[data.sharedByName && t('Shared by {{name}}', { name: data.sharedByName }), data.companyName, data.note].filter(Boolean).join(' · ')}
           </p>
           <p className="text-center text-[10px] text-muted-foreground">
-            {t('VeeTrax is a product of and powered by {{owner}}', { owner: BRAND_FOOTER.owner })} · © {BRAND_FOOTER.year} {BRAND_FOOTER.owner}
+            © {BRAND_FOOTER.year} {BRAND_FOOTER.owner} ·{' '}
+            <a href="/privacy" className="hover:underline">
+              {t('Privacy policy')}
+            </a>
           </p>
         </section>
       )}

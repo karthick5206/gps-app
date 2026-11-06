@@ -1,5 +1,5 @@
 import { BRAND_FOOTER } from '@veetracer/shared';
-import { MapPinnedIcon, PhoneIcon, ShieldCheckIcon, ZapIcon } from 'lucide-react';
+import { MapPinnedIcon, ShieldCheckIcon, ZapIcon } from 'lucide-react';
 import { LanguageToggle } from '@/features/shell/LanguageToggle';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,7 +13,6 @@ const HIGHLIGHTS = [
 ];
 
 /** Support line shown under the sign-in / sign-up forms. */
-const SUPPORT_PHONE = { display: '94449 07658', tel: '+919444907658' };
 
 export function AuthLayout({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
   const { t } = useTranslation();
@@ -41,10 +40,7 @@ export function AuthLayout({ title, description, children }: { title: string; de
           </ul>
         </div>
         <p className="relative text-xs text-sidebar-muted">
-          {t('VeeTrax is a product of and powered by {{owner}}', { owner: BRAND_FOOTER.owner })}
-          <br />
-          {t('Support:')} {BRAND_FOOTER.supportPhone} · {BRAND_FOOTER.supportEmail}
-          <br />© {BRAND_FOOTER.year} {BRAND_FOOTER.owner}
+          © {BRAND_FOOTER.year} {BRAND_FOOTER.owner}
         </p>
       </aside>
       <main className="relative flex items-center justify-center px-4 py-10 sm:px-8">
@@ -59,28 +55,19 @@ export function AuthLayout({ title, description, children }: { title: string; de
             {description && <p className="text-sm text-muted-foreground">{description}</p>}
           </div>
           {children}
-          <footer className="space-y-1 border-t pt-5 text-center text-xs text-muted-foreground">
-            <p>
-              {t('VeeTrax is a product of and powered by')}
-              <br />
-              <span className="font-medium text-foreground">Vibhav Enterprise Solutions</span>
-            </p>
-            <p>
-              {t('Support')}:{' '}
-              <a href={`tel:${SUPPORT_PHONE.tel}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
-                <PhoneIcon className="size-3" aria-hidden />
-                {SUPPORT_PHONE.display}
-              </a>
-            </p>
-            <p>
-              <a href="/privacy" className="hover:underline">
-                {t('Privacy policy')}
-              </a>
-              {' · '}
-              <a href="/download" className="hover:underline">
-                {t('Download the apps')}
-              </a>
-            </p>
+          <footer className="border-t pt-5 text-center text-xs text-muted-foreground">
+            © {BRAND_FOOTER.year} {BRAND_FOOTER.owner} ·{' '}
+            <a href="/privacy" className="hover:underline">
+              {t('Privacy policy')}
+            </a>
+            {' · '}
+            <a href="/guide" className="hover:underline">
+              {t('Getting-started guide')}
+            </a>
+            {' · '}
+            <a href="/download" className="hover:underline">
+              {t('Download the apps')}
+            </a>
           </footer>
         </div>
       </main>
