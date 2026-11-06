@@ -3356,4 +3356,6 @@ export const HI: Record<string, string> = {
   'Employee': 'कर्मचारी',
   'Employee insights': 'कर्मचारी विवरण',
   'Employee insights for {{name}}': '{{name}} का कर्मचारी विवरण',
+  'So far': 'अब तक',
+  'Total in this period': 'इस अवधि में कुल',
 };

@@ -21,7 +21,8 @@ const metres = (a: { lat: number; lng: number }, b: { lat: number; lng: number }
 };
 
 /** Floating readout of the cursor: written imperatively from frame callbacks; address shown with the coordinates, also while playing. */
-export function LiveDataPanel({ engine, className }: { engine: PlaybackEngine; className?: string }) {
+/** `totalKm`: distance of the whole selected period (same figure as the summary and reports), shown under the live readout. */
+export function LiveDataPanel({ engine, totalKm, className }: { engine: PlaybackEngine; totalKm?: number | null; className?: string }) {
   const { t } = useTranslation();
   const refs = {
     time: useRef<HTMLSpanElement>(null),
@@ -104,12 +105,18 @@ export function LiveDataPanel({ engine, className }: { engine: PlaybackEngine; c
           </p>
         </div>
         <div>
-          <p className="text-[11px] text-muted-foreground">{t('Distance')}</p>
+          <p className="text-[11px] text-muted-foreground">{t('So far')}</p>
           <p className="font-semibold tabular-nums">
             <span ref={refs.dist} />
           </p>
         </div>
       </div>
+      {totalKm != null && (
+        <div className="mt-1.5 flex items-baseline justify-between gap-2 rounded-md bg-muted/60 px-2 py-1 sm:mt-2">
+          <span className="text-xs text-muted-foreground">{t('Total in this period')}</span>
+          <span className="font-bold tabular-nums">{formatKm(totalKm)}</span>
+        </div>
+      )}
       <div className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground sm:mt-2">
         <MapPinIcon className="mt-px size-3.5 shrink-0" aria-hidden />
         <div className="min-w-0">

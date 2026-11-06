@@ -578,7 +578,7 @@ export function HistoryPage() {
             )}
             {engine && hasTrack && (
               <div className="pointer-events-none absolute top-2 right-12 left-2 sm:top-3 sm:left-3 sm:right-auto sm:w-80">
-                <LiveDataPanel engine={engine} />
+                <LiveDataPanel engine={engine} totalKm={data?.summary.distanceKm ?? null} />
               </div>
             )}
             {(hasTrack || comparing) && (

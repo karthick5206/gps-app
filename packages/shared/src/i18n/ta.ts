@@ -3356,4 +3356,6 @@ export const TA: Record<string, string> = {
   'Employee': 'ஊழியர்',
   'Employee insights': 'ஊழியர் விவரம்',
   'Employee insights for {{name}}': '{{name}} இன் ஊழியர் விவரம்',
+  'So far': 'இதுவரை',
+  'Total in this period': 'இந்தக் காலத்தில் மொத்தம்',
 };
