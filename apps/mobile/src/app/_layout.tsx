@@ -28,8 +28,8 @@ function RootStack() {
   const signedIn = status === 'authenticated';
   return (
     <ThemeProvider value={theme}>
-      {/* Signed in, every screen starts with the brand header band; the sign-in screen is plain. */}
-      <StatusBar style={signedIn ? barStyle : scheme === 'dark' ? 'light' : 'dark'} />
+      {/* Every screen starts with the brand header band (the sign-in screen too), so the bar follows the band. */}
+      <StatusBar style={barStyle} />
       <Stack
         screenOptions={{
           headerBackTitle: t('Back'),
