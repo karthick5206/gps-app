@@ -16,8 +16,8 @@ import {
   type AttendanceStatus,
   type OutingKind,
 } from '@veetracer/shared';
-import { CalendarCheckIcon, DownloadIcon, FileSpreadsheetIcon, MapPinIcon, PlusIcon, Trash2Icon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { CalendarCheckIcon, ChartColumnIcon, DownloadIcon, FileSpreadsheetIcon, MapPinIcon, PlusIcon, Trash2Icon } from 'lucide-react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -40,6 +40,7 @@ import { named, useEntityOptions } from '@/features/masters/use-options';
 import { api, downloadCsv, errorMessage, fetchBlob } from '@/lib/api';
 import { useAddress } from '@/features/geocoding/use-address';
 import { cn } from '@/lib/utils';
+import { calendarDays, employeeStats } from './employee-stats';
 
 const STATUS: Record<AttendanceStatus, { label: string; cls: string }> = {
   PRESENT: { label: 'Present', cls: 'bg-success-soft text-success-fg' },
@@ -407,6 +408,7 @@ function RowFilter({ f, total }: { f: ReturnType<typeof useRowFilter>; total: nu
 
 function Rows({ rows, withDay, canEdit }: { rows: AttendanceRowDto[]; withDay?: boolean; canEdit: boolean }) {
   const { t } = useTranslation();
+  const insights = useContext(InsightsContext);
   const [open, setOpen] = useState<AttendanceRowDto | null>(null);
   return (
     <>
@@ -433,9 +435,25 @@ function Rows({ rows, withDay, canEdit }: { rows: AttendanceRowDto[]; withDay?: 
             <TableRow key={`${r.day}:${r.objectId}`} className="cursor-pointer" onClick={() => setOpen(r)}>
               {withDay && <TableCell className="tabular-nums">{r.day}</TableCell>}
               <TableCell className="font-medium">
-                <button type="button" className="text-start hover:underline" onClick={() => setOpen(r)}>
-                  {r.name}
-                </button>
+                <span className="inline-flex items-center gap-1.5">
+                  <button type="button" className="text-start hover:underline" onClick={() => setOpen(r)}>
+                    {r.name}
+                  </button>
+                  {insights && (
+                    <button
+                      type="button"
+                      title={t('Employee insights')}
+                      aria-label={t('Employee insights for {{name}}', { name: r.name })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        insights(r.objectId);
+                      }}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <ChartColumnIcon className="size-3.5" />
+                    </button>
+                  )}
+                </span>
               </TableCell>
               {!withDay && (
                 <TableCell className="whitespace-nowrap">
@@ -820,17 +838,243 @@ function SettingsTab({ canEdit }: { canEdit: boolean }) {
 }
 
 /** Staff attendance: today's board, timesheet and settings. */
+/** Opens the Employee tab for a person (from a name in the Today / Timesheet lists). */
+const InsightsContext = createContext<((objectId: string) => void) | null>(null);
+
+type Period = 'this' | 'last' | '30';
+const periodRange = (p: Period): { from: string; to: string } => {
+  const t = today();
+  if (p === 'this') return { from: `${t.slice(0, 8)}01`, to: t };
+  if (p === '30') return { from: new Date(Date.parse(`${t}T00:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10), to: t };
+  const end = new Date(Date.parse(`${t.slice(0, 8)}01T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  return { from: `${end.slice(0, 8)}01`, to: end };
+};
+const clockOf = (min: number) => clock.format(new Date(2000, 0, 1, Math.floor(min / 60), min % 60));
+const DOW_LONG = (i: number) => new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(Date.UTC(2026, 10, 1 + i, 12)));
+const DOW_SHORT = (i: number) => new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(new Date(Date.UTC(2026, 10, 2 + i, 12))); // Monday first
+const DAY_CELL: Record<string, string> = {
+  PRESENT: 'bg-success-soft text-success-fg border-success/30',
+  LATE: 'bg-warning-soft text-warning-fg border-warning/30',
+  HALF: 'bg-info-soft text-info-fg border-info/30',
+  ABSENT: 'bg-destructive-soft text-destructive-fg border-destructive/30',
+  DAY_OFF: 'bg-muted text-muted-foreground border-transparent',
+};
+
+function Tile({ label, value, sub, className }: { label: string; value: ReactNode; sub?: ReactNode; className?: string }) {
+  return (
+    <div className={cn('rounded-lg border bg-card px-4 py-3', className)}>
+      <div className="text-xs font-semibold text-muted-foreground">{label}</div>
+      <div className="mt-1 text-2xl font-bold tabular-nums">{value}</div>
+      {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
+/**
+ * One person over a period: headline figures, a calendar coloured by status, hours per day and the patterns in words.
+ * Built from the same timesheet rows as the reports, so the figures match them.
+ */
+function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; objectId: string | null; onObjectId: (id: string | null) => void }) {
+  const { t } = useTranslation();
+  const staff = useEntityOptions<{ id: string; name: string }>('/objects', named, { params: { type: 'PERSON' } });
+  const [period, setPeriod] = useState<Period>('this');
+  const [open, setOpen] = useState<AttendanceRowDto | null>(null);
+  const range = periodRange(period);
+  const q = useQuery({
+    queryKey: ['attendance-sheet', range.from, range.to, ALL],
+    queryFn: ({ signal }) => api.get<AttendanceRowDto[]>('/attendance/timesheet', { from: range.from, to: range.to }, signal),
+    enabled: !!objectId,
+  });
+  const rows = useMemo(() => (q.data ?? []).filter((r) => r.objectId === objectId).sort((a, b) => a.day.localeCompare(b.day)), [q.data, objectId]);
+  const st = useMemo(() => employeeStats(rows), [rows]);
+  const byDay = useMemo(() => new Map(rows.map((r) => [r.day, r])), [rows]);
+  const maxWorked = Math.max(540, ...rows.map((r) => r.workedMin));
+  const first = rows[0];
+
+  const patterns: string[] = [];
+  if (st.lateDays + rows.filter((r) => r.halfDay && r.lateMin > 0).length > 0) {
+    const lateCount = rows.filter((r) => r.lateMin > 0).length;
+    patterns.push(t('Late on {{n}} of {{due}} working days ({{min}} in total).', { n: lateCount, due: st.dueDays, min: hours(st.lateMin) }));
+    if (st.lateWeekday !== null) patterns.push(t('Late most often on {{day}} ({{n}} of {{total}} late days).', { day: DOW_LONG(st.lateWeekday), n: st.lateByWeekday[st.lateWeekday], total: lateCount }));
+  }
+  if (st.earlyDays) patterns.push(t('Left early on {{n}} days ({{min}} in total).', { n: st.earlyDays, min: hours(st.earlyMin) }));
+  if (st.absentDays) patterns.push(t('Absent on {{n}} days.', { n: st.absentDays }));
+  if (st.unexplainedMin) patterns.push(t('{{min}} away from the work site not explained yet.', { min: hours(st.unexplainedMin) }));
+  if (st.overtimeMin) patterns.push(t('{{min}} overtime in this period.', { min: hours(st.overtimeMin) }));
+  if (st.correctedDays) patterns.push(t('{{n}} days corrected by hand.', { n: st.correctedDays }));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label={t('Staff member')} htmlFor="emp-pick">
+          <Select value={objectId ?? ''} onValueChange={(v) => onObjectId(v || null)}>
+            <SelectTrigger id="emp-pick" className="w-64">
+              <SelectValue placeholder={t('Choose a staff member')} />
+            </SelectTrigger>
+            <SelectContent>
+              {staff.options.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <div className="flex gap-1.5" role="group" aria-label={t('Period')}>
+          {(
+            [
+              ['this', 'This month'],
+              ['last', 'Last month'],
+              ['30', 'Last 30 days'],
+            ] as const
+          ).map(([v, l]) => (
+            <button key={v} type="button" aria-pressed={period === v} onClick={() => setPeriod(v)} className={cn('h-9 rounded-md border px-3 text-sm font-medium', period === v ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-muted')}>
+              {t(l)}
+            </button>
+          ))}
+        </div>
+        <span className="pb-2 text-xs text-muted-foreground tabular-nums">
+          {range.from} – {range.to}
+        </span>
+      </div>
+
+      {!objectId ? (
+        <Card className="p-0">
+          <EmptyState icon={ChartColumnIcon} title={t('Choose a staff member')} description={t('See their attendance %, usual check-in time, hours, overtime and patterns for the month, with a calendar of every day.')} />
+        </Card>
+      ) : q.isPending ? (
+        <Skeleton className="h-80" />
+      ) : !rows.length ? (
+        <Card className="p-0">
+          <EmptyState icon={CalendarCheckIcon} title={t('Nothing in this period')} description={t('This person is not covered by attendance on these days.')} />
+        </Card>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 className="text-lg font-bold">{first.name}</h2>
+            <span className="text-sm text-muted-foreground">{[first.branch, first.shift === 'Default' ? t('Default shift') : first.shift].filter(Boolean).join(' · ')}</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <Tile
+              label={t('Attendance')}
+              value={`${st.attendancePct}%`}
+              sub={
+                <span className="block h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+                  <span className={cn('block h-full rounded-full', st.attendancePct >= 90 ? 'bg-success' : st.attendancePct >= 75 ? 'bg-warning' : 'bg-destructive')} style={{ width: `${st.attendancePct}%` }} />
+                </span>
+              }
+            />
+            <Tile label={t('Days')} value={`${st.presentDays + st.lateDays} / ${st.dueDays}`} sub={t('{{late}} late · {{half}} half · {{absent}} absent', { late: st.lateDays, half: st.halfDays, absent: st.absentDays })} />
+            <Tile label={t('Usual check-in')} value={st.usualCheckInMin === null ? '—' : clockOf(st.usualCheckInMin)} sub={t('Middle of all check-in times')} />
+            <Tile label={t('Average a day')} value={hours(st.avgWorkedMin)} sub={t('On the days they came')} />
+            <Tile label={t('Overtime')} value={hours(st.overtimeMin)} />
+            <Tile label={t('Late')} value={hours(st.lateMin)} sub={t('{{n}} days', { n: rows.filter((r) => r.lateMin > 0).length })} />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+            <Card className="gap-3 p-4">
+              <h3 className="text-[15px] font-bold">{t('Calendar')}</h3>
+              <div className="grid grid-cols-7 gap-1.5 text-center">
+                {Array.from({ length: 7 }, (_, i) => (
+                  <div key={i} className="text-[11px] font-semibold text-muted-foreground uppercase">
+                    {DOW_SHORT(i)}
+                  </div>
+                ))}
+                {calendarDays(range.from, range.to).map((d, i) => {
+                  if (!d) return <div key={i} />;
+                  const r = byDay.get(d);
+                  const key = r ? (r.halfDay ? 'HALF' : r.status) : '';
+                  const label = r ? t(r.halfDay ? HALF_DAY.label : STATUS[r.status].label) : t('Not covered');
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      disabled={!r}
+                      onClick={() => r && setOpen(r)}
+                      title={`${d} · ${label}${r?.firstIn ? ` · ${time(r.firstIn)}` : ''}`}
+                      aria-label={`${d}: ${label}`}
+                      className={cn('flex min-h-14 flex-col items-center justify-center rounded-md border p-1 text-xs transition-colors', DAY_CELL[key] ?? 'border-dashed text-muted-foreground', r && 'hover:ring-2 hover:ring-ring/40')}
+                    >
+                      <span className="font-bold">{Number(d.slice(8))}</span>
+                      {r?.firstIn && <span className="text-[10px] tabular-nums opacity-80">{time(r.firstIn)}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                {(
+                  [
+                    ['PRESENT', 'Present'],
+                    ['LATE', 'Late'],
+                    ['HALF', 'Half day'],
+                    ['ABSENT', 'Absent'],
+                    ['DAY_OFF', 'Day off'],
+                  ] as const
+                ).map(([k, l]) => (
+                  <span key={k} className="flex items-center gap-1.5">
+                    <span className={cn('size-3 rounded-sm border', DAY_CELL[k])} aria-hidden />
+                    {t(l)}
+                  </span>
+                ))}
+              </div>
+            </Card>
+
+            <div className="space-y-4">
+              <Card className="gap-3 p-4">
+                <h3 className="text-[15px] font-bold">{t('Hours worked each day')}</h3>
+                <div className="flex h-36 items-end gap-0.5" role="img" aria-label={t('Hours worked each day')}>
+                  {rows.map((r) => (
+                    <div key={r.day} className="flex h-full flex-1 flex-col justify-end" title={`${r.day}: ${hours(r.workedMin)}`}>
+                      <div className={cn('rounded-t-sm', r.overtimeMin ? 'bg-success' : r.workedMin ? 'bg-primary' : 'bg-muted')} style={{ height: `${Math.max(r.workedMin ? 3 : 1, (r.workedMin / maxWorked) * 100)}%` }} />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
+                  <span>{rows[0].day}</span>
+                  <span>{rows[rows.length - 1].day}</span>
+                </div>
+              </Card>
+              <Card className="gap-2 p-4">
+                <h3 className="text-[15px] font-bold">{t('Patterns')}</h3>
+                {patterns.length ? (
+                  <ul className="list-disc space-y-1 ps-5 text-sm">
+                    {patterns.map((x) => (
+                      <li key={x}>{x}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t('No late arrivals, early leaves or absences in this period.')}</p>
+                )}
+              </Card>
+            </div>
+          </div>
+        </>
+      )}
+      {open && <DayDialog key={`${open.day}:${open.objectId}`} row={open} canEdit={canEdit} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
 export function AttendancePage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const canEdit = can('attendance', 'edit');
+  const [tab, setTab] = useState('today');
+  const [employee, setEmployee] = useState<string | null>(null);
+  const showEmployee = useCallback((id: string) => {
+    setEmployee(id);
+    setTab('employee');
+  }, []);
   return (
+    <InsightsContext.Provider value={showEmployee}>
     <div className="space-y-4 p-4 sm:p-6">
       <PageHeader title={t('Staff attendance')} description={t('Automatic check-in and check-out when staff with the Tracker app or an ID card reach or leave a work site.')} />
-      <Tabs defaultValue="today">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="today">{t('Today')}</TabsTrigger>
           <TabsTrigger value="sheet">{t('Timesheet')}</TabsTrigger>
+          <TabsTrigger value="employee">{t('Employee')}</TabsTrigger>
           <TabsTrigger value="settings">{t('Settings')}</TabsTrigger>
         </TabsList>
         <TabsContent value="today" className="pt-3">
@@ -839,10 +1083,14 @@ export function AttendancePage() {
         <TabsContent value="sheet" className="pt-3">
           <TimesheetTab canEdit={canEdit} />
         </TabsContent>
+        <TabsContent value="employee" className="pt-3">
+          <EmployeeTab canEdit={canEdit} objectId={employee} onObjectId={setEmployee} />
+        </TabsContent>
         <TabsContent value="settings" className="pt-3">
           <SettingsTab canEdit={canEdit} />
         </TabsContent>
       </Tabs>
     </div>
+    </InsightsContext.Provider>
   );
 }
