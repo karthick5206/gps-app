@@ -1174,6 +1174,12 @@ model AttendanceSettings {
   selfieRequired     Boolean  @default(false)
   /// PHOTO, VIDEO (10 s) or PHOTO_AND_VIDEO (both from one recording).
   checkInProof       String   @default("PHOTO")
+  /// Every company work site counts for everyone (other branches too).
+  otherBranchSites   Boolean  @default(true)
+  /// Straight from one work site to another within this many minutes = official duty; 0 = off.
+  travelMaxMin       Int      @default(120)
+  /// Short trips out up to this many minutes in total a day are not questioned; 0 = off.
+  breakMin           Int      @default(45)
   updatedById String?  @db.Uuid
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 }

@@ -83,6 +83,9 @@ interface DayRules {
   noSignalMin: number;
   halfDayMin: number;
   fullDayMin: number;
+  /** Added 2026-11-07; days saved before have none (= off, so their figures don't change). */
+  travelMaxMin?: number;
+  breakMin?: number;
 }
 
 interface SavedDay {
@@ -97,7 +100,7 @@ type AlertType = 'ATTENDANCE_NOT_ARRIVED' | 'ATTENDANCE_ABSENT' | 'ATTENDANCE_LE
 
 const rulesFor = (s: Settings, p: Pick<Staff, 'id' | 'branchId'>): DayRules => {
   const shift = shiftOf(s, p.id, p.branchId);
-  return { shift: shift.name, days: shift.days, startMin: shift.startMin, endMin: shift.endMin, graceMin: s.graceMin, shortExitMin: s.shortExitMin, noSignalMin: s.noSignalMin, halfDayMin: s.halfDayMin, fullDayMin: s.fullDayMin };
+  return { shift: shift.name, days: shift.days, startMin: shift.startMin, endMin: shift.endMin, graceMin: s.graceMin, shortExitMin: s.shortExitMin, noSignalMin: s.noSignalMin, halfDayMin: s.halfDayMin, fullDayMin: s.fullDayMin, travelMaxMin: s.travelMaxMin ?? 0, breakMin: s.breakMin ?? 0 };
 };
 
 function windowOf(r: DayRules, day: string, tz: string): AttendanceWindow {
@@ -112,6 +115,8 @@ function windowOf(r: DayRules, day: string, tz: string): AttendanceWindow {
     shortExitMin: r.shortExitMin,
     halfDayMin: r.halfDayMin,
     fullDayMin: r.fullDayMin,
+    travelMaxMin: r.travelMaxMin ?? 0,
+    breakMin: r.breakMin ?? 0,
   };
 }
 
@@ -175,6 +180,9 @@ export class AttendanceService {
       anyBranchObjectIds: r.anyBranchObjectIds,
       selfieRequired: r.selfieRequired,
       checkInProof: (r.checkInProof as CheckInProof) ?? 'PHOTO',
+      otherBranchSites: r.otherBranchSites,
+      travelMaxMin: r.travelMaxMin,
+      breakMin: r.breakMin,
     };
   }
 
@@ -201,6 +209,9 @@ export class AttendanceService {
       anyBranchObjectIds: [...new Set(s.anyBranchObjectIds)],
       selfieRequired: s.selfieRequired,
       checkInProof: s.checkInProof ?? 'PHOTO',
+      otherBranchSites: s.otherBranchSites ?? before.otherBranchSites ?? true,
+      travelMaxMin: s.travelMaxMin ?? before.travelMaxMin ?? 120,
+      breakMin: s.breakMin ?? before.breakMin ?? 45,
       updatedById: ctx.userId,
     };
     await this.prisma.attendanceSettings.upsert({ where: { companyId: ctx.companyId }, create: { companyId: ctx.companyId, ...data }, update: data });
@@ -471,7 +482,7 @@ export class AttendanceService {
       firstIn: r.firstIn,
       state: r.state,
       site: r.site,
-      outings: r.outings.filter((o) => !o.employeeKind && !o.decidedByAdmin).map((o) => ({ leftAt: o.leftAt, returnedAt: o.returnedAt, minutes: o.minutes, site: o.site })).reverse(),
+      outings: r.outings.filter((o) => !o.employeeKind && !o.decidedByAdmin && !o.auto).map((o) => ({ leftAt: o.leftAt, returnedAt: o.returnedAt, minutes: o.minutes, site: o.site })).reverse(),
       selfieNeeded: !!r.selfieMissing && r.state === 'INSIDE',
       selfieAt: r.selfieAt ?? null,
       proof: c.s.checkInProof ?? 'PHOTO',

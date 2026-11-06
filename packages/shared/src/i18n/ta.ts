@@ -3303,4 +3303,13 @@ export const TA: Record<string, string> = {
   'Mark as personal work': 'சொந்த வேலையாகக் குறி',
   'Finding the address…': 'முகவரி தேடப்படுகிறது…',
   'Address not available': 'முகவரி கிடைக்கவில்லை',
+  // Attendance: other branches, travel between sites, break allowance.
+  'Draw them in Geofences first and give each one its branch.': 'முதலில் ஜியோஃபென்ஸில் வரைந்து, ஒவ்வொன்றுக்கும் அதன் கிளையைக் கொடுங்கள்.',
+  'Count work sites of every branch': 'எல்லா கிளைகளின் பணியிடங்களையும் கணக்கிடு',
+  'On: being at any of your work sites counts as worked, e.g. a day at another branch or a meeting at head office. Off: staff count only at their own branch.': 'இயக்கம்: எந்தப் பணியிடத்தில் இருந்தாலும் வேலையாகக் கணக்கிடப்படும், உதா. வேறு கிளையில் ஒரு நாள் அல்லது தலைமை அலுவலகத்தில் கூட்டம். நிறுத்தம்: ஊழியர்கள் தங்கள் கிளையில் மட்டுமே கணக்கிடப்படுவர்.',
+  'Travel between sites (min)': 'பணியிடங்களுக்கு இடையே பயணம் (நிமி)',
+  'Going straight to another work site within this time is official duty. 0 = off': 'இந்த நேரத்திற்குள் நேராக வேறு பணியிடம் செல்வது அலுவல் பணி. 0 = நிறுத்தம்',
+  'Break allowance (min a day)': 'இடைவேளை அனுமதி (நாளுக்கு நிமி)',
+  'Short trips out up to this total are not questioned. 0 = off': 'இந்த மொத்த நேரம் வரை சிறிய வெளியேற்றங்களுக்குக் கேள்வி இல்லை. 0 = நிறுத்தம்',
+  'Travel between work sites, counted automatically': 'பணியிடங்களுக்கு இடையே பயணம், தானாகக் கணக்கிடப்பட்டது',
 };

@@ -54,6 +54,28 @@ describe('attendanceOf', () => {
     expect(r.overtimeMin).toBe(60);
   });
 
+  it('travel straight to a different work site counts as official duty, without asking', () => {
+    const visits = [{ enter: at(9, 30), exit: at(12), site: 'Office' }, { enter: at(12, 40), exit: at(18, 30), site: 'Guindy branch' }];
+    const r = attendanceOf(visits, { ...W, travelMaxMin: 120 }, at(19));
+    expect(r.outings).toEqual([expect.objectContaining({ leftAt: at(12), kind: 'OFFICIAL', auto: 'TRAVEL', minutes: 40 })]);
+    expect(r).toMatchObject({ officialMin: 40, unexplainedMin: 0, workedMin: 540 });
+    // Same site again is not travel; longer than the limit is not travel; off when the limit is 0.
+    expect(attendanceOf([{ enter: at(9, 30), exit: at(12), site }, { enter: at(12, 40), exit: at(18, 30), site }], { ...W, travelMaxMin: 120 }, at(19)).outings[0]).toMatchObject({ kind: 'UNEXPLAINED', auto: null });
+    expect(attendanceOf(visits, { ...W, travelMaxMin: 30 }, at(19)).outings[0]).toMatchObject({ kind: 'UNEXPLAINED' });
+    expect(attendanceOf(visits, W, at(19)).outings[0]).toMatchObject({ kind: 'UNEXPLAINED' });
+  });
+
+  it('break allowance: short trips out up to the daily total are not questioned', () => {
+    const visits = [{ enter: at(9, 30), exit: at(13), site }, { enter: at(13, 30), exit: at(16), site }, { enter: at(16, 30), exit: at(18, 30), site }];
+    // 45 min allowance: the 30 min lunch fits; the second 30 min would make 60, so it is asked about.
+    const r = attendanceOf(visits, { ...W, breakMin: 45 }, at(19));
+    expect(r.outings).toEqual([expect.objectContaining({ leftAt: at(16), kind: 'UNEXPLAINED' })]);
+    expect(r).toMatchObject({ unexplainedMin: 30, workedMin: 510 });
+    // An answered trip is never a break; still out (not back) is not a break yet.
+    expect(attendanceOf(visits, { ...W, breakMin: 45 }, at(19), [], decided([at(13), 'PERSONAL'])).outings.map((o) => o.leftAt)).toEqual([at(13)]);
+    expect(attendanceOf([{ enter: at(9, 30), exit: at(13), site }], { ...W, breakMin: 45 }, at(13, 20)).outings).toHaveLength(1);
+  });
+
   it('overtime: late and staying late to make up is none; under 15 minutes is none; a long evening counts', () => {
     // 2 h late (11:30), left 20:30: 9 h worked = a full shift, nothing beyond it.
     expect(attendanceOf([{ enter: at(11, 30), exit: at(20, 30), site }], W, at(23)).overtimeMin).toBe(0);
@@ -135,12 +157,16 @@ describe('shifts and sites', () => {
     expect(shiftOf(s, 'p1', 'b2')).toMatchObject({ name: 'Default', startMin: DEFAULT_ATTENDANCE.startMin });
     expect(shiftOf(s, 'p1', null).name).toBe('Default');
   });
-  it('home branch only, unless allowed', () => {
-    expect(siteCountsFor(s, 'p', 'b1', 'b1')).toBe(true);
-    expect(siteCountsFor(s, 'p', 'b1', 'b2')).toBe(false);
-    expect(siteCountsFor(s, 'p', 'b1', null)).toBe(true);
-    expect(siteCountsFor(s, 'p', null, 'b2')).toBe(true);
-    expect(siteCountsFor({ anyBranchObjectIds: ['p'] }, 'p', 'b1', 'b2')).toBe(true);
+  it('every branch counts by default', () => {
+    expect(siteCountsFor(s, 'p', 'b1', 'b2')).toBe(true);
+  });
+  it('home branch only when other branches are turned off, unless allowed', () => {
+    const own = { ...s, otherBranchSites: false };
+    expect(siteCountsFor(own, 'p', 'b1', 'b1')).toBe(true);
+    expect(siteCountsFor(own, 'p', 'b1', 'b2')).toBe(false);
+    expect(siteCountsFor(own, 'p', 'b1', null)).toBe(true);
+    expect(siteCountsFor(own, 'p', null, 'b2')).toBe(true);
+    expect(siteCountsFor({ anyBranchObjectIds: ['p'], otherBranchSites: false }, 'p', 'b1', 'b2')).toBe(true);
   });
 });
 

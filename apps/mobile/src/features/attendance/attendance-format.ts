@@ -15,6 +15,8 @@ export const LIVE: Record<AttendanceLiveState, { label: string; color: string }>
   NO_SIGNAL: { label: 'No signal', color: '#d97706' },
 };
 export const KINDS: Record<OutingKind, string> = { UNEXPLAINED: 'Unexplained', OFFICIAL: 'Official duty', PERSONAL: 'Personal' };
+/** An outing's kind inside a sentence ("Counted as: Personal work"). */
+export const OUTING_WORDS: Record<OutingKind, string> = { UNEXPLAINED: 'Not explained yet', OFFICIAL: 'Official duty', PERSONAL: 'Personal work' };
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 export const time = (iso: string | null | undefined) => (iso ? clock.format(Date.parse(iso)) : '—');

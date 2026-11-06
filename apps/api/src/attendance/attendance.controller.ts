@@ -34,6 +34,9 @@ class SettingsBody {
   @IsArray() @ArrayMaxSize(5000) @IsUUID('all', { each: true }) anyBranchObjectIds!: string[];
   @IsBoolean() selfieRequired!: boolean;
   @IsOptional() @IsIn(CHECK_IN_PROOFS) checkInProof?: CheckInProof;
+  @IsOptional() @IsBoolean() otherBranchSites?: boolean;
+  @IsOptional() @IsInt() @Min(0) @Max(480) travelMaxMin?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(180) breakMin?: number;
 }
 
 class SelfieQuery {

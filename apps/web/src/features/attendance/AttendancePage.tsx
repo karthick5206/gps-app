@@ -271,6 +271,7 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
                   <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', o.kind === 'UNEXPLAINED' ? 'bg-destructive/10 text-destructive-fg' : o.kind === 'OFFICIAL' ? 'bg-success-soft text-success-fg' : 'bg-muted text-muted-foreground')}>
                     {o.kind === 'UNEXPLAINED' ? t('Not explained yet') : t('Counted as: {{kind}}', { kind: t(OUTING_WORDS[o.kind]) })}
                   </span>
+                  {o.auto === 'TRAVEL' && <span className="w-full text-xs text-muted-foreground">{t('Travel between work sites, counted automatically')}</span>}
                 </div>
                 {o.fix && (
                   <div className="space-y-0.5">
@@ -665,15 +666,24 @@ function SettingsTab({ canEdit }: { canEdit: boolean }) {
         </span>
         <Switch checked={s.enabled} onCheckedChange={(enabled) => set({ enabled })} disabled={!canEdit} />
       </label>
-      <Field label={t('Work sites (geofences)')} htmlFor="att-sites" hint={t('Draw them in Geofences first and give each store its branch. Staff count only at their own branch, and at sites without a branch.')}>
+      <Field label={t('Work sites (geofences)')} htmlFor="att-sites" hint={t('Draw them in Geofences first and give each one its branch.')}>
         <MultiSelect id="att-sites" value={s.geofenceIds} onChange={(geofenceIds) => set({ geofenceIds })} options={geofences.options} loading={geofences.loading} disabled={!canEdit} placeholder={t('Choose geofences')} />
       </Field>
       <Field label={t('Staff (optional)')} htmlFor="att-staff" hint={t('Leave empty to include every person tracked by phone or ID card.')}>
         <MultiSelect id="att-staff" value={s.objectIds} onChange={(objectIds) => set({ objectIds })} options={staff.options} loading={staff.loading} disabled={!canEdit} placeholder={t('All staff')} />
       </Field>
-      <Field label={t('Staff who can attend at any branch')} htmlFor="att-any" hint={t('Optional. Everyone else counts only at their own branch.')}>
-        <MultiSelect id="att-any" value={s.anyBranchObjectIds} onChange={(anyBranchObjectIds) => set({ anyBranchObjectIds })} options={staff.options} loading={staff.loading} disabled={!canEdit} placeholder={t('Nobody')} />
-      </Field>
+      <label className="flex items-center justify-between gap-3">
+        <span>
+          <span className="block font-medium">{t('Count work sites of every branch')}</span>
+          <span className="block text-xs text-muted-foreground">{t('On: being at any of your work sites counts as worked, e.g. a day at another branch or a meeting at head office. Off: staff count only at their own branch.')}</span>
+        </span>
+        <Switch checked={s.otherBranchSites !== false} onCheckedChange={(otherBranchSites) => set({ otherBranchSites })} disabled={!canEdit} aria-label={t('Count work sites of every branch')} />
+      </label>
+      {s.otherBranchSites === false && (
+        <Field label={t('Staff who can attend at any branch')} htmlFor="att-any" hint={t('Optional. Everyone else counts only at their own branch.')}>
+          <MultiSelect id="att-any" value={s.anyBranchObjectIds} onChange={(anyBranchObjectIds) => set({ anyBranchObjectIds })} options={staff.options} loading={staff.loading} disabled={!canEdit} placeholder={t('Nobody')} />
+        </Field>
+      )}
 
       <label className="flex items-center justify-between gap-3 border-t pt-4">
         <span>
@@ -737,6 +747,8 @@ function SettingsTab({ canEdit }: { canEdit: boolean }) {
           <NumberField id="att-half" label={t('Half day from (hours)')} hint={t('Less than this is absent')} value={s.halfDayMin} max={24} scale={60} step={0.5} onChange={(halfDayMin) => set({ halfDayMin })} disabled={!canEdit} />
           <NumberField id="att-full" label={t('Full day from (hours)')} value={s.fullDayMin} max={24} scale={60} step={0.5} onChange={(fullDayMin) => set({ fullDayMin })} disabled={!canEdit} />
           <NumberField id="att-rem" label={t('Still out alert (min)')} hint={t('0 = no second alert')} value={s.outReminderMin} max={720} onChange={(outReminderMin) => set({ outReminderMin })} disabled={!canEdit} />
+          <NumberField id="att-travel" label={t('Travel between sites (min)')} hint={t('Going straight to another work site within this time is official duty. 0 = off')} value={s.travelMaxMin ?? 120} max={480} onChange={(travelMaxMin) => set({ travelMaxMin })} disabled={!canEdit} />
+          <NumberField id="att-break" label={t('Break allowance (min a day)')} hint={t('Short trips out up to this total are not questioned. 0 = off')} value={s.breakMin ?? 45} max={180} onChange={(breakMin) => set({ breakMin })} disabled={!canEdit} />
         </div>
       </div>
       <p className="text-xs text-muted-foreground">{t('Alerts: "Staff not arrived" after start + grace, "Staff absent" at the end of the shift, "Staff left work site" when someone is out during the shift for longer than a short exit, and "Staff still out" after the time above. Choose who gets them in Alert Settings.')}</p>

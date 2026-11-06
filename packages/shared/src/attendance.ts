@@ -50,8 +50,14 @@ export interface AttendanceSettingsDto {
   fullDayMin: number;
   /** Alert again when someone is still out after this long; 0 = never. */
   outReminderMin: number;
-  /** People who may attend at any branch's work site. */
+  /** People who may attend at any branch's work site (used when otherBranchSites is off). */
   anyBranchObjectIds: string[];
+  /** Every company work site counts for everyone, other branches too (default on). */
+  otherBranchSites?: boolean;
+  /** Going straight from one work site to a different one within this many minutes counts as official duty; 0 = off. */
+  travelMaxMin?: number;
+  /** Short trips out (back the same day, not answered) up to this many minutes in total a day are not questioned. */
+  breakMin?: number;
   /** Management's choice: staff are asked for a selfie when they check in. It never decides the status by itself. */
   selfieRequired: boolean;
   /** What the check-in asks for when selfieRequired is on: a photo, a 10-second video, or both from one recording. */
@@ -73,6 +79,9 @@ export const DEFAULT_ATTENDANCE: AttendanceSettingsDto = {
   fullDayMin: 8 * 60,
   outReminderMin: 60,
   anyBranchObjectIds: [],
+  otherBranchSites: true,
+  travelMaxMin: 120,
+  breakMin: 45,
   selfieRequired: false,
   checkInProof: 'PHOTO',
 };
@@ -108,6 +117,8 @@ export interface AttendanceOutingDto {
   employeeNote?: string | null;
   /** An admin decided: it no longer follows the employee's answer. */
   decidedByAdmin?: boolean;
+  /** Decided by the rules, not asked: TRAVEL = straight from one work site to another. */
+  auto?: 'TRAVEL' | null;
 }
 
 export interface AttendanceRowDto {
@@ -234,6 +245,9 @@ export interface AttendanceWindow {
   shortExitMin: number;
   halfDayMin: number;
   fullDayMin: number;
+  /** See AttendanceSettingsDto.travelMaxMin / breakMin; absent = off. */
+  travelMaxMin?: number;
+  breakMin?: number;
 }
 
 /** Fence time counts from this long before the shift until this long after it. */
@@ -289,7 +303,7 @@ export interface AttendanceDayResult {
   carriedOver: boolean;
   inFix: AttendanceFix | null;
   outFix: AttendanceFix | null;
-  outings: ({ leftAt: number; returnedAt: number | null; minutes: number; kind: OutingKind; note: string | null; site: string | null; fix: AttendanceFix | null } & Pick<OutingDecision, 'employeeKind' | 'employeeNote' | 'decidedByAdmin'>)[];
+  outings: ({ leftAt: number; returnedAt: number | null; minutes: number; kind: OutingKind; note: string | null; site: string | null; fix: AttendanceFix | null } & Pick<OutingDecision, 'employeeKind' | 'employeeNote' | 'decidedByAdmin'> & { auto?: 'TRAVEL' | null })[];
 }
 
 /**
@@ -335,7 +349,8 @@ export function attendanceOf(
   const outings: AttendanceDayResult['outings'] = [];
   const counted: { span: TimeSpan; kind: OutingKind }[] = [];
   const insideSpans: TimeSpan[] = stays.map((v) => ({ from: v.from, to: v.to }));
-  const addOuting = (stay: (typeof inDay)[number], returnedAt: number | null) => {
+  let breakLeftMs = (w.breakMin ?? 0) * MIN;
+  const addOuting = (stay: (typeof inDay)[number], returnedAt: number | null, nextSite: string | null) => {
     const leftAt = stay.to;
     const outUntil = returnedAt ?? Math.min(now, w.end);
     if (outUntil - leftAt < w.shortExitMin * MIN) {
@@ -345,14 +360,22 @@ export function attendanceOf(
     const span = { from: Math.max(leftAt, w.start), to: Math.min(outUntil, w.end) };
     if (span.to <= span.from) return; // entirely outside the shift
     const decision = decisions.get(leftAt);
-    const kind = decision?.kind ?? 'UNEXPLAINED';
+    // Straight from one work site to a different one, in reasonable time: travel on duty, nobody is asked.
+    const travel = !decision && returnedAt !== null && !!nextSite && !!stay.site && nextSite !== stay.site && returnedAt - leftAt <= (w.travelMaxMin ?? 0) * MIN;
+    // Back again, not answered, and within what is left of the day's break allowance: counts as inside, not questioned.
+    if (!decision && !travel && returnedAt !== null && span.to - span.from <= breakLeftMs) {
+      breakLeftMs -= span.to - span.from;
+      insideSpans.push({ from: leftAt, to: returnedAt });
+      return;
+    }
+    const kind = travel ? 'OFFICIAL' : (decision?.kind ?? 'UNEXPLAINED');
     counted.push({ span, kind });
-    outings.push({ leftAt, returnedAt, minutes: toMin(span.to - span.from), kind, note: decision?.note ?? null, site: stay.site || null, fix: stay.exitFix ?? null, employeeKind: decision?.employeeKind ?? null, employeeNote: decision?.employeeNote ?? null, decidedByAdmin: decision?.decidedByAdmin ?? false });
+    outings.push({ leftAt, returnedAt, minutes: toMin(span.to - span.from), kind, note: decision?.note ?? null, site: stay.site || null, fix: stay.exitFix ?? null, employeeKind: decision?.employeeKind ?? null, employeeNote: decision?.employeeNote ?? null, decidedByAdmin: decision?.decidedByAdmin ?? false, auto: travel ? 'TRAVEL' : null });
   };
   stays.forEach((v, i) => {
     const next = stays[i + 1];
-    if (next) addOuting(v, next.from);
-    else if (!open) addOuting(v, null);
+    if (next) addOuting(v, next.from, next.site || null);
+    else if (!open) addOuting(v, null, null);
   });
 
   const inside = merged(insideSpans);
@@ -431,7 +454,8 @@ export function shiftOf(s: AttendanceSettingsDto, objectId: string, branchId: st
 }
 
 /** Whether a work site counts for a person: their own branch's, one without a branch, or any if allowed. */
-export function siteCountsFor(s: Pick<AttendanceSettingsDto, 'anyBranchObjectIds'>, objectId: string, branchId: string | null, siteBranchId: string | null): boolean {
+export function siteCountsFor(s: Pick<AttendanceSettingsDto, 'anyBranchObjectIds' | 'otherBranchSites'>, objectId: string, branchId: string | null, siteBranchId: string | null): boolean {
+  if (s.otherBranchSites !== false) return true;
   return !branchId || !siteBranchId || siteBranchId === branchId || s.anyBranchObjectIds.includes(objectId);
 }
 
@@ -450,6 +474,8 @@ export function attendanceSettingsError(s: AttendanceSettingsDto): string | null
   if (!Number.isInteger(s.shortExitMin) || s.shortExitMin < 0 || s.shortExitMin > 60) return 'Short exit must be 0–60 minutes';
   if (!Number.isInteger(s.noSignalMin) || s.noSignalMin < 15 || s.noSignalMin > 240) return 'No signal must be 15–240 minutes';
   if (!Number.isInteger(s.outReminderMin) || s.outReminderMin < 0 || s.outReminderMin > 720) return 'The reminder must be 0–720 minutes';
+  if (s.travelMaxMin !== undefined && (!Number.isInteger(s.travelMaxMin) || s.travelMaxMin < 0 || s.travelMaxMin > 480)) return 'Travel between sites must be 0–480 minutes';
+  if (s.breakMin !== undefined && (!Number.isInteger(s.breakMin) || s.breakMin < 0 || s.breakMin > 180)) return 'The break allowance must be 0–180 minutes';
   if (!Number.isInteger(s.halfDayMin) || !Number.isInteger(s.fullDayMin) || s.halfDayMin < 0 || s.fullDayMin > 1440 || s.halfDayMin > s.fullDayMin) return 'Half day hours cannot be more than full day hours';
   const names = new Set<string>();
   for (const shift of s.shifts) {

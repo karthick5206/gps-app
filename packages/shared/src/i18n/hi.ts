@@ -3303,4 +3303,13 @@ export const HI: Record<string, string> = {
   'Mark as personal work': 'निजी काम मानें',
   'Finding the address…': 'पता खोजा जा रहा है…',
   'Address not available': 'पता उपलब्ध नहीं',
+  // Attendance: other branches, travel between sites, break allowance.
+  'Draw them in Geofences first and give each one its branch.': 'पहले जियोफेंस में इन्हें बनाएँ और हर एक को उसकी शाखा दें।',
+  'Count work sites of every branch': 'हर शाखा के कार्यस्थल गिनें',
+  'On: being at any of your work sites counts as worked, e.g. a day at another branch or a meeting at head office. Off: staff count only at their own branch.': 'चालू: किसी भी कार्यस्थल पर होना काम माना जाता है, जैसे किसी दूसरी शाखा में एक दिन या मुख्य कार्यालय में बैठक। बंद: स्टाफ़ केवल अपनी शाखा में गिना जाता है।',
+  'Travel between sites (min)': 'कार्यस्थलों के बीच यात्रा (मिनट)',
+  'Going straight to another work site within this time is official duty. 0 = off': 'इतने समय में सीधे दूसरे कार्यस्थल जाना आधिकारिक काम है। 0 = बंद',
+  'Break allowance (min a day)': 'ब्रेक की छूट (मिनट प्रतिदिन)',
+  'Short trips out up to this total are not questioned. 0 = off': 'इतने कुल समय तक छोटे बाहर जाने पर सवाल नहीं होता। 0 = बंद',
+  'Travel between work sites, counted automatically': 'कार्यस्थलों के बीच यात्रा, अपने आप गिनी गई',
 };

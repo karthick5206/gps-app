@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { AttendanceDayDto, AttendanceRowDto, AttendanceStatus } from '@veetracer/shared';
+import type { AttendanceDayDto, AttendanceLiveState, AttendanceRowDto, AttendanceStatus } from '@veetracer/shared';
 import { router } from 'expo-router';
 import { CalendarCheckIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
@@ -43,9 +43,12 @@ function PersonCard({ r, withDay }: { r: AttendanceRowDto; withDay?: boolean }) 
             {withDay ? `${r.day} · ${r.name}` : r.name}
           </Text>
           {r.state && (
-            <Text size="xs" weight="600" style={{ color: LIVE[r.state].color }}>
-              {t(LIVE[r.state].label)}
-            </Text>
+            <View style={styles.liveRow}>
+              <View style={[styles.liveDot, { backgroundColor: LIVE[r.state].color }]} />
+              <Text size="xs" weight="600" style={{ color: LIVE[r.state].color }}>
+                {t(LIVE[r.state].label)}
+              </Text>
+            </View>
           )}
         </View>
         <Pill label={t(s.label)} color={s.color} />
@@ -100,6 +103,7 @@ export default function AttendanceScreen() {
   const [period, setPeriod] = useState<Period>('month');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<string>(ALL);
+  const [live, setLive] = useState<AttendanceLiveState | null>(null);
 
   const board = useQuery({
     queryKey: ['attendance', day],
@@ -120,10 +124,17 @@ export default function AttendanceScreen() {
     for (const r of rows) n[statusOf(r)] = (n[statusOf(r)] ?? 0) + 1;
     return n;
   }, [rows]);
+  // Where people are right now (today only): counts per live state; a tile filters the list.
+  const liveCounts = useMemo(() => {
+    const n: Partial<Record<AttendanceLiveState, number>> = {};
+    if (tab === 'day') for (const r of rows) if (r.state) n[r.state] = (n[r.state] ?? 0) + 1;
+    return n;
+  }, [rows, tab]);
+  const hasLive = Object.keys(liveCounts).length > 0;
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return rows.filter((r) => (status === ALL || statusOf(r) === status) && (!s || r.name.toLowerCase().includes(s)));
-  }, [rows, q, status]);
+    return rows.filter((r) => (status === ALL || statusOf(r) === status) && (!live || tab !== 'day' || r.state === live) && (!s || r.name.toLowerCase().includes(s)));
+  }, [rows, q, status, live, tab]);
   const off = tab === 'day' && board.data && !board.data.enabled;
 
   const options = [
@@ -173,6 +184,38 @@ export default function AttendanceScreen() {
               ]}
             />
           )}
+          {tab === 'day' && hasLive && (
+            <View style={{ gap: 6 }}>
+              <Text size="xs" tone="muted" weight="700" style={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                {t('Right now')}
+              </Text>
+              <View style={styles.liveTiles}>
+                {(Object.keys(LIVE) as AttendanceLiveState[]).map((k) => {
+                  const on = live === k;
+                  return (
+                    <Pressable
+                      key={k}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={`${t(LIVE[k].label)}: ${liveCounts[k] ?? 0}`}
+                      onPress={() => setLive(on ? null : k)}
+                      style={[styles.liveTile, { borderColor: on ? LIVE[k].color : c.border, backgroundColor: on ? `${LIVE[k].color}1f` : c.card }]}
+                    >
+                      <View style={styles.liveRow}>
+                        <View style={[styles.liveDot, { backgroundColor: LIVE[k].color }]} />
+                        <Text size="xs" tone="muted" weight="600" numberOfLines={1}>
+                          {t(LIVE[k].label)}
+                        </Text>
+                      </View>
+                      <Text size="xl" weight="700">
+                        {liveCounts[k] ?? 0}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
           {rows.length > 0 && <SearchInput value={q} onChangeText={setQ} placeholder={t('Search staff')} accessibilityLabel={t('Search staff')} />}
           {rows.length > 0 && <Chips value={status} onChange={setStatus} options={options} />}
           {active.isError && <ErrorBanner message={errorMessage(active.error)} onRetry={() => void active.refetch()} />}
@@ -202,6 +245,10 @@ export default function AttendanceScreen() {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
   figure: { flex: 1 },
+  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  liveDot: { width: 8, height: 8, borderRadius: 4 },
+  liveTiles: { flexDirection: 'row', gap: SPACE.sm },
+  liveTile: { flex: 1, borderWidth: 1, borderRadius: 12, padding: SPACE.md, gap: 4 },
   dateBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderRadius: 12, paddingVertical: 4 },
   dateBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
 });
