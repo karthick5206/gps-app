@@ -3358,4 +3358,10 @@ export const HI: Record<string, string> = {
   'Employee insights for {{name}}': '{{name}} का कर्मचारी विवरण',
   'So far': 'अब तक',
   'Total in this period': 'इस अवधि में कुल',
+  'Save map picture': 'मैप की तस्वीर सहेजें',
+  'Map picture saved to your downloads': 'मैप की तस्वीर डाउनलोड में सहेजी गई',
+  'Could not take a picture of the map': 'मैप की तस्वीर नहीं ली जा सकी',
+  'Full screen': 'पूरी स्क्रीन',
+  'Exit full screen': 'पूरी स्क्रीन से बाहर',
+  'Full screen is not available in this browser': 'इस ब्राउज़र में पूरी स्क्रीन उपलब्ध नहीं',
 };

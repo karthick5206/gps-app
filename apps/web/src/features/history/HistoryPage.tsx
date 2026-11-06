@@ -2,6 +2,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { AlertDto } from '@veetracer/shared';
 import { AlertTriangleIcon, ChevronDownIcon, ChevronUpIcon, LayersIcon, RouteIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { MapTools } from '@/components/map-tools';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { Spinner } from '@/components/ui/spinner';
@@ -357,6 +358,7 @@ export function HistoryPage() {
   }, [data, idx]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
   const markClickRef = useRef<(m: MarkClick) => void>(() => {});
   const { map, unsupported } = useHistoryMap(containerRef, (m) => markClickRef.current(m), () => setFollow(false));
 
@@ -575,7 +577,7 @@ export function HistoryPage() {
   );
 
   return (
-    <div className={cn('flex h-full flex-col', isDesktop ? 'min-h-[600px]' : sheetExpanded ? 'min-h-[820px]' : 'min-h-[640px]')}>
+    <div ref={pageRef} className={cn('flex h-full flex-col bg-background', isDesktop ? 'min-h-[600px]' : sheetExpanded ? 'min-h-[820px]' : 'min-h-[640px]')}>
       <div className="border-b bg-card px-3 py-2.5 sm:px-4">
         <HistoryToolbar objectId={objectId} onObjectChange={setObject} compareIds={compareIds} onCompareChange={setCompare} range={range} preset={preset} onRangeChange={setRange} />
       </div>
@@ -589,6 +591,15 @@ export function HistoryPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
             <div ref={containerRef} className="h-full w-full" role="region" aria-label={t('History map')} />
+            {/* Under the zoom buttons: save the map as a picture, full screen. */}
+            {!unsupported && (
+              <MapTools
+                snapshot={map ? () => map.snapshot() : null}
+                fileName={() => `history-${(vehicleOptions.find((o) => o.value === objectId)?.label ?? 'map').replace(/[^w-]+/g, '-')}-${range.from.toISOString().slice(0, 10)}.png`}
+                fullscreen={pageRef}
+                className="absolute top-[112px] right-[10px] z-10"
+              />
+            )}
             {unsupported && (
               <Overlay>
                 <p className="text-sm text-muted-foreground">{t("The map can't be shown because WebGL is turned off or not supported in this browser.")}</p>

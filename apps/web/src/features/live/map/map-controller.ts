@@ -188,6 +188,14 @@ export class MapController {
     this.paintHalo(performance.now());
   }
 
+  /** The map as a PNG (read right after a render, so the WebGL buffer still holds the picture). */
+  snapshot(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      this.map.once('render', () => this.map.getCanvas().toBlob((b) => resolve(b), 'image/png'));
+      this.map.triggerRepaint();
+    });
+  }
+
   destroy() {
     this.unsubscribe();
     cancelAnimationFrame(this.raf);

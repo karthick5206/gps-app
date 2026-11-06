@@ -3358,4 +3358,10 @@ export const TA: Record<string, string> = {
   'Employee insights for {{name}}': '{{name}} இன் ஊழியர் விவரம்',
   'So far': 'இதுவரை',
   'Total in this period': 'இந்தக் காலத்தில் மொத்தம்',
+  'Save map picture': 'வரைபடப் படத்தைச் சேமி',
+  'Map picture saved to your downloads': 'வரைபடப் படம் பதிவிறக்கங்களில் சேமிக்கப்பட்டது',
+  'Could not take a picture of the map': 'வரைபடத்தைப் படம் எடுக்க முடியவில்லை',
+  'Full screen': 'முழுத் திரை',
+  'Exit full screen': 'முழுத் திரையிலிருந்து வெளியேறு',
+  'Full screen is not available in this browser': 'இந்த உலாவியில் முழுத் திரை கிடைக்கவில்லை',
 };

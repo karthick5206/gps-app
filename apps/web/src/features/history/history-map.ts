@@ -184,6 +184,14 @@ export class HistoryMap {
     this.offBasemap = basemapStore.subscribe(() => this.restyle());
   }
 
+  /** The map as a PNG (read right after a render, so the WebGL buffer still holds the picture). */
+  snapshot(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      this.map.once('render', () => this.map.getCanvas().toBlob((b) => resolve(b), 'image/png'));
+      this.map.triggerRepaint();
+    });
+  }
+
   destroy() {
     this.offBasemap();
     this.hoverPopup?.remove();

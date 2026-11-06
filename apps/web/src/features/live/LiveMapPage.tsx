@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
+import { MapTools } from '@/components/map-tools';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/features/auth/auth-context';
 import { named, useEntityOptions } from '@/features/masters/use-options';
@@ -70,6 +71,7 @@ export function LiveMapPage() {
   const { can } = useAuth();
   const [params] = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
   const [filters, setFilters] = useState<LiveFilters>(() => ({ ...EMPTY_FILTERS, statuses: parseStatusParam(params.get('status')) }));
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   // ?objectId= (e.g. from Ask VeeTrax) opens with that vehicle selected.
@@ -141,7 +143,7 @@ export function LiveMapPage() {
   const patchFilters = useCallback((patch: Partial<LiveFilters>) => setFilters((f) => ({ ...f, ...patch })), []);
 
   return (
-    <div className="relative h-full min-h-[420px] overflow-hidden">
+    <div ref={pageRef} className="relative h-full min-h-[420px] overflow-hidden bg-background">
       {/* MapLibre forces `position: relative` on its container, so size it with h-full rather than inset. */}
       <div ref={containerRef} className="h-full w-full" role="region" aria-label={t('Live map')} />
       {unsupported && (
@@ -193,9 +195,14 @@ export function LiveMapPage() {
         />
       )}
 
-      {!active && !loading && <NeedsAttention items={attention} onPick={pick} className="absolute right-3 bottom-8 z-10 hidden md:flex" />}
+      {!active && !loading && <NeedsAttention items={attention} onPick={pick} className="absolute right-14 bottom-8 z-10 hidden md:flex" />}
 
-      {!unsupported && <LiveMapOverlays controller={controller} onFocusObject={pick} className="absolute top-3 right-3 z-10" />}
+      {!unsupported && (
+        <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-2">
+          <LiveMapOverlays controller={controller} onFocusObject={pick} />
+          <MapTools snapshot={controller ? () => controller.snapshot() : null} fileName={() => `live-map-${new Date().toISOString().slice(0, 16).replace(':', '-')}.png`} fullscreen={pageRef} />
+        </div>
+      )}
 
       <Button
         variant="outline"
