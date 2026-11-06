@@ -1,11 +1,13 @@
 import { router } from 'expo-router';
-import { ChevronRight, ExternalLink, Play, Square } from 'lucide-react-native';
+import { ChevronRight, ExternalLink, Play, Square, UserRound } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AttendanceCard } from '@/components/AttendanceCard';
 import { NeedsAttention, useChecks } from '@/components/ChecksCards';
 import { SosButton } from '@/components/SosButton';
-import { Body, Button, Card } from '@/components/ui';
+import { BlinkDot, StatusPulse, type LiveState } from '@/components/StatusPulse';
+import { TrackerMark } from '@/components/TrackerLogo';
+import { Body, Button, Card, HeaderBand, HeaderIconButton, Section, toneColors } from '@/components/ui';
 import { beginTracking, isInactive, permissionsReady, recheckInactive, syncStopReason } from '@/lib/control';
 import { ago } from '@/lib/format';
 import { LANGUAGES } from '@/lib/language';
@@ -16,6 +18,7 @@ import { resumeIfWanted, stopTracking, useTrackerStatus } from '@/lib/tracking';
 
 const RECHECK_EVERY_MS = 5 * 60_000;
 const PLAY_STORE_VEETRAX = 'https://play.google.com/store/apps/details?id=com.sasvata.veetrax';
+const LIVE_TONE = { live: 'success', waiting: 'warn', off: 'idle', blocked: 'danger' } as const;
 
 /** Opens the VeeTrax app (its veetrax:// scheme), else the download page. */
 function openVeetrax() {
@@ -85,7 +88,9 @@ export default function HomeScreen() {
       { text: S.stopTracking, style: 'destructive', onPress: () => stopTracking().then(refreshStatus) },
     ]);
 
-  const dot = blocked ? c.danger : stuck ? c.accent : on ? c.success : c.muted;
+  // live = points are getting through; waiting = on but nothing sent yet, or stuck; blocked = switched off by the admin.
+  const live: LiveState = blocked ? 'blocked' : !on ? 'off' : stuck || !status?.lastUploadAt ? 'waiting' : 'live';
+  const tone = toneColors(c, LIVE_TONE[live]);
   const line = !on
     ? S.statusOff
     : stuck
@@ -95,57 +100,71 @@ export default function HomeScreen() {
         : S.statusWaiting;
 
   return (
-    <ScrollView style={{ backgroundColor: c.background }} contentContainerStyle={styles.scroll}>
-      <Card style={[styles.statusCard, { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.primarySoft : c.card }]}>
-        {session?.objectName ? <Body muted>{session.objectName}</Body> : null}
-        <View style={styles.statusHead}>
-          <View style={[styles.dot, { backgroundColor: dot }]} />
-          <Text style={[styles.statusTitle, { color: on ? c.primary : c.text }]}>{on ? S.trackingOn : S.trackingOff}</Text>
-        </View>
-        <Body>{line}</Body>
-        {required ? <Body muted>{S.requiredShort}</Body> : null}
-        {on && required ? null : on ? (
-          <Button title={S.stopTracking} variant="outline" icon={<Square color={c.primary} size={18} />} onPress={stop} />
-        ) : (
-          <Button title={S.startTracking} icon={<Play color={c.primaryText} size={18} />} onPress={start} busy={busy} disabled={blocked} />
-        )}
-      </Card>
-
-      <NeedsAttention checks={checks} blocked={blocked} killed={killed} trialEnded={trialEnded} />
-
-      <AttendanceCard />
-
-      <SosButton onDone={refreshStatus} />
-
-      {/* People's own accounts only: on a company phone the company does the viewing. */}
-      {session?.accountType === 'INDIVIDUAL' || session?.accountType === 'FAMILY' ? (
-        <Card>
-          <Body style={{ fontWeight: '700' }}>{S.viewInAppTitle}</Body>
-          <Body muted>{S.viewInAppBody(session.email ?? null, session.mobile || `+${session.uniqueId}`)}</Body>
-          <Button title={S.openVeetrax} variant="outline" icon={<ExternalLink color={c.primary} size={18} />} onPress={openVeetrax} />
+    <View style={{ flex: 1, backgroundColor: c.background }}>
+      <HeaderBand
+        logo={<TrackerMark size={34} />}
+        title={S.appName}
+        subtitle={session?.objectName || null}
+        right={<HeaderIconButton icon={<UserRound color={c.headerText} size={22} />} label={S.profileTitle} onPress={() => router.push('/profile')} />}
+      />
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <Card style={[styles.statusCard, { borderColor: on || blocked ? tone.dot : c.border }]}>
+          <View style={styles.statusHead}>
+            <StatusPulse state={live} />
+            <View style={styles.statusText}>
+              <Text style={[styles.statusTitle, { color: on || blocked ? tone.fg : c.text }]} accessibilityLiveRegion="polite">
+                {on ? S.trackingOn : S.trackingOff}
+              </Text>
+              <View style={styles.lineRow}>
+                {on ? <BlinkDot run={live === 'live'} color={tone.dot} /> : null}
+                <Body muted style={styles.line}>
+                  {line}
+                </Body>
+              </View>
+            </View>
+          </View>
+          {required ? <Body muted>{S.requiredShort}</Body> : null}
+          {on && required ? null : on ? (
+            <Button title={S.stopTracking} variant="outline" icon={<Square color={c.primary} size={18} />} onPress={stop} />
+          ) : (
+            <Button title={S.startTracking} icon={<Play color={c.primaryText} size={18} />} onPress={start} busy={busy} disabled={blocked} />
+          )}
         </Card>
-      ) : null}
 
-      <Card style={styles.nav}>
-        <NavRow title={S.detailsTitle} onPress={() => router.push('/details')} />
-        <View style={[styles.divider, { backgroundColor: c.border }]} />
-        <NavRow title={S.profileTitle} onPress={() => router.push('/profile')} />
-        <View style={[styles.divider, { backgroundColor: c.border }]} />
-        {/* In every language's own script, so someone who can't read the current one still finds theirs. */}
-        <NavRow title={LANGUAGES.map((l) => l.label).join(' · ')} onPress={() => router.push('/profile')} />
-      </Card>
-    </ScrollView>
+        <NeedsAttention checks={checks} blocked={blocked} killed={killed} trialEnded={trialEnded} />
+
+        <AttendanceCard />
+
+        <SosButton onDone={refreshStatus} />
+
+        {/* People's own accounts only: on a company phone the company does the viewing. */}
+        {session?.accountType === 'INDIVIDUAL' || session?.accountType === 'FAMILY' ? (
+          <Card>
+            <Body style={{ fontWeight: '700' }}>{S.viewInAppTitle}</Body>
+            <Body muted>{S.viewInAppBody(session.email ?? null, session.mobile || `+${session.uniqueId}`)}</Body>
+            <Button title={S.openVeetrax} variant="outline" icon={<ExternalLink color={c.primary} size={18} />} onPress={openVeetrax} />
+          </Card>
+        ) : null}
+
+        <Section>
+          <NavRow title={S.detailsTitle} onPress={() => router.push('/details')} />
+          <NavRow title={S.profileTitle} onPress={() => router.push('/profile')} />
+          {/* In every language's own script, so someone who can't read the current one still finds theirs. */}
+          <NavRow title={LANGUAGES.map((l) => l.label).join(' · ')} onPress={() => router.push('/profile')} />
+        </Section>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 14, paddingBottom: 40 },
-  statusCard: { borderWidth: 2 },
-  statusHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dot: { width: 14, height: 14, borderRadius: 7 },
-  statusTitle: { flex: 1, fontSize: 26, fontWeight: '800' },
-  nav: { paddingVertical: 4, gap: 0 },
-  navRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  navText: { fontSize: 16, fontWeight: '600' },
-  divider: { height: StyleSheet.hairlineWidth },
+  statusCard: { borderWidth: 1.5, gap: 14 },
+  statusHead: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  statusText: { flex: 1, minWidth: 0, gap: 4 },
+  statusTitle: { fontSize: 24, fontWeight: '800' },
+  lineRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  line: { flex: 1 },
+  navRow: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  navText: { fontSize: 16, fontWeight: '600', flexShrink: 1 },
 });

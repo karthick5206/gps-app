@@ -2,7 +2,6 @@ import { router, Stack, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api, SERVER_URL } from '@/lib/api';
 import { installJsCrashHandler, reportCrashes } from '@/lib/crash';
@@ -52,7 +51,6 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
   useStoreVersion();
   const c = useColors();
-  const scheme = useColorScheme();
   const segments = useSegments();
   // The session row is written together with the token on activation and cleared on sign-out.
   const signedIn = ready && hasToken() && !!store.session();
@@ -84,17 +82,20 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      {/* Every screen starts with the dark brand band (or the camera), so light status-bar icons everywhere. */}
+      <StatusBar style="light" />
       <Stack
         screenOptions={{
-          headerTintColor: c.text,
-          headerStyle: { backgroundColor: c.card },
+          headerTintColor: c.headerText,
+          headerStyle: { backgroundColor: c.header },
+          headerTitleStyle: { fontWeight: '700', fontSize: 18 },
           headerShadowVisible: false,
           contentStyle: { backgroundColor: c.background },
         }}
       >
         <Stack.Protected guard={signedIn}>
-          <Stack.Screen name="index" options={{ title: S.appName }} />
+          {/* Home draws its own brand band (logo, name, profile shortcut). */}
+          <Stack.Screen name="index" options={{ title: S.appName, headerShown: false }} />
           <Stack.Screen name="disclosure" options={{ title: S.disclosureTitle, presentation: 'modal' }} />
           <Stack.Screen name="details" options={{ title: S.detailsTitle }} />
           <Stack.Screen name="profile" options={{ title: S.profileTitle }} />

@@ -1,8 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, AppState, TextInput, View } from 'react-native';
-import { Body, Button, Card } from '@/components/ui';
+import { CalendarCheck, Clock } from 'lucide-react-native';
+import { Alert, AppState, StyleSheet, TextInput, View } from 'react-native';
+import { Appear, Body, Button, Card, Chip, Title } from '@/components/ui';
 import { api, ApiError, type PhoneAttendance } from '@/lib/api';
 import { getToken } from '@/lib/state';
 import { S, serverText } from '@/lib/strings';
@@ -75,10 +76,20 @@ export function AttendanceCard() {
   const out = a.outings[0];
   return (
     <Card>
-      <Body style={{ fontWeight: '700' }}>{S.attendanceTitle}</Body>
-      {a.shiftStartMin !== undefined && a.shiftEndMin !== undefined ? <Body muted>{S.shiftToday(clock(a.shiftStartMin), clock(a.shiftEndMin))}</Body> : null}
-      {a.firstIn ? <Body muted>{S.checkedInAt(time(a.firstIn), a.site)}</Body> : <Body>{S.notCheckedIn}</Body>}
-      {a.state === 'INSIDE' ? <Body muted>{S.stateInside}</Body> : a.state === 'OUT' ? <Body muted>{S.stateOut}</Body> : a.state === 'NO_SIGNAL' ? <Body muted>{S.stateNoSignal}</Body> : null}
+      <View style={styles.head}>
+        <View style={[styles.icon, { backgroundColor: a.firstIn ? c.successSoft : c.primarySoft }]}>
+          {a.firstIn ? <CalendarCheck color={c.success} size={20} /> : <Clock color={c.primary} size={20} />}
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Title>{S.attendanceTitle}</Title>
+          {a.shiftStartMin !== undefined && a.shiftEndMin !== undefined ? <Body muted style={styles.small}>{S.shiftToday(clock(a.shiftStartMin), clock(a.shiftEndMin))}</Body> : null}
+        </View>
+      </View>
+      {/* Pops in once when the check-in arrives while the card is on screen. */}
+      <Appear play={!!a.firstIn}>
+        {a.firstIn ? <Chip label={S.checkedInAt(time(a.firstIn), a.site)} tone="success" dot /> : <Body>{S.notCheckedIn}</Body>}
+      </Appear>
+      {a.state === 'INSIDE' ? <Chip label={S.stateInside} tone="primary" /> : a.state === 'OUT' ? <Chip label={S.stateOut} tone="warn" /> : a.state === 'NO_SIGNAL' ? <Chip label={S.stateNoSignal} tone="idle" /> : null}
       {a.selfieAt ? <Body muted>{S.selfieDone(time(a.selfieAt))}</Body> : null}
       {a.videoAt ? <Body muted>{S.videoDone(time(a.videoAt))}</Body> : null}
       {proof === 'PHOTO' && a.selfieNeeded ? (
@@ -120,3 +131,9 @@ export function AttendanceCard() {
     </Card>
   );
 }
+
+const styles = StyleSheet.create({
+  head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  icon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  small: { fontSize: 13, lineHeight: 18 },
+});

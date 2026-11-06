@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { InfoSteps } from '@/components/InfoSteps';
-import { TrackerLogo } from '@/components/TrackerLogo';
+import { TrackerMark } from '@/components/TrackerLogo';
 import { TrackingScene } from '@/components/TrackingScene';
-import { Body, Button, Card, Title } from '@/components/ui';
+import { Body, Button, Card, HeaderBand, Title } from '@/components/ui';
 import { api, ApiError, NetworkError } from '@/lib/api';
 import { APP_VERSION, deviceName } from '@/lib/device';
 import { saveActivation } from '@/lib/control';
@@ -107,14 +107,13 @@ export default function ActivateScreen() {
   const input = [styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.input }];
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: c.background }}>
+    <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: c.background }}>
+      {/* The band sits under the (light) status bar icons; the old light screen made them unreadable. */}
+      <HeaderBand logo={<TrackerMark size={34} />} title={S.appName}>
+        <LanguagePicker onBand />
+      </HeaderBand>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <View style={styles.brand}>
-            <TrackerLogo size={68} />
-            <Text style={[styles.appName, { color: c.text }]}>{S.appName}</Text>
-          </View>
-          <LanguagePicker />
           {step === 'mobile' ? (
             <View style={[styles.hero, { backgroundColor: c.primary }]}>
               <TrackingScene color="#ffffff" style={{ width: '100%', height: 110 }} />
@@ -206,10 +205,8 @@ export default function ActivateScreen() {
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: 20, gap: 16, flexGrow: 1, justifyContent: 'center' },
-  brand: { alignItems: 'center', gap: 10, marginBottom: 8 },
-  hero: { borderRadius: 18, overflow: 'hidden', paddingVertical: 6 },
-  appName: { fontSize: 24, fontWeight: '800' },
+  scroll: { padding: 16, gap: 14, paddingBottom: 32 },
+  hero: { borderRadius: 12, overflow: 'hidden', paddingVertical: 6 },
   label: { fontSize: 14, fontWeight: '600', marginTop: 4 },
   phoneRow: { flexDirection: 'row', gap: 8 },
   prefix: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, justifyContent: 'center' },
