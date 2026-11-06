@@ -10,6 +10,8 @@ import { getToken, useStoreVersion } from '@/lib/state';
 import { S, serverText } from '@/lib/strings';
 
 const SECONDS = 10;
+/** A camera that hasn't started by then is taken as missing (some phones and emulators have no front camera). */
+const READY_MS = 4000;
 /** The photo is taken from the middle of the video, when the person is most likely looking at the camera. */
 const PHOTO_AT_MS = 4000;
 const message = (e: unknown) => (e instanceof ApiError ? serverText(e.message) : e instanceof Error ? e.message : String(e));
@@ -25,6 +27,8 @@ export default function CheckInCameraScreen() {
   const camera = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [ready, setReady] = useState(false);
+  const [facing, setFacing] = useState<'front' | 'back'>('front');
+  const [failed, setFailed] = useState(false);
   const [left, setLeft] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const started = useRef(false);
@@ -72,18 +76,25 @@ export default function CheckInCameraScreen() {
     if (auto === '1' && ready && !started.current) void record();
   }, [auto, ready]);
 
+  // Front camera first; if it doesn't start, the back one; if that doesn't either, say so instead of a black screen.
+  useEffect(() => {
+    if (ready || !permission?.granted) return;
+    const timer = setTimeout(() => (facing === 'front' ? setFacing('back') : setFailed(true)), READY_MS);
+    return () => clearTimeout(timer);
+  }, [ready, facing, permission?.granted]);
+
   if (!permission) return <View style={styles.dark} />;
-  if (!permission.granted) {
+  if (!permission.granted || failed) {
     return (
       <SafeAreaView style={[styles.dark, styles.center]}>
-        <Text style={styles.white}>{S.cameraDenied}</Text>
+        <Text style={styles.white}>{failed ? S.cameraFailed : S.cameraDenied}</Text>
         <Button title={S.cancel} variant="outline" onPress={() => router.back()} />
       </SafeAreaView>
     );
   }
   return (
     <View style={styles.dark}>
-      <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="front" mode="video" mute videoQuality="480p" onCameraReady={() => setReady(true)} />
+      <CameraView key={facing} ref={camera} style={StyleSheet.absoluteFill} facing={facing} mode="video" mute videoQuality="480p" onCameraReady={() => setReady(true)} onMountError={() => (facing === 'front' ? setFacing('back') : setFailed(true))} />
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
         <View style={styles.top}>
           {left !== null ? (
@@ -109,7 +120,7 @@ export default function CheckInCameraScreen() {
               </Pressable>
             </>
           ) : (
-            <Button title={S.stopRecording} variant="outline" onPress={() => camera.current?.stopRecording()} />
+            <Button title={S.stopRecording} variant="danger" onPress={() => camera.current?.stopRecording()} />
           )}
         </View>
       </SafeAreaView>
