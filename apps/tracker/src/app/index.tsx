@@ -55,6 +55,9 @@ export default function HomeScreen() {
   }, []);
 
   const session = store.session();
+  // Company phone: "Company – person"; a personal or family phone: just the person.
+  const personal = session?.accountType === 'INDIVIDUAL' || session?.accountType === 'FAMILY';
+  const whoLine = !personal && session?.companyName && session.objectName ? `${session.companyName} – ${session.objectName}` : session?.objectName || null;
   const blocked = isInactive(status);
   const required = !!status?.required;
   const on = !!status?.running;
@@ -96,7 +99,7 @@ export default function HomeScreen() {
       <HeaderBand
         logo={<TrackerMark size={34} />}
         title={S.appName}
-        subtitle={session?.objectName || null}
+        subtitle={whoLine}
         right={<HeaderIconButton icon={<UserRound color={c.headerText} size={22} />} label={S.menu} onPress={() => setMenuOpen(true)} />}
       />
       <ScrollView contentContainerStyle={styles.scroll}>
