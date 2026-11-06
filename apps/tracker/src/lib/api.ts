@@ -48,6 +48,10 @@ export interface PhoneAttendance {
   videoAt?: string | null;
   shiftStartMin?: number;
   shiftEndMin?: number;
+  /** Left the site for the day; older servers send nothing. */
+  lastOut?: string | null;
+  /** Minutes worked so far today; older servers send nothing. */
+  workedMin?: number;
 }
 
 /** HTTP error from the server: status + message (+ code such as REVOKED / INVALID / INACTIVE). */

@@ -76,6 +76,8 @@ export const ta: Strings = {
   attendanceTitle: 'வருகைப்பதிவு',
   checkInLabel: 'வருகை நேரம்',
   nowLabel: 'இப்போது',
+  checkOutLabel: 'வெளியேறிய நேரம்',
+  workedOf: (worked: string, total: string) => `${total} இல் ${worked} வேலை`,
   notYet: 'இன்னும் இல்லை',
   inside: 'உள்ளே',
   outside: 'வெளியே',

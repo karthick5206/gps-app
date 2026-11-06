@@ -7,7 +7,7 @@ import { useColors } from '@/lib/theme';
 
 const dateOnly = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
-/** Whose phone this is and the licence. Sign out, deactivate and delete are in the home screen menu; language is on the home screen. */
+/** Whose phone this is, the licence, the privacy policy and deleting the account. Sign out / deactivate are in the home screen menu; language is on the home screen. */
 export default function ProfileScreen() {
   useStoreVersion();
   const c = useColors();
@@ -44,6 +44,10 @@ export default function ProfileScreen() {
       <View style={styles.legal}>
         <Text style={[styles.legalLink, { color: c.muted }]} onPress={() => Linking.openURL(`${WEB_URL}/privacy`).catch(() => undefined)}>
           {S.privacyPolicy}
+        </Text>
+        {/* Rare and permanent, so here rather than in the quick menu. Opens the web page that explains and does it. */}
+        <Text style={[styles.legalLink, { color: c.danger }]} onPress={() => Linking.openURL(`${WEB_URL}/delete-account`).catch(() => undefined)}>
+          {S.deleteAccount}
         </Text>
       </View>
 

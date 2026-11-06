@@ -13,6 +13,12 @@ import { useColors } from '@/lib/theme';
 const REFRESH_MS = 15_000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 const clock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+/** "5 h 10 min", "45 min", "9 h". */
+const hm = (min: number) => {
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return h ? (m ? `${h} h ${m} min` : `${h} h`) : `${m} min`;
+};
 const message = (e: unknown) => (e instanceof ApiError ? serverText(e.message) : e instanceof Error ? e.message : String(e));
 
 /** Today's attendance: check-in time, the questions about time outside, and the selfie if the employer asks for one. */
@@ -75,6 +81,10 @@ export function AttendanceCard() {
   if (!a?.enabled) return null;
   const out = a.outings[0];
   const shift = a.shiftStartMin !== undefined && a.shiftEndMin !== undefined ? [clock(a.shiftStartMin), clock(a.shiftEndMin)] : null;
+  // Left for the day: the right tile shows the check-out time instead of "Right now".
+  const checkedOut = !!a.lastOut && a.state !== 'INSIDE';
+  const shiftLen = a.shiftStartMin !== undefined && a.shiftEndMin !== undefined ? (a.shiftEndMin - a.shiftStartMin + 1440) % 1440 || 1440 : 0;
+  const progress = a.firstIn && shiftLen && a.workedMin !== undefined ? { worked: a.workedMin, total: shiftLen, pct: Math.min(1, a.workedMin / shiftLen) } : null;
   const now =
     a.state === 'INSIDE'
       ? { short: S.inside, long: S.stateInside, dot: c.success, fg: c.successText }
@@ -113,8 +123,10 @@ export function AttendanceCard() {
           ) : null}
         </Appear>
         <View style={[styles.tile, { borderColor: c.border, backgroundColor: c.background }]}>
-          <Text style={[styles.tileLabel, { color: c.muted }]}>{S.nowLabel}</Text>
-          {now ? (
+          <Text style={[styles.tileLabel, { color: c.muted }]}>{checkedOut ? S.checkOutLabel : S.nowLabel}</Text>
+          {checkedOut ? (
+            <Text style={[styles.tileValue, { color: c.text }]}>{time(a.lastOut!)}</Text>
+          ) : now ? (
             <View style={styles.nowRow}>
               <View style={[styles.dot, { backgroundColor: now.dot }]} />
               <Text style={[styles.tileValue, { color: now.fg }]} accessibilityLabel={now.long}>
@@ -127,6 +139,16 @@ export function AttendanceCard() {
         </View>
       </View>
       {!a.firstIn ? <Body muted style={styles.small}>{S.notCheckedIn}</Body> : null}
+
+      {/* Time worked against the shift length; green and full once the shift is done. */}
+      {progress ? (
+        <View style={styles.progress}>
+          <View style={[styles.track, { backgroundColor: c.idleSoft }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <View style={[styles.fill, { width: `${Math.round(progress.pct * 100)}%`, backgroundColor: progress.pct >= 1 ? c.success : c.primary }]} />
+          </View>
+          <Text style={[styles.progressText, { color: c.muted }]}>{S.workedOf(hm(progress.worked), hm(progress.total))}</Text>
+        </View>
+      ) : null}
 
       {a.selfieAt || a.videoAt ? (
         <View style={styles.done}>
@@ -202,6 +224,10 @@ const styles = StyleSheet.create({
   nowRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   small: { fontSize: 13, lineHeight: 19 },
+  progress: { gap: 6 },
+  track: { height: 8, borderRadius: 4, overflow: 'hidden' },
+  fill: { height: '100%', borderRadius: 4 },
+  progressText: { fontSize: 13, fontWeight: '600' },
   done: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   box: { borderWidth: 1, borderRadius: 10, padding: 12, gap: 10 },
   boxHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },

@@ -187,6 +187,10 @@ export interface PhoneAttendanceDto {
   /** Today's shift, minutes after midnight (company time). */
   shiftStartMin?: number;
   shiftEndMin?: number;
+  /** Left the site for the day (after the last visit, once it is over); null while inside or before check-in. */
+  lastOut?: string | null;
+  /** Minutes counted as worked so far today (on site + official time outside). */
+  workedMin?: number;
 }
 
 /** A notification the phone should show (in the answer to a position upload). The id says when it is a new one. */

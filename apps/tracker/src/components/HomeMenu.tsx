@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
-import { Activity, LogOut, PowerOff, Trash2, UserRound, type LucideIcon } from 'lucide-react-native';
-import { Alert, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Activity, LogOut, PowerOff, UserRound, type LucideIcon } from 'lucide-react-native';
+import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deactivate as deactivatePhone } from '@/lib/control';
 import { S } from '@/lib/strings';
@@ -33,7 +33,7 @@ function Item({ icon: Icon, label, danger, onPress }: { icon: LucideIcon; label:
   );
 }
 
-/** The menu behind the top-right icon on the home screen: Profile, Details, sign out, delete account. */
+/** The menu behind the top-right icon on the home screen: Profile, Details, sign out, deactivate. Delete account is on Profile. */
 export function HomeMenu({ open, onClose, status }: { open: boolean; onClose: () => void; status: TrackerStatus | null }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -51,7 +51,6 @@ export function HomeMenu({ open, onClose, status }: { open: boolean; onClose: ()
           {/* Both end this phone's session: tracking stops and a new code is needed to come back. */}
           <Item icon={LogOut} label={S.signOutShort} onPress={go(() => confirmDeactivate(status, `${S.signOutShort}?`))} />
           <Item icon={PowerOff} label={S.deactivatePhone} onPress={go(() => confirmDeactivate(status))} />
-          <Item icon={Trash2} label={S.deleteAccount} danger onPress={go(() => void Linking.openURL(`${WEB_URL}/delete-account`).catch(() => undefined))} />
         </View>
       </Pressable>
     </Modal>

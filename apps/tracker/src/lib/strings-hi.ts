@@ -76,6 +76,8 @@ export const hi: Strings = {
   attendanceTitle: 'उपस्थिति',
   checkInLabel: 'चेक-इन',
   nowLabel: 'अभी',
+  checkOutLabel: 'चेक-आउट',
+  workedOf: (worked: string, total: string) => `${total} में से ${worked} काम`,
   notYet: 'अभी नहीं',
   inside: 'अंदर',
   outside: 'बाहर',

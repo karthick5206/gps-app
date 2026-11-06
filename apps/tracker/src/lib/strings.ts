@@ -79,6 +79,8 @@ const en = {
   attendanceTitle: 'Attendance',
   checkInLabel: 'Check-in',
   nowLabel: 'Right now',
+  checkOutLabel: 'Check-out',
+  workedOf: (worked: string, total: string) => `${worked} worked of ${total}`,
   notYet: 'Not yet',
   inside: 'Inside',
   outside: 'Outside',

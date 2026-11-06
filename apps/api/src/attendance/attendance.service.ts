@@ -470,6 +470,8 @@ export class AttendanceService {
       videoAt: r.videoAt ?? null,
       shiftStartMin: shift.startMin,
       shiftEndMin: shift.endMin,
+      lastOut: r.lastOut,
+      workedMin: r.workedMin,
     };
   }
 
