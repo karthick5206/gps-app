@@ -66,13 +66,13 @@ function useMapController(containerRef: RefObject<HTMLDivElement | null>, onSele
   useEffect(() => controller?.setReducedMotion(reducedMotion), [controller, reducedMotion]);
   // Marker labels (registration / person name) on or off; remembered in this browser.
   const [labels, setLabelsState] = useState(() => storage.get('vt.live.labels') !== '0');
+  useEffect(() => controller?.setLabels(labels), [controller, labels]);
   const toggleLabels = () =>
     setLabelsState((v) => {
       storage.set('vt.live.labels', v ? '0' : '1');
       return !v;
     });
-  useEffect(() => controller?.setLabels(labels), [controller, labels]);
-  return { controller, unsupported };
+  return { controller, unsupported, labels, toggleLabels };
 }
 
 export function LiveMapPage() {
@@ -98,7 +98,7 @@ export function LiveMapPage() {
     setFollowing(false);
     setMobileView('map');
   }, []);
-  const { controller, unsupported } = useMapController(containerRef, pick, () => setFollowing(false));
+  const { controller, unsupported, labels, toggleLabels } = useMapController(containerRef, pick, () => setFollowing(false));
 
   useEffect(() => {
     liveStore
