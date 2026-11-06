@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, AppState, TextInput, View } from 'react-native';
 import { Body, Button, Card } from '@/components/ui';
@@ -38,6 +38,13 @@ export function AttendanceCard() {
     });
     return () => (clearInterval(timer), sub.remove());
   }, [refresh]);
+
+  // Back from the check-in camera: show the new state at once, not at the next refresh.
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh]),
+  );
 
   const run = async (action: (token: string) => Promise<PhoneAttendance>) => {
     setBusy(true);
