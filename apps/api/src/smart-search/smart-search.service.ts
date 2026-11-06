@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import {
   ALERT_TYPE_MAP,
   parseQuery,
@@ -11,7 +11,12 @@ import {
   type SearchCard,
   type SearchLink,
   type SearchTime,
+  type AttendanceRowDto,
+  type ParsedQuery,
+  type ScorePeriod,
 } from '@veetracer/shared';
+import { AttendanceService } from '../attendance/attendance.service';
+import { DriverScoresService } from '../driver-scores/driver-scores.service';
 import { AuthContext } from '../access/auth-context';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { LiveService } from '../live/live.service';
@@ -39,6 +44,39 @@ const dur = (sec: number) => {
   return h ? `${h} h ${m} min` : `${m} min`;
 };
 const plate = (o: Pick<LiveObject, 'name' | 'plateNumber'>) => (o.plateNumber && o.plateNumber !== o.name ? `${o.name} (${o.plateNumber})` : o.name);
+
+const can = (ctx: AuthContext, menu: string) => ctx.isSuperAdmin || !!(ctx.permissions as Record<string, string[] | undefined> | undefined)?.[menu]?.includes('view');
+const rupees = (paise: number) => `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
+const words = (code: string) => code.charAt(0) + code.slice(1).toLowerCase().replace(/_/g, ' ');
+const mins = (m: number) => (m ? dur(m * 60) : '—');
+const LIVE_WORD: Record<string, string> = { INSIDE: 'Inside', OUT: 'Out now', NO_SIGNAL: 'No signal' };
+const STATUS_WORD: Record<string, string> = { PRESENT: 'Present', LATE: 'Late', ABSENT: 'Absent', NOT_ARRIVED: 'Not arrived', DAY_OFF: 'Day off', UPCOMING: 'Not started' };
+const statusWord = (r: AttendanceRowDto) => (r.halfDay ? 'Half day' : (STATUS_WORD[r.status] ?? r.status));
+/** Problems first in a day's list: not arrived, absent, out, no signal, late, then everyone else. */
+const rank = (r: AttendanceRowDto) => (r.status === 'NOT_ARRIVED' ? 0 : r.status === 'ABSENT' ? 1 : r.state === 'OUT' ? 2 : r.state === 'NO_SIGNAL' ? 3 : r.lateMin > 0 ? 4 : 5);
+/** Totals over days (today's unfinished day is not counted as due). */
+function totals(days: AttendanceRowDto[]) {
+  const whole = (s: string) => days.filter((d) => !d.halfDay && d.status === s).length;
+  const present = whole('PRESENT') + whole('LATE');
+  const late = whole('LATE');
+  const half = days.filter((d) => d.halfDay).length;
+  const absent = whole('ABSENT');
+  const due = present + half + absent;
+  const sum = (f: (d: AttendanceRowDto) => number) => days.reduce((n, d) => n + f(d), 0);
+  return {
+    present,
+    late,
+    half,
+    absent,
+    pct: due ? Math.round(((present + half / 2) / due) * 1000) / 10 : 0,
+    worked: sum((d) => d.workedMin),
+    overtime: sum((d) => d.overtimeMin),
+    lateDays: days.filter((d) => d.lateMin > 0).length,
+    lateMin: sum((d) => d.lateMin),
+    earlyDays: days.filter((d) => d.earlyMin > 0).length,
+    earlyMin: sum((d) => d.earlyMin),
+  };
+}
 
 /** Local time text in the company zone. */
 function clock(ms: number, tz: string, withDate = false): string {
@@ -93,6 +131,8 @@ export class SmartSearchService {
     private readonly prisma: PrismaService,
     private readonly live: LiveService,
     private readonly geocoder: GeocodingService,
+    @Optional() private readonly attendance?: AttendanceService,
+    @Optional() private readonly scores?: DriverScoresService,
   ) {}
 
   async ask(ctx: AuthContext, query: string, now = Date.now()): Promise<SearchAnswerDto> {
@@ -101,6 +141,9 @@ export class SmartSearchService {
     const all = (await this.live.snapshot(ctx)).filter((o) => !o.licenceLocked);
     const tz = await this.timezone(ctx);
     const base = { query: q, intent: parsed.intent, links: [] as SearchLink[], cards: [] as SearchCard[] };
+    // Staff and drivers are matched by their own lists, not the vehicles on the map.
+    if (parsed.intent === 'ATTENDANCE') return this.attendanceAnswer(ctx, parsed, q, base, tz, now);
+    if (parsed.intent === 'DRIVER_SCORES') return this.driverScoresAnswer(ctx, parsed, base, now);
 
     // Vehicle.
     let vehicles = all;
@@ -229,6 +272,24 @@ export class SmartSearchService {
         base.cards.push({ kind: 'table', columns: ['Time', 'Vehicle', 'Alert'], rows: alerts.slice(0, 15).map((a) => ({ objectId: a.objectId, cells: [clock(a.occurredAt.getTime(), tz, true), plate(byId.get(a.objectId) ?? { name: '?', plateNumber: null }), ALERT_TYPE_MAP[a.type as AlertTypeCode]?.label ?? a.type] })) });
         return { ...base, answer: alerts.length ? `${alerts.length} alert(s) ${range.label}${one ? ` for ${plate(one)}` : ''}.` : `No alerts ${range.label}.`, links: [{ label: 'Open alerts', href: one ? `/alerts?objectId=${one.objectId}` : '/alerts' }] };
       }
+      case 'EXPENSES': {
+        if (!can(ctx, 'expenses')) return { ...base, answer: 'You do not have access to fuel & expenses.' };
+        const r = parsed.time ? range : resolveRange({ kind: 'month', offset: 0 }, tz, now);
+        const rows = await this.prisma.expense.findMany({ where: { companyId: ctx.companyId, objectId: { in: ids }, at: { gte: new Date(r.from), lt: new Date(r.to) } }, orderBy: { at: 'desc' }, take: 2000, select: { objectId: true, kind: true, at: true, amountPaise: true, litres: true } });
+        const total = rows.reduce((n, e) => n + e.amountPaise, 0);
+        const byKind = new Map<string, number>();
+        for (const e of rows) byKind.set(e.kind, (byKind.get(e.kind) ?? 0) + e.amountPaise);
+        const litres = rows.reduce((n, e) => n + (e.litres ?? 0), 0);
+        base.cards.push({ kind: 'stats', items: [{ label: 'Total', value: rupees(total) }, ...[...byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => ({ label: words(k), value: rupees(v) })), ...(litres ? [{ label: 'Fuel', value: `${Math.round(litres).toLocaleString('en-IN')} L` }] : [])] });
+        if (one) {
+          base.cards.push({ kind: 'table', columns: ['Date', 'Item', 'Amount'], rows: rows.slice(0, 15).map((e) => ({ objectId: e.objectId, cells: [clock(e.at.getTime(), tz, true), words(e.kind) + (e.litres ? ` · ${e.litres} L` : ''), rupees(e.amountPaise)] })) });
+        } else {
+          const perVehicle = new Map<string, number>();
+          for (const e of rows) perVehicle.set(e.objectId, (perVehicle.get(e.objectId) ?? 0) + e.amountPaise);
+          base.cards.push({ kind: 'table', columns: ['Vehicle', 'Spent'], rows: [...perVehicle.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([id, v]) => ({ objectId: id, cells: [plate(byId.get(id) ?? { name: '?', plateNumber: null }), rupees(v)] })) });
+        }
+        return { ...base, answer: rows.length ? `${rupees(total)} spent ${r.label}${one ? ` on ${plate(one)}` : ''} (${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}).` : `No fuel or expenses entered ${r.label}${one ? ` for ${plate(one)}` : ''}.`, links: [{ label: 'Open Fuel & expenses', href: '/expenses' }] };
+      }
       case 'DOCUMENTS': {
         const soon = new Date(now + 30 * 24 * HOUR);
         const [docs, services] = await Promise.all([
@@ -244,6 +305,173 @@ export class SmartSearchService {
         return { ...base, answer: rows.length ? `${rows.length} document(s) / service(s) due within 30 days${overdue ? `, ${overdue} already overdue` : ''}.` : 'Nothing is due in the next 30 days.', links: [{ label: 'Documents & service', href: '/masters/documents' }] };
       }
     }
+  }
+
+  /**
+   * Staff attendance in one question: "attendance" alone gives today's whole picture (present, late, absent, inside /
+   * out now); a focus ("absent", "late", "out now", "overtime"…) lists those people; a name gives that person's day,
+   * or their month; a week / month gives per-person totals. Links open the attendance page or the person's view.
+   */
+  private async attendanceAnswer(ctx: AuthContext, parsed: ParsedQuery, q: string, base: Omit<SearchAnswerDto, 'answer'>, tz: string, now: number): Promise<SearchAnswerDto> {
+    if (!this.attendance || !can(ctx, 'attendance')) return { ...base, answer: 'You do not have access to staff attendance.' };
+    const range = resolveRange(parsed.time, tz, now);
+    const from = localDayKey(range.from, tz);
+    const to = localDayKey(Math.max(range.from, range.to - 1), tz);
+    const single = from === to;
+    const today = localDayKey(now, tz);
+    let rows: AttendanceRowDto[];
+    try {
+      rows = single ? (await this.attendance.day(ctx, from, undefined, now)).rows : await this.attendance.timesheet(ctx, from, to, undefined, now);
+    } catch (e) {
+      return { ...base, answer: e instanceof Error ? e.message : 'Attendance could not be read.' };
+    }
+    const page: SearchLink = { label: 'Open Staff attendance', href: '/attendance' };
+    if (!rows.length) return { ...base, answer: 'Staff attendance is off, or nobody is covered yet. Turn it on in Staff attendance → Settings.', links: [page] };
+
+    // A person named: their day, or their period.
+    if (parsed.vehicle) {
+      const key = searchKey(parsed.vehicle);
+      const people = new Map<string, string>();
+      for (const r of rows) if (searchKey(r.name).includes(key)) people.set(r.objectId, r.name);
+      if (!people.size) return { ...base, answer: `No staff member matches "${parsed.vehicle}".`, links: [page], examples: [...SEARCH_EXAMPLES] };
+      if (people.size > 1) {
+        return {
+          ...base,
+          answer: `${people.size} staff members match "${parsed.vehicle}". Which one?`,
+          choices: [...people.entries()].slice(0, 8).map(([objectId, name]) => ({ objectId, label: name, query: q.replace(new RegExp(parsed.vehicle.replace(/[.*+?^${}()|[\]\\]/g, '\\  /** Vehicles whose plate or name contains the text (spaces / case ignored), or whose plate ends with its digits. */'), 'i'), name) })),
+        };
+      }
+      const [objectId, name] = [...people.entries()][0];
+      const mine = rows.filter((r) => r.objectId === objectId);
+      const personLinks: SearchLink[] = [{ label: `Open ${name}'s attendance`, href: `/attendance?tab=employee&objectId=${objectId}` }, { label: 'Open on map', href: `/live?objectId=${objectId}` }];
+      if (single) {
+        const r = mine[0];
+        base.cards.push({
+          kind: 'stats',
+          items: [
+            { label: 'Status', value: statusWord(r) },
+            { label: 'First in', value: r.firstIn ? clock(Date.parse(r.firstIn), tz) : '—' },
+            { label: 'Last out', value: r.lastOut ? clock(Date.parse(r.lastOut), tz) : r.firstIn ? 'On site' : '—' },
+            { label: 'Worked', value: mins(r.workedMin) },
+            ...(r.lateMin ? [{ label: 'Late', value: mins(r.lateMin) }] : []),
+            ...(r.overtimeMin ? [{ label: 'Overtime', value: mins(r.overtimeMin) }] : []),
+            ...(r.state ? [{ label: 'Right now', value: LIVE_WORD[r.state] }] : []),
+          ],
+        });
+        const where = r.site ? ` at ${r.site}` : '';
+        return { ...base, answer: `${name} ${range.label}: ${statusWord(r).toLowerCase()}${r.firstIn ? `, in at ${clock(Date.parse(r.firstIn), tz)}${where}` : ''}${r.workedMin ? `, ${mins(r.workedMin)} worked` : ''}.`, links: personLinks };
+      }
+      const t = totals(mine);
+      base.cards.push({ kind: 'stats', items: [{ label: 'Attendance', value: `${t.pct}%` }, { label: 'Present', value: String(t.present) }, { label: 'Late', value: String(t.late) }, { label: 'Half day', value: String(t.half) }, { label: 'Absent', value: String(t.absent) }, { label: 'Worked', value: mins(t.worked) }, { label: 'Overtime', value: mins(t.overtime) }] });
+      base.cards.push({ kind: 'table', columns: ['Date', 'Status', 'In', 'Out', 'Worked'], rows: mine.filter((r) => r.status !== 'UPCOMING').slice(-31).map((r) => ({ objectId, cells: [r.day, statusWord(r), r.firstIn ? clock(Date.parse(r.firstIn), tz) : '—', r.lastOut ? clock(Date.parse(r.lastOut), tz) : '—', mins(r.workedMin)] })) });
+      return { ...base, answer: `${name} ${range.label}: ${t.pct}% attendance — ${t.present} present, ${t.late} late, ${t.half} half day, ${t.absent} absent; ${mins(t.worked)} worked${t.overtime ? `, ${mins(t.overtime)} overtime` : ''}.`, links: personLinks };
+    }
+
+    // Everyone, one day.
+    if (single) {
+      const n = (f: (r: AttendanceRowDto) => boolean) => rows.filter(f).length;
+      const present = n((r) => !r.halfDay && r.status === 'PRESENT');
+      const late = n((r) => !r.halfDay && r.status === 'LATE');
+      const half = n((r) => r.halfDay);
+      const absent = n((r) => !r.halfDay && r.status === 'ABSENT');
+      const notArrived = n((r) => r.status === 'NOT_ARRIVED');
+      const live = { INSIDE: n((r) => r.state === 'INSIDE'), OUT: n((r) => r.state === 'OUT'), NO_SIGNAL: n((r) => r.state === 'NO_SIGNAL') };
+      const isToday = from === today;
+      base.cards.push({
+        kind: 'stats',
+        items: [
+          { label: 'Present', value: String(present + late) },
+          { label: 'Late', value: String(late) },
+          { label: 'Half day', value: String(half) },
+          { label: 'Absent', value: String(absent) },
+          ...(notArrived ? [{ label: 'Not arrived', value: String(notArrived) }] : []),
+          ...(isToday ? [{ label: 'Inside now', value: String(live.INSIDE) }, { label: 'Out now', value: String(live.OUT) }, { label: 'No signal', value: String(live.NO_SIGNAL) }] : []),
+        ],
+      });
+      const f = parsed.focus;
+      const pick: Record<string, (r: AttendanceRowDto) => boolean> = {
+        ABSENT: (r) => r.status === 'ABSENT' || r.status === 'NOT_ARRIVED',
+        LATE: (r) => r.lateMin > 0,
+        PRESENT: (r) => !!r.firstIn,
+        INSIDE: (r) => r.state === 'INSIDE',
+        OUT: (r) => r.state === 'OUT',
+        NO_SIGNAL: (r) => r.state === 'NO_SIGNAL',
+        OVERTIME: (r) => r.overtimeMin > 0,
+        EARLY: (r) => r.earlyMin > 0,
+      };
+      const list = (f && pick[f] ? rows.filter(pick[f]) : [...rows]).sort((a, b) => (f === 'LATE' ? b.lateMin - a.lateMin : f === 'OVERTIME' ? b.overtimeMin - a.overtimeMin : f === 'EARLY' ? b.earlyMin - a.earlyMin : rank(a) - rank(b) || a.name.localeCompare(b.name)));
+      const extra = f === 'LATE' ? 'Late by' : f === 'OVERTIME' ? 'Overtime' : f === 'EARLY' ? 'Left early by' : 'Right now';
+      base.cards.push({
+        kind: 'table',
+        columns: ['Staff', 'Status', 'First in', extra],
+        rows: list.slice(0, 25).map((r) => ({ objectId: r.objectId, cells: [r.name, statusWord(r), r.firstIn ? clock(Date.parse(r.firstIn), tz) : '—', f === 'LATE' ? mins(r.lateMin) : f === 'OVERTIME' ? mins(r.overtimeMin) : f === 'EARLY' ? mins(r.earlyMin) : r.state ? LIVE_WORD[r.state] : '—'] })),
+      });
+      const words2: Record<string, string> = { ABSENT: 'absent', LATE: 'late', PRESENT: 'checked in', INSIDE: 'inside a work site now', OUT: 'out of the work site now', NO_SIGNAL: 'with no signal now', OVERTIME: 'with overtime', EARLY: 'who left early' };
+      const answer =
+        f && pick[f]
+          ? `${list.length} of ${rows.length} staff ${words2[f]} ${f === 'INSIDE' || f === 'OUT' || f === 'NO_SIGNAL' ? '' : range.label}`.trim() + '.'
+          : `${range.label[0].toUpperCase()}${range.label.slice(1)}: ${present + late} of ${rows.length} present (${late} late), ${half} half day, ${absent} absent${notArrived ? `, ${notArrived} not arrived yet` : ''}.${isToday ? ` Right now ${live.INSIDE} inside, ${live.OUT} out${live.NO_SIGNAL ? `, ${live.NO_SIGNAL} no signal` : ''}.` : ''}`;
+      return { ...base, answer, links: [page, { label: 'Daily attendance report', href: '/reports?type=ATTENDANCE_DAILY' }] };
+    }
+
+    // Everyone, a week / month: per-person totals.
+    const people = new Map<string, AttendanceRowDto[]>();
+    for (const r of rows) people.set(r.objectId, [...(people.get(r.objectId) ?? []), r]);
+    const per = [...people.values()].map((days) => ({ objectId: days[0].objectId, name: days[0].name, ...totals(days) }));
+    const f = parsed.focus;
+    const sorted = per.sort((a, b) => (f === 'LATE' ? b.lateDays - a.lateDays || b.lateMin - a.lateMin : f === 'ABSENT' ? b.absent - a.absent : f === 'OVERTIME' ? b.overtime - a.overtime : f === 'EARLY' ? b.earlyDays - a.earlyDays : a.pct - b.pct));
+    const shown = f === 'LATE' ? sorted.filter((p) => p.lateDays) : f === 'ABSENT' ? sorted.filter((p) => p.absent) : f === 'OVERTIME' ? sorted.filter((p) => p.overtime) : f === 'EARLY' ? sorted.filter((p) => p.earlyDays) : sorted;
+    const all = totals(rows);
+    base.cards.push({ kind: 'stats', items: [{ label: 'Staff', value: String(per.length) }, { label: 'Attendance', value: `${all.pct}%` }, { label: 'Late days', value: String(all.lateDays) }, { label: 'Absent days', value: String(all.absent) }, { label: 'Overtime', value: mins(all.overtime) }] });
+    base.cards.push({
+      kind: 'table',
+      columns: f === 'LATE' ? ['Staff', 'Late days', 'Late total'] : f === 'ABSENT' ? ['Staff', 'Absent days', 'Attendance'] : f === 'OVERTIME' ? ['Staff', 'Overtime', 'Worked'] : f === 'EARLY' ? ['Staff', 'Early-leave days', 'Total'] : ['Staff', 'Attendance', 'Late days', 'Absent'],
+      rows: shown.slice(0, 20).map((p) => ({
+        objectId: p.objectId,
+        cells: f === 'LATE' ? [p.name, String(p.lateDays), mins(p.lateMin)] : f === 'ABSENT' ? [p.name, String(p.absent), `${p.pct}%`] : f === 'OVERTIME' ? [p.name, mins(p.overtime), mins(p.worked)] : f === 'EARLY' ? [p.name, String(p.earlyDays), mins(p.earlyMin)] : [p.name, `${p.pct}%`, String(p.lateDays), String(p.absent)],
+      })),
+    });
+    const answer =
+      f === 'LATE'
+        ? `${shown.length} staff were late ${range.label} (${all.lateDays} late days in all).`
+        : f === 'ABSENT'
+          ? `${shown.length} staff were absent ${range.label} (${all.absent} absent days in all).`
+          : f === 'OVERTIME'
+            ? `${mins(all.overtime)} overtime ${range.label}, by ${shown.length} staff.`
+            : f === 'EARLY'
+              ? `${shown.length} staff left early ${range.label}.`
+              : `${range.label[0].toUpperCase()}${range.label.slice(1)}: ${all.pct}% attendance across ${per.length} staff — ${all.lateDays} late days, ${all.absent} absent days, ${mins(all.overtime)} overtime.`;
+    return { ...base, answer, links: [page, { label: 'Payroll report', href: '/reports?type=ATTENDANCE_PAYROLL' }, { label: 'Attendance summary report', href: '/reports?type=ATTENDANCE_SUMMARY' }] };
+  }
+
+  /** Driver scorecard: average, then the lowest (or the best) scores; a name gives that driver's score. */
+  private async driverScoresAnswer(ctx: AuthContext, parsed: ParsedQuery, base: Omit<SearchAnswerDto, 'answer'>, now: number): Promise<SearchAnswerDto> {
+    if (!this.scores || !can(ctx, 'driver_scores')) return { ...base, answer: 'You do not have access to the driver scorecard.' };
+    const t = parsed.time;
+    const period: ScorePeriod = t?.kind === 'month' ? (t.offset === 0 ? 'month' : 'lastMonth') : t?.kind === 'week' && t.offset < 0 ? 'lastWeek' : 'week';
+    const label = { week: 'this week', lastWeek: 'last week', month: 'this month', lastMonth: 'last month' }[period];
+    const link: SearchLink = { label: 'Open Driver scorecard', href: '/driver-scores' };
+    let dto = await this.scores.scores(ctx, period, 'driver', now);
+    let rows = dto.rows;
+    if (parsed.vehicle) {
+      const key = searchKey(parsed.vehicle);
+      let hit = rows.filter((r) => searchKey(r.name).includes(key) || searchKey(r.detail).includes(key));
+      if (!hit.length) {
+        dto = await this.scores.scores(ctx, period, 'vehicle', now);
+        hit = dto.rows.filter((r) => searchKey(r.name).includes(key) || searchKey(r.detail).includes(key));
+      }
+      if (!hit.length) return { ...base, answer: `No driver or vehicle matches "${parsed.vehicle}" ${label}.`, links: [link] };
+      rows = hit;
+    }
+    const scored = rows.filter((r) => r.score !== null);
+    const order = parsed.focus === 'BEST' ? (a: number, b: number) => b - a : (a: number, b: number) => a - b;
+    const list = [...scored].sort((a, b) => order(a.score!, b.score!));
+    base.cards.push({ kind: 'stats', items: [{ label: 'Average', value: dto.average === null ? '—' : String(Math.round(dto.average)) }, { label: 'Scored', value: String(scored.length) }] });
+    base.cards.push({ kind: 'table', columns: ['Driver', 'Score', 'Distance'], rows: list.slice(0, 10).map((r) => ({ objectId: r.kind === 'vehicle' ? r.id : null, cells: [r.detail ? `${r.name} (${r.detail})` : r.name, String(Math.round(r.score!)), km(r.km)] })) });
+    if (!scored.length) return { ...base, answer: `No driver has enough driving ${label} for a score yet.`, links: [link] };
+    const head = list[0];
+    const answer = parsed.vehicle && list.length === 1 ? `${head.name}: score ${Math.round(head.score!)} ${label} over ${km(head.km)}.` : `${parsed.focus === 'BEST' ? 'Best' : 'Lowest'} ${label}: ${head.name} (${Math.round(head.score!)}). Fleet average ${dto.average === null ? '—' : Math.round(dto.average)}.`;
+    return { ...base, answer, links: [link] };
   }
 
   /** Vehicles whose plate or name contains the text (spaces / case ignored), or whose plate ends with its digits. */

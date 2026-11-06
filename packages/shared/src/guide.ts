@@ -132,6 +132,8 @@ export const GUIDE_SECTIONS: readonly GuideSection[] = [
       { text: 'Say what you want: where / location, km / distance, trips, idle, overspeed, alerts, offline, battery, charging, documents / service due, moved at night.' },
       { text: 'Examples: "Where is TN 09 BB 9421", "Where was 9421 yesterday at 3 pm", "Km 9421 this week", "Most idle this week", "Overspeed today", "Offline vehicles", "Trips 9421 yesterday", "Documents due", "Moved last night".' },
       { text: 'Tamil and Hindi words work too, for example "9421 எங்கே", "நேற்று கிமீ 9421", "आज ओवरस्पीड". Tap the microphone to speak instead of typing (Chrome or Edge on a computer; any Android phone).' },
+      { text: 'Staff attendance in one word: type "attendance" to see today at a glance — present, late, half day, absent, and who is inside, out or without signal right now. Add what you want: "Who is absent today", "Late this week", "Who is out now", "Overtime this month", or a name: "Priya attendance this month". The buttons under each answer open Staff attendance, that person\'s Employee view or the Payroll report.' },
+      { text: 'Fuel & expenses and driver scores: "Expenses this month", "Fuel cost TN 09 BB 9421 last month", "Worst drivers this week", "Best driver this month".' },
     ],
     notes: ['Answers only cover the vehicles you are allowed to see. If a question is not understood, VeeTrax shows example questions; if several vehicles match, it asks which one.'],
   },

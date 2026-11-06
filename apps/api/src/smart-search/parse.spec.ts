@@ -46,4 +46,24 @@ describe('parseQuery', () => {
   it('makes plate keys', () => {
     expect(searchKey('TN 09-BB 9421')).toBe('tn09bb9421');
   });
+  it('staff attendance in one word, with a focus, a person or a period', () => {
+    expect(q('attendance')).toEqual({ intent: 'ATTENDANCE', vehicle: '', time: null });
+    expect(q('who is absent today')).toMatchObject({ intent: 'ATTENDANCE', focus: 'ABSENT', vehicle: '', time: { kind: 'day', offset: 0 } });
+    expect(q('late this week')).toMatchObject({ intent: 'ATTENDANCE', focus: 'LATE', time: { kind: 'week', offset: 0 } });
+    expect(q('who is out now')).toMatchObject({ intent: 'ATTENDANCE', focus: 'OUT', vehicle: '' });
+    expect(q('staff no signal')).toMatchObject({ intent: 'ATTENDANCE', focus: 'NO_SIGNAL' });
+    expect(q('priya attendance this month')).toMatchObject({ intent: 'ATTENDANCE', vehicle: 'priya', time: { kind: 'month', offset: 0 } });
+    expect(q('overtime last month')).toMatchObject({ intent: 'ATTENDANCE', focus: 'OVERTIME', time: { kind: 'month', offset: -1 } });
+    expect(q('हाजिरी')).toMatchObject({ intent: 'ATTENDANCE' });
+    expect(q('வருகை இன்று')).toMatchObject({ intent: 'ATTENDANCE', time: { kind: 'day', offset: 0 } });
+    // Vehicles stay vehicles.
+    expect(q('offline vehicles')).toMatchObject({ intent: 'OFFLINE' });
+  });
+
+  it('expenses and driver scores', () => {
+    expect(q('expenses this month')).toMatchObject({ intent: 'EXPENSES', vehicle: '', time: { kind: 'month', offset: 0 } });
+    expect(q('fuel cost TN 09 BB 9421 last month')).toMatchObject({ intent: 'EXPENSES', vehicle: 'tn 09 bb 9421' });
+    expect(q('worst drivers this week')).toMatchObject({ intent: 'DRIVER_SCORES', focus: 'WORST', vehicle: '' });
+    expect(q('best driver this month')).toMatchObject({ intent: 'DRIVER_SCORES', focus: 'BEST' });
+  });
 });

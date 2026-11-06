@@ -19,7 +19,7 @@ import {
 import { CalendarCheckIcon, ChartColumnIcon, DownloadIcon, FileSpreadsheetIcon, MapPinIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -1060,8 +1060,16 @@ export function AttendancePage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const canEdit = can('attendance', 'edit');
-  const [tab, setTab] = useState('today');
-  const [employee, setEmployee] = useState<string | null>(null);
+  // ?tab=employee&objectId=… (e.g. from Ask VeeTrax) opens that person's Employee view.
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(() => (params.get('tab') === 'employee' ? 'employee' : 'today'));
+  const [employee, setEmployee] = useState<string | null>(() => params.get('objectId'));
+  // A link followed while this page is already open (Ask VeeTrax).
+  useEffect(() => {
+    if (params.get('tab') !== 'employee') return;
+    setTab('employee');
+    if (params.get('objectId')) setEmployee(params.get('objectId'));
+  }, [params]);
   const showEmployee = useCallback((id: string) => {
     setEmployee(id);
     setTab('employee');

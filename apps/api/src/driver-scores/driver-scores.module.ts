@@ -5,5 +5,6 @@ import { DriverScoresService } from './driver-scores.service';
 @Module({
   controllers: [DriverScoresController],
   providers: [DriverScoresService],
+  exports: [DriverScoresService],
 })
 export class DriverScoresModule {}

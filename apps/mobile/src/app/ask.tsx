@@ -28,6 +28,9 @@ function openLink(href: string): void {
   if (url.pathname === '/alerts') return router.push({ pathname: '/alerts', params: objectId ? { objectId } : {} });
   if (url.pathname === '/masters/documents') return router.push('/documents');
   if (url.pathname === '/reports') return router.push('/reports');
+  if (url.pathname === '/attendance') return router.push('/attendance');
+  if (url.pathname === '/expenses') return router.push('/expenses');
+  if (url.pathname === '/driver-scores') return router.push('/driver-scores');
   router.push('/');
 }
 

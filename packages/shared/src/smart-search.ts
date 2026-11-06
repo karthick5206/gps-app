@@ -3,7 +3,7 @@
  * English, Tamil or Hindi keywords. The API runs the matching query (see apps/api/src/smart-search).
  */
 
-export const SEARCH_INTENTS = ['WHERE', 'DISTANCE', 'IDLE', 'OVERSPEED', 'OFFLINE', 'TRIPS', 'ALERTS', 'DOCUMENTS', 'NIGHT', 'BATTERY', 'CHARGING', 'STATUS'] as const;
+export const SEARCH_INTENTS = ['WHERE', 'DISTANCE', 'IDLE', 'OVERSPEED', 'OFFLINE', 'TRIPS', 'ALERTS', 'DOCUMENTS', 'NIGHT', 'BATTERY', 'CHARGING', 'STATUS', 'ATTENDANCE', 'EXPENSES', 'DRIVER_SCORES'] as const;
 export type SearchIntent = (typeof SEARCH_INTENTS)[number];
 
 /** A time the question refers to, resolved by the API in the company's time zone. */
@@ -16,8 +16,13 @@ export type SearchTime =
   | { kind: 'lastDays'; days: number }
   | { kind: 'lastNight' };
 
+/** Which part of attendance / driver scores the question is about ("who is absent", "worst drivers"…). */
+export type SearchFocus = 'ABSENT' | 'LATE' | 'PRESENT' | 'INSIDE' | 'OUT' | 'NO_SIGNAL' | 'OVERTIME' | 'EARLY' | 'BEST' | 'WORST';
+
 export interface ParsedQuery {
   intent: SearchIntent;
+  /** Attendance / driver scores: the part asked about; undefined = the whole picture. */
+  focus?: SearchFocus;
   /** Words left after removing keywords: the vehicle / person to look for ('' = whole fleet). */
   vehicle: string;
   time: SearchTime | null;
@@ -25,6 +30,10 @@ export interface ParsedQuery {
 
 /** Keyword lists per intent (lower case; Tamil / Hindi words included). First match in this order wins. */
 const INTENT_WORDS: [SearchIntent, string[]][] = [
+  // Staff first: "no signal" / "late" / "out" about staff are attendance, not vehicles.
+  ['ATTENDANCE', ['attendance', 'attendence', 'out now', 'who is out', 'is out', 'are out', 'inside now', 'who is inside', 'in office', 'at work', 'absent', 'absentees', 'absentee', 'present', 'late comers', 'latecomers', 'came late', 'late', 'checked in', 'check in', 'check-in', 'checkin', 'staff', 'employee', 'employees', 'overtime', 'punctual', 'left early', 'early leave', 'working hours', 'hours worked', 'shift', 'வருகை', 'வருகைப்பதிவு', 'வரவில்லை', 'தாமதம்', 'ஊழியர்', 'ஊழியர்கள்', 'हाजिरी', 'हाज़िरी', 'उपस्थिति', 'गैरहाजिर', 'गैरहाज़िर', 'अनुपस्थित', 'देर', 'स्टाफ', 'स्टाफ़', 'कर्मचारी', 'ओवरटाइम']],
+  ['DRIVER_SCORES', ['driver score', 'driver scores', 'scorecard', 'score card', 'scores', 'score', 'rating', 'worst driver', 'worst drivers', 'best driver', 'best drivers', 'driving behaviour', 'driving behavior', 'harsh', 'ஓட்டுநர் மதிப்பெண்', 'मतिपत्र', 'ड्राइवर स्कोर']],
+  ['EXPENSES', ['expense', 'expenses', 'spent', 'spend', 'spending', 'cost', 'costs', 'fuel cost', 'fuel bill', 'fuel filled', 'refuel', 'refuelled', 'diesel', 'petrol', 'litres', 'liters', 'toll', 'tolls', 'repair', 'repairs', 'செலவு', 'டீசல்', 'பெட்ரோல்', 'खर्च', 'डीजल', 'पेट्रोल']],
   ['NIGHT', ['night', 'midnight', 'இரவு', 'रात']],
   ['OFFLINE', ['offline', 'not reporting', 'no signal', 'not working', 'disconnected', 'ஆஃப்லைன்', 'ऑफलाइन']],
   ['CHARGING', ['charging', 'charger', 'சார்ஜ்', 'चार्ज']],
@@ -40,7 +49,8 @@ const INTENT_WORDS: [SearchIntent, string[]][] = [
 
 /** Filler words removed before matching the vehicle. */
 const STOP = new Set(
-  'is was are were the a an of for my our me show tell give list which what who how many much most least top vehicle vehicles car cars truck trucks bike bikes bus buses all any did does do has have had in on at by to from between and with this last today yesterday now week month days day night ago please pls get today\'s current currently right was it its there here than more less moved move moving went gone go due low high status details info report reports latest recent running parked stopped'.split(' '),
+  'fuel people person persons who whom whose came come coming came went someone everyone everybody anyone nobody them they their show me my team list number count total how much many by per wise driver drivers '.split(' ').concat(
+  'is was are were the a an of for my our me show tell give list which what who how many much most least top vehicle vehicles car cars truck trucks bike bikes bus buses all any did does do has have had in on at by to from between and with this last today yesterday now week month days day night ago please pls get today\'s current currently right was it its there here than more less moved move moving went gone go due low high status details info report reports latest recent running parked stopped'.split(' ')),
 );
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
@@ -129,6 +139,32 @@ export function parseQuery(input: string, year: number = new Date().getFullYear(
       break;
     }
   }
+  // What part of attendance / driver scores.
+  let focus: SearchFocus | undefined;
+  if (intent === 'ATTENDANCE' || intent === 'DRIVER_SCORES') {
+    const FOCUS: [SearchFocus, string[]][] = [
+      ['WORST', ['worst', 'bad', 'poor', 'lowest', 'risky', 'மோசமான', 'खराब']],
+      ['BEST', ['best', 'good', 'top', 'highest', 'safest', 'சிறந்த', 'सबसे अच्छा']],
+      ['ABSENT', ['absent', 'absentees', 'absentee', 'not came', 'not come', 'did not come', "didn't come", 'not arrived', 'missing', 'வரவில்லை', 'गैरहाजिर', 'गैरहाज़िर', 'अनुपस्थित']],
+      ['OVERTIME', ['overtime', 'ot', 'extra hours', 'ओवरटाइम']],
+      ['EARLY', ['left early', 'early leave', 'early']],
+      ['LATE', ['late', 'latecomers', 'late comers', 'தாமதம்', 'देर']],
+      ['NO_SIGNAL', ['no signal', 'not reporting', 'offline']],
+      ['OUT', ['out now', 'outside', 'out of office', 'away', 'out']],
+      ['INSIDE', ['inside', 'in office', 'at work', 'on site']],
+      ['PRESENT', ['present', 'came', 'checked in', 'check in', 'check-in', 'checkin']],
+    ];
+    for (const [f, words] of FOCUS) {
+      const w = words.find((x) => has(text, x));
+      if (!w) continue;
+      if (intent === 'DRIVER_SCORES' ? f === 'WORST' || f === 'BEST' : f !== 'WORST' && f !== 'BEST') {
+        focus = f;
+        for (const x of words) if (has(text, x)) text = strip(text, x);
+        break;
+      }
+    }
+  }
+
   // Strip every keyword and time word so only the vehicle is left.
   for (const [, words] of INTENT_WORDS) for (const w of words) if (has(text, w)) text = strip(text, w);
   for (const w of ['last night', 'yesterday', 'today', 'this week', 'last week', 'this month', 'last month', 'நேற்று இரவு', 'நேற்று', 'இன்று', 'இந்த வாரம்', 'கடந்த வாரம்', 'கடந்த மாதம்', 'மாதம்', 'कल रात', 'कल', 'आज', 'हफ्ते', 'सप्ताह', 'पिछले', 'महीने', 'இப்போது', 'अभी']) text = strip(text, w);
@@ -140,7 +176,7 @@ export function parseQuery(input: string, year: number = new Date().getFullYear(
 
   if (!intent) intent = vehicle ? (time && time.kind !== 'now' ? 'WHERE' : 'STATUS') : 'STATUS';
   if (intent === 'NIGHT' && !time) time = { kind: 'lastNight' };
-  return { intent, vehicle, time };
+  return focus ? { intent, focus, vehicle, time } : { intent, vehicle, time };
 }
 
 /** Plate / name key for matching: letters and digits only, lower case ("TN 09-BB 9421" → "tn09bb9421"). */
@@ -196,4 +232,12 @@ export const SEARCH_EXAMPLES = [
   'Moved last night',
   'Battery low',
   'Charging now',
+  'Attendance today',
+  'Who is absent today',
+  'Late this week',
+  'Who is out now',
+  'Priya attendance this month',
+  'Overtime this month',
+  'Expenses this month',
+  'Worst drivers this week',
 ] as const;
