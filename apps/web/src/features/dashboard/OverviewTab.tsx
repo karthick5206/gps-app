@@ -14,6 +14,7 @@ import { api, errorMessage } from '@/lib/api';
 import { formatDuration } from '@/lib/format';
 import { statusColor } from '@/lib/status-tokens';
 import { cn } from '@/lib/utils';
+import { sharePct } from '@/features/live/StatusCards';
 import { BarList, Donut, type Slice } from './charts';
 import { CountUp } from './CountUp';
 import { GetStartedCard } from './GetStartedCard';
@@ -67,26 +68,33 @@ function StatCard({
   const { t } = useTranslation();
   const pct = total && value !== undefined ? Math.round((value / total) * 100) : null;
   const body = (
-    <Card className={cn('group relative h-full overflow-hidden p-4 transition-[box-shadow,border-color]', to && 'hover:border-primary/40 hover:shadow-md')}>
-      {status && <span className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: statusColor(status) }} />}
+    <Card className={cn('group relative h-full gap-0 overflow-hidden px-4 py-3.5 transition-[box-shadow,border-color]', to && 'hover:border-primary/40 hover:shadow-md')}>
       <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          {status && <span className="size-2.5 rounded-full" style={{ backgroundColor: statusColor(status) }} />}
-          {label}
+        <p className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-muted-foreground">
+          <span className="truncate">{label}</span>
         </p>
-        {Icon && <Icon className="size-4 text-muted-foreground" />}
+        {status && <span className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: statusColor(status) }} />}
+        {Icon && !status && <Icon className="size-4 shrink-0 text-muted-foreground" />}
       </div>
-      <div className="mt-3 flex items-end justify-between gap-2">
+      <div className="mt-2 flex items-end justify-between gap-2">
         {value === undefined ? (
           <Skeleton className="h-8 w-16" />
         ) : (
-          <p className="text-3xl font-semibold tracking-tight">
+          <p className="text-[28px] leading-tight font-bold tracking-tight tabular-nums">
             {decimals ? value.toLocaleString(undefined, { maximumFractionDigits: decimals }) : <CountUp value={value} />}
             {suffix && <span className="ml-1 text-base font-medium text-muted-foreground">{suffix}</span>}
           </p>
         )}
-        {pct !== null && <p className="pb-1 text-xs text-muted-foreground tabular-nums">{pct}%</p>}
+        {pct !== null && !status && <p className="pb-1 text-xs text-muted-foreground tabular-nums">{pct}%</p>}
       </div>
+      {status && total !== undefined && value !== undefined && (
+        <>
+          <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+            <span className="block h-full rounded-full" style={{ width: `${value ? Math.max(((value / (total || 1)) * 100), 2) : 0}%`, backgroundColor: statusColor(status) }} />
+          </span>
+          <p className="mt-1.5 text-xs text-muted-foreground tabular-nums">{t('{{pct}}% of fleet', { pct: sharePct(value, total) })}</p>
+        </>
+      )}
       {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </Card>
   );
@@ -124,6 +132,17 @@ function ComplianceCards() {
         <StatCard label={t('Services overdue')} value={c?.servicesOverdue} icon={WrenchIcon} to="/masters/documents?tab=service" />
       </div>
     </section>
+  );
+}
+
+/** One stacked bar of the whole fleet by status (screen readers get the status cards below instead). */
+function FleetBar({ total, counts }: { total: number; counts: Partial<Record<MovementStatus, number>> }) {
+  const { t } = useTranslation();
+  if (!total) return null;
+  return (
+    <div className="flex h-3 w-full max-w-md gap-0.5 overflow-hidden rounded sm:w-1/2" aria-hidden>
+      {MOVEMENT_STATUSES.map((k) => (counts[k] ? <span key={k} style={{ flex: counts[k], backgroundColor: statusColor(k) }} title={`${t(STATUS_META[k].label)}: ${counts[k]}`} /> : null))}
+    </div>
   );
 }
 
@@ -174,9 +193,12 @@ export function OverviewTab() {
       </div>
 
       <section aria-labelledby="by-status" className="space-y-3">
-        <h2 id="by-status" className="text-sm font-semibold text-muted-foreground">
-          {t('By status')}
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="by-status" className="text-sm font-semibold text-muted-foreground">
+            {t('Fleet status now')}
+          </h2>
+          {d && <FleetBar total={d.total} counts={d.byStatus} />}
+        </div>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
           {MOVEMENT_STATUSES.map((k) => (
             <StatCard key={k} status={k} label={t(STATUS_META[k].label)} value={d ? s(k) : undefined} total={d?.total} to={canMap ? `/live?status=${k}` : undefined} />
@@ -198,7 +220,7 @@ export function OverviewTab() {
         {(['top', 'bottom'] as const).map((which) => (
           <Card key={which} className="space-y-3 p-4">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">{which === 'top' ? t('Most distance today') : t('Least distance today')}</h2>
+              <h2 className="text-[15px] font-bold">{which === 'top' ? t('Most distance today') : t('Least distance today')}</h2>
               {which === 'top' && (
                 <Select value={String(top)} onValueChange={(v) => setTop(Number(v))}>
                   <SelectTrigger className="h-8 w-24" aria-label={t('Vehicles to show')}>
@@ -227,7 +249,7 @@ export function OverviewTab() {
           </Card>
         ))}
         <Card className="space-y-3 p-4">
-          <h2 className="text-sm font-semibold">{t('Alerts today by type')}</h2>
+          <h2 className="text-[15px] font-bold">{t('Alerts today by type')}</h2>
           {d ? (
             <BarList
               items={d.todayAlerts.byType.map((a) => ({ key: a.type, label: t(ALERT_TYPE_MAP[a.type as AlertTypeCode]?.label ?? a.type), value: a.count }))}

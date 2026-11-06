@@ -3280,4 +3280,6 @@ export const TA: Record<string, string> = {
   'No signal for {{time}}': '{{time}} ஆக சிக்னல் இல்லை',
   'All clear: nothing needs attention right now.': 'எல்லாம் சரி: இப்போது எதற்கும் கவனம் தேவையில்லை.',
   '+{{n}} more': '+{{n}} மேலும்',
+  'Fleet status now': 'வாகனங்களின் தற்போதைய நிலை',
+  'Utilisation': 'பயன்பாடு',
 };

@@ -3280,4 +3280,6 @@ export const HI: Record<string, string> = {
   'No signal for {{time}}': '{{time}} से कोई सिग्नल नहीं',
   'All clear: nothing needs attention right now.': 'सब ठीक है: अभी किसी पर ध्यान देने की ज़रूरत नहीं।',
   '+{{n}} more': '+{{n}} और',
+  'Fleet status now': 'फ़्लीट की अभी की स्थिति',
+  'Utilisation': 'उपयोग',
 };

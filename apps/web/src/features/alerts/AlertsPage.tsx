@@ -107,6 +107,16 @@ export function AckDialog({
   );
 }
 
+/** The alert types people look for most, as tabs over the list. */
+const QUICK_TYPES: { code: string | null; label: string }[] = [
+  { code: null, label: 'All' },
+  { code: 'OVERSPEED', label: 'Overspeed' },
+  { code: 'GEOFENCE_EXIT', label: 'Geofence exit' },
+  { code: 'IDLING', label: 'Long idling' },
+  { code: 'POWER_CUT', label: 'Power cut / tamper' },
+  { code: 'SOS', label: 'SOS / panic' },
+];
+
 export function AlertsPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
@@ -279,6 +289,27 @@ export function AlertsPage() {
       />
 
       <Card className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden py-0">
+        {/* Quick type tabs: shortcuts for the Types filter (which still lists every type). */}
+        <div role="tablist" aria-label={t('Alert type')} className="flex shrink-0 overflow-x-auto border-b px-2">
+          {QUICK_TYPES.map((q) => {
+            const on = (type ?? null) === q.code;
+            return (
+              <button
+                key={q.code ?? 'all'}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setType(q.code)}
+                className={cn(
+                  'h-11 shrink-0 px-3 text-sm whitespace-nowrap transition-colors',
+                  on ? 'font-bold text-foreground shadow-[inset_0_-3px_0_var(--brand-accent)]' : 'font-medium text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t(q.label)}
+              </button>
+            );
+          })}
+        </div>
         <div className="flex flex-col gap-3 border-b p-3 xl:flex-row xl:items-center">
           <div className="relative w-full xl:max-w-xs">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -379,7 +410,7 @@ export function AlertsPage() {
                 </TableRow>
               ))}
             {rows.map((a) => (
-              <TableRow key={a.id} data-state={selected.has(a.id) ? 'selected' : undefined} className="cursor-pointer" onClick={() => openDetail(a.id)}>
+              <TableRow key={a.id} data-state={selected.has(a.id) ? 'selected' : undefined} className={cn('cursor-pointer', isUnread(a) && 'bg-warning/5')} onClick={() => openDetail(a.id)}>
                 {canAck && (
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Checkbox aria-label={t('Select {{alert}} for {{vehicle}}', { alert: alertTitle(a), vehicle: a.objectName })} checked={selected.has(a.id)} disabled={a.status !== 'NEW' || !a.ackRequired} onCheckedChange={() => toggle(a.id)} />

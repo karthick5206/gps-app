@@ -6,6 +6,7 @@ import {
   type StopDto,
   type SummaryReportRow,
   type TripDto,
+  utilisationPct,
 } from '@veetracer/shared';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -152,6 +153,13 @@ const SUMMARY: ReportColumn[] = [
   duration('stopSec', 'Stopped'),
   duration('offlineSec', 'Offline'),
   duration('engineSec', 'Engine'),
+  {
+    id: 'utilisation',
+    header: 'Utilisation',
+    value: (r) => utilisationPct(r as Partial<SummaryReportRow>),
+    numeric: true,
+    render: (r) => <UtilisationCell pct={utilisationPct(r as Partial<SummaryReportRow>)} />,
+  },
   { id: 'tripCount', header: 'Trips', value: num('tripCount'), numeric: true, total: 'sum', format: int },
   { id: 'maxSpeedKph', header: 'Max (km/h)', value: num('maxSpeedKph'), numeric: true, total: 'max', format: int },
   { id: 'avgSpeedKph', header: 'Avg (km/h)', value: num('avgSpeedKph'), numeric: true, format: int },
@@ -712,3 +720,16 @@ export function computeTotals(columns: ReportColumn[], rows: Row[], apiTotals?: 
 
 // Keep imported DTO names referenced for documentation of row shapes per type.
 export type ReportRowTypes = { SUMMARY: SummaryReportRow; TRIPS: TripDto; STOPS: StopDto; IDLE: StopDto; ALERTS: AlertDto; GEOFENCE_VISITS: GeofenceVisitDto };
+
+/** Utilisation as a percent with a small bar (moving share of the tracked time). */
+function UtilisationCell({ pct }: { pct: number | null }) {
+  if (pct === null) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span className="inline-flex items-center justify-end gap-2 tabular-nums">
+      <span className="hidden h-1.5 w-14 overflow-hidden rounded-full bg-muted sm:block" aria-hidden>
+        <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+      </span>
+      {pct}%
+    </span>
+  );
+}

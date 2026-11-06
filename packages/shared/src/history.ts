@@ -256,6 +256,16 @@ export interface SummaryReportRow {
   firstStart: string | null; lastStop: string | null;
 }
 
+/**
+ * Utilisation: share of the tracked time the vehicle was moving, as a whole percent (running / running + idle +
+ * stopped + offline). Null when there is no tracked time. Same figure on screen and in the downloaded reports.
+ */
+export function utilisationPct(r: { runningSec?: number; idleSec?: number; stopSec?: number; offlineSec?: number }): number | null {
+  const run = r.runningSec ?? 0;
+  const all = run + (r.idleSec ?? 0) + (r.stopSec ?? 0) + (r.offlineSec ?? 0);
+  return all > 0 ? Math.round((run / all) * 100) : null;
+}
+
 export interface GeofenceVisitDto {
   objectId: string; objectName: string; geofenceId: string; geofenceName: string;
   enterTime: string; exitTime: string | null; durationSec: number | null;

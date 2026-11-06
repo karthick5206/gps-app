@@ -26,6 +26,7 @@ import {
   StopDto,
   SummaryReportRow,
   TripDto,
+  utilisationPct,
 } from '@veetracer/shared';
 import type { AttendanceCorrectionRow, AttendanceDailyRow, AttendanceOutingRow, AttendanceSummaryRow } from './attendance-reports';
 import { hhmmss, localTime } from './format';
@@ -177,6 +178,7 @@ const SUMMARY: ReportColumn[] = [
   col<SummaryReportRow>({ header: 'Stopped', width: 10, value: (r) => hhmmss(r.stopSec), total: (t) => hhmmss(t.stopSec) }),
   col<SummaryReportRow>({ header: 'Offline', width: 10, value: (r) => hhmmss(r.offlineSec), total: (t) => hhmmss(t.offlineSec) }),
   col<SummaryReportRow>({ header: 'Engine on', width: 10, value: (r) => hhmmss(r.engineSec), total: (t) => hhmmss(t.engineSec) }),
+  col<SummaryReportRow>({ header: 'Utilisation %', width: 12, numeric: true, value: (r) => utilisationPct(r) ?? '', total: (t) => utilisationPct(t) ?? '' }),
   col<SummaryReportRow>({ header: 'Trips', width: 7, numeric: true, value: (r) => r.tripCount, total: (t) => t.tripCount ?? 0 }),
   col<SummaryReportRow>({ header: 'Max km/h', width: 9, numeric: true, value: (r) => num(r.maxSpeedKph, 1), total: (t) => num(t.maxSpeedKph ?? 0, 1) }),
   col<SummaryReportRow>({ header: 'Avg km/h', width: 9, numeric: true, value: (r) => num(r.avgSpeedKph, 1), total: (t) => num(t.avgSpeedKph ?? 0, 1) }),
