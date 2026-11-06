@@ -1,6 +1,8 @@
 import { ArrowRightIcon, MapIcon } from 'lucide-react';
+import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
+import { PageCapture } from '@/components/page-capture';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,7 +21,9 @@ type TabValue = (typeof TABS)[number]['value'];
 
 export function DashboardPage() {
   const { t } = useTranslation();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
+  const pageRef = useRef<HTMLDivElement>(null);
+  const tabLabel = TABS.find((x) => x.value === tab)?.label ?? 'Overview';
   const [params, setParams] = useSearchParams();
   const tab = (TABS.find((x) => x.value === params.get('tab'))?.value ?? 'overview') as TabValue;
   const description = TABS.find((x) => x.value === tab)?.description;
@@ -34,18 +38,26 @@ export function DashboardPage() {
     );
 
   return (
-    <div className="w-full space-y-5 p-4 sm:p-6">
+    <div ref={pageRef} className="w-full space-y-5 p-4 sm:p-6">
       <PageHeader
         title={t('Dashboard')}
         description={description && t(description)}
         actions={
-          can('live_map') && (
-            <Button asChild>
-              <Link to="/live">
-                <MapIcon /> {t('Open live map')} <ArrowRightIcon />
-              </Link>
-            </Button>
-          )
+          <>
+            {/* PNG / PDF of the dashboard with the VeeTrax · company header (the buttons are left out). */}
+            <PageCapture
+              target={pageRef}
+              fileName={() => `dashboard-${tab}-${new Date().toISOString().slice(0, 10)}`}
+              caption={() => ({ title: me?.company.name ?? '', lines: [`${t('Dashboard')} · ${t(tabLabel)}`, description && t(description)] })}
+            />
+            {can('live_map') && (
+              <Button asChild data-capture-skip="">
+                <Link to="/live">
+                  <MapIcon /> {t('Open live map')} <ArrowRightIcon />
+                </Link>
+              </Button>
+            )}
+          </>
         }
       />
       <Tabs value={tab} onValueChange={setTab}>

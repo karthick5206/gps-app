@@ -3395,4 +3395,12 @@ export const HI: Record<string, string> = {
   'Remove point': 'पॉइंट हटाएँ',
   'Point removed. Trips and distance for that day are being recalculated.': 'पॉइंट हटाया गया। उस दिन की ट्रिप और दूरी फिर से गिनी जा रही है।',
   'Point restored.': 'पॉइंट वापस लाया गया।',
+  'Picture (PNG)': 'तस्वीर (PNG)',
+  'PDF': 'PDF',
+  'Saving…': 'सहेजा जा रहा है…',
+  'Picture saved to your downloads': 'तस्वीर डाउनलोड में सहेजी गई',
+  'PDF saved to your downloads': 'PDF डाउनलोड में सहेजी गई',
+  'Could not save the page': 'पेज सहेजा नहीं जा सका',
+  'Show status, filters and list': 'स्थिति, फ़िल्टर और सूची दिखाएँ',
+  'Hide the list for more map': 'ज़्यादा मैप के लिए सूची छिपाएँ',
 };

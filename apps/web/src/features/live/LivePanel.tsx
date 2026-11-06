@@ -1,5 +1,5 @@
 import { OBJECT_TYPES, STATUS_META, displayStatus, displayStatusLabel, personActivity, VEHICLE_TYPES, type LiveObject, type MovementStatus, type VehicleDayStatsDto } from '@veetracer/shared';
-import { DoorOpenIcon, LockIcon, SearchIcon, SearchXIcon, SnowflakeIcon, XIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronUpIcon, DoorOpenIcon, LockIcon, SearchIcon, SearchXIcon, SnowflakeIcon, XIcon } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StatusDot } from '@/components/status-badge';
@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { formatNumber, humanize, relativeTime, timeInStatus } from '@/lib/format';
 import { statusColor } from '@/lib/status-tokens';
+import { storage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { useAllCompaniesView, useCompanyNames } from '@/features/platform/all-companies';
 import { ChargeIcon, RowDayLine, useDayStats } from './day-stats';
@@ -181,18 +182,28 @@ export function LivePanel({
       /* private window: the choice lasts for this page only */
     }
   };
-  const dayStats = useDayStats(details);
+  // Folded down to the search bar and a one-line summary, so the map gets the space; remembered in this browser.
+  const [collapsed, setCollapsedState] = useState(() => storage.get('vt.live.panelCollapsed') === '1');
+  const setCollapsed = (v: boolean) => {
+    storage.set('vt.live.panelCollapsed', v ? '1' : '0');
+    setCollapsedState(v);
+  };
+  const dayStats = useDayStats(details && !collapsed);
   const toggleStatus = (s: MovementStatus) =>
     onFiltersChange({ statuses: filters.statuses.includes(s) ? filters.statuses.filter((x) => x !== s) : [...filters.statuses, s] });
 
   return (
-    <div className={cn('flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card/95 shadow-lg backdrop-blur', className)}>
-      <div className="space-y-3 border-b p-3">
-        <div className="relative">
+    <div className={cn('flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card/95 shadow-lg backdrop-blur', className, collapsed && 'bottom-auto md:bottom-auto')}>
+      <div className={cn('space-y-3 p-3', !collapsed && 'border-b')}>
+        <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={filters.q}
-            onChange={(e) => onFiltersChange({ q: e.target.value })}
+            onChange={(e) => {
+              onFiltersChange({ q: e.target.value });
+              if (collapsed && e.target.value) setCollapsed(false);
+            }}
             placeholder={t('Search name, plate or IMEI')}
             aria-label={t('Search objects')}
             className="h-9 pr-8 pl-8"
@@ -203,7 +214,35 @@ export function LivePanel({
             </button>
           )}
         </div>
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? t('Show status, filters and list') : t('Hide the list for more map')}
+            title={collapsed ? t('Show status, filters and list') : t('Hide the list for more map')}
+            className={cn('flex size-9 shrink-0 items-center justify-center rounded-md border', collapsed ? 'border-primary bg-primary text-primary-foreground hover:bg-primary/90' : 'hover:bg-accent')}
+          >
+            {collapsed ? <ChevronDownIcon className="size-4" /> : <ChevronUpIcon className="size-4" />}
+          </button>
+        </div>
 
+        {collapsed ? (
+          <button type="button" onClick={() => setCollapsed(false)} className="flex w-full items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground">
+            <span className="min-w-0 flex-1 truncate tabular-nums">
+              {t('{{n}} shown', { n: formatNumber(items.length) })}
+              {(['RUNNING', 'IDLE', 'OFF', 'OVERSPEED', 'OFFLINE'] as const)
+                .filter((st) => counts[st] > 0)
+                .map((st) => (
+                  <span key={st}>
+                    {' · '}
+                    <span style={{ color: statusColor(st) }}>{formatNumber(counts[st])}</span> {t(STATUS_META[st].label).toLowerCase()}
+                  </span>
+                ))}
+            </span>
+            <span className="shrink-0 font-medium text-primary">{t('Expand')}</span>
+          </button>
+        ) : (
+        <>
         <StatusCards counts={counts} statuses={filters.statuses} onToggle={toggleStatus} onAll={() => onFiltersChange({ statuses: [] })} />
 
         <div className="flex gap-2">
@@ -241,9 +280,11 @@ export function LivePanel({
             </span>
           )}
         </div>
+        </>
+        )}
       </div>
 
-      {loading ? (
+      {collapsed ? null : loading ? (
         <div className="space-y-2 p-3" aria-busy>
           {Array.from({ length: 8 }, (_, i) => (
             <Skeleton key={i} className="h-12 w-full" />

@@ -3395,4 +3395,12 @@ export const TA: Record<string, string> = {
   'Remove point': 'புள்ளியை நீக்கு',
   'Point removed. Trips and distance for that day are being recalculated.': 'புள்ளி நீக்கப்பட்டது. அந்த நாளின் பயணங்களும் தூரமும் மீண்டும் கணக்கிடப்படுகின்றன.',
   'Point restored.': 'புள்ளி மீட்டெடுக்கப்பட்டது.',
+  'Picture (PNG)': 'படம் (PNG)',
+  'PDF': 'PDF',
+  'Saving…': 'சேமிக்கிறது…',
+  'Picture saved to your downloads': 'படம் பதிவிறக்கங்களில் சேமிக்கப்பட்டது',
+  'PDF saved to your downloads': 'PDF பதிவிறக்கங்களில் சேமிக்கப்பட்டது',
+  'Could not save the page': 'பக்கத்தைச் சேமிக்க முடியவில்லை',
+  'Show status, filters and list': 'நிலை, வடிகட்டிகள் மற்றும் பட்டியலைக் காட்டு',
+  'Hide the list for more map': 'அதிக வரைபடத்துக்கு பட்டியலை மறை',
 };
