@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Put, Query, StreamableFile } from '@nestjs/common';
-import { ATTENDANCE_OVERRIDES, type AttendanceDayDto, type AttendanceFix, type AttendanceOverride, type AttendanceRowDto, type AttendanceSettingsDto, type OutingKind } from '@veetracer/shared';
+import { ATTENDANCE_OVERRIDES, CHECK_IN_PROOFS, type CheckInProof, type AttendanceDayDto, type AttendanceFix, type AttendanceOverride, type AttendanceRowDto, type AttendanceSettingsDto, type OutingKind } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
@@ -33,6 +33,7 @@ class SettingsBody {
   @IsInt() @Min(0) @Max(720) outReminderMin!: number;
   @IsArray() @ArrayMaxSize(5000) @IsUUID('all', { each: true }) anyBranchObjectIds!: string[];
   @IsBoolean() selfieRequired!: boolean;
+  @IsOptional() @IsIn(CHECK_IN_PROOFS) checkInProof?: CheckInProof;
 }
 
 class SelfieQuery {
@@ -107,6 +108,11 @@ export class AttendanceController {
     return this.attendance.selfie(ctx, q.objectId, q.day);
   }
 
+  @Get('video') @RequirePermission('attendance', 'view')
+  video(@Auth() ctx: AuthContext, @Query() q: SelfieQuery): Promise<StreamableFile> {
+    return this.attendance.video(ctx, q.objectId, q.day);
+  }
+
   @Get('timesheet') @RequirePermission('attendance', 'view')
   async timesheet(@Auth() ctx: AuthContext, @Query() q: SheetQuery): Promise<AttendanceRowDto[] | StreamableFile> {
     const rows = await this.attendance.timesheet(ctx, q.from, q.to, q.branchId);
@@ -134,6 +140,7 @@ export class AttendanceController {
       { header: 'Last out location', value: (r) => place(r.outFix) },
       { header: 'Last out accuracy (m)', value: (r) => metres(r.outFix) },
       { header: 'Selfie', value: (r) => (r.selfieAt ? time(r.selfieAt) : r.selfieMissing ? 'Missing' : '') },
+      { header: 'Video', value: (r) => (r.videoAt ? time(r.videoAt) : r.videoMissing ? 'Missing' : '') },
       { header: 'Corrected', value: (r) => (r.corrected ? `Yes${r.correctionNote ? `: ${r.correctionNote}` : ''}` : '') },
     ]);
   }

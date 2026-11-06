@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ATTENDANCE_OVERRIDES, type AttendanceDayDto, type AttendanceFix, type AttendanceOverride, type AttendanceRowDto, type OutingKind } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { MapPinIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -55,6 +56,31 @@ function Selfie({ r }: { r: AttendanceRowDto }) {
           {r.day} · {time(r.selfieAt)}
         </Text>
       </Pressable>
+    </View>
+  );
+}
+
+/** The check-in video (10 s, no sound), with where and when under it like the photo. */
+function CheckInVideo({ r }: { r: AttendanceRowDto }) {
+  const { t } = useTranslation();
+  const fix = r.selfieFix ?? r.inFix;
+  const token = session.getAccessToken();
+  const company = session.getCompanyId();
+  const headers: Record<string, string> = { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(company ? { 'X-Company-Id': company } : {}) };
+  const player = useVideoPlayer({ uri: `${API_URL}/attendance/video?objectId=${r.objectId}&day=${r.day}`, headers }, (p) => {
+    p.muted = true;
+  });
+  return (
+    <View style={styles.selfie}>
+      <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls contentFit="cover" accessibilityLabel={t('Check-in video')} />
+      <View style={styles.stamp} pointerEvents="none">
+        <Text size="sm" weight="600" style={{ color: '#ffffff' }}>
+          {fix ? coords(fix) : t('Location not available')}
+        </Text>
+        <Text size="xs" style={{ color: '#ffffffd0' }}>
+          {r.day} · {time(r.videoAt)}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -163,6 +189,13 @@ export default function AttendanceDayScreen() {
 
         {(r.selfieAt || r.selfieMissing) && <SectionTitle>{t('Check-in selfie')}</SectionTitle>}
         {r.selfieAt ? <Selfie r={r} /> : r.selfieMissing ? <Text size="sm" style={{ color: '#b45309' }}>{t('No selfie was taken.')}</Text> : null}
+        {r.videoAt && (
+          <>
+            <SectionTitle>{t('Check-in video')}</SectionTitle>
+            <CheckInVideo r={r} />
+          </>
+        )}
+        {r.videoMissing && <Text size="sm" style={{ color: '#b45309' }}>{t('No video was recorded.')}</Text>}
 
         <SectionTitle>{t('Time outside during the shift')}</SectionTitle>
         {!r.outings.length && <Text size="sm" tone="muted">{t('None')}</Text>}

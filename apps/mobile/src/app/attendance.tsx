@@ -84,6 +84,7 @@ function PersonCard({ r, withDay }: { r: AttendanceRowDto; withDay?: boolean }) 
         ) : r.selfieMissing ? (
           <Text size="xs" weight="600" style={{ color: '#d97706' }}>{t('No selfie')}</Text>
         ) : null}
+        {r.videoAt ? <Text size="xs" tone="muted">{t('Video')}</Text> : r.videoMissing ? <Text size="xs" weight="600" style={{ color: '#d97706' }}>{t('No video')}</Text> : null}
       </View>
     </Card>
   );

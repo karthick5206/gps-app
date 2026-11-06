@@ -1172,6 +1172,8 @@ model AttendanceSettings {
   anyBranchObjectIds String[] @default([])
   /// Management's choice: staff are asked for a selfie when they check in.
   selfieRequired     Boolean  @default(false)
+  /// PHOTO, VIDEO (10 s) or PHOTO_AND_VIDEO (both from one recording).
+  checkInProof       String   @default("PHOTO")
   updatedById String?  @db.Uuid
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 }
@@ -1231,6 +1233,12 @@ model AttendanceSelfie {
   /// The phone's last position when the selfie was taken (null before 2026-11-06).
   lat       Float?
   lng       Float?
+  /// Address burnt into the photo with the name, time and coordinates.
+  address   String?
+  /// The 10-second check-in video, when management asks for one.
+  videoPath String?
+  videoType String?
+  videoAt   DateTime? @db.Timestamptz(3)
 
   object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
 

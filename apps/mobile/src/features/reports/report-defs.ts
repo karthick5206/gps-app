@@ -495,6 +495,7 @@ const ATTENDANCE_DAILY: ReportColumn[] = [
   { id: 'outLocation', header: 'Last out location', value: str('outLocation') },
   { id: 'selfie', header: 'Selfie', value: str('selfie') },
   { id: 'selfieLocation', header: 'Selfie location', value: str('selfieLocation') },
+  { id: 'video', header: 'Video', value: str('video') },
   { id: 'corrected', header: 'Corrected', value: str('corrected') },
 ];
 

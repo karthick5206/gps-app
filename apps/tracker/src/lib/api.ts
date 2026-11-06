@@ -42,6 +42,10 @@ export interface PhoneAttendance {
   outings: { leftAt: string; returnedAt: string | null; minutes: number; site: string | null }[];
   selfieNeeded: boolean;
   selfieAt: string | null;
+  /** What to record; older servers send nothing (a photo). */
+  proof?: 'PHOTO' | 'VIDEO' | 'PHOTO_AND_VIDEO';
+  videoNeeded?: boolean;
+  videoAt?: string | null;
   shiftStartMin?: number;
   shiftEndMin?: number;
 }
@@ -132,6 +136,11 @@ export const api = {
     const form = new FormData();
     form.append('file', { uri: photo.uri, type, name: `selfie.${type.split('/')[1] ?? 'jpg'}` } as unknown as Blob);
     return uploadForm<PhoneAttendance>('/attendance/selfie', form, token);
+  },
+  sendVideo: (token: string, video: { uri: string }) => {
+    const form = new FormData();
+    form.append('file', { uri: video.uri, type: 'video/mp4', name: 'checkin.mp4' } as unknown as Blob);
+    return uploadForm<PhoneAttendance>('/attendance/video', form, token);
   },
   signOut: (token: string) => request<{ ok: true }>('POST', '/signout', undefined, token),
   diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>

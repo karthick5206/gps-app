@@ -6,6 +6,8 @@ import {
   WEEKDAYS,
   type AttendanceDayDto,
   type AttendanceFix,
+  CHECK_IN_PROOFS,
+  type CheckInProof,
   type AttendanceLiveState,
   type AttendanceOverride,
   type AttendanceRowDto,
@@ -92,6 +94,34 @@ function Place({ fix }: { fix: AttendanceFix | null }) {
 }
 
 /** The selfie with where and when across the bottom (before 2026-11-06 no selfie location was kept: the first-in location is shown). */
+const PROOF_LABEL: Record<CheckInProof, string> = { PHOTO: 'Photo', VIDEO: '10-second video', PHOTO_AND_VIDEO: 'Photo and video' };
+const PROOF_HINT: Record<CheckInProof, string> = {
+  PHOTO: 'Staff take a selfie.',
+  VIDEO: 'Staff record a 10-second video; a photo is taken from it.',
+  PHOTO_AND_VIDEO: 'The camera starts recording by itself for 10 seconds when staff open it, with a visible countdown; a photo is taken from the video.',
+};
+
+/** The check-in video, with where and when under it (the photo carries the same details burnt in). */
+function CheckInVideo({ objectId, day, at, fix }: { objectId: string; day: string; at: string; fix: AttendanceFix | null }) {
+  const { t } = useTranslation();
+  const q = useQuery({
+    queryKey: ['attendance-video', objectId, day, at],
+    queryFn: async () => URL.createObjectURL(await fetchBlob(`/attendance/video?objectId=${objectId}&day=${day}`)),
+    retry: false,
+    staleTime: Infinity,
+  });
+  if (q.isError) return <p className="text-xs text-muted-foreground">{t('The video is no longer kept.')}</p>;
+  if (!q.data) return <Skeleton className="h-56 w-44" />;
+  return (
+    <figure className="w-fit overflow-hidden rounded-md border">
+      <video src={q.data} controls playsInline className="h-56 max-w-full bg-black" aria-label={t('Check-in video')} />
+      <figcaption className="bg-black/80 px-2 py-1 text-xs text-white tabular-nums">
+        {fix ? `${fix.lat.toFixed(6)}, ${fix.lng.toFixed(6)}` : t('Location not available')} · {day} · {time(at)}
+      </figcaption>
+    </figure>
+  );
+}
+
 function Selfie({ objectId, day, at, fix }: { objectId: string; day: string; at: string; fix: AttendanceFix | null }) {
   const { t } = useTranslation();
   const q = useQuery({
@@ -201,7 +231,11 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
               <h3 className="text-sm font-medium">{t('Check-in selfie')}</h3>
               {r.selfieAt ? (
                 <>
-                  <Selfie objectId={r.objectId} day={r.day} at={r.selfieAt} fix={r.selfieFix ?? r.inFix} />
+                  <div className="flex flex-wrap gap-2">
+                    <Selfie objectId={r.objectId} day={r.day} at={r.selfieAt} fix={r.selfieFix ?? r.inFix} />
+                    {r.videoAt && <CheckInVideo objectId={r.objectId} day={r.day} at={r.videoAt} fix={r.selfieFix ?? r.inFix} />}
+                  </div>
+                  {r.videoMissing && <p className="text-sm text-amber-800 dark:text-amber-300">{t('No video was recorded.')}</p>}
                 </>
               ) : (
                 <p className="text-sm text-amber-800 dark:text-amber-300">{t('No selfie was taken.')}</p>
@@ -571,6 +605,22 @@ function SettingsTab({ canEdit }: { canEdit: boolean }) {
         </span>
         <Switch checked={s.selfieRequired} onCheckedChange={(selfieRequired) => set({ selfieRequired })} disabled={!canEdit} aria-label={t('Selfie at check-in')} />
       </label>
+      {s.selfieRequired && (
+        <Field label={t('Check-in proof')} htmlFor="att-proof" hint={t(PROOF_HINT[s.checkInProof ?? 'PHOTO'])}>
+          <Select value={s.checkInProof ?? 'PHOTO'} onValueChange={(v) => set({ checkInProof: v as CheckInProof })} disabled={!canEdit}>
+            <SelectTrigger id="att-proof" className="w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CHECK_IN_PROOFS.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {t(PROOF_LABEL[p])}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
 
       <div className="space-y-3 border-t pt-4">
         <h3 className="font-medium">{t('Default shift')}</h3>

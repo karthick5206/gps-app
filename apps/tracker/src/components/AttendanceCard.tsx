@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, AppState, TextInput, View } from 'react-native';
 import { Body, Button, Card } from '@/components/ui';
@@ -51,6 +52,10 @@ export function AttendanceCard() {
     }
   };
 
+  // Video check-ins happen on their own screen; the card refreshes when it comes back to the foreground or on its timer.
+  const proof = a?.proof ?? 'PHOTO';
+  const recordVideo = () => router.push({ pathname: '/checkin-camera', params: proof === 'PHOTO_AND_VIDEO' ? { auto: '1' } : {} });
+
   const takeSelfie = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) return Alert.alert(S.selfieTitle, S.cameraDenied);
@@ -68,10 +73,17 @@ export function AttendanceCard() {
       {a.firstIn ? <Body muted>{S.checkedInAt(time(a.firstIn), a.site)}</Body> : <Body>{S.notCheckedIn}</Body>}
       {a.state === 'INSIDE' ? <Body muted>{S.stateInside}</Body> : a.state === 'OUT' ? <Body muted>{S.stateOut}</Body> : a.state === 'NO_SIGNAL' ? <Body muted>{S.stateNoSignal}</Body> : null}
       {a.selfieAt ? <Body muted>{S.selfieDone(time(a.selfieAt))}</Body> : null}
-      {a.selfieNeeded ? (
+      {a.videoAt ? <Body muted>{S.videoDone(time(a.videoAt))}</Body> : null}
+      {proof === 'PHOTO' && a.selfieNeeded ? (
         <View style={{ gap: 8, marginTop: 8 }}>
           <Body>{S.selfieBody}</Body>
           <Button title={S.selfieButton} busy={busy} onPress={() => void takeSelfie()} />
+        </View>
+      ) : null}
+      {proof !== 'PHOTO' && (a.selfieNeeded || a.videoNeeded) ? (
+        <View style={{ gap: 8, marginTop: 8 }}>
+          <Body>{proof === 'PHOTO_AND_VIDEO' ? S.autoVideoBody : S.videoBody}</Body>
+          <Button title={proof === 'PHOTO_AND_VIDEO' ? S.openCamera : S.videoButton} onPress={recordVideo} />
         </View>
       ) : null}
       {out ? (

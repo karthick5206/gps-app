@@ -66,6 +66,12 @@ export class MobileTrackerController {
     return this.service.attendanceSelfie(authorization, file);
   }
 
+  @Public() @Post('attendance/video') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 30 * 1024 * 1024, files: 1 } }))
+  attendanceVideo(@Headers('authorization') authorization: string | undefined, @UploadedFile() file?: { buffer: Buffer; mimetype?: string }) {
+    return this.service.attendanceVideo(authorization, file);
+  }
+
   /** Crash reports from the app (stack traces only, no location or personal data). Logged for support. */
   @Public() @Post('diagnostics') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 3 } })
   diagnostics(@Body() body: TrackerDiagnosticsBody) {

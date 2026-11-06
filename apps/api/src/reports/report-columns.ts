@@ -108,6 +108,7 @@ const ATTENDANCE_DAILY: ReportColumn[] = [
   col<AttendanceDailyRow>({ header: 'Last out location', width: 22, value: (r) => r.outLocation ?? '' }),
   col<AttendanceDailyRow>({ header: 'Selfie', width: 8, value: (r) => r.selfie }),
   col<AttendanceDailyRow>({ header: 'Selfie location', width: 22, value: (r) => r.selfieLocation ?? '' }),
+  col<AttendanceDailyRow>({ header: 'Video', width: 9, value: (r) => r.video }),
   col<AttendanceDailyRow>({ header: 'Corrected', width: 18, value: (r) => r.corrected }),
 ];
 

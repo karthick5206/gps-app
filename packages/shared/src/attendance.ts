@@ -54,6 +54,8 @@ export interface AttendanceSettingsDto {
   anyBranchObjectIds: string[];
   /** Management's choice: staff are asked for a selfie when they check in. It never decides the status by itself. */
   selfieRequired: boolean;
+  /** What the check-in asks for when selfieRequired is on: a photo, a 10-second video, or both from one recording. */
+  checkInProof?: CheckInProof;
 }
 
 export const DEFAULT_ATTENDANCE: AttendanceSettingsDto = {
@@ -72,7 +74,13 @@ export const DEFAULT_ATTENDANCE: AttendanceSettingsDto = {
   outReminderMin: 60,
   anyBranchObjectIds: [],
   selfieRequired: false,
+  checkInProof: 'PHOTO',
 };
+
+export type CheckInProof = 'PHOTO' | 'VIDEO' | 'PHOTO_AND_VIDEO';
+export const CHECK_IN_PROOFS: CheckInProof[] = ['PHOTO', 'VIDEO', 'PHOTO_AND_VIDEO'];
+/** Longest check-in video the phone records. */
+export const CHECK_IN_VIDEO_SEC = 10;
 
 /** Check-in selfies are personal data: they are kept this long, then deleted. */
 export const ATTENDANCE_SELFIE_KEEP_DAYS = 90;
@@ -141,6 +149,10 @@ export interface AttendanceRowDto {
   selfieAt?: string | null;
   /** Where the phone was then (selfies from before 2026-11-06 have none). */
   selfieFix?: AttendanceFix | null;
+  /** When the check-in video was recorded. */
+  videoAt?: string | null;
+  /** A video was asked for and there is none. */
+  videoMissing?: boolean;
   /** A selfie was asked for and there is none. */
   selfieMissing?: boolean;
 }
@@ -167,6 +179,11 @@ export interface PhoneAttendanceDto {
   /** Ask for the check-in selfie now. */
   selfieNeeded: boolean;
   selfieAt: string | null;
+  /** What to record (older servers: a photo). */
+  proof?: CheckInProof;
+  /** Ask for the check-in video now. */
+  videoNeeded?: boolean;
+  videoAt?: string | null;
   /** Today's shift, minutes after midnight (company time). */
   shiftStartMin?: number;
   shiftEndMin?: number;
@@ -182,7 +199,7 @@ export interface PhoneAttention {
 /** Which notification, if any, today's state calls for. */
 export function phoneAttention(a: PhoneAttendanceDto, day: string): PhoneAttention | null {
   if (!a.enabled) return null;
-  if (a.selfieNeeded) return { id: `selfie:${day}`, title: 'Take your check-in selfie', text: 'Open VeeTrax Tracker to take it.' };
+  if (a.selfieNeeded || a.videoNeeded) return { id: `selfie:${day}`, title: a.proof && a.proof !== 'PHOTO' ? 'Record your check-in video' : 'Take your check-in selfie', text: 'Open VeeTrax Tracker to take it.' };
   const out = a.outings[0];
   if (!out) return null;
   return { id: `outing:${out.leftAt}`, title: `You left ${out.site ?? 'the work site'}`, text: 'Tap to say if it is official duty or personal.' };

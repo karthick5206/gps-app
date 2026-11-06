@@ -1,8 +1,9 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, StreamableFile } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional, StreamableFile } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import type { Prisma } from '@prisma/client';
 import {
   attendanceOf,
+  type CheckInProof,
   daysBetween,
   ATTENDANCE_SELFIE_KEEP_DAYS,
   attendanceSettingsError,
@@ -32,12 +33,14 @@ import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { NOTIFY_STREAM_MAXLEN } from '../alerts/alert-dto';
 import { AuditService } from '../audit/audit.service';
+import { GeocodingService } from '../geocoding/geocoding.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { pendingToDto } from '../processor/rules/rules-engine';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { addDays, isDayKey, localDayKey, localMidnight, zonedTimeToUtc } from '../summarizer/tz';
 import { APP_ROOT } from '../config/env';
+import { stampSelfie } from './selfie-stamp';
 
 const JOB_LOCK = 'vt:attendance:lock';
 const RELEASE_LOCK = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
@@ -48,6 +51,11 @@ const ALERT_CLAIM_SEC = 2 * 86_400;
 
 const SELFIE_DIR = join(APP_ROOT, 'var', 'selfies');
 const SELFIE_MAX_BYTES = 8 * 1024 * 1024;
+/** 10 s from a phone at medium quality is 2–8 MB; the limit leaves room for phones that record sharper. */
+const VIDEO_MAX_BYTES = 30 * 1024 * 1024;
+/** MP4 / 3GP / MOV all start with an ISO "ftyp" box. */
+const VIDEO_TYPES: Record<string, string> = { 'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/quicktime': 'mov' };
+const isIsoVideo = (b: Buffer) => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp';
 const SELFIE_TYPES: Record<string, { ext: string; sig: (b: Buffer) => boolean }> = {
   'image/jpeg': { ext: 'jpg', sig: (b) => b[0] === 0xff && b[1] === 0xd8 },
   'image/png': { ext: 'png', sig: (b) => b.subarray(0, 4).toString('hex') === '89504e47' },
@@ -135,6 +143,7 @@ export class AttendanceService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly audit: AuditService,
+    @Optional() private readonly geocoding?: GeocodingService,
   ) {}
 
   async settings(companyId: string): Promise<Settings> {
@@ -156,6 +165,7 @@ export class AttendanceService {
       outReminderMin: r.outReminderMin,
       anyBranchObjectIds: r.anyBranchObjectIds,
       selfieRequired: r.selfieRequired,
+      checkInProof: (r.checkInProof as CheckInProof) ?? 'PHOTO',
     };
   }
 
@@ -181,6 +191,7 @@ export class AttendanceService {
       outReminderMin: s.outReminderMin,
       anyBranchObjectIds: [...new Set(s.anyBranchObjectIds)],
       selfieRequired: s.selfieRequired,
+      checkInProof: s.checkInProof ?? 'PHOTO',
       updatedById: ctx.userId,
     };
     await this.prisma.attendanceSettings.upsert({ where: { companyId: ctx.companyId }, create: { companyId: ctx.companyId, ...data }, update: data });
@@ -257,9 +268,11 @@ export class AttendanceService {
       this.prisma.attendanceOuting.findMany({ where: { objectId: { in: ids }, leftAt: { gte: new Date(dayStart), lt: new Date(dayEnd) } }, select: { objectId: true, leftAt: true, kind: true, note: true, employeeKind: true, employeeNote: true, decidedById: true } }),
       branchIds.length ? this.prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } }) : [],
       withSignal ? this.dataPauses(ids, dayStart, Math.min(now, dayEnd), Math.min(s.noSignalMin, ...[...saved.values()].map((x) => (x.rules as DayRules | null)?.noSignalMin ?? s.noSignalMin))) : null,
-      this.prisma.attendanceSelfie.findMany({ where: { objectId: { in: ids }, day }, select: { objectId: true, takenAt: true, lat: true, lng: true } }),
+      this.prisma.attendanceSelfie.findMany({ where: { objectId: { in: ids }, day }, select: { objectId: true, takenAt: true, lat: true, lng: true, videoAt: true } }),
     ]);
     const selfieAt = new Map(selfies.map((x) => [x.objectId, x.takenAt]));
+    const videoAt = new Map(selfies.filter((x) => x.videoAt).map((x) => [x.objectId, x.videoAt!]));
+    const wantsVideo = s.selfieRequired && (s.checkInProof ?? 'PHOTO') !== 'PHOTO';
     const selfieFix = new Map(selfies.map((x) => [x.objectId, x.lat !== null && x.lng !== null ? { lat: x.lat, lng: x.lng, accuracyM: null } : null]));
     const siteOf = new Map(sites.map((g) => [g.id, g]));
     const branchName = new Map(branches.map((b) => [b.id, b.name]));
@@ -310,6 +323,8 @@ export class AttendanceService {
           selfieAt: iso(selfieAt.get(p.id)?.getTime() ?? null),
           selfieFix: selfieFix.get(p.id) ?? null,
           selfieMissing: s.selfieRequired && !!r.firstIn && r.status !== 'DAY_OFF' && !selfieAt.has(p.id),
+          videoAt: iso(videoAt.get(p.id)?.getTime() ?? null),
+          videoMissing: wantsVideo && !!r.firstIn && r.status !== 'DAY_OFF' && !videoAt.has(p.id),
         },
       });
     }
@@ -450,6 +465,9 @@ export class AttendanceService {
       outings: r.outings.filter((o) => !o.employeeKind && !o.decidedByAdmin).map((o) => ({ leftAt: o.leftAt, returnedAt: o.returnedAt, minutes: o.minutes, site: o.site })).reverse(),
       selfieNeeded: !!r.selfieMissing && r.state === 'INSIDE',
       selfieAt: r.selfieAt ?? null,
+      proof: c.s.checkInProof ?? 'PHOTO',
+      videoNeeded: !!r.videoMissing && r.state === 'INSIDE',
+      videoAt: r.videoAt ?? null,
       shiftStartMin: shift.startMin,
       shiftEndMin: shift.endMin,
     };
@@ -490,16 +508,58 @@ export class AttendanceService {
     if (r.state !== 'INSIDE') throw new BadRequestException('Take the selfie at your work site');
     const dir = join(SELFIE_DIR, c.companyId);
     await mkdir(dir, { recursive: true });
-    const path = join(dir, `${c.p.id}-${c.day}-${randomUUID()}.${type.ext}`);
-    await writeFile(path, file.buffer);
     const key = { objectId_day: { objectId: c.p.id, day: c.day } };
     const previous = await this.prisma.attendanceSelfie.findUnique({ where: key, select: { path: true } });
     // The phone uploads positions every few seconds, so its latest one is where the photo was taken.
     const at = await this.prisma.position.findFirst({ where: { deviceId, valid: true, fixTime: { lte: new Date(c.now) } }, orderBy: { fixTime: 'desc' }, select: { lat: true, lng: true } });
-    const data = { takenAt: new Date(c.now), path, type: mime, lat: at?.lat ?? null, lng: at?.lng ?? null };
+    const address = at ? await this.geocoding?.reverse(at.lat, at.lng).catch(() => null) : null;
+    // Name, server time, address and coordinates burnt into the photo: they can't be changed on the phone and stay with
+    // the photo wherever it goes. If drawing fails the photo is kept as it came; a check-in is never lost to the stamp.
+    const when = new Intl.DateTimeFormat('en-IN', { timeZone: c.tz, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).format(c.now);
+    const stamped = await stampSelfie(file.buffer, { name: c.p.name, when, address: address ?? null, lat: at?.lat ?? null, lng: at?.lng ?? null }).catch((e: Error) => {
+      this.logger.warn(`Selfie of ${c.p.id} kept unstamped: ${e.message}`);
+      return null;
+    });
+    const path = join(dir, `${c.p.id}-${c.day}-${randomUUID()}.${stamped ? 'jpg' : type.ext}`);
+    await writeFile(path, stamped ?? file.buffer);
+    const data = { takenAt: new Date(c.now), path, type: stamped ? 'image/jpeg' : mime, lat: at?.lat ?? null, lng: at?.lng ?? null, address: address ?? null };
     await this.prisma.attendanceSelfie.upsert({ where: key, create: { companyId: c.companyId, objectId: c.p.id, day: c.day, ...data }, update: data });
     if (previous) await unlink(previous.path).catch(() => undefined);
     return this.phoneStatus(deviceId);
+  }
+
+  /** Today's check-in video (10 s), after the photo. Only while inside the work site, like the photo. */
+  async phoneVideo(deviceId: string, file: { buffer: Buffer; mimetype?: string } | undefined): Promise<PhoneAttendanceDto> {
+    const c = await this.coveredPerson(deviceId);
+    if (!c?.s.selfieRequired || (c.s.checkInProof ?? 'PHOTO') === 'PHOTO') throw new BadRequestException('A video is not needed');
+    if (!file?.buffer?.length) throw new BadRequestException('Record a video');
+    if (file.buffer.length > VIDEO_MAX_BYTES) throw new BadRequestException('The video is larger than 30 MB');
+    const mime = (file.mimetype ?? '').toLowerCase();
+    const ext = VIDEO_TYPES[mime];
+    if (!ext || !isIsoVideo(file.buffer)) throw new BadRequestException('Upload a video (MP4)');
+    const key = { objectId_day: { objectId: c.p.id, day: c.day } };
+    const row = await this.prisma.attendanceSelfie.findUnique({ where: key, select: { videoPath: true } });
+    if (!row) throw new BadRequestException('Send the check-in photo first');
+    const r = await this.phoneRow(c);
+    if (r.state !== 'INSIDE') throw new BadRequestException('Record the video at your work site');
+    const dir = join(SELFIE_DIR, c.companyId);
+    await mkdir(dir, { recursive: true });
+    const path = join(dir, `${c.p.id}-${c.day}-${randomUUID()}.${ext}`);
+    await writeFile(path, file.buffer);
+    await this.prisma.attendanceSelfie.update({ where: key, data: { videoPath: path, videoType: mime, videoAt: new Date(c.now) } });
+    if (row.videoPath) await unlink(row.videoPath).catch(() => undefined);
+    return this.phoneStatus(deviceId);
+  }
+
+  /** The check-in video of a day, for those who can see that person's attendance. */
+  async video(ctx: AuthContext, objectId: string, day: string): Promise<StreamableFile> {
+    if (!isDayKey(day)) throw new BadRequestException('Choose a valid date');
+    const s = await this.settings(ctx.companyId);
+    await this.person(ctx, s, objectId);
+    const row = await this.prisma.attendanceSelfie.findUnique({ where: { objectId_day: { objectId, day } }, select: { videoPath: true, videoType: true } });
+    const info = row?.videoPath ? await stat(row.videoPath).catch(() => null) : null;
+    if (!row?.videoPath || !info) throw new NotFoundException('No video for this day');
+    return new StreamableFile(createReadStream(row.videoPath), { type: row.videoType ?? 'video/mp4', length: info.size, disposition: 'inline' });
   }
 
   /** The selfie of a day, for those who can see that person's attendance. */
@@ -515,9 +575,10 @@ export class AttendanceService {
 
   /** Selfies are personal data: older ones are deleted, file and row. */
   async removeOldSelfies(now: number): Promise<number> {
-    const rows = await this.prisma.attendanceSelfie.findMany({ where: { takenAt: { lt: new Date(now - ATTENDANCE_SELFIE_KEEP_DAYS * 86_400_000) } }, select: { objectId: true, day: true, path: true }, take: 500 });
+    const rows = await this.prisma.attendanceSelfie.findMany({ where: { takenAt: { lt: new Date(now - ATTENDANCE_SELFIE_KEEP_DAYS * 86_400_000) } }, select: { objectId: true, day: true, path: true, videoPath: true }, take: 500 });
     for (const r of rows) {
       await unlink(r.path).catch(() => undefined);
+      if (r.videoPath) await unlink(r.videoPath).catch(() => undefined);
       await this.prisma.attendanceSelfie.delete({ where: { objectId_day: { objectId: r.objectId, day: r.day } } });
     }
     return rows.length;

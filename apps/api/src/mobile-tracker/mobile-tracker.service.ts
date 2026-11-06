@@ -547,6 +547,12 @@ export class MobileTrackerService {
     return this.requireAttendance().phoneSelfie(s.deviceId, file);
   }
 
+  async attendanceVideo(authorization: string | undefined, file: { buffer: Buffer; mimetype?: string } | undefined): Promise<PhoneAttendanceDto> {
+    const s = await this.session(authorization);
+    this.notices.delete(s.deviceId);
+    return this.requireAttendance().phoneVideo(s.deviceId, file);
+  }
+
   /** Points we refuse are kept for inspection (raw packets, protocol mobile-rejected) and explained in the phone's history. */
   private async saveRejected(s: CachedSession, rejected: { raw: unknown; reason: string }[], now: number): Promise<void> {
     if (!rejected.length) return;

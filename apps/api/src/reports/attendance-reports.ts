@@ -26,6 +26,7 @@ export interface AttendanceDailyRow {
   outLocation: string | null;
   selfie: string;
   selfieLocation: string | null;
+  video: string;
   corrected: string;
 }
 
@@ -121,6 +122,7 @@ export function attendanceDailyReport(rows: AttendanceRowDto[], objects: Map<str
     outLocation: coords(r.outFix),
     selfie: r.selfieAt ? 'Taken' : r.selfieMissing ? 'Missing' : '',
     selfieLocation: coords(r.selfieFix),
+    video: r.videoAt ? 'Recorded' : r.videoMissing ? 'Missing' : '',
     corrected: r.corrected ? `Yes${r.correctionNote ? `: ${r.correctionNote}` : ''}` : '',
   }));
   all.sort(byNameThenDay);
