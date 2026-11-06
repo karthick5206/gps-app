@@ -1,3 +1,4 @@
+import { Children, type ReactNode } from 'react';
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
@@ -21,11 +22,24 @@ import { SPACE, useColors } from '@/lib/theme';
 function MenuItem({ icon: Icon, label, href, url, onPress }: { icon: LucideIcon; label: string; href?: Href; url?: string; onPress?: () => void }) {
   const c = useColors();
   return (
-    <Pressable onPress={() => (onPress ? onPress() : url ? Linking.openURL(url).catch(() => undefined) : href && router.push(href))} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }, pressed && { opacity: 0.6 }]}>
-      <Icon size={20} color={c.primary} />
-      <Text style={{ flex: 1 }}>{label}</Text>
+    <Pressable onPress={() => (onPress ? onPress() : url ? Linking.openURL(url).catch(() => undefined) : href && router.push(href))} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }, pressed && { opacity: 0.6 }]}>
+      <View style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon size={18} color={c.accentForeground} />
+      </View>
+      <Text weight="500" style={{ flex: 1 }}>{label}</Text>
       <ChevronRightIcon size={18} color={c.mutedForeground} />
     </Pressable>
+  );
+}
+
+function MenuGroup({ title, children }: { title?: string; children: ReactNode }) {
+  const items = Children.toArray(children).filter(Boolean);
+  if (!items.length) return null;
+  return (
+    <>
+      {title ? <SectionTitle>{title}</SectionTitle> : null}
+      <Card style={{ paddingVertical: 0 }}>{items}</Card>
+    </>
   );
 }
 
@@ -84,28 +98,43 @@ export default function MoreScreen() {
         </Card>
       )}
 
-      <Card style={{ paddingVertical: 0 }}>
+      <MenuGroup title={t('Tracking')}>
+        {can('parking_mode') && <MenuItem icon={ShieldAlertIcon} label={t('Parking mode')} href="/parking" />}
+        {can('live_map') && <MenuItem icon={SparklesIcon} label={t('Ask VeeTrax')} href="/ask" />}
+      </MenuGroup>
+
+      <MenuGroup title={t('Drivers & Staff')}>
         {can('driver_events') && <MenuItem icon={ScanFaceIcon} label={t('Driver events')} href="/driver-events" />}
-        {can('reports') && <MenuItem icon={FileBarChartIcon} label={t('Reports')} href="/reports" />}
         {can('driver_scores') && <MenuItem icon={TrophyIcon} label={t('Driver scorecard')} href="/driver-scores" />}
         {can('attendance') && <MenuItem icon={CalendarCheckIcon} label={t('Staff attendance')} href="/attendance" />}
+      </MenuGroup>
+
+      <MenuGroup title={t('Costs & Reports')}>
+        {can('reports') && <MenuItem icon={FileBarChartIcon} label={t('Reports')} href="/reports" />}
         {can('expenses') && <MenuItem icon={FuelIcon} label={t('Fuel & expenses')} href="/expenses" />}
+        {can('billing') && !me?.user.isSuperAdmin && <MenuItem icon={ReceiptIndianRupeeIcon} label={t('Licences & invoices')} href="/licences" />}
+      </MenuGroup>
+
+      <MenuGroup title={t('Masters')}>
         {can('objects') && <MenuItem icon={TruckIcon} label={t('Vehicles')} href="/manage/vehicles" />}
         {can('devices') && <MenuItem icon={CpuIcon} label={t('Devices')} href="/manage/devices" />}
         {can('drivers') && <MenuItem icon={IdCardIcon} label={t('Drivers')} href="/manage/drivers" />}
         {can('documents') && <MenuItem icon={FileCheck2Icon} label={t('Documents & service')} href="/documents" />}
         {can('geofences') && <MenuItem icon={HexagonIcon} label={t('Geofences')} href="/geofences" />}
         {can('pois') && <MenuItem icon={MapPinIcon} label={t('Points of interest')} href="/pois" />}
-        {can('parking_mode') && <MenuItem icon={ShieldAlertIcon} label={t('Parking mode')} href="/parking" />}
-        {can('alert_settings') && <MenuItem icon={BellRingIcon} label={t('Alert settings')} href="/alert-settings" />}
-        {can('billing') && !me?.user.isSuperAdmin && <MenuItem icon={ReceiptIndianRupeeIcon} label={t('Licences & invoices')} href="/licences" />}
         {me && me.company.accountType !== 'BUSINESS' && can('devices', 'create') && <MenuItem icon={UsersRoundIcon} label={t('Family members')} href="/family" />}
+      </MenuGroup>
+
+      <MenuGroup title={t('Alert Management')}>
+        {can('alert_settings') && <MenuItem icon={BellRingIcon} label={t('Alert settings')} href="/alert-settings" />}
+      </MenuGroup>
+
+      <MenuGroup>
         {/* Opens VeeTrax Tracker (its veetrax-tracker:// scheme), else the download page. */}
         <MenuItem icon={SmartphoneIcon} label={t('Track this phone')} onPress={() => Linking.openURL('veetrax-tracker://').catch(() => Linking.openURL(PLAY_STORE.tracker).catch(() => undefined))} />
         {/* Public web page (same content as the PDF emailed on sign-up). */}
         <MenuItem icon={BookOpenIcon} label={t('Getting-started guide')} url={`${SERVER_URL}/guide`} />
-        {can('live_map') && <MenuItem icon={SparklesIcon} label={t('Ask VeeTrax')} href="/ask" />}
-      </Card>
+      </MenuGroup>
 
       <SectionTitle>{t('Account')}</SectionTitle>
       <Card style={{ paddingVertical: 0 }}>

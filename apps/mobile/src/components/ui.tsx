@@ -36,7 +36,7 @@ export function Card({ children, style, onPress }: { children: ReactNode; style?
   const base = [styles.card, { backgroundColor: c.card, borderColor: c.border }, style];
   if (!onPress) return <View style={base}>{children}</View>;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [base, pressed && { opacity: 0.7 }]}>
+    <Pressable onPress={onPress} style={({ pressed }) => [base, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}>
       {children}
     </Pressable>
   );
@@ -141,10 +141,10 @@ export function Chips<T extends string>({ options, value, onChange }: { options:
             onPress={() => onChange(o.value)}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
-            style={[styles.chip, { borderColor: active ? c.primary : c.border, backgroundColor: active ? c.accent : c.card }]}
+            style={[styles.chip, { borderColor: active ? c.primary : c.border, backgroundColor: active ? c.primary : c.card }]}
           >
-            {o.color && <View style={[styles.dot, { backgroundColor: o.color }]} />}
-            <RNText style={{ color: active ? c.primary : c.foreground, fontSize: 13 * textScale, fontWeight: active ? '600' : '500' }}>
+            {o.color && <View style={[styles.dot, { backgroundColor: o.color }, active && { borderWidth: 1.5, borderColor: c.primaryForeground }]} />}
+            <RNText style={{ color: active ? c.primaryForeground : c.foreground, fontSize: 13 * textScale, fontWeight: active ? '700' : '500' }}>
               {o.label}
               {o.count !== undefined ? ` ${o.count}` : ''}
             </RNText>
@@ -213,14 +213,14 @@ export function InfoRow({ label, value, valueStyle }: { label: string; value: Re
 
 export function SectionTitle({ children }: { children: ReactNode }) {
   return (
-    <Text size="xs" tone="muted" weight="600" style={{ textTransform: 'uppercase', letterSpacing: 0.6, marginTop: SPACE.sm }}>
+    <Text size="xs" tone="muted" weight="700" accessibilityRole="header" style={{ textTransform: 'uppercase', letterSpacing: 0.8, marginTop: SPACE.sm }}>
       {children}
     </Text>
   );
 }
 
 export const styles = StyleSheet.create({
-  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.md, padding: SPACE.md },
+  card: { borderWidth: 1, borderRadius: RADIUS.md, padding: SPACE.md },
   button: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 46, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.sm, borderWidth: 1 },
   input: { height: 46, borderWidth: 1, borderRadius: RADIUS.sm, paddingHorizontal: SPACE.md, fontSize: 15 },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: RADIUS.full, alignSelf: 'flex-start' },

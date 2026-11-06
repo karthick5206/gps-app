@@ -151,18 +151,43 @@ export default function DashboardScreen() {
       {d && (
         <>
           <SectionTitle>{t('Fleet now · {{count}} vehicles', { count: d.total })}</SectionTitle>
+          {/* The whole fleet in one bar, then one tile per status with its share of the fleet. */}
+          {d.total > 0 && (
+            <View style={styles.fleetBar} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              {MOVEMENT_STATUSES.map((s) => (d.byStatus[s] ? <View key={s} style={{ flex: d.byStatus[s], backgroundColor: statusColor(s, scheme) }} /> : null))}
+            </View>
+          )}
           <View style={styles.grid}>
-            {MOVEMENT_STATUSES.map((s) => (
-              <Pressable key={s} onPress={() => router.push('/vehicles')} style={[styles.status, { backgroundColor: c.card, borderColor: c.border }]}>
-                <View style={[styles.dot, { backgroundColor: statusColor(s, scheme) }]} />
-                <Text size="xl" weight="700">
-                  {d.byStatus[s] ?? 0}
-                </Text>
-                <Text size="xs" tone="muted">
-                  {t(STATUS_META[s].label)}
-                </Text>
-              </Pressable>
-            ))}
+            {MOVEMENT_STATUSES.map((s) => {
+              const n = d.byStatus[s] ?? 0;
+              const pct = sharePct(n, d.total);
+              const color = statusColor(s, scheme);
+              return (
+                <Pressable
+                  key={s}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('{{status}}: {{count}}, {{pct}}% of fleet', { status: t(STATUS_META[s].label), count: n, pct })}
+                  onPress={() => router.push('/vehicles')}
+                  style={({ pressed }) => [styles.status, { backgroundColor: c.card, borderColor: c.border, opacity: pressed ? 0.85 : 1 }]}
+                >
+                  <View style={styles.statusHead}>
+                    <Text size="xs" tone="muted" weight="600" numberOfLines={1} style={{ flex: 1 }}>
+                      {t(STATUS_META[s].label)}
+                    </Text>
+                    <View style={[styles.square, { backgroundColor: color }]} />
+                  </View>
+                  <Text size="xl" weight="700">
+                    {n}
+                  </Text>
+                  <View style={[styles.track, { backgroundColor: c.muted }]}>
+                    <View style={{ width: `${n ? Math.max((n / (d.total || 1)) * 100, 3) : 0}%`, height: '100%', borderRadius: 3, backgroundColor: color }} />
+                  </View>
+                  <Text size="xs" tone="muted">
+                    {t('{{pct}}% of fleet', { pct })}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
 
           <SectionTitle>{t('Today')}</SectionTitle>
@@ -227,6 +252,17 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm },
   kpi: { flexBasis: '48%', flexGrow: 1, gap: 2 },
-  status: { flexBasis: '31%', flexGrow: 1, borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.md, padding: SPACE.md, gap: 2 },
+  status: { flexBasis: '31%', flexGrow: 1, borderWidth: 1, borderRadius: RADIUS.md, padding: SPACE.md, gap: 4 },
   dot: { width: 8, height: 8, borderRadius: 4 },
+  statusHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  square: { width: 9, height: 9, borderRadius: 2 },
+  track: { height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 4 },
+  fleetBar: { flexDirection: 'row', height: 12, borderRadius: 4, overflow: 'hidden', gap: 2 },
 });
+
+/** Share of the fleet as a whole percent; "<1" for a non-zero share that rounds to 0. */
+function sharePct(count: number, total: number): string {
+  if (!total || !count) return '0';
+  const p = Math.round((count / total) * 100);
+  return p < 1 ? '<1' : String(p);
+}

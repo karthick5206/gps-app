@@ -170,7 +170,7 @@ export default function DocumentsScreen() {
                 accessibilityLabel={tab === 'service' ? t('Add service reminder') : t('Add document')}
                 style={{ paddingHorizontal: SPACE.sm }}
               >
-                <PlusIcon size={24} color={c.primary} />
+                <PlusIcon size={24} color={c.brandForeground} />
               </Pressable>
             ) : null,
         }}

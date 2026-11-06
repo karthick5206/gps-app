@@ -326,6 +326,9 @@ export default function LiveMapScreen() {
         )}
       </FleetMap>
 
+      {/* Brand strip behind the status bar, as on every other screen (the light status-bar icons stay readable over the map). */}
+      <View pointerEvents="none" style={[styles.statusStrip, { height: insets.top, backgroundColor: c.brand }]} />
+
       <SafeAreaView edges={['top']} style={styles.top} pointerEvents="box-none">
         {connection === 'disconnected' && (
           <View style={[styles.offline, { backgroundColor: c.warning }]}>
@@ -440,6 +443,7 @@ export default function LiveMapScreen() {
 }
 
 const styles = StyleSheet.create({
+  statusStrip: { position: 'absolute', top: 0, left: 0, right: 0 },
   top: { position: 'absolute', top: 0, right: 0, left: 0, alignItems: 'flex-end', gap: SPACE.sm, paddingTop: SPACE.sm, paddingHorizontal: SPACE.lg },
   offline: { alignSelf: 'center', paddingHorizontal: SPACE.md, paddingVertical: 4, borderRadius: RADIUS.full },
   fab: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, elevation: 3 },

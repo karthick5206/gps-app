@@ -118,7 +118,7 @@ export default function AlertsScreen() {
         options={{
           headerRight: () => (
             <Pressable onPress={openActions} hitSlop={10} style={{ paddingHorizontal: SPACE.lg }} accessibilityLabel={can('alerts', 'edit') ? t('Mark all as read or acknowledge all') : t('Mark all as read')}>
-              {busy ? <ActivityIndicator /> : <CheckCheckIcon size={22} color={c.foreground} />}
+              {busy ? <ActivityIndicator color={c.brandForeground} /> : <CheckCheckIcon size={22} color={c.brandForeground} />}
             </Pressable>
           ),
         }}

@@ -45,7 +45,7 @@ export default function ManageListScreen() {
           headerRight: () =>
             canCreate ? (
               <Pressable onPress={() => router.push(`/manage/${kind}/new`)} hitSlop={10} accessibilityLabel={t(def.addLabel)} style={{ paddingHorizontal: SPACE.sm }}>
-                <PlusIcon size={24} color={c.primary} />
+                <PlusIcon size={24} color={c.brandForeground} />
               </Pressable>
             ) : null,
         }}

@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAlarmAlert, type AlertDto, type AlertUnreadCount } from '@veetracer/shared';
 import { Tabs } from 'expo-router';
-import { BellIcon, LayoutDashboardIcon, ListIcon, MapIcon, MenuIcon } from 'lucide-react-native';
+import { BellIcon, LayoutDashboardIcon, ListIcon, MapIcon, MenuIcon, type LucideIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
+import { View, type ColorValue } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SosIntroNotice } from '@/components/SosIntroNotice';
 import { refreshAlertLists } from '@/features/alerts/read';
@@ -12,7 +13,19 @@ import { useLiveConnection } from '@/features/live/use-live-connection';
 import { handleNotificationTaps, openSos, registerForPush } from '@/features/notifications/push';
 import { api } from '@/lib/api';
 import { announceAlert } from '@/features/notifications/voice';
-import { useColors } from '@/lib/theme';
+import { useColors, type Colors } from '@/lib/theme';
+
+/** Tab icon with the brand-accent (saffron) bar over the current tab, as on the web menu. */
+function tabIcon(Icon: LucideIcon, c: Colors) {
+  return function TabIcon({ color, size, focused }: { color: ColorValue; size: number; focused: boolean }) {
+    return (
+      <View style={{ alignItems: 'center' }}>
+        {focused ? <View style={{ position: 'absolute', top: -7, width: 28, height: 3, borderRadius: 2, backgroundColor: c.brandAccent }} /> : null}
+        <Icon color={color as string} size={size} strokeWidth={focused ? 2.4 : 2} />
+      </View>
+    );
+  };
+}
 
 export default function TabsLayout() {
   const c = useColors();
@@ -52,27 +65,29 @@ export default function TabsLayout() {
     <>
       <Tabs
         screenOptions={{
-          tabBarActiveTintColor: c.primary,
+          tabBarActiveTintColor: c.navActive,
           tabBarInactiveTintColor: c.mutedForeground,
           tabBarStyle: { backgroundColor: c.card, borderTopColor: c.border },
-          headerStyle: { backgroundColor: c.card },
-          headerTintColor: c.foreground,
+          tabBarLabelStyle: { fontWeight: '600' },
+          headerStyle: { backgroundColor: c.brand },
+          headerTintColor: c.brandForeground,
+          headerTitleStyle: { fontWeight: '700' },
           headerShadowVisible: false,
         }}
       >
-        <Tabs.Screen name="index" options={{ title: t('Live map'), headerShown: false, tabBarIcon: ({ color, size }) => <MapIcon color={color} size={size} /> }} />
-        <Tabs.Screen name="vehicles" options={{ title: t('Vehicles'), tabBarIcon: ({ color, size }) => <ListIcon color={color} size={size} /> }} />
+        <Tabs.Screen name="index" options={{ title: t('Live map'), headerShown: false, tabBarIcon: tabIcon(MapIcon, c) }} />
+        <Tabs.Screen name="vehicles" options={{ title: t('Vehicles'), tabBarIcon: tabIcon(ListIcon, c) }} />
         <Tabs.Screen
           name="alerts"
           options={{
             title: t('Alerts'),
             href: can('alerts') ? undefined : null,
             tabBarBadge: count ? (count > 99 ? '99+' : count) : undefined,
-            tabBarIcon: ({ color, size }) => <BellIcon color={color} size={size} />,
+            tabBarIcon: tabIcon(BellIcon, c),
           }}
         />
-        <Tabs.Screen name="dashboard" options={{ title: t('Dashboard'), href: can('dashboard') ? undefined : null, tabBarIcon: ({ color, size }) => <LayoutDashboardIcon color={color} size={size} /> }} />
-        <Tabs.Screen name="more" options={{ title: t('More'), tabBarIcon: ({ color, size }) => <MenuIcon color={color} size={size} /> }} />
+        <Tabs.Screen name="dashboard" options={{ title: t('Dashboard'), href: can('dashboard') ? undefined : null, tabBarIcon: tabIcon(LayoutDashboardIcon, c) }} />
+        <Tabs.Screen name="more" options={{ title: t('More'), tabBarIcon: tabIcon(MenuIcon, c) }} />
       </Tabs>
       <SosIntroNotice />
     </>
