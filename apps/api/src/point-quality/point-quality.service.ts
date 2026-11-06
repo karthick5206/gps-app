@@ -1,5 +1,6 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
-import { POINT_LABELS, type PointLabel, type PointQualityResponse, type PointQualitySettingsDto, type QualityPoint } from '@veetracer/shared';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { POINT_LABELS, POSITION_FLAGS, type PointLabel, type PointQualityResponse, type PointQualitySettingsDto, type PointRemoveResult, type QualityPoint } from '@veetracer/shared';
+import { localDayKey } from '../summarizer/tz';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { HistoryService } from '../history/history.service';
@@ -21,6 +22,16 @@ interface StoredRow {
   acc: number | null;
   mock: boolean;
   device: string;
+  removed: boolean;
+}
+
+/** What Remove saved on the point, so Restore can put it back exactly. */
+interface RemovedMark {
+  by: string;
+  at: string;
+  reason: string;
+  valid: boolean;
+  flags: number;
 }
 
 /**
@@ -57,6 +68,74 @@ export class PointQualityService {
     return next;
   }
 
+  /**
+   * Super Admin: removes one stored point (e.g. a 2.5 km Wi-Fi spike). It stays in the database, marked invalid with who
+   * removed it, when, why and its previous state, so History, trips, distance and reports leave it out and Restore can
+   * put it back. The point's day is recomputed.
+   */
+  async removePoint(ctx: AuthContext, objectId: string, t: number, reason: string): Promise<PointRemoveResult> {
+    if (!ctx.isSuperAdmin) throw new ForbiddenException('Only Super Admin can remove points');
+    if (!reason.trim()) throw new BadRequestException('Give a reason for removing the point');
+    const meta = await this.history.objectMeta(ctx, objectId);
+    const row = await this.findPoint(objectId, t);
+    if (row.attributes.removed) return { t, removed: true };
+    const mark: RemovedMark = { by: ctx.userId, at: new Date().toISOString(), reason: reason.trim(), valid: row.valid, flags: row.flags };
+    await this.prisma.position.update({
+      where: { deviceId_fixTime: { deviceId: row.deviceId, fixTime: row.fixTime } },
+      data: { valid: false, flags: row.flags | POSITION_FLAGS.INVALID_FIX, attributes: { ...row.attributes, removed: { ...mark } } },
+    });
+    await this.recompute(objectId, t, meta.tz);
+    await this.audit.record(ctx, {
+      action: 'UPDATE',
+      entity: 'Position',
+      entityId: `${objectId}@${new Date(t).toISOString()}`,
+      before: { lat: row.lat, lng: row.lng, valid: row.valid, flags: row.flags },
+      after: { removed: true, reason: mark.reason },
+    });
+    return { t, removed: true };
+  }
+
+  /** Super Admin: puts a removed point back as it was. */
+  async restorePoint(ctx: AuthContext, objectId: string, t: number): Promise<PointRemoveResult> {
+    if (!ctx.isSuperAdmin) throw new ForbiddenException('Only Super Admin can restore points');
+    const meta = await this.history.objectMeta(ctx, objectId);
+    const row = await this.findPoint(objectId, t);
+    const mark = row.attributes.removed as RemovedMark | undefined;
+    if (!mark) return { t, removed: false };
+    const { removed: _drop, ...attributes } = row.attributes;
+    void _drop;
+    await this.prisma.position.update({
+      where: { deviceId_fixTime: { deviceId: row.deviceId, fixTime: row.fixTime } },
+      data: { valid: mark.valid, flags: mark.flags, attributes: attributes as object },
+    });
+    await this.recompute(objectId, t, meta.tz);
+    await this.audit.record(ctx, {
+      action: 'UPDATE',
+      entity: 'Position',
+      entityId: `${objectId}@${new Date(t).toISOString()}`,
+      before: { removed: true, reason: mark.reason },
+      after: { removed: false, valid: mark.valid, flags: mark.flags },
+    });
+    return { t, removed: false };
+  }
+
+  private async findPoint(objectId: string, t: number) {
+    const row = await this.prisma.position.findFirst({
+      where: { objectId, fixTime: new Date(t) },
+      select: { deviceId: true, fixTime: true, lat: true, lng: true, valid: true, flags: true, attributes: true },
+    });
+    if (!row) throw new NotFoundException('Point not found (only stored points can be removed)');
+    return { ...row, attributes: (row.attributes ?? {}) as Record<string, unknown> };
+  }
+
+  /** The point's day: trips, distance and summaries are recomputed by the summarizer. */
+  private async recompute(objectId: string, t: number, tz: string): Promise<void> {
+    await this.prisma.$executeRaw`
+      INSERT INTO "SummaryDirtyDay" ("objectId", day, "createdAt")
+      VALUES (${objectId}::uuid, ${localDayKey(t, tz)}::date, now() AT TIME ZONE 'UTC')
+      ON CONFLICT DO NOTHING`;
+  }
+
   async analyze(ctx: AuthContext, objectId: string, fromRaw?: string, toRaw?: string): Promise<PointQualityResponse> {
     if (!(await this.settings()).enabled) throw new ForbiddenException('Point analysis is switched off');
     const meta = await this.history.objectMeta(ctx, objectId);
@@ -65,7 +144,7 @@ export class PointQualityService {
     const stored = await this.prisma.$queryRaw<StoredRow[]>`
       SELECT (extract(epoch from "fixTime") * 1000)::float8 AS t, lat, lng, "speedKph"::float8 AS spd,
              ("attributes"->>'accuracyM')::float8 AS acc, coalesce(("attributes"->>'mock')::boolean, false) AS mock,
-             "deviceId"::text AS device
+             "deviceId"::text AS device, ("attributes" ? 'removed') AS removed
       FROM "Position"
       WHERE "objectId" = ${objectId}::uuid AND "fixTime" >= ${new Date(from)} AND "fixTime" <= ${new Date(to)}
       ORDER BY "fixTime"
@@ -89,10 +168,13 @@ export class PointQualityService {
       : [];
 
     const byTime = new Map<number, InPoint & { source: number }>();
-    for (const r of stored) byTime.set(r.t, { t: r.t, lat: r.lat, lng: r.lng, acc: r.acc, spdKph: r.spd, mock: r.mock, source: 0 });
+    // Points a Super Admin removed are left out of the analysis and listed as "removed" (so they can be restored).
+    const removed = stored.filter((r) => r.removed);
+    for (const r of stored) if (!r.removed) byTime.set(r.t, { t: r.t, lat: r.lat, lng: r.lng, acc: r.acc, spdKph: r.spd, mock: r.mock, source: 0 });
+    const removedTimes = new Set(removed.map((r) => r.t));
     for (const r of raw) {
       const p = parseRaw(r.hex);
-      if (!p || p.t < from || p.t > to || byTime.has(p.t)) continue;
+      if (!p || p.t < from || p.t > to || byTime.has(p.t) || removedTimes.has(p.t)) continue;
       byTime.set(p.t, { ...p, source: 1 });
     }
     let points = [...byTime.values()].sort((a, b) => a.t - b.t);
@@ -115,6 +197,11 @@ export class PointQualityService {
       POINT_LABELS.indexOf(labels[i]),
       p.source,
     ]);
+    if (removed.length) {
+      counts.removed = removed.length;
+      for (const r of removed) out.push([r.t, round6(r.lat), round6(r.lng), r.acc === null ? -1 : Math.round(r.acc), Math.round(r.spd), POINT_LABELS.indexOf('removed'), 0]);
+      out.sort((a, b) => a[0] - b[0]);
+    }
     return {
       objectId,
       from: new Date(from).toISOString(),

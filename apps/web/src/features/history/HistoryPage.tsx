@@ -16,7 +16,8 @@ import { useAuth } from '@/features/auth/auth-context';
 import { formatDuration } from '@/lib/format';
 import { storage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
-import { CLEAN_TRACK_COLOR, ESTIMATE_COLOR, HistoryMap, POINT_LABEL_COLORS, SPEED_BAND_COLORS, SPEED_BAND_LABELS, STOP_COLORS, type ColorMode, type MarkClick } from './history-map';
+import { CLEAN_TRACK_COLOR, ESTIMATE_COLOR, HistoryMap, POINT_LABEL_COLORS, SPEED_BAND_COLORS, SPEED_BAND_LABELS, STOP_COLORS, type ColorMode, type MarkClick, type PointPick } from './history-map';
+import { PointRemoveDialog } from './PointRemoveDialog';
 import { BasemapPicker } from '@/features/live/map/BasemapPicker';
 import { HistorySidePanel, type SideTab } from './HistorySidePanel';
 import { HistoryToolbar } from './HistoryToolbar';
@@ -31,11 +32,12 @@ import { useCompareHistories, useGapEstimates, useHistory, useMediaQuery, usePoi
 import { useTheme } from '@/features/theme/use-theme';
 import { MAX_GAP_ESTIMATES, POINT_LABELS, STATUS_META, TRACK_STATUS_CODES, type PointLabel, type PointQualityResponse } from '@veetracer/shared';
 
-function useHistoryMap(containerRef: RefObject<HTMLDivElement | null>, onMarkClick: (m: MarkClick) => void, onFollowInterrupted: () => void) {
+function useHistoryMap(containerRef: RefObject<HTMLDivElement | null>, onMarkClick: (m: MarkClick) => void, onFollowInterrupted: () => void, onPointClick?: (p: PointPick) => void) {
   const [map, setMap] = useState<HistoryMap | null>(null);
   const [unsupported, setUnsupported] = useState(false);
-  const callbacks = useRef({ onMarkClick, onFollowInterrupted });
-  callbacks.current = { onMarkClick, onFollowInterrupted };
+  const callbacks = useRef({ onMarkClick, onFollowInterrupted, onPointClick });
+  callbacks.current = { onMarkClick, onFollowInterrupted, onPointClick };
+  const pointClicks = !!onPointClick;
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
@@ -49,6 +51,7 @@ function useHistoryMap(containerRef: RefObject<HTMLDivElement | null>, onMarkCli
         reducedMotion: prefersReducedMotion(),
         onMarkClick: (x) => callbacks.current.onMarkClick(x),
         onFollowInterrupted: () => callbacks.current.onFollowInterrupted(),
+        onPointClick: pointClicks ? (p) => callbacks.current.onPointClick?.(p) : undefined,
       });
     } catch {
       setUnsupported(true);
@@ -93,6 +96,7 @@ const POINT_LABEL_TEXT: Record<PointLabel, string> = {
   invalid: 'Invalid',
   duplicate: 'Duplicate',
   offroad: 'Off-road',
+  removed: 'Removed by Super Admin',
 };
 
 /** History → All points (when the feature is on): switch, each label's colour and count, the clean track and distances. */
@@ -377,7 +381,9 @@ export function HistoryPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const markClickRef = useRef<(m: MarkClick) => void>(() => {});
-  const { map, unsupported } = useHistoryMap(containerRef, (m) => markClickRef.current(m), () => setFollow(false));
+  // Super Admin: click a recorded point to remove it (or restore a removed one).
+  const [pointPick, setPointPick] = useState<PointPick | null>(null);
+  const { map, unsupported } = useHistoryMap(containerRef, (m) => markClickRef.current(m), () => setFollow(false), me?.user.isSuperAdmin ? setPointPick : undefined);
 
   // Push the dataset into the map and keep the vehicle marker in sync with the engine.
   useEffect(() => {
@@ -621,6 +627,7 @@ export function HistoryPage() {
                 <span className="[writing-mode:vertical-rl]">{t('Trips')}</span>
               </button>
             )}
+            {objectId && <PointRemoveDialog objectId={objectId} pick={pointPick} onClose={() => setPointPick(null)} />}
             {/* Under the zoom buttons: save the map as a picture, full screen. */}
             {!unsupported && (
               <MapTools

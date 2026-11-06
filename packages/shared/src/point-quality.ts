@@ -3,7 +3,7 @@
  * Labels are indexes into POINT_LABELS (compact JSON); reasons are shown in the legend and the hover.
  */
 // New labels go at the end: the index is what the API sends.
-export const POINT_LABELS = ['good', 'drift', 'spike', 'jump', 'inaccurate', 'mock', 'invalid', 'duplicate', 'offroad'] as const;
+export const POINT_LABELS = ['good', 'drift', 'spike', 'jump', 'inaccurate', 'mock', 'invalid', 'duplicate', 'offroad', 'removed'] as const;
 
 /** Labels whose points are left out of trips and distance when PointQualitySettings.useInReports is on (Position flag OUTLIER). */
 export const OUTLIER_LABELS: readonly PointLabel[] = ['spike', 'jump', 'inaccurate', 'mock', 'invalid'];
@@ -30,6 +30,18 @@ export interface PointQualityResponse {
   roadMatched: boolean;
   /** Distance of the recorded points vs the clean track, in km. */
   distanceKm: { recorded: number; clean: number };
+}
+
+/** Super Admin: remove one stored point from History, trips, distance and reports (kept for Restore), or restore it. */
+export interface PointRemoveRequest {
+  /** fixTime of the stored point, epoch ms. */
+  t: number;
+  /** Why (shown in the audit log); required to remove. */
+  reason?: string;
+}
+export interface PointRemoveResult {
+  t: number;
+  removed: boolean;
 }
 
 export interface PointQualitySettingsDto {

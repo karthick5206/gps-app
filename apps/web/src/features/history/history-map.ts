@@ -29,6 +29,7 @@ export const POINT_LABEL_COLORS: Record<PointLabel, string> = {
   invalid: '#111827',
   duplicate: '#94a3b8',
   offroad: '#ea580c',
+  removed: '#9ca3af',
 };
 export const CLEAN_TRACK_COLOR = '#0284c7';
 const ALERT_COLORS = { INFO: { light: '#0284c7', dark: '#38bdf8' }, WARNING: STATUS_META.IDLE, CRITICAL: STATUS_META.OFF };
@@ -79,6 +80,19 @@ export interface PointText {
 
 export type MarkClick = { kind: 'stop'; index: number } | { kind: 'alert'; index: number };
 
+/** A recorded point the user clicked (track or All points dot): for the Super Admin's Remove / Restore. */
+export interface PointPick {
+  t: number;
+  lat: number;
+  lng: number;
+  speed: number;
+  acc: number | null;
+  /** Quality label when picked in All points; null on the plain track. */
+  label: PointLabel | null;
+  /** False for a raw phone record (not a stored position). */
+  stored: boolean;
+}
+
 /** Hovering the track shows the nearest recorded point within this many pixels. */
 const HOVER_PX = 18;
 
@@ -90,6 +104,8 @@ export interface HistoryMapOptions {
   reducedMotion: boolean;
   onMarkClick: (mark: MarkClick) => void;
   onFollowInterrupted: () => void;
+  /** Clicking a recorded point (set only for the Super Admin). */
+  onPointClick?: (p: PointPick) => void;
 }
 
 /** Keeps our sources/layers when the basemap style is swapped for the theme. */
@@ -230,10 +246,10 @@ export class HistoryMap {
     this.hoverFrame = requestAnimationFrame(() => this.showHover(point));
   }
 
-  private showHover(point: maplibregl.Point) {
+  /** Index of the recorded point nearest to a screen position (within HOVER_PX), or -1. */
+  private nearest(point: maplibregl.Point): number {
     const idx = this.idx;
-    if (!idx || !idx.n) return this.hideHover();
-    // Nearest point in screen space (projecting is cheap enough for a few thousand points per frame).
+    if (!idx || !idx.n) return -1;
     let best = -1;
     let bestD = HOVER_PX * HOVER_PX;
     const ll = this.map.unproject(point);
@@ -247,6 +263,14 @@ export class HistoryMap {
         best = i;
       }
     }
+    return best;
+  }
+
+  private showHover(point: maplibregl.Point) {
+    const idx = this.idx;
+    if (!idx || !idx.n) return this.hideHover();
+    // Nearest point in screen space (projecting is cheap enough for a few thousand points per frame).
+    const best = this.nearest(point);
     if (best < 0) return this.hideHover();
     if (best === this.hoverIndex && this.hoverPopup) return;
     this.hoverIndex = best;
@@ -314,6 +338,13 @@ export class HistoryMap {
       },
     });
     map.on('mousemove', LYR.allPoints, (e) => this.showPointHover(e.features?.[0]));
+    map.on('click', LYR.allPoints, (e) => {
+      const f = e.features?.[0];
+      if (!this.opts.onPointClick || !f || f.geometry.type !== 'Point') return;
+      const p = f.properties as { t: number; l: number; a: number; s: number; src: number };
+      const [lng, lat] = f.geometry.coordinates as [number, number];
+      this.opts.onPointClick({ t: p.t, lat, lng, speed: p.s, acc: p.a >= 0 ? p.a : null, label: POINT_LABELS[p.l] ?? null, stored: p.src === 0 });
+    });
     map.on('mouseleave', LYR.allPoints, () => this.hideHover());
 
     const markText = { 'text-font': LABEL_FONT, 'text-size': 11, 'text-allow-overlap': true, 'text-ignore-placement': true } as const;
@@ -354,6 +385,12 @@ export class HistoryMap {
     for (const layer of [LYR.trackCasing, LYR.played]) {
       map.on('mousemove', layer, (e) => this.onTrackHover(e.point));
       map.on('mouseleave', layer, () => this.hideHover());
+      map.on('click', layer, (e) => {
+        const idx = this.idx;
+        if (!this.opts.onPointClick || !idx || this.allPoints) return;
+        const i = this.nearest(e.point);
+        if (i >= 0) this.opts.onPointClick({ t: idx.t[i], lat: idx.lat[i], lng: idx.lng[i], speed: idx.speed[i], acc: null, label: null, stored: true });
+      });
     }
 
     this.loaded = true;
