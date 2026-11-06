@@ -12,7 +12,11 @@ export const LAYERS = {
   clusters: 'objects-clusters',
   clusterCount: 'objects-cluster-count',
   selected: 'objects-selected',
+  /** Animated status halo under each marker (pulse / breathe), see MapController.pulseFrame. */
+  halo: 'objects-halo',
   circle: 'objects-circle',
+  /** Small badge beside a marker: speed when overspeeding, idle / offline duration. */
+  badge: 'objects-badge',
   arrow: 'objects-arrow',
   label: 'objects-label',
 } as const;

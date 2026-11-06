@@ -21,10 +21,26 @@ import {
 } from './map-style';
 import { basemapStore } from './basemap-store';
 import { createVehicleIcon, iconKind, parseIconId, rotates } from './vehicle-icons';
+import { HALO_STATUSES, haloState, markerBadge } from './marker-motion';
 
 const GLIDE_MS = 1000;
 const FRAME_MS = 1000 / 30; // source updates capped at 30 fps
 const MAX_ANIMATED = 1000;
+/** Status halos only repaint (no data updates) at ≤20 fps; above this many visible objects they stay still. */
+const PULSE_FRAME_MS = 1000 / 20;
+const MAX_PULSING = 1500;
+/** Badges show durations; refresh them this often. */
+const BADGE_REFRESH_MS = 60_000;
+function byStatus(values: Record<string, number>, fallback: number): maplibregl.ExpressionSpecification {
+  // Built dynamically, so TypeScript can't see the match shape; it is ['match', input, label, value, …, fallback].
+  return ['match', ['get', 'status'], ...HALO_STATUSES.flatMap((s) => [s, values[s] ?? fallback]), fallback] as unknown as maplibregl.ExpressionSpecification;
+}
+
+/** Halo radius by zoom (matches the marker size), times the status scale. */
+function haloRadius(iconScale: number, scale: Record<string, number>): maplibregl.ExpressionSpecification {
+  const m = byStatus(scale, 1);
+  return ['interpolate', ['linear'], ['zoom'], 5, ['*', 8 * iconScale, m], 10, ['*', 11 * iconScale, m], 14, ['*', 15 * iconScale, m], 17, ['*', 19 * iconScale, m]];
+}
 const DEFAULT_CENTER: [number, number] = [80.24, 13.07];
 
 type Feature = GeoJSON.Feature<GeoJSON.Point>;
@@ -51,9 +67,11 @@ function hasCoords(o: LiveObject): o is LiveObject & { lat: number; lng: number 
 function properties(o: LiveObject, bearing: number) {
   const kind = iconKind(o);
   const rotating = rotates(kind);
+  const status = displayStatus(o);
   return {
     id: o.objectId,
-    status: displayStatus(o),
+    status,
+    badge: markerBadge(status, o.speedKph, o.statusSince, Date.now()),
     label: o.plateNumber || o.name,
     kind,
     rotating,
@@ -97,6 +115,9 @@ export class MapController {
   private followId: string | null = null;
   private raf = 0;
   private lastFrame = 0;
+  private pulseRaf = 0;
+  private lastPulse = 0;
+  private badgeTimer = 0;
   private fittedOnce = false;
   private unsubscribe: () => void;
   private styleKey: string;
@@ -138,10 +159,17 @@ export class MapController {
     const offLive = liveStore.subscribe((e) => this.onLiveEvent(e));
     const offDisplay = displayStore.subscribe(() => this.applyIconSize());
     const offBasemap = basemapStore.subscribe(() => this.restyle());
+    document.addEventListener('visibilitychange', this.onVisibility);
+    // Idle / offline badges show a duration; re-derive them once a minute while the tab is visible.
+    this.badgeTimer = window.setInterval(() => {
+      if (!document.hidden) this.rebuild();
+    }, BADGE_REFRESH_MS);
     this.unsubscribe = () => {
       offLive();
       offDisplay();
       offBasemap();
+      document.removeEventListener('visibilitychange', this.onVisibility);
+      clearInterval(this.badgeTimer);
     };
   }
 
@@ -157,11 +185,13 @@ export class MapController {
     const scale = displayStore.iconScale();
     map.setLayoutProperty(LAYERS.circle, 'icon-size', vehicleIconSize(scale));
     if (map.getLayer(LAYERS.arrow)) map.setLayoutProperty(LAYERS.arrow, 'icon-size', arrowIconSize(scale));
+    this.paintHalo(performance.now());
   }
 
   destroy() {
     this.unsubscribe();
     cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.pulseRaf);
     this.map.remove();
   }
 
@@ -198,6 +228,13 @@ export class MapController {
       source: SOURCE_ID,
       filter: ['has', 'point_count'],
       layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': LABEL_FONT, 'text-size': 12, 'text-allow-overlap': true },
+    });
+    map.addLayer({
+      id: LAYERS.halo,
+      type: 'circle',
+      source: SOURCE_ID,
+      filter: ['all', unclustered, ['in', ['get', 'status'], ['literal', HALO_STATUSES]]],
+      paint: { 'circle-pitch-alignment': 'map', 'circle-blur': 0.15 },
     });
     map.addLayer({
       id: LAYERS.selected,
@@ -253,7 +290,26 @@ export class MapController {
       },
       paint: { 'text-halo-width': 1.5 },
     });
+    map.addLayer({
+      id: LAYERS.badge,
+      type: 'symbol',
+      source: SOURCE_ID,
+      minzoom: LABEL_MIN_ZOOM - 1,
+      filter: ['all', unclustered, ['!=', ['get', 'badge'], '']],
+      layout: {
+        'text-field': ['get', 'badge'],
+        'text-font': LABEL_FONT,
+        'text-size': 10,
+        'text-anchor': 'bottom-left',
+        'text-offset': [0.9, -0.9],
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: { 'text-color': '#ffffff', 'text-halo-width': 2.5 },
+    });
     this.applyThemePaint();
+    this.paintHalo(performance.now());
+    this.startPulse();
 
     map.on('click', LAYERS.circle, (e) => {
       const id = e.features?.[0]?.properties?.id;
@@ -290,7 +346,47 @@ export class MapController {
     map.setPaintProperty(LAYERS.selected, 'circle-stroke-color', primary);
     map.setPaintProperty(LAYERS.label, 'text-color', cssToken('--map-label'));
     map.setPaintProperty(LAYERS.label, 'text-halo-color', cssToken('--map-label-halo'));
+    map.setPaintProperty(LAYERS.halo, 'circle-color', statusColorExpression(this.theme));
+    map.setPaintProperty(LAYERS.badge, 'text-halo-color', statusColorExpression(this.theme));
+    // Offline devices fade back so the live fleet stands out.
+    map.setPaintProperty(LAYERS.circle, 'icon-opacity', ['match', ['get', 'status'], 'OFFLINE', 0.6, 1]);
   }
+
+  /** Whether halos may move: not with reduced motion, a hidden tab, or a very large visible fleet. */
+  private canPulse(): boolean {
+    return !this.reducedMotion && !document.hidden && this.visible.size <= MAX_PULSING;
+  }
+
+  /** Repaints the halo layer for time `now` — paint properties only, so no GeoJSON is re-sent. */
+  private paintHalo(now: number) {
+    if (!this.loaded || !this.map.getLayer(LAYERS.halo)) return;
+    const { scale, opacity } = haloState(now, !this.canPulse());
+    this.map.setPaintProperty(LAYERS.halo, 'circle-radius', haloRadius(displayStore.iconScale(), scale));
+    this.map.setPaintProperty(LAYERS.halo, 'circle-opacity', byStatus(opacity, 0));
+  }
+
+  private startPulse() {
+    if (!this.pulseRaf && this.loaded && this.canPulse()) this.pulseRaf = requestAnimationFrame(this.pulseFrame);
+  }
+
+  private pulseFrame = (now: number) => {
+    this.pulseRaf = 0;
+    if (!this.canPulse()) {
+      this.paintHalo(now); // settle into the still halo
+      return;
+    }
+    if (now - this.lastPulse >= PULSE_FRAME_MS) {
+      this.lastPulse = now;
+      this.paintHalo(now);
+    }
+    this.startPulse();
+  };
+
+  private onVisibility = () => {
+    if (document.hidden) return;
+    this.paintHalo(performance.now());
+    this.startPulse();
+  };
 
   setTheme(theme: ResolvedTheme) {
     if (theme === this.theme) return;
@@ -310,6 +406,7 @@ export class MapController {
     }
     this.map.once('style.load', () => {
       this.applyThemePaint();
+      this.paintHalo(performance.now());
       this.rebuild();
     });
     this.map.setStyle(style, { transformStyle: keepOwnLayers });
@@ -317,6 +414,8 @@ export class MapController {
 
   setReducedMotion(reduced: boolean) {
     this.reducedMotion = reduced;
+    this.paintHalo(performance.now());
+    this.startPulse();
   }
 
   /** Replaces the visibility filter (search, status chips, branch/group/type, selected-only). */
@@ -386,6 +485,7 @@ export class MapController {
     }
     source.setData({ type: 'FeatureCollection', features });
     this.setSelected(this.selectedId);
+    this.startPulse();
 
     if (!this.fittedOnce && features.length) {
       this.fittedOnce = true;
