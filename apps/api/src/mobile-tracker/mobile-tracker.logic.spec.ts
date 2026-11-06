@@ -159,9 +159,9 @@ describe('phoneReturn', () => {
   const ago = (min: number) => new Date(NOW - min * 60_000);
   const phone = { installIdHash: 'a', deviceName: 'Pixel 8' };
 
-  it('first activation and another phone are not a return', () => {
+  it('first activation is not a return; another handset is a new phone', () => {
     expect(phoneReturn(null, phone, false, NOW)).toBeNull();
-    expect(phoneReturn({ ...phone, installIdHash: 'b', revokedAt: null, lastUsedAt: ago(1) }, phone, false, NOW)).toBeNull();
+    expect(phoneReturn({ installIdHash: 'b', deviceName: 'Galaxy A14', revokedAt: null, lastUsedAt: ago(5) }, phone, false, NOW)).toEqual({ how: 'NEW_PHONE', awayMs: 5 * 60_000 });
     expect(phoneReturn({ installIdHash: null, deviceName: null, revokedAt: null, lastUsedAt: null }, phone, false, NOW)).toBeNull();
   });
 
@@ -186,6 +186,10 @@ describe('phoneReturnMessage', () => {
     expect(phoneReturnMessage(M, 'Pixel 8', 'REINSTALLED', 90 * 60_000)).toMatch(/^Tracker app reinstalled on \+91 90000 00000 \(Pixel 8\): it was removed or its data was cleared, then set up again on the same phone\. No contact for .+ before this\.$/);
     expect(phoneReturnMessage(M, 'Pixel 8', 'SIGNED_OUT', 30 * 60_000)).toMatch(/^Tracker app activated again on \+91 90000 00000 \(Pixel 8\), .+ after it was signed out\.$/);
     expect(phoneReturnMessage(M, null, 'STOPPED', 30 * 60_000)).toMatch(/^Tracker app activated again on \+91 90000 00000, .+ after an administrator stopped it\.$/);
+  });
+  it('names both phones when the tracker moves to another handset', () => {
+    expect(phoneReturnMessage(M, 'Pixel 8', 'NEW_PHONE', null, 'Galaxy A14')).toBe('Tracker for +91 90000 00000 moved to a different phone: Galaxy A14 → Pixel 8. The old phone stops tracking.');
+    expect(phoneReturnMessage(M, 'Pixel 8', 'NEW_PHONE', null, 'Pixel 8')).toBe('Tracker for +91 90000 00000 moved to a different phone: another Pixel 8. The old phone stops tracking.');
   });
   it('leaves out short or unknown gaps', () => {
     expect(phoneReturnMessage(M, null, 'REINSTALLED', 60_000)).toBe('Tracker app reinstalled on +91 90000 00000: it was removed or its data was cleared, then set up again on the same phone.');

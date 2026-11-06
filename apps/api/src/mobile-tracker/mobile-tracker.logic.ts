@@ -166,7 +166,8 @@ export function isDifferentPhone(previous: { installIdHash: string | null; devic
   return !!previous.deviceName && !!next.deviceName && previous.deviceName !== next.deviceName;
 }
 
-export type PhoneReturn = 'REINSTALLED' | 'SIGNED_OUT' | 'STOPPED';
+/** NEW_PHONE: the number was set up on a different handset (its Android device id differs). */
+export type PhoneReturn = 'REINSTALLED' | 'SIGNED_OUT' | 'STOPPED' | 'NEW_PHONE';
 
 /** Shorter silences are ordinary gaps, not worth mentioning in the alert. */
 const AWAY_WORTH_MENTIONING_MS = 10 * 60_000;
@@ -183,16 +184,23 @@ export function phoneReturn(
   now: number,
 ): { how: PhoneReturn; awayMs: number | null } | null {
   if (!previous) return null;
+  const since = previous.revokedAt ?? previous.lastUsedAt;
+  // Both sides have the phone's device id and it differs: the tracker moved to another handset.
+  if (previous.installIdHash && next.installIdHash && previous.installIdHash !== next.installIdHash) return { how: 'NEW_PHONE', awayMs: since ? Math.max(0, now - since.getTime()) : null };
   const same = previous.installIdHash && next.installIdHash ? previous.installIdHash === next.installIdHash : !!previous.deviceName && previous.deviceName === next.deviceName;
   if (!same) return null;
-  const since = previous.revokedAt ?? previous.lastUsedAt;
   const how = !previous.revokedAt ? 'REINSTALLED' : signedOut ? 'SIGNED_OUT' : 'STOPPED';
   return { how, awayMs: since ? Math.max(0, now - since.getTime()) : null };
 }
 
 /** The alert text for phoneReturn, for example "Tracker app reinstalled on +91 90000 00000 (Pixel 8): ...". */
-export function phoneReturnMessage(mobile: string, phone: string | null, how: PhoneReturn, awayMs: number | null): string {
+export function phoneReturnMessage(mobile: string, phone: string | null, how: PhoneReturn, awayMs: number | null, previousPhone: string | null = null): string {
   const where = `${mobile}${phone ? ` (${phone})` : ''}`;
+  if (how === 'NEW_PHONE') {
+    const from = previousPhone ?? 'the previous phone';
+    const to = phone ?? 'another phone';
+    return `Tracker for ${mobile} moved to a different phone: ${from === to ? `another ${to}` : `${from} → ${to}`}. The old phone stops tracking.`;
+  }
   const away = awayMs !== null && awayMs >= AWAY_WORTH_MENTIONING_MS ? formatDuration(Math.round(awayMs / 1000)) : null;
   if (how === 'REINSTALLED') return `Tracker app reinstalled on ${where}: it was removed or its data was cleared, then set up again on the same phone.${away ? ` No contact for ${away} before this.` : ''}`;
   const after = how === 'SIGNED_OUT' ? 'it was signed out' : 'an administrator stopped it';

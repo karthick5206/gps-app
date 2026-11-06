@@ -381,7 +381,7 @@ export class MobileTrackerService {
     return { token, ...this.describe(device), config: this.config() };
   }
 
-  /** The same phone set up again: says whether it was reinstalled, signed out or stopped by an administrator. */
+  /** The number set up again: on the same phone (reinstalled, signed out or stopped by an administrator) or on a different phone. */
   private async alertPhoneReturn(
     target: { companyId: string; deviceId: string; object: { id: string; name: string; branchId: string | null; plateNumber: string | null; speedLimitKph: number | null } },
     uniqueId: string,
@@ -395,7 +395,7 @@ export class MobileTrackerService {
     const back = phoneReturn(previous, next, signedOut, now.getTime());
     if (!back) return;
     const mobile = formatMobile(uniqueId);
-    await this.alerts.trackerReactivated({ ...target, mobile, how: back.how, message: phoneReturnMessage(mobile, next.deviceName, back.how, back.awayMs) }, now.getTime());
+    await this.alerts.trackerReactivated({ ...target, mobile, how: back.how, message: phoneReturnMessage(mobile, next.deviceName, back.how, back.awayMs, previous?.deviceName ?? null) }, now.getTime());
   }
 
   /** What the Tracker app shows: who / what is tracked, the account (type, e-mail) and the free-trial end. */
