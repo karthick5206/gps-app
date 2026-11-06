@@ -324,6 +324,9 @@
   --input: var(--sidebar-border);
   --card: var(--sidebar-accent);
   --ring: var(--sidebar-primary);
+  /* Brand-coloured icons (Ask VeeTrax, company switcher) use the bar's own contrasting accent, not the dark page brand. */
+  --primary: var(--sidebar-primary);
+  --primary-foreground: var(--sidebar);
 }
 
 /* Smooth theme switch for surfaces; skipped entirely when the user prefers reduced motion. */
