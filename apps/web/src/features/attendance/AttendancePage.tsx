@@ -596,7 +596,46 @@ function NumberField({ id, label, hint, value, onChange, disabled, max, scale = 
   );
 }
 
-function ShiftCard({ shift, canEdit, branches, staff, onChange, onRemove }: { shift: AttendanceShiftDto; canEdit: boolean; branches: ReturnType<typeof useEntityOptions>; staff: ReturnType<typeof useEntityOptions>; onChange: (p: Partial<AttendanceShiftDto>) => void; onRemove: () => void }) {
+/** Minutes that may be left empty to use the company setting (shown as the placeholder). */
+function OptionalMinutes({ id, label, value, fallback, max, onChange, disabled }: { id: string; label: string; value: number | null | undefined; fallback: number; max: number; onChange: (v: number | null) => void; disabled: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <Field label={label} htmlFor={id} hint={t('Empty = company setting')} className="w-44">
+      <Input
+        id={id}
+        type="number"
+        min={0}
+        max={max}
+        value={value ?? ''}
+        placeholder={String(fallback)}
+        onChange={(e) => onChange(e.target.value === '' ? null : Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))))}
+        disabled={disabled}
+      />
+    </Field>
+  );
+}
+
+/** A rule that can be switched off, with its minutes beside it while on. Off saves 0. */
+function MinutesRule({ id, title, hint, value, fallback, max, unit, onChange, disabled }: { id: string; title: string; hint: string; value: number; fallback: number; max: number; unit: string; onChange: (v: number) => void; disabled: boolean }) {
+  const on = value > 0;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium">{title}</span>
+        <span className="block text-xs text-muted-foreground">{hint}</span>
+      </span>
+      {on && (
+        <span className="flex items-center gap-2">
+          <Input id={id} type="number" min={1} max={max} className="w-24" value={value} onChange={(e) => onChange(Math.max(1, Math.min(max, Math.round(Number(e.target.value) || 1))))} disabled={disabled} aria-label={title} />
+          <span className="text-sm text-muted-foreground">{unit}</span>
+        </span>
+      )}
+      <Switch checked={on} onCheckedChange={(v) => onChange(v ? fallback : 0)} disabled={disabled} aria-label={title} />
+    </div>
+  );
+}
+
+function ShiftCard({ shift, canEdit, branches, staff, onChange, onRemove, company }: { shift: AttendanceShiftDto; company: { breakMin: number; travelMaxMin: number }; canEdit: boolean; branches: ReturnType<typeof useEntityOptions>; staff: ReturnType<typeof useEntityOptions>; onChange: (p: Partial<AttendanceShiftDto>) => void; onRemove: () => void }) {
   const { t } = useTranslation();
   return (
     <div className="space-y-3 rounded-md border p-3">
@@ -618,6 +657,8 @@ function ShiftCard({ shift, canEdit, branches, staff, onChange, onRemove }: { sh
         <Field label={t('End')} htmlFor={`sh-${shift.id}-e`}>
           <Input id={`sh-${shift.id}-e`} type="time" className="w-32" value={formatMinutes(shift.endMin)} onChange={(e) => onChange({ endMin: toMin(e.target.value) })} disabled={!canEdit} />
         </Field>
+        <OptionalMinutes id={`sh-${shift.id}-brk`} label={t('Break allowance (min a day)')} value={shift.breakMin} fallback={company.breakMin} max={180} onChange={(breakMin) => onChange({ breakMin })} disabled={!canEdit} />
+        <OptionalMinutes id={`sh-${shift.id}-trv`} label={t('Travel between sites (min)')} value={shift.travelMaxMin} fallback={company.travelMaxMin} max={480} onChange={(travelMaxMin) => onChange({ travelMaxMin })} disabled={!canEdit} />
       </div>
       <Field label={t('Branches on this shift')} htmlFor={`sh-${shift.id}-b`}>
         <MultiSelect id={`sh-${shift.id}-b`} value={shift.branchIds} onChange={(branchIds) => onChange({ branchIds })} options={branches.options} loading={branches.loading} disabled={!canEdit} placeholder={t('Choose branches')} />
@@ -729,7 +770,7 @@ function SettingsTab({ canEdit }: { canEdit: boolean }) {
       <div className="space-y-3 border-t pt-4">
         <h3 className="font-medium">{t('Other shifts')}</h3>
         {s.shifts.map((shift) => (
-          <ShiftCard key={shift.id} shift={shift} canEdit={canEdit} branches={branches} staff={staff} onChange={(p) => setShift(shift.id, p)} onRemove={() => set({ shifts: s.shifts.filter((x) => x.id !== shift.id) })} />
+          <ShiftCard company={{ breakMin: s.breakMin ?? 45, travelMaxMin: s.travelMaxMin ?? 120 }} key={shift.id} shift={shift} canEdit={canEdit} branches={branches} staff={staff} onChange={(p) => setShift(shift.id, p)} onRemove={() => set({ shifts: s.shifts.filter((x) => x.id !== shift.id) })} />
         ))}
         {canEdit && (
           <Button variant="outline" onClick={addShift}>
@@ -747,9 +788,25 @@ function SettingsTab({ canEdit }: { canEdit: boolean }) {
           <NumberField id="att-half" label={t('Half day from (hours)')} hint={t('Less than this is absent')} value={s.halfDayMin} max={24} scale={60} step={0.5} onChange={(halfDayMin) => set({ halfDayMin })} disabled={!canEdit} />
           <NumberField id="att-full" label={t('Full day from (hours)')} value={s.fullDayMin} max={24} scale={60} step={0.5} onChange={(fullDayMin) => set({ fullDayMin })} disabled={!canEdit} />
           <NumberField id="att-rem" label={t('Still out alert (min)')} hint={t('0 = no second alert')} value={s.outReminderMin} max={720} onChange={(outReminderMin) => set({ outReminderMin })} disabled={!canEdit} />
-          <NumberField id="att-travel" label={t('Travel between sites (min)')} hint={t('Going straight to another work site within this time is official duty. 0 = off')} value={s.travelMaxMin ?? 120} max={480} onChange={(travelMaxMin) => set({ travelMaxMin })} disabled={!canEdit} />
-          <NumberField id="att-break" label={t('Break allowance (min a day)')} hint={t('Short trips out up to this total are not questioned. 0 = off')} value={s.breakMin ?? 45} max={180} onChange={(breakMin) => set({ breakMin })} disabled={!canEdit} />
         </div>
+        {/* Overtime: the company decides whether it counts at all, and from how many minutes past the shift end. */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium">{t('Count overtime')}</span>
+            <span className="block text-xs text-muted-foreground">{t('Time worked after the shift end, beyond a full shift. Coming late and staying late to make up is not overtime.')}</span>
+          </span>
+          {s.overtimeOn !== false && (
+            <span className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">{t('from')}</span>
+              <Input id="att-ot" type="number" min={0} max={240} className="w-24" value={s.overtimeMinMin ?? 15} onChange={(e) => set({ overtimeMinMin: Math.max(0, Math.min(240, Math.round(Number(e.target.value) || 0))) })} disabled={!canEdit} aria-label={t('Overtime from (min)')} />
+              <span className="text-sm text-muted-foreground">{t('min past the end')}</span>
+            </span>
+          )}
+          <Switch checked={s.overtimeOn !== false} onCheckedChange={(overtimeOn) => set({ overtimeOn })} disabled={!canEdit} aria-label={t('Count overtime')} />
+        </div>
+        <MinutesRule id="att-travel" title={t('Travel between work sites is official duty')} hint={t('Going straight from one work site to a different one within this time counts as worked, and staff are not asked.')} value={s.travelMaxMin ?? 120} fallback={120} max={480} unit={t('min at most')} onChange={(travelMaxMin) => set({ travelMaxMin })} disabled={!canEdit} />
+        <MinutesRule id="att-break" title={t('Break allowance')} hint={t('Short trips out that come back, up to this total a day, are not questioned and count as worked.')} value={s.breakMin ?? 45} fallback={45} max={180} unit={t('min a day')} onChange={(breakMin) => set({ breakMin })} disabled={!canEdit} />
+        <p className="text-xs text-muted-foreground">{t('A shift can have its own break allowance and travel time (Shifts above); empty uses these.')}</p>
       </div>
       <p className="text-xs text-muted-foreground">{t('Alerts: "Staff not arrived" after start + grace, "Staff absent" at the end of the shift, "Staff left work site" when someone is out during the shift for longer than a short exit, and "Staff still out" after the time above. Choose who gets them in Alert Settings.')}</p>
       {error && <p className="text-sm text-destructive">{t(error)}</p>}

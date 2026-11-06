@@ -86,6 +86,8 @@ interface DayRules {
   /** Added 2026-11-07; days saved before have none (= off, so their figures don't change). */
   travelMaxMin?: number;
   breakMin?: number;
+  overtimeMinMin?: number;
+  overtimeOn?: boolean;
 }
 
 interface SavedDay {
@@ -100,7 +102,7 @@ type AlertType = 'ATTENDANCE_NOT_ARRIVED' | 'ATTENDANCE_ABSENT' | 'ATTENDANCE_LE
 
 const rulesFor = (s: Settings, p: Pick<Staff, 'id' | 'branchId'>): DayRules => {
   const shift = shiftOf(s, p.id, p.branchId);
-  return { shift: shift.name, days: shift.days, startMin: shift.startMin, endMin: shift.endMin, graceMin: s.graceMin, shortExitMin: s.shortExitMin, noSignalMin: s.noSignalMin, halfDayMin: s.halfDayMin, fullDayMin: s.fullDayMin, travelMaxMin: s.travelMaxMin ?? 0, breakMin: s.breakMin ?? 0 };
+  return { shift: shift.name, days: shift.days, startMin: shift.startMin, endMin: shift.endMin, graceMin: s.graceMin, shortExitMin: s.shortExitMin, noSignalMin: s.noSignalMin, halfDayMin: s.halfDayMin, fullDayMin: s.fullDayMin, travelMaxMin: shift.travelMaxMin, breakMin: shift.breakMin, overtimeMinMin: s.overtimeMinMin ?? 15, overtimeOn: s.overtimeOn !== false };
 };
 
 function windowOf(r: DayRules, day: string, tz: string): AttendanceWindow {
@@ -117,6 +119,8 @@ function windowOf(r: DayRules, day: string, tz: string): AttendanceWindow {
     fullDayMin: r.fullDayMin,
     travelMaxMin: r.travelMaxMin ?? 0,
     breakMin: r.breakMin ?? 0,
+    overtimeMinMin: r.overtimeMinMin,
+    overtimeOn: r.overtimeOn,
   };
 }
 
@@ -183,6 +187,8 @@ export class AttendanceService {
       otherBranchSites: r.otherBranchSites,
       travelMaxMin: r.travelMaxMin,
       breakMin: r.breakMin,
+      overtimeMinMin: r.overtimeMinMin,
+      overtimeOn: r.overtimeOn,
     };
   }
 
@@ -191,7 +197,7 @@ export class AttendanceService {
     if (error) throw new BadRequestException(error);
     const before = await this.settings(ctx.companyId);
     if (s.graceMin !== before.graceMin && !ctx.isSuperAdmin) throw new ForbiddenException('Only Super Admin can change the grace period');
-    const shifts = s.shifts.map((x) => ({ id: x.id || randomUUID(), name: x.name.trim(), days: [...new Set(x.days)].sort(), startMin: x.startMin, endMin: x.endMin, branchIds: [...new Set(x.branchIds)], objectIds: [...new Set(x.objectIds)] }));
+    const shifts = s.shifts.map((x) => ({ id: x.id || randomUUID(), name: x.name.trim(), days: [...new Set(x.days)].sort(), startMin: x.startMin, endMin: x.endMin, branchIds: [...new Set(x.branchIds)], objectIds: [...new Set(x.objectIds)], breakMin: x.breakMin ?? null, travelMaxMin: x.travelMaxMin ?? null }));
     const data = {
       enabled: s.enabled,
       geofenceIds: [...new Set(s.geofenceIds)],
@@ -212,6 +218,8 @@ export class AttendanceService {
       otherBranchSites: s.otherBranchSites ?? before.otherBranchSites ?? true,
       travelMaxMin: s.travelMaxMin ?? before.travelMaxMin ?? 120,
       breakMin: s.breakMin ?? before.breakMin ?? 45,
+      overtimeMinMin: s.overtimeMinMin ?? before.overtimeMinMin ?? 15,
+      overtimeOn: s.overtimeOn ?? before.overtimeOn ?? true,
       updatedById: ctx.userId,
     };
     await this.prisma.attendanceSettings.upsert({ where: { companyId: ctx.companyId }, create: { companyId: ctx.companyId, ...data }, update: data });

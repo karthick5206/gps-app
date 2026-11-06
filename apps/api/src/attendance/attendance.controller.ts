@@ -15,6 +15,8 @@ class ShiftBody {
   @IsInt() @Min(0) @Max(1439) endMin!: number;
   @IsArray() @ArrayMaxSize(1000) @IsUUID('all', { each: true }) branchIds!: string[];
   @IsArray() @ArrayMaxSize(5000) @IsUUID('all', { each: true }) objectIds!: string[];
+  @IsOptional() @IsInt() @Min(0) @Max(180) breakMin?: number | null;
+  @IsOptional() @IsInt() @Min(0) @Max(480) travelMaxMin?: number | null;
 }
 
 class SettingsBody {
@@ -37,6 +39,8 @@ class SettingsBody {
   @IsOptional() @IsBoolean() otherBranchSites?: boolean;
   @IsOptional() @IsInt() @Min(0) @Max(480) travelMaxMin?: number;
   @IsOptional() @IsInt() @Min(0) @Max(180) breakMin?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(240) overtimeMinMin?: number;
+  @IsOptional() @IsBoolean() overtimeOn?: boolean;
 }
 
 class SelfieQuery {

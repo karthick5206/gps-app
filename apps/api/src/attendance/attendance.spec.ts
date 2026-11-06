@@ -87,6 +87,14 @@ describe('attendanceOf', () => {
     expect(attendanceOf([{ enter: at(17), exit: at(19), site }], W, at(23)).overtimeMin).toBe(0);
   });
 
+  it('overtime minimum is a setting: 0 counts every minute, 30 needs half an hour', () => {
+    const v = [{ enter: at(9, 30), exit: at(18, 40), site }];
+    expect(attendanceOf(v, { ...W, overtimeMinMin: 0 }, at(23)).overtimeMin).toBe(10);
+    expect(attendanceOf([{ enter: at(9, 30), exit: at(18, 55), site }], { ...W, overtimeMinMin: 30 }, at(23)).overtimeMin).toBe(0);
+    // The company doesn't count overtime at all.
+    expect(attendanceOf([{ enter: at(9, 30), exit: at(21), site }], { ...W, overtimeOn: false }, at(23)).overtimeMin).toBe(0);
+  });
+
   it('personal time is not worked; marking it official counts it', () => {
     const visits = [{ enter: at(9, 30), exit: at(14), site }, { enter: at(16), exit: at(18, 30), site }];
     expect(attendanceOf(visits, W, at(19), [], decided([at(14), 'PERSONAL']))).toMatchObject({ personalMin: 120, workedMin: 420, halfDay: true });
@@ -156,6 +164,13 @@ describe('shifts and sites', () => {
     expect(shiftOf(s, 'p1', 'b1').name).toBe('Store');
     expect(shiftOf(s, 'p1', 'b2')).toMatchObject({ name: 'Default', startMin: DEFAULT_ATTENDANCE.startMin });
     expect(shiftOf(s, 'p1', null).name).toBe('Default');
+  });
+  it('a shift may have its own break and travel minutes; empty uses the company setting', () => {
+    const own2 = { ...shift, id: 'x', name: 'Field', branchIds: [], objectIds: ['p3'], breakMin: 0, travelMaxMin: 240 };
+    const t = { ...DEFAULT_ATTENDANCE, breakMin: 45, travelMaxMin: 120, shifts: [shift, own2] };
+    expect(shiftOf(t, 'p3', null)).toMatchObject({ name: 'Field', breakMin: 0, travelMaxMin: 240 });
+    expect(shiftOf(t, 'p1', 'b1')).toMatchObject({ name: 'Store', breakMin: 45, travelMaxMin: 120 });
+    expect(shiftOf(t, 'p1', null)).toMatchObject({ name: 'Default', breakMin: 45, travelMaxMin: 120 });
   });
   it('every branch counts by default', () => {
     expect(siteCountsFor(s, 'p', 'b1', 'b2')).toBe(true);

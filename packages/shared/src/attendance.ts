@@ -23,6 +23,9 @@ export interface AttendanceShiftDto {
   branchIds: string[];
   /** People on this shift whatever their branch (wins over branchIds). */
   objectIds: string[];
+  /** This shift's own break allowance / travel time; null or absent = the company setting. */
+  breakMin?: number | null;
+  travelMaxMin?: number | null;
 }
 
 export interface AttendanceSettingsDto {
@@ -58,6 +61,10 @@ export interface AttendanceSettingsDto {
   travelMaxMin?: number;
   /** Short trips out (back the same day, not answered) up to this many minutes in total a day are not questioned. */
   breakMin?: number;
+  /** The company counts overtime at all (default on). Off: overtime is always 0. */
+  overtimeOn?: boolean;
+  /** Less than this past the shift end is not overtime (default OVERTIME_MIN_MIN). */
+  overtimeMinMin?: number;
   /** Management's choice: staff are asked for a selfie when they check in. It never decides the status by itself. */
   selfieRequired: boolean;
   /** What the check-in asks for when selfieRequired is on: a photo, a 10-second video, or both from one recording. */
@@ -82,6 +89,8 @@ export const DEFAULT_ATTENDANCE: AttendanceSettingsDto = {
   otherBranchSites: true,
   travelMaxMin: 120,
   breakMin: 45,
+  overtimeOn: true,
+  overtimeMinMin: 15,
   selfieRequired: false,
   checkInProof: 'PHOTO',
 };
@@ -248,6 +257,10 @@ export interface AttendanceWindow {
   /** See AttendanceSettingsDto.travelMaxMin / breakMin; absent = off. */
   travelMaxMin?: number;
   breakMin?: number;
+  /** See AttendanceSettingsDto.overtimeMinMin; absent = OVERTIME_MIN_MIN. */
+  overtimeMinMin?: number;
+  /** false = the company doesn't count overtime. */
+  overtimeOn?: boolean;
 }
 
 /** Fence time counts from this long before the shift until this long after it. */
@@ -403,7 +416,7 @@ export function attendanceOf(
   // staying late to make up for it is not overtime. Under OVERTIME_MIN_MIN it doesn't count.
   const afterEndMin = toMin(overlap(inside, [{ from: w.end, to: windowEnd }]) - overlap(noSignal, [{ from: w.end, to: windowEnd }]));
   const extraMin = Math.min(afterEndMin, Math.max(0, workedMin - toMin(w.end - w.start)));
-  const overtimeMin = finished && extraMin >= OVERTIME_MIN_MIN ? extraMin : 0;
+  const overtimeMin = w.overtimeOn !== false && finished && extraMin > 0 && extraMin >= (w.overtimeMinMin ?? OVERTIME_MIN_MIN) ? extraMin : 0;
   const lateMin = firstIn !== null && firstIn > w.grace ? toMin(firstIn - w.grace) : 0;
   const base = {
     firstIn,
@@ -448,9 +461,12 @@ export function signalGaps(pauses: TimeSpan[], firstAt: number | null, lastAt: n
 }
 
 /** The shift a person is on: their own shift, else their branch's, else the default one. */
-export function shiftOf(s: AttendanceSettingsDto, objectId: string, branchId: string | null): { name: string; days: number[]; startMin: number; endMin: number } {
+export function shiftOf(s: AttendanceSettingsDto, objectId: string, branchId: string | null): { name: string; days: number[]; startMin: number; endMin: number; breakMin: number; travelMaxMin: number } {
   const shift = s.shifts.find((x) => x.objectIds.includes(objectId)) ?? (branchId ? s.shifts.find((x) => x.branchIds.includes(branchId)) : undefined);
-  return shift ?? { name: 'Default', days: s.days, startMin: s.startMin, endMin: s.endMin };
+  // A shift's own break / travel minutes win; empty = the company setting.
+  const breakMin = shift?.breakMin ?? s.breakMin ?? 0;
+  const travelMaxMin = shift?.travelMaxMin ?? s.travelMaxMin ?? 0;
+  return shift ? { name: shift.name, days: shift.days, startMin: shift.startMin, endMin: shift.endMin, breakMin, travelMaxMin } : { name: 'Default', days: s.days, startMin: s.startMin, endMin: s.endMin, breakMin, travelMaxMin };
 }
 
 /** Whether a work site counts for a person: their own branch's, one without a branch, or any if allowed. */
@@ -476,6 +492,7 @@ export function attendanceSettingsError(s: AttendanceSettingsDto): string | null
   if (!Number.isInteger(s.outReminderMin) || s.outReminderMin < 0 || s.outReminderMin > 720) return 'The reminder must be 0–720 minutes';
   if (s.travelMaxMin !== undefined && (!Number.isInteger(s.travelMaxMin) || s.travelMaxMin < 0 || s.travelMaxMin > 480)) return 'Travel between sites must be 0–480 minutes';
   if (s.breakMin !== undefined && (!Number.isInteger(s.breakMin) || s.breakMin < 0 || s.breakMin > 180)) return 'The break allowance must be 0–180 minutes';
+  if (s.overtimeMinMin !== undefined && (!Number.isInteger(s.overtimeMinMin) || s.overtimeMinMin < 0 || s.overtimeMinMin > 240)) return 'The overtime minimum must be 0–240 minutes';
   if (!Number.isInteger(s.halfDayMin) || !Number.isInteger(s.fullDayMin) || s.halfDayMin < 0 || s.fullDayMin > 1440 || s.halfDayMin > s.fullDayMin) return 'Half day hours cannot be more than full day hours';
   const names = new Set<string>();
   for (const shift of s.shifts) {
@@ -486,6 +503,8 @@ export function attendanceSettingsError(s: AttendanceSettingsDto): string | null
     names.add(name.toLowerCase());
     const error = hoursError(shift.startMin, shift.endMin, shift.days);
     if (error) return error;
+    if (shift.breakMin != null && (!Number.isInteger(shift.breakMin) || shift.breakMin < 0 || shift.breakMin > 180)) return 'The break allowance must be 0–180 minutes';
+    if (shift.travelMaxMin != null && (!Number.isInteger(shift.travelMaxMin) || shift.travelMaxMin < 0 || shift.travelMaxMin > 480)) return 'Travel between sites must be 0–480 minutes';
   }
   return null;
 }

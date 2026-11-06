@@ -1180,6 +1180,10 @@ model AttendanceSettings {
   travelMaxMin       Int      @default(120)
   /// Short trips out up to this many minutes in total a day are not questioned; 0 = off.
   breakMin           Int      @default(45)
+  /// The company counts overtime at all.
+  overtimeOn         Boolean  @default(true)
+  /// Less than this past the shift end is not overtime.
+  overtimeMinMin     Int      @default(15)
   updatedById String?  @db.Uuid
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 }
