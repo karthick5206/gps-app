@@ -17,12 +17,21 @@ const PAGE_SIZE = 30;
 type SeverityFilter = AlertSeverity | 'ALL';
 type ReadFilter = 'UNREAD' | 'PENDING_ACK' | 'ALL';
 
+const QUICK_TYPES: [string | null, string][] = [
+  [null, 'All'],
+  ['OVERSPEED', 'Overspeed'],
+  ['GEOFENCE_EXIT', 'Geofence exit'],
+  ['IDLING', 'Long idling'],
+  ['POWER_CUT', 'Power cut / tamper'],
+  ['SOS', 'SOS / panic'],
+];
+
 function AlertRow({ a, now }: { a: AlertDto; now: number }) {
   const c = useColors();
   const { t } = useTranslation();
   const unread = !a.read && a.status === 'NEW';
   return (
-    <Card onPress={() => router.push(`/alert/${a.id}`)} style={unread ? { borderLeftWidth: 3, borderLeftColor: c.primary } : undefined}>
+    <Card onPress={() => router.push(`/alert/${a.id}`)} style={unread ? { backgroundColor: c.warningSoft, borderColor: c.warningSoft } : undefined}>
       <View style={{ flexDirection: 'row', gap: SPACE.md }}>
         <AlertTypeIcon type={a.type} severity={a.severity} />
         <View style={{ flex: 1, gap: 2 }}>
@@ -67,15 +76,16 @@ export default function AlertsScreen() {
   const params = useLocalSearchParams<{ objectId?: string; name?: string }>();
   const [severity, setSeverity] = useState<SeverityFilter>('ALL');
   const [readFilter, setReadFilter] = useState<ReadFilter>('ALL');
+  const [type, setType] = useState<string | null>(null);
   const objectId = params.objectId || undefined;
 
   const list = useInfiniteQuery({
-    queryKey: ['alerts', 'list', { severity, readFilter, objectId }],
+    queryKey: ['alerts', 'list', { severity, readFilter, objectId, type }],
     initialPageParam: 1,
     queryFn: ({ pageParam, signal }) =>
       api.get<Paginated<AlertDto>>(
         '/alerts',
-        { page: pageParam, pageSize: PAGE_SIZE, sort: 'occurredAt', order: 'desc', severity: severity === 'ALL' ? undefined : severity, read: readFilter === 'UNREAD' ? false : undefined, pendingAck: readFilter === 'PENDING_ACK' ? true : undefined, objectId },
+        { page: pageParam, pageSize: PAGE_SIZE, sort: 'occurredAt', order: 'desc', severity: severity === 'ALL' ? undefined : severity, read: readFilter === 'UNREAD' ? false : undefined, pendingAck: readFilter === 'PENDING_ACK' ? true : undefined, objectId, type: type ?? undefined },
         signal,
       ),
     getNextPageParam: (last) => (last.page * last.pageSize < last.total ? last.page + 1 : undefined),
@@ -123,6 +133,19 @@ export default function AlertsScreen() {
           ),
         }}
       />
+      {/* The alert types people look for most, as tabs (same as the web). */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.card }} contentContainerStyle={{ paddingHorizontal: SPACE.sm }}>
+        {QUICK_TYPES.map(([code, label]) => {
+          const on = type === code;
+          return (
+            <Pressable key={code ?? 'all'} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => setType(code)} style={{ paddingHorizontal: SPACE.md, height: 46, justifyContent: 'center', borderBottomWidth: 3, borderBottomColor: on ? c.brandAccent : 'transparent' }}>
+              <Text size="sm" weight={on ? '700' : '500'} style={{ color: on ? c.foreground : c.mutedForeground }}>
+                {t(label)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ padding: SPACE.lg, paddingBottom: SPACE.sm, gap: SPACE.sm }}>
         <Chips
           value={readFilter}

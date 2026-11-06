@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { displayStatusLabel, type VideoChannelsDto, chargeState } from '@veetracer/shared';
+import { displayStatus, displayStatusLabel, personActivity, type VideoChannelsDto, chargeState } from '@veetracer/shared';
 import * as WebBrowser from 'expo-web-browser';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { BellIcon, CarIcon, HistoryIcon, ScanFaceIcon, TerminalIcon, VideoIcon, Share2Icon } from 'lucide-react-native';
@@ -19,7 +19,7 @@ import { SERVER_URL } from '@/lib/config';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
 import { chargeText } from '@/features/live/day-stats';
-import { SPACE, useColors } from '@/lib/theme';
+import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
 
 function AddressRow({ lat, lng }: { lat: number | null; lng: number | null }) {
   const { address } = useAddress(lat, lng);
@@ -32,6 +32,7 @@ const or = (v: number | null, unit: string, digits = 0) => (v === null ? '—' :
 export default function VehicleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const c = useColors();
+  const scheme = useScheme();
   const { t } = useTranslation();
   const { can } = useAuth();
   const version = useLiveVersion(1000);
@@ -69,37 +70,71 @@ export default function VehicleScreen() {
       <View style={{ padding: SPACE.lg, gap: SPACE.md }}>
         <Card>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
-            <VehicleThumb o={o} size={44} />
+            {/* Vehicle icon on a soft circle in its status colour, as on the map and in the list. */}
+            <View style={{ width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: `${statusColor(personActivity(o) ? displayStatus(o) : o.status, scheme)}1f` }}>
+              <VehicleThumb o={o} size={40} />
+            </View>
             <View style={{ flex: 1, gap: 4 }}>
               <Text size="lg" weight="700" numberOfLines={1}>
                 {o.name}
               </Text>
+              {o.plateNumber && o.plateNumber !== o.name ? (
+                <Text size="sm" tone="muted" numberOfLines={1}>
+                  {o.plateNumber}
+                </Text>
+              ) : null}
               <StatusPill o={o} now={now} />
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text size="xl" weight="700">
-                {Math.round(o.speedKph)}
-              </Text>
-              <Text size="xs" tone="muted">
-                km/h
-              </Text>
             </View>
           </View>
         </Card>
 
         <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-          {can('history') && <Button title={t('History')} icon={HistoryIcon} variant="outline" style={{ flex: 1 }} onPress={() => router.push(`/history/${o.objectId}`)} />}
-          {can('alerts') && <Button title={t('Alerts')} icon={BellIcon} variant="outline" style={{ flex: 1 }} onPress={() => router.push({ pathname: '/alerts', params: { objectId: o.objectId, name: o.plateNumber || o.name } })} />}
+          {(
+            [
+              [t('Speed'), `${Math.round(o.speedKph)}`, 'km/h'],
+              [t('Last update'), relativeTime(o.serverTime ?? o.fixTime, now), ''],
+              [t('Ignition'), yesNo(o.ignition), ''],
+            ] as const
+          ).map(([label, value, unit]) => (
+            <Card key={label} style={{ flex: 1, gap: 2, padding: SPACE.md }}>
+              <Text size="xs" tone="muted" weight="600" numberOfLines={1}>
+                {label}
+              </Text>
+              <Text size="lg" weight="700" numberOfLines={1}>
+                {value}
+                {unit ? <Text size="xs" tone="muted">{` ${unit}`}</Text> : null}
+              </Text>
+            </Card>
+          ))}
         </View>
 
-        {video.isSuccess && (
-          <Button title={t('Video')} icon={VideoIcon} variant="outline" onPress={() => void WebBrowser.openBrowserAsync(`${SERVER_URL}/video?objectId=${encodeURIComponent(o.objectId)}`)} />
-        )}
-        {video.isSuccess && can('driver_events') && (
-          <Button title={t('Driver events')} icon={ScanFaceIcon} variant="outline" onPress={() => router.push({ pathname: '/driver-events', params: { objectId: o.objectId } })} />
-        )}
-        {!o.licenceLocked && o.lat !== null && <Button title={t('Share live location')} icon={Share2Icon} variant="outline" onPress={() => router.push(`/share/${o.objectId}`)} />}
-        {can('live_map', 'command') && <Button title={t('Commands')} icon={TerminalIcon} variant="outline" onPress={() => router.push(`/commands/${o.objectId}`)} />}
+        {/* Actions as tiles: one tap each. */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
+          {(
+            [
+              can('history') && [HistoryIcon, t('History'), () => router.push(`/history/${o.objectId}`)],
+              can('alerts') && [BellIcon, t('Alerts'), () => router.push({ pathname: '/alerts', params: { objectId: o.objectId, name: o.plateNumber || o.name } })],
+              !o.licenceLocked && o.lat !== null && [Share2Icon, t('Share live location'), () => router.push(`/share/${o.objectId}`)],
+              can('live_map', 'command') && [TerminalIcon, t('Commands'), () => router.push(`/commands/${o.objectId}`)],
+              video.isSuccess && [VideoIcon, t('Video'), () => void WebBrowser.openBrowserAsync(`${SERVER_URL}/video?objectId=${encodeURIComponent(o.objectId)}`)],
+              video.isSuccess && can('driver_events') && [ScanFaceIcon, t('Driver events'), () => router.push({ pathname: '/driver-events', params: { objectId: o.objectId } })],
+            ].filter(Boolean) as [typeof HistoryIcon, string, () => void][]
+          ).map(([Icon, label, onPress]) => (
+            <Pressable
+              key={label}
+              accessibilityRole="button"
+              onPress={onPress}
+              style={({ pressed }) => [{ flexBasis: '31%', flexGrow: 1, alignItems: 'center', gap: 6, paddingVertical: SPACE.md, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderWidth: 1, borderColor: c.border, backgroundColor: pressed ? c.muted : c.card }]}
+            >
+              <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.accent }}>
+                <Icon size={20} color={c.accentForeground} />
+              </View>
+              <Text size="xs" weight="600" numberOfLines={2} style={{ textAlign: 'center' }}>
+                {label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
 
         <SectionTitle>{t('Status')}</SectionTitle>
         <Card style={{ paddingVertical: 0 }}>

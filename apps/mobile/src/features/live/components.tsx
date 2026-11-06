@@ -27,9 +27,13 @@ export function VehicleThumb({ o, size = 36 }: { o: LiveObject; size?: number })
 
 /** Name, plate, status, speed and last update — used in the list and on the map card. */
 export function VehicleSummary({ o, now }: { o: LiveObject; now?: number }) {
+  const scheme = useScheme();
   return (
     <View style={styles.summary}>
-      <VehicleThumb o={o} />
+      {/* The vehicle icon on a soft circle in its status colour, as on the map. */}
+      <View style={[styles.thumb, { backgroundColor: `${statusColor(personActivity(o) ? displayStatus(o) : o.status, scheme)}1f` }]}>
+        <VehicleThumb o={o} size={30} />
+      </View>
       <View style={{ flex: 1, gap: 3 }}>
         <View style={styles.titleRow}>
           <Text weight="600" numberOfLines={1} style={{ flexShrink: 1 }}>
@@ -86,6 +90,7 @@ export function matches(o: LiveObject, q: string, status: StatusFilter): boolean
 }
 
 const styles = StyleSheet.create({
+  thumb: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   summary: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
 });

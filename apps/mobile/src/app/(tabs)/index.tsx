@@ -28,6 +28,7 @@ import { AddressLine } from '@/features/geocoding/use-address';
 import { VehicleSummary } from '@/features/live/components';
 import { useDayStats, VehicleDayDetails, type DayStatsMap } from '@/features/live/day-stats';
 import { liveStore } from '@/features/live/live-store';
+import { attentionItems, NeedsAttention, StatusCards } from '@/features/live/LiveOverview';
 import { LiveSheet, type SheetSnap } from '@/features/live/LiveSheet';
 import { useLiveVersion, useNow, useRealtimeStatus } from '@/features/live/use-live';
 import { basemap, useBasemap } from '@/features/map/basemap';
@@ -177,6 +178,8 @@ export default function LiveMapScreen() {
     for (const o of base) n[o.status]++;
     return n;
   }, [base]);
+  // Same rules as the web: overspeed, long idle, signal lost in the last day; follows the filters, not the status cards.
+  const attention = useMemo(() => attentionItems(base, now), [base, now]);
   const selected = selectedId ? liveStore.get(selectedId) : undefined;
 
   // Frame the fleet once the first snapshot arrives, then whenever the filters change.
@@ -232,26 +235,8 @@ export default function LiveMapScreen() {
           </Pressable>
         )}
       </View>
-      <View style={styles.chips}>
-        {(['ALL', ...MOVEMENT_STATUSES] as StatusFilter[]).map((s) => {
-          const on = status === s;
-          const color = s === 'ALL' ? c.primary : statusColor(s, scheme);
-          return (
-            <Pressable
-              key={s}
-              onPress={() => setStatus(on && s !== 'ALL' ? 'ALL' : s)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}
-              style={[styles.chip, on ? { backgroundColor: color, borderColor: color } : { borderColor: c.border, backgroundColor: c.card }]}
-            >
-              {s !== 'ALL' && <View style={[styles.chipDot, { backgroundColor: on ? '#fff' : color }]} />}
-              <Text size="sm" weight="600" style={{ color: on ? '#fff' : c.foreground }}>
-                {s === 'ALL' ? t('All') : t(STATUS_META[s].label)} <Text size="sm" style={{ color: on ? '#fff' : c.mutedForeground }}>{s === 'ALL' ? base.length : counts[s]}</Text>
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <NeedsAttention items={attention} onPick={select} />
+      <StatusCards counts={counts} total={base.length} status={status} onStatus={setStatus} />
       <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
         {can('branches') && <FilterButton label={labelOf(branchOptions, branchId, t('All branches'))} active={!!branchId} onPress={() => setPicker('branch')} />}
         {can('vehicle_groups') && <FilterButton label={labelOf(groupOptions, groupId, t('All groups'))} active={!!groupId} onPress={() => setPicker('group')} />}
