@@ -239,6 +239,8 @@ export interface AttendanceWindow {
 /** Fence time counts from this long before the shift until this long after it. */
 export const ATTENDANCE_BEFORE_SHIFT_MIN = 3 * 60;
 export const ATTENDANCE_AFTER_SHIFT_MIN = 6 * 60;
+/** Less than this past the shift end is not overtime (packing up, a few minutes late leaving). */
+export const OVERTIME_MIN_MIN = 15;
 
 const MIN = 60_000;
 const toMin = (ms: number) => Math.round(ms / MIN);
@@ -374,7 +376,11 @@ export function attendanceOf(
   const state: AttendanceLiveState | null = !running || firstIn === null ? null : silent ? 'NO_SIGNAL' : open ? 'INSIDE' : now < w.end ? 'OUT' : null;
   const finalOuting = outings.length && outings[outings.length - 1].returnedAt === null ? outings[outings.length - 1] : null;
   const earlyMin = finished && lastOut !== null && lastOut < w.end && finalOuting?.kind !== 'OFFICIAL' ? toMin(w.end - lastOut) : 0;
-  const overtimeMin = finished ? Math.max(0, workedMin - toMin(w.end - w.start)) : 0;
+  // Overtime: only time worked after the shift end, and only what is beyond a full shift in total, so coming late and
+  // staying late to make up for it is not overtime. Under OVERTIME_MIN_MIN it doesn't count.
+  const afterEndMin = toMin(overlap(inside, [{ from: w.end, to: windowEnd }]) - overlap(noSignal, [{ from: w.end, to: windowEnd }]));
+  const extraMin = Math.min(afterEndMin, Math.max(0, workedMin - toMin(w.end - w.start)));
+  const overtimeMin = finished && extraMin >= OVERTIME_MIN_MIN ? extraMin : 0;
   const lateMin = firstIn !== null && firstIn > w.grace ? toMin(firstIn - w.grace) : 0;
   const base = {
     firstIn,

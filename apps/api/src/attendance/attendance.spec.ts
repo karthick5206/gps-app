@@ -50,7 +50,19 @@ describe('attendanceOf', () => {
     const r = attendanceOf(visits, W, at(21));
     expect(r.outings).toEqual([]);
     expect(r.unexplainedMin).toBe(0);
-    expect(r.overtimeMin).toBe(30 + 570 + 60 - 540);
+    // Only time after the shift end is overtime (19:00–20:00); coming early adds to worked time, not overtime.
+    expect(r.overtimeMin).toBe(60);
+  });
+
+  it('overtime: late and staying late to make up is none; under 15 minutes is none; a long evening counts', () => {
+    // 2 h late (11:30), left 20:30: 9 h worked = a full shift, nothing beyond it.
+    expect(attendanceOf([{ enter: at(11, 30), exit: at(20, 30), site }], W, at(23)).overtimeMin).toBe(0);
+    // On time, left 10 min after the end.
+    expect(attendanceOf([{ enter: at(9, 30), exit: at(18, 40), site }], W, at(23)).overtimeMin).toBe(0);
+    // On time, left 1 h 30 min after the end.
+    expect(attendanceOf([{ enter: at(9, 30), exit: at(20), site }], W, at(23)).overtimeMin).toBe(90);
+    // Came very late and stayed a while after the end: short day, no overtime.
+    expect(attendanceOf([{ enter: at(17), exit: at(19), site }], W, at(23)).overtimeMin).toBe(0);
   });
 
   it('personal time is not worked; marking it official counts it', () => {

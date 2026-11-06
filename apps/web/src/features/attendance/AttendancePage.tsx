@@ -38,6 +38,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth, useMe } from '@/features/auth/auth-context';
 import { named, useEntityOptions } from '@/features/masters/use-options';
 import { api, downloadCsv, errorMessage, fetchBlob } from '@/lib/api';
+import { useAddress } from '@/features/geocoding/use-address';
 import { cn } from '@/lib/utils';
 
 const STATUS: Record<AttendanceStatus, { label: string; cls: string }> = {
@@ -80,15 +81,25 @@ function StatusBadge({ r }: { r: AttendanceRowDto }) {
   return <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', s.cls)}>{t(s.label)}</span>;
 }
 
-function Place({ fix }: { fix: AttendanceFix | null }) {
+/** Address on the first line, then "lat, lng · within N m · View on map". Wraps cleanly in narrow dialogs. */
+function PlaceDetail({ fix }: { fix: AttendanceFix | null }) {
   const { t } = useTranslation();
+  const { address, loading } = useAddress(fix?.lat, fix?.lng);
   if (!fix) return <span className="text-muted-foreground">—</span>;
   return (
-    <a className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline" href={`https://www.google.com/maps?q=${fix.lat},${fix.lng}`} target="_blank" rel="noreferrer">
-      <MapPinIcon className="size-3.5" />
-      <span title={`${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)}`}>{t('View on map')}</span>
-      {fix.accuracyM !== null && <span className="text-muted-foreground">({t('within {{n}} m', { n: Math.round(fix.accuracyM) })})</span>}
-    </a>
+    <div className="min-w-0 space-y-0.5">
+      <p className="text-sm leading-snug break-words">{address ?? (loading ? <span className="text-muted-foreground">{t('Finding the address…')}</span> : <span className="text-muted-foreground">{t('Address not available')}</span>)}</p>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+        <span className="tabular-nums">
+          {fix.lat.toFixed(5)}, {fix.lng.toFixed(5)}
+        </span>
+        {fix.accuracyM !== null && <span>{t('within {{n}} m', { n: Math.round(fix.accuracyM) })}</span>}
+        <a className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline" href={`https://www.google.com/maps?q=${fix.lat},${fix.lng}`} target="_blank" rel="noreferrer">
+          <MapPinIcon className="size-3.5" />
+          {t('View on map')}
+        </a>
+      </p>
+    </div>
   );
 }
 
@@ -213,18 +224,20 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
               </div>
             ))}
           </div>
-          <div className="space-y-1 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="w-20 text-muted-foreground">{t('First in')}</span>
-              <span className="tabular-nums">{time(r.firstIn)}</span>
-              <Place fix={r.inFix} />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="w-20 text-muted-foreground">{t('Last out')}</span>
-              <span className="tabular-nums">{time(r.lastOut)}</span>
-              <Place fix={r.outFix} />
-            </div>
-          </div>
+          <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-3 rounded-md border p-3 text-sm sm:grid-cols-[5.5rem_5.5rem_minmax(0,1fr)]">
+            {(
+              [
+                ['First in', r.firstIn, r.inFix],
+                ['Last out', r.lastOut, r.outFix],
+              ] as const
+            ).map(([label, at, where]) => (
+              <div key={label} className="contents">
+                <dt className="text-muted-foreground">{t(label)}</dt>
+                <dd className="font-medium tabular-nums">{time(at)}</dd>
+                <dd className="col-span-2 min-w-0 sm:col-span-1">{at ? <PlaceDetail fix={where} /> : <span className="text-muted-foreground">—</span>}</dd>
+              </div>
+            ))}
+          </dl>
           {(r.selfieAt || r.selfieMissing) && (
             <div className="space-y-1.5">
               <h3 className="text-sm font-medium">{t('Check-in selfie')}</h3>
@@ -260,9 +273,10 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
                   </span>
                 </div>
                 {o.fix && (
-                  <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                    {t('Where they left the site:')} <Place fix={o.fix} />
-                  </p>
+                  <div className="space-y-0.5">
+                    <p className="text-xs text-muted-foreground">{t('Where they left the site:')}</p>
+                    <PlaceDetail fix={o.fix} />
+                  </div>
                 )}
                 {o.employeeKind && (
                   <p className="text-xs text-muted-foreground">

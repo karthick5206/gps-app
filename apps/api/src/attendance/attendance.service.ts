@@ -124,7 +124,16 @@ function withOverride(row: AttendanceRowDto, saved: SavedDay | undefined): Atten
   const base = { ...row, corrected: false, correctionNote: null };
   if (!o) return base;
   const status: AttendanceStatus = o === 'HALF_DAY' ? 'PRESENT' : o;
-  return { ...base, status, halfDay: o === 'HALF_DAY', corrected: true, correctionNote: saved?.overrideNote ?? null };
+  // Absent / day off by hand: no late, early leave or overtime on that day. A half day earns no overtime.
+  const off = o === 'ABSENT' || o === 'DAY_OFF';
+  return {
+    ...base,
+    status,
+    halfDay: o === 'HALF_DAY',
+    corrected: true,
+    correctionNote: saved?.overrideNote ?? null,
+    ...(off ? { lateMin: 0, earlyMin: 0, overtimeMin: 0 } : o === 'HALF_DAY' ? { overtimeMin: 0 } : {}),
+  };
 }
 
 /**

@@ -3301,4 +3301,6 @@ export const TA: Record<string, string> = {
   'Clear the decision': 'முடிவை நீக்கு',
   'Mark as official duty': 'அலுவல் பணியாகக் குறி',
   'Mark as personal work': 'சொந்த வேலையாகக் குறி',
+  'Finding the address…': 'முகவரி தேடப்படுகிறது…',
+  'Address not available': 'முகவரி கிடைக்கவில்லை',
 };

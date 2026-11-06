@@ -3301,4 +3301,6 @@ export const HI: Record<string, string> = {
   'Clear the decision': 'फ़ैसला हटाएँ',
   'Mark as official duty': 'आधिकारिक काम मानें',
   'Mark as personal work': 'निजी काम मानें',
+  'Finding the address…': 'पता खोजा जा रहा है…',
+  'Address not available': 'पता उपलब्ध नहीं',
 };
