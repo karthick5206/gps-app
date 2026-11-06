@@ -3282,4 +3282,5 @@ export const HI: Record<string, string> = {
   '+{{n}} more': '+{{n}} और',
   'Fleet status now': 'फ़्लीट की अभी की स्थिति',
   'Utilisation': 'उपयोग',
+  'Right now': 'अभी',
 };

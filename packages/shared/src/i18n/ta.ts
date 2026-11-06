@@ -3282,4 +3282,5 @@ export const TA: Record<string, string> = {
   '+{{n}} more': '+{{n}} மேலும்',
   'Fleet status now': 'வாகனங்களின் தற்போதைய நிலை',
   'Utilisation': 'பயன்பாடு',
+  'Right now': 'இப்போது',
 };

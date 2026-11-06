@@ -49,11 +49,12 @@ const STATUS: Record<AttendanceStatus, { label: string; cls: string }> = {
   UPCOMING: { label: 'Not started', cls: 'bg-muted text-muted-foreground' },
 };
 const HALF_DAY = { label: 'Half day', cls: 'bg-info-soft text-info-fg' };
-const LIVE: Record<AttendanceLiveState, { label: string; cls: string }> = {
-  INSIDE: { label: 'Inside', cls: 'text-success-fg' },
-  OUT: { label: 'Out now', cls: 'text-destructive-fg' },
-  NO_SIGNAL: { label: 'No signal', cls: 'text-warning-fg' },
+const LIVE: Record<AttendanceLiveState, { label: string; cls: string; dot: string; tile: string }> = {
+  INSIDE: { label: 'Inside', cls: 'text-success-fg', dot: 'bg-success', tile: 'bg-success-soft text-success-fg' },
+  OUT: { label: 'Out now', cls: 'text-destructive-fg', dot: 'bg-destructive', tile: 'bg-destructive/10 text-destructive-fg' },
+  NO_SIGNAL: { label: 'No signal', cls: 'text-warning-fg', dot: 'bg-warning', tile: 'bg-warning-soft text-warning-fg' },
 };
+const LIVE_STATES = Object.keys(LIVE) as AttendanceLiveState[];
 const KINDS: Record<OutingKind, string> = { UNEXPLAINED: 'Unexplained', OFFICIAL: 'Official duty', PERSONAL: 'Personal' };
 const OVERRIDES: { value: AttendanceOverride; label: string }[] = [
   { value: 'PRESENT', label: 'Present' },
@@ -314,11 +315,50 @@ const statusKey = (r: AttendanceRowDto) => (r.halfDay ? 'HALF_DAY' : r.status);
 function useRowFilter(rows: AttendanceRowDto[]) {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState(ALL);
+  const [live, setLive] = useState<AttendanceLiveState | null>(null);
   const counts = new Map<string, number>();
-  for (const r of rows) counts.set(statusKey(r), (counts.get(statusKey(r)) ?? 0) + 1);
+  const liveCounts = new Map<AttendanceLiveState, number>();
+  for (const r of rows) {
+    counts.set(statusKey(r), (counts.get(statusKey(r)) ?? 0) + 1);
+    if (r.state) liveCounts.set(r.state, (liveCounts.get(r.state) ?? 0) + 1);
+  }
   const s = q.trim().toLowerCase();
-  const shown = rows.filter((r) => (status === ALL || statusKey(r) === status) && (!s || r.name.toLowerCase().includes(s)));
-  return { q, setQ, status, setStatus, counts, shown };
+  const shown = rows.filter((r) => (status === ALL || statusKey(r) === status) && (!live || r.state === live) && (!s || r.name.toLowerCase().includes(s)));
+  return { q, setQ, status, setStatus, live, setLive, counts, liveCounts, shown };
+}
+
+/**
+ * "Right now" for today: how many staff are inside a work site, out, or without a recent signal. Each tile filters
+ * the list to those people (click again to show everyone). Hidden when no one has a live state (a past day).
+ */
+function LiveStrip({ f }: { f: ReturnType<typeof useRowFilter> }) {
+  const { t } = useTranslation();
+  if (!f.liveCounts.size) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-bold tracking-wider text-muted-foreground uppercase">{t('Right now')}</p>
+      <div className="grid grid-cols-3 gap-2 sm:max-w-xl" role="group" aria-label={t('Right now')}>
+        {LIVE_STATES.map((k) => {
+          const on = f.live === k;
+          return (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={on}
+              onClick={() => f.setLive(on ? null : k)}
+              className={cn('flex flex-col items-start gap-0.5 rounded-lg border bg-card px-3 py-2 text-left transition-colors hover:bg-muted', on && cn(LIVE[k].tile, 'border-current'))}
+            >
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                <span className={cn('size-2 rounded-full', LIVE[k].dot)} aria-hidden />
+                {t(LIVE[k].label)}
+              </span>
+              <span className="text-2xl leading-none font-bold tabular-nums">{f.liveCounts.get(k) ?? 0}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function RowFilter({ f, total }: { f: ReturnType<typeof useRowFilter>; total: number }) {
@@ -350,6 +390,7 @@ function Rows({ rows, withDay, canEdit }: { rows: AttendanceRowDto[]; withDay?: 
           <TableRow>
             {withDay && <TableHead>{t('Date')}</TableHead>}
             <TableHead>{t('Staff')}</TableHead>
+            {!withDay && <TableHead>{t('Right now')}</TableHead>}
             <TableHead>{t('Status')}</TableHead>
             <TableHead>{t('First in')}</TableHead>
             <TableHead>{t('Last out')}</TableHead>
@@ -370,8 +411,19 @@ function Rows({ rows, withDay, canEdit }: { rows: AttendanceRowDto[]; withDay?: 
                 <button type="button" className="text-start hover:underline" onClick={() => setOpen(r)}>
                   {r.name}
                 </button>
-                {r.state && <span className={cn('block text-xs font-normal', LIVE[r.state].cls)}>{t(LIVE[r.state].label)}</span>}
               </TableCell>
+              {!withDay && (
+                <TableCell className="whitespace-nowrap">
+                  {r.state ? (
+                    <span className={cn('inline-flex items-center gap-1.5 text-sm font-semibold', LIVE[r.state].cls)}>
+                      <span className={cn('size-2 rounded-full', LIVE[r.state].dot)} aria-hidden />
+                      {t(LIVE[r.state].label)}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+              )}
               <TableCell>
                 <StatusBadge r={r} />
                 {r.lateMin > 0 && <span className="ms-1.5 text-xs text-muted-foreground">{t('+{{n}} min', { n: r.lateMin })}</span>}
@@ -449,6 +501,7 @@ function TodayTab({ canEdit }: { canEdit: boolean }) {
         <BranchFilter value={branch} onChange={setBranch} />
         <ReportsLink />
       </div>
+      <LiveStrip f={filter} />
       <RowFilter f={filter} total={d?.enabled ? d.rows.length : 0} />
       <Card className="overflow-x-auto p-0">
         {q.isPending ? (
