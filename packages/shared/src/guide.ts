@@ -55,6 +55,7 @@ export const GUIDE_SECTIONS: readonly GuideSection[] = [
       'Changing phones: install the app on the new phone and activate it with the same number. The old phone stops by itself; history continues.',
       'Xiaomi, Oppo, Vivo, Realme and some Samsung phones stop background apps: also turn on "Autostart" and set battery to "No restrictions" for VeeTrax Tracker.',
       'Press and hold the red SOS button in the app for 2 seconds to send an SOS alarm with your location.',
+      'How often: the phone sends its location every 3 seconds while moving and every 30 seconds while standing still — also when the app is closed. Without internet it keeps the locations and sends them later. On the phone, the tracking card ("Location sent … ago") updates every 2 seconds while the app is open.',
     ],
   },
   {
@@ -175,6 +176,7 @@ export const GUIDE_SECTIONS: readonly GuideSection[] = [
     ],
     notes: [
       'Days are re-checked every hour for three days, so a phone that uploads late (no internet) is still counted. After that a finished day is fixed.',
+      'How fresh the figures are: the web Staff attendance page refreshes every minute; the attendance card in the staff member\'s Tracker app refreshes every 15 seconds while the app is open, and at once when the app is reopened or after a selfie / video. Status, worked time and overtime are worked out the moment you look, from locations that arrive every 3 seconds while moving and every 30 seconds while still.',
       'Alerts: "Staff not arrived" after start + grace, "Staff absent" at the end of the shift, "Staff left work site" when someone is out longer than a short exit, "Staff still out" after the reminder time. Choose who gets them in Alert Settings.',
     ],
   },
