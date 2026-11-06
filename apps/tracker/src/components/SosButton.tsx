@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import { useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
+import { useLoop, useMotionAllowed } from '@/lib/motion';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 import { Tracker } from '@/lib/tracking';
@@ -29,6 +30,7 @@ const RESULT: Record<string, { text: string; ok: boolean }> = {
  */
 export function SosButton({ onDone }: { onDone?: () => void }) {
   const c = useColors();
+  const motion = useMotionAllowed();
   const progress = useRef(new Animated.Value(0)).current;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [state, setState] = useState<'idle' | 'sending'>('idle');
@@ -66,9 +68,22 @@ export function SosButton({ onDone }: { onDone?: () => void }) {
   };
 
   const fill = progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+  const ring = useLoop(motion && state === 'idle', 2200, 'pulse');
 
   return (
     <View style={styles.wrap}>
+      <View style={styles.stage}>
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.ring,
+            {
+              backgroundColor: c.danger,
+              opacity: ring.interpolate({ inputRange: [0, 1], outputRange: [motion ? 0.3 : 0, 0] }),
+              transform: [{ scale: ring.interpolate({ inputRange: [0, 1], outputRange: [1, 1.3] }) }],
+            },
+          ]}
+        />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${S.sos}. ${S.sosHint}`}
@@ -79,6 +94,7 @@ export function SosButton({ onDone }: { onDone?: () => void }) {
         <Animated.View style={[styles.fill, { height: fill }]} />
         <Text style={styles.label}>{state === 'sending' ? '…' : S.sos}</Text>
       </Pressable>
+      </View>
       <Text style={[styles.hint, { color: c.muted }]}>{state === 'sending' ? S.sosSending : S.sosHint}</Text>
       {result ? (
         <Text style={[styles.result, { color: result.ok ? c.success : c.danger }]}>{result.text}</Text>
@@ -88,7 +104,9 @@ export function SosButton({ onDone }: { onDone?: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignItems: 'center', gap: 8, paddingVertical: 8 },
+  wrap: { alignItems: 'center', gap: 8, paddingVertical: 20 },
+  stage: { width: SIZE, height: SIZE, alignItems: 'center', justifyContent: 'center' },
+  ring: { position: 'absolute', width: SIZE, height: SIZE, borderRadius: SIZE / 2 },
   button: {
     width: SIZE,
     height: SIZE,

@@ -1,7 +1,7 @@
 import { LogOut } from 'lucide-react-native';
 import { Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LanguagePicker } from '@/components/LanguagePicker';
-import { Body, Button, Card, Row } from '@/components/ui';
+import { Button, Row, Section } from '@/components/ui';
 import { deactivate as deactivatePhone } from '@/lib/control';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
@@ -29,7 +29,18 @@ export default function ProfileScreen() {
   return (
     <ScrollView style={{ backgroundColor: c.background }} contentContainerStyle={styles.scroll}>
       {session ? (
-        <Card>
+        <View style={styles.who}>
+          <View style={[styles.avatar, { backgroundColor: c.header }]}>
+            <Text style={[styles.initial, { color: c.headerText }]}>{(session.objectName || '#').trim().charAt(0).toUpperCase()}</Text>
+          </View>
+          <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
+            {session.objectName || `+${session.uniqueId}`}
+          </Text>
+          {session.companyName ? <Text style={{ color: c.muted, fontSize: 14 }}>{session.companyName}</Text> : null}
+        </View>
+      ) : null}
+      {session ? (
+        <Section>
           <Row label={S.trackingFor} value={session.objectName || `+${session.uniqueId}`} />
           <Row label={S.mobile} value={session.mobile || `+${session.uniqueId}`} />
           {session.email ? <Row label={S.email} value={session.email} /> : null}
@@ -40,13 +51,12 @@ export default function ProfileScreen() {
           ) : session.licenceEndsAt ? (
             <Row label={S.licenceUntil} value={dateOnly(session.licenceEndsAt)} />
           ) : null}
-        </Card>
+        </Section>
       ) : null}
 
-      <Card>
-        <Body style={{ fontWeight: '700' }}>{S.languageTitle}</Body>
+      <Section title={S.languageTitle}>
         <LanguagePicker />
-      </Card>
+      </Section>
 
       <View style={styles.legal}>
         <Text style={[styles.legalLink, { color: c.muted }]} onPress={() => Linking.openURL(`${WEB_URL}/privacy`).catch(() => undefined)}>
@@ -64,6 +74,10 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 14, paddingBottom: 40 },
+  who: { alignItems: 'center', gap: 6, paddingVertical: 8 },
+  avatar: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+  initial: { fontSize: 28, fontWeight: '800' },
+  name: { fontSize: 19, fontWeight: '800', textAlign: 'center' },
   legal: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, columnGap: 20, marginTop: 4 },
   legalLink: { fontSize: 13, textDecorationLine: 'underline' },
 });

@@ -1,7 +1,7 @@
 import { UploadCloud } from 'lucide-react-native';
 import { ScrollView, StyleSheet } from 'react-native';
 import { OemCard, PermissionsCard, useChecks } from '@/components/ChecksCards';
-import { Button, Card, Row } from '@/components/ui';
+import { Button, Row, Section } from '@/components/ui';
 import { kmh, metres, timeAgo } from '@/lib/format';
 import { useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
@@ -17,7 +17,7 @@ export default function DetailsScreen() {
   const queued = status?.queueSize ?? 0;
   return (
     <ScrollView style={{ backgroundColor: c.background }} contentContainerStyle={styles.scroll}>
-      <Card>
+      <Section>
         <Row label={S.lastFix} value={timeAgo(status?.lastFixAt ?? undefined)} />
         <Row label={S.accuracy} value={metres(status?.lastAcc)} />
         <Row label={S.speed} value={kmh(status?.lastSpd)} />
@@ -31,7 +31,7 @@ export default function DetailsScreen() {
         {queued > 0 ? (
           <Button title={S.uploadNow} variant="ghost" icon={<UploadCloud color={c.muted} size={18} />} onPress={() => Tracker.flush().then(refreshStatus)} />
         ) : null}
-      </Card>
+      </Section>
       <PermissionsCard checks={checks} />
       <OemCard />
     </ScrollView>
