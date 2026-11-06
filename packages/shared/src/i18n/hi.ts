@@ -3326,4 +3326,8 @@ export const HI: Record<string, string> = {
   'Time worked after the shift end, beyond a full shift. Coming late and staying late to make up is not overtime.': 'शिफ़्ट ख़त्म होने के बाद, पूरी शिफ़्ट से ज़्यादा किया गया काम। देर से आकर उसकी भरपाई के लिए रुकना ओवरटाइम नहीं है।',
   'from': 'से',
   'min past the end': 'मिनट बाद',
+  '10. Staff attendance: setting it up': '10. स्टाफ़ उपस्थिति: सेटअप',
+  '11. Staff attendance: how each day is worked out': '11. स्टाफ़ उपस्थिति: हर दिन कैसे गिना जाता है',
+  '12. Staff attendance: reports, payroll and the Developer API': '12. स्टाफ़ उपस्थिति: रिपोर्ट, पेरोल और डेवलपर API',
+  'Plate number / Staff ID': 'प्लेट नंबर / स्टाफ़ ID',
 };

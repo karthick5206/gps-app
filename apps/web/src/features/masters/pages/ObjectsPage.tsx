@@ -116,7 +116,7 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
         ) : (
           <div className="hidden sm:block" />
         )}
-        <TextField form={form} name="plateNumber" label="Plate number" placeholder="TN-01-AB-1234" />
+        <TextField form={form} name="plateNumber" label="Plate number / Staff ID" placeholder="TN-01-AB-1234" />
         {can('branches') && <ComboboxField form={form} name="branchId" label="Branch" options={branches.options} loading={branches.loading} placeholder="No branch" />}
         <TextField form={form} name="make" label="Make" />
         <TextField form={form} name="model" label="Model" />

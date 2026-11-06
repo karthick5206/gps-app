@@ -3326,4 +3326,8 @@ export const TA: Record<string, string> = {
   'Time worked after the shift end, beyond a full shift. Coming late and staying late to make up is not overtime.': 'ஷிஃப்ட் முடிந்த பின், முழு ஷிஃப்டுக்கு மேல் செய்த வேலை. தாமதமாக வந்து ஈடுசெய்ய தங்குவது கூடுதல் நேரம் அல்ல.',
   'from': 'இருந்து',
   'min past the end': 'நிமி பிறகு',
+  '10. Staff attendance: setting it up': '10. ஊழியர் வருகைப்பதிவு: அமைத்தல்',
+  '11. Staff attendance: how each day is worked out': '11. ஊழியர் வருகைப்பதிவு: ஒவ்வொரு நாளும் எப்படிக் கணக்கிடப்படுகிறது',
+  '12. Staff attendance: reports, payroll and the Developer API': '12. ஊழியர் வருகைப்பதிவு: அறிக்கைகள், சம்பளப் பட்டியல் மற்றும் டெவலப்பர் API',
+  'Plate number / Staff ID': 'பதிவு எண் / ஊழியர் ID',
 };

@@ -135,4 +135,60 @@ export const GUIDE_SECTIONS: readonly GuideSection[] = [
     ],
     notes: ['Answers only cover the vehicles you are allowed to see. If a question is not understood, VeeTrax shows example questions; if several vehicles match, it asks which one.'],
   },
+  {
+    id: 'attendance-setup',
+    title: '10. Staff attendance: setting it up',
+    intro:
+      'Staff attendance marks staff in and out automatically when their phone (VeeTrax Tracker app) or ID card reaches or leaves a work site. Nobody punches a card: the location does it. Only company admins see this; staff see their own day in the Tracker app.',
+    steps: [
+      { text: 'Draw each work site (office, store, branch, warehouse) as a geofence: Geofences → Add. Give each one its branch. A site can be any shape; draw it a little larger than the building so GPS drift near the walls does not count as leaving.' },
+      { text: 'Make sure every staff member is tracked: a phone with the VeeTrax Tracker app, or an ID card. Put their employee number in "Plate number / Staff ID" on the person (Masters → Vehicles & Objects → Edit) — it is shown as Staff ID in every report and is how payroll software matches people.' },
+      { text: 'Open Staff attendance → Settings and switch Attendance on. Choose the work-site geofences. Leave "Staff" empty to include everyone tracked by phone or ID card, or pick particular people.' },
+      { text: 'Set the default shift: working days (e.g. Monday–Saturday) and hours (e.g. 09:30–18:30). Arriving within the grace period after the start (e.g. 15 min) is still on time.' },
+      { text: 'Different hours for some branches or people? Add a Shift (e.g. "Store 10–20", "Night shift") and choose its branches and/or people. A person on a shift follows it whatever their branch; everyone else is on the default shift.' },
+      { text: 'Optional — Selfie at check-in: staff are asked in the Tracker app for a selfie, a 10-second video, or both, when they reach their site. The photo is stamped with name, time, address and coordinates. A missing selfie is flagged; it never changes the day\'s status.' },
+      { text: 'Save. From now on each day fills in by itself; the Day view shows everyone for today, refreshed every minute.' },
+    ],
+    notes: [
+      'Staff phones need location "All the time" and battery "No restrictions", or the phone may stop reporting and the day shows "No signal".',
+      'Changing settings changes how today and later days are worked out. Finished days keep the rules they were worked out with, so last month\'s figures do not move.',
+    ],
+  },
+  {
+    id: 'attendance-rules',
+    title: '11. Staff attendance: how each day is worked out',
+    intro: 'Every rule below is in Staff attendance → Settings → Rules, and each company chooses its own. Example shift used here: 09:30–18:30, grace 15 min.',
+    steps: [
+      { text: 'Status. Present = arrived by 09:45 (start + grace). Late = arrived after 09:45 (Late shows the minutes after the grace). Not arrived = the grace is over and nobody has come yet (today). Absent = never came, or worked less than the half-day hours. Half day = worked at least the half-day hours (e.g. 4 h) but less than the full-day hours (e.g. 8 h). Day off = not a working day of their shift.' },
+      { text: 'Worked time = time inside a work site + official-duty time outside. First in is when they first arrived; Last out is when they finally left (address, coordinates and a map link are shown for both).' },
+      { text: 'Right now (today only): Inside = at a work site now; Out now = away from the site during the shift; No signal = no recent location from their phone or card. Click a tile on the Day view to see only those people.' },
+      { text: 'Time away from the work site. When someone leaves during the shift for longer than the "Short exit" (e.g. 5 min), it is listed with the time they left and came back. The Tracker app asks them "Was it for work?" — Official duty counts as worked; Personal work does not. Until anyone answers it is "Not explained yet" (not worked). An admin can mark it Official duty or Personal work at any time; the admin\'s decision wins over the employee\'s answer.' },
+      { text: 'Count work sites of every branch (on by default). On: being at ANY of your work sites counts — a day at another branch or a meeting at head office is a normal working day. Off: staff count only at their own branch\'s sites (and sites without a branch); you can still list people allowed at every branch.' },
+      { text: 'Travel between work sites is official duty (on by default, up to 120 min). Going straight from one work site to a DIFFERENT one within this time counts as worked, shown as "Travel between work sites, counted automatically", and staff are not asked. Example: left the office 12:00, reached the Guindy branch 12:40 → 40 min official duty.' },
+      { text: 'Break allowance (on by default, 45 min a day). Short trips out that come back — lunch, tea — up to this total a day are not questioned and count as worked. Example: lunch 13:00–13:30 is covered; a second 30-minute trip at 16:00 would make 60 min, so it is asked about. A trip the employee already answered is never treated as a break.' },
+      { text: 'Count overtime (on by default, from 15 min). Overtime is only time worked AFTER the shift end, and only what is beyond a full shift in total — so coming late and staying late to make up is not overtime. Less than the minimum (e.g. 15 min) after the end is not counted. Examples: 09:30–20:00 → 1 h 30 min; came 11:30 (2 h late), left 20:30 → 0; left 18:40 → 0 (under 15 min). Switch it off if your company does not pay overtime.' },
+      { text: 'Early leave = left for the day before the shift end (unless the last trip out was official duty). No signal = the phone sent nothing for longer than the "No signal after" time; that time is not counted as worked, because nobody knows where the phone was.' },
+      { text: 'Per-shift values: a shift can have its own Break allowance and Travel time (e.g. 60 min break for the store, none for the office). Leave them empty to use the company setting.' },
+      { text: 'Correct a day by hand: open the person\'s day → Correct this day → Present, Half day, Absent or Day off, with a reason. The figures stay; the status changes and the day shows "Corrected". A day corrected to Absent or Day off shows no late, early leave or overtime; a half day earns no overtime.' },
+    ],
+    notes: [
+      'Days are re-checked every hour for three days, so a phone that uploads late (no internet) is still counted. After that a finished day is fixed.',
+      'Alerts: "Staff not arrived" after start + grace, "Staff absent" at the end of the shift, "Staff left work site" when someone is out longer than a short exit, "Staff still out" after the reminder time. Choose who gets them in Alert Settings.',
+    ],
+  },
+  {
+    id: 'attendance-payroll',
+    title: '12. Staff attendance: reports, payroll and the Developer API',
+    steps: [
+      { text: 'Reports → Staff attendance has five reports, each as Excel, PDF or CSV and each can be e-mailed on a schedule: Daily attendance (one line per person per day), Attendance summary (per person for the period, with attendance %), Payroll, Time outside (every trip out and who decided it) and Corrections (every hand correction with its reason).' },
+      { text: 'Payroll report — made for salary processing, one line per person: Working days (days due), Present days (on time or late), Half days, Absent days, Weekly offs, Payable days = present + half of the half days + weekly offs, LOP days (loss of pay) = absent + half of the half days, Late days and minutes, Early-leave days and minutes, Worked hours, Overtime hours, Official-duty hours and Unexplained hours (decimal hours, e.g. 7.75), and Corrected days.' },
+      { text: 'Run it for your pay period (e.g. 1st–30th), check the Corrections, then give the Excel to your accountant or import the CSV into your payroll software. Staff are matched by Staff ID.' },
+      { text: 'Connect payroll software directly (Developer API): Administration → Developer API → Create API key, tick "Staff attendance" (read:attendance). Give the key to your payroll vendor. The key can only read attendance and payroll figures; it cannot change anything.' },
+      { text: 'The payroll software then asks for the period: GET https://app.veetrax.com/api/v1/attendance/payroll?from=2026-11-01&to=2026-11-30 with the header "Authorization: Bearer <your key>". Add &format=csv for a spreadsheet file, &branchId=… for one branch, or &staffIds=… for particular people. GET /api/v1/attendance/daily gives the day-by-day lines. Up to 62 days per request; full field list at https://app.veetrax.com/api/v1/openapi.json.' },
+    ],
+    notes: [
+      'Holidays and approved leave are not entered in VeeTrax yet: correct such days to "Day off" (paid) before running payroll, or handle them in your payroll software.',
+      'Revoke an API key at any time in Administration → Developer API; requests with it stop at once.',
+    ],
+  },
 ];
