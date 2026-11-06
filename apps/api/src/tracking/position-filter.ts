@@ -38,6 +38,8 @@ export interface TrackPoint {
   lat: number;
   lng: number;
   fixTime: number; // epoch ms
+  /** Phones: accuracy radius of this fix (m). */
+  accuracyM?: number | null;
 }
 
 /** Per-object state the processor carries between positions. */
@@ -114,7 +116,13 @@ export function filterPosition(input: FilterInput, state: TrackState, ctx: Filte
     const impliedKph = (distance / dtSec) * 3.6;
     const acc = input.accuracyM ?? null;
     const phoneSpike = acc !== null && input.speedKph < PHONE_STILL_KPH && impliedKph > PHONE_SPIKE_IMPLIED_KPH && distance > acc;
-    if ((impliedKph > MAX_PLAUSIBLE_SPEED_KPH[ctx.objectType] || phoneSpike) && state.jumpStreak + 1 < JUMP_STREAK_ACCEPT) {
+    // A sharp GPS fix far from a rough (Wi-Fi / cell) anchor: the anchor was the wrong one, so take the new fix now
+    // instead of dropping it as a jump.
+    const anchorAcc = anchor.accuracyM ?? null;
+    const sharpBeatsRough = acc !== null && acc <= WEAK_ACCURACY_M && anchorAcc !== null && anchorAcc > PHONE_COARSE_ACCURACY_M && distance > anchorAcc;
+    if (sharpBeatsRough) {
+      // accepted as is (no jump, no drift)
+    } else if ((impliedKph > MAX_PLAUSIBLE_SPEED_KPH[ctx.objectType] || phoneSpike) && state.jumpStreak + 1 < JUMP_STREAK_ACCEPT) {
       flags |= POSITION_FLAGS.JUMP;
       jumpStreak = state.jumpStreak + 1;
     } else if (acc !== null && acc > PHONE_COARSE_ACCURACY_M && distance < acc * PHONE_COARSE_MOVE_FACTOR) {
@@ -132,7 +140,7 @@ export function filterPosition(input: FilterInput, state: TrackState, ctx: Filte
   }
 
   const usable = (flags & (POSITION_FLAGS.INVALID_FIX | POSITION_FLAGS.JUMP | POSITION_FLAGS.DRIFT)) === 0;
-  const lastValid = usable ? { lat: input.lat, lng: input.lng, fixTime: input.fixTime } : anchor;
+  const lastValid = usable ? { lat: input.lat, lng: input.lng, fixTime: input.fixTime, ...(input.accuracyM != null ? { accuracyM: input.accuracyM } : {}) } : anchor;
   const trusted = (flags & (POSITION_FLAGS.INVALID_FIX | POSITION_FLAGS.JUMP)) === 0;
   return {
     flags,

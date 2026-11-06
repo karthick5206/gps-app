@@ -124,8 +124,53 @@ export function parsePoint(raw: unknown, now: number): TrackerPoint | null {
   };
 }
 
+/** A rough fix (Android's Wi-Fi / cell fallback) is coarser than this. */
+const SPIKE_COARSE_M = 50;
+/** A sharp GPS fix is at least this good. */
+const SPIKE_SHARP_M = 25;
+/** The sharp fix that disproves a rough one must follow within this time… */
+const SPIKE_LOOKAHEAD_MS = 120_000;
+/** …and be this fast away from it (nobody carrying a phone moves faster), */
+const SPIKE_IMPOSSIBLE_KPH = 200;
+/** …and further than this (and 3 × the rough fix's own error radius). */
+const SPIKE_MIN_M = 300;
+/** Two sharp fixes this close agree with each other. */
+const SPIKE_AGREE_M = 200;
+
+const distM = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const r = Math.PI / 180;
+  const h = Math.sin(((b.lat - a.lat) * r) / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lng - a.lng) * r) / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+};
+const sharp = (p: TrackerPoint) => p.acc !== null && p.acc !== undefined && p.acc <= SPIKE_SHARP_M && !p.mock && p.flt !== 'inaccurate' && p.flt !== 'mock';
+
+/**
+ * Rough-fix spikes in one upload (points sorted by time): a Wi-Fi / cell fix (accuracy over 50 m) that a sharp GPS fix
+ * arriving soon after shows to be far away at an impossible speed — seen: a 77 m "accurate" fix 2.5 km off, then GPS
+ * back 4 s later. Only the rough fix is dropped. A real move after a pause is kept: its rough fix lies near the sharp
+ * ones that follow, and a long pause makes the distance plausible. The sharp fix must be confirmed by the one after it
+ * when there is one, so a single odd GPS fix never removes anything.
+ */
+export function roughSpikes(points: TrackerPoint[]): Set<number> {
+  const out = new Set<number>();
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    if (p.acc === null || p.acc === undefined || p.acc <= SPIKE_COARSE_M) continue;
+    let j = i + 1;
+    while (j < points.length && points[j].t - p.t <= SPIKE_LOOKAHEAD_MS && !sharp(points[j])) j++;
+    if (j >= points.length || points[j].t - p.t > SPIKE_LOOKAHEAD_MS) continue;
+    const q = points[j];
+    const after = points.slice(j + 1).find(sharp);
+    if (after && distM(q, after) > SPIKE_AGREE_M + ((after.t - q.t) / 1000) * (SPIKE_IMPOSSIBLE_KPH / 3.6)) continue;
+    const d = distM(p, q);
+    const kph = (d / Math.max((q.t - p.t) / 1000, 1)) * 3.6;
+    if (d > Math.max(SPIKE_MIN_M, p.acc * 3) && kph > SPIKE_IMPOSSIBLE_KPH) out.add(i);
+  }
+  return out;
+}
+
 /** One app point → the pipeline's position. Inaccurate and mock fixes are kept but marked invalid. */
-export function toNormalized(p: TrackerPoint, uniqueId: string, receivedAt: number, config: TrackerConfig): NormalizedPosition {
+export function toNormalized(p: TrackerPoint, uniqueId: string, receivedAt: number, config: TrackerConfig, spike = false): NormalizedPosition {
   const accurate = p.acc === null || p.acc === undefined || p.acc <= config.maxAccuracyM;
   const attributes: Record<string, unknown> = {};
   if (p.acc !== null && p.acc !== undefined) attributes.accuracyM = Math.round(p.acc * 10) / 10;
@@ -134,6 +179,7 @@ export function toNormalized(p: TrackerPoint, uniqueId: string, receivedAt: numb
   if (p.mock) attributes.mock = true;
   if (p.sos) attributes.alarm = 'sos';
   if (p.flt) attributes.phoneFilter = p.flt;
+  if (spike) attributes.serverFilter = 'spike';
   if (p.prov) attributes.provider = p.prov;
   if (p.sacc !== null && p.sacc !== undefined) attributes.speedAccuracy = Math.round(p.sacc * 10) / 10;
   if (p.mode) attributes.appMode = p.mode;
@@ -150,7 +196,7 @@ export function toNormalized(p: TrackerPoint, uniqueId: string, receivedAt: numb
     satellites: p.sat ?? null,
     // Too vague or fake: stored, but never used for the map, trips or alerts. Jumps and parked drift are judged by
     // the processor's own filter (the phone's verdict is kept in attributes for analysis).
-    valid: accurate && !p.mock && p.flt !== 'inaccurate' && p.flt !== 'mock',
+    valid: accurate && !spike && !p.mock && p.flt !== 'inaccurate' && p.flt !== 'mock',
     ignition: null,
     attributes,
     // Every app point as received, kept in RawPacket (7 days) for analysis.

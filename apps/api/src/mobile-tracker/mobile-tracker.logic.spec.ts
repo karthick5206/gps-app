@@ -1,5 +1,5 @@
 import { sanitizeTrackerEvents, sanitizeTrackerHealth, trackerHealthIssues } from '@veetracer/shared';
-import { trackerOnOffChanges, codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, phoneReturn, phoneReturnMessage, toNormalized } from './mobile-tracker.logic';
+import { trackerOnOffChanges, codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, phoneReturn, phoneReturnMessage, roughSpikes, toNormalized, type TrackerPoint } from './mobile-tracker.logic';
 
 const NOW = Date.parse('2026-10-21T06:00:00Z');
 
@@ -194,5 +194,38 @@ describe('phoneReturnMessage', () => {
   it('leaves out short or unknown gaps', () => {
     expect(phoneReturnMessage(M, null, 'REINSTALLED', 60_000)).toBe('Tracker app reinstalled on +91 90000 00000: it was removed or its data was cleared, then set up again on the same phone.');
     expect(phoneReturnMessage(M, null, 'SIGNED_OUT', null)).toBe('Tracker app activated again on +91 90000 00000 after it was signed out.');
+  });
+});
+
+describe('roughSpikes', () => {
+  const T = Date.UTC(2026, 10, 6, 8, 23, 0);
+  const pt = (sec: number, lat: number, lng: number, acc: number, extra: Partial<TrackerPoint> = {}): TrackerPoint => ({ t: T + sec * 1000, lat, lng, acc, ...extra });
+
+  it('drops the real rough fix 2.5 km off (parthan, 6 Nov 13:55:42) and keeps the GPS fixes after it', () => {
+    const pts = [
+      pt(0, 12.95883, 80.21383, 200, { flt: 'inaccurate' }),
+      pt(31, 12.95957, 80.21453, 200, { flt: 'inaccurate' }),
+      pt(62, 12.94701, 80.19561, 77.6),
+      pt(66, 12.9619, 80.2153, 4.3, { flt: 'jump' }),
+      pt(70, 12.96206, 80.21536, 4.1, { flt: 'jump' }),
+      pt(73, 12.96222, 80.21542, 3.8),
+    ];
+    expect([...roughSpikes(pts)]).toEqual([2]);
+    expect(toNormalized(pts[2], 'x', T, DEFAULT_TRACKER_CONFIG, true)).toMatchObject({ valid: false, attributes: { serverFilter: 'spike' } });
+  });
+
+  it('keeps a real move after a pause: the rough fix lies near the GPS fixes that follow', () => {
+    const pts = [pt(0, 12.97199, 80.1855, 13), pt(600, 12.9619, 80.2153, 70), pt(605, 12.96206, 80.21536, 5), pt(608, 12.96222, 80.21542, 4)];
+    expect(roughSpikes(pts).size).toBe(0);
+  });
+
+  it('keeps a rough fix when GPS only returns much later (a long gap makes the distance possible)', () => {
+    const pts = [pt(0, 12.94701, 80.19561, 77.6), pt(600, 12.9619, 80.2153, 4)];
+    expect(roughSpikes(pts).size).toBe(0);
+  });
+
+  it('a single odd GPS fix that the next one contradicts removes nothing', () => {
+    const pts = [pt(0, 12.94701, 80.19561, 80), pt(4, 12.9619, 80.2153, 4), pt(8, 12.94705, 80.19565, 5)];
+    expect(roughSpikes(pts).size).toBe(0);
   });
 });

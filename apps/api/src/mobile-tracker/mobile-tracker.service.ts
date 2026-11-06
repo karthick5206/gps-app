@@ -29,6 +29,7 @@ import {
   normalizeMobile,
   parsePoint,
   rejectReason,
+  roughSpikes,
   summarizeRejected,
   toNormalized,
   TrackerConfig,
@@ -499,7 +500,8 @@ export class MobileTrackerService {
     if (parsed.length) {
       const pipeline = this.redis.client.pipeline();
       const maxLen = positionsStreamMaxLen();
-      for (const p of parsed) pipeline.xadd(RedisKeys.positionsStream, 'MAXLEN', '~', maxLen, '*', 'data', JSON.stringify(toNormalized(p, s.uniqueId, now, config)), 'remote', 'tracker-app');
+      const spikes = roughSpikes(parsed);
+      parsed.forEach((p, i) => pipeline.xadd(RedisKeys.positionsStream, 'MAXLEN', '~', maxLen, '*', 'data', JSON.stringify(toNormalized(p, s.uniqueId, now, config, spikes.has(i))), 'remote', 'tracker-app'));
       // The phone deletes what we confirm, so a failed write must not be confirmed.
       const results = await pipeline.exec();
       if (!results || results.some(([error]) => error)) throw new ServiceUnavailableException('Positions could not be saved, try again.');

@@ -182,3 +182,23 @@ describe('filterPosition', () => {
     expect(r.next).toBe(anchored);
   });
 });
+
+describe('filterPosition: sharp GPS after a rough anchor', () => {
+  const T = Date.UTC(2026, 10, 6, 8, 25, 42);
+  const person = { objectType: 'PERSON' as const, thresholds: DEFAULT_THRESHOLDS, now: T + 60_000 };
+  const phone = (sec: number, lat: number, lng: number, acc: number, kph = 18): FilterInput => ({ fixTime: T + sec * 1000, lat, lng, speedKph: kph, valid: true, satellites: null, ignition: null, accuracyM: acc });
+
+  it('a sharp fix far from a rough (77 m) anchor is taken at once, not flagged as a jump (parthan, 6 Nov 13:55:46)', () => {
+    const roughAnchor: TrackState = { ...EMPTY_TRACK_STATE, lastValid: { lat: 12.94701, lng: 80.19561, fixTime: T, accuracyM: 77.6 }, lastFixTime: T };
+    const r = filterPosition(phone(4, 12.9619, 80.2153, 4.3), roughAnchor, person);
+    expect(r.flags & POSITION_FLAGS.JUMP).toBe(0);
+    expect(r.lat).toBe(12.9619);
+    expect(r.next.lastValid).toMatchObject({ lat: 12.9619, accuracyM: 4.3 });
+  });
+
+  it('a sharp anchor still rejects an impossible sharp jump', () => {
+    const sharpAnchor: TrackState = { ...EMPTY_TRACK_STATE, lastValid: { lat: 12.9619, lng: 80.2153, fixTime: T, accuracyM: 4 }, lastFixTime: T };
+    const r = filterPosition(phone(4, 12.94701, 80.19561, 5), sharpAnchor, person);
+    expect(r.flags & POSITION_FLAGS.JUMP).toBe(POSITION_FLAGS.JUMP);
+  });
+});
