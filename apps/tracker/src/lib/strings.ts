@@ -102,6 +102,7 @@ const en = {
   sending: 'Sending…',
   videoDone: (time: string) => `Video recorded at ${time}`,
   cameraDenied: 'Allow the camera for VeeTrax Tracker in your phone settings to take the selfie.',
+  cameraFailed: 'The camera did not start. Close other apps that use the camera and try again.',
   requiredTitle: 'Tracking is required',
   requiredBody: 'Your company requires location tracking on this phone, so it can\'t be switched off here. Please ask your administrator.',
   stopConfirmTitle: 'Stop tracking?',
