@@ -16,7 +16,8 @@ import {
   type VehicleGroupDto,
 } from '@veetracer/shared';
 import { router } from 'expo-router';
-import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, LayersIcon, LocateFixedIcon, MapPinIcon, MapPinPlusIcon, MaximizeIcon, SearchIcon, XIcon, SparklesIcon } from 'lucide-react-native';
+import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, LayersIcon, LocateFixedIcon, MapPinIcon, MapPinPlusIcon, MaximizeIcon, SearchIcon, TagIcon, XIcon, SparklesIcon } from 'lucide-react-native';
+import * as SecureStore from 'expo-secure-store';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
@@ -106,9 +107,20 @@ export default function LiveMapScreen() {
   const now = useNow();
   const connection = useRealtimeStatus();
   const map = useRef<FleetMapHandle>(null);
+  // Marker labels (registration / person name) on every marker, or none; remembered on this phone.
+  const [labels, setLabels] = useState(true);
+  useEffect(() => {
+    SecureStore.getItemAsync('vt.live.labels').then((v) => v === '0' && setLabels(false)).catch(() => undefined);
+  }, []);
+  const toggleLabels = () => {
+    const next = !labels;
+    setLabels(next);
+    SecureStore.setItemAsync('vt.live.labels', next ? '1' : '0').catch(() => undefined);
+  };
 
   const [height, setHeight] = useState(0);
-  const [snap, setSnap] = useState<SheetSnap>('half');
+  // Starts low (search bar only) so the map gets the screen; expand for status, filters and the list.
+  const [snap, setSnap] = useState<SheetSnap>('peek');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<StatusFilter>('ALL');
   const [branchId, setBranchId] = useState<string | null>(null);
@@ -215,9 +227,11 @@ export default function LiveMapScreen() {
   const labelOf = (opts: PickOption[], v: string | null, all: string) => (v ? (opts.find((o) => o.value === v)?.label ?? all) : all);
   const filtersActive = !!(q || branchId || groupId || type || status !== 'ALL');
 
+  const compact = snap === 'peek';
   const listHeader = (
     <View style={{ paddingHorizontal: SPACE.lg, gap: SPACE.md, paddingBottom: SPACE.md }}>
-      <View style={[styles.search, { borderColor: c.border, backgroundColor: c.background }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+      <View style={[styles.search, { flex: 1, borderColor: c.border, backgroundColor: c.background }]}>
         <SearchIcon size={18} color={c.mutedForeground} />
         <TextInput
           value={q}
@@ -235,6 +249,29 @@ export default function LiveMapScreen() {
           </Pressable>
         )}
       </View>
+        <Pressable
+          onPress={() => setSnap(compact ? 'half' : 'peek')}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: !compact }}
+          accessibilityLabel={compact ? t('Show status and list') : t('Show more map')}
+          style={[styles.expander, { borderColor: c.border, backgroundColor: compact ? c.primary : c.background }]}
+        >
+          {compact ? <ChevronUpIcon size={20} color={c.primaryForeground} /> : <ChevronDownIcon size={20} color={c.foreground} />}
+        </Pressable>
+      </View>
+      {compact ? (
+        <Pressable onPress={() => setSnap('half')} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+          <Text size="sm" tone="muted" style={{ flex: 1 }} numberOfLines={1}>
+            {t('{{count}} shown', { count: visible.length })}
+            {attention.length ? `  ·  ${t('{{count}} need attention', { count: attention.length })}` : ''}
+          </Text>
+          <Text size="sm" tone="primary" weight="600">
+            {t('Expand')}
+          </Text>
+        </Pressable>
+      ) : (
+        <>
       <NeedsAttention items={attention} onPick={select} />
       <StatusCards counts={counts} total={base.length} status={status} onStatus={setStatus} />
       <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
@@ -263,6 +300,8 @@ export default function LiveMapScreen() {
           </Pressable>
         )}
       </View>
+        </>
+      )}
     </View>
   );
 
@@ -298,7 +337,7 @@ export default function LiveMapScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.background }} onLayout={(e) => setHeight(e.nativeEvent.layout.height)}>
-      <FleetMap ref={map} objects={visible} selectedId={selectedId} onSelect={select} onViewChange={setView}>
+      <FleetMap ref={map} objects={visible} selectedId={selectedId} onSelect={select} onViewChange={setView} showLabels={labels}>
         {showPois && can('pois') && (
           <PoiLayer
             pois={pois.data?.items ?? []}
@@ -327,6 +366,15 @@ export default function LiveMapScreen() {
         </Pressable>
         <Pressable accessibilityLabel={t('Show all vehicles')} onPress={() => map.current?.fitAll(visible)} style={[styles.fab, { backgroundColor: c.card, borderColor: c.border }]}>
           <MaximizeIcon size={20} color={c.foreground} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityState={{ checked: labels }}
+          accessibilityLabel={labels ? t('Hide marker labels') : t('Show marker labels')}
+          onPress={toggleLabels}
+          style={[styles.fab, labels ? { backgroundColor: c.primary, borderColor: c.primary } : { backgroundColor: c.card, borderColor: c.border }]}
+        >
+          <TagIcon size={20} color={labels ? '#fff' : c.foreground} />
         </Pressable>
         <Pressable
           accessibilityLabel={t('Map type')}
@@ -434,6 +482,7 @@ const styles = StyleSheet.create({
   fab: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, elevation: 3 },
   mapTypes: { borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.md, padding: 4, gap: 2, minWidth: 120, elevation: 3 },
   mapTypeOption: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: RADIUS.sm },
+  expander: { width: 46, height: 46, borderRadius: RADIUS.md, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   search: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, height: 46, borderWidth: 1, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 32, borderRadius: RADIUS.full, borderWidth: 1 },

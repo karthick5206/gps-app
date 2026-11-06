@@ -5,7 +5,7 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { PauseIcon, PlayIcon, RouteIcon, SkipBackIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { SeekBar } from '@/components/SeekBar';
 import { Card, Chips, EmptyState, ErrorBanner, Text } from '@/components/ui';
 import { AlertTypeIcon } from '@/features/alerts/alert-icons';
@@ -17,6 +17,7 @@ import { PlaybackEngine } from '@/features/history/playback-engine';
 import { presetRange, type RangePreset } from '@/features/history/time-range';
 import { useDisplay } from '@/features/display/display';
 import { liveStore } from '@/features/live/live-store';
+import { useStepTick } from '@/features/map/FleetMap';
 import { iconKind, iconName, rotates } from '@/features/map/vehicle-icons';
 import { VEHICLE_ICON_IMAGES } from '@/features/map/vehicle-icon-images';
 import { api, errorMessage } from '@/lib/api';
@@ -106,14 +107,21 @@ export default function HistoryScreen() {
     () => ({ type: 'FeatureCollection', features: (h?.stops ?? []).map((s) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lng, s.lat] }, properties: { idle: s.ignitionOn } })) }),
     [h],
   );
-  const kind = vehicle ? iconKind(vehicle) : 'OTHER';
+  // People step while the replay plays.
+  const stepTick = useStepTick(!!state?.playing && vehicle?.type === 'PERSON');
   const marker = useMemo<GeoJSON.FeatureCollection>(() => {
     if (!sample) return { type: 'FeatureCollection', features: [] };
+    // People walk or run (over 10 km/h) by the speed at this point of the replay, stepping as playback moves.
+    const kind = vehicle ? iconKind({ type: vehicle.type, vehicleType: vehicle.vehicleType, speedKph: sample.speed }) : 'OTHER';
+    const icon = iconName(kind, trackStatus(sample.status), stepTick);
     return {
       type: 'FeatureCollection',
-      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [sample.lng, sample.lat] }, properties: { icon: iconName(kind, trackStatus(sample.status)), rot: rotates(kind) ? sample.bearing : 0 } }],
+      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [sample.lng, sample.lat] }, properties: { icon, rot: rotates(kind) ? sample.bearing : 0 } }],
     };
-  }, [sample, kind]);
+  }, [sample, vehicle, stepTick]);
+  // Most of the screen for the map; the lists scroll below it.
+  const { height: screenH } = useWindowDimensions();
+  const mapH = Math.max(300, Math.round(screenH * 0.5));
 
   const cycleRate = () => {
     if (!engine || !state) return;
@@ -137,7 +145,7 @@ export default function HistoryScreen() {
         />
       </View>
 
-      <View style={{ height: 300 }}>
+      <View style={{ height: mapH }}>
         <Map style={{ flex: 1 }} mapStyle={mapStyle} logo={false} attributionPosition={{ bottom: 4, left: 8 }} touchPitch={false}>
           <Camera ref={camera} initialViewState={vehicle?.lat != null && vehicle.lng != null ? { center: [vehicle.lng, vehicle.lat], zoom: 12 } : { center: [78.9, 21.5], zoom: 4 }} />
           <Images images={VEHICLE_ICON_IMAGES} />

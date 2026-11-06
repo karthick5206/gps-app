@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
-import { MapTools } from '@/components/map-tools';
+import { MapTools, vehicleCaption } from '@/components/map-tools';
+import { storage } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/features/auth/auth-context';
 import { named, useEntityOptions } from '@/features/masters/use-options';
@@ -63,12 +64,20 @@ function useMapController(containerRef: RefObject<HTMLDivElement | null>, onSele
   }, [containerRef]);
 
   useEffect(() => controller?.setReducedMotion(reducedMotion), [controller, reducedMotion]);
+  // Marker labels (registration / person name) on or off; remembered in this browser.
+  const [labels, setLabelsState] = useState(() => storage.get('vt.live.labels') !== '0');
+  const toggleLabels = () =>
+    setLabelsState((v) => {
+      storage.set('vt.live.labels', v ? '0' : '1');
+      return !v;
+    });
+  useEffect(() => controller?.setLabels(labels), [controller, labels]);
   return { controller, unsupported };
 }
 
 export function LiveMapPage() {
   const { t } = useTranslation();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const [params] = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -200,7 +209,14 @@ export function LiveMapPage() {
       {!unsupported && (
         <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-2">
           <LiveMapOverlays controller={controller} onFocusObject={pick} />
-          <MapTools snapshot={controller ? () => controller.snapshot() : null} fileName={() => `live-map-${new Date().toISOString().slice(0, 16).replace(':', '-')}.png`} fullscreen={pageRef} />
+          <MapTools snapshot={controller ? () => controller.snapshot() : null} fileName={() => `live-map-${new Date().toISOString().slice(0, 16).replace(':', '-')}.png`}
+            fullscreen={pageRef}
+            labels={{ on: labels, onToggle: toggleLabels }}
+            caption={() => {
+              const o = activeId ? liveStore.get(activeId) : undefined;
+              return { title: me?.company.name ?? '', lines: [t('Live map'), o && vehicleCaption(t, o, o.name), o && t('Speed {{speed}} km/h', { speed: Math.round(o.speedKph) })] };
+            }}
+          />
         </div>
       )}
 

@@ -20,7 +20,7 @@ import {
   styleUrl,
 } from './map-style';
 import { basemapStore } from './basemap-store';
-import { createVehicleIcon, iconKind, parseIconId, rotates } from './vehicle-icons';
+import { createPersonFigure, createVehicleIcon, iconId, iconKind, parseIconId, rotates } from './vehicle-icons';
 import { HALO_STATUSES, haloState, markerBadge } from './marker-motion';
 
 const GLIDE_MS = 1000;
@@ -28,6 +28,8 @@ const FRAME_MS = 1000 / 30; // source updates capped at 30 fps
 const MAX_ANIMATED = 1000;
 /** Status halos only repaint (no data updates) at ≤20 fps; above this many visible objects they stay still. */
 const PULSE_FRAME_MS = 1000 / 20;
+/** Moving people swap between two steps: runners every tick, walkers every other tick (450 ms). */
+const WALK_STEP_MS = 225;
 const MAX_PULSING = 1500;
 /** Badges show durations; refresh them this often. */
 const BADGE_REFRESH_MS = 60_000;
@@ -118,6 +120,10 @@ export class MapController {
   private pulseRaf = 0;
   private lastPulse = 0;
   private badgeTimer = 0;
+  private walkTimer = 0;
+  private walkTick = 0;
+  /** Marker labels (plate / person name): on = every marker at every zoom, off = none. */
+  private labels = true;
   private fittedOnce = false;
   private unsubscribe: () => void;
   private styleKey: string;
@@ -164,12 +170,14 @@ export class MapController {
     this.badgeTimer = window.setInterval(() => {
       if (!document.hidden) this.rebuild();
     }, BADGE_REFRESH_MS);
+    this.walkTimer = window.setInterval(() => this.walk(), WALK_STEP_MS);
     this.unsubscribe = () => {
       offLive();
       offDisplay();
       offBasemap();
       document.removeEventListener('visibilitychange', this.onVisibility);
       clearInterval(this.badgeTimer);
+      clearInterval(this.walkTimer);
     };
   }
 
@@ -298,6 +306,7 @@ export class MapController {
       },
       paint: { 'text-halo-width': 1.5 },
     });
+    this.applyLabels();
     map.addLayer({
       id: LAYERS.badge,
       type: 'symbol',
@@ -360,6 +369,22 @@ export class MapController {
     map.setPaintProperty(LAYERS.circle, 'icon-opacity', ['match', ['get', 'status'], 'OFFLINE', 0.6, 1]);
   }
 
+  /**
+   * Walking people: swaps the moving / overspeeding person pictures between two steps, so every walking figure on the
+   * map animates. Only images the map already holds are touched; still with reduced motion or a hidden tab.
+   */
+  private walk() {
+    if (!this.loaded || this.reducedMotion || document.hidden) return;
+    const tick = ++this.walkTick;
+    const outline = cssToken('--map-marker-stroke') || '#ffffff';
+    for (const status of ['RUNNING', 'OVERSPEED'] as const) {
+      const run = iconId('RUNNER', status, this.theme);
+      if (this.map.hasImage(run)) this.map.updateImage(run, createPersonFigure(status, this.theme, outline, tick % 2 ? 'runB' : 'runA'));
+      const walk = iconId('PERSON', status, this.theme);
+      if (tick % 2 === 0 && this.map.hasImage(walk)) this.map.updateImage(walk, createPersonFigure(status, this.theme, outline, tick % 4 ? 'walkB' : 'walkA'));
+    }
+  }
+
   /** Whether halos may move: not with reduced motion, a hidden tab, or a very large visible fleet. */
   private canPulse(): boolean {
     return !this.reducedMotion && !document.hidden && this.visible.size <= MAX_PULSING;
@@ -418,6 +443,21 @@ export class MapController {
       this.rebuild();
     });
     this.map.setStyle(style, { transformStyle: keepOwnLayers });
+  }
+
+  /** Shows every marker's label (registration number, or the person's name) at every zoom, or hides them all. */
+  setLabels(on: boolean) {
+    this.labels = on;
+    this.applyLabels();
+  }
+
+  private applyLabels() {
+    const map = this.map;
+    if (!this.loaded || !map.getLayer(LAYERS.label)) return;
+    map.setLayoutProperty(LAYERS.label, 'visibility', this.labels ? 'visible' : 'none');
+    map.setLayerZoomRange(LAYERS.label, 0, 24);
+    map.setLayoutProperty(LAYERS.label, 'text-allow-overlap', true);
+    map.setLayoutProperty(LAYERS.label, 'text-ignore-placement', true);
   }
 
   setReducedMotion(reduced: boolean) {

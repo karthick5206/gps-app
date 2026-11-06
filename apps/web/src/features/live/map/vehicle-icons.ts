@@ -7,7 +7,7 @@ import type { ResolvedTheme } from '@/features/theme/theme-store';
  * Image id: `veh:<KIND>:<STATUS>:<theme>`, so status and theme changes just switch images.
  */
 
-export const ICON_KINDS = ['CAR', 'BIKE', 'TRUCK', 'BUS', 'SCHOOL_BUS', 'VAN', 'AUTO', 'OTHER', 'PERSON', 'ASSET', 'PET'] as const;
+export const ICON_KINDS = ['CAR', 'BIKE', 'TRUCK', 'BUS', 'SCHOOL_BUS', 'VAN', 'AUTO', 'OTHER', 'PERSON', 'RUNNER', 'ASSET', 'PET'] as const;
 export type IconKind = (typeof ICON_KINDS)[number];
 
 const ROTATING: ReadonlySet<IconKind> = new Set(['CAR', 'BIKE', 'TRUCK', 'BUS', 'SCHOOL_BUS', 'VAN', 'AUTO', 'OTHER']);
@@ -16,7 +16,11 @@ const PREFIX = 'veh:';
 /** Canvas size in device pixels; registered with pixelRatio 2 → 32 CSS px before `icon-size` scaling. */
 const SIZE = 64;
 
-export function iconKind(o: Pick<LiveObject, 'type' | 'vehicleType'>): IconKind {
+/** A person moving faster than this (km/h) is drawn running instead of walking. */
+export const PERSON_RUN_KPH = 10;
+
+export function iconKind(o: Pick<LiveObject, 'type' | 'vehicleType'> & { speedKph?: number }): IconKind {
+  if (o.type === 'PERSON' && (o.speedKph ?? 0) > PERSON_RUN_KPH) return 'RUNNER';
   if (o.type === 'PERSON' || o.type === 'ASSET' || o.type === 'PET') return o.type;
   return (o.vehicleType as IconKind | null) ?? 'OTHER';
 }
@@ -133,7 +137,68 @@ function badgeGlyph(ctx: CanvasRenderingContext2D, kind: IconKind) {
   }
 }
 
+/**
+ * A full-body person figure (64 px canvas, drawn @2x): standing, or one of two walking steps. Same geometry as the
+ * mobile map's person PNGs (apps/mobile/scripts/gen-person-icons.mjs) — keep them in step.
+ */
+export type PersonPose = 'stand' | 'walkA' | 'walkB' | 'runA' | 'runB';
+type Seg = [number, number, number, number, number]; // x1, y1, x2, y2, width
+export const PERSON_POSES: Record<PersonPose, { head: [number, number]; segs: Seg[] }> = {
+  stand: { head: [32, 10], segs: [[32, 19, 32, 38, 10], [32, 22, 25, 37, 5], [32, 22, 39, 37, 5], [32, 37, 28, 58, 6.5], [32, 37, 36, 58, 6.5]] },
+  walkA: { head: [33, 10], segs: [[32.5, 19, 31.5, 38, 10], [32, 22, 24, 33, 5], [32, 22, 40, 35, 5], [31.5, 37, 23, 57, 6.5], [31.5, 37, 41, 57, 6.5]] },
+  walkB: { head: [33, 10], segs: [[32.5, 19, 31.5, 38, 10], [32, 22, 27, 36, 5], [32, 22, 37, 36, 5], [31.5, 37, 29, 58, 6.5], [31.5, 37, 35, 58, 6.5]] },
+  // Running: leaning forward, bent arms and knees, long stride (A: legs apart, B: legs passing).
+  runA: {
+    head: [37, 11],
+    segs: [[34.5, 20, 30, 37, 10], [33.5, 23, 26, 28, 5], [26, 28, 23, 35, 4.5], [33.5, 23, 40, 30, 5], [40, 30, 46, 24, 4.5], [30, 36, 23, 45, 6.5], [23, 45, 15, 43, 6], [30, 36, 40, 44, 6.5], [40, 44, 41, 56, 6]],
+  },
+  runB: {
+    head: [36, 10],
+    segs: [[33.5, 19, 30.5, 37, 10], [33, 22, 29, 30, 5], [29, 30, 33, 35, 4.5], [33, 22, 37, 29, 5], [37, 29, 42, 26, 4.5], [30.5, 36, 34, 46, 6.5], [34, 46, 30, 57, 6], [30.5, 36, 27, 46, 6.5], [27, 46, 21, 51, 6]],
+  },
+};
+/** Moving people walk; everyone else stands. */
+export const personPose = (status: MovementStatus, running = false): PersonPose => (status === 'RUNNING' || status === 'OVERSPEED' ? (running ? 'runA' : 'walkA') : 'stand');
+
+export function createPersonFigure(status: MovementStatus, theme: ResolvedTheme, outline: string, pose: PersonPose = personPose(status)): ImageData {
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE;
+  canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D unavailable');
+  const color = STATUS_META[status][theme];
+  const f = PERSON_POSES[pose];
+  ctx.lineCap = 'round';
+  // Ground shadow under the feet.
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(32, 60, 11, 2.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  const draw = (extra: number, style: string) => {
+    ctx.strokeStyle = style;
+    ctx.fillStyle = style;
+    for (const [x1, y1, x2, y2, w] of f.segs) {
+      ctx.lineWidth = w + extra;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(f.head[0], f.head[1], 6.5 + extra / 2, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.3)';
+  ctx.shadowBlur = 3;
+  draw(4, outline); // outline so the figure reads on any basemap
+  ctx.restore();
+  draw(0, color);
+  return ctx.getImageData(0, 0, SIZE, SIZE);
+}
+
 export function createVehicleIcon(kind: IconKind, status: MovementStatus, theme: ResolvedTheme, outline: string): ImageData {
+  if (kind === 'PERSON' || kind === 'RUNNER') return createPersonFigure(status, theme, outline, personPose(status, kind === 'RUNNER'));
   const canvas = document.createElement('canvas');
   canvas.width = SIZE;
   canvas.height = SIZE;

@@ -1,4 +1,6 @@
 import { STATUS_META, TRACK_STATUS_CODES } from '@veetracer/shared';
+import { ChevronUpIcon, ListIcon } from 'lucide-react-native';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/ui';
@@ -29,11 +31,34 @@ function Swatch({ color, label, dot = false }: { color: string; label: string; d
 }
 
 /** Replay map legend: what each track colour and stop dot means, with a Status / Speed toggle. */
+/** Legend shown or hidden; kept for the rest of the session. */
+let legendOpen = true;
+
 export function TrackLegend({ mode, onModeChange, scheme }: { mode: ColorMode; onModeChange: (m: ColorMode) => void; scheme: Scheme }) {
   const c = useColors();
   const { t } = useTranslation();
+  const [open, setOpenState] = useState(legendOpen);
+  const setOpen = (v: boolean) => {
+    legendOpen = v;
+    setOpenState(v);
+  };
+  if (!open)
+    return (
+      <Pressable accessibilityRole="button" accessibilityLabel={t('Show legend')} onPress={() => setOpen(true)} style={[styles.box, styles.pill, { backgroundColor: c.card, borderColor: c.border }]}>
+        <ListIcon size={14} color={c.foreground} />
+        <Text size="xs" weight="600">
+          {t('Legend')}
+        </Text>
+      </Pressable>
+    );
   return (
     <View style={[styles.box, { backgroundColor: c.card, borderColor: c.border }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('Hide legend')} onPress={() => setOpen(false)} hitSlop={8} style={styles.hide}>
+        <Text size="xs" tone="muted" weight="600">
+          {t('Hide legend')}
+        </Text>
+        <ChevronUpIcon size={14} color={c.mutedForeground} />
+      </Pressable>
       <View style={[styles.toggle, { backgroundColor: c.muted }]} accessibilityRole="radiogroup" accessibilityLabel={t('Colour track by')}>
         {(['status', 'speed'] as const).map((m) => (
           <Pressable
@@ -63,6 +88,8 @@ export function TrackLegend({ mode, onModeChange, scheme }: { mode: ColorMode; o
 
 const styles = StyleSheet.create({
   box: { position: 'absolute', right: SPACE.sm, top: SPACE.sm, maxWidth: 190, borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.md, padding: SPACE.xs, gap: SPACE.xs, opacity: 0.96 },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: SPACE.sm, paddingVertical: 6 },
+  hide: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 2, paddingHorizontal: 2 },
   toggle: { flexDirection: 'row', borderRadius: RADIUS.sm, padding: 2 },
   toggleBtn: { flex: 1, alignItems: 'center', paddingVertical: 3, borderRadius: RADIUS.sm - 2 },
   items: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm, rowGap: 2, paddingHorizontal: 2 },

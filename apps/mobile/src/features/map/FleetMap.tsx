@@ -1,15 +1,14 @@
 import { Camera, GeoJSONSource, Images, Layer, Map, type CameraRef, type LngLatBounds } from '@maplibre/maplibre-react-native';
 import { displayStatus, type LiveObject } from '@veetracer/shared';
-import { forwardRef, useImperativeHandle, useMemo, useRef, type ReactNode } from 'react';
-import type { StyleProp, ViewStyle } from 'react-native';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AccessibilityInfo, type StyleProp, type ViewStyle } from 'react-native';
 import { useDisplay } from '@/features/display/display';
 import { useMapStyle } from '@/features/map/basemap';
 import { useColors } from '@/lib/theme';
-import { iconKind, iconName, rotates } from './vehicle-icons';
+import { STEP_MS, hasMovingPeople, iconKind, iconName, rotates } from './vehicle-icons';
 import { VEHICLE_ICON_IMAGES } from './vehicle-icon-images';
 
 const LABEL_FONT = ['Noto Sans Bold'];
-const LABEL_MIN_ZOOM = 13;
 /** Centre of India: first view before any vehicle has a position. */
 const DEFAULT_CENTER: [number, number] = [78.9, 21.5];
 
@@ -39,7 +38,24 @@ export function boundsOf(objects: LiveObject[]): LngLatBounds | null {
   return any ? [w, s, e, n] : null;
 }
 
-function toFeatures(objects: LiveObject[], selectedId: string | null): GeoJSON.FeatureCollection {
+/** A counter that advances every STEP_MS while `on` (walking / running people on screen); 0 with reduce motion. */
+export function useStepTick(on: boolean): number {
+  const [tick, setTick] = useState(0);
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    void AccessibilityInfo.isReduceMotionEnabled().then(setReduce);
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduce);
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    if (!on || reduce) return;
+    const id = setInterval(() => setTick((n) => n + 1), STEP_MS);
+    return () => clearInterval(id);
+  }, [on, reduce]);
+  return on && !reduce ? tick : 0;
+}
+
+function toFeatures(objects: LiveObject[], selectedId: string | null, tick: number): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (const o of objects) {
     if (o.lat === null || o.lng === null) continue;
@@ -50,7 +66,7 @@ function toFeatures(objects: LiveObject[], selectedId: string | null): GeoJSON.F
       geometry: { type: 'Point', coordinates: [o.lng, o.lat] },
       properties: {
         id: o.objectId,
-        icon: iconName(kind, displayStatus(o)),
+        icon: iconName(kind, displayStatus(o), tick),
         rot: rotates(kind) ? o.course : 0,
         label: o.plateNumber || o.name,
         selected: o.objectId === selectedId,
@@ -71,15 +87,18 @@ export const FleetMap = forwardRef<
     children?: ReactNode;
     interactive?: boolean;
     initialZoom?: number;
+    /** Labels (registration / person name) on every marker at every zoom; false hides them. */
+    showLabels?: boolean;
     /** Called when the map stops moving (current centre, zoom and visible bounds). */
     onViewChange?: (view: MapView) => void;
   }
->(function FleetMap({ objects, selectedId = null, onSelect, style, children, interactive = true, initialZoom, onViewChange }, ref) {
+>(function FleetMap({ objects, selectedId = null, onSelect, style, children, interactive = true, initialZoom, onViewChange, showLabels = true }, ref) {
   const mapStyle = useMapStyle();
   const c = useColors();
   const camera = useRef<CameraRef>(null);
   const { iconScale } = useDisplay();
-  const data = useMemo(() => toFeatures(objects, selectedId), [objects, selectedId]);
+  const tick = useStepTick(useMemo(() => hasMovingPeople(objects), [objects]));
+  const data = useMemo(() => toFeatures(objects, selectedId, tick), [objects, selectedId, tick]);
 
   useImperativeHandle(ref, () => ({
     fitAll(list, animate = true) {
@@ -145,8 +164,7 @@ export const FleetMap = forwardRef<
         <Layer
           id="vehicles-labels"
           type="symbol"
-          minzoom={LABEL_MIN_ZOOM}
-          layout={{ 'text-field': ['get', 'label'], 'text-font': LABEL_FONT, 'text-size': 11, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-optional': true }}
+          layout={{ visibility: showLabels ? 'visible' : 'none', 'text-field': ['get', 'label'], 'text-font': LABEL_FONT, 'text-size': 11, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-ignore-placement': true }}
           paint={{ 'text-color': c.foreground, 'text-halo-color': c.card, 'text-halo-width': 1.5 }}
         />
       </GeoJSONSource>

@@ -2,7 +2,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { AlertDto } from '@veetracer/shared';
 import { AlertTriangleIcon, ChevronDownIcon, ChevronUpIcon, LayersIcon, RouteIcon, PanelRightOpenIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { MapTools } from '@/components/map-tools';
+import { MapTools, vehicleCaption } from '@/components/map-tools';
+import { liveStore } from '@/features/live/live-store';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { Spinner } from '@/components/ui/spinner';
@@ -275,7 +276,7 @@ export function HistoryPage() {
   const range = useMemo(() => rangeFromParams(params), [fromParam, toParam]);
   const preset = detectPreset(range);
   const isDesktop = useMediaQuery('(min-width: 1024px)');
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const reducedMotion = useReducedMotion();
 
   const [skipStops, setSkipStops] = useState(true);
@@ -624,7 +625,26 @@ export function HistoryPage() {
             {!unsupported && (
               <MapTools
                 snapshot={map ? () => map.snapshot() : null}
-                fileName={() => `history-${(vehicleOptions.find((o) => o.value === objectId)?.label ?? 'map').replace(/[^w-]+/g, '-')}-${range.from.toISOString().slice(0, 10)}.png`}
+                fileName={() => `history-${(vehicleOptions.find((o) => o.value === objectId)?.label ?? 'map').replace(/[^\w-]+/g, '-')}-${range.from.toISOString().slice(0, 10)}.png`}
+                caption={() => {
+                  const when = (d: Date) => d.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                  const sum = data?.summary;
+                  return {
+                    title: me?.company.name ?? '',
+                    lines: [
+                      vehicleCaption(t, objectId ? liveStore.get(objectId) : undefined, objectId ? vehicleName(objectId) : t('History')),
+                      t('Period: {{from}} to {{to}}', { from: when(range.from), to: when(range.to) }),
+                      sum &&
+                        [
+                          t('Distance {{km}}', { km: formatKm(sum.distanceKm) }),
+                          t('Running {{time}}', { time: formatDuration(sum.runningSec) }),
+                          t('Idle {{time}}', { time: formatDuration(sum.idleSec) }),
+                          t('Top speed {{speed}} km/h', { speed: Math.round(sum.maxSpeedKph) }),
+                        ].join('  ·  '),
+                      comparing && t('Compared with: {{names}}', { names: compareIds.map(vehicleName).join(', ') }),
+                    ],
+                  };
+                }}
                 fullscreen={pageRef}
                 className="absolute top-[112px] right-[10px] z-10"
               />
