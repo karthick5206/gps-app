@@ -1,3 +1,4 @@
+import { Breadcrumb } from '@/components/page-header';
 import { useQuery } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, type AlertLevel, type AlertSettingDto, type AlertTypeCode, type TrackedObjectDto } from '@veetracer/shared';
 import { AlertTriangleIcon, Building2Icon, CopyIcon, LayersIcon, ListChecksIcon, MoreHorizontalIcon, PackageIcon, SendIcon, TruckIcon, WarehouseIcon } from 'lucide-react';
@@ -171,7 +172,7 @@ export function AlertSettingsPage() {
         <div className="w-full space-y-4 p-4 sm:p-6">
           <div className="flex flex-wrap items-start gap-3">
             <div className="min-w-0 flex-1 space-y-1">
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t('Alert settings')}</p>
+              <Breadcrumb title={target.name} />
               <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
                 <Icon className="size-5 text-primary" />
                 <span className="truncate">{target.name}</span>

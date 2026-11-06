@@ -1,3 +1,4 @@
+import { Breadcrumb } from '@/components/page-header';
 import { useMutation } from '@tanstack/react-query';
 import {
   PERIOD_REPORT_TYPES,
@@ -146,7 +147,8 @@ export function ReportsPage() {
       {/* Report types: a sidebar on large screens, a drop-down on small ones. */}
       <aside aria-label={t('Report types')} className="hidden w-64 shrink-0 flex-col border-r bg-card lg:flex">
         <div className="border-b px-4 py-4">
-          <h1 className="text-lg font-semibold tracking-tight">{t('Reports')}</h1>
+          <Breadcrumb className="mb-1" />
+          <h1 className="text-lg font-bold tracking-tight">{t('Reports')}</h1>
           <p className="text-xs text-muted-foreground">{t('Run, view and download fleet reports.')}</p>
         </div>
         <nav role="radiogroup" aria-label={t('Report type')} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-2">

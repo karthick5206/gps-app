@@ -1,4 +1,4 @@
-import { MOVEMENT_STATUSES, OBJECT_TYPES, STATUS_META, displayStatus, displayStatusLabel, personActivity, VEHICLE_TYPES, type LiveObject, type MovementStatus, type VehicleDayStatsDto } from '@veetracer/shared';
+import { OBJECT_TYPES, STATUS_META, displayStatus, displayStatusLabel, personActivity, VEHICLE_TYPES, type LiveObject, type MovementStatus, type VehicleDayStatsDto } from '@veetracer/shared';
 import { DoorOpenIcon, LockIcon, SearchIcon, SearchXIcon, SnowflakeIcon, XIcon } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { useAllCompaniesView, useCompanyNames } from '@/features/platform/all-companies';
 import { ChargeIcon, RowDayLine, useDayStats } from './day-stats';
 import type { LiveFilters } from './filters';
+import { StatusCards } from './StatusCards';
 import { VirtualList } from './VirtualList';
 
 const ROW_HEIGHT = 64;
@@ -203,36 +204,7 @@ export function LivePanel({
           )}
         </div>
 
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('Filter by status')}>
-          <button
-            type="button"
-            aria-pressed={filters.statuses.length === 0}
-            onClick={() => onFiltersChange({ statuses: [] })}
-            className={cn(
-              'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-              filters.statuses.length === 0 ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-muted',
-            )}
-          >
-            {t('All')} <span className="tabular-nums opacity-80">{formatNumber(counts.total)}</span>
-          </button>
-          {MOVEMENT_STATUSES.map((s) => {
-            const on = filters.statuses.includes(s);
-            return (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggleStatus(s)}
-                className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors', !on && 'hover:bg-muted')}
-                style={on ? { borderColor: statusColor(s), backgroundColor: `color-mix(in oklab, ${statusColor(s)} 15%, transparent)` } : undefined}
-              >
-                <StatusDot status={s} className="size-2" />
-                {t(STATUS_META[s].label)}
-                <span className="text-muted-foreground tabular-nums">{formatNumber(counts[s])}</span>
-              </button>
-            );
-          })}
-        </div>
+        <StatusCards counts={counts} statuses={filters.statuses} onToggle={toggleStatus} onAll={() => onFiltersChange({ statuses: [] })} />
 
         <div className="flex gap-2">
           {branchOptions && <FilterSelect label={t('Branches')} allLabel={t('All branches')} value={filters.branchId} options={branchOptions} onChange={(branchId) => onFiltersChange({ branchId })} />}

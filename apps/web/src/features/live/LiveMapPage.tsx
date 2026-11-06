@@ -15,9 +15,11 @@ import { i18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { EMPTY_FILTERS, baseMatcher, fullMatcher, parseStatusParam, type LiveFilters } from './filters';
 import { liveStore } from './live-store';
+import { attentionItems } from './attention';
 import { LivePanel } from './LivePanel';
 import { MapController } from './map/map-controller';
 import { LiveMapOverlays } from './map/layers/LiveMapOverlays';
+import { NeedsAttention } from './NeedsAttention';
 import { ObjectDrawer } from './ObjectDrawer';
 import { useLiveVersion, useNow } from './use-live';
 
@@ -77,7 +79,7 @@ export function LiveMapPage() {
   const [loading, setLoading] = useState(!liveStore.snapshotLoaded);
 
   const version = useLiveVersion(1000);
-  useNow(15_000); // periodic re-render so relative times advance without live updates
+  const tick = useNow(15_000); // periodic re-render so relative times advance without live updates
   const now = Date.now();
 
   const pick = useCallback((id: string) => {
@@ -105,22 +107,25 @@ export function LiveMapPage() {
   useEffect(() => controller?.setSelected(activeId), [controller, activeId]);
   useEffect(() => controller?.follow(following ? activeId : null), [controller, following, activeId]);
 
-  const { items, counts } = useMemo(() => {
+  const { items, counts, attention } = useMemo(() => {
     void version; // recompute when the (throttled) live version changes
     const base = baseMatcher(filters, { groupMembers, selected });
     const statusSet = filters.statuses.length ? new Set<MovementStatus>(filters.statuses) : null;
     const c = Object.fromEntries(MOVEMENT_STATUSES.map((s) => [s, 0])) as Record<MovementStatus, number>;
     let total = 0;
     const list: LiveObject[] = [];
+    const inScope: LiveObject[] = [];
     for (const o of liveStore.all()) {
       if (!base(o)) continue;
       c[o.status]++;
+      inScope.push(o);
       total++;
       if (!statusSet || statusSet.has(o.status)) list.push(o);
     }
     list.sort((a, b) => collator.compare(a.name, b.name));
-    return { items: list, counts: { ...c, total } };
-  }, [version, filters, groupMembers, selected]);
+    // Needs attention follows the branch / group / type / search filters, not the status cards.
+    return { items: list, counts: { ...c, total }, attention: attentionItems(inScope, tick) };
+  }, [version, filters, groupMembers, selected, tick]);
 
   const active = activeId ? liveStore.get(activeId) : undefined;
 
@@ -187,6 +192,8 @@ export function LiveMapPage() {
           }}
         />
       )}
+
+      {!active && !loading && <NeedsAttention items={attention} onPick={pick} className="absolute right-3 bottom-8 z-10 hidden md:flex" />}
 
       {!unsupported && <LiveMapOverlays controller={controller} onFocusObject={pick} className="absolute top-3 right-3 z-10" />}
 

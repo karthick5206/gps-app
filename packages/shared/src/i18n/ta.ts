@@ -3271,4 +3271,13 @@ export const TA: Record<string, string> = {
   'Staff take a selfie.': 'ஊழியர்கள் செல்ஃபி எடுப்பார்கள்.',
   'Staff record a 10-second video; a photo is taken from it.': 'ஊழியர்கள் 10 வினாடி வீடியோ பதிவு செய்வார்கள்; அதிலிருந்து ஒரு புகைப்படம் எடுக்கப்படும்.',
   'The camera starts recording by itself for 10 seconds when staff open it, with a visible countdown; a photo is taken from the video.': 'ஊழியர்கள் கேமராவைத் திறந்ததும், தெரியும் கவுண்ட்டவுனுடன் தானாகவே 10 வினாடி பதிவாகும்; வீடியோவிலிருந்து ஒரு புகைப்படம் எடுக்கப்படும்.',
+  // Enterprise redesign: breadcrumb, live status cards, needs attention.
+  'Breadcrumb': 'வழித்தடம்',
+  '{{status}}: {{count}}, {{pct}}% of fleet': '{{status}}: {{count}}, வாகனங்களில் {{pct}}%',
+  '{{pct}}% of fleet': 'வாகனங்களில் {{pct}}%',
+  'Overspeeding at {{speed}} km/h': '{{speed}} km/h வேகத்தில் அதிவேகம்',
+  'Idling for {{time}}': '{{time}} ஆக ஐடில்',
+  'No signal for {{time}}': '{{time}} ஆக சிக்னல் இல்லை',
+  'All clear: nothing needs attention right now.': 'எல்லாம் சரி: இப்போது எதற்கும் கவனம் தேவையில்லை.',
+  '+{{n}} more': '+{{n}} மேலும்',
 };

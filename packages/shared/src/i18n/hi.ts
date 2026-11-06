@@ -3271,4 +3271,13 @@ export const HI: Record<string, string> = {
   'Staff take a selfie.': 'स्टाफ़ सेल्फ़ी लेते हैं।',
   'Staff record a 10-second video; a photo is taken from it.': 'स्टाफ़ 10 सेकंड का वीडियो रिकॉर्ड करते हैं; उसी से एक फ़ोटो ली जाती है।',
   'The camera starts recording by itself for 10 seconds when staff open it, with a visible countdown; a photo is taken from the video.': 'स्टाफ़ के कैमरा खोलते ही यह दिखने वाली उलटी गिनती के साथ अपने आप 10 सेकंड रिकॉर्ड करता है; वीडियो से एक फ़ोटो ली जाती है।',
+  // Enterprise redesign: breadcrumb, live status cards, needs attention.
+  'Breadcrumb': 'ब्रेडक्रंब',
+  '{{status}}: {{count}}, {{pct}}% of fleet': '{{status}}: {{count}}, फ़्लीट का {{pct}}%',
+  '{{pct}}% of fleet': 'फ़्लीट का {{pct}}%',
+  'Overspeeding at {{speed}} km/h': '{{speed}} km/h पर ओवरस्पीड',
+  'Idling for {{time}}': '{{time}} से आइडल',
+  'No signal for {{time}}': '{{time}} से कोई सिग्नल नहीं',
+  'All clear: nothing needs attention right now.': 'सब ठीक है: अभी किसी पर ध्यान देने की ज़रूरत नहीं।',
+  '+{{n}} more': '+{{n}} और',
 };
