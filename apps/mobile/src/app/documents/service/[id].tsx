@@ -159,7 +159,7 @@ export default function ServiceReminderScreen() {
           headerRight: () =>
             !isNew && can('documents', 'delete') ? (
               <Pressable onPress={confirmDelete} hitSlop={10} accessibilityLabel={t('Delete')} style={{ paddingHorizontal: SPACE.sm }}>
-                {remove.isPending ? <ActivityIndicator /> : <Trash2Icon size={22} color={c.destructive} />}
+                {remove.isPending ? <ActivityIndicator color={c.brandForeground} /> : <Trash2Icon size={22} color={c.brandForeground} />}
               </Pressable>
             ) : null,
         }}

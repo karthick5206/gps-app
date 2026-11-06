@@ -35,7 +35,7 @@ export default function GeofencesScreen() {
           headerRight: () =>
             canCreate ? (
               <Pressable onPress={() => router.push('/geofences/new')} hitSlop={10} accessibilityLabel={t('Add geofence')} style={{ paddingHorizontal: SPACE.sm }}>
-                <PlusIcon size={24} color={c.primary} />
+                <PlusIcon size={24} color={c.brandForeground} />
               </Pressable>
             ) : null,
         }}

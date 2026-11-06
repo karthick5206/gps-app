@@ -34,7 +34,7 @@ export default function PoisScreen() {
           headerRight: () =>
             canCreate ? (
               <Pressable onPress={() => router.push('/pois/new')} hitSlop={10} accessibilityLabel={t('Add point of interest')} style={{ paddingHorizontal: SPACE.sm }}>
-                <PlusIcon size={24} color={c.primary} />
+                <PlusIcon size={24} color={c.brandForeground} />
               </Pressable>
             ) : null,
         }}

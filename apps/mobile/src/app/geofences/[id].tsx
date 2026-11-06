@@ -143,7 +143,7 @@ export default function GeofenceEditor() {
                 hitSlop={10}
                 style={{ paddingHorizontal: SPACE.sm }}
               >
-                {remove.isPending ? <ActivityIndicator /> : <Trash2Icon size={22} color={c.destructive} />}
+                {remove.isPending ? <ActivityIndicator color={c.brandForeground} /> : <Trash2Icon size={22} color={c.brandForeground} />}
               </Pressable>
             ) : null,
         }}

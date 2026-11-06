@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import '@/lib/i18n';
 import { AuthProvider, useAuth } from '@/features/auth/auth';
-import { useColors, useScheme } from '@/lib/theme';
+import { useBrandBarStyle, useColors, useScheme } from '@/lib/theme';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -16,6 +16,7 @@ function RootStack() {
   const { t } = useTranslation();
   const scheme = useScheme();
   const c = useColors();
+  const barStyle = useBrandBarStyle();
 
   useEffect(() => {
     if (status !== 'loading') SplashScreen.hideAsync();
@@ -27,8 +28,18 @@ function RootStack() {
   const signedIn = status === 'authenticated';
   return (
     <ThemeProvider value={theme}>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <Stack screenOptions={{ headerBackTitle: t('Back'), headerTintColor: c.foreground, headerStyle: { backgroundColor: c.card }, headerShadowVisible: false, contentStyle: { backgroundColor: c.background } }}>
+      {/* Signed in, every screen starts with the brand header band; the sign-in screen is plain. */}
+      <StatusBar style={signedIn ? barStyle : scheme === 'dark' ? 'light' : 'dark'} />
+      <Stack
+        screenOptions={{
+          headerBackTitle: t('Back'),
+          headerTintColor: c.brandForeground,
+          headerStyle: { backgroundColor: c.brand },
+          headerTitleStyle: { fontWeight: '700' },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: c.background },
+        }}
+      >
         <Stack.Protected guard={signedIn}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false, title: t('Home') }} />
           <Stack.Screen name="vehicle/[id]" options={{ title: t('Vehicle') }} />

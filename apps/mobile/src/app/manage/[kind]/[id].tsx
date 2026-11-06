@@ -81,7 +81,7 @@ function FormShell({ title, loading, error, children, onDelete, deleting }: { ti
           headerRight: () =>
             onDelete ? (
               <Pressable onPress={onDelete} hitSlop={10} accessibilityLabel={t('Delete')} style={{ paddingHorizontal: SPACE.sm }}>
-                {deleting ? <ActivityIndicator /> : <Trash2Icon size={22} color={c.destructive} />}
+                {deleting ? <ActivityIndicator color={c.brandForeground} /> : <Trash2Icon size={22} color={c.brandForeground} />}
               </Pressable>
             ) : null,
         }}
