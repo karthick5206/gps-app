@@ -3365,4 +3365,6 @@ export const HI: Record<string, string> = {
   'Exit full screen': 'पूरी स्क्रीन से बाहर',
   'Full screen is not available in this browser': 'इस ब्राउज़र में पूरी स्क्रीन उपलब्ध नहीं',
   'Show timeline': 'टाइमलाइन दिखाएँ',
+  'Hide panel': 'पैनल छिपाएँ',
+  'Show trips, stops and alerts': 'ट्रिप, स्टॉप और अलर्ट दिखाएँ',
 };

@@ -1,5 +1,5 @@
 import { ALERT_TYPE_MAP, STATUS_META, type HistoryResponse } from '@veetracer/shared';
-import { ChevronDownIcon, ChevronUpIcon, DownloadIcon, PlayIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronUpIcon, DownloadIcon, PlayIcon, PanelRightCloseIcon } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -105,6 +105,7 @@ export function HistorySidePanel({
   mobile = false,
   expanded = true,
   onExpandedChange,
+  onHide,
   onExport,
   className,
 }: {
@@ -120,6 +121,8 @@ export function HistorySidePanel({
   mobile?: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+  /** Wide screens: hides the panel (the map takes its room). */
+  onHide?: () => void;
   /** CSV download of trips/stops (shown only when provided — needs `history:export`). */
   onExport?: (kind: 'trips' | 'stops') => void;
   className?: string;
@@ -159,6 +162,11 @@ export function HistorySidePanel({
             aria-expanded={expanded}
           >
             {expanded ? <ChevronDownIcon className="size-4" /> : <ChevronUpIcon className="size-4" />}
+          </button>
+        )}
+        {!mobile && onHide && (
+          <button type="button" onClick={onHide} className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent" aria-label={t('Hide panel')} title={t('Hide panel')}>
+            <PanelRightCloseIcon className="size-4" />
           </button>
         )}
       </div>

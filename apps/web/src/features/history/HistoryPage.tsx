@@ -1,6 +1,6 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { AlertDto } from '@veetracer/shared';
-import { AlertTriangleIcon, ChevronDownIcon, ChevronUpIcon, LayersIcon, RouteIcon } from 'lucide-react';
+import { AlertTriangleIcon, ChevronDownIcon, ChevronUpIcon, LayersIcon, RouteIcon, PanelRightOpenIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { MapTools } from '@/components/map-tools';
 import { useTranslation } from 'react-i18next';
@@ -283,6 +283,22 @@ export function HistoryPage() {
   const [follow, setFollow] = useState(() => !prefersReducedMotion());
   const [tab, setTab] = useState<SideTab>('trips');
   const [sheetExpanded, setSheetExpanded] = useState(false);
+  // Wide screens: the Trips / Stops / Alerts panel can be hidden; remembered in this browser.
+  const [panelHidden, setPanelHiddenState] = useState(() => {
+    try {
+      return localStorage.getItem('vt.history.panel') === '0';
+    } catch {
+      return false;
+    }
+  });
+  const setPanelHidden = (v: boolean) => {
+    setPanelHiddenState(v);
+    try {
+      localStorage.setItem('vt.history.panel', v ? '0' : '1');
+    } catch {
+      /* private window */
+    }
+  };
   const [activeTrip, setActiveTrip] = useState(-1);
   const [selected, setSelected] = useState<{ kind: 'stop' | 'alert'; index: number } | null>(null);
 
@@ -552,6 +568,7 @@ export function HistoryPage() {
 
   const side = (
     <HistorySidePanel
+      onHide={() => setPanelHidden(true)}
       data={data}
       tab={tab}
       onTabChange={setTab}
@@ -591,6 +608,18 @@ export function HistoryPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
             <div ref={containerRef} className="h-full w-full" role="region" aria-label={t('History map')} />
+            {isDesktop && panelHidden && (
+              <button
+                type="button"
+                onClick={() => setPanelHidden(false)}
+                className="absolute top-1/2 right-0 z-10 flex -translate-y-1/2 items-center gap-1.5 rounded-l-lg border border-r-0 bg-card px-2 py-3 text-xs font-semibold text-muted-foreground shadow-md hover:text-foreground"
+                aria-label={t('Show trips, stops and alerts')}
+                title={t('Show trips, stops and alerts')}
+              >
+                <PanelRightOpenIcon className="size-4" />
+                <span className="[writing-mode:vertical-rl]">{t('Trips')}</span>
+              </button>
+            )}
             {/* Under the zoom buttons: save the map as a picture, full screen. */}
             {!unsupported && (
               <MapTools
@@ -660,7 +689,7 @@ export function HistoryPage() {
           )}
           {!isDesktop && side}
         </div>
-        {isDesktop && side}
+        {isDesktop && !panelHidden && side}
       </div>
       {reducedMotion && <span className="sr-only">{t('Reduced motion is on: the camera does not animate automatically.')}</span>}
     </div>
