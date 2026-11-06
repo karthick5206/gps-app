@@ -55,7 +55,7 @@ const LIVE: Record<AttendanceLiveState, { label: string; cls: string; dot: strin
   NO_SIGNAL: { label: 'No signal', cls: 'text-warning-fg', dot: 'bg-warning', tile: 'bg-warning-soft text-warning-fg' },
 };
 const LIVE_STATES = Object.keys(LIVE) as AttendanceLiveState[];
-const KINDS: Record<OutingKind, string> = { UNEXPLAINED: 'Unexplained', OFFICIAL: 'Official duty', PERSONAL: 'Personal' };
+const OUTING_WORDS: Record<OutingKind, string> = { UNEXPLAINED: 'Not explained yet', OFFICIAL: 'Official duty', PERSONAL: 'Personal work' };
 const OVERRIDES: { value: AttendanceOverride; label: string }[] = [
   { value: 'PRESENT', label: 'Present' },
   { value: 'HALF_DAY', label: 'Half day' },
@@ -86,10 +86,8 @@ function Place({ fix }: { fix: AttendanceFix | null }) {
   return (
     <a className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline" href={`https://www.google.com/maps?q=${fix.lat},${fix.lng}`} target="_blank" rel="noreferrer">
       <MapPinIcon className="size-3.5" />
-      <span className="tabular-nums">
-        {fix.lat.toFixed(5)}, {fix.lng.toFixed(5)}
-      </span>
-      {fix.accuracyM !== null && <span className="text-muted-foreground">{t('±{{n}} m', { n: Math.round(fix.accuracyM) })}</span>}
+      <span title={`${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)}`}>{t('View on map')}</span>
+      {fix.accuracyM !== null && <span className="text-muted-foreground">({t('within {{n}} m', { n: Math.round(fix.accuracyM) })})</span>}
     </a>
   );
 }
@@ -244,29 +242,41 @@ function DayDialog({ row, canEdit, onClose }: { row: AttendanceRowDto; canEdit: 
             </div>
           )}
           <div className="space-y-2">
-            <h3 className="text-sm font-medium">{t('Time outside during the shift')}</h3>
+            <h3 className="text-sm font-medium">{t('Times away from the work site')}</h3>
             {!r.outings.length && <p className="text-sm text-muted-foreground">{t('None')}</p>}
             {r.outings.map((o) => (
               <div key={o.leftAt} className="space-y-2 rounded-md border p-2 text-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium tabular-nums">
-                    {time(o.leftAt)} – {o.returnedAt ? time(o.returnedAt) : t('not back')} · {hours(o.minutes)}
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <p className="font-medium tabular-nums">
+                      {o.site ? t('Left {{site}} at {{time}}', { site: o.site, time: time(o.leftAt) }) : t('Left at {{time}}', { time: time(o.leftAt) })}
+                      {' · '}
+                      {o.returnedAt ? t('Back at {{time}}', { time: time(o.returnedAt) }) : <span className="text-warning-fg">{t('Not back yet')}</span>}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{t('Away for {{time}}', { time: hours(o.minutes) })}</p>
+                  </div>
+                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', o.kind === 'UNEXPLAINED' ? 'bg-destructive/10 text-destructive-fg' : o.kind === 'OFFICIAL' ? 'bg-success-soft text-success-fg' : 'bg-muted text-muted-foreground')}>
+                    {o.kind === 'UNEXPLAINED' ? t('Not explained yet') : t('Counted as: {{kind}}', { kind: t(OUTING_WORDS[o.kind]) })}
                   </span>
-                  <span className={cn('text-xs font-medium', o.kind === 'UNEXPLAINED' ? 'text-destructive-fg' : 'text-muted-foreground')}>{t(KINDS[o.kind])}</span>
                 </div>
-                <Place fix={o.fix} />
-                {o.employeeKind && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('Employee says: {{answer}}', { answer: t(KINDS[o.employeeKind]) })}
-                    {o.employeeNote ? ` · ${o.employeeNote}` : ''}
-                    {o.decidedByAdmin ? ` · ${t('decided by admin')}` : ''}
+                {o.fix && (
+                  <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                    {t('Where they left the site:')} <Place fix={o.fix} />
                   </p>
                 )}
+                {o.employeeKind && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("Employee's answer: {{answer}}", { answer: t(OUTING_WORDS[o.employeeKind]) })}
+                    {o.employeeNote ? ` — “${o.employeeNote}”` : ''}
+                    {o.decidedByAdmin && o.employeeKind !== o.kind ? ` · ${t('The admin changed it to {{kind}}', { kind: t(OUTING_WORDS[o.kind]) })}` : ''}
+                  </p>
+                )}
+                {!o.employeeKind && o.decidedByAdmin && <p className="text-xs text-muted-foreground">{t('Decided by the admin')}</p>}
                 {canEdit && (
                   <div className="flex flex-wrap gap-1.5">
                     {(['OFFICIAL', 'PERSONAL', 'UNEXPLAINED'] as OutingKind[]).filter((k) => k !== o.kind).map((kind) => (
                       <Button key={kind} size="sm" variant="outline" disabled={decide.isPending} onClick={() => decide.mutate({ leftAt: o.leftAt, kind })}>
-                        {kind === 'UNEXPLAINED' ? t('Undo') : t(KINDS[kind])}
+                        {kind === 'UNEXPLAINED' ? t('Clear the decision') : kind === 'OFFICIAL' ? t('Mark as official duty') : t('Mark as personal work')}
                       </Button>
                     ))}
                   </div>
