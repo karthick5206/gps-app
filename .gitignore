@@ -10,3 +10,6 @@ var/
 coverage/
 apps/mobile/.dart_tool/
 apps/api/dist-*/
+
+# Gradle caches inside native modules (created by local builds)
+**/android/.gradle/
