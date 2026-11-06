@@ -4,7 +4,7 @@ import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
 import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon, FuelIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, View, Switch } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, View, Switch } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
 import { EmergencyAlertsCard } from '@/components/EmergencyAlertsCard';
 import { PushTestButton } from '@/components/PushTestButton';
@@ -130,8 +130,8 @@ export default function MoreScreen() {
       </MenuGroup>
 
       <MenuGroup>
-        {/* Opens VeeTrax Tracker (its veetrax-tracker:// scheme), else the download page. */}
-        <MenuItem icon={SmartphoneIcon} label={t('Track this phone')} onPress={() => Linking.openURL('veetrax-tracker://').catch(() => Linking.openURL(PLAY_STORE.tracker).catch(() => undefined))} />
+        {/* Opens VeeTrax Tracker (its veetrax-tracker:// scheme), else the download page. Android-only app, so hidden on iOS (App Review 2.3.10). */}
+        {Platform.OS !== 'ios' && <MenuItem icon={SmartphoneIcon} label={t('Track this phone')} onPress={() => Linking.openURL('veetrax-tracker://').catch(() => Linking.openURL(PLAY_STORE.tracker).catch(() => undefined))} />}
         {/* Public web page (same content as the PDF emailed on sign-up). */}
         <MenuItem icon={BookOpenIcon} label={t('Getting-started guide')} url={`${SERVER_URL}/guide`} />
       </MenuGroup>
