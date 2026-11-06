@@ -23,10 +23,10 @@ export function DashboardPage() {
   const { t } = useTranslation();
   const { can, me } = useAuth();
   const pageRef = useRef<HTMLDivElement>(null);
-  const tabLabel = TABS.find((x) => x.value === tab)?.label ?? 'Overview';
   const [params, setParams] = useSearchParams();
   const tab = (TABS.find((x) => x.value === params.get('tab'))?.value ?? 'overview') as TabValue;
   const description = TABS.find((x) => x.value === tab)?.description;
+  const tabLabel = TABS.find((x) => x.value === tab)?.label ?? 'Overview';
   const setTab = (v: string) =>
     setParams(
       (p) => {
