@@ -207,7 +207,8 @@ export function LiveMapPage() {
       {!active && !loading && <NeedsAttention items={attention} onPick={pick} className="absolute right-14 bottom-8 z-10 hidden md:flex" />}
 
       {!unsupported && (
-        <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-2">
+        // Phones: while the list covers the map, the map buttons hide (they sat over the list's collapse button).
+        <div className={cn('absolute top-3 right-3 z-10 flex-col items-end gap-2', mobileView === 'list' ? 'hidden md:flex' : 'flex')}>
           <LiveMapOverlays controller={controller} onFocusObject={pick} />
           <MapTools snapshot={controller ? () => controller.snapshot() : null} fileName={() => `live-map-${new Date().toISOString().slice(0, 16).replace(':', '-')}.png`}
             fullscreen={pageRef}
