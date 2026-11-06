@@ -1,5 +1,5 @@
 import { STATUS_META } from '@veetracer/shared';
-import { MapPinIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronUpIcon, MapPinIcon } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { statusColor } from '@/lib/status-tokens';
@@ -8,6 +8,14 @@ import { formatClock, formatKm, trackStatus } from './history-format';
 import type { PlaybackEngine } from './playback-engine';
 import { reverseGeocode } from './use-history';
 
+const OPEN_KEY = 'vt.history.livecard';
+const readOpen = () => {
+  try {
+    return localStorage.getItem(OPEN_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
 const TEXT_FRAME_MS = 100; // text readouts refresh at ~10 fps while playing
 /** While playing, the address follows the vehicle: at most every 3 s, and only after it moved ~200 m. */
 const ADDRESS_EVERY_MS = 3000;
@@ -34,6 +42,16 @@ export function LiveDataPanel({ engine, totalKm, className }: { engine: Playback
     coords: useRef<HTMLSpanElement>(null),
   };
   const state = useSyncExternalStore(engine.subscribe, engine.getState);
+  // Minimised: one line (time, status, total). The readouts stay mounted so they keep updating.
+  const [open, setOpenState] = useState(readOpen);
+  const setOpen = (v: boolean) => {
+    setOpenState(v);
+    try {
+      localStorage.setItem(OPEN_KEY, v ? '1' : '0');
+    } catch {
+      /* private window: lasts for this page only */
+    }
+  };
   const [address, setAddress] = useState<{ lat: number; lng: number; text: string | null } | null>(null);
   const lookup = useRef<{ ctrl: AbortController | null; at: number; lat: number; lng: number } | null>(null);
   const fetchAddress = useRef((lat: number, lng: number) => {
@@ -84,13 +102,18 @@ export function LiveDataPanel({ engine, totalKm, className }: { engine: Playback
 
   return (
     <div className={cn('pointer-events-auto rounded-xl border bg-card/95 p-2.5 text-sm shadow-lg backdrop-blur-sm sm:p-3', className)} aria-live="off">
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <span ref={refs.time} className="font-medium tabular-nums" />
         <span className="flex items-center gap-1.5 text-xs font-medium">
           <span ref={refs.dot} className="size-2 rounded-full" aria-hidden />
           <span ref={refs.status} />
+          {!open && totalKm != null && <span className="ms-1 font-bold text-foreground tabular-nums">{formatKm(totalKm)}</span>}
+          <button type="button" aria-expanded={open} aria-label={open ? t('Minimise') : t('Open')} title={open ? t('Minimise') : t('Open')} onClick={() => setOpen(!open)} className="-me-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+            {open ? <ChevronUpIcon className="size-4" /> : <ChevronDownIcon className="size-4" />}
+          </button>
         </span>
       </div>
+      <div className={cn(!open && 'hidden')}>
       <div className="mt-1.5 grid grid-cols-3 gap-2 sm:mt-2">
         <div>
           <p className="text-[11px] text-muted-foreground">{t('Speed')}</p>
@@ -123,6 +146,7 @@ export function LiveDataPanel({ engine, totalKm, className }: { engine: Playback
           {addr && <p className="line-clamp-2 text-foreground">{addr}</p>}
           <span ref={refs.coords} className="block font-mono text-[11px] select-all" />
         </div>
+      </div>
       </div>
     </div>
   );

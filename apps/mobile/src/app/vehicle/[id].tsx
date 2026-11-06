@@ -18,7 +18,7 @@ import { api } from '@/lib/api';
 import { SERVER_URL } from '@/lib/config';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
-import { chargeText } from '@/features/live/day-stats';
+import { chargeText, useDayStats } from '@/features/live/day-stats';
 import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
 
 function AddressRow({ lat, lng }: { lat: number | null; lng: number | null }) {
@@ -28,6 +28,8 @@ function AddressRow({ lat, lng }: { lat: number | null; lng: number | null }) {
 
 const yesNo = (v: boolean | null) => (v === null ? '—' : v ? i18n.t('On') : i18n.t('Off'));
 const or = (v: number | null, unit: string, digits = 0) => (v === null ? '—' : `${v.toFixed(digits)} ${unit}`.trim());
+
+const kmText = (v: number) => (v >= 100 ? `${Math.round(v).toLocaleString('en-IN')} km` : `${v.toFixed(1)} km`);
 
 export default function VehicleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -40,6 +42,7 @@ export default function VehicleScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const o = useMemo(() => liveStore.get(id), [id, version]);
   const objects = useMemo(() => (o ? [o] : []), [o]);
+  const day = useDayStats().data?.[id];
   // Dashcams only: the API answers NOT_DASHCAM for other trackers. Video plays in the browser (web player, no native deps).
   const video = useQuery({
     queryKey: ['video-channels', id],
@@ -107,6 +110,27 @@ export default function VehicleScreen() {
             </Card>
           ))}
         </View>
+
+        {/* Distance: today so far and the odometer (recorded km + the vehicle's odometer offset). */}
+        {day ? (
+          <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+            {(
+              [
+                [t('Today'), kmText(day.distanceKm)],
+                [t('Odometer'), `${Math.round(day.odometerKm).toLocaleString('en-IN')} km`],
+              ] as const
+            ).map(([label, value]) => (
+              <Card key={label} style={{ flex: 1, gap: 2, padding: SPACE.md }}>
+                <Text size="xs" tone="muted" weight="600">
+                  {label}
+                </Text>
+                <Text size="lg" weight="700" numberOfLines={1}>
+                  {value}
+                </Text>
+              </Card>
+            ))}
+          </View>
+        ) : null}
 
         {/* Actions as tiles: one tap each. */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>

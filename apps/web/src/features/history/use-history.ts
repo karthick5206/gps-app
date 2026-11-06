@@ -7,14 +7,16 @@ import { liveStore } from '@/features/live/live-store';
 import { useEntityOptions } from '@/features/masters/use-options';
 import { ApiError, api } from '@/lib/api';
 
-export function useHistory(objectId: string | null, from: Date, to: Date) {
+/** `live`: the period includes now, so the track is reloaded every 20 s to show the vehicle moving. */
+export function useHistory(objectId: string | null, from: Date, to: Date, live = false) {
   const fromIso = from.toISOString();
   const toIso = to.toISOString();
   return useQuery({
     queryKey: ['object-history', objectId, fromIso, toIso],
     queryFn: ({ signal }) => api.get<HistoryResponse>(`/objects/${objectId}/history`, { from: fromIso, to: toIso }, signal),
     enabled: !!objectId,
-    staleTime: 30_000,
+    staleTime: live ? 15_000 : 30_000,
+    refetchInterval: live ? 20_000 : false,
     retry: (count, err) => !(err instanceof ApiError && err.status < 500) && count < 2,
   });
 }

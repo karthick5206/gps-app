@@ -285,7 +285,9 @@ export function HistoryPage() {
   const [activeTrip, setActiveTrip] = useState(-1);
   const [selected, setSelected] = useState<{ kind: 'stop' | 'alert'; index: number } | null>(null);
 
-  const query = useHistory(objectId, range.from, range.to);
+  // The period includes now (e.g. Today): reload the track every 20 s so a moving vehicle is seen moving.
+  const live = range.from.getTime() < Date.now() && range.to.getTime() > Date.now();
+  const query = useHistory(objectId, range.from, range.to, live);
   const data = query.data;
 
   // Other vehicles drawn over the selected one, each in its own colour.
@@ -323,6 +325,22 @@ export function HistoryPage() {
     if (engine && idx && engine.index !== idx) engine.setIndex(idx);
   }, [engine, idx]);
   useEffect(() => () => engine?.destroy(), [engine]);
+  // A new dataset (first load, or a live reload): on a live period start at the latest position; on a reload keep
+  // the cursor where it was, or move with the vehicle when it was at the end.
+  const lastEngine = useRef<PlaybackEngine | null>(null);
+  useEffect(() => {
+    const old = lastEngine.current;
+    lastEngine.current = engine;
+    if (!engine || old === engine) return;
+    if (!old || old.index.start !== engine.index.start) {
+      if (live) engine.seek(engine.index.end);
+      return;
+    }
+    const t = old.getSample().t;
+    const atEnd = t >= old.index.end - 5_000;
+    engine.seek(atEnd ? engine.index.end : t, { play: old.getState().playing && !atEnd });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine]);
   // Dev-only handle for diagnostics (frame-time stats: `__vtPlayback.frameStats()`).
   useEffect(() => {
     if (import.meta.env.DEV) (window as unknown as { __vtPlayback?: PlaybackEngine | null }).__vtPlayback = engine;
