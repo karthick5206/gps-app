@@ -99,6 +99,8 @@ export interface TrackerHealth {
   mfr?: string;
   model?: string;
   sdk?: number;
+  /** Installed Tracker app version (app 1.4.3+). */
+  app?: string;
 }
 
 const HEALTH_BOOLS = ['locOn', 'locFine', 'locBg', 'battOpt', 'powerSave', 'bgRestricted', 'notif', 'wanted', 'running'] as const;
@@ -127,6 +129,7 @@ export function sanitizeTrackerHealth(raw: unknown): TrackerHealth | null {
   set('lastFixAt', int(r.lastFixAt, 9_999_999_999_999));
   set('failures', int(r.failures, 1_000_000));
   set('sdk', int(r.sdk, 100));
+  set('app', text(r.app, 20));
   set('mode', text(r.mode, 20));
   set('lastError', text(r.lastError, 200));
   set('mfr', text(r.mfr, 40));

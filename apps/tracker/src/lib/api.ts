@@ -74,7 +74,8 @@ const TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 90_000;
 
 async function request<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, token?: string): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  // Lets the server keep this phone's app version current (shown in Devices → Tracker app).
+  const headers: Record<string, string> = { Accept: 'application/json', 'X-App-Version': APP_VERSION };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
   const ctrl = new AbortController();
@@ -149,4 +150,5 @@ export const api = {
   signOut: (token: string) => request<{ ok: true }>('POST', '/signout', undefined, token),
   diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>
     request<{ ok: true }>('POST', '/diagnostics', body),
-};
+};import { APP_VERSION } from './device';
+

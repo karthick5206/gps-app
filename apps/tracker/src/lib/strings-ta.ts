@@ -52,6 +52,7 @@ export const ta: Strings = {
   openVeetrax: 'VeeTrax-ஐத் திற',
   privacyPolicy: 'தனியுரிமைக் கொள்கை',
   deleteAccount: 'கணக்கையும் தரவையும் நீக்கு',
+  version: 'பதிப்பு',
   languageTitle: 'மொழி',
 
   // Home

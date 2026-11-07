@@ -1,6 +1,7 @@
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WEB_URL } from '@/components/HomeMenu';
 import { Row, Section } from '@/components/ui';
+import { APP_VERSION } from '@/lib/device';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
@@ -50,6 +51,7 @@ export default function ProfileScreen() {
           {S.deleteAccount}
         </Text>
       </View>
+      <Text style={[styles.version, { color: c.muted }]}>{`${S.version} ${APP_VERSION}`}</Text>
 
     </ScrollView>
   );
@@ -63,4 +65,5 @@ const styles = StyleSheet.create({
   name: { fontSize: 19, fontWeight: '800', textAlign: 'center' },
   legal: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, columnGap: 20, marginTop: 4 },
   legalLink: { fontSize: 13, textDecorationLine: 'underline' },
+  version: { fontSize: 12, textAlign: 'center' },
 });

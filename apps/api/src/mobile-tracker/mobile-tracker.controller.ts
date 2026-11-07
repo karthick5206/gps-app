@@ -40,8 +40,8 @@ export class MobileTrackerController {
   }
 
   @Public() @SkipThrottle() @Get('me')
-  me(@Headers('authorization') authorization?: string) {
-    return this.service.me(authorization);
+  me(@Headers('authorization') authorization?: string, @Headers('x-app-version') appVersion?: string) {
+    return this.service.me(authorization, appVersion);
   }
 
   @Public() @SkipThrottle() @Post('positions') @HttpCode(200)

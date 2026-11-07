@@ -55,6 +55,7 @@ const en = {
   openVeetrax: 'Open VeeTrax',
   privacyPolicy: 'Privacy policy',
   deleteAccount: 'Delete account and data',
+  version: 'Version',
   languageTitle: 'Language',
 
   // Home

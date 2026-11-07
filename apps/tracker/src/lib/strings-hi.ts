@@ -52,6 +52,7 @@ export const hi: Strings = {
   openVeetrax: 'VeeTrax खोलें',
   privacyPolicy: 'निजता नीति',
   deleteAccount: 'खाता और डेटा हटाएँ',
+  version: 'वर्ज़न',
   languageTitle: 'भाषा',
 
   // Home

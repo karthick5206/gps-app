@@ -56,6 +56,8 @@ interface CachedSession {
   revokedAt?: number;
   checkedAt: number;
   lastUsedWrite: number;
+  /** App version last stored for this session (updated when the phone reports a new one). */
+  appVersion?: string | null;
 }
 
 const trackerError = (status: number, code: string, message: string) => new HttpException({ statusCode: status, code, message }, status);
@@ -426,7 +428,7 @@ export class MobileTrackerService {
     const key = hashToken(token);
     const cached = this.sessions.get(key);
     if (cached && Date.now() - cached.checkedAt < SESSION_CACHE_MS) return cached;
-    const row = await this.prisma.mobileTrackerSession.findUnique({ where: { tokenHash: key }, select: { id: true, revokedAt: true, deviceId: true, device: { select: { uniqueId: true, isActive: true, companyId: true, trackingRequired: true, company: { select: { status: true } }, assignments: { where: { toTime: null }, select: { object: { select: { isActive: true } } } } } } } });
+    const row = await this.prisma.mobileTrackerSession.findUnique({ where: { tokenHash: key }, select: { id: true, revokedAt: true, deviceId: true, appVersion: true, device: { select: { uniqueId: true, isActive: true, companyId: true, trackingRequired: true, company: { select: { status: true } }, assignments: { where: { toTime: null }, select: { object: { select: { isActive: true } } } } } } } });
     if (!row) throw trackerError(401, 'INVALID', 'Please activate again');
     // The same test as the processor's (device-cache): it would discard what we accept, and the phone would delete it.
     const blocked = !row.device.isActive || !row.device.companyId || row.device.company?.status !== 'ACTIVE' || row.device.assignments[0]?.object.isActive === false;
@@ -437,7 +439,7 @@ export class MobileTrackerService {
       throw trackerError(401, 'REVOKED', 'Tracking moved to another phone with the same number');
     }
     if (blocked) throw trackerError(403, 'INACTIVE', 'Tracking switched off by your administrator');
-    const next: CachedSession = { sessionId: row.id, deviceId: row.deviceId, uniqueId: row.device.uniqueId, required: row.device.trackingRequired, checkedAt: Date.now(), lastUsedWrite: cached?.lastUsedWrite ?? 0 };
+    const next: CachedSession = { sessionId: row.id, deviceId: row.deviceId, uniqueId: row.device.uniqueId, required: row.device.trackingRequired, checkedAt: Date.now(), lastUsedWrite: cached?.lastUsedWrite ?? 0, appVersion: row.appVersion };
     this.sessions.set(key, next);
     return next;
   }
@@ -461,8 +463,17 @@ export class MobileTrackerService {
     if (target) await this.alerts.trackerSwitched({ ...target, mobile: formatMobile(s.uniqueId), on: false, why: 'signed out of the tracker app' }, at.getTime());
   }
 
-  async me(authorization: string | undefined) {
+  /** The phone's app version (header or health report) when it differs from the stored one: an in-place update. */
+  private async noteVersion(s: CachedSession, raw: unknown): Promise<void> {
+    const v = typeof raw === 'string' ? raw.trim().slice(0, 20) : '';
+    if (!v || !/^[0-9A-Za-z.+-]+$/.test(v) || v === s.appVersion || s.revokedAt) return;
+    s.appVersion = v;
+    await this.prisma.mobileTrackerSession.update({ where: { id: s.sessionId }, data: { appVersion: v } }).catch(() => undefined);
+  }
+
+  async me(authorization: string | undefined, appVersion?: string) {
     const s = await this.session(authorization);
+    await this.noteVersion(s, appVersion);
     const device = await this.prisma.device.findUniqueOrThrow({
       where: { id: s.deviceId },
       select: {
@@ -481,6 +492,7 @@ export class MobileTrackerService {
     // App 1.3.4+ says it can deliver its queue after the number moved to another phone (older apps get the 401 and stop).
     const canDrain = (health as { drain?: unknown } | null | undefined)?.drain === true;
     const s = await this.session(authorization, canDrain);
+    await this.noteVersion(s, (health as { app?: unknown } | null | undefined)?.app);
     const now = Date.now();
     // An old phone's report must not overwrite the new phone's.
     if (s.revokedAt === undefined) {

@@ -68,6 +68,8 @@ object Health {
     o.put("mfr", Build.MANUFACTURER ?: "")
     o.put("model", Build.MODEL ?: "")
     o.put("sdk", Build.VERSION.SDK_INT)
+    // The installed app version, so the server shows the real one after an in-place update.
+    safe("app") { app.packageManager.getPackageInfo(app.packageName, 0).versionName }
     return o
   }
 
