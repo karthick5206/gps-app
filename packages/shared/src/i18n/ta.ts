@@ -3404,4 +3404,5 @@ export const TA: Record<string, string> = {
   'Show status, filters and list': 'நிலை, வடிகட்டிகள் மற்றும் பட்டியலைக் காட்டு',
   'Hide the list for more map': 'அதிக வரைபடத்துக்கு பட்டியலை மறை',
   'If other people also sign in to this account, only your login is deleted.': 'இந்தக் கணக்கில் மற்றவர்களும் உள்நுழைந்தால், உங்கள் உள்நுழைவு மட்டுமே நீக்கப்படும்.',
+  'last known': 'கடைசியாகத் தெரிந்தது',
 };

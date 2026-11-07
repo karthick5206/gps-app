@@ -24,6 +24,17 @@ export const IO_REALERT_GAP_MS = 2 * 60 * 60_000;
 /** An open session row is refreshed (duration, distance so far) at most this often. */
 export const IO_OPEN_WRITE_MS = 5 * 60_000;
 
+/**
+ * Where an open AC / door period (no endTime yet) ends for counting: now while the sensor is still reporting, but
+ * only up to the last point received (startTime + durationSec, refreshed every IO_OPEN_WRITE_MS) once data has
+ * stopped for IO_GAP_MS. A vehicle that went offline with the AC on would otherwise collect AC hours until it is seen
+ * again; the processor closes the period at that same last point when data returns.
+ */
+export function openIoEnd(startMs: number, durationSec: number, now: number): number {
+  const seen = startMs + Math.max(0, durationSec) * 1000;
+  return now - seen > IO_GAP_MS ? seen : now;
+}
+
 export interface IoOpenSession {
   id: string;
   on: boolean;

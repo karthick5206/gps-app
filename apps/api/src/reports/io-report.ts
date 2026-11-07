@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { IoDailyReportRow, IoSensorKind, IoSessionReportRow } from '@veetracer/shared';
+import { openIoEnd } from '../io-sensors/io-logic';
 import { aggregateIoDays } from './io-aggregate';
 import { ObjInfo } from './report-queries';
 
@@ -32,7 +33,7 @@ export async function ioSessionsReport(
   const sessions = await overlapping(prisma, companyId, ids, range);
   const all: IoSessionReportRow[] = sessions.map((s) => {
     const o = objects.get(s.objectId);
-    const durationSec = s.endTime ? s.durationSec : Math.max(0, Math.round((now - s.startTime.getTime()) / 1000));
+    const durationSec = s.endTime ? s.durationSec : Math.max(0, Math.round((openIoEnd(s.startTime.getTime(), s.durationSec, now) - s.startTime.getTime()) / 1000));
     return {
       id: s.id,
       objectId: s.objectId,
@@ -83,7 +84,7 @@ export async function ioDailyReport(
   const ids = [...objects.keys()];
   const sessions = ids.length ? await overlapping(prisma, companyId, ids, range) : [];
   const days = aggregateIoDays(
-    sessions.map((s) => ({ objectId: s.objectId, kind: s.kind, on: s.on, startTime: s.startTime.getTime(), endTime: s.endTime?.getTime() ?? null, distanceKm: s.distanceKm, engineOffSec: s.engineOffSec })),
+    sessions.map((s) => ({ objectId: s.objectId, kind: s.kind, on: s.on, startTime: s.startTime.getTime(), endTime: s.endTime?.getTime() ?? null, durationSec: s.durationSec, distanceKm: s.distanceKm, engineOffSec: s.engineOffSec })),
     from,
     to,
     tz,

@@ -3404,4 +3404,5 @@ export const HI: Record<string, string> = {
   'Show status, filters and list': 'स्थिति, फ़िल्टर और सूची दिखाएँ',
   'Hide the list for more map': 'ज़्यादा मैप के लिए सूची छिपाएँ',
   'If other people also sign in to this account, only your login is deleted.': 'अगर इस खाते में दूसरे लोग भी साइन इन करते हैं, तो केवल आपका लॉगिन हटाया जाएगा।',
+  'last known': 'आख़िरी जानकारी',
 };
