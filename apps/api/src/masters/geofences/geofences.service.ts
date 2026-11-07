@@ -14,6 +14,7 @@ import { httpErrorFromPrisma } from '../../common/prisma-errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImportItem, parseCsvGeofences, parseGeoJsonGeofences } from './geofence-import';
 import { CreateGeofenceDto, GeofenceListQuery, ImportGeofencesDto, UpdateGeofenceDto } from './geofences.dto';
+import { softDelete } from '../../prisma/soft-delete';
 
 const ENTITY = 'geofence';
 const VISITS_MAX = 2000;
@@ -150,7 +151,8 @@ export class GeofencesService {
 
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.findWritable(ctx, id);
-    await this.prisma.geofence.delete({ where: { id } });
+    // "Delete" is a soft delete (restorable by the Super Admin); "Delete permanently" is the purge.
+    await this.prisma.$transaction((tx) => softDelete(tx, 'geofence', id, ctx.userId));
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: snapshot(before) });
     await this.targets.invalidate(ctx.companyId, 'geofence');
   }

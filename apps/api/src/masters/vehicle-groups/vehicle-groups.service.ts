@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisKeys } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import { CreateVehicleGroupDto, UpdateVehicleGroupDto, VehicleGroupListQuery } from './vehicle-groups.dto';
+import { softDelete } from '../../prisma/soft-delete';
 
 const ENTITY = 'vehicle_group';
 
@@ -141,7 +142,8 @@ export class VehicleGroupsService {
 
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(ctx, id);
-    await this.prisma.vehicleGroup.delete({ where: { id } });
+    // "Delete" is a soft delete (restorable by the Super Admin); "Delete permanently" is the purge.
+    await this.prisma.$transaction((tx) => softDelete(tx, 'group', id, ctx.userId));
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: snapshot(before) });
     await this.invalidateRules(ctx);
   }

@@ -23,6 +23,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { toGeoJson, toKml } from './poi-export';
 import { detectFormat, ImportFormatError, parseImportFile } from './poi-import';
 import { CreatePoiDto, ExportQuery, ImportCommitDto, PoiListQuery, UpdatePoiDto } from './pois.dto';
+import { softDelete } from '../prisma/soft-delete';
 
 const ENTITY = 'poi';
 type Scope = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds'>;
@@ -130,7 +131,8 @@ export class PoisService {
 
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.findWritable(ctx, id);
-    await this.prisma.poi.delete({ where: { id } });
+    // "Delete" is a soft delete (restorable by the Super Admin); "Delete permanently" is the purge.
+    await this.prisma.$transaction((tx) => softDelete(tx, 'poi', id, ctx.userId));
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before });
   }
 

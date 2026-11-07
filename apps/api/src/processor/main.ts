@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { withSoftDelete } from '../prisma/soft-delete';
 import Redis from 'ioredis';
 import { hostname } from 'node:os';
 import { loadEnv } from '../config/env';
@@ -18,7 +19,8 @@ async function main(): Promise<void> {
   const logger = new Logger('Processor');
   const consumerName = process.env.PROCESSOR_CONSUMER ?? `processor-${hostname()}`;
 
-  const prisma = new PrismaClient();
+  // Soft-deleted devices, vehicles and companies are invisible here too (see prisma/soft-delete.ts).
+  const prisma = withSoftDelete(new PrismaClient());
   // Don't exit when PostgreSQL is down at start: Prisma connects lazily and the consumer backs off until it is back.
   await prisma.$connect().catch((error: Error) => logger.error(`Database not reachable at start (will retry): ${error.message}`));
   const redis = new Redis(env.redisUrl, { maxRetriesPerRequest: null });

@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { withSoftDelete } from '../prisma/soft-delete';
 import Redis from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import { SummarizerMetrics } from '@veetracer/shared';
@@ -34,7 +35,8 @@ async function main(): Promise<void> {
   const intervalMs = Number(process.env.SUMMARIZER_INTERVAL_MS ?? 60_000);
   const instance = randomUUID();
 
-  const prisma = new PrismaClient();
+  // Soft-deleted devices, vehicles and companies are invisible here too (see prisma/soft-delete.ts).
+  const prisma = withSoftDelete(new PrismaClient());
   // PostgreSQL down at start: keep running (runs fail and are retried every interval; System Health shows it).
   await prisma.$connect().catch((error: Error) => logger.error(`Database not reachable at start (will retry): ${error.message}`));
   const redis = new Redis(env.redisUrl, { maxRetriesPerRequest: null });

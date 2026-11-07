@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisKeys } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import { CreateObjectDto, ObjectListQuery, UpdateObjectDto } from './objects.dto';
+import { softDelete } from '../../prisma/soft-delete';
 
 const ENTITY = 'object';
 const INCLUDE = {
@@ -186,7 +187,8 @@ export class ObjectsService {
 
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(ctx, id);
-    await this.prisma.trackedObject.delete({ where: { id } });
+    // "Delete" is a soft delete (restorable by the Super Admin); "Delete permanently" is the purge.
+    await this.prisma.$transaction((tx) => softDelete(tx, 'object', id, ctx.userId));
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: snapshot(before) });
     await this.redis.invalidateCache('object');
   }

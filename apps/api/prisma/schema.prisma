@@ -104,6 +104,12 @@ model Company {
   licenceOrders  LicenceOrder[]
   invoices       Invoice[]
   creditNotes    CreditNote[]
+
+  /// Soft delete ("Delete"): hidden everywhere, restorable by the Super Admin; "Delete permanently" removes the row.
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+  /// What the soft delete changed (freed unique values, ended links, cascade) so Restore can undo it exactly.
+  deletedInfo Json?
 }
 
 model Branch {
@@ -121,6 +127,13 @@ model Branch {
   users   UserBranch[]
   drivers Driver[]
   pois    Poi[]
+
+
+  /// Soft delete ("Delete"): hidden everywhere, restorable by the Super Admin; "Delete permanently" removes the row.
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+  /// What the soft delete changed (freed unique values, ended links, cascade) so Restore can undo it exactly.
+  deletedInfo Json?
 
   @@unique([companyId, name])
 }
@@ -152,6 +165,13 @@ model User {
   passwordResets PasswordReset[]
   pushTokens     PushToken[]
   licenceSeat    LicenceSeat?
+
+
+  /// Soft delete ("Delete"): hidden everywhere, restorable by the Super Admin; "Delete permanently" removes the row.
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+  /// What the soft delete changed (freed unique values, ended links, cascade) so Restore can undo it exactly.
+  deletedInfo Json?
 
   @@index([companyId])
 }
@@ -280,6 +300,13 @@ model Device {
   trackerSessions MobileTrackerSession[]
   trackerEvents   TrackerEvent[]
 
+
+  /// Soft delete ("Delete"): hidden everywhere, restorable by the Super Admin; "Delete permanently" removes the row.
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+  /// What the soft delete changed (freed unique values, ended links, cascade) so Restore can undo it exactly.
+  deletedInfo Json?
+
   @@index([companyId])
 }
 
@@ -327,6 +354,13 @@ model TrackedObject {
   sharedWith        VehicleShare[]
   attendanceOutings AttendanceOuting[]
   attendanceSelfies AttendanceSelfie[]
+
+
+  /// Soft delete ("Delete"): hidden everywhere, restorable by the Super Admin; "Delete permanently" removes the row.
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+  /// What the soft delete changed (freed unique values, ended links, cascade) so Restore can undo it exactly.
+  deletedInfo Json?
 
   @@index([companyId, branchId])
 }
@@ -384,6 +418,13 @@ model Driver {
   assignments  DriverAssignment[]
   documents    Document[]
   driverEvents DriverEvent[]
+
+
+  /// Soft delete ("Delete"): hidden everywhere, restorable by the Super Admin; "Delete permanently" removes the row.
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+  /// What the soft delete changed (freed unique values, ended links, cascade) so Restore can undo it exactly.
+  deletedInfo Json?
 
   @@unique([companyId, rfidTag])
   @@unique([companyId, employeeId])
@@ -508,6 +549,13 @@ model VehicleGroup {
 
   company Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
   members VehicleGroupMember[]
+
+
+  /// Soft delete ("Delete"): hidden everywhere, restorable by the Super Admin; "Delete permanently" removes the row.
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+  /// What the soft delete changed (freed unique values, ended links, cascade) so Restore can undo it exactly.
+  deletedInfo Json?
 
   @@unique([companyId, name])
 }
@@ -764,6 +812,13 @@ model Geofence {
 
   targets GeofenceTarget[]
 
+
+  /// Soft delete ("Delete"): hidden everywhere, restorable by the Super Admin; "Delete permanently" removes the row.
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+  /// What the soft delete changed (freed unique values, ended links, cascade) so Restore can undo it exactly.
+  deletedInfo Json?
+
   @@unique([companyId, name])
   @@index([companyId, isActive])
 }
@@ -879,6 +934,13 @@ model Poi {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   branch  Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+
+  /// Soft delete ("Delete"): hidden everywhere, restorable by the Super Admin; "Delete permanently" removes the row.
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+  /// What the soft delete changed (freed unique values, ended links, cascade) so Restore can undo it exactly.
+  deletedInfo Json?
 
   @@index([companyId, isActive])
   @@index([companyId, lat, lng])

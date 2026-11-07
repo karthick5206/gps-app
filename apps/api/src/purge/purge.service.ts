@@ -45,6 +45,7 @@ export class PurgeService {
     return { kind, id, label: target.label, confirm: target.confirm, tables: rows, totalRows: rows.reduce((a, r) => a + r.rows, 0) };
   }
 
+  /* Purge works on soft-deleted rows too (deletedAt: undefined = deleted or not): Deleted items → Delete permanently. */
   async purge(ctx: AuthContext, kind: PurgeKind, id: string, confirm: string): Promise<{ ok: true; deletedRows: number }> {
     const target = await this.target(ctx, kind, id);
     if (confirm.trim().toLowerCase() !== target.confirm.trim().toLowerCase()) throw new BadRequestException(`Type "${target.confirm}" to confirm`);
@@ -119,28 +120,28 @@ export class PurgeService {
     rootCondition(id);
     switch (kind) {
       case 'device': {
-        const d = await this.prisma.device.findUnique({ where: { id }, select: { uniqueId: true, companyId: true, model: { select: { brand: true, model: true } }, assignments: { select: { objectId: true } } } });
+        const d = await this.prisma.device.findUnique({ where: { id, deletedAt: undefined }, select: { uniqueId: true, companyId: true, model: { select: { brand: true, model: true } }, assignments: { select: { objectId: true } } } });
         if (!d) throw new NotFoundException('Device not found');
         return { label: `${d.uniqueId} · ${d.model.brand} ${d.model.model}`, confirm: d.uniqueId, objectIds: [...new Set(d.assignments.map((a) => a.objectId))], companyIds: d.companyId ? [d.companyId] : [] };
       }
       case 'object': {
-        const o = await this.prisma.trackedObject.findUnique({ where: { id }, select: { name: true, plateNumber: true, companyId: true } });
+        const o = await this.prisma.trackedObject.findUnique({ where: { id, deletedAt: undefined }, select: { name: true, plateNumber: true, companyId: true } });
         if (!o) throw new NotFoundException('Vehicle / object not found');
         return { label: o.plateNumber ? `${o.name} (${o.plateNumber})` : o.name, confirm: o.name, objectIds: [id], companyIds: [o.companyId] };
       }
       case 'user': {
-        const u = await this.prisma.user.findUnique({ where: { id }, select: { name: true, email: true, mobile: true, isSuperAdmin: true } });
+        const u = await this.prisma.user.findUnique({ where: { id, deletedAt: undefined }, select: { name: true, email: true, mobile: true, isSuperAdmin: true } });
         if (!u) throw new NotFoundException('User not found');
         if (id === ctx.userId) throw new ForbiddenException("You can't delete your own account");
         if (u.isSuperAdmin) throw new ForbiddenException("A Super Admin account can't be deleted here");
         return { label: `${u.name} · ${u.email ?? u.mobile ?? ''}`, confirm: u.email ?? u.mobile ?? u.name, objectIds: [], companyIds: [] };
       }
       case 'company': {
-        const c = await this.prisma.company.findUnique({ where: { id }, select: { name: true } });
+        const c = await this.prisma.company.findUnique({ where: { id, deletedAt: undefined }, select: { name: true } });
         if (!c) throw new NotFoundException('Company not found');
         if (id === ctx.homeCompanyId) throw new ForbiddenException("The platform company can't be deleted");
         if (await this.prisma.user.count({ where: { companyId: id, isSuperAdmin: true } })) throw new ForbiddenException('This company has a Super Admin account');
-        const objects = await this.prisma.trackedObject.findMany({ where: { companyId: id }, select: { id: true } });
+        const objects = await this.prisma.trackedObject.findMany({ where: { companyId: id, deletedAt: undefined }, select: { id: true } });
         return { label: c.name, confirm: c.name, objectIds: objects.map((o) => o.id), companyIds: [id] };
       }
     }

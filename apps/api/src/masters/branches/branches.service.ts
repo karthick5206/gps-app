@@ -9,6 +9,7 @@ import { iso } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BranchListQuery, CreateBranchDto, UpdateBranchDto } from './branches.dto';
+import { softDelete } from '../../prisma/soft-delete';
 
 const ENTITY = 'branch';
 const INCLUDE = { _count: { select: { objects: true } } } satisfies Prisma.BranchInclude;
@@ -88,7 +89,8 @@ export class BranchesService {
 
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(ctx, id);
-    await this.prisma.branch.delete({ where: { id } });
+    // "Delete" is a soft delete (restorable by the Super Admin); "Delete permanently" is the purge.
+    await this.prisma.$transaction((tx) => softDelete(tx, 'branch', id, ctx.userId));
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before });
   }
 

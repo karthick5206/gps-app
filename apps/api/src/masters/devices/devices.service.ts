@@ -23,6 +23,7 @@ import {
   toDeviceDto,
 } from './device.mapper';
 import { CreateDeviceDto, DeviceListQuery, UpdateDeviceDto } from './devices.dto';
+import { softDelete } from '../../prisma/soft-delete';
 
 const ENTITY = 'device';
 const CSV = deviceCsv('devices');
@@ -150,7 +151,8 @@ export class DevicesService {
 
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(ctx, id);
-    await this.prisma.device.delete({ where: { id } });
+    // "Delete" is a soft delete (restorable by the Super Admin); "Delete permanently" is the purge.
+    await this.prisma.$transaction((tx) => softDelete(tx, 'device', id, ctx.userId));
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: deviceSnapshot(before) });
     await this.redis.invalidateCache('device');
   }

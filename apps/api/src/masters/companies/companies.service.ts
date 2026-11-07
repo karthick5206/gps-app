@@ -12,6 +12,7 @@ import { hashPassword } from '../../common/secrets';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { CompanyListQuery, CreateCompanyDto, UpdateCompanyDto } from './companies.dto';
+import { softDelete } from '../../prisma/soft-delete';
 
 const ENTITY = 'company';
 export const DEFAULT_PARTNER_SLUG = 'veetracer';
@@ -130,7 +131,8 @@ export class CompaniesService {
 
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(id);
-    await this.prisma.company.delete({ where: { id } });
+    // "Delete" is a soft delete (restorable by the Super Admin); "Delete permanently" is the purge.
+    await this.prisma.$transaction((tx) => softDelete(tx, 'company', id, ctx.userId));
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before });
   }
 

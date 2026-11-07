@@ -11,6 +11,7 @@ import { hashPassword } from '../../common/secrets';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { CreateUserDto, UpdateUserDto, UserListQuery } from './users.dto';
+import { softDelete } from '../../prisma/soft-delete';
 
 const ENTITY = 'user';
 const INCLUDE = {
@@ -173,7 +174,8 @@ export class UsersService {
   async remove(ctx: AuthContext, id: string): Promise<void> {
     if (id === ctx.userId) throw new BadRequestException('You cannot delete yourself');
     const before = await this.findManageable(ctx, id);
-    await this.prisma.user.delete({ where: { id } });
+    // "Delete" is a soft delete (restorable by the Super Admin); "Delete permanently" is the purge.
+    await this.prisma.$transaction((tx) => softDelete(tx, 'user', id, ctx.userId));
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: snapshot(before) });
     await this.redis.invalidateCache('user');
   }
