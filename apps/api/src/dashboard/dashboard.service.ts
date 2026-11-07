@@ -23,6 +23,8 @@ import { openIoEnd } from '../io-sensors/io-logic';
 
 /** Still sending data (not offline / no data): its sensor readings describe now. */
 const reporting = (status: string) => status !== 'OFFLINE' && status !== 'NO_DATA';
+/** Switched on and sending data (running, idling or overspeeding): "AC on now" counts only these. */
+const switchedOn = (status: string) => status === 'RUNNING' || status === 'IDLE' || status === 'OVERSPEED';
 
 const EMPTY_SCOPE = { branchIds: [], groupIds: [], objectIds: [] };
 /** Only a packet received this recently says anything about the device clock today. */
@@ -155,7 +157,7 @@ export class DashboardService {
     return {
       acVehicles: configs.filter((c) => c.kind === 'AC').length,
       // An offline / no-data vehicle's last reading is not "now".
-      acOnNow: objects.filter((o) => o.acOn === true && reporting(o.status)).length,
+      acOnNow: objects.filter((o) => o.acOn === true && switchedOn(o.status)).length,
       acOnTodaySec: [...perVehicle.values()].reduce((a, v) => a + v, 0),
       doorVehicles: configs.filter((c) => c.kind === 'DOOR').length,
       doorOpenNow: objects.filter((o) => o.doorOpen === true && reporting(o.status)).length,
