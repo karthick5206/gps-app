@@ -78,23 +78,3 @@ describe('ioSessionsReport (AC / Door sessions)', () => {
     expect(r.totals).toEqual({ count: 4, acOnSec: 3600 + 1800, acOnEngineOffSec: 300, doorOpenCount: 1, doorOpenSec: 60 });
   });
 });
-
-describe('AC on when the vehicle goes offline', () => {
-  const { openIoEnd, IO_GAP_MS } = jest.requireActual('../io-sensors/io-logic') as typeof import('../io-sensors/io-logic');
-  const H = 3_600_000;
-  const t0 = Date.UTC(2026, 10, 7, 3, 30); // 09:00 IST
-
-  it('counts an open AC period up to now while the vehicle reports, but only up to its last point once data stops', () => {
-    // Reporting: last write 3 min ago -> counted to now.
-    expect(openIoEnd(t0, 2 * 3600 - 180, t0 + 2 * H)).toBe(t0 + 2 * H);
-    // Offline for 5 h after 1 h of AC: counted to the last point only (1 h), not 6 h.
-    expect(openIoEnd(t0, 3600, t0 + 6 * H)).toBe(t0 + H);
-    expect(IO_GAP_MS).toBe(30 * 60_000);
-  });
-
-  it('a vehicle offline with the AC on does not keep collecting AC hours in the daily total', () => {
-    const now = t0 + 6 * H;
-    const [row] = aggregateIoDays([{ objectId: 'v', kind: 'AC', on: true, startTime: t0, endTime: null, durationSec: 3600, distanceKm: 0, engineOffSec: 0 }], '2026-11-07', '2026-11-07', 'Asia/Kolkata', now);
-    expect(row.acOnSec).toBe(3600);
-  });
-});

@@ -189,10 +189,10 @@ export default function VehicleScreen() {
           <InfoRow label={t('Mobile signal')} value={o.gsmSignal === null ? '—' : `${o.gsmSignal} / 4`} />
           <InfoRow label={t('Vehicle voltage')} value={or(o.extVoltage, 'V', 1)} />
           {o.acOn !== undefined && (
-            <InfoRow label={t('AC')} value={`${o.acOn === null ? '—' : o.acOn ? t('On') : t('Off')}${o.acOn !== null && (o.status === 'OFFLINE' || o.status === 'NO_DATA') ? ` (${t('last known')})` : ''}${o.acVoltage != null ? ` (${o.acVoltage.toFixed(1)} V)` : ''}`} />
+            <InfoRow label={t('AC')} value={`${o.acOn === null ? '—' : o.acOn ? t('On') : t('Off')}${o.acVoltage != null ? ` (${o.acVoltage.toFixed(1)} V)` : ''}`} />
           )}
           {o.doorOpen !== undefined && (
-            <InfoRow label={t('Door')} value={`${o.doorOpen === null ? '—' : o.doorOpen ? t('Open') : t('Closed')}${o.doorOpen !== null && (o.status === 'OFFLINE' || o.status === 'NO_DATA') ? ` (${t('last known')})` : ''}${o.doorVoltage != null ? ` (${o.doorVoltage.toFixed(1)} V)` : ''}`} />
+            <InfoRow label={t('Door')} value={`${o.doorOpen === null ? '—' : o.doorOpen ? t('Open') : t('Closed')}${o.doorVoltage != null ? ` (${o.doorVoltage.toFixed(1)} V)` : ''}`} />
           )}
           {o.fuelL != null && <InfoRow label={t('Fuel')} value={`${o.fuelL.toFixed(1)} L${o.fuelPct != null ? ` · ${Math.round(o.fuelPct)}%` : ''}`} />}
           <InfoRow label={t('Device battery')} value={`${or(o.batteryLevel, '%')}${chargeState(o)?.kind === 'CHARGER' ? ` · ${chargeText(o, Date.now(), t)}` : ''}`} />

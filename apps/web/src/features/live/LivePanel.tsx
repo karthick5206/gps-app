@@ -115,9 +115,8 @@ const ObjectRow = memo(function ObjectRow({
             {o.shared && <span className="font-medium text-foreground/80">{t('Shared')} · </span>}
             {o.plateNumber ?? o.uniqueId ?? '—'}
             {o.status !== 'NO_DATA' && <> · <span className="tabular-nums">{Math.round(o.speedKph)} km/h</span></>}
-            {/* Offline / no data: the last AC / door reading is not "now", so no icon. */}
-            {o.acOn && o.status !== 'OFFLINE' && o.status !== 'NO_DATA' ? <SnowflakeIcon className="ms-1.5 inline size-3 text-info" aria-label={t('AC on')} /> : null}
-            {o.doorOpen && o.status !== 'OFFLINE' && o.status !== 'NO_DATA' ? <DoorOpenIcon className="ms-1 inline size-3 text-warning" aria-label={t('Door open')} /> : null}
+            {o.acOn ? <SnowflakeIcon className="ms-1.5 inline size-3 text-info" aria-label={t('AC on')} /> : null}
+            {o.doorOpen ? <DoorOpenIcon className="ms-1 inline size-3 text-warning" aria-label={t('Door open')} /> : null}
             <ChargeIcon o={o} />
           </span>
           {details && !o.licenceLocked && <RowDayLine o={o} s={stats} />}

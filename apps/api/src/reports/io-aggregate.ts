@@ -1,5 +1,4 @@
 import { IoDailyReportRow } from '@veetracer/shared';
-import { openIoEnd } from '../io-sensors/io-logic';
 import { addDays, localDayKey, localMidnight } from '../summarizer/tz';
 
 export interface IoSessionLite {
@@ -7,10 +6,8 @@ export interface IoSessionLite {
   kind: string;
   on: boolean;
   startTime: number;
-  /** Null = still open (counted up to now, or to the last point once data stopped: openIoEnd). */
+  /** Null = still open (counted up to `now`). */
   endTime: number | null;
-  /** Length so far of an open period, as last written by the processor. */
-  durationSec?: number;
   distanceKm: number;
   engineOffSec: number;
 }
@@ -35,9 +32,8 @@ export function aggregateIoDays(sessions: IoSessionLite[], from: string, to: str
     }
     return r;
   };
-  for (const raw of sessions) {
-    if (!raw.on) continue;
-    const s = raw.endTime === null && raw.durationSec !== undefined ? { ...raw, endTime: openIoEnd(raw.startTime, raw.durationSec, now) } : raw;
+  for (const s of sessions) {
+    if (!s.on) continue;
     const end = Math.min(s.endTime ?? now, rangeEnd);
     const start = Math.max(s.startTime, rangeStart);
     if (end <= start && !(s.startTime >= rangeStart && s.startTime < rangeEnd)) continue;

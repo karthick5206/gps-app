@@ -19,10 +19,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ReportDataService } from '../reports/report-data.service';
 import { deviceStatusReport, QueryCtx } from '../reports/report-queries';
 import { localDayKey, localMidnight } from '../summarizer/tz';
-import { openIoEnd } from '../io-sensors/io-logic';
-
-/** Still sending data (not offline / no data): its sensor readings describe now. */
-const reporting = (status: string) => status !== 'OFFLINE' && status !== 'NO_DATA';
 
 const EMPTY_SCOPE = { branchIds: [], groupIds: [], objectIds: [] };
 /** Only a packet received this recently says anything about the device clock today. */
@@ -119,7 +115,7 @@ export class DashboardService {
 
   /** AC / door sensor KPIs: live state from the snapshot, today's and the last 7 days' totals from the sensor sessions. */
   private async ioSummary(
-    objects: { objectId: string; name: string; plateNumber: string | null; status: string; acOn?: boolean | null; doorOpen?: boolean | null }[],
+    objects: { objectId: string; name: string; plateNumber: string | null; acOn?: boolean | null; doorOpen?: boolean | null }[],
     ids: string[],
     day: string,
     start: Date,
@@ -139,12 +135,12 @@ export class DashboardService {
     const [acSessions, doorOpenings] = await Promise.all([
       this.prisma.ioSession.findMany({
         where: { objectId: { in: ids }, kind: 'AC', on: true, startTime: { lt: new Date(now) }, OR: [{ endTime: null }, { endTime: { gt: new Date(days[0].from) } }] },
-        select: { objectId: true, startTime: true, endTime: true, durationSec: true },
+        select: { objectId: true, startTime: true, endTime: true },
       }),
       this.prisma.ioSession.count({ where: { objectId: { in: ids }, kind: 'DOOR', on: true, startTime: { gte: start } } }),
     ]);
-    const overlap = (r: { startTime: Date; endTime: Date | null; durationSec: number }, from: number, to: number) =>
-      Math.max(0, Math.round((Math.min(r.endTime?.getTime() ?? openIoEnd(r.startTime.getTime(), r.durationSec, now), now, to) - Math.max(r.startTime.getTime(), from)) / 1000));
+    const overlap = (r: { startTime: Date; endTime: Date | null }, from: number, to: number) =>
+      Math.max(0, Math.round((Math.min(r.endTime?.getTime() ?? now, now, to) - Math.max(r.startTime.getTime(), from)) / 1000));
     const today = days[6];
     const perVehicle = new Map<string, number>();
     for (const r of acSessions) {
@@ -154,11 +150,10 @@ export class DashboardService {
     const meta = new Map(objects.map((o) => [o.objectId, o]));
     return {
       acVehicles: configs.filter((c) => c.kind === 'AC').length,
-      // An offline / no-data vehicle's last reading is not "now".
-      acOnNow: objects.filter((o) => o.acOn === true && reporting(o.status)).length,
+      acOnNow: objects.filter((o) => o.acOn === true).length,
       acOnTodaySec: [...perVehicle.values()].reduce((a, v) => a + v, 0),
       doorVehicles: configs.filter((c) => c.kind === 'DOOR').length,
-      doorOpenNow: objects.filter((o) => o.doorOpen === true && reporting(o.status)).length,
+      doorOpenNow: objects.filter((o) => o.doorOpen === true).length,
       doorOpeningsToday: doorOpenings,
       acByVehicle: [...perVehicle.entries()]
         .map(([objectId, onSec]) => ({ objectId, name: meta.get(objectId)?.name ?? '', plateNumber: meta.get(objectId)?.plateNumber ?? null, onSec }))

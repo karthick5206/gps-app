@@ -108,13 +108,13 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
       )}
       {o.acOn !== undefined && (
         <Row label={t('AC')}>
-          {o.acOn === null ? '—' : o.acOn ? t('On') : t('Off')}{o.acOn !== null && (o.status === 'OFFLINE' || o.status === 'NO_DATA') ? ` (${t('last known')})` : ''}
+          {o.acOn === null ? '—' : o.acOn ? t('On') : t('Off')}
           {o.acVoltage != null && <span className="ms-1 font-normal text-muted-foreground">{`(${o.acVoltage.toFixed(1)} V)`}</span>}
         </Row>
       )}
       {o.doorOpen !== undefined && (
         <Row label={t('Door')}>
-          {o.doorOpen === null ? '—' : o.doorOpen ? t('Open') : t('Closed')}{o.doorOpen !== null && (o.status === 'OFFLINE' || o.status === 'NO_DATA') ? ` (${t('last known')})` : ''}
+          {o.doorOpen === null ? '—' : o.doorOpen ? t('Open') : t('Closed')}
           {o.doorVoltage != null && <span className="ms-1 font-normal text-muted-foreground">{`(${o.doorVoltage.toFixed(1)} V)`}</span>}
         </Row>
       )}
