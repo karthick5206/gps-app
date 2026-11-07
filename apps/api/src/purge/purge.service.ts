@@ -53,8 +53,9 @@ export class PurgeService {
   }
 
   /**
-   * "Delete my account" (app stores require it): a personal / family account deletes the whole account with all its
-   * phones, trackers and history; a user of a company account deletes only their own login (the company's data stays).
+   * "Delete my account" (app stores require it): the LAST user of a personal / family account deletes the whole account
+   * with all its phones, trackers and history. Anyone else — a user of a company account, or one of several people in a
+   * personal account — deletes only their own login (the account and its data stay for the others).
    * Confirmed by typing the account e-mail (or mobile).
    */
   async deleteOwnAccount(ctx: AuthContext, confirm: string): Promise<{ ok: true; scope: 'account' | 'user'; deletedRows: number }> {
@@ -63,7 +64,9 @@ export class PurgeService {
     if (!user) throw new NotFoundException('Account not found');
     const expected = user.email ?? user.mobile ?? '';
     if (!expected || confirm.trim().toLowerCase() !== expected.toLowerCase()) throw new BadRequestException(`Type "${expected}" to confirm`);
-    const personal = user.company.accountType !== 'BUSINESS' && !user.company.isPlatform;
+    // Seen 7 Nov: an extra user of a personal account deleted "their" account and the owner's whole account went with it.
+    const others = await this.prisma.user.count({ where: { companyId: user.companyId, id: { not: ctx.userId } } });
+    const personal = user.company.accountType !== 'BUSINESS' && !user.company.isPlatform && others === 0;
     const kind: PurgeKind = personal ? 'company' : 'user';
     const id = personal ? user.companyId : ctx.userId;
     const objects = personal ? await this.prisma.trackedObject.findMany({ where: { companyId: id }, select: { id: true } }) : [];

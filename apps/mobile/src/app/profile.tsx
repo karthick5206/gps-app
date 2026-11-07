@@ -130,7 +130,7 @@ function DeleteAccountCard() {
     <Card style={{ gap: SPACE.md }}>
       <Text size="sm" tone="muted">
         {personal
-          ? t('Deletes this account and everything in it: every phone, tracker and dashcam, with all locations, history and settings.')
+          ? `${t('Deletes this account and everything in it: every phone, tracker and dashcam, with all locations, history and settings.')} ${t('If other people also sign in to this account, only your login is deleted.')}`
           : t('Deletes your login. The company’s vehicles and data stay with the company.')}{' '}
         {t('Type {{text}} to confirm.', { text: expected })}
       </Text>

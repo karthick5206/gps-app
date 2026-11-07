@@ -349,7 +349,8 @@ export function DeleteAccountPage() {
             <b>{t("Personal or family account:")}</b>{" "}
             {t(
               "the whole account: your login, every phone, tracker and dashcam in it, and all their locations, history, trips, alerts and settings.",
-            )}
+            )}{" "}
+            {t("If other people also sign in to this account, only your login is deleted.")}
           </li>
           <li>
             <b>{t("User of a company account:")}</b>{" "}
@@ -375,9 +376,9 @@ export function DeleteAccountPage() {
           <div className="space-y-3">
             <p>
               {personal
-                ? t("This deletes the account {{name}} and everything in it.", {
+                ? `${t("This deletes the account {{name}} and everything in it.", {
                     name: me.company.name,
-                  })
+                  })} ${t("If other people also sign in to this account, only your login is deleted.")}`
                 : t("This deletes your login {{name}}.", {
                     name: expected,
                   })}{" "}
