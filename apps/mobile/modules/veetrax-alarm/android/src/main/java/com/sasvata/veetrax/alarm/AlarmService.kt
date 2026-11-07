@@ -27,6 +27,11 @@ import androidx.core.content.ContextCompat
 /**
  * The loud emergency alarm: loops the siren on the alarm volume, so it also rings on a silent phone, until someone
  * silences it or opens the alert. The notification opens the SOS screen, over the lock screen where Android allows it.
+ *
+ * Without the full-screen permission (Android 14+ grants it only to alarm-clock and calling apps unless the user
+ * allows it), Android shows the notification as a banner for a short time instead. Then the screen is woken, the
+ * banner is posted again every REPOST_MS while it rings (it can't be swiped away), and opening the app goes straight
+ * to the SOS screen (ringingAlertId); the siren itself never depends on the permission.
  */
 class AlarmService : Service() {
   private var player: MediaPlayer? = null
@@ -34,6 +39,16 @@ class AlarmService : Service() {
   private var savedVolume: Int? = null
   private val handler = Handler(Looper.getMainLooper())
   private val stopLater = Runnable { stopSelf() }
+  private var lastNotification: Notification? = null
+  private var screenLock: PowerManager.WakeLock? = null
+  /** Re-posts the banner so it keeps coming back while the alarm rings (no full-screen permission). */
+  private val repost = object : Runnable {
+    override fun run() {
+      val n = lastNotification ?: return
+      (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, n)
+      handler.postDelayed(this, REPOST_MS)
+    }
+  }
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -42,10 +57,18 @@ class AlarmService : Service() {
       stopSelf()
       return START_NOT_STICKY
     }
-    val notification = buildNotification(intent?.getStringExtra(EXTRA_TITLE).orEmpty(), intent?.getStringExtra(EXTRA_TEXT).orEmpty(), intent?.getStringExtra(EXTRA_ALERT).orEmpty())
+    val alertId = intent?.getStringExtra(EXTRA_ALERT).orEmpty()
+    ringingAlert = alertId.ifEmpty { "unknown" }
+    val notification = buildNotification(intent?.getStringExtra(EXTRA_TITLE).orEmpty(), intent?.getStringExtra(EXTRA_TEXT).orEmpty(), alertId)
+    lastNotification = notification
     val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0
     ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
     ring()
+    if (!canFullScreen(this)) {
+      wakeScreen()
+      handler.removeCallbacks(repost)
+      handler.postDelayed(repost, REPOST_MS)
+    }
     handler.removeCallbacks(stopLater)
     handler.postDelayed(stopLater, MAX_RING_MS)
     return START_NOT_STICKY
@@ -75,6 +98,17 @@ class AlarmService : Service() {
     (getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.let { vibrator ->
       vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 400, 800, 400, 800), 0), AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
     }
+  }
+
+  /** Turns the screen on so the SOS banner is seen on the lock screen (old API, still honoured for this). */
+  @Suppress("DEPRECATION")
+  private fun wakeScreen() {
+    if (screenLock != null) return
+    screenLock = runCatching {
+      (getSystemService(Context.POWER_SERVICE) as PowerManager)
+        .newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "veetrax:alarm-screen")
+        .apply { acquire(30_000) }
+    }.getOrNull()
   }
 
   /** The siren bundled for the 'sos' notification channel, else the phone's own alarm sound. */
@@ -108,6 +142,9 @@ class AlarmService : Service() {
       .setContentIntent(content)
       .setFullScreenIntent(content, true)
       .addAction(0, getString(R.string.veetrax_alarm_silence), silence)
+      .addAction(0, getString(R.string.veetrax_alarm_open), content)
+      // Each re-post must pop up again as a banner.
+      .setOnlyAlertOnce(false)
       .setOngoing(true)
       .setPriority(NotificationCompat.PRIORITY_MAX)
       .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -118,6 +155,10 @@ class AlarmService : Service() {
 
   override fun onDestroy() {
     handler.removeCallbacks(stopLater)
+    handler.removeCallbacks(repost)
+    ringingAlert = null
+    lastNotification = null
+    runCatching { if (screenLock?.isHeld == true) screenLock?.release() }
     runCatching { player?.stop() }
     runCatching { player?.release() }
     player = null
@@ -138,6 +179,15 @@ class AlarmService : Service() {
     private const val EXTRA_ALERT = "alertId"
     /** Long enough to be heard, but a phone nobody is near mustn't ring until its battery dies. */
     private const val MAX_RING_MS = 5 * 60_000L
+    /** Banner re-post interval without the full-screen permission (Android hides a banner after a few seconds). */
+    private const val REPOST_MS = 20_000L
+
+    /** Alert id of the alarm ringing now (null when silent): the app opens its SOS screen when brought forward. */
+    @Volatile var ringingAlert: String? = null
+
+    /** Whether Android lets this app show the SOS screen over the lock screen (always true before Android 14). */
+    fun canFullScreen(context: Context): Boolean =
+      Build.VERSION.SDK_INT < 34 || (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).canUseFullScreenIntent()
 
     fun start(context: Context, title: String, text: String, alertId: String) {
       val intent = Intent(context, AlarmService::class.java).putExtra(EXTRA_TITLE, title).putExtra(EXTRA_TEXT, text).putExtra(EXTRA_ALERT, alertId)

@@ -3,7 +3,7 @@ import { isAlarmAlert, type AlertDto, type AlertUnreadCount } from '@veetracer/s
 import { Tabs } from 'expo-router';
 import { BellIcon, LayoutDashboardIcon, ListIcon, MapIcon, MenuIcon, type LucideIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
-import { View, type ColorValue } from 'react-native';
+import { View, type ColorValue, AppState } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SosIntroNotice } from '@/components/SosIntroNotice';
 import { refreshAlertLists } from '@/features/alerts/read';
@@ -13,6 +13,7 @@ import { useLiveConnection } from '@/features/live/use-live-connection';
 import { handleNotificationTaps, openSos, registerForPush } from '@/features/notifications/push';
 import { api } from '@/lib/api';
 import { announceAlert } from '@/features/notifications/voice';
+import { ringingAlertId } from '../../../modules/veetrax-alarm';
 import { useColors, type Colors } from '@/lib/theme';
 
 /** Tab icon with the brand-accent (saffron) bar over the current tab, as on the web menu. */
@@ -36,6 +37,17 @@ export default function TabsLayout() {
   useEffect(() => {
     void registerForPush();
     return handleNotificationTaps();
+  }, []);
+  useEffect(() => {
+    const check = () => {
+      const id = ringingAlertId();
+      if (!id) return;
+      if (id === 'test') openSos('test', true);
+      else if (id !== 'unknown') openSos(id);
+    };
+    check();
+    const sub = AppState.addEventListener('change', (s) => s === 'active' && check());
+    return () => sub.remove();
   }, []);
 
   const unread = useQuery({

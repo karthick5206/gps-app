@@ -3405,4 +3405,7 @@ export const TA: Record<string, string> = {
   'Hide the list for more map': 'அதிக வரைபடத்துக்கு பட்டியலை மறை',
   'If other people also sign in to this account, only your login is deleted.': 'இந்தக் கணக்கில் மற்றவர்களும் உள்நுழைந்தால், உங்கள் உள்நுழைவு மட்டுமே நீக்கப்படும்.',
   'last known': 'கடைசியாகத் தெரிந்தது',
+  'Full-screen SOS alerts are off': 'முழுத்திரை SOS எச்சரிக்கைகள் அணைக்கப்பட்டுள்ளன',
+  'The siren still rings and the alert stays at the top of the screen. Allow full screen so the SOS opens over the lock screen.': 'சைரன் ஒலிக்கும், எச்சரிக்கை திரையின் மேலே இருக்கும். பூட்டுத் திரையின் மேல் SOS திறக்க முழுத்திரையை அனுமதிக்கவும்.',
+  'Allow full-screen SOS alerts': 'முழுத்திரை SOS எச்சரிக்கைகளை அனுமதி',
 };

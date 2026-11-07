@@ -1,4 +1,5 @@
 <resources>
   <string name="veetrax_alarm_channel">SOS alarm</string>
   <string name="veetrax_alarm_silence">Silence</string>
+  <string name="veetrax_alarm_open">Open</string>
 </resources>
