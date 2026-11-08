@@ -1,0 +1,11 @@
+# Copy to the repository root as .dockerignore before "docker build" (keeps the image small and secrets out).
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+apps/mobile/android
+apps/mobile/ios
+apps/tracker/android
+apps/tracker/ios
+.git

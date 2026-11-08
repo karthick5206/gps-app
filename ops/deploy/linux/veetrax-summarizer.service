@@ -1,0 +1,16 @@
+[Unit]
+Description=VeeTrax summarizer
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+User=veetrax
+WorkingDirectory=/opt/veetrax/app/apps/api
+EnvironmentFile=/opt/veetrax/app/apps/api/.env
+ExecStart=/usr/bin/node --max-old-space-size=512 dist/summarizer/main.js
+Restart=always
+RestartSec=5
+# Logs: journalctl -u veetrax-summarizer -f
+
+[Install]
+WantedBy=multi-user.target

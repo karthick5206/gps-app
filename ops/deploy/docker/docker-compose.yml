@@ -1,0 +1,94 @@
+# VeeTrax with Docker Compose. EXAMPLE: test on a staging server first.
+#   1. cp ../../../apps/api/.env.example .env  and fill it in; inside compose use
+#        DATABASE_URL=postgresql://veetracer:${DB_PASSWORD}@db:5432/veetracer
+#        REDIS_URL=redis://redis:6379
+#        API_PORT=4100   NODE_ENV=production
+#   2. Set DB_PASSWORD and SITE (your domain) in the shell or in a .env next to this file.
+#   3. docker compose build && docker compose run --rm migrate && docker compose up -d
+# Release: docker compose build && docker compose run --rm migrate && docker compose up -d
+
+x-app: &app
+  image: veetrax:latest
+  build:
+    context: ../../..
+    dockerfile: ops/deploy/docker/Dockerfile
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    db: { condition: service_healthy }
+    redis: { condition: service_started }
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: veetracer
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      POSTGRES_DB: veetracer
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veetracer"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    # The position stream must never be evicted.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes: [redisdata:/data]
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run db:seed"]
+    profiles: ["tools"]
+
+  api:
+    <<: *app
+    command: ["node", "--max-old-space-size=512", "dist/main.js"]
+    expose: ["4100"]
+
+  gateway:
+    <<: *app
+    command: ["node", "--max-old-space-size=512", "dist/gateway/main.js"]
+    # Devices connect here directly (raw TCP).
+    ports: ["5023:5023", "5027:5027", "6808:6808", "5030:5030", "7612:7612"]
+
+  processor:
+    <<: *app
+    command: ["node", "--max-old-space-size=512", "dist/processor/main.js"]
+
+  notifier:
+    <<: *app
+    command: ["node", "--max-old-space-size=512", "dist/notifier/main.js"]
+
+  summarizer:
+    <<: *app
+    command: ["node", "--max-old-space-size=512", "dist/summarizer/main.js"]
+
+  web-files:
+    # Copies the built web app out of the image into a volume the proxy serves.
+    <<: *app
+    restart: "no"
+    command: ["sh", "-c", "rm -rf /web/* && cp -r /app/apps/web/dist/. /web/"]
+    volumes: [webdist:/web]
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [api, web-files]
+    environment:
+      SITE: ${SITE:?set SITE to your domain}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - webdist:/srv/web:ro
+      - caddydata:/data
+
+volumes:
+  pgdata:
+  redisdata:
+  webdist:
+  caddydata:

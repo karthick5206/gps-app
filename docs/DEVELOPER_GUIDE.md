@@ -1,6 +1,6 @@
 # VeeTrax Developer Guide
 
-How the code is organised, how to run it, the conventions to follow, and where to look when something goes wrong. Read sections 1–4 once; use section 6 (Debugging playbook) when you have a problem, and section 7 for Git.
+How the code is organised, how to run it, the conventions to follow, and where to look when something goes wrong. Read sections 1–4 once; use section 6 (Debugging playbook) when you have a problem, section 7 for Git, and section 9 for deploying on any server.
 
 ## 1. The system in one page
 
@@ -228,7 +228,120 @@ The server has no access to GitHub. A deploy packs the branch as a Git bundle (`
 | iPhone | EAS Build (`eas build --platform ios`). |
 | Backups | Encrypted weekly full + 8-hourly diff to a private GitHub repo; restore steps in the backup key folder README. |
 
-## 9. Known gaps
+All deploy scripts are in `ops/deploy` (`windows/`, `linux/`, `docker/`; see `ops/deploy/README.md`), with a copy in `C:\Build\Scripts` on the owner's PC. The Windows deploy scripts are in `ops/deploy/windows` (`deploy-release.ps1` = full release, `update-web-only.ps1` = web only, `deploy-veetracer.ps1` = first install). They ask for the server password; never write it into a script.
+
+## 9. Deploying on any server (Windows, Linux, Docker, cloud)
+
+VeeTrax is plain Node.js + PostgreSQL + Redis, so it runs the same on Windows, Linux or containers. Only the way the processes are kept running differs.
+
+### 9.1 What has to run
+
+| Piece | Command (in `apps/api` after build) | Port | Notes |
+|---|---|---|---|
+| API | `node dist/main.js` | 4100 (`API_PORT`), local only | Behind the reverse proxy. |
+| Gateway | `node dist/gateway/main.js` | 5023, 5027, 6808, 5030, 7612 (TCP, public) | Devices connect here directly – open these in the firewall. |
+| Processor | `node dist/processor/main.js` | – | More than one instance may run (consumer group). |
+| Notifier | `node dist/notifier/main.js` | – | |
+| Summarizer | `node dist/summarizer/main.js` | – | |
+| PostgreSQL 16 | – | 5432 (local only) | Database `veetracer`. |
+| Redis 7 (or Memurai on Windows) | – | 6379 (local only) | `maxmemory-policy noeviction` – the position stream must never be evicted. |
+| Reverse proxy (Caddy or Nginx) | – | 80, 443 (public) | Serves `apps/web/dist`, proxies `/api` and `/socket.io` to 4100, HTTPS certificates. |
+
+Sizing: a small fleet runs on 2 vCPU / 4 GB; plan 4 vCPU / 8 GB and an SSD for a few thousand devices.
+
+### 9.2 Steps common to every platform
+
+1. Install Node.js 24, PostgreSQL 16, Redis 7 (Memurai on Windows) and Caddy.
+2. Create the database and its user: `CREATE USER veetracer WITH PASSWORD '…'; CREATE DATABASE veetracer OWNER veetracer;`
+3. Get the code: `git clone` (or copy a Git bundle and `git clone gps-app.bundle app`).
+4. Create `apps/api/.env` from `apps/api/.env.example`: at least `NODE_ENV=production`, `API_PORT=4100`, `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET` (long random), `WEB_URL`, `PUBLIC_API_URL`, mail, push and geocoder settings (section 3).
+5. Build: `npm ci` → `npm run build:shared` → `npm run build -w @veetracer/web` → `cd apps/api && npx prisma generate && npm run build`.
+6. Database: `npx prisma migrate deploy` (every release) and `npm run db:seed` (first install creates the Super Admin; safe to repeat).
+7. Start the five processes as services (9.3–9.5) and the reverse proxy.
+8. Point DNS: the web / API name to the proxy, and the device name (e.g. `track.<domain>`) to the gateway's public IP.
+9. Check: web sign-in works, System Health shows every port listening, a test device appears on the live map.
+
+Reverse proxy example (Caddyfile):
+
+| Caddyfile line | Purpose |
+|---|---|
+| `app.example.com {` | Site name; Caddy fetches the HTTPS certificate. |
+| `  encode gzip` | Compression. |
+| `  handle /api/* { reverse_proxy 127.0.0.1:4100 }` | REST API (also video streams). |
+| `  handle /socket.io/* { reverse_proxy 127.0.0.1:4100 }` | Live updates (WebSockets). |
+| `  handle { root * /path/to/app/apps/web/dist`, `try_files {path} /index.html`, `file_server }` | Web app with single-page fallback. |
+| `}` | |
+
+### 9.3 Windows Server (current production)
+
+- Services are created with NSSM, one per process. Example for the API (repeat for `gateway`, `processor`, `notifier`, `summarizer` with their `dist` path):
+  - `nssm install veetracer-api "C:\Program Files\nodejs\node.exe" "--max-old-space-size=256 dist\main.js"`
+  - `nssm set veetracer-api AppDirectory C:\apps\veetracer\app\apps\api`
+  - `nssm set veetracer-api AppStdout C:\apps\veetracer\logs\api.log` and the same for `AppStderr`
+  - `nssm set veetracer-api AppRotateFiles 1` and **AppRotateOnline 0** (1 makes service stops hang)
+  - `nssm set veetracer-api DependOnService veetracer-pg Memurai`
+- PostgreSQL runs as its own service (`veetracer-pg`, port 5433 on the shared server); Memurai as a service.
+- Firewall: add inbound TCP rules for the device ports.
+- Releases: `ops/deploy/windows/deploy-release.ps1`. Before `prisma generate`, stop api / processor / notifier / summarizer (they lock the Prisma engine file); the script does this.
+- First start after a rebuild can take ~90 s (antivirus scanning).
+
+### 9.4 Linux (Ubuntu 22.04 / 24.04)
+
+Ready-made scripts: `ops/deploy/linux/install-ubuntu.sh` does steps 1–3 and 5 (run `sudo DB_PASS=… bash install-ubuntu.sh`), `ops/deploy/linux/release.sh` does step 6, and the five unit files are in the same folder. The manual steps:
+
+1. Packages: PostgreSQL 16 (PGDG repository), `redis-server`, `caddy`, Node.js 24 (NodeSource). In `/etc/redis/redis.conf` set `maxmemory-policy noeviction`.
+2. A service user and folder: `sudo useradd -r -m -d /opt/veetrax veetrax`, code in `/opt/veetrax/app`.
+3. One systemd unit per process, e.g. `/etc/systemd/system/veetrax-api.service`:
+
+| Section | Lines |
+|---|---|
+| `[Unit]` | `Description=VeeTrax API` · `After=network-online.target postgresql.service redis-server.service` |
+| `[Service]` | `User=veetrax` · `WorkingDirectory=/opt/veetrax/app/apps/api` · `EnvironmentFile=/opt/veetrax/app/apps/api/.env` · `ExecStart=/usr/bin/node --max-old-space-size=512 dist/main.js` · `Restart=always` · `RestartSec=5` |
+| `[Install]` | `WantedBy=multi-user.target` |
+
+   Copy it to `veetrax-gateway`, `veetrax-processor`, `veetrax-notifier`, `veetrax-summarizer`, changing `Description` and `ExecStart` (`dist/gateway/main.js` etc.). Then `sudo systemctl daemon-reload && sudo systemctl enable --now veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer`.
+4. Logs: `journalctl -u veetrax-processor -f`. Status: `systemctl status veetrax-*`.
+5. Firewall: `sudo ufw allow 80,443/tcp` and `sudo ufw allow 5023,5027,6808,5030,7612/tcp`.
+6. Release: `git pull` (or fetch the bundle) → build (9.2 step 5) → `npx prisma migrate deploy` → `sudo systemctl restart veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer`. Web-only change: rebuild the web, no restart.
+7. Backups: the backup scripts in `ops/backup` are PowerShell for Windows. On Linux run them with PowerShell 7 after changing the paths, or use a cron job that runs `pg_dump -Fc`, encrypts with `age -r <public key>` and uploads – keep the same weekly full + 8-hourly schedule.
+
+### 9.5 Docker (example – test on a staging server first)
+
+Files: `ops/deploy/docker/Dockerfile`, `docker-compose.yml`, `Caddyfile`, `.dockerignore.example` (copy to the repository root as `.dockerignore`). Start: set `DB_PASSWORD` and `SITE`, create `.env` next to the compose file, then `docker compose build && docker compose run --rm migrate && docker compose up -d`. The layout:
+
+- One image for all five server processes, built from the repository root: base `node:24-bookworm-slim`; `npm ci`, `npm run build:shared`, `npm run build -w @veetracer/web`, then in `apps/api` `npx prisma generate && npm run build`. Working directory `/app/apps/api`.
+- `docker-compose.yml` services:
+
+| Service | Image / command | Ports |
+|---|---|---|
+| `db` | `postgres:16`, volume for data | – |
+| `redis` | `redis:7` with `--maxmemory-policy noeviction`, volume for data | – |
+| `migrate` | app image, `npx prisma migrate deploy && npm run db:seed` (runs once per release) | – |
+| `api` | app image, `node dist/main.js` | 4100 (internal) |
+| `gateway` | app image, `node dist/gateway/main.js` | 5023, 5027, 6808, 5030, 7612 published |
+| `processor`, `notifier`, `summarizer` | app image, `node dist/<name>/main.js` | – |
+| `proxy` | `caddy:2` with the Caddyfile and the built `apps/web/dist` mounted | 80, 443 published |
+
+- All app services read the same `.env` (`env_file`); inside compose `DATABASE_URL` points at `db`, `REDIS_URL` at `redis`.
+- Release: build a new image tag → run `migrate` → `docker compose up -d`.
+
+### 9.6 Cloud (AWS, Azure, Google Cloud, DigitalOcean)
+
+- Any of the above works on a cloud VM. Managed PostgreSQL 16 and managed Redis can replace the local ones (set `DATABASE_URL` / `REDIS_URL`; keep Redis eviction off).
+- Device ports carry raw TCP, not HTTP: use the VM's public IP or a TCP (network) load balancer – an HTTP load balancer will not pass tracker traffic.
+- Give the gateway a static IP and point the device domain at it.
+- Keep the PostgreSQL and Redis ports closed to the internet.
+
+### 9.7 Moving to a new server (checklist)
+
+1. Lower the DNS time-to-live of the web and device names a day before.
+2. Build and test the new server with a copy of the database (`pg_dump -Fc` on the old, `pg_restore` on the new) while the old one keeps running.
+3. Devices must be configured with the **domain name**, not the IP – otherwise each tracker needs re-configuring.
+4. At cut-over: stop the old services, take a final dump, restore it, start the new services, switch DNS.
+5. Copy secrets (`.env`, push / mail keys) – never through Git. Firebase / push credentials and the app id stay the same, so phones keep receiving notifications.
+6. Watch System Health and the latest position time for an hour; keep the old server for a few days in case of rollback.
+
+## 10. Known gaps
 
 - No automatic lint / format check and no CI running tests on each change – run tests and type checks by hand before every commit.
 - Web and app screens have fewer comments than the server rules; the logic files are the best documentation of behaviour.
