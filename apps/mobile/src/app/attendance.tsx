@@ -10,7 +10,7 @@ import { addDays, hours, HALF_DAY, LIVE, localToday, STATUS, time } from '@/feat
 import { api, errorMessage } from '@/lib/api';
 import { SPACE, useColors } from '@/lib/theme';
 
-type Tab = 'day' | 'sheet';
+type Tab = 'day' | 'sheet' | 'person';
 type Period = 'week' | 'month' | 'last';
 const ALL = 'ALL';
 const HALF = 'HALF_DAY';
@@ -22,6 +22,7 @@ const rangeOf = (p: Period, today: string): { from: string; to: string } => {
   return { from: `${end.slice(0, 8)}01`, to: end };
 };
 
+const openPerson = (r: AttendanceRowDto) => router.push({ pathname: '/attendance-person', params: { objectId: r.objectId, name: r.name } });
 const open = (r: AttendanceRowDto) => router.push({ pathname: '/attendance-day', params: { objectId: r.objectId, day: r.day } });
 const statusOf = (r: AttendanceRowDto) => (r.halfDay ? HALF : r.status);
 
@@ -93,7 +94,7 @@ function PersonCard({ r, withDay }: { r: AttendanceRowDto; withDay?: boolean }) 
   );
 }
 
-/** Staff attendance: one day's board and the timesheet; a person's day opens from either. Settings are on the web. */
+/** Staff attendance: one day's board, the timesheet and one person's insights (Employee); a person's day opens from any of them. Settings are on the web. */
 export default function AttendanceScreen() {
   const { t } = useTranslation();
   const c = useColors();
@@ -106,9 +107,10 @@ export default function AttendanceScreen() {
   const [live, setLive] = useState<AttendanceLiveState | null>(null);
 
   const board = useQuery({
-    queryKey: ['attendance', day],
-    queryFn: ({ signal }) => api.get<AttendanceDayDto>('/attendance', { day }, signal),
-    enabled: tab === 'day',
+    queryKey: ['attendance', tab === 'person' ? today : day],
+    queryFn: ({ signal }) => api.get<AttendanceDayDto>('/attendance', { day: tab === 'person' ? today : day }, signal),
+    // Employee lists today's staff (everyone attendance covers) to choose from.
+    enabled: tab === 'day' || tab === 'person',
     refetchInterval: 60_000,
   });
   const range = rangeOf(period, today);
@@ -117,8 +119,8 @@ export default function AttendanceScreen() {
     queryFn: ({ signal }) => api.get<AttendanceRowDto[]>('/attendance/timesheet', range, signal),
     enabled: tab === 'sheet',
   });
-  const active = tab === 'day' ? board : sheet;
-  const rows = useMemo(() => (tab === 'day' ? (board.data?.enabled ? board.data.rows : []) : (sheet.data ?? [])), [tab, board.data, sheet.data]);
+  const active = tab === 'sheet' ? sheet : board;
+  const rows = useMemo(() => (tab === 'sheet' ? (sheet.data ?? []) : board.data?.enabled ? board.data.rows : []), [tab, board.data, sheet.data]);
   const counts = useMemo(() => {
     const n: Record<string, number> = {};
     for (const r of rows) n[statusOf(r)] = (n[statusOf(r)] ?? 0) + 1;
@@ -133,7 +135,7 @@ export default function AttendanceScreen() {
   const hasLive = Object.keys(liveCounts).length > 0;
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return rows.filter((r) => (status === ALL || statusOf(r) === status) && (!live || tab !== 'day' || r.state === live) && (!s || r.name.toLowerCase().includes(s)));
+    return rows.filter((r) => (tab === 'person' || status === ALL || statusOf(r) === status) && (!live || tab !== 'day' || r.state === live) && (!s || r.name.toLowerCase().includes(s)));
   }, [rows, q, status, live, tab]);
   const off = tab === 'day' && board.data && !board.data.enabled;
 
@@ -161,6 +163,7 @@ export default function AttendanceScreen() {
             options={[
               { value: 'day', label: t('Day') },
               { value: 'sheet', label: t('Timesheet') },
+              { value: 'person', label: t('Employee') },
             ]}
           />
           {tab === 'day' ? (
@@ -173,6 +176,10 @@ export default function AttendanceScreen() {
                 <ChevronRightIcon size={22} color={c.foreground} />
               </Pressable>
             </View>
+          ) : tab === 'person' ? (
+            <Text size="sm" tone="muted">
+              {t('Choose a staff member to see their attendance %, check-in times, hours and patterns.')}
+            </Text>
           ) : (
             <Chips
               value={period}
@@ -217,7 +224,7 @@ export default function AttendanceScreen() {
             </View>
           )}
           {rows.length > 0 && <SearchInput value={q} onChangeText={setQ} placeholder={t('Search staff')} accessibilityLabel={t('Search staff')} />}
-          {rows.length > 0 && <Chips value={status} onChange={setStatus} options={options} />}
+          {rows.length > 0 && tab !== 'person' && <Chips value={status} onChange={setStatus} options={options} />}
           {active.isError && <ErrorBanner message={errorMessage(active.error)} onRetry={() => void active.refetch()} />}
           {tab === 'sheet' && rows.length > 0 && (
             <Text size="xs" tone="muted">
@@ -226,7 +233,28 @@ export default function AttendanceScreen() {
           )}
         </View>
       }
-      renderItem={({ item }) => <PersonCard r={item} withDay={tab === 'sheet'} />}
+      renderItem={({ item }) =>
+        tab === 'person' ? (
+          <Card onPress={() => openPerson(item)}>
+            <View style={styles.row}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text weight="600" numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text size="xs" tone="muted" numberOfLines={1}>
+                  {[item.branch, item.shift === 'Default' ? t('Default shift') : item.shift].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+              <Text size="xs" weight="600" style={{ color: c.primary }}>
+                {t('Insights')}
+              </Text>
+              <ChevronRightIcon size={18} color={c.mutedForeground} />
+            </View>
+          </Card>
+        ) : (
+          <PersonCard r={item} withDay={tab === 'sheet'} />
+        )
+      }
       ListEmptyComponent={
         active.isPending ? (
           <ActivityIndicator style={{ margin: SPACE.xl }} />

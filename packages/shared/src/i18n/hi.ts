@@ -3475,4 +3475,7 @@ export const HI: Record<string, string> = {
   'Advanced insights': 'एडवांस्ड इनसाइट्स',
   'Advanced attendance insights': 'एडवांस्ड उपस्थिति इनसाइट्स',
   'Adds comparisons with the previous period and the team, pattern charts, the 12-month trend, periods up to 6 months and PNG / PDF download to Staff attendance → Employee.': 'स्टाफ़ उपस्थिति → कर्मचारी में पिछली अवधि और टीम से तुलना, पैटर्न चार्ट, 12 महीने का रुझान, 6 महीने तक की अवधि और PNG / PDF डाउनलोड जोड़ता है।',
+  'Insights': 'इनसाइट्स',
+  'Choose a staff member to see their attendance %, check-in times, hours and patterns.': 'उपस्थिति %, चेक-इन समय, घंटे और पैटर्न देखने के लिए कर्मचारी चुनें।',
+  'Tap a day to open it. Time = first check-in. ✎ = corrected.': 'खोलने के लिए किसी दिन पर टैप करें। समय = पहला चेक-इन। ✎ = सुधारा गया।',
 };

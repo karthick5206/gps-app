@@ -3475,4 +3475,7 @@ export const TA: Record<string, string> = {
   'Advanced insights': 'மேம்பட்ட பகுப்பாய்வு',
   'Advanced attendance insights': 'மேம்பட்ட வருகை பகுப்பாய்வு',
   'Adds comparisons with the previous period and the team, pattern charts, the 12-month trend, periods up to 6 months and PNG / PDF download to Staff attendance → Employee.': 'பணியாளர் வருகை → ஊழியர் பகுதியில் முந்தைய காலம் மற்றும் குழுவுடன் ஒப்பீடு, முறை வரைபடங்கள், 12 மாதப் போக்கு, 6 மாதங்கள் வரையிலான காலம் மற்றும் PNG / PDF பதிவிறக்கத்தைச் சேர்க்கிறது.',
+  'Insights': 'பகுப்பாய்வு',
+  'Choose a staff member to see their attendance %, check-in times, hours and patterns.': 'வருகை %, வருகை நேரங்கள், வேலை நேரம் மற்றும் முறைகளைப் பார்க்க ஒரு ஊழியரைத் தேர்ந்தெடுக்கவும்.',
+  'Tap a day to open it. Time = first check-in. ✎ = corrected.': 'திறக்க ஒரு நாளைத் தட்டவும். நேரம் = முதல் வருகை. ✎ = திருத்தப்பட்டது.',
 };
