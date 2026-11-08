@@ -3408,4 +3408,5 @@ export const HI: Record<string, string> = {
   'Full-screen SOS alerts are off': 'फ़ुल-स्क्रीन SOS अलर्ट बंद हैं',
   'The siren still rings and the alert stays at the top of the screen. Allow full screen so the SOS opens over the lock screen.': 'सायरन फिर भी बजेगा और अलर्ट स्क्रीन के ऊपर बना रहेगा। फ़ुल स्क्रीन की अनुमति दें ताकि SOS लॉक स्क्रीन पर खुले।',
   'Allow full-screen SOS alerts': 'फ़ुल-स्क्रीन SOS अलर्ट की अनुमति दें',
+  'Emergency alert': 'आपातकालीन अलर्ट',
 };

@@ -149,8 +149,10 @@ Good practice when fixing a bug: write a test that replays the real case first (
 3. Recipient lists: Alert Settings → recipients.
 
 **SOS rang without sound**
-- App closed: native `AlarmService` (alarm volume). App open / opened from the notification: the SOS screen plays its own siren (media volume) – see `apps/mobile/src/features/notifications/siren.ts`.
-- The phone may block the alarm service when Google downgrades the push; check battery saver / autostart and the "SOS alarm" channel.
+- Android: one siren everywhere – the native `AlarmService` (`modules/veetrax-alarm`) on the alarm volume, raised to maximum. With the app closed the push starts it (`AlarmMessagingService`); with the app open or after tapping the alert, the SOS screen keeps it running through `useSiren` (`features/notifications/siren.ts`) and stops it on Silence / Acknowledge / leaving the screen. Up to 0.6.7 the SOS screen swapped it for a media-volume player, which was silent when the media volume was low.
+- If Android refuses to start the alarm service (Google can downgrade a push's priority), `AlarmMessagingService` posts an **insistent** notification on the `sos_insistent` channel (alarm volume, siren sound) that repeats until opened. Log tag `VeetraxAlarm` ("Alarm not started, insistent notification instead") shows when this happened (`adb logcat -s VeetraxAlarm`).
+- Still silent: check battery saver / autostart (Xiaomi, Oppo, Vivo, Realme), the "SOS alarm" channel in the app's notification settings, and Do Not Disturb (More → Emergency alerts → Allow through Do Not Disturb).
+- No sound because nobody received it: `NotificationLog` "Mobile app not signed in" = the recipient has no VeeTrax app signed in.
 - Full-screen alarm on Android 14+ needs the user's permission (More → Emergency alerts → Allow).
 
 **Voice alerts silent**

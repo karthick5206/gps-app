@@ -20,7 +20,12 @@ class AlarmMessagingService : ExpoFirebaseMessagingService() {
     val alertId = runCatching { JSONObject(data["body"] ?: "{}").optString("alertId") }.getOrDefault("")
     // A failed start must not lose the push: its notification is already shown.
     runCatching { AlarmService.start(this, data["title"] ?: "", data["message"] ?: "", alertId) }
-      .onFailure { Log.w("VeetraxAlarm", "Alarm not started: ${it.message}") }
+      .onFailure {
+        // Android refused the alarm service (e.g. the push was downgraded): ring with an insistent notification on an
+        // alarm channel instead - it repeats the siren until opened and needs no service or permission.
+        Log.w("VeetraxAlarm", "Alarm not started, insistent notification instead: ${it.message}")
+        runCatching { AlarmService.postInsistent(this, data["title"] ?: "", data["message"] ?: "", alertId) }
+      }
   }
 
   private fun isAppInForeground(): Boolean {
