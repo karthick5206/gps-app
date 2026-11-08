@@ -202,3 +202,29 @@ describe('filterPosition: sharp GPS after a rough anchor', () => {
     expect(r.flags & POSITION_FLAGS.JUMP).toBe(POSITION_FLAGS.JUMP);
   });
 });
+
+describe('filterPosition: weak-fix speed spikes', () => {
+  const T = Date.UTC(2026, 10, 8, 7, 39, 35);
+  const bike = { objectType: 'VEHICLE' as const, thresholds: DEFAULT_THRESHOLDS, now: T + 60_000 };
+  const fix = (sec: number, lat: number, lng: number, kph: number, sats: number): FilterInput => ({ fixTime: T + sec * 1000, lat, lng, speedKph: kph, valid: true, satellites: sats, ignition: true });
+  const parked: TrackState = { ...EMPTY_TRACK_STATE, lastValid: { lat: 12.97178, lng: 80.18556, fixTime: T - 120_000 }, lastFixTime: T - 2000 };
+
+  it('the first fix after ignition on with 4 satellites reporting 84 km/h without moving is noise (867010070623138, 8 Nov 13:09)', () => {
+    const r = filterPosition(fix(0, 12.97188, 80.18612, 84, 4), parked, bike);
+    expect(r.speedNoise).toBe(true);
+    expect(r.speedKph).toBe(0);
+  });
+
+  it('a real ride on a weak fix keeps its speed (the movement confirms it)', () => {
+    const moving: TrackState = { ...EMPTY_TRACK_STATE, lastValid: { lat: 12.97296, lng: 80.18685, fixTime: T - 10_000 }, lastFixTime: T - 10_000 };
+    // ~85 m in 10 s = ~31 km/h implied, reported 30 km/h with 5 satellites.
+    const r = filterPosition(fix(0, 12.97372, 80.18691, 30, 5), moving, bike);
+    expect(r.speedNoise).toBe(false);
+    expect(r.speedKph).toBe(30);
+  });
+
+  it('a strong fix (15 satellites) is trusted as before', () => {
+    const r = filterPosition(fix(0, 12.97188, 80.18612, 36, 15), parked, bike);
+    expect(r.speedNoise).toBe(false);
+  });
+});

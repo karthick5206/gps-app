@@ -139,6 +139,10 @@ Good practice when fixing a bug: write a test that replays the real case first (
 - History → All points shows the label of each point. Filters live in `tracking/position-filter.ts` (live) and `point-quality/analyze.ts` (analysis); phone uploads also pass `mobile-tracker/mobile-tracker.logic.ts` → `roughSpikes`.
 - A wrong point can be removed by the Super Admin from History (kept for restore, day recomputed).
 
+**Impossible speed or false overspeed (e.g. 84 km/h right after ignition on)**
+- Usually a weak GPS fix (6 satellites or fewer), often the first fix after the ignition is switched on. `tracking/position-filter.ts` treats such a speed as noise when the movement since the last good point does not confirm it (`speedNoise`): live status, overspeed and the stored speed use 0, and the raw value is kept in the point's `attributes.rawSpeedKph` (`speedNoise: true`).
+- Check the point in History → All points or the `Position` row: `satellites`, `valid`, and the distance to the neighbouring points.
+
 **Trips / distance look wrong**
 - Summaries are derived. Insert the object and day into `SummaryDirtyDay` (or use the tools that do it) and the summarizer rebuilds it on its next run.
 - Check whether outliers are used in reports (`PointQualitySettings.useInReports`).

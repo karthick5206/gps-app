@@ -31,6 +31,13 @@ const PHONE_COARSE_MOVE_FACTOR = 3;
 const PHONE_SPEED_CONFIRM_FACTOR = 4;
 /** Phone fixes with a larger accuracy radius are weak (like a tracker with few satellites). */
 const WEAK_ACCURACY_M = 25;
+/**
+ * A speed of at least this much from a weak fix (WEAK_SATELLITES or fewer) must be confirmed by the movement since the
+ * last good point, else it is GPS noise. Seen 8 Nov 13:09 (Concox V5, 867010070623138): the first fix after ignition
+ * on had 4 satellites and reported 84 km/h while the position did not move; with 15 satellites it rode at 20-36 km/h.
+ */
+const WEAK_FIX_SPEED_CHECK_KPH = 20;
+
 /** After this many consecutive jump-flagged points the new location is accepted (the old anchor was wrong). */
 const JUMP_STREAK_ACCEPT = 3;
 
@@ -82,6 +89,8 @@ export interface FilterResult {
   speedKph: number;
   /** False for LATE / FUTURE points: store them but leave live state untouched. */
   updatesLive: boolean;
+  /** The reported speed is GPS noise (weak fix, not confirmed by movement): store and use 0, keep the raw value aside. */
+  speedNoise: boolean;
   next: TrackState;
 }
 
@@ -104,18 +113,25 @@ export function filterPosition(input: FilterInput, state: TrackState, ctx: Filte
       lng: state.lastValid?.lng ?? null,
       speedKph: 0,
       updatesLive,
+      speedNoise: false,
       next: state,
     };
   }
 
   let jumpStreak = 0;
+  let speedNoise = false;
   const anchor = state.lastValid;
+  const weakSatellites = input.satellites !== null && input.satellites <= WEAK_SATELLITES;
+  // Weak fix with no earlier good point to compare with: its speed can't be confirmed either.
+  if (!invalid && !anchor && weakSatellites && input.speedKph >= WEAK_FIX_SPEED_CHECK_KPH) speedNoise = true;
   if (!invalid && anchor) {
     const distance = haversineMeters(anchor.lat, anchor.lng, input.lat, input.lng);
     const dtSec = Math.max((input.fixTime - anchor.fixTime) / 1000, 1);
     const impliedKph = (distance / dtSec) * 3.6;
     const acc = input.accuracyM ?? null;
     const phoneSpike = acc !== null && input.speedKph < PHONE_STILL_KPH && impliedKph > PHONE_SPIKE_IMPLIED_KPH && distance > acc;
+    // Weak fix reporting a speed the movement does not back up (any tracker, ignition on or off): the speed is noise.
+    if (weakSatellites && input.speedKph >= WEAK_FIX_SPEED_CHECK_KPH && impliedKph < input.speedKph / PHONE_SPEED_CONFIRM_FACTOR) speedNoise = true;
     // A sharp GPS fix far from a rough (Wi-Fi / cell) anchor: the anchor was the wrong one, so take the new fix now
     // instead of dropping it as a jump.
     const anchorAcc = anchor.accuracyM ?? null;
@@ -147,8 +163,9 @@ export function filterPosition(input: FilterInput, state: TrackState, ctx: Filte
     lat: lastValid?.lat ?? null,
     lng: lastValid?.lng ?? null,
     // Drift is a parked vehicle: speed 0, so status never shows it as moving.
-    speedKph: trusted && (flags & POSITION_FLAGS.DRIFT) === 0 ? input.speedKph : 0,
+    speedKph: trusted && (flags & POSITION_FLAGS.DRIFT) === 0 && !speedNoise ? input.speedKph : 0,
     updatesLive,
+    speedNoise,
     next: { ...state, lastValid, lastFixTime: input.fixTime, jumpStreak },
   };
 }
