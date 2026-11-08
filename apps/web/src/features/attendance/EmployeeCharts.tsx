@@ -354,22 +354,35 @@ export function StatusSplit({ present, late, half, absent }: { present: number; 
   );
 }
 
-/** Time away from the work site in the period: official duty / personal / not explained / no signal. */
+/**
+ * Time away from the work site in the period: official duty / personal / not explained. Time with no phone signal is
+ * not counted as away (the person may well have been at the site), so it is a separate note under the bar.
+ */
 export function TimeAway({ official, personal, unexplained, noSignal, f }: { official: number; personal: number; unexplained: number; noSignal: number; f: Pick<ChartFormat, 'duration'> }) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
   const c = AWAY[resolved === 'dark' ? 'dark' : 'light'];
-  if (official + personal + unexplained + noSignal === 0) return <p className="text-sm text-muted-foreground">{t('No time away from the work site in this period.')}</p>;
+  const away = official + personal + unexplained;
+  const note = noSignal > 0 && <p className="text-xs text-muted-foreground">{t('Also {{min}} with no phone signal (not counted as away).', { min: f.duration(noSignal) })}</p>;
+  if (!away)
+    return (
+      <div className="space-y-1">
+        <p className="text-sm text-muted-foreground">{t('No time away from the work site in this period.')}</p>
+        {note}
+      </div>
+    );
   return (
-    <SplitBar
-      label={t('Time away')}
-      parts={[
-        { key: 'o', value: official, color: c.official, label: t('Official duty'), text: f.duration(official) },
-        { key: 'p', value: personal, color: c.personal, label: t('Personal'), text: f.duration(personal) },
-        { key: 'u', value: unexplained, color: c.unexplained, label: t('Not explained'), text: f.duration(unexplained) },
-        { key: 'n', value: noSignal, color: 'var(--muted-foreground)', label: t('No signal'), text: f.duration(noSignal) },
-      ]}
-    />
+    <div className="space-y-2">
+      <SplitBar
+        label={t('Time away')}
+        parts={[
+          { key: 'o', value: official, color: c.official, label: t('Official duty'), text: f.duration(official) },
+          { key: 'p', value: personal, color: c.personal, label: t('Personal'), text: f.duration(personal) },
+          { key: 'u', value: unexplained, color: c.unexplained, label: t('Not explained'), text: f.duration(unexplained) },
+        ]}
+      />
+      {note}
+    </div>
   );
 }
 

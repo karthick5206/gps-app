@@ -12,7 +12,7 @@ export interface EmployeeStats {
   attendancePct: number;
   /** Usual check-in time (median of first-in), minutes after local midnight; null when never checked in. */
   usualCheckInMin: number | null;
-  /** Average worked minutes on the days they came. */
+  /** Average worked minutes on the days they came; today (still running, it has a live state) is left out. */
   avgWorkedMin: number;
   workedMin: number;
   overtimeMin: number;
@@ -46,6 +46,9 @@ export function employeeStats(rows: AttendanceRowDto[]): EmployeeStats {
   const absentDays = whole('ABSENT');
   const dueDays = presentDays + lateDays + halfDays + absentDays;
   const came = rows.filter((r) => r.firstIn && (r.halfDay || r.status === 'PRESENT' || r.status === 'LATE'));
+  // Today's hours are not final yet (only today's row has a live state); it would pull the average down.
+  const finished = came.filter((r) => !r.state);
+  const forAverage = finished.length ? finished : came;
   const ins = came.map((r) => minutesOfDay(r.firstIn!)).sort((a, b) => a - b);
   const median = ins.length ? (ins.length % 2 ? ins[(ins.length - 1) / 2] : Math.round((ins[ins.length / 2 - 1] + ins[ins.length / 2]) / 2)) : null;
   const sum = (f: (r: AttendanceRowDto) => number) => rows.reduce((n, r) => n + f(r), 0);
@@ -62,7 +65,7 @@ export function employeeStats(rows: AttendanceRowDto[]): EmployeeStats {
     daysOff: whole('DAY_OFF'),
     attendancePct: dueDays ? Math.round(((presentDays + lateDays + halfDays / 2) / dueDays) * 1000) / 10 : 0,
     usualCheckInMin: median,
-    avgWorkedMin: came.length ? Math.round(came.reduce((n, r) => n + r.workedMin, 0) / came.length) : 0,
+    avgWorkedMin: forAverage.length ? Math.round(forAverage.reduce((n, r) => n + r.workedMin, 0) / forAverage.length) : 0,
     workedMin: sum((r) => r.workedMin),
     overtimeMin: sum((r) => r.overtimeMin),
     lateMin: sum((r) => r.lateMin),

@@ -71,7 +71,13 @@ const NONE = '__none__';
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const time = (iso: string | null) => (iso ? clock.format(Date.parse(iso)) : '—');
-const hours = (min: number) => (min ? `${Math.floor(min / 60)} h ${min % 60} min` : '—');
+/** "8 h 40 min", "25 min", "9 h"; a dash for nothing. */
+const hours = (min: number) => {
+  if (!min) return '—';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h && m ? `${h} h ${m} min` : h ? `${h} h` : `${m} min`;
+};
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 const toMin = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
@@ -891,13 +897,14 @@ function Tile({ label, value, sub, compare, className }: { label: string; value:
  * "▲ 3.2 pts" against the previous period. The arrow shows the direction; its colour says whether that is better
  * (green) or worse (red) for this figure, and the words carry the meaning without the colour.
  */
-function Delta({ value, text, higherIsBetter }: { value: number | null; text: (abs: number) => string; higherIsBetter: boolean }) {
+function Delta({ value, text, higherIsBetter, label }: { value: number | null; text: (abs: number) => string; higherIsBetter: boolean; label?: string }) {
   const { t } = useTranslation();
   if (value === null) return null;
-  if (value === 0) return <div>{t('Same as the previous period')}</div>;
+  if (value === 0) return <div>{label && `${label}: `}{t('Same as the previous period')}</div>;
   const better = value > 0 === higherIsBetter;
   return (
     <div>
+      {label && `${label}: `}
       <span className={cn('font-semibold', better ? 'text-success-fg' : 'text-destructive-fg')} aria-hidden>
         {value > 0 ? '▲' : '▼'}
       </span>{' '}
@@ -914,6 +921,8 @@ function Delta({ value, text, higherIsBetter }: { value: number | null; text: (a
 function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; objectId: string | null; onObjectId: (id: string | null) => void }) {
   const { t } = useTranslation();
   const me = useMe();
+  // Basic insights for every company; comparisons, patterns, trend, long periods and PNG / PDF need the add-on.
+  const plus = !!me?.company.features?.includes('attendanceInsightsPlus');
   const staff = useEntityOptions<{ id: string; name: string }>('/objects', named, { params: { type: 'PERSON' } });
   const [period, setPeriod] = useState<Period>('this');
   const [custom, setCustom] = useState(() => periodRange('30'));
@@ -926,19 +935,19 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
   const trend = trendRange(today());
   const sheet = (from: string, to: string, signal: AbortSignal) => api.get<AttendanceRowDto[]>('/attendance/timesheet', { from, to, objectId: objectId ?? undefined }, signal);
   const q = useQuery({ queryKey: ['attendance-person', objectId, range.from, range.to], queryFn: ({ signal }) => sheet(range.from, range.to, signal), enabled: !!objectId && !badRange });
-  const before = useQuery({ queryKey: ['attendance-person', objectId, prev.from, prev.to], queryFn: ({ signal }) => sheet(prev.from, prev.to, signal), enabled: !!objectId && !badRange, staleTime: 5 * 60_000 });
-  const year = useQuery({ queryKey: ['attendance-person', objectId, trend.from, trend.to], queryFn: ({ signal }) => sheet(trend.from, trend.to, signal), enabled: !!objectId, staleTime: 10 * 60_000 });
+  const before = useQuery({ queryKey: ['attendance-person', objectId, prev.from, prev.to], queryFn: ({ signal }) => sheet(prev.from, prev.to, signal), enabled: plus && !!objectId && !badRange, staleTime: 5 * 60_000 });
+  const year = useQuery({ queryKey: ['attendance-person', objectId, trend.from, trend.to], queryFn: ({ signal }) => sheet(trend.from, trend.to, signal), enabled: plus && !!objectId, staleTime: 10 * 60_000 });
   // The team for the same period: everyone's timesheet (same request as the Timesheet tab), up to 62 days.
   const team = useQuery({
     queryKey: ['attendance-sheet', range.from, range.to, ALL],
     queryFn: ({ signal }) => api.get<AttendanceRowDto[]>('/attendance/timesheet', { from: range.from, to: range.to }, signal),
-    enabled: !!objectId && !badRange && days <= CHART_SPAN_DAYS,
+    enabled: plus && !!objectId && !badRange && days <= CHART_SPAN_DAYS,
     staleTime: 5 * 60_000,
   });
   const rows = useMemo(() => (q.data ?? []).filter((r) => r.objectId === objectId).sort((a, b) => a.day.localeCompare(b.day)), [q.data, objectId]);
   const st = useMemo(() => employeeStats(rows), [rows]);
-  const pst = useMemo(() => (before.data ? employeeStats(before.data.filter((r) => r.objectId === objectId)) : null), [before.data, objectId]);
-  const tf = useMemo(() => (team.data ? teamFigures(team.data) : null), [team.data]);
+  const pst = useMemo(() => (plus && before.data ? employeeStats(before.data.filter((r) => r.objectId === objectId)) : null), [plus, before.data, objectId]);
+  const tf = useMemo(() => (plus && team.data ? teamFigures(team.data) : null), [plus, team.data]);
   const months = useMemo(() => monthlyTrend((year.data ?? []).filter((r) => r.objectId === objectId)), [year.data, objectId]);
   const byDay = useMemo(() => new Map(rows.map((r) => [r.day, r])), [rows]);
   const first = rows[0];
@@ -957,7 +966,8 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
   const p = pst && pst.dueDays > 0 ? pst : null;
   const lateCount = rows.filter((r) => r.lateMin > 0).length;
   const prevLate = before.data ? before.data.filter((r) => r.objectId === objectId && r.lateMin > 0).length : null;
-  const pts = (v: number) => t('{{n}} pts', { n: v });
+  const pct = (v: number) => `${v}%`;
+  const dayCount = (n: number) => (n === 1 ? t('1 day') : t('{{n}} days', { n }));
   const mins = (v: number) => hours(Math.round(v));
 
   const patterns: string[] = [];
@@ -975,8 +985,12 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
     ['this', 'This month'],
     ['last', 'Last month'],
     ['30', 'Last 30 days'],
-    ['90', 'Last 3 months'],
-    ['custom', 'Custom'],
+    ...(plus
+      ? ([
+          ['90', 'Last 3 months'],
+          ['custom', 'Custom'],
+        ] as [Period, string][])
+      : []),
   ];
 
   return (
@@ -1019,8 +1033,8 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
             <Button variant="outline" onClick={() => void downloadCsv('/attendance/timesheet', { from: range.from, to: range.to, objectId }, 'timesheet.csv').catch((e) => toast.error(errorMessage(e)))}>
               <FileSpreadsheetIcon /> {t('Excel (CSV)')}
             </Button>
-            {/* PNG / PDF of the insights below with the VeeTrax · company header. */}
-            <PageCapture target={insightsRef} fileName={() => `attendance-${(first?.name ?? 'staff').replace(/[^\w-]+/g, '-')}-${range.from}-${range.to}`} caption={() => ({ title: me?.company.name ?? '', lines: [`${t('Staff attendance')} · ${first?.name ?? ''}`, `${range.from} – ${range.to}`] })} />
+            {/* PNG / PDF of the insights below with the VeeTrax · company header (add-on). */}
+            {plus && <PageCapture target={insightsRef} fileName={() => `attendance-${(first?.name ?? 'staff').replace(/[^\w-]+/g, '-')}-${range.from}-${range.to}`} caption={() => ({ title: me?.company.name ?? '', lines: [`${t('Staff attendance')} · ${first?.name ?? ''}`, `${range.from} – ${range.to}`] })} />}
           </div>
         )}
       </div>
@@ -1056,13 +1070,13 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
               compare={
                 (p || tf) && (
                   <>
-                    <Delta value={change(st.attendancePct, p?.attendancePct ?? null)} text={pts} higherIsBetter />
-                    {tf && <div>{t('Team {{v}}', { v: `${tf.attendancePct}%` })}</div>}
+                    <Delta value={change(st.attendancePct, p?.attendancePct ?? null)} text={pct} higherIsBetter />
+                    {tf && <div>{t('Team average {{v}}', { v: `${tf.attendancePct}%` })}</div>}
                   </>
                 )
               }
             />
-            <Tile label={t('Days')} value={`${st.presentDays + st.lateDays} / ${st.dueDays}`} sub={t('{{late}} late · {{half}} half · {{absent}} absent', { late: st.lateDays, half: st.halfDays, absent: st.absentDays })} compare={p && <Delta value={change(st.absentDays, p.absentDays)} text={(v) => t('{{n}} absent', { n: v })} higherIsBetter={false} />} />
+            <Tile label={t('Days')} value={`${st.presentDays + st.lateDays} / ${st.dueDays}`} sub={t('{{late}} late · {{half}} half · {{absent}} absent', { late: st.lateDays, half: st.halfDays, absent: st.absentDays })} compare={p && <Delta value={change(st.absentDays, p.absentDays)} text={dayCount} higherIsBetter={false} label={t('Absent')} />} />
             <Tile
               label={t('Usual check-in')}
               value={st.usualCheckInMin === null ? '—' : clockOf(st.usualCheckInMin)}
@@ -1078,7 +1092,7 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
                         {t(st.usualCheckInMin < p.usualCheckInMin ? '{{v}} earlier than the previous period' : '{{v}} later than the previous period', { v: mins(Math.abs(st.usualCheckInMin - p.usualCheckInMin)) })}
                       </div>
                     )}
-                    {tf?.usualCheckInMin != null && <div>{t('Team {{v}}', { v: clockOf(tf.usualCheckInMin) })}</div>}
+                    {tf?.usualCheckInMin != null && <div>{t('Team average {{v}}', { v: clockOf(tf.usualCheckInMin) })}</div>}
                   </>
                 )
               }
@@ -1091,7 +1105,7 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
                 (p || tf) && (
                   <>
                     {p && p.avgWorkedMin > 0 && <Delta value={change(st.avgWorkedMin, p.avgWorkedMin)} text={mins} higherIsBetter />}
-                    {tf && <div>{t('Team {{v}}', { v: hours(tf.avgWorkedMin) })}</div>}
+                    {tf && <div>{t('Team average {{v}}', { v: hours(tf.avgWorkedMin) })}</div>}
                   </>
                 )
               }
@@ -1104,7 +1118,7 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
                   <>
                     {/* More overtime is neither good nor bad here: shown in neutral words only. */}
                     {p && st.overtimeMin !== p.overtimeMin && <div>{t('Previous period {{v}}', { v: hours(p.overtimeMin) })}</div>}
-                    {tf && <div>{t('Team {{v}} each', { v: hours(tf.overtimeMin) })}</div>}
+                    {tf && <div>{t('Team average {{v}}', { v: hours(tf.overtimeMin) })}</div>}
                   </>
                 )
               }
@@ -1116,8 +1130,8 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
               compare={
                 (p || tf) && (
                   <>
-                    {p && prevLate !== null && <Delta value={change(lateCount, prevLate)} text={(v) => t('{{n}} days', { n: v })} higherIsBetter={false} />}
-                    {tf && <div>{t('Team {{v}} each', { v: hours(tf.lateMin) })}</div>}
+                    {p && prevLate !== null && <Delta value={change(lateCount, prevLate)} text={dayCount} higherIsBetter={false} label={t('Late days')} />}
+                    {tf && <div>{t('Team average {{v}}', { v: hours(tf.lateMin) })}</div>}
                   </>
                 )
               }
@@ -1125,7 +1139,7 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
           </div>
           {(p || tf) && (
             <p className="text-xs text-muted-foreground">
-              {[p && t('Arrows compare with {{from}} – {{to}}.', { from: prev.from, to: prev.to }), tf && t('Team = the typical figure of {{n}} staff in the same days.', { n: tf.people })].filter(Boolean).join(' ')}
+              {[p && t('Arrows compare with {{from}} – {{to}}.', { from: prev.from, to: prev.to }), tf && t('Team average = the typical figure of {{n}} staff on the same days.', { n: tf.people })].filter(Boolean).join(' ')}
             </p>
           )}
 
@@ -1201,6 +1215,8 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
             )}
 
             <div className="space-y-4">
+              {plus && (
+                <>
               <Card className="gap-3 p-4">
                 <h3 className="text-[15px] font-bold">{t('Days')}</h3>
                 <StatusSplit present={st.presentDays} late={st.lateDays} half={st.halfDays} absent={st.absentDays} />
@@ -1213,6 +1229,8 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
                 <h3 className="text-[15px] font-bold">{t('Time away from the work site')}</h3>
                 <TimeAway official={st.officialMin} personal={st.personalMin} unexplained={st.unexplainedMin} noSignal={st.noSignalMin} f={chartFormat} />
               </Card>
+                </>
+              )}
               <Card className="gap-2 p-4">
                 <h3 className="text-[15px] font-bold">{t('Details')}</h3>
                 {patterns.length ? (
@@ -1236,6 +1254,8 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
             <HoursChart rows={rows} shiftMin={shiftMin} f={chartFormat} onPick={setOpen} />
           </Card>
 
+          {plus ? (
+            <>
           <Card className="gap-3 p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-[15px] font-bold">{t('When they worked each day')}</h3>
@@ -1257,6 +1277,13 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
               <TrendCharts points={months.map((x) => ({ month: x.month, attendancePct: x.stats.attendancePct, avgWorkedMin: x.stats.avgWorkedMin, lateDays: x.stats.lateByWeekday.reduce((a, b) => a + b, 0), dueDays: x.stats.dueDays }))} shiftMin={shiftMin} f={chartFormat} />
             )}
           </Card>
+            </>
+          ) : (
+            <Card className="gap-1.5 border-dashed p-4" data-capture-skip="">
+              <h3 className="text-[15px] font-bold">{t('More insights')}</h3>
+              <p className="text-sm text-muted-foreground">{t('Advanced attendance insights add comparisons with the previous period and the team, late-by-weekday and time-away charts, the daily in / out chart, the 12-month trend, periods up to 6 months and PDF download. Ask VeeTrax support to turn them on for your company.')}</p>
+            </Card>
+          )}
         </div>
       )}
       {open && <DayDialog key={`${open.day}:${open.objectId}`} row={open} canEdit={canEdit} onClose={() => setOpen(null)} />}

@@ -40,6 +40,7 @@ import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { addDays, isDayKey, localDayKey, localMidnight, zonedTimeToUtc } from '../summarizer/tz';
 import { APP_ROOT } from '../config/env';
+import { companyFeatures } from '../common/company-features';
 import { stampSelfie } from './selfie-stamp';
 
 const JOB_LOCK = 'vt:attendance:lock';
@@ -397,6 +398,10 @@ export class AttendanceService {
     if (!s.enabled) return [];
     const tz = await this.tz(ctx.companyId);
     let staff = await this.staff(ctx.companyId, s, ctx, branchId);
+    if (objectId && daysBetween(from, to) >= MAX_TIMESHEET_DAYS) {
+      const company = await this.prisma.company.findUnique({ where: { id: ctx.companyId }, select: { settings: true, isPlatform: true } });
+      if (!company || !companyFeatures(company).includes('attendanceInsightsPlus')) throw new ForbiddenException('Longer periods are part of Advanced attendance insights. Ask VeeTrax support to turn it on.');
+    }
     if (objectId) {
       staff = staff.filter((p) => p.id === objectId);
       if (!staff.length) throw new NotFoundException('Staff member not found');

@@ -83,3 +83,9 @@ test('monthly trend and team figures', async () => {
   assert.equal(team?.attendancePct, 50);
   assert.equal(teamFigures([row('2026-11-02', { objectId: 'a' })]), null);
 });
+
+test('today (still running) is left out of the average hours', () => {
+  const s = employeeStats([row('2026-11-06', { firstIn: at('2026-11-06', 9, 0), workedMin: 540 }), row('2026-11-07', { firstIn: at('2026-11-07', 9, 0), workedMin: 120, state: 'INSIDE' } as Partial<AttendanceRowDto>)]);
+  assert.equal(s.avgWorkedMin, 540);
+  assert.equal(s.presentDays, 2);
+});
