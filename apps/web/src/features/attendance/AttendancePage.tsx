@@ -40,7 +40,8 @@ import { named, useEntityOptions } from '@/features/masters/use-options';
 import { api, downloadCsv, errorMessage, fetchBlob } from '@/lib/api';
 import { useAddress } from '@/features/geocoding/use-address';
 import { cn } from '@/lib/utils';
-import { calendarDays, employeeStats } from './employee-stats';
+import { calendarDays, employeeStats, employeeSummary } from './employee-stats';
+import { DaySpanChart, HoursChart, type ChartFormat } from './EmployeeCharts';
 
 const STATUS: Record<AttendanceStatus, { label: string; cls: string }> = {
   PRESENT: { label: 'Present', cls: 'bg-success-soft text-success-fg' },
@@ -888,8 +889,18 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
   const rows = useMemo(() => (q.data ?? []).filter((r) => r.objectId === objectId).sort((a, b) => a.day.localeCompare(b.day)), [q.data, objectId]);
   const st = useMemo(() => employeeStats(rows), [rows]);
   const byDay = useMemo(() => new Map(rows.map((r) => [r.day, r])), [rows]);
-  const maxWorked = Math.max(540, ...rows.map((r) => r.workedMin));
   const first = rows[0];
+  // Shift times for the charts: the person's named shift, else the company default (charts work without them).
+  const settings = useQuery({ queryKey: ['attendance-settings'], queryFn: ({ signal }) => api.get<AttendanceSettingsDto>('/attendance/settings', undefined, signal), enabled: !!objectId, retry: false });
+  const shift = useMemo(() => {
+    const s = settings.data;
+    if (!s || !first) return null;
+    const named = s.shifts.find((x) => x.name === first.shift);
+    return { startMin: named?.startMin ?? s.startMin, endMin: named?.endMin ?? s.endMin, graceMin: s.graceMin };
+  }, [settings.data, first]);
+  const shiftMin = shift ? shift.endMin - shift.startMin : null;
+  const chartFormat: ChartFormat = { duration: hours, time, clock: clockOf, status: (r) => t(r.halfDay ? HALF_DAY.label : STATUS[r.status].label) };
+  const summary = employeeSummary(st, rows, shiftMin, { duration: hours, weekday: DOW_LONG });
 
   const patterns: string[] = [];
   if (st.lateDays + rows.filter((r) => r.halfDay && r.lateMin > 0).length > 0) {
@@ -972,6 +983,13 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
             <Tile label={t('Late')} value={hours(st.lateMin)} sub={t('{{n}} days', { n: rows.filter((r) => r.lateMin > 0).length })} />
           </div>
 
+          {summary.length > 0 && (
+            <Card className="gap-1.5 border-primary/30 bg-primary/5 p-4">
+              <h3 className="text-[15px] font-bold">{t('Summary')}</h3>
+              <p className="text-sm leading-relaxed">{summary.map((x) => t(x.key, x.values)).join(' ')}</p>
+            </Card>
+          )}
+
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
             <Card className="gap-3 p-4">
               <h3 className="text-[15px] font-bold">{t('Calendar')}</h3>
@@ -1021,22 +1039,8 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
             </Card>
 
             <div className="space-y-4">
-              <Card className="gap-3 p-4">
-                <h3 className="text-[15px] font-bold">{t('Hours worked each day')}</h3>
-                <div className="flex h-36 items-end gap-0.5" role="img" aria-label={t('Hours worked each day')}>
-                  {rows.map((r) => (
-                    <div key={r.day} className="flex h-full flex-1 flex-col justify-end" title={`${r.day}: ${hours(r.workedMin)}`}>
-                      <div className={cn('rounded-t-sm', r.overtimeMin ? 'bg-success' : r.workedMin ? 'bg-primary' : 'bg-muted')} style={{ height: `${Math.max(r.workedMin ? 3 : 1, (r.workedMin / maxWorked) * 100)}%` }} />
-                    </div>
-                  ))}
-                </div>
-                <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
-                  <span>{rows[0].day}</span>
-                  <span>{rows[rows.length - 1].day}</span>
-                </div>
-              </Card>
               <Card className="gap-2 p-4">
-                <h3 className="text-[15px] font-bold">{t('Patterns')}</h3>
+                <h3 className="text-[15px] font-bold">{t('Details')}</h3>
                 {patterns.length ? (
                   <ul className="list-disc space-y-1 ps-5 text-sm">
                     {patterns.map((x) => (
@@ -1049,6 +1053,22 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
               </Card>
             </div>
           </div>
+
+          <Card className="gap-3 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-[15px] font-bold">{t('Hours worked each day')}</h3>
+              <span className="text-xs text-muted-foreground">{t('Point at a day for details; click to open it.')}</span>
+            </div>
+            <HoursChart rows={rows} shiftMin={shiftMin} f={chartFormat} onPick={setOpen} />
+          </Card>
+
+          <Card className="gap-3 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-[15px] font-bold">{t('When they worked each day')}</h3>
+              <span className="text-xs text-muted-foreground">{t('First in to last out, against the shift.')}</span>
+            </div>
+            <DaySpanChart rows={rows} shift={shift} f={chartFormat} onPick={setOpen} />
+          </Card>
         </>
       )}
       {open && <DayDialog key={`${open.day}:${open.objectId}`} row={open} canEdit={canEdit} onClose={() => setOpen(null)} />}

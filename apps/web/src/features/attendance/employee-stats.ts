@@ -81,3 +81,47 @@ export function calendarDays(from: string, to: string): (string | null)[] {
   while (cells.length % 7) cells.push(null);
   return cells;
 }
+
+/** One sentence of the plain-language summary: a translation key (English text) and its values. */
+export interface SummaryFact {
+  key: string;
+  values: Record<string, string | number>;
+}
+/** How a sentence shows durations / weekdays (kept outside so this file stays free of formatting and i18n). */
+export interface SummaryFormat {
+  duration: (min: number) => string;
+  weekday: (sundayZero: number) => string;
+}
+
+/**
+ * The plain-language summary at the top of Employee insights, most useful facts first: punctuality, the late habit,
+ * hours against the shift, overtime, absences. `shiftMin` = shift length (end - start); null when unknown.
+ * Hours count as "about the full shift" within 15 minutes.
+ */
+export function employeeSummary(st: EmployeeStats, rows: AttendanceRowDto[], shiftMin: number | null, f: SummaryFormat): SummaryFact[] {
+  const out: SummaryFact[] = [];
+  if (!st.dueDays) return out;
+  const lateRows = rows.filter((r) => r.lateMin > 0);
+  const onTime = st.dueDays - st.absentDays - lateRows.length;
+  out.push({ key: 'On time on {{n}} of {{due}} working days.', values: { n: Math.max(0, onTime), due: st.dueDays } });
+  if (lateRows.length) {
+    const avg = Math.round(st.lateMin / lateRows.length);
+    out.push(
+      st.lateWeekday !== null
+        ? { key: 'Usually late on {{day}}, by {{min}} on average.', values: { day: f.weekday(st.lateWeekday), min: f.duration(avg) } }
+        : { key: 'Late {{n}} times, by {{min}} on average.', values: { n: lateRows.length, min: f.duration(avg) } },
+    );
+  }
+  if (st.avgWorkedMin && shiftMin) {
+    const diff = st.avgWorkedMin - shiftMin;
+    if (diff >= 15) out.push({ key: 'Works {{diff}} a day more than the shift on average ({{avg}}).', values: { diff: f.duration(diff), avg: f.duration(st.avgWorkedMin) } });
+    else if (diff <= -15) out.push({ key: 'Works {{diff}} a day less than the shift on average ({{avg}}).', values: { diff: f.duration(-diff), avg: f.duration(st.avgWorkedMin) } });
+    else out.push({ key: 'Works about the full shift on average ({{avg}} a day).', values: { avg: f.duration(st.avgWorkedMin) } });
+  }
+  if (st.overtimeMin) out.push({ key: '{{min}} overtime in this period.', values: { min: f.duration(st.overtimeMin) } });
+  if (st.absentDays) out.push({ key: 'Absent on {{n}} days.', values: { n: st.absentDays } });
+  return out;
+}
+
+/** Minutes after local midnight of an ISO time (charts and stats use the viewer's local clock). */
+export const minutesOfDayLocal = minutesOfDay;

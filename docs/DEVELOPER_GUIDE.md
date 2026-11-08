@@ -52,7 +52,7 @@ How data moves (details in section 5):
 
 ### 2.2 Web app (`apps/web/src`)
 
-`features/<area>/` holds each screen (live, history, dashboard, attendance, alerts, reports, masters, platform…). `components/` holds shared UI, `lib/` holds the API client (`lib/api.ts`), storage and formatting. Live map drawing is in `features/live/map/map-controller.ts`; history map in `features/history/history-map.ts`.
+`features/<area>/` holds each screen (live, history, dashboard, attendance, alerts, reports, masters, platform…). `components/` holds shared UI, `lib/` holds the API client (`lib/api.ts`), storage and formatting. Live map drawing is in `features/live/map/map-controller.ts`; history map in `features/history/history-map.ts`. Staff attendance Employee insights: `features/attendance/employee-stats.ts` computes the tiles, patterns and the plain-language summary (`employeeSummary`, unit-tested); `features/attendance/EmployeeCharts.tsx` draws the SVG "Hours worked each day" (within shift / overtime stacked against the shift line) and "When they worked each day" (first in to last out against the shift band) charts. Shift times come from `GET /attendance/settings` (the person's named shift, else the default); without them the charts still draw, just without the shift line.
 
 ### 2.3 Mobile apps
 

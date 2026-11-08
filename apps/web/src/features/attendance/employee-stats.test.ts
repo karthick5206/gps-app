@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AttendanceRowDto } from '@veetracer/shared';
-import { calendarDays, employeeStats } from './employee-stats.ts';
+import { calendarDays, employeeStats, employeeSummary } from './employee-stats.ts';
 
 const row = (day: string, over: Partial<AttendanceRowDto>): AttendanceRowDto =>
   ({ objectId: 'p', name: 'Ravi', day, status: 'PRESENT', halfDay: false, firstIn: null, workedMin: 0, overtimeMin: 0, lateMin: 0, earlyMin: 0, unexplainedMin: 0, corrected: false, ...over }) as AttendanceRowDto;
@@ -39,4 +39,26 @@ test('calendar: whole weeks, Monday first', () => {
   assert.equal(c.slice(0, 7).filter(Boolean).length, 1);
   assert.equal(c[6], '2026-11-01');
   assert.equal(c.filter(Boolean).length, 30);
+});
+
+test('summary: punctuality, late habit, hours against the shift, overtime, absences', () => {
+  const rows = [
+    row('2026-11-02', { status: 'LATE', lateMin: 20, firstIn: at('2026-11-02', 10, 5), workedMin: 600 }), // Monday
+    row('2026-11-03', { firstIn: at('2026-11-03', 9, 30), workedMin: 600, overtimeMin: 60 }),
+    row('2026-11-05', { status: 'ABSENT' }),
+    row('2026-11-09', { status: 'LATE', lateMin: 10, firstIn: at('2026-11-09', 10, 0), workedMin: 600 }), // Monday
+  ];
+  const f = { duration: (m: number) => `${m}m`, weekday: (d: number) => ['Sun', 'Mon'][d] ?? String(d) };
+  const s = employeeSummary(employeeStats(rows), rows, 540, f);
+  assert.deepEqual(
+    s.map((x) => [x.key, x.values]),
+    [
+      ['On time on {{n}} of {{due}} working days.', { n: 1, due: 4 }],
+      ['Usually late on {{day}}, by {{min}} on average.', { day: 'Mon', min: '15m' }],
+      ['Works {{diff}} a day more than the shift on average ({{avg}}).', { diff: '60m', avg: '600m' }],
+      ['{{min}} overtime in this period.', { min: '60m' }],
+      ['Absent on {{n}} days.', { n: 1 }],
+    ],
+  );
+  assert.deepEqual(employeeSummary(employeeStats([row('2026-11-08', { status: 'DAY_OFF' })]), [], 540, f), []);
 });
