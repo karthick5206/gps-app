@@ -2,6 +2,7 @@ import type { AttendanceRowDto } from '@veetracer/shared';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/features/theme/use-theme';
+import { cn } from '@/lib/utils';
 import { minutesOfDayLocal } from './employee-stats';
 
 /*
@@ -301,6 +302,246 @@ export function DaySpanChart({ rows, shift, f, onPick }: { rows: AttendanceRowDt
         )}
         {hovered && hover !== null && <DayTooltip r={hovered} f={f} x={Math.min(width - 230, (hovered.lastOut ? x(minutesOfDayLocal(hovered.lastOut)) : m.left + 80))} y={m.top + hover * ROW + ROW} width={width} />}
       </div>
+    </div>
+  );
+}
+
+// ───────────── patterns: status split, time away, late by weekday ─────────────
+
+/** Categorical slots (validated palette, slots 1–3) for the kinds of time away; no signal stays neutral grey. */
+const AWAY = {
+  light: { official: '#2a78d6', personal: '#1baf7a', unexplained: '#eb6834' },
+  dark: { official: '#3987e5', personal: '#199e70', unexplained: '#d95926' },
+} as const;
+
+/** A 100 % bar split into labelled parts (2 px gaps), with a legend that carries the numbers. */
+function SplitBar({ parts, label }: { parts: { key: string; value: number; color: string; label: string; text: string }[]; label: string }) {
+  const total = parts.reduce((n, p) => n + p.value, 0);
+  const shown = parts.filter((p) => p.value > 0);
+  return (
+    <div className="space-y-2">
+      <div className="flex h-3.5 w-full gap-[2px] overflow-hidden rounded-full bg-muted" role="img" aria-label={`${label}: ${shown.map((p) => `${p.label} ${p.text}`).join(', ')}`}>
+        {total > 0 && shown.map((p) => <div key={p.key} title={`${p.label}: ${p.text}`} style={{ width: `${(p.value / total) * 100}%`, background: p.color }} className="h-full" />)}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {parts.map((p) => (
+          <span key={p.key} className="inline-flex items-center gap-1.5">
+            <span className="inline-block size-2.5 rounded-[2px]" style={{ background: p.color }} />
+            <span className="text-muted-foreground">{p.label}</span>
+            <span className="font-semibold tabular-nums">{p.text}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** How the due days split: present / late / half day / absent (status colours, each with its name and count). */
+export function StatusSplit({ present, late, half, absent }: { present: number; late: number; half: number; absent: number }) {
+  const { t } = useTranslation();
+  const due = present + late + half + absent;
+  const pct = (n: number) => (due ? `${n} (${Math.round((n / due) * 100)}%)` : '0');
+  return (
+    <SplitBar
+      label={t('Days')}
+      parts={[
+        { key: 'p', value: present, color: 'var(--success)', label: t('Present'), text: pct(present) },
+        { key: 'l', value: late, color: 'var(--warning)', label: t('Late'), text: pct(late) },
+        { key: 'h', value: half, color: 'var(--info)', label: t('Half day'), text: pct(half) },
+        { key: 'a', value: absent, color: 'var(--destructive)', label: t('Absent'), text: pct(absent) },
+      ]}
+    />
+  );
+}
+
+/** Time away from the work site in the period: official duty / personal / not explained / no signal. */
+export function TimeAway({ official, personal, unexplained, noSignal, f }: { official: number; personal: number; unexplained: number; noSignal: number; f: Pick<ChartFormat, 'duration'> }) {
+  const { t } = useTranslation();
+  const { resolved } = useTheme();
+  const c = AWAY[resolved === 'dark' ? 'dark' : 'light'];
+  if (official + personal + unexplained + noSignal === 0) return <p className="text-sm text-muted-foreground">{t('No time away from the work site in this period.')}</p>;
+  return (
+    <SplitBar
+      label={t('Time away')}
+      parts={[
+        { key: 'o', value: official, color: c.official, label: t('Official duty'), text: f.duration(official) },
+        { key: 'p', value: personal, color: c.personal, label: t('Personal'), text: f.duration(personal) },
+        { key: 'u', value: unexplained, color: c.unexplained, label: t('Not explained'), text: f.duration(unexplained) },
+        { key: 'n', value: noSignal, color: 'var(--muted-foreground)', label: t('No signal'), text: f.duration(noSignal) },
+      ]}
+    />
+  );
+}
+
+/**
+ * Late arrivals by weekday, Monday first: the track is the days due that weekday, the filled part the late days, with
+ * the count and the average minutes late written beside it. Weekdays with nothing due show a dash.
+ */
+export function LateByWeekday({ rows, f, weekday }: { rows: AttendanceRowDto[]; f: Pick<ChartFormat, 'duration'>; weekday: (sundayZero: number) => string }) {
+  const { t } = useTranslation();
+  const days = [1, 2, 3, 4, 5, 6, 0].map((d) => {
+    const due = rows.filter((r) => new Date(`${r.day}T12:00:00Z`).getUTCDay() === d && (r.halfDay || r.status === 'PRESENT' || r.status === 'LATE' || r.status === 'ABSENT'));
+    const late = due.filter((r) => r.lateMin > 0);
+    return { d, due: due.length, late: late.length, avg: late.length ? Math.round(late.reduce((n, r) => n + r.lateMin, 0) / late.length) : 0 };
+  });
+  const max = Math.max(1, ...days.map((x) => x.due));
+  if (!days.some((x) => x.late)) return <p className="text-sm text-muted-foreground">{t('Never late in this period.')}</p>;
+  return (
+    <ul className="space-y-1.5" aria-label={t('Late by weekday')}>
+      {days.map((x) => (
+        <li key={x.d} className="grid grid-cols-[3.25rem_minmax(0,1fr)_auto] items-center gap-2 text-xs">
+          <span className="text-muted-foreground">{weekday(x.d)}</span>
+          <span className="relative h-2.5 rounded-full">
+            <span className="absolute inset-y-0 start-0 rounded-full bg-muted" style={{ width: `${(x.due / max) * 100}%` }} />
+            {x.late > 0 && <span className="absolute inset-y-0 start-0 rounded-full bg-warning" style={{ width: `${(x.late / max) * 100}%` }} />}
+          </span>
+          <span className="min-w-[8.5rem] text-end tabular-nums">{x.due ? (x.late ? t('{{n}} of {{due}} · avg {{min}}', { n: x.late, due: x.due, min: f.duration(x.avg) }) : t('0 of {{due}}', { due: x.due })) : '—'}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ───────────── 12-month trend ─────────────
+
+export interface TrendPoint {
+  /** YYYY-MM */
+  month: string;
+  attendancePct: number;
+  avgWorkedMin: number;
+  lateDays: number;
+  dueDays: number;
+}
+
+const monthShort = (m: string) => new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' }).format(new Date(`${m}-15T12:00:00Z`));
+const monthLong = (m: string) => new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${m}-15T12:00:00Z`));
+
+/**
+ * The last 12 months as two small charts sharing one hover: attendance % (line) and the average hours a day (bars,
+ * against the shift length). One series each, so the titles name them and there is no legend.
+ */
+export function TrendCharts({ points, shiftMin, f }: { points: TrendPoint[]; shiftMin: number | null; f: Pick<ChartFormat, 'duration'> }) {
+  const { t } = useTranslation();
+  const { resolved } = useTheme();
+  const c = SERIES[resolved === 'dark' ? 'dark' : 'light'];
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<number | null>(null);
+  const twoUp = width >= 640;
+  const w = twoUp ? (width - 24) / 2 : width;
+  const H = 170;
+  const m = { top: 16, right: 12, bottom: 24, left: 38 };
+  const plotW = Math.max(0, w - m.left - m.right);
+  const plotH = H - m.top - m.bottom;
+  const slot = points.length ? plotW / points.length : 0;
+  const cx = (i: number) => m.left + slot * i + slot / 2;
+  // Attendance: from a round floor (50 % or lower) to 100 %.
+  const pMin = Math.min(50, Math.floor(Math.min(100, ...points.map((p) => p.attendancePct)) / 25) * 25);
+  const yP = (v: number) => m.top + plotH - ((v - pMin) / Math.max(1, 100 - pMin)) * plotH;
+  const pTicks: number[] = [];
+  for (let v = pMin; v <= 100; v += 25) pTicks.push(v);
+  const hMax = Math.ceil((Math.max(0, ...points.map((p) => p.avgWorkedMin), shiftMin ?? 0, 8 * 60) + 30) / 180) * 180;
+  const yH = (v: number) => m.top + plotH - (v / hMax) * plotH;
+  const hTicks = Array.from({ length: hMax / 180 + 1 }, (_, i) => i * 180);
+  const barW = Math.max(4, Math.min(22, slot * 0.55));
+  const labelEvery = Math.max(1, Math.ceil((points.length * 30) / Math.max(1, plotW)));
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${cx(i)},${yP(p.attendancePct)}`).join(' ');
+  const hp = hover !== null ? points[hover] : null;
+  const last = points[points.length - 1];
+
+  const axisX = (i: number) =>
+    i % labelEvery === 0 ? (
+      <text key={`x${i}`} x={cx(i)} y={H - 6} textAnchor="middle" fontSize={10.5} fill="var(--muted-foreground)">
+        {monthShort(points[i].month)}
+      </text>
+    ) : null;
+  const hit = (i: number) => (
+    <rect
+      key={`h${i}`}
+      x={m.left + slot * i}
+      y={m.top}
+      width={slot}
+      height={plotH + 10}
+      fill="transparent"
+      tabIndex={0}
+      aria-label={`${monthLong(points[i].month)}: ${points[i].attendancePct}%, ${f.duration(points[i].avgWorkedMin)}`}
+      style={{ outline: 'none' }}
+      onMouseEnter={() => setHover(i)}
+      onFocus={() => setHover(i)}
+      onBlur={() => setHover(null)}
+    />
+  );
+  const band = (i: number) => <rect x={m.left + slot * i} y={m.top} width={slot} height={plotH} fill="var(--accent)" opacity={0.7} />;
+
+  return (
+    <div ref={ref} className="relative" onMouseLeave={() => setHover(null)}>
+      {width > 0 && points.length > 0 && (
+        <div className={cn('grid gap-6', twoUp && 'grid-cols-2')}>
+          <div>
+            <div className="mb-1 text-xs font-semibold text-muted-foreground">
+              {t('Attendance %')} · <span className="text-foreground tabular-nums">{t('{{v}} in {{month}}', { v: `${last.attendancePct}%`, month: monthShort(last.month) })}</span>
+            </div>
+            <svg width={w} height={H} role="img" aria-label={t('Attendance % each month')}>
+              {hover !== null && band(hover)}
+              {pTicks.map((v) => (
+                <g key={v}>
+                  <line x1={m.left} x2={w - m.right} y1={yP(v)} y2={yP(v)} stroke="var(--border)" />
+                  <text x={m.left - 6} y={yP(v) + 3.5} textAnchor="end" fontSize={10.5} fill="var(--muted-foreground)">
+                    {v}%
+                  </text>
+                </g>
+              ))}
+              <path d={line} fill="none" stroke={c.within} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+              {points.map((p, i) => (
+                <circle key={p.month} cx={cx(i)} cy={yP(p.attendancePct)} r={hover === i ? 5 : 4} fill={c.within} stroke="var(--card)" strokeWidth={2} />
+              ))}
+              {points.map((_, i) => axisX(i))}
+              {points.map((_, i) => hit(i))}
+            </svg>
+          </div>
+          <div>
+            <div className="mb-1 text-xs font-semibold text-muted-foreground">{t('Average a day')}</div>
+            <svg width={w} height={H} role="img" aria-label={t('Average hours a day each month')}>
+              {hover !== null && band(hover)}
+              {hTicks.map((v) => (
+                <g key={v}>
+                  <line x1={m.left} x2={w - m.right} y1={yH(v)} y2={yH(v)} stroke="var(--border)" />
+                  <text x={m.left - 6} y={yH(v) + 3.5} textAnchor="end" fontSize={10.5} fill="var(--muted-foreground)">
+                    {v / 60} h
+                  </text>
+                </g>
+              ))}
+              {points.map((p, i) => {
+                if (p.avgWorkedMin <= 0) return null;
+                const top = yH(p.avgWorkedMin);
+                const r = Math.min(4, barW / 2, yH(0) - top);
+                const x0 = cx(i) - barW / 2;
+                return <path key={p.month} d={`M${x0},${yH(0)} V${top + r} Q${x0},${top} ${x0 + r},${top} H${x0 + barW - r} Q${x0 + barW},${top} ${x0 + barW},${top + r} V${yH(0)} Z`} fill={c.within} />;
+              })}
+              {shiftMin ? <line x1={m.left} x2={w - m.right} y1={yH(shiftMin)} y2={yH(shiftMin)} stroke="var(--foreground)" strokeOpacity={0.55} strokeWidth={1.5} strokeDasharray="5 4" pointerEvents="none" /> : null}
+              <line x1={m.left} x2={w - m.right} y1={yH(0)} y2={yH(0)} stroke="var(--muted-foreground)" strokeOpacity={0.5} />
+              {points.map((_, i) => axisX(i))}
+              {points.map((_, i) => hit(i))}
+            </svg>
+          </div>
+        </div>
+      )}
+      {hp && hover !== null && (
+        <div className="pointer-events-none absolute top-6 z-10 w-[200px] rounded-md border bg-popover p-2.5 text-xs shadow-md" style={{ left: Math.min(Math.max(8, cx(hover) + 12), Math.max(8, width - 210)) }} role="tooltip">
+          <div className="mb-1 font-semibold">{monthLong(hp.month)}</div>
+          {(
+            [
+              [t('Attendance'), `${hp.attendancePct}%`],
+              [t('Average a day'), f.duration(hp.avgWorkedMin)],
+              [t('Late'), t('{{n}} of {{due}} days', { n: hp.lateDays, due: hp.dueDays })],
+            ] as const
+          ).map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-3 tabular-nums">
+              <span className="text-muted-foreground">{k}</span>
+              <span className="font-medium">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

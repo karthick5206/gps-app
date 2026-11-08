@@ -17,10 +17,11 @@ import {
   type OutingKind,
 } from '@veetracer/shared';
 import { CalendarCheckIcon, ChartColumnIcon, DownloadIcon, FileSpreadsheetIcon, MapPinIcon, PlusIcon, Trash2Icon } from 'lucide-react';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
+import { PageCapture } from '@/components/page-capture';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -40,8 +41,8 @@ import { named, useEntityOptions } from '@/features/masters/use-options';
 import { api, downloadCsv, errorMessage, fetchBlob } from '@/lib/api';
 import { useAddress } from '@/features/geocoding/use-address';
 import { cn } from '@/lib/utils';
-import { calendarDays, employeeStats, employeeSummary } from './employee-stats';
-import { DaySpanChart, HoursChart, type ChartFormat } from './EmployeeCharts';
+import { calendarDays, change, daysIn, employeeStats, employeeSummary, MAX_PERIOD_DAYS, monthlyTrend, previousRange, teamFigures, trendRange } from './employee-stats';
+import { DaySpanChart, HoursChart, LateByWeekday, StatusSplit, TimeAway, TrendCharts, type ChartFormat } from './EmployeeCharts';
 
 const STATUS: Record<AttendanceStatus, { label: string; cls: string }> = {
   PRESENT: { label: 'Present', cls: 'bg-success-soft text-success-fg' },
@@ -842,16 +843,27 @@ function SettingsTab({ canEdit }: { canEdit: boolean }) {
 /** Opens the Employee tab for a person (from a name in the Today / Timesheet lists). */
 const InsightsContext = createContext<((objectId: string) => void) | null>(null);
 
-type Period = 'this' | 'last' | '30';
-const periodRange = (p: Period): { from: string; to: string } => {
+type Period = 'this' | 'last' | '30' | '90' | 'custom';
+const minusDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+const periodRange = (p: Exclude<Period, 'custom'>): { from: string; to: string } => {
   const t = today();
   if (p === 'this') return { from: `${t.slice(0, 8)}01`, to: t };
-  if (p === '30') return { from: new Date(Date.parse(`${t}T00:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10), to: t };
-  const end = new Date(Date.parse(`${t.slice(0, 8)}01T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  if (p === '30') return { from: minusDays(t, 29), to: t };
+  if (p === '90') return { from: minusDays(t, 89), to: t };
+  const end = minusDays(`${t.slice(0, 8)}01`, 1);
   return { from: `${end.slice(0, 8)}01`, to: end };
+};
+/** Why a custom range can't be shown, or null when it can. */
+const customError = (from: string, to: string): string | null => {
+  if (!from || !to) return 'Choose both dates';
+  if (from > to) return 'The start date must be before the end date';
+  if (to > today()) return 'The end date can’t be in the future';
+  if (daysIn(from, to) > MAX_PERIOD_DAYS) return 'Choose up to 6 months';
+  return null;
 };
 const clockOf = (min: number) => clock.format(new Date(2000, 0, 1, Math.floor(min / 60), min % 60));
 const DOW_LONG = (i: number) => new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(Date.UTC(2026, 10, 1 + i, 12)));
+const DOW_ABBR = (i: number) => new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(new Date(Date.UTC(2026, 10, 1 + i, 12))); // Sunday = 0
 const DOW_SHORT = (i: number) => new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(new Date(Date.UTC(2026, 10, 2 + i, 12))); // Monday first
 const DAY_CELL: Record<string, string> = {
   PRESENT: 'bg-success-soft text-success-fg border-success/30',
@@ -860,34 +872,74 @@ const DAY_CELL: Record<string, string> = {
   ABSENT: 'bg-destructive-soft text-destructive-fg border-destructive/30',
   DAY_OFF: 'bg-muted text-muted-foreground border-transparent',
 };
+/** The calendar shows each day up to this many days; the day-by-day span chart up to CHART_SPAN_DAYS. */
+const CALENDAR_DAYS = 93;
+const CHART_SPAN_DAYS = 62;
 
-function Tile({ label, value, sub, className }: { label: string; value: ReactNode; sub?: ReactNode; className?: string }) {
+function Tile({ label, value, sub, compare, className }: { label: string; value: ReactNode; sub?: ReactNode; compare?: ReactNode; className?: string }) {
   return (
     <div className={cn('rounded-lg border bg-card px-4 py-3', className)}>
       <div className="text-xs font-semibold text-muted-foreground">{label}</div>
       <div className="mt-1 text-2xl font-bold tabular-nums">{value}</div>
       {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
+      {compare && <div className="mt-1.5 space-y-0.5 border-t pt-1.5 text-xs text-muted-foreground tabular-nums">{compare}</div>}
     </div>
   );
 }
 
 /**
- * One person over a period: headline figures, a calendar coloured by status, hours per day and the patterns in words.
- * Built from the same timesheet rows as the reports, so the figures match them.
+ * "▲ 3.2 pts" against the previous period. The arrow shows the direction; its colour says whether that is better
+ * (green) or worse (red) for this figure, and the words carry the meaning without the colour.
+ */
+function Delta({ value, text, higherIsBetter }: { value: number | null; text: (abs: number) => string; higherIsBetter: boolean }) {
+  const { t } = useTranslation();
+  if (value === null) return null;
+  if (value === 0) return <div>{t('Same as the previous period')}</div>;
+  const better = value > 0 === higherIsBetter;
+  return (
+    <div>
+      <span className={cn('font-semibold', better ? 'text-success-fg' : 'text-destructive-fg')} aria-hidden>
+        {value > 0 ? '▲' : '▼'}
+      </span>{' '}
+      {t(value > 0 ? '{{v}} more than the previous period' : '{{v}} less than the previous period', { v: text(Math.abs(value)) })}
+    </div>
+  );
+}
+
+/**
+ * One person over a period: headline figures compared with the previous period and the team, a plain-language summary,
+ * a calendar coloured by status, hours and times each day, patterns (days, late weekdays, time away) and the last
+ * 12 months. Built from the same timesheet rows as the reports, so the figures match them.
  */
 function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; objectId: string | null; onObjectId: (id: string | null) => void }) {
   const { t } = useTranslation();
+  const me = useMe();
   const staff = useEntityOptions<{ id: string; name: string }>('/objects', named, { params: { type: 'PERSON' } });
   const [period, setPeriod] = useState<Period>('this');
+  const [custom, setCustom] = useState(() => periodRange('30'));
   const [open, setOpen] = useState<AttendanceRowDto | null>(null);
-  const range = periodRange(period);
-  const q = useQuery({
+  const insightsRef = useRef<HTMLDivElement>(null);
+  const badRange = period === 'custom' ? customError(custom.from, custom.to) : null;
+  const range = period === 'custom' ? custom : periodRange(period);
+  const days = daysIn(range.from, range.to);
+  const prev = previousRange(range.from, range.to);
+  const trend = trendRange(today());
+  const sheet = (from: string, to: string, signal: AbortSignal) => api.get<AttendanceRowDto[]>('/attendance/timesheet', { from, to, objectId: objectId ?? undefined }, signal);
+  const q = useQuery({ queryKey: ['attendance-person', objectId, range.from, range.to], queryFn: ({ signal }) => sheet(range.from, range.to, signal), enabled: !!objectId && !badRange });
+  const before = useQuery({ queryKey: ['attendance-person', objectId, prev.from, prev.to], queryFn: ({ signal }) => sheet(prev.from, prev.to, signal), enabled: !!objectId && !badRange, staleTime: 5 * 60_000 });
+  const year = useQuery({ queryKey: ['attendance-person', objectId, trend.from, trend.to], queryFn: ({ signal }) => sheet(trend.from, trend.to, signal), enabled: !!objectId, staleTime: 10 * 60_000 });
+  // The team for the same period: everyone's timesheet (same request as the Timesheet tab), up to 62 days.
+  const team = useQuery({
     queryKey: ['attendance-sheet', range.from, range.to, ALL],
     queryFn: ({ signal }) => api.get<AttendanceRowDto[]>('/attendance/timesheet', { from: range.from, to: range.to }, signal),
-    enabled: !!objectId,
+    enabled: !!objectId && !badRange && days <= CHART_SPAN_DAYS,
+    staleTime: 5 * 60_000,
   });
   const rows = useMemo(() => (q.data ?? []).filter((r) => r.objectId === objectId).sort((a, b) => a.day.localeCompare(b.day)), [q.data, objectId]);
   const st = useMemo(() => employeeStats(rows), [rows]);
+  const pst = useMemo(() => (before.data ? employeeStats(before.data.filter((r) => r.objectId === objectId)) : null), [before.data, objectId]);
+  const tf = useMemo(() => (team.data ? teamFigures(team.data) : null), [team.data]);
+  const months = useMemo(() => monthlyTrend((year.data ?? []).filter((r) => r.objectId === objectId)), [year.data, objectId]);
   const byDay = useMemo(() => new Map(rows.map((r) => [r.day, r])), [rows]);
   const first = rows[0];
   // Shift times for the charts: the person's named shift, else the company default (charts work without them).
@@ -901,10 +953,15 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
   const shiftMin = shift ? shift.endMin - shift.startMin : null;
   const chartFormat: ChartFormat = { duration: hours, time, clock: clockOf, status: (r) => t(r.halfDay ? HALF_DAY.label : STATUS[r.status].label) };
   const summary = employeeSummary(st, rows, shiftMin, { duration: hours, weekday: DOW_LONG });
+  // Previous period only counts when something was due then (a new joiner has nothing to compare with).
+  const p = pst && pst.dueDays > 0 ? pst : null;
+  const lateCount = rows.filter((r) => r.lateMin > 0).length;
+  const prevLate = before.data ? before.data.filter((r) => r.objectId === objectId && r.lateMin > 0).length : null;
+  const pts = (v: number) => t('{{n}} pts', { n: v });
+  const mins = (v: number) => hours(Math.round(v));
 
   const patterns: string[] = [];
-  if (st.lateDays + rows.filter((r) => r.halfDay && r.lateMin > 0).length > 0) {
-    const lateCount = rows.filter((r) => r.lateMin > 0).length;
+  if (lateCount > 0) {
     patterns.push(t('Late on {{n}} of {{due}} working days ({{min}} in total).', { n: lateCount, due: st.dueDays, min: hours(st.lateMin) }));
     if (st.lateWeekday !== null) patterns.push(t('Late most often on {{day}} ({{n}} of {{total}} late days).', { day: DOW_LONG(st.lateWeekday), n: st.lateByWeekday[st.lateWeekday], total: lateCount }));
   }
@@ -913,6 +970,14 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
   if (st.unexplainedMin) patterns.push(t('{{min}} away from the work site not explained yet.', { min: hours(st.unexplainedMin) }));
   if (st.overtimeMin) patterns.push(t('{{min}} overtime in this period.', { min: hours(st.overtimeMin) }));
   if (st.correctedDays) patterns.push(t('{{n}} days corrected by hand.', { n: st.correctedDays }));
+
+  const periods: [Period, string][] = [
+    ['this', 'This month'],
+    ['last', 'Last month'],
+    ['30', 'Last 30 days'],
+    ['90', 'Last 3 months'],
+    ['custom', 'Custom'],
+  ];
 
   return (
     <div className="space-y-4">
@@ -931,36 +996,49 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
             </SelectContent>
           </Select>
         </Field>
-        <div className="flex gap-1.5" role="group" aria-label={t('Period')}>
-          {(
-            [
-              ['this', 'This month'],
-              ['last', 'Last month'],
-              ['30', 'Last 30 days'],
-            ] as const
-          ).map(([v, l]) => (
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('Period')}>
+          {periods.map(([v, l]) => (
             <button key={v} type="button" aria-pressed={period === v} onClick={() => setPeriod(v)} className={cn('h-9 rounded-md border px-3 text-sm font-medium', period === v ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-muted')}>
               {t(l)}
             </button>
           ))}
         </div>
-        <span className="pb-2 text-xs text-muted-foreground tabular-nums">
-          {range.from} – {range.to}
-        </span>
+        {period === 'custom' && (
+          <>
+            <Field label={t('From')} htmlFor="emp-from">
+              <Input id="emp-from" type="date" className="w-40" value={custom.from} max={today()} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
+            </Field>
+            <Field label={t('To')} htmlFor="emp-to">
+              <Input id="emp-to" type="date" className="w-40" value={custom.to} max={today()} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
+            </Field>
+          </>
+        )}
+        <span className="pb-2 text-xs text-muted-foreground tabular-nums">{badRange ? <span className="font-medium text-destructive-fg">{t(badRange)}</span> : `${range.from} – ${range.to}`}</span>
+        {objectId && rows.length > 0 && !badRange && (
+          <div className="ms-auto flex gap-2">
+            <Button variant="outline" onClick={() => void downloadCsv('/attendance/timesheet', { from: range.from, to: range.to, objectId }, 'timesheet.csv').catch((e) => toast.error(errorMessage(e)))}>
+              <FileSpreadsheetIcon /> {t('Excel (CSV)')}
+            </Button>
+            {/* PNG / PDF of the insights below with the VeeTrax · company header. */}
+            <PageCapture target={insightsRef} fileName={() => `attendance-${(first?.name ?? 'staff').replace(/[^\w-]+/g, '-')}-${range.from}-${range.to}`} caption={() => ({ title: me?.company.name ?? '', lines: [`${t('Staff attendance')} · ${first?.name ?? ''}`, `${range.from} – ${range.to}`] })} />
+          </div>
+        )}
       </div>
 
       {!objectId ? (
         <Card className="p-0">
           <EmptyState icon={ChartColumnIcon} title={t('Choose a staff member')} description={t('See their attendance %, usual check-in time, hours, overtime and patterns for the month, with a calendar of every day.')} />
         </Card>
-      ) : q.isPending ? (
+      ) : badRange ? null : q.isPending ? (
         <Skeleton className="h-80" />
+      ) : q.isError ? (
+        <Card className="p-4 text-sm text-destructive-fg">{errorMessage(q.error)}</Card>
       ) : !rows.length ? (
         <Card className="p-0">
           <EmptyState icon={CalendarCheckIcon} title={t('Nothing in this period')} description={t('This person is not covered by attendance on these days.')} />
         </Card>
       ) : (
-        <>
+        <div ref={insightsRef} className="space-y-4 bg-background">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 className="text-lg font-bold">{first.name}</h2>
             <span className="text-sm text-muted-foreground">{[first.branch, first.shift === 'Default' ? t('Default shift') : first.shift].filter(Boolean).join(' · ')}</span>
@@ -975,13 +1053,81 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
                   <span className={cn('block h-full rounded-full', st.attendancePct >= 90 ? 'bg-success' : st.attendancePct >= 75 ? 'bg-warning' : 'bg-destructive')} style={{ width: `${st.attendancePct}%` }} />
                 </span>
               }
+              compare={
+                (p || tf) && (
+                  <>
+                    <Delta value={change(st.attendancePct, p?.attendancePct ?? null)} text={pts} higherIsBetter />
+                    {tf && <div>{t('Team {{v}}', { v: `${tf.attendancePct}%` })}</div>}
+                  </>
+                )
+              }
             />
-            <Tile label={t('Days')} value={`${st.presentDays + st.lateDays} / ${st.dueDays}`} sub={t('{{late}} late · {{half}} half · {{absent}} absent', { late: st.lateDays, half: st.halfDays, absent: st.absentDays })} />
-            <Tile label={t('Usual check-in')} value={st.usualCheckInMin === null ? '—' : clockOf(st.usualCheckInMin)} sub={t('Middle of all check-in times')} />
-            <Tile label={t('Average a day')} value={hours(st.avgWorkedMin)} sub={t('On the days they came')} />
-            <Tile label={t('Overtime')} value={hours(st.overtimeMin)} />
-            <Tile label={t('Late')} value={hours(st.lateMin)} sub={t('{{n}} days', { n: rows.filter((r) => r.lateMin > 0).length })} />
+            <Tile label={t('Days')} value={`${st.presentDays + st.lateDays} / ${st.dueDays}`} sub={t('{{late}} late · {{half}} half · {{absent}} absent', { late: st.lateDays, half: st.halfDays, absent: st.absentDays })} compare={p && <Delta value={change(st.absentDays, p.absentDays)} text={(v) => t('{{n}} absent', { n: v })} higherIsBetter={false} />} />
+            <Tile
+              label={t('Usual check-in')}
+              value={st.usualCheckInMin === null ? '—' : clockOf(st.usualCheckInMin)}
+              sub={t('Middle of all check-in times')}
+              compare={
+                ((p && p.usualCheckInMin !== null && st.usualCheckInMin !== null) || tf?.usualCheckInMin != null) && (
+                  <>
+                    {p && st.usualCheckInMin !== null && p.usualCheckInMin !== null && st.usualCheckInMin !== p.usualCheckInMin && (
+                      <div>
+                        <span className={cn('font-semibold', st.usualCheckInMin < p.usualCheckInMin ? 'text-success-fg' : 'text-destructive-fg')} aria-hidden>
+                          {st.usualCheckInMin < p.usualCheckInMin ? '▼' : '▲'}
+                        </span>{' '}
+                        {t(st.usualCheckInMin < p.usualCheckInMin ? '{{v}} earlier than the previous period' : '{{v}} later than the previous period', { v: mins(Math.abs(st.usualCheckInMin - p.usualCheckInMin)) })}
+                      </div>
+                    )}
+                    {tf?.usualCheckInMin != null && <div>{t('Team {{v}}', { v: clockOf(tf.usualCheckInMin) })}</div>}
+                  </>
+                )
+              }
+            />
+            <Tile
+              label={t('Average a day')}
+              value={hours(st.avgWorkedMin)}
+              sub={t('On the days they came')}
+              compare={
+                (p || tf) && (
+                  <>
+                    {p && p.avgWorkedMin > 0 && <Delta value={change(st.avgWorkedMin, p.avgWorkedMin)} text={mins} higherIsBetter />}
+                    {tf && <div>{t('Team {{v}}', { v: hours(tf.avgWorkedMin) })}</div>}
+                  </>
+                )
+              }
+            />
+            <Tile
+              label={t('Overtime')}
+              value={hours(st.overtimeMin)}
+              compare={
+                (p || tf) && (
+                  <>
+                    {/* More overtime is neither good nor bad here: shown in neutral words only. */}
+                    {p && st.overtimeMin !== p.overtimeMin && <div>{t('Previous period {{v}}', { v: hours(p.overtimeMin) })}</div>}
+                    {tf && <div>{t('Team {{v}} each', { v: hours(tf.overtimeMin) })}</div>}
+                  </>
+                )
+              }
+            />
+            <Tile
+              label={t('Late')}
+              value={hours(st.lateMin)}
+              sub={t('{{n}} days', { n: lateCount })}
+              compare={
+                (p || tf) && (
+                  <>
+                    {p && prevLate !== null && <Delta value={change(lateCount, prevLate)} text={(v) => t('{{n}} days', { n: v })} higherIsBetter={false} />}
+                    {tf && <div>{t('Team {{v}} each', { v: hours(tf.lateMin) })}</div>}
+                  </>
+                )
+              }
+            />
           </div>
+          {(p || tf) && (
+            <p className="text-xs text-muted-foreground">
+              {[p && t('Arrows compare with {{from}} – {{to}}.', { from: prev.from, to: prev.to }), tf && t('Team = the typical figure of {{n}} staff in the same days.', { n: tf.people })].filter(Boolean).join(' ')}
+            </p>
+          )}
 
           {summary.length > 0 && (
             <Card className="gap-1.5 border-primary/30 bg-primary/5 p-4">
@@ -991,54 +1137,82 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
           )}
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-            <Card className="gap-3 p-4">
-              <h3 className="text-[15px] font-bold">{t('Calendar')}</h3>
-              <div className="grid grid-cols-7 gap-1.5 text-center">
-                {Array.from({ length: 7 }, (_, i) => (
-                  <div key={i} className="text-[11px] font-semibold text-muted-foreground uppercase">
-                    {DOW_SHORT(i)}
-                  </div>
-                ))}
-                {calendarDays(range.from, range.to).map((d, i) => {
-                  if (!d) return <div key={i} />;
-                  const r = byDay.get(d);
-                  const key = r ? (r.halfDay ? 'HALF' : r.status) : '';
-                  const label = r ? t(r.halfDay ? HALF_DAY.label : STATUS[r.status].label) : t('Not covered');
-                  return (
-                    <button
-                      key={d}
-                      type="button"
-                      disabled={!r}
-                      onClick={() => r && setOpen(r)}
-                      title={`${d} · ${label}${r?.firstIn ? ` · ${time(r.firstIn)}` : ''}`}
-                      aria-label={`${d}: ${label}`}
-                      className={cn('flex min-h-14 flex-col items-center justify-center rounded-md border p-1 text-xs transition-colors', DAY_CELL[key] ?? 'border-dashed text-muted-foreground', r && 'hover:ring-2 hover:ring-ring/40')}
-                    >
-                      <span className="font-bold">{Number(d.slice(8))}</span>
-                      {r?.firstIn && <span className="text-[10px] tabular-nums opacity-80">{time(r.firstIn)}</span>}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                {(
-                  [
-                    ['PRESENT', 'Present'],
-                    ['LATE', 'Late'],
-                    ['HALF', 'Half day'],
-                    ['ABSENT', 'Absent'],
-                    ['DAY_OFF', 'Day off'],
-                  ] as const
-                ).map(([k, l]) => (
-                  <span key={k} className="flex items-center gap-1.5">
-                    <span className={cn('size-3 rounded-sm border', DAY_CELL[k])} aria-hidden />
-                    {t(l)}
+            {days <= CALENDAR_DAYS ? (
+              <Card className="gap-3 p-4">
+                <h3 className="text-[15px] font-bold">{t('Calendar')}</h3>
+                <div className="grid grid-cols-7 gap-1.5 text-center">
+                  {Array.from({ length: 7 }, (_, i) => (
+                    <div key={i} className="text-[11px] font-semibold text-muted-foreground uppercase">
+                      {DOW_SHORT(i)}
+                    </div>
+                  ))}
+                  {calendarDays(range.from, range.to).map((d, i) => {
+                    if (!d) return <div key={i} />;
+                    const r = byDay.get(d);
+                    const key = r ? (r.halfDay ? 'HALF' : r.status) : '';
+                    const label = r ? t(r.halfDay ? HALF_DAY.label : STATUS[r.status].label) : t('Not covered');
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        disabled={!r}
+                        onClick={() => r && setOpen(r)}
+                        title={`${d} · ${label}${r?.firstIn ? ` · ${time(r.firstIn)} – ${r.lastOut ? time(r.lastOut) : t('still in')}` : ''}${r?.corrected ? ` · ${t('Corrected')}` : ''}`}
+                        aria-label={`${d}: ${label}${r?.corrected ? `, ${t('Corrected')}` : ''}`}
+                        className={cn('relative flex min-h-14 flex-col items-center justify-center rounded-md border p-1 text-xs transition-colors', DAY_CELL[key] ?? 'border-dashed text-muted-foreground', r && 'hover:ring-2 hover:ring-ring/40')}
+                      >
+                        {r?.corrected && <span className="absolute end-1 top-0.5 text-[10px] font-bold" aria-hidden>✎</span>}
+                        <span className="font-bold">{Number(d.slice(8))}</span>
+                        {r?.firstIn && <span className="text-[10px] leading-tight tabular-nums opacity-80">{time(r.firstIn)}</span>}
+                        {r?.lastOut && <span className="text-[10px] leading-tight tabular-nums opacity-60">{time(r.lastOut)}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                  {(
+                    [
+                      ['PRESENT', 'Present'],
+                      ['LATE', 'Late'],
+                      ['HALF', 'Half day'],
+                      ['ABSENT', 'Absent'],
+                      ['DAY_OFF', 'Day off'],
+                    ] as const
+                  ).map(([k, l]) => (
+                    <span key={k} className="flex items-center gap-1.5">
+                      <span className={cn('size-3 rounded-sm border', DAY_CELL[k])} aria-hidden />
+                      {t(l)}
+                    </span>
+                  ))}
+                  <span className="flex items-center gap-1.5">
+                    <span className="font-bold text-foreground" aria-hidden>
+                      ✎
+                    </span>
+                    {t('Corrected')}
                   </span>
-                ))}
-              </div>
-            </Card>
+                  <span>{t('Times: first in, last out')}</span>
+                </div>
+              </Card>
+            ) : (
+              <Card className="gap-2 p-4">
+                <h3 className="text-[15px] font-bold">{t('Calendar')}</h3>
+                <p className="text-sm text-muted-foreground">{t('The calendar shows up to 3 months. Choose a shorter period to see each day.')}</p>
+              </Card>
+            )}
 
             <div className="space-y-4">
+              <Card className="gap-3 p-4">
+                <h3 className="text-[15px] font-bold">{t('Days')}</h3>
+                <StatusSplit present={st.presentDays} late={st.lateDays} half={st.halfDays} absent={st.absentDays} />
+              </Card>
+              <Card className="gap-3 p-4">
+                <h3 className="text-[15px] font-bold">{t('Late by weekday')}</h3>
+                <LateByWeekday rows={rows} f={chartFormat} weekday={DOW_ABBR} />
+              </Card>
+              <Card className="gap-3 p-4">
+                <h3 className="text-[15px] font-bold">{t('Time away from the work site')}</h3>
+                <TimeAway official={st.officialMin} personal={st.personalMin} unexplained={st.unexplainedMin} noSignal={st.noSignalMin} f={chartFormat} />
+              </Card>
               <Card className="gap-2 p-4">
                 <h3 className="text-[15px] font-bold">{t('Details')}</h3>
                 {patterns.length ? (
@@ -1067,9 +1241,23 @@ function EmployeeTab({ canEdit, objectId, onObjectId }: { canEdit: boolean; obje
               <h3 className="text-[15px] font-bold">{t('When they worked each day')}</h3>
               <span className="text-xs text-muted-foreground">{t('First in to last out, against the shift.')}</span>
             </div>
-            <DaySpanChart rows={rows} shift={shift} f={chartFormat} onPick={setOpen} />
+            {days <= CHART_SPAN_DAYS ? <DaySpanChart rows={rows} shift={shift} f={chartFormat} onPick={setOpen} /> : <p className="text-sm text-muted-foreground">{t('Shown for periods up to 2 months. Choose a shorter period to see each day.')}</p>}
           </Card>
-        </>
+
+          <Card className="gap-3 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-[15px] font-bold">{t('Last 12 months')}</h3>
+              <span className="text-xs text-muted-foreground">{t('Point at a month for details.')}</span>
+            </div>
+            {year.isPending ? (
+              <Skeleton className="h-44" />
+            ) : months.length < 2 ? (
+              <p className="text-sm text-muted-foreground">{t('The trend appears once there are two months of attendance.')}</p>
+            ) : (
+              <TrendCharts points={months.map((x) => ({ month: x.month, attendancePct: x.stats.attendancePct, avgWorkedMin: x.stats.avgWorkedMin, lateDays: x.stats.lateByWeekday.reduce((a, b) => a + b, 0), dueDays: x.stats.dueDays }))} shiftMin={shiftMin} f={chartFormat} />
+            )}
+          </Card>
+        </div>
       )}
       {open && <DayDialog key={`${open.day}:${open.objectId}`} row={open} canEdit={canEdit} onClose={() => setOpen(null)} />}
     </div>

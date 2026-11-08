@@ -62,3 +62,24 @@ test('summary: punctuality, late habit, hours against the shift, overtime, absen
   );
   assert.deepEqual(employeeSummary(employeeStats([row('2026-11-08', { status: 'DAY_OFF' })]), [], 540, f), []);
 });
+
+test('previous period: month to date ↔ same dates last month, whole month ↔ whole month, other ranges straight before', async () => {
+  const { previousRange, trendRange, daysIn } = await import('./employee-stats.ts');
+  assert.deepEqual(previousRange('2026-11-01', '2026-11-08'), { from: '2026-10-01', to: '2026-10-08' });
+  assert.deepEqual(previousRange('2026-10-01', '2026-10-31'), { from: '2026-09-01', to: '2026-09-30' });
+  assert.deepEqual(previousRange('2026-03-01', '2026-03-31'), { from: '2026-02-01', to: '2026-02-28' });
+  assert.deepEqual(previousRange('2026-03-01', '2026-03-30'), { from: '2026-02-01', to: '2026-02-28' });
+  assert.deepEqual(previousRange('2026-10-10', '2026-11-08'), { from: '2026-09-10', to: '2026-10-09' });
+  assert.equal(daysIn('2026-10-10', '2026-11-08'), 30);
+  assert.deepEqual(trendRange('2026-11-08'), { from: '2025-12-01', to: '2026-11-08' });
+});
+
+test('monthly trend and team figures', async () => {
+  const { monthlyTrend, teamFigures } = await import('./employee-stats.ts');
+  const t = monthlyTrend([row('2026-10-05', { workedMin: 480, firstIn: at('2026-10-05', 9, 0) }), row('2026-11-02', { status: 'ABSENT' }), row('2026-11-08', { status: 'DAY_OFF' })]);
+  assert.deepEqual(t.map((m) => [m.month, m.stats.attendancePct]), [['2026-10', 100], ['2026-11', 0]]);
+  const team = teamFigures([row('2026-11-02', { objectId: 'a', workedMin: 480 }), row('2026-11-02', { objectId: 'b', status: 'ABSENT' })]);
+  assert.equal(team?.people, 2);
+  assert.equal(team?.attendancePct, 50);
+  assert.equal(teamFigures([row('2026-11-02', { objectId: 'a' })]), null);
+});

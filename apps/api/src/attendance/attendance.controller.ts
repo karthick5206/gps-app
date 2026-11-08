@@ -57,6 +57,8 @@ class SheetQuery {
   @IsString() from!: string;
   @IsString() to!: string;
   @IsOptional() @IsUUID() branchId?: string;
+  /** One person (Employee insights): the range may then cover up to 366 days. */
+  @IsOptional() @IsUUID() objectId?: string;
   @IsOptional() @IsIn(['json', 'csv']) format?: 'json' | 'csv';
 }
 
@@ -122,7 +124,7 @@ export class AttendanceController {
 
   @Get('timesheet') @RequirePermission('attendance', 'view')
   async timesheet(@Auth() ctx: AuthContext, @Query() q: SheetQuery): Promise<AttendanceRowDto[] | StreamableFile> {
-    const rows = await this.attendance.timesheet(ctx, q.from, q.to, q.branchId);
+    const rows = await this.attendance.timesheet(ctx, q.from, q.to, q.branchId, Date.now(), q.objectId);
     if (q.format !== 'csv') return rows;
     return csvFile('timesheet', rows, [
       { header: 'Date', value: (r) => r.day },
