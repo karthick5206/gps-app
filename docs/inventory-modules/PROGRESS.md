@@ -52,13 +52,13 @@ Assessment and design only: [phase-d-e/PLAN.md](phase-d-e/PLAN.md).
 | Migration | Content | Tested on |
 |---|---|---|
 | `20261109090000_device_inventory` | (Phase B, already in v1.3.0) | `veetrax_inv2` |
-| `20261110090000_sim_management` | **New, additive only:** 6 tables, indexes, FKs (`SimAssignment`/`SimEvent` → Device **SET NULL**, `SimUsage` → SimCard RESTRICT, `SimCard.locationId` SET NULL), partial UKs `SimAssignment_open_sim_key` / `_open_device_key`, CHECKs on money / counters / period. No `ALTER`/`DROP` of existing objects. | `veetrax_inv2`: `prisma migrate deploy` OK; `prisma migrate diff` DB → schema: **No difference detected** |
+| `20261110100000_sim_management` | **New, additive only:** 6 tables, indexes, FKs (`SimAssignment`/`SimEvent` → Device **SET NULL**, `SimUsage` → SimCard RESTRICT, `SimCard.locationId` SET NULL), partial UKs `SimAssignment_open_sim_key` / `_open_device_key`, CHECKs on money / counters / period. No `ALTER`/`DROP` of existing objects. | `veetrax_inv2`: `prisma migrate deploy` OK; `prisma migrate diff` DB → schema: **No difference detected** |
 
 Rollback (manual, owner-approved; loses SIM data only):
 ```sql
 BEGIN;
 DROP TABLE "SimUsage", "SimEvent", "SimAssignment", "SimCard", "SimPlan", "SimProvider";
-DELETE FROM "_prisma_migrations" WHERE migration_name = '20261110090000_sim_management';
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261110100000_sim_management';
 COMMIT;
 ```
 Then revert `699715f` (and the SIM parts of `84f5cf4`). Production migration requires owner approval.
