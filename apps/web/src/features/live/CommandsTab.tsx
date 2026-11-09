@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
+import { EngineStopDialog } from './EngineStopDialog';
 
 const ICONS: Record<string, LucideIcon> = {
   engine_stop: PowerOffIcon,
@@ -108,6 +109,8 @@ function ConfirmDialog({ object, command, onClose }: { object: LiveObject; comma
 export function CommandsTab({ object }: { object: LiveObject }) {
   const { t } = useTranslation();
   const [pending, setPending] = useState<AvailableCommand | null>(null);
+  // Engine stop: two-step flow (fresh position, then confirmation); see EngineStopDialog.
+  const [engineStop, setEngineStop] = useState(false);
   const available = useQuery({
     queryKey: ['commands-available', object.objectId],
     queryFn: ({ signal }) => api.get<AvailableCommand[]>(`/objects/${object.objectId}/commands/available`, undefined, signal),
@@ -130,7 +133,13 @@ export function CommandsTab({ object }: { object: LiveObject }) {
           {available.data.map((c) => {
             const Icon = ICONS[c.type] ?? SendIcon;
             return (
-              <Button key={c.type} variant={c.critical ? 'destructive' : 'outline'} size="sm" className="justify-start" onClick={() => setPending(c)}>
+              <Button
+                key={c.type}
+                variant={c.critical ? 'destructive' : 'outline'}
+                size="sm"
+                className="justify-start"
+                onClick={() => (c.type === 'engine_stop' ? setEngineStop(true) : setPending(c))}
+              >
                 <Icon /> {t(c.label)}
               </Button>
             );
@@ -163,6 +172,7 @@ export function CommandsTab({ object }: { object: LiveObject }) {
         </ul>
       </section>
       <ConfirmDialog object={object} command={pending} onClose={() => setPending(null)} />
+      <EngineStopDialog objectId={object.objectId} objectName={object.name} open={engineStop} onClose={() => setEngineStop(false)} />
     </div>
   );
 }

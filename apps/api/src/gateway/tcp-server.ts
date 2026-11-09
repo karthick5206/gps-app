@@ -3,7 +3,7 @@ import type Redis from 'ioredis';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { createServer, Server, Socket } from 'node:net';
 import { join } from 'node:path';
-import { CommandDispatch, CommandUpdate, CRITICAL_NOT_DELIVERED_OFFLINE, isSafetyCriticalDispatch, NormalizedPosition } from '@veetracer/shared';
+import { CommandDispatch, CommandUpdate, CRITICAL_NOT_DELIVERED_OFFLINE, isSafetyCriticalDispatch, NO_QUEUE_NOT_DELIVERED, NormalizedPosition } from '@veetracer/shared';
 import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { BaseSession, DecodeContext, DecodedMedia, ProtocolDecoder } from './protocol';
 import { RelayHook, RelaySessionHandle } from './relay/relay-manager';
@@ -22,6 +22,51 @@ const COMMAND_STATE_TTL_SEC = 7 * 86_400;
 const QUEUE_DRAIN_MAX = 20;
 /** An XADD that hasn't completed after this long counts as failed (the device will resend; duplicates are dropped). */
 const ENQUEUE_TIMEOUT_MS = 10_000;
+
+/**
+ * Protocols without a reply reference (Teltonika Codec 12) match replies in send order. An entry still unanswered after
+ * this long is evicted, so a command the device never answered can't swallow (or be credited with) a later reply.
+ */
+export const UNREFERENCED_REPLY_TIMEOUT_MS = 90_000;
+/**
+ * Text of a reply to an engine-cut (digital output) command on a protocol without reply references: Teltonika answers
+ * `setdigout` with e.g. "DOUT1:1 Timeout:INFINITY" (codec.spec.ts) [vendor: confirm the exact text per firmware].
+ */
+const ENGINE_CUT_REPLY = /\bDOUT\d\s*:|digital outputs? (?:are |is )?set/i;
+
+export interface PendingCommand {
+  commandId: string;
+  sentAt: number;
+  /** Safety-critical (engine stop). */
+  critical: boolean;
+  /**
+   * Critical only: no other reply was outstanding when it was sent and nothing was sent after it, so an unrecognised
+   * reply can only be its own.
+   */
+  clean: boolean;
+}
+
+/**
+ * Picks the command a reply WITHOUT a protocol reference belongs to (and removes it from `pending`), or null.
+ * Order alone is not trusted for engine stop: a position request that was never answered must not be credited with
+ * the engine stop's reply, and the engine stop must never be credited with someone else's reply (a false
+ * "acknowledged"). So: expired entries are evicted; a reply that looks like an engine-cut reply goes to the oldest
+ * pending engine stop; any other reply goes to the oldest non-critical command; an engine stop takes an unrecognised
+ * reply only when nothing else was outstanding when it was sent. When in doubt the engine stop stays SENT (unconfirmed).
+ */
+export function matchUnreferencedReply(pending: Map<number, PendingCommand>, text: string, nowMs: number): string | null {
+  for (const [ref, p] of pending) if (nowMs - p.sentAt > UNREFERENCED_REPLY_TIMEOUT_MS) pending.delete(ref);
+  const entries = [...pending];
+  const critical = entries.find(([, p]) => p.critical);
+  const other = entries.find(([, p]) => !p.critical);
+  let pick: [number, PendingCommand] | undefined;
+  if (critical && ENGINE_CUT_REPLY.test(text)) pick = critical;
+  else if (other) pick = other;
+  else if (critical && critical[1].clean) pick = critical;
+  if (!pick) return null;
+  pending.delete(pick[0]);
+  return pick[1].commandId;
+}
 
 export class DeviceOfflineError extends Error {
   constructor() {
@@ -67,8 +112,8 @@ interface Connection<S extends BaseSession> {
   loginTimer: NodeJS.Timeout | null;
   /** Registered in `byId` (device identified itself). */
   identified: boolean;
-  /** Commands sent and awaiting a reply: protocol reference → command id, in send order. */
-  pending: Map<number, string>;
+  /** Commands sent and awaiting a reply: protocol reference → pending command, in send order. */
+  pending: Map<number, PendingCommand>;
   /**
    * Tail of the reply chain while an XADD is in flight: later replies wait for it so the device sees ACKs in the
    * order it sent the frames. Null when nothing is pending (replies are written immediately).
@@ -344,7 +389,12 @@ export class TcpGatewayServer<S extends BaseSession> {
     if (!conn || !this.decoder.encodeCommand || conn.socket.destroyed) return false;
     const ref = (this.nextRef = (this.nextRef + 1) >>> 0);
     const frame = this.decoder.encodeCommand(d.text, conn.session, ref);
-    conn.pending.set(ref, d.commandId);
+    const now = Date.now();
+    const critical = isSafetyCriticalDispatch(d);
+    const outstanding = [...conn.pending.values()].filter((p) => now - p.sentAt <= UNREFERENCED_REPLY_TIMEOUT_MS);
+    // Anything sent after an engine stop makes an unrecognised reply ambiguous for it (see matchUnreferencedReply).
+    for (const p of outstanding) if (p.critical) p.clean = false;
+    conn.pending.set(ref, { commandId: d.commandId, sentAt: now, critical, clean: critical && outstanding.length === 0 });
     if (conn.pending.size > 50) conn.pending.delete(conn.pending.keys().next().value as number);
     conn.socket.write(frame);
     this.capture(conn, 'out', frame);
@@ -388,15 +438,13 @@ export class TcpGatewayServer<S extends BaseSession> {
       waiter.resolve({ text, data });
       return;
     }
-    let commandId: string | undefined;
+    let commandId: string | null = null;
     if (ref !== null && conn.pending.has(ref)) {
-      commandId = conn.pending.get(ref);
+      commandId = conn.pending.get(ref)!.commandId;
       conn.pending.delete(ref);
     } else if (ref === null && conn.pending.size) {
-      // No reference in the protocol (Teltonika Codec 12): replies arrive in send order.
-      const [first] = conn.pending;
-      commandId = first[1];
-      conn.pending.delete(first[0]);
+      // No reference in the protocol (Teltonika Codec 12): send order, with timeouts and engine-stop safeguards.
+      commandId = matchUnreferencedReply(conn.pending, text, Date.now());
     }
     if (!commandId) {
       this.warnings.warn(`cmd-unmatched:${conn.session.uniqueId}`, `Unmatched command reply from ${conn.session.uniqueId}: ${text}`);
@@ -435,6 +483,11 @@ export class TcpGatewayServer<S extends BaseSession> {
               // Decision Q-01: an engine stop queued while the vehicle was offline is never delivered on reconnect.
               this.logger.warn(`Dropped queued safety-critical command ${d.commandId} for ${id} on reconnect`);
               this.failCommand(d.commandId, CRITICAL_NOT_DELIVERED_OFFLINE);
+              continue;
+            }
+            if (d.noQueue) {
+              // Never-queued dispatches (engine-stop position requests) are not delivered late either.
+              this.failCommand(d.commandId, NO_QUEUE_NOT_DELIVERED);
               continue;
             }
             this.sendCommand(d);
