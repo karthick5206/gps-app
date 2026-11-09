@@ -1,7 +1,8 @@
 /** Hand-rolled SVG/CSS charts for the uiRefresh dashboard (no chart library). Theme tokens only. */
-import { InboxIcon, type LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ChevronDownIcon, InboxIcon, type LucideIcon } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { cn } from '@/lib/utils';
 import type { BarItem, Slice } from '../charts';
 import { EmptyHint } from './kit';
 
@@ -76,35 +77,80 @@ export function DonutR({ title, slices, centerLabel, onSelect, emptyText, emptyI
  * Ranked list with bars (largest value = full width): rank number, name + sub-line, value, bar in a semantic colour.
  * Same props as the classic BarList; an empty list shows an icon + sentence.
  */
-export function RankList({ items, format, empty, color = 'var(--primary)', action, emptyIcon = InboxIcon, ranked = true, columns = false }: { items: BarItem[]; format: (v: number) => string; empty: string; color?: string; action?: (item: BarItem) => ReactNode; emptyIcon?: LucideIcon; ranked?: boolean; columns?: boolean }) {
+export function RankList({
+  items,
+  format,
+  empty,
+  color = 'var(--primary)',
+  action,
+  emptyIcon = InboxIcon,
+  ranked = true,
+  columns = false,
+  phoneLimit,
+}: {
+  items: BarItem[];
+  format: (v: number) => string;
+  empty: string;
+  color?: string;
+  action?: (item: BarItem) => ReactNode;
+  emptyIcon?: LucideIcon;
+  ranked?: boolean;
+  /** Two columns from md up (long lists). */
+  columns?: boolean;
+  /** Phones only: show this many rows and a "Show all" toggle for the rest (every row stays one tap away). */
+  phoneLimit?: number;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
   const max = Math.max(0, ...items.map((i) => i.value));
   if (!items.length) return <EmptyHint icon={emptyIcon} text={empty} />;
+  const limit = phoneLimit && !open ? phoneLimit : Infinity;
+  const canCollapse = !!phoneLimit && items.length > phoneLimit;
   return (
-    <ol className={columns ? "gap-x-8 md:columns-2" : "divide-y divide-border/70"}>
-      {items.map((i, n) => (
-        <li key={i.key} className={columns ? "flex break-inside-avoid items-center gap-2.5 border-b border-border/70 py-1.5 sm:gap-3 sm:py-2" : "flex items-center gap-2.5 py-1.5 first:pt-0 last:pb-0 sm:gap-3 sm:py-2"}>
-          {ranked && (
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-semibold text-muted-foreground tabular-nums" aria-hidden>
-              {n + 1}
-            </span>
-          )}
-          <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="min-w-0 truncate" title={i.sub ? `${i.label} · ${i.sub}` : i.label}>
-                <span className="font-medium">{i.label}</span>
-                {i.sub && <span className="ml-1.5 text-xs text-muted-foreground">{i.sub}</span>}
+    <>
+      <ol className={columns ? 'gap-x-8 md:columns-2' : 'divide-y divide-border/70'}>
+        {items.map((i, n) => (
+          <li
+            key={i.key}
+            className={cn(
+              columns ? 'flex break-inside-avoid items-center gap-2.5 border-b border-border/70 py-1.5 sm:gap-3 sm:py-2' : 'flex items-center gap-2.5 py-1.5 first:pt-0 last:pb-0 sm:gap-3 sm:py-2',
+              n >= limit && 'max-sm:hidden',
+            )}
+          >
+            {ranked && (
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-semibold text-muted-foreground tabular-nums" aria-hidden>
+                {n + 1}
               </span>
-              <span className="flex shrink-0 items-center gap-2 font-semibold tabular-nums">
-                {format(i.value)}
-                {action?.(i)}
-              </span>
+            )}
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="min-w-0 truncate" title={i.sub ? `${i.label} · ${i.sub}` : i.label}>
+                  <span className="font-medium">{i.label}</span>
+                  {i.sub && <span className="ml-1.5 text-xs text-muted-foreground">{i.sub}</span>}
+                </span>
+                <span className="flex shrink-0 items-center gap-2 font-semibold tabular-nums">
+                  {format(i.value)}
+                  {action?.(i)}
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+                <div className="h-full rounded-full motion-safe:transition-[width] motion-safe:duration-500" style={{ width: `${max ? Math.max((i.value / max) * 100, i.value ? 2 : 0) : 0}%`, backgroundColor: color }} />
+              </div>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
-              <div className="h-full rounded-full motion-safe:transition-[width] motion-safe:duration-500" style={{ width: `${max ? Math.max((i.value / max) * 100, i.value ? 2 : 0) : 0}%`, backgroundColor: color }} />
-            </div>
-          </div>
-        </li>
-      ))}
-    </ol>
+          </li>
+        ))}
+      </ol>
+      {canCollapse && (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="mt-2 flex min-h-10 w-full items-center justify-center gap-1 rounded-lg border text-sm font-medium text-primary hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:hidden"
+        >
+          {open ? t('Show fewer') : t('Show all {{count}}', { count: items.length })}
+          <ChevronDownIcon className={cn('size-4 motion-safe:transition-transform', open && 'rotate-180')} aria-hidden />
+        </button>
+      )}
+    </>
   );
 }

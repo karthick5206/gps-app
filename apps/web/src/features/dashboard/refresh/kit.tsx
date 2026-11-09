@@ -135,14 +135,22 @@ export function KpiCard({
         to && 'hover:border-primary/40 hover:shadow-md motion-safe:hover:-translate-y-px',
       )}
     >
-      <div className="flex items-center gap-2">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-accent text-primary sm:size-8" aria-hidden>
+      <div className="flex items-start justify-between gap-2">
+        {/* The label is the definition's tooltip trigger (hover or keyboard focus), above the card's link overlay. */}
+        <Tooltip content={<span className="block max-w-64 leading-relaxed">{definition}</span>}>
+          <button
+            type="button"
+            aria-label={t('About {{metric}}', { metric: label })}
+            className="relative z-10 -mx-1 min-w-0 cursor-help rounded px-1 text-left text-[13px] leading-5 font-medium text-muted-foreground underline decoration-muted-foreground/40 decoration-dotted underline-offset-4 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            {label}
+          </button>
+        </Tooltip>
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-primary" aria-hidden>
           <Icon className="size-4" />
         </span>
-        <p className="min-w-0 flex-1 text-[13px] leading-tight font-medium text-muted-foreground">{label}</p>
-        <InfoTip text={definition} label={t('About {{metric}}', { metric: label })} />
       </div>
-      <div className="mt-2 flex items-baseline gap-1">
+      <div className="mt-1.5 flex items-baseline gap-1">
         {value === undefined ? (
           <Skeleton className="mt-1 h-8 w-20" />
         ) : (

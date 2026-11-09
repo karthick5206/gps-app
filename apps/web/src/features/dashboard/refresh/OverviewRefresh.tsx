@@ -66,20 +66,19 @@ function NeedsAttention({ items }: { items: AttentionItem[] }) {
   const { t } = useTranslation();
   const live = items.filter((i) => i.count > 0);
   if (!live.length) return null;
-  const total = live.reduce((s, i) => s + i.count, 0);
+  const tone = live.some((i) => i.color.includes('destructive')) ? 'destructive' : 'warning';
   return (
-    <section aria-labelledby="needs-attention" className="flex flex-col gap-2.5 rounded-xl border border-l-4 border-l-[var(--destructive)] bg-card px-4 py-3 shadow-xs sm:flex-row sm:items-center sm:gap-4">
+    <section aria-labelledby="needs-attention" className="flex flex-col gap-2.5 rounded-xl border border-l-4 bg-card px-4 py-3 shadow-xs sm:flex-row sm:items-center sm:gap-4" style={{ borderLeftColor: `var(--${tone})` }}>
       <h2 id="needs-attention" className="flex shrink-0 items-center gap-2 text-sm font-semibold">
-        <SirenIcon className="size-4 text-[var(--destructive-fg)]" aria-hidden />
+        <SirenIcon className="size-4" style={{ color: `var(--${tone}-fg)` }} aria-hidden />
         {t('Needs attention')}
-        <span className="rounded-full bg-[var(--destructive-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--destructive-fg)] tabular-nums">{total.toLocaleString()}</span>
       </h2>
       <ul className="flex flex-wrap gap-2">
         {live.map((i) => (
           <li key={i.key}>
             <MaybeLink
               to={i.to}
-              className={cn('flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[13px]', i.to && 'hover:bg-accent')}
+              className={cn('flex min-h-8 items-center gap-1.5 rounded-full border bg-card px-3 py-1 text-[13px]', i.to && 'hover:bg-accent')}
               label={`${i.count.toLocaleString()} ${i.label}`}
             >
               <i.icon className="size-3.5 shrink-0" style={{ color: i.color }} aria-hidden />
@@ -361,6 +360,7 @@ export function OverviewRefresh() {
                 format={km}
                 empty={t('No vehicles with a device yet.')}
                 emptyIcon={TruckIcon}
+                phoneLimit={3}
                 color={which === 'top' ? 'var(--primary)' : 'var(--muted-foreground)'}
               />
             ) : (
@@ -377,6 +377,7 @@ export function OverviewRefresh() {
               emptyIcon={CircleCheckIcon}
               color="var(--warning)"
               columns
+              phoneLimit={5}
             />
           ) : (
             <Skeleton className="h-40" />
