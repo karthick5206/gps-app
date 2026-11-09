@@ -1,0 +1,27 @@
+﻿PASS  valkey 9.1.3 running under systemd (Type=notify)
+PASS  health endpoint service active
+PASS  backup timer scheduled
+PASS  plain TCP port is closed (TLS only)
+PASS  TLS with the kit CA works (admin PING)
+PASS  TLS without the CA is rejected
+PASS  default user disabled (no auth → NOAUTH/WRONGPASS)
+PASS  remote (non-loopback) client authenticates as the app user (protected-mode does not block it)
+PASS  wrong password rejected
+PASS  app user: vt:* keys allowed
+PASS  app user: route:* keys allowed
+PASS  app user: keys outside vt:/route: denied
+PASS  app user: streams + consumer groups + XAUTOCLAIM
+PASS  app user: EVAL Lua, PUBLISH vt:*, INFO allowed
+PASS  app user: FLUSHALL / KEYS / CONFIG / SHUTDOWN / ACL / DEBUG denied
+PASS  app user: PUBLISH outside vt:* denied
+PASS  persistence: appendonly yes, everysec, noeviction, maxmemory 1gb, RDB save rules
+PASS  bound to the container interface + loopback only (not 0.0.0.0)
+PASS  ufw: default deny, valkey/health/ssh allowed only from the allow-list
+PASS  ssh: password login disabled, key login configured
+PASS  systemd hardening applied (NoNewPrivileges, ProtectSystem=strict)
+PASS  health endpoint JSON ok (from the container IP)
+PASS  backup: BGSAVE + AOF archive written to /var/backups/valkey
+PASS  data survives a crash: kill -9 → systemd restarts it, key still there (AOF)
+PASS  logrotate config valid
+PASS  installer is idempotent (re-run: no rebuild, no restart)
+---- 26 passed, 0 failed

@@ -1,0 +1,868 @@
+2026-11-09T15:15:35.550Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [NestFactory] Starting Nest application...
+2026-11-09T15:15:35.564Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InjectorLogger] Nest encountered an undefined dependency. This may be due to a circular import or a missing dependency declaration.
+2026-11-09T15:15:35.574Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] AppModule dependencies initialized +10ms
+2026-11-09T15:15:35.574Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] AppConfigModule dependencies initialized +0ms
+2026-11-09T15:15:35.574Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] PrismaModule dependencies initialized +0ms
+2026-11-09T15:15:35.586Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DownloadsModule dependencies initialized +12ms
+2026-11-09T15:15:35.586Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] JwtModule dependencies initialized +0ms
+2026-11-09T15:15:35.586Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] ThrottlerModule dependencies initialized +0ms
+2026-11-09T15:15:35.586Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] MapsModule dependencies initialized +0ms
+2026-11-09T15:15:35.586Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] ThrottlerModule dependencies initialized +1ms
+2026-11-09T15:15:35.587Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] ThrottlerModule dependencies initialized +0ms
+2026-11-09T15:15:35.587Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] ThrottlerModule dependencies initialized +0ms
+2026-11-09T15:15:35.587Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DiscoveryModule dependencies initialized +0ms
+2026-11-09T15:15:35.587Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] RedisModule dependencies initialized +0ms
+2026-11-09T15:15:35.587Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] GeocodingModule dependencies initialized +0ms
+2026-11-09T15:15:35.587Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] AuditModule dependencies initialized +0ms
+2026-11-09T15:15:35.588Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] RetentionModule dependencies initialized +1ms
+2026-11-09T15:15:35.588Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] ScheduleModule dependencies initialized +0ms
+2026-11-09T15:15:35.588Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] AccessModule dependencies initialized +0ms
+2026-11-09T15:15:35.589Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DriverScoresModule dependencies initialized +1ms
+2026-11-09T15:15:35.589Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DmsModule dependencies initialized +0ms
+2026-11-09T15:15:35.589Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] PurgeModule dependencies initialized +0ms
+2026-11-09T15:15:35.589Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] ParkingModule dependencies initialized +0ms
+2026-11-09T15:15:35.589Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] AttendanceModule dependencies initialized +0ms
+2026-11-09T15:15:35.589Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] TransferModule dependencies initialized +0ms
+2026-11-09T15:15:35.590Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] RoutingModule dependencies initialized +1ms
+2026-11-09T15:15:35.591Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] MonitoringModule dependencies initialized +1ms
+2026-11-09T15:15:35.591Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] LiveModule dependencies initialized +0ms
+2026-11-09T15:15:35.591Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] GuideModule dependencies initialized +0ms
+2026-11-09T15:15:35.591Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] SmartSearchModule dependencies initialized +1ms
+2026-11-09T15:15:35.591Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DashboardModule dependencies initialized +0ms
+2026-11-09T15:15:35.592Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] ReportsModule dependencies initialized +0ms
+2026-11-09T15:15:35.592Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] ExpensesModule dependencies initialized +0ms
+2026-11-09T15:15:35.592Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] VehicleSharesModule dependencies initialized +0ms
+2026-11-09T15:15:35.592Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DriversModule dependencies initialized +0ms
+2026-11-09T15:15:35.592Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] IoSensorsModule dependencies initialized +0ms
+2026-11-09T15:15:35.592Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] RelayModule dependencies initialized +0ms
+2026-11-09T15:15:35.592Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] SignupModule dependencies initialized +0ms
+2026-11-09T15:15:35.593Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DocumentsModule dependencies initialized +1ms
+2026-11-09T15:15:35.593Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] SimsModule dependencies initialized +0ms
+2026-11-09T15:15:35.593Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] AlertsModule dependencies initialized +0ms
+2026-11-09T15:15:35.593Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] TemplatesModule dependencies initialized +0ms
+2026-11-09T15:15:35.593Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] GeofencesModule dependencies initialized +0ms
+2026-11-09T15:15:35.593Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] CommandsModule dependencies initialized +0ms
+2026-11-09T15:15:35.593Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DriverEventsModule dependencies initialized +0ms
+2026-11-09T15:15:35.593Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] LiveShareModule dependencies initialized +0ms
+2026-11-09T15:15:35.593Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] AuthModule dependencies initialized +1ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] HistoryModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] VideoModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] PoisModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] MobileTrackerModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] FuelModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] PointQualityModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] PublicApiModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DeveloperModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] DeviceClaimModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] MastersModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] ReportSchedulesModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] LicencesModule dependencies initialized +0ms
+2026-11-09T15:15:35.594Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [InstanceLoader] InventoryModule dependencies initialized +0ms
+2026-11-09T15:15:35.662Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] PurgeController {/api/admin/purge}: +68ms
+2026-11-09T15:15:35.663Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/purge/:kind/:id, GET} route +1ms
+2026-11-09T15:15:35.664Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/purge/:kind/:id, POST} route +1ms
+2026-11-09T15:15:35.664Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AccountDeletionController {/api/me/account}: +0ms
+2026-11-09T15:15:35.664Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/me/account/delete, POST} route +0ms
+2026-11-09T15:15:35.664Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DownloadsController {/api/downloads}: +0ms
+2026-11-09T15:15:35.664Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/downloads, GET} route +0ms
+2026-11-09T15:15:35.664Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/downloads/:file, GET} route +0ms
+2026-11-09T15:15:35.664Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] LicencesController {/api/licences}: +0ms
+2026-11-09T15:15:35.664Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/banner, GET} route +1ms
+2026-11-09T15:15:35.665Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/overview, GET} route +0ms
+2026-11-09T15:15:35.665Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/billing-profile, PUT} route +0ms
+2026-11-09T15:15:35.665Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/quote, POST} route +0ms
+2026-11-09T15:15:35.665Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/checkout, POST} route +0ms
+2026-11-09T15:15:35.665Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/upi, GET} route +0ms
+2026-11-09T15:15:35.665Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/upi/qr-image, GET} route +0ms
+2026-11-09T15:15:35.665Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/upi-claims, POST} route +0ms
+2026-11-09T15:15:35.665Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/upi-claims, GET} route +1ms
+2026-11-09T15:15:35.665Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/checkout/verify, POST} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/invoices, GET} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/invoices/:id/pdf, GET} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/invoices/:id/credit-notes, GET} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/credit-notes, GET} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/credit-notes/:id/pdf, GET} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] PartnerLicencesController {/api/licences/partner}: +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/overview, GET} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/billing-profile, PUT} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/quote, POST} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/checkout, POST} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/checkout/verify, POST} route +0ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/allocate, POST} route +1ms
+2026-11-09T15:15:35.666Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/customers/:companyId/overview, GET} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/customers/:companyId/billing-profile, PUT} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/customers/:companyId/quote, POST} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/customers/:companyId/payments, POST} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/customers/:companyId/invoices, GET} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/customers/:companyId/invoices/:id/pdf, GET} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/invoices, GET} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/invoices/:id/pdf, GET} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/credit-notes, GET} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/partner/credit-notes/:id/pdf, GET} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] LicencesAdminController {/api/licences/admin}: +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/pools, GET} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/pools/:kind/:id, GET} route +0ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/pools/:kind/:id/billing-profile, PUT} route +1ms
+2026-11-09T15:15:35.667Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/pools/:kind/:id/quote, POST} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/pools/:kind/:id/payments, POST} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/upi-claims, GET} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/upi-claims/:id/confirm, POST} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/upi-claims/:id/reject, POST} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/pools/:kind/:id/grant, POST} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/partners/:id/allocate, POST} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/partners, GET} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/partners, POST} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/partners/:id, PATCH} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/companies/:id/partner, PATCH} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/invoices, GET} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/invoices/:id/pdf, GET} route +0ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/invoices/:id/resend, POST} route +1ms
+2026-11-09T15:15:35.668Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/invoices/:id/credits, GET} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/invoices/:id/credit-notes, POST} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/credit-notes, GET} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/credit-notes/:id/pdf, GET} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/credit-notes/:id/resend, POST} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/admin/gst-summary, GET} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] LicenceSettingsController {/api/licences/settings}: +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/pricing, GET} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/pricing, PUT} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/invoicing, GET} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/invoicing, PUT} route +0ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/logo, POST} route +1ms
+2026-11-09T15:15:35.669Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/upi-qr, POST} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/upi-qr, DELETE} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/upi-qr, GET} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/logo, DELETE} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/licences/settings/logo, GET} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] RazorpayWebhookController {/api/billing/razorpay}: +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/billing/razorpay/webhook, POST} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AuthController {/api/auth}: +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/login, POST} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/otp/request, POST} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/otp/verify, POST} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/refresh, POST} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/logout, POST} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/password/forgot, POST} route +1ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/password/reset, POST} route +0ms
+2026-11-09T15:15:35.670Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/me, GET} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/sessions, GET} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/sessions/:id, DELETE} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/sessions/revoke-others, POST} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/push-token, POST} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/push-token/test, POST} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/push-token/remove, POST} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/me, PATCH} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/me/password, POST} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/auth/me/preferences, PATCH} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] HistoryController {/api}: +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/history, GET} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/trips, GET} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/stops, GET} route +1ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geocode/search, GET} route +0ms
+2026-11-09T15:15:35.671Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geocode/reverse, GET} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] RoutingController {/api/routing}: +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/routing/estimate-gaps, POST} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] MapsController {/api/maps}: +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/maps/config, GET} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] PointQualityController {/api}: +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/points, GET} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/points/remove, POST} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/points/restore, POST} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/point-quality/settings, GET} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/point-quality/settings, PUT} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] ParkingController {/api/parking-mode}: +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/parking-mode, GET} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/parking-mode, PUT} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] LiveShareController {/api/live-shares}: +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/live-shares, POST} route +0ms
+2026-11-09T15:15:35.672Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/live-shares, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/live-shares/:id/revoke, POST} route +1ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] PublicLiveShareController {/api/public/live-share}: +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/public/live-share/:token, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] LiveController {/api}: +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/live, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/live/day-stats, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/dashboard/summary, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] SmartSearchController {/api/ask}: +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/ask, POST} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AttendanceController {/api/attendance}: +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/attendance/settings, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/attendance/settings, PUT} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/attendance/outing, PUT} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/attendance/correction, PUT} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/attendance, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/attendance/selfie, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/attendance/video, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/attendance/timesheet, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DriverScoresController {/api/driver-scores}: +1ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/driver-scores, GET} route +0ms
+2026-11-09T15:15:35.673Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] ExpensesController {/api/expenses}: +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/expenses, GET} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/expenses/summary, GET} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/expenses, POST} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/expenses/:id/photo, POST} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/expenses/:id/photo, GET} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/expenses/:id, DELETE} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DmsController {/api/dms}: +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/dms, GET} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] TransferController {/api/admin/transfer}: +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/transfer/:kind/:id, POST} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] VehicleSharesController {/api}: +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/vehicle-shares, GET} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/vehicle-shares, POST} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/vehicle-shares/:id, PATCH} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/vehicle-shares/:id, DELETE} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/vehicle-shares/mine, GET} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] BranchesController {/api/branches}: +1ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/branches, GET} route +0ms
+2026-11-09T15:15:35.674Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/branches/:id, GET} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/branches/:id/history, GET} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/branches, POST} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/branches/bulk, POST} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/branches/:id, PATCH} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/branches/:id, DELETE} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] UsersController {/api/users}: +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/users, GET} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/users/:id, GET} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/users/:id/history, GET} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/users, POST} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/users/bulk, POST} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/users/:id, PATCH} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/users/:id, DELETE} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] RolesController {/api/roles}: +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/roles, GET} route +1ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/roles/:id, GET} route +0ms
+2026-11-09T15:15:35.675Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/roles/:id/history, GET} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/roles, POST} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/roles/bulk, POST} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/roles/:id, PATCH} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/roles/:id, DELETE} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] MenusController {/api/menus}: +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/menus, GET} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] ObjectsController {/api/objects}: +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects, GET} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id, GET} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/history, GET} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects, POST} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/bulk, POST} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id, PATCH} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/maintenance, POST} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id, DELETE} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DevicesController {/api/devices}: +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices, GET} route +1ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/raw, GET} route +0ms
+2026-11-09T15:15:35.676Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/odometer, GET} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/odometer, POST} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id, GET} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/history, GET} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices, POST} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/bulk, POST} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id, PATCH} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id, DELETE} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] VehicleGroupsController {/api/vehicle-groups}: +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/vehicle-groups, GET} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/vehicle-groups/:id, GET} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/vehicle-groups/:id/history, GET} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/vehicle-groups, POST} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/vehicle-groups/bulk, POST} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/vehicle-groups/:id, PATCH} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/vehicle-groups/:id, DELETE} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] LookupsController {/api/lookups}: +1ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/lookups, GET} route +0ms
+2026-11-09T15:15:35.677Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/lookups/:id, GET} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/lookups/:id/history, GET} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/lookups, POST} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/lookups/bulk, POST} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/lookups/:id, PATCH} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/lookups/:id, DELETE} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DeviceModelsController {/api/device-models}: +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/device-models, GET} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/device-models/:id, GET} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/device-models/:id/history, GET} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/device-models, POST} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/device-models/bulk, POST} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/device-models/:id, PATCH} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/device-models/:id, DELETE} route +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AdminDevicesController {/api/admin/devices}: +0ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/devices, GET} route +1ms
+2026-11-09T15:15:35.678Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/devices/:id, GET} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/devices/:id/history, GET} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/devices, POST} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/devices/bulk, POST} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/devices/:id, PATCH} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/devices/:id, DELETE} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] CompaniesController {/api/admin/companies}: +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/companies, GET} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/companies/:id, GET} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/companies/:id/history, GET} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/companies, POST} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/companies/bulk, POST} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/companies/:id, PATCH} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/companies/:id, DELETE} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] UnknownDevicesController {/api/admin/unknown-devices}: +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/unknown-devices, GET} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AuditLogsController {/api/audit-logs}: +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/audit-logs, GET} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] SettingsController {/api/settings}: +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/settings, GET} route +1ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/settings, PATCH} route +0ms
+2026-11-09T15:15:35.679Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AlertTypesController {/api/alert-types}: +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-types, GET} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AlertSettingsController {/api/alert-settings}: +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-settings, GET} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-settings/effective, GET} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-settings/conflicts, GET} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-settings/history, GET} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-settings, PUT} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-settings/copy, POST} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-settings/bulk-enable, POST} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-settings/:id, DELETE} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] RecipientListsController {/api/recipient-lists}: +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/recipient-lists, GET} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/recipient-lists/resolve, GET} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/recipient-lists/test, POST} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/recipient-lists, PUT} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/recipient-lists/:id, DELETE} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AlertSnoozesController {/api/alert-snoozes}: +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-snoozes, GET} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-snoozes, POST} route +1ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-snoozes/:id, DELETE} route +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AlertPacksController {/api/alert-packs}: +0ms
+2026-11-09T15:15:35.680Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-packs, GET} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-packs, POST} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-packs/:id/apply, POST} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-packs/:id, PATCH} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alert-packs/:id, DELETE} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AlertsController {/api/alerts}: +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alerts, GET} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alerts/unread-count, GET} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alerts/read-all, POST} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alerts/ack-all, POST} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alerts/:id, GET} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alerts/:id/notifications, GET} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alerts/:id/read, POST} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/alerts/:id/ack, POST} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] TemplatesController {/api/templates}: +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates, GET} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/placeholders, GET} route +0ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/preview, POST} route +1ms
+2026-11-09T15:15:35.681Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/:id, GET} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/:id/versions, GET} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/:id/history, GET} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/:id, PATCH} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/:id/duplicate, POST} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/:id/restore/:version, POST} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/:id/reset, POST} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/:id/test, POST} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/templates/:id, DELETE} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] GeofencesController {/api/geofences}: +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geofences, GET} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geofences/import, POST} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geofences/bulk, POST} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geofences/:id, GET} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geofences/:id/history, GET} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geofences/:id/visits, GET} route +1ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geofences, POST} route +0ms
+2026-11-09T15:15:35.682Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geofences/:id, PATCH} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/geofences/:id, DELETE} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] ReportsController {/api/reports}: +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/reports/run, POST} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/reports/export, POST} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] ReportSchedulesController {/api/report-schedules}: +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-schedules, GET} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-schedules/:id, GET} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-schedules/:id/history, GET} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-schedules, POST} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-schedules/bulk, POST} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-schedules/:id/run-now, POST} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-schedules/:id, PATCH} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-schedules/:id, DELETE} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] ReportRunsController {/api/report-runs}: +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-runs, GET} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/report-runs/:id/file, GET} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DashboardController {/api/dashboard}: +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/dashboard/overview, GET} route +1ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/dashboard/health, GET} route +0ms
+2026-11-09T15:15:35.683Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/dashboard/compare, POST} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/dashboard/remarks, GET} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/dashboard/remarks, POST} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] CommandsController {/api/objects/:id/commands}: +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/commands/available, GET} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/commands, GET} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/commands, POST} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/commands/engine-stop/prepare, POST} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DeviceInfoController {/api/admin/devices/:id/read-info}: +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/devices/:id/read-info, POST} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] VideoController {/api/video}: +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/video/:objectId/channels, GET} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/video/:objectId/live, POST} route +0ms
+2026-11-09T15:15:35.684Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/video/:objectId/recordings, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/video/:objectId/playback, POST} route +1ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/video/sessions/:id, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/video/sessions/:id, DELETE} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/video/streams/:file, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DriverEventsController {/api/driver-events}: +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/driver-events, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/driver-events/stats, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/driver-events/settings, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/driver-events/settings, PUT} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/driver-events/by-alert/:alertId, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/driver-events/media/:id, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/driver-events/:id, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/driver-events/:id/review, PATCH} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DriversController {/api/drivers}: +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/drivers, GET} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/drivers/assignments, GET} route +1ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/drivers/assign, POST} route +0ms
+2026-11-09T15:15:35.685Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/drivers/bulk, POST} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/drivers/:id, GET} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/drivers/:id/history, GET} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/drivers, POST} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/drivers/:id, PATCH} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/drivers/:id, DELETE} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DocumentsController {/api/documents}: +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents, GET} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents/summary, GET} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents/bulk, POST} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents/:id, GET} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents/:id/history, GET} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents, POST} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents/:id, PATCH} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents/:id, DELETE} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents/:id/file, POST} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents/:id/file, GET} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/documents/:id/file, DELETE} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] ServiceRemindersController {/api/service-reminders}: +1ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/service-reminders, GET} route +0ms
+2026-11-09T15:15:35.686Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/service-reminders/records, GET} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/service-reminders/:id, GET} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/service-reminders/:id/history, GET} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/service-reminders, POST} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/service-reminders/:id, PATCH} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/service-reminders/:id/done, POST} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/service-reminders/:id, DELETE} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] PoisController {/api/pois}: +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois, GET} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois/export, GET} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois/import/preview, POST} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois/import/commit, POST} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois/bulk, POST} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois/:id, GET} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois/:id/history, GET} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois, POST} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois/:id, PATCH} route +1ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/pois/:id, DELETE} route +0ms
+2026-11-09T15:15:35.687Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] FuelController {/api}: +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/fuel, GET} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/objects/:id/fuel, PUT} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/fuel-events, GET} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] IoSensorsController {/api/devices}: +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/io-sensors, GET} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/io-sensors, PUT} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/recent-attributes, GET} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] MobileTrackerController {/api/tracker/v1}: +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/activate/request, POST} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/activate/lookup, POST} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/activate/restore, POST} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/activate/verify, POST} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/signout, POST} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/me, GET} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/positions, POST} route +1ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/attendance, GET} route +0ms
+2026-11-09T15:15:35.688Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/attendance/outing, PUT} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/attendance/selfie, POST} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/attendance/video, POST} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/tracker/v1/diagnostics, POST} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] MobileTrackerAdminController {/api/devices}: +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/mobile-tracker, GET} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/mobile-tracker, PATCH} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/mobile-tracker/required, PUT} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/:id/mobile-tracker/revoke, POST} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] FamilyController {/api/family/members}: +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/family/members, GET} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/family/members/request, POST} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/family/members/verify, POST} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] SignupController {/api/signup}: +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/signup/request, POST} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/signup/complete, POST} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] GuideController {/api/guide}: +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/guide/pdf, GET} route +1ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/guide/email, POST} route +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DeviceClaimController {/api/devices/claim}: +0ms
+2026-11-09T15:15:35.689Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/claim/:uniqueId, GET} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/devices/claim, POST} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] ShipmentsController {/api/admin/shipments}: +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/shipments, GET} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/shipments/:deviceId, POST} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/shipments/:deviceId, DELETE} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/shipments/help-sheet/pdf, GET} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] InventoryController {/api/inventory}: +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/locations, GET} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/locations/:id, GET} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/locations, POST} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/locations/:id, PATCH} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/locations/:id, DELETE} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/suppliers, GET} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/suppliers/:id, GET} route +1ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/suppliers, POST} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/suppliers/:id, PATCH} route +0ms
+2026-11-09T15:15:35.690Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/suppliers/:id, DELETE} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/receipts, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/receipts/:id, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/receipts, POST} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/import/template, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/import, POST} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/stock, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/stock/summary, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/stock/:deviceId, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/stock/:deviceId/movements, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/stock/:deviceId/status, POST} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/stock/:deviceId/transfer, POST} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/stock/:deviceId/adjust, POST} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/stock/:deviceId/sync, POST} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/dashboard, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/replace/candidates, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/replace, POST} route +1ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/inventory/movements, GET} route +0ms
+2026-11-09T15:15:35.691Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] SimsController {/api/sims}: +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/providers, GET} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/providers/:id, GET} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/providers, POST} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/providers/:id, PATCH} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/providers/:id, DELETE} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/plans, GET} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/plans/:id, GET} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/plans, POST} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/plans/:id, PATCH} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/plans/:id, DELETE} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/summary, GET} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/renewals, GET} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/events, GET} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/import/template, GET} route +0ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/import, POST} route +1ms
+2026-11-09T15:15:35.692Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims, GET} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id, GET} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims, POST} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id, PATCH} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id, DELETE} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id/status, POST} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id/assign, POST} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id/unassign, POST} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id/renew, POST} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id/assignments, GET} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id/usage, GET} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/sims/:id/usage, POST} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] AssetLinksController {/api/asset-links}: +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/asset-links/objects/:objectId, GET} route +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/asset-links/devices/:deviceId, GET} route +1ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] DeveloperController {/api/developer}: +0ms
+2026-11-09T15:15:35.693Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/licence, GET} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/api-keys, GET} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/api-keys, POST} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/api-keys/:id, DELETE} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhooks, GET} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhooks, POST} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhooks/:id, PATCH} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhooks/:id, DELETE} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhooks/:id/secret, GET} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhooks/:id/rotate-secret, POST} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhooks/:id/test, POST} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhooks/:id/deliveries, GET} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhook-deliveries/:id, GET} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/developer/webhook-deliveries/:id/redeliver, POST} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] RelayController {/api/admin/relay-targets}: +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/relay-targets, GET} route +1ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/relay-targets/master, PUT} route +0ms
+2026-11-09T15:15:35.694Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/relay-targets, POST} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/relay-targets/:id, PATCH} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/relay-targets/:id, DELETE} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/relay-targets/:id/test, POST} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/relay-targets/:id/secret, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/relay-targets/:id/rotate-secret, POST} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] OpenApiController {/api/v1}: +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/openapi.json, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] PublicApiController {/api/v1}: +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/vehicles, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/vehicles/live, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/vehicles/:id/positions, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/trips, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/stops, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/alerts, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/attendance/payroll, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/attendance/daily, GET} route +1ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/reports/:type, GET} route +0ms
+2026-11-09T15:15:35.695Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/vehicles/:id/commands, POST} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/vehicles/:id/commands, GET} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/webhooks, GET} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/webhooks, POST} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/v1/webhooks/:id, DELETE} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] SystemHealthController {/api/admin/system-health}: +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/system-health, GET} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/system-health/status, GET} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/system-health/settings, GET} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/admin/system-health/test-alert, POST} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] MetricsController {/api/metrics}: +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/metrics, GET} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RoutesResolver] HealthController {/api/health}: +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/health/live, GET} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/health, GET} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/health/ready, GET} route +0ms
+2026-11-09T15:15:35.696Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [RouterExplorer] Mapped {/api/health/tracking, GET} route +0ms
+2026-11-09T15:15:35.737Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [NestApplication] Nest application successfully started +41ms
+2026-11-09T15:15:35.741Z [Nest] 33388  - 11/09/2026, 10:15:35 AM     LOG [Bootstrap] API listening on http://localhost:14100/api (Socket.IO namespace /live)
+2026-11-09T15:16:49.034Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.035Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.035Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.035Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.035Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.101Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.101Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.101Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.101Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.101Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.214Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.214Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.214Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.215Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.215Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.379Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.379Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.379Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.379Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.380Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.590Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.590Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.590Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.590Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.590Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.847Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.848Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.848Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.848Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:49.848Z [Nest] 33388  - 11/09/2026, 10:16:49 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.156Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.156Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.156Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.157Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.157Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:50.515Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:50.516Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.516Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.516Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.516Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.924Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.924Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.924Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.924Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:50.925Z [Nest] 33388  - 11/09/2026, 10:16:50 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:51.395Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:51.395Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:51.395Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:51.395Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:51.395Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:51.914Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:51.914Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:51.914Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:51.915Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:51.915Z [Nest] 33388  - 11/09/2026, 10:16:51 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:52.475Z [Nest] 33388  - 11/09/2026, 10:16:52 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:52.475Z [Nest] 33388  - 11/09/2026, 10:16:52 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:52.476Z [Nest] 33388  - 11/09/2026, 10:16:52 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:52.476Z [Nest] 33388  - 11/09/2026, 10:16:52 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:52.476Z [Nest] 33388  - 11/09/2026, 10:16:52 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:52.476Z [Nest] 33388  - 11/09/2026, 10:16:52 AM    WARN [Heartbeat:api] Heartbeat failed: Reached the max retries per request limit (which is 3). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T15:16:53.095Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:53.095Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:53.095Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:53.095Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:53.095Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:53.759Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:53.759Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:53.759Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:53.759Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:53.759Z [Nest] 33388  - 11/09/2026, 10:16:53 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:54.470Z [Nest] 33388  - 11/09/2026, 10:16:54 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:54.470Z [Nest] 33388  - 11/09/2026, 10:16:54 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:54.470Z [Nest] 33388  - 11/09/2026, 10:16:54 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:54.471Z [Nest] 33388  - 11/09/2026, 10:16:54 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:54.471Z [Nest] 33388  - 11/09/2026, 10:16:54 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:54.482Z [Nest] 33388  - 11/09/2026, 10:16:54 AM     LOG [SystemMonitor] valkey: OK → CRITICAL — Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live map, alerts, notifications and commands are paused.
+2026-11-09T15:16:54.493Z [Nest] 33388  - 11/09/2026, 10:16:54 AM     LOG [MailerService] Mail "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live m…" to ops@chaos.test written to D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\var\mail\2026-11-09T15-16-54-489Z-b2cafd.html
+2026-11-09T15:16:54.493Z [Nest] 33388  - 11/09/2026, 10:16:54 AM     LOG [MailerService] Mail "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live m…" to admin@veetracer.local written to D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\var\mail\2026-11-09T15-16-54-489Z-85709d.html
+2026-11-09T15:16:55.226Z [Nest] 33388  - 11/09/2026, 10:16:55 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:55.226Z [Nest] 33388  - 11/09/2026, 10:16:55 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:55.226Z [Nest] 33388  - 11/09/2026, 10:16:55 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:55.226Z [Nest] 33388  - 11/09/2026, 10:16:55 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:55.226Z [Nest] 33388  - 11/09/2026, 10:16:55 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:56.032Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:56.032Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:56.032Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:56.033Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:56.033Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:56.893Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:56.893Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:56.893Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:56.893Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:56.893Z [Nest] 33388  - 11/09/2026, 10:16:56 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:57.804Z [Nest] 33388  - 11/09/2026, 10:16:57 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:57.804Z [Nest] 33388  - 11/09/2026, 10:16:57 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:57.804Z [Nest] 33388  - 11/09/2026, 10:16:57 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:57.805Z [Nest] 33388  - 11/09/2026, 10:16:57 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:57.805Z [Nest] 33388  - 11/09/2026, 10:16:57 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:57.805Z [Nest] 33388  - 11/09/2026, 10:16:57 AM   DEBUG [SystemMonitor] Sample skipped: lock timed out after 2000 ms
+2026-11-09T15:16:58.762Z [Nest] 33388  - 11/09/2026, 10:16:58 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:16:58.762Z [Nest] 33388  - 11/09/2026, 10:16:58 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:58.762Z [Nest] 33388  - 11/09/2026, 10:16:58 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:58.762Z [Nest] 33388  - 11/09/2026, 10:16:58 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:58.763Z [Nest] 33388  - 11/09/2026, 10:16:58 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:59.781Z [Nest] 33388  - 11/09/2026, 10:16:59 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:59.781Z [Nest] 33388  - 11/09/2026, 10:16:59 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:59.781Z [Nest] 33388  - 11/09/2026, 10:16:59 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:59.781Z [Nest] 33388  - 11/09/2026, 10:16:59 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:16:59.782Z [Nest] 33388  - 11/09/2026, 10:16:59 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:00.852Z [Nest] 33388  - 11/09/2026, 10:17:00 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:00.853Z [Nest] 33388  - 11/09/2026, 10:17:00 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:00.853Z [Nest] 33388  - 11/09/2026, 10:17:00 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:00.853Z [Nest] 33388  - 11/09/2026, 10:17:00 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:00.853Z [Nest] 33388  - 11/09/2026, 10:17:00 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:01.974Z [Nest] 33388  - 11/09/2026, 10:17:01 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:01.974Z [Nest] 33388  - 11/09/2026, 10:17:01 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:01.974Z [Nest] 33388  - 11/09/2026, 10:17:01 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:01.974Z [Nest] 33388  - 11/09/2026, 10:17:01 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:01.974Z [Nest] 33388  - 11/09/2026, 10:17:01 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:03.143Z [Nest] 33388  - 11/09/2026, 10:17:03 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:03.143Z [Nest] 33388  - 11/09/2026, 10:17:03 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:03.143Z [Nest] 33388  - 11/09/2026, 10:17:03 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:03.143Z [Nest] 33388  - 11/09/2026, 10:17:03 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:03.144Z [Nest] 33388  - 11/09/2026, 10:17:03 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:04.359Z [Nest] 33388  - 11/09/2026, 10:17:04 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:04.359Z [Nest] 33388  - 11/09/2026, 10:17:04 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:04.359Z [Nest] 33388  - 11/09/2026, 10:17:04 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:04.359Z [Nest] 33388  - 11/09/2026, 10:17:04 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:04.360Z [Nest] 33388  - 11/09/2026, 10:17:04 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:05.618Z [Nest] 33388  - 11/09/2026, 10:17:05 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:05.618Z [Nest] 33388  - 11/09/2026, 10:17:05 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:05.618Z [Nest] 33388  - 11/09/2026, 10:17:05 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:05.618Z [Nest] 33388  - 11/09/2026, 10:17:05 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:05.618Z [Nest] 33388  - 11/09/2026, 10:17:05 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:06.940Z [Nest] 33388  - 11/09/2026, 10:17:06 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:06.940Z [Nest] 33388  - 11/09/2026, 10:17:06 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:06.940Z [Nest] 33388  - 11/09/2026, 10:17:06 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:06.940Z [Nest] 33388  - 11/09/2026, 10:17:06 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:06.940Z [Nest] 33388  - 11/09/2026, 10:17:06 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:07.814Z [Nest] 33388  - 11/09/2026, 10:17:07 AM   DEBUG [SystemMonitor] Sample skipped: lock timed out after 2000 ms
+2026-11-09T15:17:08.307Z [Nest] 33388  - 11/09/2026, 10:17:08 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:08.307Z [Nest] 33388  - 11/09/2026, 10:17:08 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:08.307Z [Nest] 33388  - 11/09/2026, 10:17:08 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:08.307Z [Nest] 33388  - 11/09/2026, 10:17:08 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:08.307Z [Nest] 33388  - 11/09/2026, 10:17:08 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:08.308Z [Nest] 33388  - 11/09/2026, 10:17:08 AM   ERROR [Reminders] Reminders run failed: Reached the max retries per request limit (which is 3). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T15:17:08.308Z [Nest] 33388  - 11/09/2026, 10:17:08 AM   ERROR [OfflineSweeperService] Offline sweep failed: Reached the max retries per request limit (which is 3). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T15:17:09.721Z [Nest] 33388  - 11/09/2026, 10:17:09 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:09.721Z [Nest] 33388  - 11/09/2026, 10:17:09 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:09.721Z [Nest] 33388  - 11/09/2026, 10:17:09 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:09.721Z [Nest] 33388  - 11/09/2026, 10:17:09 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:09.721Z [Nest] 33388  - 11/09/2026, 10:17:09 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:11.178Z [Nest] 33388  - 11/09/2026, 10:17:11 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:11.178Z [Nest] 33388  - 11/09/2026, 10:17:11 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:11.178Z [Nest] 33388  - 11/09/2026, 10:17:11 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:11.179Z [Nest] 33388  - 11/09/2026, 10:17:11 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:11.179Z [Nest] 33388  - 11/09/2026, 10:17:11 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:12.699Z [Nest] 33388  - 11/09/2026, 10:17:12 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:12.699Z [Nest] 33388  - 11/09/2026, 10:17:12 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:12.699Z [Nest] 33388  - 11/09/2026, 10:17:12 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:12.699Z [Nest] 33388  - 11/09/2026, 10:17:12 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:12.699Z [Nest] 33388  - 11/09/2026, 10:17:12 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:14.267Z [Nest] 33388  - 11/09/2026, 10:17:14 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:14.267Z [Nest] 33388  - 11/09/2026, 10:17:14 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:14.267Z [Nest] 33388  - 11/09/2026, 10:17:14 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:14.267Z [Nest] 33388  - 11/09/2026, 10:17:14 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:14.267Z [Nest] 33388  - 11/09/2026, 10:17:14 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:15.887Z [Nest] 33388  - 11/09/2026, 10:17:15 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:15.887Z [Nest] 33388  - 11/09/2026, 10:17:15 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:15.887Z [Nest] 33388  - 11/09/2026, 10:17:15 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:15.887Z [Nest] 33388  - 11/09/2026, 10:17:15 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:15.887Z [Nest] 33388  - 11/09/2026, 10:17:15 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:17.551Z [Nest] 33388  - 11/09/2026, 10:17:17 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:17.551Z [Nest] 33388  - 11/09/2026, 10:17:17 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:17.551Z [Nest] 33388  - 11/09/2026, 10:17:17 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:17.552Z [Nest] 33388  - 11/09/2026, 10:17:17 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:17.552Z [Nest] 33388  - 11/09/2026, 10:17:17 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:17.818Z [Nest] 33388  - 11/09/2026, 10:17:17 AM   DEBUG [SystemMonitor] Sample skipped: lock timed out after 2000 ms
+2026-11-09T15:17:19.271Z [Nest] 33388  - 11/09/2026, 10:17:19 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:19.271Z [Nest] 33388  - 11/09/2026, 10:17:19 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:19.271Z [Nest] 33388  - 11/09/2026, 10:17:19 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:19.271Z [Nest] 33388  - 11/09/2026, 10:17:19 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:19.272Z [Nest] 33388  - 11/09/2026, 10:17:19 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:21.036Z [Nest] 33388  - 11/09/2026, 10:17:21 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:21.036Z [Nest] 33388  - 11/09/2026, 10:17:21 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:21.036Z [Nest] 33388  - 11/09/2026, 10:17:21 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:21.036Z [Nest] 33388  - 11/09/2026, 10:17:21 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:21.036Z [Nest] 33388  - 11/09/2026, 10:17:21 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:22.849Z [Nest] 33388  - 11/09/2026, 10:17:22 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:22.849Z [Nest] 33388  - 11/09/2026, 10:17:22 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:22.849Z [Nest] 33388  - 11/09/2026, 10:17:22 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:22.849Z [Nest] 33388  - 11/09/2026, 10:17:22 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:22.849Z [Nest] 33388  - 11/09/2026, 10:17:22 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:24.707Z [Nest] 33388  - 11/09/2026, 10:17:24 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:24.707Z [Nest] 33388  - 11/09/2026, 10:17:24 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:24.707Z [Nest] 33388  - 11/09/2026, 10:17:24 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:24.707Z [Nest] 33388  - 11/09/2026, 10:17:24 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:24.707Z [Nest] 33388  - 11/09/2026, 10:17:24 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:26.627Z [Nest] 33388  - 11/09/2026, 10:17:26 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:26.627Z [Nest] 33388  - 11/09/2026, 10:17:26 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:26.627Z [Nest] 33388  - 11/09/2026, 10:17:26 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:26.627Z [Nest] 33388  - 11/09/2026, 10:17:26 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:26.627Z [Nest] 33388  - 11/09/2026, 10:17:26 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:27.840Z [Nest] 33388  - 11/09/2026, 10:17:27 AM   DEBUG [SystemMonitor] Sample skipped: lock timed out after 2000 ms
+2026-11-09T15:17:28.589Z [Nest] 33388  - 11/09/2026, 10:17:28 AM   ERROR [RedisService] Valkey error: read ECONNRESET
+2026-11-09T15:17:28.590Z [Nest] 33388  - 11/09/2026, 10:17:28 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:28.590Z [Nest] 33388  - 11/09/2026, 10:17:28 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:28.590Z [Nest] 33388  - 11/09/2026, 10:17:28 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:28.590Z [Nest] 33388  - 11/09/2026, 10:17:28 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:17:30.943Z [Nest] 33388  - 11/09/2026, 10:17:30 AM     LOG [Heartbeat:api] Heartbeat restored
+2026-11-09T15:17:35.781Z [Nest] 33388  - 11/09/2026, 10:17:35 AM     LOG [SystemMonitor] valkey: CRITICAL → OK — Recovered: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live map, alerts, notifications and commands are paused.
+2026-11-09T15:17:35.785Z [Nest] 33388  - 11/09/2026, 10:17:35 AM     LOG [MailerService] Mail "[VeeTrax] Resolved: valkey" to admin@veetracer.local written to D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\var\mail\2026-11-09T15-17-35-783Z-0b5132.html
+2026-11-09T15:17:35.786Z [Nest] 33388  - 11/09/2026, 10:17:35 AM     LOG [MailerService] Mail "[VeeTrax] Resolved: valkey" to ops@chaos.test written to D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\var\mail\2026-11-09T15-17-35-783Z-020b17.html
+2026-11-09T15:18:04.481Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.482Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.482Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.484Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.484Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.592Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.593Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.595Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.595Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.596Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.756Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.757Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.758Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.758Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.759Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.965Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.966Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.967Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.968Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.969Z [Nest] 33388  - 11/09/2026, 10:18:04 AM   ERROR [RedisService] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.224Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.225Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.225Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.226Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.227Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.545Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:18:05.546Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.546Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.546Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.547Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.911Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:18:05.912Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.912Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.913Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.914Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [RedisService] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.914Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   ERROR [OfflineSweeperService] Offline sweep failed: Reached the max retries per request limit (which is 3). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T15:18:05.914Z [Nest] 33388  - 11/09/2026, 10:18:05 AM   DEBUG [SystemMonitor] Sample skipped: Reached the max retries per request limit (which is 3). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T15:18:06.331Z [Nest] 33388  - 11/09/2026, 10:18:06 AM   ERROR [RedisService] Valkey subscriber error: read ECONNRESET
+2026-11-09T15:18:06.333Z [Nest] 33388  - 11/09/2026, 10:18:06 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:06.334Z [Nest] 33388  - 11/09/2026, 10:18:06 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:06.335Z [Nest] 33388  - 11/09/2026, 10:18:06 AM   ERROR [RedisService] Valkey subscriber error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:06.335Z [Nest] 33388  - 11/09/2026, 10:18:06 AM   ERROR [RedisService] Valkey error: Client network socket disconnected before secure TLS connection was established

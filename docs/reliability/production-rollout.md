@@ -1,5 +1,7 @@
 # Production rollout: release 1.6 and the Memurai → Valkey cut-over
 
+> **Superseded for the cut-over.** The owner chose a Mintplus same-DC Linux VM. Use [valkey-cutover-runbook.md](valkey-cutover-runbook.md) with the [ops/valkey](../../ops/valkey/README.md) kit for §3–§5 below. Sections 1–2 (deploying release 1.6) still apply.
+
 Target: `server-mintplus-windows` (Windows Server 2016, NSSM services `veetracer-*`, app at `C:\apps\veetracer\app`), currently on release 1.5 (`b73547c`, tag `v1.5.0`) with Memurai Developer Edition.
 
 **Nothing in this document has been run on production.** Each step needs the owner's go-ahead. Nothing has been bought or provisioned, and no production setting has been changed.

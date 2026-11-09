@@ -1,0 +1,172 @@
+2026-11-09T15:15:33.945Z [Nest] 37812  - 11/09/2026, 10:15:33 AM     LOG [Gateway] Position spool at D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\var\chaos\tls-acl-run\spool (cap 1024 MB, 0 pending)
+2026-11-09T15:15:33.956Z [Nest] 37812  - 11/09/2026, 10:15:33 AM     LOG [Gateway] gt06 listening on tcp://0.0.0.0:15023
+2026-11-09T15:15:33.956Z [Nest] 37812  - 11/09/2026, 10:15:33 AM     LOG [Gateway] Gateway gw-chaos ready
+2026-11-09T15:15:33.963Z [Nest] 37812  - 11/09/2026, 10:15:33 AM     LOG [Gateway] Gateway health on http://127.0.0.1:14121/health
+2026-11-09T15:15:45.753Z [Nest] 37812  - 11/09/2026, 10:15:45 AM     LOG [Relay] Forwarding rules loaded (0 target(s))
+2026-11-09T15:16:03.970Z [Nest] 37812  - 11/09/2026, 10:16:03 AM     LOG [Gateway] [gt06] connections=40 frames=526 positions=486 dropped=0 errors=0 enqueueFailures=0 rate=16.2/s
+2026-11-09T15:16:33.985Z [Nest] 37812  - 11/09/2026, 10:16:33 AM     LOG [Gateway] [gt06] connections=40 frames=1093 positions=1053 dropped=0 errors=0 enqueueFailures=0 rate=18.9/s
+2026-11-09T15:16:49.034Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.035Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (positions) error: read ECONNRESET
+2026-11-09T15:16:49.035Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:49.035Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:49.035Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Cache connection for positions lost: spooling positions to disk until it is back
+2026-11-09T15:16:49.099Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.099Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:49.099Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:49.213Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:49.214Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:49.214Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.378Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.378Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:49.378Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:49.588Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:49.588Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:49.588Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.846Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:49.846Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:49.846Z [Nest] 37812  - 11/09/2026, 10:16:49 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:50.155Z [Nest] 37812  - 11/09/2026, 10:16:50 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:50.155Z [Nest] 37812  - 11/09/2026, 10:16:50 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:50.155Z [Nest] 37812  - 11/09/2026, 10:16:50 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:50.514Z [Nest] 37812  - 11/09/2026, 10:16:50 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:50.514Z [Nest] 37812  - 11/09/2026, 10:16:50 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:50.515Z [Nest] 37812  - 11/09/2026, 10:16:50 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:50.923Z [Nest] 37812  - 11/09/2026, 10:16:50 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:50.923Z [Nest] 37812  - 11/09/2026, 10:16:50 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:50.923Z [Nest] 37812  - 11/09/2026, 10:16:50 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:51.377Z [Nest] 37812  - 11/09/2026, 10:16:51 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:51.377Z [Nest] 37812  - 11/09/2026, 10:16:51 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:51.377Z [Nest] 37812  - 11/09/2026, 10:16:51 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:51.896Z [Nest] 37812  - 11/09/2026, 10:16:51 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:51.896Z [Nest] 37812  - 11/09/2026, 10:16:51 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:51.897Z [Nest] 37812  - 11/09/2026, 10:16:51 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:52.457Z [Nest] 37812  - 11/09/2026, 10:16:52 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:52.457Z [Nest] 37812  - 11/09/2026, 10:16:52 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:52.458Z [Nest] 37812  - 11/09/2026, 10:16:52 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:53.061Z [Nest] 37812  - 11/09/2026, 10:16:53 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:53.061Z [Nest] 37812  - 11/09/2026, 10:16:53 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:53.061Z [Nest] 37812  - 11/09/2026, 10:16:53 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:53.725Z [Nest] 37812  - 11/09/2026, 10:16:53 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:53.725Z [Nest] 37812  - 11/09/2026, 10:16:53 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:53.725Z [Nest] 37812  - 11/09/2026, 10:16:53 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:54.436Z [Nest] 37812  - 11/09/2026, 10:16:54 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:54.436Z [Nest] 37812  - 11/09/2026, 10:16:54 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:54.436Z [Nest] 37812  - 11/09/2026, 10:16:54 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:55.193Z [Nest] 37812  - 11/09/2026, 10:16:55 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:55.193Z [Nest] 37812  - 11/09/2026, 10:16:55 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:55.194Z [Nest] 37812  - 11/09/2026, 10:16:55 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:55.997Z [Nest] 37812  - 11/09/2026, 10:16:55 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:55.998Z [Nest] 37812  - 11/09/2026, 10:16:55 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:55.998Z [Nest] 37812  - 11/09/2026, 10:16:55 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:56.860Z [Nest] 37812  - 11/09/2026, 10:16:56 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:56.860Z [Nest] 37812  - 11/09/2026, 10:16:56 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:56.861Z [Nest] 37812  - 11/09/2026, 10:16:56 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:57.770Z [Nest] 37812  - 11/09/2026, 10:16:57 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:57.770Z [Nest] 37812  - 11/09/2026, 10:16:57 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:57.770Z [Nest] 37812  - 11/09/2026, 10:16:57 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:58.728Z [Nest] 37812  - 11/09/2026, 10:16:58 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:58.728Z [Nest] 37812  - 11/09/2026, 10:16:58 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:58.728Z [Nest] 37812  - 11/09/2026, 10:16:58 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:59.734Z [Nest] 37812  - 11/09/2026, 10:16:59 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:16:59.734Z [Nest] 37812  - 11/09/2026, 10:16:59 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:16:59.734Z [Nest] 37812  - 11/09/2026, 10:16:59 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:16:59.734Z [Nest] 37812  - 11/09/2026, 10:16:59 AM    WARN [Heartbeat:gateway] Heartbeat failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T15:17:00.786Z [Nest] 37812  - 11/09/2026, 10:17:00 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:00.790Z [Nest] 37812  - 11/09/2026, 10:17:00 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:00.790Z [Nest] 37812  - 11/09/2026, 10:17:00 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:01.888Z [Nest] 37812  - 11/09/2026, 10:17:01 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:01.906Z [Nest] 37812  - 11/09/2026, 10:17:01 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:01.906Z [Nest] 37812  - 11/09/2026, 10:17:01 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:03.042Z [Nest] 37812  - 11/09/2026, 10:17:03 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:03.076Z [Nest] 37812  - 11/09/2026, 10:17:03 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:03.076Z [Nest] 37812  - 11/09/2026, 10:17:03 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:03.986Z [Nest] 37812  - 11/09/2026, 10:17:03 AM     LOG [Gateway] [gt06] connections=40 frames=1666 positions=1626 dropped=0 errors=0 enqueueFailures=0 rate=19.1/s
+2026-11-09T15:17:03.986Z [Nest] 37812  - 11/09/2026, 10:17:03 AM    WARN [Gateway] [spool] mode=spooling pending=284 spooled=284 replayed=0 rejected=0 notAcked=0
+2026-11-09T15:17:04.244Z [Nest] 37812  - 11/09/2026, 10:17:04 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:04.295Z [Nest] 37812  - 11/09/2026, 10:17:04 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:04.295Z [Nest] 37812  - 11/09/2026, 10:17:04 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:05.500Z [Nest] 37812  - 11/09/2026, 10:17:05 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:05.551Z [Nest] 37812  - 11/09/2026, 10:17:05 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:05.551Z [Nest] 37812  - 11/09/2026, 10:17:05 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:06.803Z [Nest] 37812  - 11/09/2026, 10:17:06 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:06.853Z [Nest] 37812  - 11/09/2026, 10:17:06 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:06.855Z [Nest] 37812  - 11/09/2026, 10:17:06 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:08.160Z [Nest] 37812  - 11/09/2026, 10:17:08 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:08.208Z [Nest] 37812  - 11/09/2026, 10:17:08 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:08.208Z [Nest] 37812  - 11/09/2026, 10:17:08 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:09.573Z [Nest] 37812  - 11/09/2026, 10:17:09 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:09.622Z [Nest] 37812  - 11/09/2026, 10:17:09 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:09.622Z [Nest] 37812  - 11/09/2026, 10:17:09 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:11.029Z [Nest] 37812  - 11/09/2026, 10:17:11 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:11.079Z [Nest] 37812  - 11/09/2026, 10:17:11 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:11.079Z [Nest] 37812  - 11/09/2026, 10:17:11 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:12.534Z [Nest] 37812  - 11/09/2026, 10:17:12 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:12.584Z [Nest] 37812  - 11/09/2026, 10:17:12 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:12.584Z [Nest] 37812  - 11/09/2026, 10:17:12 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:14.105Z [Nest] 37812  - 11/09/2026, 10:17:14 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:14.137Z [Nest] 37812  - 11/09/2026, 10:17:14 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:14.138Z [Nest] 37812  - 11/09/2026, 10:17:14 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:15.720Z [Nest] 37812  - 11/09/2026, 10:17:15 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:15.753Z [Nest] 37812  - 11/09/2026, 10:17:15 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:15.753Z [Nest] 37812  - 11/09/2026, 10:17:15 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:17.378Z [Nest] 37812  - 11/09/2026, 10:17:17 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:17.415Z [Nest] 37812  - 11/09/2026, 10:17:17 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:17.416Z [Nest] 37812  - 11/09/2026, 10:17:17 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:19.086Z [Nest] 37812  - 11/09/2026, 10:17:19 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:19.120Z [Nest] 37812  - 11/09/2026, 10:17:19 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:19.120Z [Nest] 37812  - 11/09/2026, 10:17:19 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:20.854Z [Nest] 37812  - 11/09/2026, 10:17:20 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:20.888Z [Nest] 37812  - 11/09/2026, 10:17:20 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:20.888Z [Nest] 37812  - 11/09/2026, 10:17:20 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:22.664Z [Nest] 37812  - 11/09/2026, 10:17:22 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:22.697Z [Nest] 37812  - 11/09/2026, 10:17:22 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:22.697Z [Nest] 37812  - 11/09/2026, 10:17:22 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:24.516Z [Nest] 37812  - 11/09/2026, 10:17:24 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:24.563Z [Nest] 37812  - 11/09/2026, 10:17:24 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:24.563Z [Nest] 37812  - 11/09/2026, 10:17:24 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:26.418Z [Nest] 37812  - 11/09/2026, 10:17:26 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:26.480Z [Nest] 37812  - 11/09/2026, 10:17:26 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:26.480Z [Nest] 37812  - 11/09/2026, 10:17:26 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:28.381Z [Nest] 37812  - 11/09/2026, 10:17:28 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T15:17:28.444Z [Nest] 37812  - 11/09/2026, 10:17:28 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T15:17:28.444Z [Nest] 37812  - 11/09/2026, 10:17:28 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T15:17:30.396Z [Nest] 37812  - 11/09/2026, 10:17:30 AM     LOG [Heartbeat:gateway] Heartbeat restored
+2026-11-09T15:17:32.787Z [Nest] 37812  - 11/09/2026, 10:17:32 AM     LOG [Gateway] Cache connection for positions restored after 44 s
+2026-11-09T15:17:33.823Z [Nest] 37812  - 11/09/2026, 10:17:33 AM     LOG [Gateway:spool] Spool replay caught up (855 replayed since start)
+2026-11-09T15:17:34.001Z [Nest] 37812  - 11/09/2026, 10:17:34 AM     LOG [Gateway] [gt06] connections=40 frames=2239 positions=2199 dropped=0 errors=0 enqueueFailures=0 rate=19.1/s
+2026-11-09T15:17:34.001Z [Nest] 37812  - 11/09/2026, 10:17:34 AM    WARN [Gateway] [spool] mode=draining pending=2 spooled=857 replayed=855 rejected=0 notAcked=0
+2026-11-09T15:17:34.008Z [Nest] 37812  - 11/09/2026, 10:17:34 AM     LOG [Gateway:spool] Spool replay caught up (857 replayed since start)
+2026-11-09T15:17:34.016Z [Nest] 37812  - 11/09/2026, 10:17:34 AM     LOG [Gateway:spool] Spool drained; positions go straight to the stream again
+2026-11-09T15:18:04.417Z [Nest] 37812  - 11/09/2026, 10:18:04 AM     LOG [Gateway] [gt06] connections=40 frames=2806 positions=2766 dropped=0 errors=0 enqueueFailures=0 rate=18.9/s
+2026-11-09T15:18:04.422Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Cache connection for positions lost: spooling positions to disk until it is back
+2026-11-09T15:18:04.481Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.482Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey (commands) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.483Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey (relay) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.593Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.593Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey (commands) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.595Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey (relay) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.755Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.757Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey (commands) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.758Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey (relay) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.965Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.965Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey (commands) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:04.968Z [Nest] 37812  - 11/09/2026, 10:18:04 AM   ERROR [Gateway] Valkey (relay) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.225Z [Nest] 37812  - 11/09/2026, 10:18:05 AM   ERROR [Gateway] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.225Z [Nest] 37812  - 11/09/2026, 10:18:05 AM   ERROR [Gateway] Valkey (commands) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.226Z [Nest] 37812  - 11/09/2026, 10:18:05 AM   ERROR [Gateway] Valkey (relay) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.544Z [Nest] 37812  - 11/09/2026, 10:18:05 AM   ERROR [Gateway] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.545Z [Nest] 37812  - 11/09/2026, 10:18:05 AM   ERROR [Gateway] Valkey (commands) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.545Z [Nest] 37812  - 11/09/2026, 10:18:05 AM   ERROR [Gateway] Valkey (relay) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.910Z [Nest] 37812  - 11/09/2026, 10:18:05 AM   ERROR [Gateway] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.911Z [Nest] 37812  - 11/09/2026, 10:18:05 AM   ERROR [Gateway] Valkey (commands) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:05.913Z [Nest] 37812  - 11/09/2026, 10:18:05 AM   ERROR [Gateway] Valkey (relay) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:06.314Z [Nest] 37812  - 11/09/2026, 10:18:06 AM   ERROR [Gateway] Valkey error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:06.315Z [Nest] 37812  - 11/09/2026, 10:18:06 AM   ERROR [Gateway] Valkey (commands) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:06.316Z [Nest] 37812  - 11/09/2026, 10:18:06 AM   ERROR [Gateway] Valkey (relay) error: Client network socket disconnected before secure TLS connection was established
+2026-11-09T15:18:08.364Z [Nest] 37812  - 11/09/2026, 10:18:08 AM     LOG [Gateway] Cache connection for positions restored after 4 s
+2026-11-09T15:18:08.556Z [Nest] 37812  - 11/09/2026, 10:18:08 AM     LOG [Gateway:spool] Spool replay caught up (941 replayed since start)
+2026-11-09T15:18:08.566Z [Nest] 37812  - 11/09/2026, 10:18:08 AM     LOG [Gateway:spool] Spool drained; positions go straight to the stream again
+2026-11-09T15:18:34.007Z [Nest] 37812  - 11/09/2026, 10:18:34 AM     LOG [Gateway] [gt06] connections=40 frames=3382 positions=3342 dropped=0 errors=0 enqueueFailures=0 rate=19.2/s
+2026-11-09T15:19:04.013Z [Nest] 37812  - 11/09/2026, 10:19:04 AM     LOG [Gateway] [gt06] connections=40 frames=3953 positions=3913 dropped=0 errors=0 enqueueFailures=0 rate=19.0/s
+2026-11-09T15:19:34.018Z [Nest] 37812  - 11/09/2026, 10:19:34 AM     LOG [Gateway] [gt06] connections=40 frames=4527 positions=4487 dropped=0 errors=0 enqueueFailures=0 rate=19.1/s
+2026-11-09T15:20:04.024Z [Nest] 37812  - 11/09/2026, 10:20:04 AM     LOG [Gateway] [gt06] connections=40 frames=5309 positions=5269 dropped=0 errors=0 enqueueFailures=0 rate=26.1/s

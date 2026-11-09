@@ -153,3 +153,75 @@ The 31 new jest tests are:
 All existing tests pass unchanged, including the Q-01 engine-stop tests and the "XADD failure withholds the ACK" tests. Those now run through the spool-less publisher, which is the `GATEWAY_SPOOL=off` behaviour.
 
 **`cache-copy.ts` check.** Copying from the private Valkey after a chaos run to a second private instance moved 121 keys: 40 live strings, 40 track strings, 40 alert-state strings and 1 set. All 40 TTL keys kept their TTL, and the values were identical. A second run copied 0 keys (121 already present), which shows it never overwrites.
+
+## 4. Valkey host kit, TLS + ACL, and the resolved-alert fix (after release 1.6)
+
+### 4.1 Kit end to end: `ops/valkey/test/kit-e2e.sh`, Ubuntu 24.04 systemd container in WSL Docker
+
+- **Install.** `install-valkey.sh` built Valkey **9.1.3** from the GitHub tarball. Its SHA-256 matched the official [valkey-hashes](https://github.com/valkey-io/valkey-hashes) entry.
+- **Mode.** It installed in `MODE=tls` with ACL users, ufw, SSH hardening, systemd, logrotate, backup and the health endpoint.
+- **Verification: 26 / 26 checks passed** (`evidence/2026-11-09-tls-acl-run/kit-verify.txt`):
+  - TLS only: the plain port is closed, and a client without the CA is rejected.
+  - The default user is disabled; wrong passwords are rejected.
+  - A **remote** (non-loopback) client authenticates.
+  - The app user can use `vt:*` and `route:*` keys, streams, consumer groups, XAUTOCLAIM, `XINFO lag`, Lua, Pub/Sub on `vt:*` and INFO.
+  - The app user is denied keys outside those prefixes, channels outside `vt:*`, FLUSHALL, KEYS, CONFIG, SHUTDOWN, ACL and DEBUG.
+  - Persistence settings: AOF everysec, RDB rules, `noeviction`, 1 GB.
+  - Binding is the interface plus loopback only.
+  - ufw: default deny, with an allow-list.
+  - SSH: password login off.
+  - systemd hardening is in place.
+  - Health JSON is served; the backup files are written.
+  - **Data survives `kill -9`:** systemd restarts the process and the key is still there.
+  - The logrotate config is valid.
+  - Re-running the installer neither rebuilds nor restarts.
+- **Restore drill** (`test/restore-test.sh`): the marker written before the backup came back from both the AOF archive and the RDB copy.
+  - The RDB path needs a one-time start with AOF off; the README documents it.
+  - Without that, Valkey starts empty, as the drill showed on its first attempt.
+- **The kit test found and fixed a real bug.** With `user default off nopass`, Valkey's protected mode refused **every non-loopback client** ("DENIED Running in protected mode…"). The default user is now `off resetpass` (disabled, no `nopass`). A dedicated check covers it.
+
+### 4.2 The app against the kit through TLS + ACL
+
+- **Connection probe** from Windows using the app's own connection code (`src/redis/connection.ts`, `cache-check-cli`):
+  - PING returns PONG; `ACL WHOAMI` returns `veetrax`; the server is 9.1.3; median RTT is 0.40 ms.
+  - A wrong password, a missing CA, or plain TCP to the TLS port are all refused.
+  - Every command family VeeTrax uses passed.
+- **Chaos run.** The real api, gateway and processor binaries were pointed at `rediss://veetrax:***@…:6380` with `REDIS_TLS_CA_FILE` and `REDIS_TLS_SERVERNAME`, through the cut proxy (`evidence/2026-11-09-tls-acl-run/`):
+
+| Scenario | Sent | Persisted | Lost | Dup rows | Stream dups dropped | Max spooled | `/api/health` | `/api/health/tracking` | gateway | Alert e-mails |
+|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 802 | 802 | **0** | 0 | 0 | 0 | 200 | OK | ok | — |
+| net-cut (40 s RST + refuse) | 1350 | 1350 | **0** | 0 | 0 | 813 | 200 → 503 → 200 | OK → 503 CRITICAL → OK | ok → degraded → ok | "CRITICAL: Valkey is not reachable …"; **"Resolved: valkey"** |
+| cache-kill (`systemctl kill -s SIGKILL valkey`; systemd restarts it in about 2 s) | 1786 | 1786 | **0** | 0 | 0 | 40 | 200 → 503 → 200 | OK | ok → degraded → ok | — (outage shorter than one 15 s evaluation) |
+| dup-ooo | 884 | 884 | **0** | **0** | 1 | 0 | 200 | OK | ok | — (live state on the newest fix for all 5 devices) |
+| **WHOLE RUN** | **5,441** | **5,441** | **0** | 0 | 1 | — | — | — | — | — |
+
+The api, gateway and processor logs contain no `NOPERM`, `WRONGPASS`, `NOAUTH` or certificate errors, so the ACL covers everything the app does.
+
+### 4.3 Missing "Resolved: valkey" alert: cause, fix and test
+
+- **Symptom.** The coordinator's rerun showed it, and the `cache-restart-empty` row in §2.1 shows it too: after a cache outage, "Resolved: gateway spool" arrived but no "[VeeTrax] Resolved: valkey".
+- **Cause.**
+  - While the cache is unreachable, `SystemMonitorService` keeps its issues and alert records in memory only. That includes `valkey.unreachable` itself.
+  - On the first evaluation after the outage, it compared against the copy stored *in the cache*. That copy predates the outage, or is gone after an empty restart, and lacks `valkey.unreachable`.
+  - So the recovery transition was never seen.
+  - The full run's cache-kill only got an aggregated "2 system issues resolved" by luck.
+- **Fix** (`monitoring/transitions.ts` `mergeOutageState`, `system-monitor.service.ts`). On the first round after evaluating locally, the in-memory issues and records are merged into the stored ones and written back. An instance that loses the evaluation lock drops its local state, so a second API instance does not repeat it.
+- **Tests** (`monitoring/system-monitor.spec.ts`, 3 tests):
+  - Cache down, then back **empty**: exactly one "[VeeTrax] Resolved: valkey".
+  - An issue raised during the outage that is still active is not re-sent, and resolves later.
+  - Merge rules.
+- **Live confirmation.** The TLS run above shows "Resolved: valkey" 41 s after the CRITICAL alert.
+
+### 4.4 Watchdog against the Valkey VM health endpoint
+
+- **Down.** `veetrax-watchdog.ps1 -ValkeyHealthUrl http://127.0.0.1:19121/health` alerted "Valkey is down on its VM" (valkey not answering: connection refused) while the unit was stopped.
+- **Back.** It sent "Resolved: valkey:down" once the unit was started again.
+
+### 4.5 Suites after these changes
+
+| Check | Result |
+|---|---|
+| API jest | **1111 passed**, 25 skipped. The 8 new tests are the 3 monitor tests and 5 TLS/ACL connection-option tests. |
+| API typecheck | exit 0 |
+| PowerShell parse (watchdog, install-reliability) | 0 errors |
