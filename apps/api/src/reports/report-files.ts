@@ -68,6 +68,17 @@ export async function renderReport(sections: ReportData[], format: ReportFormat,
   return { buffer, fileName: reportFileName(sections, format), contentType: CONTENT_TYPES[format] };
 }
 
+/**
+ * Worksheet name from a report title: Excel forbids * ? : \ / [ ] (exceljs throws, so "Halt / long stoppage",
+ * "Ignition on/off" and "AC / Door" exports used to fail) and allows 31 characters.
+ */
+export function xlsxSheetName(title: string): string {
+  return title
+    .replace(/ report$/, '')
+    .replace(/\s*[*?:\\/[\]]\s*/g, '-')
+    .slice(0, 28);
+}
+
 async function renderXlsx(sections: ReportData[], generated: string): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'VeeTrax';
@@ -75,7 +86,7 @@ async function renderXlsx(sections: ReportData[], generated: string): Promise<Bu
   const used = new Set<string>();
   for (const data of sections) {
     const p = prepare(data);
-    let name = p.title.replace(/ report$/, '').slice(0, 28);
+    let name = xlsxSheetName(p.title);
     while (used.has(name)) name = `${name.slice(0, 26)}_${used.size}`;
     used.add(name);
     const ws = wb.addWorksheet(name, { pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
