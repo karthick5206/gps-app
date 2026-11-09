@@ -99,7 +99,7 @@ function StatCard({
     </Card>
   );
   return to ? (
-    <Link to={to} className="rounded-xl focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none" aria-label={`${label}: ${value ?? t('loading')}`}>
+    <Link to={to} className="rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label={`${label}: ${value ?? t('loading')}`}>
       {body}
     </Link>
   ) : (

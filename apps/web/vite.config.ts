@@ -12,6 +12,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // Translation bundles imported on demand (lib/i18n.ts) so they get their own chunks.
+      '@veetracer/shared-i18n': fileURLToPath(new URL('../../packages/shared/src/i18n', import.meta.url)),
       // Compile the shared TS source directly; its dist is CommonJS.
       '@veetracer/shared': fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)),
     },

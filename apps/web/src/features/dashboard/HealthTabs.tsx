@@ -202,7 +202,7 @@ function BucketView({ buckets, rows, loading, defaultKey, header }: { buckets: B
               role="tab"
               aria-selected={on}
               onClick={() => setActive(b.key)}
-              className={cn('flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40', on ? 'border-primary bg-accent font-medium' : 'hover:bg-accent/60')}
+              className={cn('flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring', on ? 'border-primary bg-accent font-medium' : 'hover:bg-accent/60')}
             >
               {b.label}
               <Badge variant={on ? b.tone : 'muted'}>{n === undefined ? '…' : n}</Badge>

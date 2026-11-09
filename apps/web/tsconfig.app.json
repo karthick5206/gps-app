@@ -19,7 +19,8 @@
     "noUncheckedSideEffectImports": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@veetracer/shared": ["../../packages/shared/src/index.ts"]
+      "@veetracer/shared": ["../../packages/shared/src/index.ts"],
+      "@veetracer/shared-i18n/*": ["../../packages/shared/src/i18n/*"]
     }
   },
   "include": ["src"],

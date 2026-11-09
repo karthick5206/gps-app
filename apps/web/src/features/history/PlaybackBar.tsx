@@ -83,7 +83,7 @@ export function PlaybackBar({
               onClick={() => engine.setRate(r)}
               aria-pressed={state.rate === r}
               className={cn(
-                'h-7 min-w-9 rounded-md px-1.5 text-xs font-medium tabular-nums transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                'h-7 min-w-9 rounded-md px-1.5 text-xs font-medium tabular-nums transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 state.rate === r ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
               )}
             >

@@ -424,7 +424,7 @@ export function MasterPage<T>({
                   aria-checked={status === tab.value}
                   onClick={() => setStatus(tab.value)}
                   className={cn(
-                    'h-8 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
+                    'h-8 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
                     status === tab.value && 'bg-background text-foreground shadow-xs',
                   )}
                 >
@@ -536,7 +536,7 @@ export function MasterPage<T>({
                   return (
                     <TableHead key={h.id} aria-sort={sorted ? (sorted === 'asc' ? 'ascending' : 'descending') : undefined}>
                       {h.column.getCanSort() ? (
-                        <button type="button" onClick={h.column.getToggleSortingHandler()} className="-mx-1 inline-flex items-center gap-1 rounded px-1 uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none">
+                        <button type="button" onClick={h.column.getToggleSortingHandler()} className="-mx-1 inline-flex items-center gap-1 rounded px-1 uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                           {flexRender(h.column.columnDef.header, h.getContext())}
                           {sorted === 'asc' ? <ArrowUpIcon className="size-3.5" /> : sorted === 'desc' ? <ArrowDownIcon className="size-3.5" /> : <ArrowUpDownIcon className="size-3.5 opacity-40" />}
                         </button>

@@ -328,7 +328,7 @@ export function TemplateEditor({ record, open, onOpenChange, initialTab = 'edit'
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => insert(p)}
                       className={cn(
-                        'rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none',
+                        'rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
                         used.has(p) ? 'border-primary/40 bg-primary/8 text-primary' : 'text-muted-foreground',
                       )}
                     >

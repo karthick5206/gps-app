@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { formatNumber, humanize, relativeTime, timeInStatus } from '@/lib/format';
-import { statusColor } from '@/lib/status-tokens';
+import { statusTextColor } from '@/lib/status-tokens';
 import { storage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { useAllCompaniesView, useCompanyNames } from '@/features/platform/all-companies';
@@ -128,7 +128,7 @@ const ObjectRow = memo(function ObjectRow({
           </span>
         ) : (
           <span className={cn('shrink-0 text-right', details && 'self-start pt-2')}>
-            <span className="block text-xs font-medium" style={{ color: statusColor(shown) }}>
+            <span className="block text-xs font-medium" style={{ color: statusTextColor(shown) }}>
               {since ?? t(displayStatusLabel(o))}
             </span>
             <span className="block text-[11px] text-muted-foreground">{relativeTime(o.serverTime, now)}</span>
@@ -235,7 +235,7 @@ export function LivePanel({
                 .map((st) => (
                   <span key={st}>
                     {' · '}
-                    <span style={{ color: statusColor(st) }}>{formatNumber(counts[st])}</span> {t(STATUS_META[st].label).toLowerCase()}
+                    <span style={{ color: statusTextColor(st) }}>{formatNumber(counts[st])}</span> {t(STATUS_META[st].label).toLowerCase()}
                   </span>
                 ))}
             </span>

@@ -66,7 +66,7 @@ export function Donut({ title, slices, centerLabel, onSelect }: { title: string;
             return (
               <li key={s.key}>
                 {onSelect ? (
-                  <button type="button" onClick={() => onSelect(s.key)} className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none">
+                  <button type="button" onClick={() => onSelect(s.key)} className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                     {content}
                   </button>
                 ) : (

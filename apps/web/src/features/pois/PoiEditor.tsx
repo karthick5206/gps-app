@@ -142,7 +142,7 @@ export function PoiEditor({ record, open, onOpenChange }: MasterFormProps<PoiDto
                       aria-label={t('Colour {{color}}', { color: c })}
                       aria-pressed={field.value.toLowerCase() === c}
                       onClick={() => field.onChange(c)}
-                      className={cn('size-7 rounded-full border-2 transition-transform focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none', field.value.toLowerCase() === c ? 'scale-110 border-foreground' : 'border-transparent')}
+                      className={cn('size-7 rounded-full border-2 transition-transform focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none', field.value.toLowerCase() === c ? 'scale-110 border-foreground' : 'border-transparent')}
                       style={{ backgroundColor: c }}
                     />
                   ))}

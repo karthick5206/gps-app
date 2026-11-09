@@ -38,7 +38,7 @@ export function DialogContent({
       >
         {children}
         {!hideClose && (
-          <DialogPrimitive.Close className="absolute top-4 right-4 rounded-md p-1 text-muted-foreground opacity-80 transition hover:bg-accent hover:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none">
+          <DialogPrimitive.Close className="absolute top-4 right-4 rounded-md p-1 text-muted-foreground opacity-80 transition hover:bg-accent hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
             <XIcon className="size-4" />
             <span className="sr-only">{t('Close')}</span>
           </DialogPrimitive.Close>
