@@ -13,7 +13,7 @@ import { worst } from './checks';
 import { apiMetrics } from './api-metrics';
 import { HeartbeatHandle, startHeartbeat } from './heartbeat';
 import { EVENTS_MAX, SystemHealthService } from './system-health.service';
-import { AlertRecord, diffIssues } from './transitions';
+import { AlertRecord, diffIssues, mergeOutageState } from './transitions';
 import { shortError, withTimeout } from './util';
 
 const EVALUATE_MS = 15_000;
@@ -44,6 +44,8 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
   private localIssues: HealthIssue[] = [];
   private localRecords = new Map<string, AlertRecord>();
   private localEvents: HealthEvent[] = [];
+  /** The last evaluation of this instance ran without the cache; the next one with it merges the local state. */
+  private evaluatedLocally = false;
 
   constructor(
     private readonly health: SystemHealthService,
@@ -103,7 +105,11 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
     let valkeyUp = true;
     try {
       const locked = await withTimeout(this.redis.client.set(RedisKeys.healthMonitorLock, this.instance, 'PX', EVALUATE_MS - 1000, 'NX'), VALKEY_TIMEOUT_MS, 'lock');
-      if (!locked) return; // another API instance evaluates this round
+      if (!locked) {
+        // Another API instance evaluates this round (and, after an outage, reports the recoveries itself).
+        this.evaluatedLocally = false;
+        return;
+      }
     } catch {
       valkeyUp = false; // evaluate locally so the outage itself still gets e-mailed
     }
@@ -112,7 +118,13 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
     let records = this.localRecords;
     if (valkeyUp) {
       try {
-        [previous, records] = await Promise.all([this.health.storedIssues(), this.alertRecords()]);
+        const [stored, storedRecords] = await Promise.all([this.health.storedIssues(), this.alertRecords()]);
+        if (this.evaluatedLocally) {
+          // First round after a cache outage: the outage (and anything raised during it) is only in memory.
+          ({ previous, records } = mergeOutageState(stored, storedRecords, this.localIssues, this.localRecords));
+        } else {
+          [previous, records] = [stored, storedRecords];
+        }
       } catch {
         valkeyUp = false;
       }
@@ -121,9 +133,21 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
     const result = diffIssues(previous, collected.issues, records, now, cooldownMs);
 
     this.localIssues = result.active;
+    for (const [id, r] of records) if (!this.localRecords.has(id)) this.localRecords.set(id, r);
     for (const [id, r] of result.records) this.localRecords.set(id, r);
     this.localEvents = [...[...result.events].reverse(), ...this.localEvents].slice(0, EVENTS_MAX);
-    if (valkeyUp) await this.store(result.active, result.events, result.records).catch((e) => this.logger.warn(`Storing health state failed: ${shortError(e)}`));
+    if (valkeyUp) {
+      // Records merged from memory must reach the cache too (the recovery e-mail clears `notified`).
+      const toStore = this.evaluatedLocally ? new Map([...records, ...result.records]) : result.records;
+      try {
+        await this.store(result.active, result.events, toStore);
+        this.evaluatedLocally = false;
+      } catch (e) {
+        this.logger.warn(`Storing health state failed: ${shortError(e)}`);
+      }
+    } else {
+      this.evaluatedLocally = true;
+    }
 
     for (const e of result.events) this.logger.log(`${e.check}: ${e.from} → ${e.to} — ${e.message}`);
     if (result.alert.length || result.recovered.length) await this.sendAlerts(result.alert, result.recovered, result.active);
