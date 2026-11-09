@@ -230,7 +230,8 @@ model DeviceModel {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  devices Device[]
+  devices    Device[]
+  stockItems StockItem[]
 
   @@unique([brand, model])
 }
@@ -1567,6 +1568,9 @@ model PlatformBillingSettings {
   invoicePrefix    String   @default("VTX")
   /// Credit notes have their own gap-free series: VTX/CN/2026-27/0001.
   creditNotePrefix String   @default("VTX/CN")
+  /// Stock (device / SIM / accessory) sales invoices and their credit notes: own series.
+  stockInvoicePrefix    String @default("VTX/S")
+  stockCreditNotePrefix String @default("VTX/SCN")
   /// Developer API plans: { BASIC | STANDARD | ENTERPRISE: { pricePaise, maxVehicles (null = unlimited), ratePerMinute,
   /// ratePerDay, maxWebhooks } }; missing keys fall back to DEFAULT_API_PLANS (shared).
   apiPlans         Json     @default("{}")
@@ -1999,4 +2003,258 @@ model UpiPaymentClaim {
 
   @@index([status, createdAt(sort: Desc)])
   @@index([ownerId])
+}
+
+// ───────────── Stock (inventory): purchase → receipt → sale → returns, by IMEI / SIM number or count ─────────────
+// Partner (reseller) and company references are plain ids (checked in the service) so the existing models stay as
+// they are. Every quantity change is a StockMove written when a document is saved; editing a document rewrites its
+// moves, and a serial's status is the effect of its latest move.
+
+/// Something the platform buys and sells: a tracker model, a SIM, an accessory.
+model StockItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  name               String   @unique
+  /// DEVICE | SIM | ACCESSORY
+  kind               String
+  /// Tracker model received devices are created with (DEVICE items).
+  deviceModelId      String?  @db.Uuid
+  sku                String?
+  hsnCode            String   @default("")
+  gstRatePct         Float    @default(18)
+  unit               String   @default("pcs")
+  /// Tracked one by one by IMEI / SIM number (devices, SIMs); accessories are counted.
+  serialTracked      Boolean  @default(false)
+  /// Default selling price, GST inclusive, in paise.
+  salePricePaise     Int      @default(0)
+  /// Default buying price, GST inclusive, in paise.
+  purchasePricePaise Int      @default(0)
+  /// Reorder level: "low stock" when the main store has this many or fewer.
+  lowStockAt         Int?
+  /// Usual quantity to order when it runs low (suggested on the inventory dashboard).
+  reorderQty         Int?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  deviceModel DeviceModel?    @relation(fields: [deviceModelId], references: [id], onDelete: SetNull)
+  prices      StockPrice[]
+  lines       StockDocLine[]
+  serials     StockSerial[]
+}
+
+/// Special selling price of an item for one reseller (partnerId) or one customer company (companyId).
+model StockPrice {
+  id         String   @id @default(uuid()) @db.Uuid
+  itemId     String   @db.Uuid
+  partnerId  String?  @db.Uuid
+  companyId  String?  @db.Uuid
+  pricePaise Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  item StockItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+}
+
+model Supplier {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  gstin       String?
+  stateCode   String   @default("")
+  address     String   @default("")
+  city        String   @default("")
+  pin         String   @default("")
+  contactName String   @default("")
+  phone       String   @default("")
+  email       String   @default("")
+  notes       String   @default("")
+  /// Days from order to delivery (expected arrival of a PO = PO date + this).
+  leadTimeDays Int     @default(7)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  docs StockDoc[]
+}
+
+/// Where stock sits: the main store, the damaged shelf, one store per reseller.
+model StockLocation {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  /// STORE | DAMAGED | PARTNER
+  kind      String
+  /// The reseller this store belongs to (PARTNER).
+  partnerId String?  @unique @db.Uuid
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One stock document: PO, RECEIPT, PURCHASE_RETURN, ORDER, SALE, SALES_RETURN or ADJUSTMENT.
+model StockDoc {
+  id                         String    @id @default(uuid()) @db.Uuid
+  kind                       String
+  /// "PO/26-27/0001"; per kind and financial year.
+  number                     String    @unique
+  fy                         String
+  seq                        Int
+  /// DRAFT | OPEN | PARTIAL | DONE | CANCELLED (stock moves only for DONE / PARTIAL receipts and DONE others).
+  status                     String
+  /// YYYY-MM-DD (India).
+  docDate                    String
+  /// Owner: the reseller that raised it; null = the platform.
+  partnerId                  String?   @db.Uuid
+  supplierId                 String?   @db.Uuid
+  /// PO raised by a reseller to the platform (supplierId null): it shows in the platform's orders.
+  toPlatform                 Boolean   @default(false)
+  /// SALE: CUSTOMER | PARTNER | OWN.
+  saleTo                     String?
+  customerCompanyId          String?   @db.Uuid
+  /// Reseller a SALE / ORDER is for (stock moves into its store).
+  customerPartnerId          String?   @db.Uuid
+  customerName               String    @default("")
+  customerPhone              String    @default("")
+  customerEmail              String    @default("")
+  customerGstin              String?
+  customerStateCode          String    @default("")
+  customerAddress            String    @default("")
+  /// Store the goods leave from / arrive at.
+  locationId                 String?   @db.Uuid
+  /// The document this one follows: receipt → PO, sale → order, returns → receipt / sale.
+  sourceId                   String?   @db.Uuid
+  /// How the order came in: CALL | WHATSAPP | EMAIL | VISIT | PORTAL.
+  channel                    String?
+  supplierInvoiceNo          String    @default("")
+  supplierInvoiceDate        String?
+  supplierInvoiceAmountPaise Int?
+  reason                     String    @default("")
+  notes                      String    @default("")
+  totalPaise                 Int       @default(0)
+  createdById                String?   @db.Uuid
+  updatedById                String?   @db.Uuid
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  supplier Supplier?      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  lines    StockDocLine[]
+  files    StockFile[]
+  moves    StockMove[]
+
+  @@index([kind, docDate(sort: Desc)])
+  @@index([partnerId])
+  @@index([sourceId])
+}
+
+model StockDocLine {
+  id         String   @id @default(uuid()) @db.Uuid
+  docId      String   @db.Uuid
+  itemId     String   @db.Uuid
+  qty        Int
+  /// GST inclusive unit price, paise.
+  ratePaise  Int      @default(0)
+  gstRatePct Float    @default(18)
+  /// IMEIs / SIM numbers on this line (serial-tracked items).
+  serials    String[]
+  /// RECEIPT / SALES_RETURN: OK | DAMAGED (damaged go to the damaged shelf).
+  condition  String   @default("OK")
+  note       String   @default("")
+  sort       Int      @default(0)
+
+  doc  StockDoc  @relation(fields: [docId], references: [id], onDelete: Cascade)
+  item StockItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([docId])
+}
+
+/// One IMEI / SIM number and where it is now.
+model StockSerial {
+  id                String   @id @default(uuid()) @db.Uuid
+  itemId            String   @db.Uuid
+  serial            String
+  /// IN_STOCK | DAMAGED | SOLD | WITH_SUPPLIER | USED | SCRAPPED
+  status            String
+  locationId        String?  @db.Uuid
+  customerCompanyId String?  @db.Uuid
+  customerPartnerId String?  @db.Uuid
+  lastDocId         String?  @db.Uuid
+  updatedAt         DateTime @updatedAt
+
+  item StockItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([itemId, serial])
+  @@index([serial])
+}
+
+/// Stock ledger: + into / − out of a location, written when a document is saved (rewritten on edit).
+model StockMove {
+  id         String   @id @default(uuid()) @db.Uuid
+  docId      String   @db.Uuid
+  itemId     String   @db.Uuid
+  locationId String?  @db.Uuid
+  qty        Int
+  serial     String?
+  /// What it does to the serial: IN_STOCK | DAMAGED | SOLD | WITH_SUPPLIER | USED | SCRAPPED.
+  effect     String
+  at         DateTime @default(now()) @db.Timestamptz(3)
+
+  doc StockDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, locationId])
+  @@index([serial])
+  @@index([docId])
+}
+
+/// Files on a stock document (the supplier's invoice on a receipt, delivery proof…).
+model StockFile {
+  id           String   @id @default(uuid()) @db.Uuid
+  docId        String   @db.Uuid
+  fileName     String
+  filePath     String
+  fileType     String
+  fileSize     Int
+  uploadedById String?  @db.Uuid
+  createdAt    DateTime @default(now())
+
+  doc StockDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+}
+
+/// Sales invoice (for a SALE) or credit note (for a SALES_RETURN), from the platform owner's details.
+model StockInvoice {
+  id               String    @id @default(uuid()) @db.Uuid
+  /// INVOICE | CREDIT_NOTE
+  kind             String
+  number           String    @unique
+  fy               String
+  seq              Int
+  issuedAt         DateTime  @default(now()) @db.Timestamptz(3)
+  docId            String    @unique @db.Uuid
+  /// Credit note: the invoice it reduces.
+  invoiceId        String?   @db.Uuid
+  supplier         Json
+  buyer            Json
+  lines            Json
+  taxKind          String
+  taxablePaise     Int
+  cgstPaise        Int
+  sgstPaise        Int
+  utgstPaise       Int
+  igstPaise        Int
+  totalPaise       Int
+  /// UNPAID | PART | PAID (invoices).
+  paymentStatus    String    @default("UNPAID")
+  paidPaise        Int       @default(0)
+  paymentMode      String?
+  paymentReference String?
+  paidAt           DateTime? @db.Timestamptz(3)
+  pdfFile          String?
+  createdById      String?   @db.Uuid
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+/// Gap-free numbering per series ("PO:26-27", "INV:26-27"…), same row-lock approach as InvoiceCounter.
+model StockCounter {
+  key     String @id
+  lastSeq Int
 }

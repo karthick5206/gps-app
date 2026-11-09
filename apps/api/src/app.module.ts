@@ -18,6 +18,7 @@ import { DriverScoresModule } from './driver-scores/driver-scores.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { DmsModule } from './dms/dms.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { StockModule } from './stock/stock.module';
 import { TransferModule } from './transfer/transfer.module';
 import { VehicleSharesModule } from './vehicle-shares/vehicle-shares.module';
 import { LiveModule } from './live/live.module';
@@ -74,6 +75,7 @@ import { RelayModule } from './relay/relay.controller';
     DriverScoresModule,
     AttendanceModule,
     ExpensesModule,
+    StockModule,
     DmsModule,
     TransferModule,
     VehicleSharesModule,

@@ -1,6 +1,7 @@
 import { MENUS, PERSONAL_HIDDEN_MENUS, type MenuDef, type MenuGroup, type MenuKey, type PermissionMap } from '@veetracer/shared';
 import {
   ActivityIcon,
+  PackageIcon,
   IdCardIcon,
   ReceiptIndianRupeeIcon,
   SlidersHorizontalIcon,
@@ -59,6 +60,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   settings: SettingsIcon,
   api: CodeXmlIcon,
   billing: ReceiptIndianRupeeIcon,
+  stock: PackageIcon,
   sa_licences: ShieldCheckIcon,
   sa_platform_settings: SlidersHorizontalIcon,
   sa_companies: Building2Icon,
@@ -87,11 +89,12 @@ export const GROUP_LABELS: Record<MenuGroup, string> = {
   costs: 'Costs & Reports',
   masters: 'Masters',
   alerting: 'Alert Management',
+  stock: 'Stock & sales',
   admin: 'Administration',
   platform: 'Platform',
 };
 
-const GROUP_ORDER: MenuGroup[] = ['main', 'people', 'costs', 'masters', 'alerting', 'admin', 'platform'];
+const GROUP_ORDER: MenuGroup[] = ['main', 'people', 'costs', 'masters', 'alerting', 'stock', 'admin', 'platform'];
 
 export interface NavGroup {
   group: MenuGroup;
@@ -100,11 +103,13 @@ export interface NavGroup {
 }
 
 /** Menus the user may view, grouped in display order. */
-export function buildNav(perms: PermissionMap, personal = false): NavGroup[] {
+export function buildNav(perms: PermissionMap, personal = false, reseller = false): NavGroup[] {
+  // Partner-only menus (Stock): the platform (it holds Super Admin menus) and resellers.
+  const stockSide = reseller || !!perms.sa_companies;
   return GROUP_ORDER.map((group) => ({
     group,
     label: GROUP_LABELS[group],
-    items: MENUS.filter((m) => m.group === group && perms[m.key]?.includes('view') && !(personal && PERSONAL_HIDDEN_MENUS.includes(m.key))),
+    items: MENUS.filter((m) => m.group === group && perms[m.key]?.includes('view') && !(personal && PERSONAL_HIDDEN_MENUS.includes(m.key)) && !(m.partnerOnly && !stockSide)),
   })).filter((g) => g.items.length > 0);
 }
 

@@ -93,6 +93,8 @@ export interface Me {
   company: CompanySummary;
   permissions: PermissionMap;
   dataScope: DataScope;
+  /** The reseller (partner) this company is the home of; null for ordinary companies. */
+  partner?: { id: string; name: string } | null;
 }
 
 export interface LoginResponse extends AuthTokens {
