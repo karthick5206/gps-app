@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isEnabled } from '@/lib/flags';
 import { cn } from '@/lib/utils';
+import { RankList } from './refresh/charts';
 
 export interface Slice {
   key: string;
@@ -90,6 +92,8 @@ export interface BarItem {
 
 /** Ranked horizontal bars (largest value = full width). */
 export function BarList({ items, format, empty, color = 'var(--primary)', action }: { items: BarItem[]; format: (v: number) => string; empty: string; color?: string; action?: (item: BarItem) => ReactNode }) {
+  // uiRefresh: ranked rows with an empty-state icon (Device health, Compare, AC lists). Same props, same data.
+  if (isEnabled('uiRefresh')) return <RankList items={items} format={format} empty={empty} color={color} action={action} ranked={false} />;
   const max = Math.max(0, ...items.map((i) => i.value));
   if (!items.length) return <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>;
   return (

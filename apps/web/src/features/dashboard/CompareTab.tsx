@@ -15,6 +15,7 @@ import { toDateInput } from '@/features/reports/report-format';
 import { ReportTable } from '@/features/reports/ReportTable';
 import { EMPTY_SCOPE, ScopePicker } from '@/features/reports/ScopePicker';
 import { api, errorMessage } from '@/lib/api';
+import { isEnabled } from '@/lib/flags';
 import { formatDuration } from '@/lib/format';
 import { BarList } from './charts';
 
@@ -31,6 +32,15 @@ const PRESETS: { label: string; range: () => [string, string] }[] = [
 ];
 
 function Tile({ label, value }: { label: string; value: string }) {
+  if (isEnabled('uiRefresh'))
+    return (
+      <div className="min-w-0 rounded-xl border bg-card p-3.5 shadow-xs sm:p-4">
+        <p className="truncate text-[13px] font-medium text-muted-foreground" title={label}>
+          {label}
+        </p>
+        <p className="mt-1 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl">{value}</p>
+      </div>
+    );
   return (
     <Card className="p-4">
       <p className="text-sm text-muted-foreground">{label}</p>
