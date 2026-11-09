@@ -7,6 +7,18 @@ import { toCsv } from '../common/csv';
 import { formatLocal } from '../summarizer/tz';
 import { Cell, columnsFor, REPORT_TITLES } from './report-columns';
 import { ReportData } from './report-data.service';
+import { addXlsxSummary, pdfCover, ReportSummary } from './report-summary';
+
+/**
+ * A report section to render. Beyond the report data, an on-demand export may carry a cover (PDF cover page / XLSX
+ * Summary sheet; CSV never has one), extra notes under the period line and column headers to leave out (the page's
+ * hidden columns in "Export filtered view"). Scheduled reports pass plain ReportData, rendered exactly as before.
+ */
+export interface FileSection extends ReportData {
+  summary?: ReportSummary;
+  notes?: string[];
+  omitHeaders?: string[];
+}
 
 /** Row limits per file format (PDF rendering is the slowest). */
 export const FILE_MAX_ROWS: Record<ReportFormat, number> = { XLSX: 50_000, CSV: 50_000, PDF: 5_000 };
@@ -36,15 +48,20 @@ interface Prepared {
   totals: Cell[] | null;
 }
 
-function prepare(data: ReportData): Prepared {
-  const cols = columnsFor(data.type);
+/** Header compared loosely ("Max (km/h)" = "max km h"). */
+export const headerKey = (h: string) => h.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+function prepare(data: FileSection): Prepared {
+  const omit = new Set((data.omitHeaders ?? []).map(headerKey));
+  // The first column (the row's name) is always kept, as on the page.
+  const cols = columnsFor(data.type).filter((c, i) => i === 0 || !omit.has(headerKey(c.header)));
   const rows = data.rows.map((r) => cols.map((c) => c.value(r as never, data.tz)));
   const hasTotals = cols.some((c) => c.total);
   const periodLabel = PERIOD_REPORT_TYPES.includes(data.type) && data.period ? ` · grouped by ${data.period.toLowerCase()}` : '';
   return {
     title: REPORT_TITLES[data.type],
     periodLine: `Period: ${data.from} to ${data.to} (${data.tz})${periodLabel}`,
-    note: data.truncated ? `Showing the first ${data.rows.length} of ${data.totalRows} rows; totals cover all rows.` : null,
+    note: [data.truncated ? `Showing the first ${data.rows.length} of ${data.totalRows} rows; totals cover all rows.` : null, ...(data.notes ?? [])].filter(Boolean).join(' ') || null,
     headers: cols.map((c) => c.header),
     widths: cols.map((c) => c.width),
     numeric: cols.map((c) => !!c.numeric),
@@ -60,7 +77,7 @@ export function reportFileName(sections: ReportData[], format: ReportFormat): st
   return `${kind}-${span}.${EXT[format]}`;
 }
 
-export async function renderReport(sections: ReportData[], format: ReportFormat, now = Date.now()): Promise<RenderedReport> {
+export async function renderReport(sections: FileSection[], format: ReportFormat, now = Date.now()): Promise<RenderedReport> {
   if (!sections.length) throw new Error('No report sections');
   const generated = `Generated: ${formatLocal(now, sections[0].tz)} (${sections[0].tz})`;
   const buffer =
@@ -79,13 +96,15 @@ export function xlsxSheetName(title: string): string {
     .slice(0, 28);
 }
 
-async function renderXlsx(sections: ReportData[], generated: string): Promise<Buffer> {
+async function renderXlsx(sections: FileSection[], generated: string): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'VeeTrax';
   wb.created = new Date();
-  const used = new Set<string>();
+  const hasSummary = sections.some((s) => s.summary);
+  const used = new Set<string>(hasSummary ? ['Summary'] : []);
   for (const data of sections) {
     const p = prepare(data);
+    if (data.summary) addXlsxSummary(wb, data, p.title, generated, data.summary);
     let name = xlsxSheetName(p.title);
     while (used.has(name)) name = `${name.slice(0, 26)}_${used.size}`;
     used.add(name);
@@ -179,18 +198,22 @@ export function pdfColumnWidths(weights: number[], headers: string[]): string[] 
   return out.map((x) => `${((x / sum) * 100).toFixed(2)}%`);
 }
 
-async function renderPdf(sections: ReportData[], generated: string): Promise<Buffer> {
+async function renderPdf(sections: FileSection[], generated: string): Promise<Buffer> {
   setupPdf();
   const content: Content[] = [];
   sections.forEach((data, index) => {
     const p = prepare(data);
+    // Cover page first (on-demand exports that ask for it); the table then starts on the next page.
+    const cover = data.summary ? pdfCover(data, p.title, generated, data.summary) : [];
+    if (cover.length && index > 0) content.push({ text: '', pageBreak: 'before' });
+    content.push(...cover);
     const head: TableCell[] = p.headers.map((h, i) => ({ text: h, style: 'th', alignment: p.numeric[i] ? 'right' : 'left' }));
     const body: TableCell[][] = [head];
     for (const r of p.rows) body.push(r.map((v, i) => ({ text: String(v), alignment: p.numeric[i] ? 'right' : 'left' })));
     if (p.totals) body.push(p.totals.map((v, i) => ({ text: String(v), bold: true, fillColor: '#e2e8f0', alignment: p.numeric[i] ? 'right' : 'left' })));
     if (!p.rows.length) body.push(p.headers.map((_, i) => ({ text: i === 0 ? 'No data for this period' : '', italics: true, color: '#64748b' })));
     content.push(
-      { text: data.companyName, style: 'company', pageBreak: index > 0 ? 'before' : undefined },
+      { text: data.companyName, style: 'company', pageBreak: index > 0 || cover.length ? 'before' : undefined },
       { text: p.title, style: 'title' },
       { text: p.periodLine, style: 'meta' },
       { text: generated, style: 'meta', margin: [0, 0, 0, p.note ? 2 : 8] },
@@ -235,7 +258,7 @@ async function renderPdf(sections: ReportData[], generated: string): Promise<Buf
   return pdfmake.createPdf(doc).getBuffer();
 }
 
-function renderCsv(sections: ReportData[], generated: string): Buffer {
+function renderCsv(sections: FileSection[], generated: string): Buffer {
   const parts: string[] = [];
   sections.forEach((data, index) => {
     const p = prepare(data);
