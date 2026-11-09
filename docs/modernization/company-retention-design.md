@@ -320,3 +320,56 @@ Pre-deploy checks: a query for orphaned financial rows from past purges (`Invoic
 | O7 | Option B-main (tombstone Company, no FK change) or B-alt (SET NULL, destructive migration)? | **B-main** |
 | O8 | If the pre-deploy gap check finds invoices destroyed by a past purge: restore from backup and inform the CA? | Yes, before any further purge |
 | O9 | Until this ships, disable the company purge for companies that have financial rows (a one-line guard in `target('company')`) as a stop-gap? | **Recommended, now** |
+
+## 8. Stop-gap implemented (D-107, O9)
+
+Branch `feature/purge-financial-stopgap`. The owner decided to refuse company deletion while GST invoices, credit notes or payment records exist, explain the refusal, audit the attempt, apply the same rule to personal accounts, and prove it with tests. The archive design above is **not** implemented yet.
+
+**What counts as a financial record** ([financial-guard.ts](../../apps/api/src/purge/financial-guard.ts)):
+- `Invoice` and `CreditNote` rows.
+- A paid `LicenceOrder`: `status = 'PAID'`, or `paidAt` set, or a `razorpayPaymentId`.
+- A `UpiPaymentClaim` of the company with status `CONFIRMED` or `PENDING`. A pending claim says money was sent, so it counts.
+- If the company is a partner's home company (`Partner.homeCompanyId`), the partner's own rows of the same four kinds.
+
+Not counted:
+- Unpaid orders (checkout attempts).
+- The invoice and credit note counters: no deletion path touches them.
+- `BillingProfile`: invoices keep buyer snapshots.
+- `LicenceSeat` and `AuditLog`.
+- `Expense`: a fleet's own running costs, not VeeTrax billing.
+
+**Protected paths**
+| Path | Behaviour when records exist |
+|---|---|
+| `GET /admin/purge/company/:id` (preview) | 409 with the explanation, shown in the dialog before anything is typed. Not audited. |
+| `POST /admin/purge/company/:id` | 409, checked before the confirmation text. Audited. Checked again inside the transaction as a backstop. |
+| `POST /me/account/delete`, last user of a personal or family account | 409 with a message for the user. **Nothing** is deleted, because there was no safe way to delete only the personal data. Audited. Extra users and business users still delete only their own login, as before. |
+| `DELETE /admin/companies/:id` and bulk remove | The RESTRICT keys already stopped this. It now gives the retention explanation instead of "in use… delete it permanently", and is audited. Bulk remove reports the refusal for each company. |
+| Planner (`planPurge`), defence in depth | Never walks `Invoice`, `CreditNote`, `UpiPaymentClaim`, `InvoiceCounter`, `CreditNoteCounter` or `PlatformBillingSettings`. Deletes only unpaid `LicenceOrder` rows. A plan with a financial step is refused (`assertNoFinancialSteps`). Any financial row left makes the `Company` delete fail on its RESTRICT key, so the whole transaction rolls back. |
+
+Companies without financial records are purged exactly as before, unpaid orders included. Device, object and user purges are unchanged.
+
+**Messages**
+- Administrator: *"This company has 3 GST invoices, 1 credit note and 2 payment records, which must be kept for the legal retention period, so it cannot be deleted. Nothing was deleted. Suspend the company instead; archiving with retention is planned."* For a partner's home company, the message adds "(including the records of the reseller partner whose own account this is)".
+- Account holder: *"Your account can't be deleted completely yet: it has 1 tax invoice and 1 payment record, which tax law requires us to keep. Nothing was deleted. You can stop using VeeTrax by signing out and removing the app, or contact VeeTrax support, who can close your account for you while keeping only what the law requires."*
+- The 409 body also carries `code: 'FINANCIAL_RECORDS'` and the counts.
+
+**Audit**
+- Entry: action `DELETE`, entity `company`, `entityId` = the company.
+- Details: `{ permanent, blocked: true, reason: 'FINANCIAL_RECORDS', invoices, creditNotes, payments, upiClaims, partnerId, label, by, path }`. `path` is `purge`, `delete-account` or `company-delete`.
+- Actor: the Super Admin (with the home company) or the account holder.
+- No secrets are stored.
+
+**Tests**
+- Unit tests:
+  - [financial-guard.spec.ts](../../apps/api/src/purge/financial-guard.spec.ts): queries, partner home company, messages, 409 response, audit details.
+  - [purge-plan.spec.ts](../../apps/api/src/purge/purge-plan.spec.ts): no plan contains a financial table, only unpaid orders are deleted, a financial step is refused.
+  - [purge-financial.spec.ts](../../apps/api/src/purge/purge-financial.spec.ts): purge refused and audited for each record kind, preview refused, purge without records unchanged.
+  - [delete-own-account.spec.ts](../../apps/api/src/purge/delete-own-account.spec.ts) and [companies-remove.spec.ts](../../apps/api/src/masters/companies/companies-remove.spec.ts).
+- Integration test, **executed**: [purge-financial.int.spec.ts](../../apps/api/src/purge/purge-financial.int.spec.ts), on a scratch DB `veetrax_purge_test` (local PostgreSQL, built by `prisma migrate deploy`). It runs only when `PURGE_TEST_DATABASE_URL` points at a `*_test` database and is skipped otherwise. All 5 cases pass:
+  - (a) Purge is refused, every row count is unchanged, and one audit row is written.
+  - (a) Running the raw plan directly is stopped by the RESTRICT keys and rolled back.
+  - (c) Deletion of a personal account is refused, its rows are kept, and the attempt is audited.
+  - (d) The plan built from the real catalogue has no financial table.
+  - (b) A company without financial records (with one unpaid order) is fully purged.
+- Full API suite: 893 passed, 5 skipped (the integration test). `tsc --noEmit` is clean.
