@@ -49,6 +49,7 @@ import { RetentionModule } from './retention/retention.module';
 import { ReportsModule } from './reports/reports.module';
 import { TemplatesModule } from './templates/templates.module';
 import { RelayModule } from './relay/relay.controller';
+import { InventoryModule } from './inventory/inventory.module';
 
 @Module({
   imports: [
@@ -98,6 +99,7 @@ import { RelayModule } from './relay/relay.controller';
     SignupModule,
     GuideModule,
     DeviceClaimModule,
+    InventoryModule,
     DeveloperModule,
     RelayModule,
     PublicApiModule,
