@@ -76,6 +76,28 @@ if [ -n "$CONFIG_FILES" ]; then
   tar -czf "$WORK/config.tar.gz" --absolute-names $CONFIG_FILES 2>/dev/null || fail "tar config"
 fi
 
+# 4b. Verify BEFORE encrypting (the operator cannot decrypt on this host): restore the dump into a throw-away
+#     database and compare row counts, check the uploads archive and the Valkey snapshot. VERIFY_ADMIN_URL points at
+#     the server's maintenance DB (e.g. .../postgres); the scratch DB name is unique per run and always dropped.
+VERIFIED=false
+if [ -n "${VERIFY_ADMIN_URL:-}" ]; then
+  VDB="veetrax_verify_${STAMP,,}"; VURL="${VERIFY_ADMIN_URL%/*}/$VDB"
+  psql "$VERIFY_ADMIN_URL" -qc "CREATE DATABASE \"$VDB\"" || fail "create verify DB"
+  trap 'psql "$VERIFY_ADMIN_URL" -qc "DROP DATABASE IF EXISTS \"$VDB\"" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
+  pg_restore --no-owner --exit-on-error --dbname="$VURL" "$WORK/db.dump" || fail "verify restore"
+  for t in $COUNT_TABLES; do
+    want=$(echo "$COUNTS" | python3 -c "import json,sys;print(json.load(sys.stdin).get('$t'))")
+    got=$(psql "$VURL" -Atc "SELECT count(*) FROM \"$t\"")
+    [ "$want" = "$got" ] || fail "verify: $t manifest=$want restored=$got"
+  done
+  psql "$VERIFY_ADMIN_URL" -qc "DROP DATABASE \"$VDB\"" || true
+  [ ! -f "$WORK/uploads.tar.gz" ] || tar -tzf "$WORK/uploads.tar.gz" >/dev/null || fail "verify: uploads archive unreadable"
+  [ ! -f "$WORK/config.tar.gz" ] || tar -tzf "$WORK/config.tar.gz" >/dev/null || fail "verify: config archive unreadable"
+  [ ! -f "$WORK/valkey.rdb" ] || valkey-check-rdb "$WORK/valkey.rdb" >/dev/null 2>&1 || fail "verify: valkey snapshot invalid"
+  VERIFIED=true
+  log "verified: restored dump matches all row counts; archives and Valkey snapshot are valid"
+fi
+
 # 5. Manifest.
 ( cd "$WORK" && sha256sum -- * > SHA256SUMS )
 printf '{"version":1,"createdAt":"%s","host":"%s","valkey":"%s","rowCounts":%s}\n' "$STAMP" "$(hostname)" "$VALKEY_MODE" "$COUNTS" > "$WORK/manifest.json"
@@ -96,5 +118,6 @@ fi
 
 # 8. Local retention.
 find "$OUT_DIR" -maxdepth 1 -name 'veetrax-*.tar.gpg' -mtime +"$KEEP_LOCAL_DAYS" -delete
-printf '{"ok":true,"at":"%s","bundle":"%s","bytes":%s,"uploaded":%s,"rowCounts":%s}\n' "$STAMP" "$(basename "$BUNDLE")" "$SIZE" "$UPLOADED" "$COUNTS" > "$STATUS"
+printf '{"ok":true,"at":"%s","bundle":"%s","bytes":%s,"sha256":"%s","verifiedRestore":%s,"uploaded":%s,"rowCounts":%s}\n' \
+  "$STAMP" "$(basename "$BUNDLE")" "$SIZE" "$(sha256sum "$BUNDLE" | cut -d' ' -f1)" "$VERIFIED" "$UPLOADED" "$COUNTS" > "$STATUS"
 log "done"

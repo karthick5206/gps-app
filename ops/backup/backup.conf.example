@@ -12,3 +12,5 @@ KEEP_LOCAL_DAYS=14
 #   UPLOAD_CMD='rclone copy {file} r2:veetrax-backups/'
 #   UPLOAD_CMD='aws s3 cp {file} s3://veetrax-backups/ --region ap-south-1'
 UPLOAD_CMD=""
+# Pre-encryption restore check: maintenance DB URL (same server). Leave empty to skip.
+VERIFY_ADMIN_URL="postgresql://USER:PASSWORD@localhost:5432/postgres"
