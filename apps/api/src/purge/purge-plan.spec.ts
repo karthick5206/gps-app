@@ -1,4 +1,4 @@
-import { Catalog, planPurge, rootCondition, stepSql } from './purge-plan';
+import { assertNoFinancialSteps, Catalog, planPurge, rootCondition, stepSql } from './purge-plan';
 
 // A small model of the real schema: restrict / cascade / set-null / self-reference / logical (no FK) links.
 const cat: Catalog = {
@@ -50,6 +50,61 @@ describe('planPurge', () => {
     // Logical companyId links (no FK) are cleared too.
     expect(order).toContain('Alert');
     expect(order).toContain('LicenceSeat');
+  });
+
+  describe('financial tables (R-36 stop-gap)', () => {
+    // The real billing edges (schema.prisma / licences_billing migrations), on top of the model above.
+    const fin: Catalog = {
+      fks: [
+        ...cat.fks,
+        { child: 'LicenceOrder', col: 'companyId', parent: 'Company', refCol: 'id', del: 'r' },
+        { child: 'Invoice', col: 'companyId', parent: 'Company', refCol: 'id', del: 'r' },
+        { child: 'Invoice', col: 'orderId', parent: 'LicenceOrder', refCol: 'id', del: 'r' },
+        { child: 'CreditNote', col: 'companyId', parent: 'Company', refCol: 'id', del: 'r' },
+        { child: 'CreditNote', col: 'invoiceId', parent: 'Invoice', refCol: 'id', del: 'r' },
+        { child: 'BillingProfile', col: 'companyId', parent: 'Company', refCol: 'id', del: 'c' },
+      ],
+      columns: new Map([
+        ...cat.columns,
+        ['LicenceOrder', new Set(['id', 'companyId', 'status', 'paidAt', 'razorpayPaymentId'])],
+        ['Invoice', new Set(['id', 'companyId', 'orderId'])],
+        ['CreditNote', new Set(['id', 'companyId', 'invoiceId'])],
+        ['BillingProfile', new Set(['id', 'companyId'])],
+        // No FK, but a companyId column: would be reached as a logical link without the guard.
+        ['UpiPaymentClaim', new Set(['id', 'companyId', 'ownerId'])],
+        ['InvoiceCounter', new Set(['fy', 'companyId'])],
+      ]),
+    };
+
+    it('a company plan never deletes invoices, credit notes, UPI claims or counters, and only unpaid orders', () => {
+      const steps = planPurge(fin, 'Company', rootCondition('aaaaaaaa-2222-3333-4444-555555555555'));
+      const names = tables(steps);
+      for (const t of ['Invoice', 'CreditNote', 'UpiPaymentClaim', 'InvoiceCounter', 'CreditNoteCounter']) expect(names).not.toContain(t);
+      expect(steps.map(stepSql).join('\n')).not.toMatch(/DELETE FROM "(Invoice|CreditNote|UpiPaymentClaim|InvoiceCounter|CreditNoteCounter|PlatformBillingSettings)"/);
+      const order = steps.find((s) => s.table === 'LicenceOrder')!;
+      expect(stepSql(order)).toBe(
+        `DELETE FROM "LicenceOrder" WHERE ("companyId" IN (SELECT "id" FROM "Company" WHERE "id" = 'aaaaaaaa-2222-3333-4444-555555555555')) AND NOT ("status" = 'PAID' OR "paidAt" IS NOT NULL OR "razorpayPaymentId" IS NOT NULL)`,
+      );
+      // Everything else is planned as before.
+      expect(names).toEqual(expect.arrayContaining(['BillingProfile', 'LicenceSeat', 'Device', 'User']));
+      expect(names[names.length - 1]).toBe('Company');
+    });
+
+    it('device, object and user plans are unchanged and contain no financial table', () => {
+      for (const t of ['Device', 'TrackedObject', 'User']) {
+        expect(tables(planPurge(fin, t, rootCondition('11111111-2222-3333-4444-555555555555')))).toEqual(tables(planPurge(cat, t, rootCondition('11111111-2222-3333-4444-555555555555'))));
+      }
+    });
+
+    it('a financial table is never a purge root', () => {
+      expect(() => planPurge(fin, 'Invoice', rootCondition('11111111-2222-3333-4444-555555555555'))).toThrow('never purged');
+    });
+
+    it('a plan that would delete financial records is refused', () => {
+      expect(() => assertNoFinancialSteps([{ table: 'Invoice', where: 'true' }])).toThrow('financial records (Invoice)');
+      expect(() => assertNoFinancialSteps([{ table: 'LicenceOrder', where: '"companyId" = 1' }])).toThrow('LicenceOrder');
+      expect(() => assertNoFinancialSteps([{ table: 'Device', where: 'true' }])).not.toThrow();
+    });
   });
 
   it('rejects anything but a uuid as root id', () => {

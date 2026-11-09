@@ -7,7 +7,16 @@
  * - logical links without a foreign key (history tables keep companyId / objectId / deviceId without constraints):
  *   every table with that column is cleared too.
  * Statements are plain SQL with subqueries on the rows about to go, so the whole plan runs in one transaction.
+ *
+ * Financial records are never planned (R-36 stop-gap, D-107): the walk does not enter FINANCIAL_TABLES and deletes only
+ * unpaid LicenceOrder rows. If such rows exist, their RESTRICT foreign keys make the parent delete fail, so the whole
+ * transaction rolls back instead of destroying them (the service refuses earlier with a clear 409; this is the backstop).
  */
+import { FINANCIAL_TABLES, PAID_ORDER_SQL } from './financial-guard';
+
+const PROTECTED = new Set<string>(FINANCIAL_TABLES);
+/** Tables of which only some rows may go: the rest are financial records. */
+const ROW_FILTER: Record<string, string> = { LicenceOrder: `NOT ${PAID_ORDER_SQL}` };
 
 export interface FkEdge {
   child: string;
@@ -63,6 +72,8 @@ export function planPurge(cat: Catalog, table: string, where: string): PlanStep[
     }
   };
   const walk = (t: string, cond: string, path: string[]) => {
+    if (PROTECTED.has(t)) return;
+    if (ROW_FILTER[t]) cond = `(${cond}) AND ${ROW_FILTER[t]}`;
     if (path.length > MAX_DEPTH) throw new Error(`Purge plan too deep at ${[...path, t].join(' → ')}`);
     const rows = (col: string) => `SELECT ${q(col)} FROM ${q(t)} WHERE ${cond}`;
     for (const fk of cat.fks) {
@@ -84,8 +95,16 @@ export function planPurge(cat: Catalog, table: string, where: string): PlanStep[
     }
     add({ table: t, where: cond });
   };
+  if (PROTECTED.has(table)) throw new Error(`${table} holds financial records and is never purged`);
   walk(table, where, []);
+  assertNoFinancialSteps(steps);
   return steps;
+}
+
+/** Defence in depth: a plan that would delete financial records is refused outright. */
+export function assertNoFinancialSteps(steps: PlanStep[]): void {
+  const bad = steps.filter((s) => !s.nullCol && (PROTECTED.has(s.table) || (ROW_FILTER[s.table] !== undefined && !s.where.endsWith(` AND ${ROW_FILTER[s.table]}`))));
+  if (bad.length) throw new Error(`Purge plan refused: it would delete financial records (${[...new Set(bad.map((s) => s.table))].join(', ')})`);
 }
 
 export function stepSql(s: PlanStep): string {
