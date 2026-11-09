@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { formatInr, licenceLabel, UpiClaimDto, UpiPayInfoDto, upiPayUri } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BillingService, Owner } from './billing.service';
 import { LicenceSettingsService } from './licence-settings.service';
@@ -32,6 +33,7 @@ export class UpiService {
     private readonly prisma: PrismaService,
     private readonly settings: LicenceSettingsService,
     private readonly billing: BillingService,
+    private readonly audit: AuditService,
   ) {}
 
   async info(amountPaise?: number, note?: string): Promise<UpiPayInfoDto> {
@@ -75,15 +77,28 @@ export class UpiService {
     const c = await this.prisma.upiPaymentClaim.findUnique({ where: { id } });
     if (!c) throw new NotFoundException('Payment not found');
     if (c.status !== 'PENDING') throw new ConflictException('Already decided');
+    // Claim the decision atomically first (risk R-17): of two concurrent confirms (or a confirm racing a reject), only
+    // the one that moves PENDING → CONFIRMED fulfils, so seats and the GST invoice are created exactly once.
+    const decidedAt = new Date();
+    const { count } = await this.prisma.upiPaymentClaim.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'CONFIRMED', decidedAt, decidedById: ctx.userId } });
+    if (!count) throw new ConflictException('Already decided');
     const purchase = c.purchase as unknown as PurchaseDto;
-    const result = await this.billing.recordOffline(ctx, await owner(c.ownerKind, c.ownerId), { ...purchase, mode: c.method === 'CASH' ? 'CASH' : 'UPI', reference: c.utr ?? undefined, paidOn: c.paidOn, amountPaise: c.amountPaise });
-    await this.prisma.upiPaymentClaim.update({ where: { id }, data: { status: 'CONFIRMED', decidedAt: new Date(), decidedById: ctx.userId } });
-    return result;
+    try {
+      const result = await this.billing.recordOffline(ctx, await owner(c.ownerKind, c.ownerId), { ...purchase, mode: c.method === 'CASH' ? 'CASH' : 'UPI', reference: c.utr ?? undefined, paidOn: c.paidOn, amountPaise: c.amountPaise });
+      await this.audit.record(ctx, { action: 'UPDATE', entity: 'UpiPaymentClaim', entityId: id, before: { status: 'PENDING' }, after: { status: 'CONFIRMED', amountPaise: c.amountPaise, utr: c.utr } });
+      return result;
+    } catch (error) {
+      // Fulfilment failed (e.g. the price changed since the claim): hand the claim back so it can be retried or rejected.
+      await this.prisma.upiPaymentClaim.updateMany({ where: { id, status: 'CONFIRMED', decidedAt }, data: { status: 'PENDING', decidedAt: null, decidedById: null } });
+      throw error;
+    }
   }
 
   async reject(ctx: AuthContext, id: string, reason: string): Promise<void> {
-    const { count } = await this.prisma.upiPaymentClaim.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'REJECTED', decidedAt: new Date(), decidedById: ctx.userId, note: reason.trim().slice(0, 300) || null } });
+    const note = reason.trim().slice(0, 300) || null;
+    const { count } = await this.prisma.upiPaymentClaim.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'REJECTED', decidedAt: new Date(), decidedById: ctx.userId, note } });
     if (!count) throw new ConflictException('Already decided');
+    await this.audit.record(ctx, { action: 'UPDATE', entity: 'UpiPaymentClaim', entityId: id, before: { status: 'PENDING' }, after: { status: 'REJECTED', note } });
   }
 
   private async toDtos(rows: ClaimRow[]): Promise<UpiClaimDto[]> {
