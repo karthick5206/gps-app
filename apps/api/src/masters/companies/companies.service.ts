@@ -10,6 +10,7 @@ import { iso } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
 import { hashPassword } from '../../common/secrets';
 import { PrismaService } from '../../prisma/prisma.service';
+import { adminBlockMessage, blockedAuditDetails, countFinancialRecords, FinancialRecordsException, financialTotal } from '../../purge/financial-guard';
 import { RedisService } from '../../redis/redis.service';
 import { CompanyListQuery, CreateCompanyDto, UpdateCompanyDto } from './companies.dto';
 
@@ -130,6 +131,12 @@ export class CompaniesService {
 
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(id);
+    // R-36 stop-gap (D-107): the RESTRICT keys already stop this delete; say why instead of a generic "in use".
+    const fin = await countFinancialRecords(this.prisma, id);
+    if (financialTotal(fin)) {
+      await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, details: blockedAuditDetails(fin, { label: before.name, path: 'company-delete' }) });
+      throw new FinancialRecordsException(adminBlockMessage(fin), fin);
+    }
     await this.prisma.company.delete({ where: { id } });
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before });
   }
