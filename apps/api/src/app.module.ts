@@ -50,6 +50,7 @@ import { ReportsModule } from './reports/reports.module';
 import { TemplatesModule } from './templates/templates.module';
 import { RelayModule } from './relay/relay.controller';
 import { InventoryModule } from './inventory/inventory.module';
+import { SimsModule } from './sims/sims.module';
 
 @Module({
   imports: [
@@ -100,6 +101,7 @@ import { InventoryModule } from './inventory/inventory.module';
     GuideModule,
     DeviceClaimModule,
     InventoryModule,
+    SimsModule,
     DeveloperModule,
     RelayModule,
     PublicApiModule,

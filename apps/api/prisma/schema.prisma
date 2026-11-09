@@ -288,6 +288,9 @@ model Device {
   /// Device inventory (Phase B): side tables only; inventory code never writes this Device row.
   stock           DeviceStock?
   stockMovements  StockMovement[]
+  /// SIM management (Phase C): side tables only; SIM code never writes this Device row.
+  simAssignments  SimAssignment[]
+  simEvents       SimEvent[]
 
   @@index([companyId])
 }
@@ -2032,6 +2035,7 @@ model StockLocation {
   ownerPartner  Partner?        @relation(fields: [ownerPartnerId], references: [id], onDelete: Restrict)
   receipts      StockReceipt[]
   stock         DeviceStock[]
+  sims          SimCard[]
   movementsFrom StockMovement[] @relation("StockMovementFrom")
   movementsTo   StockMovement[] @relation("StockMovementTo")
 
@@ -2156,4 +2160,136 @@ model StockMovement {
   @@index([fromLocationId, at(sort: Desc)])
   @@index([companyId, at(sort: Desc)])
   @@index([kind, at(sort: Desc)])
+}
+
+// ───────────── SIM management (Phase C) ─────────────
+// Side tables only. SIM code never writes Device rows (Device.iccid stays tracker-reported, Device.simNumber /
+// simOperator stay tenant-editable) and has no link to licence seats or to the customer assignment.
+
+/// Network operator / M2M aggregator.
+model SimProvider {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String   @unique
+  /// SIM_PROVIDER_KINDS (shared): MNO | M2M_AGGREGATOR | ESIM
+  kind           String   @default("MNO")
+  supportContact Json     @default("{}")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  plans SimPlan[]
+  sims  SimCard[]
+}
+
+/// Data plan of a provider. costPaise = what VeeTrax pays; pricePaise = customer price if billed (QI-3 open).
+model SimPlan {
+  id             String   @id @default(uuid()) @db.Uuid
+  providerId     String   @db.Uuid
+  name           String
+  dataMbPerMonth Int?
+  smsPerMonth    Int?
+  validityDays   Int
+  costPaise      Int
+  pricePaise     Int?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  provider SimProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  sims     SimCard[]
+
+  @@unique([providerId, name])
+}
+
+/// A managed SIM card. ICCID is the identity (normalised digits, unique).
+model SimCard {
+  id              String    @id @default(uuid()) @db.Uuid
+  iccid           String    @unique
+  msisdn          String?   @unique
+  imsi            String?
+  providerId      String    @db.Uuid
+  planId          String?   @db.Uuid
+  /// SIM_STATUSES (shared): AVAILABLE | RESERVED | ACTIVE | SUSPENDED | EXPIRED | DEACTIVATED | DAMAGED
+  status          String    @default("AVAILABLE")
+  /// SIM_OWNERSHIPS (shared): PLATFORM | PARTNER | CUSTOMER (BYO = tracking only, QI-4)
+  ownership       String    @default("PLATFORM")
+  locationId      String?   @db.Uuid
+  activatedAt     DateTime? @db.Timestamptz(3)
+  renewalDueAt    DateTime? @db.Date
+  statusChangedAt DateTime  @default(now()) @db.Timestamptz(3)
+  note            String?
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  provider    SimProvider     @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  plan        SimPlan?        @relation(fields: [planId], references: [id], onDelete: SetNull)
+  location    StockLocation?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  assignments SimAssignment[]
+  events      SimEvent[]
+  usage       SimUsage[]
+
+  @@index([status, renewalDueAt])
+  @@index([providerId])
+}
+
+/// SIM ↔ device history (mirrors DeviceAssignment). One open row per SIM and per device (partial unique indexes in
+/// the migration). deviceId is SET NULL on device purge; deviceRef keeps the IMEI.
+model SimAssignment {
+  id          String    @id @default(uuid()) @db.Uuid
+  simId       String    @db.Uuid
+  deviceId    String?   @db.Uuid
+  deviceRef   String
+  fromTime    DateTime  @db.Timestamptz(3)
+  toTime      DateTime? @db.Timestamptz(3)
+  createdById String?   @db.Uuid
+
+  sim    SimCard @relation(fields: [simId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([simId, fromTime(sort: Desc)])
+  @@index([deviceId, fromTime(sort: Desc)])
+}
+
+/// Append-only SIM history (status, assignment, renewal, edits, usage entries). Never updated or deleted by
+/// application code; iccidRef / deviceRef keep the identifiers if the SIM or device row is removed.
+model SimEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  simId       String?  @db.Uuid
+  iccidRef    String
+  /// SIM_EVENT_KINDS (shared)
+  kind        String
+  fromStatus  String?
+  toStatus    String?
+  deviceId    String?  @db.Uuid
+  deviceRef   String?
+  reason      String?
+  note        String?
+  changes     Json?
+  at          DateTime @default(now()) @db.Timestamptz(3)
+  createdById String?  @db.Uuid
+
+  sim    SimCard? @relation(fields: [simId], references: [id], onDelete: SetNull)
+  device Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([simId, at(sort: Desc)])
+  @@index([deviceId, at(sort: Desc)])
+  @@index([at(sort: Desc)])
+}
+
+/// Manual usage / cost entry for a period (operator bill line). Corrections are new entries (append-only).
+model SimUsage {
+  id          String   @id @default(uuid()) @db.Uuid
+  simId       String   @db.Uuid
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  dataMb      Int?
+  smsCount    Int?
+  costPaise   Int?
+  note        String?
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  sim SimCard @relation(fields: [simId], references: [id], onDelete: Restrict)
+
+  @@index([simId, periodStart(sort: Desc)])
 }

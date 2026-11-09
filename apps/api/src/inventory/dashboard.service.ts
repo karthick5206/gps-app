@@ -81,8 +81,11 @@ export class InventoryDashboardService {
       bucket.byKind[m.kind as StockMovementKind] = (bucket.byKind[m.kind as StockMovementKind] ?? 0) + n;
     }
 
-    const sum = (list: InventoryStatus[]) => list.reduce((s, k) => s + summary.byStatus[k], 0);
-    const tracked = INVENTORY_STATUSES.reduce((s, k) => s + summary.byStatus[k], 0);
+    // Status counts from the same grouped query as the valuation, so totals and value always agree.
+    const byStatus = Object.fromEntries(INVENTORY_STATUSES.map((s) => [s, 0])) as Record<InventoryStatus, number>;
+    for (const g of byStatusValue) if (g.status in byStatus) byStatus[g.status as InventoryStatus] = (g._count as { _all: number })._all;
+    const sum = (list: InventoryStatus[]) => list.reduce((s, k) => s + byStatus[k], 0);
+    const tracked = INVENTORY_STATUSES.reduce((s, k) => s + byStatus[k], 0);
     return {
       totals: {
         tracked,
@@ -92,7 +95,7 @@ export class InventoryDashboardService {
         inStock: sum(IN_STOCK),
         needsAttention: sum(ATTENTION),
       },
-      byStatus: summary.byStatus,
+      byStatus,
       byLocation: byLocation
         .map((g) => ({
           locationId: g.locationId,

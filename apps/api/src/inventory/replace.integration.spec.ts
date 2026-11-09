@@ -54,12 +54,14 @@ run('device replacement and dashboard (scratch database)', () => {
   let rma: string;
   const ids: Record<string, string> = {};
 
+  /** Seeded rows plus this run's rows (other DB suites running in parallel tag theirs IT… / SM…; see sims spec). */
+  const foreign = (ref: string | null | undefined) => !!ref && /^(IT|RP|SM)[0-9A-Z]{6,}/.test(ref) && !ref.startsWith(tag);
   async function licenceSnapshot() {
     const [seatRows, deviceRows] = await Promise.all([
-      prisma.licenceSeat.findMany({ orderBy: { id: 'asc' }, select: { id: true, companyId: true, partnerId: true, deviceId: true, userId: true, fuelObjectId: true, assignedAt: true, expiresAt: true, updatedAt: true } }),
-      prisma.device.findMany({ orderBy: { id: 'asc' }, select: { id: true, companyId: true, isActive: true } }),
+      prisma.licenceSeat.findMany({ orderBy: { id: 'asc' }, select: { id: true, companyId: true, partnerId: true, deviceId: true, userId: true, fuelObjectId: true, assignedAt: true, expiresAt: true, updatedAt: true, note: true } }),
+      prisma.device.findMany({ orderBy: { id: 'asc' }, select: { id: true, uniqueId: true, companyId: true, isActive: true } }),
     ]);
-    return { seatRows, deviceRows };
+    return { seatRows: seatRows.filter((s) => !foreign(s.note)), deviceRows: deviceRows.filter((d) => !foreign(d.uniqueId)) };
   }
 
   beforeAll(async () => {

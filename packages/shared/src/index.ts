@@ -35,3 +35,4 @@ export * from './vehicle-shares';
 export * from './dms';
 export * from './expenses';
 export * from './inventory';
+export * from './sim';
