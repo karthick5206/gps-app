@@ -1,0 +1,14 @@
+# Copy to a protected location (e.g. /etc/veetrax/backup.conf, chmod 600) — it contains the database URL.
+DB_URL="postgresql://USER:PASSWORD@localhost:5432/veetracer"
+OUT_DIR="/var/backups/veetrax"
+# PUBLIC key only (gpg --armor --export <id> > veetrax-backup.pub.asc). Keep the private key offline.
+GPG_RECIPIENT_FILE="/etc/veetrax/veetrax-backup.pub.asc"
+VALKEY_MODE="rdb"
+VALKEY_CLI="valkey-cli"
+UPLOADS_DIR="/mnt/d/Vibhav/gps-app/apps/api/var"
+CONFIG_FILES="/mnt/d/Vibhav/gps-app/apps/api/.env /mnt/d/Vibhav/gps-app/apps/web/.env /mnt/d/Vibhav/gps-app/ops/run/ecosystem.config.cjs"
+KEEP_LOCAL_DAYS=14
+# Set after the storage provider is approved (examples, not active):
+#   UPLOAD_CMD='rclone copy {file} r2:veetrax-backups/'
+#   UPLOAD_CMD='aws s3 cp {file} s3://veetrax-backups/ --region ap-south-1'
+UPLOAD_CMD=""
