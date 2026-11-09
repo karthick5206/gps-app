@@ -163,8 +163,11 @@ export function MasterPage<T>({
   headerActions,
   allowCreate = true,
   bulkActions = true,
+  fixedParams,
+  aboveTable,
 }: MasterPageProps<T>) {
   const { t } = useTranslation();
+  const fixedKey = JSON.stringify(fixedParams ?? {});
   const { can } = useAuth();
   const invalidate = useInvalidateMaster();
   const allow = useMemo(
@@ -203,7 +206,7 @@ export function MasterPage<T>({
   useEffect(() => {
     setPage(1);
     setRowSelection({});
-  }, [q, status, filterValues, sorting, pageSize]);
+  }, [q, status, filterValues, sorting, pageSize, fixedKey]);
 
   const params: QueryParams = {
     q,
@@ -213,6 +216,7 @@ export function MasterPage<T>({
     order: sorting[0] ? (sorting[0].desc ? 'desc' : 'asc') : undefined,
     status: status ?? undefined,
     ...filterParams(filters, filterValues),
+    ...fixedParams,
   };
 
   const list = useQuery({
@@ -402,6 +406,8 @@ export function MasterPage<T>({
           </>
         }
       />
+
+      {aboveTable}
 
       <Card className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden py-0">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
