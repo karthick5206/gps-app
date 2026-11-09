@@ -148,7 +148,11 @@ cap. When the processor is stopped the net rate equals the input rate.
   monitor/sampler). The page lists every instance; set `SYSTEM_HEALTH_ROLES` if a role intentionally doesn't run.
 - Configure `SMTP_URL`/Zoho and `SYSTEM_ALERT_EMAILS` (a team address that is not on the same infrastructure).
 - Keep ≥ 15 % disk free on the PostgreSQL / Valkey volumes; point `HEALTH_DATA_DIR` at the data volume.
-- Run an external uptime check against `GET /api/health` — System Health cannot e-mail if every API instance is down.
+- Run an external uptime check against `GET /api/health`, because System Health cannot e-mail if every API instance is down.
+  - Since release 1.6, `/api/health` is **readiness**: it returns 503 while PostgreSQL or the cache is unusable.
+  - `/api/health/live` is liveness. `/api/health/tracking` covers the end-to-end GPS pipeline.
+  - The gateway answers on `http://127.0.0.1:4121/health`, including while the cache is down.
+  - Details, plus the Windows watchdog: [reliability/ingestion-reliability.md](reliability/ingestion-reliability.md).
 
 ## 8. Measured on the development Mac (19 Oct 2026)
 

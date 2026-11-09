@@ -1,0 +1,123 @@
+[
+  {
+    "scenario": "cache-kill",
+    "sent": 1762,
+    "persisted": 1762,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 6034,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 WARN → 200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 1232,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live m…",
+      "[VeeTrax] WARN: 1,152 positions are buffered on disk at gateway NucBox_K8_Plus-4236 (cache unavailable); they are replayed in order automatically.",
+      "[VeeTrax] Resolved: gateway spool"
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "net-blackhole",
+    "sent": 1542,
+    "persisted": 1542,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 1560,
+    "drainMs": 4017,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 WARN → 200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 795,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live m…"
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "gateway-restart",
+    "sent": 745,
+    "persisted": 745,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 4013,
+    "readiness": "200",
+    "tracking": "200 OK → 503 CRITICAL → 200 OK",
+    "gateway": "200 ok → down → 200 ok",
+    "maxSpool": 0,
+    "alerts": [
+      "[VeeTrax] CRITICAL: gateway NucBox_K8_Plus-4236 has not reported for 17 s (hung or stopping).",
+      "[VeeTrax] Resolved: gateway heartbeat"
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "dup-ooo",
+    "sent": 875,
+    "persisted": 875,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 1,
+    "drainMs": 6038,
+    "readiness": "200",
+    "tracking": "200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [],
+    "notes": [
+      "one entry XADDed twice with the same mid (expect 1 row, 1 duplicate dropped)",
+      "live 868120009000003: 2026-11-09T14:27:43.000Z OK (newest fix)",
+      "live 868120009000005: 2026-11-09T14:27:42.000Z OK (newest fix)",
+      "live 868120009000001: 2026-11-09T14:27:45.000Z OK (newest fix)",
+      "live 868120009000002: 2026-11-09T14:27:42.000Z OK (newest fix)",
+      "live 868120009000004: 2026-11-09T14:27:42.000Z OK (newest fix)"
+    ]
+  },
+  {
+    "scenario": "prolonged",
+    "sent": 4047,
+    "persisted": 4047,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 4010,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 3416,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: Reached the max retries per request limit (which is 3). Refer to "
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "WHOLE RUN",
+    "sent": 9699,
+    "persisted": 9699,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 1561,
+    "drainMs": 4026,
+    "readiness": "200",
+    "tracking": "200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live m…",
+      "[VeeTrax] WARN: 1,152 positions are buffered on disk at gateway NucBox_K8_Plus-4236 (cache unavailable); they are replayed in order automatically.",
+      "[VeeTrax] Resolved: gateway spool",
+      "[VeeTrax] CRITICAL: gateway NucBox_K8_Plus-4236 has not reported for 17 s (hung or stopping).",
+      "[VeeTrax] Resolved: gateway heartbeat",
+      "[VeeTrax] CRITICAL: Valkey is not reachable: Reached the max retries per request limit (which is 3). Refer to "
+    ],
+    "notes": []
+  }
+]
