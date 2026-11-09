@@ -31,10 +31,14 @@ class TestBody {
   @IsOptional() @IsString() kind?: 'otp' | 'alert';
 }
 
+/** What Arattai (Zoho accounts) adds to the redirect: code, state, and its data-centre details. */
 class CallbackQuery {
   @IsOptional() @IsString() code?: string;
   @IsOptional() @IsString() state?: string;
   @IsOptional() @IsString() error?: string;
+  @IsOptional() @IsString() location?: string;
+  /** The accounts server that issued the code (the token must be fetched from the same one). */
+  @IsOptional() @IsString() 'accounts-server'?: string;
 }
 
 /**
@@ -138,7 +142,7 @@ export class ArattaiSettingsController {
     if (q.error) return back(`error:${q.error}`.slice(0, 80));
     if (!q.code || !q.state || !s.arattaiOauthState || q.state !== s.arattaiOauthState) return back('error:expired, press Connect again');
     try {
-      const refreshToken = await this.messages.arattai.exchange({ clientId: s.arattaiClientId, clientSecret: s.arattaiClientSecret }, q.code, this.redirectUri);
+      const refreshToken = await this.messages.arattai.exchange({ clientId: s.arattaiClientId, clientSecret: s.arattaiClientSecret }, q.code, this.redirectUri, q['accounts-server']);
       await this.prisma.messagingSettings.update({ where: { id: 'default' }, data: { arattaiRefreshToken: refreshToken, arattaiConnectedAt: new Date(), arattaiOauthState: null, arattaiLastError: null } });
       this.messages.arattai.reset();
       // Fill in the Company ID and Business number ID from Arattai when they are still empty.

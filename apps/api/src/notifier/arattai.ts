@@ -158,9 +158,11 @@ export class ArattaiOtp {
   }
 
   /** Exchanges the approval code for the refresh token (stored by the caller). */
-  async exchange(c: Pick<ArattaiConfig, 'clientId' | 'clientSecret'>, code: string, redirectUri: string): Promise<string> {
+  async exchange(c: Pick<ArattaiConfig, 'clientId' | 'clientSecret'>, code: string, redirectUri: string, accountsServer?: string): Promise<string> {
     const q = new URLSearchParams({ grant_type: 'authorization_code', code, client_id: c.clientId, client_secret: c.clientSecret, redirect_uri: redirectUri });
-    const res = await this.call(`${ARATTAI_ACCOUNTS}/oauth/v2/token?${q}`, { method: 'POST' });
+    // The code must be redeemed at the accounts server that issued it (sent back with the redirect); only Arattai's own.
+    const server = accountsServer && /^https:\/\/accounts\.arattai\.[a-z.]+$/.test(accountsServer) ? accountsServer : ARATTAI_ACCOUNTS;
+    const res = await this.call(`${server}/oauth/v2/token?${q}`, { method: 'POST' });
     const body = (await res.json().catch(() => ({}))) as { refresh_token?: string; error?: string };
     if (!res.ok || !body.refresh_token) throw new Error(body.error ? `Arattai said: ${body.error}` : `Arattai token request failed (${res.status})`);
     this.reset();
