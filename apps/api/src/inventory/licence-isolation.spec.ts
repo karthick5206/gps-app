@@ -51,5 +51,24 @@ describe('inventory licence isolation (source)', () => {
       const body = stock.slice(start, stock.indexOf('\n  }\n', start));
       expect({ op, mutate: body.includes('this.mutate('), move: body.includes('this.move(tx') }).toEqual({ op, mutate: true, move: true });
     }
+    // Replacement: one interactive transaction that writes a REPLACE movement for each unit.
+    const start = stock.indexOf('async recordReplace(');
+    const body = stock.slice(start, stock.indexOf('\n  }\n', start));
+    expect(body).toContain('this.prisma.$transaction(');
+    expect(body.match(/kind: 'REPLACE'/g)).toHaveLength(4);
+    expect(body).toContain('seatsChanged: false');
+  });
+
+  it('replacement fits the unit only through the existing vehicle flow (ObjectsService.update)', () => {
+    const replace = sources.find((s) => s.file === 'replace.service.ts')!.text;
+    expect(replace).toContain('await this.objects.update(asCompany, object.id, { deviceId: next.id })');
+    // The only call into another module's write path.
+    expect(replace.match(/this\.objects\.\w+\(/g)).toEqual(['this.objects.update(']);
+    expect(replace).not.toMatch(/AdminDevicesService|this\.devices\./);
+  });
+
+  it('dashboard is read-only', () => {
+    const dash = sources.find((s) => s.file === 'dashboard.service.ts')!.text;
+    expect(dash).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$executeRaw/);
   });
 });

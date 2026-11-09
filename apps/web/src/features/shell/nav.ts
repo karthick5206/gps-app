@@ -37,6 +37,7 @@ import {
   ScanEyeIcon,
   ScanFaceIcon,
   WarehouseIcon,
+  CardSimIcon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -65,6 +66,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   sa_device_models: BoxesIcon,
   sa_device_inventory: HardDriveIcon,
   sa_inventory: WarehouseIcon,
+  sa_sim_cards: CardSimIcon,
   sa_unknown_devices: RadarIcon,
   sa_system_health: ActivityIcon,
   sa_relay: ShareIcon,

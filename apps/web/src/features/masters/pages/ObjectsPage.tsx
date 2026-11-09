@@ -9,7 +9,8 @@ import {
   type VehicleGroupDto,
   type VehicleType,
 } from '@veetracer/shared';
-import { FileCheck2Icon, FuelIcon, TruckIcon } from 'lucide-react';
+import { CpuIcon, FileCheck2Icon, FuelIcon, TruckIcon } from 'lucide-react';
+import { AssetLinksSheet, type AssetLinksTarget } from '@/features/sims/AssetLinksSheet';
 import { Button } from '@/components/ui/button';
 import { FuelSettingsDialog, type FuelTarget } from '@/features/fuel/FuelSettingsDialog';
 import { useMemo, useState } from 'react';
@@ -205,7 +206,8 @@ export function ObjectsPage() {
   const { can } = useAuth();
   const [compliance, setCompliance] = useState<ComplianceTarget | null>(null);
   const [fuel, setFuel] = useState<FuelTarget | null>(null);
-  const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
+  const [assets, setAssets] = useState<AssetLinksTarget | null>(null);
+  const branches =useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
   const purge = usePurgeAction('object');
   const transfer = useTransferAction('object');
   const share = useShareVehicleAction();
@@ -236,6 +238,11 @@ export function ObjectsPage() {
       emptyIcon={TruckIcon}
       rowActions={(r) => (
               <>
+                {r.device && (
+                  <DropdownMenuItem onSelect={() => setAssets({ objectId: r.id, label: rowLabel(r) })}>
+                    <CpuIcon /> {t('Devices & SIMs')}
+                  </DropdownMenuItem>
+                )}
                 {can('documents') && (
                   <DropdownMenuItem onSelect={() => setCompliance({ objectId: r.id, label: rowLabel(r) })}>
                     <FileCheck2Icon /> {t('Documents & service')}
@@ -253,6 +260,7 @@ export function ObjectsPage() {
             )}
     />
     <ComplianceSheet target={compliance} onClose={() => setCompliance(null)} />
+    <AssetLinksSheet target={assets} onClose={() => setAssets(null)} />
     <FuelSettingsDialog target={fuel} onClose={() => setFuel(null)} />
     {transfer.dialog}
     {share.dialog}

@@ -2,6 +2,7 @@ import type { MenuKey } from '@veetracer/shared';
 import type { LucideIcon } from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import type { Option } from '@/components/ui/multi-select';
+import type { QueryParams } from '@/lib/api';
 
 export interface MasterColumn<T> {
   /** Column id; also sent as `sort=<id>` when sortable. */
@@ -59,4 +60,8 @@ export interface MasterPageProps<T> {
   allowCreate?: boolean;
   /** Row selection + bulk activate/deactivate/delete via `<endpoint>/bulk` (default true). */
   bulkActions?: boolean;
+  /** Extra query parameters controlled by the parent (e.g. status chips); sent with the list and the CSV export. */
+  fixedParams?: QueryParams;
+  /** Content between the page header and the table card (e.g. summary tiles, status chips). */
+  aboveTable?: ReactNode;
 }

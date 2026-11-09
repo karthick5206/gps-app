@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { MastersModule } from '../masters/masters.module';
 import { InventoryCatalogService } from './catalog.service';
+import { InventoryDashboardService } from './dashboard.service';
 import { InventoryController } from './inventory.controller';
+import { InventoryReplaceService } from './replace.service';
 import { InventoryStockService } from './stock.service';
 
 /**
@@ -11,6 +13,7 @@ import { InventoryStockService } from './stock.service';
 @Module({
   imports: [MastersModule],
   controllers: [InventoryController],
-  providers: [InventoryCatalogService, InventoryStockService],
+  providers: [InventoryCatalogService, InventoryStockService, InventoryDashboardService, InventoryReplaceService],
+  exports: [InventoryCatalogService],
 })
 export class InventoryModule {}

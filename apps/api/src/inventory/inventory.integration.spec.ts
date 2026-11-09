@@ -45,12 +45,14 @@ run('inventory service (scratch database)', () => {
 
   const imei = (n: number) => `${tag}${String(n).padStart(4, '0')}`;
 
+  /** Seeded rows plus this run's rows (other DB suites running in parallel tag theirs RP… / SM…). */
+  const foreign = (ref: string | null | undefined) => !!ref && /^(IT|RP|SM)[0-9A-Z]{6,}/.test(ref) && !ref.startsWith(tag);
   async function licenceSnapshot() {
     const [seatRows, deviceRows] = await Promise.all([
-      prisma.licenceSeat.findMany({ orderBy: { id: 'asc' }, select: { id: true, companyId: true, partnerId: true, deviceId: true, userId: true, fuelObjectId: true, assignedAt: true, expiresAt: true, updatedAt: true } }),
-      prisma.device.findMany({ orderBy: { id: 'asc' }, select: { id: true, companyId: true, isActive: true, updatedAt: true } }),
+      prisma.licenceSeat.findMany({ orderBy: { id: 'asc' }, select: { id: true, companyId: true, partnerId: true, deviceId: true, userId: true, fuelObjectId: true, assignedAt: true, expiresAt: true, updatedAt: true, note: true } }),
+      prisma.device.findMany({ orderBy: { id: 'asc' }, select: { id: true, uniqueId: true, companyId: true, isActive: true, updatedAt: true } }),
     ]);
-    return { seatRows, deviceRows };
+    return { seatRows: seatRows.filter((s) => !foreign(s.note)), deviceRows: deviceRows.filter((d) => !foreign(d.uniqueId)) };
   }
 
   beforeAll(async () => {

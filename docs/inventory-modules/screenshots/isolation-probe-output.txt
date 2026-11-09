@@ -1,0 +1,36 @@
+PASS  tenant A GET /inventory/stock                                                              expected 403    got 403
+PASS  anonymous GET /inventory/stock                                                             expected 401    got 401
+PASS  tenant A GET /inventory/dashboard                                                          expected 403    got 403
+PASS  anonymous GET /inventory/dashboard                                                         expected 401    got 401
+PASS  tenant A GET /inventory/movements                                                          expected 403    got 403
+PASS  anonymous GET /inventory/movements                                                         expected 401    got 401
+PASS  tenant A GET /inventory/locations                                                          expected 403    got 403
+PASS  anonymous GET /inventory/locations                                                         expected 401    got 401
+PASS  tenant A POST /inventory/receipts                                                          expected 403    got 403
+PASS  anonymous POST /inventory/receipts                                                         expected 401    got 401
+PASS  tenant A POST /inventory/replace                                                           expected 403    got 403
+PASS  anonymous POST /inventory/replace                                                          expected 401    got 401
+PASS  tenant A GET /inventory/replace/candidates?objectId=a6440419-25aa-4121-ad51-4bf6e03c9d07   expected 403    got 403
+PASS  anonymous GET /inventory/replace/candidates?objectId=a6440419-25aa-4121-ad51-4bf6e03c9d07  expected 401    got 401
+PASS  tenant A GET /sims                                                                         expected 403    got 403
+PASS  anonymous GET /sims                                                                        expected 401    got 401
+PASS  tenant A GET /sims/summary                                                                 expected 403    got 403
+PASS  anonymous GET /sims/summary                                                                expected 401    got 401
+PASS  tenant A GET /sims/renewals                                                                expected 403    got 403
+PASS  anonymous GET /sims/renewals                                                               expected 401    got 401
+PASS  tenant A POST /sims                                                                        expected 403    got 403
+PASS  anonymous POST /sims                                                                       expected 401    got 401
+PASS  tenant A POST /sims/import                                                                 expected 403    got 403
+PASS  anonymous POST /sims/import                                                                expected 401    got 401
+PASS  A reads own vehicle Devices & SIMs                                                         expected 200    got 200
+PASS  A payload has no cost / price / ICCID / plan / provider                                    expected absent got absent
+PASS  A reads own device                                                                         expected 200    got 200
+PASS  A reads B's vehicle                                                                        expected 404    got 404
+PASS  A reads B's device                                                                         expected 404    got 404
+PASS  B reads A's vehicle                                                                        expected 404    got 404
+PASS  B reads A's device                                                                         expected 404    got 404
+PASS  A reads a platform stock device                                                            expected 404    got 404
+PASS  A with X-Company-Id of B reads B's vehicle                                                 expected 404    got 404
+PASS  anonymous reads asset links                                                                expected 401    got 401
+
+34/34 passed

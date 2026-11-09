@@ -4,6 +4,8 @@ import {
   DeviceCondition,
   INVENTORY_STATUSES,
   InventoryStatus,
+  REPLACED_UNIT_STATUSES,
+  ReplacedUnitStatus,
   STOCK_LOCATION_KINDS,
   STOCK_MOVEMENT_KINDS,
   StockLocationKind,
@@ -173,4 +175,25 @@ export class ImportDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string;
   /** Default true: validate and report only. Send false to apply (refused while any row has an error). */
   @IsOptional() @IsBoolean() dryRun?: boolean;
+}
+
+// ───────────── Replacement & dashboard ─────────────
+
+export class ReplaceDto {
+  /** Vehicle / object the faulty unit is fitted to (open DeviceAssignment). */
+  @IsUUID() objectId!: string;
+  /** Replacement unit: already in the vehicle's customer account (assigned through Device Inventory). */
+  @IsUUID() newDeviceId!: string;
+  /** Status recorded for the removed unit (default FAULTY). */
+  @IsOptional() @IsIn(REPLACED_UNIT_STATUSES) oldStatus?: ReplacedUnitStatus;
+  /** Where the removed unit goes (stock location); omitted = unchanged. */
+  @IsOptional() @IsUUID() returnLocationId?: string;
+  @Transform(trim) @IsString() @MinLength(3) @MaxLength(500) reason!: string;
+  @IsOptional() @IsString() @MaxLength(120) reference?: string;
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+export class DashboardQuery {
+  /** Movement window in days (default 30). */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(7) @Max(365) days?: number;
 }

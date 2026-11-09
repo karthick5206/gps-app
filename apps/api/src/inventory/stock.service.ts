@@ -121,6 +121,18 @@ export interface PlannedItem {
   errors: string[];
 }
 
+export interface RecordReplaceInput {
+  objectId: string;
+  companyId: string;
+  oldDeviceId: string;
+  newDeviceId: string;
+  oldStatus: InventoryStatus;
+  returnLocationId?: string;
+  reason: string;
+  reference?: string;
+  note?: string;
+}
+
 interface MovementInput {
   deviceId: string;
   itemRef: string;
@@ -622,6 +634,117 @@ export class InventoryStockService {
       });
     });
     return this.get(deviceId);
+  }
+
+  /**
+   * Inventory side of a device replacement, called by InventoryReplaceService *after* the existing vehicle assignment
+   * flow fitted the new unit. Records one REPLACE movement per device (linked by reference) and updates their stock
+   * rows when they have one: the removed unit takes `oldStatus` (+ optional return location), the new unit the status
+   * implied by its real assignment (ACTIVE). Never touches Device, DeviceAssignment or licence seats.
+   */
+  async recordReplace(ctx: AuthContext, r: RecordReplaceInput): Promise<{ oldStatus: InventoryStatus | null; newStatus: InventoryStatus | null }> {
+    return this.prisma.$transaction(async (tx) => {
+      const [oldDevice, newDevice] = await Promise.all([
+        tx.device.findUniqueOrThrow({ where: { id: r.oldDeviceId }, select: DEVICE_FACTS_SELECT }),
+        tx.device.findUniqueOrThrow({ where: { id: r.newDeviceId }, select: DEVICE_FACTS_SELECT }),
+      ]);
+      const [oldStock, newStock] = await Promise.all([
+        tx.deviceStock.findUnique({ where: { deviceId: r.oldDeviceId } }),
+        tx.deviceStock.findUnique({ where: { deviceId: r.newDeviceId } }),
+      ]);
+      const link = { companyId: r.companyId, objectId: r.objectId };
+      const reason = r.reason.trim();
+
+      // Removed unit.
+      let oldStatus: InventoryStatus | null = null;
+      if (oldStock) {
+        const from = oldStock.status as InventoryStatus;
+        const error = from === r.oldStatus ? null : validateStatusChange({ kind: 'ADJUST', from, to: r.oldStatus, facts: factsOf(oldDevice), reason });
+        if (error) throw new BadRequestException(`Removed unit: ${error}`);
+        const locationId = r.returnLocationId ? (await this.catalog.assertUsableLocation(r.returnLocationId, tx)).id : oldStock.locationId;
+        await this.guardedUpdate(tx, oldStock, { status: r.oldStatus, locationId, ...(from !== r.oldStatus ? { statusChangedAt: new Date() } : {}) });
+        await this.move(tx, ctx, {
+          ...link,
+          deviceId: r.oldDeviceId,
+          itemRef: oldDevice.uniqueId,
+          kind: 'REPLACE',
+          fromStatus: from,
+          toStatus: r.oldStatus,
+          fromLocationId: oldStock.locationId,
+          toLocationId: locationId,
+          fromHolderPartnerId: oldStock.holderPartnerId,
+          toHolderPartnerId: oldStock.holderPartnerId,
+          reason,
+          reference: r.reference ?? `Replaced by ${newDevice.uniqueId}`,
+          note: r.note ?? null,
+        });
+        oldStatus = r.oldStatus;
+      } else {
+        // No stock record (legacy device, not yet backfilled): the ledger still keeps the fact.
+        await this.move(tx, ctx, {
+          ...link,
+          deviceId: r.oldDeviceId,
+          itemRef: oldDevice.uniqueId,
+          kind: 'REPLACE',
+          fromStatus: null,
+          toStatus: r.oldStatus,
+          reason,
+          reference: r.reference ?? `Replaced by ${newDevice.uniqueId}`,
+          note: [r.note, 'No stock record: status kept on the movement only'].filter(Boolean).join(' · '),
+        });
+      }
+
+      // Fitted unit: status follows its real (existing) assignment.
+      let newStatus: InventoryStatus | null = null;
+      const derived = deriveDeviceStatus(factsOf(newDevice));
+      if (newStock) {
+        const from = newStock.status as InventoryStatus;
+        if (from !== derived) {
+          const error = validateStatusChange({ kind: 'SYNC', from, to: derived, facts: factsOf(newDevice) });
+          if (error) throw new BadRequestException(`Replacement unit: ${error}`);
+          await this.guardedUpdate(tx, newStock, { status: derived, locationId: statusHoldsLocation(derived) ? newStock.locationId : null, statusChangedAt: new Date() });
+        }
+        await this.move(tx, ctx, {
+          ...link,
+          deviceId: r.newDeviceId,
+          itemRef: newDevice.uniqueId,
+          kind: 'REPLACE',
+          fromStatus: from,
+          toStatus: derived,
+          fromLocationId: newStock.locationId,
+          toLocationId: statusHoldsLocation(derived) ? newStock.locationId : null,
+          fromHolderPartnerId: newStock.holderPartnerId,
+          toHolderPartnerId: newStock.holderPartnerId,
+          reason,
+          reference: r.reference ?? `Replaces ${oldDevice.uniqueId}`,
+          note: r.note ?? null,
+        });
+        newStatus = derived;
+      } else {
+        await this.move(tx, ctx, {
+          ...link,
+          deviceId: r.newDeviceId,
+          itemRef: newDevice.uniqueId,
+          kind: 'REPLACE',
+          fromStatus: null,
+          toStatus: derived,
+          reason,
+          reference: r.reference ?? `Replaces ${oldDevice.uniqueId}`,
+          note: [r.note, 'No stock record: status kept on the movement only'].filter(Boolean).join(' · '),
+        });
+      }
+      await this.audit.record(
+        ctx,
+        {
+          action: 'UPDATE',
+          entity: 'stock_replace',
+          entityId: r.objectId,
+          details: { objectId: r.objectId, oldDevice: oldDevice.uniqueId, newDevice: newDevice.uniqueId, oldStatus: r.oldStatus, reason, seatsChanged: false },
+        },
+        tx,
+      );
+      return { oldStatus, newStatus };
+    }, TX_OPTIONS);
   }
 
   // ───────────── Internals ─────────────

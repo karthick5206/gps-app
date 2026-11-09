@@ -2,13 +2,17 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, P
 import { AuthContext } from '../access/auth-context';
 import { Auth, RequirePermission } from '../access/decorators';
 import { InventoryCatalogService } from './catalog.service';
+import { InventoryDashboardService } from './dashboard.service';
+import { InventoryReplaceService } from './replace.service';
 import {
   AdjustDto,
   ChangeStatusDto,
   CreateLocationDto,
   CreateReceiptDto,
   CreateSupplierDto,
+  DashboardQuery,
   ImportDto,
+  ReplaceDto,
   LocationListQuery,
   MovementListQuery,
   ReceiptListQuery,
@@ -31,6 +35,8 @@ export class InventoryController {
   constructor(
     private readonly catalog: InventoryCatalogService,
     private readonly stock: InventoryStockService,
+    private readonly dashboards: InventoryDashboardService,
+    private readonly replacements: InventoryReplaceService,
   ) {}
 
   // Locations
@@ -156,6 +162,23 @@ export class InventoryController {
   @Post('stock/:deviceId/sync') @HttpCode(200) @RequirePermission('sa_inventory', 'edit')
   sync(@Auth() ctx: AuthContext, @Param('deviceId', ParseUUIDPipe) deviceId: string, @Body() dto: SyncDto) {
     return this.stock.sync(ctx, deviceId, dto);
+  }
+
+  // Dashboard (read-only)
+  @Get('dashboard') @RequirePermission('sa_inventory', 'view')
+  dashboard(@Query() query: DashboardQuery) {
+    return this.dashboards.dashboard(query.days ?? 30);
+  }
+
+  // Replacement of a fitted unit (vehicle fitting through the existing objects flow; no licence seat change)
+  @Get('replace/candidates') @RequirePermission('sa_inventory', 'view')
+  replaceCandidates(@Query('objectId', ParseUUIDPipe) objectId: string) {
+    return this.replacements.candidates(objectId);
+  }
+
+  @Post('replace') @HttpCode(200) @RequirePermission('sa_inventory', 'edit')
+  replace(@Auth() ctx: AuthContext, @Body() dto: ReplaceDto) {
+    return this.replacements.replace(ctx, dto);
   }
 
   // Movement ledger (read-only; ?format=csv export)
