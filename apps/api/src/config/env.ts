@@ -67,12 +67,26 @@ export function loadEnv(): AppEnv {
       .map((o) => o.trim())
       .filter(Boolean),
   };
-  if (process.env.NODE_ENV === 'production') assertProductionSafe(cached);
+  if (process.env.NODE_ENV === 'production') {
+    assertProductionSafe(cached);
+    for (const w of productionWarnings(process.env)) console.warn(`[env] WARNING: ${w}`);
+  }
   return cached;
 }
 
+/** Production misconfigurations that do not stop the server but mean messages are not delivered. */
+export function productionWarnings(raw: NodeJS.ProcessEnv): string[] {
+  const out: string[] = [];
+  if (!raw.SMS_PROVIDER || raw.SMS_PROVIDER === 'console') out.push('No SMS provider configured (SMS_PROVIDER): OTP and alert SMS are NOT delivered');
+  if (!raw.SMTP_URL && !raw.ZOHO_MAIL_KEY) out.push('No mail provider configured (SMTP_URL / ZOHO_MAIL_KEY): password-reset and alert e-mails are NOT delivered');
+  if (raw.MAIL_KEEP_COPIES === 'true') out.push('MAIL_KEEP_COPIES=true: full e-mail copies (reset links, invoices) are stored in var/mail');
+  if (raw.WEBHOOK_ALLOW_PRIVATE === 'true') out.push('WEBHOOK_ALLOW_PRIVATE=true: webhooks may target private networks');
+  if (raw.RELAY_ALLOW_PRIVATE === 'true') out.push('RELAY_ALLOW_PRIVATE=true: data forwarding may target private networks');
+  return out;
+}
+
 /** Dev conveniences that expose login codes or reset links must never reach a public server. */
-function assertProductionSafe(env: AppEnv): void {
+export function assertProductionSafe(env: Pick<AppEnv, 'otpDevEcho' | 'mailDevEcho' | 'jwtSecret'>): void {
   if (env.otpDevEcho || env.mailDevEcho) {
     throw new Error('OTP_DEV_ECHO and MAIL_DEV_ECHO must be false when NODE_ENV=production');
   }

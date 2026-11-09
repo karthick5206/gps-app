@@ -22,15 +22,28 @@ export interface SmsProvider {
   send(message: SmsMessage): Promise<SmsResult>;
 }
 
-/** Development provider: logs the message and appends it to var/sms/sms.log. */
+/**
+ * Log line of the console provider. In production (R-28) the text and variables (OTP codes, links) are never written:
+ * only the recipient (masked) and template id, so a misconfigured server does not leak login codes to disk or logs.
+ */
+export function consoleSmsLine(m: SmsMessage, production = process.env.NODE_ENV === 'production'): string {
+  if (production) {
+    const to = m.to.length > 4 ? `${m.to.slice(0, -4).replace(/\d/g, '•')}${m.to.slice(-4)}` : '••••';
+    return `[SMS] NOT DELIVERED (no SMS provider configured; content withheld in production) to=${to} dlt=${m.dltTemplateId ?? '-'}`;
+  }
+  return `[SMS] to=${m.to} sender=${m.senderId ?? '-'} dlt=${m.dltTemplateId ?? '-'} vars=${JSON.stringify(m.variables ?? [])} text="${m.text}"`;
+}
+
+/** Development provider: logs the message and appends it to var/sms/sms.log (content withheld in production). */
 export class ConsoleSmsProvider implements SmsProvider {
   readonly name = 'console';
   private readonly logger = new Logger('SMS');
   private readonly file = join(APP_ROOT, 'var', 'sms', 'sms.log');
 
   async send(m: SmsMessage): Promise<SmsResult> {
-    const line = `[SMS] to=${m.to} sender=${m.senderId ?? '-'} dlt=${m.dltTemplateId ?? '-'} vars=${JSON.stringify(m.variables ?? [])} text="${m.text}"`;
-    this.logger.log(line);
+    const line = consoleSmsLine(m);
+    if (process.env.NODE_ENV === 'production') this.logger.warn(line);
+    else this.logger.log(line);
     await mkdir(join(APP_ROOT, 'var', 'sms'), { recursive: true });
     await appendFile(this.file, `${new Date().toISOString()} ${line}\n`, 'utf8');
     return { provider: this.name, messageId: null };

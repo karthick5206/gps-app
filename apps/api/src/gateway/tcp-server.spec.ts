@@ -184,7 +184,7 @@ describe('TcpGatewayServer', () => {
     const { server, messages } = await start(new Gt06Decoder() as ProtocolDecoder<BaseSession>, queued);
     const { socket, received } = await client(server.port!);
     socket.write(encodeLogin(id, 1));
-    await until(() => messages.length >= 3);
+    await until(() => messages.length >= 3, 10_000); // generous: the full suite runs many socket tests in parallel
     const updates = messages.map((m) => JSON.parse(m.message) as { commandId: string; status: string; error?: string });
     expect(updates.find((u) => u.commandId === 'stop-new')).toMatchObject({ status: 'FAILED', error: expect.stringMatching(/not delivered/) });
     expect(updates.find((u) => u.commandId === 'stop-legacy')).toMatchObject({ status: 'FAILED' });

@@ -22,7 +22,16 @@ export interface MailMessage {
   attachments?: MailAttachment[];
 }
 
-/** M1 mailer: renders through nodemailer's stream transport and writes the HTML body to var/mail/. */
+/**
+ * Whether a full copy of each mail (body, attachments) is written to var/mail. Always in development; in production
+ * (R-28) only with the explicit opt-in MAIL_KEEP_COPIES=true, because copies hold password-reset links, invoices and
+ * customer data.
+ */
+export function keepMailCopies(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.NODE_ENV !== 'production' || env.MAIL_KEEP_COPIES === 'true';
+}
+
+/** M1 mailer: renders through nodemailer's stream transport and writes the HTML body to var/mail/ (dev / opt-in). */
 @Injectable()
 export class MailerService {
   private readonly logger = new Logger(MailerService.name);
@@ -41,6 +50,14 @@ export class MailerService {
   }
 
   async send(message: MailMessage): Promise<string> {
+    if (!keepMailCopies()) {
+      // Production: deliver through the real channel only; never store content on disk.
+      if (this.zoho) await sendZohoMail(this.zoho, { from: this.from, replyTo: this.replyTo, ...message });
+      else if (this.smtp) await this.smtp.sendMail({ from: this.from, replyTo: this.replyTo, ...message });
+      else this.logger.warn(`Mail "${message.subject}" to ${message.to} NOT DELIVERED: no mail provider configured (content withheld in production)`);
+      if (this.provider) this.logger.log(`Mail "${message.subject}" to ${message.to} sent via ${this.provider}`);
+      return '';
+    }
     const info = (await this.transport.sendMail({ from: this.from, replyTo: this.replyTo, ...message })) as { message?: Buffer };
     await mkdir(this.outDir, { recursive: true });
     // Random suffix: concurrent sends (notifier) within the same millisecond must not overwrite each other.
