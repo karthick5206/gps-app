@@ -88,12 +88,12 @@ export function DashboardPage() {
         </header>
         <Tabs value={tab} onValueChange={setTab}>
           <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-            <TabsList className="h-auto w-max justify-start gap-1 rounded-xl border bg-card p-1 shadow-xs">
+            <TabsList className="h-auto w-full min-w-max justify-start gap-1 sm:w-max rounded-xl border bg-card p-1 shadow-xs">
               {TABS.map((x) => {
                 const Icon = TAB_ICON[x.value];
                 return (
-                  <TabsTrigger key={x.value} value={x.value} className="h-9 flex-none rounded-lg px-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
-                    <Icon aria-hidden /> {t(x.label)}
+                  <TabsTrigger key={x.value} value={x.value} className="h-10 flex-1 rounded-lg px-2 text-[13px] sm:h-9 sm:flex-none sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
+                    <Icon aria-hidden className="max-sm:hidden" /> {t(x.label)}
                   </TabsTrigger>
                 );
               })}
