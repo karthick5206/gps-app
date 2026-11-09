@@ -44,7 +44,24 @@ export function MessagingSettings() {
   }, [params, setParams, qc, t]);
 
   const save = useMutation({
-    mutationFn: () => api.put<MessagingSettingsDto>('/platform/messaging', { ...f, arattaiClientSecret: secret || undefined }),
+    // Only the editable settings: the status fields shown on the page (connected, last problem…) are read-only.
+    mutationFn: () => {
+      const v = f!;
+      const body: MessagingSettingsInput = {
+        smsEnabled: v.smsEnabled,
+        emailEnabled: v.emailEnabled,
+        whatsappEnabled: v.whatsappEnabled,
+        arattaiEnabled: v.arattaiEnabled,
+        arattaiCompanyId: v.arattaiCompanyId,
+        arattaiBusinessNumberId: v.arattaiBusinessNumberId,
+        arattaiOtpTemplateId: v.arattaiOtpTemplateId,
+        arattaiAlertTemplateId: v.arattaiAlertTemplateId,
+        arattaiLanguage: v.arattaiLanguage,
+        arattaiClientId: v.arattaiClientId,
+        ...(secret ? { arattaiClientSecret: secret } : {}),
+      };
+      return api.put<MessagingSettingsDto>('/platform/messaging', body);
+    },
     onSuccess: (d) => {
       qc.setQueryData(['platform-messaging'], d);
       void qc.invalidateQueries({ queryKey: ['messaging-channels'] });
