@@ -61,6 +61,12 @@ export const STOCK_MOVEMENT_KINDS = [
   'ADJUST',
   /** Status aligned with the existing assignment (company / vehicle) after an admin assign / transfer / claim. */
   'SYNC',
+  /**
+   * Faulty unit swapped on a vehicle. The vehicle fitting itself is done by the existing vehicle assignment flow
+   * (ObjectsService.update → assignDevice); inventory records one REPLACE movement per device, linked by reference.
+   * No licence seat moves (QI-13).
+   */
+  'REPLACE',
 ] as const;
 export type StockMovementKind = (typeof STOCK_MOVEMENT_KINDS)[number];
 
@@ -270,6 +276,37 @@ export interface StockImportReport {
   receiptId: string | null;
   summary: { rows: number; createDevice: number; addStock: number; errors: number };
   rows: StockImportRowResult[];
+}
+
+/** Statuses a replaced (removed) unit may take. */
+export const REPLACED_UNIT_STATUSES = ['FAULTY', 'RETURNED', 'UNDER_REPAIR'] as const;
+export type ReplacedUnitStatus = (typeof REPLACED_UNIT_STATUSES)[number];
+
+export interface ReplaceDeviceResult {
+  objectId: string;
+  objectName: string;
+  companyId: string;
+  oldDevice: { id: string; uniqueId: string; status: InventoryStatus | null };
+  newDevice: { id: string; uniqueId: string; status: InventoryStatus | null };
+  /** Licence seats are not moved by a replacement (QI-13); both devices keep whatever seat the existing rules gave them. */
+  seatsChanged: false;
+}
+
+export interface InventoryDashboardDto {
+  totals: { tracked: number; untracked: number; mismatches: number; atCustomer: number; inStock: number; needsAttention: number };
+  byStatus: Record<InventoryStatus, number>;
+  byLocation: { locationId: string | null; code: string | null; name: string | null; count: number; valuePaise: number }[];
+  byModel: { modelId: string; name: string; total: number; inStock: number; atCustomer: number; faulty: number }[];
+  /** One entry per day of the window (oldest first), movements counted by kind. */
+  movements: { day: string; total: number; byKind: Partial<Record<StockMovementKind, number>> }[];
+  valuation: {
+    /** Sum of recorded purchase cost of devices still held (not RETIRED). */
+    heldValuePaise: number;
+    costedUnits: number;
+    uncostedUnits: number;
+    byStatus: Partial<Record<InventoryStatus, number>>;
+  };
+  windowDays: number;
 }
 
 export interface StockSummaryDto {
