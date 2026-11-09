@@ -1,6 +1,17 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { REPORT_TYPES, SINGLE_OBJECT_REPORT_TYPES, type ReportFormat, type ReportPeriod, type ReportScheduleDto, type ReportType } from '@veetracer/shared';
+import {
+  PERIOD_REPORT_TYPES,
+  REPORT_OPTION_KEYS,
+  REPORT_TYPES,
+  SINGLE_OBJECT_REPORT_TYPES,
+  type ReportFormat,
+  type ReportPeriod,
+  type ReportScheduleDto,
+  type ReportScope,
+  type ReportType,
+  type ScheduleReportOptions,
+} from '@veetracer/shared';
 import type { TFunction } from 'i18next';
 import { CalendarClockIcon, HistoryIcon, PlayIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
@@ -24,7 +35,9 @@ import { i18n } from '@/lib/i18n';
 import { RecipientChips } from './RecipientChips';
 import { REPORT_DEF_MAP } from './report-columns';
 import { isEmail } from './report-format';
-import { PERIOD_OPTIONS } from './ReportsPage';
+import { PERIOD_OPTIONS } from './period-options';
+import { ReportOptionsFields } from './ReportOptionsFields';
+import { scheduleOptionsPayload } from './schedule-options';
 import { RunsSheet, runsQueryKey } from './RunsSheet';
 import { EMPTY_SCOPE, ScopePicker } from './ScopePicker';
 
@@ -68,17 +81,28 @@ const makeSchema = (t: TFunction) =>
   });
 type Values = z.infer<ReturnType<typeof makeSchema>>;
 
-function ScheduleForm({ record, open, onOpenChange }: MasterFormProps<ReportScheduleDto>) {
+/** Defaults for a new schedule made from a report result ("Schedule this"). */
+export interface SchedulePrefill {
+  name: string;
+  reportTypes: string[];
+  scope: ReportScope;
+  period: ReportPeriod;
+  options: ScheduleReportOptions;
+}
+
+export function ScheduleForm({ record, open, onOpenChange, prefill }: MasterFormProps<ReportScheduleDto> & { prefill?: SchedulePrefill }) {
   const { t } = useTranslation();
   const { me } = useAuth();
   const schema = useMemo(() => makeSchema(t), [t]);
+  // Report options per type (D-2): kept outside the zod form; only the selected types' values are saved.
+  const [options, setOptions] = useState<ScheduleReportOptions>(() => record?.options ?? prefill?.options ?? {});
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
-      name: record?.name ?? '',
-      reportTypes: record?.reportTypes ?? ['SUMMARY'],
-      scope: record?.scope ?? EMPTY_SCOPE,
-      period: record?.period ?? 'DAY',
+      name: record?.name ?? prefill?.name ?? '',
+      reportTypes: record?.reportTypes ?? prefill?.reportTypes ?? ['SUMMARY'],
+      scope: record?.scope ?? prefill?.scope ?? EMPTY_SCOPE,
+      period: record?.period ?? prefill?.period ?? 'DAY',
       frequency: record?.frequency ?? 'DAILY',
       dayOfWeek: record?.dayOfWeek ? String(record.dayOfWeek) : '1',
       dayOfMonth: record?.dayOfMonth ? String(record.dayOfMonth) : '1',
@@ -89,6 +113,9 @@ function ScheduleForm({ record, open, onOpenChange }: MasterFormProps<ReportSche
     },
   });
   const frequency = useWatch({ control: form.control, name: 'frequency' });
+  const selectedTypes = (useWatch({ control: form.control, name: 'reportTypes' }) ?? []) as ReportType[];
+  const optionTypes = selectedTypes.filter((type) => REPORT_OPTION_KEYS[type]);
+  const usesGrouping = selectedTypes.some((type) => PERIOD_REPORT_TYPES.includes(type));
   const [chipError, setChipError] = useState<string | null>(null);
   const save = useSaveMutation({ endpoint: ENDPOINT, id: record?.id ?? null, entity: t('Scheduled report'), onSaved: () => onOpenChange(false) });
   const recipientsError = form.formState.errors.recipients;
@@ -118,15 +145,34 @@ function ScheduleForm({ record, open, onOpenChange }: MasterFormProps<ReportSche
           format: v.format,
           recipients: v.recipients,
           isActive: v.isActive,
+          options: scheduleOptionsPayload(v.reportTypes, options, REPORT_OPTION_KEYS),
         });
       })}
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <TextField form={form} name="name" label={t('Name')} required className="sm:col-span-2" placeholder={t('e.g. Daily fleet summary')} />
         <MultiSelectField form={form} name="reportTypes" label={t('Reports')} required options={TYPE_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))} placeholder={t('Choose reports…')} className="sm:col-span-2" />
-        <SelectField form={form} name="period" label={t('Summary grouping')} options={PERIOD_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))} hint={t('Used by the Summary report')} />
+        <SelectField
+          form={form}
+          name="period"
+          label={t('Group rows by')}
+          options={PERIOD_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))}
+          hint={usesGrouping ? t('Used by the Summary, Distance and Engine hours reports') : t('Only the Summary, Distance and Engine hours reports use this')}
+        />
         <SelectField form={form} name="format" label={t('File format')} required options={FORMATS.map((o) => ({ ...o, label: t(o.label) }))} />
       </div>
+      {optionTypes.length > 0 && (
+        <fieldset className="space-y-3 rounded-lg border p-3">
+          <legend className="px-1 text-sm font-medium">{t('Report options')}</legend>
+          <p className="-mt-1 text-xs text-muted-foreground">{t('Saved with the schedule and used every time it runs. Leave a field empty for the default.')}</p>
+          {optionTypes.map((type) => (
+            <div key={type} className="space-y-1.5">
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t(REPORT_DEF_MAP[type].label)}</p>
+              <ReportOptionsFields idPrefix={`s-${type.toLowerCase()}`} type={type} value={options[type] ?? {}} onChange={(v) => setOptions((o) => ({ ...o, [type]: v }))} />
+            </div>
+          ))}
+        </fieldset>
+      )}
       <Controller control={form.control} name="scope" render={({ field }) => <ScopePicker value={field.value} onChange={field.onChange} />} />
       <p className="-mt-2 text-xs text-muted-foreground">{t('Leave empty to include every vehicle the owner can access when the report runs.')}</p>
       <div className="grid gap-4 sm:grid-cols-3">

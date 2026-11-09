@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import {
   PERIOD_REPORT_TYPES,
   POSITIONS_REPORT_MAX_DAYS,
+  REPORT_OPTION_KEYS,
   SINGLE_OBJECT_REPORT_TYPES,
   type ReportFormat,
   type ReportOptions,
@@ -11,9 +12,8 @@ import {
   type ReportResponse,
   type ReportScope,
   type ReportType,
-  type SummaryReportRow,
 } from '@veetracer/shared';
-import { CalendarClockIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, PlayIcon, TableIcon } from 'lucide-react';
+import { CalendarClockIcon, CalendarPlusIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, GlobeIcon, PlayIcon, TableIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -30,51 +30,28 @@ import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { DatePresets } from './DatePresets';
+import { presetRange } from './date-presets';
 import { downloadFile } from './download';
-import { REPORT_CATEGORIES, REPORT_DEF_MAP, REPORT_DEFS, type Row } from './report-columns';
-import { daySpan, periodLabel, toDateInput } from './report-format';
+import { rowMatches, type InsightFilter } from './insights';
+import { PERIOD_OPTIONS } from './period-options';
+import { CatalogList, CatalogSheetButton, useCatalogPrefs } from './ReportCatalog';
+import { REPORT_DEF_MAP, REPORT_DEFS, type ReportTypeDef, type Row } from './report-columns';
+import { daySpan, periodLabel } from './report-format';
+import { getReportTimeZone, reportZoneLabel, todayInZone } from './report-time';
+import { filterLabel, ReportInsights } from './ReportInsights';
 import { optionsFor, ReportOptionsFields } from './ReportOptionsFields';
 import { ReportTable } from './ReportTable';
+import { prefillFromRun } from './schedule-options';
+import { ScheduleForm, type SchedulePrefill } from './ScheduledReportsPage';
 import { EMPTY_SCOPE, ScopePicker } from './ScopePicker';
-import { SummaryCharts } from './SummaryCharts';
 
-export const PERIOD_OPTIONS: { value: ReportPeriod; label: string }[] = [
-  { value: 'DAY', label: 'Daily' },
-  { value: 'WEEK', label: 'Weekly (Mon–Sun)' },
-  { value: 'MONTH', label: 'Monthly' },
-];
+export { PERIOD_OPTIONS };
 
 const FORMATS: { format: ReportFormat; label: string; icon: typeof FileTextIcon }[] = [
   { format: 'XLSX', label: 'Excel', icon: FileSpreadsheetIcon },
   { format: 'PDF', label: 'PDF', icon: FileTextIcon },
   { format: 'CSV', label: 'CSV', icon: DownloadIcon },
-];
-
-function addDays(d: Date, n: number) {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
-}
-
-/** Ranges end today by default: fleets look at today's activity first (today's figures grow until midnight). */
-const DATE_PRESETS: { label: string; range: () => [string, string] }[] = [
-  { label: 'Today', range: () => [toDateInput(new Date()), toDateInput(new Date())] },
-  { label: 'Yesterday', range: () => [toDateInput(addDays(new Date(), -1)), toDateInput(addDays(new Date(), -1))] },
-  { label: 'Last 7 days', range: () => [toDateInput(addDays(new Date(), -6)), toDateInput(new Date())] },
-  {
-    label: 'This month',
-    range: () => {
-      const n = new Date();
-      return [toDateInput(new Date(n.getFullYear(), n.getMonth(), 1)), toDateInput(n)];
-    },
-  },
-  {
-    label: 'Last month',
-    range: () => {
-      const n = new Date();
-      return [toDateInput(new Date(n.getFullYear(), n.getMonth() - 1, 1)), toDateInput(new Date(n.getFullYear(), n.getMonth(), 0))];
-    },
-  },
 ];
 
 export function ReportsPage() {
@@ -85,12 +62,19 @@ export function ReportsPage() {
     const wanted = new URLSearchParams(window.location.search).get('type');
     return REPORT_DEFS.some((d) => d.type === wanted) ? (wanted as ReportType) : 'SUMMARY';
   });
-  const visible = (d: { category: string }) => d.category !== 'Staff attendance' || can('attendance');
+  const [visible] = useState(() => (d: ReportTypeDef) => d.category !== 'Staff attendance' || can('attendance'));
+  const prefs = useCatalogPrefs();
+  // Report periods are company days, so "today" and the presets use the company's calendar (D-1).
+  const today = todayInZone();
+  const zoneName = getReportTimeZone();
+  const zoneLabel = reportZoneLabel();
   const [scope, setScope] = useState<ReportScope>(EMPTY_SCOPE);
-  const [[from, to], setDates] = useState<[string, string]>(DATE_PRESETS[2].range);
+  const [[from, to], setDates] = useState<[string, string]>(() => presetRange('last7', today));
   const [period, setPeriod] = useState<ReportPeriod>('DAY');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
   const [options, setOptions] = useState<ReportOptions>({});
+  const [filter, setFilter] = useState<InsightFilter | null>(null);
+  const [schedulePrefill, setSchedulePrefill] = useState<SchedulePrefill | null>(null);
 
   const usesPeriod = PERIOD_REPORT_TYPES.includes(type);
   const singleVehicle = SINGLE_OBJECT_REPORT_TYPES.includes(type);
@@ -110,10 +94,13 @@ export function ReportsPage() {
   const run = useMutation({
     // The API also returns `truncated` / `totalRows` (beyond the shared ReportResponse) when rows exceed 10,000.
     mutationFn: (req: ReportRequest) => api.post<ReportResponse<Row> & { truncated?: boolean; totalRows?: number }>('/reports/run', req).then((res) => ({ req, res })),
+    onMutate: () => setFilter(null),
+    onSuccess: ({ req }) => prefs.addRecent({ type: req.type, from: req.from, to: req.to }),
     onError: (err) => toast.error(errorMessage(err)),
   });
   const result = run.data;
   const def = result ? REPORT_DEF_MAP[result.req.type] : null;
+  const truncated = !!result && (!!result.res.truncated || (result.res.totalRows === undefined && result.res.rows.length >= 10_000));
 
   const exportAs = async (format: ReportFormat) => {
     if (!result) return;
@@ -132,6 +119,11 @@ export function ReportsPage() {
     }
   };
 
+  const selectType = (next: ReportType, range?: [string, string]) => {
+    setType(next);
+    if (range) setDates(range);
+  };
+
   const current = REPORT_DEF_MAP[type];
   const CurrentIcon = current.icon;
   const scheduleLink = can('report_schedules') && (
@@ -141,43 +133,20 @@ export function ReportsPage() {
       </Link>
     </Button>
   );
+  const catalogProps = { value: type, onSelect: selectType, visible, favourites: prefs.favourites, recents: prefs.recents, onToggleFavourite: prefs.toggleFav };
+  const canSchedule = !!result && can('report_schedules', 'create') && !SINGLE_OBJECT_REPORT_TYPES.includes(result.req.type);
+  const zoneText = zoneName ? t('Times in {{zone}} ({{name}}), the company time zone', { zone: zoneLabel, name: zoneName }) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
-      {/* Report types: a sidebar on large screens, a drop-down on small ones. */}
-      <aside aria-label={t('Report types')} className="hidden w-64 shrink-0 flex-col border-r bg-card lg:flex">
+      {/* Report types: a searchable rail on large screens, a button + sheet on small ones. */}
+      <aside aria-label={t('Report types')} className="hidden w-72 shrink-0 flex-col border-r bg-card lg:flex">
         <div className="border-b px-4 py-4">
           <Breadcrumb className="mb-1" />
           <h1 className="text-lg font-bold tracking-tight">{t('Reports')}</h1>
           <p className="text-xs text-muted-foreground">{t('Run, view and download fleet reports.')}</p>
         </div>
-        <nav role="radiogroup" aria-label={t('Report type')} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-2">
-          {REPORT_CATEGORIES.map((category) => (
-            <div key={category} className="space-y-0.5">
-              <p className="px-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{t(category)}</p>
-              {REPORT_DEFS.filter((d) => d.category === category && visible(d)).map((d) => {
-                const active = d.type === type;
-                const Icon = d.icon;
-                return (
-                  <button
-                    key={d.type}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => setType(d.type)}
-                    className={cn(
-                      'flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
-                      active && 'bg-accent font-medium text-accent-foreground hover:bg-accent',
-                    )}
-                  >
-                    <Icon className={cn('size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
-                    {t(d.label)}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
+        <CatalogList {...catalogProps} />
         {scheduleLink && <div className="border-t p-3 [&_a]:w-full">{scheduleLink}</div>}
       </aside>
 
@@ -193,18 +162,7 @@ export function ReportsPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 lg:hidden">
-            <Select value={type} onValueChange={(v) => setType(v as ReportType)}>
-              <SelectTrigger className="w-56" aria-label={t('Report type')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {REPORT_DEFS.filter(visible).map((d) => (
-                  <SelectItem key={d.type} value={d.type}>
-                    {t(d.category)} · {t(d.label)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <CatalogSheetButton {...catalogProps} />
             {scheduleLink}
           </div>
         </div>
@@ -212,23 +170,13 @@ export function ReportsPage() {
         <Card className="gap-0 p-0">
           <div className="space-y-4 p-4">
             <ScopePicker value={scope} onChange={setScope} />
-            <div role="group" aria-label={t('Date presets')} className="flex flex-wrap gap-1.5">
-              {DATE_PRESETS.map((p) => {
-                const [a, b] = p.range();
-                const on = a === from && b === to;
-                return (
-                  <Button key={p.label} type="button" size="sm" variant={on ? 'secondary' : 'outline'} aria-pressed={on} onClick={() => setDates([a, b])} className={cn(on && 'border-primary/40 text-primary')}>
-                    {t(p.label)}
-                  </Button>
-                );
-              })}
-            </div>
+            <DatePresets from={from} to={to} today={today} onChange={setDates} />
             <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
               <Field label={t('From')} htmlFor="r-from">
                 <Input id="r-from" type="date" value={from} max={to || undefined} onChange={(e) => setDates([e.target.value, to])} className="sm:w-40" aria-invalid={!!rangeError} />
               </Field>
               <Field label={t('To')} htmlFor="r-to">
-                <Input id="r-to" type="date" value={to} min={from || undefined} max={toDateInput(new Date())} onChange={(e) => setDates([from, e.target.value])} className="sm:w-40" aria-invalid={!!rangeError} />
+                <Input id="r-to" type="date" value={to} min={from || undefined} max={today} onChange={(e) => setDates([from, e.target.value])} className="sm:w-40" aria-invalid={!!rangeError} />
               </Field>
               {usesPeriod && (
                 <Field label={t('Group by')} htmlFor="r-period" className="col-span-2 sm:w-44">
@@ -252,6 +200,7 @@ export function ReportsPage() {
           <div className="flex flex-col gap-2 border-t bg-muted/30 px-4 py-3 sm:flex-row sm:items-center">
             <p className={cn('flex-1 text-xs', inputError ? 'text-destructive' : 'text-muted-foreground')}>
               {inputError ?? t('Leave branches, groups and vehicles empty to include every vehicle you can access.')}
+              {!inputError && zoneName && <span className="block">{t('Dates are company days ({{zone}}).', { zone: zoneLabel })}</span>}
             </p>
             <Button onClick={() => run.mutate(request)} disabled={!!inputError || run.isPending} className="sm:w-36">
               {run.isPending ? <Spinner /> : <PlayIcon />} {t('Run report')}
@@ -271,32 +220,63 @@ export function ReportsPage() {
         {result && def && (
           <div className={cn('space-y-4', run.isPending && 'opacity-60 transition-opacity')}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
+              <div className="min-w-0">
                 <h2 className="text-lg font-semibold">{t('{{report}} report', { report: t(def.label) })}</h2>
                 <p className="text-sm text-muted-foreground">
                   {periodLabel(result.res.from)} – {periodLabel(result.res.to)}
                   {result.res.period ? ` · ${t(PERIOD_OPTIONS.find((p) => p.value === result.res.period)?.label ?? result.res.period)}` : ''} · {t('{{rows}} rows', { rows: (result.res.totalRows ?? result.res.rows.length).toLocaleString() })}
                 </p>
+                {zoneText && (
+                  <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                    <GlobeIcon className="size-3.5" /> {zoneText}
+                  </p>
+                )}
               </div>
-              {canExport && (
-                <div className="flex flex-wrap gap-2" role="group" aria-label={t('Download')}>
-                  {FORMATS.map((f) => (
-                    <Button key={f.format} variant="outline" size="sm" onClick={() => exportAs(f.format)} disabled={!!exporting}>
-                      {exporting === f.format ? <Spinner /> : <f.icon />} {f.label}
-                    </Button>
-                  ))}
-                </div>
-              )}
+              <div className="flex flex-wrap gap-2">
+                {canSchedule && (
+                  <Button variant="outline" size="sm" onClick={() => setSchedulePrefill(prefillFromRun(result.req, t('{{report}} report', { report: t(def.label) }), REPORT_OPTION_KEYS) as SchedulePrefill)}>
+                    <CalendarPlusIcon /> {t('Schedule this')}
+                  </Button>
+                )}
+                {canExport && (
+                  <div className="flex flex-wrap gap-2" role="group" aria-label={t('Download')}>
+                    {FORMATS.map((f) => (
+                      <Button key={f.format} variant="outline" size="sm" onClick={() => exportAs(f.format)} disabled={!!exporting}>
+                        {exporting === f.format ? <Spinner /> : <f.icon />} {f.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            {result.req.type === 'SUMMARY' && <SummaryCharts rows={result.res.rows as unknown as SummaryReportRow[]} />}
-            <Card className="overflow-hidden">
+            <ReportInsights
+              key={`insights-${run.submittedAt}`}
+              type={result.req.type}
+              rows={result.res.rows}
+              totals={result.res.totals}
+              from={result.res.from}
+              to={result.res.to}
+              truncated={truncated}
+              totalRows={result.res.totalRows ?? result.res.rows.length}
+              filter={filter}
+              onFilter={setFilter}
+            />
+            <Card className="gap-0 overflow-hidden p-0">
               {result.res.rows.length ? (
-                <ReportTable key={`${result.req.type}-${run.submittedAt}`} columns={def.columns} rows={result.res.rows} totals={result.res.totals} />
+                <ReportTable
+                  key={`${result.req.type}-${run.submittedAt}`}
+                  type={result.req.type}
+                  columns={def.columns}
+                  rows={result.res.rows}
+                  totals={result.res.totals}
+                  drill={def.drill}
+                  filter={filter ? { label: filterLabel(filter, t), test: (r) => rowMatches(result.req.type, r, filter, getReportTimeZone()), onClear: () => setFilter(null) } : null}
+                />
               ) : (
                 <EmptyState icon={TableIcon} title={t('No data for this selection')} description={t('Try a longer period or a wider scope.')} />
               )}
             </Card>
-            {(result.res.truncated || (result.res.totalRows === undefined && result.res.rows.length >= 10_000)) && (
+            {truncated && (
               <p className="text-xs text-warning">
                 {result.res.totalRows
                   ? t('Showing the first {{shown}} rows of {{total}}; totals cover every row. Download the report or narrow the selection for the rest.', {
@@ -315,6 +295,7 @@ export function ReportsPage() {
           </Card>
         )}
       </div>
+      {schedulePrefill && <ScheduleForm record={null} open prefill={schedulePrefill} onOpenChange={(o) => !o && setSchedulePrefill(null)} />}
     </div>
   );
 }
