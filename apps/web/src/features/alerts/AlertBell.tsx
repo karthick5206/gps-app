@@ -1,4 +1,6 @@
-import type { AlertDto } from '@veetracer/shared';
+import { useQuery } from '@tanstack/react-query';
+import { ENGINE_STOP_MAX_FIX_AGE_SEC, ENGINE_STOP_MAX_SPEED_KPH, type AlertDto, type AvailableCommand } from '@veetracer/shared';
+import { PowerOffIcon } from 'lucide-react';
 import { BellIcon, CheckCheckIcon, MailOpenIcon, MapPinIcon, MonitorIcon, MonitorOffIcon, PanelTopIcon, PanelTopDashedIcon, ShieldAlertIcon, Volume2Icon, VolumeXIcon, MegaphoneIcon, MegaphoneOffIcon } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -12,7 +14,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useAuth } from '@/features/auth/auth-context';
-import { errorMessage } from '@/lib/api';
+import { EngineStopDialog } from '@/features/live/EngineStopDialog';
+import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { alertCenter, alertTitle } from './alert-center';
@@ -122,8 +125,21 @@ function CriticalAlertModal() {
   const current = critical[0];
   // Power cut can be configured not to need acknowledgement: then the pop-up only offers View / Dismiss.
   const canAck = can('alerts', 'edit') && !!current?.ackRequired;
+  // Parking-mode breach (possible theft): offer the two-step engine stop. Nothing is sent automatically.
+  const [immobilise, setImmobilise] = useState(false);
+  const breach = current?.type === 'PARKING_BREACH' && can('live_map', 'command');
+  const commands = useQuery({
+    queryKey: ['commands-available', current?.objectId],
+    queryFn: ({ signal }) => api.get<AvailableCommand[]>(`/objects/${current!.objectId}/commands/available`, undefined, signal),
+    enabled: breach,
+    staleTime: 5 * 60_000,
+  });
+  const canImmobilise = breach && !!commands.data?.some((c) => c.type === 'engine_stop');
 
-  useEffect(() => setNote(''), [current?.id]);
+  useEffect(() => {
+    setNote('');
+    setImmobilise(false);
+  }, [current?.id]);
 
   if (!current) return null;
 
@@ -156,6 +172,7 @@ function CriticalAlertModal() {
   };
 
   return (
+    <>
     <Dialog open>
       <DialogContent
         hideClose
@@ -208,6 +225,11 @@ function CriticalAlertModal() {
           {canAck && <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('Note (optional) — what action was taken?')} className="min-h-16" aria-label={t('Acknowledgement note')} />}
         </div>
         <DialogFooter className="flex-wrap">
+          {canImmobilise && (
+            <Button variant="outline" className="border-destructive/40 text-destructive" onClick={() => setImmobilise(true)}>
+              <PowerOffIcon /> {t('Immobilise…')}
+            </Button>
+          )}
           {canAck ? (
             <>
               {critical.length > 1 && (
@@ -236,6 +258,19 @@ function CriticalAlertModal() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {canImmobilise && (
+      <EngineStopDialog
+        objectId={current.objectId}
+        objectName={vehicleLabel(current)}
+        open={immobilise}
+        onClose={() => setImmobilise(false)}
+        context={t('Parking-mode breach. The tracker is first asked for its position now; engine stop is only possible if the vehicle is online, at or below {{max}} km/h, with a position from the last {{age}} s. Nothing is sent automatically.', {
+          max: ENGINE_STOP_MAX_SPEED_KPH,
+          age: ENGINE_STOP_MAX_FIX_AGE_SEC,
+        })}
+      />
+    )}
+    </>
   );
 }
 
