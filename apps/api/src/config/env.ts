@@ -74,6 +74,18 @@ export function loadEnv(): AppEnv {
   return cached;
 }
 
+/**
+ * Which outbound channels really deliver. Outside production the dev echo/console stands in for both; in production
+ * a missing provider means users would wait for a code or link that never arrives, so callers refuse clearly instead.
+ */
+export function deliveryChannels(raw: NodeJS.ProcessEnv = process.env): { sms: boolean; email: boolean } {
+  if (raw.NODE_ENV !== 'production') return { sms: true, email: true };
+  return {
+    sms: !!raw.SMS_PROVIDER && raw.SMS_PROVIDER !== 'console',
+    email: !!raw.SMTP_URL || !!raw.ZOHO_MAIL_KEY,
+  };
+}
+
 /** Production misconfigurations that do not stop the server but mean messages are not delivered. */
 export function productionWarnings(raw: NodeJS.ProcessEnv): string[] {
   const out: string[] = [];

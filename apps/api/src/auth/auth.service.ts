@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { User } from '@prisma/client';
@@ -14,7 +15,7 @@ import { AuthContextService } from '../access/auth-context.service';
 import { AuditService } from '../audit/audit.service';
 import { hashPassword, hmac, randomToken, sha256, verifyPassword } from '../common/secrets';
 import { APP_ENV } from '../config/config.module';
-import { AppEnv } from '../config/env';
+import { AppEnv, deliveryChannels } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
@@ -29,6 +30,8 @@ const OTP_TTL_MS = 5 * 60_000;
 const OTP_RESEND_MS = 30_000;
 const OTP_MAX_ATTEMPTS = 5;
 const RESET_TTL_MS = 30 * 60_000;
+const OTP_UNAVAILABLE = 'Sign-in with an SMS code is not available right now. Sign in with your e-mail and password, or ask your administrator.';
+const RESET_UNAVAILABLE = 'Password reset by e-mail is not available right now. Ask your administrator to set a temporary password for you.';
 
 type UserWithCompany = User & { company: { status: string } };
 
@@ -71,6 +74,8 @@ export class AuthService {
   }
 
   async requestOtp(mobile: string): Promise<{ ok: true; devCode?: string }> {
+    // No SMS provider in production: say so (same answer for every number, so accounts cannot be discovered).
+    if (!deliveryChannels().sms) throw new ServiceUnavailableException(OTP_UNAVAILABLE);
     const recent = await this.prisma.otpCode.findFirst({ where: { mobile }, orderBy: { createdAt: 'desc' } });
     if (recent && Date.now() - recent.createdAt.getTime() < OTP_RESEND_MS) {
       throw new HttpException('Please wait 30 seconds before requesting another code', HttpStatus.TOO_MANY_REQUESTS);
@@ -123,6 +128,8 @@ export class AuthService {
   }
 
   async forgotPassword(emailInput: string): Promise<{ ok: true; devLink?: string }> {
+    // No mail provider in production: say so (same answer for every address, so accounts cannot be discovered).
+    if (!deliveryChannels().email) throw new ServiceUnavailableException(RESET_UNAVAILABLE);
     const email = emailInput.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, name: true, isActive: true, companyId: true } });
     if (!user?.isActive) return { ok: true };

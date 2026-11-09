@@ -1,4 +1,4 @@
-import { assertProductionSafe, productionWarnings } from './env';
+import { assertProductionSafe, deliveryChannels, productionWarnings } from './env';
 
 /** R-02 / R-28: production must refuse dev echo and example secrets, and warn about undelivered messages. */
 describe('production environment checks', () => {
@@ -24,6 +24,14 @@ describe('production environment checks', () => {
     expect(w.join('\n')).toMatch(/WEBHOOK_ALLOW_PRIVATE/);
     expect(w.join('\n')).toMatch(/RELAY_ALLOW_PRIVATE/);
     expect(w.join('\n')).toMatch(/MAIL_KEEP_COPIES/);
+  });
+
+  it('deliveryChannels: dev always delivers (echo); production needs real providers', () => {
+    expect(deliveryChannels({})).toEqual({ sms: true, email: true });
+    expect(deliveryChannels({ NODE_ENV: 'production' })).toEqual({ sms: false, email: false });
+    expect(deliveryChannels({ NODE_ENV: 'production', SMS_PROVIDER: 'console' })).toEqual({ sms: false, email: false });
+    expect(deliveryChannels({ NODE_ENV: 'production', SMS_PROVIDER: 'smartping', ZOHO_MAIL_KEY: 'k' })).toEqual({ sms: true, email: true });
+    expect(deliveryChannels({ NODE_ENV: 'production', SMTP_URL: 'smtps://x' })).toEqual({ sms: false, email: true });
   });
 
   it('no warnings when real providers are configured', () => {
