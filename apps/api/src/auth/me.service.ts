@@ -16,9 +16,10 @@ export class MeService {
   constructor(private readonly prisma: PrismaService) {}
 
   async build(ctx: AuthContext): Promise<Me> {
-    const [user, company] = await Promise.all([
+    const [user, company, partner] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: ctx.userId } }),
       this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId } }),
+      this.prisma.partner.findUnique({ where: { homeCompanyId: ctx.companyId }, select: { id: true, name: true } }),
     ]);
     const { theme, language, textSize, mapIconSize } = asRecord(user.preferences);
     const size = (v: unknown): DisplaySize => (DISPLAY_SIZES.includes(v as DisplaySize) ? (v as DisplaySize) : 'normal');
@@ -39,6 +40,7 @@ export class MeService {
       company: toCompanySummary(company),
       permissions: ctx.permissions,
       dataScope: ctx.dataScope,
+      partner,
     };
   }
 

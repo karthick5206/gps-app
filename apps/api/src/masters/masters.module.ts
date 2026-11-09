@@ -57,6 +57,6 @@ import { VehicleGroupsService } from './vehicle-groups/vehicle-groups.service';
     CompaniesService,
     SettingsService,
   ],
-  exports: [ObjectsService],
+  exports: [ObjectsService, AdminDevicesService],
 })
 export class MastersModule {}
