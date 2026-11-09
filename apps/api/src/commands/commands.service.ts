@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { DeviceCommand, Prisma } from '@prisma/client';
 import {
   API_CRITICAL_COMMANDS,
@@ -13,10 +14,19 @@ import {
   CommandType,
   CommandUpdate,
   engineStopBlockReason,
+  ENGINE_STOP_PREPARE_MAX_PER_USER,
+  ENGINE_STOP_PREPARE_MAX_PER_VEHICLE,
+  ENGINE_STOP_PREPARE_WINDOW_SEC,
+  ENGINE_STOP_PROBE_COMMANDS,
+  EngineStopPrepareRequest,
+  EngineStopPrepareResponse,
+  freshPositionReason,
   isSafetyCriticalDispatch,
+  NO_QUEUE_NOT_DELIVERED,
   PROTOCOL_COMMANDS,
   SendCommandRequest,
 } from '@veetracer/shared';
+import { PREPARE_NOT_CONNECTED, PREPARE_STATE_TTL_SEC, PrepareState, prepareVerdict } from './engine-stop-prepare';
 import { hasPermission, allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
@@ -107,6 +117,9 @@ export class CommandsService implements OnModuleInit {
     if (!cmd) throw new BadRequestException(`"${COMMAND_DEF_MAP[req.type]?.label ?? req.type}" is not supported by this tracker`);
     const text = req.type === 'custom' ? (req.text ?? '').trim() : cmd.payload;
     if (!text) throw new BadRequestException('Enter the command text');
+    if (req.prepareRequestId && (req.type !== 'engine_stop' || ctx.apiKey)) {
+      throw new BadRequestException('A fresh-position confirmation only applies to engine stop sent by a signed-in user');
+    }
 
     // Customer API keys: no raw commands; engine stop / restore only with the explicit critical scope.
     if (ctx.apiKey) {
@@ -122,6 +135,8 @@ export class CommandsService implements OnModuleInit {
       if (!user?.passwordHash) throw new ForbiddenException('Set a password on your account to send this command');
       if (!req.password || !(await verifyPassword(req.password, user.passwordHash))) throw new ForbiddenException('Password is incorrect');
       await this.assertEngineStopSafe(t);
+      // Additional (never replacing) check when the user confirmed a fresh position from the preparation step.
+      if (req.prepareRequestId) await this.consumePrepare(ctx, t, req.prepareRequestId);
     }
 
     const row = await this.prisma.deviceCommand.create({
@@ -136,7 +151,7 @@ export class CommandsService implements OnModuleInit {
         expiresAt: new Date(Date.now() + COMMAND_TTL_HOURS * 3600_000),
       },
     });
-    await this.audit.record({ ...ctx, companyId: t.companyId }, { action: 'CREATE', entity: 'DeviceCommand', entityId: row.id, after: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, type: req.type, payload: text, ...(ctx.apiKey ? { apiKey: ctx.apiKey.name, apiKeyId: ctx.apiKey.id } : {}) } });
+    await this.audit.record({ ...ctx, companyId: t.companyId }, { action: 'CREATE', entity: 'DeviceCommand', entityId: row.id, after: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, type: req.type, payload: text, ...(req.prepareRequestId ? { prepareRequestId: req.prepareRequestId } : {}), ...(ctx.apiKey ? { apiKey: ctx.apiKey.name, apiKeyId: ctx.apiKey.id } : {}) } });
     const delivered = await this.dispatch({ commandId: row.id, uniqueId: t.uniqueId, text, ...(cmd.critical ? { critical: true, issuedAt: new Date().toISOString() } : {}) });
     this.logger.log(`${ctx.userId} → ${t.uniqueId} ${req.type} "${text}" (${row.id})${delivered ? '' : cmd.critical ? ' NOT SENT (tracker not connected)' : ' queued'}`);
     if (!delivered && cmd.critical) {
@@ -146,6 +161,147 @@ export class CommandsService implements OnModuleInit {
       return (await this.toDtos([failed]))[0];
     }
     return (await this.toDtos([row]))[0];
+  }
+
+  // ── Engine-stop preparation: "request a fresh position, then confirm" (anti-theft proposal, Option 1) ──
+
+  /**
+   * Starts (no `requestId`) or polls (`requestId`) an engine-stop preparation. Starting sends the protocol's position
+   * request to a tracker that is CONNECTED right now (never queued) and records it; polling reports whether a fresh
+   * position (received after the request, valid GPS fix) has arrived and whether the unchanged engine-stop rules allow
+   * a stop with it. It never sends, queues or authorises the engine stop itself.
+   */
+  async prepareEngineStop(ctx: AuthContext, objectId: string, req: EngineStopPrepareRequest): Promise<EngineStopPrepareResponse> {
+    if (ctx.apiKey) throw new ForbiddenException('The fresh-position step is for signed-in users. API keys send engine stop directly (all safety rules apply).');
+    const t = await this.target(ctx, objectId);
+    if (!this.catalogue(ctx, t).some((c) => c.type === 'engine_stop')) throw new BadRequestException('"Stop engine" is not supported by this tracker');
+    const actor = { ...ctx, companyId: t.companyId };
+
+    if (req.requestId) {
+      const state = await this.loadPrepare(req.requestId);
+      if (!state || state.userId !== ctx.userId || state.objectId !== t.objectId) throw new NotFoundException('This position request has expired. Request a fresh position again.');
+      return this.evaluatePrepare(actor, t, state);
+    }
+
+    const probeText = ENGINE_STOP_PROBE_COMMANDS[t.protocol];
+    if (!probeText) throw new BadRequestException('This tracker type has no position request for engine stop.');
+    // Connected right now? Otherwise nothing is sent and nothing is kept for later (engine stop is never queued).
+    if (!(await this.redis.client.get(RedisKeys.connection(t.uniqueId)))) {
+      await this.audit.record(actor, { action: 'CREATE', entity: 'EngineStopPrepare', entityId: null, details: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, result: 'not_connected' } });
+      return { requestId: null, status: 'not_connected', requestedAt: null, message: PREPARE_NOT_CONNECTED, blockReason: PREPARE_NOT_CONNECTED, freshPosition: null, confirmBy: null };
+    }
+    await this.limitPrepare(actor, t);
+
+    const requestId = randomUUID();
+    // Recorded before the request goes out, so a position can only count if the processor received it afterwards.
+    const requestedAt = new Date();
+    const row = await this.prisma.deviceCommand.create({
+      data: {
+        companyId: t.companyId,
+        objectId: t.objectId,
+        deviceId: t.deviceId,
+        uniqueId: t.uniqueId,
+        type: 'locate',
+        payload: probeText,
+        createdById: ctx.userId,
+        expiresAt: new Date(requestedAt.getTime() + COMMAND_TTL_HOURS * 3600_000),
+      },
+    });
+    const state: PrepareState = { requestId, userId: ctx.userId, objectId: t.objectId, companyId: t.companyId, uniqueId: t.uniqueId, commandId: row.id, requestedAt: requestedAt.toISOString() };
+    await this.redis.client.set(RedisKeys.engineStopPrepare(requestId), JSON.stringify(state), 'EX', PREPARE_STATE_TTL_SEC);
+    await this.audit.record(actor, {
+      action: 'CREATE',
+      entity: 'EngineStopPrepare',
+      entityId: requestId,
+      details: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, commandId: row.id, payload: probeText, requestedAt: state.requestedAt, result: 'requested' },
+    });
+    const delivered = await this.dispatch({ commandId: row.id, uniqueId: t.uniqueId, text: probeText, noQueue: true });
+    this.logger.log(`${ctx.userId} → ${t.uniqueId} engine-stop position request "${probeText}" (${requestId})${delivered ? '' : ' NOT SENT (tracker not connected)'}`);
+    if (!delivered) {
+      await this.prisma.deviceCommand.update({ where: { id: row.id }, data: { status: 'FAILED', error: NO_QUEUE_NOT_DELIVERED } });
+    }
+    return this.evaluatePrepare(actor, t, state, delivered ? null : 'FAILED');
+  }
+
+  private async loadPrepare(requestId: string): Promise<PrepareState | null> {
+    if (!/^[0-9a-f-]{36}$/i.test(requestId)) return null;
+    const json = await this.redis.client.get(RedisKeys.engineStopPrepare(requestId));
+    try {
+      return json ? (JSON.parse(json) as PrepareState) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Position requests per user+vehicle and per vehicle (battery / data of the tracker; abuse). */
+  private async limitPrepare(actor: AuthContext, t: Target): Promise<void> {
+    const limits: [string, number][] = [
+      [RedisKeys.engineStopPrepareRateUser(t.objectId, actor.userId), ENGINE_STOP_PREPARE_MAX_PER_USER],
+      [RedisKeys.engineStopPrepareRateVehicle(t.objectId), ENGINE_STOP_PREPARE_MAX_PER_VEHICLE],
+    ];
+    for (const [key, max] of limits) {
+      const count = Number(await this.redis.client.incr(key));
+      if (count === 1) await this.redis.client.expire(key, ENGINE_STOP_PREPARE_WINDOW_SEC);
+      if (count > max) {
+        await this.audit.record(actor, { action: 'CREATE', entity: 'EngineStopPrepare', entityId: null, details: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, result: 'rate_limited' } });
+        throw new HttpException(
+          `Too many position requests for this vehicle. Wait up to ${ENGINE_STOP_PREPARE_WINDOW_SEC / 60} minutes and try again.`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+  }
+
+  /** Current verdict; every change of outcome (ready / blocked / timeout / not_connected) is written to the audit trail. */
+  private async evaluatePrepare(actor: AuthContext, t: Target, state: PrepareState, probeStatus?: 'FAILED' | null): Promise<EngineStopPrepareResponse> {
+    const now = Date.now();
+    let status = probeStatus;
+    if (status === undefined) {
+      const row = await this.prisma.deviceCommand.findUnique({ where: { id: state.commandId }, select: { status: true } });
+      const update = await this.redis.client.get(RedisKeys.commandState(state.commandId));
+      const failed = row?.status === 'FAILED' || (update ? (JSON.parse(update) as CommandUpdate).status === 'FAILED' : false);
+      status = failed ? 'FAILED' : null;
+    }
+    const live = (await this.liveState.read([t.objectId])).get(t.objectId);
+    let verdict = prepareVerdict(state, live, status, now);
+    // A timeout / disconnection is final: a position arriving later doesn't revive this request.
+    if ((state.outcome === 'timeout' || state.outcome === 'not_connected') && verdict.status !== state.outcome) {
+      verdict = prepareVerdict(state, null, state.outcome === 'not_connected' ? 'FAILED' : null, Number.POSITIVE_INFINITY);
+    }
+    if (verdict.status !== 'waiting' && verdict.status !== state.outcome) {
+      state.outcome = verdict.status;
+      await this.redis.client.set(RedisKeys.engineStopPrepare(state.requestId), JSON.stringify(state), 'KEEPTTL');
+      await this.audit.record(actor, {
+        action: 'UPDATE',
+        entity: 'EngineStopPrepare',
+        entityId: state.requestId,
+        details: {
+          objectId: t.objectId,
+          vehicle: t.name,
+          uniqueId: t.uniqueId,
+          result: verdict.status,
+          ...(verdict.blockReason ? { reason: verdict.blockReason } : {}),
+          ...(verdict.freshPosition ? { position: { ...verdict.freshPosition } } : {}),
+        },
+      });
+    }
+    return verdict;
+  }
+
+  /**
+   * Final send with a confirmed preparation: the preparation must be this user's, for this vehicle, still hold a fresh
+   * position and not have been used before (single use). Runs AFTER the unchanged engine-stop checks, never instead.
+   */
+  private async consumePrepare(ctx: AuthContext, t: Target, requestId: string): Promise<void> {
+    const state = await this.loadPrepare(requestId);
+    if (!state || state.userId !== ctx.userId || state.objectId !== t.objectId) {
+      throw new BadRequestException('The fresh-position check has expired. Request a fresh position again.');
+    }
+    const live = (await this.liveState.read([t.objectId])).get(t.objectId);
+    const reason = freshPositionReason(live, Date.parse(state.requestedAt), Date.now());
+    if (reason) throw new BadRequestException(`The confirmed position is no longer current: ${reason} Request a fresh position again.`);
+    const first = await this.redis.client.set(RedisKeys.engineStopPrepareUsed(requestId), ctx.userId, 'EX', PREPARE_STATE_TTL_SEC, 'NX');
+    if (first !== 'OK') throw new ConflictException('This confirmation was already used. Request a fresh position again to send another engine stop.');
   }
 
   /**
@@ -198,7 +354,7 @@ export class CommandsService implements OnModuleInit {
     const json = JSON.stringify(d);
     const gatewayId = await this.redis.client.get(RedisKeys.connection(d.uniqueId));
     if (gatewayId && (await this.redis.client.publish(RedisKeys.commandChannel(gatewayId), json)) > 0) return true;
-    if (isSafetyCriticalDispatch(d)) return false;
+    if (isSafetyCriticalDispatch(d) || d.noQueue) return false;
     const key = RedisKeys.commandQueue(d.uniqueId);
     await this.redis.client.multi().rpush(key, json).expire(key, COMMAND_TTL_HOURS * 3600).exec();
     return false;

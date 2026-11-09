@@ -19,6 +19,12 @@ export const RedisKeys = {
   commandUpdates: 'vt:cmd:updates',
   /** Last update per command (JSON, 7 days), so the API can reconcile updates it missed while restarting. */
   commandState: (commandId: string) => `vt:cmd:state:${commandId}`,
+  /** Engine-stop preparation state (`PrepareState` JSON, 5 min) and its single-use marker. */
+  engineStopPrepare: (requestId: string) => `vt:estop:prep:${requestId}`,
+  engineStopPrepareUsed: (requestId: string) => `vt:estop:used:${requestId}`,
+  /** Engine-stop position requests per vehicle+user and per vehicle (rate limit counters). */
+  engineStopPrepareRateUser: (objectId: string, userId: string) => `vt:estop:rl:${objectId}:${userId}`,
+  engineStopPrepareRateVehicle: (objectId: string) => `vt:estop:rl:${objectId}`,
   loginFailures: (email: string) => `vt:auth:fail:${email}`,
   // ── Video (JT/T 1078) ──
   /** Pub/sub: video signalling requests for the dashcams connected to one gateway (`VideoGatewayRequest`). */
