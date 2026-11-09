@@ -31,6 +31,7 @@ export * from './smart-search';
 export * from './driver-score';
 export * from './attendance';
 export * from './attendance-insights';
+export * from './stock';
 export * from './vehicle-shares';
 export * from './dms';
 export * from './expenses';

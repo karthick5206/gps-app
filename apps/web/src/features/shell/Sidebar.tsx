@@ -29,7 +29,8 @@ export function Sidebar({
   const { t } = useTranslation();
   const me = useMe();
   const personal = me.company.accountType !== 'BUSINESS';
-  const groups = useMemo(() => buildNav(me.permissions, personal), [me.permissions, personal]);
+  const reseller = !!me.partner;
+  const groups = useMemo(() => buildNav(me.permissions, personal, reseller), [me.permissions, personal, reseller]);
 
   return (
     <nav aria-label={t('Main navigation')} className={cn('flex h-full flex-col border-e bg-card text-foreground', className)}>

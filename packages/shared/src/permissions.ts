@@ -5,7 +5,7 @@
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'command'] as const;
 export type Action = (typeof ACTIONS)[number];
 
-export type MenuGroup = 'main' | 'people' | 'costs' | 'masters' | 'alerting' | 'admin' | 'platform';
+export type MenuGroup = 'main' | 'people' | 'costs' | 'masters' | 'alerting' | 'stock' | 'admin' | 'platform';
 
 export interface MenuDef {
   key: MenuKey;
@@ -15,6 +15,8 @@ export interface MenuDef {
   actions: readonly Action[];
   /** Only the single Super Admin can ever hold this menu. */
   superAdminOnly?: boolean;
+  /** Shown only to the platform and to resellers (partners); other companies never see it, whatever their role says. */
+  partnerOnly?: boolean;
 }
 
 export const MENU_KEYS = [
@@ -48,6 +50,7 @@ export const MENU_KEYS = [
   'settings',
   'api',
   'billing',
+  'stock',
   'sa_companies',
   'sa_device_models',
   'sa_device_inventory',
@@ -98,6 +101,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'billing', label: 'Billing & Licences', group: 'admin', path: '/admin/billing', actions: ['view', 'create', 'edit'] },
   { key: 'api', label: 'Developer API', group: 'admin', path: '/admin/developer-api', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'audit_log', label: 'Audit Log', group: 'admin', path: '/admin/audit-log', actions: ['view', 'export'] },
+  { key: 'stock', label: 'Stock & sales', group: 'stock', path: '/stock', actions: CRUD, partnerOnly: true },
   { key: 'sa_companies', label: 'Companies', group: 'platform', path: '/platform/companies', actions: CRUD, superAdminOnly: true },
   { key: 'sa_licences', label: 'Licences & Invoices', group: 'platform', path: '/platform/licences', actions: CRUD, superAdminOnly: true },
   { key: 'sa_device_models', label: 'Device Models', group: 'platform', path: '/platform/device-models', actions: CRUD, superAdminOnly: true },
