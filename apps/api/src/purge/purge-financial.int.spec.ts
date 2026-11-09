@@ -49,7 +49,11 @@ d('R-36 stop-gap on a real database', () => {
   beforeAll(async () => {
     await prisma.partner.create({ data: { id: ids.partner, name: `P ${run}`, slug: `p-${run}` } });
     await prisma.company.create({ data: { id: ids.home, partnerId: ids.partner, name: `Home ${run}`, isPlatform: true } });
-    await prisma.user.create({ data: { id: ids.sa, companyId: ids.home, name: 'SA', email: `sa-${run}@t.test`, isSuperAdmin: true } });
+    // Exactly one Super Admin may exist (unique index): reuse it on re-runs so the test is repeatable.
+    const existingSa = await prisma.user.findFirst({ where: { isSuperAdmin: true }, select: { id: true } });
+    if (existingSa) ids.sa = existingSa.id as typeof ids.sa;
+    else await prisma.user.create({ data: { id: ids.sa, companyId: ids.home, name: 'SA', email: `sa-${run}@t.test`, isSuperAdmin: true } });
+    (sa as unknown as { userId: string }).userId = ids.sa;
     // A business company with an invoice, a credit note, a paid order, a confirmed UPI claim.
     await prisma.company.create({ data: { id: ids.fin, partnerId: ids.partner, name: `Fin ${run}` } });
     await prisma.branch.create({ data: { companyId: ids.fin, name: 'Head Office' } });
