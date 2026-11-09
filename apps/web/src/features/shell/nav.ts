@@ -64,6 +64,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   sa_companies: Building2Icon,
   sa_device_models: BoxesIcon,
   sa_device_inventory: HardDriveIcon,
+  sa_inventory: WarehouseIcon,
   sa_unknown_devices: RadarIcon,
   sa_system_health: ActivityIcon,
   sa_relay: ShareIcon,
