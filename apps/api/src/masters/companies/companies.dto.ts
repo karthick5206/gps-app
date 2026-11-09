@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsEmail,
   IsIn,
   IsInt,
@@ -13,7 +14,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS } from '@veetracer/shared';
+import { COMPANY_FEATURES, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type CompanyFeature } from '@veetracer/shared';
 import { ListQueryDto } from '../../common/list-query';
 import { MOBILE_MESSAGE, MOBILE_PATTERN, PASSWORD_MESSAGE, PASSWORD_PATTERN } from '../../common/secrets';
 
@@ -36,6 +37,8 @@ export class CreateCompanyDto {
   @IsIn(ACCOUNT_TYPES) accountType!: AccountTypeValue;
   @IsOptional() @IsTimeZone() timezone?: string;
   @IsOptional() @IsInt() @Min(RETENTION_MIN_DAYS) @Max(RETENTION_MAX_DAYS) retentionDays?: number;
+  /** Add-ons switched on (Company.settings.features). */
+  @IsOptional() @IsArray() @IsIn(COMPANY_FEATURES, { each: true }) features?: CompanyFeature[];
   @ValidateNested() @Type(() => CompanyAdminDto) admin!: CompanyAdminDto;
 }
 
@@ -45,4 +48,6 @@ export class UpdateCompanyDto {
   @IsOptional() @IsTimeZone() timezone?: string;
   @IsOptional() @IsInt() @Min(RETENTION_MIN_DAYS) @Max(RETENTION_MAX_DAYS) retentionDays?: number;
   @IsOptional() @IsIn(['ACTIVE', 'SUSPENDED']) status?: 'ACTIVE' | 'SUSPENDED';
+  /** Add-ons switched on; replaces the whole list (Company.settings.features). */
+  @IsOptional() @IsArray() @IsIn(COMPANY_FEATURES, { each: true }) features?: CompanyFeature[];
 }

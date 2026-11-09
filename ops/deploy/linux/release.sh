@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# VeeTrax release on Linux: update the code, build, migrate, restart the services.
+#   bash release.sh            full release (server + web)
+#   bash release.sh --web-only rebuild the web app only (no restart)
+# Run as the 'veetrax' user from anywhere; it needs sudo only for systemctl restart.
+# NOT yet run on a real server: try it on a staging machine first.
+set -euo pipefail
+
+APP_DIR="${APP_DIR:-/opt/veetrax/app}"
+BRANCH="${BRANCH:-main}"
+SERVICES="veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer"
+cd "$APP_DIR"
+
+echo "== code ($BRANCH)"
+git fetch origin "$BRANCH"
+git merge --ff-only "origin/$BRANCH"
+git log --oneline -1
+
+if [[ "${1:-}" == "--web-only" ]]; then
+  npm run build:shared
+  npm run build -w @veetracer/web
+  echo "Web rebuilt; Caddy serves the new files at once."
+  exit 0
+fi
+
+echo "== build"
+npm ci --no-audit --no-fund
+npm run build:shared
+npm run build -w @veetracer/web
+(cd apps/api && npx prisma generate && npm run build)
+
+echo "== database"
+(cd apps/api && npx prisma migrate deploy && npm run db:seed)
+
+echo "== restart"
+sudo systemctl restart $SERVICES
+sleep 5
+systemctl --no-pager --lines=0 status $SERVICES | grep -E '●|Active:'

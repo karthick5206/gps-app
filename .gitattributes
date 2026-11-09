@@ -1,2 +1,6 @@
-# Shell scripts run in WSL/Linux: always LF
+# Linux deploy files must keep LF line endings even in a Windows checkout.
 *.sh text eol=lf
+*.service text eol=lf
+ops/deploy/docker/Dockerfile text eol=lf
+ops/deploy/docker/Caddyfile text eol=lf
+ops/deploy/docker/docker-compose.yml text eol=lf

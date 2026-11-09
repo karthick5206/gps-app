@@ -60,6 +60,14 @@ export interface AuthTokens {
   expiresIn: number; // seconds until access token expiry
 }
 
+/**
+ * Add-ons a Super Admin switches on per company (Platform → Companies → Edit), kept in Company.settings.features.
+ * attendanceInsightsPlus: Employee insights comparisons, patterns, day-span chart, 12-month trend, periods over 31 days
+ * and PNG / PDF download (the basic insights are always on).
+ */
+export const COMPANY_FEATURES = ['attendanceInsightsPlus'] as const;
+export type CompanyFeature = (typeof COMPANY_FEATURES)[number];
+
 export interface CompanySummary {
   id: string;
   name: string;
@@ -67,6 +75,8 @@ export interface CompanySummary {
   status: 'ACTIVE' | 'SUSPENDED';
   timezone: string;
   thresholds: StatusThresholds;
+  /** Add-ons switched on for this company (all of them for the platform company). */
+  features: CompanyFeature[];
 }
 
 export interface Me {

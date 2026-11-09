@@ -5,6 +5,7 @@ import { AuthContext } from '../../access/auth-context';
 import { ensureSystemRoles } from '../../access/system-roles';
 import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
+import { withFeatures } from '../../common/company-features';
 import { toCompanySummary } from '../../common/company-summary';
 import { iso } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
@@ -90,7 +91,7 @@ export class CompaniesService {
       const partner = await tx.partner.findUnique({ where: { slug: DEFAULT_PARTNER_SLUG } });
       if (!partner) throw new BadRequestException('Default partner missing — run the seed');
       const company = await tx.company.create({
-        data: { partnerId: partner.id, name: dto.name.trim(), accountType: dto.accountType, timezone: dto.timezone, retentionDays: dto.retentionDays },
+        data: { partnerId: partner.id, name: dto.name.trim(), accountType: dto.accountType, timezone: dto.timezone, retentionDays: dto.retentionDays, ...(dto.features ? { settings: withFeatures({}, dto.features) as Prisma.InputJsonValue } : {}) },
       });
       const roles = await ensureSystemRoles(tx, company.id);
       const branch = await tx.branch.create({ data: { companyId: company.id, name: 'Head Office' } });
@@ -118,13 +119,14 @@ export class CompaniesService {
 
   async update(ctx: AuthContext, id: string, dto: UpdateCompanyDto): Promise<CompanyDto> {
     const before = await this.find(id);
+    const { features, ...fields } = dto;
     const row = await this.prisma.company.update({
       where: { id },
-      data: { ...dto, name: dto.name?.trim() },
+      data: { ...fields, name: dto.name?.trim(), ...(features ? { settings: withFeatures(before.settings, features) as Prisma.InputJsonValue } : {}) },
       include: INCLUDE,
     });
     await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before, after: row });
-    if (dto.status && dto.status !== before.status) await this.redis.invalidateCache('company');
+    if ((dto.status && dto.status !== before.status) || features) await this.redis.invalidateCache('company');
     return toDto(row);
   }
 

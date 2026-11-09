@@ -40,11 +40,14 @@ import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { addDays, isDayKey, localDayKey, localMidnight, zonedTimeToUtc } from '../summarizer/tz';
 import { APP_ROOT } from '../config/env';
+import { companyFeatures } from '../common/company-features';
 import { stampSelfie } from './selfie-stamp';
 
 const JOB_LOCK = 'vt:attendance:lock';
 const RELEASE_LOCK = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
 const MAX_TIMESHEET_DAYS = 62;
+/** One person's timesheet (Employee insights: period, previous period, 12-month trend). Past days come from saved rows. */
+const MAX_PERSON_DAYS = 366;
 /** Finished days are saved hourly and refreshed this long, so phones that upload late are still counted. */
 const SAVE_DAYS_BACK = 3;
 const ALERT_CLAIM_SEC = 2 * 86_400;
@@ -385,15 +388,27 @@ export class AttendanceService {
     return { day, enabled: s.enabled, workingDay: s.days.includes(new Date(`${day}T12:00:00Z`).getUTCDay()), rows, counts, halfDays };
   }
 
-  /** Timesheet rows (person × day) for a date range (at most 62 days). */
-  async timesheet(ctx: AuthContext, from: string, to: string, branchId?: string, now = Date.now()): Promise<AttendanceRowDto[]> {
+  /**
+   * Timesheet rows (person × day) for a date range: at most 62 days for everyone, or 366 days for one person
+   * (`objectId`, Employee insights). Days past the limit are left out.
+   */
+  async timesheet(ctx: AuthContext, from: string, to: string, branchId?: string, now = Date.now(), objectId?: string): Promise<AttendanceRowDto[]> {
     if (!isDayKey(from) || !isDayKey(to) || from > to) throw new BadRequestException('Choose a valid date range');
     const s = await this.settings(ctx.companyId);
     if (!s.enabled) return [];
     const tz = await this.tz(ctx.companyId);
-    const staff = await this.staff(ctx.companyId, s, ctx, branchId);
+    let staff = await this.staff(ctx.companyId, s, ctx, branchId);
+    if (objectId && daysBetween(from, to) >= MAX_TIMESHEET_DAYS) {
+      const company = await this.prisma.company.findUnique({ where: { id: ctx.companyId }, select: { settings: true, isPlatform: true } });
+      if (!company || !companyFeatures(company).includes('attendanceInsightsPlus')) throw new ForbiddenException('Longer periods are part of Advanced attendance insights. Ask VeeTrax support to turn it on.');
+    }
+    if (objectId) {
+      staff = staff.filter((p) => p.id === objectId);
+      if (!staff.length) throw new NotFoundException('Staff member not found');
+    }
+    const limit = objectId ? MAX_PERSON_DAYS : MAX_TIMESHEET_DAYS;
     const out: AttendanceRowDto[] = [];
-    for (let d = from, n = 0; d <= to && n < MAX_TIMESHEET_DAYS; d = addDays(d, 1), n++) out.push(...(await this.compute(ctx.companyId, s, staff, d, tz, now)));
+    for (let d = from, n = 0; d <= to && n < limit; d = addDays(d, 1), n++) out.push(...(await this.compute(ctx.companyId, s, staff, d, tz, now)));
     return out;
   }
 

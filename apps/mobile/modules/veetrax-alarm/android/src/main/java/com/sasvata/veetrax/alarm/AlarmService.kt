@@ -194,6 +194,52 @@ class AlarmService : Service() {
       ContextCompat.startForegroundService(context, intent)
     }
 
+    private const val INSISTENT_CHANNEL = "sos_insistent"
+    private const val INSISTENT_ID = 4802
+
+    /** The bundled siren (also used by the 'sos' push channel), else the phone's alarm sound. */
+    fun sirenUri(context: Context): Uri {
+      val id = context.resources.getIdentifier("sos_siren", "raw", context.packageName)
+      return if (id != 0) Uri.parse("android.resource://${context.packageName}/$id") else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+    }
+
+    /**
+     * Backup when the alarm service can't start: a notification on an alarm-volume channel with the siren, flagged
+     * insistent so Android repeats the sound until it is opened or dismissed.
+     */
+    fun postInsistent(context: Context, title: String, text: String, alertId: String) {
+      val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      if (nm.getNotificationChannel(INSISTENT_CHANNEL) == null) {
+        nm.createNotificationChannel(NotificationChannel(INSISTENT_CHANNEL, context.getString(R.string.veetrax_alarm_channel), NotificationManager.IMPORTANCE_HIGH).apply {
+          setSound(sirenUri(context), AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+          enableVibration(true)
+          vibrationPattern = longArrayOf(0, 800, 400, 800, 400, 800)
+          lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+          setBypassDnd(true)
+        })
+      }
+      val open = Intent(Intent.ACTION_VIEW, Uri.parse("veetrax:///sos/${if (alertId.isEmpty()) "unknown" else alertId}${if (alertId == "test") "?test=1" else ""}")).apply {
+        setPackage(context.packageName)
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+      }
+      val content = PendingIntent.getActivity(context, 5, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+      val n = NotificationCompat.Builder(context, INSISTENT_CHANNEL)
+        .setSmallIcon(context.applicationInfo.icon)
+        .setColor(0xFFC62828.toInt())
+        .setContentTitle(title.ifEmpty { context.getString(R.string.veetrax_alarm_channel) })
+        .setContentText(text)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        .setContentIntent(content)
+        .setFullScreenIntent(content, true)
+        .setAutoCancel(true)
+        .setPriority(NotificationCompat.PRIORITY_MAX)
+        .setCategory(NotificationCompat.CATEGORY_ALARM)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        .build()
+      n.flags = n.flags or Notification.FLAG_INSISTENT
+      nm.notify(INSISTENT_ID, n)
+    }
+
     fun stop(context: Context) {
       context.stopService(Intent(context, AlarmService::class.java))
     }

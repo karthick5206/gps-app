@@ -11,6 +11,9 @@ interface NativeAlarm {
 // Null on iOS and in Expo Go: the normal notification sound and the SOS screen still work there.
 const Native = requireOptionalNativeModule<NativeAlarm>('VeetraxAlarm');
 
+/** Android build with the native alarm (alarm volume, rings with the app closed); false on iOS / Expo Go. */
+export const hasNativeAlarm = Native !== null;
+
 /** Starts the looping alarm (the push service does this by itself for emergency pushes). */
 export function startAlarm(title: string, text: string, alertId: string): void {
   Native?.start(title, text, alertId);

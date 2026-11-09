@@ -347,6 +347,9 @@ export class PositionProcessor {
         { objectType: object.type, thresholds: device.thresholds, now },
       );
       flags = result.flags;
+      if (result.speedNoise && position.speedKph > 0) {
+        position = { ...position, speedKph: 0, attributes: { ...(position.attributes ?? {}), rawSpeedKph: position.speedKph, speedNoise: true } };
+      }
       if (result.updatesLive) {
         const prev = lives.get(object.objectId);
         const prevStatus: StatusState | null =

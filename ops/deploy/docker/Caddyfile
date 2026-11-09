@@ -1,0 +1,21 @@
+# VeeTrax site for Caddy. In Docker, SITE comes from docker-compose.yml and the API is the 'api' service.
+# On Windows / Linux without Docker: replace {$SITE} with your domain, api:4100 with 127.0.0.1:4100 and
+# /srv/web with the path to apps/web/dist.
+{$SITE} {
+	encode gzip
+
+	# REST API (also live video streams) and live updates (WebSockets)
+	handle /api/* {
+		reverse_proxy api:4100
+	}
+	handle /socket.io/* {
+		reverse_proxy api:4100
+	}
+
+	# Web app: single-page app, unknown paths fall back to index.html
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -20,7 +20,13 @@ export const OUTING_WORDS: Record<OutingKind, string> = { UNEXPLAINED: 'Not expl
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 export const time = (iso: string | null | undefined) => (iso ? clock.format(Date.parse(iso)) : '—');
-export const hours = (min: number) => (min ? `${Math.floor(min / 60)} h ${min % 60} min` : '—');
+/** "8 h 40 min", "25 min", "9 h"; a dash for nothing. */
+export const hours = (min: number) => {
+  if (!min) return '—';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h && m ? `${h} h ${m} min` : h ? `${h} h` : `${m} min`;
+};
 export const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 /** YYYY-MM-DD plus or minus days, without time-zone surprises. */
 export const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);

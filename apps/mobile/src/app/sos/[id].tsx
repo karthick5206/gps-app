@@ -13,7 +13,6 @@ import { useAuth } from '@/features/auth/auth';
 import { noFixText } from '@/features/alerts/no-fix';
 import { markAlertRead } from '@/features/alerts/read';
 import { useSiren } from '@/features/notifications/siren';
-import { stopAlarm } from '../../../modules/veetrax-alarm';
 import { api, errorMessage } from '@/lib/api';
 import { MAP_STYLE } from '@/lib/config';
 import { formatDateTime, relativeTime } from '@/lib/format';
@@ -67,8 +66,7 @@ export default function SosScreen() {
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => Date.now());
 
-  // The alarm that rang while the app was closed: this screen takes over (its own siren, acknowledge, silence).
-  useEffect(() => stopAlarm(), []);
+  // The alarm that rang while the app was closed keeps ringing at alarm volume; this screen silences / acknowledges it.
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000);
@@ -82,7 +80,12 @@ export default function SosScreen() {
   });
   // Ring for new emergencies only; an alert someone already acknowledged opens silently. If the alert can't be
   // loaded (offline, server down) ring anyway — a missed SOS is worse than a needless siren.
-  const { ringing, silence } = useSiren(isTest || alert.data?.status === 'NEW' || alert.isError);
+  // While the alert is still loading, keep the alarm going (no gap, no restart).
+  const { ringing, silence } = useSiren(isTest || alert.data?.status === 'NEW' || alert.isError || alert.isPending, {
+    title: isTest ? t('Test: SOS alarm') : t('Emergency alert'),
+    text: isTest ? t('This is a test. No action is needed.') : (alert.data?.message ?? ''),
+    alertId: isTest ? 'test' : id,
+  });
   // Seen = read for this user (badge clears); the siren above still follows the shared status (NEW until acknowledged).
   const unreadId = !isTest && alert.data && !alert.data.read ? alert.data.id : null;
   useEffect(() => {
