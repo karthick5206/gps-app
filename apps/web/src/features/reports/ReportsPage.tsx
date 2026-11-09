@@ -13,14 +13,15 @@ import {
   type ReportScope,
   type ReportType,
 } from '@veetracer/shared';
-import { CalendarClockIcon, CalendarPlusIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, GlobeIcon, PlayIcon, TableIcon } from 'lucide-react';
-import { useState } from 'react';
+import { CalendarClockIcon, CalendarPlusIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, FilterIcon, GlobeIcon, PlayIcon, TableIcon } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { FormError } from '@/components/form-error';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -29,15 +30,18 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
+import { isEnabled } from '@/lib/flags';
 import { cn } from '@/lib/utils';
 import { DatePresets } from './DatePresets';
 import { presetRange } from './date-presets';
 import { downloadFile } from './download';
+import { type TableView, viewExportBody } from './export-view';
 import { rowMatches, type InsightFilter } from './insights';
 import { PERIOD_OPTIONS } from './period-options';
 import { CatalogList, CatalogSheetButton, useCatalogPrefs } from './ReportCatalog';
 import { REPORT_DEF_MAP, REPORT_DEFS, type ReportTypeDef, type Row } from './report-columns';
 import { daySpan, periodLabel } from './report-format';
+import { alertsReportLink, parseReportLink } from './report-link';
 import { getReportTimeZone, reportZoneLabel, todayInZone } from './report-time';
 import { filterLabel, ReportInsights } from './ReportInsights';
 import { optionsFor, ReportOptionsFields } from './ReportOptionsFields';
@@ -58,21 +62,23 @@ export function ReportsPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const canExport = can('reports', 'export');
-  const [type, setType] = useState<ReportType>(() => {
-    const wanted = new URLSearchParams(window.location.search).get('type');
-    return REPORT_DEFS.some((d) => d.type === wanted) ? (wanted as ReportType) : 'SUMMARY';
-  });
+  // Batch 2 (export cover / filtered view / heatmap → Alerts) ships with the uiRefresh flag.
+  const batch2 = isEnabled('uiRefresh');
+  // A link may pre-fill the page (e.g. an Event summary cell → Alerts report for that vehicle and type).
+  const [link] = useState(() => parseReportLink(window.location.search, REPORT_DEFS.map((d) => d.type)));
+  const [type, setType] = useState<ReportType>(() => (link ? (link.type as ReportType) : 'SUMMARY'));
   const [visible] = useState(() => (d: ReportTypeDef) => d.category !== 'Staff attendance' || can('attendance'));
   const prefs = useCatalogPrefs();
   // Report periods are company days, so "today" and the presets use the company's calendar (D-1).
   const today = todayInZone();
   const zoneName = getReportTimeZone();
   const zoneLabel = reportZoneLabel();
-  const [scope, setScope] = useState<ReportScope>(EMPTY_SCOPE);
-  const [[from, to], setDates] = useState<[string, string]>(() => presetRange('last7', today));
+  const [scope, setScope] = useState<ReportScope>(() => (link?.objectIds.length ? { ...EMPTY_SCOPE, objectIds: link.objectIds } : EMPTY_SCOPE));
+  const [[from, to], setDates] = useState<[string, string]>(() => (link?.from ? [link.from, link.to] : presetRange('last7', today)));
   const [period, setPeriod] = useState<ReportPeriod>('DAY');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
-  const [options, setOptions] = useState<ReportOptions>({});
+  const [options, setOptions] = useState<ReportOptions>(() => (link?.alertTypes.length ? { alertTypes: link.alertTypes } : {}));
+  const [view, setView] = useState<TableView | null>(null);
   const [filter, setFilter] = useState<InsightFilter | null>(null);
   const [schedulePrefill, setSchedulePrefill] = useState<SchedulePrefill | null>(null);
 
@@ -100,15 +106,31 @@ export function ReportsPage() {
   });
   const result = run.data;
   const def = result ? REPORT_DEF_MAP[result.req.type] : null;
+  // One object per selection (not per render): the table recomputes its rows and reports its view when it changes.
+  const resultType = result?.req.type;
+  const tableFilter = useMemo(
+    () => (filter && resultType ? { label: filterLabel(filter, t), test: (r: Row) => rowMatches(resultType, r, filter, getReportTimeZone()), onClear: () => setFilter(null) } : null),
+    [filter, resultType, t],
+  );
   const truncated = !!result && (!!result.res.truncated || (result.res.totalRows === undefined && result.res.rows.length >= 10_000));
 
-  const exportAs = async (format: ReportFormat) => {
+  // Run a linked report once on open (inputs were validated by parseReportLink; the page's own checks still apply).
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current || !link?.run || inputError) return;
+    autoRan.current = true;
+    run.mutate(request);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Whole report, or (`filtered`) only the rows and columns the table shows. PDF / Excel get the cover with the flag on. */
+  const exportAs = async (format: ReportFormat, filtered = false) => {
     if (!result) return;
     setExporting(format);
     try {
       const name = await downloadFile('/reports/export', {
         method: 'POST',
-        body: { ...result.req, format },
+        body: { ...result.req, format, ...(batch2 && format !== 'CSV' ? { summary: true } : {}), ...(filtered && view ? { view: viewExportBody(view) } : {}) },
         fallbackName: `${result.req.type.toLowerCase()}-${result.req.from}-${result.req.to}.${format.toLowerCase()}`,
       });
       toast.success(t('Downloaded {{name}}', { name }));
@@ -169,7 +191,7 @@ export function ReportsPage() {
 
         <Card className="gap-0 p-0">
           <div className="space-y-4 p-4">
-            <ScopePicker value={scope} onChange={setScope} />
+            <ScopePicker value={scope} onChange={setScope} knownObjects={link?.vehicleName && link.objectIds.length === 1 ? [{ value: link.objectIds[0], label: link.vehicleName }] : undefined} />
             <DatePresets from={from} to={to} today={today} onChange={setDates} />
             <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
               <Field label={t('From')} htmlFor="r-from">
@@ -247,6 +269,25 @@ export function ReportsPage() {
                     ))}
                   </div>
                 )}
+                {canExport && batch2 && view?.differs && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" disabled={!!exporting || !view.rows.length}>
+                        <FilterIcon /> {t('Export filtered view')}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel className="max-w-72 text-xs font-normal text-muted-foreground">
+                        {t('{{rows}} rows as shown in the table (filter, sort and visible columns)', { rows: view.rows.length.toLocaleString() })}
+                      </DropdownMenuLabel>
+                      {FORMATS.map((f) => (
+                        <DropdownMenuItem key={f.format} onSelect={() => exportAs(f.format, true)}>
+                          <f.icon /> {f.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
             </div>
             <ReportInsights
@@ -260,6 +301,7 @@ export function ReportsPage() {
               totalRows={result.res.totalRows ?? result.res.rows.length}
               filter={filter}
               onFilter={setFilter}
+              alertsLink={result.req.type === 'EVENT_SUMMARY' ? (c) => alertsReportLink({ ...c, from: result.req.from, to: result.req.to }) : undefined}
             />
             <Card className="gap-0 overflow-hidden p-0">
               {result.res.rows.length ? (
@@ -270,7 +312,8 @@ export function ReportsPage() {
                   rows={result.res.rows}
                   totals={result.res.totals}
                   drill={def.drill}
-                  filter={filter ? { label: filterLabel(filter, t), test: (r) => rowMatches(result.req.type, r, filter, getReportTimeZone()), onClear: () => setFilter(null) } : null}
+                  filter={tableFilter}
+                  onView={setView}
                 />
               ) : (
                 <EmptyState icon={TableIcon} title={t('No data for this selection')} description={t('Try a longer period or a wider scope.')} />

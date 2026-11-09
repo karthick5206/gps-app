@@ -67,6 +67,10 @@ export function formatValue(v: number | null | undefined, f: ValueFormat): strin
       return `${Math.round(v)} km/h`;
     case 'sec':
       return v < 120 ? `${Math.round(v)} s` : formatHm(v);
+    case 'litres':
+      return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`;
+    case 'kmpl':
+      return `${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km/L`;
     default:
       return Math.round(v).toLocaleString();
   }

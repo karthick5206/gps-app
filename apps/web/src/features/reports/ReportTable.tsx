@@ -12,6 +12,8 @@ import { storage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { computeTotals, type DrillWindow, type ReportColumn, type Row } from './report-columns';
 import { reportZoneLabel } from './report-time';
+import type { TableView } from './export-view';
+import { viewLabel } from './export-view';
 import { columnsKey, filterRows, visibleColumnIds } from './table-state';
 
 const PAGE = 200;
@@ -71,6 +73,7 @@ export function ReportTable({
   totals: apiTotals,
   drill,
   filter,
+  onView,
   className,
 }: {
   /** Report type: column choices are saved per type. */
@@ -80,6 +83,8 @@ export function ReportTable({
   totals?: Record<string, number>;
   drill?: DrillWindow;
   filter?: ExternalFilter | null;
+  /** Reports what the table shows (filtered + sorted rows, hidden columns) for "Export filtered view". */
+  onView?: (view: TableView) => void;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -126,6 +131,12 @@ export function ReportTable({
   const totals = useMemo(() => (isFiltered ? computeTotals(columns, filtered) : computeTotals(columns, rows, apiTotals)), [isFiltered, columns, filtered, rows, apiTotals]);
   const hasTotals = Object.keys(totals).length > 0 && filtered.length > 0;
   const totalLabel = isFiltered ? t('Total (filtered)') : t('Total');
+
+  useEffect(() => {
+    if (!onView) return;
+    const hiddenHeaders = columns.slice(1).filter((c) => hidden[c.id] === false).map((c) => c.header);
+    onView({ rows: sorted, hiddenHeaders, label: viewLabel(filter?.label ?? null, query), differs: isFiltered || hiddenHeaders.length > 0 });
+  }, [onView, sorted, columns, hidden, filter, query, isFiltered]);
 
   const toggle = (id: string) => setSort((s) => (s?.id !== id ? { id, desc: false } : !s.desc ? { id, desc: true } : null));
   const shown = sorted.slice(0, limit);

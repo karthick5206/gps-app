@@ -74,7 +74,7 @@ column, column chooser, quick filter, phone card layout, shared date presets and
 | Item | Why | Size |
 |---|---|---|
 | Per-type aggregates in `/reports/run` for capped runs | Exact charts beyond 10,000 rows (B1 shows a notice) | S, additive field |
-| PDF/XLSX with KPI block, chart, logo, filters (RP-7) | Server-side SVG in pdfmake; XLSX Summary sheet | M (batch 2) |
+| PDF/XLSX with KPI block, chart, logo, filters (RP-7) | **Done B2** (`summary` flag on `/reports/export`); per-company logo still ✚ (platform logo used) | — |
 | Trip from/to as POI or geofence name | Readable rows without a geocoder | S |
 | Ad-hoc run history and export audit (RP-8) | ReportRun `source` column, retention | M |
 | Test-send to me, failure notification (RP-9) | `POST /report-schedules/:id/test`, notifier | S–M |
@@ -101,6 +101,6 @@ column, column chooser, quick filter, phone card layout, shared date presets and
 ## 5. Batches
 
 - **Batch 1 (this branch):** RP-1, D-1, RP-2 (7 types), RP-3, RP-6 (no virtualisation/grouping), date presets, D-2, D-3, "Schedule this".
-- **Batch 2:** exports (PDF summary/logo/KPI/chart, XLSX Summary sheet, "export filtered view"); insights for Stops/Halts/Idling, Geofences, Fuel, Drivers; heatmap → Alerts; histograms.
+- **Batch 2 (done, see PROGRESS.md):** exports (PDF summary/logo/KPI/chart, XLSX Summary sheet, "export filtered view"); insights for Stops/Halts/Idling, Geofences, Fuel, Drivers; heatmap → Alerts; histograms.
 - **Batch 3:** period comparison, report presets, ad-hoc history ✚, test-send + failure alerts ✚, alerts severity filter ✚.
 - **Batch 4:** background jobs (RP-10), per-type aggregates for capped runs, virtualised table / group-by.

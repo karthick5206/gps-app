@@ -1,6 +1,6 @@
-import { REPORT_TYPES, ReportFormat, ReportOptions, ReportPeriod, ReportRequest, ReportScope, ReportType } from '@veetracer/shared';
+import { REPORT_TYPES, ReportFormat, ReportOptions, ReportPeriod, ReportRequest, ReportScope, ReportType, ROW_KEY_LENGTH, VIEW_MAX_ROWS } from '@veetracer/shared';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 export class ReportScopeDto implements ReportScope {
   @IsOptional() @IsArray() @ArrayMaxSize(10_000) @IsUUID('all', { each: true }) branchIds: string[] = [];
@@ -26,8 +26,21 @@ export class ReportRequestDto implements ReportRequest {
   @IsOptional() @ValidateNested() @Type(() => ReportOptionsDto) options?: ReportOptionsDto;
 }
 
+/** "Export filtered view": the rows the page shows (in its order), its hidden columns and a label for the filter. */
+export class ReportViewDto {
+  /** Row keys (reportRowKey, 8 characters each) concatenated in the page's order. */
+  @IsString() @MaxLength(VIEW_MAX_ROWS * ROW_KEY_LENGTH) @Matches(/^[0-9a-z]*$/, { message: 'view.rows must be row keys' }) rows!: string;
+  /** Headers (English) of columns hidden on the page; matching file columns are left out. */
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @IsString({ each: true }) @MaxLength(80, { each: true }) hiddenColumns?: string[];
+  /** What the page filtered by, e.g. "Vehicle: Bus 07 · “depot”" (shown as text in the file). */
+  @IsOptional() @IsString() @MaxLength(200) label?: string;
+}
+
 export class ReportExportDto extends ReportRequestDto {
   @IsIn(['XLSX', 'PDF', 'CSV']) format!: ReportFormat;
+  /** PDF cover page / XLSX Summary sheet with filters, key figures and charts (ignored for CSV). */
+  @IsOptional() @IsBoolean() summary?: boolean;
+  @IsOptional() @ValidateNested() @Type(() => ReportViewDto) view?: ReportViewDto;
 }
 
 export function normalizeScope(scope: Partial<ReportScope> | null | undefined): ReportScope {
