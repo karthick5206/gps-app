@@ -8,6 +8,7 @@ import { themeStore } from '@/features/theme/theme-store';
 import { i18n, setLanguage } from '@/lib/i18n';
 import { displayStore } from '@/features/display/display-store';
 import { liveStore } from '@/features/live/live-store';
+import { setReportTimeZone } from '@/features/reports/report-time';
 import { AuthContext, meQueryKey, type AuthContextValue, type AuthStatus } from './auth-context';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -52,6 +53,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enabled: status === 'authenticated',
     staleTime: 5 * 60_000,
   });
+
+  // Report tables show times in the company time zone, the zone of report periods and exports (D-1).
+  // Set during render (idempotent) so the first render of a report page already uses it.
+  setReportTimeZone(meQuery.data?.company.timezone);
 
   // A stale company selection (e.g. deleted company) falls back to the platform company; other failures sign out.
   useEffect(() => {

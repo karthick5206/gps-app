@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, StreamableFile } from '@nestjs/common';
 import { Prisma, ReportRun, ReportSchedule } from '@prisma/client';
-import { ReportFormat, ReportPeriod, ReportRunDto, ReportScheduleDto, ReportScope, ReportType } from '@veetracer/shared';
+import { ReportFormat, ReportPeriod, ReportRunDto, ReportScheduleDto, ReportScope, ReportType, ScheduleReportOptions } from '@veetracer/shared';
 import { createReadStream } from 'node:fs';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -20,6 +20,7 @@ import { REPORT_TITLES } from '../reports/report-columns';
 import { normalizeScope } from '../reports/reports.dto';
 import { formatLocal } from '../summarizer/tz';
 import { CreateReportScheduleDto, ReportScheduleListQuery, UpdateReportScheduleDto } from './report-schedules.dto';
+import { normalizeScheduleOptions, scheduleRunOptions } from './schedule-options';
 import { computeNextRunAt, previousPeriod } from './schedule-time';
 
 const ENTITY = 'report_schedule';
@@ -59,6 +60,15 @@ function render(template: string, vars: Record<string, string>, html: boolean): 
 
 function scopeOf(value: Prisma.JsonValue): ReportScope {
   return normalizeScope((value ?? {}) as Partial<ReportScope>);
+}
+
+/** Saved options, cleaned of anything not valid for the schedule's report types (a bad stored value never breaks a run). */
+function scheduleOptionsOf(s: ReportSchedule): ScheduleReportOptions {
+  try {
+    return normalizeScheduleOptions(s.options ?? {}, s.reportTypes);
+  } catch {
+    return {};
+  }
 }
 
 function snapshot(s: ReportSchedule) {
@@ -207,7 +217,7 @@ export class ReportSchedulesService {
         scheduleId: schedule.id,
         requestedById: opts.requestedById,
         reportTypes: schedule.reportTypes,
-        params: { ...period, period: schedule.period, format, scope } as unknown as Prisma.InputJsonValue,
+        params: { ...period, period: schedule.period, format, scope, ...(Object.keys(scheduleOptionsOf(schedule)).length ? { options: scheduleOptionsOf(schedule) } : {}) } as unknown as Prisma.InputJsonValue,
       },
     });
     try {
@@ -215,10 +225,12 @@ export class ReportSchedulesService {
       if (!hasPermission(owner, 'reports', 'view')) throw new Error('The schedule owner no longer has access to reports');
       const sections = [];
       for (const type of schedule.reportTypes as ReportType[]) {
+        // The saved options of this report (same rules as on screen); none saved = the API defaults, exactly as before.
+        const options = scheduleRunOptions(schedule.options, type);
         sections.push(
           await this.data.generate(
             owner,
-            { type, scope, from: period.from, to: period.to, period: schedule.period as ReportPeriod },
+            { type, scope, from: period.from, to: period.to, period: schedule.period as ReportPeriod, ...(options ? { options } : {}) },
             FILE_MAX_ROWS[format],
           ),
         );
@@ -316,7 +328,10 @@ export class ReportSchedulesService {
     const scope = dto.scope ? normalizeScope(dto.scope) : before ? scopeOf(before.scope) : normalizeScope(null);
     if (dto.scope) await this.assertScope(ctx, scope);
     const reportTypes = dto.reportTypes ? [...new Set(dto.reportTypes)] : (before?.reportTypes ?? []);
+    // Options of reports still in the schedule; omitted on update = keep the saved ones.
+    const options = normalizeScheduleOptions(dto.options !== undefined ? dto.options : (before?.options ?? {}), reportTypes);
     return {
+      options: options as Prisma.InputJsonValue,
       name: dto.name?.trim() ?? before?.name ?? '',
       reportTypes,
       scope: scope as unknown as Prisma.InputJsonValue,
@@ -360,6 +375,7 @@ export class ReportSchedulesService {
       timeOfDay: r.timeOfDay,
       format: r.format,
       recipients: r.recipients,
+      options: scheduleOptionsOf(r),
       isActive: r.isActive,
       lastRunAt: isoOrNull(r.lastRunAt),
       nextRunAt: isoOrNull(r.nextRunAt),

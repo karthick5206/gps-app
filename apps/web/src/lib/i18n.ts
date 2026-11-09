@@ -1,6 +1,7 @@
 import { I18N_OPTIONS, LANGUAGE_CODES, LANGUAGES, type LanguageCode } from '@veetracer/shared';
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { setReportLocale } from '@/features/reports/report-time';
 import { setFormatLocale, setFormatTranslator } from './format';
 import { createLanguageSwitcher, createLocaleLoader, type BundleImporter } from './locale-loader';
 import { storage } from './storage';
@@ -36,7 +37,11 @@ void i18n.use(initReactI18next).init({ ...I18N_OPTIONS, resources: { en: { trans
 document.documentElement.lang = 'en';
 setFormatTranslator((key, vars) => i18n.t(key, vars));
 setFormatLocale(currentLocale());
-i18n.on('languageChanged', () => setFormatLocale(currentLocale()));
+setReportLocale(currentLocale());
+i18n.on('languageChanged', () => {
+  setFormatLocale(currentLocale());
+  setReportLocale(currentLocale());
+});
 
 /** Resolves when the initial language is ready (immediately for English; never rejects). */
 export const i18nReady: Promise<void> =

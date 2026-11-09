@@ -72,7 +72,7 @@ function NumberField({
 }
 
 /** Extra inputs for the selected report type; renders nothing for types without options. */
-export function ReportOptionsFields({ type, value, onChange }: { type: ReportType; value: ReportOptions; onChange: (v: ReportOptions) => void }) {
+export function ReportOptionsFields({ type, value, onChange, idPrefix = 'r' }: { type: ReportType; value: ReportOptions; onChange: (v: ReportOptions) => void; idPrefix?: string }) {
   const { t } = useTranslation();
   const alertOptions = useMemo(() => ALERT_OPTIONS.map((o) => ({ ...o, label: t(o.label), description: t(o.description) })), [t]);
   const set = (patch: Partial<ReportOptions>) => onChange({ ...value, ...patch });
@@ -82,7 +82,7 @@ export function ReportOptionsFields({ type, value, onChange }: { type: ReportTyp
     case 'IDLE':
       return (
         <NumberField
-          id="r-min-duration"
+          id={`${idPrefix}-min-duration`}
           label={t('Minimum duration (min)')}
           hint={type === 'HALT' ? t('Parked at least this long') : t('Leave empty for all stops')}
           value={value.minDurationMin}
@@ -102,14 +102,14 @@ export function ReportOptionsFields({ type, value, onChange }: { type: ReportTyp
     case 'CONTINUOUS_DRIVING':
       return (
         <div className="flex flex-col gap-3 sm:flex-row">
-          <NumberField id="r-driving" label={t('Driving limit (min)')} hint={t('Report stretches at least this long')} value={value.drivingMin} fallback={OPTION_DEFAULTS.drivingMin} min={30} max={1440} onChange={(drivingMin) => set({ drivingMin })} />
-          <NumberField id="r-break" label={t('Required break (min)')} hint={t('A stop this long resets driving')} value={value.breakMin} fallback={OPTION_DEFAULTS.breakMin} min={1} max={240} onChange={(breakMin) => set({ breakMin })} />
+          <NumberField id={`${idPrefix}-driving`} label={t('Driving limit (min)')} hint={t('Report stretches at least this long')} value={value.drivingMin} fallback={OPTION_DEFAULTS.drivingMin} min={30} max={1440} onChange={(drivingMin) => set({ drivingMin })} />
+          <NumberField id={`${idPrefix}-break`} label={t('Required break (min)')} hint={t('A stop this long resets driving')} value={value.breakMin} fallback={OPTION_DEFAULTS.breakMin} min={1} max={240} onChange={(breakMin) => set({ breakMin })} />
         </div>
       );
     case 'OVERSPEED':
       return (
         <NumberField
-          id="r-overspeed"
+          id={`${idPrefix}-overspeed`}
           label={t('Ignore shorter than (s)')}
           hint={t('Skip brief spikes above the limit')}
           value={value.minOverspeedSec}
@@ -122,7 +122,7 @@ export function ReportOptionsFields({ type, value, onChange }: { type: ReportTyp
     case 'DEVICE_STATUS':
       return (
         <NumberField
-          id="r-inactive"
+          id={`${idPrefix}-inactive`}
           label={t('Inactive after (min)')}
           hint={t('No data for this long = inactive')}
           value={value.inactiveAfterMin}

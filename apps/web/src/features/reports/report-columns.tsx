@@ -43,10 +43,11 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/features/auth/auth-context';
-import { formatDateTime, humanize } from '@/lib/format';
+import { humanize } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
 import { historyLink } from '@/features/history/time-range';
 import { formatHm, periodLabel } from './report-format';
+import { formatReportTime } from './report-time';
 
 export type Row = Record<string, unknown>;
 type Total = 'sum' | 'max';
@@ -63,7 +64,12 @@ export interface ReportColumn {
   /** Formats numeric values (cells and totals). */
   format?: (v: number) => string;
   className?: string;
+  /** A timestamp shown in the company time zone; the header gets the zone label, e.g. "Start (IST)". */
+  zoned?: boolean;
 }
+
+/** History window for a row (RP-3 "Play in History"); null when the row can't be shown there. */
+export type DrillWindow = (row: Row) => { objectId: string; from: string; to: string } | null;
 
 export interface ReportTypeDef {
   type: ReportType;
@@ -72,7 +78,22 @@ export interface ReportTypeDef {
   description: string;
   icon: LucideIcon;
   columns: ReportColumn[];
+  drill?: DrillWindow;
 }
+
+const MIN = 60_000;
+const isoAt = (ms: number) => new Date(ms).toISOString();
+/** Row window [fromKey, toKey] padded by `padMin`; a missing end (ongoing) uses start + `openMin`. */
+const windowOf =
+  (fromKey: string, toKey: string | null, padMin = 0, openMin = 30): DrillWindow =>
+  (r) => {
+    const objectId = r.objectId as string | undefined;
+    const start = Date.parse((r[fromKey] as string) ?? '');
+    if (!objectId || !Number.isFinite(start)) return null;
+    const endRaw = toKey ? Date.parse((r[toKey] as string) ?? '') : Number.NaN;
+    const end = Number.isFinite(endRaw) && endRaw > start ? endRaw : start + openMin * MIN;
+    return { objectId, from: isoAt(start - padMin * MIN), to: isoAt(end + padMin * MIN) };
+  };
 
 /** Opens the trip on the History map in a new tab (the report stays open). */
 function GeofenceHistoryLink({ row }: { row: Row }) {
@@ -96,7 +117,8 @@ const time = (k: string) => (r: Row) => {
   const v = r[k] as string | null | undefined;
   return v ? Date.parse(v) : null;
 };
-const timeCell = (k: string) => (r: Row) => <span className="tabular-nums">{formatDateTime(r[k] as string | null)}</span>;
+/** Timestamp in the company time zone (the zone of the report period and the exports). */
+const timeCell = (k: string) => (r: Row) => <span className="tabular-nums">{formatReportTime(r[k] as string | null)}</span>;
 const text = (k: string, cls = 'block max-w-72 truncate') => (r: Row) => {
   const v = r[k] as string | null | undefined;
   return v ? (
@@ -164,14 +186,14 @@ const SUMMARY: ReportColumn[] = [
   { id: 'maxSpeedKph', header: 'Max (km/h)', value: num('maxSpeedKph'), numeric: true, total: 'max', format: int },
   { id: 'avgSpeedKph', header: 'Avg (km/h)', value: num('avgSpeedKph'), numeric: true, format: int },
   { id: 'overspeedCount', header: 'Overspeed', value: num('overspeedCount'), numeric: true, total: 'sum', format: int },
-  { id: 'firstStart', header: 'First start', value: time('firstStart'), render: timeCell('firstStart') },
-  { id: 'lastStop', header: 'Last stop', value: time('lastStop'), render: timeCell('lastStop') },
+  { id: 'firstStart', header: 'First start', zoned: true, value: time('firstStart'), render: timeCell('firstStart') },
+  { id: 'lastStop', header: 'Last stop', zoned: true, value: time('lastStop'), render: timeCell('lastStop') },
 ];
 
 const TRIPS: ReportColumn[] = [
   vehicle,
-  { id: 'startTime', header: 'Start', value: time('startTime'), render: timeCell('startTime') },
-  { id: 'endTime', header: 'End', value: time('endTime'), render: timeCell('endTime') },
+  { id: 'startTime', header: 'Start', zoned: true, value: time('startTime'), render: timeCell('startTime') },
+  { id: 'endTime', header: 'End', zoned: true, value: time('endTime'), render: timeCell('endTime') },
   duration('durationSec', 'Duration'),
   duration('idleSec', 'Idle'),
   { id: 'startAddress', header: 'From', value: place('startAddress', 'startLat', 'startLng'), render: placeCell('startAddress', 'startLat', 'startLng') },
@@ -183,8 +205,8 @@ const TRIPS: ReportColumn[] = [
 
 const STOPS: ReportColumn[] = [
   vehicle,
-  { id: 'startTime', header: 'Start', value: time('startTime'), render: timeCell('startTime') },
-  { id: 'endTime', header: 'End', value: time('endTime'), render: timeCell('endTime') },
+  { id: 'startTime', header: 'Start', zoned: true, value: time('startTime'), render: timeCell('startTime') },
+  { id: 'endTime', header: 'End', zoned: true, value: time('endTime'), render: timeCell('endTime') },
   duration('durationSec', 'Duration'),
   {
     id: 'ignitionOn',
@@ -205,7 +227,7 @@ const alertTypeLabel = (r: Row) => {
 const SEVERITY_VARIANT = { INFO: 'secondary', WARNING: 'warning', CRITICAL: 'destructive' } as const;
 
 const ALERTS: ReportColumn[] = [
-  { id: 'occurredAt', header: 'Time', value: time('occurredAt'), render: timeCell('occurredAt') },
+  { id: 'occurredAt', header: 'Time', zoned: true, value: time('occurredAt'), render: timeCell('occurredAt') },
   vehicle,
   { id: 'type', header: 'Type', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string), render: (r) => alertTypeLabel(r) },
   {
@@ -222,8 +244,8 @@ const ALERTS: ReportColumn[] = [
 const GEOFENCE_VISITS: ReportColumn[] = [
   vehicle,
   { id: 'geofenceName', header: 'Geofence', value: str('geofenceName') },
-  { id: 'enterTime', header: 'Entered', value: time('enterTime'), render: timeCell('enterTime') },
-  { id: 'exitTime', header: 'Exited', value: time('exitTime'), render: (r) => (r.exitTime ? timeCell('exitTime')(r) : <Badge variant="default">{i18n.t('Inside')}</Badge>) },
+  { id: 'enterTime', header: 'Entered', zoned: true, value: time('enterTime'), render: timeCell('enterTime') },
+  { id: 'exitTime', header: 'Exited', zoned: true, value: time('exitTime'), render: (r) => (r.exitTime ? timeCell('exitTime')(r) : <Badge variant="default">{i18n.t('Inside')}</Badge>) },
   duration('durationSec', 'Duration'),
 ];
 
@@ -231,8 +253,8 @@ const POI_VISITS: ReportColumn[] = [
   vehicle,
   { id: 'poiName', header: 'POI', value: str('poiName'), render: (r) => <span className="font-medium">{r.poiName as string}</span> },
   { id: 'category', header: 'Category', value: str('category'), render: (r) => i18n.t(humanize(r.category as string)) },
-  { id: 'arrival', header: 'Arrival', value: time('arrival'), render: timeCell('arrival') },
-  { id: 'departure', header: 'Departure', value: time('departure'), render: timeCell('departure') },
+  { id: 'arrival', header: 'Arrival', zoned: true, value: time('arrival'), render: timeCell('arrival') },
+  { id: 'departure', header: 'Departure', zoned: true, value: time('departure'), render: timeCell('departure') },
   duration('durationSec', 'Duration'),
   { id: 'distanceM', header: 'Distance (m)', value: num('distanceM'), numeric: true, format: int },
   {
@@ -283,8 +305,8 @@ const CONSOLIDATED: ReportColumn[] = [
   count('alertCount', 'Alerts'),
   count('criticalAlertCount', 'Critical'),
   count('geofenceVisits', 'Geofence visits'),
-  { id: 'firstStart', header: 'First start', value: time('firstStart'), render: timeCell('firstStart') },
-  { id: 'lastStop', header: 'Last stop', value: time('lastStop'), render: timeCell('lastStop') },
+  { id: 'firstStart', header: 'First start', zoned: true, value: time('firstStart'), render: timeCell('firstStart') },
+  { id: 'lastStop', header: 'Last stop', zoned: true, value: time('lastStop'), render: timeCell('lastStop') },
 ];
 
 const DISTANCE: ReportColumn[] = [vehicle, plate, branch, periodCol, kmCol(), count('tripCount', 'Trips'), duration('runningSec', 'Running'), duration('offlineSec', 'Offline')];
@@ -304,8 +326,8 @@ const STATE_BADGE = (on: boolean | null) =>
   on === null ? <span className="text-muted-foreground">—</span> : <Badge variant={on ? 'success' : 'muted'}>{on ? i18n.t('On') : i18n.t('Off')}</Badge>;
 
 const POSITIONS: ReportColumn[] = [
-  { id: 'fixTime', header: 'GPS time', value: time('fixTime'), render: timeCell('fixTime') },
-  { id: 'serverTime', header: 'Received', value: time('serverTime'), render: timeCell('serverTime') },
+  { id: 'fixTime', header: 'GPS time', zoned: true, value: time('fixTime'), render: timeCell('fixTime') },
+  { id: 'serverTime', header: 'Received', zoned: true, value: time('serverTime'), render: timeCell('serverTime') },
   { id: 'lat', header: 'Location', value: coordValue('lat', 'lng'), render: coords('lat', 'lng') },
   { id: 'address', header: 'Address', value: str('address'), render: text('address') },
   { id: 'speedKph', header: 'km/h', value: num('speedKph'), numeric: true, total: 'max', format: int },
@@ -324,8 +346,8 @@ const POSITIONS: ReportColumn[] = [
 const OVERSPEED: ReportColumn[] = [
   vehicle,
   plate,
-  { id: 'startTime', header: 'Start', value: time('startTime'), render: timeCell('startTime') },
-  { id: 'endTime', header: 'End', value: time('endTime'), render: timeCell('endTime') },
+  { id: 'startTime', header: 'Start', zoned: true, value: time('startTime'), render: timeCell('startTime') },
+  { id: 'endTime', header: 'End', zoned: true, value: time('endTime'), render: timeCell('endTime') },
   duration('durationSec', 'Duration'),
   count('limitKph', 'Limit (km/h)', undefined),
   {
@@ -344,7 +366,7 @@ const OVERSPEED: ReportColumn[] = [
 const IGNITION: ReportColumn[] = [
   vehicle,
   plate,
-  { id: 'time', header: 'Time', value: time('time'), render: timeCell('time') },
+  { id: 'time', header: 'Time', zoned: true, value: time('time'), render: timeCell('time') },
   { id: 'state', header: 'Ignition', value: str('state'), render: (r) => STATE_BADGE(r.state === 'ON') },
   duration('previousStateSec', 'Previous state for', undefined),
   { id: 'address', header: 'Location', value: place('address', 'lat', 'lng'), render: placeCell('address', 'lat', 'lng') },
@@ -353,8 +375,8 @@ const IGNITION: ReportColumn[] = [
 const CONTINUOUS_DRIVING: ReportColumn[] = [
   vehicle,
   plate,
-  { id: 'startTime', header: 'Start', value: time('startTime'), render: timeCell('startTime') },
-  { id: 'endTime', header: 'End', value: time('endTime'), render: timeCell('endTime') },
+  { id: 'startTime', header: 'Start', zoned: true, value: time('startTime'), render: timeCell('startTime') },
+  { id: 'endTime', header: 'End', zoned: true, value: time('endTime'), render: timeCell('endTime') },
   duration('drivingSec', 'Driving'),
   duration('spanSec', 'Span', undefined),
   duration('longestBreakSec', 'Longest break', undefined),
@@ -370,8 +392,8 @@ const EVENT_SUMMARY: ReportColumn[] = [
   { id: 'type', header: 'Event', value: (r) => ALERT_TYPE_MAP[r.type as AlertDto['type']]?.label ?? (r.type as string), render: (r) => alertTypeLabel(r) },
   count('count', 'Count'),
   count('criticalCount', 'Critical'),
-  { id: 'firstAt', header: 'First', value: time('firstAt'), render: timeCell('firstAt') },
-  { id: 'lastAt', header: 'Last', value: time('lastAt'), render: timeCell('lastAt') },
+  { id: 'firstAt', header: 'First', zoned: true, value: time('firstAt'), render: timeCell('firstAt') },
+  { id: 'lastAt', header: 'Last', zoned: true, value: time('lastAt'), render: timeCell('lastAt') },
 ];
 
 const km2 = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -379,9 +401,9 @@ const GEOFENCE_DISTANCE: ReportColumn[] = [
   vehicle,
   plate,
   { id: 'fromGeofenceName', header: 'From geofence', value: str('fromGeofenceName') },
-  { id: 'outTime', header: 'Out time', value: time('outTime'), render: timeCell('outTime') },
+  { id: 'outTime', header: 'Out time', zoned: true, value: time('outTime'), render: timeCell('outTime') },
   { id: 'toGeofenceName', header: 'To geofence', value: str('toGeofenceName') },
-  { id: 'inTime', header: 'In time', value: time('inTime'), render: (r) => (r.inTime ? timeCell('inTime')(r) : <Badge variant="secondary">{i18n.t('Not yet')}</Badge>) },
+  { id: 'inTime', header: 'In time', zoned: true, value: time('inTime'), render: (r) => (r.inTime ? timeCell('inTime')(r) : <Badge variant="secondary">{i18n.t('Not yet')}</Badge>) },
   duration('travelSec', 'Travel time'),
   { id: 'distanceKm', header: 'Distance (km)', value: num('distanceKm'), numeric: true, total: 'sum', format: km2 },
   { id: 'historyLink', header: 'History on map', value: () => null, render: (r) => <GeofenceHistoryLink row={r} /> },
@@ -393,8 +415,8 @@ const GEOFENCE_SUMMARY: ReportColumn[] = [
   count('visits', 'Visits'),
   duration('insideSec', 'Time inside'),
   duration('avgVisitSec', 'Avg visit', undefined),
-  { id: 'firstEnter', header: 'First entry', value: time('firstEnter'), render: timeCell('firstEnter') },
-  { id: 'lastExit', header: 'Last exit', value: time('lastExit'), render: (r) => (r.lastExit ? timeCell('lastExit')(r) : <Badge variant="default">{i18n.t('Inside')}</Badge>) },
+  { id: 'firstEnter', header: 'First entry', zoned: true, value: time('firstEnter'), render: timeCell('firstEnter') },
+  { id: 'lastExit', header: 'Last exit', zoned: true, value: time('lastExit'), render: (r) => (r.lastExit ? timeCell('lastExit')(r) : <Badge variant="default">{i18n.t('Inside')}</Badge>) },
 ];
 
 export const DEVICE_STATUS_META: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'muted' | 'secondary' }> = {
@@ -420,8 +442,8 @@ const DEVICE_STATUS: ReportColumn[] = [
   },
   { id: 'uniqueId', header: 'IMEI', value: str('uniqueId'), render: (r) => <span className="font-mono text-xs">{(r.uniqueId as string) ?? '—'}</span> },
   { id: 'model', header: 'Model', value: str('model'), render: text('model') },
-  { id: 'lastSeenAt', header: 'Last data', value: time('lastSeenAt'), render: timeCell('lastSeenAt') },
-  { id: 'lastFixTime', header: 'Last GPS fix', value: time('lastFixTime'), render: timeCell('lastFixTime') },
+  { id: 'lastSeenAt', header: 'Last data', zoned: true, value: time('lastSeenAt'), render: timeCell('lastSeenAt') },
+  { id: 'lastFixTime', header: 'Last GPS fix', zoned: true, value: time('lastFixTime'), render: timeCell('lastFixTime') },
   duration('inactiveSec', 'No data for', undefined),
   optNum('batteryLevel', 'Battery %', 0),
   optNum('extVoltage', 'Ext. V', 2),
@@ -438,8 +460,8 @@ const DRIVERS: ReportColumn[] = [
   duration('drivingSec', 'Driving'),
   count('maxSpeedKph', 'Max (km/h)', 'max'),
   count('overspeedCount', 'Overspeed'),
-  { id: 'firstStart', header: 'First start', value: time('firstStart'), render: timeCell('firstStart') },
-  { id: 'lastEnd', header: 'Last end', value: time('lastEnd'), render: (r) => (r.lastEnd ? timeCell('lastEnd')(r) : <Badge variant="success">{i18n.t('Driving now')}</Badge>) },
+  { id: 'firstStart', header: 'First start', zoned: true, value: time('firstStart'), render: timeCell('firstStart') },
+  { id: 'lastEnd', header: 'Last end', zoned: true, value: time('lastEnd'), render: (r) => (r.lastEnd ? timeCell('lastEnd')(r) : <Badge variant="success">{i18n.t('Driving now')}</Badge>) },
 ];
 
 export const DOCUMENT_REPORT_STATUS: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'muted' }> = {
@@ -506,8 +528,8 @@ const rupeeCol = (id: string, header: string, total?: Total): ReportColumn => ({
 const MILEAGE: ReportColumn[] = [
   vehicle,
   plate,
-  { id: 'fromAt', header: 'From (full tank)', value: time('fromAt'), render: timeCell('fromAt') },
-  { id: 'toAt', header: 'To (full tank)', value: time('toAt'), render: timeCell('toAt') },
+  { id: 'fromAt', header: 'From (full tank)', zoned: true, value: time('fromAt'), render: timeCell('fromAt') },
+  { id: 'toAt', header: 'To (full tank)', zoned: true, value: time('toAt'), render: timeCell('toAt') },
   count('fillUps', 'Fill-ups'),
   { id: 'litres', header: 'Litres', value: num('litres'), numeric: true, total: 'sum', format: litres },
   rupeeCol('fuelCost', 'Fuel cost', 'sum'),
@@ -525,8 +547,8 @@ const FUEL_EVENTS: ReportColumn[] = [
     value: (r) => (r.type === 'REFILL' ? 'Refill' : 'Drain'),
     render: (r) => <Badge variant={r.type === 'REFILL' ? 'success' : 'destructive'}>{r.type === 'REFILL' ? i18n.t('Refill') : i18n.t('Drain')}</Badge>,
   },
-  { id: 'startTime', header: 'Start', value: time('startTime'), render: timeCell('startTime') },
-  { id: 'endTime', header: 'End', value: time('endTime'), render: timeCell('endTime') },
+  { id: 'startTime', header: 'Start', zoned: true, value: time('startTime'), render: timeCell('startTime') },
+  { id: 'endTime', header: 'End', zoned: true, value: time('endTime'), render: timeCell('endTime') },
   { id: 'litresBefore', header: 'Before (L)', value: num('litresBefore'), numeric: true, format: litres },
   { id: 'litresAfter', header: 'After (L)', value: num('litresAfter'), numeric: true, format: litres },
   { id: 'deltaL', header: 'Change (L)', value: (r) => (r.type === 'REFILL' ? (r.deltaL as number) : -(r.deltaL as number)), numeric: true, format: (v) => (v > 0 ? `+${litres(v)}` : litres(v)) },
@@ -545,8 +567,8 @@ const AC_DOOR: ReportColumn[] = [
     value: ioStatus,
     render: (r) => <Badge variant={r.on ? 'success' : 'secondary'}>{i18n.t(ioStatus(r))}</Badge>,
   },
-  { id: 'startTime', header: 'Start', value: time('startTime'), render: timeCell('startTime') },
-  { id: 'endTime', header: 'End', value: time('endTime'), render: (r) => (r.endTime ? timeCell('endTime')(r) : <span className="text-muted-foreground">{i18n.t('Ongoing')}</span>) },
+  { id: 'startTime', header: 'Start', zoned: true, value: time('startTime'), render: timeCell('startTime') },
+  { id: 'endTime', header: 'End', zoned: true, value: time('endTime'), render: (r) => (r.endTime ? timeCell('endTime')(r) : <span className="text-muted-foreground">{i18n.t('Ongoing')}</span>) },
   duration('durationSec', 'Duration', undefined),
   duration('engineOffSec', 'Engine off', undefined),
   kmCol('distanceKm', undefined),
@@ -584,8 +606,8 @@ const ATTENDANCE_DAILY: ReportColumn[] = [
   staffBranch,
   { id: 'shift', header: 'Shift', value: str('shift') },
   { id: 'status', header: 'Status', value: words('status') },
-  { id: 'firstIn', header: 'First in', value: time('firstIn'), render: timeCell('firstIn') },
-  { id: 'lastOut', header: 'Last out', value: time('lastOut'), render: timeCell('lastOut') },
+  { id: 'firstIn', header: 'First in', zoned: true, value: time('firstIn'), render: timeCell('firstIn') },
+  { id: 'lastOut', header: 'Last out', zoned: true, value: time('lastOut'), render: timeCell('lastOut') },
   minutes('workedMin', 'Hours worked'),
   minutes('onSiteMin', 'Hours on site'),
   minutes('officialMin', 'Official duty'),
@@ -657,8 +679,8 @@ const ATTENDANCE_OUTINGS: ReportColumn[] = [
   staffId,
   staffBranch,
   { id: 'site', header: 'Site', value: str('site') },
-  { id: 'leftAt', header: 'Left', value: time('leftAt'), render: timeCell('leftAt') },
-  { id: 'returnedAt', header: 'Returned', value: time('returnedAt'), render: timeCell('returnedAt') },
+  { id: 'leftAt', header: 'Left', zoned: true, value: time('leftAt'), render: timeCell('leftAt') },
+  { id: 'returnedAt', header: 'Returned', zoned: true, value: time('returnedAt'), render: timeCell('returnedAt') },
   countCol('minutes', 'Minutes'),
   { id: 'kind', header: 'Counts as', value: words('kind') },
   { id: 'employeeSaid', header: 'Employee said', value: words('employeeSaid') },
@@ -677,7 +699,7 @@ const ATTENDANCE_CORRECTIONS: ReportColumn[] = [
   { id: 'correctedTo', header: 'Corrected to', value: words('correctedTo') },
   { id: 'note', header: 'Reason', value: str('note') },
   { id: 'correctedBy', header: 'Corrected by', value: str('correctedBy') },
-  { id: 'correctedAt', header: 'Corrected at', value: time('correctedAt'), render: timeCell('correctedAt') },
+  { id: 'correctedAt', header: 'Corrected at', zoned: true, value: time('correctedAt'), render: timeCell('correctedAt') },
 ];
 
 export type ReportCategory = 'Staff attendance' | 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Fuel log (manual)' | 'Sensors' | 'Devices' | 'Compliance';
@@ -688,18 +710,18 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'CONSOLIDATED', category: 'Activity', label: 'Consolidated', description: 'One line per vehicle for the whole period, with alerts and geofence visits.', icon: LayersIcon, columns: CONSOLIDATED },
   { type: 'DISTANCE', category: 'Activity', label: 'Distance', description: 'Kilometres per vehicle by day, week or month, with offline time.', icon: RulerIcon, columns: DISTANCE },
   { type: 'ENGINE_HOURS', category: 'Activity', label: 'Engine hours', description: 'Engine-on, running and idle hours with idle percentage.', icon: TimerIcon, columns: ENGINE_HOURS },
-  { type: 'TRIPS', category: 'Activity', label: 'Trips', description: 'Every trip with start/end, duration, distance and speeds.', icon: RouteIcon, columns: TRIPS },
-  { type: 'STOPS', category: 'Activity', label: 'Stops', description: 'Parked and idle stops with location and duration.', icon: ParkingSquareIcon, columns: STOPS },
-  { type: 'HALT', category: 'Activity', label: 'Halts', description: 'Long stoppages with the engine off (default 30 min or more).', icon: CirclePauseIcon, columns: STOPS },
+  { type: 'TRIPS', category: 'Activity', label: 'Trips', description: 'Every trip with start/end, duration, distance and speeds.', icon: RouteIcon, columns: TRIPS, drill: windowOf('startTime', 'endTime') },
+  { type: 'STOPS', category: 'Activity', label: 'Stops', description: 'Parked and idle stops with location and duration.', icon: ParkingSquareIcon, columns: STOPS, drill: windowOf('startTime', 'endTime', 5) },
+  { type: 'HALT', category: 'Activity', label: 'Halts', description: 'Long stoppages with the engine off (default 30 min or more).', icon: CirclePauseIcon, columns: STOPS, drill: windowOf('startTime', 'endTime', 5) },
   { type: 'POSITIONS', category: 'Activity', label: 'Positions', description: 'Raw GPS points of one vehicle (up to 7 days): speed, ignition, power.', icon: MapPinnedIcon, columns: POSITIONS },
-  { type: 'IDLE', category: 'Driving', label: 'Idling', description: 'Stops with the engine running — fuel wasted while stationary.', icon: ClockIcon, columns: STOPS },
-  { type: 'OVERSPEED', category: 'Driving', label: 'Over-speed', description: "Speeding episodes above each vehicle's limit with peak speed and duration.", icon: GaugeIcon, columns: OVERSPEED },
-  { type: 'CONTINUOUS_DRIVING', category: 'Driving', label: 'Continuous driving', description: 'Driving stretches without a proper break (default 4 h / 15 min rule).', icon: CoffeeIcon, columns: CONTINUOUS_DRIVING },
+  { type: 'IDLE', category: 'Driving', label: 'Idling', description: 'Stops with the engine running — fuel wasted while stationary.', icon: ClockIcon, columns: STOPS, drill: windowOf('startTime', 'endTime', 5) },
+  { type: 'OVERSPEED', category: 'Driving', label: 'Over-speed', description: "Speeding episodes above each vehicle's limit with peak speed and duration.", icon: GaugeIcon, columns: OVERSPEED, drill: windowOf('startTime', 'endTime', 2) },
+  { type: 'CONTINUOUS_DRIVING', category: 'Driving', label: 'Continuous driving', description: 'Driving stretches without a proper break (default 4 h / 15 min rule).', icon: CoffeeIcon, columns: CONTINUOUS_DRIVING, drill: windowOf('startTime', 'endTime') },
   { type: 'DRIVERS', category: 'Driving', label: 'Driver activity', description: 'Per driver: vehicles driven, trips, distance, driving time and overspeeding (from card swipes and assignments).', icon: IdCardIcon, columns: DRIVERS },
-  { type: 'IGNITION', category: 'Driving', label: 'Ignition on/off', description: 'Every ignition change with how long the previous state lasted.', icon: PowerIcon, columns: IGNITION },
-  { type: 'ALERTS', category: 'Events', label: 'Alerts', description: 'Alerts raised in the period with severity and status; filter by type.', icon: BellIcon, columns: ALERTS },
+  { type: 'IGNITION', category: 'Driving', label: 'Ignition on/off', description: 'Every ignition change with how long the previous state lasted.', icon: PowerIcon, columns: IGNITION, drill: windowOf('time', null, 15, 0) },
+  { type: 'ALERTS', category: 'Events', label: 'Alerts', description: 'Alerts raised in the period with severity and status; filter by type.', icon: BellIcon, columns: ALERTS, drill: windowOf('occurredAt', null, 15, 0) },
   { type: 'EVENT_SUMMARY', category: 'Events', label: 'Event summary', description: 'How many of each alert type per vehicle, with first and last time.', icon: ListChecksIcon, columns: EVENT_SUMMARY },
-  { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS },
+  { type: 'GEOFENCE_VISITS', category: 'Geofences', label: 'Geofence visits', description: 'Entries and exits of geofences with time spent inside.', icon: HexagonIcon, columns: GEOFENCE_VISITS, drill: windowOf('enterTime', 'exitTime', 5) },
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
   { type: 'GEOFENCE_DISTANCE', category: 'Geofences', label: 'Geofence out-to-in distance', description: 'Km driven from leaving a geofence to entering the next one, with the trip on the map.', icon: RulerIcon, columns: GEOFENCE_DISTANCE },
   { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },

@@ -1368,6 +1368,8 @@ model ReportSchedule {
   timeOfDay   String          @default("07:00")
   format      ReportFormat    @default(XLSX)
   recipients  String[]
+  /// Report options per report type, e.g. { "HALT": { "minDurationMin": 45 } }. {} = API defaults (as before).
+  options     Json            @default("{}")
   isActive    Boolean         @default(true)
   lastRunAt   DateTime?
   nextRunAt   DateTime?
