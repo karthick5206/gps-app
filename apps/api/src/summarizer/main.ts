@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import Redis from 'ioredis';
+import { createRedis } from '../redis/connection';
 import { randomUUID } from 'node:crypto';
 import { SummarizerMetrics } from '@veetracer/shared';
 import { loadEnv } from '../config/env';
@@ -37,8 +37,8 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient();
   // PostgreSQL down at start: keep running (runs fail and are retried every interval; System Health shows it).
   await prisma.$connect().catch((error: Error) => logger.error(`Database not reachable at start (will retry): ${error.message}`));
-  const redis = new Redis(env.redisUrl, { maxRetriesPerRequest: null });
-  const subscriber = new Redis(env.redisUrl);
+  const redis = createRedis(env.redisUrl, { maxRetriesPerRequest: null });
+  const subscriber = createRedis(env.redisUrl);
   for (const conn of [redis, subscriber]) conn.on('error', (error) => logger.error(`Valkey error: ${error.message}`));
 
   const summarizer = new Summarizer(prisma, redis);

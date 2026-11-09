@@ -4,7 +4,7 @@
  * IMEIs that already exist (e.g. the 20 seeded devices) are skipped, so the command is idempotent.
  */
 import { PrismaClient, VehicleType } from '@prisma/client';
-import Redis from 'ioredis';
+import { createRedis } from '../redis/connection';
 import { randomUUID } from 'node:crypto';
 import { randomToken } from '../common/secrets';
 import { loadEnv } from '../config/env';
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
       created += rows.length;
     }
 
-    const redis = new Redis(env.redisUrl);
+    const redis = createRedis(env.redisUrl);
     await redis.publish(RedisKeys.cacheInvalidate, JSON.stringify({ reason: 'sim:register', at: Date.now() }));
     await redis.quit();
     console.log(

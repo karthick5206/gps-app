@@ -1,3 +1,4 @@
+import { ensureStreamGroup, isNoGroupError } from '../redis/stream-groups';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 import { Alert, MessageTemplate, NotificationLog, NotificationStatus, NotifyChannel, Prisma } from '@prisma/client';
@@ -164,6 +165,11 @@ export class NotifierService {
           await this.processAll(jobs);
         } catch (error) {
           this.logger.error(`Notifier loop error: ${(error as Error).message}`);
+          if (isNoGroupError(error)) {
+            // The cache lost its data (restart without persistence): recreate the group and carry on.
+            await ensureStreamGroup(this.redis.client, RedisKeys.notifyStream, RedisKeys.notifierGroup).catch(() => undefined);
+            backlog = true;
+          }
           await sleep(1000);
         }
       }

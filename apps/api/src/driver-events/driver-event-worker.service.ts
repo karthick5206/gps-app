@@ -1,3 +1,4 @@
+import { ensureStreamGroup, isNoGroupError } from '../redis/stream-groups';
 import { Injectable, Logger } from '@nestjs/common';
 import { Alert, Prisma } from '@prisma/client';
 import { driverEventSettings, isDriverEventType, snapshotChannel } from '@veetracer/shared';
@@ -197,6 +198,10 @@ export class DriverEventWorkerService {
         }
       } catch (error) {
         this.logger.error(`Driver media loop error: ${(error as Error).message}`);
+        if (isNoGroupError(error)) {
+          await ensureStreamGroup(this.redis.client, stream, group).catch(() => undefined);
+          backlog = true;
+        }
         await sleep(1000);
       }
     }

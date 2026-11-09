@@ -1,0 +1,31 @@
+2026-11-09T14:22:32.323Z [+0s] output: D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\var\chaos\confirm-run
+2026-11-09T14:22:32.324Z [+0s] scenarios: cache-kill, net-blackhole, gateway-restart, dup-ooo, prolonged
+2026-11-09T14:22:34.124Z [+2s] valkey: wiped / PONG (Valkey server v=9.0.4 sha=00000000:0 malloc=jemalloc-5.3.0 bits=64 build=256ea4cb0edac842)
+2026-11-09T14:22:34.201Z [+2s] api started (pid 40804)
+2026-11-09T14:22:34.208Z [+2s] processor started (pid 12304)
+2026-11-09T14:22:34.215Z [+2s] gateway started (pid 4236)
+2026-11-09T14:22:38.275Z [+6s] api ready; starting devices
+2026-11-09T14:22:53.279Z [+21s] ── scenario cache-kill ──
+2026-11-09T14:23:03.883Z [+32s] kill -9 valkey: Could not connect to Valkey at 127.0.0.1:6390: Connection refused
+2026-11-09T14:24:05.011Z [+93s] valkey restart (AOF kept): PONG
+2026-11-09T14:24:32.631Z [+120s] result {"scenario":"cache-kill","sent":1762,"persisted":1762,"lost":0,"extra":0,"dbDuplicates":0,"streamDupsDropped":0,"drainMs":6034,"readiness":"200 → 503 → 200","tracking":"200 OK → 503 CRITICAL → 200 WARN → 200 OK","gateway":"200 ok → 200 degraded → 200 ok","maxSpool":1232,"alerts":["[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live m…","[VeeTrax] WARN: 1,152 positions are buffered on disk at gateway NucBox_K8_Plus-4236 (cache unavailable); they are replayed in order automatically.","[VeeTrax] Resolved: gateway spool"],"notes":[]}
+2026-11-09T14:24:32.732Z [+120s] ── scenario net-blackhole ──
+2026-11-09T14:24:42.747Z [+130s] cache proxy → blackhole (connections open, nothing delivered)
+2026-11-09T14:25:27.751Z [+175s] cache proxy → up (held data delivered late)
+2026-11-09T14:25:57.612Z [+205s] result {"scenario":"net-blackhole","sent":1542,"persisted":1542,"lost":0,"extra":0,"dbDuplicates":0,"streamDupsDropped":1560,"drainMs":4017,"readiness":"200 → 503 → 200","tracking":"200 OK → 503 CRITICAL → 200 WARN → 200 OK","gateway":"200 ok → 200 degraded → 200 ok","maxSpool":795,"alerts":["[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live m…"],"notes":[]}
+2026-11-09T14:25:57.717Z [+205s] ── scenario gateway-restart ──
+2026-11-09T14:26:07.719Z [+215s] kill -9 gateway
+2026-11-09T14:26:07.729Z [+215s] gateway exited (code null, signal SIGKILL)
+2026-11-09T14:26:17.738Z [+225s] gateway started (pid 21108)
+2026-11-09T14:26:52.984Z [+261s] result {"scenario":"gateway-restart","sent":745,"persisted":745,"lost":0,"extra":0,"dbDuplicates":0,"streamDupsDropped":0,"drainMs":4013,"readiness":"200","tracking":"200 OK → 503 CRITICAL → 200 OK","gateway":"200 ok → down → 200 ok","maxSpool":0,"alerts":["[VeeTrax] CRITICAL: gateway NucBox_K8_Plus-4236 has not reported for 17 s (hung or stopping).","[VeeTrax] Resolved: gateway heartbeat"],"notes":[]}
+2026-11-09T14:26:53.090Z [+261s] ── scenario dup-ooo ──
+2026-11-09T14:27:41.405Z [+309s] result {"scenario":"dup-ooo","sent":875,"persisted":875,"lost":0,"extra":0,"dbDuplicates":0,"streamDupsDropped":1,"drainMs":6038,"readiness":"200","tracking":"200 OK","gateway":"200 ok","maxSpool":0,"alerts":[],"notes":["one entry XADDed twice with the same mid (expect 1 row, 1 duplicate dropped)","live 868120009000003: 2026-11-09T14:27:43.000Z OK (newest fix)","live 868120009000005: 2026-11-09T14:27:42.000Z OK (newest fix)","live 868120009000001: 2026-11-09T14:27:45.000Z OK (newest fix)","live 868120009000002: 2026-11-09T14:27:42.000Z OK (newest fix)","live 868120009000004: 2026-11-09T14:27:42.000Z OK (newest fix)"]}
+2026-11-09T14:27:41.507Z [+309s] ── scenario prolonged ──
+2026-11-09T14:27:52.106Z [+320s] kill -9 valkey for 3 min: Could not connect to Valkey at 127.0.0.1:6390: Connection refused
+2026-11-09T14:30:53.256Z [+501s] valkey restart: PONG
+2026-11-09T14:31:18.427Z [+526s] result {"scenario":"prolonged","sent":4047,"persisted":4047,"lost":0,"extra":0,"dbDuplicates":0,"streamDupsDropped":0,"drainMs":4010,"readiness":"200 → 503 → 200","tracking":"200 OK → 503 CRITICAL → 200 OK","gateway":"200 ok → 200 degraded → 200 ok","maxSpool":3416,"alerts":["[VeeTrax] CRITICAL: Valkey is not reachable: Reached the max retries per request limit (which is 3). Refer to "],"notes":[]}
+2026-11-09T14:31:22.726Z [+530s] done; report in D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\var\chaos\confirm-run\results.md
+2026-11-09T14:31:22.734Z [+530s] gateway exited (code null, signal SIGKILL)
+2026-11-09T14:31:22.745Z [+530s] processor exited (code null, signal SIGKILL)
+2026-11-09T14:31:22.758Z [+530s] api exited (code null, signal SIGKILL)
+2026-11-09T14:31:22.760Z [+530s] spool dir after run: checkpoint.json, seg-000000001.jsonl

@@ -39,10 +39,37 @@ export interface GatewayListenerMetrics {
   lastPositionAt: string | null;
 }
 
+/** Gateway durable spool (positions kept on local disk while the cache is unavailable or the processor is far behind). */
+export interface SpoolMetrics {
+  enabled: boolean;
+  /** direct = XADD straight to the stream; spooling = writing to disk; draining = replaying the spool into the stream. */
+  mode: 'disabled' | 'direct' | 'spooling' | 'draining';
+  /** The gateway's cache connection is ready. */
+  cacheReady: boolean;
+  /** Spooling because the processor backlog is close to the stream cap. */
+  backpressure: boolean;
+  pendingEntries: number;
+  pendingBytes: number;
+  oldestSpooledAt: string | null;
+  /** Since start. */
+  spooled: number;
+  replayed: number;
+  /** Refused by the spool (full / disk error). */
+  rejected: number;
+  /** Direct XADDs that failed (then spooled). */
+  directFailed: number;
+  /** Positions neither queued nor spooled: their device ACK was withheld. */
+  notAcked: number;
+  lastError: string | null;
+  lastErrorAt: string | null;
+}
+
 export interface GatewayMetrics {
   listeners: GatewayListenerMetrics[];
   /** RAW_TCP data forwarding targets handled by this gateway. */
   relay?: RelayTargetStats[];
+  /** Durable spool state (absent on gateways without the spool). */
+  spool?: SpoolMetrics;
 }
 
 export interface ProcessorMetrics {
@@ -59,6 +86,8 @@ export interface ProcessorMetrics {
   backoffMs: number;
   pending: number | null;
   lag: number | null;
+  /** Stream entries dropped as duplicates (same gateway message id) since start. */
+  duplicates?: number;
 }
 
 export interface NotifierMetrics {

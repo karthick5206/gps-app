@@ -1,0 +1,64 @@
+# VeeTrax Valkey configuration. Rendered by install-valkey.sh into /etc/valkey/valkey.conf; do not edit the rendered
+# file by hand (re-run the installer with new settings). Docs: ops/valkey/README.md
+# Placeholders: @BIND@ @PORT@ @TLS_PORT@ @MAXMEMORY@ @TLS_BLOCK@
+
+# ---- network --------------------------------------------------------------------------------------------------------
+# Only the private / allow-listed interface (plus loopback for local ops tools). Never 0.0.0.0 on a public NIC.
+bind @BIND@ 127.0.0.1 -::1
+protected-mode yes
+# Plain TCP port: the private-network variant uses it; the TLS variant sets it to 0 (TLS only).
+port @PORT@
+tcp-backlog 511
+tcp-keepalive 60
+timeout 0
+# Device commands, live map and processors keep long-lived connections; 1,000 is far above what VeeTrax opens.
+maxclients 1000
+
+@TLS_BLOCK@
+
+# ---- auth -----------------------------------------------------------------------------------------------------------
+# Users live in the ACL file (default user disabled, app user "veetrax", ops user "admin").
+aclfile /etc/valkey/users.acl
+# Dangerous commands are already denied to the app by ACL; renaming is not used (it breaks ACL tooling).
+
+# ---- process --------------------------------------------------------------------------------------------------------
+daemonize no
+supervised systemd
+pidfile /run/valkey/valkey.pid
+loglevel notice
+logfile /var/log/valkey/valkey.log
+databases 16
+dir /var/lib/valkey
+
+# ---- memory ---------------------------------------------------------------------------------------------------------
+# Sized for a 2 GB VM: leaves room for the OS, fork copy-on-write during AOF rewrite / RDB save, and backups.
+# noeviction: evicting would silently drop unprocessed positions or live state; at the limit writes fail instead and
+# the gateways spool positions to disk (and System Health turns red) — data is never thrown away silently.
+maxmemory @MAXMEMORY@
+maxmemory-policy noeviction
+
+# ---- persistence ----------------------------------------------------------------------------------------------------
+# AOF: at most ~1 s of writes lost on a crash or power cut.
+appendonly yes
+appenddirname appendonlydir
+appendfilename "appendonly.aof"
+appendfsync everysec
+no-appendfsync-on-rewrite no
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-use-rdb-preamble yes
+aof-load-truncated yes
+# RDB snapshots as a second, compact copy (used by the backup job).
+save 3600 1 300 100 60 10000
+dbfilename dump.rdb
+rdbcompression yes
+rdbchecksum yes
+stop-writes-on-bgsave-error yes
+
+# ---- latency / safety ----------------------------------------------------------------------------------------------
+lazyfree-lazy-eviction yes
+lazyfree-lazy-expire yes
+lazyfree-lazy-server-del yes
+slowlog-log-slower-than 10000
+slowlog-max-len 256
+latency-monitor-threshold 100

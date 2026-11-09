@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
+import { createRedis } from './connection';
 import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
 import { RedisKeys } from './keys';
@@ -12,13 +13,13 @@ export class RedisService implements OnModuleDestroy {
   private readonly subscribers: Redis[] = [];
 
   constructor(@Inject(APP_ENV) private readonly env: AppEnv) {
-    this.client = new Redis(env.redisUrl, { maxRetriesPerRequest: 3 });
+    this.client = createRedis(env.redisUrl, { maxRetriesPerRequest: 3 });
     this.client.on('error', (err) => this.logger.error(`Valkey error: ${err.message}`));
   }
 
   /** Dedicated connection in subscriber mode; closed with the module. */
   subscribe(channels: string[], onMessage: (channel: string, message: string) => void): Redis {
-    const sub = new Redis(this.env.redisUrl);
+    const sub = createRedis(this.env.redisUrl);
     sub.on('error', (err) => this.logger.error(`Valkey subscriber error: ${err.message}`));
     sub.on('message', onMessage);
     void sub.subscribe(...channels);

@@ -20,6 +20,29 @@ export interface TransitionResult {
 }
 
 /**
+ * State to compare against on the first evaluation after a cache outage. While the cache was unreachable the monitor
+ * kept its issues and alert records in memory only (the cache outage itself among them), so the copy in the cache
+ * lacks them. Without merging, the recovery of those issues is never noticed and no "Resolved" e-mail goes out.
+ * Issues stored in the cache win (they may have been updated by another API instance); issues only known locally are
+ * added; for alert records the most recent alert wins.
+ */
+export function mergeOutageState(
+  stored: HealthIssue[],
+  storedRecords: Map<string, AlertRecord>,
+  local: HealthIssue[],
+  localRecords: Map<string, AlertRecord>,
+): { previous: HealthIssue[]; records: Map<string, AlertRecord> } {
+  const ids = new Set(stored.map((i) => i.id));
+  const previous = [...stored, ...local.filter((i) => !ids.has(i.id))];
+  const records = new Map(storedRecords);
+  for (const [id, r] of localRecords) {
+    const s = records.get(id);
+    if (!s || r.alertAt > s.alertAt) records.set(id, r);
+  }
+  return { previous, records };
+}
+
+/**
  * Compares the previous active issues with the current check results. A check that stays in the same severity keeps
  * its since-time; a new or escalated (WARN → CRITICAL) one is e-mailed unless the same check alerted within the
  * cooldown (escalations always go out); a resolved one gets a recovery e-mail if its alert was sent.

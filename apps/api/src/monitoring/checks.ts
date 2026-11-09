@@ -9,6 +9,7 @@ import {
   ProcessRole,
   ProcessRoleDto,
   QueueDto,
+  SpoolMetrics,
   ValkeyDto,
 } from '@veetracer/shared';
 import { isFailing, relayStatsFromHeartbeats } from '../relay/stats';
@@ -28,6 +29,11 @@ export interface CheckInput {
   notifications: { sent: number; failed: number } | null;
   /** Shortly after the API started the other processes may not have written a heartbeat yet. */
   startupGrace: boolean;
+  /**
+   * Epoch ms of the newest position batch committed to PostgreSQL (max Device.lastSeenAt, written in the same
+   * transaction as the positions); null when unknown or there is none. Undefined: not collected.
+   */
+  lastPersistedAt?: number | null;
 }
 
 export type Issue = Omit<HealthIssue, 'since'>;
@@ -158,7 +164,7 @@ function storeChecks(input: CheckInput, t: HealthThresholds, out: Issue[]): void
     out.push({ id: 'database.latency', check: 'database latency', section: 'database', severity: 'WARN', message: `PostgreSQL answered SELECT 1 in ${fmt(db.latencyMs)} ms (> ${t.dbLatencyWarnMs} ms).` });
   }
   if (!v.reachable) {
-    out.push({ id: 'valkey.unreachable', check: 'valkey', section: 'valkey', severity: 'CRITICAL', message: `Valkey is not reachable: ${v.error ?? 'no response'}. Devices' positions cannot be queued.` });
+    out.push({ id: 'valkey.unreachable', check: 'valkey', section: 'valkey', severity: 'CRITICAL', message: `Valkey is not reachable: ${v.error ?? 'no response'}. Gateways spool positions to disk and replay them when it is back; live map, alerts, notifications and commands are paused.` });
   } else {
     if (v.memoryPercent !== null) {
       const severity = v.memoryPercent > t.valkeyMemCritPct ? 'CRITICAL' : v.memoryPercent > t.valkeyMemWarnPct ? 'WARN' : null;
@@ -220,11 +226,75 @@ function relayChecks(input: CheckInput, out: Issue[]): void {
   }
 }
 
+/** Gateway spool metrics from the gateway heartbeats. */
+export function gatewaySpools(input: CheckInput): { instanceId: string; spool: SpoolMetrics }[] {
+  const gateways = input.processes.find((p) => p.role === 'gateway')?.instances ?? [];
+  return gateways.flatMap((g) => {
+    const spool = (g.metrics as { spool?: SpoolMetrics } | undefined)?.spool;
+    return spool ? [{ instanceId: g.instanceId, spool }] : [];
+  });
+}
+
+/**
+ * End-to-end tracking: positions buffered on a gateway's disk, positions refused by a gateway, and how long ago the
+ * processor last committed positions to PostgreSQL while devices are connected.
+ */
+function trackingChecks(input: CheckInput, t: HealthThresholds, out: Issue[]): void {
+  for (const { instanceId, spool } of gatewaySpools(input)) {
+    const base = `tracking.spool.${instanceId}`;
+    const errorAt = spool.lastErrorAt ? Date.parse(spool.lastErrorAt) : 0;
+    if (spool.notAcked > 0 && input.now - errorAt <= t.dbErrorWindowSec * 1000) {
+      out.push({
+        id: `${base}.refused`,
+        check: 'gateway positions refused',
+        section: 'pipeline',
+        severity: 'CRITICAL',
+        message: `Gateway ${instanceId} could neither queue nor spool positions (${fmt(spool.notAcked)} since start); devices are not acknowledged and positions without device retransmission are lost. ${spool.lastError ?? ''}`.trim(),
+      });
+    }
+    if (spool.pendingEntries > 0) {
+      const oldest = spool.oldestSpooledAt ? Date.parse(spool.oldestSpooledAt) : input.now;
+      const ageMin = (input.now - oldest) / 60_000;
+      const stuck = spool.cacheReady && !spool.backpressure && ageMin > t.spoolStuckMin;
+      out.push({
+        id: `${base}.pending`,
+        check: 'gateway spool',
+        section: 'pipeline',
+        severity: stuck ? 'CRITICAL' : 'WARN',
+        message: stuck
+          ? `${fmt(spool.pendingEntries)} positions have been waiting in the spool of gateway ${instanceId} for ${Math.round(ageMin)} min although the cache is up: replay is not progressing.`
+          : `${fmt(spool.pendingEntries)} positions are buffered on disk at gateway ${instanceId} (${spool.backpressure ? 'processor backlog near the stream cap' : spool.cacheReady ? 'replaying' : 'cache unavailable'}); they are replayed in order automatically.`,
+      });
+    }
+  }
+  if (input.lastPersistedAt === undefined || !input.valkey.reachable) return;
+  const connections = input.ports.reduce((s, p) => s + p.connections, 0);
+  if (!connections || input.startupGrace) return;
+  const ageSec = input.lastPersistedAt === null ? Number.POSITIVE_INFINITY : (input.now - input.lastPersistedAt) / 1000;
+  const severity = ageSec > t.persistStaleCritSec ? 'CRITICAL' : ageSec > t.persistStaleWarnSec ? 'WARN' : null;
+  if (severity) {
+    out.push({
+      id: 'tracking.persist-stale',
+      check: 'positions persisted',
+      section: 'pipeline',
+      severity,
+      message: Number.isFinite(ageSec)
+        ? `No positions were written to PostgreSQL for ${minutes(ageSec)} although ${fmt(connections)} device connection(s) are open.`
+        : `No positions have been written to PostgreSQL although ${fmt(connections)} device connection(s) are open.`,
+    });
+  }
+}
+
 /** All checks; returns the issues that are currently WARN or CRITICAL. Pure (unit-tested). */
 export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] {
   const out: Issue[] = [];
-  processChecks(input, t, out);
-  portChecks(input, t, out);
+  // Heartbeats and gateway port reports live in the cache: while it is unreachable they are unknown, not missing, so
+  // only the cache outage itself is reported (instead of every process and port looking dead).
+  if (input.valkey.reachable) {
+    processChecks(input, t, out);
+    portChecks(input, t, out);
+  }
+  trackingChecks(input, t, out);
   queueChecks(input, t, out);
   storeChecks(input, t, out);
   notifierChecks(input, t, out);

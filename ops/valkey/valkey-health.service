@@ -1,0 +1,24 @@
+[Unit]
+Description=Valkey health endpoint for the VeeTrax watchdog (port 9121)
+After=valkey.service
+
+[Service]
+User=valkey
+Group=valkey
+ExecStart=/usr/bin/python3 /usr/local/sbin/valkey-health @BIND@
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+ReadOnlyPaths=/etc/valkey /var/backups/valkey
+
+[Install]
+WantedBy=multi-user.target

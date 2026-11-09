@@ -1,3 +1,4 @@
+import { ensureStreamGroup, isNoGroupError } from '../redis/stream-groups';
 import { Injectable, Logger } from '@nestjs/common';
 import { WebhookEndpoint } from '@prisma/client';
 import { ALERT_TYPE_MAP, AlertTypeCode } from '@veetracer/shared';
@@ -116,6 +117,10 @@ export class WebhookWorkerService {
           await this.processEntries(entries);
         } catch (error) {
           this.logger.error(`Webhook loop error: ${(error as Error).message}`);
+          if (isNoGroupError(error)) {
+            await ensureStreamGroup(this.redis.client, RedisKeys.webhooksStream, RedisKeys.webhooksGroup).catch(() => undefined);
+            backlog = true;
+          }
           await sleep(1000);
         }
       }

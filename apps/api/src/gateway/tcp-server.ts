@@ -4,9 +4,10 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import { createServer, Server, Socket } from 'node:net';
 import { join } from 'node:path';
 import { CommandDispatch, CommandUpdate, CRITICAL_NOT_DELIVERED_OFFLINE, isSafetyCriticalDispatch, NO_QUEUE_NOT_DELIVERED, NormalizedPosition } from '@veetracer/shared';
-import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
+import { RedisKeys } from '../redis/keys';
 import { BaseSession, DecodeContext, DecodedMedia, ProtocolDecoder } from './protocol';
 import { RelayHook, RelaySessionHandle } from './relay/relay-manager';
+import { PositionPublisher } from './spool/position-publisher';
 import { RateLimitedWarn, UnparsedLog } from './unparsed-log';
 
 const IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -20,8 +21,6 @@ const CAPTURE_FRAMES_PER_CONNECTION = 500;
 const COMMAND_STATE_TTL_SEC = 7 * 86_400;
 /** Commands drained per login from the offline queue. */
 const QUEUE_DRAIN_MAX = 20;
-/** An XADD that hasn't completed after this long counts as failed (the device will resend; duplicates are dropped). */
-const ENQUEUE_TIMEOUT_MS = 10_000;
 
 /**
  * Protocols without a reply reference (Teltonika Codec 12) match replies in send order. An entry still unanswered after
@@ -80,7 +79,7 @@ export interface GatewayStats {
   positions: number;
   dropped: number;
   errors: number;
-  /** Positions whose XADD failed; their ACKs were withheld so the device retransmits. */
+  /** Positions neither XADDed nor spooled; their ACKs were withheld so the device retransmits. */
   enqueueFailures: number;
   lastPacketAt: number | null;
   lastPositionAt: number | null;
@@ -99,6 +98,11 @@ export interface TcpGatewayOptions {
   onMedia?: (media: DecodedMedia[]) => void;
   /** Data forwarding (RAW_TCP): receives every chunk exactly as the device sent it. */
   relay?: RelayHook | null;
+  /**
+   * Hands positions to the stream, with the durable spool behind it. One instance is shared by all protocol servers
+   * of a gateway. Defaults to a spool-less publisher on `redis` (XADD, else withhold the ACK, as before).
+   */
+  publisher?: PositionPublisher;
 }
 
 interface Connection<S extends BaseSession> {
@@ -137,6 +141,7 @@ export class TcpGatewayServer<S extends BaseSession> {
   /** In-gateway requests awaiting a device reply, by protocol ref. */
   private readonly waiters = new Map<number, { resolve: (r: { text: string; data?: unknown }) => void; timer: NodeJS.Timeout }>();
   private server: Server | null = null;
+  private readonly publisher: PositionPublisher;
   private captureReady: Promise<void> | null = null;
   readonly stats: GatewayStats = {
     connections: 0,
@@ -158,6 +163,7 @@ export class TcpGatewayServer<S extends BaseSession> {
   ) {
     this.logger = new Logger(`Gateway:${decoder.name}`);
     this.warnings = new RateLimitedWarn(`Gateway:${decoder.name}`);
+    this.publisher = options.publisher ?? new PositionPublisher(options.redis, null);
   }
 
   get protocol(): string {
@@ -299,8 +305,9 @@ export class TcpGatewayServer<S extends BaseSession> {
 
   /**
    * Decodes the frames of one chunk. Replies of frames that carry positions (Teltonika record ACKs, GT06 alarm ACKs,
-   * JT808 location replies) are written only after the XADD of those positions succeeded — devices retransmit
-   * unacknowledged data, so a Valkey outage doesn't lose positions. Other replies (login, heartbeats) are always
+   * JT808 location replies) are written only after those positions are durable — XADDed, or fsynced to the gateway
+   * spool while the cache is unavailable. If neither worked the ACK is withheld and devices retransmit. Positions of
+   * frames without an ACK (GT06 0x12/0x22 locations) rely on the spool alone. Other replies (login, heartbeats) are always
    * sent — immediately, or right after an earlier gated reply when one is still waiting (ordering is kept).
    */
   private process(conn: Connection<S>, frames: Buffer[]): void {
@@ -499,32 +506,24 @@ export class TcpGatewayServer<S extends BaseSession> {
       .catch((error: Error) => this.logger.error(`Command queue read failed: ${error.message}`));
   }
 
-  /** XADDs the positions; resolves true when every entry was added (never rejects). */
+  /**
+   * Hands the positions to the publisher: XADD, or the durable spool when the cache is unavailable. Resolves true when
+   * they are durable (in the stream or fsynced in the spool) and the device ACK may go out; false withholds the ACK.
+   * Never rejects.
+   */
   private publish(positions: NormalizedPosition[], remote: string): Promise<boolean> {
-    const pipeline = this.options.redis.pipeline();
-    const maxLen = positionsStreamMaxLen();
-    for (const p of positions) {
-      pipeline.xadd(RedisKeys.positionsStream, 'MAXLEN', '~', maxLen, '*', 'data', JSON.stringify(p), 'remote', remote);
-    }
     this.stats.positions += positions.length;
     this.stats.lastPositionAt = Date.now();
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`timed out after ${ENQUEUE_TIMEOUT_MS} ms`)), ENQUEUE_TIMEOUT_MS);
-      timer.unref();
-    });
-    return Promise.race([pipeline.exec(), timeout])
-      .then((results) => {
-        const failed = (results ?? []).filter(([error]) => error).length;
-        if (failed) throw (results ?? []).find(([error]) => error)![0] as Error;
-        return true;
-      })
-      .catch((error: Error) => {
+    return this.publisher.publish(positions, remote).then(
+      (ok) => {
+        if (!ok) this.stats.enqueueFailures += positions.length;
+        return ok;
+      },
+      () => {
         this.stats.enqueueFailures += positions.length;
-        this.warnings.warn('xadd', `XADD failed (${positions.length} position(s) not acknowledged to the device): ${error.message}`);
         return false;
-      })
-      .finally(() => clearTimeout(timer));
+      },
+    );
   }
 
   private refreshConnectionKey(conn: Connection<S>): void {

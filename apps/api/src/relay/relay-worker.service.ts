@@ -1,3 +1,4 @@
+import { ensureStreamGroup, isNoGroupError } from '../redis/stream-groups';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AlertDto, NormalizedPosition, RelayTargetStats } from '@veetracer/shared';
 import type Redis from 'ioredis';
@@ -82,6 +83,10 @@ export class RelayWorkerService {
           await this.readOnce(client);
         } catch (error) {
           this.logger.error(`Relay loop error: ${(error as Error).message}`);
+          if (isNoGroupError(error)) {
+            await ensureStreamGroup(client, RedisKeys.positionsStream, RedisKeys.relayGroup, '$').catch(() => undefined);
+            active = false;
+          }
           await sleep(1000);
         }
       }

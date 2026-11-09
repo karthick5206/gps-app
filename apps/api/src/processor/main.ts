@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import Redis from 'ioredis';
+import { createRedis } from '../redis/connection';
 import { hostname } from 'node:os';
 import { loadEnv } from '../config/env';
 import { startHeartbeat } from '../monitoring/heartbeat';
@@ -21,8 +21,8 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient();
   // Don't exit when PostgreSQL is down at start: Prisma connects lazily and the consumer backs off until it is back.
   await prisma.$connect().catch((error: Error) => logger.error(`Database not reachable at start (will retry): ${error.message}`));
-  const redis = new Redis(env.redisUrl, { maxRetriesPerRequest: null });
-  const subscriber = new Redis(env.redisUrl);
+  const redis = createRedis(env.redisUrl, { maxRetriesPerRequest: null });
+  const subscriber = createRedis(env.redisUrl);
   for (const conn of [redis, subscriber]) conn.on('error', (error) => logger.error(`Valkey error: ${error.message}`));
 
   const cache = new DeviceCache(prisma);

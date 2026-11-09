@@ -1,0 +1,95 @@
+[
+  {
+    "scenario": "baseline",
+    "sent": 802,
+    "persisted": 802,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 4018,
+    "readiness": "200",
+    "tracking": "200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [],
+    "notes": []
+  },
+  {
+    "scenario": "net-cut",
+    "sent": 1350,
+    "persisted": 1350,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 4013,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 813,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live m…",
+      "[VeeTrax] Resolved: valkey"
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "cache-kill",
+    "sent": 1786,
+    "persisted": 1786,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 4017,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 40,
+    "alerts": [],
+    "notes": []
+  },
+  {
+    "scenario": "dup-ooo",
+    "sent": 884,
+    "persisted": 884,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 1,
+    "drainMs": 6038,
+    "readiness": "200",
+    "tracking": "200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [],
+    "notes": [
+      "one entry XADDed twice with the same mid (expect 1 row, 1 duplicate dropped)",
+      "live 868120009000003: 2026-11-09T15:20:25.000Z OK (newest fix)",
+      "live 868120009000005: 2026-11-09T15:20:23.000Z OK (newest fix)",
+      "live 868120009000001: 2026-11-09T15:20:23.000Z OK (newest fix)",
+      "live 868120009000002: 2026-11-09T15:20:22.000Z OK (newest fix)",
+      "live 868120009000004: 2026-11-09T15:20:24.000Z OK (newest fix)"
+    ]
+  },
+  {
+    "scenario": "WHOLE RUN",
+    "sent": 5441,
+    "persisted": 5441,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 1,
+    "drainMs": 4012,
+    "readiness": "200",
+    "tracking": "200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Gateways spool positions to disk and replay them when it is back; live m…",
+      "[VeeTrax] Resolved: valkey"
+    ],
+    "notes": []
+  }
+]

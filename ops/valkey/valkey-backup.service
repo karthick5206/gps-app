@@ -1,0 +1,10 @@
+[Unit]
+Description=Valkey local backup (VeeTrax)
+After=valkey.service
+Requires=valkey.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/valkey-backup
+Nice=10
+IOSchedulingClass=idle

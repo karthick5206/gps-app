@@ -1,0 +1,227 @@
+[
+  {
+    "scenario": "baseline",
+    "sent": 798,
+    "persisted": 798,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 4014,
+    "readiness": "200",
+    "tracking": "200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [],
+    "notes": []
+  },
+  {
+    "scenario": "cache-kill",
+    "sent": 1772,
+    "persisted": 1772,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 4020,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 WARN → 200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 1233,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Devices' positions cannot be queued.",
+      "[VeeTrax] 2 system issue(s)",
+      "[VeeTrax] 2 system issues resolved"
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "cache-restart-empty",
+    "sent": 1169,
+    "persisted": 1169,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 18082,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 WARN → 200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 473,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: Reached the max retries per request limit (which is 3). Refer to ",
+      "[VeeTrax] WARN: 433 positions are buffered on disk at gateway NucBox_K8_Plus-42464 (cache unavailable); they are replayed in order automatically.",
+      "[VeeTrax] Resolved: gateway spool"
+    ],
+    "notes": [
+      "cache came back EMPTY (stream, consumer group, live state gone)"
+    ]
+  },
+  {
+    "scenario": "net-blackhole",
+    "sent": 1546,
+    "persisted": 1546,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 1571,
+    "drainMs": 4021,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 WARN → 200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 807,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Devices' positions cannot be queued."
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "net-cut",
+    "sent": 1338,
+    "persisted": 1338,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 10059,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 WARN → 200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 804,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: Reached the max retries per request limit (which is 3). Refer to ",
+      "[VeeTrax] 3 system issue(s) (1 critical)",
+      "[VeeTrax] 3 system issues resolved"
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "gateway-restart",
+    "sent": 751,
+    "persisted": 751,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 4006,
+    "readiness": "200",
+    "tracking": "200 OK → 503 CRITICAL → 200 OK",
+    "gateway": "200 ok → down → 200 ok",
+    "maxSpool": 0,
+    "alerts": [],
+    "notes": []
+  },
+  {
+    "scenario": "processor-restart",
+    "sent": 1547,
+    "persisted": 1547,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": -1571,
+    "drainMs": 6040,
+    "readiness": "200",
+    "tracking": "200 OK → 503 CRITICAL → 200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [
+      "[VeeTrax] CRITICAL: No processor process is running (no heartbeat).",
+      "[VeeTrax] Resolved: processor process"
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "db-interruption",
+    "sent": 1951,
+    "persisted": 1951,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 0,
+    "drainMs": 4017,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [
+      "[VeeTrax] 2 system issue(s) (2 critical)",
+      "[VeeTrax] 2 system issues resolved"
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "dup-ooo",
+    "sent": 875,
+    "persisted": 875,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 1,
+    "drainMs": 10055,
+    "readiness": "200",
+    "tracking": "200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [],
+    "notes": [
+      "one entry XADDed twice with the same mid (expect 1 row, 1 duplicate dropped)",
+      "live 868120009000003: 2026-11-09T14:09:58.000Z OK (newest fix)",
+      "live 868120009000004: 2026-11-09T14:09:59.000Z OK (newest fix)",
+      "live 868120009000005: 2026-11-09T14:09:58.000Z OK (newest fix)",
+      "live 868120009000001: 2026-11-09T14:09:57.000Z OK (newest fix)",
+      "live 868120009000002: 2026-11-09T14:09:58.000Z OK (newest fix)"
+    ]
+  },
+  {
+    "scenario": "prolonged",
+    "sent": 13180,
+    "persisted": 13180,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 2,
+    "drainMs": 4008,
+    "readiness": "200 → 503 → 200",
+    "tracking": "200 OK → 503 CRITICAL → 200 WARN → 503 CRITICAL → 200 OK",
+    "gateway": "200 ok → 200 degraded → 200 ok",
+    "maxSpool": 12596,
+    "alerts": [
+      "[VeeTrax] 2 system issue(s) (1 critical)",
+      "[VeeTrax] Resolved: database latency",
+      "[VeeTrax] WARN: 12,539 positions are buffered on disk at gateway NucBox_K8_Plus-25296 (cache unavailable); they are replayed in order automatically.",
+      "[VeeTrax] Resolved: gateway spool"
+    ],
+    "notes": []
+  },
+  {
+    "scenario": "WHOLE RUN",
+    "sent": 26521,
+    "persisted": 26521,
+    "lost": 0,
+    "extra": 0,
+    "dbDuplicates": 0,
+    "streamDupsDropped": 3,
+    "drainMs": 4023,
+    "readiness": "200",
+    "tracking": "200 OK",
+    "gateway": "200 ok",
+    "maxSpool": 0,
+    "alerts": [
+      "[VeeTrax] CRITICAL: Valkey is not reachable: PING timed out after 2000 ms. Devices' positions cannot be queued.",
+      "[VeeTrax] 2 system issue(s)",
+      "[VeeTrax] 2 system issues resolved",
+      "[VeeTrax] CRITICAL: Valkey is not reachable: Reached the max retries per request limit (which is 3). Refer to ",
+      "[VeeTrax] WARN: 433 positions are buffered on disk at gateway NucBox_K8_Plus-42464 (cache unavailable); they are replayed in order automatically.",
+      "[VeeTrax] Resolved: gateway spool",
+      "[VeeTrax] 3 system issue(s) (1 critical)",
+      "[VeeTrax] 3 system issues resolved",
+      "[VeeTrax] CRITICAL: No processor process is running (no heartbeat).",
+      "[VeeTrax] Resolved: processor process",
+      "[VeeTrax] 2 system issue(s) (2 critical)",
+      "[VeeTrax] 2 system issue(s) (1 critical)",
+      "[VeeTrax] Resolved: database latency",
+      "[VeeTrax] WARN: 12,539 positions are buffered on disk at gateway NucBox_K8_Plus-25296 (cache unavailable); they are replayed in order automatically."
+    ],
+    "notes": []
+  }
+]

@@ -1,0 +1,698 @@
+2026-11-09T13:58:09.069Z [Nest] 39972  - 11/09/2026, 8:58:09 AM     LOG [Processor] Consumer processor-chaos reading vt:positions (group processor)
+2026-11-09T13:58:09.070Z [Nest] 39972  - 11/09/2026, 8:58:09 AM     LOG [Processor] Created consumer group processor
+2026-11-09T13:58:19.068Z [Nest] 39972  - 11/09/2026, 8:58:19 AM     LOG [Rules] rules batches=60 positions=114 alerts=0 avgEvalMs=1.74 avgCommitMs=0.06 maxEvalMs=56.4
+2026-11-09T13:58:19.088Z [Nest] 39972  - 11/09/2026, 8:58:19 AM     LOG [Processor] processed=114 rate=11.4/s batches=60 avgBatchMs=9.6 pending=1 lag=2
+2026-11-09T13:58:29.071Z [Nest] 39972  - 11/09/2026, 8:58:29 AM     LOG [Rules] rules batches=132 positions=175 alerts=0 avgEvalMs=0.57 avgCommitMs=0.00 maxEvalMs=1.1
+2026-11-09T13:58:29.088Z [Nest] 39972  - 11/09/2026, 8:58:29 AM     LOG [Processor] processed=175 rate=17.5/s batches=132 avgBatchMs=7.3 pending=1 lag=2
+2026-11-09T13:58:39.076Z [Nest] 39972  - 11/09/2026, 8:58:39 AM     LOG [Rules] rules batches=145 positions=197 alerts=0 avgEvalMs=0.53 avgCommitMs=0.00 maxEvalMs=1.1
+2026-11-09T13:58:39.203Z [Nest] 39972  - 11/09/2026, 8:58:39 AM     LOG [Processor] processed=197 rate=19.7/s batches=145 avgBatchMs=6.7 pending=1 lag=1
+2026-11-09T13:58:49.076Z [Nest] 39972  - 11/09/2026, 8:58:49 AM     LOG [Rules] rules batches=133 positions=192 alerts=0 avgEvalMs=0.49 avgCommitMs=0.00 maxEvalMs=1.3
+2026-11-09T13:58:49.276Z [Nest] 39972  - 11/09/2026, 8:58:49 AM     LOG [Processor] processed=192 rate=19.2/s batches=133 avgBatchMs=7.6 pending=1 lag=0
+2026-11-09T13:58:59.084Z [Nest] 39972  - 11/09/2026, 8:58:59 AM     LOG [Rules] rules batches=136 positions=189 alerts=0 avgEvalMs=0.51 avgCommitMs=0.00 maxEvalMs=0.9
+2026-11-09T13:58:59.298Z [Nest] 39972  - 11/09/2026, 8:58:59 AM     LOG [Processor] processed=189 rate=18.9/s batches=136 avgBatchMs=6.4 pending=1 lag=1
+2026-11-09T13:59:09.090Z [Nest] 39972  - 11/09/2026, 8:59:09 AM     LOG [Rules] rules batches=136 positions=190 alerts=0 avgEvalMs=0.51 avgCommitMs=0.00 maxEvalMs=2.0
+2026-11-09T13:59:09.126Z [Nest] 39972  - 11/09/2026, 8:59:09 AM     LOG [Processor] processed=190 rate=19.0/s batches=136 avgBatchMs=6.6 pending=1 lag=3
+2026-11-09T13:59:19.090Z [Nest] 39972  - 11/09/2026, 8:59:19 AM     LOG [Rules] rules batches=133 positions=190 alerts=0 avgEvalMs=0.55 avgCommitMs=0.00 maxEvalMs=2.0
+2026-11-09T13:59:19.156Z [Nest] 39972  - 11/09/2026, 8:59:19 AM     LOG [Processor] processed=190 rate=19.0/s batches=133 avgBatchMs=7.6 pending=1 lag=2
+2026-11-09T13:59:24.644Z [Nest] 39972  - 11/09/2026, 8:59:24 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:25.125Z [Nest] 39972  - 11/09/2026, 8:59:25 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:25.392Z [Nest] 39972  - 11/09/2026, 8:59:25 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:25.706Z [Nest] 39972  - 11/09/2026, 8:59:25 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:26.474Z [Nest] 39972  - 11/09/2026, 8:59:26 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:27.439Z [Nest] 39972  - 11/09/2026, 8:59:27 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:28.620Z [Nest] 39972  - 11/09/2026, 8:59:28 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:29.105Z [Nest] 39972  - 11/09/2026, 8:59:29 AM     LOG [Rules] rules batches=65 positions=91 alerts=0 avgEvalMs=0.51 avgCommitMs=0.00 maxEvalMs=0.7
+2026-11-09T13:59:32.431Z [Nest] 39972  - 11/09/2026, 8:59:32 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:33.340Z [Nest] 39972  - 11/09/2026, 8:59:33 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:35.297Z [Nest] 39972  - 11/09/2026, 8:59:35 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:35.297Z [Nest] 39972  - 11/09/2026, 8:59:35 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:36.358Z [Nest] 39972  - 11/09/2026, 8:59:36 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:36.358Z [Nest] 39972  - 11/09/2026, 8:59:36 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:37.467Z [Nest] 39972  - 11/09/2026, 8:59:37 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T13:59:37.468Z [Nest] 39972  - 11/09/2026, 8:59:37 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T13:59:38.626Z [Nest] 39972  - 11/09/2026, 8:59:38 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T13:59:38.627Z [Nest] 39972  - 11/09/2026, 8:59:38 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T13:59:41.083Z [Nest] 39972  - 11/09/2026, 8:59:41 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:41.083Z [Nest] 39972  - 11/09/2026, 8:59:41 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:42.387Z [Nest] 39972  - 11/09/2026, 8:59:42 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T13:59:42.387Z [Nest] 39972  - 11/09/2026, 8:59:42 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T13:59:43.741Z [Nest] 39972  - 11/09/2026, 8:59:43 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:45.150Z [Nest] 39972  - 11/09/2026, 8:59:45 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:45.150Z [Nest] 39972  - 11/09/2026, 8:59:45 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:46.610Z [Nest] 39972  - 11/09/2026, 8:59:46 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:46.610Z [Nest] 39972  - 11/09/2026, 8:59:46 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:48.127Z [Nest] 39972  - 11/09/2026, 8:59:48 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:48.127Z [Nest] 39972  - 11/09/2026, 8:59:48 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:49.693Z [Nest] 39972  - 11/09/2026, 8:59:49 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T13:59:49.693Z [Nest] 39972  - 11/09/2026, 8:59:49 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T13:59:51.298Z [Nest] 39972  - 11/09/2026, 8:59:51 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:51.298Z [Nest] 39972  - 11/09/2026, 8:59:51 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:54.667Z [Nest] 39972  - 11/09/2026, 8:59:54 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:54.668Z [Nest] 39972  - 11/09/2026, 8:59:54 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:56.428Z [Nest] 39972  - 11/09/2026, 8:59:56 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T13:59:58.248Z [Nest] 39972  - 11/09/2026, 8:59:58 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:00:00.105Z [Nest] 39972  - 11/09/2026, 9:00:00 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:00:02.016Z [Nest] 39972  - 11/09/2026, 9:00:02 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:00:03.981Z [Nest] 39972  - 11/09/2026, 9:00:03 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:00:12.030Z [Nest] 39972  - 11/09/2026, 9:00:12 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:00:14.044Z [Nest] 39972  - 11/09/2026, 9:00:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:00:16.060Z [Nest] 39972  - 11/09/2026, 9:00:16 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:00:20.078Z [Nest] 39972  - 11/09/2026, 9:00:20 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:00:24.098Z [Nest] 39972  - 11/09/2026, 9:00:24 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:00:27.199Z [Nest] 39972  - 11/09/2026, 9:00:27 AM     LOG [Processor] processed=91 rate=9.1/s batches=65 avgBatchMs=6.3 pending=0 lag=0
+2026-11-09T14:00:27.199Z [Nest] 39972  - 11/09/2026, 9:00:27 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:00:27.199Z [Nest] 39972  - 11/09/2026, 9:00:27 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:00:27.199Z [Nest] 39972  - 11/09/2026, 9:00:27 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:00:27.199Z [Nest] 39972  - 11/09/2026, 9:00:27 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:00:27.199Z [Nest] 39972  - 11/09/2026, 9:00:27 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:00:29.210Z [Nest] 39972  - 11/09/2026, 9:00:29 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:00:39.165Z [Nest] 39972  - 11/09/2026, 9:00:39 AM     LOG [Rules] rules batches=134 positions=1428 alerts=0 avgEvalMs=0.62 avgCommitMs=0.00 maxEvalMs=7.6
+2026-11-09T14:00:39.291Z [Nest] 39972  - 11/09/2026, 9:00:39 AM     LOG [Processor] processed=1428 rate=142.7/s batches=134 avgBatchMs=9.4 pending=1 lag=0
+2026-11-09T14:00:49.167Z [Nest] 39972  - 11/09/2026, 9:00:49 AM     LOG [Rules] rules batches=151 positions=186 alerts=0 avgEvalMs=0.54 avgCommitMs=0.00 maxEvalMs=0.8
+2026-11-09T14:00:49.255Z [Nest] 39972  - 11/09/2026, 9:00:49 AM     LOG [Processor] processed=189 rate=18.9/s batches=152 avgBatchMs=7.1 pending=1 lag=0
+2026-11-09T14:00:59.167Z [Nest] 39972  - 11/09/2026, 9:00:59 AM     LOG [Rules] rules batches=150 positions=194 alerts=0 avgEvalMs=0.53 avgCommitMs=0.00 maxEvalMs=0.8
+2026-11-09T14:00:59.358Z [Nest] 39972  - 11/09/2026, 9:00:59 AM     LOG [Processor] processed=191 rate=19.1/s batches=149 avgBatchMs=7.3 pending=1 lag=1
+2026-11-09T14:01:02.459Z [Nest] 39972  - 11/09/2026, 9:01:02 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:05.548Z [Nest] 39972  - 11/09/2026, 9:01:05 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:06.152Z [Nest] 39972  - 11/09/2026, 9:01:06 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:06.813Z [Nest] 39972  - 11/09/2026, 9:01:06 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:07.516Z [Nest] 39972  - 11/09/2026, 9:01:07 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:09.175Z [Nest] 39972  - 11/09/2026, 9:01:09 AM     LOG [Rules] rules batches=30 positions=40 alerts=0 avgEvalMs=0.49 avgCommitMs=0.00 maxEvalMs=1.2
+2026-11-09T14:01:13.872Z [Nest] 39972  - 11/09/2026, 9:01:13 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:14.979Z [Nest] 39972  - 11/09/2026, 9:01:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:17.347Z [Nest] 39972  - 11/09/2026, 9:01:17 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:18.615Z [Nest] 39972  - 11/09/2026, 9:01:18 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:19.930Z [Nest] 39972  - 11/09/2026, 9:01:19 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:21.283Z [Nest] 39972  - 11/09/2026, 9:01:21 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:01:23.234Z [Nest] 39972  - 11/09/2026, 9:01:23 AM    WARN [Processor] Consumer group processor missing (cache data lost); recreating it
+2026-11-09T14:01:23.234Z [Nest] 39972  - 11/09/2026, 9:01:23 AM   ERROR [Processor] Stats failed: NOGROUP No such key 'vt:positions' or consumer group 'processor'
+2026-11-09T14:01:23.234Z [Nest] 39972  - 11/09/2026, 9:01:23 AM   ERROR [Processor] Stats failed: NOGROUP No such key 'vt:positions' or consumer group 'processor'
+2026-11-09T14:01:23.235Z [Nest] 39972  - 11/09/2026, 9:01:23 AM     LOG [Processor] Created consumer group processor
+2026-11-09T14:01:23.235Z [Nest] 39972  - 11/09/2026, 9:01:23 AM   ERROR [Processor] Batch failed (other; entries stay pending and will be retried in 1s): NOGROUP No such key 'vt:positions' or consumer group 'processor' in XREADGROUP with GROUP option
+2026-11-09T14:01:24.244Z [Nest] 39972  - 11/09/2026, 9:01:24 AM     LOG [Processor] Recovered after 1 failed attempt(s)
+2026-11-09T14:01:29.180Z [Nest] 39972  - 11/09/2026, 9:01:29 AM     LOG [Rules] rules batches=31 positions=513 alerts=0 avgEvalMs=0.67 avgCommitMs=0.04 maxEvalMs=3.9
+2026-11-09T14:01:29.265Z [Nest] 39972  - 11/09/2026, 9:01:29 AM     LOG [Processor] processed=513 rate=51.3/s batches=31 avgBatchMs=9.7 pending=1 lag=1
+2026-11-09T14:01:39.186Z [Nest] 39972  - 11/09/2026, 9:01:39 AM     LOG [Rules] rules batches=154 positions=199 alerts=0 avgEvalMs=0.53 avgCommitMs=0.00 maxEvalMs=1.0
+2026-11-09T14:01:39.315Z [Nest] 39972  - 11/09/2026, 9:01:39 AM     LOG [Processor] processed=199 rate=19.9/s batches=154 avgBatchMs=7.1 pending=1 lag=1
+2026-11-09T14:01:49.189Z [Nest] 39972  - 11/09/2026, 9:01:49 AM     LOG [Rules] rules batches=152 positions=188 alerts=0 avgEvalMs=0.47 avgCommitMs=0.00 maxEvalMs=1.0
+2026-11-09T14:01:49.237Z [Nest] 39972  - 11/09/2026, 9:01:49 AM     LOG [Processor] processed=189 rate=18.9/s batches=153 avgBatchMs=6.4 pending=1 lag=0
+2026-11-09T14:01:59.193Z [Nest] 39972  - 11/09/2026, 9:01:59 AM     LOG [Rules] rules batches=150 positions=193 alerts=0 avgEvalMs=0.47 avgCommitMs=0.00 maxEvalMs=1.2
+2026-11-09T14:01:59.410Z [Nest] 39972  - 11/09/2026, 9:01:59 AM     LOG [Processor] processed=193 rate=19.3/s batches=150 avgBatchMs=6.9 pending=1 lag=1
+2026-11-09T14:02:09.197Z [Nest] 39972  - 11/09/2026, 9:02:09 AM     LOG [Rules] rules batches=155 positions=193 alerts=0 avgEvalMs=0.50 avgCommitMs=0.00 maxEvalMs=1.1
+2026-11-09T14:02:09.384Z [Nest] 39972  - 11/09/2026, 9:02:09 AM     LOG [Processor] processed=192 rate=19.2/s batches=154 avgBatchMs=8.2 pending=1 lag=3
+2026-11-09T14:02:19.198Z [Nest] 39972  - 11/09/2026, 9:02:19 AM     LOG [Rules] rules batches=142 positions=182 alerts=0 avgEvalMs=0.46 avgCommitMs=0.00 maxEvalMs=0.9
+2026-11-09T14:02:19.348Z [Nest] 39972  - 11/09/2026, 9:02:19 AM     LOG [Processor] processed=184 rate=18.4/s batches=144 avgBatchMs=7.2 pending=1 lag=0
+2026-11-09T14:02:29.198Z [Nest] 39972  - 11/09/2026, 9:02:29 AM     LOG [Rules] rules batches=39 positions=49 alerts=0 avgEvalMs=0.47 avgCommitMs=0.00 maxEvalMs=0.7
+2026-11-09T14:03:06.598Z [Nest] 39972  - 11/09/2026, 9:03:06 AM     LOG [Processor] processed=47 rate=4.7/s batches=37 avgBatchMs=6.7 pending=0 lag=175
+2026-11-09T14:03:06.600Z [Nest] 39972  - 11/09/2026, 9:03:06 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=213
+2026-11-09T14:03:06.600Z [Nest] 39972  - 11/09/2026, 9:03:06 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=213
+2026-11-09T14:03:06.600Z [Nest] 39972  - 11/09/2026, 9:03:06 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=213
+2026-11-09T14:03:09.231Z [Nest] 39972  - 11/09/2026, 9:03:09 AM     LOG [Rules] rules batches=31 positions=906 alerts=0 avgEvalMs=0.66 avgCommitMs=0.00 maxEvalMs=4.2
+2026-11-09T14:03:09.344Z [Nest] 39972  - 11/09/2026, 9:03:09 AM     LOG [Processor] processed=2478 rate=247.6/s batches=35 avgBatchMs=17.0 pending=1 lag=0
+2026-11-09T14:03:19.245Z [Nest] 39972  - 11/09/2026, 9:03:19 AM     LOG [Rules] rules batches=168 positions=194 alerts=0 avgEvalMs=0.44 avgCommitMs=0.00 maxEvalMs=0.9
+2026-11-09T14:03:19.294Z [Nest] 39972  - 11/09/2026, 9:03:19 AM     LOG [Processor] processed=193 rate=19.3/s batches=167 avgBatchMs=6.2 pending=1 lag=0
+2026-11-09T14:03:29.249Z [Nest] 39972  - 11/09/2026, 9:03:29 AM     LOG [Rules] rules batches=162 positions=186 alerts=0 avgEvalMs=0.47 avgCommitMs=0.30 maxEvalMs=0.9
+2026-11-09T14:03:29.361Z [Nest] 39972  - 11/09/2026, 9:03:29 AM     LOG [Processor] processed=187 rate=18.7/s batches=163 avgBatchMs=6.3 pending=0 lag=0
+2026-11-09T14:03:39.264Z [Nest] 39972  - 11/09/2026, 9:03:39 AM     LOG [Rules] rules batches=163 positions=193 alerts=0 avgEvalMs=0.44 avgCommitMs=0.00 maxEvalMs=0.8
+2026-11-09T14:03:39.348Z [Nest] 39972  - 11/09/2026, 9:03:39 AM     LOG [Processor] processed=193 rate=19.3/s batches=163 avgBatchMs=7.3 pending=1 lag=0
+2026-11-09T14:03:47.172Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:03:47.172Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:03:47.229Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:47.229Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:47.345Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:47.346Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:47.513Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:47.513Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:47.717Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:47.717Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:47.980Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:47.980Z [Nest] 39972  - 11/09/2026, 9:03:47 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:48.297Z [Nest] 39972  - 11/09/2026, 9:03:48 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:48.297Z [Nest] 39972  - 11/09/2026, 9:03:48 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:48.654Z [Nest] 39972  - 11/09/2026, 9:03:48 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:48.654Z [Nest] 39972  - 11/09/2026, 9:03:48 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:49.059Z [Nest] 39972  - 11/09/2026, 9:03:49 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:49.059Z [Nest] 39972  - 11/09/2026, 9:03:49 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:49.266Z [Nest] 39972  - 11/09/2026, 9:03:49 AM     LOG [Rules] rules batches=132 positions=154 alerts=0 avgEvalMs=0.48 avgCommitMs=0.00 maxEvalMs=1.2
+2026-11-09T14:03:49.514Z [Nest] 39972  - 11/09/2026, 9:03:49 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:49.514Z [Nest] 39972  - 11/09/2026, 9:03:49 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:50.021Z [Nest] 39972  - 11/09/2026, 9:03:50 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:50.021Z [Nest] 39972  - 11/09/2026, 9:03:50 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:50.572Z [Nest] 39972  - 11/09/2026, 9:03:50 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:50.572Z [Nest] 39972  - 11/09/2026, 9:03:50 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:51.178Z [Nest] 39972  - 11/09/2026, 9:03:51 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:51.178Z [Nest] 39972  - 11/09/2026, 9:03:51 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:51.834Z [Nest] 39972  - 11/09/2026, 9:03:51 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:03:51.834Z [Nest] 39972  - 11/09/2026, 9:03:51 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:03:52.546Z [Nest] 39972  - 11/09/2026, 9:03:52 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:52.547Z [Nest] 39972  - 11/09/2026, 9:03:52 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:53.309Z [Nest] 39972  - 11/09/2026, 9:03:53 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:53.309Z [Nest] 39972  - 11/09/2026, 9:03:53 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:54.116Z [Nest] 39972  - 11/09/2026, 9:03:54 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:54.116Z [Nest] 39972  - 11/09/2026, 9:03:54 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:54.971Z [Nest] 39972  - 11/09/2026, 9:03:54 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:54.971Z [Nest] 39972  - 11/09/2026, 9:03:54 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:55.887Z [Nest] 39972  - 11/09/2026, 9:03:55 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:55.887Z [Nest] 39972  - 11/09/2026, 9:03:55 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:56.848Z [Nest] 39972  - 11/09/2026, 9:03:56 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:56.848Z [Nest] 39972  - 11/09/2026, 9:03:56 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:57.852Z [Nest] 39972  - 11/09/2026, 9:03:57 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:57.852Z [Nest] 39972  - 11/09/2026, 9:03:57 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:58.904Z [Nest] 39972  - 11/09/2026, 9:03:58 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:03:58.905Z [Nest] 39972  - 11/09/2026, 9:03:58 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:00.015Z [Nest] 39972  - 11/09/2026, 9:04:00 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:00.015Z [Nest] 39972  - 11/09/2026, 9:04:00 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:01.180Z [Nest] 39972  - 11/09/2026, 9:04:01 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:01.180Z [Nest] 39972  - 11/09/2026, 9:04:01 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:02.387Z [Nest] 39972  - 11/09/2026, 9:04:02 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:02.387Z [Nest] 39972  - 11/09/2026, 9:04:02 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:03.655Z [Nest] 39972  - 11/09/2026, 9:04:03 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:03.655Z [Nest] 39972  - 11/09/2026, 9:04:03 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:04.971Z [Nest] 39972  - 11/09/2026, 9:04:04 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:04.971Z [Nest] 39972  - 11/09/2026, 9:04:04 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:06.335Z [Nest] 39972  - 11/09/2026, 9:04:06 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:06.336Z [Nest] 39972  - 11/09/2026, 9:04:06 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:07.741Z [Nest] 39972  - 11/09/2026, 9:04:07 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:07.741Z [Nest] 39972  - 11/09/2026, 9:04:07 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:09.203Z [Nest] 39972  - 11/09/2026, 9:04:09 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:09.203Z [Nest] 39972  - 11/09/2026, 9:04:09 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:10.710Z [Nest] 39972  - 11/09/2026, 9:04:10 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:10.711Z [Nest] 39972  - 11/09/2026, 9:04:10 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:12.273Z [Nest] 39972  - 11/09/2026, 9:04:12 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:04:12.273Z [Nest] 39972  - 11/09/2026, 9:04:12 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:04:13.886Z [Nest] 39972  - 11/09/2026, 9:04:13 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:13.886Z [Nest] 39972  - 11/09/2026, 9:04:13 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:15.540Z [Nest] 39972  - 11/09/2026, 9:04:15 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:04:15.540Z [Nest] 39972  - 11/09/2026, 9:04:15 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:04:17.241Z [Nest] 39972  - 11/09/2026, 9:04:17 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:17.241Z [Nest] 39972  - 11/09/2026, 9:04:17 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:18.992Z [Nest] 39972  - 11/09/2026, 9:04:18 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:18.993Z [Nest] 39972  - 11/09/2026, 9:04:18 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:04:20.795Z [Nest] 39972  - 11/09/2026, 9:04:20 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:20.795Z [Nest] 39972  - 11/09/2026, 9:04:20 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:22.650Z [Nest] 39972  - 11/09/2026, 9:04:22 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:22.650Z [Nest] 39972  - 11/09/2026, 9:04:22 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:24.560Z [Nest] 39972  - 11/09/2026, 9:04:24 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:24.560Z [Nest] 39972  - 11/09/2026, 9:04:24 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:26.517Z [Nest] 39972  - 11/09/2026, 9:04:26 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:26.517Z [Nest] 39972  - 11/09/2026, 9:04:26 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:04:29.535Z [Nest] 39972  - 11/09/2026, 9:04:29 AM     LOG [Processor] processed=153 rate=15.3/s batches=131 avgBatchMs=6.3 pending=0 lag=0
+2026-11-09T14:04:29.535Z [Nest] 39972  - 11/09/2026, 9:04:29 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:04:29.535Z [Nest] 39972  - 11/09/2026, 9:04:29 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:04:29.535Z [Nest] 39972  - 11/09/2026, 9:04:29 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:04:29.535Z [Nest] 39972  - 11/09/2026, 9:04:29 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=0 lag=0
+2026-11-09T14:04:39.309Z [Nest] 39972  - 11/09/2026, 9:04:39 AM     LOG [Rules] rules batches=122 positions=985 alerts=0 avgEvalMs=0.53 avgCommitMs=0.00 maxEvalMs=5.0
+2026-11-09T14:04:39.376Z [Nest] 39972  - 11/09/2026, 9:04:39 AM     LOG [Processor] processed=986 rate=98.5/s batches=123 avgBatchMs=7.2 pending=1 lag=1
+2026-11-09T14:04:49.316Z [Nest] 39972  - 11/09/2026, 9:04:49 AM     LOG [Rules] rules batches=175 positions=192 alerts=0 avgEvalMs=0.46 avgCommitMs=0.00 maxEvalMs=1.6
+2026-11-09T14:04:49.398Z [Nest] 39972  - 11/09/2026, 9:04:49 AM     LOG [Processor] processed=191 rate=19.1/s batches=174 avgBatchMs=6.2 pending=1 lag=1
+2026-11-09T14:04:59.321Z [Nest] 39972  - 11/09/2026, 9:04:59 AM     LOG [Rules] rules batches=170 positions=190 alerts=0 avgEvalMs=0.45 avgCommitMs=0.00 maxEvalMs=0.7
+2026-11-09T14:04:59.380Z [Nest] 39972  - 11/09/2026, 9:04:59 AM     LOG [Processor] processed=190 rate=19.0/s batches=170 avgBatchMs=5.9 pending=1 lag=0
+2026-11-09T14:05:09.329Z [Nest] 39972  - 11/09/2026, 9:05:09 AM     LOG [Rules] rules batches=145 positions=165 alerts=0 avgEvalMs=0.47 avgCommitMs=0.00 maxEvalMs=2.8
+2026-11-09T14:05:09.913Z [Nest] 39972  - 11/09/2026, 9:05:09 AM     LOG [Processor] processed=165 rate=16.5/s batches=145 avgBatchMs=7.1 pending=0 lag=0
+2026-11-09T14:05:19.977Z [Nest] 39972  - 11/09/2026, 9:05:19 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:05:29.332Z [Nest] 39972  - 11/09/2026, 9:05:29 AM     LOG [Rules] rules batches=157 positions=180 alerts=0 avgEvalMs=0.44 avgCommitMs=0.00 maxEvalMs=2.0
+2026-11-09T14:05:29.418Z [Nest] 39972  - 11/09/2026, 9:05:29 AM     LOG [Processor] processed=180 rate=18.0/s batches=157 avgBatchMs=5.7 pending=1 lag=1
+2026-11-09T14:05:39.346Z [Nest] 39972  - 11/09/2026, 9:05:39 AM     LOG [Rules] rules batches=169 positions=190 alerts=0 avgEvalMs=0.46 avgCommitMs=0.00 maxEvalMs=0.8
+2026-11-09T14:05:39.443Z [Nest] 39972  - 11/09/2026, 9:05:39 AM     LOG [Processor] processed=190 rate=19.0/s batches=169 avgBatchMs=7.0 pending=1 lag=1
+2026-11-09T14:05:49.355Z [Nest] 39972  - 11/09/2026, 9:05:49 AM     LOG [Rules] rules batches=167 positions=192 alerts=0 avgEvalMs=0.47 avgCommitMs=0.00 maxEvalMs=2.0
+2026-11-09T14:05:49.454Z [Nest] 39972  - 11/09/2026, 9:05:49 AM     LOG [Processor] processed=192 rate=19.2/s batches=167 avgBatchMs=6.2 pending=1 lag=0
+2026-11-09T14:05:59.355Z [Nest] 39972  - 11/09/2026, 9:05:59 AM     LOG [Rules] rules batches=170 positions=190 alerts=0 avgEvalMs=0.44 avgCommitMs=0.00 maxEvalMs=1.5
+2026-11-09T14:05:59.457Z [Nest] 39972  - 11/09/2026, 9:05:59 AM     LOG [Processor] processed=191 rate=19.1/s batches=171 avgBatchMs=6.1 pending=1 lag=0
+2026-11-09T14:06:33.757Z [Nest] 25468  - 11/09/2026, 9:06:33 AM     LOG [Processor] Consumer processor-chaos reading vt:positions (group processor)
+2026-11-09T14:06:43.762Z [Nest] 25468  - 11/09/2026, 9:06:43 AM     LOG [Rules] rules batches=163 positions=771 alerts=0 avgEvalMs=0.73 avgCommitMs=0.01 maxEvalMs=35.9
+2026-11-09T14:06:43.847Z [Nest] 25468  - 11/09/2026, 9:06:43 AM     LOG [Processor] processed=771 rate=77.0/s batches=163 avgBatchMs=7.3 pending=1 lag=0
+2026-11-09T14:06:53.762Z [Nest] 25468  - 11/09/2026, 9:06:53 AM     LOG [Rules] rules batches=168 positions=189 alerts=0 avgEvalMs=0.52 avgCommitMs=0.00 maxEvalMs=2.3
+2026-11-09T14:06:53.826Z [Nest] 25468  - 11/09/2026, 9:06:53 AM     LOG [Processor] processed=189 rate=18.9/s batches=168 avgBatchMs=6.3 pending=1 lag=0
+2026-11-09T14:07:03.769Z [Nest] 25468  - 11/09/2026, 9:07:03 AM     LOG [Rules] rules batches=164 positions=187 alerts=0 avgEvalMs=0.48 avgCommitMs=0.00 maxEvalMs=2.3
+2026-11-09T14:07:03.818Z [Nest] 25468  - 11/09/2026, 9:07:03 AM     LOG [Processor] processed=187 rate=18.7/s batches=164 avgBatchMs=6.0 pending=1 lag=0
+2026-11-09T14:07:13.768Z [Nest] 25468  - 11/09/2026, 9:07:13 AM     LOG [Rules] rules batches=167 positions=196 alerts=0 avgEvalMs=0.46 avgCommitMs=0.00 maxEvalMs=1.9
+2026-11-09T14:07:13.849Z [Nest] 25468  - 11/09/2026, 9:07:13 AM     LOG [Processor] processed=196 rate=19.6/s batches=167 avgBatchMs=7.1 pending=1 lag=1
+2026-11-09T14:07:23.774Z [Nest] 25468  - 11/09/2026, 9:07:23 AM     LOG [Rules] rules batches=165 positions=184 alerts=0 avgEvalMs=0.48 avgCommitMs=0.00 maxEvalMs=1.5
+2026-11-09T14:07:23.793Z [Nest] 25468  - 11/09/2026, 9:07:23 AM     LOG [Processor] processed=184 rate=18.4/s batches=165 avgBatchMs=6.4 pending=1 lag=0
+2026-11-09T14:07:30.841Z [Nest] 25468  - 11/09/2026, 9:07:30 AM   ERROR [Processor] Batch write with alerts failed, retrying without: 
+2026-11-09T14:07:30.841Z Invalid `prisma.$executeRaw()` invocation:
+2026-11-09T14:07:30.841Z Server has closed the connection.
+2026-11-09T14:07:30.843Z [Nest] 25468  - 11/09/2026, 9:07:30 AM   ERROR [Processor] Batch failed (database; entries stay pending and will be retried in 1s): Please make sure your database server is running at `127.0.0.1:15432`.
+2026-11-09T14:07:31.861Z [Nest] 25468  - 11/09/2026, 9:07:31 AM   ERROR [Processor] Batch write with alerts failed, retrying without: 
+2026-11-09T14:07:31.861Z Invalid `prisma.$executeRaw()` invocation:
+2026-11-09T14:07:31.861Z Can't reach database server at `127.0.0.1:15432`
+2026-11-09T14:07:31.861Z Please make sure your database server is running at `127.0.0.1:15432`.
+2026-11-09T14:07:31.862Z [Nest] 25468  - 11/09/2026, 9:07:31 AM   ERROR [Processor] Batch failed (database; entries stay pending and will be retried in 2s): Please make sure your database server is running at `127.0.0.1:15432`.
+2026-11-09T14:07:33.778Z [Nest] 25468  - 11/09/2026, 9:07:33 AM     LOG [Rules] rules batches=119 positions=134 alerts=0 avgEvalMs=0.51 avgCommitMs=0.00 maxEvalMs=2.3
+2026-11-09T14:07:33.794Z [Nest] 25468  - 11/09/2026, 9:07:33 AM     LOG [Processor] processed=132 rate=13.2/s batches=117 avgBatchMs=6.8 pending=1 lag=63
+2026-11-09T14:07:33.874Z [Nest] 25468  - 11/09/2026, 9:07:33 AM   ERROR [RulesRepository] Loading rules for 2967ba2e-843c-446e-8f12-3dcab0940416 failed: 
+2026-11-09T14:07:33.874Z Invalid `prisma.vehicleGroup.findMany()` invocation in
+2026-11-09T14:07:33.874Z D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\dist\alerts\rules-data.js:101:29
+2026-11-09T14:07:33.874Z    98 const [company, settingRows, groupRows, objectRows, geofenceRows, snoozeRows, parkingRows] = await Promise.all([
+2026-11-09T14:07:33.874Z    99     prisma.company.findUnique({ where: { id: companyId }, select: { timezone: true, settings: true } }),
+2026-11-09T14:07:33.874Z   100     prisma.alertSetting.findMany({ where: { companyId } }),
+2026-11-09T14:07:33.874Z → 101     prisma.vehicleGroup.findMany(
+2026-11-09T14:07:33.874Z Can't reach database server at `127.0.0.1:15432`
+2026-11-09T14:07:33.874Z Please make sure your database server is running at `127.0.0.1:15432`.
+2026-11-09T14:07:33.878Z [Nest] 25468  - 11/09/2026, 9:07:33 AM   ERROR [Processor] Batch write with alerts failed, retrying without: 
+2026-11-09T14:07:33.878Z Invalid `prisma.$executeRaw()` invocation:
+2026-11-09T14:07:33.878Z Can't reach database server at `127.0.0.1:15432`
+2026-11-09T14:07:33.878Z Please make sure your database server is running at `127.0.0.1:15432`.
+2026-11-09T14:07:33.879Z [Nest] 25468  - 11/09/2026, 9:07:33 AM   ERROR [Processor] Batch failed (database; entries stay pending and will be retried in 4s): Please make sure your database server is running at `127.0.0.1:15432`.
+2026-11-09T14:07:37.886Z [Nest] 25468  - 11/09/2026, 9:07:37 AM   ERROR [Processor] Batch failed (database; entries stay pending and will be retried in 8s): Please make sure your database server is running at `127.0.0.1:15432`.
+2026-11-09T14:07:43.789Z [Nest] 25468  - 11/09/2026, 9:07:43 AM     LOG [Rules] rules batches=1 positions=1 alerts=0 avgEvalMs=1.01 avgCommitMs=0.00 maxEvalMs=1.0
+2026-11-09T14:07:43.797Z [Nest] 25468  - 11/09/2026, 9:07:43 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=253
+2026-11-09T14:07:45.896Z [Nest] 25468  - 11/09/2026, 9:07:45 AM   ERROR [Processor] Batch failed (database; entries stay pending and will be retried in 16s): Please make sure your database server is running at `127.0.0.1:15432`.
+2026-11-09T14:07:53.802Z [Nest] 25468  - 11/09/2026, 9:07:53 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=439
+2026-11-09T14:08:01.911Z [Nest] 25468  - 11/09/2026, 9:08:01 AM   ERROR [Processor] Batch failed (database; entries stay pending and will be retried in 30s): Please make sure your database server is running at `127.0.0.1:15432`.
+2026-11-09T14:08:03.818Z [Nest] 25468  - 11/09/2026, 9:08:03 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=633
+2026-11-09T14:08:13.829Z [Nest] 25468  - 11/09/2026, 9:08:13 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=821
+2026-11-09T14:08:23.830Z [Nest] 25468  - 11/09/2026, 9:08:23 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1014
+2026-11-09T14:08:31.921Z [Nest] 25468  - 11/09/2026, 9:08:31 AM    WARN [Processor] Re-claimed 1 stale pending entries
+2026-11-09T14:08:31.989Z [Nest] 25468  - 11/09/2026, 9:08:31 AM     LOG [Processor] Recovered after 6 failed attempt(s)
+2026-11-09T14:08:33.813Z [Nest] 25468  - 11/09/2026, 9:08:33 AM     LOG [Rules] rules batches=31 positions=1206 alerts=0 avgEvalMs=0.90 avgCommitMs=0.00 maxEvalMs=11.3
+2026-11-09T14:08:33.892Z [Nest] 25468  - 11/09/2026, 9:08:33 AM     LOG [Processor] processed=1206 rate=120.5/s batches=31 avgBatchMs=16.9 pending=1 lag=0
+2026-11-09T14:08:43.816Z [Nest] 25468  - 11/09/2026, 9:08:43 AM     LOG [Rules] rules batches=158 positions=183 alerts=0 avgEvalMs=0.48 avgCommitMs=0.00 maxEvalMs=1.0
+2026-11-09T14:08:43.850Z [Nest] 25468  - 11/09/2026, 9:08:43 AM     LOG [Processor] processed=183 rate=18.3/s batches=158 avgBatchMs=6.7 pending=1 lag=3
+2026-11-09T14:08:53.824Z [Nest] 25468  - 11/09/2026, 9:08:53 AM     LOG [Rules] rules batches=169 positions=195 alerts=0 avgEvalMs=0.48 avgCommitMs=0.00 maxEvalMs=0.9
+2026-11-09T14:08:53.877Z [Nest] 25468  - 11/09/2026, 9:08:53 AM     LOG [Processor] processed=195 rate=19.5/s batches=169 avgBatchMs=6.6 pending=1 lag=0
+2026-11-09T14:09:03.837Z [Nest] 25468  - 11/09/2026, 9:09:03 AM     LOG [Rules] rules batches=163 positions=186 alerts=0 avgEvalMs=0.47 avgCommitMs=0.00 maxEvalMs=2.2
+2026-11-09T14:09:03.889Z [Nest] 25468  - 11/09/2026, 9:09:03 AM     LOG [Processor] processed=186 rate=18.6/s batches=163 avgBatchMs=7.5 pending=1 lag=1
+2026-11-09T14:09:13.845Z [Nest] 25468  - 11/09/2026, 9:09:13 AM     LOG [Rules] rules batches=176 positions=206 alerts=0 avgEvalMs=0.46 avgCommitMs=0.00 maxEvalMs=2.3
+2026-11-09T14:09:13.995Z [Nest] 25468  - 11/09/2026, 9:09:13 AM     LOG [Processor] processed=238 rate=23.8/s batches=178 avgBatchMs=7.1 pending=1 lag=0
+2026-11-09T14:09:23.852Z [Nest] 25468  - 11/09/2026, 9:09:23 AM     LOG [Rules] rules batches=180 positions=215 alerts=0 avgEvalMs=0.44 avgCommitMs=0.00 maxEvalMs=0.9
+2026-11-09T14:09:23.954Z [Nest] 25468  - 11/09/2026, 9:09:23 AM     LOG [Processor] processed=260 rate=26.0/s batches=179 avgBatchMs=5.9 pending=1 lag=0
+2026-11-09T14:09:33.853Z [Nest] 25468  - 11/09/2026, 9:09:33 AM     LOG [Rules] rules batches=176 positions=215 alerts=0 avgEvalMs=0.46 avgCommitMs=0.00 maxEvalMs=1.5
+2026-11-09T14:09:33.886Z [Nest] 25468  - 11/09/2026, 9:09:33 AM     LOG [Processor] processed=263 rate=26.3/s batches=176 avgBatchMs=6.8 pending=1 lag=0
+2026-11-09T14:09:43.857Z [Nest] 25468  - 11/09/2026, 9:09:43 AM     LOG [Rules] rules batches=173 positions=200 alerts=0 avgEvalMs=0.44 avgCommitMs=0.00 maxEvalMs=0.8
+2026-11-09T14:09:43.909Z [Nest] 25468  - 11/09/2026, 9:09:43 AM     LOG [Processor] processed=215 rate=21.5/s batches=173 avgBatchMs=6.4 pending=1 lag=0
+2026-11-09T14:09:53.862Z [Nest] 25468  - 11/09/2026, 9:09:53 AM     LOG [Rules] rules batches=169 positions=189 alerts=0 avgEvalMs=0.45 avgCommitMs=0.00 maxEvalMs=0.8
+2026-11-09T14:09:53.930Z [Nest] 25468  - 11/09/2026, 9:09:53 AM     LOG [Processor] processed=189 rate=18.9/s batches=169 avgBatchMs=6.1 pending=1 lag=0
+2026-11-09T14:10:03.866Z [Nest] 25468  - 11/09/2026, 9:10:03 AM     LOG [Rules] rules batches=171 positions=190 alerts=0 avgEvalMs=0.43 avgCommitMs=0.00 maxEvalMs=0.7
+2026-11-09T14:10:03.902Z [Nest] 25468  - 11/09/2026, 9:10:03 AM     LOG [Processor] processed=190 rate=19.0/s batches=171 avgBatchMs=7.1 pending=1 lag=0
+2026-11-09T14:10:10.649Z [Nest] 25468  - 11/09/2026, 9:10:10 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:11.267Z [Nest] 25468  - 11/09/2026, 9:10:11 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:11.581Z [Nest] 25468  - 11/09/2026, 9:10:11 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:11.943Z [Nest] 25468  - 11/09/2026, 9:10:11 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:12.356Z [Nest] 25468  - 11/09/2026, 9:10:12 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:12.812Z [Nest] 25468  - 11/09/2026, 9:10:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:12.812Z [Nest] 25468  - 11/09/2026, 9:10:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:13.892Z [Nest] 25468  - 11/09/2026, 9:10:13 AM     LOG [Rules] rules batches=101 positions=112 alerts=0 avgEvalMs=0.42 avgCommitMs=0.00 maxEvalMs=0.7
+2026-11-09T14:10:13.924Z [Nest] 25468  - 11/09/2026, 9:10:13 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:13.924Z [Nest] 25468  - 11/09/2026, 9:10:13 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:14.539Z [Nest] 25468  - 11/09/2026, 9:10:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:15.215Z [Nest] 25468  - 11/09/2026, 9:10:15 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:15.216Z [Nest] 25468  - 11/09/2026, 9:10:15 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:15.952Z [Nest] 25468  - 11/09/2026, 9:10:15 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:15.952Z [Nest] 25468  - 11/09/2026, 9:10:15 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:16.737Z [Nest] 25468  - 11/09/2026, 9:10:16 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:16.737Z [Nest] 25468  - 11/09/2026, 9:10:16 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:17.573Z [Nest] 25468  - 11/09/2026, 9:10:17 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:17.575Z [Nest] 25468  - 11/09/2026, 9:10:17 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:18.429Z [Nest] 25468  - 11/09/2026, 9:10:18 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:18.430Z [Nest] 25468  - 11/09/2026, 9:10:18 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:19.343Z [Nest] 25468  - 11/09/2026, 9:10:19 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:20.311Z [Nest] 25468  - 11/09/2026, 9:10:20 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:20.312Z [Nest] 25468  - 11/09/2026, 9:10:20 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:21.325Z [Nest] 25468  - 11/09/2026, 9:10:21 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:21.326Z [Nest] 25468  - 11/09/2026, 9:10:21 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:22.397Z [Nest] 25468  - 11/09/2026, 9:10:22 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:22.399Z [Nest] 25468  - 11/09/2026, 9:10:22 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:23.519Z [Nest] 25468  - 11/09/2026, 9:10:23 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:23.519Z [Nest] 25468  - 11/09/2026, 9:10:23 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:24.693Z [Nest] 25468  - 11/09/2026, 9:10:24 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:24.693Z [Nest] 25468  - 11/09/2026, 9:10:24 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:25.913Z [Nest] 25468  - 11/09/2026, 9:10:25 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:25.913Z [Nest] 25468  - 11/09/2026, 9:10:25 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:27.170Z [Nest] 25468  - 11/09/2026, 9:10:27 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:27.170Z [Nest] 25468  - 11/09/2026, 9:10:27 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:28.506Z [Nest] 25468  - 11/09/2026, 9:10:28 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:31.266Z [Nest] 25468  - 11/09/2026, 9:10:31 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:32.738Z [Nest] 25468  - 11/09/2026, 9:10:32 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:32.738Z [Nest] 25468  - 11/09/2026, 9:10:32 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:35.796Z [Nest] 25468  - 11/09/2026, 9:10:35 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:35.796Z [Nest] 25468  - 11/09/2026, 9:10:35 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:37.410Z [Nest] 25468  - 11/09/2026, 9:10:37 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:37.411Z [Nest] 25468  - 11/09/2026, 9:10:37 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:39.067Z [Nest] 25468  - 11/09/2026, 9:10:39 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:39.068Z [Nest] 25468  - 11/09/2026, 9:10:39 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:40.775Z [Nest] 25468  - 11/09/2026, 9:10:40 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:42.539Z [Nest] 25468  - 11/09/2026, 9:10:42 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:42.539Z [Nest] 25468  - 11/09/2026, 9:10:42 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:44.343Z [Nest] 25468  - 11/09/2026, 9:10:44 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:46.203Z [Nest] 25468  - 11/09/2026, 9:10:46 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:46.203Z [Nest] 25468  - 11/09/2026, 9:10:46 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:48.105Z [Nest] 25468  - 11/09/2026, 9:10:48 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:48.105Z [Nest] 25468  - 11/09/2026, 9:10:48 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:50.057Z [Nest] 25468  - 11/09/2026, 9:10:50 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:50.057Z [Nest] 25468  - 11/09/2026, 9:10:50 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:52.059Z [Nest] 25468  - 11/09/2026, 9:10:52 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:52.059Z [Nest] 25468  - 11/09/2026, 9:10:52 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:54.074Z [Nest] 25468  - 11/09/2026, 9:10:54 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:54.074Z [Nest] 25468  - 11/09/2026, 9:10:54 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:56.077Z [Nest] 25468  - 11/09/2026, 9:10:56 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:56.078Z [Nest] 25468  - 11/09/2026, 9:10:56 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:10:58.084Z [Nest] 25468  - 11/09/2026, 9:10:58 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:10:58.084Z [Nest] 25468  - 11/09/2026, 9:10:58 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:00.096Z [Nest] 25468  - 11/09/2026, 9:11:00 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:00.096Z [Nest] 25468  - 11/09/2026, 9:11:00 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:02.104Z [Nest] 25468  - 11/09/2026, 9:11:02 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:02.105Z [Nest] 25468  - 11/09/2026, 9:11:02 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:04.108Z [Nest] 25468  - 11/09/2026, 9:11:04 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:04.108Z [Nest] 25468  - 11/09/2026, 9:11:04 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:06.118Z [Nest] 25468  - 11/09/2026, 9:11:06 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:06.118Z [Nest] 25468  - 11/09/2026, 9:11:06 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:08.125Z [Nest] 25468  - 11/09/2026, 9:11:08 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:08.126Z [Nest] 25468  - 11/09/2026, 9:11:08 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:10.136Z [Nest] 25468  - 11/09/2026, 9:11:10 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:10.137Z [Nest] 25468  - 11/09/2026, 9:11:10 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:12.141Z [Nest] 25468  - 11/09/2026, 9:11:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:12.142Z [Nest] 25468  - 11/09/2026, 9:11:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:14.156Z [Nest] 25468  - 11/09/2026, 9:11:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:14.156Z [Nest] 25468  - 11/09/2026, 9:11:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:18.167Z [Nest] 25468  - 11/09/2026, 9:11:18 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:18.168Z [Nest] 25468  - 11/09/2026, 9:11:18 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:20.177Z [Nest] 25468  - 11/09/2026, 9:11:20 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:20.177Z [Nest] 25468  - 11/09/2026, 9:11:20 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:22.188Z [Nest] 25468  - 11/09/2026, 9:11:22 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:22.188Z [Nest] 25468  - 11/09/2026, 9:11:22 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:24.195Z [Nest] 25468  - 11/09/2026, 9:11:24 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:26.210Z [Nest] 25468  - 11/09/2026, 9:11:26 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:26.211Z [Nest] 25468  - 11/09/2026, 9:11:26 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:28.217Z [Nest] 25468  - 11/09/2026, 9:11:28 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:28.218Z [Nest] 25468  - 11/09/2026, 9:11:28 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:30.232Z [Nest] 25468  - 11/09/2026, 9:11:30 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:30.233Z [Nest] 25468  - 11/09/2026, 9:11:30 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:32.236Z [Nest] 25468  - 11/09/2026, 9:11:32 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:32.236Z [Nest] 25468  - 11/09/2026, 9:11:32 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:34.253Z [Nest] 25468  - 11/09/2026, 9:11:34 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:34.253Z [Nest] 25468  - 11/09/2026, 9:11:34 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:36.270Z [Nest] 25468  - 11/09/2026, 9:11:36 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:36.270Z [Nest] 25468  - 11/09/2026, 9:11:36 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:38.286Z [Nest] 25468  - 11/09/2026, 9:11:38 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:40.289Z [Nest] 25468  - 11/09/2026, 9:11:40 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:40.289Z [Nest] 25468  - 11/09/2026, 9:11:40 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:42.299Z [Nest] 25468  - 11/09/2026, 9:11:42 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:42.300Z [Nest] 25468  - 11/09/2026, 9:11:42 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:44.315Z [Nest] 25468  - 11/09/2026, 9:11:44 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:11:46.318Z [Nest] 25468  - 11/09/2026, 9:11:46 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:46.318Z [Nest] 25468  - 11/09/2026, 9:11:46 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:48.328Z [Nest] 25468  - 11/09/2026, 9:11:48 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:48.329Z [Nest] 25468  - 11/09/2026, 9:11:48 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:50.345Z [Nest] 25468  - 11/09/2026, 9:11:50 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:50.345Z [Nest] 25468  - 11/09/2026, 9:11:50 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:52.354Z [Nest] 25468  - 11/09/2026, 9:11:52 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:52.354Z [Nest] 25468  - 11/09/2026, 9:11:52 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:54.365Z [Nest] 25468  - 11/09/2026, 9:11:54 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:54.365Z [Nest] 25468  - 11/09/2026, 9:11:54 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:11:56.375Z [Nest] 25468  - 11/09/2026, 9:11:56 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:56.376Z [Nest] 25468  - 11/09/2026, 9:11:56 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:58.386Z [Nest] 25468  - 11/09/2026, 9:11:58 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:11:58.387Z [Nest] 25468  - 11/09/2026, 9:11:58 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:00.391Z [Nest] 25468  - 11/09/2026, 9:12:00 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:00.392Z [Nest] 25468  - 11/09/2026, 9:12:00 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:02.402Z [Nest] 25468  - 11/09/2026, 9:12:02 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:02.402Z [Nest] 25468  - 11/09/2026, 9:12:02 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:12:04.403Z [Nest] 25468  - 11/09/2026, 9:12:04 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:04.404Z [Nest] 25468  - 11/09/2026, 9:12:04 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:06.418Z [Nest] 25468  - 11/09/2026, 9:12:06 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:08.432Z [Nest] 25468  - 11/09/2026, 9:12:08 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:08.432Z [Nest] 25468  - 11/09/2026, 9:12:08 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:10.435Z [Nest] 25468  - 11/09/2026, 9:12:10 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:10.435Z [Nest] 25468  - 11/09/2026, 9:12:10 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:12.439Z [Nest] 25468  - 11/09/2026, 9:12:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:12.439Z [Nest] 25468  - 11/09/2026, 9:12:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:14.457Z [Nest] 25468  - 11/09/2026, 9:12:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:14.457Z [Nest] 25468  - 11/09/2026, 9:12:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:16.470Z [Nest] 25468  - 11/09/2026, 9:12:16 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:16.470Z [Nest] 25468  - 11/09/2026, 9:12:16 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:18.476Z [Nest] 25468  - 11/09/2026, 9:12:18 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:18.476Z [Nest] 25468  - 11/09/2026, 9:12:18 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:20.484Z [Nest] 25468  - 11/09/2026, 9:12:20 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:20.484Z [Nest] 25468  - 11/09/2026, 9:12:20 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:22.498Z [Nest] 25468  - 11/09/2026, 9:12:22 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:22.499Z [Nest] 25468  - 11/09/2026, 9:12:22 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:24.517Z [Nest] 25468  - 11/09/2026, 9:12:24 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:24.517Z [Nest] 25468  - 11/09/2026, 9:12:24 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:26.533Z [Nest] 25468  - 11/09/2026, 9:12:26 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:26.533Z [Nest] 25468  - 11/09/2026, 9:12:26 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:28.550Z [Nest] 25468  - 11/09/2026, 9:12:28 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:12:28.550Z [Nest] 25468  - 11/09/2026, 9:12:28 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:30.567Z [Nest] 25468  - 11/09/2026, 9:12:30 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:30.567Z [Nest] 25468  - 11/09/2026, 9:12:30 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:32.576Z [Nest] 25468  - 11/09/2026, 9:12:32 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:32.576Z [Nest] 25468  - 11/09/2026, 9:12:32 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:34.589Z [Nest] 25468  - 11/09/2026, 9:12:34 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:34.589Z [Nest] 25468  - 11/09/2026, 9:12:34 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:36.605Z [Nest] 25468  - 11/09/2026, 9:12:36 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:36.606Z [Nest] 25468  - 11/09/2026, 9:12:36 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:38.617Z [Nest] 25468  - 11/09/2026, 9:12:38 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:38.618Z [Nest] 25468  - 11/09/2026, 9:12:38 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:40.621Z [Nest] 25468  - 11/09/2026, 9:12:40 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:40.622Z [Nest] 25468  - 11/09/2026, 9:12:40 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:42.628Z [Nest] 25468  - 11/09/2026, 9:12:42 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:42.628Z [Nest] 25468  - 11/09/2026, 9:12:42 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:44.633Z [Nest] 25468  - 11/09/2026, 9:12:44 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:44.633Z [Nest] 25468  - 11/09/2026, 9:12:44 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:46.635Z [Nest] 25468  - 11/09/2026, 9:12:46 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:46.635Z [Nest] 25468  - 11/09/2026, 9:12:46 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:48.640Z [Nest] 25468  - 11/09/2026, 9:12:48 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:48.640Z [Nest] 25468  - 11/09/2026, 9:12:48 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:12:52.660Z [Nest] 25468  - 11/09/2026, 9:12:52 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:56.684Z [Nest] 25468  - 11/09/2026, 9:12:56 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:12:58.699Z [Nest] 25468  - 11/09/2026, 9:12:58 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:02.726Z [Nest] 25468  - 11/09/2026, 9:13:02 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:04.740Z [Nest] 25468  - 11/09/2026, 9:13:04 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:08.754Z [Nest] 25468  - 11/09/2026, 9:13:08 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:08.755Z [Nest] 25468  - 11/09/2026, 9:13:08 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:12.787Z [Nest] 25468  - 11/09/2026, 9:13:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:12.787Z [Nest] 25468  - 11/09/2026, 9:13:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:14.799Z [Nest] 25468  - 11/09/2026, 9:13:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:14.799Z [Nest] 25468  - 11/09/2026, 9:13:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:16.803Z [Nest] 25468  - 11/09/2026, 9:13:16 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:16.803Z [Nest] 25468  - 11/09/2026, 9:13:16 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:18.811Z [Nest] 25468  - 11/09/2026, 9:13:18 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:18.811Z [Nest] 25468  - 11/09/2026, 9:13:18 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:20.816Z [Nest] 25468  - 11/09/2026, 9:13:20 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:20.817Z [Nest] 25468  - 11/09/2026, 9:13:20 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:22.833Z [Nest] 25468  - 11/09/2026, 9:13:22 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:22.833Z [Nest] 25468  - 11/09/2026, 9:13:22 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:13:24.836Z [Nest] 25468  - 11/09/2026, 9:13:24 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:26.848Z [Nest] 25468  - 11/09/2026, 9:13:26 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:28.862Z [Nest] 25468  - 11/09/2026, 9:13:28 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:30.868Z [Nest] 25468  - 11/09/2026, 9:13:30 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:32.876Z [Nest] 25468  - 11/09/2026, 9:13:32 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:36.908Z [Nest] 25468  - 11/09/2026, 9:13:36 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:38.926Z [Nest] 25468  - 11/09/2026, 9:13:38 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:40.939Z [Nest] 25468  - 11/09/2026, 9:13:40 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:44.969Z [Nest] 25468  - 11/09/2026, 9:13:44 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:46.978Z [Nest] 25468  - 11/09/2026, 9:13:46 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:52.998Z [Nest] 25468  - 11/09/2026, 9:13:52 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:57.010Z [Nest] 25468  - 11/09/2026, 9:13:57 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:13:59.012Z [Nest] 25468  - 11/09/2026, 9:13:59 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:03.018Z [Nest] 25468  - 11/09/2026, 9:14:03 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:05.033Z [Nest] 25468  - 11/09/2026, 9:14:05 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:07.038Z [Nest] 25468  - 11/09/2026, 9:14:07 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:09.042Z [Nest] 25468  - 11/09/2026, 9:14:09 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:11.043Z [Nest] 25468  - 11/09/2026, 9:14:11 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:13.055Z [Nest] 25468  - 11/09/2026, 9:14:13 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:21.102Z [Nest] 25468  - 11/09/2026, 9:14:21 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:23.115Z [Nest] 25468  - 11/09/2026, 9:14:23 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:29.154Z [Nest] 25468  - 11/09/2026, 9:14:29 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:31.169Z [Nest] 25468  - 11/09/2026, 9:14:31 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:35.191Z [Nest] 25468  - 11/09/2026, 9:14:35 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:37.207Z [Nest] 25468  - 11/09/2026, 9:14:37 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:45.263Z [Nest] 25468  - 11/09/2026, 9:14:45 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:14:45.264Z [Nest] 25468  - 11/09/2026, 9:14:45 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:14:47.266Z [Nest] 25468  - 11/09/2026, 9:14:47 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:14:47.266Z [Nest] 25468  - 11/09/2026, 9:14:47 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:14:49.279Z [Nest] 25468  - 11/09/2026, 9:14:49 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:51.296Z [Nest] 25468  - 11/09/2026, 9:14:51 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:14:55.311Z [Nest] 25468  - 11/09/2026, 9:14:55 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:01.338Z [Nest] 25468  - 11/09/2026, 9:15:01 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:03.341Z [Nest] 25468  - 11/09/2026, 9:15:03 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:15:03.341Z [Nest] 25468  - 11/09/2026, 9:15:03 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:15:05.351Z [Nest] 25468  - 11/09/2026, 9:15:05 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:07.352Z [Nest] 25468  - 11/09/2026, 9:15:07 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:15:07.353Z [Nest] 25468  - 11/09/2026, 9:15:07 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:15:11.372Z [Nest] 25468  - 11/09/2026, 9:15:11 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:13.374Z [Nest] 25468  - 11/09/2026, 9:15:13 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:15:13.374Z [Nest] 25468  - 11/09/2026, 9:15:13 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:15:15.378Z [Nest] 25468  - 11/09/2026, 9:15:15 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:15.378Z [Nest] 25468  - 11/09/2026, 9:15:15 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:17.392Z [Nest] 25468  - 11/09/2026, 9:15:17 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:19.403Z [Nest] 25468  - 11/09/2026, 9:15:19 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:21.406Z [Nest] 25468  - 11/09/2026, 9:15:21 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:15:21.406Z [Nest] 25468  - 11/09/2026, 9:15:21 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:15:23.418Z [Nest] 25468  - 11/09/2026, 9:15:23 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:25.427Z [Nest] 25468  - 11/09/2026, 9:15:25 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:31.458Z [Nest] 25468  - 11/09/2026, 9:15:31 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:35.486Z [Nest] 25468  - 11/09/2026, 9:15:35 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:37.500Z [Nest] 25468  - 11/09/2026, 9:15:37 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:41.511Z [Nest] 25468  - 11/09/2026, 9:15:41 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:41.511Z [Nest] 25468  - 11/09/2026, 9:15:41 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:47.544Z [Nest] 25468  - 11/09/2026, 9:15:47 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:49.553Z [Nest] 25468  - 11/09/2026, 9:15:49 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:15:51.559Z [Nest] 25468  - 11/09/2026, 9:15:51 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:01.600Z [Nest] 25468  - 11/09/2026, 9:16:01 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:07.621Z [Nest] 25468  - 11/09/2026, 9:16:07 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:11.643Z [Nest] 25468  - 11/09/2026, 9:16:11 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:15.654Z [Nest] 25468  - 11/09/2026, 9:16:15 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:17.657Z [Nest] 25468  - 11/09/2026, 9:16:17 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:25.703Z [Nest] 25468  - 11/09/2026, 9:16:25 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:29.716Z [Nest] 25468  - 11/09/2026, 9:16:29 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:31.732Z [Nest] 25468  - 11/09/2026, 9:16:31 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:35.748Z [Nest] 25468  - 11/09/2026, 9:16:35 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:16:35.748Z [Nest] 25468  - 11/09/2026, 9:16:35 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:16:39.767Z [Nest] 25468  - 11/09/2026, 9:16:39 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:41.774Z [Nest] 25468  - 11/09/2026, 9:16:41 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:43.786Z [Nest] 25468  - 11/09/2026, 9:16:43 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:45.797Z [Nest] 25468  - 11/09/2026, 9:16:45 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:49.813Z [Nest] 25468  - 11/09/2026, 9:16:49 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:16:53.833Z [Nest] 25468  - 11/09/2026, 9:16:53 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:03.902Z [Nest] 25468  - 11/09/2026, 9:17:03 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:07.925Z [Nest] 25468  - 11/09/2026, 9:17:07 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:11.953Z [Nest] 25468  - 11/09/2026, 9:17:11 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:15.967Z [Nest] 25468  - 11/09/2026, 9:17:15 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:17.976Z [Nest] 25468  - 11/09/2026, 9:17:17 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:26.025Z [Nest] 25468  - 11/09/2026, 9:17:26 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:30.041Z [Nest] 25468  - 11/09/2026, 9:17:30 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:32.051Z [Nest] 25468  - 11/09/2026, 9:17:32 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:38.070Z [Nest] 25468  - 11/09/2026, 9:17:38 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:40.076Z [Nest] 25468  - 11/09/2026, 9:17:40 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:42.083Z [Nest] 25468  - 11/09/2026, 9:17:42 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:46.116Z [Nest] 25468  - 11/09/2026, 9:17:46 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:17:50.132Z [Nest] 25468  - 11/09/2026, 9:17:50 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:17:50.132Z [Nest] 25468  - 11/09/2026, 9:17:50 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:17:54.151Z [Nest] 25468  - 11/09/2026, 9:17:54 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:17:56.166Z [Nest] 25468  - 11/09/2026, 9:17:56 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:02.207Z [Nest] 25468  - 11/09/2026, 9:18:02 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:18:02.207Z [Nest] 25468  - 11/09/2026, 9:18:02 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:18:04.209Z [Nest] 25468  - 11/09/2026, 9:18:04 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:18:04.209Z [Nest] 25468  - 11/09/2026, 9:18:04 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:18:06.212Z [Nest] 25468  - 11/09/2026, 9:18:06 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:12.232Z [Nest] 25468  - 11/09/2026, 9:18:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:18:12.233Z [Nest] 25468  - 11/09/2026, 9:18:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:18:14.251Z [Nest] 25468  - 11/09/2026, 9:18:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:22.288Z [Nest] 25468  - 11/09/2026, 9:18:22 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:24.302Z [Nest] 25468  - 11/09/2026, 9:18:24 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:26.304Z [Nest] 25468  - 11/09/2026, 9:18:26 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:26.304Z [Nest] 25468  - 11/09/2026, 9:18:26 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:28.317Z [Nest] 25468  - 11/09/2026, 9:18:28 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:36.359Z [Nest] 25468  - 11/09/2026, 9:18:36 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:38.376Z [Nest] 25468  - 11/09/2026, 9:18:38 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:40.392Z [Nest] 25468  - 11/09/2026, 9:18:40 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:48.416Z [Nest] 25468  - 11/09/2026, 9:18:48 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:50.422Z [Nest] 25468  - 11/09/2026, 9:18:50 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:18:54.452Z [Nest] 25468  - 11/09/2026, 9:18:54 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:02.473Z [Nest] 25468  - 11/09/2026, 9:19:02 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:19:02.473Z [Nest] 25468  - 11/09/2026, 9:19:02 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:19:06.490Z [Nest] 25468  - 11/09/2026, 9:19:06 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:19:06.490Z [Nest] 25468  - 11/09/2026, 9:19:06 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:19:10.524Z [Nest] 25468  - 11/09/2026, 9:19:10 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:12.531Z [Nest] 25468  - 11/09/2026, 9:19:12 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:14.542Z [Nest] 25468  - 11/09/2026, 9:19:14 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:16.554Z [Nest] 25468  - 11/09/2026, 9:19:16 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:18.560Z [Nest] 25468  - 11/09/2026, 9:19:18 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:20.575Z [Nest] 25468  - 11/09/2026, 9:19:20 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:22.589Z [Nest] 25468  - 11/09/2026, 9:19:22 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:28.626Z [Nest] 25468  - 11/09/2026, 9:19:28 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:30.638Z [Nest] 25468  - 11/09/2026, 9:19:30 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:32.653Z [Nest] 25468  - 11/09/2026, 9:19:32 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:34.661Z [Nest] 25468  - 11/09/2026, 9:19:34 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:38.679Z [Nest] 25468  - 11/09/2026, 9:19:38 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:42.696Z [Nest] 25468  - 11/09/2026, 9:19:42 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:44.703Z [Nest] 25468  - 11/09/2026, 9:19:44 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:46.715Z [Nest] 25468  - 11/09/2026, 9:19:46 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:52.742Z [Nest] 25468  - 11/09/2026, 9:19:52 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:56.776Z [Nest] 25468  - 11/09/2026, 9:19:56 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:19:58.781Z [Nest] 25468  - 11/09/2026, 9:19:58 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:02.803Z [Nest] 25468  - 11/09/2026, 9:20:02 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:04.816Z [Nest] 25468  - 11/09/2026, 9:20:04 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:12.859Z [Nest] 25468  - 11/09/2026, 9:20:12 AM   ERROR [Processor] Valkey error: write ECONNRESET
+2026-11-09T14:20:12.859Z [Nest] 25468  - 11/09/2026, 9:20:12 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:20:14.869Z [Nest] 25468  - 11/09/2026, 9:20:14 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:20:14.870Z [Nest] 25468  - 11/09/2026, 9:20:14 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:20:16.876Z [Nest] 25468  - 11/09/2026, 9:20:16 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:20:16.876Z [Nest] 25468  - 11/09/2026, 9:20:16 AM   ERROR [Processor] Valkey error: write ECONNABORTED
+2026-11-09T14:20:18.884Z [Nest] 25468  - 11/09/2026, 9:20:18 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:18.884Z [Nest] 25468  - 11/09/2026, 9:20:18 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:22.902Z [Nest] 25468  - 11/09/2026, 9:20:22 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:24.918Z [Nest] 25468  - 11/09/2026, 9:20:24 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:28.933Z [Nest] 25468  - 11/09/2026, 9:20:28 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:32.947Z [Nest] 25468  - 11/09/2026, 9:20:32 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:40.991Z [Nest] 25468  - 11/09/2026, 9:20:40 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:45.016Z [Nest] 25468  - 11/09/2026, 9:20:45 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:45.017Z [Nest] 25468  - 11/09/2026, 9:20:45 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:51.028Z [Nest] 25468  - 11/09/2026, 9:20:51 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:20:59.065Z [Nest] 25468  - 11/09/2026, 9:20:59 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:21:05.099Z [Nest] 25468  - 11/09/2026, 9:21:05 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:21:07.113Z [Nest] 25468  - 11/09/2026, 9:21:07 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:21:09.125Z [Nest] 25468  - 11/09/2026, 9:21:09 AM   ERROR [Processor] Valkey error: read ECONNRESET
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=112 rate=11.2/s batches=101 avgBatchMs=7.1 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.646Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.647Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.647Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.647Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.647Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.647Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.647Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.647Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.647Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.653Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.654Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.654Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.654Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.654Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.654Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:11.654Z [Nest] 25468  - 11/09/2026, 9:21:11 AM     LOG [Processor] processed=0 rate=0.0/s batches=0 avgBatchMs=0 pending=1 lag=1
+2026-11-09T14:21:14.400Z [Nest] 25468  - 11/09/2026, 9:21:14 AM     LOG [Rules] rules batches=16 positions=3500 alerts=40 avgEvalMs=2.42 avgCommitMs=0.25 maxEvalMs=10.1
+2026-11-09T14:21:14.469Z [Nest] 25468  - 11/09/2026, 9:21:14 AM     LOG [Processor] processed=3502 rate=349.8/s batches=16 avgBatchMs=64.9 pending=1 lag=151
+2026-11-09T14:21:24.415Z [Nest] 25468  - 11/09/2026, 9:21:24 AM     LOG [Rules] rules batches=121 positions=9315 alerts=0 avgEvalMs=0.83 avgCommitMs=0.00 maxEvalMs=3.8
+2026-11-09T14:21:24.447Z [Nest] 25468  - 11/09/2026, 9:21:24 AM     LOG [Processor] processed=9315 rate=930.1/s batches=121 avgBatchMs=23.8 pending=1 lag=0
+2026-11-09T14:21:34.417Z [Nest] 25468  - 11/09/2026, 9:21:34 AM     LOG [Rules] rules batches=161 positions=189 alerts=0 avgEvalMs=0.56 avgCommitMs=0.00 maxEvalMs=2.8
+2026-11-09T14:21:34.418Z [Nest] 25468  - 11/09/2026, 9:21:34 AM     LOG [Processor] processed=188 rate=18.8/s batches=160 avgBatchMs=7.3 pending=0 lag=0

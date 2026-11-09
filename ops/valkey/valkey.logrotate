@@ -1,0 +1,20 @@
+/var/log/valkey/*.log {
+    daily
+    rotate 14
+    maxsize 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    # Valkey keeps its log file open; copytruncate avoids a restart.
+    copytruncate
+    su valkey valkey
+}
+
+/var/log/valkey-backup.log {
+    weekly
+    rotate 8
+    missingok
+    notifempty
+    compress
+}

@@ -13,6 +13,7 @@ import { MOBILE_PROTOCOL } from '../mobile-tracker/mobile-tracker.logic';
 import { DeviceCache, ResolvedDevice } from './device-cache';
 import { isParkedRepeat } from './parked-thinning';
 import { DriverIdentification } from './driver-identification';
+import { RecentIds } from './recent-ids';
 import { FuelEventRow, IoSessionRow, PositionRow, RawPacketRow, UnknownDeviceRow, WriteBatch, writeBatch } from './position-writer';
 import { IoAlertInput, RuleInput } from './rules/evaluate';
 import { emptyIoKindState, ioReading, IoState, parseIoState, stepIo } from '../io-sensors/io-logic';
@@ -52,6 +53,8 @@ export interface StreamEntry {
   id: string;
   data: string | null;
   remote: string | null;
+  /** Gateway message id (absent on entries from older gateways): the same mid twice is one position. */
+  mid?: string | null;
 }
 
 interface Parsed {
@@ -100,6 +103,14 @@ export class PositionProcessor {
   private readonly lastSeenWritten = new Map<string, number>();
   /** Last SIM ICCID saved per device, so a reported ICCID is written once, not with every point. */
   private readonly iccidSaved = new Map<string, string>();
+  /**
+   * Gateway message ids already written. A position can reach the stream twice when an XADD timed out but was applied
+   * and the gateway then replayed it from its spool; the second copy is acknowledged without being processed again
+   * (no duplicate alerts / fuel / IO steps; the Position row itself is also protected by its (deviceId, fixTime) key).
+   */
+  private readonly seen = new RecentIds(Number(process.env.PROCESSOR_DEDUPE_IDS) > 0 ? Number(process.env.PROCESSOR_DEDUPE_IDS) : 200_000);
+  /** Entries skipped as duplicates since start. */
+  duplicates = 0;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -117,7 +128,15 @@ export class PositionProcessor {
     const serverTime = new Date(now).toISOString();
 
     const parsed: Parsed[] = [];
+    const batchMids = new Set<string>();
     for (const entry of entries) {
+      if (entry.mid) {
+        if (this.seen.has(entry.mid) || batchMids.has(entry.mid)) {
+          this.duplicates++;
+          continue;
+        }
+        batchMids.add(entry.mid);
+      }
       const position = parseEntry(entry);
       if (position) parsed.push({ entry, position });
     }
@@ -182,6 +201,7 @@ export class PositionProcessor {
       rules = null;
       await writeBatch(this.prisma, batch);
     }
+    for (const mid of batchMids) this.seen.add(mid);
     await this.saveFuel(fuel);
     await this.saveIo(io);
     await this.redis.xack(RedisKeys.positionsStream, RedisKeys.processorGroup, ...entries.map((e) => e.id));
