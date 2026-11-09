@@ -421,10 +421,10 @@
       "period": null,
       "totals": {
         "visits": 34,
-        "insideSec": 4909
+        "closedInsideSec": 4690
       },
-      "rowsSha256": "6f6c2d2ebddfa920aa1c71a8110c3f965a03b050d4e8ed742e2182627e694b12",
-      "csvSha256": "4ca02e5899f7e4d2318b0051fee971f98060f281bffbac70a99ec0dd2287d0df"
+      "rowsSha256": "b81d13ce8410021cae28297b15e9a9d88a30ac796b1a36fd52bfe5098ec4e59d",
+      "csvSha256": "cb46aef78a2fdf55d82fb88012d08ad429d629068c420f2e487b3fb8ed80a1d5"
     },
     "GEOFENCE_DISTANCE · default": {
       "rows": 33,

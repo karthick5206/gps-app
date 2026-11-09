@@ -78,6 +78,18 @@ function requests(type: ReportType, objectId: string): { label: string; req: Rep
 
 const sha = (v: unknown) => createHash('sha256').update(typeof v === 'string' ? v : JSON.stringify(v)).digest('hex');
 
+/**
+ * GEOFENCE_SUMMARY counts a still-open visit up to the database's now() (SQL, not the faked JS clock), so those
+ * figures grow with wall time. They are left out of the comparison; everything else (incl. closed visits) is pinned.
+ */
+function stable(type: ReportType, rows: unknown[], totals: Record<string, number> | undefined) {
+  if (type !== 'GEOFENCE_SUMMARY') return { rows, totals: totals ?? null };
+  type G = { lastExit: string | null; insideSec: number; avgVisitSec: number };
+  const out = (rows as G[]).map((r) => (r.lastExit === null ? { ...r, insideSec: 'open', avgVisitSec: 'open' } : r));
+  const closedInsideSec = (rows as G[]).filter((r) => r.lastExit !== null).reduce((s, r) => s + r.insideSec, 0);
+  return { rows: out, totals: { visits: totals?.visits ?? 0, closedInsideSec } };
+}
+
 d('reports golden: 31 types return identical rows/totals/exports', () => {
   jest.setTimeout(10 * 60_000);
   const prisma = new PrismaClient({ datasourceUrl: URL_ });
@@ -104,14 +116,20 @@ d('reports golden: 31 types return identical rows/totals/exports', () => {
     for (const type of REPORT_TYPES) {
       for (const { label, req } of requests(type, object.id)) {
         const data = await svc.generate(ctx, req);
-        const csv = (await renderReport([data], 'CSV', NOW)).buffer.toString('utf8');
+        const s = stable(type, data.rows, data.totals);
+        // The CSV of a section with open geofence visits embeds the same now()-based seconds; pin it via the stable rows.
+        const csvData =
+          type === 'GEOFENCE_SUMMARY'
+            ? { ...data, rows: (data.rows as { lastExit: string | null }[]).filter((r) => r.lastExit !== null), totals: { visits: 0, insideSec: (s.totals as { closedInsideSec: number }).closedInsideSec } }
+            : data;
+        const csv = (await renderReport([csvData], 'CSV', NOW)).buffer.toString('utf8');
         actual[`${type} · ${label}`] = {
           rows: data.rows.length,
           totalRows: data.totalRows,
           truncated: data.truncated,
           period: data.period ?? null,
-          totals: data.totals ?? null,
-          rowsSha256: sha(data.rows),
+          totals: s.totals,
+          rowsSha256: sha(s.rows),
           csvSha256: sha(csv),
         };
       }
