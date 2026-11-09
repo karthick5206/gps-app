@@ -1,6 +1,5 @@
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { BRAND_FOOTER, LIVE_SHARE_POLL_SEC, OPENFREEMAP, STATUS_META, type PublicLiveShareDto } from '@veetracer/shared';
-import maplibregl from 'maplibre-gl';
+import type { GeoJSONSource, Map as MlMap, Marker } from 'maplibre-gl';
 import { BatteryIcon, ZapIcon, ClockIcon, GaugeIcon, KeyRoundIcon, LocateFixedIcon, MapPinIcon, NavigationIcon, RouteIcon, SatelliteIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +10,10 @@ import { statusColor } from '@/lib/status-tokens';
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const dayClock = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+/** MapLibre and its CSS, fetched only when this page opens (keeps ~270 KB gzip out of the app's first load). */
+const loadMapLibre = () => Promise.all([import('maplibre-gl'), import('maplibre-gl/dist/maplibre-gl.css')]).then(([m]) => m.default);
+type MapLibre = Awaited<ReturnType<typeof loadMapLibre>>;
 
 type Load = { kind: 'loading' } | { kind: 'ok'; data: PublicLiveShareDto } | { kind: 'error'; message: string; gone: boolean };
 
@@ -53,10 +56,12 @@ export function PublicSharePage() {
   const [now, setNow] = useState(Date.now());
   const [follow, setFollow] = useState(true);
   const mapEl = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
-  const marker = useRef<maplibregl.Marker | null>(null);
+  const map = useRef<MlMap | null>(null);
+  const marker = useRef<Marker | null>(null);
   const centred = useRef(false);
-  const destMarker = useRef<maplibregl.Marker | null>(null);
+  const destMarker = useRef<Marker | null>(null);
+  const lib = useRef<MapLibre | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   // Poll the share.
   useEffect(() => {
@@ -91,20 +96,29 @@ export function PublicSharePage() {
   // Map.
   useEffect(() => {
     if (!mapEl.current || map.current) return;
-    const m = new maplibregl.Map({ container: mapEl.current, style: OPENFREEMAP.standard, center: [78.9, 20.6], zoom: 4, attributionControl: { compact: true } });
-    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    m.on('load', () => {
-      m.addSource('trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      m.addLayer({ id: 'trail-casing', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.9 } });
-      m.addLayer({ id: 'trail', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2563eb', 'line-width': 4 } });
-      // Delivery ETA: the road still to go, dashed.
-      m.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      m.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#f59e0b', 'line-width': 4, 'line-dasharray': [1.5, 1.5] } }, 'trail-casing');
+    let cancelled = false;
+    let created: MlMap | null = null;
+    void loadMapLibre().then((maplibregl) => {
+      if (cancelled || !mapEl.current) return;
+      lib.current = maplibregl;
+      const m = new maplibregl.Map({ container: mapEl.current, style: OPENFREEMAP.standard, center: [78.9, 20.6], zoom: 4, attributionControl: { compact: true } });
+      m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+      m.on('load', () => {
+        m.addSource('trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        m.addLayer({ id: 'trail-casing', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.9 } });
+        m.addLayer({ id: 'trail', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2563eb', 'line-width': 4 } });
+        // Delivery ETA: the road still to go, dashed.
+        m.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        m.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#f59e0b', 'line-width': 4, 'line-dasharray': [1.5, 1.5] } }, 'trail-casing');
+      });
+      m.on('dragstart', () => setFollow(false));
+      map.current = m;
+      created = m;
+      setMapReady(true);
     });
-    m.on('dragstart', () => setFollow(false));
-    map.current = m;
     return () => {
-      m.remove();
+      cancelled = true;
+      created?.remove();
       map.current = null;
       marker.current = null;
       destMarker.current = null;
@@ -115,13 +129,14 @@ export function PublicSharePage() {
   const data = load.kind === 'ok' ? load.data : null;
   useEffect(() => {
     const m = map.current;
-    if (!m || !data) return;
+    const maplibregl = lib.current;
+    if (!m || !maplibregl || !data) return;
     const { lat, lng, course, status, speedKph } = data.live;
     const apply = () => {
-      const src = m.getSource('trail') as maplibregl.GeoJSONSource | undefined;
+      const src = m.getSource('trail') as GeoJSONSource | undefined;
       src?.setData({ type: 'FeatureCollection', features: data.trail.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: data.trail.map(([, la, ln]) => [ln, la]) } }] : [] });
       const eta = data.eta;
-      (m.getSource('route') as maplibregl.GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: eta && eta.route.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: eta.route.map(([la, ln]) => [ln, la]) } }] : [] });
+      (m.getSource('route') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: eta && eta.route.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: eta.route.map(([la, ln]) => [ln, la]) } }] : [] });
       if (eta && !destMarker.current) destMarker.current = new maplibregl.Marker({ color: '#f59e0b' }).setLngLat([eta.destination.lng, eta.destination.lat]).addTo(m);
       if (lat === null || lng === null) return;
       if (!marker.current) marker.current = new maplibregl.Marker({ element: markerElement(), rotationAlignment: 'map' }).setLngLat([lng, lat]).addTo(m);
@@ -138,7 +153,7 @@ export function PublicSharePage() {
     };
     if (m.isStyleLoaded()) apply();
     else m.once('load', apply);
-  }, [data, follow]);
+  }, [data, follow, mapReady]);
 
   const expiresIn = data ? Math.max(0, (Date.parse(data.expiresAt) - now) / 1000) : 0;
   const lastSeen = data?.live.serverTime ? (now - Date.parse(data.live.serverTime)) / 1000 : null;
