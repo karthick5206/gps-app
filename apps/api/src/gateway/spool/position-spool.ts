@@ -42,7 +42,8 @@ export interface SpoolStats {
 
 const SEGMENT_RE = /^seg-(\d{9})\.jsonl$/;
 const CHECKPOINT = 'checkpoint.json';
-const READ_CHUNK = 1 << 20;
+/** Bytes read per replay step (a 500-record batch of GT06 positions is about 170 KB). */
+const READ_CHUNK = 256 * 1024;
 const segName = (n: number) => `seg-${String(n).padStart(9, '0')}.jsonl`;
 
 /** Opens (creating if needed) a segment for positional reads and writes. */
@@ -114,10 +115,12 @@ export class PositionSpool {
   }
 
   /** Up to `max` records from the replay cursor, with the cursor to commit once they are safely in the stream. */
-  read(max: number): { records: SpoolRecord[]; next: SpoolCursor } {
+  read(max: number): { records: SpoolRecord[]; next: SpoolCursor; lines: number } {
     const records: SpoolRecord[] = [];
+    let lines = 0;
     let { segment, offset } = this.cursor;
-    while (records.length < max) {
+    let chunk = READ_CHUNK;
+    while (lines < max) {
       const size = this.sizes.get(segment) ?? 0;
       if (offset >= size) {
         const i = this.segments.indexOf(segment);
@@ -126,7 +129,7 @@ export class PositionSpool {
         offset = 0;
         continue;
       }
-      const length = Math.min(READ_CHUNK, size - offset);
+      const length = Math.min(chunk, size - offset);
       const buf = Buffer.alloc(length);
       const fd = openSync(join(this.options.dir, segName(segment)), 'r');
       try {
@@ -135,12 +138,14 @@ export class PositionSpool {
         closeSync(fd);
       }
       let start = 0;
-      for (let nl = buf.indexOf(0x0a, start); nl >= 0 && records.length < max; nl = buf.indexOf(0x0a, start)) {
+      for (let nl = buf.indexOf(0x0a, start); nl >= 0 && lines < max; nl = buf.indexOf(0x0a, start)) {
         const line = buf.subarray(start, nl).toString('utf8');
         start = nl + 1;
+        lines++;
         try {
           const r = JSON.parse(line) as SpoolRecord;
           if (typeof r.d === 'string' && typeof r.m === 'string') records.push(r);
+          else throw new Error('not a spool record');
         } catch {
           // A corrupt line (disk error) is skipped rather than blocking replay forever; it is counted as rejected.
           this.stats.rejected++;
@@ -148,14 +153,15 @@ export class PositionSpool {
         }
       }
       if (start === 0) {
-        // A single line longer than READ_CHUNK cannot happen (positions are far smaller); skip the segment defensively.
-        offset = size;
-        this.stats.lastError = 'oversized spool line skipped';
+        // No complete line in the chunk: a record larger than the chunk. Read a bigger piece (durable data always
+        // ends with a newline, so this terminates).
+        chunk *= 4;
         continue;
       }
+      chunk = READ_CHUNK;
       offset += start;
     }
-    return { records, next: { segment, offset } };
+    return { records, next: { segment, offset }, lines };
   }
 
   /** Marks everything before `next` as replayed (`count` records) and deletes fully consumed segments. */

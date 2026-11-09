@@ -164,7 +164,7 @@ function storeChecks(input: CheckInput, t: HealthThresholds, out: Issue[]): void
     out.push({ id: 'database.latency', check: 'database latency', section: 'database', severity: 'WARN', message: `PostgreSQL answered SELECT 1 in ${fmt(db.latencyMs)} ms (> ${t.dbLatencyWarnMs} ms).` });
   }
   if (!v.reachable) {
-    out.push({ id: 'valkey.unreachable', check: 'valkey', section: 'valkey', severity: 'CRITICAL', message: `Valkey is not reachable: ${v.error ?? 'no response'}. Devices' positions cannot be queued.` });
+    out.push({ id: 'valkey.unreachable', check: 'valkey', section: 'valkey', severity: 'CRITICAL', message: `Valkey is not reachable: ${v.error ?? 'no response'}. Gateways spool positions to disk and replay them when it is back; live map, alerts, notifications and commands are paused.` });
   } else {
     if (v.memoryPercent !== null) {
       const severity = v.memoryPercent > t.valkeyMemCritPct ? 'CRITICAL' : v.memoryPercent > t.valkeyMemWarnPct ? 'WARN' : null;

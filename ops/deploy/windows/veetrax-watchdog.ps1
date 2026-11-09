@@ -87,6 +87,12 @@ function Get-Json([string]$url) {
   }
 }
 
+# A process is expected to answer when its service runs (or, on a machine without the service, always).
+function Test-Expected([string]$name) {
+  $s = Get-Service $name -ErrorAction SilentlyContinue
+  return (-not $s) -or $s.Status -eq 'Running'
+}
+
 # ---- services ----------------------------------------------------------------------------------------------------
 foreach ($name in $services) {
   $svc = Get-Service $name -ErrorAction SilentlyContinue
@@ -112,7 +118,7 @@ if ($cache -and $cache.Status -ne 'Running') {
 # ---- API readiness and tracking ----------------------------------------------------------------------------------
 $ready = Get-Json "http://localhost:$ApiPort/api/health/ready"
 if ($ready.code -eq 0) {
-  if ((Get-Service 'veetracer-api' -ErrorAction SilentlyContinue).Status -eq 'Running') { Raise 'api:down' 'API not answering' "GET /api/health/ready did not answer: $($ready.error)" }
+  if (Test-Expected 'veetracer-api') { Raise 'api:down' 'API not answering' "GET /api/health/ready did not answer: $($ready.error)" }
 } elseif ($ready.code -ne 200) {
   $db = $ready.body.checks.database; $c = $ready.body.checks.cache
   Raise 'api:ready' 'API not ready (database or cache unusable)' "database ok=$($db.ok) $($db.error); cache ok=$($c.ok) $($c.error)"
@@ -124,7 +130,7 @@ if ($tracking.body -and $tracking.body.status -eq 'CRITICAL') {
 }
 
 # ---- gateway local health (works while the cache is down) --------------------------------------------------------
-if ((Get-Service 'veetracer-gateway' -ErrorAction SilentlyContinue).Status -eq 'Running') {
+if (Test-Expected 'veetracer-gateway') {
   $gw = Get-Json "http://127.0.0.1:$GatewayHealthPort/health"
   if ($gw.code -eq 0) {
     Raise 'gateway:down' 'Gateway health endpoint not answering' "http://127.0.0.1:$GatewayHealthPort/health did not answer: $($gw.error)"

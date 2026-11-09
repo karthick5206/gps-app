@@ -91,6 +91,32 @@ describe('PositionSpool', () => {
     expect(open().pending).toBe(0);
   });
 
+  it('skips a corrupt line without getting stuck (pending still reaches 0)', async () => {
+    const a = open();
+    await a.append([rec(1)]);
+    a.close();
+    const seg = readdirSync(dir).find((f) => f.startsWith('seg-'))!;
+    appendFileSync(join(dir, seg), 'garbage-not-json\n');
+    const b = open();
+    await b.append([rec(2)]);
+    expect(b.pending).toBe(3);
+    const r = b.read(10);
+    expect(r.records.map((x) => x.m)).toEqual(['b-1', 'b-2']);
+    expect(r.lines).toBe(3);
+    b.commit(r.next, r.lines);
+    expect(b.pending).toBe(0);
+    expect(b.snapshot().rejected).toBe(1);
+  });
+
+  it('reads a record larger than the read chunk', async () => {
+    const spool = open();
+    const big: SpoolRecord = { ...rec(1), d: JSON.stringify({ uniqueId: 'x', fixTime: 't', blob: 'z'.repeat(600 * 1024) }) };
+    await spool.append([big, rec(2)]);
+    const r = spool.read(10);
+    expect(r.records.map((x) => x.m)).toEqual(['b-1', 'b-2']);
+    expect(r.records[0].d.length).toBe(big.d.length);
+  });
+
   it('really fsyncs when asked (default)', async () => {
     const spool = new PositionSpool({ dir, maxBytes: 1024 * 1024 });
     expect(await spool.append([rec(1)])).toBe(true);

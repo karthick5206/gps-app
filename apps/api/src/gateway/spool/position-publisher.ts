@@ -241,8 +241,13 @@ export class PositionPublisher {
         return this.spooling ? 200 : null;
       }
       if (!this.cacheReady || this.backpressure) return 1000;
-      const { records, next } = this.spool.read(REPLAY_BATCH);
-      if (!records.length) return 200; // only an append still being flushed
+      const { records, next, lines } = this.spool.read(REPLAY_BATCH);
+      if (!lines) return 200; // only an append still being flushed
+      if (!records.length) {
+        // Only corrupt lines (counted as rejected by the spool): step over them.
+        this.spool.commit(next, lines);
+        return 0;
+      }
       let added = 0;
       try {
         added = await this.xadd(records);
@@ -253,13 +258,17 @@ export class PositionPublisher {
       }
       if (added < records.length) {
         // Commit only what made it; the rest is retried (the processor drops duplicates by mid).
-        const partial = this.spool.read(added);
-        if (added) this.spool.commit(partial.next, added);
+        if (added) {
+          // Lines up to and including the last record that made it (corrupt lines in between count as lines).
+          let partial = this.spool.read(added);
+          for (let n = added + 1; partial.records.length < added && n <= lines; n++) partial = this.spool.read(n);
+          this.spool.commit(partial.next, partial.lines);
+        }
         this.counters.replayed += added;
         this.failures++;
         return backoffMs(this.failures);
       }
-      this.spool.commit(next, records.length);
+      this.spool.commit(next, lines);
       this.counters.replayed += records.length;
       if (this.failures) this.logger.log(`Spool replay resumed after ${this.failures} failed attempt(s)`);
       this.failures = 0;
