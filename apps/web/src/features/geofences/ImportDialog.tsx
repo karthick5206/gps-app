@@ -104,7 +104,7 @@ export function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
-          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors hover:bg-accent/50 focus-within:ring-[3px] focus-within:ring-ring/40">
+          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors hover:bg-accent/50 focus-within:ring-2 focus-within:ring-ring">
             <FileUpIcon className="size-8 text-primary" />
             <span className="text-sm font-medium">{file ? file.name : t('Choose a .geojson, .json or .csv file')}</span>
             <span className="text-xs text-muted-foreground">{t('Imported geofences are active and apply to all vehicles; edit them afterwards.')}</span>

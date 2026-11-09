@@ -41,7 +41,7 @@ export function CompanySwitcher() {
         <button
           type="button"
           aria-label={t('Switch company')}
-          className="flex h-9 max-w-[16rem] min-w-0 items-center gap-2 rounded-lg border bg-card px-2.5 text-sm shadow-xs transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none"
+          className="flex h-9 max-w-[16rem] min-w-0 items-center gap-2 rounded-lg border bg-card px-2.5 text-sm shadow-xs transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           {companyId === ALL_COMPANIES ? <LayersIcon className="size-4 shrink-0 text-primary" /> : <Building2Icon className="size-4 shrink-0 text-primary" />}
           <span className="truncate font-medium">{companyId === ALL_COMPANIES ? t('All companies') : me.company.name}</span>

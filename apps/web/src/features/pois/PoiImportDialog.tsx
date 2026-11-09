@@ -160,7 +160,7 @@ export function PoiImportDialog({ open, onOpenChange }: { open: boolean; onOpenC
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             className={cn(
-              'flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors hover:bg-accent/50 focus-within:ring-[3px] focus-within:ring-ring/40',
+              'flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors hover:bg-accent/50 focus-within:ring-2 focus-within:ring-ring',
               dragging && 'border-primary bg-primary/6',
             )}
           >

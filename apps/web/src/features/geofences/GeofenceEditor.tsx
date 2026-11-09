@@ -380,7 +380,7 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                                 aria-label={t('Colour {{color}}', { color: c })}
                                 aria-pressed={field.value.toLowerCase() === c}
                                 onClick={() => field.onChange(c)}
-                                className={cn('size-7 rounded-full border-2 transition-transform focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none', field.value.toLowerCase() === c ? 'scale-110 border-foreground' : 'border-transparent')}
+                                className={cn('size-7 rounded-full border-2 transition-transform focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none', field.value.toLowerCase() === c ? 'scale-110 border-foreground' : 'border-transparent')}
                                 style={{ backgroundColor: c }}
                               />
                             ))}
@@ -407,7 +407,7 @@ export function GeofenceEditor({ record, open, onOpenChange }: MasterFormProps<G
                               aria-checked={field.value === m}
                               onClick={() => field.onChange(m)}
                               className={cn(
-                                'flex items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none',
+                                'flex items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
                                 field.value === m ? 'border-primary bg-primary/6' : 'hover:bg-accent/60',
                               )}
                             >

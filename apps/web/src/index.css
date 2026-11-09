@@ -302,8 +302,11 @@
   ::selection {
     background-color: color-mix(in oklab, var(--primary) 25%, transparent);
   }
+  /* Default keyboard focus for anything without its own ring (WCAG 1.4.11 / 2.4.7). Components that draw a solid
+     ring-2 ring-ring opt out with outline-none. --ring passes 3:1 against the page in every theme (07 §9.3 F4). */
   :focus-visible {
-    outline: none;
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 }
 

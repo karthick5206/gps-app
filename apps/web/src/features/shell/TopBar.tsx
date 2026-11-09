@@ -59,7 +59,7 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
       <Button variant="ghost" size="icon" className="lg:hidden" onClick={onOpenMobileNav} aria-label={t('Open navigation')}>
         <MenuIcon />
       </Button>
-      <Link to="/" className="flex shrink-0 items-center gap-2.5 rounded-lg pe-2 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-primary/60 lg:w-52" aria-label={t('Home')}>
+      <Link to="/" className="flex shrink-0 items-center gap-2.5 rounded-lg pe-2 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-primary lg:w-52" aria-label={t('Home')}>
         <LogoMark className="size-8" />
         <Wordmark className="hidden text-[18px] text-sidebar-accent-foreground sm:inline" />
       </Link>

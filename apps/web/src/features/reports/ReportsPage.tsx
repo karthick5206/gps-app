@@ -166,7 +166,7 @@ export function ReportsPage() {
                     aria-checked={active}
                     onClick={() => setType(d.type)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40',
+                      'flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
                       active && 'bg-accent font-medium text-accent-foreground hover:bg-accent',
                     )}
                   >
