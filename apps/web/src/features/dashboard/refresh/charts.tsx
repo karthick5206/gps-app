@@ -17,56 +17,58 @@ export function DonutR({ title, slices, centerLabel, onSelect, emptyText, emptyI
   const c = 2 * Math.PI * r;
   let offset = 0;
   return (
-    <figure className="flex flex-row items-center gap-3 sm:gap-4">
-      <svg viewBox="0 0 120 120" className="size-24 shrink-0 -rotate-90 sm:size-28" role="img" aria-label={`${title}: ${slices.map((s) => `${s.label} ${s.value}`).join(', ')}`}>
-        <circle cx="60" cy="60" r={r} fill="none" stroke="var(--muted)" strokeWidth="12" />
-        {total > 0 &&
-          slices.map((s) => {
-            if (!s.value) return null;
-            const len = (s.value / total) * c;
-            const el = (
-              <circle key={s.key} cx="60" cy="60" r={r} fill="none" stroke={s.color} strokeWidth="12" strokeDasharray={`${Math.max(len - 2, 0.5)} ${c}`} strokeDashoffset={-offset} className="motion-safe:transition-[stroke-dasharray] motion-safe:duration-500">
-                <title>{`${s.label}: ${s.value}`}</title>
-              </circle>
-            );
-            offset += len;
-            return el;
-          })}
-        <text x="60" y="60" textAnchor="middle" className="fill-foreground text-[22px] font-semibold tabular-nums" transform="rotate(90 60 60)">
-          {total.toLocaleString()}
-        </text>
-        <text x="60" y="76" textAnchor="middle" className="fill-muted-foreground text-[10px]" transform="rotate(90 60 60)">
-          {centerLabel ?? t('total')}
-        </text>
-      </svg>
-      <figcaption className="w-full min-w-0">
-        <span className="sr-only">{title}</span>
-        <ul className="space-y-0.5">
-          {slices.map((s) => {
-            const pct = total ? Math.round((s.value / total) * 100) : 0;
-            const content = (
-              <>
-                <span className="mt-1.5 size-2.5 shrink-0 rounded-full ring-1 ring-black/5" style={{ backgroundColor: s.color }} aria-hidden />
-                <span className="min-w-0 flex-1 break-words">{s.label}</span>
-                <span className="font-semibold tabular-nums">{s.value.toLocaleString()}</span>
-                <span className="w-10 text-right text-xs leading-5 text-muted-foreground tabular-nums">{pct}%</span>
-              </>
-            );
-            return (
-              <li key={s.key} title={`${s.label}: ${s.value.toLocaleString()} (${pct}%)`}>
-                {onSelect ? (
-                  <button type="button" onClick={() => onSelect(s.key)} className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                    {content}
-                  </button>
-                ) : (
-                  <div className="flex items-start gap-2 px-1.5 py-1 text-sm">{content}</div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </figcaption>
-    </figure>
+    <div className="@container">
+      <figure className="flex flex-col items-center gap-3 @[18rem]:flex-row @[18rem]:gap-4">
+        <svg viewBox="0 0 120 120" className="size-24 shrink-0 -rotate-90 sm:size-28" role="img" aria-label={`${title}: ${slices.map((s) => `${s.label} ${s.value}`).join(', ')}`}>
+          <circle cx="60" cy="60" r={r} fill="none" stroke="var(--muted)" strokeWidth="12" />
+          {total > 0 &&
+            slices.map((s) => {
+              if (!s.value) return null;
+              const len = (s.value / total) * c;
+              const el = (
+                <circle key={s.key} cx="60" cy="60" r={r} fill="none" stroke={s.color} strokeWidth="12" strokeDasharray={`${Math.max(len - 2, 0.5)} ${c}`} strokeDashoffset={-offset} className="motion-safe:transition-[stroke-dasharray] motion-safe:duration-500">
+                  <title>{`${s.label}: ${s.value}`}</title>
+                </circle>
+              );
+              offset += len;
+              return el;
+            })}
+          <text x="60" y="60" textAnchor="middle" className="fill-foreground text-[22px] font-semibold tabular-nums" transform="rotate(90 60 60)">
+            {total.toLocaleString()}
+          </text>
+          <text x="60" y="76" textAnchor="middle" className="fill-muted-foreground text-[10px]" transform="rotate(90 60 60)">
+            {centerLabel ?? t('total')}
+          </text>
+        </svg>
+        <figcaption className="w-full min-w-0">
+          <span className="sr-only">{title}</span>
+          <ul className="space-y-0.5">
+            {slices.map((s) => {
+              const pct = total ? Math.round((s.value / total) * 100) : 0;
+              const content = (
+                <>
+                  <span className="mt-1.5 size-2.5 shrink-0 rounded-full ring-1 ring-black/5" style={{ backgroundColor: s.color }} aria-hidden />
+                  <span className="min-w-0 flex-1 break-words">{s.label}</span>
+                  <span className="font-semibold tabular-nums">{s.value.toLocaleString()}</span>
+                  <span className="w-10 text-right text-xs leading-5 text-muted-foreground tabular-nums">{pct}%</span>
+                </>
+              );
+              return (
+                <li key={s.key} title={`${s.label}: ${s.value.toLocaleString()} (${pct}%)`}>
+                  {onSelect ? (
+                    <button type="button" onClick={() => onSelect(s.key)} className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                      {content}
+                    </button>
+                  ) : (
+                    <div className="flex items-start gap-2 px-1.5 py-1 text-sm">{content}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </figcaption>
+      </figure>
+    </div>
   );
 }
 

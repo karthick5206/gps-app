@@ -318,11 +318,11 @@ export function OverviewRefresh() {
         <KpiCard label={t('Fleet odometer')} value={d?.totalOdometerKm} unit="km" icon={SigmaIcon} sub={t('Tracked distance + offsets')} definition={t('Total distance tracked by VeeTrax for all vehicles, plus each vehicle’s odometer offset.')} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="min-w-0 lg:col-span-2">
+      <div className="grid gap-4 xl:grid-cols-3">
+        <div className="min-w-0 xl:col-span-2">
           <FleetStatus d={d} canMap={canMap} />
         </div>
-        <div className="flex min-w-0 flex-col gap-4">
+        <div className="grid min-w-0 gap-4 md:grid-cols-2 md:[&>*:only-child]:col-span-2 xl:flex xl:flex-col">
           {showCompliance && <Compliance c={c} />}
           <Panel id="geofences" title={t('Vehicles by geofence')} subtitle={d ? t('{{count}} inside a geofence now', { count: d.vehiclesInsideGeofences }) : undefined} className="flex-1">
             {d ? <DonutR title={t('Vehicles by geofence')} slices={geofenceSlices} centerLabel={t('vehicles')} emptyText={t('No vehicles yet.')} emptyIcon={MapPinnedIcon} /> : <Skeleton className="h-32" />}

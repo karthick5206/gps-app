@@ -75,7 +75,7 @@ export function DashboardPage() {
             {description && <p className="text-sm text-muted-foreground">{t(description)}</p>}
           </div>
           {/* Actions grouped; the group is left out of the saved picture like the buttons were before. */}
-          <div role="group" aria-label={t('Dashboard actions')} data-capture-skip="" className="flex flex-wrap items-center gap-2 [&>*]:flex-1 sm:[&>*]:flex-none">
+          <div role="group" aria-label={t('Dashboard actions')} data-capture-skip="" className="flex flex-wrap items-center gap-2 md:shrink-0 md:flex-nowrap [&>*]:flex-1 sm:[&>*]:flex-none">
             {capture}
             {can('live_map') && (
               <Button asChild data-capture-skip="">
