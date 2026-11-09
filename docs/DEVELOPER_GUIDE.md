@@ -29,7 +29,7 @@ How data moves (details in section 5):
 | `gateway/` | TCP servers and protocol decoders: `gt06/`, `teltonika/`, `jt808/`, `ais140/`, `jt1078/` (video), `relay/` (data forwarding). `main.ts` starts the gateway process. |
 | `processor/` | `position-processor.ts` (the pipeline), `position-writer.ts` (batched DB writes), `rules/` (alert rules engine), `parked-thinning.ts` (phone points while parked). `main.ts` starts the process. |
 | `tracking/` | `position-filter.ts`: jump, drift, rough-fix and clock checks. The first place to look for "wrong / jumping locations". |
-| `notifier/` | `notifier.service.ts` (delivery), `push.ts` (Expo push), `sms.ts` (SMS provider), templates. |
+| `notifier/` | `notifier.service.ts` (delivery), `push.ts` (Expo push), `sms.ts` (SMS provider), `arattai.ts` (Arattai Business: verification codes via the authentication template, alerts via the transactional template; OAuth refresh token), templates. Channels the Super Admin switched off in Platform Settings → Messaging (`MessagingSettings`: SMS, e-mail, WhatsApp, Arattai) are logged as SKIPPED. Customers see only switched-on channels (`GET /messaging/channels`; WhatsApp hidden for now); Push is on by default for every severity. Verification codes go by SMS + e-mail + Arattai (when on). Settings API and the Connect / callback flow: `templates/arattai-settings.controller.ts`. |
 | `summarizer/` | Trips, stops, daily summaries (`summarizer.ts`, `segmenter.ts`), `outlier-flagger.ts`, time zones (`tz.ts`). |
 | `attendance/` | Staff attendance rules and the attendance job. |
 | `alerts/` | Alert settings, recipients, snoozes, offline alerts, acknowledgement. |

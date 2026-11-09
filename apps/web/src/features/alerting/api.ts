@@ -5,6 +5,7 @@ import {
   defaultRequireAck,
   isAckMandatory,
   type AlertLevel,
+  type MessagingChannelsDto,
   type AlertSettingDto,
   type AlertSeverity,
   type AlertTypeCode,
@@ -71,8 +72,18 @@ export function catalogueDefaults(def: AlertTypeDef): Defaults {
   };
 }
 
-export const SENDABLE_CHANNELS: NotifyChannel[] = ['EMAIL', 'SMS', 'WHATSAPP', 'PUSH'];
-export const CHANNEL_LABEL: Record<NotifyChannel, string> = { INAPP: 'In-app', EMAIL: 'Email', SMS: 'SMS', WHATSAPP: 'WhatsApp', PUSH: 'Push' };
+export const SENDABLE_CHANNELS: NotifyChannel[] = ['PUSH', 'EMAIL', 'SMS', 'ARATTAI'];
+export const CHANNEL_LABEL: Record<NotifyChannel, string> = { INAPP: 'In-app', EMAIL: 'Email', SMS: 'SMS', WHATSAPP: 'WhatsApp', PUSH: 'Push', ARATTAI: 'Arattai' };
+
+/**
+ * Alert channels a customer may choose: In-app and Push always, Email / SMS / Arattai when the Super Admin switched
+ * them on (Platform Settings → Messaging). WhatsApp is not offered for now.
+ */
+export function useAlertChannels(): NotifyChannel[] {
+  const q = useQuery({ queryKey: ['messaging-channels'], queryFn: ({ signal }) => api.get<MessagingChannelsDto>('/messaging/channels', undefined, signal), staleTime: 5 * 60_000 });
+  const c = q.data;
+  return ['INAPP', 'PUSH', ...(c?.email ? (['EMAIL'] as const) : []), ...(c?.sms ? (['SMS'] as const) : []), ...(c?.arattai ? (['ARATTAI'] as const) : [])];
+}
 export const LEVEL_NAME: Record<AlertLevel, string> = { COMPANY: 'Company', BRANCH: 'Branch', GROUP: 'Vehicle group', OBJECT: 'Vehicle' };
 
 export const settingsKey = (level: AlertLevel, targetId: string) => ['alert-settings', 'rows', level, targetId] as const;

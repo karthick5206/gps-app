@@ -2,7 +2,6 @@ import {
   ALERT_SEVERITIES,
   isAckMandatory,
   isEmergencyAlert,
-  NOTIFY_CHANNELS,
   type AlertLevel,
   type AlertParamDef,
   type AlertSeverity,
@@ -28,7 +27,7 @@ import { formatDateTime } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
 import { AlertTypeIcon } from '@/features/alerts/alert-icons';
 import { cn } from '@/lib/utils';
-import { CHANNEL_LABEL, usePutSetting, type AlertTypeWithSupport, type GroupConflict, type SettingPatch } from './api';
+import { CHANNEL_LABEL, useAlertChannels, usePutSetting, type AlertTypeWithSupport, type GroupConflict, type SettingPatch } from './api';
 import { CommitNumber, SettingRow, SourceBadge } from './fields';
 import { isOverriddenHere, type Resolved, type SourceRef } from './inheritance';
 import { RecipientsEditor } from './RecipientsEditor';
@@ -175,8 +174,9 @@ function ScheduleField({ value, source, level, disabled, onSet }: { value: TimeW
 
 function ChannelsField({ channels, sources, level, disabled, onSet }: { channels: Record<AlertSeverity, NotifyChannel[]>; sources: Record<string, SourceRef>; level: AlertLevel; disabled: boolean; onSet: (sev: AlertSeverity, v: NotifyChannel[] | null) => void }) {
   const { t } = useTranslation();
+  const offered = useAlertChannels();
   return (
-    <SettingRow label={t('Channels by severity')} hint={t('In-app always reaches users who can see the vehicle; WhatsApp and push are logged as not configured in this release.')} className="sm:col-span-2">
+    <SettingRow label={t('Channels by severity')} hint={t('In-app always reaches users who can see the vehicle. Push is on by default; other channels appear when VeeTrax has switched them on.')} className="sm:col-span-2">
       <div className="space-y-1.5">
         {ALERT_SEVERITIES.map((sev) => {
           const list = channels[sev] ?? [];
@@ -186,7 +186,7 @@ function ChannelsField({ channels, sources, level, disabled, onSet }: { channels
                 <span className={cn('size-2 rounded-full', SEVERITY_DOT[sev])} />
                 {t(SEVERITY_LABEL[sev])}
               </span>
-              {NOTIFY_CHANNELS.map((ch) => {
+              {offered.map((ch) => {
                 const on = list.includes(ch);
                 return (
                   <button

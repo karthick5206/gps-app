@@ -62,7 +62,7 @@ export function userCanSee(u: CandidateUser, object: ObjectRef): boolean {
 
 function addressFor(channel: NotifyChannel, u: { id: string; email: string | null; mobile: string | null }): string | null {
   if (channel === 'EMAIL') return u.email;
-  if (channel === 'SMS' || channel === 'WHATSAPP') return u.mobile;
+  if (channel === 'SMS' || channel === 'WHATSAPP' || channel === 'ARATTAI') return u.mobile;
   if (channel === 'PUSH') return `user:${u.id}`;
   return null;
 }
@@ -157,7 +157,7 @@ export class RecipientExpander {
     }
     for (const e of entries) {
       if (e.kind === 'EMAIL' && channel === 'EMAIL') push({ address: e.value.trim().toLowerCase(), kind: 'EMAIL', label: e.label ?? e.value, userId: null });
-      if (e.kind === 'MOBILE' && (channel === 'SMS' || channel === 'WHATSAPP')) push({ address: e.value.trim(), kind: 'MOBILE', label: e.label ?? e.value, userId: null });
+      if (e.kind === 'MOBILE' && (channel === 'SMS' || channel === 'WHATSAPP' || channel === 'ARATTAI')) push({ address: e.value.trim(), kind: 'MOBILE', label: e.label ?? e.value, userId: null });
     }
     return out;
   }

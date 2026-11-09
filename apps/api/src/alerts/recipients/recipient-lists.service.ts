@@ -21,7 +21,7 @@ import { NotifyQueueService, QueuedMessage } from '../notify-queue.service';
 import { ChannelRecipients, RecipientExpander } from './recipient-expander';
 import { PutRecipientListDto } from './recipient-lists.dto';
 
-const SENDABLE: NotifyChannel[] = ['EMAIL', 'SMS', 'WHATSAPP', 'PUSH'];
+const SENDABLE: NotifyChannel[] = ['EMAIL', 'SMS', 'WHATSAPP', 'PUSH', 'ARATTAI'];
 
 export interface ResolvedRecipientsResponse {
   objectId: string;
@@ -146,7 +146,7 @@ export class RecipientListsService {
     const messages: QueuedMessage[] = [];
     for (const c of resolved.channels) {
       if (!c.enabled || !c.recipients.length) continue;
-      const rendered = c.channel === 'WHATSAPP' ? null : await this.renderer.render(ctx.companyId, alertType, c.channel as 'EMAIL' | 'SMS' | 'PUSH', vars);
+      const rendered = c.channel === 'WHATSAPP' || c.channel === 'ARATTAI' ? null : await this.renderer.render(ctx.companyId, alertType, c.channel as 'EMAIL' | 'SMS' | 'PUSH', vars);
       const label = ALERT_TYPE_MAP[alertType].label;
       for (const r of c.recipients) {
         messages.push({

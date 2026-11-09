@@ -250,8 +250,14 @@ export class MobileTrackerService {
     return sent;
   }
 
-  /** SYSTEM_OTP SMS (the registered DLT template); false when no SMS provider is set up or sending failed. */
+  /** The code by phone: Arattai (when switched on) and the SYSTEM_OTP SMS at once; true when either was sent. */
   async sendOtpSms(companyId: string | null, uniqueId: string, code: string): Promise<boolean> {
+    const [arattai, sms] = await Promise.all([this.messages.sendArattaiOtp(companyId, uniqueId, code, CODE_TTL_MS / 60_000).catch(() => false), this.sendDltSms(companyId, uniqueId, code)]);
+    return arattai || sms;
+  }
+
+  /** SYSTEM_OTP SMS (the registered DLT template); false when no SMS provider is set up or sending failed. */
+  private async sendDltSms(companyId: string | null, uniqueId: string, code: string): Promise<boolean> {
     if (this.messages.sms.name === 'console') return false;
     const company = companyId ? await this.prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }) : null;
     const vars = { code, expires_min: String(CODE_TTL_MS / 60_000), company: company?.name ?? 'VeeTrax' };

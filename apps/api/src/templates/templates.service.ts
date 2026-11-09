@@ -129,7 +129,7 @@ export class TemplatesService {
     const dir = q.order === 'desc' ? -1 : 1;
     const key = (r: MessageTemplate): string =>
       sort === 'updatedAt' ? r.updatedAt.toISOString() : sort === 'level' ? (r.companyId ? 'COMPANY' : 'SYSTEM') : sort === 'name' ? r.name : sort === 'channel' ? r.channel : r.purpose;
-    const channelOrder = { EMAIL: 0, SMS: 1, PUSH: 2, WHATSAPP: 3, INAPP: 4 };
+    const channelOrder = { EMAIL: 0, SMS: 1, PUSH: 2, WHATSAPP: 3, INAPP: 4, ARATTAI: 5 };
     rows = rows.sort((a, b) => dir * key(a).localeCompare(key(b)) || channelOrder[a.channel] - channelOrder[b.channel] || (a.companyId ? 1 : 0) - (b.companyId ? 1 : 0));
     const total = rows.length;
     if (q.format === 'csv') {

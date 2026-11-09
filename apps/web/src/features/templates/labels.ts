@@ -34,7 +34,7 @@ export function purposeLabel(p: TemplatePurpose | string): string {
 
 export const isAlertPurpose = (p: string) => p in ALERT_TYPE_MAP;
 
-export const CHANNEL_NAME: Record<MessageTemplateDto['channel'], string> = { EMAIL: 'Email', SMS: 'SMS', PUSH: 'Push', WHATSAPP: 'WhatsApp' };
+export const CHANNEL_NAME: Record<MessageTemplateDto['channel'], string> = { EMAIL: 'Email', SMS: 'SMS', PUSH: 'Push', WHATSAPP: 'WhatsApp', ARATTAI: 'Arattai' };
 
 export const APPROVAL_LABEL: Record<TemplateApproval, string> = { NA: 'Not required', DRAFT: 'Draft', PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected' };
 export const APPROVAL_VARIANT: Record<TemplateApproval, 'muted' | 'secondary' | 'warning' | 'success' | 'destructive'> = {

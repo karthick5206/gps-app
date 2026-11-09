@@ -75,12 +75,12 @@ export class AuthService {
 
   async requestOtp(mobile: string): Promise<{ ok: true; devCode?: string }> {
     // No SMS provider in production: say so (same answer for every number, so accounts cannot be discovered).
-    if (!deliveryChannels().sms) throw new ServiceUnavailableException(OTP_UNAVAILABLE);
+    if (!deliveryChannels().sms && !(await this.messages.arattai.ready())) throw new ServiceUnavailableException(OTP_UNAVAILABLE);
     const recent = await this.prisma.otpCode.findFirst({ where: { mobile }, orderBy: { createdAt: 'desc' } });
     if (recent && Date.now() - recent.createdAt.getTime() < OTP_RESEND_MS) {
       throw new HttpException('Please wait 30 seconds before requesting another code', HttpStatus.TOO_MANY_REQUESTS);
     }
-    const user = await this.prisma.user.findUnique({ where: { mobile }, select: { id: true, isActive: true, companyId: true } });
+    const user = await this.prisma.user.findUnique({ where: { mobile }, select: { id: true, isActive: true, companyId: true, email: true, name: true } });
     // Unknown mobiles get the same response, so the endpoint cannot be used to discover accounts.
     if (!user?.isActive) return { ok: true };
 
@@ -88,7 +88,12 @@ export class AuthService {
     await this.prisma.otpCode.create({
       data: { mobile, codeHash: this.otpHash(mobile, code), expiresAt: new Date(Date.now() + OTP_TTL_MS) },
     });
-    await this.sendOtpSms(user.companyId, mobile, code).catch((e: Error) => this.logger.error(`OTP SMS failed: ${e.message}`));
+    // Every channel that is set up, at once; one failing never stops the others.
+    await Promise.all([
+      deliveryChannels().sms ? this.sendOtpSms(user.companyId, mobile, code).catch((e: Error) => this.logger.error(`OTP SMS failed: ${e.message}`)) : null,
+      this.messages.sendArattaiOtp(user.companyId, mobile, code, OTP_TTL_MS / 60_000).catch((e: Error) => this.logger.error(`OTP Arattai failed: ${e.message}`)),
+      user.email && deliveryChannels().email ? this.sendOtpEmail(user, user.email, code).catch((e: Error) => this.logger.error(`OTP e-mail failed: ${e.message}`)) : null,
+    ]);
     if (!this.env.otpDevEcho) return { ok: true };
     this.logger.log(`[dev] OTP for ${mobile}: ${code}`);
     return { ok: true, devCode: code };
@@ -204,6 +209,16 @@ export class AuthService {
       provider: this.messages.sms.name,
       secrets: [code],
     });
+  }
+
+  /** The sign-in code by e-mail too (same code as the SMS / Arattai one). */
+  private async sendOtpEmail(user: { companyId: string; name: string }, email: string, code: string): Promise<void> {
+    const minutes = OTP_TTL_MS / 60_000;
+    const subject = `${code} is your VeeTrax sign-in code`;
+    const text = `Hi ${user.name},\n\nYour VeeTrax sign-in code is ${code}. It is valid for ${minutes} minutes. Do not share this code with anyone.`;
+    const html = `<p>Hi ${escapeHtml(user.name)},</p><p>Your VeeTrax sign-in code is</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>It is valid for ${minutes} minutes. Do not share this code with anyone.</p>`;
+    await this.mailer.send({ to: email, subject, html, text });
+    await this.messages.log({ companyId: user.companyId, channel: 'EMAIL', recipient: email, templateId: null, subject, body: html, status: 'SENT', provider: 'mailer', secrets: [code] });
   }
 
   /** SYSTEM_PASSWORD_RESET e-mail (company override → system template). */

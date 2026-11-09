@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotifyChannel } from '@prisma/client';
+import { ArattaiOtp } from '../notifier/arattai';
 import { createSmsProvider, SmsProvider } from '../notifier/sms';
 import { PrismaService } from '../prisma/prisma.service';
 import { Rendered, TemplateChannel, TemplateRenderer } from './template-renderer';
@@ -13,9 +14,21 @@ export class SystemMessagesService {
   private readonly logger = new Logger(SystemMessagesService.name);
   private readonly renderer: TemplateRenderer;
   readonly sms: SmsProvider = createSmsProvider();
+  /** Arattai Business verification codes (Platform Settings → Arattai switch). */
+  readonly arattai: ArattaiOtp;
 
   constructor(private readonly prisma: PrismaService) {
     this.renderer = new TemplateRenderer(prisma);
+    this.arattai = new ArattaiOtp(prisma);
+  }
+
+  /** A verification code by Arattai when switched on; logged like the SMS (provider "arattai", code masked). */
+  async sendArattaiOtp(companyId: string | null, mobile: string, code: string, validityMinutes: number): Promise<boolean> {
+    const r = await this.arattai.sendOtp(mobile, code, validityMinutes);
+    if (companyId && (r.sent || r.error)) {
+      await this.log({ companyId, channel: 'SMS', recipient: mobile, templateId: null, subject: null, body: `Arattai verification code ${code} (valid ${validityMinutes} min)`, status: r.sent ? 'SENT' : 'FAILED', error: r.error, provider: 'arattai', secrets: [code] });
+    }
+    return r.sent;
   }
 
   render(companyId: string | null, purpose: string, channel: TemplateChannel, vars: Record<string, unknown>): Promise<Rendered | null> {

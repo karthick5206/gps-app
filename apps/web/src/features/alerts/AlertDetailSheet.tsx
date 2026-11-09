@@ -29,7 +29,7 @@ const NOTIFY_VARIANT: Record<NotificationStatus, 'success' | 'destructive' | 'mu
   QUEUED: 'secondary',
 };
 
-const CHANNEL_ICON = { EMAIL: MailIcon, SMS: SmartphoneIcon, WHATSAPP: MessageSquareIcon, PUSH: BellIcon, INAPP: BellIcon } as const;
+const CHANNEL_ICON = { EMAIL: MailIcon, SMS: SmartphoneIcon, WHATSAPP: MessageSquareIcon, PUSH: BellIcon, INAPP: BellIcon, ARATTAI: MessageSquareIcon } as const;
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (

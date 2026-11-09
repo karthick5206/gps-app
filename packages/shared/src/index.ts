@@ -38,3 +38,4 @@ export * from './expenses';
 export * from './inventory';
 export * from './sim';
 export * from './report-insights';
+export * from './messaging';

@@ -6,7 +6,7 @@
 export const ALERT_SEVERITIES = ['INFO', 'WARNING', 'CRITICAL'] as const;
 export type AlertSeverity = (typeof ALERT_SEVERITIES)[number];
 
-export const NOTIFY_CHANNELS = ['INAPP', 'EMAIL', 'SMS', 'WHATSAPP', 'PUSH'] as const;
+export const NOTIFY_CHANNELS = ['INAPP', 'EMAIL', 'SMS', 'WHATSAPP', 'PUSH', 'ARATTAI'] as const;
 export type NotifyChannel = (typeof NOTIFY_CHANNELS)[number];
 
 export const ALERT_LEVELS = ['COMPANY', 'BRANCH', 'GROUP', 'OBJECT'] as const;
@@ -385,7 +385,7 @@ export interface TimeWindow {
 export type ChannelsBySeverity = Record<AlertSeverity, NotifyChannel[]>;
 
 export const DEFAULT_CHANNELS: ChannelsBySeverity = {
-  INFO: ['INAPP'],
+  INFO: ['INAPP', 'PUSH'],
   WARNING: ['INAPP', 'PUSH', 'EMAIL'],
   CRITICAL: ['INAPP', 'PUSH', 'EMAIL', 'SMS'],
 };

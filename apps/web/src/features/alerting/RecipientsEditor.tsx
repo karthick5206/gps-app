@@ -27,11 +27,11 @@ import { SEVERITY_LABEL } from '@/features/alerts/severity';
 import { useAuth } from '@/features/auth/auth-context';
 import { api } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
-import { CHANNEL_LABEL, SENDABLE_CHANNELS, useDeleteRecipientList, usePutRecipientList } from './api';
+import { CHANNEL_LABEL, SENDABLE_CHANNELS, useAlertChannels, useDeleteRecipientList, usePutRecipientList } from './api';
 import { levelLabel } from './inheritance';
 import { dedupeEntries, entryKey, MODE_LABEL, modeUsesEntries, parseContacts } from './recipients';
 
-const CHANNEL_ICON: Record<NotifyChannel, typeof MailIcon> = { EMAIL: MailIcon, SMS: SmartphoneIcon, WHATSAPP: MessageSquareIcon, PUSH: BellIcon, INAPP: BellIcon };
+const CHANNEL_ICON: Record<NotifyChannel, typeof MailIcon> = { EMAIL: MailIcon, SMS: SmartphoneIcon, WHATSAPP: MessageSquareIcon, PUSH: BellIcon, INAPP: BellIcon, ARATTAI: MessageSquareIcon };
 const MODES: RecipientMode[] = ['DEFAULT', 'ADD', 'ONLY', 'NONE'];
 const DYNAMIC: { value: string; label: string; hint: string }[] = [
   { value: 'OBJECT_USERS', label: 'Assigned users', hint: 'Users mapped to the vehicle or its branch' },
@@ -44,6 +44,7 @@ const KINDS: Record<NotifyChannel, RecipientKind[]> = {
   EMAIL: ['USER', 'ROLE', 'DYNAMIC', 'EMAIL'],
   SMS: ['USER', 'ROLE', 'DYNAMIC', 'MOBILE'],
   WHATSAPP: ['USER', 'ROLE', 'DYNAMIC', 'MOBILE'],
+  ARATTAI: ['USER', 'ROLE', 'DYNAMIC', 'MOBILE'],
   PUSH: ['USER', 'ROLE', 'DYNAMIC'],
   INAPP: ['USER', 'ROLE', 'DYNAMIC'],
 };
@@ -289,6 +290,7 @@ export function RecipientsEditor({
   readOnly: boolean;
 }) {
   const { t } = useTranslation();
+  const offered = useAlertChannels();
   const [severity, setSeverity] = useState<AlertSeverity | '*'>('*');
   const put = usePutRecipientList(level, targetId);
   const del = useDeleteRecipientList();
@@ -319,7 +321,7 @@ export function RecipientsEditor({
         {otherSeverities.size > 0 && severity === '*' && <Badge variant="muted">{t('Has severity-specific lists')}</Badge>}
       </div>
       )}
-      {SENDABLE_CHANNELS.map((channel) => {
+      {SENDABLE_CHANNELS.filter((c) => offered.includes(c)).map((channel) => {
         const list = mine.find((l) => l.channel === channel);
         return (
           <ChannelRow

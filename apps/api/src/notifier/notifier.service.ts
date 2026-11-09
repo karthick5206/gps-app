@@ -20,6 +20,7 @@ import { htmlToText, isSendable } from '../templates/render';
 import { loadAlertContext, Rendered, renderTemplate } from '../templates/template-renderer';
 import { withRetries } from './retry';
 import { createPushProvider, PushProvider, pushStyle } from './push';
+import { ArattaiOtp } from './arattai';
 import { createSmsProvider, SmsProvider } from './sms';
 
 const READ_COUNT = 50;
@@ -77,6 +78,8 @@ export class NotifierService {
   private geocodeInflight = 0;
   private lastClaimAt = 0;
   private stats = { jobs: 0, sent: 0, failed: 0, skipped: 0, ms: 0 };
+  private arattaiClient: ArattaiOtp | null = null;
+  private switches: { at: number; row: { smsEnabled: boolean; emailEnabled: boolean; whatsappEnabled: boolean; arattaiEnabled: boolean } | null } | null = null;
   /** E-mails waiting for a driver event snapshot. */
   private readonly deferred = new Set<Promise<void>>();
   /** Since start, for the System Health heartbeat. */
@@ -271,7 +274,7 @@ export class NotifierService {
 
     for (const c of resolved) {
       if (!c.recipients.length) continue;
-      const template = c.channel === 'WHATSAPP' ? null : await this.templateFor(alert.companyId, alert.type, c.channel);
+      const template = c.channel === 'WHATSAPP' || c.channel === 'ARATTAI' ? null : await this.templateFor(alert.companyId, alert.type, c.channel);
       const rendered: Rendered = template
         ? renderTemplate(template, ctx.vars)
         : {
@@ -339,8 +342,21 @@ Driver event: ${link}`,
       subject: msg.subject,
       body: msg.body,
     };
+    // Platform Settings → Messaging: a channel the Super Admin switched off is not sent.
+    const off = await this.channelOff(channel);
+    if (off) {
+      await this.writeLog({ ...base, status: 'SKIPPED', error: off, provider: null });
+      return;
+    }
     if (channel === 'WHATSAPP') {
       await this.writeLog({ ...base, status: 'SKIPPED', error: 'WhatsApp not configured', provider: null });
+      return;
+    }
+    if (channel === 'ARATTAI') {
+      const label = ALERT_TYPE_MAP[alert.type as AlertTypeCode]?.label ?? alert.type;
+      const vars = { alert: label, vehicle: (msg.subject ?? '').replace(/^\[[A-Z]+\]\s*[^:]*:\s*/, '') || label, time: new Date(alert.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), details: alert.message };
+      const { error } = await withRetries(() => this.arattai.sendAlert(r.address, vars));
+      await this.writeLog({ ...base, status: error ? 'FAILED' : 'SENT', error, provider: 'arattai' });
       return;
     }
     if (channel === 'PUSH') {
@@ -351,6 +367,25 @@ Driver event: ${link}`,
     }
     const { error } = await withRetries(() => this.send(channel, r.address, msg, attachments));
     await this.writeLog({ ...base, status: error ? 'FAILED' : 'SENT', error, provider: channel === 'SMS' ? this.sms.name : 'mailer' });
+  }
+
+  /** Arattai alerts (Platform Settings → Messaging). */
+  private get arattai(): ArattaiOtp {
+    return (this.arattaiClient ??= new ArattaiOtp(this.prisma));
+  }
+
+  /** Why a channel is not sent: switched off by the Super Admin (Platform Settings → Messaging); null = send. Cached 30 s. */
+  private async channelOff(channel: NotifyChannel): Promise<string | null> {
+    if (channel === 'PUSH' || channel === 'INAPP') return null;
+    if (!this.switches || Date.now() - this.switches.at > 30_000) {
+      const row = await this.prisma.messagingSettings.findUnique({ where: { id: 'default' }, select: { smsEnabled: true, emailEnabled: true, whatsappEnabled: true, arattaiEnabled: true } }).catch(() => null);
+      this.switches = { at: Date.now(), row };
+    }
+    const r = this.switches.row;
+    // No settings saved yet: SMS and e-mail on (as before), WhatsApp and Arattai off.
+    const on = { SMS: r?.smsEnabled ?? true, EMAIL: r?.emailEnabled ?? true, WHATSAPP: r?.whatsappEnabled ?? false, ARATTAI: r?.arattaiEnabled ?? false }[channel];
+    const name = channel === 'ARATTAI' ? 'Arattai' : channel === 'WHATSAPP' ? 'WhatsApp' : channel === 'EMAIL' ? 'E-mail' : 'SMS';
+    return on ? null : `${name} is switched off in Platform Settings`;
   }
 
   private send(channel: NotifyChannel, to: string, msg: Rendered, attachments?: MailAttachment[]): Promise<unknown> {

@@ -709,6 +709,7 @@ enum NotifyChannel {
   SMS
   WHATSAPP
   PUSH
+  ARATTAI
 }
 
 enum RecipientMode {
@@ -2552,4 +2553,33 @@ model StockInvoice {
 model StockCounter {
   key     String @id
   lastSeq Int
+}
+
+/// Messaging channels the platform offers (Platform Settings → Messaging, Super Admin): SMS, e-mail, Arattai and
+/// WhatsApp switches, and the Arattai Business set-up. Customers only see switched-on channels in their alert settings
+/// (WhatsApp stays hidden from customers for now). One row (id "default"). Arattai secrets are write-only.
+model MessagingSettings {
+  id                    String    @id @default("default")
+  smsEnabled            Boolean   @default(true)
+  emailEnabled          Boolean   @default(true)
+  whatsappEnabled       Boolean   @default(false)
+  arattaiEnabled        Boolean   @default(false)
+  /// Arattai-CompanyId and Arattai-BusinessNumberId headers.
+  arattaiCompanyId      String    @default("")
+  arattaiBusinessNumberId String  @default("")
+  /// Approved authentication template with {{otp}} and {{validity_minutes}}.
+  arattaiOtpTemplateId  String    @default("")
+  /// Approved transactional template for alerts with {{alert}}, {{vehicle}}, {{time}} and {{details}}.
+  arattaiAlertTemplateId String   @default("")
+  arattaiLanguage       String    @default("en")
+  arattaiClientId       String    @default("")
+  arattaiClientSecret   String    @default("")
+  /// From the one-time "Connect Arattai" approval (access_type=offline).
+  arattaiRefreshToken   String    @default("")
+  /// Random value of a pending Connect, checked when Arattai redirects back.
+  arattaiOauthState     String?
+  arattaiConnectedAt    DateTime? @db.Timestamptz(3)
+  arattaiLastSentAt     DateTime? @db.Timestamptz(3)
+  arattaiLastError      String?
+  updatedAt             DateTime  @updatedAt
 }

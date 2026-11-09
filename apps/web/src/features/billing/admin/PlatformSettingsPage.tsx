@@ -1,17 +1,20 @@
-import { IndianRupeeIcon, ReceiptTextIcon } from 'lucide-react';
+import { IndianRupeeIcon, MessageSquareIcon, ReceiptTextIcon } from 'lucide-react';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { InvoicingSettings } from './InvoicingSettings';
+import { MessagingSettings } from './MessagingSettings';
 import { PricingSettings } from './PricingSettings';
 
-/** Platform → Platform Settings (Super Admin): licence pricing and invoicing (supplier) details. */
+/** Platform → Platform Settings (Super Admin): licence pricing, invoicing (supplier) details, messaging channels (SMS / e-mail / Arattai / WhatsApp). */
 export function PlatformSettingsPage() {
   const { t } = useTranslation();
+  const [params] = useSearchParams();
   return (
     <div className="w-full space-y-6 p-4 sm:p-6">
-      <PageHeader title={t('Platform Settings')} description={t('Licence prices, GST and the supplier details printed on invoices.')} />
-      <Tabs defaultValue="pricing">
+      <PageHeader title={t('Platform Settings')} description={t('Licence prices, GST, the supplier details printed on invoices, and the messaging channels.')} />
+      <Tabs defaultValue={params.get('tab') === 'messaging' ? 'messaging' : 'pricing'}>
         <TabsList>
           <TabsTrigger value="pricing">
             <IndianRupeeIcon className="size-4" />
@@ -21,12 +24,19 @@ export function PlatformSettingsPage() {
             <ReceiptTextIcon className="size-4" />
             {t('Invoicing')}
           </TabsTrigger>
+          <TabsTrigger value="messaging">
+            <MessageSquareIcon className="size-4" />
+            {t('Messaging')}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="pricing" className="mt-4">
           <PricingSettings />
         </TabsContent>
         <TabsContent value="invoicing" className="mt-4">
           <InvoicingSettings />
+        </TabsContent>
+        <TabsContent value="messaging" className="mt-4">
+          <MessagingSettings />
         </TabsContent>
       </Tabs>
     </div>
