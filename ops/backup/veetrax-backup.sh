@@ -66,7 +66,8 @@ fi
 # 3. Uploaded files (logs excluded).
 if [ -n "$UPLOADS_DIR" ]; then
   [ -d "$UPLOADS_DIR" ] || fail "UPLOADS_DIR $UPLOADS_DIR missing"
-  tar -czf "$WORK/uploads.tar.gz" -C "$UPLOADS_DIR" --exclude=./logs . || fail "tar uploads"
+  # Excluded: logs, and dev/legacy message copies (var/mail, var/sms may hold reset links or OTP codes; never backed up).
+  tar -czf "$WORK/uploads.tar.gz" -C "$UPLOADS_DIR" --exclude=./logs --exclude=./mail --exclude=./sms . || fail "tar uploads"
 fi
 
 # 4. Configuration.
