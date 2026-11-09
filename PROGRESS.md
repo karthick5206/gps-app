@@ -11,7 +11,7 @@ _Last updated: 2026-11-09_
 | Track | Status |
 |---|---|
 | Phase 0 discovery and baseline | ✅ Done (`876690e`) |
-| **S0 safety and security track** | ✅ **Code complete, tested; NOT deployed** (awaiting approval) |
+| **S0 safety and security track** | ✅ Code complete, tested; release checklist ready; **deployment awaits backup key pair + final approval** ([checklist](docs/modernization/release-s0-checklist.md)) |
 | P1 Design-system foundation | ⏳ Next |
 | Inventory/SIM/Vehicle/Invoice: Phase A discovery | ✅ Done (plan + 24 owner decisions) |
 | Inventory/SIM/Vehicle/Invoice: Phases B–F | ⏳ After S0; Phase B (inventory) first |
@@ -28,14 +28,27 @@ _Last updated: 2026-11-09_
 **Test results (API):** 869 / 869 passing (baseline was 834); `tsc --noEmit` clean.
 Web tests have not changed in S0.
 
+## Round 2 (owner decisions 2026-11-09) — completed
+| Item | Result |
+|---|---|
+| Alternative auth without providers | 503 + guidance for SMS-code login / e-mail reset; admin-assisted reset demonstrated (`10917bd`) |
+| Production-like auth smoke tests | **21/21 pass** (staging: live config, isolated data, NODE_ENV=production) |
+| Release checklist + PM2 runbook | [release-s0-checklist.md](docs/modernization/release-s0-checklist.md), [ops/run/README.md](ops/run/README.md) |
+| Old e-mail copies | Tokens invalidated (0 outstanding), other copies checked, 18 files shredded, excluded from backups ([security-log](docs/modernization/security-log.md)) |
+| `ops/run` committed | Secret-reviewed; watchdog/autostart documented (`41f2616`) |
+| AWS S3 Mumbai plan | Prices from the AWS Price List API (2026-11-04); cost today < ₹10/month; IAM write-only, versioning + Object Lock, lifecycle, curl-SigV4 uploader (no new tools) — **nothing created** |
+| Inventory decision document | [01-owner-decisions.md](docs/inventory-modules/01-owner-decisions.md): 24 questions in 7 groups; none blocks Phase B |
+| Company deletion retention design | [company-retention-design.md](docs/modernization/company-retention-design.md): R-36 confirmed by code reading |
+| Anti-theft immobilisation research | [anti-theft-immobilisation-proposal.md](docs/modernization/anti-theft-immobilisation-proposal.md): strict rules kept |
+| Tests on HEAD | API **870/870**, web **95/95**, typechecks clean |
+
 ## Waiting for owner approval / decision
 | # | Item | Why it needs you |
 |---|---|---|
-| A-1 | **Deploy S0 to production** (rebuild `dist`, `prisma migrate deploy` (no migrations in S0), restart PM2 with `NODE_ENV=production`) | Production deployment. The S0 fixes are not live until deployed |
-| A-2 | **Backup storage provider** (AWS S3 Mumbai recommended for residency, or Cloudflare R2 free at today's size) and creating the backup key pair | Paid service; see [backup-plan.md](docs/modernization/backup-plan.md) |
-| A-3 | Delete the 17 old mail copies in `apps/api/var/mail` (may contain reset links) | Deleting production data |
-| A-4 | Q-25: engine stop for **parked** vehicles whose tracker reports rarely (keep strict 60 s window?) | Vehicle safety |
-| A-5 | Commit `ops/run/` (PM2 config, watchdog, autostart; no secrets) to git (R-35)? | Repository policy |
+| A-1 | **S0 final deployment approval**, after the backup key pair (public key) is provided | Production deployment |
+| A-2 | Generate the backup GPG key pair (commands in the checklist) and approve the S3 cost to activate off-site backups | Paid service / key custody |
+| A-3 | Retention-safe company deletion: approve the design and the stop-gap (block purge of companies with financial records) | Data retention / legal |
+| A-4 | Anti-theft immobilisation proposal (option 1 + 4) | Vehicle safety |
 | A-6 | Inventory/SIM/Vehicle/Invoice owner decisions QI-1…24 (partner warehouses, SIM billing, invoice series, who issues invoices, HSN/SAC and GST, overdue rules, refunds…) | Commercial rules; see [Phase A §7.3](docs/inventory-modules/00-phase-a-plan-and-dependency-map.md) |
 
 ## Known limitations recorded during S0

@@ -47,40 +47,62 @@ The first run found a real consistency gap: counts taken after the dump differed
 |---|---|
 | Frequency | Every 6 hours (RPO ≤ 6 h); reduce later with WAL archiving if needed |
 | Local copies | 14 days (`KEEP_LOCAL_DAYS`) |
-| Off-site retention | 35 daily + 12 monthly via bucket lifecycle rules; **object lock / versioning on** so a compromised host cannot delete backups |
+| Off-site retention | see §4.3 (S3 lifecycle: Standard 30 d → Glacier IR, expire 400 d); **object lock / versioning on** so a compromised host cannot delete backups |
 | Restore test | Monthly, documented (the script prints the verification table) |
 | Alerting | Status in `last-status.json`; wire into System Health once off-site upload is active |
 | Target RTO | < 1 hour at today's data size (restore measured at 4 s for this dataset) |
 
 The schedule is **not yet installed on the live host**. Creating the Windows/WSL scheduled task changes production operations, so it comes with the provider decision.
 
-## 4. Storage provider options: **approval needed**
-Sizes measured today:
-- live DB 13 MB, uploads 77 KB, Valkey 12 MB;
-- one encrypted bundle ≈ 6 MB for the test dataset; the live one is smaller.
+## 4. Off-site destination: AWS S3 Mumbai (ap-south-1). Owner decision 2026-11-09; **not created yet**
 
-At 2,000 vehicles the position history grows to tens of GB, so the cost below is shown for **today** and for **~1 TB** of retained backups.
+### 4.1 Verified prices
+**Source:** the official **AWS Price List API** offer files for `AmazonS3` and `AWSDataTransfer`, region `ap-south-1`, **publication 2026-11-04** (fetched 2026-11-09). This is the same data the AWS Pricing Calculator uses.
 
-Prices are **indicative list prices from memory (late 2026 knowledge); please verify on the provider sites before purchase**.
+| Item | Price (USD) |
+|---|---|
+| S3 Standard storage | $0.025 per GB-month (first 50 TB) |
+| S3 Standard-IA storage / retrieval | $0.0138 per GB-month / $0.01 per GB |
+| S3 Glacier Instant Retrieval storage / retrieval | $0.005 per GB-month / $0.03 per GB |
+| S3 Glacier Flexible Retrieval storage / standard retrieval | $0.0045 per GB-month / $0.012 per GB |
+| Glacier Deep Archive | storage rate **not found in the offer file**; retrieval $0.024/GB (standard), $0.005/GB (bulk). Verify in the calculator if used (not proposed) |
+| PUT / COPY / LIST requests | $0.005 per 1,000 |
+| GET requests | $0.004 per 10,000 |
+| Data transfer out to the internet | $0.1093 per GB (first 10 TB), **beyond the account-wide free allowance** |
+| SSE-S3 encryption, versioning, Object Lock, Block Public Access | no charge (versions are billed as storage) |
 
-| Provider | Region options (India data residency) | Free tier | ~Price per GB-month | Egress (restore) | Today's cost | At ~1 TB | Notes |
-|---|---|---|---|---|---|---|---|
-| **Cloudflare R2** | Automatic / jurisdiction (EU/FedRAMP); no India-pinned region | 10 GB storage | ≈ $0.015 | **Free** | **$0** | ≈ $15/mo | You already have a Cloudflare account; S3-compatible; bucket lock available |
-| **AWS S3 (ap-south-1 Mumbai)** | **India** ✔ | 5 GB (12 months) | ≈ $0.025 (Standard); ≈ $0.0045 Glacier Deep Archive | ≈ $0.11/GB | ≈ $0 | ≈ $5–25/mo | Best for data residency (DPDP); object lock; most tooling |
-| **Backblaze B2** | US / EU | 10 GB | ≈ $0.006 | Free up to 3× stored | $0 | ≈ $6/mo | Cheapest; no India region |
-| **Wasabi** | Includes Singapore/Tokyo, no India | none | ≈ $0.007, **1 TB minimum** | Free | ≈ $7/mo minimum | ≈ $7/mo | 90-day minimum retention |
-| GitHub Releases (existing design) | US | Free | — | Free | $0 | not suitable | 2 GiB per file; not meant for backups; repo-token risk |
+### 4.2 Cost estimate (INR at ≈ ₹85/USD, indicative)
+| Scenario | Assumptions | Monthly cost |
+|---|---|---|
+| **Today** | Bundle ≤ 6 MB; 4 backups/day; 30 days in Standard, then Glacier IR; kept 400 days → ≈ 0.7 GB Standard + ≈ 9 GB Glacier IR; ≈ 120 PUTs; 1 monthly restore test (6 MB download) | **< $0.10 (≈ ₹8)** |
+| 2,000 vehicles (growth) | DB ≈ 150 GB compressed. Full dump nightly instead of every 6 h, plus incremental/WAL later (see note). ≈ 1 TB retained (≈ 200 GB Standard + 800 GB Glacier IR) | ≈ $5 + $4 = **≈ $9 (≈ ₹770)** |
+| Full restore at that size | 150 GB download (egress) + Glacier IR retrieval of an old bundle | ≈ $16 + $4.5 one-off (**≈ ₹1,750**) |
 
-**Recommendation:**
-- **AWS S3 in Mumbai (ap-south-1)** if Indian data residency matters for your customers (likely under the DPDP Act for location data).
-- Otherwise **Cloudflare R2**, which is free at today's size and uses your existing account.
+Note: at 2,000-vehicle scale, 6-hourly full dumps become too large. Move to nightly full backups plus PostgreSQL WAL archiving (point-in-time recovery). That is a later change; costs scale linearly with the table above.
 
-Either way: a dedicated bucket, versioning plus object lock, lifecycle retention, and a write-only access key on the host (no delete permission).
+### 4.3 Recommended retention policy
+| Rule | Value | Why |
+|---|---|---|
+| Frequency | Every 6 h (RPO ≤ 6 h) | Today's data is tiny; one bundle ≈ 3 s |
+| Storage class | Standard for 30 days, then **Glacier Instant Retrieval** | Recent backups are restored most; GIR keeps millisecond access at one-fifth the price (90-day minimum duration is met) |
+| Expiry | 400 days | ≥ 12 months of history (covers year-end disputes). Legal *financial* retention is handled in the database (see [company-retention-design.md](company-retention-design.md)), not by backups |
+| Object Lock | **Governance mode, 35 days** | A compromised host or key cannot delete or overwrite recent backups (ransomware protection) |
+| Versioning | On (required for Object Lock); non-current versions expire after 7 days | — |
+| Local copies | 14 days on the host | Fast local restore |
+| Restore test | Monthly, from S3 into a scratch DB, recorded here | "A backup is not reliable until a restore succeeded" |
 
-**Upload tool:** `rclone` (open source) or the provider CLI. Installing it on the host is part of activation.
+### 4.4 Security design
+- **Client-side encryption:** a GPG public key is used on the host. **You keep the private key offline.** AWS never sees plaintext.
+- **Server-side encryption:** SSE-S3 (AES-256) is enforced by the bucket policy ([bucket-policy.json](../../ops/backup/aws/bucket-policy.json)). SSE-KMS isn't needed on top of client-side encryption ($1/key/month + request costs).
+- **Bucket access:** Block Public Access on, and TLS-only access enforced by the bucket policy.
+- **IAM:** a dedicated user `veetrax-backup-writer` with **only `s3:PutObject` on `veetrax-backups/prod/*`** ([iam-backup-writer.json](../../ops/backup/aws/iam-backup-writer.json)). It can't list, read or delete. Restores use a separate read role that you hold.
+- **Key handling:** the access key lives only in the root-only `backup.conf` on the host. Rotate it every 90 days.
+- **Lifecycle:** [lifecycle.json](../../ops/backup/aws/lifecycle.json).
+- **Upload:** [s3-put.sh](../../ops/backup/s3-put.sh) uses plain `curl --aws-sigv4` (curl 8.18 is already in WSL), with a `Content-MD5` integrity check. **No AWS CLI or other software to install.**
 
-## 5. To activate (after your approval)
-1. You choose the provider and create the bucket and a write-only key. I can provide the exact settings, but I won't sign up or pay for anything.
-2. You generate the backup key pair on your own PC and keep the private key offline. I'll provide the commands.
-3. Place `backup.conf` (chmod 600) and the public key on the host, set `UPLOAD_CMD`, and install the scheduled task.
-4. Run once, restore that bundle into a scratch DB, and record the verification table here.
+## 5. To activate (needs your approval; no AWS resources exist yet)
+1. **You approve the cost (§4.2).** Then you, or I with credentials you place in the host config yourself, create bucket `veetrax-backups` in ap-south-1 with versioning, Object Lock (Governance, 35 d), Block Public Access, the bucket policy and the lifecycle rule.
+2. Create the IAM user with the write-only policy and put its key in `/etc/veetrax/backup.conf` (chmod 600) with `UPLOAD_CMD='bash /mnt/d/Vibhav/gps-app/ops/backup/s3-put.sh {file}'`.
+3. You generate the backup key pair on your own PC and keep the private key offline; only the public key goes on the host. I'll provide the commands.
+4. **Off-site test:** run one backup → it appears in S3 → download it with the read role → `veetrax-restore.sh` into a scratch DB → record the verification table here.
+5. Install the 6-hourly schedule (WSL cron or a Windows scheduled task). This is a production operations change.

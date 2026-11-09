@@ -96,10 +96,16 @@ The owner column shows the proposed owner role, to be confirmed. Each item lists
 | R-17 | **Mitigated in code** (S0.5). Not yet deployed | Concurrency tests |
 | R-28 | **Mitigated in code** (S0.2); existing `var/mail` copies still on disk (awaiting deletion approval) | Unit tests |
 
+| R-28 | **Closed:** code mitigated (S0.2); 18 stored copies shredded; no outstanding tokens; backups exclude `var/mail`/`var/sms` | security-log.md |
+| R-36 | **Confirmed by code reading** (not executed): the purge planner only skips SET NULL/SET DEFAULT children, so RESTRICT-protected Invoice/CreditNote/LicenceOrder/LicenceSeat/BillingProfile/AuditLog rows are deleted; also reachable via `/delete-account` for personal accounts. Design ready for review ([company-retention-design.md](company-retention-design.md)); stop-gap proposed | purge-plan.ts:74-75, purge.service.ts:68-89 |
+| R-37 | **Partially mitigated:** production returns clear 503s, and the admin-assisted reset is demonstrated (21/21 smoke). Providers still needed | release-s0-checklist.md |
+
 New risks:
 | ID | Area | Risk | Sev | Evidence | Mitigation | Phase |
 |---|---|---|---|---|---|---|
 | R-36 | Finance / legal | Company **purge** deletes child rows even where FKs are Restrict; it likely deletes legally retained GST invoices and credit notes | High | Inferred from the purge algorithm (Phase A analysis, not executed) | Exclude financial records from purge (retain with snapshot), confirm on the isolated DB | P5 / Inventory E |
+| R-38 | Compliance | Default credit-note number `VTX/CN/2026-27/0001` is 19 characters; GST Rules 46/53 allow at most 16 | Medium | Code-read (owner-decision doc QI-5) | CA to confirm; shorter prefix series | Inventory E / P5 |
+| R-39 | Safety (UX) | A Concox heartbeat or "Request location" reply does not refresh telemetry, so legitimate engine stops on parked vehicles are refused (safe failure) | Low | Code-read (anti-theft proposal) | Proposal option 1, after approval | — |
 | R-37 | Ops | Live production has no SMS or mail provider: OTP SMS and reset e-mails are not delivered; notification log records e-mail as SENT | Medium | Live `.env` names; mailer code | Configure providers (DLT, SMTP); honest delivery status | P4 |
 
 ## 3. Risk heat summary

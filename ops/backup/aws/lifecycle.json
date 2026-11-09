@@ -1,0 +1,13 @@
+{
+  "Rules": [
+    {
+      "ID": "veetrax-backup-retention",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "prod/" },
+      "Transitions": [{ "Days": 30, "StorageClass": "GLACIER_IR" }],
+      "Expiration": { "Days": 400 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
+    }
+  ]
+}

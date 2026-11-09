@@ -20,10 +20,21 @@ Format: ID · date · decision or question · options · recommendation · statu
 | Q-03 ✅ | Encrypted off-site object storage independent of the host; PostgreSQL, required Valkey data, uploads and config; retention; restore test. **Present provider and cost before any paid service** | S0.3 |
 | Roadmap ✅ | Approved; S0 first; work independently, but stop before production deployments, paid services, destructive migrations, financial/irreversible billing changes, new commercial rules, and anything affecting vehicle safety | — |
 
+## Decisions taken by the product owner (2026-11-09, second round)
+| ID | Decision |
+|---|---|
+| D-101 | S0 deployment: **conditional**. Do not deploy until providers are fixed or the alternative is demonstrated, smoke tests pass, production assertions are verified, a backup exists, and runbooks are ready. Then final confirmation → [release-s0-checklist.md](release-s0-checklist.md) |
+| D-102 | Backup destination: **AWS S3 Mumbai (ap-south-1)**. Verify pricing, design retention/IAM/encryption, test off-site; **no paid resources without approval** → [backup-plan.md §4](backup-plan.md) |
+| D-103 | Old e-mail copies: approved to delete after invalidating tokens and checking other copies → done ([security-log.md](security-log.md)) |
+| D-104 | Q-25: **keep the strict engine-stop policy** (online, telemetry ≤ 60 s, ≤ 20 km/h, never queued, revalidate before execution). Research a safer anti-theft workflow separately → [anti-theft-immobilisation-proposal.md](anti-theft-immobilisation-proposal.md) (for review) |
+| D-105 | `ops/run/` committed after secret review (`41f2616`) |
+| D-106 | Inventory QI-1…24: do not assume commercial rules; decision document prepared → [01-owner-decisions.md](../inventory-modules/01-owner-decisions.md) |
+| D-107 | Company deletion must not destroy legal GST invoices or payment history. Design first → [company-retention-design.md](company-retention-design.md) (for review) |
+
 ## Open questions for the product owner
 | ID | Question | Options | Recommendation | Blocks |
 |---|---|---|---|---|
-| Q-25 | **Parked vehicles and engine stop.** A parked tracker may report a position only every few minutes, so the 60 s telemetry window (the latest of GPS fix and server receive time) can refuse an anti-theft immobilise on a parked, connected vehicle. Allow it when the device is connected (`vt:conn` heartbeat) and its last known speed was 0? | keep strict / allow connected+stationary / per-company window | Keep strict until real devices show the parked reporting interval; then decide. **Safety-affecting: needs your approval** | — |
+| Q-25 ✅ (D-104: keep strict) | **Parked vehicles and engine stop.** A parked tracker may report a position only every few minutes, so the 60 s telemetry window (the latest of GPS fix and server receive time) can refuse an anti-theft immobilise on a parked, connected vehicle. Allow it when the device is connected (`vt:conn` heartbeat) and its last known speed was 0? | keep strict / allow connected+stationary / per-company window | Keep strict until real devices show the parked reporting interval; then decide. **Safety-affecting: needs your approval** | — |
 | ID | Question | Options | Recommendation | Blocks |
 |---|---|---|---|---|
 | Q-01 | **Engine-stop for offline vehicles** | (a) refuse; (b) queue with a short TTL and a delivery-time speed/freshness re-check; (c) current behaviour (24 h, no re-check) | (b) with TTL 5 min, freshness ≤ 30 s, speed ≤ the existing limit; never (c) | S0 / R-01 |
