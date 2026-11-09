@@ -80,7 +80,12 @@ function Get-Json([string]$url) {
     $resp = $_.Exception.Response
     if ($resp) {
       $code = [int]$resp.StatusCode
-      try { $body = (New-Object IO.StreamReader($resp.GetResponseStream())).ReadToEnd() | ConvertFrom-Json } catch { $body = $null }
+      # PowerShell 5.1 has already read the error body into ErrorDetails; the response stream is at its end.
+      $text = if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $null }
+      if (-not $text) {
+        try { $s = $resp.GetResponseStream(); if ($s.CanSeek) { $s.Position = 0 }; $text = (New-Object IO.StreamReader($s)).ReadToEnd() } catch { $text = $null }
+      }
+      try { $body = $text | ConvertFrom-Json } catch { $body = $null }
       return @{ code = $code; body = $body }
     }
     return @{ code = 0; body = $null; error = $_.Exception.Message }
