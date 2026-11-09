@@ -8,6 +8,7 @@ import { ensureSystemRoles } from '../src/access/system-roles';
 import { geometryBBox } from '../src/alerts/logic/geofence-geometry';
 import { deliverableTemplates, SystemTemplateDef, systemTemplates } from '../src/templates/system-templates';
 import { hashPassword, randomToken } from '../src/common/secrets';
+import { superAdminSeedPassword } from '../src/common/seed-guards';
 import { loadEnv } from '../src/config/env';
 
 loadEnv();
@@ -151,9 +152,10 @@ async function upsertUser(data: {
 }) {
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
   if (existing) {
+    // Never re-activate a user an administrator disabled, and never touch the password (R-04).
     return prisma.user.update({
       where: { id: existing.id },
-      data: { companyId: data.companyId, name: data.name, mobile: data.mobile ?? existing.mobile, isActive: true },
+      data: { companyId: data.companyId, name: data.name, mobile: data.mobile ?? existing.mobile },
     });
   }
   return prisma.user.create({
@@ -185,14 +187,20 @@ async function main() {
     (await prisma.company.findFirst({ where: { isPlatform: true } })) ??
     (await prisma.company.create({ data: { partnerId: partner.id, name: 'VeeTrax Platform', isPlatform: true } }));
 
-  await upsertUser({
-    companyId: platform.id,
-    name: 'Super Admin',
-    email: 'admin@veetracer.local',
-    mobile: '+919999900000',
-    password: 'Admin@12345',
-    isSuperAdmin: true,
-  });
+  // The Super Admin: created once (production password only from SUPER_ADMIN_PASSWORD); never changed afterwards.
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL?.trim() || 'admin@veetracer.local';
+  const superAdminExists = !!(await prisma.user.findFirst({ where: { OR: [{ isSuperAdmin: true }, { email: superAdminEmail }] }, select: { id: true } }));
+  const superAdminPassword = superAdminSeedPassword(process.env, superAdminExists);
+  if (superAdminPassword) {
+    await upsertUser({
+      companyId: platform.id,
+      name: 'Super Admin',
+      email: superAdminEmail,
+      mobile: '+919999900000',
+      password: superAdminPassword,
+      isSuperAdmin: true,
+    });
+  }
 
   const models = new Map<string, string>();
   for (const [brand, model, protocol, profile] of [
