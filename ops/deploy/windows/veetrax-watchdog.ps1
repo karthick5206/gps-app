@@ -5,6 +5,7 @@
 #   - veetracer-* service not running      -> alert, then Start-Service (at most 3 starts per service per hour;
 #                                             NSSM itself restarts crashed node processes, this catches a service that
 #                                             NSSM gave up on or that was stopped by something else)
+#   - Valkey VM health (-ValkeyHealthUrl)  -> alert when unreachable / down / degraded (memory, AOF, RDB, backup age)
 #   - cache service not running            -> alert ONLY. It is never started or restarted from here: restarting
 #                                             Memurai Developer Edition to get around its 10-day licence shutdown is
 #                                             not allowed (see docs/reliability/cache-assessment.md)
@@ -23,6 +24,8 @@ param(
   [int]$ApiPort = 4100,
   [int]$GatewayHealthPort = 4121,
   [int]$CooldownMin = 30,
+  # Health endpoint of the Valkey VM (ops/valkey, port 9121), e.g. http://10.0.0.5:9121/health; empty = not checked.
+  [string]$ValkeyHealthUrl = '',
   [int]$MaxStartsPerHour = 3
 )
 $ErrorActionPreference = 'Continue'
@@ -118,6 +121,18 @@ foreach ($name in $services) {
 $cache = Get-Service $CacheService -ErrorAction SilentlyContinue
 if ($cache -and $cache.Status -ne 'Running') {
   Raise 'cache:service' "Cache service $CacheService is $($cache.Status)" "The cache service $CacheService is $($cache.Status). The gateway keeps devices connected and spools positions to disk; they are replayed when the cache is back. The watchdog does not restart the cache: investigate (Memurai Developer Edition stops itself after 10 days and may not be used in production)."
+}
+
+# ---- Valkey VM (when configured) ---------------------------------------------------------------------------------
+if ($ValkeyHealthUrl) {
+  $vk = Get-Json $ValkeyHealthUrl
+  if ($vk.code -eq 0) {
+    Raise 'valkey:unreachable' 'Valkey VM health endpoint not answering' "$ValkeyHealthUrl did not answer ($($vk.error)). The VM, its network or the valkey-health service is down; the gateway spools positions meanwhile."
+  } elseif ($vk.body.status -eq 'down') {
+    Raise 'valkey:down' 'Valkey is down on its VM' (($vk.body.reasons) -join "`n")
+  } elseif ($vk.body.status -eq 'degraded') {
+    Raise 'valkey:degraded' 'Valkey degraded' (($vk.body.reasons) -join "`n")
+  }
 }
 
 # ---- API readiness and tracking ----------------------------------------------------------------------------------

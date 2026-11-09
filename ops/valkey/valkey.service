@@ -1,0 +1,51 @@
+[Unit]
+Description=Valkey (VeeTrax cache)
+Documentation=file:///etc/valkey/valkey.conf
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=valkey
+Group=valkey
+ExecStartPre=-+/bin/sh -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled'
+ExecStart=/usr/local/bin/valkey-server /etc/valkey/valkey.conf
+# Stop by SIGTERM (no ExecStop: the default user is disabled): Valkey fsyncs the AOF and exits cleanly.
+KillSignal=SIGTERM
+TimeoutStartSec=120
+TimeoutStopSec=120
+# A free, production-licensed cache: restarting it after a crash is legitimate (unlike Memurai Developer Edition).
+Restart=on-failure
+RestartSec=2
+StartLimitIntervalSec=300
+StartLimitBurst=10
+RuntimeDirectory=valkey
+RuntimeDirectoryMode=0750
+LimitNOFILE=10032
+UMask=0077
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/valkey /var/log/valkey
+ReadOnlyPaths=/etc/valkey
+
+[Install]
+WantedBy=multi-user.target

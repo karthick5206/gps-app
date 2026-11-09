@@ -22,7 +22,9 @@ param(
   [string]$AppDir = 'C:\apps\veetracer\app',
   [string]$CacheService = 'Memurai',
   [switch]$CacheLicensed,
-  [switch]$SkipWatchdog
+  [switch]$SkipWatchdog,
+  # After the Valkey cut-over: the VM's health endpoint, e.g. http://10.0.0.5:9121/health (passed to the watchdog).
+  [string]$ValkeyHealthUrl = ''
 )
 $ErrorActionPreference = 'Stop'
 $services = 'veetracer-api', 'veetracer-gateway', 'veetracer-processor', 'veetracer-notifier', 'veetracer-summarizer'
@@ -64,6 +66,7 @@ if ($CacheLicensed) {
 if (-not $SkipWatchdog) {
   $script = Join-Path $AppDir 'ops\deploy\windows\veetrax-watchdog.ps1'
   $taskArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -CacheService $CacheService"
+  if ($ValkeyHealthUrl) { $taskArgs += " -ValkeyHealthUrl $ValkeyHealthUrl" }
   if ($DryRun) {
     "DRY-RUN: register scheduled task 'VeeTrax watchdog' (SYSTEM, every 1 min): powershell.exe $taskArgs"
   } else {

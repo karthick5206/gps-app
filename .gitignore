@@ -13,3 +13,6 @@ apps/api/dist-*/
 
 # Gradle caches inside native modules (created by local builds)
 **/android/.gradle/
+
+# ops/valkey kit test output (throwaway CA and passwords)
+ops/valkey/test/out/
