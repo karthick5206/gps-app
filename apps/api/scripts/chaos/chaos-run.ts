@@ -10,6 +10,9 @@
  *     devices registered (npx tsx src/simulator/register.ts --count <devices> --imei-start 868120009000001)
  *   - WSL with valkey-server: a private instance is started on 127.0.0.1:6390 (data in /tmp/vtchaos); the harness
  *     kills / restarts / wipes ONLY that instance
+ *   - or an existing cache: --cache-url rediss://veetrax:<pw>@127.0.0.1:16380 (TLS / ACL settings from REDIS_TLS_*,
+ *     see src/redis/connection.ts) with --cache-ctl docker:<container> to kill / start its systemd valkey unit
+ *     (cache-restart-empty is not supported there)
  *
  * Topology: simulator → gateway (GT06 :15023) → cache proxy :6391 → valkey :6390; api / processor reach PostgreSQL
  * through a proxy on :15432 and the cache through :6391. The proxies cut (RST) or blackhole (pause) traffic.
@@ -22,7 +25,7 @@ import { ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync, readdirSync, rmSync, writeFileSync, WriteStream } from 'node:fs';
 import { connect, Socket } from 'node:net';
 import { join, resolve } from 'node:path';
-import Redis from 'ioredis';
+import { createRedis, redactRedisUrl } from '../../src/redis/connection';
 import { decodeFrames, encodeGps22, encodeLogin, frameProtocol } from '../../src/gateway/gt06/codec';
 import { ChaosProxy } from './tcp-proxy';
 
@@ -39,6 +42,18 @@ const OUT = resolve(args.get('out') ?? join(API_DIR, 'var', 'chaos', new Date().
 const ALL = ['baseline', 'cache-kill', 'cache-restart-empty', 'net-blackhole', 'net-cut', 'gateway-restart', 'processor-restart', 'db-interruption', 'dup-ooo', 'prolonged'];
 const SCENARIOS = (args.get('scenarios') ?? ALL.join(',')).split(',').filter(Boolean);
 const PORTS = { valkey: 6390, valkeyProxy: 6391, pgProxy: 15432, api: 14100, gt06: 15023, gwHealth: 14121 };
+/** External cache under test (e.g. the ops/valkey kit in a container, TLS + ACL); default: private WSL valkey. */
+const CACHE_URL = args.get('cache-url') ?? null;
+const CACHE_CTL = args.get('cache-ctl') ?? null;
+const cacheTarget = CACHE_URL ? new URL(CACHE_URL) : null;
+/** What the processes under test use: the same URL (scheme, user, password) pointed at the cut/blackhole proxy. */
+const proxiedCache = (() => {
+  if (!cacheTarget) return `redis://127.0.0.1:${PORTS.valkeyProxy}`;
+  const u = new URL(CACHE_URL!);
+  u.hostname = '127.0.0.1';
+  u.port = String(PORTS.valkeyProxy);
+  return u.toString();
+})();
 
 const dbUrl = process.env.CHAOS_DATABASE_URL ?? '';
 const parsedDb = new URL(dbUrl || 'postgresql://x@127.0.0.1:5432/none');
@@ -69,12 +84,25 @@ function wsl(cmd: string): string {
     return `ERR ${(error as Error).message.split('\n')[0]}`;
   }
 }
-const valkey = {
+const docker = (container: string, cmd: string) => wsl(`docker exec ${container} bash -lc "${cmd}"`);
+const externalValkey = CACHE_CTL?.startsWith('docker:')
+  ? (() => {
+      const c = CACHE_CTL.slice('docker:'.length);
+      return {
+        start: () => docker(c, 'systemctl start valkey && sleep 1 && systemctl is-active valkey'),
+        kill9: () => docker(c, 'systemctl kill -s SIGKILL valkey; sleep 0.3; systemctl is-active valkey || true'),
+        wipe: () => 'not supported on an external cache',
+        version: () => docker(c, '/usr/local/bin/valkey-server --version'),
+      };
+    })()
+  : null;
+const localValkey = {
   start: () => wsl(`mkdir -p /tmp/vtchaos && valkey-server --port ${PORTS.valkey} --bind 127.0.0.1 --appendonly yes --appendfsync everysec --save '' --dir /tmp/vtchaos --pidfile /tmp/vtchaos/valkey.pid --logfile /tmp/vtchaos/valkey.log --daemonize yes && sleep 1 && valkey-cli -p ${PORTS.valkey} ping`),
   kill9: () => wsl(`kill -9 $(cat /tmp/vtchaos/valkey.pid) 2>/dev/null; sleep 0.5; valkey-cli -p ${PORTS.valkey} ping 2>&1 | head -1`),
   wipe: () => wsl(`valkey-cli -p ${PORTS.valkey} shutdown nosave >/dev/null 2>&1; sleep 0.5; rm -rf /tmp/vtchaos/appendonlydir /tmp/vtchaos/*.rdb; echo wiped`),
   version: () => wsl(`valkey-server --version`),
 };
+const valkey = externalValkey ?? localValkey;
 
 // ── processes under test ─────────────────────────────────────────────────────
 
@@ -89,7 +117,7 @@ const childEnv = (): NodeJS.ProcessEnv => ({
   ...process.env,
   NODE_ENV: 'development',
   DATABASE_URL: proxiedDb.toString(),
-  REDIS_URL: `redis://127.0.0.1:${PORTS.valkeyProxy}`,
+  REDIS_URL: proxiedCache,
   API_PORT: String(PORTS.api),
   GT06_PORT: String(PORTS.gt06),
   TELTONIKA_PORT: '0',
@@ -231,7 +259,7 @@ const devices = imeis.map((imei, i) => new Device(imei, i < 5));
 
 // ── observation ──────────────────────────────────────────────────────────────
 
-const direct = new Redis(PORTS.valkey, '127.0.0.1', { lazyConnect: true, maxRetriesPerRequest: 1, retryStrategy: () => 1000 });
+const direct = createRedis(CACHE_URL ?? `redis://127.0.0.1:${PORTS.valkey}`, { lazyConnect: true, maxRetriesPerRequest: 1, retryStrategy: () => 1000 });
 direct.on('error', () => undefined);
 const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
@@ -408,7 +436,7 @@ async function observed(fn: () => Promise<void>): Promise<void> {
 
 // ── scenarios ────────────────────────────────────────────────────────────────
 
-const cacheProxy = new ChaosProxy('cache', PORTS.valkeyProxy, '127.0.0.1', PORTS.valkey);
+const cacheProxy = new ChaosProxy('cache', PORTS.valkeyProxy, cacheTarget?.hostname ?? '127.0.0.1', cacheTarget ? Number(cacheTarget.port || 6379) : PORTS.valkey);
 const pgProxy = new ChaosProxy('postgres', PORTS.pgProxy, parsedDb.hostname, Number(parsedDb.port || 5432));
 
 async function runScenario(name: string): Promise<void> {
@@ -553,7 +581,8 @@ async function main(): Promise<void> {
   log(`output: ${OUT}`);
   log(`scenarios: ${SCENARIOS.join(', ')}`);
   rmSync(join(OUT, 'spool'), { recursive: true, force: true });
-  log(`valkey: ${valkey.wipe()} / ${valkey.start()} (${valkey.version()})`);
+  if (CACHE_URL) log(`external cache ${redactRedisUrl(CACHE_URL)} (${valkey.version()}); processes use ${redactRedisUrl(proxiedCache)}`);
+  else log(`valkey: ${valkey.wipe()} / ${valkey.start()} (${valkey.version()})`);
   await cacheProxy.start();
   await pgProxy.start();
   await direct.connect();

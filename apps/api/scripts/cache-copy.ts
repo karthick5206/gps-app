@@ -2,13 +2,14 @@
  * Copies VeeTrax state keys from one cache to another (Memurai → Valkey cut-over), keeping TTLs.
  * See docs/reliability/production-rollout.md §4. Streams are NOT copied: the cut-over drains them instead.
  *
- *   npx tsx scripts/cache-copy.ts --from redis://127.0.0.1:6379 --to redis://:password@10.0.0.5:6379 [--dry-run]
+ *   npx tsx scripts/cache-copy.ts --from redis://127.0.0.1:6379 --to redis://veetrax:<password>@10.0.0.5:6379 [--dry-run]
+ * A rediss:// target uses REDIS_TLS_CA_FILE / REDIS_TLS_SERVERNAME from the environment (src/redis/connection.ts).
  *
  * Copied: live / track state, rules / fuel / IO detector state, offline command queues and command states, forwarding
  * rules, webhook company set, cached Super Admin e-mail. A key that already exists on the target is left alone (the
  * target's copy is newer). Strings, sets, lists, hashes and sorted sets; anything else is reported and skipped.
  */
-import Redis from 'ioredis';
+import { createRedis } from '../src/redis/connection';
 
 const PATTERNS = ['vt:live:*', 'vt:track:*', 'vt:alertstate:*', 'vt:fuel:*', 'vt:io:*', 'vt:cmd:queue:*', 'vt:cmd:state:*', 'vt:relay:rules', 'vt:wh:companies', 'vt:health:sa-email'];
 
@@ -22,8 +23,8 @@ async function main(): Promise<void> {
   const to = arg('to');
   const dry = process.argv.includes('--dry-run');
   if (!from || !to) throw new Error('usage: --from <redis url> --to <redis url> [--dry-run]');
-  const src = new Redis(from, { maxRetriesPerRequest: 2 });
-  const dst = new Redis(to, { maxRetriesPerRequest: 2 });
+  const src = createRedis(from, { maxRetriesPerRequest: 2 });
+  const dst = createRedis(to, { maxRetriesPerRequest: 2 });
   const counts = { copied: 0, existing: 0, skipped: 0, expired: 0 };
   try {
     for (const pattern of PATTERNS) {

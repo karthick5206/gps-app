@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import Redis from 'ioredis';
+import { createRedis } from '../redis/connection';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { CommandDispatch, COMMAND_TTL_HOURS, criticalDispatchRejection, CRITICAL_NOT_DELIVERED_OFFLINE, GatewayMetrics, isSafetyCriticalDispatch, NO_QUEUE_NOT_DELIVERED } from '@veetracer/shared';
@@ -50,12 +51,12 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const logger = new Logger('Gateway');
   const gatewayId = process.env.GATEWAY_ID ?? `gw-${hostname()}-${process.pid}`;
-  const redis = new Redis(env.redisUrl);
+  const redis = createRedis(env.redisUrl);
   redis.on('error', (error) => logger.error(`Valkey error: ${error.message}`));
 
   // Positions get their own connection without an offline queue: while the cache is down an XADD fails at once (and
   // the positions go to the spool) instead of sitting in memory and being applied late, which would duplicate them.
-  const positionsConn = new Redis(env.redisUrl, {
+  const positionsConn = createRedis(env.redisUrl, {
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
     commandTimeout: 5000,
@@ -105,7 +106,7 @@ async function main(): Promise<void> {
     policy: relayPolicy(env),
     limits: { maxSocketsPerTarget: RELAY_LIMITS.maxSocketsPerTarget(), bufferBytes: RELAY_LIMITS.bufferBytes(), bufferFrames: RELAY_LIMITS.bufferFrames() },
   });
-  const relaySub = new Redis(env.redisUrl);
+  const relaySub = createRedis(env.redisUrl);
   relaySub.on('error', (error) => logger.error(`Valkey (relay) error: ${error.message}`));
   // Cache-dependent setup never blocks the device listeners: it retries in the background until the cache is up.
   let stopRelaySync: () => void = () => undefined;
@@ -133,7 +134,7 @@ async function main(): Promise<void> {
     await listen(server, port);
   }
   // Commands for devices connected to this gateway (the API publishes to the channel named after vt:conn:<id>).
-  const commands = new Redis(env.redisUrl);
+  const commands = createRedis(env.redisUrl);
   commands.on('error', (error) => logger.error(`Valkey (commands) error: ${error.message}`));
   commands.on('message', (_channel, message) => {
     let d: CommandDispatch;
@@ -183,7 +184,7 @@ async function main(): Promise<void> {
     control = new VideoControl(jt808, hub, { host: env.mediaPublicHost, port: env.mediaPort });
     media = new MediaServer(hub);
     await media.listen(env.mediaPort, env.mediaHttpPort);
-    videoSub = new Redis(env.redisUrl);
+    videoSub = createRedis(env.redisUrl);
     videoSub.on('error', (error) => logger.error(`Valkey (video) error: ${error.message}`));
     const vs = videoSub;
     untilCacheUp(logger, "video channel", () => control!.subscribe(vs, redis, gatewayId));
@@ -194,7 +195,7 @@ async function main(): Promise<void> {
   let snapSub: Redis | null = null;
   let attachments: AttachmentServer | null = null;
   if (jt808) {
-    snapSub = new Redis(env.redisUrl);
+    snapSub = createRedis(env.redisUrl);
     snapSub.on('error', (error) => logger.error(`Valkey (snapshots) error: ${error.message}`));
     const snapshots = new SnapshotControl(jt808);
     const ss = snapSub;
