@@ -49,6 +49,9 @@ Invoke-Command -Session $s -ArgumentList $Rollback.IsPresent, $Branch -ScriptBlo
     }
     "$n -> $((Get-Service $n).Status)"
   }
+  # The watchdog (install-reliability.ps1) neither alerts nor starts services while this flag exists.
+  $flag = 'C:\apps\veetracer\maintenance.flag'
+  Set-Content -Path $flag -Value "deploy $(Get-Date -Format s)"
   foreach ($n in $services) { if (Get-Service $n -ErrorAction SilentlyContinue) { Stop-Vt $n } }
 
   if ($rollback) { cmd /c "git checkout -q --detach $target 2>&1" } else { cmd /c "git merge --ff-only -q $target 2>&1" }
@@ -78,11 +81,18 @@ Invoke-Command -Session $s -ArgumentList $Rollback.IsPresent, $Branch -ScriptBlo
   if (-not $ok) { 'BUILD FAILED: see above. Run this script with -Rollback to go back.' }
 
   # The first start after a rebuild can take about 90 s.
+  # Since release 1.6 /api/health is readiness: 200 only when the API answers AND PostgreSQL and the cache are usable
+  # (503 otherwise), so this gate also fails while the cache is down. /api/health/live is the old "process is up" check.
   $up = $false
+  $why = 'no answer'
   for ($i = 0; $i -lt 36 -and -not $up; $i++) {
     Start-Sleep 5
-    try { Invoke-WebRequest http://localhost:4100/api/health -UseBasicParsing -TimeoutSec 5 | Out-Null; $up = $true } catch {}
+    try { Invoke-WebRequest http://localhost:4100/api/health -UseBasicParsing -TimeoutSec 5 | Out-Null; $up = $true }
+    catch { if ($_.Exception.Response) { $why = "HTTP $([int]$_.Exception.Response.StatusCode) (database or cache not ready)" } }
   }
-  "api health: $(if ($up) { 'OK' } else { 'not responding after 3 min (check C:\apps\veetracer\logs)' })"
+  "api health: $(if ($up) { 'OK (database and cache ready)' } else { "not ready after 3 min: $why (check C:\apps\veetracer\logs)" })"
+  try { $t = Invoke-WebRequest http://localhost:4100/api/health/tracking -UseBasicParsing -TimeoutSec 10; "tracking: $(($t.Content | ConvertFrom-Json).status)" }
+  catch { "tracking: not OK yet (HTTP $(if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { '-' })); devices reconnect within minutes, check /api/health/tracking again" }
+  Remove-Item $flag -ErrorAction SilentlyContinue
 }
 Remove-PSSession $s

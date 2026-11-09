@@ -1,3 +1,4 @@
+import { isNoGroupError } from '../redis/stream-groups';
 import { Logger } from '@nestjs/common';
 import { ProcessorMetrics } from '@veetracer/shared';
 import type Redis from 'ioredis';
@@ -121,6 +122,13 @@ export class StreamConsumer {
           }
           // Database unreachable: retry our own pending batch (no new entries pile up in the PEL while it is down).
           if (isConnectivityError(error)) backlog = true;
+          if (isNoGroupError(error)) {
+            // The cache restarted without its data: the group (and any undelivered entries) is gone. Recreate it from
+            // the start of the new stream, which the gateways are already refilling (from their spools first).
+            this.logger.warn(`Consumer group ${RedisKeys.processorGroup} missing (cache data lost); recreating it`);
+            await this.ensureGroup().catch(() => undefined);
+            backlog = true;
+          }
           this.logger.error(
             `Batch failed (${db ? 'database' : 'other'}; entries stay pending and will be retried in ${delay / 1000}s): ${message}`,
           );

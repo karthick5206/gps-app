@@ -366,10 +366,12 @@ export class SystemHealthService {
   /**
    * Newest position batch committed to PostgreSQL: max(Device.lastSeenAt), which the processor writes in the same
    * transaction as the positions (throttled to 10 s per device). Undefined when the database cannot be asked.
+   * The column is `timestamp` without time zone and the processor writes it by casting a timestamptz, so PostgreSQL
+   * stores it in the session time zone; AT TIME ZONE reads it back as an absolute instant whatever that zone is.
    */
   async lastPersistedAt(): Promise<number | null | undefined> {
     try {
-      const rows = await withTimeout(this.prisma.$queryRaw<{ at: Date | null }[]>`SELECT max("lastSeenAt") AS at FROM "Device"`, TIMEOUT_MS, 'PostgreSQL');
+      const rows = await withTimeout(this.prisma.$queryRaw<{ at: Date | null }[]>`SELECT max("lastSeenAt") AT TIME ZONE current_setting('TimeZone') AS at FROM "Device"`, TIMEOUT_MS, 'PostgreSQL');
       return rows[0]?.at ? rows[0].at.getTime() : null;
     } catch {
       return undefined;
