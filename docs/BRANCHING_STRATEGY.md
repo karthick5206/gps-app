@@ -1,69 +1,73 @@
 # Branching & Release Strategy
 
-_Adopted proposal, 2026-11-09. Applies to the `karthick5206/gps-app` GitHub repository._
+_Updated 2026-11-09 to match how production releases are actually made. Repository: `karthick5206/gps-app`._
 
-## 1. Model: trunk-based with release tags
+## 1. Where things stand
+
+| | Commit | Notes |
+|---|---|---|
+| **Production** (server-mintplus-windows) | `8911c64` = tag **`v1.6.0`**, branch `release/1.6` | Contains everything below |
+| `release/1.6` | `8911c64` | `feature/arattai-otp` (`a5e479e`) + production cache reliability |
+| `feature/arattai-otp` | `a5e479e` | Arattai / messaging channels + stock & sales; **already inside 1.6** |
+| `release/1.5` | `b73547c` = `v1.5.0` | Reports batches 1-2, Inventory, Excel fix |
+| `main` | should equal the latest production tag | **must be fast-forwarded to `v1.6.0`** |
+
+Release history: `v1.0.0` 17a2e63 (baseline) · `v1.1.0` 635be6d · `v1.1.1` e746275 · `v1.2.0` bc96323 · `v1.3.0` 07077b6 · `v1.4.0` 0762301 · `v1.4.1` 0a92ec5 · `v1.5.0` b73547c · `v1.6.0` 8911c64.
+
+## 2. The model
+
 ```mermaid
 gitGraph
-  commit id: "main (deployable)"
-  branch feature/s0-safety
-  commit id: "S0.1..S0.5"
+  commit id: "v1.5.0"
+  branch feature/arattai-otp
+  commit id: "a5e479e"
   checkout main
-  merge feature/s0-safety id: "PR #n (CI green, reviewed)"
-  commit id: "tag v1.1.0" type: HIGHLIGHT
-  branch hotfix/1.1.1
-  commit id: "fix"
+  branch release/1.6
+  merge feature/arattai-otp
+  branch feature/production-cache-reliability
+  commit id: "spool, health"
+  checkout release/1.6
+  merge feature/production-cache-reliability id: "8911c64 = v1.6.0" type: HIGHLIGHT
   checkout main
-  merge hotfix/1.1.1 id: "tag v1.1.1" type: HIGHLIGHT
-  branch feature/p1-design-system
-  commit id: "flagged UI work"
-  checkout main
-  merge feature/p1-design-system id: "PR (flag off in prod)"
+  merge release/1.6 id: "main = v1.6.0 (fast-forward)"
 ```
 
 | Branch | Purpose | Rules |
 |---|---|---|
-| `main` | Always deployable; the **only** source of production releases | Protected: no direct pushes, PR required, CI must pass, ≥ 1 review, linear history (squash or rebase) |
-| `feature/<area>-<topic>` | One focused change (e.g. `feature/inventory-phase-b`) | Branch from the latest `main`; rebase on `main` before the PR; deleted after merge |
-| `hotfix/<version>` | Urgent production fix | Branch from the deployed tag; PR to `main`; tagged immediately after merge |
-| `release/<version>` (optional) | Only if a release needs stabilisation while `main` moves on | Cut from `main`; fixes cherry-picked back to `main` |
-| `wip/*` | Experiments | Never merged directly |
+| `main` | The code that is in production | Only moves by fast-forwarding to a deployed release tag. No direct commits. |
+| `release/X.Y` | One production release | Cut from the commit production runs **now**. Finished features are merged in with `--no-ff`. Deployed, then tagged `vX.Y.0`. |
+| `feature/<area>-<topic>` | One focused piece of work | Branch from `main`. Before it goes into a release, update it from `main` and make sure tests pass. Never deployed directly. |
+| `hotfix/X.Y.Z` | Urgent production fix | Branch from the deployed tag. Becomes `release/X.Y` + tag `vX.Y.Z`. |
+| `wip/*`, `backup/*` | Experiments / safety copies | Never deployed, never merged directly. |
 
-## 2. Releases and tags
-- Production deploys **tags only**: `vMAJOR.MINOR.PATCH` (semver) on `main`, never a moving branch.
-- Every tag has release notes: user-visible changes, migrations (additive / destructive), feature flags, risks and the rollback reference (the previous tag).
-- Mobile apps keep their own store versioning (`apps/mobile` 0.6.x, `apps/tracker` 1.4.x). Record in the release notes which API tag they need.
-- Suggested first tags: `v1.0.0` = current `main` (`17a2e63`, baseline before modernization); `v1.1.0` = S0 safety and security release.
+## 3. Rules that matter most
 
-## 3. Pull request checklist
-- [ ] CI green (typecheck, tests, build): `.github/workflows/ci.yml`.
-- [ ] Focused change; description says **what, why, risk, rollback**.
-- [ ] Tests added or updated. Before/after screenshots for UI changes (Teal + Dark, desktop + phone).
-- [ ] Migrations additive. Destructive ones need explicit owner approval and a backup and rollback plan.
-- [ ] No secrets, `.env` files, production data or real customer identifiers.
-- [ ] Safety-critical (device commands), financial (billing/invoices/licences) or tenant-isolation changes are labelled and reviewed with extra care.
-- [ ] High-impact UI or behaviour is behind a feature flag where practical.
+1. **Only one release line goes to production.** Never deploy a `feature/*` branch. Put it in the next `release/X.Y` instead. (1.6 had to be rebuilt because `feature/arattai-otp` was deployed directly; the deploy script refused 1.6 until it was based on the commit actually running.)
+2. **A new release starts from what production runs.** The deploy script only fast-forwards, and stops with "not a fast-forward" (changing nothing) otherwise.
+3. **Tell the owner and the other developer before deploying.** One deployer at a time.
+4. **Every deploy:**
+   - a verified backup first (`pg_dump` + per-table counts);
+   - prebuilt artifacts (no `npm ci` on the server);
+   - automatic rollback if `/api/health` (which now also requires the database and cache) is not OK.
+   - After a successful deploy: tag it, fast-forward `main`, and push the release branch, its tag and `main`.
+5. **Migrations are additive.** Give a new migration a timestamp later than every migration in `main` **and** in open feature branches; check `apps/api/prisma/migrations` on both. Destructive migrations need owner approval and a rollback plan.
+6. **Owner approval is required** for production deploys, production migrations, paid infrastructure, and anything touching device safety (engine stop), billing or licensing.
+7. **Never commit secrets**, `.env` files, production data or real customer identifiers.
 
-## 4. Feature flags instead of long-lived branches
-Merge unfinished-but-safe work behind flags (`VITE_UI_FLAGS` on the web, env flags on the API, company settings where per-tenant). Production keeps flags off until each phase's gate is approved. This keeps branches short and conflicts small.
+## 4. Work in progress (not in production)
 
-## 5. Current branches (2026-11-09) and merge order
-| Branch | Content | Next step |
+| Branch | Status | Rule |
 |---|---|---|
-| `feature/modernization-phase0` | Phase 0 docs | Fold into the S0 PR (S0 branched from it) |
-| `feature/s0-safety` | S0 safety/security, docs, ops, backup, auth 503s, isolation probe | **PR #1 → `main`**, then tag `v1.1.0` after deploy approval |
-| `feature/purge-financial-stopgap` | Block purge when financial records exist | PR after S0 merges (rebase on `main`) |
-| `feature/anti-theft-fresh-position` | Fresh-position + confirm engine-stop flow | PR after S0; safety review |
-| `feature/p1-design-system` | Inter, contrast, lazy map/locales, flags | PR after S0 (flag off in prod) |
-| `feature/inventory-phase-b` | Inventory schema/API (additive) | PR after S0; migration review |
-| `feature/routing-r0` | Routing discovery docs | PR any time (docs only) |
+| `feature/routing-engine` | Routing v2: development milestone, flags off | Out of every release until the owner approves. Its migrations `20261110110000` and `20261110120000` are reserved. |
+| `feature/production-cache-reliability` | Merged into 1.6; later commits support the Valkey cut-over | Goes in the Valkey cut-over release |
 
-## 6. GitHub settings for the owner (one-time; I can't change these without access)
-Settings → Branches → add a rule for `main`:
-- require a pull request (1 approval)
-- require the status check "CI / api", "CI / web"
-- require a linear history
-- block force pushes and deletions
-- include administrators
+## 5. Pull request checklist
+- [ ] Updated from `main`; CI green (typecheck, tests, build).
+- [ ] Description says what, why, risk, rollback. UI changes have before/after screenshots.
+- [ ] Tests added or updated, and existing tests still pass. Don't change a test's expectation without stating that the behaviour change is intended.
+- [ ] Migrations additive, timestamped as in rule 5.
+- [ ] Device commands, billing/licences and tenant isolation reviewed with extra care.
+- [ ] Unfinished or high-impact work behind a feature flag (`VITE_UI_FLAGS` on the web, env flags on the API).
 
-Settings → Actions: allow GitHub Actions for this repository.
+## 6. Known item for the Arattai work
+`apps/api/src/alerts/logic/settings-resolution.spec.ts` › "merges channels per severity" fails since `a5e479e`: the default for INFO alerts became `['INAPP', 'PUSH']`, but the test still expects `['INAPP']`. If the change is intended, update the test; if not, revert the default.
