@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Mockup – Dashboard overview</title><link rel="stylesheet" href="mockup.css"></head><body style="position:relative">
+<div class="banner">PROPOSED MOCKUP — NOT THE CURRENT APPLICATION · Dashboard Overview: attention first, KPIs with trend &amp; delta, one status widget, compact compliance</div>
+<div class="top">VeeTrax <span class="crumb">Demo Logistics / Dashboard</span></div>
+<div class="wrap"><div class="side"><b>TRACKING</b><div class="on">Dashboard</div><div>Live Map</div><div>History &amp; Playback</div><div>Alerts</div></div>
+<div class="main">
+ <div class="row" style="justify-content:space-between;align-items:end"><div><h1>Dashboard</h1><div class="sub">Fleet right now and how today compares · updated 12:06 IST</div></div>
+  <div><span class="pill">Today</span> <span class="pill on">vs yesterday</span> <span class="pill">vs same day last week</span> &nbsp; <span class="btn">Download</span> <span class="btn p">Open live map →</span></div></div>
+ <div class="card" style="border-left:4px solid var(--off);display:flex;gap:28px;align-items:center;padding:10px 14px">
+  <b>Needs attention (5)</b><span>🔴 2 critical alerts unacknowledged</span><span>🟣 3 vehicles overspeeding now</span><span>⚪ 1 device silent &gt; 24 h</span><span>📄 2 documents expire this week</span><span class="btn" style="margin-left:auto">Review →</span></div>
+ <div class="grid" style="grid-template-columns:repeat(5,1fr);margin-top:12px">
+  <div class="card"><div class="k">Distance today</div><div class="v">1,284 <small>km</small></div><div class="d up">▲ 6% vs yesterday</div><svg width="100%" height="28" viewBox="0 0 120 28"><polyline points="0,20 17,16 34,18 51,12 68,14 85,9 102,11 120,6" fill="none" stroke="#0E5E57" stroke-width="2"/></svg><div class="k">last 7 days</div></div>
+  <div class="card"><div class="k">Trips today</div><div class="v">96 <small>+ 13 in progress</small></div><div class="d dn">▼ 4%</div><svg width="100%" height="28" viewBox="0 0 120 28"><polyline points="0,10 17,12 34,9 51,14 68,12 85,15 102,13 120,16" fill="none" stroke="#0E5E57" stroke-width="2"/></svg><div class="k">last 7 days</div></div>
+  <div class="card"><div class="k">Utilisation</div><div class="v">62 <small>%</small></div><div class="d up">▲ 3 pts</div><svg width="100%" height="28" viewBox="0 0 120 28"><polyline points="0,18 17,17 34,15 51,16 68,13 85,12 102,12 120,10" fill="none" stroke="#0E5E57" stroke-width="2"/></svg><div class="k">running ÷ (running+idle+stopped)</div></div>
+  <div class="card"><div class="k">Idle time</div><div class="v">4 h 10 <small>m</small></div><div class="d dn">▲ 25 min</div><svg width="100%" height="28" viewBox="0 0 120 28"><polyline points="0,14 17,15 34,12 51,13 68,11 85,10 102,9 120,7" fill="none" stroke="#d97706" stroke-width="2"/></svg><div class="k">engine on, not moving</div></div>
+  <div class="card"><div class="k">Alerts today</div><div class="v">53 <small>· 10 critical</small></div><div class="d dn">▲ 12</div><svg width="100%" height="28" viewBox="0 0 120 28"><polyline points="0,20 17,18 34,21 51,17 68,15 85,16 102,12 120,8" fill="none" stroke="#dc2626" stroke-width="2"/></svg><div class="k">last 7 days</div></div>
+ </div>
+ <div class="grid" style="grid-template-columns:1.2fr 1fr 1fr;margin-top:12px">
+  <div class="card"><div style="font-weight:700">Fleet status now <span class="k">· 20 vehicles · click to open Live filtered</span></div>
+   <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;margin:10px 0"><div style="flex:12;background:var(--run)"></div><div style="flex:1;background:var(--idle)"></div><div style="flex:5;background:var(--off)"></div><div style="flex:2;background:var(--over)"></div></div>
+   <div class="grid" style="grid-template-columns:repeat(3,1fr);font-size:13px"><div>🟢 Running <b>12</b></div><div>🟠 Idle <b>1</b></div><div>🔴 Off <b>5</b></div><div>🟣 Overspeeding <b>2</b></div><div>⚫ Offline <b>0</b></div><div>⚪ No data <b>0</b></div></div></div>
+  <div class="card"><div style="font-weight:700">Distance per day <span class="k">· 14 days</span></div>
+   <svg width="100%" height="120" viewBox="0 0 300 120"><g fill="#0E5E57">
+   <rect x="5" y="40" width="15" height="70"/><rect x="26" y="45" width="15" height="65"/><rect x="47" y="35" width="15" height="75"/><rect x="68" y="50" width="15" height="60"/><rect x="89" y="42" width="15" height="68"/><rect x="110" y="80" width="15" height="30" fill="#8fb8b2"/><rect x="131" y="85" width="15" height="25" fill="#8fb8b2"/><rect x="152" y="38" width="15" height="72"/><rect x="173" y="33" width="15" height="77"/><rect x="194" y="40" width="15" height="70"/><rect x="215" y="36" width="15" height="74"/><rect x="236" y="30" width="15" height="80"/><rect x="257" y="78" width="15" height="32" fill="#8fb8b2"/><rect x="278" y="55" width="15" height="55" fill="#FFB443"/></g></svg><div class="k">weekends lighter · today (partial) in saffron</div></div>
+  <div class="card"><div style="font-weight:700">Alerts by type <span class="k">· today vs 7-day avg</span></div>
+   <div class="k" style="margin-top:8px">Overspeed <span style="float:right"><b>29</b> · avg 18</span></div><div style="height:7px;background:#ea580c;border-radius:4px;width:100%;margin:3px 0 6px"></div>
+   <div class="k">Harsh braking <span style="float:right"><b>3</b> · avg 4</span></div><div style="height:7px;background:#ea580c;border-radius:4px;width:12%;margin:3px 0 6px"></div>
+   <div class="k">Driver smoking <span style="float:right"><b>3</b> · avg 2</span></div><div style="height:7px;background:#ea580c;border-radius:4px;width:12%;margin:3px 0 6px"></div>
+   <div class="k">Ignition off <span style="float:right"><b>4</b> · avg 9</span></div><div style="height:7px;background:#ea580c;border-radius:4px;width:15%;margin:3px 0 6px"></div></div>
+ </div>
+ <div class="grid" style="grid-template-columns:1fr 1fr 1fr;margin-top:12px">
+  <div class="card"><b>Most distance today</b><table><tr><td>Bike 08</td><td style="text-align:right">17.7 km</td></tr><tr><td>Car 05</td><td style="text-align:right">16.1 km</td></tr><tr><td>Bus 03</td><td style="text-align:right">15.2 km</td></tr></table></div>
+  <div class="card"><b>Least distance today</b><table><tr><td>Car 09</td><td style="text-align:right">0 km</td></tr><tr><td>Bus 19</td><td style="text-align:right">0 km</td></tr><tr><td>Bus 15</td><td style="text-align:right">0 km</td></tr></table></div>
+  <div class="card"><b>Compliance</b><div class="grid" style="grid-template-columns:1fr 1fr;margin-top:8px;font-size:13px"><div>Docs expiring (30 d) <b>2</b></div><div>Docs expired <b>0</b></div><div>Service due soon <b>1</b></div><div>Service overdue <b>0</b></div></div></div>
+ </div>
+</div></div>
+<div class="note" style="left:980px;top:160px"><span class="n">1</span>One “Needs attention” strip replaces scanning 16 tiles</div>
+<div class="note" style="left:250px;top:330px"><span class="n">2</span>5 KPIs with delta + 7-day sparkline (needs a fleet daily-trend endpoint)</div>
+<div class="note" style="left:470px;top:255px"><span class="n">3</span>“Trips” shows completed + in progress</div>
+<div class="note" style="left:250px;top:560px"><span class="n">4</span>One status widget replaces cards + bar + 2 donuts</div>
+<div class="note" style="left:980px;top:700px"><span class="n">5</span>4 compliance tiles → one compact card</div>
+</body></html>

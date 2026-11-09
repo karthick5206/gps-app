@@ -1,0 +1,19 @@
+:root{--teal:#0E5E57;--teal2:#127a70;--sand:#FFB443;--bg:#f5f7f6;--card:#fff;--line:#e3e8e6;--ink:#14201e;--mut:#5c6b68;--run:#16a34a;--idle:#d97706;--off:#dc2626;--over:#9333ea;--gray:#6b7280}
+*{box-sizing:border-box}body{margin:0;font:14px/1.4 Inter,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+.banner{background:#7c2d12;color:#fff;font-weight:700;letter-spacing:.04em;text-align:center;padding:6px;font-size:12px}
+.top{height:52px;background:var(--teal);color:#fff;display:flex;align-items:center;padding:0 20px;gap:16px;font-weight:700}
+.top .crumb{font-weight:500;opacity:.8}
+.wrap{display:flex}.side{width:220px;background:#fff;border-right:1px solid var(--line);min-height:860px;padding:16px 12px;color:var(--mut);font-size:13px}
+.side b{display:block;font-size:11px;letter-spacing:.06em;margin:14px 8px 6px}.side div{padding:7px 10px;border-radius:8px}.side .on{background:#e1f0ed;color:var(--teal);font-weight:600}
+.main{flex:1;padding:20px 24px}
+h1{font-size:24px;margin:0}.sub{color:var(--mut);margin:2px 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.row{display:flex;gap:12px}.grid{display:grid;gap:12px}
+.k{font-size:12px;color:var(--mut)}.v{font-size:26px;font-weight:700}.v small{font-size:13px;font-weight:500;color:var(--mut)}
+.d{font-size:12px;font-weight:600}.up{color:var(--run)}.dn{color:var(--off)}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--line);font-size:12px;background:#fff}.pill.on{background:var(--teal);color:#fff;border-color:var(--teal)}
+.btn{display:inline-block;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:13px;font-weight:600}.btn.p{background:var(--teal);color:#fff;border-color:var(--teal)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}th{text-align:left;color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase;padding:7px 8px;border-bottom:1px solid var(--line)}td{padding:7px 8px;border-bottom:1px solid #eef2f1}
+.tag{font-size:11px;padding:1px 6px;border-radius:6px;background:#eef5f3;color:var(--teal);font-weight:600}
+.note{position:absolute;background:#fff7e6;border:1.5px solid var(--sand);border-radius:8px;padding:5px 8px;font-size:11.5px;max-width:230px;box-shadow:0 2px 6px #0002}
+.n{display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--sand);color:#000;font-size:11px;font-weight:700;align-items:center;justify-content:center;margin-right:4px}
