@@ -1,5 +1,5 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { REPORT_TYPES, ReportFormat, ReportPeriod, ReportType, SINGLE_OBJECT_REPORT_TYPES } from '@veetracer/shared';
+import { REPORT_TYPES, ReportFormat, ReportPeriod, ReportType, ScheduleReportOptions, SINGLE_OBJECT_REPORT_TYPES } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -9,6 +9,7 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -43,6 +44,8 @@ export class CreateReportScheduleDto {
   @IsEmail({}, { each: true, message: 'Invalid e-mail address in recipients' })
   recipients!: string[];
   @IsOptional() @IsBoolean() isActive?: boolean;
+  /** Report options per report type, validated per type in the service. Omitted on update = keep the saved ones. */
+  @IsOptional() @IsObject() options?: ScheduleReportOptions;
 }
 
 export class UpdateReportScheduleDto extends PartialType(CreateReportScheduleDto) {}

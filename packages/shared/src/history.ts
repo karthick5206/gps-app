@@ -151,6 +151,19 @@ export interface ReportOptions {
   /** DEVICE_STATUS: no data for this long = inactive (default 1440 min = 24 h). */
   inactiveAfterMin?: number;
 }
+/** The options each report type accepts (the API ignores the rest). */
+export const REPORT_OPTION_KEYS: Partial<Record<ReportType, readonly (keyof ReportOptions)[]>> = {
+  HALT: ['minDurationMin'],
+  STOPS: ['minDurationMin'],
+  IDLE: ['minDurationMin'],
+  ALERTS: ['alertTypes'],
+  EVENT_SUMMARY: ['alertTypes'],
+  CONTINUOUS_DRIVING: ['drivingMin', 'breakMin'],
+  OVERSPEED: ['minOverspeedSec'],
+  DEVICE_STATUS: ['inactiveAfterMin'],
+};
+/** Report options saved with a schedule, per report type. {} = the API defaults. */
+export type ScheduleReportOptions = Partial<Record<ReportType, ReportOptions>>;
 export type ReportPeriod = 'DAY' | 'WEEK' | 'MONTH';
 export type ReportFormat = 'XLSX' | 'PDF' | 'CSV';
 
@@ -297,6 +310,8 @@ export interface ReportScheduleDto {
   dayOfMonth: number | null; // 1–28 (MONTHLY)
   timeOfDay: string; // HH:mm company timezone
   format: ReportFormat; recipients: string[];
+  /** Report options per report type (alert types, halt minutes...); {} = defaults. */
+  options: ScheduleReportOptions;
   isActive: boolean; lastRunAt: string | null; nextRunAt: string | null;
   createdAt: string; updatedAt: string;
 }
