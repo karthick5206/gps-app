@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/features/auth/auth-context';
 import { liveStore } from '@/features/live/live-store';
 import { api, errorMessage } from '@/lib/api';
+import { isEnabled } from '@/lib/flags';
 import { formatDuration } from '@/lib/format';
 import { statusColor } from '@/lib/status-tokens';
 import { cn } from '@/lib/utils';
@@ -19,12 +20,13 @@ import { BarList, Donut, type Slice } from './charts';
 import { CountUp } from './CountUp';
 import { GetStartedCard } from './GetStartedCard';
 import { IoCards } from './IoCards';
+import { OverviewRefresh } from './refresh/OverviewRefresh';
 
-const overviewKey = (top: number) => ['dashboard-overview', top] as const;
+export const overviewKey = (top: number) => ['dashboard-overview', top] as const;
 /** Live batches trigger an overview refetch at most this often. */
 const LIVE_REFRESH_MS = 10_000;
 
-function useLiveRefresh() {
+export function useLiveRefresh() {
   const queryClient = useQueryClient();
   useEffect(() => {
     let last = 0;
@@ -107,17 +109,20 @@ function StatCard({
   );
 }
 
-const km = (v: number) => `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
-const GEOFENCE_FALLBACK = ['#0f766e', '#2563eb', '#d97706', '#9333ea', '#dc2626', '#0891b2', '#65a30d'];
+export const km = (v: number) => `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
+export const GEOFENCE_FALLBACK = ['#0f766e', '#2563eb', '#d97706', '#9333ea', '#dc2626', '#0891b2', '#65a30d'];
+
+/** Documents summary query, shared by the classic and refreshed layouts so the request stays identical. */
+export const complianceQuery = {
+  queryKey: ['compliance-summary'],
+  queryFn: ({ signal }: { signal: AbortSignal }) => api.get<ComplianceSummary>('/documents/summary', undefined, signal),
+  staleTime: 5 * 60_000,
+};
 
 /** Documents expiring / expired and services due (Documents & Service page). */
 function ComplianceCards() {
   const { t } = useTranslation();
-  const q = useQuery({
-    queryKey: ['compliance-summary'],
-    queryFn: ({ signal }) => api.get<ComplianceSummary>('/documents/summary', undefined, signal),
-    staleTime: 5 * 60_000,
-  });
+  const q = useQuery(complianceQuery);
   const c = q.data;
   if (q.isError) return null;
   return (
@@ -146,7 +151,7 @@ function FleetBar({ total, counts }: { total: number; counts: Partial<Record<Mov
   );
 }
 
-export function OverviewTab() {
+function OverviewClassic() {
   const { t } = useTranslation();
   const { can, me } = useAuth();
   const navigate = useNavigate();
@@ -264,4 +269,9 @@ export function OverviewTab() {
       </div>
     </div>
   );
+}
+
+/** uiRefresh ON: the redesigned overview (same data and links); OFF: the classic overview above, unchanged. */
+export function OverviewTab() {
+  return isEnabled('uiRefresh') ? <OverviewRefresh /> : <OverviewClassic />;
 }
