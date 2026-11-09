@@ -1,0 +1,51 @@
+# CI only: typecheck, unit tests and builds. It never deploys anything.
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:shared
+      - run: npx prisma generate
+        working-directory: apps/api
+      - run: npx tsc --noEmit -p tsconfig.json
+        working-directory: apps/api
+      - run: npx jest --ci
+        working-directory: apps/api
+        env:
+          JWT_SECRET: ci-only-not-a-secret-ci-only-not-a-secret-0123456789
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      - run: npx tsc -p tsconfig.build.json --outDir dist-ci
+        working-directory: apps/api
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:shared
+      - run: npx tsc -b --noEmit
+        working-directory: apps/web
+      - run: npm test
+        working-directory: apps/web
+      - run: npx vite build --outDir dist-ci
+        working-directory: apps/web
