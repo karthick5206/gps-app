@@ -62,7 +62,7 @@ export type InsightFilter =
   | { kind: 'alertType'; value: string; label: string }
   | { kind: 'cell'; objectId: string; type: string; label: string }
   /** Rows whose `field` equals `value` (geofence, driver, place …). */
-  | { kind: 'field'; field: string; value: string; label: string }
+  | { kind: 'field'; field: string; value: string; label: string; prefix?: string }
   /** Geofence out-to-in pair. */
   | { kind: 'pair'; from: string; to: string; label: string }
   /** Duration bucket of a histogram: min <= row[field] < max (seconds). */
@@ -528,12 +528,12 @@ export function buildInsight(input: InsightInput): Insight | null {
       const segs: Segment[] =
         type === 'STOPS'
           ? [
-              { key: 'parked', label: 'Parked', tone: 'stopped' },
+              { key: 'parked', label: 'Parked', tone: 'primary' },
               { key: 'idle', label: 'Idle', tone: 'idle' },
             ]
           : type === 'IDLE'
             ? [{ key: 'idle', label: 'Idle', tone: 'idle' }]
-            : [{ key: 'parked', label: 'Parked', tone: 'stopped' }];
+            : [{ key: 'parked', label: 'Parked', tone: 'primary' }];
       const hist = durationHistogram(rows, 'durationSec', segs, (r) => (type === 'STOPS' ? (r.ignitionOn ? 'idle' : 'parked') : segs[0].key));
       const byVehicle = rankVehicles(rows, (r) => n(r.durationSec));
       // Places: the POI the stop is in, else its address. Rows with only coordinates are not grouped.
@@ -790,7 +790,7 @@ export function rankedFilter(select: Extract<InsightChart, { kind: 'ranked' }>['
     const [from, to] = item.key.split('→');
     return { kind: 'pair', from, to, label: item.label };
   }
-  return { kind: 'field', field: select.field, value: item.key, label: `${select.prefix}: ${item.label}` };
+  return { kind: 'field', field: select.field, value: item.key, label: item.label, prefix: select.prefix };
 }
 
 // ---------------------------------------------------------------- value formatting (exports)
