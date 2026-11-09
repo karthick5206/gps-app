@@ -381,6 +381,8 @@ export class PositionProcessor {
           ...ioOut.live,
           fixTime: position.fixTime,
           serverTime,
+          // Engine-stop "request fresh position" only accepts a live update from a real, trusted GPS fix.
+          gpsValid: trusted && position.valid === true && attrs?.reupload !== true,
         };
         lives.set(object.objectId, live);
         if (position.protocol === MOBILE_PROTOCOL) {

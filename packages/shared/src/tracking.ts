@@ -180,6 +180,11 @@ export interface LiveObject {
   doorVoltage?: number | null;
   fixTime: string | null;
   serverTime: string | null;
+  /**
+   * The latest live update came from a trusted GPS fix (valid, not filtered as a jump, not a re-upload). Used only by
+   * the engine-stop "request fresh position" step; absent on live states written before it existed (= not trusted).
+   */
+  gpsValid?: boolean;
   speedLimitKph: number | null;
   /** Driver on the vehicle now (RFID swipe or manual assignment). */
   driverId?: string | null;

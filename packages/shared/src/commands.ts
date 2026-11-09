@@ -100,6 +100,92 @@ export function engineStopBlockReason(live: EngineStopLiveState | undefined | nu
   return null;
 }
 
+// ── Engine-stop preparation: "request a fresh position, then confirm" ─────────────────────────────────────────────
+// Owner decision on docs/modernization/anti-theft-immobilisation-proposal.md (Option 1 + Option 4 entry point). It only
+// asks the tracker for a new position and shows it; the engine stop itself still goes through the unchanged send path
+// (engineStopBlockReason, never queued, gateway freshness check). Nothing here relaxes Q-01 / D-104.
+
+/**
+ * Position request sent to a CONNECTED tracker by the preparation step (never queued). Teltonika `getrecord` makes the
+ * device generate and send a fresh AVL record [vendor: confirm on a bench device]. Concox `WHERE#` is answered with a
+ * text reply which is NOT parsed into a position; only a GPS packet the device uploads afterwards counts
+ * [vendor: confirm which firmware uploads one].
+ */
+export const ENGINE_STOP_PROBE_COMMANDS: Record<string, string> = { GT06: 'WHERE#', TELTONIKA: 'getrecord' };
+/** How long the preparation waits for a fresh position (seconds) before giving up. */
+export const ENGINE_STOP_PREPARE_WAIT_SEC = 45;
+/** Position requests allowed per user and vehicle within ENGINE_STOP_PREPARE_WINDOW_SEC. */
+export const ENGINE_STOP_PREPARE_MAX_PER_USER = 3;
+/** Position requests allowed per vehicle (all users) within ENGINE_STOP_PREPARE_WINDOW_SEC. */
+export const ENGINE_STOP_PREPARE_MAX_PER_VEHICLE = 6;
+export const ENGINE_STOP_PREPARE_WINDOW_SEC = 600;
+/**
+ * A fresh position's GPS fix time may be at most this much earlier than the request (seconds): a valid fix carries
+ * satellite time, so only the whole-second resolution of the protocols needs allowing for.
+ */
+export const PREPARE_FIX_TOLERANCE_SEC = 3;
+/** A fix dated more than this far in the future (seconds) is not trusted (device clock fault). */
+export const PREPARE_FIX_MAX_FUTURE_SEC = 30;
+
+/** The live-state fields the fresh-position check reads. */
+export interface FreshPositionLiveState extends EngineStopLiveState {
+  /** The live state comes from a trusted GPS fix (valid, not a jump, not a re-upload); set by the processor. */
+  gpsValid?: boolean;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+/**
+ * Why the live state does not (yet) hold a fresh position for a preparation started at `requestedAtMs` (null = fresh).
+ * Fresh means: received by the processor strictly AFTER the request, from a valid GPS fix, with a fix time no earlier
+ * than the request (minus PREPARE_FIX_TOLERANCE_SEC) and not in the future. A heartbeat, a text reply, an invalid-fix
+ * or re-uploaded record never counts. Stricter than, and additional to, engineStopBlockReason.
+ */
+export function freshPositionReason(live: FreshPositionLiveState | undefined | null, requestedAtMs: number, nowMs: number): string | null {
+  if (!Number.isFinite(requestedAtMs)) return 'Unknown request time.';
+  const server = live?.serverTime ? Date.parse(live.serverTime) : NaN;
+  if (!live || !Number.isFinite(server) || server <= requestedAtMs) return 'Waiting for a new position from the vehicle.';
+  if (live.gpsValid !== true || live.lat == null || live.lng == null) return 'The vehicle answered without a valid GPS fix. Waiting for a position with GPS.';
+  const fix = live.fixTime ? Date.parse(live.fixTime) : NaN;
+  if (!Number.isFinite(fix) || fix < requestedAtMs - PREPARE_FIX_TOLERANCE_SEC * 1000) return 'The vehicle sent an older stored position. Waiting for a current one.';
+  if (fix > nowMs + PREPARE_FIX_MAX_FUTURE_SEC * 1000) return "The position's time is in the future (tracker clock fault). It is not trusted.";
+  return null;
+}
+
+/** waiting = asking the vehicle; ready = fresh position passes every engine-stop rule; blocked = fresh, but a rule refuses. */
+export type EngineStopPrepareStatus = 'waiting' | 'ready' | 'blocked' | 'timeout' | 'not_connected';
+
+export interface EngineStopPrepareRequest {
+  /** Poll an earlier preparation instead of starting a new one. */
+  requestId?: string;
+}
+
+export interface EngineStopFreshPosition {
+  lat: number;
+  lng: number;
+  speedKph: number;
+  status: string;
+  ignition: boolean | null;
+  satellites: number | null;
+  fixTime: string;
+  serverTime: string;
+}
+
+/** POST /objects/:id/commands/engine-stop/prepare */
+export interface EngineStopPrepareResponse {
+  requestId: string | null;
+  status: EngineStopPrepareStatus;
+  /** When the position request was sent (ISO). */
+  requestedAt: string | null;
+  /** Explanation shown to the user (why it waits, why it is refused). */
+  message: string | null;
+  /** Why the engine stop would be refused right now (engineStopBlockReason, or not connected / timeout). */
+  blockReason: string | null;
+  freshPosition: EngineStopFreshPosition | null;
+  /** Last moment the fresh position is recent enough for an engine stop (the server re-checks at send time). */
+  confirmBy: string | null;
+}
+
 export interface AvailableCommand extends CommandDef {
   /** Protocol text that will be sent ('' for custom). */
   payload: string;
@@ -111,6 +197,12 @@ export interface SendCommandRequest {
   text?: string;
   /** Critical commands: the user's current password. */
   password?: string;
+  /**
+   * Engine stop only (optional): the `requestId` of an engine-stop preparation ("request fresh position") whose fresh
+   * position the user confirmed. When present it is checked in addition to every existing engine-stop rule; it never
+   * replaces or relaxes any of them.
+   */
+  prepareRequestId?: string;
 }
 
 export interface CommandDto {
@@ -138,6 +230,11 @@ export interface CommandDispatch {
   critical?: boolean;
   /** When the API issued the dispatch (ISO), for the gateway's freshness check. */
   issuedAt?: string;
+  /**
+   * Never queued: if the device is not connected when the dispatch arrives, it is reported FAILED instead of being
+   * kept for the next connection (engine-stop preparation position requests).
+   */
+  noQueue?: boolean;
 }
 export interface CommandUpdate {
   commandId: string;
