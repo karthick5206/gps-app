@@ -1,0 +1,701 @@
+{
+  "fixture": {
+    "from": "2026-11-03",
+    "to": "2026-11-09",
+    "now": "2026-11-09T12:00:00.000Z",
+    "user": "demo.admin@veetracer.local"
+  },
+  "results": {
+    "SUMMARY · DAY": {
+      "rows": 68,
+      "totalRows": 68,
+      "truncated": false,
+      "period": "DAY",
+      "totals": {
+        "vehicles": 20,
+        "distanceKm": 15578.813,
+        "runningSec": 1108218,
+        "idleSec": 74470,
+        "stopSec": 979050,
+        "offlineSec": 2949191,
+        "tripCount": 640,
+        "overspeedCount": 2083,
+        "engineSec": 1182688,
+        "maxSpeedKph": 101,
+        "avgSpeedKph": 49
+      },
+      "rowsSha256": "79004f7200fdbc6e192bd680ef17a6ff0e5681cd5776ccc2fad9c8214db7417a",
+      "csvSha256": "6991d0bfa027e26c31a65145835f8218f5a74ae752f212d045acff3eef45e408"
+    },
+    "SUMMARY · WEEK": {
+      "rows": 28,
+      "totalRows": 28,
+      "truncated": false,
+      "period": "WEEK",
+      "totals": {
+        "vehicles": 20,
+        "distanceKm": 15578.813,
+        "runningSec": 1108218,
+        "idleSec": 74470,
+        "stopSec": 979050,
+        "offlineSec": 2949191,
+        "tripCount": 640,
+        "overspeedCount": 2083,
+        "engineSec": 1182688,
+        "maxSpeedKph": 101,
+        "avgSpeedKph": 49
+      },
+      "rowsSha256": "9333671d410a30c1ebbc0840a42eac550df0eb5632c8581a496c32a8550e3427",
+      "csvSha256": "0180e29a6b31c1aca9ed19272a2fee3550c9d027c5a260ee6c017c736383b83c"
+    },
+    "SUMMARY · MONTH": {
+      "rows": 20,
+      "totalRows": 20,
+      "truncated": false,
+      "period": "MONTH",
+      "totals": {
+        "vehicles": 20,
+        "distanceKm": 15578.813,
+        "runningSec": 1108218,
+        "idleSec": 74470,
+        "stopSec": 979050,
+        "offlineSec": 2949191,
+        "tripCount": 640,
+        "overspeedCount": 2083,
+        "engineSec": 1182688,
+        "maxSpeedKph": 101,
+        "avgSpeedKph": 49
+      },
+      "rowsSha256": "c365d560e8fcbf1b5d30a2e02c60efb73e88f2a031a5c52be936350d0ebff58c",
+      "csvSha256": "a9a61b0550f8828a69f3e323d0ffbc598b4b371d037db061f17ff7c886c1f517"
+    },
+    "CONSOLIDATED · default": {
+      "rows": 21,
+      "totalRows": 21,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "vehicles": 21,
+        "activeDays": 59,
+        "distanceKm": 15578.813,
+        "runningSec": 1108218,
+        "idleSec": 74470,
+        "stopSec": 979050,
+        "offlineSec": 2949191,
+        "engineSec": 1182688,
+        "tripCount": 640,
+        "maxSpeedKph": 101,
+        "overspeedCount": 2083,
+        "alertCount": 855,
+        "criticalAlertCount": 140,
+        "geofenceVisits": 34
+      },
+      "rowsSha256": "f99249f93fd1e125041a1739db6f88adc21dd7c414bfe34205f22162ea3d8bdc",
+      "csvSha256": "7b390de2d408dfa2db3df2c5c1fc17061fc39d3e370ef0527d23e372a3156834"
+    },
+    "DISTANCE · DAY": {
+      "rows": 68,
+      "totalRows": 68,
+      "truncated": false,
+      "period": "DAY",
+      "totals": {
+        "distanceKm": 15578.813,
+        "tripCount": 640,
+        "runningSec": 1108218,
+        "offlineSec": 2949191,
+        "vehicles": 20
+      },
+      "rowsSha256": "e55fe55df4051e809bf06b9e074255b63f6f462700a03a48672f07e231ad1768",
+      "csvSha256": "08e231a2b6276a950840f39a7622f2cd760f4370449466c8ce38cc0dc715422d"
+    },
+    "DISTANCE · WEEK": {
+      "rows": 28,
+      "totalRows": 28,
+      "truncated": false,
+      "period": "WEEK",
+      "totals": {
+        "distanceKm": 15578.813,
+        "tripCount": 640,
+        "runningSec": 1108218,
+        "offlineSec": 2949191,
+        "vehicles": 20
+      },
+      "rowsSha256": "e929b433303d191e27f66504d61448647bbf9b50d2202915104d407818b2bd9a",
+      "csvSha256": "988a3e6e312d3c01e8d0f887c5c58a72651595eaf6eb22e599da69008f83dab3"
+    },
+    "DISTANCE · MONTH": {
+      "rows": 20,
+      "totalRows": 20,
+      "truncated": false,
+      "period": "MONTH",
+      "totals": {
+        "distanceKm": 15578.813,
+        "tripCount": 640,
+        "runningSec": 1108218,
+        "offlineSec": 2949191,
+        "vehicles": 20
+      },
+      "rowsSha256": "b0163baf4e22d9c03a05fb5dbc3716c0fd5ac62e3a68122d800e200d87c3b460",
+      "csvSha256": "74788350793ec03ab1e966ff77ae623cdf747f702238297ea3dc60283adb270e"
+    },
+    "ENGINE_HOURS · DAY": {
+      "rows": 68,
+      "totalRows": 68,
+      "truncated": false,
+      "period": "DAY",
+      "totals": {
+        "engineSec": 1182688,
+        "runningSec": 1108218,
+        "idleSec": 74470,
+        "idlePct": 6.3,
+        "distanceKm": 15578.813,
+        "vehicles": 20
+      },
+      "rowsSha256": "1e6d1b865f5636e50be9b2ff73caa34dc289b9a8e720e8dfbe941994d426111e",
+      "csvSha256": "4fbc4d823c1a86f7007f1d13d785212c9968336faef7d0a11362ec92f6faec78"
+    },
+    "ENGINE_HOURS · WEEK": {
+      "rows": 28,
+      "totalRows": 28,
+      "truncated": false,
+      "period": "WEEK",
+      "totals": {
+        "engineSec": 1182688,
+        "runningSec": 1108218,
+        "idleSec": 74470,
+        "idlePct": 6.3,
+        "distanceKm": 15578.813,
+        "vehicles": 20
+      },
+      "rowsSha256": "af0487060ab6372a936bcb87695ef0aaa788fb26f7e4e7d57bbf3bf9ade3a8c6",
+      "csvSha256": "4d965cabc1bc96535aac2e10b79dc179d61ed34cf182102ef2175e97d714974e"
+    },
+    "ENGINE_HOURS · MONTH": {
+      "rows": 20,
+      "totalRows": 20,
+      "truncated": false,
+      "period": "MONTH",
+      "totals": {
+        "engineSec": 1182688,
+        "runningSec": 1108218,
+        "idleSec": 74470,
+        "idlePct": 6.3,
+        "distanceKm": 15578.813,
+        "vehicles": 20
+      },
+      "rowsSha256": "359df018c870bfe8f3b922764234f7f1770b6752da3f7552b93f9ebca5891f9b",
+      "csvSha256": "a8a2c2277c8db23c08342571d222aca6731718dc2794d2f10700ea5cb3c2061c"
+    },
+    "TRIPS · default": {
+      "rows": 640,
+      "totalRows": 640,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 640,
+        "distanceKm": 14962.24,
+        "durationSec": 1130400,
+        "idleSec": 24000,
+        "maxSpeedKph": 99.90614318847656
+      },
+      "rowsSha256": "a13e58e1ffc5bd8424967305f712216f6a52d84078cb16fba8de978c311ec1d6",
+      "csvSha256": "9ec0d0b1c77e0211b30d0b7ef8d74d3e3ca3510e1be83fcee7e156c456dd06db"
+    },
+    "STOPS · default": {
+      "rows": 600,
+      "totalRows": 600,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 600,
+        "durationSec": 1029200
+      },
+      "rowsSha256": "836ee2fb0ef6f32bec85c12d6c241c6a1900dc8f1efd58d65b2b6fa00ef5613b",
+      "csvSha256": "a30b81cac08f4edaa1cf39fe0338a30b114877cc2db54f10005a2bf70b261c93"
+    },
+    "STOPS · min 5": {
+      "rows": 600,
+      "totalRows": 600,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 600,
+        "durationSec": 1029200
+      },
+      "rowsSha256": "836ee2fb0ef6f32bec85c12d6c241c6a1900dc8f1efd58d65b2b6fa00ef5613b",
+      "csvSha256": "a30b81cac08f4edaa1cf39fe0338a30b114877cc2db54f10005a2bf70b261c93"
+    },
+    "IDLE · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "durationSec": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "e6976608ebbb9f0e3e7999261db0202e9f9f540322eeb7e8f8f311db181ef00e"
+    },
+    "IDLE · min 5": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "durationSec": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "e6976608ebbb9f0e3e7999261db0202e9f9f540322eeb7e8f8f311db181ef00e"
+    },
+    "HALT · default": {
+      "rows": 240,
+      "totalRows": 240,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 240,
+        "durationSec": 529200
+      },
+      "rowsSha256": "d98d0273a513ef3b400e9edc12016f5d4d5b83addd658a839bedd674fb8ae4d5",
+      "csvSha256": "a65daf2e8984ffd35796f71f56fab4502357fd2afd003798baedc6447bff0c59"
+    },
+    "HALT · min 10": {
+      "rows": 600,
+      "totalRows": 600,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 600,
+        "durationSec": 1029200
+      },
+      "rowsSha256": "836ee2fb0ef6f32bec85c12d6c241c6a1900dc8f1efd58d65b2b6fa00ef5613b",
+      "csvSha256": "06cfdf5cb8ebea165fe14437ece5e9f80e14c0166c169dc52581d92ff69b50e0"
+    },
+    "CONTINUOUS_DRIVING · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "drivingSec": 0,
+        "distanceKm": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "19f0a58b4f8b1b3de7bcf4fb267b9dba956c2d0070407c4ef87ffd98e06301d5"
+    },
+    "CONTINUOUS_DRIVING · 60/10": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "drivingSec": 0,
+        "distanceKm": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "19f0a58b4f8b1b3de7bcf4fb267b9dba956c2d0070407c4ef87ffd98e06301d5"
+    },
+    "OVERSPEED · default": {
+      "rows": 678,
+      "totalRows": 678,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 678,
+        "durationSec": 59588,
+        "maxSpeedKph": 103
+      },
+      "rowsSha256": "d729787ce557aef5abb70048b6edee5e64d4d15b9ab7ecc34f8097b461830de5",
+      "csvSha256": "6492cc2ba2f0f97be92310a8da2ec0021fe8faa96d4275469019957c51429d32"
+    },
+    "OVERSPEED · min 30 s": {
+      "rows": 618,
+      "totalRows": 618,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 618,
+        "durationSec": 58373,
+        "maxSpeedKph": 103
+      },
+      "rowsSha256": "859399fbf70c544e8b7aed9335f2bd47e3394340db4322cee1e0d9af5bf33726",
+      "csvSha256": "a714a1795fb560602ab1b53b2e209267c4b6ee90ac5277bbb11639aa74308290"
+    },
+    "IGNITION · default": {
+      "rows": 1361,
+      "totalRows": 1361,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 1361,
+        "ON": 679,
+        "OFF": 682
+      },
+      "rowsSha256": "1c27012a2b0c3288463a3ab775e13bea39a4c276cbe4c553ac11ac7de02ac9b9",
+      "csvSha256": "07ba3b541e7e153b81d62aec0544e69164a861d88afff905ffca528e56e7555b"
+    },
+    "POSITIONS · one vehicle": {
+      "rows": 5400,
+      "totalRows": 5400,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 5400,
+        "maxSpeedKph": 99.9
+      },
+      "rowsSha256": "b745b88411b7fa36355affb1487e539ac962c701fcd011518c40ceb443dbecb1",
+      "csvSha256": "ebfd003611169416c5e76bb096eb2babcb76d29b420d087908629066c1616ff2"
+    },
+    "ALERTS · all": {
+      "rows": 855,
+      "totalRows": 855,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 855,
+        "INFO": 158,
+        "WARNING": 557,
+        "CRITICAL": 140
+      },
+      "rowsSha256": "a90d855b31f776d73f06e91dd83b8fde6740365f72784f571a8d2d7aa00a9a09",
+      "csvSha256": "59787e8f4bc4d2b19ca0f30fc2b2911c6b8a9cafb7fff37664eba0af0cbbb466"
+    },
+    "ALERTS · overspeed only": {
+      "rows": 453,
+      "totalRows": 453,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 453,
+        "INFO": 0,
+        "WARNING": 360,
+        "CRITICAL": 93
+      },
+      "rowsSha256": "723d89a254fee3027a61b8b0d181334052e439465ab6bb97de8cbe5baf32a31e",
+      "csvSha256": "3ea811dbbaa2015ae2180714908b3a3defe2fd666746602daa9332020d2a6225"
+    },
+    "EVENT_SUMMARY · all": {
+      "rows": 151,
+      "totalRows": 151,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 855,
+        "criticalCount": 140
+      },
+      "rowsSha256": "631cd25e02a0f92e0f80a6b9d32ad4962a74921987f6823eb2db188ba767d900",
+      "csvSha256": "9565559eb61c2a0e0c720c481a031ea7ef0d88a51b2eb1fb42594ef96f9ada46"
+    },
+    "EVENT_SUMMARY · overspeed only": {
+      "rows": 20,
+      "totalRows": 20,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 453,
+        "criticalCount": 93
+      },
+      "rowsSha256": "51dd07b3444968dae6badab0050bb37937ae5da2b78b58c0e40ad5927d26043d",
+      "csvSha256": "4dec970939cd57f36d0fb9a2be364a631f7290fae42c7fb26c636b291a8b41fe"
+    },
+    "GEOFENCE_VISITS · default": {
+      "rows": 34,
+      "totalRows": 34,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 34,
+        "durationSec": 4690
+      },
+      "rowsSha256": "08570d1f64a3995eedbc4610c4115b4424ee30e4b1c12980e08c01d6c38a3477",
+      "csvSha256": "06533ffede6cf285a799170912b1fbe6c48556b0ffd56e0703aaeccba0f93bba"
+    },
+    "GEOFENCE_SUMMARY · default": {
+      "rows": 22,
+      "totalRows": 22,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "visits": 34,
+        "insideSec": 4909
+      },
+      "rowsSha256": "6f6c2d2ebddfa920aa1c71a8110c3f965a03b050d4e8ed742e2182627e694b12",
+      "csvSha256": "4ca02e5899f7e4d2318b0051fee971f98060f281bffbac70a99ec0dd2287d0df"
+    },
+    "GEOFENCE_DISTANCE · default": {
+      "rows": 33,
+      "totalRows": 33,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 33,
+        "travelSec": 122922,
+        "distanceKm": 1149.499
+      },
+      "rowsSha256": "426c2ddead2f63a39e352db8660cd15cb31da4250d99ef7693fa0e3a5647e6a4",
+      "csvSha256": "0e83495a1bd21f2882aba8211e1fe40a5dfeada31b1e9e7507905357f9d57056"
+    },
+    "DEVICE_STATUS · default": {
+      "rows": 21,
+      "totalRows": 21,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "ACTIVE": 20,
+        "INACTIVE": 0,
+        "NO_GPS": 0,
+        "NEVER_CONNECTED": 1,
+        "NO_DEVICE": 0,
+        "count": 21
+      },
+      "rowsSha256": "0d7b627a6b9d6a14c648f98c34afdf074ef7a6aaa069f2a30ac309cc920d29f3",
+      "csvSha256": "3e453a4e18e58b83f54ecd661546995256b947560e959f3ec67e7f4a5a62860d"
+    },
+    "DEVICE_STATUS · inactive 60": {
+      "rows": 21,
+      "totalRows": 21,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "ACTIVE": 0,
+        "INACTIVE": 20,
+        "NO_GPS": 0,
+        "NEVER_CONNECTED": 1,
+        "NO_DEVICE": 0,
+        "count": 21
+      },
+      "rowsSha256": "1fc74b785ab7e461030ab0dadd6114fc05e749433d2d58cb620317b5687910da",
+      "csvSha256": "befdcb849ceba0a503f7a1df55addd12d508fabca7ac3b2ad3dc15ff2d7dd6c1"
+    },
+    "DRIVERS · default": {
+      "rows": 8,
+      "totalRows": 8,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "drivers": 8,
+        "sessions": 8,
+        "tripCount": 640,
+        "distanceKm": 14962.4,
+        "drivingSec": 1106400,
+        "maxSpeedKph": 100,
+        "overspeedCount": 206
+      },
+      "rowsSha256": "08a6be595e3914ce39fc954321815b1d7e01eac26f2388c83f515744ce75b35f",
+      "csvSha256": "28b5f25d0f25ce2897f2b3fc9168e5ae4eaba35418e2f3c564ce7d2242c35859"
+    },
+    "DOCUMENTS · default": {
+      "rows": 4,
+      "totalRows": 4,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 4,
+        "expired": 0,
+        "dueSoon": 0
+      },
+      "rowsSha256": "2e18e9e30d236baa8346458bb8ad4c7336794b6856751a6f998e5574dae46b90",
+      "csvSha256": "c98310d8133bb6653d3a28963f318c998e6388c7ddd74da69643eb4af88b0246"
+    },
+    "POI_VISITS · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "durationSec": 0,
+        "pois": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "a52a1823be5a36657f32471e23fd16a9fb3aba4eef341ec2d350680d3c9a9c6e"
+    },
+    "FUEL · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "vehicles": 0,
+        "refills": 0,
+        "refillL": 0,
+        "drains": 0,
+        "drainL": 0,
+        "consumptionL": 0,
+        "distanceKm": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "f70dc51baa2f4f730cb8932b768a886f4832c4ade89200b6bec7c8efaf980b8a"
+    },
+    "FUEL_EVENTS · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "refills": 0,
+        "refillL": 0,
+        "drains": 0,
+        "drainL": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "8efefb2ecd6f7f5beca7f1330b53f1ad625180fdc95c7189631c188c877de1e9"
+    },
+    "MILEAGE · default": {
+      "rows": 3,
+      "totalRows": 3,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "runs": 3,
+        "vehicles": 1,
+        "fillUps": 3,
+        "litres": 30,
+        "fuelCost": 370.35,
+        "distanceKm": 0,
+        "kmPerL": 0,
+        "costPerKm": 0
+      },
+      "rowsSha256": "f83f023ed36fbe3f850b3ea48b16cf6a2e9bdfbde0f560386cc977e01ffe788c",
+      "csvSha256": "02c9140ba2b67cab0b55d642dcd2f96163faf7241eaab19e0e9f1221eb56d079"
+    },
+    "AC_DOOR · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "acOnSec": 0,
+        "acOnEngineOffSec": 0,
+        "doorOpenCount": 0,
+        "doorOpenSec": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "baf270ab69b69f25fa51b568f0622f858c75b49dfd9e778645974189503a035f"
+    },
+    "AC_DOOR_DAILY · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "vehicles": 0,
+        "acOnSec": 0,
+        "acOnEngineOffSec": 0,
+        "acOnCount": 0,
+        "acDistanceKm": 0,
+        "doorOpenCount": 0,
+        "doorOpenSec": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "748b32db2027f1dc4211d761fdf65a8a65f266ef14fb2c033afa91b0d445be58"
+    },
+    "ATTENDANCE_DAILY · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "workedMin": 0,
+        "onSiteMin": 0,
+        "officialMin": 0,
+        "personalMin": 0,
+        "unexplainedMin": 0,
+        "noSignalMin": 0,
+        "lateMin": 0,
+        "earlyMin": 0,
+        "overtimeMin": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "c6a7657a99366d0592abe5fe0a415f8a7945b884cc3d005a44c811acfd8cce3a"
+    },
+    "ATTENDANCE_SUMMARY · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "workingDays": 0,
+        "presentDays": 0,
+        "lateDays": 0,
+        "halfDays": 0,
+        "absentDays": 0,
+        "daysOff": 0,
+        "workedMin": 0,
+        "officialMin": 0,
+        "personalMin": 0,
+        "unexplainedMin": 0,
+        "noSignalMin": 0,
+        "lateMin": 0,
+        "earlyMin": 0,
+        "overtimeMin": 0,
+        "selfiesTaken": 0,
+        "selfiesMissing": 0,
+        "correctedDays": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "29f58d1ffafef7a7e4999bd7b545b1ab6795f8833d23c75be469dbfe7241cb3a"
+    },
+    "ATTENDANCE_PAYROLL · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "workingDays": 0,
+        "presentDays": 0,
+        "halfDays": 0,
+        "absentDays": 0,
+        "weeklyOffs": 0,
+        "payableDays": 0,
+        "lopDays": 0,
+        "lateDays": 0,
+        "lateMinutes": 0,
+        "earlyLeaveDays": 0,
+        "earlyLeaveMinutes": 0,
+        "workedHours": 0,
+        "overtimeHours": 0,
+        "officialDutyHours": 0,
+        "unexplainedHours": 0,
+        "correctedDays": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "2cb49d5b98e6c4159ad82999857373f62f56844e831f1ba32a1c14a5e3e48bca"
+    },
+    "ATTENDANCE_OUTINGS · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "minutes": 0,
+        "officialMin": 0,
+        "personalMin": 0,
+        "unexplainedMin": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "65e396752ca70ea8fb7a23b3118dcf6154cbf9551478b8aa421c0a5465db12fc"
+    },
+    "ATTENDANCE_CORRECTIONS · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "989911d5299d1b366c1066e04d0cc5db79388e040eec2afe7d2f003198660be0"
+    }
+  }
+}
