@@ -1,0 +1,511 @@
+2026-11-09T14:22:34.649Z [Nest] 4236  - 11/09/2026, 9:22:34 AM     LOG [Gateway] Position spool at D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\var\chaos\confirm-run\spool (cap 1024 MB, 0 pending)
+2026-11-09T14:22:34.654Z [Nest] 4236  - 11/09/2026, 9:22:34 AM     LOG [Gateway] gt06 listening on tcp://0.0.0.0:15023
+2026-11-09T14:22:34.654Z [Nest] 4236  - 11/09/2026, 9:22:34 AM     LOG [Gateway] Gateway gw-chaos ready
+2026-11-09T14:22:34.664Z [Nest] 4236  - 11/09/2026, 9:22:34 AM     LOG [Gateway] Gateway health on http://127.0.0.1:14121/health
+2026-11-09T14:22:46.509Z [Nest] 4236  - 11/09/2026, 9:22:46 AM     LOG [Relay] Forwarding rules loaded (0 target(s))
+2026-11-09T14:23:03.888Z [Nest] 4236  - 11/09/2026, 9:23:03 AM   ERROR [Gateway] Cache connection for positions lost: spooling positions to disk until it is back
+2026-11-09T14:23:04.069Z [Nest] 4236  - 11/09/2026, 9:23:04 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:04.229Z [Nest] 4236  - 11/09/2026, 9:23:04 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:04.438Z [Nest] 4236  - 11/09/2026, 9:23:04 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:04.670Z [Nest] 4236  - 11/09/2026, 9:23:04 AM     LOG [Gateway] [gt06] connections=40 frames=528 positions=488 dropped=0 errors=0 enqueueFailures=0 rate=16.3/s
+2026-11-09T14:23:04.670Z [Nest] 4236  - 11/09/2026, 9:23:04 AM    WARN [Gateway] [spool] mode=spooling pending=32 spooled=32 replayed=0 rejected=0 notAcked=0
+2026-11-09T14:23:05.005Z [Nest] 4236  - 11/09/2026, 9:23:05 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:05.006Z [Nest] 4236  - 11/09/2026, 9:23:05 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:05.006Z [Nest] 4236  - 11/09/2026, 9:23:05 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:05.369Z [Nest] 4236  - 11/09/2026, 9:23:05 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:05.369Z [Nest] 4236  - 11/09/2026, 9:23:05 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:05.370Z [Nest] 4236  - 11/09/2026, 9:23:05 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:05.777Z [Nest] 4236  - 11/09/2026, 9:23:05 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:05.777Z [Nest] 4236  - 11/09/2026, 9:23:05 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:05.778Z [Nest] 4236  - 11/09/2026, 9:23:05 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:06.233Z [Nest] 4236  - 11/09/2026, 9:23:06 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:06.234Z [Nest] 4236  - 11/09/2026, 9:23:06 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:06.234Z [Nest] 4236  - 11/09/2026, 9:23:06 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:06.740Z [Nest] 4236  - 11/09/2026, 9:23:06 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:06.740Z [Nest] 4236  - 11/09/2026, 9:23:06 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:06.740Z [Nest] 4236  - 11/09/2026, 9:23:06 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:07.295Z [Nest] 4236  - 11/09/2026, 9:23:07 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:07.296Z [Nest] 4236  - 11/09/2026, 9:23:07 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:07.296Z [Nest] 4236  - 11/09/2026, 9:23:07 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:07.910Z [Nest] 4236  - 11/09/2026, 9:23:07 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:07.911Z [Nest] 4236  - 11/09/2026, 9:23:07 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:07.911Z [Nest] 4236  - 11/09/2026, 9:23:07 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:08.578Z [Nest] 4236  - 11/09/2026, 9:23:08 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:08.578Z [Nest] 4236  - 11/09/2026, 9:23:08 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:08.579Z [Nest] 4236  - 11/09/2026, 9:23:08 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:09.288Z [Nest] 4236  - 11/09/2026, 9:23:09 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:09.288Z [Nest] 4236  - 11/09/2026, 9:23:09 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:10.044Z [Nest] 4236  - 11/09/2026, 9:23:10 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:10.044Z [Nest] 4236  - 11/09/2026, 9:23:10 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:10.045Z [Nest] 4236  - 11/09/2026, 9:23:10 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:10.853Z [Nest] 4236  - 11/09/2026, 9:23:10 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:10.853Z [Nest] 4236  - 11/09/2026, 9:23:10 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:11.715Z [Nest] 4236  - 11/09/2026, 9:23:11 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:12.632Z [Nest] 4236  - 11/09/2026, 9:23:12 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:12.632Z [Nest] 4236  - 11/09/2026, 9:23:12 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:13.592Z [Nest] 4236  - 11/09/2026, 9:23:13 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:23:13.592Z [Nest] 4236  - 11/09/2026, 9:23:13 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:23:13.592Z [Nest] 4236  - 11/09/2026, 9:23:13 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:14.613Z [Nest] 4236  - 11/09/2026, 9:23:14 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:14.613Z [Nest] 4236  - 11/09/2026, 9:23:14 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:14.613Z [Nest] 4236  - 11/09/2026, 9:23:14 AM    WARN [Heartbeat:gateway] Heartbeat failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:15.667Z [Nest] 4236  - 11/09/2026, 9:23:15 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:15.668Z [Nest] 4236  - 11/09/2026, 9:23:15 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:16.772Z [Nest] 4236  - 11/09/2026, 9:23:16 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:16.772Z [Nest] 4236  - 11/09/2026, 9:23:16 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:20.402Z [Nest] 4236  - 11/09/2026, 9:23:20 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:23:20.402Z [Nest] 4236  - 11/09/2026, 9:23:20 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:20.402Z [Nest] 4236  - 11/09/2026, 9:23:20 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:21.719Z [Nest] 4236  - 11/09/2026, 9:23:21 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:23.087Z [Nest] 4236  - 11/09/2026, 9:23:23 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:24.492Z [Nest] 4236  - 11/09/2026, 9:23:24 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:25.951Z [Nest] 4236  - 11/09/2026, 9:23:25 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:29.020Z [Nest] 4236  - 11/09/2026, 9:23:29 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:29.020Z [Nest] 4236  - 11/09/2026, 9:23:29 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:30.634Z [Nest] 4236  - 11/09/2026, 9:23:30 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:30.634Z [Nest] 4236  - 11/09/2026, 9:23:30 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:32.300Z [Nest] 4236  - 11/09/2026, 9:23:32 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:32.300Z [Nest] 4236  - 11/09/2026, 9:23:32 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:34.007Z [Nest] 4236  - 11/09/2026, 9:23:34 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:34.007Z [Nest] 4236  - 11/09/2026, 9:23:34 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:34.669Z [Nest] 4236  - 11/09/2026, 9:23:34 AM     LOG [Gateway] [gt06] connections=40 frames=1093 positions=1053 dropped=0 errors=0 enqueueFailures=0 rate=18.8/s
+2026-11-09T14:23:34.685Z [Nest] 4236  - 11/09/2026, 9:23:34 AM    WARN [Gateway] [spool] mode=spooling pending=597 spooled=597 replayed=0 rejected=0 notAcked=0
+2026-11-09T14:23:35.763Z [Nest] 4236  - 11/09/2026, 9:23:35 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:35.763Z [Nest] 4236  - 11/09/2026, 9:23:35 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:37.579Z [Nest] 4236  - 11/09/2026, 9:23:37 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:39.445Z [Nest] 4236  - 11/09/2026, 9:23:39 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:39.445Z [Nest] 4236  - 11/09/2026, 9:23:39 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:41.353Z [Nest] 4236  - 11/09/2026, 9:23:41 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:43.310Z [Nest] 4236  - 11/09/2026, 9:23:43 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:43.310Z [Nest] 4236  - 11/09/2026, 9:23:43 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:45.314Z [Nest] 4236  - 11/09/2026, 9:23:45 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:47.328Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM    WARN [Relay] Could not load forwarding rules: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:47.329Z [Nest] 4236  - 11/09/2026, 9:23:47 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:23:51.351Z [Nest] 4236  - 11/09/2026, 9:23:51 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:55.370Z [Nest] 4236  - 11/09/2026, 9:23:55 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:57.387Z [Nest] 4236  - 11/09/2026, 9:23:57 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:23:57.387Z [Nest] 4236  - 11/09/2026, 9:23:57 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:23:59.391Z [Nest] 4236  - 11/09/2026, 9:23:59 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:23:59.391Z [Nest] 4236  - 11/09/2026, 9:23:59 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:24:01.407Z [Nest] 4236  - 11/09/2026, 9:24:01 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:24:01.407Z [Nest] 4236  - 11/09/2026, 9:24:01 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:24:03.410Z [Nest] 4236  - 11/09/2026, 9:24:03 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:24:03.410Z [Nest] 4236  - 11/09/2026, 9:24:03 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:24:05.012Z [Nest] 4236  - 11/09/2026, 9:24:04 AM     LOG [Gateway] [gt06] connections=40 frames=1648 positions=1608 dropped=0 errors=0 enqueueFailures=0 rate=18.5/s
+2026-11-09T14:24:05.012Z [Nest] 4236  - 11/09/2026, 9:24:04 AM    WARN [Gateway] [spool] mode=spooling pending=1152 spooled=1152 replayed=0 rejected=0 notAcked=0
+2026-11-09T14:24:05.428Z [Nest] 4236  - 11/09/2026, 9:24:05 AM     LOG [Heartbeat:gateway] Heartbeat restored
+2026-11-09T14:24:08.468Z [Nest] 4236  - 11/09/2026, 9:24:08 AM     LOG [Gateway] Cache connection for positions restored after 65 s
+2026-11-09T14:24:09.928Z [Nest] 4236  - 11/09/2026, 9:24:09 AM     LOG [Gateway:spool] Spool replay caught up (1269 replayed since start)
+2026-11-09T14:24:10.078Z [Nest] 4236  - 11/09/2026, 9:24:10 AM     LOG [Gateway:spool] Spool replay caught up (1271 replayed since start)
+2026-11-09T14:24:10.086Z [Nest] 4236  - 11/09/2026, 9:24:10 AM     LOG [Gateway:spool] Spool drained; positions go straight to the stream again
+2026-11-09T14:24:34.692Z [Nest] 4236  - 11/09/2026, 9:24:34 AM     LOG [Gateway] [gt06] connections=40 frames=2227 positions=2187 dropped=0 errors=0 enqueueFailures=0 rate=19.3/s
+2026-11-09T14:24:47.752Z [Nest] 4236  - 11/09/2026, 9:24:47 AM    WARN [Gateway:spool] XADD failed, spooling 1 position(s): Command timed out
+2026-11-09T14:25:04.700Z [Nest] 4236  - 11/09/2026, 9:25:04 AM     LOG [Gateway] [gt06] connections=40 frames=2800 positions=2760 dropped=0 errors=0 enqueueFailures=0 rate=19.1/s
+2026-11-09T14:25:04.716Z [Nest] 4236  - 11/09/2026, 9:25:04 AM    WARN [Gateway] [spool] mode=draining pending=420 spooled=1691 replayed=1271 rejected=0 notAcked=0
+2026-11-09T14:25:28.374Z [Nest] 4236  - 11/09/2026, 9:25:28 AM     LOG [Gateway:spool] Spool replay resumed after 5 failed attempt(s)
+2026-11-09T14:25:28.651Z [Nest] 4236  - 11/09/2026, 9:25:28 AM     LOG [Gateway:spool] Spool replay caught up (2147 replayed since start)
+2026-11-09T14:25:28.848Z [Nest] 4236  - 11/09/2026, 9:25:28 AM     LOG [Gateway:spool] Spool replay caught up (2150 replayed since start)
+2026-11-09T14:25:28.858Z [Nest] 4236  - 11/09/2026, 9:25:28 AM     LOG [Gateway:spool] Spool drained; positions go straight to the stream again
+2026-11-09T14:25:34.710Z [Nest] 4236  - 11/09/2026, 9:25:34 AM     LOG [Gateway] [gt06] connections=40 frames=3366 positions=3326 dropped=0 errors=0 enqueueFailures=0 rate=18.9/s
+2026-11-09T14:26:04.716Z [Nest] 4236  - 11/09/2026, 9:26:04 AM     LOG [Gateway] [gt06] connections=40 frames=3942 positions=3902 dropped=0 errors=0 enqueueFailures=0 rate=19.2/s
+2026-11-09T14:26:18.206Z [Nest] 21108  - 11/09/2026, 9:26:18 AM     LOG [Gateway] Position spool at D:\Vibhav\gps-app\.claude\worktrees\agent-ae3375b88cdf4961f\apps\api\var\chaos\confirm-run\spool (cap 1024 MB, 0 pending)
+2026-11-09T14:26:18.210Z [Nest] 21108  - 11/09/2026, 9:26:18 AM     LOG [Gateway] gt06 listening on tcp://0.0.0.0:15023
+2026-11-09T14:26:18.210Z [Nest] 21108  - 11/09/2026, 9:26:18 AM     LOG [Gateway] Gateway gw-chaos ready
+2026-11-09T14:26:18.218Z [Nest] 21108  - 11/09/2026, 9:26:18 AM     LOG [Gateway] Gateway health on http://127.0.0.1:14121/health
+2026-11-09T14:26:18.226Z [Nest] 21108  - 11/09/2026, 9:26:18 AM     LOG [Relay] Forwarding rules loaded (0 target(s))
+2026-11-09T14:26:48.224Z [Nest] 21108  - 11/09/2026, 9:26:48 AM     LOG [Gateway] [gt06] connections=40 frames=578 positions=538 dropped=0 errors=0 enqueueFailures=0 rate=17.9/s
+2026-11-09T14:27:18.231Z [Nest] 21108  - 11/09/2026, 9:27:18 AM     LOG [Gateway] [gt06] connections=40 frames=1328 positions=1288 dropped=0 errors=0 enqueueFailures=0 rate=25.0/s
+2026-11-09T14:27:48.240Z [Nest] 21108  - 11/09/2026, 9:27:48 AM     LOG [Gateway] [gt06] connections=40 frames=1931 positions=1891 dropped=0 errors=0 enqueueFailures=0 rate=20.1/s
+2026-11-09T14:27:52.114Z [Nest] 21108  - 11/09/2026, 9:27:52 AM   ERROR [Gateway] Cache connection for positions lost: spooling positions to disk until it is back
+2026-11-09T14:27:52.176Z [Nest] 21108  - 11/09/2026, 9:27:52 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:52.286Z [Nest] 21108  - 11/09/2026, 9:27:52 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:52.645Z [Nest] 21108  - 11/09/2026, 9:27:52 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:53.221Z [Nest] 21108  - 11/09/2026, 9:27:53 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:53.582Z [Nest] 21108  - 11/09/2026, 9:27:53 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:53.995Z [Nest] 21108  - 11/09/2026, 9:27:53 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:54.458Z [Nest] 21108  - 11/09/2026, 9:27:54 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:54.977Z [Nest] 21108  - 11/09/2026, 9:27:54 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:55.534Z [Nest] 21108  - 11/09/2026, 9:27:55 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:27:55.535Z [Nest] 21108  - 11/09/2026, 9:27:55 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:27:55.535Z [Nest] 21108  - 11/09/2026, 9:27:55 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:27:56.145Z [Nest] 21108  - 11/09/2026, 9:27:56 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:27:56.796Z [Nest] 21108  - 11/09/2026, 9:27:56 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:27:56.796Z [Nest] 21108  - 11/09/2026, 9:27:56 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:57.512Z [Nest] 21108  - 11/09/2026, 9:27:57 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:27:57.512Z [Nest] 21108  - 11/09/2026, 9:27:57 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:27:57.513Z [Nest] 21108  - 11/09/2026, 9:27:57 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:27:58.274Z [Nest] 21108  - 11/09/2026, 9:27:58 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:27:58.274Z [Nest] 21108  - 11/09/2026, 9:27:58 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:27:59.090Z [Nest] 21108  - 11/09/2026, 9:27:59 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:27:59.090Z [Nest] 21108  - 11/09/2026, 9:27:59 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:27:59.091Z [Nest] 21108  - 11/09/2026, 9:27:59 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:27:59.957Z [Nest] 21108  - 11/09/2026, 9:27:59 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:27:59.957Z [Nest] 21108  - 11/09/2026, 9:27:59 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:27:59.958Z [Nest] 21108  - 11/09/2026, 9:27:59 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:28:00.870Z [Nest] 21108  - 11/09/2026, 9:28:00 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:28:00.870Z [Nest] 21108  - 11/09/2026, 9:28:00 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:28:00.870Z [Nest] 21108  - 11/09/2026, 9:28:00 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:01.835Z [Nest] 21108  - 11/09/2026, 9:28:01 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:28:01.835Z [Nest] 21108  - 11/09/2026, 9:28:01 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:28:01.835Z [Nest] 21108  - 11/09/2026, 9:28:01 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:28:02.846Z [Nest] 21108  - 11/09/2026, 9:28:02 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:02.846Z [Nest] 21108  - 11/09/2026, 9:28:02 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:02.847Z [Nest] 21108  - 11/09/2026, 9:28:02 AM    WARN [Heartbeat:gateway] Heartbeat failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:03.910Z [Nest] 21108  - 11/09/2026, 9:28:03 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:28:03.910Z [Nest] 21108  - 11/09/2026, 9:28:03 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:28:03.910Z [Nest] 21108  - 11/09/2026, 9:28:03 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:28:05.016Z [Nest] 21108  - 11/09/2026, 9:28:05 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:28:05.016Z [Nest] 21108  - 11/09/2026, 9:28:05 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:28:05.016Z [Nest] 21108  - 11/09/2026, 9:28:05 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:28:06.178Z [Nest] 21108  - 11/09/2026, 9:28:06 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:28:06.179Z [Nest] 21108  - 11/09/2026, 9:28:06 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:28:06.179Z [Nest] 21108  - 11/09/2026, 9:28:06 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:28:08.657Z [Nest] 21108  - 11/09/2026, 9:28:08 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:08.657Z [Nest] 21108  - 11/09/2026, 9:28:08 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:09.962Z [Nest] 21108  - 11/09/2026, 9:28:09 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:09.962Z [Nest] 21108  - 11/09/2026, 9:28:09 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:11.318Z [Nest] 21108  - 11/09/2026, 9:28:11 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:11.318Z [Nest] 21108  - 11/09/2026, 9:28:11 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:12.728Z [Nest] 21108  - 11/09/2026, 9:28:12 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:12.728Z [Nest] 21108  - 11/09/2026, 9:28:12 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:14.194Z [Nest] 21108  - 11/09/2026, 9:28:14 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:14.194Z [Nest] 21108  - 11/09/2026, 9:28:14 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:15.704Z [Nest] 21108  - 11/09/2026, 9:28:15 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:15.704Z [Nest] 21108  - 11/09/2026, 9:28:15 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:17.260Z [Nest] 21108  - 11/09/2026, 9:28:17 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:18.243Z [Nest] 21108  - 11/09/2026, 9:28:18 AM     LOG [Gateway] [gt06] connections=40 frames=2499 positions=2459 dropped=0 errors=0 enqueueFailures=0 rate=18.9/s
+2026-11-09T14:28:18.243Z [Nest] 21108  - 11/09/2026, 9:28:18 AM    WARN [Gateway] [spool] mode=spooling pending=499 spooled=499 replayed=0 rejected=0 notAcked=0
+2026-11-09T14:28:18.867Z [Nest] 21108  - 11/09/2026, 9:28:18 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:18.867Z [Nest] 21108  - 11/09/2026, 9:28:18 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:20.522Z [Nest] 21108  - 11/09/2026, 9:28:20 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:20.522Z [Nest] 21108  - 11/09/2026, 9:28:20 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:22.239Z [Nest] 21108  - 11/09/2026, 9:28:22 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:22.239Z [Nest] 21108  - 11/09/2026, 9:28:22 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:23.992Z [Nest] 21108  - 11/09/2026, 9:28:23 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:25.805Z [Nest] 21108  - 11/09/2026, 9:28:25 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:25.805Z [Nest] 21108  - 11/09/2026, 9:28:25 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:27.669Z [Nest] 21108  - 11/09/2026, 9:28:27 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:27.669Z [Nest] 21108  - 11/09/2026, 9:28:27 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:29.573Z [Nest] 21108  - 11/09/2026, 9:28:29 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:31.538Z [Nest] 21108  - 11/09/2026, 9:28:31 AM   ERROR [Gateway] Valkey (commands) error: write ECONNRESET
+2026-11-09T14:28:31.539Z [Nest] 21108  - 11/09/2026, 9:28:31 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:33.554Z [Nest] 21108  - 11/09/2026, 9:28:33 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:33.554Z [Nest] 21108  - 11/09/2026, 9:28:33 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:35.573Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:35.573Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:35.574Z [Nest] 21108  - 11/09/2026, 9:28:35 AM    WARN [Relay] Could not load forwarding rules: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.574Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.574Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.574Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.574Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:35.575Z [Nest] 21108  - 11/09/2026, 9:28:35 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:28:37.586Z [Nest] 21108  - 11/09/2026, 9:28:37 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:37.586Z [Nest] 21108  - 11/09/2026, 9:28:37 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:39.590Z [Nest] 21108  - 11/09/2026, 9:28:39 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:41.593Z [Nest] 21108  - 11/09/2026, 9:28:41 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:28:41.593Z [Nest] 21108  - 11/09/2026, 9:28:41 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:28:41.593Z [Nest] 21108  - 11/09/2026, 9:28:41 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:28:43.603Z [Nest] 21108  - 11/09/2026, 9:28:43 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:45.619Z [Nest] 21108  - 11/09/2026, 9:28:45 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:47.628Z [Nest] 21108  - 11/09/2026, 9:28:47 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:48.260Z [Nest] 21108  - 11/09/2026, 9:28:48 AM     LOG [Gateway] [gt06] connections=40 frames=3075 positions=3035 dropped=0 errors=0 enqueueFailures=0 rate=19.2/s
+2026-11-09T14:28:48.260Z [Nest] 21108  - 11/09/2026, 9:28:48 AM    WARN [Gateway] [spool] mode=spooling pending=1075 spooled=1075 replayed=0 rejected=0 notAcked=0
+2026-11-09T14:28:49.634Z [Nest] 21108  - 11/09/2026, 9:28:49 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:51.636Z [Nest] 21108  - 11/09/2026, 9:28:51 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:53.648Z [Nest] 21108  - 11/09/2026, 9:28:53 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:53.648Z [Nest] 21108  - 11/09/2026, 9:28:53 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:28:55.658Z [Nest] 21108  - 11/09/2026, 9:28:55 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:28:57.660Z [Nest] 21108  - 11/09/2026, 9:28:57 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:28:57.661Z [Nest] 21108  - 11/09/2026, 9:28:57 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:28:57.661Z [Nest] 21108  - 11/09/2026, 9:28:57 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:28:59.678Z [Nest] 21108  - 11/09/2026, 9:28:59 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:28:59.678Z [Nest] 21108  - 11/09/2026, 9:28:59 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:29:01.682Z [Nest] 21108  - 11/09/2026, 9:29:01 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:29:03.689Z [Nest] 21108  - 11/09/2026, 9:29:03 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:29:03.689Z [Nest] 21108  - 11/09/2026, 9:29:03 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:29:05.695Z [Nest] 21108  - 11/09/2026, 9:29:05 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:29:09.710Z [Nest] 21108  - 11/09/2026, 9:29:09 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:09.710Z [Nest] 21108  - 11/09/2026, 9:29:09 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:09.711Z [Nest] 21108  - 11/09/2026, 9:29:09 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:11.720Z [Nest] 21108  - 11/09/2026, 9:29:11 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:11.721Z [Nest] 21108  - 11/09/2026, 9:29:11 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:11.722Z [Nest] 21108  - 11/09/2026, 9:29:11 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:13.725Z [Nest] 21108  - 11/09/2026, 9:29:13 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:13.726Z [Nest] 21108  - 11/09/2026, 9:29:13 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:13.726Z [Nest] 21108  - 11/09/2026, 9:29:13 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:15.729Z [Nest] 21108  - 11/09/2026, 9:29:15 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:15.729Z [Nest] 21108  - 11/09/2026, 9:29:15 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:15.730Z [Nest] 21108  - 11/09/2026, 9:29:15 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:17.733Z [Nest] 21108  - 11/09/2026, 9:29:17 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:17.733Z [Nest] 21108  - 11/09/2026, 9:29:17 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:17.733Z [Nest] 21108  - 11/09/2026, 9:29:17 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:18.265Z [Nest] 21108  - 11/09/2026, 9:29:18 AM     LOG [Gateway] [gt06] connections=40 frames=3644 positions=3604 dropped=0 errors=0 enqueueFailures=0 rate=19.0/s
+2026-11-09T14:29:18.265Z [Nest] 21108  - 11/09/2026, 9:29:18 AM    WARN [Gateway] [spool] mode=spooling pending=1644 spooled=1644 replayed=0 rejected=0 notAcked=0
+2026-11-09T14:29:19.744Z [Nest] 21108  - 11/09/2026, 9:29:19 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:19.744Z [Nest] 21108  - 11/09/2026, 9:29:19 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:19.745Z [Nest] 21108  - 11/09/2026, 9:29:19 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:21.762Z [Nest] 21108  - 11/09/2026, 9:29:21 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:21.762Z [Nest] 21108  - 11/09/2026, 9:29:21 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:21.762Z [Nest] 21108  - 11/09/2026, 9:29:21 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:23.782Z [Nest] 21108  - 11/09/2026, 9:29:23 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:29:23.782Z [Nest] 21108  - 11/09/2026, 9:29:23 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:29:23.782Z [Nest] 21108  - 11/09/2026, 9:29:23 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:29:25.792Z [Nest] 21108  - 11/09/2026, 9:29:25 AM   ERROR [Gateway] Valkey (commands) error: write ECONNRESET
+2026-11-09T14:29:25.792Z [Nest] 21108  - 11/09/2026, 9:29:25 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:25.792Z [Nest] 21108  - 11/09/2026, 9:29:25 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:27.799Z [Nest] 21108  - 11/09/2026, 9:29:27 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:27.799Z [Nest] 21108  - 11/09/2026, 9:29:27 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:27.799Z [Nest] 21108  - 11/09/2026, 9:29:27 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:29.811Z [Nest] 21108  - 11/09/2026, 9:29:29 AM   ERROR [Gateway] Valkey (commands) error: write ECONNRESET
+2026-11-09T14:29:29.811Z [Nest] 21108  - 11/09/2026, 9:29:29 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:29.811Z [Nest] 21108  - 11/09/2026, 9:29:29 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:31.814Z [Nest] 21108  - 11/09/2026, 9:29:31 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:29:31.814Z [Nest] 21108  - 11/09/2026, 9:29:31 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:29:33.823Z [Nest] 21108  - 11/09/2026, 9:29:33 AM   ERROR [Gateway] Valkey (relay) error: write ECONNRESET
+2026-11-09T14:29:33.823Z [Nest] 21108  - 11/09/2026, 9:29:33 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:33.823Z [Nest] 21108  - 11/09/2026, 9:29:33 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:35.827Z [Nest] 21108  - 11/09/2026, 9:29:35 AM   ERROR [Gateway] Valkey error: write ECONNRESET
+2026-11-09T14:29:35.827Z [Nest] 21108  - 11/09/2026, 9:29:35 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:35.828Z [Nest] 21108  - 11/09/2026, 9:29:35 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:37.845Z [Nest] 21108  - 11/09/2026, 9:29:37 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:37.846Z [Nest] 21108  - 11/09/2026, 9:29:37 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:37.846Z [Nest] 21108  - 11/09/2026, 9:29:37 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:39.850Z [Nest] 21108  - 11/09/2026, 9:29:39 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:39.851Z [Nest] 21108  - 11/09/2026, 9:29:39 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:39.851Z [Nest] 21108  - 11/09/2026, 9:29:39 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:41.858Z [Nest] 21108  - 11/09/2026, 9:29:41 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:41.858Z [Nest] 21108  - 11/09/2026, 9:29:41 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:41.859Z [Nest] 21108  - 11/09/2026, 9:29:41 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:43.871Z [Nest] 21108  - 11/09/2026, 9:29:43 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:43.871Z [Nest] 21108  - 11/09/2026, 9:29:43 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:43.872Z [Nest] 21108  - 11/09/2026, 9:29:43 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:45.883Z [Nest] 21108  - 11/09/2026, 9:29:45 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:45.883Z [Nest] 21108  - 11/09/2026, 9:29:45 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:45.884Z [Nest] 21108  - 11/09/2026, 9:29:45 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:47.889Z [Nest] 21108  - 11/09/2026, 9:29:47 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:47.890Z [Nest] 21108  - 11/09/2026, 9:29:47 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:47.890Z [Nest] 21108  - 11/09/2026, 9:29:47 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:29:48.281Z [Nest] 21108  - 11/09/2026, 9:29:48 AM     LOG [Gateway] [gt06] connections=40 frames=4216 positions=4176 dropped=0 errors=0 enqueueFailures=0 rate=19.1/s
+2026-11-09T14:29:48.281Z [Nest] 21108  - 11/09/2026, 9:29:48 AM    WARN [Gateway] [spool] mode=spooling pending=2216 spooled=2216 replayed=0 rejected=0 notAcked=0
+2026-11-09T14:29:49.903Z [Nest] 21108  - 11/09/2026, 9:29:49 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:49.903Z [Nest] 21108  - 11/09/2026, 9:29:49 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:49.904Z [Nest] 21108  - 11/09/2026, 9:29:49 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:51.920Z [Nest] 21108  - 11/09/2026, 9:29:51 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:51.920Z [Nest] 21108  - 11/09/2026, 9:29:51 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:51.921Z [Nest] 21108  - 11/09/2026, 9:29:51 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:53.926Z [Nest] 21108  - 11/09/2026, 9:29:53 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:29:53.927Z [Nest] 21108  - 11/09/2026, 9:29:53 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:29:53.927Z [Nest] 21108  - 11/09/2026, 9:29:53 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:29:55.948Z [Nest] 21108  - 11/09/2026, 9:29:55 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:29:55.948Z [Nest] 21108  - 11/09/2026, 9:29:55 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:29:57.964Z [Nest] 21108  - 11/09/2026, 9:29:57 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:29:57.965Z [Nest] 21108  - 11/09/2026, 9:29:57 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:29:59.977Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM    WARN [Relay] Could not load forwarding rules: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:29:59.978Z [Nest] 21108  - 11/09/2026, 9:29:59 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:01.996Z [Nest] 21108  - 11/09/2026, 9:30:01 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:30:01.996Z [Nest] 21108  - 11/09/2026, 9:30:01 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:30:01.996Z [Nest] 21108  - 11/09/2026, 9:30:01 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:30:04.006Z [Nest] 21108  - 11/09/2026, 9:30:04 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:04.006Z [Nest] 21108  - 11/09/2026, 9:30:04 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:30:06.018Z [Nest] 21108  - 11/09/2026, 9:30:06 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:06.018Z [Nest] 21108  - 11/09/2026, 9:30:06 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:30:08.032Z [Nest] 21108  - 11/09/2026, 9:30:08 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:10.044Z [Nest] 21108  - 11/09/2026, 9:30:10 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:10.044Z [Nest] 21108  - 11/09/2026, 9:30:10 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:30:12.049Z [Nest] 21108  - 11/09/2026, 9:30:12 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:12.049Z [Nest] 21108  - 11/09/2026, 9:30:12 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:30:14.063Z [Nest] 21108  - 11/09/2026, 9:30:14 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:14.063Z [Nest] 21108  - 11/09/2026, 9:30:14 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:30:16.077Z [Nest] 21108  - 11/09/2026, 9:30:16 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:30:16.078Z [Nest] 21108  - 11/09/2026, 9:30:16 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:30:18.094Z [Nest] 21108  - 11/09/2026, 9:30:18 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:18.281Z [Nest] 21108  - 11/09/2026, 9:30:18 AM     LOG [Gateway] [gt06] connections=40 frames=4784 positions=4744 dropped=0 errors=0 enqueueFailures=0 rate=18.9/s
+2026-11-09T14:30:18.281Z [Nest] 21108  - 11/09/2026, 9:30:18 AM    WARN [Gateway] [spool] mode=spooling pending=2784 spooled=2784 replayed=0 rejected=0 notAcked=0
+2026-11-09T14:30:20.097Z [Nest] 21108  - 11/09/2026, 9:30:20 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:22.104Z [Nest] 21108  - 11/09/2026, 9:30:22 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:24.106Z [Nest] 21108  - 11/09/2026, 9:30:24 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:26.117Z [Nest] 21108  - 11/09/2026, 9:30:26 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:28.133Z [Nest] 21108  - 11/09/2026, 9:30:28 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:28.133Z [Nest] 21108  - 11/09/2026, 9:30:28 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:30.145Z [Nest] 21108  - 11/09/2026, 9:30:30 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:30.145Z [Nest] 21108  - 11/09/2026, 9:30:30 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:32.159Z [Nest] 21108  - 11/09/2026, 9:30:32 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:36.183Z [Nest] 21108  - 11/09/2026, 9:30:36 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:38.190Z [Nest] 21108  - 11/09/2026, 9:30:38 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:38.191Z [Nest] 21108  - 11/09/2026, 9:30:38 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:40.199Z [Nest] 21108  - 11/09/2026, 9:30:40 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:40.199Z [Nest] 21108  - 11/09/2026, 9:30:40 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM    WARN [Relay] Could not load forwarding rules: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.214Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:42.215Z [Nest] 21108  - 11/09/2026, 9:30:42 AM   ERROR [Gateway:gt06] Connection key update failed: Reached the max retries per request limit (which is 20). Refer to "maxRetriesPerRequest" option for details.
+2026-11-09T14:30:44.225Z [Nest] 21108  - 11/09/2026, 9:30:44 AM   ERROR [Gateway] Valkey (relay) error: read ECONNRESET
+2026-11-09T14:30:46.226Z [Nest] 21108  - 11/09/2026, 9:30:46 AM   ERROR [Gateway] Valkey (commands) error: read ECONNRESET
+2026-11-09T14:30:46.227Z [Nest] 21108  - 11/09/2026, 9:30:46 AM   ERROR [Gateway] Valkey error: read ECONNRESET
+2026-11-09T14:30:48.233Z [Nest] 21108  - 11/09/2026, 9:30:48 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:30:48.233Z [Nest] 21108  - 11/09/2026, 9:30:48 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:30:48.233Z [Nest] 21108  - 11/09/2026, 9:30:48 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:30:48.295Z [Nest] 21108  - 11/09/2026, 9:30:48 AM     LOG [Gateway] [gt06] connections=40 frames=5355 positions=5315 dropped=0 errors=0 enqueueFailures=0 rate=19.0/s
+2026-11-09T14:30:48.295Z [Nest] 21108  - 11/09/2026, 9:30:48 AM    WARN [Gateway] [spool] mode=spooling pending=3355 spooled=3355 replayed=0 rejected=0 notAcked=0
+2026-11-09T14:30:50.242Z [Nest] 21108  - 11/09/2026, 9:30:50 AM   ERROR [Gateway] Valkey (commands) error: write ECONNABORTED
+2026-11-09T14:30:50.242Z [Nest] 21108  - 11/09/2026, 9:30:50 AM   ERROR [Gateway] Valkey error: write ECONNABORTED
+2026-11-09T14:30:50.243Z [Nest] 21108  - 11/09/2026, 9:30:50 AM   ERROR [Gateway] Valkey (relay) error: write ECONNABORTED
+2026-11-09T14:30:53.268Z [Nest] 21108  - 11/09/2026, 9:30:53 AM     LOG [Heartbeat:gateway] Heartbeat restored
+2026-11-09T14:30:53.727Z [Nest] 21108  - 11/09/2026, 9:30:53 AM     LOG [Gateway] Cache connection for positions restored after 182 s
+2026-11-09T14:30:56.342Z [Nest] 21108  - 11/09/2026, 9:30:56 AM     LOG [Gateway:spool] Spool replay caught up (3505 replayed since start)
+2026-11-09T14:30:56.351Z [Nest] 21108  - 11/09/2026, 9:30:56 AM     LOG [Gateway:spool] Spool drained; positions go straight to the stream again
+2026-11-09T14:31:18.298Z [Nest] 21108  - 11/09/2026, 9:31:18 AM     LOG [Gateway] [gt06] connections=40 frames=5920 positions=5880 dropped=0 errors=0 enqueueFailures=0 rate=18.8/s
