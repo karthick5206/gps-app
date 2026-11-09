@@ -1,0 +1,12 @@
+POST /api/auth/refresh body={"refreshToken":"<redacted>"}
+GET /api/auth/me
+GET /api/alerts/unread-count
+GET /api/alerts?page=1&pageSize=20&sort=occurredAt&order=desc
+GET /api/licences/banner
+GET /api/alerts/unread-count
+GET /api/alerts?page=1&pageSize=20&sort=occurredAt&order=desc
+GET /api/licences/banner
+GET /api/documents/summary
+GET /api/dashboard/overview?top=5
+GET /api/documents/summary
+GET /api/dashboard/overview?top=5
