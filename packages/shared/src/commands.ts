@@ -127,6 +127,9 @@ export const PREPARE_FIX_TOLERANCE_SEC = 3;
 /** A fix dated more than this far in the future (seconds) is not trusted (device clock fault). */
 export const PREPARE_FIX_MAX_FUTURE_SEC = 30;
 
+/** Recorded when a never-queued dispatch (position request) could not be delivered right away. */
+export const NO_QUEUE_NOT_DELIVERED = 'Not sent: the tracker is not connected right now. A position request for engine stop is never queued.';
+
 /** The live-state fields the fresh-position check reads. */
 export interface FreshPositionLiveState extends EngineStopLiveState {
   /** The live state comes from a trusted GPS fix (valid, not a jump, not a re-upload); set by the processor. */

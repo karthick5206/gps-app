@@ -4,8 +4,8 @@ import { NormalizedPosition } from '@veetracer/shared';
 import { decodeFrames, decodeMessage, encodeAlarm, encodeFrame, encodeGps22, encodeHeartbeat, encodeLogin, frameProtocol, Gt06Protocol } from './gt06/codec';
 import { Gt06Decoder } from './gt06/decoder';
 import { BaseSession, ProtocolDecoder } from './protocol';
-import { TcpGatewayServer } from './tcp-server';
-import { encodeAvlPacket, encodeImei } from './teltonika/codec';
+import { matchUnreferencedReply, PendingCommand, TcpGatewayServer, UNREFERENCED_REPLY_TIMEOUT_MS } from './tcp-server';
+import { encodeAvlPacket, encodeCodec12, encodeImei } from './teltonika/codec';
 import { TeltonikaDecoder } from './teltonika/decoder';
 import { UnparsedLog } from './unparsed-log';
 
@@ -272,5 +272,127 @@ describe('TcpGatewayServer', () => {
     expect(protocols(received)).toEqual([0x01, 0x26, 0x13]);
     socket.destroy();
     await server.close();
+  });
+});
+
+// ── Reply matching without protocol references (Teltonika Codec 12) and never-queued position requests ──
+
+describe('engine-stop reply matching (anti-theft proposal, Option 1)', () => {
+  const IMEI = '356307042441013';
+  const updatesOf = (messages: { message: string }[]) => messages.map((m) => JSON.parse(m.message) as { commandId: string; status: string; response?: string; error?: string });
+  const acked = (messages: { message: string }[]) => updatesOf(messages).filter((u) => u.status === 'ACKED');
+
+  async function teltonika() {
+    const ctx = await start(new TeltonikaDecoder());
+    const c = await client(ctx.server.port!);
+    c.socket.write(encodeImei(IMEI));
+    await until(() => ctx.server.has(IMEI));
+    return { ...ctx, ...c };
+  }
+  const stop = (id = 'stop') => ({ commandId: id, uniqueId: IMEI, text: 'setdigout 1', critical: true, issuedAt: new Date().toISOString() });
+  const probe = (id = 'probe') => ({ commandId: id, uniqueId: IMEI, text: 'getrecord', noQueue: true });
+
+  it('an unanswered position request is NOT credited with the engine-stop reply', async () => {
+    const { server, socket, messages } = await teltonika();
+    expect(server.sendCommand(probe())).toBe(true);
+    expect(server.sendCommand(stop())).toBe(true);
+    socket.write(encodeCodec12('DOUT1:1 Timeout:INFINITY', 0x06));
+    await until(() => acked(messages).length === 1);
+    expect(acked(messages)).toEqual([expect.objectContaining({ commandId: 'stop', response: 'DOUT1:1 Timeout:INFINITY' })]);
+    socket.destroy();
+    await server.close();
+  });
+
+  it('a position-request reply goes to the request, and the engine-stop reply to the engine stop', async () => {
+    const { server, socket, messages } = await teltonika();
+    server.sendCommand(probe());
+    server.sendCommand(stop());
+    socket.write(Buffer.concat([encodeCodec12('Record generated', 0x06), encodeCodec12('DOUT1:1 Timeout:INFINITY', 0x06)]));
+    await until(() => acked(messages).length === 2);
+    expect(Object.fromEntries(acked(messages).map((u) => [u.commandId, u.response]))).toEqual({ probe: 'Record generated', stop: 'DOUT1:1 Timeout:INFINITY' });
+    socket.destroy();
+    await server.close();
+  });
+
+  it('an unrecognised reply while a position request is outstanding never confirms the engine stop', async () => {
+    const { server, socket, messages } = await teltonika();
+    server.sendCommand(probe());
+    server.sendCommand(stop());
+    socket.write(encodeCodec12('Some other text', 0x06));
+    socket.write(encodeCodec12('More text', 0x06));
+    await until(() => acked(messages).length === 1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(acked(messages).map((u) => u.commandId)).toEqual(['probe']); // the engine stop stays SENT (unconfirmed)
+    socket.destroy();
+    await server.close();
+  });
+
+  it('an engine stop sent alone still takes its reply whatever the text (unchanged behaviour)', async () => {
+    const { server, socket, messages } = await teltonika();
+    server.sendCommand(stop());
+    socket.write(encodeCodec12('Digital Outputs are set to: 1X', 0x06));
+    await until(() => acked(messages).length === 1);
+    expect(acked(messages)[0]).toMatchObject({ commandId: 'stop' });
+    socket.destroy();
+    await server.close();
+  });
+
+  it('a never-queued position request found in the offline queue is failed, not delivered', async () => {
+    const id = '359647091912738';
+    const queued = { [`vt:cmd:queue:${id}`]: [JSON.stringify({ commandId: 'probe-q', uniqueId: id, text: 'WHERE#', noQueue: true })] };
+    const { server, messages } = await start(new Gt06Decoder() as ProtocolDecoder<BaseSession>, queued);
+    const { socket, received } = await client(server.port!);
+    socket.write(encodeLogin(id, 1));
+    await until(() => messages.length >= 1, 10_000);
+    expect(updatesOf(messages)[0]).toMatchObject({ commandId: 'probe-q', status: 'FAILED', error: expect.stringMatching(/never queued/) });
+    expect(decodeFrames(Buffer.concat(received)).frames.some((f) => frameProtocol(f) === 0x80)).toBe(false);
+    socket.destroy();
+    await server.close();
+  });
+});
+
+describe('matchUnreferencedReply', () => {
+  const now = 1_000_000;
+  const entry = (commandId: string, ageMs: number, critical = false, clean = false): PendingCommand => ({ commandId, sentAt: now - ageMs, critical, clean });
+
+  it('evicts entries older than the reply timeout instead of crediting them', () => {
+    const pending = new Map([[1, entry('old', UNREFERENCED_REPLY_TIMEOUT_MS + 1)]]);
+    expect(matchUnreferencedReply(pending, 'anything', now)).toBeNull();
+    expect(pending.size).toBe(0);
+  });
+
+  it('keeps FIFO order for ordinary commands', () => {
+    const pending = new Map([
+      [1, entry('a', 2000)],
+      [2, entry('b', 1000)],
+    ]);
+    expect(matchUnreferencedReply(pending, 'x', now)).toBe('a');
+    expect(matchUnreferencedReply(pending, 'y', now)).toBe('b');
+  });
+
+  it('an engine stop that is not "clean" never takes an unrecognised reply', () => {
+    const pending = new Map([[1, entry('stop', 1000, true, false)]]);
+    expect(matchUnreferencedReply(pending, 'Record generated', now)).toBeNull();
+    expect(pending.size).toBe(1);
+    expect(matchUnreferencedReply(pending, 'DOUT1:1 Timeout:INFINITY', now)).toBe('stop');
+  });
+
+  it('a position request is never credited with an engine-cut reply while an engine stop is pending', () => {
+    const pending = new Map([
+      [1, entry('probe', 30_000)],
+      [2, entry('stop', 1000, true, false)],
+    ]);
+    expect(matchUnreferencedReply(pending, 'DOUT1:1 DOUT2:IGNORED', now)).toBe('stop');
+    expect([...pending.values()].map((p) => p.commandId)).toEqual(['probe']);
+  });
+
+  it('a clean engine stop sent before another command is no longer clean (no false confirmation)', () => {
+    // Engine stop first, a locate after it: an unrecognised reply goes to the locate, the next can't confirm the stop.
+    const pending = new Map([
+      [1, entry('stop', 2000, true, false)],
+      [2, entry('locate', 1000)],
+    ]);
+    expect(matchUnreferencedReply(pending, 'text A', now)).toBe('locate');
+    expect(matchUnreferencedReply(pending, 'text B', now)).toBeNull();
   });
 });

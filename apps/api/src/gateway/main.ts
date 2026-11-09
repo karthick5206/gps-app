@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { CommandDispatch, COMMAND_TTL_HOURS, criticalDispatchRejection, CRITICAL_NOT_DELIVERED_OFFLINE, GatewayMetrics, isSafetyCriticalDispatch } from '@veetracer/shared';
+import { CommandDispatch, COMMAND_TTL_HOURS, criticalDispatchRejection, CRITICAL_NOT_DELIVERED_OFFLINE, GatewayMetrics, isSafetyCriticalDispatch, NO_QUEUE_NOT_DELIVERED } from '@veetracer/shared';
 import { APP_ROOT, loadEnv } from '../config/env';
 import { RateMeter, startHeartbeat } from '../monitoring/heartbeat';
 import { RedisKeys } from '../redis/keys';
@@ -108,6 +108,11 @@ async function main(): Promise<void> {
       return;
     }
     if (servers.some((s) => s.sendCommand(d))) return;
+    if (d.noQueue) {
+      // Engine-stop position requests are never queued for a later connection.
+      servers[0]?.failCommand(d.commandId, NO_QUEUE_NOT_DELIVERED);
+      return;
+    }
     // The device disconnected meanwhile: queue it for its next login.
     const key = RedisKeys.commandQueue(d.uniqueId);
     redis
