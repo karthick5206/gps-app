@@ -34,3 +34,4 @@ export * from './attendance-insights';
 export * from './vehicle-shares';
 export * from './dms';
 export * from './expenses';
+export * from './inventory';

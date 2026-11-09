@@ -54,16 +54,31 @@ export class AdminDevicesService {
   }
 
   async create(ctx: AuthContext, dto: CreateAdminDeviceDto): Promise<DeviceDto> {
+    dto = await this.prepareCreate(dto);
+    const row = await this.prisma.$transaction((tx) => this.createInTx(tx, ctx, dto));
+    await this.afterCreate(ctx, row);
+    return toDeviceDto(row);
+  }
+
+  /**
+   * The create path in three steps so a caller can register devices inside its own transaction (inventory stock
+   * receipt): validate refs + normalise the IMEI, insert (seat only when created into an active company), then audit
+   * and invalidate the device cache after commit. `create` above is exactly these three steps.
+   */
+  async prepareCreate<T extends CreateAdminDeviceDto>(dto: T): Promise<T> {
     await this.assertRefs(dto.modelId, dto.companyId);
-    dto = { ...dto, uniqueId: await normalizeDeviceUniqueId(this.prisma, dto.modelId, dto.uniqueId) };
-    const row = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.device.create({ data: { ...dto, ingestToken: randomToken(24) }, include: DEVICE_INCLUDE });
-      if (created.companyId && created.isActive) await this.seats.ensureDevice(tx, ctx, created.companyId, created.id);
-      return created;
-    });
+    return { ...dto, uniqueId: await normalizeDeviceUniqueId(this.prisma, dto.modelId, dto.uniqueId) };
+  }
+
+  async createInTx(tx: Prisma.TransactionClient, ctx: AuthContext, dto: CreateAdminDeviceDto): Promise<DeviceRow> {
+    const created = await tx.device.create({ data: { ...dto, ingestToken: randomToken(24) }, include: DEVICE_INCLUDE });
+    if (created.companyId && created.isActive) await this.seats.ensureDevice(tx, ctx, created.companyId, created.id);
+    return created;
+  }
+
+  async afterCreate(ctx: AuthContext, row: DeviceRow): Promise<void> {
     await this.audit.record(ctx, { action: 'CREATE', entity: ENTITY, entityId: row.id, after: deviceSnapshot(row) });
     await this.redis.invalidateCache('device');
-    return toDeviceDto(row);
   }
 
   async update(ctx: AuthContext, id: string, dto: UpdateAdminDeviceDto): Promise<DeviceDto> {

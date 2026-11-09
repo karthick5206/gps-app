@@ -68,6 +68,11 @@ model Partner {
   licenceOrders  LicenceOrder[]
   invoices       Invoice[]
   creditNotes    CreditNote[]
+  /// Device inventory (Phase B): partner-owned locations / suppliers / held stock (only platform screens write them).
+  stockLocations StockLocation[]
+  suppliers      Supplier[]
+  heldStock      DeviceStock[]
+  stockMovements StockMovement[]
 }
 
 model Company {
@@ -104,6 +109,7 @@ model Company {
   licenceOrders  LicenceOrder[]
   invoices       Invoice[]
   creditNotes    CreditNote[]
+  stockMovements StockMovement[]
 }
 
 model Branch {
@@ -279,6 +285,9 @@ model Device {
   trackerCodes    MobileTrackerCode[]
   trackerSessions MobileTrackerSession[]
   trackerEvents   TrackerEvent[]
+  /// Device inventory (Phase B): side tables only; inventory code never writes this Device row.
+  stock           DeviceStock?
+  stockMovements  StockMovement[]
 
   @@index([companyId])
 }
@@ -327,6 +336,7 @@ model TrackedObject {
   sharedWith        VehicleShare[]
   attendanceOutings AttendanceOuting[]
   attendanceSelfies AttendanceSelfie[]
+  stockMovements    StockMovement[]
 
   @@index([companyId, branchId])
 }
@@ -1999,4 +2009,151 @@ model UpiPaymentClaim {
 
   @@index([status, createdAt(sort: Desc)])
   @@index([ownerId])
+}
+
+// ───────────── Device inventory (Phase B) ─────────────
+// Side tables only. Inventory code never writes Device.companyId / Device.isActive / LicenceSeat: a customer
+// assignment stays on the existing admin assign / transfer / claim flows; inventory records the movement.
+
+/// Where stock physically is. ownerPartnerId null = platform (VeeTrax) location.
+model StockLocation {
+  id             String   @id @default(uuid()) @db.Uuid
+  /// STOCK_LOCATION_KINDS (shared): WAREHOUSE | PARTNER | TECHNICIAN | IN_TRANSIT | SUPPLIER_RMA | SCRAP
+  kind           String
+  code           String
+  name           String
+  ownerPartnerId String?  @db.Uuid
+  address        String?
+  stateCode      String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  ownerPartner  Partner?        @relation(fields: [ownerPartnerId], references: [id], onDelete: Restrict)
+  receipts      StockReceipt[]
+  stock         DeviceStock[]
+  movementsFrom StockMovement[] @relation("StockMovementFrom")
+  movementsTo   StockMovement[] @relation("StockMovementTo")
+
+  /// + partial unique index on (code) WHERE ownerPartnerId IS NULL (raw SQL in the migration).
+  @@unique([ownerPartnerId, code])
+  @@index([kind])
+}
+
+/// Hardware suppliers (platform-level; partner-level later).
+model Supplier {
+  id             String   @id @default(uuid()) @db.Uuid
+  ownerPartnerId String?  @db.Uuid
+  name           String
+  gstin          String?
+  stateCode      String?
+  contact        Json     @default("{}")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  ownerPartner Partner?       @relation(fields: [ownerPartnerId], references: [id], onDelete: Restrict)
+  receipts     StockReceipt[]
+
+  /// + partial unique index on (name) WHERE ownerPartnerId IS NULL (raw SQL in the migration).
+  @@unique([ownerPartnerId, name])
+}
+
+/// A goods receipt (GRN): one supplier invoice / PO received into a location.
+model StockReceipt {
+  id                String    @id @default(uuid()) @db.Uuid
+  supplierId        String?   @db.Uuid
+  locationId        String    @db.Uuid
+  supplierInvoiceNo String?
+  supplierInvoiceAt DateTime? @db.Date
+  receivedAt        DateTime  @db.Timestamptz(3)
+  /// MANUAL | CSV_IMPORT
+  source            String    @default("MANUAL")
+  itemCount         Int       @default(0)
+  note              String?
+  createdById       String?   @db.Uuid
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+
+  supplier  Supplier?       @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  location  StockLocation   @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  stock     DeviceStock[]
+  movements StockMovement[]
+
+  @@index([supplierId, receivedAt(sort: Desc)])
+  @@index([receivedAt(sort: Desc)])
+}
+
+/// 1:1 inventory facts of an existing Device (IMEI uniqueness stays Device.uniqueId). Absent row = legacy device
+/// whose status is derived from the existing assignment (deriveDeviceStatus in shared).
+model DeviceStock {
+  deviceId        String    @id @db.Uuid
+  /// INVENTORY_STATUSES (shared); ASSIGNED / ACTIVE must agree with the existing company / vehicle assignment.
+  status          String
+  locationId      String?   @db.Uuid
+  holderPartnerId String?   @db.Uuid
+  receiptId       String?   @db.Uuid
+  serialNumber    String?   @unique
+  unitCostPaise   Int?
+  warrantyUntil   DateTime? @db.Date
+  /// DEVICE_CONDITIONS (shared): NEW | REFURBISHED | USED
+  condition       String?
+  note            String?
+  statusChangedAt DateTime  @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  device        Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  location      StockLocation? @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  holderPartner Partner?       @relation(fields: [holderPartnerId], references: [id], onDelete: SetNull)
+  receipt       StockReceipt?  @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+
+  @@index([status, locationId])
+  @@index([holderPartnerId, status])
+  @@index([receiptId])
+}
+
+/// Append-only ledger: one row per stock change, written in the same transaction. Never updated or deleted by
+/// application code; device / company / object purge only nulls the link (itemRef keeps the IMEI).
+model StockMovement {
+  id                  String   @id @default(uuid()) @db.Uuid
+  deviceId            String?  @db.Uuid
+  /// IMEI snapshot.
+  itemRef             String
+  /// STOCK_MOVEMENT_KINDS (shared)
+  kind                String
+  fromStatus          String?
+  toStatus            String
+  fromLocationId      String?  @db.Uuid
+  toLocationId        String?  @db.Uuid
+  fromHolderPartnerId String?  @db.Uuid
+  toHolderPartnerId   String?  @db.Uuid
+  /// Existing assignment linked to the movement (read from Device / DeviceAssignment, never written by inventory).
+  companyId           String?  @db.Uuid
+  objectId            String?  @db.Uuid
+  partnerId           String?  @db.Uuid
+  receiptId           String?  @db.Uuid
+  reason              String?
+  /// Courier AWB, RMA no., invoice no., or the linked record (e.g. "DeviceAssignment:<id>").
+  reference           String?
+  note                String?
+  /// Field-level changes for ADJUST movements.
+  changes             Json?
+  at                  DateTime @default(now()) @db.Timestamptz(3)
+  createdById         String?  @db.Uuid
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+
+  device       Device?        @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  fromLocation StockLocation? @relation("StockMovementFrom", fields: [fromLocationId], references: [id], onDelete: SetNull)
+  toLocation   StockLocation? @relation("StockMovementTo", fields: [toLocationId], references: [id], onDelete: SetNull)
+  company      Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  object       TrackedObject? @relation(fields: [objectId], references: [id], onDelete: SetNull)
+  partner      Partner?       @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  receipt      StockReceipt?  @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, at(sort: Desc)])
+  @@index([at(sort: Desc)])
+  @@index([toLocationId, at(sort: Desc)])
+  @@index([fromLocationId, at(sort: Desc)])
+  @@index([companyId, at(sort: Desc)])
+  @@index([kind, at(sort: Desc)])
 }
