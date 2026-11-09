@@ -1,12 +1,9 @@
 # Linux deploy files must keep LF line endings even in a Windows checkout.
 *.sh text eol=lf
-<<<<<<< HEAD
 *.service text eol=lf
 ops/deploy/docker/Dockerfile text eol=lf
 ops/deploy/docker/Caddyfile text eol=lf
 ops/deploy/docker/docker-compose.yml text eol=lf
-=======
 
 # Web fonts are binary
 *.woff2 binary
->>>>>>> feature/p1-design-system
