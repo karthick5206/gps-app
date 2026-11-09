@@ -60,7 +60,7 @@ export function ReportTable({ columns, rows, totals: apiTotals, className }: { c
                     <button
                       type="button"
                       onClick={() => toggle(c.id)}
-                      className={cn('-mx-1 inline-flex items-center gap-1 rounded px-1 uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none', c.numeric && 'flex-row-reverse')}
+                      className={cn('-mx-1 inline-flex items-center gap-1 rounded px-1 uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none', c.numeric && 'flex-row-reverse')}
                     >
                       {t(c.header)}
                       {active ? sort!.desc ? <ArrowDownIcon className="size-3.5" /> : <ArrowUpIcon className="size-3.5" /> : <ArrowUpDownIcon className="size-3.5 opacity-40" />}

@@ -58,7 +58,7 @@ export function Sidebar({
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     cn(
-                      'group relative flex h-9 items-center gap-3 rounded-md px-3 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+                      'group relative flex h-9 items-center gap-3 rounded-md px-3 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       collapsed && 'justify-center px-0',
                       isActive
                         ? 'bg-accent font-semibold text-accent-foreground shadow-[inset_3px_0_0_var(--brand-accent)]'
@@ -94,7 +94,7 @@ export function Sidebar({
             onClick={onToggleCollapsed}
             aria-label={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
             className={cn(
-              'flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+              'flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
               collapsed && 'justify-center px-0',
             )}
           >

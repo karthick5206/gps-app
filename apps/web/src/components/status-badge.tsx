@@ -1,6 +1,6 @@
 import { STATUS_META, type MovementStatus } from '@veetracer/shared';
 import { useTranslation } from 'react-i18next';
-import { statusColor } from '@/lib/status-tokens';
+import { statusColor, statusTextColor } from '@/lib/status-tokens';
 import { cn } from '@/lib/utils';
 
 export function StatusDot({ status, className, pulse }: { status: MovementStatus; className?: string; pulse?: boolean }) {
@@ -18,7 +18,7 @@ export function StatusBadge({ status, label, className }: { status: MovementStat
   return (
     <span
       className={cn('inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium', className)}
-      style={{ backgroundColor: `color-mix(in oklab, ${statusColor(status)} 14%, transparent)`, color: statusColor(status) }}
+      style={{ backgroundColor: `color-mix(in oklab, ${statusColor(status)} 14%, transparent)`, color: statusTextColor(status) }}
     >
       <StatusDot status={status} className="size-2" />
       {t(label ?? STATUS_META[status].label)}

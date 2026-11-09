@@ -230,7 +230,7 @@ export function Timeline({
         aria-label={t('Playback position')}
         aria-valuemin={Math.round(idx.start / 1000)}
         aria-valuemax={Math.round(idx.end / 1000)}
-        className="relative cursor-pointer touch-none rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        className="relative cursor-pointer touch-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}

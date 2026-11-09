@@ -41,7 +41,7 @@ function Node({ active, onClick, children, sub }: { active: boolean; onClick: ()
         onClick={onClick}
         aria-current={active ? 'true' : undefined}
         className={cn(
-          'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
+          'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
           active ? 'bg-primary/10 font-medium text-primary' : 'hover:bg-accent',
         )}
       >

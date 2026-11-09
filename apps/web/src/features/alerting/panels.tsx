@@ -351,7 +351,7 @@ export function PacksDialog({ open, onOpenChange, target }: { open: boolean; onO
                 role="radio"
                 aria-checked={packId === p.id}
                 onClick={() => setPackId(p.id)}
-                className={cn('rounded-lg border p-3 text-left transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none', packId === p.id ? 'border-primary bg-primary/6' : 'hover:bg-accent/60')}
+                className={cn('rounded-lg border p-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none', packId === p.id ? 'border-primary bg-primary/6' : 'hover:bg-accent/60')}
               >
                 <span className="flex items-center gap-2">
                   <PackageIcon className="size-4 text-primary" />

@@ -196,7 +196,7 @@ function ChannelsField({ channels, sources, level, disabled, onSet }: { channels
                     disabled={disabled}
                     onClick={() => onSet(sev, on ? list.filter((c) => c !== ch) : [...list, ch])}
                     className={cn(
-                      'h-6 rounded-full border px-2 text-[11px] font-medium transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-50',
+                      'h-6 rounded-full border px-2 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50',
                       on ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-card text-muted-foreground hover:bg-accent',
                     )}
                   >

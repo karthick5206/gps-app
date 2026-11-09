@@ -24,7 +24,7 @@ export function DayToggles({ days, onChange, disabled }: { days: number[]; onCha
             title={t(DAY_SHORT[i])}
             onClick={() => onChange(on ? days.filter((x) => x !== d) : [...days, d].sort((a, b) => a - b))}
             className={cn(
-              'size-8 rounded-md border text-xs font-semibold transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-50',
+              'size-8 rounded-md border text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50',
               on ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-card text-muted-foreground hover:bg-accent',
             )}
           >
