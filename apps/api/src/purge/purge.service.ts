@@ -1,10 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { PurgePreviewDto } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
+import { adminBlockMessage, blockedAuditDetails, countFinancialRecords, FinancialRecordsException, financialTotal, selfBlockMessage } from './financial-guard';
 import { Catalog, countSql, FkEdge, planPurge, PlanStep, PURGE_TABLE, PurgeKind, rootCondition, stepSql } from './purge-plan';
 
 const CATALOG_TTL_MS = 10 * 60_000;
@@ -33,6 +34,11 @@ export class PurgeService {
 
   async preview(ctx: AuthContext, kind: PurgeKind, id: string): Promise<PurgePreviewDto> {
     const target = await this.target(ctx, kind, id);
+    if (kind === 'company') {
+      // Shown in the dialog before anything is typed (not audited: nothing was attempted yet).
+      const fin = await countFinancialRecords(this.prisma, id);
+      if (financialTotal(fin)) throw new FinancialRecordsException(adminBlockMessage(fin), fin);
+    }
     const steps = await this.steps(kind, id);
     const counts = new Map<string, number>();
     for (const s of steps) {
@@ -47,8 +53,10 @@ export class PurgeService {
 
   async purge(ctx: AuthContext, kind: PurgeKind, id: string, confirm: string): Promise<{ ok: true; deletedRows: number }> {
     const target = await this.target(ctx, kind, id);
+    const actor = { companyId: ctx.homeCompanyId, userId: ctx.userId, ip: ctx.ip };
+    if (kind === 'company') await this.refuseIfFinancial(id, actor, 'admin', { label: target.label, by: 'Super Admin' });
     if (confirm.trim().toLowerCase() !== target.confirm.trim().toLowerCase()) throw new BadRequestException(`Type "${target.confirm}" to confirm`);
-    const deletedRows = await this.execute(kind, id, target, { companyId: ctx.homeCompanyId, userId: ctx.userId, ip: ctx.ip }, 'Super Admin');
+    const deletedRows = await this.execute(kind, id, target, actor, 'Super Admin');
     return { ok: true, deletedRows };
   }
 
@@ -69,6 +77,8 @@ export class PurgeService {
     const personal = user.company.accountType !== 'BUSINESS' && !user.company.isPlatform && others === 0;
     const kind: PurgeKind = personal ? 'company' : 'user';
     const id = personal ? user.companyId : ctx.userId;
+    // R-36 stop-gap: a personal account with tax invoices or payments is not deleted at all; the user is told why.
+    if (personal) await this.refuseIfFinancial(user.companyId, { companyId: user.companyId, userId: ctx.userId, ip: ctx.ip }, 'self', { label: user.company.name, by: `self (${expected})` });
     const objects = personal ? await this.prisma.trackedObject.findMany({ where: { companyId: id }, select: { id: true } }) : [];
     const target: Target = { label: personal ? user.company.name : `${user.name} · ${expected}`, confirm: expected, objectIds: objects.map((o) => o.id), companyIds: [user.companyId] };
     // The account is gone afterwards: the audit entry is kept without a company.
@@ -83,6 +93,8 @@ export class PurgeService {
     let deletedRows = 0;
     await this.prisma.$transaction(
       async (tx) => {
+        // Backstop for a payment that lands between the check and the purge (the RESTRICT keys would also stop it).
+        if (kind === 'company' && financialTotal(await countFinancialRecords(tx, id))) throw new ConflictException('This company now has financial records, so it cannot be deleted. Nothing was deleted.');
         for (const sql of [...extra, ...steps.map(stepSql)]) deletedRows += await tx.$executeRawUnsafe(sql);
       },
       { timeout: TX_TIMEOUT_MS, maxWait: 10_000 },
@@ -94,6 +106,18 @@ export class PurgeService {
   }
 
   // ───────────── helpers ─────────────
+
+  /**
+   * R-36 stop-gap (D-107): refuse to delete a company that has GST invoices, credit notes or payment records, and audit
+   * the refused attempt (counts and reason only).
+   */
+  private async refuseIfFinancial(companyId: string, actor: { companyId: string | null; userId: string | null; ip: string | null }, audience: 'admin' | 'self', extra: { label: string; by: string }): Promise<void> {
+    const fin = await countFinancialRecords(this.prisma, companyId);
+    if (!financialTotal(fin)) return;
+    await this.audit.recordSystem(actor, { action: 'DELETE', entity: 'company', entityId: companyId, details: blockedAuditDetails(fin, { ...extra, path: audience === 'admin' ? 'purge' : 'delete-account' }) });
+    this.logger.warn(`PURGE company ${companyId} (${extra.label}) by ${extra.by} REFUSED: ${fin.invoices} invoices, ${fin.creditNotes} credit notes, ${fin.payments + fin.upiClaims} payments`);
+    throw new FinancialRecordsException(audience === 'admin' ? adminBlockMessage(fin) : selfBlockMessage(fin), fin);
+  }
 
   private async steps(kind: PurgeKind, id: string): Promise<PlanStep[]> {
     return planPurge(await this.loadCatalog(), PURGE_TABLE[kind], rootCondition(id));
