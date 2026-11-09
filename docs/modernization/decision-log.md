@@ -12,7 +12,18 @@ Format: ID · date · decision or question · options · recommendation · statu
 | D-005 | 2026-11-09 | Never use production data for fixtures or screenshots. Phase 0/2 used an isolated DB `veetrax_assess` with seed + synthetic data | §2.9 |
 | D-006 | 2026-11-09 | Work on branch `feature/modernization-phase0`; no source changes until the discovery report is approved | user instruction |
 
+## Decisions taken by the product owner (2026-11-09)
+| ID | Decision | Implementation |
+|---|---|---|
+| Q-01 ✅ | Do not execute queued engine-stop commands after an offline vehicle reconnects. Expire stale commands. Require a fresh authorised request, fresh telemetry and all safety checks | S0.1: refused unless online, telemetry ≤ `ENGINE_STOP_MAX_FIX_AGE_SEC` (60 s), speed ≤ 20 km/h; never queued (FAILED "not connected"); gateway drops any queued engine stop on reconnect (incl. legacy entries) and any critical dispatch older than 60 s |
+| Q-02 ✅ | `NODE_ENV=production` approved after validating the required settings in staging; verify SSRF protection and production assertions | S0.2 |
+| Q-03 ✅ | Encrypted off-site object storage independent of the host; PostgreSQL, required Valkey data, uploads and config; retention; restore test. **Present provider and cost before any paid service** | S0.3 |
+| Roadmap ✅ | Approved; S0 first; work independently, but stop before production deployments, paid services, destructive migrations, financial/irreversible billing changes, new commercial rules, and anything affecting vehicle safety | — |
+
 ## Open questions for the product owner
+| ID | Question | Options | Recommendation | Blocks |
+|---|---|---|---|---|
+| Q-25 | **Parked vehicles and engine stop.** A parked tracker may report a position only every few minutes, so the 60 s telemetry window (the latest of GPS fix and server receive time) can refuse an anti-theft immobilise on a parked, connected vehicle. Allow it when the device is connected (`vt:conn` heartbeat) and its last known speed was 0? | keep strict / allow connected+stationary / per-company window | Keep strict until real devices show the parked reporting interval; then decide. **Safety-affecting: needs your approval** | — |
 | ID | Question | Options | Recommendation | Blocks |
 |---|---|---|---|---|
 | Q-01 | **Engine-stop for offline vehicles** | (a) refuse; (b) queue with a short TTL and a delivery-time speed/freshness re-check; (c) current behaviour (24 h, no re-check) | (b) with TTL 5 min, freshness ≤ 30 s, speed ≤ the existing limit; never (c) | S0 / R-01 |

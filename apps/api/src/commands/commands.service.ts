@@ -12,7 +12,8 @@ import {
   CommandDto,
   CommandType,
   CommandUpdate,
-  ENGINE_STOP_MAX_SPEED_KPH,
+  engineStopBlockReason,
+  isSafetyCriticalDispatch,
   PROTOCOL_COMMANDS,
   SendCommandRequest,
 } from '@veetracer/shared';
@@ -26,6 +27,7 @@ import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 
 const HISTORY_LIMIT = 30;
+const ENGINE_STOP_NOT_CONNECTED = 'Not sent: the tracker is not connected right now. Engine stop is never queued; send it again once the vehicle is online.';
 
 interface Target {
   objectId: string;
@@ -114,12 +116,12 @@ export class CommandsService implements OnModuleInit {
       }
     }
     if (cmd.critical && ctx.apiKey) {
-      await this.assertSlow(t);
+      await this.assertEngineStopSafe(t);
     } else if (cmd.critical) {
       const user = await this.prisma.user.findUnique({ where: { id: ctx.userId }, select: { passwordHash: true } });
       if (!user?.passwordHash) throw new ForbiddenException('Set a password on your account to send this command');
       if (!req.password || !(await verifyPassword(req.password, user.passwordHash))) throw new ForbiddenException('Password is incorrect');
-      await this.assertSlow(t);
+      await this.assertEngineStopSafe(t);
     }
 
     const row = await this.prisma.deviceCommand.create({
@@ -135,17 +137,25 @@ export class CommandsService implements OnModuleInit {
       },
     });
     await this.audit.record({ ...ctx, companyId: t.companyId }, { action: 'CREATE', entity: 'DeviceCommand', entityId: row.id, after: { objectId: t.objectId, vehicle: t.name, uniqueId: t.uniqueId, type: req.type, payload: text, ...(ctx.apiKey ? { apiKey: ctx.apiKey.name, apiKeyId: ctx.apiKey.id } : {}) } });
-    await this.dispatch({ commandId: row.id, uniqueId: t.uniqueId, text });
-    this.logger.log(`${ctx.userId} → ${t.uniqueId} ${req.type} "${text}" (${row.id})`);
+    const delivered = await this.dispatch({ commandId: row.id, uniqueId: t.uniqueId, text, ...(cmd.critical ? { critical: true, issuedAt: new Date().toISOString() } : {}) });
+    this.logger.log(`${ctx.userId} → ${t.uniqueId} ${req.type} "${text}" (${row.id})${delivered ? '' : cmd.critical ? ' NOT SENT (tracker not connected)' : ' queued'}`);
+    if (!delivered && cmd.critical) {
+      // Decision Q-01: an engine stop is never queued for later delivery.
+      const failed = await this.prisma.deviceCommand.update({ where: { id: row.id }, data: { status: 'FAILED', error: ENGINE_STOP_NOT_CONNECTED } });
+      await this.audit.record({ ...ctx, companyId: t.companyId }, { action: 'UPDATE', entity: 'DeviceCommand', entityId: row.id, after: { status: 'FAILED', error: ENGINE_STOP_NOT_CONNECTED } });
+      return (await this.toDtos([failed]))[0];
+    }
     return (await this.toDtos([row]))[0];
   }
 
-  /** Engine stop is refused while the vehicle moves faster than ENGINE_STOP_MAX_SPEED_KPH. */
-  private async assertSlow(t: Target): Promise<void> {
+  /**
+   * Engine stop needs an online vehicle with telemetry from the last ENGINE_STOP_MAX_FIX_AGE_SEC seconds, moving no
+   * faster than ENGINE_STOP_MAX_SPEED_KPH (decision Q-01). Unknown or stale state is refused, never assumed safe.
+   */
+  private async assertEngineStopSafe(t: Target): Promise<void> {
     const live = (await this.liveState.read([t.objectId])).get(t.objectId);
-    if (live && live.status !== 'OFFLINE' && live.speedKph > ENGINE_STOP_MAX_SPEED_KPH) {
-      throw new BadRequestException(`The vehicle is moving at ${Math.round(live.speedKph)} km/h. Engine stop is only allowed below ${ENGINE_STOP_MAX_SPEED_KPH} km/h.`);
-    }
+    const reason = engineStopBlockReason(live, Date.now());
+    if (reason) throw new BadRequestException(reason);
   }
 
   /** A reply carrying the SIM ICCID or firmware version (e.g. VERSION# / ICCID# / getver) is saved on the device. */
@@ -180,13 +190,18 @@ export class CommandsService implements OnModuleInit {
     return { sent: texts };
   }
 
-  /** Online: publish to the device's gateway. Offline (or a stale gateway id): queue for its next connection. */
-  private async dispatch(d: CommandDispatch): Promise<void> {
+  /**
+   * Online: publish to the device's gateway (true). Offline (or a stale gateway id): queue for its next connection,
+   * except safety-critical commands, which are never queued (false; the caller marks them FAILED).
+   */
+  private async dispatch(d: CommandDispatch): Promise<boolean> {
     const json = JSON.stringify(d);
     const gatewayId = await this.redis.client.get(RedisKeys.connection(d.uniqueId));
-    if (gatewayId && (await this.redis.client.publish(RedisKeys.commandChannel(gatewayId), json)) > 0) return;
+    if (gatewayId && (await this.redis.client.publish(RedisKeys.commandChannel(gatewayId), json)) > 0) return true;
+    if (isSafetyCriticalDispatch(d)) return false;
     const key = RedisKeys.commandQueue(d.uniqueId);
     await this.redis.client.multi().rpush(key, json).expire(key, COMMAND_TTL_HOURS * 3600).exec();
+    return false;
   }
 
   async list(ctx: AuthContext, objectId: string): Promise<CommandDto[]> {

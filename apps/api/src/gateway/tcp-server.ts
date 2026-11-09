@@ -3,7 +3,7 @@ import type Redis from 'ioredis';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { createServer, Server, Socket } from 'node:net';
 import { join } from 'node:path';
-import { CommandDispatch, CommandUpdate, NormalizedPosition } from '@veetracer/shared';
+import { CommandDispatch, CommandUpdate, CRITICAL_NOT_DELIVERED_OFFLINE, isSafetyCriticalDispatch, NormalizedPosition } from '@veetracer/shared';
 import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { BaseSession, DecodeContext, DecodedMedia, ProtocolDecoder } from './protocol';
 import { RelayHook, RelaySessionHandle } from './relay/relay-manager';
@@ -405,6 +405,11 @@ export class TcpGatewayServer<S extends BaseSession> {
     this.publishCommandUpdate({ commandId, status: 'ACKED', response: text.slice(0, 1000), at: new Date().toISOString() });
   }
 
+  /** Reports a command as FAILED (with the reason shown in the command history) without sending it. */
+  failCommand(commandId: string, error: string): void {
+    this.publishCommandUpdate({ commandId, status: 'FAILED', error, at: new Date().toISOString() });
+  }
+
   private publishCommandUpdate(u: CommandUpdate): void {
     const json = JSON.stringify(u);
     this.options.redis
@@ -425,7 +430,14 @@ export class TcpGatewayServer<S extends BaseSession> {
       .then((items) => {
         for (const raw of items ?? []) {
           try {
-            this.sendCommand(JSON.parse(raw) as CommandDispatch);
+            const d = JSON.parse(raw) as CommandDispatch;
+            if (isSafetyCriticalDispatch(d)) {
+              // Decision Q-01: an engine stop queued while the vehicle was offline is never delivered on reconnect.
+              this.logger.warn(`Dropped queued safety-critical command ${d.commandId} for ${id} on reconnect`);
+              this.failCommand(d.commandId, CRITICAL_NOT_DELIVERED_OFFLINE);
+              continue;
+            }
+            this.sendCommand(d);
           } catch {
             // Malformed queue entry: drop it.
           }

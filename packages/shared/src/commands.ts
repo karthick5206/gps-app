@@ -40,6 +40,66 @@ export const ENGINE_STOP_MAX_SPEED_KPH = 20;
 /** A queued command not delivered within this time is expired. */
 export const COMMAND_TTL_HOURS = 24;
 
+/**
+ * Safety-critical commands (engine stop) are never queued for an offline vehicle and never delivered late
+ * (decision Q-01, docs/modernization/decision-log.md): they need a fresh authorised request, fresh telemetry and the
+ * speed check at the moment they are sent.
+ */
+/** The vehicle's last position must be at most this old (seconds) for an engine stop to be accepted. */
+export const ENGINE_STOP_MAX_FIX_AGE_SEC = 60;
+/** A safety-critical dispatch older than this (seconds) when it reaches the gateway is dropped, not sent. */
+export const CRITICAL_DISPATCH_MAX_AGE_SEC = 60;
+
+/** Engine-stop protocol texts, to recognise safety-critical entries queued before dispatches carried `critical`. */
+const ENGINE_STOP_TEXTS = new Set(Object.values(PROTOCOL_COMMANDS).flatMap((c) => (c.engine_stop ? [c.engine_stop.trim().toLowerCase()] : [])));
+
+/** True for engine-stop dispatches, including legacy queue entries without the `critical` flag. */
+export function isSafetyCriticalDispatch(d: Pick<CommandDispatch, 'text' | 'critical'>): boolean {
+  return d.critical === true || ENGINE_STOP_TEXTS.has(d.text.trim().toLowerCase());
+}
+
+/** Why a safety-critical dispatch reaching the gateway must not be sent now (null = send it). */
+export function criticalDispatchRejection(d: Pick<CommandDispatch, 'text' | 'critical' | 'issuedAt'>, nowMs: number): string | null {
+  if (!isSafetyCriticalDispatch(d) || !d.issuedAt) return null;
+  const ageSec = (nowMs - Date.parse(d.issuedAt)) / 1000;
+  if (!Number.isFinite(ageSec) || ageSec > CRITICAL_DISPATCH_MAX_AGE_SEC) {
+    return 'Engine stop expired before it reached the tracker. Send it again.';
+  }
+  return null;
+}
+
+/** Message recorded when a queued engine stop is found on reconnect (it is dropped, never delivered). */
+export const CRITICAL_NOT_DELIVERED_OFFLINE = 'Engine stop was not delivered: the vehicle was offline. Send it again once the vehicle is online.';
+
+/** The live-state fields the engine-stop check reads. */
+export interface EngineStopLiveState {
+  status: string;
+  speedKph: number;
+  fixTime: string | null;
+  /** When the server last received data from the device (may be newer than the GPS fix while parked). */
+  serverTime?: string | null;
+}
+
+/** Age (seconds) of the newest telemetry: the later of the GPS fix and the server receive time. */
+function telemetryAgeSec(live: EngineStopLiveState, nowMs: number): number {
+  const times = [live.fixTime, live.serverTime].map((t) => (t ? Date.parse(t) : NaN)).filter(Number.isFinite);
+  return times.length ? (nowMs - Math.max(...times)) / 1000 : NaN;
+}
+
+/** Why an engine stop must be refused right now (null = allowed): needs a fresh, slow, online vehicle. */
+export function engineStopBlockReason(live: EngineStopLiveState | undefined | null, nowMs: number): string | null {
+  if (!live || (!live.fixTime && !live.serverTime)) return 'No position has been received from this vehicle yet. Engine stop needs fresh telemetry.';
+  if (live.status === 'OFFLINE' || live.status === 'NO_DATA') return 'The vehicle is offline. Engine stop is only sent to a vehicle that is online now.';
+  const ageSec = telemetryAgeSec(live, nowMs);
+  if (!Number.isFinite(ageSec) || ageSec > ENGINE_STOP_MAX_FIX_AGE_SEC) {
+    return `The last position is ${Number.isFinite(ageSec) ? Math.round(ageSec) : '?'} s old. Engine stop needs a position from the last ${ENGINE_STOP_MAX_FIX_AGE_SEC} s.`;
+  }
+  if (live.speedKph > ENGINE_STOP_MAX_SPEED_KPH) {
+    return `The vehicle is moving at ${Math.round(live.speedKph)} km/h. Engine stop is only allowed below ${ENGINE_STOP_MAX_SPEED_KPH} km/h.`;
+  }
+  return null;
+}
+
 export interface AvailableCommand extends CommandDef {
   /** Protocol text that will be sent ('' for custom). */
   payload: string;
@@ -74,6 +134,10 @@ export interface CommandDispatch {
   commandId: string;
   uniqueId: string;
   text: string;
+  /** Safety-critical (engine stop): never queued, never delivered late. */
+  critical?: boolean;
+  /** When the API issued the dispatch (ISO), for the gateway's freshness check. */
+  issuedAt?: string;
 }
 export interface CommandUpdate {
   commandId: string;

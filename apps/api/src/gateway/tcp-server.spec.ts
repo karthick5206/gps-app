@@ -172,6 +172,32 @@ describe('TcpGatewayServer', () => {
     await server.close();
   });
 
+  it('Q-01: never delivers a queued engine stop on reconnect (flagged or legacy) but still delivers other queued commands', async () => {
+    const id = '359647091912738';
+    const queued = {
+      [`vt:cmd:queue:${id}`]: [
+        JSON.stringify({ commandId: 'stop-new', uniqueId: id, text: 'RELAY,1#', critical: true, issuedAt: new Date().toISOString() }),
+        JSON.stringify({ commandId: 'stop-legacy', uniqueId: id, text: 'RELAY,1#' }),
+        JSON.stringify({ commandId: 'where', uniqueId: id, text: 'WHERE#' }),
+      ],
+    };
+    const { server, messages } = await start(new Gt06Decoder() as ProtocolDecoder<BaseSession>, queued);
+    const { socket, received } = await client(server.port!);
+    socket.write(encodeLogin(id, 1));
+    await until(() => messages.length >= 3);
+    const updates = messages.map((m) => JSON.parse(m.message) as { commandId: string; status: string; error?: string });
+    expect(updates.find((u) => u.commandId === 'stop-new')).toMatchObject({ status: 'FAILED', error: expect.stringMatching(/not delivered/) });
+    expect(updates.find((u) => u.commandId === 'stop-legacy')).toMatchObject({ status: 'FAILED' });
+    expect(updates.find((u) => u.commandId === 'where')).toMatchObject({ status: 'SENT' });
+    const sentTexts = decodeFrames(Buffer.concat(received))
+      .frames.filter((f) => frameProtocol(f) === 0x80)
+      .map((f) => f.subarray(9, f.length - 6).toString('latin1'));
+    expect(sentTexts.join('|')).not.toContain('RELAY,1#');
+    expect(sentTexts.join('|')).toContain('WHERE#');
+    socket.destroy();
+    await server.close();
+  });
+
   // ── ACK only after the positions are queued ──
 
   const status = { ignition: true, charging: false, oilCut: false, voltageLevel: 6, gsmSignal: 4 };

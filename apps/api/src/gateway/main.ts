@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { CommandDispatch, COMMAND_TTL_HOURS, GatewayMetrics } from '@veetracer/shared';
+import { CommandDispatch, COMMAND_TTL_HOURS, criticalDispatchRejection, CRITICAL_NOT_DELIVERED_OFFLINE, GatewayMetrics, isSafetyCriticalDispatch } from '@veetracer/shared';
 import { APP_ROOT, loadEnv } from '../config/env';
 import { RateMeter, startHeartbeat } from '../monitoring/heartbeat';
 import { RedisKeys } from '../redis/keys';
@@ -97,6 +97,14 @@ async function main(): Promise<void> {
     try {
       d = JSON.parse(message) as CommandDispatch;
     } catch {
+      return;
+    }
+    if (isSafetyCriticalDispatch(d)) {
+      // Decision Q-01: engine stop is sent only while fresh; never re-queued for a later connection.
+      const reason = criticalDispatchRejection(d, Date.now());
+      if (!reason && servers.some((s) => s.sendCommand(d))) return;
+      logger.warn(`Safety-critical command ${d.commandId} for ${d.uniqueId} not sent: ${reason ?? 'device disconnected'}`);
+      servers[0]?.failCommand(d.commandId, reason ?? CRITICAL_NOT_DELIVERED_OFFLINE);
       return;
     }
     if (servers.some((s) => s.sendCommand(d))) return;
