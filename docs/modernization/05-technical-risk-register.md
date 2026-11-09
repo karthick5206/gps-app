@@ -86,6 +86,22 @@ The owner column shows the proposed owner role, to be confirmed. Each item lists
 | R-34 | Licensing | Locked (expired) vehicles still raise alerts, webhooks, relay | Decision | code-read | Product-owner decision | 5 |
 | R-35 | Docs | HANDOFF/README outdated (Flutter, module list, PDF name); `ops/run` untracked | Low | V-code | Update docs; version ops (no secrets) | 1 |
 
+## 2b. Status updates
+| ID | Status (2026-11-09) | Evidence |
+|---|---|---|
+| R-01 | **Mitigated in code** (S0.1, `5f8923f`). Not yet deployed | Unit, gateway and live-simulator e2e |
+| R-02 | **Mitigated:** validated in staging; production PM2 config sets `NODE_ENV=production` (takes effect at next start) | Staging SSRF probes |
+| R-03 | **Partially mitigated:** encrypted full backup + verified restore implemented; off-site upload and schedule await provider approval | backup-plan.md |
+| R-04 | **Mitigated in code** (S0.4). Not yet deployed | Unit tests, seed runs |
+| R-17 | **Mitigated in code** (S0.5). Not yet deployed | Concurrency tests |
+| R-28 | **Mitigated in code** (S0.2); existing `var/mail` copies still on disk (awaiting deletion approval) | Unit tests |
+
+New risks:
+| ID | Area | Risk | Sev | Evidence | Mitigation | Phase |
+|---|---|---|---|---|---|---|
+| R-36 | Finance / legal | Company **purge** deletes child rows even where FKs are Restrict; it likely deletes legally retained GST invoices and credit notes | High | Inferred from the purge algorithm (Phase A analysis, not executed) | Exclude financial records from purge (retain with snapshot), confirm on the isolated DB | P5 / Inventory E |
+| R-37 | Ops | Live production has no SMS or mail provider: OTP SMS and reset e-mails are not delivered; notification log records e-mail as SENT | Medium | Live `.env` names; mailer code | Configure providers (DLT, SMTP); honest delivery status | P4 |
+
 ## 3. Risk heat summary
 | Severity | Count | IDs |
 |---|---|---|
