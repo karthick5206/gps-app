@@ -1,2 +1,5 @@
 # Shell scripts run in WSL/Linux: always LF
 *.sh text eol=lf
+
+# Web fonts are binary
+*.woff2 binary
