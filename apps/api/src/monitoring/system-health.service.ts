@@ -104,13 +104,14 @@ export class SystemHealthService {
   // ── report ────────────────────────────────────────────────────────────────
 
   async collect(now = Date.now()): Promise<Collected> {
-    const [valkey, heartbeats, series, streamStats, database, host] = await Promise.all([
+    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt] = await Promise.all([
       this.valkeyInfo(),
       this.heartbeats().catch(() => [] as ProcessHeartbeat[]),
       this.series().catch(() => [] as SeriesSample[]),
       Promise.all(this.streams.map((s) => this.streamStats(s).catch(() => null))),
       this.database(),
       this.host(),
+      this.lastPersistedAt(),
     ]);
     const processes = this.processes(heartbeats, now);
     const ports = this.ports(heartbeats);
@@ -128,6 +129,7 @@ export class SystemHealthService {
       host,
       notifications: this.notificationWindow(series),
       startupGrace: now - this.startedAt < STARTUP_GRACE_MS,
+      lastPersistedAt,
     };
     const issues = evaluateChecks(input, this.thresholds);
     applyStatuses(input, issues);
@@ -360,6 +362,19 @@ export class SystemHealthService {
   }
 
   // ── stores and host ────────────────────────────────────────────────────────
+
+  /**
+   * Newest position batch committed to PostgreSQL: max(Device.lastSeenAt), which the processor writes in the same
+   * transaction as the positions (throttled to 10 s per device). Undefined when the database cannot be asked.
+   */
+  async lastPersistedAt(): Promise<number | null | undefined> {
+    try {
+      const rows = await withTimeout(this.prisma.$queryRaw<{ at: Date | null }[]>`SELECT max("lastSeenAt") AS at FROM "Device"`, TIMEOUT_MS, 'PostgreSQL');
+      return rows[0]?.at ? rows[0].at.getTime() : null;
+    } catch {
+      return undefined;
+    }
+  }
 
   async database(): Promise<DatabaseDto> {
     const dto: DatabaseDto = {

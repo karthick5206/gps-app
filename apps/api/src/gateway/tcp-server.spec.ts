@@ -8,6 +8,11 @@ import { matchUnreferencedReply, PendingCommand, TcpGatewayServer, UNREFERENCED_
 import { encodeAvlPacket, encodeCodec12, encodeImei } from './teltonika/codec';
 import { TeltonikaDecoder } from './teltonika/decoder';
 import { UnparsedLog } from './unparsed-log';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PositionPublisher } from './spool/position-publisher';
+import { PositionSpool } from './spool/position-spool';
 
 /** XADD behaviour of the fake: succeed, fail every entry, or wait for `hold` first. */
 interface XaddMode {
@@ -270,6 +275,64 @@ describe('TcpGatewayServer', () => {
     release();
     await until(() => protocols(received).length === 3);
     expect(protocols(received)).toEqual([0x01, 0x26, 0x13]);
+    socket.destroy();
+    await server.close();
+  });
+});
+
+describe('TcpGatewayServer with the durable spool (cache outage)', () => {
+  const status = { ignition: true, charging: false, oilCut: false, voltageLevel: 6, gsmSignal: 4 };
+  const protocols = (received: Buffer[]) => decodeFrames(Buffer.concat(received)).frames.map(frameProtocol);
+  let dir: string;
+  beforeEach(() => (dir = mkdtempSync(join(tmpdir(), 'vt-gw-spool-'))));
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  async function startSpooled(decoder: ProtocolDecoder<BaseSession>) {
+    const mode: XaddMode = { fail: true };
+    const fake = fakeRedis({}, mode);
+    Object.defineProperty(fake.redis, 'status', { get: () => (mode.fail ? 'reconnecting' : 'ready') });
+    const publisher = new PositionPublisher(fake.redis, new PositionSpool({ dir, maxBytes: 1024 * 1024, fsync: false }), { autoReplay: false });
+    const server = new TcpGatewayServer(decoder, { redis: fake.redis, gatewayId: 'gw-test', unparsed: new UnparsedLog({ dir: null }), publisher });
+    await server.listen(0);
+    return { server, mode, publisher, ...fake };
+  }
+
+  it('GT06: positions (incl. un-ACKed 0x22 locations) are spooled, the alarm is ACKed, and all replay in order', async () => {
+    const { server, mode, publisher, published } = await startSpooled(new Gt06Decoder() as ProtocolDecoder<BaseSession>);
+    const { socket, received } = await client(server.port!);
+    socket.write(
+      Buffer.concat([
+        encodeLogin('359647091912738', 1),
+        encodeGps22({ fix, lbs, acc: true }, 2),
+        encodeAlarm({ fix: { ...fix, time: new Date(fix.time.getTime() + 1000) }, lbs, status, alarm: 0x01 }, 3),
+        encodeHeartbeat(status, 4),
+      ]),
+    );
+    await until(() => protocols(received).length === 3);
+    expect(protocols(received)).toEqual([0x01, 0x26, 0x13]); // same replies as with a healthy cache
+    expect(server.stats.enqueueFailures).toBe(0);
+    expect(publisher.metrics()).toMatchObject({ pendingEntries: 2, notAcked: 0 });
+    expect(published).toHaveLength(0);
+    mode.fail = false;
+    while ((await publisher.replayOnce()) !== null) {
+      /* drain */
+    }
+    const toSecond = (ms: number) => new Date(Math.floor(ms / 1000) * 1000).toISOString(); // GT06 time has no milliseconds
+    expect(published.map((p) => p.fixTime)).toEqual([toSecond(fix.time.getTime()), toSecond(fix.time.getTime() + 1000)]);
+    socket.destroy();
+    await server.close();
+  });
+
+  it('Teltonika: the record ACK goes out once the records are spooled; the connection stays open', async () => {
+    const { server, publisher } = await startSpooled(new TeltonikaDecoder());
+    const { socket, received } = await client(server.port!);
+    socket.write(encodeImei('356307042441013'));
+    await until(() => Buffer.concat(received).length >= 1);
+    socket.write(encodeAvlPacket([{ timestamp: new Date(), lat: 13, lng: 80, satellites: 7, speedKph: 20, io: {} }]));
+    await until(() => Buffer.concat(received).length >= 5);
+    expect(Buffer.concat(received).subarray(1, 5)).toEqual(Buffer.from([0, 0, 0, 1]));
+    expect(socket.destroyed).toBe(false);
+    expect(publisher.metrics().pendingEntries).toBe(1);
     socket.destroy();
     await server.close();
   });

@@ -22,6 +22,10 @@ import { UnparsedLog } from './unparsed-log';
 import { RelayManager } from './relay/relay-manager';
 import { RELAY_LIMITS, relayPolicy } from '../relay/guard';
 import { watchRuleSet } from '../relay/sync';
+import { PositionSpool } from './spool/position-spool';
+import { PositionPublisher } from './spool/position-publisher';
+import { gatewayHealth, startGatewayHealthServer } from './spool/gateway-health';
+import type { Server as HttpServer } from 'node:http';
 
 const STATS_INTERVAL_MS = 30_000;
 /** A listener that failed to bind (port in use) is retried this often; System Health shows it as not listening. */
@@ -36,6 +40,11 @@ const LISTEN_RETRY_MS = 30_000;
  *   MEDIA_PORT (7612)      JT/T 1078 dashcam video streams (0 disables); MEDIA_HTTP_PORT (4110, localhost) HTTP-FLV
  *   ATTACH_PORT (7613)     Su-standard ADAS / DMS alarm attachments (photos / clips) (0 disables)
  * GATEWAY_CAPTURE =comma-separated IMEIs (or `all`) to write raw frames to var/logs/capture-<protocol>.log.
+ *
+ * Durable spool (docs/reliability/gateway-spool.md): positions that cannot be XADDed (cache down, or the processor
+ * backlog near the stream cap) are fsynced to GATEWAY_SPOOL_DIR (default var/spool/positions) and replayed in order.
+ *   GATEWAY_SPOOL=off disables it; GATEWAY_SPOOL_MAX_MB (1024) caps it; GATEWAY_SPOOL_REPLAY_PER_SEC (2000).
+ *   GATEWAY_HEALTH_PORT (4121, localhost, 0 disables): /health and /health/live for the watchdog.
  */
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -43,6 +52,36 @@ async function main(): Promise<void> {
   const gatewayId = process.env.GATEWAY_ID ?? `gw-${hostname()}-${process.pid}`;
   const redis = new Redis(env.redisUrl);
   redis.on('error', (error) => logger.error(`Valkey error: ${error.message}`));
+
+  // Positions get their own connection without an offline queue: while the cache is down an XADD fails at once (and
+  // the positions go to the spool) instead of sitting in memory and being applied late, which would duplicate them.
+  const positionsConn = new Redis(env.redisUrl, {
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+    commandTimeout: 5000,
+    retryStrategy: (times) => Math.min(250 * 2 ** Math.min(times, 5), 5000) + Math.floor(Math.random() * 250),
+  });
+  let cacheDownSince: number | null = null;
+  positionsConn.on('error', (error) => {
+    if (cacheDownSince === null) logger.error(`Valkey (positions) error: ${error.message}`);
+  });
+  positionsConn.on('close', () => {
+    if (cacheDownSince !== null) return;
+    cacheDownSince = Date.now();
+    logger.error('Cache connection for positions lost: spooling positions to disk until it is back');
+  });
+  positionsConn.on('ready', () => {
+    if (cacheDownSince !== null) logger.log(`Cache connection for positions restored after ${Math.round((Date.now() - cacheDownSince) / 1000)} s`);
+    cacheDownSince = null;
+  });
+  const spoolOn = (process.env.GATEWAY_SPOOL ?? 'on').toLowerCase() !== 'off';
+  const spoolDir = process.env.GATEWAY_SPOOL_DIR || join(APP_ROOT, 'var', 'spool', 'positions');
+  const spoolMaxMb = Number(process.env.GATEWAY_SPOOL_MAX_MB) > 0 ? Number(process.env.GATEWAY_SPOOL_MAX_MB) : 1024;
+  const spool = spoolOn ? new PositionSpool({ dir: spoolDir, maxBytes: spoolMaxMb * 1024 * 1024 }) : null;
+  const publisher = new PositionPublisher(positionsConn, spool, {
+    replayPerSec: Number(process.env.GATEWAY_SPOOL_REPLAY_PER_SEC) > 0 ? Number(process.env.GATEWAY_SPOOL_REPLAY_PER_SEC) : 2000,
+  });
+  logger.log(spool ? `Position spool at ${spoolDir} (cap ${spoolMaxMb} MB, ${spool.pending} pending)` : 'Position spool disabled (GATEWAY_SPOOL=off)');
 
   const logDir = join(APP_ROOT, 'var', 'logs');
   const unparsed = new UnparsedLog({ dir: logDir });
@@ -68,7 +107,11 @@ async function main(): Promise<void> {
   });
   const relaySub = new Redis(env.redisUrl);
   relaySub.on('error', (error) => logger.error(`Valkey (relay) error: ${error.message}`));
-  const stopRelaySync = await watchRuleSet(redis, relaySub, (set) => relay.setRules(set));
+  // Cache-dependent setup never blocks the device listeners: it retries in the background until the cache is up.
+  let stopRelaySync: () => void = () => undefined;
+  untilCacheUp(logger, "forwarding rules", async () => {
+    stopRelaySync = await watchRuleSet(redis, relaySub, (set) => relay.setRules(set));
+  });
   // Driver event photos / clips (0x0801 snapshots, alarm attachments) → var/driver-media + vt:driver-media.
   const sink = new MediaSink(redis);
   const retries: NodeJS.Timeout[] = [];
@@ -85,7 +128,7 @@ async function main(): Promise<void> {
   };
   for (const [decoder, port] of listeners) {
     if (!port) continue;
-    const server = new TcpGatewayServer(decoder, { redis, gatewayId, unparsed, capture, onMedia: (m) => sink.accept(m), relay });
+    const server = new TcpGatewayServer(decoder, { redis, gatewayId, unparsed, capture, onMedia: (m) => sink.accept(m), relay, publisher });
     servers.push(server);
     await listen(server, port);
   }
@@ -122,7 +165,7 @@ async function main(): Promise<void> {
       .exec()
       .catch((error: Error) => logger.error(`Command re-queue failed: ${error.message}`));
   });
-  await commands.subscribe(RedisKeys.commandChannel(gatewayId));
+  untilCacheUp(logger, "command channel", () => commands.subscribe(RedisKeys.commandChannel(gatewayId)));
 
   // JT/T 1078 dashcam video: media TCP (public) + HTTP-FLV on localhost for the API proxy; signalling over JT808.
   let media: MediaServer | null = null;
@@ -142,7 +185,8 @@ async function main(): Promise<void> {
     await media.listen(env.mediaPort, env.mediaHttpPort);
     videoSub = new Redis(env.redisUrl);
     videoSub.on('error', (error) => logger.error(`Valkey (video) error: ${error.message}`));
-    await control.subscribe(videoSub, redis, gatewayId);
+    const vs = videoSub;
+    untilCacheUp(logger, "video channel", () => control!.subscribe(vs, redis, gatewayId));
     logger.log(`JT/T 1078 media on tcp://0.0.0.0:${env.mediaPort} (devices → ${env.mediaPublicHost}), HTTP-FLV on http://127.0.0.1:${env.mediaHttpPort}, max ${env.mediaMaxStreams} streams`);
   }
 
@@ -152,7 +196,9 @@ async function main(): Promise<void> {
   if (jt808) {
     snapSub = new Redis(env.redisUrl);
     snapSub.on('error', (error) => logger.error(`Valkey (snapshots) error: ${error.message}`));
-    await new SnapshotControl(jt808).subscribe(snapSub, gatewayId);
+    const snapshots = new SnapshotControl(jt808);
+    const ss = snapSub;
+    untilCacheUp(logger, "snapshot channel", () => snapshots.subscribe(ss, gatewayId));
     if (env.attachPort) {
       attachments = new AttachmentServer({
         zoneOf: (id) => (jt808.sessionOf(id) as Jt808Session | null)?.clockZone ?? null,
@@ -201,7 +247,41 @@ async function main(): Promise<void> {
       };
     }),
     relay: relay.snapshot(),
+    spool: publisher.metrics(),
   }));
+
+  // Local health for the watchdog (works while the cache, and so the heartbeat, is down).
+  let lastNotAcked = 0;
+  let lastNotAckedAt: number | null = null;
+  const readHealth = () => {
+    const spoolMetrics = publisher.metrics();
+    if (spoolMetrics.notAcked > lastNotAcked) {
+      lastNotAcked = spoolMetrics.notAcked;
+      lastNotAckedAt = Date.now();
+    }
+    return gatewayHealth({
+      listeners: servers.map((s) => ({ protocol: s.protocol, port: s.configuredPort ?? 0, listening: s.listening, connections: s.stats.connections })),
+      spool: spoolMetrics,
+      lastNotAckedAt,
+      now: Date.now(),
+    });
+  };
+  const healthPort = Number(process.env.GATEWAY_HEALTH_PORT ?? 4121);
+  let healthServer: HttpServer | null = null;
+  if (healthPort > 0) {
+    healthServer = await startGatewayHealthServer(healthPort, readHealth).catch((error: Error) => {
+      logger.error(`Gateway health endpoint could not listen on 127.0.0.1:${healthPort}: ${error.message}`);
+      return null;
+    });
+    if (healthServer) logger.log(`Gateway health on http://127.0.0.1:${healthPort}/health`);
+  }
+  const spoolLog = setInterval(() => {
+    const m = publisher.metrics();
+    if (m.mode !== 'direct' && m.mode !== 'disabled') {
+      logger.warn(`[spool] mode=${m.mode} pending=${m.pendingEntries} spooled=${m.spooled} replayed=${m.replayed} rejected=${m.rejected} notAcked=${m.notAcked}`);
+    }
+  }, STATS_INTERVAL_MS);
+  spoolLog.unref();
 
   const shutdown = async () => {
     clearInterval(timer);
@@ -215,12 +295,37 @@ async function main(): Promise<void> {
     relay.closeAll();
     await relaySub.quit().catch(() => undefined);
     await Promise.all(servers.map((s) => s.close()));
+    clearInterval(spoolLog);
+    healthServer?.close();
+    // Flushes appends still waiting for their group commit; anything unreplayed stays on disk for the next start.
+    publisher.close();
     await commands.quit().catch(() => undefined);
-    await redis.quit();
+    await positionsConn.quit().catch(() => undefined);
+    await redis.quit().catch(() => undefined);
     process.exit(0);
   };
   process.once('SIGINT', () => void shutdown());
   process.once('SIGTERM', () => void shutdown());
+}
+
+/**
+ * Runs a cache-dependent setup step without blocking startup: on failure (cache down at start) it is retried every
+ * 5 s. ioredis re-subscribes channels by itself after later reconnects.
+ */
+function untilCacheUp(logger: Logger, label: string, step: () => Promise<unknown>): void {
+  let failures = 0;
+  const attempt = () => {
+    step().then(
+      () => {
+        if (failures) logger.log(`${label}: ready after ${failures} failed attempt(s)`);
+      },
+      (error: Error) => {
+        if (failures++ === 0) logger.warn(`${label}: cache not available (${error.message}); retrying every 5 s`);
+        setTimeout(attempt, 5000).unref();
+      },
+    );
+  };
+  attempt();
 }
 
 void main();

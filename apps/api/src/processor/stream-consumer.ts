@@ -37,12 +37,13 @@ export function isConnectivityError(error: unknown): boolean {
 
 type RawEntry = [id: string, fields: string[] | null];
 
-function toEntries(raw: RawEntry[]): StreamEntry[] {
+export function toEntries(raw: RawEntry[]): StreamEntry[] {
   return raw.map(([id, fields]) => {
     const entry: StreamEntry = { id, data: null, remote: null };
     for (let i = 0; fields && i < fields.length; i += 2) {
       if (fields[i] === 'data') entry.data = fields[i + 1];
       else if (fields[i] === 'remote') entry.remote = fields[i + 1];
+      else if (fields[i] === 'mid') entry.mid = fields[i + 1];
     }
     return entry;
   });
@@ -90,6 +91,7 @@ export class StreamConsumer {
       backoffMs: retryDelayMs(this.failures),
       pending: this.lastPending,
       lag: this.lastLag,
+      duplicates: this.processor.duplicates,
     };
   }
 

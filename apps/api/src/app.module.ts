@@ -6,7 +6,6 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { AppConfigModule } from './config/config.module';
 import { GeocodingModule } from './geocoding/geocoding.module';
-import { HealthController } from './health.controller';
 import { HistoryModule } from './history/history.module';
 import { RoutingModule } from './routing/routing.module';
 import { MapsModule } from './maps/maps.module';
@@ -107,6 +106,5 @@ import { SimsModule } from './sims/sims.module';
     PublicApiModule,
     MonitoringModule,
   ],
-  controllers: [HealthController],
 })
 export class AppModule {}
