@@ -15,6 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { named, useEntityOptions } from '@/features/masters/use-options';
 import { api, errorMessage } from '@/lib/api';
+import { RegisterLinkCard } from './RegisterLink';
 import { rupees, toPaise, toRupeesText, usePartners, useStockItems, useStockRefresh, useSuppliers } from './stock-api';
 
 /** Platform setup: items (prices, HSN, GST, reorder level), special prices for resellers / customers, suppliers. */
@@ -39,6 +40,7 @@ export function SetupTab() {
   });
   return (
     <div className="space-y-4">
+      <RegisterLinkCard />
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-[15px] font-bold">{t('Items')}</h3>

@@ -12,6 +12,7 @@ import { LicenceSettingsService } from '../licences/licence-settings.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockDashboardService } from './stock-dashboard.service';
 import { StockInvoicesService } from './stock-invoices.service';
+import { InventoryLinkService } from './inventory-link.service';
 import { StockService } from './stock.service';
 
 jest.setTimeout(60_000);
@@ -30,7 +31,8 @@ const devices = {
   },
 };
 const audit = new AuditService(prisma);
-const stock = new StockService(prisma, audit, devices as never);
+const link = new InventoryLinkService(prisma);
+const stock = new StockService(prisma, audit, devices as never, link);
 const invoices = new StockInvoicesService(prisma, audit, new LicenceSettingsService(prisma), stock);
 const board = new StockDashboardService(prisma, stock);
 
@@ -188,5 +190,49 @@ describe('stock flow on a real database', () => {
     expect((await stock.getDoc(platform, poId))).toMatchObject({ status: 'DONE', pending: [] });
     await stock.saveDoc(platform, g2.id, { ...g2, status: 'CANCELLED', lines: g2.lines });
     expect((await stock.getDoc(platform, poId)).status).toBe('PARTIAL');
+  });
+});
+
+describe('one stock register: Purchases & sales keeps Stock & movements in step', () => {
+  const register = async (imei: string) => {
+    const d = await prisma.device.findUniqueOrThrow({ where: { uniqueId: imei }, include: { stock: { include: { location: true } } } });
+    const moves = await prisma.stockMovement.findMany({ where: { deviceId: d.id }, orderBy: { at: 'asc' } });
+    return { status: d.stock?.status, location: d.stock?.location?.name ?? null, holder: d.stock?.holderPartnerId ?? null, kinds: moves.map((m) => m.kind), moves };
+  };
+
+  it('every tracker document is mirrored with movements that name the document', async () => {
+    const a = await register('866101');
+    // received → sold to AGP → sale edited (back) → dispatched to the reseller → reseller sold it to a walk-in buyer
+    expect(a.kinds).toEqual(['RECEIVE', 'SYNC', 'SYNC', 'TRANSFER', 'STATUS']);
+    expect(a.status).toBe('RETIRED');
+    expect(a.moves[3]).toMatchObject({ toHolderPartnerId: partnerId });
+    expect(a.moves[0].reference).toMatch(/^StockDoc:GRN\//);
+    expect(a.moves[1]).toMatchObject({ toStatus: 'ASSIGNED', companyId: customerId });
+    expect(await register('866102')).toMatchObject({ status: 'FAULTY', location: 'Damaged shelf' });
+    expect(await register('866103')).toMatchObject({ status: 'RETURNED', location: 'Returned to supplier' });
+  });
+
+  it('the receipt, its supplier and the stores appear in Stock & movements', async () => {
+    const r = await prisma.stockReceipt.findFirstOrThrow({ where: { note: { startsWith: 'From Stock & sales GRN/' } }, include: { supplier: true, location: true } });
+    expect(r).toMatchObject({ supplierInvoiceNo: 'CX-778', itemCount: 3, supplier: { name: 'Concox India' }, location: { name: 'Main store', kind: 'WAREHOUSE' } });
+    expect(await prisma.stockLocation.findFirst({ where: { ownerPartnerId: partnerId, kind: 'PARTNER' } })).not.toBeNull();
+    expect(await prisma.deviceStock.count({ where: { receiptId: r.id } })).toBe(3);
+  });
+
+  it('a sale can use a tracker received only in Stock & movements (brought into the store first)', async () => {
+    const model = await prisma.deviceModel.findFirstOrThrow();
+    const main = (await stock.locations(platform)).find((l) => l.name === 'Main store')!;
+    const mainLoc = (await prisma.stockStore.findUniqueOrThrow({ where: { id: main.id } })).inventoryLocationId!;
+    const dev = await prisma.device.create({ data: { modelId: model.id, uniqueId: '866200', ingestToken: 't-866200' } });
+    await prisma.deviceStock.create({ data: { deviceId: dev.id, status: 'IN_STOCK', locationId: mainLoc } });
+    expect(await stock.availableSerials(platform, gt06, main.id, 'IN_STOCK')).toContain('866200');
+    await stock.saveDoc(platform, null, doc({ kind: 'SALE', saleTo: 'CUSTOMER', customerCompanyId: customerId, customerName: 'AGP City Gas', customerStateCode: '33', lines: [line(gt06, 0, ['866200'], 250000)] }));
+    const adj = (await stock.listDocs(platform, { kind: 'ADJUSTMENT' })).find((d) => d.reason.startsWith('Brought in from Stock & movements'));
+    expect(adj?.lines[0].serials).toEqual(['866200']);
+    expect(await register('866200')).toMatchObject({ status: 'ASSIGNED', kinds: ['SYNC'] });
+  });
+
+  it('a check finds nothing left to fix', async () => {
+    expect((await stock.syncRegister(platform, true)).changes).toEqual([]);
   });
 });

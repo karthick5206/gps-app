@@ -28,6 +28,7 @@ import { AuditService } from '../audit/audit.service';
 import { APP_ROOT } from '../config/env';
 import { AdminDevicesService } from '../masters/admin-devices/admin-devices.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { InventoryLinkService, type LinkResult } from './inventory-link.service';
 import { checkMoves, cleanSerials, fyOf, lineQty, PLAN_ONLY, planMoves, planStatus, type PlannedMove, type SerialNow } from './stock-logic';
 
 /*
@@ -36,6 +37,10 @@ import { checkMoves, cleanSerials, fyOf, lineQty, PLAN_ONLY, planMoves, planStat
  * are really there; IMEI rows follow their latest move. Received trackers appear in Device Inventory; a tracker sold
  * to a customer company is assigned to it, and one returned goes back to stock (through AdminDevicesService, so seats,
  * object links and the audit trail behave exactly as when done by hand).
+ *
+ * One stock register: trackers are also kept in Stock & movements (Device Inventory). After every save, each touched
+ * tracker gets the matching status / place there with one movement naming the document (InventoryLinkService), and a
+ * sale may use trackers received in Stock & movements (they are first brought into the store by an adjustment).
  *
  * Who: the platform (Super Admin) sees everything; a reseller (partner) sees its own documents, sales made to it, and
  * its own store. Other companies get 403.
@@ -75,6 +80,7 @@ export class StockService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly devices: AdminDevicesService,
+    private readonly link: InventoryLinkService,
   ) {}
 
   // ───────────── who ─────────────
@@ -320,6 +326,7 @@ export class StockService {
     if (kind === 'SALE' && saleTo === 'PARTNER' && (!input.customerPartnerId || s.kind !== 'PLATFORM')) throw new BadRequestException('Choose the reseller (only the platform sells to resellers)');
     if ((kind === 'RECEIPT' || kind === 'PURCHASE_RETURN') && s.kind === 'PLATFORM' && !input.supplierId && !input.sourceId) throw new BadRequestException('Choose the supplier');
     const totalPaise = lines.reduce((t, l) => t + Math.abs(l.qty) * l.ratePaise, 0);
+    if (kind === 'SALE' && status === 'DONE' && s.kind === 'PLATFORM') await this.bringInFromRegister(ctx, input, lines, items, before?.id ?? null);
 
     const result = await this.prisma.$transaction(
       async (tx) => {
@@ -400,7 +407,39 @@ export class StockService {
     );
     await this.audit.record(ctx, { action: id ? 'UPDATE' : 'CREATE', entity: 'StockDoc', entityId: result.doc.id, before: before ? this.auditView(before) : undefined, after: { number: result.doc.number, status, lines: lines.map((l) => ({ itemId: l.itemId, qty: l.qty, serials: l.serials })) } });
     await this.syncDevices(ctx, result.touched);
+    await this.link.reconcile(ctx, result.touched);
     return this.getDoc(ctx, result.doc.id);
+  }
+
+  /**
+   * A sale of trackers that are in stock in Stock & movements but were never received in Purchases & sales (received
+   * there, or before this module): bring them into the selling store first with one adjustment, so the sale can take
+   * them. Their place in Stock & movements then follows the sale like any other tracker.
+   */
+  private async bringInFromRegister(ctx: AuthContext, input: StockDocInput, lines: { itemId: string; serials: string[] }[], items: Map<string, { id: string; kind: string; deviceModelId: string | null }>, editingId: string | null): Promise<void> {
+    const bring: { itemId: string; serials: string[] }[] = [];
+    for (const l of lines) {
+      const item = items.get(l.itemId);
+      if (item?.kind !== 'DEVICE' || !item.deviceModelId || !l.serials.length) continue;
+      // IMEIs this sale already holds (when editing it) are known to Purchases & sales: onlyInRegister skips them.
+      const extra = await this.link.onlyInRegister(item.deviceModelId, l.serials);
+      if (extra.length) bring.push({ itemId: l.itemId, serials: extra });
+    }
+    if (!bring.length) return;
+    await this.saveDoc(ctx, null, {
+      kind: 'ADJUSTMENT',
+      status: 'DONE',
+      docDate: input.docDate,
+      locationId: input.locationId ?? null,
+      reason: `Brought in from Stock & movements for a sale${editingId ? ' (edited)' : ''}: already in stock there`,
+      lines: bring.map((b) => ({ itemId: b.itemId, qty: b.serials.length, ratePaise: 0, serials: b.serials })) as StockDocInput['lines'],
+    });
+  }
+
+  /** Super Admin: check (dry run) or repair the tracker states in Stock & movements from Purchases & sales. */
+  async syncRegister(ctx: AuthContext, dryRun: boolean): Promise<{ checked: number; changes: LinkResult[] }> {
+    await this.platformOnly(ctx);
+    return this.link.syncAll(ctx, dryRun);
   }
 
   /** Allowed statuses: plans (PO / order) are DRAFT, OPEN or CANCELLED (PARTIAL / DONE follow their receipts / sales). */
@@ -558,7 +597,13 @@ export class StockService {
     const where: Prisma.StockSerialWhereInput = { itemId, status };
     if (status !== 'SOLD') where.locationId = await this.locationAllowed(s, locationId);
     const rows = await this.prisma.stockSerial.findMany({ where, select: { serial: true }, orderBy: { serial: 'asc' }, take: 2000 });
-    return rows.map((r) => r.serial);
+    const out = rows.map((r) => r.serial);
+    // Platform sales may also pick trackers received in Stock & movements at this store's place (brought in on save).
+    if (s.kind === 'PLATFORM' && status === 'IN_STOCK' && where.locationId) {
+      const item = await this.prisma.stockItem.findUnique({ where: { id: itemId }, select: { kind: true, deviceModelId: true } });
+      if (item?.kind === 'DEVICE' && item.deviceModelId) out.push(...(await this.link.registerOnlyAt(item.deviceModelId, where.locationId as string)));
+    }
+    return [...new Set(out)].sort();
   }
 
   async serial(ctx: AuthContext, serialRaw: string): Promise<StockSerialDto[]> {

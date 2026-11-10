@@ -92,7 +92,7 @@ export const GROUP_LABELS: Record<MenuGroup, string> = {
   costs: 'Costs & Reports',
   masters: 'Masters',
   alerting: 'Alert Management',
-  stock: 'Stock & sales',
+  stock: 'Purchases & sales',
   admin: 'Administration',
   platform: 'Platform',
 };

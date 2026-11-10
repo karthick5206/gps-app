@@ -18,7 +18,7 @@ import { SetupTab } from './SetupTab';
 import { rupees, STATUS_LABEL, STATUS_TONE, useStockDocs, useStockSide } from './stock-api';
 
 /*
- * Stock & sales: one page, simple tabs. Dashboard (what needs attention), Purchases (orders to suppliers, goods
+ * Purchases & sales (trackers are also kept in Stock & movements, the one stock register): one page, simple tabs. Dashboard (what needs attention), Purchases (orders to suppliers, goods
  * received, returns to suppliers), Sales (customer orders, sales), Returns (customer returns), Stock (on hand, IMEI
  * history, adjustments) and Setup (items, prices, suppliers; platform only). Every document opens in the same form.
  */
@@ -29,7 +29,7 @@ export function StockPage() {
   const [target, setTarget] = useState<EditorTarget | null>(null);
   return (
     <div className="space-y-4 p-4 sm:p-6">
-      <PageHeader title={t('Stock & sales')} description={t('Buy, receive, sell and return trackers, SIMs and accessories. Stock updates by itself.')} />
+      <PageHeader title={t('Purchases & sales')} description={t('Buy, receive, sell and return trackers, SIMs and accessories, with invoices. Trackers also update Stock & movements by themselves.')} />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap">
           <TabsTrigger value="dashboard">{t('Dashboard')}</TabsTrigger>

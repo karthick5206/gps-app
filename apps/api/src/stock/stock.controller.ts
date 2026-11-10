@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Query, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Query, StreamableFile, UploadedFile, UseInterceptors, HttpCode } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   STOCK_DOC_KINDS,
@@ -256,6 +256,12 @@ export class StockController {
   @Get('available') @RequirePermission('stock', 'view')
   available(@Auth() ctx: AuthContext, @Query() q: SerialsQuery): Promise<string[]> {
     return this.stock.availableSerials(ctx, q.itemId, q.locationId ?? null, q.status);
+  }
+
+  /** Super Admin: compare (dryRun=true, nothing written) or bring Stock & movements in step with Purchases & sales. */
+  @Post('sync-inventory') @HttpCode(200) @RequirePermission('stock', 'edit')
+  syncInventory(@Auth() ctx: AuthContext, @Query('dryRun') dryRun?: string) {
+    return this.stock.syncRegister(ctx, dryRun !== 'false');
   }
 
   @Get('serials/:serial') @RequirePermission('stock', 'view')
