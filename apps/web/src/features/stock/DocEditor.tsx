@@ -14,6 +14,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { named, useEntityOptions } from '@/features/masters/use-options';
 import { api, errorMessage, fetchBlob } from '@/lib/api';
 import { rupees, STATUS_LABEL, STATUS_TONE, today, toPaise, toRupeesText, usePartners, useStockItems, useStockLocations, useStockRefresh, useStockSide, useSuppliers } from './stock-api';
+import { SupplierBillPanel } from './SupplierBill';
 
 /*
  * One form for every stock step. What it shows depends on the kind: purchase order (supplier, items, quantities),
@@ -548,6 +549,7 @@ function DocExtras({ doc, platform, act, onOpen, reseller }: { doc: StockDocDto;
           </label>
         </div>
       )}
+      {platform && doc.supplierBill && <SupplierBillPanel doc={doc} act={act} />}
       {platform && (doc.kind === 'SALE' || doc.kind === 'SALES_RETURN') && doc.status === 'DONE' && doc.saleTo !== 'OWN' && !doc.partnerId && (
         <div className="flex flex-wrap items-center gap-2">
           {doc.invoice ? (

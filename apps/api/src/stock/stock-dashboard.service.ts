@@ -111,6 +111,7 @@ export class StockDashboardService {
     // Unpaid invoices of this side only (a reseller: invoices on sales it made).
     const mine = scope.kind === 'PARTNER' ? new Set((await this.prisma.stockDoc.findMany({ where: { id: { in: invoices.map((i) => i.docId) }, partnerId: scope.partnerId }, select: { id: true } })).map((d) => d.id)) : null;
     const unpaid = invoices.filter((i) => !mine || mine.has(i.docId));
+    const dues = scope.kind === 'PLATFORM' ? await this.stock.openSupplierBills() : [];
 
     return {
       generatedAt: new Date().toISOString(),
@@ -122,6 +123,13 @@ export class StockDashboardService {
       receivedUnitsMonth: units('RECEIPT'),
       resellerOrdersOpen: resellerOrders,
       unpaidInvoices: { count: unpaid.length, amountPaise: unpaid.reduce((t, i) => t + i.totalPaise - i.paidPaise, 0) },
+      supplierDues: {
+        count: dues.length,
+        duePaise: dues.reduce((t, d) => t + d.duePaise, 0),
+        overdueCount: dues.filter((d) => d.overdue).length,
+        overduePaise: dues.filter((d) => d.overdue).reduce((t, d) => t + d.duePaise, 0),
+        bills: dues.slice(0, 10),
+      },
       lowStock,
       openPurchaseOrders,
       salesByDay: [...byDay.entries()].map(([day, v]) => ({ day, ...v })),

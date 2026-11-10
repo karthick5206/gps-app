@@ -1,4 +1,4 @@
-import { checkMoves, cleanSerials, fyOf, planMoves, planStatus, type PlanLine, type SerialNow } from './stock-logic';
+import { checkMoves, cleanSerials, fyOf, planMoves, planStatus, type PlanLine, type SerialNow, supplierBill } from './stock-logic';
 
 const STORE = 'store';
 const DAMAGED = 'damaged';
@@ -87,5 +87,21 @@ describe('planStatus and fyOf', () => {
     expect(fyOf('2026-11-09')).toBe('26-27');
     expect(fyOf('2027-03-31')).toBe('26-27');
     expect(fyOf('2027-04-01')).toBe('27-28');
+  });
+});
+
+describe('supplier bill', () => {
+  const base = { billPaise: 100000, returnsPaise: 0, paidPaise: 0, billDate: '2026-11-01', termsDays: 30, today: '2026-11-10' };
+  it('unpaid, due after the payment terms', () => {
+    expect(supplierBill(base)).toMatchObject({ duePaise: 100000, status: 'UNPAID', dueDate: '2026-12-01', overdue: false });
+  });
+  it('part paid, then paid; returns reduce what is owed', () => {
+    expect(supplierBill({ ...base, paidPaise: 40000 })).toMatchObject({ duePaise: 60000, status: 'PART' });
+    expect(supplierBill({ ...base, paidPaise: 60000, returnsPaise: 40000 })).toMatchObject({ duePaise: 0, status: 'PAID' });
+  });
+  it('overdue only while something is due', () => {
+    expect(supplierBill({ ...base, today: '2026-12-02' }).overdue).toBe(true);
+    expect(supplierBill({ ...base, today: '2026-12-02', paidPaise: 100000 }).overdue).toBe(false);
+    expect(supplierBill({ ...base, termsDays: 0 }).dueDate).toBe('2026-11-01');
   });
 });

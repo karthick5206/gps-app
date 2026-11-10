@@ -2370,6 +2370,8 @@ model StockSupplier {
   notes       String   @default("")
   /// Days from order to delivery (expected arrival of a PO = PO date + this).
   leadTimeDays Int     @default(7)
+  /// Days after the supplier's invoice date the bill is due (overdue after that).
+  paymentTermsDays Int @default(30)
   isActive    Boolean  @default(true)
   /// The same supplier in Stock & movements (filled on first use; receipts are recorded there too).
   inventorySupplierId String? @db.Uuid
@@ -2377,6 +2379,7 @@ model StockSupplier {
   updatedAt   DateTime @updatedAt
 
   docs              StockDoc[]
+  payments          StockSupplierPayment[]
   inventorySupplier Supplier? @relation(fields: [inventorySupplierId], references: [id], onDelete: SetNull)
 }
 
@@ -2448,6 +2451,7 @@ model StockDoc {
   supplier         StockSupplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   inventoryReceipt StockReceipt?  @relation(fields: [inventoryReceiptId], references: [id], onDelete: SetNull)
   lines    StockDocLine[]
+  supplierPayments StockSupplierPayment[]
   files    StockFile[]
   moves    StockMove[]
 
@@ -2478,6 +2482,30 @@ model StockDocLine {
 }
 
 /// One IMEI / SIM number and where it is now.
+/// A payment made to a supplier against a goods received note (its supplier invoice). Several per bill (advance,
+/// balance…). Money record: a GRN with payments can not be deleted.
+model StockSupplierPayment {
+  id          String   @id @default(uuid()) @db.Uuid
+  docId       String   @db.Uuid
+  supplierId  String   @db.Uuid
+  /// YYYY-MM-DD (India).
+  paidOn      String
+  amountPaise Int
+  /// UPI | BANK | CASH | CHEQUE | CARD
+  mode        String
+  /// UTR / cheque no. / transaction id.
+  reference   String   @default("")
+  note        String   @default("")
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  doc      StockDoc      @relation(fields: [docId], references: [id], onDelete: Restrict)
+  supplier StockSupplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+
+  @@index([docId])
+  @@index([supplierId, paidOn])
+}
+
 model StockSerial {
   id                String   @id @default(uuid()) @db.Uuid
   itemId            String   @db.Uuid

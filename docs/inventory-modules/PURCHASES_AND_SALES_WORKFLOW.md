@@ -47,7 +47,14 @@ flowchart LR
    - **Stock & movements** shows each tracker *In stock* at the matching place (*Main store*, or *Damaged shelf* as *Faulty*), with a *Receive* movement that names the document (e.g. `GRN/26-27/0004`);
    - the receipt appears in **Stock & movements → Receipts** with the supplier and the supplier's invoice number;
    - the supplier is added to **Stock & movements → Suppliers** if it was not there.
-4. Sending a bad unit back: **New return to supplier**. The tracker becomes *Returned* at *Returned to supplier* in Stock & movements.
+4. Sending a bad unit back: **Return to supplier** (from the goods received note). The tracker becomes *Returned* at *Returned to supplier* in Stock & movements, and its value is taken off what you owe that supplier.
+
+### 2.1a Paying the supplier
+1. Open the goods received note. The **Payment to supplier** box shows the bill (the supplier invoice amount you typed, otherwise the receipt total), returns made from this receipt, what is already paid, and what is **due by** the due date. The due date is the supplier invoice date plus the supplier's **Payment terms (days)**, set in Items & suppliers (default 30).
+2. Press **Record payment**: enter the date, the amount (pre-filled with the balance), how it was paid (UPI, bank transfer, cash, cheque, card) and the UTR or cheque number. Save. Pay in parts if you like (an advance, then the balance). Each part is listed with who recorded it.
+3. The status becomes **Part paid**, then **Paid**. After the due date an unpaid balance shows as **Overdue**.
+4. **Dashboard**: the **To pay suppliers** tile (total due, how many bills are overdue) and the **Supplier bills to pay** list (overdue first; **Pay** opens the receipt). The Purchases list shows each receipt's payment status.
+5. A payment entered by mistake can be removed (the bin icon). The removal stays in the audit log. A receipt with payments cannot be cancelled or deleted: record a return to the supplier instead.
 
 ### 2.2 Selling trackers
 1. (Optional) **Sales → New order** when a customer or reseller asks; a reseller's own order arrives in the platform's inbox.

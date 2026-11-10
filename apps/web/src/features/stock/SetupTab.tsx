@@ -103,7 +103,7 @@ export function SetupTab() {
       <Card className="gap-3 p-4">
         <div className="flex items-center justify-between">
           <h3 className="text-[15px] font-bold">{t('Suppliers')}</h3>
-          <Button onClick={() => setSupplier({ isActive: true, leadTimeDays: 7, stateCode: '', name: '' })}>
+          <Button onClick={() => setSupplier({ isActive: true, leadTimeDays: 7, paymentTermsDays: 30, stateCode: '', name: '' })}>
             <PlusIcon /> {t('Add supplier')}
           </Button>
         </div>
@@ -114,6 +114,7 @@ export function SetupTab() {
               <TableHead>{t('Contact')}</TableHead>
               <TableHead>{t('GSTIN')}</TableHead>
               <TableHead className="text-end">{t('Lead time')}</TableHead>
+              <TableHead className="text-end">{t('Pay within')}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -124,6 +125,7 @@ export function SetupTab() {
                 <TableCell>{[s.contactName, s.phone, s.email].filter(Boolean).join(' · ')}</TableCell>
                 <TableCell>{s.gstin ?? '—'}</TableCell>
                 <TableCell className="text-end tabular-nums">{t('{{n}} days', { n: s.leadTimeDays })}</TableCell>
+                <TableCell className="text-end tabular-nums">{t('{{n}} days', { n: s.paymentTermsDays })}</TableCell>
                 <TableCell className="text-end">
                   <Button size="sm" variant="ghost" onClick={() => setSupplier(s)}>
                     {t('Edit')}
@@ -252,7 +254,7 @@ function SupplierDialog({ supplier, onClose }: { supplier: Partial<StockSupplier
   const set = (p: Partial<StockSupplierDto>) => setF((x) => ({ ...x, ...p }));
   const save = useMutation({
     mutationFn: () => {
-      const body = { name: f.name ?? '', gstin: f.gstin ?? null, stateCode: f.stateCode ?? '', address: f.address ?? '', city: f.city ?? '', pin: f.pin ?? '', contactName: f.contactName ?? '', phone: f.phone ?? '', email: f.email ?? '', notes: f.notes ?? '', leadTimeDays: Number(f.leadTimeDays ?? 7), isActive: f.isActive ?? true };
+      const body = { name: f.name ?? '', gstin: f.gstin ?? null, stateCode: f.stateCode ?? '', address: f.address ?? '', city: f.city ?? '', pin: f.pin ?? '', contactName: f.contactName ?? '', phone: f.phone ?? '', email: f.email ?? '', notes: f.notes ?? '', leadTimeDays: Number(f.leadTimeDays ?? 7), paymentTermsDays: Number(f.paymentTermsDays ?? 30), isActive: f.isActive ?? true };
       return supplier.id ? api.put(`/stock/suppliers/${supplier.id}`, body) : api.post('/stock/suppliers', body);
     },
     onSuccess: () => {
@@ -298,6 +300,9 @@ function SupplierDialog({ supplier, onClose }: { supplier: Partial<StockSupplier
           </Field>
           <Field label={t('Lead time (days)')} htmlFor="sp-lt" hint={t('Order to delivery; used for expected arrival.')}>
             <Input id="sp-lt" type="number" value={f.leadTimeDays ?? 7} onChange={(e) => set({ leadTimeDays: Number(e.target.value) })} />
+          </Field>
+          <Field label={t('Payment terms (days)')} htmlFor="sp-pt" hint={t('Days after the supplier invoice date the bill is due; overdue after that.')}>
+            <Input id="sp-pt" type="number" value={f.paymentTermsDays ?? 30} onChange={(e) => set({ paymentTermsDays: Number(e.target.value) })} />
           </Field>
           <Field label={t('Notes')} htmlFor="sp-no" className="sm:col-span-2">
             <Textarea id="sp-no" rows={2} value={f.notes ?? ''} onChange={(e) => set({ notes: e.target.value })} />

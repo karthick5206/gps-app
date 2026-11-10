@@ -89,7 +89,50 @@ export interface StockSupplierDto {
   notes: string;
   /** Days from order to delivery. */
   leadTimeDays: number;
+  /** Days after the supplier's invoice date its bill is due. */
+  paymentTermsDays: number;
   isActive: boolean;
+}
+
+/** How a supplier was paid. */
+export const SUPPLIER_PAYMENT_MODES = ['UPI', 'BANK', 'CASH', 'CHEQUE', 'CARD'] as const;
+export type SupplierPaymentMode = (typeof SUPPLIER_PAYMENT_MODES)[number];
+export const SUPPLIER_PAYMENT_MODE_LABEL: Record<SupplierPaymentMode, string> = { UPI: 'UPI', BANK: 'Bank transfer', CASH: 'Cash', CHEQUE: 'Cheque', CARD: 'Card' };
+
+export interface StockSupplierPaymentDto {
+  id: string;
+  paidOn: string;
+  amountPaise: number;
+  mode: SupplierPaymentMode;
+  reference: string;
+  note: string;
+  createdByName: string | null;
+  createdAt: string;
+}
+
+export type SupplierBillStatus = 'UNPAID' | 'PART' | 'PAID';
+
+/** What is owed to the supplier for one goods received note. */
+export interface StockSupplierBillDto {
+  /** The supplier's invoice amount (else the document total). */
+  amountPaise: number;
+  /** Returns to the supplier made from this receipt (less to pay). */
+  returnsPaise: number;
+  paidPaise: number;
+  duePaise: number;
+  /** Supplier's invoice date (else receipt date) + the supplier's payment terms. */
+  dueDate: string;
+  status: SupplierBillStatus;
+  overdue: boolean;
+  payments: StockSupplierPaymentDto[];
+}
+
+export interface SupplierPaymentInput {
+  paidOn: string;
+  amountPaise: number;
+  mode: SupplierPaymentMode;
+  reference?: string;
+  note?: string;
 }
 
 export interface StockStoreDto {
@@ -159,6 +202,8 @@ export interface StockDocDto {
   /** Documents that follow this one (receipts of a PO, sales of an order, returns). */
   followUps: { id: string; kind: StockDocKind; number: string; status: StockDocStatus; docDate: string }[];
   invoice: { id: string; kind: 'INVOICE' | 'CREDIT_NOTE'; number: string; totalPaise: number; paymentStatus: string } | null;
+  /** Goods received (platform): the supplier's bill and its payments. */
+  supplierBill: StockSupplierBillDto | null;
   /** PO / ORDER: quantity still to receive / dispatch per item. */
   pending: { itemId: string; itemName: string; qty: number }[];
   createdByName: string | null;
@@ -236,6 +281,14 @@ export interface StockDashboardDto {
   /** Platform: open POs resellers raised to VeeTrax. */
   resellerOrdersOpen: number;
   unpaidInvoices: { count: number; amountPaise: number };
+  /** Platform: supplier bills not fully paid, overdue first. */
+  supplierDues: {
+    count: number;
+    duePaise: number;
+    overdueCount: number;
+    overduePaise: number;
+    bills: { docId: string; number: string; supplierName: string; supplierInvoiceNo: string; duePaise: number; dueDate: string; overdue: boolean }[];
+  };
   /** At or below the reorder level, most urgent first. */
   lowStock: {
     itemId: string;

@@ -65,7 +65,7 @@ beforeAll(async () => {
 
   gt06 = (await stock.saveItem(platform, null, { name: 'Concox GT06N', kind: 'DEVICE', deviceModelId: model.id, sku: null, hsnCode: '8526', gstRatePct: 18, unit: 'pcs', serialTracked: true, salePricePaise: 250000, purchasePricePaise: 150000, lowStockAt: null, reorderQty: null, isActive: true })).id;
   relay = (await stock.saveItem(platform, null, { name: 'Relay', kind: 'ACCESSORY', deviceModelId: null, sku: null, hsnCode: '8536', gstRatePct: 18, unit: 'pcs', serialTracked: false, salePricePaise: 30000, purchasePricePaise: 15000, lowStockAt: 3, reorderQty: 10, isActive: true })).id;
-  supplierId = (await stock.saveSupplier(platform, null, { name: 'Concox India', gstin: null, stateCode: '29', address: '', city: 'Bengaluru', pin: '', contactName: '', phone: '', email: '', notes: '', leadTimeDays: 5, isActive: true })).id;
+  supplierId = (await stock.saveSupplier(platform, null, { name: 'Concox India', gstin: null, stateCode: '29', address: '', city: 'Bengaluru', pin: '', contactName: '', phone: '', email: '', notes: '', leadTimeDays: 5, paymentTermsDays: 30, isActive: true })).id;
 });
 
 afterAll(async () => {
@@ -234,5 +234,32 @@ describe('one stock register: Purchases & sales keeps Stock & movements in step'
 
   it('a check finds nothing left to fix', async () => {
     expect((await stock.syncRegister(platform, true)).changes).toEqual([]);
+  });
+});
+
+describe('paying suppliers', () => {
+  it('a goods received note carries the supplier bill; payments make it part paid, then paid', async () => {
+    const grn = (await stock.listDocs(platform, { kind: 'RECEIPT' })).find((d) => d.supplierInvoiceNo === 'CX-778')!;
+    let d = await stock.getDoc(platform, grn.id);
+    // 3 trackers × ₹1,500 + 6 relays × ₹150; supplier terms default 30 days from the receipt date.
+    expect(d.supplierBill).toMatchObject({ amountPaise: 540000, paidPaise: 0, duePaise: 540000, status: 'UNPAID', dueDate: '2026-12-09' });
+    d = await stock.addSupplierPayment(platform, grn.id, { paidOn: '2026-11-09', amountPaise: 200000, mode: 'UPI', reference: 'UTR123' });
+    expect(d.supplierBill).toMatchObject({ paidPaise: 200000, duePaise: 340000, status: 'PART' });
+    expect(d.supplierBill?.payments[0]).toMatchObject({ amountPaise: 200000, mode: 'UPI', reference: 'UTR123', createdByName: 'Super Admin' });
+    await expect(stock.addSupplierPayment(platform, grn.id, { paidOn: '2026-11-09', amountPaise: 400000, mode: 'CASH' })).rejects.toThrow(/more than/);
+    await expect(stock.addSupplierPayment(resellerCtx, grn.id, { paidOn: '2026-11-09', amountPaise: 100, mode: 'CASH' })).rejects.toThrow(/Only the platform/);
+    const dash = await board.dashboard(platform);
+    expect(dash.supplierDues).toMatchObject({ count: 1, duePaise: 340000 });
+    expect(dash.supplierDues.bills[0]).toMatchObject({ number: grn.number, supplierName: 'Concox India', duePaise: 340000 });
+  });
+
+  it('a receipt with payments can not be cancelled; removing a payment reopens the bill', async () => {
+    const grn = (await stock.listDocs(platform, { kind: 'RECEIPT' })).find((d) => d.supplierInvoiceNo === 'CX-778')!;
+    await expect(stock.saveDoc(platform, grn.id, { ...grn, status: 'CANCELLED', lines: grn.lines })).rejects.toThrow(/supplier payments/);
+    let d = await stock.addSupplierPayment(platform, grn.id, { paidOn: '2026-11-09', amountPaise: 340000, mode: 'BANK' });
+    expect(d.supplierBill).toMatchObject({ duePaise: 0, status: 'PAID' });
+    expect((await board.dashboard(platform)).supplierDues.count).toBe(0);
+    d = await stock.removeSupplierPayment(platform, d.supplierBill!.payments[1].id);
+    expect(d.supplierBill).toMatchObject({ duePaise: 340000, status: 'PART' });
   });
 });

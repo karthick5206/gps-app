@@ -4,6 +4,10 @@ import {
   STOCK_DOC_PREFIX,
   type StockDocDto,
   type StockDocInput,
+  type StockSupplierBillDto,
+  SUPPLIER_PAYMENT_MODES,
+  type SupplierPaymentInput,
+  type SupplierPaymentMode,
   type StockDocKind,
   type StockDocStatus,
   type StockFileDto,
@@ -29,7 +33,7 @@ import { APP_ROOT } from '../config/env';
 import { AdminDevicesService } from '../masters/admin-devices/admin-devices.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryLinkService, type LinkResult } from './inventory-link.service';
-import { checkMoves, cleanSerials, fyOf, lineQty, PLAN_ONLY, planMoves, planStatus, type PlannedMove, type SerialNow } from './stock-logic';
+import { checkMoves, cleanSerials, supplierBill, fyOf, lineQty, PLAN_ONLY, planMoves, planStatus, type PlannedMove, type SerialNow } from './stock-logic';
 
 /*
  * Stock: items, suppliers, stores, and one document type for the whole flow (PO → receipt → return; order → sale →
@@ -243,7 +247,7 @@ export class StockService {
     return rows.map(({ createdAt: _c, updatedAt: _u, ...r }) => r);
   }
 
-  async saveSupplier(ctx: AuthContext, id: string | null, b: Omit<StockSupplierDto, 'id'>): Promise<StockSupplierDto> {
+  async saveSupplier(ctx: AuthContext, id: string | null, b: Omit<StockSupplierDto, 'id' | 'paymentTermsDays'> & { paymentTermsDays?: number }): Promise<StockSupplierDto> {
     await this.platformOnly(ctx);
     if (!b.name?.trim()) throw new BadRequestException('Enter the supplier name');
     const data = { ...b, name: b.name.trim(), gstin: b.gstin?.trim().toUpperCase() || null };
@@ -310,6 +314,8 @@ export class StockService {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.docDate ?? '')) throw new BadRequestException('Choose the date');
     if (!input.lines?.length) throw new BadRequestException('Add at least one item');
     const status = this.statusFor(kind, input.status);
+    if (before && before.kind === 'RECEIPT' && status !== 'DONE' && (await this.prisma.stockSupplierPayment.count({ where: { docId: before.id } })))
+      throw new BadRequestException('This receipt has supplier payments; remove them first (or record a return to the supplier instead)');
 
     const items = new Map((await this.prisma.stockItem.findMany({ where: { id: { in: input.lines.map((l) => l.itemId) } } })).map((i) => [i.id, i]));
     const lines = input.lines.map((l, i) => {
@@ -436,6 +442,83 @@ export class StockService {
     });
   }
 
+  // ───────────── supplier bills and payments (platform) ─────────────
+
+  /** Bill per goods received note: supplier invoice amount − returns made from it − payments; due date from terms. */
+  private async supplierBills(
+    rows: { id: string; docDate: string; totalPaise: number; supplierInvoiceDate: string | null; supplierInvoiceAmountPaise: number | null; supplier: { paymentTermsDays: number } | null }[],
+    withPayments: boolean,
+  ): Promise<Map<string, StockSupplierBillDto>> {
+    const out = new Map<string, StockSupplierBillDto>();
+    if (!rows.length) return out;
+    const ids = rows.map((r) => r.id);
+    const [payments, returns] = await Promise.all([
+      this.prisma.stockSupplierPayment.findMany({ where: { docId: { in: ids } }, orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }] }),
+      this.prisma.stockDoc.groupBy({ by: ['sourceId'], where: { sourceId: { in: ids }, kind: 'PURCHASE_RETURN', status: 'DONE' }, _sum: { totalPaise: true } }),
+    ]);
+    const userIds = [...new Set(payments.map((p) => p.createdById).filter((x): x is string => !!x))];
+    const users = new Map(withPayments && userIds.length ? (await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]) : []);
+    const ret = new Map(returns.map((x) => [x.sourceId, x._sum.totalPaise ?? 0]));
+    for (const r of rows) {
+      const mine = payments.filter((p) => p.docId === r.id);
+      const b = supplierBill({
+        billPaise: r.supplierInvoiceAmountPaise ?? r.totalPaise,
+        returnsPaise: ret.get(r.id) ?? 0,
+        paidPaise: mine.reduce((t, p) => t + p.amountPaise, 0),
+        billDate: r.supplierInvoiceDate || r.docDate,
+        termsDays: r.supplier?.paymentTermsDays ?? 30,
+        today: today(),
+      });
+      out.set(r.id, {
+        ...b,
+        payments: withPayments
+          ? mine.map((p) => ({ id: p.id, paidOn: p.paidOn, amountPaise: p.amountPaise, mode: p.mode as SupplierPaymentMode, reference: p.reference, note: p.note, createdByName: p.createdById ? (users.get(p.createdById) ?? null) : null, createdAt: p.createdAt.toISOString() }))
+          : [],
+      });
+    }
+    return out;
+  }
+
+  /** Platform dashboard: supplier bills still to pay, overdue first. */
+  async openSupplierBills(): Promise<{ docId: string; number: string; supplierName: string; supplierInvoiceNo: string; duePaise: number; dueDate: string; overdue: boolean }[]> {
+    const rows = await this.prisma.stockDoc.findMany({ where: { kind: 'RECEIPT', status: 'DONE', partnerId: null, supplierId: { not: null } }, include: { supplier: true } });
+    const bills = await this.supplierBills(rows, false);
+    return rows
+      .map((r) => ({ r, b: bills.get(r.id) }))
+      .filter((x) => !!x.b && x.b.duePaise > 0)
+      .map(({ r, b }) => ({ docId: r.id, number: r.number, supplierName: r.supplier?.name ?? '', supplierInvoiceNo: r.supplierInvoiceNo, duePaise: b!.duePaise, dueDate: b!.dueDate, overdue: b!.overdue }))
+      .sort((a, b) => Number(b.overdue) - Number(a.overdue) || a.dueDate.localeCompare(b.dueDate));
+  }
+
+  /** Record a payment to the supplier against a goods received note (not more than is still due). */
+  async addSupplierPayment(ctx: AuthContext, docId: string, b: SupplierPaymentInput): Promise<StockDocDto> {
+    await this.platformOnly(ctx);
+    const doc = await this.prisma.stockDoc.findUnique({ where: { id: docId }, include: DOC_INCLUDE });
+    if (!doc || doc.kind !== 'RECEIPT' || doc.partnerId) throw new NotFoundException('Goods received note not found');
+    if (doc.status !== 'DONE' || !doc.supplierId) throw new BadRequestException('Payments can be recorded on a completed receipt with a supplier');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(b.paidOn ?? '') || b.paidOn > today()) throw new BadRequestException('Choose the payment date (not in the future)');
+    if (!SUPPLIER_PAYMENT_MODES.includes(b.mode)) throw new BadRequestException('Choose how it was paid');
+    const amount = Math.round(b.amountPaise ?? 0);
+    if (amount <= 0) throw new BadRequestException('Enter the amount paid');
+    const bill = (await this.supplierBills([doc], false)).get(doc.id)!;
+    if (amount > bill.duePaise) throw new BadRequestException(`That is more than the ₹${(bill.duePaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })} still due on this bill`);
+    const p = await this.prisma.stockSupplierPayment.create({
+      data: { docId, supplierId: doc.supplierId, paidOn: b.paidOn, amountPaise: amount, mode: b.mode, reference: (b.reference ?? '').trim().slice(0, 120), note: (b.note ?? '').trim().slice(0, 300), createdById: ctx.userId },
+    });
+    await this.audit.record(ctx, { action: 'CREATE', entity: 'StockSupplierPayment', entityId: p.id, after: { doc: doc.number, paidOn: p.paidOn, amountPaise: p.amountPaise, mode: p.mode, reference: p.reference } });
+    return this.getDoc(ctx, docId);
+  }
+
+  /** Remove a payment entered by mistake (kept in the audit log). */
+  async removeSupplierPayment(ctx: AuthContext, paymentId: string): Promise<StockDocDto> {
+    await this.platformOnly(ctx);
+    const p = await this.prisma.stockSupplierPayment.findUnique({ where: { id: paymentId } });
+    if (!p) throw new NotFoundException('Payment not found');
+    await this.prisma.stockSupplierPayment.delete({ where: { id: paymentId } });
+    await this.audit.record(ctx, { action: 'DELETE', entity: 'StockSupplierPayment', entityId: p.id, before: { docId: p.docId, paidOn: p.paidOn, amountPaise: p.amountPaise, mode: p.mode, reference: p.reference } });
+    return this.getDoc(ctx, p.docId);
+  }
+
   /** Super Admin: check (dry run) or repair the tracker states in Stock & movements from Purchases & sales. */
   async syncRegister(ctx: AuthContext, dryRun: boolean): Promise<{ checked: number; changes: LinkResult[] }> {
     await this.platformOnly(ctx);
@@ -531,6 +614,7 @@ export class StockService {
     if (!doc) throw new NotFoundException('Document not found');
     if (doc.status !== 'DRAFT' && doc.status !== 'CANCELLED') throw new BadRequestException('Only drafts and cancelled documents can be deleted; cancel it first');
     if (await this.prisma.stockInvoice.findUnique({ where: { docId: id } })) throw new BadRequestException('This document has an invoice; it can not be deleted');
+    if (await this.prisma.stockSupplierPayment.count({ where: { docId: id } })) throw new BadRequestException('This receipt has supplier payments; it can not be deleted');
     await this.prisma.stockDoc.delete({ where: { id } });
     await this.audit.record(ctx, { action: 'DELETE', entity: 'StockDoc', entityId: id, before: { number: doc.number, status: doc.status } });
     return { ok: true };
@@ -650,6 +734,7 @@ export class StockService {
     const lName = new Map(locs.map((l) => [l.id, l.name]));
     const sNum = new Map(sources.map((x) => [x.id, x.number]));
     const inv = new Map(invoices.map((i) => [i.docId, i]));
+    const bills = await this.supplierBills(rows.filter((r) => r.kind === 'RECEIPT' && r.status === 'DONE' && !r.partnerId && r.supplier), full);
     return rows.map((r) => {
       const ups = follow.filter((f) => f.sourceId === r.id);
       const pending = PLAN_ONLY.includes(r.kind as StockDocKind)
@@ -692,6 +777,7 @@ export class StockService {
         files,
         followUps: ups.map((f) => ({ id: f.id, kind: f.kind as StockDocKind, number: f.number, status: f.status as StockDocStatus, docDate: f.docDate })),
         invoice: i ? { id: i.id, kind: i.kind as 'INVOICE' | 'CREDIT_NOTE', number: i.number, totalPaise: i.totalPaise, paymentStatus: i.paymentStatus } : null,
+        supplierBill: bills.get(r.id) ?? null,
         pending,
         createdByName: r.createdById ? (uName.get(r.createdById) ?? null) : null,
         updatedByName: r.updatedById ? (uName.get(r.updatedById) ?? null) : null,
