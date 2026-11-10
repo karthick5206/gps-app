@@ -44,6 +44,13 @@ export interface EditorTarget {
   prefill?: Partial<StockDocInput>;
 }
 
+const INPUT_KEYS = ['docDate', 'supplierId', 'toPlatform', 'saleTo', 'customerCompanyId', 'customerPartnerId', 'customerName', 'customerPhone', 'customerEmail', 'customerGstin', 'customerStateCode', 'customerAddress', 'locationId', 'sourceId', 'channel', 'supplierInvoiceNo', 'supplierInvoiceDate', 'supplierInvoiceAmountPaise', 'reason', 'notes'] as const satisfies readonly (keyof StockDocInput)[];
+/** The editable part of a document (StockDocInput without kind / status / lines, which the caller sets). */
+function pickInput(f: StockDocInput): Omit<StockDocInput, 'kind' | 'status' | 'lines'> {
+  const src = f as unknown as Record<string, unknown>;
+  return Object.fromEntries(INPUT_KEYS.filter((k) => src[k] !== undefined).map((k) => [k, src[k]])) as Omit<StockDocInput, 'kind' | 'status' | 'lines'>;
+}
+
 export function DocEditor({ target, onClose, onOpen }: { target: EditorTarget | null; onClose: () => void; onOpen: (t: EditorTarget) => void }) {
   const { t } = useTranslation();
   const { platform, reseller } = useStockSide();
@@ -74,8 +81,9 @@ export function DocEditor({ target, onClose, onOpen }: { target: EditorTarget | 
 
   const save = useMutation({
     mutationFn: (status: StockDocInput['status']) => {
+      // Only the editable fields: a saved document also carries read-only ones (number, totals, files…) the API refuses.
       const body: StockDocInput = {
-        ...f,
+        ...pickInput(f),
         kind,
         status,
         lines: lines.map((l) => ({ itemId: l.itemId, qty: l.qty, ratePaise: toPaise(l.rateText), gstRatePct: l.gstRatePct, serials: itemBy.get(l.itemId)?.serialTracked && !plan ? parseSerials(l.serialText) : [], condition: l.condition, note: l.note })),
