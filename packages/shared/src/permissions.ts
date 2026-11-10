@@ -101,7 +101,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'billing', label: 'Billing & Licences', group: 'admin', path: '/admin/billing', actions: ['view', 'create', 'edit'] },
   { key: 'api', label: 'Developer API', group: 'admin', path: '/admin/developer-api', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'audit_log', label: 'Audit Log', group: 'admin', path: '/admin/audit-log', actions: ['view', 'export'] },
-  { key: 'stock', label: 'Stock & sales', group: 'stock', path: '/stock', actions: CRUD, partnerOnly: true },
+  { key: 'stock', label: 'Purchases & sales', group: 'stock', path: '/stock', actions: CRUD, partnerOnly: true },
   { key: 'sa_companies', label: 'Companies', group: 'platform', path: '/platform/companies', actions: CRUD, superAdminOnly: true },
   { key: 'sa_licences', label: 'Licences & Invoices', group: 'platform', path: '/platform/licences', actions: CRUD, superAdminOnly: true },
   { key: 'sa_device_models', label: 'Device Models', group: 'platform', path: '/platform/device-models', actions: CRUD, superAdminOnly: true },

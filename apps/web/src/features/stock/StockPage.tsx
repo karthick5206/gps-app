@@ -18,7 +18,7 @@ import { SetupTab } from './SetupTab';
 import { rupees, STATUS_LABEL, STATUS_TONE, useStockDocs, useStockSide } from './stock-api';
 
 /*
- * Stock & sales: one page, simple tabs. Dashboard (what needs attention), Purchases (orders to suppliers, goods
+ * Purchases & sales (trackers are also kept in Stock & movements, the one stock register): one page, simple tabs. Dashboard (what needs attention), Purchases (orders to suppliers, goods
  * received, returns to suppliers), Sales (customer orders, sales), Returns (customer returns), Stock (on hand, IMEI
  * history, adjustments) and Setup (items, prices, suppliers; platform only). Every document opens in the same form.
  */
@@ -29,7 +29,7 @@ export function StockPage() {
   const [target, setTarget] = useState<EditorTarget | null>(null);
   return (
     <div className="space-y-4 p-4 sm:p-6">
-      <PageHeader title={t('Stock & sales')} description={t('Buy, receive, sell and return trackers, SIMs and accessories. Stock updates by itself.')} />
+      <PageHeader title={t('Purchases & sales')} description={t('Buy, receive, sell and return trackers, SIMs and accessories, with invoices. Trackers also update Stock & movements by themselves.')} />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap">
           <TabsTrigger value="dashboard">{t('Dashboard')}</TabsTrigger>
@@ -113,6 +113,11 @@ function DocsList({ kinds, newKinds, onOpen }: { kinds: StockDocKind[]; newKinds
                   <TableCell>
                     <Badge variant={STATUS_TONE[d.status]}>{t(STATUS_LABEL[d.status])}</Badge>
                     {d.invoice && <span className="ms-1 text-xs text-muted-foreground">{d.invoice.number}</span>}
+                    {d.supplierBill && (
+                      <Badge className="ms-1" variant={d.supplierBill.status === 'PAID' ? 'success' : d.supplierBill.overdue ? 'destructive' : 'warning'}>
+                        {d.supplierBill.status === 'PAID' ? t('Supplier paid') : d.supplierBill.overdue ? t('Payment overdue') : d.supplierBill.status === 'PART' ? t('Supplier part paid') : t('Supplier unpaid')}
+                      </Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -163,14 +168,57 @@ function StockDashboard({ onOpen }: { onOpen: (t: EditorTarget) => void }) {
   const maxDay = Math.max(1, ...d.salesByDay.map((x) => x.units));
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className={platform ? "grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7" : "grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6"}>
         <Tile label={t('Units in stock')} value={d.unitsInStock.toLocaleString()} hint={t('Worth {{v}} at buying price', { v: rupees(d.stockValuePaise) })} />
         <Tile label={t('Low stock items')} value={String(d.lowStock.length)} tone={d.lowStock.some((x) => x.orderNow) ? 'destructive' : d.lowStock.length ? 'warning' : undefined} hint={t('At or below the reorder level')} />
         <Tile label={t('Damaged units')} value={String(d.damagedUnits)} tone={d.damagedUnits ? 'warning' : undefined} hint={t('Waiting to go back to the supplier')} />
         <Tile label={t('Sold this month')} value={d.soldUnitsMonth.toLocaleString()} hint={rupees(d.salesMonthPaise)} />
         <Tile label={t('Received this month')} value={d.receivedUnitsMonth.toLocaleString()} />
         <Tile label={t('Unpaid invoices')} value={String(d.unpaidInvoices.count)} tone={d.unpaidInvoices.count ? 'warning' : undefined} hint={rupees(d.unpaidInvoices.amountPaise)} />
+        {platform && (
+          <Tile
+            label={t('To pay suppliers')}
+            value={rupees(d.supplierDues.duePaise)}
+            tone={d.supplierDues.overdueCount ? 'destructive' : d.supplierDues.count ? 'warning' : undefined}
+            hint={d.supplierDues.overdueCount ? t('{{n}} bills overdue ({{v}})', { n: d.supplierDues.overdueCount, v: rupees(d.supplierDues.overduePaise) }) : t('{{n}} bills', { n: d.supplierDues.count })}
+          />
+        )}
       </div>
+      {platform && d.supplierDues.bills.length > 0 && (
+        <Card className="gap-3 p-4">
+          <h3 className="text-[15px] font-bold">{t('Supplier bills to pay')}</h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('Goods received')}</TableHead>
+                <TableHead>{t('Supplier')}</TableHead>
+                <TableHead>{t('Their invoice')}</TableHead>
+                <TableHead>{t('Due by')}</TableHead>
+                <TableHead className="text-end">{t('Still to pay')}</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {d.supplierDues.bills.map((b) => (
+                <TableRow key={b.docId}>
+                  <TableCell className="font-medium">{b.number}</TableCell>
+                  <TableCell>{b.supplierName}</TableCell>
+                  <TableCell>{b.supplierInvoiceNo || '—'}</TableCell>
+                  <TableCell className="tabular-nums">
+                    {b.dueDate} {b.overdue && <Badge variant="destructive">{t('Overdue')}</Badge>}
+                  </TableCell>
+                  <TableCell className="text-end font-semibold tabular-nums">{rupees(b.duePaise)}</TableCell>
+                  <TableCell className="text-end">
+                    <Button size="sm" variant="outline" onClick={() => onOpen({ kind: 'RECEIPT', id: b.docId })}>
+                      {t('Pay')}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
       {platform && d.resellerOrdersOpen > 0 && (
         <Card className="flex-row items-center gap-2 border-warning/40 p-3 text-sm">
           <AlertTriangleIcon className="size-4 text-warning" /> {t('{{n}} reseller orders are waiting to be dispatched (Sales tab).', { n: d.resellerOrdersOpen })}

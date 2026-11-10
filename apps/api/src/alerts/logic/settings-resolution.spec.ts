@@ -95,6 +95,7 @@ describe('alert settings resolution', () => {
     expect(get(expired, 'IDLING').snoozedUntil).toBeNull();
   });
 
+  // INFO falls back to DEFAULT_CHANNELS.INFO (in-app + push: push is on by default for every alert since a5e479e).
   it('merges channels per severity', () => {
     const chain: SettingsChain = {
       company: { OVERSPEED: o({ channels: { WARNING: ['INAPP'] } }) },
@@ -102,7 +103,7 @@ describe('alert settings resolution', () => {
       object: { OVERSPEED: o({ channels: { CRITICAL: ['INAPP', 'SMS'] } }) },
     };
     const os = get(resolveEffectiveSettings(chain, GT06, [], now), 'OVERSPEED');
-    expect(os.channels).toEqual({ INFO: ['INAPP'], WARNING: ['INAPP'], CRITICAL: ['INAPP', 'SMS'] });
+    expect(os.channels).toEqual({ INFO: ['INAPP', 'PUSH'], WARNING: ['INAPP'], CRITICAL: ['INAPP', 'SMS'] });
     expect(os.sources['channels.WARNING']).toBe('COMPANY');
     expect(os.sources['channels.CRITICAL']).toBe('OBJECT');
     expect(os.sources.channels).toBe('OBJECT');

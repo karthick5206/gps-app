@@ -2045,6 +2045,7 @@ model StockLocation {
   sims          SimCard[]
   movementsFrom StockMovement[] @relation("StockMovementFrom")
   movementsTo   StockMovement[] @relation("StockMovementTo")
+  salesStores   StockStore[]
 
   /// + partial unique index on (code) WHERE ownerPartnerId IS NULL (raw SQL in the migration).
   @@unique([ownerPartnerId, code])
@@ -2065,6 +2066,7 @@ model Supplier {
 
   ownerPartner Partner?       @relation(fields: [ownerPartnerId], references: [id], onDelete: Restrict)
   receipts     StockReceipt[]
+  salesSuppliers StockSupplier[]
 
   /// + partial unique index on (name) WHERE ownerPartnerId IS NULL (raw SQL in the migration).
   @@unique([ownerPartnerId, name])
@@ -2089,6 +2091,7 @@ model StockReceipt {
   location  StockLocation   @relation(fields: [locationId], references: [id], onDelete: Restrict)
   stock     DeviceStock[]
   movements StockMovement[]
+  salesDoc  StockDoc?
 
   @@index([supplierId, receivedAt(sort: Desc)])
   @@index([receivedAt(sort: Desc)])
@@ -2367,11 +2370,17 @@ model StockSupplier {
   notes       String   @default("")
   /// Days from order to delivery (expected arrival of a PO = PO date + this).
   leadTimeDays Int     @default(7)
+  /// Days after the supplier's invoice date the bill is due (overdue after that).
+  paymentTermsDays Int @default(30)
   isActive    Boolean  @default(true)
+  /// The same supplier in Stock & movements (filled on first use; receipts are recorded there too).
+  inventorySupplierId String? @db.Uuid
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  docs StockDoc[]
+  docs              StockDoc[]
+  payments          StockSupplierPayment[]
+  inventorySupplier Supplier? @relation(fields: [inventorySupplierId], references: [id], onDelete: SetNull)
 }
 
 /// Stock & sales stores (main store, damaged shelf, one per reseller). Separate from the inventory module's StockLocation.
@@ -2383,8 +2392,12 @@ model StockStore {
   /// The reseller this store belongs to (PARTNER).
   partnerId String?  @unique @db.Uuid
   isActive  Boolean  @default(true)
+  /// The same place in Stock & movements (filled on first use): trackers here are kept there at this location.
+  inventoryLocationId String? @db.Uuid
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  inventoryLocation StockLocation? @relation(fields: [inventoryLocationId], references: [id], onDelete: SetNull)
 }
 
 /// One stock document: PO, RECEIPT, PURCHASE_RETURN, ORDER, SALE, SALES_RETURN or ADJUSTMENT.
@@ -2432,8 +2445,13 @@ model StockDoc {
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
-  supplier StockSupplier?      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  /// RECEIPT with trackers: the matching receipt in Stock & movements.
+  inventoryReceiptId         String?   @unique @db.Uuid
+
+  supplier         StockSupplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  inventoryReceipt StockReceipt?  @relation(fields: [inventoryReceiptId], references: [id], onDelete: SetNull)
   lines    StockDocLine[]
+  supplierPayments StockSupplierPayment[]
   files    StockFile[]
   moves    StockMove[]
 
@@ -2464,6 +2482,30 @@ model StockDocLine {
 }
 
 /// One IMEI / SIM number and where it is now.
+/// A payment made to a supplier against a goods received note (its supplier invoice). Several per bill (advance,
+/// balance…). Money record: a GRN with payments can not be deleted.
+model StockSupplierPayment {
+  id          String   @id @default(uuid()) @db.Uuid
+  docId       String   @db.Uuid
+  supplierId  String   @db.Uuid
+  /// YYYY-MM-DD (India).
+  paidOn      String
+  amountPaise Int
+  /// UPI | BANK | CASH | CHEQUE | CARD
+  mode        String
+  /// UTR / cheque no. / transaction id.
+  reference   String   @default("")
+  note        String   @default("")
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  doc      StockDoc      @relation(fields: [docId], references: [id], onDelete: Restrict)
+  supplier StockSupplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+
+  @@index([docId])
+  @@index([supplierId, paidOn])
+}
+
 model StockSerial {
   id                String   @id @default(uuid()) @db.Uuid
   itemId            String   @db.Uuid

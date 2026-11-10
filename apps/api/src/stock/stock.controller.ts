@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Query, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Query, StreamableFile, UploadedFile, UseInterceptors, HttpCode } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   STOCK_DOC_KINDS,
@@ -17,6 +17,8 @@ import {
   type StockSaleTo,
   type StockSerialDto,
   type StockSupplierDto,
+  SUPPLIER_PAYMENT_MODES,
+  type SupplierPaymentMode,
 } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
@@ -69,6 +71,7 @@ class SupplierBody {
   @IsString() @MaxLength(120) email!: string;
   @IsString() @MaxLength(500) notes!: string;
   @IsInt() @Min(0) @Max(365) leadTimeDays!: number;
+  @IsOptional() @IsInt() @Min(0) @Max(365) paymentTermsDays?: number;
   @IsBoolean() isActive!: boolean;
 }
 
@@ -127,6 +130,14 @@ class PriceForQuery {
   @IsUUID() itemId!: string;
   @IsOptional() @IsUUID() partnerId?: string;
   @IsOptional() @IsUUID() companyId?: string;
+}
+
+class SupplierPaymentBody {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Choose the payment date' }) paidOn!: string;
+  @IsInt() @Min(1) amountPaise!: number;
+  @IsIn([...SUPPLIER_PAYMENT_MODES], { message: 'Choose how it was paid' }) mode!: SupplierPaymentMode;
+  @IsOptional() @IsString() @MaxLength(120) reference?: string;
+  @IsOptional() @IsString() @MaxLength(300) note?: string;
 }
 
 class PaymentBody {
@@ -258,6 +269,12 @@ export class StockController {
     return this.stock.availableSerials(ctx, q.itemId, q.locationId ?? null, q.status);
   }
 
+  /** Super Admin: compare (dryRun=true, nothing written) or bring Stock & movements in step with Purchases & sales. */
+  @Post('sync-inventory') @HttpCode(200) @RequirePermission('stock', 'edit')
+  syncInventory(@Auth() ctx: AuthContext, @Query('dryRun') dryRun?: string) {
+    return this.stock.syncRegister(ctx, dryRun !== 'false');
+  }
+
   @Get('serials/:serial') @RequirePermission('stock', 'view')
   serial(@Auth() ctx: AuthContext, @Param('serial') serial: string): Promise<StockSerialDto[]> {
     return this.stock.serial(ctx, serial);
@@ -266,6 +283,17 @@ export class StockController {
   @Post('docs/:id/invoice') @RequirePermission('stock', 'create')
   invoice(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<StockDocDto> {
     return this.invoices.issue(ctx, id);
+  }
+
+  /** Platform: a payment made to the supplier against a goods received note. */
+  @Post('docs/:id/supplier-payments') @RequirePermission('stock', 'edit')
+  addSupplierPayment(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() b: SupplierPaymentBody): Promise<StockDocDto> {
+    return this.stock.addSupplierPayment(ctx, id, b);
+  }
+
+  @Delete('supplier-payments/:id') @RequirePermission('stock', 'edit')
+  removeSupplierPayment(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<StockDocDto> {
+    return this.stock.removeSupplierPayment(ctx, id);
   }
 
   @Put('invoices/:id/payment') @RequirePermission('stock', 'edit')

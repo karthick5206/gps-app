@@ -156,3 +156,30 @@ export function fyOf(day: string): string {
   const start = Number(day.slice(5, 7)) >= 4 ? y : y - 1;
   return `${String(start).slice(2)}-${String(start + 1).slice(2)}`;
 }
+
+/** YYYY-MM-DD + n days. */
+export function plusDays(day: string, n: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * What is owed to a supplier for one goods received note: the supplier's invoice amount (else the receipt total), less
+ * returns made from it, less payments. Due on the invoice date (else receipt date) + payment terms; overdue after that.
+ */
+export function supplierBill(b: { billPaise: number; returnsPaise: number; paidPaise: number; billDate: string; termsDays: number; today: string }): {
+  amountPaise: number;
+  returnsPaise: number;
+  paidPaise: number;
+  duePaise: number;
+  dueDate: string;
+  status: 'UNPAID' | 'PART' | 'PAID';
+  overdue: boolean;
+} {
+  const owed = Math.max(0, b.billPaise - b.returnsPaise);
+  const duePaise = Math.max(0, owed - b.paidPaise);
+  const status = duePaise === 0 ? 'PAID' : b.paidPaise > 0 ? 'PART' : 'UNPAID';
+  const dueDate = plusDays(b.billDate, Math.max(0, b.termsDays));
+  return { amountPaise: b.billPaise, returnsPaise: b.returnsPaise, paidPaise: b.paidPaise, duePaise, dueDate, status, overdue: duePaise > 0 && b.today > dueDate };
+}
