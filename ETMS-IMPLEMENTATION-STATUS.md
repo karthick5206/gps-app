@@ -19,7 +19,7 @@ evidence in the phase log below.
 | E2 | Deployed | Deployed | Not started | Passed | Passed (conditions: L5 + reset residual before real data) | Deployed (2026-11-11 11:57 UTC, v1.10.0, ETMS off) |
 | E3 | Deployed | Deployed | Moved to E5 (WP 3.6/3.7 delivered with E5) | Passed (re-check + WP 3.8 gate 1,606/0) | Passed (conditions: owner L5 / L7 / withdrawal policy before real data) | Deployed (2026-11-11 15:23 UTC, v1.11.0, ETMS off) |
 | E4 | In progress (review doc 17 done; optimiser + RoutingProvider on etms/e4-optimizer) | Not started | Not started | Not started | Not started | Not started |
-| E5 | In review (driver API, notifications; fixes running on etms/e5) | — | In review (passenger + driver shells; device tests pending) | Passed with issues (B1–B8 in fix) | Passed with conditions (M1–M3 in fix) | Not started |
+| E5 | Deployed (driver API, notifications, relay) | Deployed (dispatcher review events) | Passed in source; **needs a native build** (EAS/O12 approval) + device/Maestro tests | Passed (re-check) | Passed (re-check + delta 2589b58) | Deployed (2026-11-11 16:08 UTC, v1.12.0, ETMS off). Not in scope yet: SOS WP 5.4, self-booking WP 5.3, sim/Maestro WP 5.5 |
 | E6 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E7 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E8 | Not started | Not started | Not started | Not started | Not started | Not started |
@@ -105,3 +105,11 @@ procedure (release branch → tag → main).
   - `main` fast-forwarded to 493befe.
   - Owner decisions open before real passenger data: L5 (erasure incl. vehicle history residue), L7 (address labels in booking lists / CSV without consent), consent withdrawal cancels bookings vs "needs location", the 20 change-sets/min limit, and the N5 place-creation residual.
 - **2026-11-11 · E5:** backend (d78183b, 728b013, 64c1c46) + mobile merged onto E3 as `etms/e5` (76b38f7). API 3,718 / mobile 50 / DB 42 tests. Security PASS WITH CONDITIONS (M1 backdated arrival, M2 delay flood, M3 screenshot blocking); QA PASS WITH ISSUES (B1–B4 Medium relay defects). Fix round running. Not in branch: SOS (WP 5.4), passenger self-booking (WP 5.3), Maestro / sim scenarios (WP 5.5).
+- **2026-11-11 16:08 UTC · v1.12.0 = E5 deployed (2589b58, tag v1.12.0).**
+  - Reviews: Security PASS WITH CONDITIONS (M1–M3, L1–L7) → fixes → re-check PASS → leftovers R-1..R-4 fixed → delta review PASS. QA PASS WITH ISSUES (B1–B8) → fixes → re-check PASS (E3 gate PASS on the branch).
+  - Final checks on 2589b58: API 3,768 tests; WP 3.8 gate `--http` 2,305 passed / 0 failed; web build + check-no-external-maps OK; mobile 52; DB 56–73.
+  - Before deploy: backup 16:04 UTC (ok); `.env` saved to `/root/api.env.before-v1.12.0`; no new env vars. TransportTripEvent / NotificationLog had 0 rows (no lock impact, nothing for the widened sweeper to pick up).
+  - Release: migration `20261117090000_etms_driver_ops` applied; health gate PASS.
+  - Post-deploy: 0 pending migrations; no errors in API / notifier logs; driver, passenger and transport routes 401 without a token; relay running (`vt:etms:notify:hwm` advancing, lag 5 min as designed).
+  - `main` fast-forwarded to 2589b58.
+  - Open: mobile native build (screenshot blocking, passenger/driver shells) needs owner approval for EAS + the O12 `eas.json` URL change; device / Maestro tests; Expo web route/session gaps (web only); I1 stray test PDF; I2 bookings stay ASSIGNED after trip completion (blocks erasure until the window ends).
