@@ -174,6 +174,26 @@ export const TRANSPORT_MOBILE_HI: Record<string, string> = {
   '{{n}} waiting to sync': '{{n}} सिंक की प्रतीक्षा में',
   '{{p}} pickups · {{d}} drops · {{w}} waiting': '{{p}} पिकअप · {{d}} ड्रॉप · {{w}} प्रतीक्षा में',
   '{{stops}} stops · {{n}} passengers': '{{stops}} स्टॉप · {{n}} यात्री',
+  'Call dispatcher': 'डिस्पैचर को कॉल करें',
+  'Call transport desk': 'ट्रांसपोर्ट डेस्क को कॉल करें',
+  'Cancel this booking?': 'यह बुकिंग रद्द करें?',
+  'Could not save. Try again.': 'सहेजा नहीं जा सका। फिर से कोशिश करें।',
+  'Keep booking': 'बुकिंग रखें',
+  'No-show can be recorded 5 minutes after arriving': 'पहुँचने के 5 मिनट बाद अनुपस्थित दर्ज किया जा सकता है',
+  'No-show in {{time}}': '{{time}} में अनुपस्थित',
+  'The cancellation cut-off for this booking has passed. Call your transport desk.': 'इस बुकिंग को रद्द करने की समय-सीमा निकल चुकी है। अपने ट्रांसपोर्ट डेस्क को कॉल करें।',
+  'The vehicle has no fresh GPS position, so actions are not locked. Do not use the phone while driving.':
+    'वाहन की ताज़ा GPS स्थिति नहीं है, इसलिए कार्रवाइयाँ लॉक नहीं हैं। गाड़ी चलाते समय फ़ोन का उपयोग न करें।',
+  'This booking can no longer be cancelled here (its trip may have started). Call your transport desk.':
+    'यह बुकिंग अब यहाँ रद्द नहीं की जा सकती (शायद ट्रिप शुरू हो चुकी है)। अपने ट्रांसपोर्ट डेस्क को कॉल करें।',
+  'This is possible only before the booking cut-off and before the trip starts. Your seat is given up.':
+    'यह केवल बुकिंग की समय-सीमा से पहले और ट्रिप शुरू होने से पहले संभव है। आपकी सीट छोड़ दी जाएगी।',
+  'This only turns the push messages off. Every update is still listed under Notices in the app.':
+    'इससे केवल पुश संदेश बंद होते हैं। हर अपडेट ऐप में सूचनाओं के अंतर्गत दिखता रहेगा।',
+  'Trip notifications on this phone': 'इस फ़ोन पर ट्रिप सूचनाएँ',
+  'Use hands-free while driving': 'गाड़ी चलाते समय हैंड्स-फ़्री का उपयोग करें',
+  'You can cancel a booking here until its cut-off, as long as the trip has not started. After that, or to change a booking, contact your transport desk.':
+    'ट्रिप शुरू न हुई हो तो आप समय-सीमा तक यहाँ बुकिंग रद्द कर सकते हैं। उसके बाद, या बुकिंग बदलने के लिए, अपने ट्रांसपोर्ट डेस्क से संपर्क करें।',
 };
 
 export const TRANSPORT_MOBILE_TA: Record<string, string> = {
@@ -347,4 +367,24 @@ export const TRANSPORT_MOBILE_TA: Record<string, string> = {
   '{{n}} waiting to sync': '{{n}} ஒத்திசைக்கக் காத்திருக்கின்றன',
   '{{p}} pickups · {{d}} drops · {{w}} waiting': '{{p}} பிக்அப் · {{d}} இறக்கம் · {{w}} காத்திருப்பு',
   '{{stops}} stops · {{n}} passengers': '{{stops}} நிறுத்தங்கள் · {{n}} பயணிகள்',
+  'Call dispatcher': 'டிஸ்பாட்சரை அழைக்கவும்',
+  'Call transport desk': 'போக்குவரத்து மேசையை அழைக்கவும்',
+  'Cancel this booking?': 'இந்த முன்பதிவை ரத்து செய்யவா?',
+  'Could not save. Try again.': 'சேமிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.',
+  'Keep booking': 'முன்பதிவை வைத்திருக்கவும்',
+  'No-show can be recorded 5 minutes after arriving': 'வந்து 5 நிமிடங்களுக்குப் பிறகு "வரவில்லை" எனப் பதிவு செய்யலாம்',
+  'No-show in {{time}}': '{{time}} இல் வரவில்லை',
+  'The cancellation cut-off for this booking has passed. Call your transport desk.': 'இந்த முன்பதிவை ரத்து செய்வதற்கான கடைசி நேரம் கடந்துவிட்டது. உங்கள் போக்குவரத்து மேசையை அழைக்கவும்.',
+  'The vehicle has no fresh GPS position, so actions are not locked. Do not use the phone while driving.':
+    'வாகனத்தின் புதிய GPS இருப்பிடம் இல்லை, எனவே செயல்கள் பூட்டப்படவில்லை. ஓட்டும்போது தொலைபேசியைப் பயன்படுத்த வேண்டாம்.',
+  'This booking can no longer be cancelled here (its trip may have started). Call your transport desk.':
+    'இந்த முன்பதிவை இனி இங்கே ரத்து செய்ய முடியாது (பயணம் தொடங்கியிருக்கலாம்). உங்கள் போக்குவரத்து மேசையை அழைக்கவும்.',
+  'This is possible only before the booking cut-off and before the trip starts. Your seat is given up.':
+    'இது முன்பதிவின் கடைசி நேரத்திற்கு முன்பும் பயணம் தொடங்கும் முன்பும் மட்டுமே சாத்தியம். உங்கள் இருக்கை விடுவிக்கப்படும்.',
+  'This only turns the push messages off. Every update is still listed under Notices in the app.':
+    'இது புஷ் செய்திகளை மட்டுமே நிறுத்தும். ஒவ்வொரு புதுப்பிப்பும் செயலியில் அறிவிப்புகளின் கீழ் தொடர்ந்து காட்டப்படும்.',
+  'Trip notifications on this phone': 'இந்த தொலைபேசியில் பயண அறிவிப்புகள்',
+  'Use hands-free while driving': 'ஓட்டும்போது ஹேண்ட்ஸ்-ஃப்ரீ பயன்படுத்தவும்',
+  'You can cancel a booking here until its cut-off, as long as the trip has not started. After that, or to change a booking, contact your transport desk.':
+    'பயணம் தொடங்காத வரை, கடைசி நேரம் வரை இங்கே முன்பதிவை ரத்து செய்யலாம். அதன் பிறகு, அல்லது முன்பதிவை மாற்ற, உங்கள் போக்குவரத்து மேசையைத் தொடர்பு கொள்ளவும்.',
 };

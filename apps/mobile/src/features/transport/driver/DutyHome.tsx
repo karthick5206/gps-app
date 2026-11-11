@@ -1,9 +1,9 @@
 import type { DriverTripSummaryDto } from '@veetracer/shared';
 import { router } from 'expo-router';
-import { CalendarIcon, CheckIcon, ChevronRightIcon, PlayIcon, SquareIcon } from 'lucide-react-native';
+import { CalendarIcon, CheckIcon, ChevronRightIcon, PhoneIcon, PlayIcon, SquareIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { currentLocale } from '@/lib/i18n';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
@@ -126,6 +126,14 @@ export function DutyHome() {
           ) : (
             <BigAction title={t('Start duty')} icon={PlayIcon} onPress={() => dutyCmd.mutate({ kind: 'start' })} disabled={dutyCmd.isPending} hint={t('Needs a connection')} />
           )}
+          {me.data.dispatcherPhone ? (
+            <BigAction
+              title={t('Call dispatcher')}
+              icon={PhoneIcon}
+              tone="info"
+              onPress={() => Linking.openURL(`tel:${(me.data?.dispatcherPhone ?? '').replace(/[^0-9+]/g, '')}`).catch(() => undefined)}
+            />
+          ) : null}
         </Card>
       )}
 

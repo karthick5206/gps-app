@@ -59,7 +59,7 @@ export interface QueuedEvent extends QueuedEventInput {
   attempts: number;
   /** Server code of a rejection (NOT_AT_STOP, TRIP_CLOSED, NOT_ASSIGNED, LATE…), or of the last retryable answer. */
   code: string | null;
-  /** When the server rejected it. */
+  /** When the server settled it as REJECTED or LATE (the row is then only shown, never sent again). */
   rejectedAt: string | null;
 }
 
@@ -107,6 +107,8 @@ export const BACKOFF_MIN_MS = 5_000;
 export const BACKOFF_MAX_MS = 5 * 60_000;
 export const INACTIVE_PAUSE_MS = 60 * 60_000;
 const TRIP_SEQ_KEEP = 50;
+/** REJECTED / LATE rows are display records only (already settled by the server); they are pruned after this. */
+export const SETTLED_KEEP_MS = 24 * 3600_000;
 /** Keep stored events small (SecureStore values should stay well under 2 KB). */
 export const NOTE_MAX = 280;
 
@@ -233,8 +235,28 @@ export class EventQueue {
         kept.push(id);
       }
       this.meta.ids = kept;
+      // Settled rows (REJECTED / LATE) older than a day go: the server already holds them; they were only shown.
+      const old = [...this.events.values()].filter((e) => e.state !== 'PENDING' && e.rejectedAt && this.now() - Date.parse(e.rejectedAt) > SETTLED_KEEP_MS).map((e) => e.localId);
+      await this.remove(old);
     });
     this.emit();
+  }
+
+  /**
+   * Applies an outcome the server reported through GET /sync for an event this phone still holds as PENDING (the
+   * answer to the original send was lost). ACCEPTED / DUPLICATE delete it; REJECTED / LATE settle it for display.
+   * Returns whether anything changed.
+   */
+  async applyServerOutcome(clientEventId: string, outcome: Exclude<ServerOutcome, 'RETRY'>, code: string | null): Promise<boolean> {
+    const ev = [...this.events.values()].find((e) => e.clientEventId === clientEventId);
+    if (!ev || ev.state !== 'PENDING') return false;
+    await this.serial(async () => {
+      if (outcome === 'ACCEPTED' || outcome === 'DUPLICATE') await this.remove([ev.localId]);
+      else await this.update({ ...ev, state: outcome, code: code ?? outcome, rejectedAt: new Date(this.now()).toISOString() });
+    });
+    if (outcome === 'ACCEPTED' || outcome === 'DUPLICATE') this.lastConfirmedAt = this.now();
+    this.emit();
+    return true;
   }
 
   /** Forget the in-memory state (sign-out). Stored events stay on the phone for the same user's next sign-in. */
@@ -412,7 +434,7 @@ export class EventQueue {
         } else if (o.outcome === 'ACCEPTED' || o.outcome === 'DUPLICATE') {
           confirmed.push(ev.localId);
         } else if (o.outcome === 'LATE') {
-          await this.update({ ...ev, attempts: ev.attempts + 1, state: 'LATE', code: o.code ?? 'LATE', rejectedAt: null });
+          await this.update({ ...ev, attempts: ev.attempts + 1, state: 'LATE', code: o.code ?? 'LATE', rejectedAt: new Date(this.now()).toISOString() });
         } else {
           await this.update({ ...ev, attempts: ev.attempts + 1, state: 'REJECTED', code: o.code ?? o.outcome, rejectedAt: new Date(this.now()).toISOString() });
         }

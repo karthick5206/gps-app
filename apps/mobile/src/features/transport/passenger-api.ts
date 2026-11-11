@@ -1,5 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ConsentNoticeDto, ConsentPurpose, MeBookingDto, MeTripDto, MeVehicleDto, PassengerConsentsDto, PassengerConsentStateDto, PassengerNoticeDto } from '@veetracer/shared';
+import type {
+  ConsentNoticeDto,
+  ConsentPurpose,
+  MeBookingCancelInput,
+  MeBookingDto,
+  MeTripDto,
+  MeVehicleDto,
+  PassengerConsentsDto,
+  PassengerConsentStateDto,
+  PassengerNoticeDto,
+  RecordConsentInput,
+  TransportNotificationPreferences,
+} from '@veetracer/shared';
+import { ACTIVE_BOOKING_STATUSES } from '@veetracer/shared';
 import { useEffect, useState } from 'react';
 import { ApiError, api, errorMessage } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
@@ -88,7 +101,9 @@ export function useMyNotices() {
 export function useRecordConsent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { purpose: ConsentPurpose; granted: boolean; noticeVersion?: string; locale?: string }) => api.post<PassengerConsentsDto>('/me/transport/consent', body),
+    // channel PASSENGER_APP: the consent record shows it was given in the mobile app (only WEB / PASSENGER_APP allowed).
+    mutationFn: (body: { purpose: ConsentPurpose; granted: boolean; noticeVersion?: string; locale?: string }) =>
+      api.post<PassengerConsentsDto>('/me/transport/consent', { ...body, channel: 'PASSENGER_APP' satisfies RecordConsentInput['channel'] }),
     onSuccess: (res) => {
       qc.setQueryData([...KEY, 'consent'], res.current);
       void qc.invalidateQueries({ queryKey: [...KEY, 'trips'] });
@@ -97,6 +112,44 @@ export function useRecordConsent() {
     onError: (err) => {
       if (err instanceof ApiError && (err.code === 'CONSENT_NOTICE_OUTDATED' || err.code === 'CONSENT_NOTICE_MISSING')) void qc.invalidateQueries({ queryKey: [...KEY, 'consent-notices'] });
     },
+  });
+}
+
+/** Bookings the passenger may try to cancel (the server enforces the cut-off and the trip state). */
+export function cancellable(b: Pick<MeBookingDto, 'status'>): boolean {
+  return (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(b.status);
+}
+
+/**
+ * POST /me/transport/bookings/:id/cancel — own booking, before its cut-off (409 AFTER_CUTOFF), not on a started trip
+ * (409 INVALID_STATE). Online only: never queued (cut-off rules make late replays wrong, doc 08 §6.1).
+ */
+export function useCancelBooking() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<MeBookingDto>(`/me/transport/bookings/${id}/cancel`, {} satisfies MeBookingCancelInput),
+    retry: false,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [...KEY, 'bookings'] });
+      void qc.invalidateQueries({ queryKey: [...KEY, 'trips'] });
+    },
+  });
+}
+
+/** Push preferences (the in-app inbox is always written; these only switch the push off). */
+export function useNotificationPreferences() {
+  return useQuery({
+    queryKey: [...KEY, 'notification-preferences'],
+    queryFn: ({ signal }) => api.get<TransportNotificationPreferences>('/me/transport/notifications/preferences', undefined, signal),
+    retry: noRetryOn4xx,
+  });
+}
+
+export function useSaveNotificationPreferences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (prefs: TransportNotificationPreferences) => api.put<TransportNotificationPreferences>('/me/transport/notifications/preferences', prefs),
+    onSuccess: (res) => qc.setQueryData([...KEY, 'notification-preferences'], res),
   });
 }
 

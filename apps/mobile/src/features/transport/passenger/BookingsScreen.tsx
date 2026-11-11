@@ -2,12 +2,12 @@ import type { MeBookingDto } from '@veetracer/shared';
 import { router } from 'expo-router';
 import { TicketIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native';
-import { Card, ErrorBanner, Text } from '@/components/ui';
+import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, View } from 'react-native';
+import { Button, Card, ErrorBanner, Text } from '@/components/ui';
 import { currentLocale } from '@/lib/i18n';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
 import { BOOKING_STATUS_META, DIRECTION_LABEL } from '../labels';
-import { isNotPassenger, transportErrorText, useMyBookings } from '../passenger-api';
+import { cancellable, isNotPassenger, transportErrorText, useCancelBooking, useMyBookings } from '../passenger-api';
 import { clockIn } from '../trip-window';
 import { StatusChip, TOUCH, TransportEmpty } from '../ui';
 
@@ -31,17 +31,38 @@ function BookingRow({ b }: { b: MeBookingDto }) {
   );
   const style = { minHeight: TOUCH, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, borderRadius: RADIUS.md, padding: SPACE.md, gap: SPACE.xs };
   const label = `${b.serviceDate}, ${window}, ${t(DIRECTION_LABEL[b.direction])}, ${route}, ${t(meta.label)}`;
-  if (!b.tripId) return <View style={style} accessible accessibilityLabel={label}>{body}</View>;
-  return (
+  const cancel = useCancelBooking();
+  const confirmCancel = () =>
+    Alert.alert(
+      t('Cancel this booking?'),
+      `${b.serviceDate} · ${window}\n${t('This is possible only before the booking cut-off and before the trip starts. Your seat is given up.')}`,
+      [
+        { text: t('Keep booking'), style: 'cancel' },
+        { text: t('Cancel booking'), style: 'destructive', onPress: () => cancel.mutate(b.id) },
+      ],
+    );
+  const row = !b.tripId ? (
+    <View style={style} accessible accessibilityLabel={label}>
+      {body}
+    </View>
+  ) : (
     <Pressable onPress={() => router.push(`/commute/trip/${b.tripId}`)} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={t('Opens the trip')} style={({ pressed }) => [style, pressed && { opacity: 0.85 }]}>
       {body}
     </Pressable>
   );
+  if (!cancellable(b)) return row;
+  return (
+    <View style={{ gap: SPACE.xs }}>
+      {row}
+      {cancel.isError && <ErrorBanner message={transportErrorText(cancel.error)} />}
+      <Button title={t('Cancel booking')} variant="outline" onPress={confirmCancel} loading={cancel.isPending} style={{ minHeight: TOUCH }} />
+    </View>
+  );
 }
 
 /**
- * My bookings (read-only). The passenger API has no cancel / change route yet (doc 05 §2.8 lists booking create /
- * cancel for a later phase), so changes go through the transport desk; the screen says so.
+ * My bookings. Active ones can be cancelled by the passenger (confirm step; online only) before the cut-off and before
+ * the trip starts; the server refuses later cancels (AFTER_CUTOFF / INVALID_STATE) and the screen says to call the desk.
  */
 export function BookingsScreen() {
   const { t } = useTranslation();
@@ -66,7 +87,7 @@ export function BookingsScreen() {
           {q.isError && <ErrorBanner message={transportErrorText(q.error)} onRetry={() => void q.refetch()} />}
           <Card>
             <Text size="sm" tone="muted">
-              {t('Bookings come from your regular schedule or are made by the transport desk. To change or cancel one, contact your transport desk.')}
+              {t('You can cancel a booking here until its cut-off, as long as the trip has not started. After that, or to change a booking, contact your transport desk.')}
             </Text>
           </Card>
         </View>

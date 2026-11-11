@@ -139,7 +139,14 @@ function openFromNotification(n: Notifications.Notification, tapped: boolean): v
   // the opened screen fetches the details over the authenticated API.
   if (isTransportPush(data)) {
     const target = tapped ? transportPushTarget(data, transportRoles) : null;
-    if (target) router.push(target as Parameters<typeof router.push>[0]);
+    if (target) {
+      router.push(target as Parameters<typeof router.push>[0]);
+      // The tapped notice counts as read in the in-app inbox (the authoritative history).
+      if (typeof data.notificationId === 'string' && /^[0-9a-f-]{36}$/i.test(data.notificationId)) {
+        const base = target.startsWith('/duty') ? '/driver/v1' : '/me/transport';
+        api.post(`${base}/notifications/read`, { ids: [data.notificationId] }).catch(() => undefined);
+      }
+    }
     return;
   }
   const alertId = data.alertId;

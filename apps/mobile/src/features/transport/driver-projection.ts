@@ -13,7 +13,10 @@ function actionDisplay(serverConfirmed: boolean, local: readonly Pick<QueuedEven
   return last ? last.state : 'NONE';
 }
 
-type Local = Pick<QueuedEvent, 'type' | 'state' | 'stopSeq' | 'passengerTripId' | 'code'>;
+type Local = Pick<QueuedEvent, 'type' | 'state' | 'stopSeq' | 'passengerTripId' | 'code'> & Partial<Pick<QueuedEvent, 'occurredAt'>>;
+
+/** Mirrors DRIVER_LIMITS.noShowMinWaitMin (literal: no runtime import in pure modules). */
+export const NO_SHOW_WAIT_MS = 5 * 60_000;
 
 function matching(local: readonly Local[], type: DriverTripEventType, key: Partial<Pick<Local, 'stopSeq' | 'passengerTripId'>>): Local[] {
   return local.filter((e) => e.type === type && (key.stopSeq === undefined || e.stopSeq === key.stopSeq) && (key.passengerTripId === undefined || e.passengerTripId === key.passengerTripId));
@@ -50,13 +53,49 @@ export function passengerPending(p: Pick<DriverPassengerDto, 'passengerTripId' |
   return s.display === 'CONFIRMED' ? null : { type, state: s };
 }
 
-/** Outcome buttons to offer: the server's `allowedEvents`, minus anything already waiting to sync for that passenger. */
-export function passengerButtons(p: Pick<DriverPassengerDto, 'passengerTripId' | 'status' | 'allowedEvents'>, local: readonly Local[]): ('BOARDED' | 'NO_SHOW' | 'DROPPED')[] {
+/**
+ * Outcome buttons to offer at one stop: the server's `allowedEvents`, minus anything already waiting to sync for that
+ * passenger; BOARDED / NO_SHOW only at the passenger's pickup stop, DROPPED only at their drop stop.
+ */
+export function passengerButtons(
+  p: Pick<DriverPassengerDto, 'passengerTripId' | 'status' | 'allowedEvents' | 'pickupSeq' | 'dropSeq'>,
+  local: readonly Local[],
+  stopSeq: number,
+): ('BOARDED' | 'NO_SHOW' | 'DROPPED')[] {
   const pending = local.filter((e) => e.passengerTripId === p.passengerTripId && e.state === 'PENDING');
-  if (!pending.length) return [...p.allowedEvents];
-  // After a pending BOARDED the next sensible step is DROPPED (driverOutcomeAllowed); after NO_SHOW / DROPPED nothing.
-  const last = pending[pending.length - 1].type;
-  return last === 'BOARDED' ? ['DROPPED'] : [];
+  let out: ('BOARDED' | 'NO_SHOW' | 'DROPPED')[] = [...p.allowedEvents];
+  // After a pending BOARDED the next step is DROPPED (driverOutcomeAllowed); after NO_SHOW / DROPPED nothing.
+  if (pending.length) out = pending[pending.length - 1].type === 'BOARDED' ? ['DROPPED'] : [];
+  return out.filter((o) => (o === 'DROPPED' ? stopSeq === p.dropSeq : stopSeq === p.pickupSeq));
+}
+
+/**
+ * Event order (server rule STOP_NOT_ARRIVED): BOARDED / NO_SHOW at a pickup only once the stop is arrived, by the
+ * vehicle GPS / an accepted ARRIVED (server status), or by an ARRIVED this phone has queued (sent first, FIFO).
+ */
+export function pickupUnlocked(stop: Pick<DriverStopDto, 'seq' | 'status'>, local: readonly Local[]): boolean {
+  if (stop.status === 'ARRIVED' || stop.status === 'DEPARTED') return true;
+  return local.some((e) => e.type === 'ARRIVED' && e.stopSeq === stop.seq && e.state === 'PENDING');
+}
+
+/**
+ * When NO_SHOW becomes possible at a stop (server rule WAIT_NOT_ELAPSED: 5 min after the arrival): the server's actual
+ * arrival, else the time of this phone's queued ARRIVED. 0 = arrived per the server without a time (the server decides);
+ * null = not arrived.
+ */
+export function noShowAvailableAt(stop: Pick<DriverStopDto, 'seq' | 'status' | 'actualArrival'>, local: readonly Local[]): number | null {
+  const server = stop.actualArrival ? Date.parse(stop.actualArrival) : Number.NaN;
+  if (Number.isFinite(server)) return server + NO_SHOW_WAIT_MS;
+  const mine = local.find((e) => e.type === 'ARRIVED' && e.stopSeq === stop.seq && e.state === 'PENDING' && e.occurredAt);
+  if (mine?.occurredAt) return Date.parse(mine.occurredAt) + NO_SHOW_WAIT_MS;
+  return stop.status === 'ARRIVED' || stop.status === 'DEPARTED' ? 0 : null;
+}
+
+/** "4:05" until `at` (ms), or null once it has passed. */
+export function countdown(at: number, nowMs: number): string | null {
+  const s = Math.ceil((at - nowMs) / 1000);
+  if (s <= 0) return null;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 /**

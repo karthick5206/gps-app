@@ -1,9 +1,9 @@
 import type { MeTripDto, MeVehicleDto } from '@veetracer/shared';
 import { Stack } from 'expo-router';
-import { MapPinIcon } from 'lucide-react-native';
+import { MapPinIcon, PhoneIcon } from 'lucide-react-native';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AccessibilityInfo, ActivityIndicator, ScrollView, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Linking, ScrollView, View } from 'react-native';
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { useAppActive } from '@/lib/motion';
 import { currentLocale } from '@/lib/i18n';
@@ -11,7 +11,7 @@ import { SPACE, useColors } from '@/lib/theme';
 import { DIRECTION_LABEL, PASSENGER_STATUS_META, TRIP_STATE_META } from '../labels';
 import { isNotPassenger, transportErrorText, useMyTrip, useMyVehicle, useNow } from '../passenger-api';
 import { clockIn, distanceKm, hiddenVehicleText, myMapStops, shouldPollVehicle } from '../trip-window';
-import { Line, StatusChip, TransportEmpty, TransportMap, useTransportMapStyle, type MapPoint } from '../ui';
+import { BigAction, Line, StatusChip, TransportEmpty, TransportMap, useTransportMapStyle, type MapPoint } from '../ui';
 
 /** Plain-language summary of where the vehicle is (the text equivalent of the map, doc 08 §6.2). */
 function vehicleSentence(t: (k: string, o?: Record<string, unknown>) => string, trip: MeTripDto, v: Extract<MeVehicleDto, { visible: true }>, locale: string): string {
@@ -95,6 +95,15 @@ export function PassengerTripScreen({ id }: { id: string }) {
         <Line label={t('Trip window')}>{`${clockIn(trip.window.start, trip.timeZone, locale)} – ${clockIn(trip.window.end, trip.timeZone, locale)} (${trip.timeZone})`}</Line>
         <Line label={t('Other passengers')}>{String(trip.coRiders)}</Line>
       </Card>
+
+      {trip.deskPhone ? (
+        <BigAction
+          title={t('Call transport desk')}
+          icon={PhoneIcon}
+          tone="info"
+          onPress={() => Linking.openURL(`tel:${(trip.deskPhone ?? '').replace(/[^0-9+]/g, '')}`).catch(() => undefined)}
+        />
+      ) : null}
 
       <SectionTitle>{t('Where is my vehicle?')}</SectionTitle>
       {points.length > 0 && <TransportMap points={points} label={v ? t('Map with your vehicle') : t('Map with your pickup and drop')} />}

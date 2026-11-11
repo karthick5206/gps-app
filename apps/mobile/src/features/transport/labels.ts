@@ -67,6 +67,8 @@ export const ERROR_TEXT: Record<string, string> = {
   ETMS_DISABLED: 'Employee transport is not switched on for your company.',
   DRIVER_INACTIVE: 'Your driver login is not active. Contact your dispatcher.',
   NOT_FOUND: 'This trip is no longer assigned to you.',
+  AFTER_CUTOFF: 'The cancellation cut-off for this booking has passed. Call your transport desk.',
+  INVALID_STATE: 'This booking can no longer be cancelled here (its trip may have started). Call your transport desk.',
 };
 
 // ───────────── Driver ─────────────

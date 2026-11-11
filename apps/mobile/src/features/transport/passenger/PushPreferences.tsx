@@ -1,0 +1,49 @@
+import { PASSENGER_NOTIFICATION_KINDS, type TransportNotificationKind, type TransportNotificationPreferences } from '@veetracer/shared';
+import { useTranslation } from 'react-i18next';
+import { Switch, View } from 'react-native';
+import { Card, ErrorBanner, Text } from '@/components/ui';
+import { SPACE } from '@/lib/theme';
+import { useNotificationPreferences, useSaveNotificationPreferences } from '../passenger-api';
+
+const KIND_LABEL: Partial<Record<TransportNotificationKind, string>> = {
+  TRIP_STARTING_SOON: 'Your trip starts soon',
+  VEHICLE_APPROACHING: 'Your cab is arriving',
+  TRIP_DELAYED: 'Trip delayed',
+  TRIP_CANCELLED: 'Trip cancelled',
+};
+
+function Row({ label, value, onChange, disabled }: { label: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 48 }}>
+      <Text style={{ flex: 1 }} weight="500">
+        {label}
+      </Text>
+      <Switch value={value} onValueChange={onChange} disabled={disabled} accessibilityLabel={label} />
+    </View>
+  );
+}
+
+/**
+ * Passenger push preferences (GET / PUT /me/transport/notifications/preferences). They switch only the PUSH off: the
+ * in-app notices are always written and stay the authoritative history.
+ */
+export function PushPreferences() {
+  const { t } = useTranslation();
+  const q = useNotificationPreferences();
+  const save = useSaveNotificationPreferences();
+  if (!q.data) return null; // not loaded / server without the route: nothing to switch
+  const prefs = save.isPending && save.variables ? save.variables : q.data;
+  const set = (next: TransportNotificationPreferences) => save.mutate(next);
+  return (
+    <Card style={{ gap: SPACE.xs }}>
+      <Row label={t('Trip notifications on this phone')} value={prefs.push} onChange={(push) => set({ ...prefs, push })} />
+      {PASSENGER_NOTIFICATION_KINDS.map((k) => (
+        <Row key={k} label={t(KIND_LABEL[k] ?? k)} value={prefs.push && prefs.kinds[k] !== false} disabled={!prefs.push} onChange={(v) => set({ ...prefs, kinds: { ...prefs.kinds, [k]: v } })} />
+      ))}
+      {save.isError && <ErrorBanner message={t('Could not save. Try again.')} />}
+      <Text size="xs" tone="muted">
+        {t('This only turns the push messages off. Every update is still listed under Notices in the app.')}
+      </Text>
+    </Card>
+  );
+}

@@ -1,7 +1,19 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { currentStop, offerTripAction, passengerActionState, passengerButtons, passengerPending, stopActionState, tripActionState } from './driver-projection.ts';
+import {
+  countdown,
+  currentStop,
+  NO_SHOW_WAIT_MS,
+  noShowAvailableAt,
+  offerTripAction,
+  passengerActionState,
+  passengerButtons,
+  passengerPending,
+  pickupUnlocked,
+  stopActionState,
+  tripActionState,
+} from './driver-projection.ts';
 
 const P = 'p1';
 
@@ -25,13 +37,34 @@ test('passenger outcome: server status confirms; a pending one is shown as pendi
   assert.equal(passengerActionState({ ...p, status: 'DROPPED' }, 'BOARDED', []).display, 'CONFIRMED');
 });
 
-test('passenger buttons: server allowedEvents, then only DROPPED after a pending BOARDED, none after NO_SHOW', () => {
-  const p = { passengerTripId: P, status: 'PENDING' as const, allowedEvents: ['BOARDED', 'NO_SHOW'] as ('BOARDED' | 'NO_SHOW' | 'DROPPED')[] };
-  assert.deepEqual(passengerButtons(p, []), ['BOARDED', 'NO_SHOW']);
-  assert.deepEqual(passengerButtons(p, [{ type: 'BOARDED', state: 'PENDING', passengerTripId: P, code: null }]), ['DROPPED']);
-  assert.deepEqual(passengerButtons(p, [{ type: 'NO_SHOW', state: 'PENDING', passengerTripId: P, code: null }]), []);
+test('passenger buttons: server allowedEvents per stop, then only DROPPED (at the drop stop) after a pending BOARDED', () => {
+  const p = { passengerTripId: P, status: 'PENDING' as const, pickupSeq: 1, dropSeq: 3, allowedEvents: ['BOARDED', 'NO_SHOW'] as ('BOARDED' | 'NO_SHOW' | 'DROPPED')[] };
+  assert.deepEqual(passengerButtons(p, [], 1), ['BOARDED', 'NO_SHOW']);
+  assert.deepEqual(passengerButtons(p, [], 3), [], 'no pickup outcomes at the drop stop');
+  const boarded = [{ type: 'BOARDED', state: 'PENDING' as const, passengerTripId: P, code: null }];
+  assert.deepEqual(passengerButtons(p, boarded, 1), [], 'drop only at the drop stop');
+  assert.deepEqual(passengerButtons(p, boarded, 3), ['DROPPED']);
+  assert.deepEqual(passengerButtons(p, [{ type: 'NO_SHOW', state: 'PENDING', passengerTripId: P, code: null }], 1), []);
   // A rejected event does not block: the server's allowed events apply again.
-  assert.deepEqual(passengerButtons(p, [{ type: 'BOARDED', state: 'REJECTED', passengerTripId: P, code: 'STOP_NOT_ARRIVED' }]), ['BOARDED', 'NO_SHOW']);
+  assert.deepEqual(passengerButtons(p, [{ type: 'BOARDED', state: 'REJECTED', passengerTripId: P, code: 'STOP_NOT_ARRIVED' }], 1), ['BOARDED', 'NO_SHOW']);
+});
+
+test('event order: pickup outcomes only once the stop is arrived (GPS / server, or a queued ARRIVED)', () => {
+  assert.equal(pickupUnlocked({ seq: 1, status: 'PENDING' }, []), false);
+  assert.equal(pickupUnlocked({ seq: 1, status: 'ARRIVED' }, []), true, 'GPS-arrived');
+  assert.equal(pickupUnlocked({ seq: 1, status: 'PENDING' }, [{ type: 'ARRIVED', state: 'PENDING', stopSeq: 1, code: null }]), true);
+  assert.equal(pickupUnlocked({ seq: 1, status: 'PENDING' }, [{ type: 'ARRIVED', state: 'REJECTED', stopSeq: 1, code: 'NOT_AT_STOP' }]), false);
+});
+
+test('no-show only 5 min after the arrival, with a countdown', () => {
+  const t0 = Date.parse('2026-11-11T08:00:00Z');
+  assert.equal(noShowAvailableAt({ seq: 1, status: 'ARRIVED', actualArrival: '2026-11-11T08:00:00Z' }, []), t0 + NO_SHOW_WAIT_MS);
+  const queued = [{ type: 'ARRIVED', state: 'PENDING' as const, stopSeq: 1, code: null, occurredAt: '2026-11-11T08:00:00Z' }];
+  assert.equal(noShowAvailableAt({ seq: 1, status: 'PENDING', actualArrival: null }, queued), t0 + NO_SHOW_WAIT_MS);
+  assert.equal(noShowAvailableAt({ seq: 1, status: 'PENDING', actualArrival: null }, []), null);
+  assert.equal(noShowAvailableAt({ seq: 1, status: 'ARRIVED', actualArrival: null }, []), 0);
+  assert.equal(countdown(t0 + NO_SHOW_WAIT_MS, t0 + 55_000), '4:05');
+  assert.equal(countdown(t0, t0 + 1), null);
 });
 
 test('current stop: first not departed / skipped; a pending local DEPARTED moves on', () => {

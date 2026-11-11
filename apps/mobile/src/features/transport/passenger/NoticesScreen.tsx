@@ -8,6 +8,7 @@ import { SPACE } from '@/lib/theme';
 import { CONSENT_PURPOSE_META, NOTICE_KIND_LABEL } from '../labels';
 import { isNotPassenger, transportErrorText, useMyNotices } from '../passenger-api';
 import { TransportInbox } from '../TransportInbox';
+import { PushPreferences } from './PushPreferences';
 import { TransportEmpty } from '../ui';
 
 function NoticeRow({ n }: { n: PassengerNoticeDto }) {
@@ -60,6 +61,7 @@ export function NoticesScreen() {
           {q.isError ? <ErrorBanner message={transportErrorText(q.error)} onRetry={() => void q.refetch()} /> : null}
         </View>
       }
+      ListFooterComponent={<View style={{ marginTop: SPACE.md }}><PushPreferences /></View>}
       ListEmptyComponent={q.isError ? undefined : <TransportEmpty icon={BellIcon} title={t('No notices')} description={t('Changes your transport desk makes to your consent or login are listed here.')} />}
     />
   );

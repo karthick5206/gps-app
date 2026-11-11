@@ -74,6 +74,7 @@ function trip(over: Partial<MeTripDto> = {}): MeTripDto {
     pointsHidden: null,
     coRiders: 3,
     liveVisible: false,
+    deskPhone: null,
     ...over,
   };
 }

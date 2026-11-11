@@ -3,7 +3,8 @@ import type { DriverTripDetailDto } from '@veetracer/shared';
 import * as SecureStore from 'expo-secure-store';
 import { useEffect, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
-import { DRIVER_KEY, driverEventTransport } from './driver-api';
+import { ApiError } from '@/lib/api';
+import { DRIVER_KEY, driverEventTransport, fetchDriverSync } from './driver-api';
 import { EventQueue, type KeyValueStore, type QueuedEventInput, type QueueTransport } from './event-queue';
 
 /**
@@ -58,25 +59,66 @@ export function useTransportQueueLifecycle(userId: string | null) {
       driverQueue.unload();
       return;
     }
+    // A trip that is no longer mine (revoked, reassigned, cancelled): drop every cached copy of its manifest.
+    const wipeTrip = (tripId: string) => {
+      qc.removeQueries({ queryKey: [...DRIVER_KEY, 'trip', tripId] });
+      qc.removeQueries({ queryKey: [...DRIVER_KEY, 'motion', tripId] });
+    };
     transport = driverEventTransport((tripId, trip: DriverTripDetailDto | null) => {
       if (trip) qc.setQueryData([...DRIVER_KEY, 'trip', tripId], trip);
-      else void qc.invalidateQueries({ queryKey: [...DRIVER_KEY, 'trip', tripId] });
+      else wipeTrip(tripId);
       void qc.invalidateQueries({ queryKey: [...DRIVER_KEY, 'duty'] });
     });
+
+    // GET /sync?since=: revoked trips are wiped, changed ones refetched, and outcomes of events whose send answer was
+    // lost settle the queue (doc 09 §6.4.5). The cursor lives in memory: a fresh start asks without one.
+    let cursor: string | null = null;
+    let syncing = false;
+    let stopped = false;
+    const runSync = async () => {
+      if (syncing || stopped || AppState.currentState !== 'active') return;
+      syncing = true;
+      try {
+        const res = await fetchDriverSync(cursor);
+        for (const t of res.trips) {
+          if (t.change === 'REVOKED') wipeTrip(t.id);
+          else void qc.invalidateQueries({ queryKey: [...DRIVER_KEY, 'trip', t.id] });
+        }
+        if (res.trips.length) void qc.invalidateQueries({ queryKey: [...DRIVER_KEY, 'duty'] });
+        for (const e of res.events) await driverQueue.applyServerOutcome(e.clientEventId, e.outcome, e.code);
+        cursor = res.cursor;
+      } catch (err) {
+        // Not a driver (an admin holding the menu): stop asking. Network errors: try again on the next tick.
+        if (err instanceof ApiError && err.status === 403) stopped = true;
+      } finally {
+        syncing = false;
+      }
+    };
+
     let cancelled = false;
     driverQueue
       .load(userId)
-      .then(() => !cancelled && drain())
+      .then(() => {
+        if (cancelled) return;
+        drain();
+        void runSync();
+      })
       .catch(() => undefined);
     const tick = setInterval(() => {
       if (AppState.currentState === 'active' && driverQueue.due()) drain();
     }, 30_000);
+    const syncTick = setInterval(() => void runSync(), 60_000);
     const sub = AppState.addEventListener('change', (s) => {
-      if (s === 'active') drain();
+      if (s === 'active') {
+        drain();
+        void runSync();
+      }
     });
     return () => {
       cancelled = true;
+      stopped = true;
       clearInterval(tick);
+      clearInterval(syncTick);
       sub.remove();
     };
   }, [userId, qc]);

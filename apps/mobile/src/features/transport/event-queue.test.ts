@@ -285,6 +285,28 @@ test('seq continues above the server lastSeq (reinstall / second phone)', async 
   assert.equal((await q.enqueue({ tripId: TRIP_A, type: 'DEPARTED', stopSeq: 2 })).seq, 9);
 });
 
+test('sync outcomes settle a pending event whose send answer was lost', async () => {
+  const { q } = await loaded();
+  const a = await q.enqueue({ tripId: TRIP_A, type: 'ARRIVED', stopSeq: 1 });
+  const b = await q.enqueue({ tripId: TRIP_A, type: 'BOARDED', passengerTripId: 'p1' });
+  assert.equal(await q.applyServerOutcome(a.clientEventId, 'ACCEPTED', null), true);
+  assert.equal(await q.applyServerOutcome(b.clientEventId, 'REJECTED', 'CONFLICT'), true);
+  assert.deepEqual(q.snapshot().events.map((e) => [e.state, e.code]), [['REJECTED', 'CONFLICT']]);
+  assert.equal(await q.applyServerOutcome(b.clientEventId, 'ACCEPTED', null), false, 'settled rows are not touched again');
+  assert.equal(await q.applyServerOutcome('unknown', 'ACCEPTED', null), false);
+});
+
+test('settled rows are pruned after a day; pending rows never are', async () => {
+  const { store, q, c } = await loaded();
+  await q.enqueue({ tripId: TRIP_A, type: 'ARRIVED', stopSeq: 1 });
+  const b = await q.enqueue({ tripId: TRIP_B, type: 'ACKNOWLEDGE' });
+  await q.applyServerOutcome(b.clientEventId, 'LATE', 'TRIP_CLOSED');
+  c.advance(25 * 3600_000);
+  const again = new EventQueue({ store, now: c.now });
+  await again.load(USER);
+  assert.deepEqual(again.snapshot().events.map((e) => e.state), ['PENDING']);
+});
+
 test('notes are capped so a stored row stays small', async () => {
   const { q } = await loaded();
   const e = await q.enqueue({ tripId: TRIP_A, type: 'REPORT_DELAY', note: 'x'.repeat(5000), etaMin: 10 });

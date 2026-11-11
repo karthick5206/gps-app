@@ -7,7 +7,10 @@ import type {
   DriverTripDetailDto,
   DriverTripEventBatchResult,
   DriverTripEventInput,
+  DriverSyncDto,
+  DriverVehicleMotionDto,
 } from '@veetracer/shared';
+import { DRIVER_MOTION } from '@veetracer/shared';
 import { ApiError, api, errorMessage } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
 import { DRIVER_CODE_TEXT } from './labels';
@@ -50,6 +53,31 @@ export function useDriverTrip(id: string) {
   });
 }
 
+/**
+ * Live speed of the trip's vehicle for the in-motion lock: GET /trips/:id/motion every 10 s (DRIVER_MOTION.pollSeconds)
+ * while the trip screen is open and the app is in the foreground. Never the phone's GPS (D4).
+ */
+export function useTripMotion(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...DRIVER_KEY, 'motion', id],
+    queryFn: ({ signal }) => api.get<DriverVehicleMotionDto>(`${BASE}/trips/${id}/motion`, undefined, signal),
+    enabled,
+    retry: false,
+    refetchInterval: enabled ? DRIVER_MOTION.pollSeconds * 1000 : false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+/** GET /sync?since=: changed / revoked trips and the stored outcome of my events (doc 09 §6.4.5). */
+export function fetchDriverSync(since: string | null): Promise<DriverSyncDto> {
+  return api.get<DriverSyncDto>(`${BASE}/sync`, since ? { since } : undefined);
+}
+
+/**
+ * An online-only command body, made at the moment of the tap. The server refuses it with 409 STALE_COMMAND when the
+ * device time is more than 2 min old on arrival (an offline replay is never executed).
+ */
 function newCommand() {
   const now = Date.now();
   return { clientEventId: uuidv7(now), occurredAt: new Date(now).toISOString() };

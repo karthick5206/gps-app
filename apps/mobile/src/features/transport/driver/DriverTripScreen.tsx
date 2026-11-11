@@ -1,15 +1,17 @@
-import type { DriverPassengerDto, DriverStopDto, DriverTripDetailDto } from '@veetracer/shared';
+import type { DriverPassengerDto, DriverStopDto, DriverTripDetailDto, DriverVehicleMotionDto } from '@veetracer/shared';
 import { DRIVER_NO_SHOW_REASONS } from '@veetracer/shared';
 import { router, Stack } from 'expo-router';
-import { AccessibilityIcon, AlertTriangleIcon, CheckIcon, FlagIcon, LogOutIcon, MapPinIcon, NavigationIcon, PlayIcon, UserCheckIcon, UserXIcon } from 'lucide-react-native';
+import { AccessibilityIcon, AlertTriangleIcon, CheckIcon, FlagIcon, LogOutIcon, MapPinIcon, NavigationIcon, PhoneIcon, PlayIcon, UserCheckIcon, UserXIcon } from 'lucide-react-native';
+import { useAppActive } from '@/lib/motion';
+import { useNow } from '../passenger-api';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccessibilityInfo, ActivityIndicator, Alert, Linking, Platform, ScrollView, View } from 'react-native';
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { currentLocale } from '@/lib/i18n';
 import { SPACE, useColors } from '@/lib/theme';
-import { driverCodeText, driverErrorText, isNotDriver, useDriverMe, useDriverTrip, useStartTrip } from '../driver-api';
-import { currentStop, offerTripAction, passengerButtons, passengerPending, stopActionState, tripActionState } from '../driver-projection';
+import { driverCodeText, driverErrorText, isNotDriver, useDriverMe, useDriverTrip, useStartTrip, useTripMotion } from '../driver-api';
+import { countdown, currentStop, noShowAvailableAt, offerTripAction, passengerButtons, passengerPending, pickupUnlocked, stopActionState, tripActionState } from '../driver-projection';
 import { DIRECTION_LABEL, DRIVER_EVENT_LABEL, PASSENGER_STATUS_META, REASON_LABEL, TRIP_STATE_META } from '../labels';
 import { actionAllowed } from '../motion';
 import { geoUri } from '../nav-handoff';
@@ -22,19 +24,39 @@ import { useVehicleMotion } from './useVehicleMotion';
 
 type QueueFn = (input: Parameters<typeof queueDriverEvent>[0]) => Promise<void>;
 
-/** Vehicle speed if the trip detail carries one (not in the R1 contract: the in-motion lock stays inactive until it does). */
-function vehicleSample(trip: DriverTripDetailDto | undefined): { speedKph: number | null; fixAt: string | null } | null {
-  const v = (trip as unknown as { vehicleLive?: { speedKph: number | null; fixAt: string | null } } | undefined)?.vehicleLive;
-  return v ?? null;
+/** Motion sample for the lock: a stale / missing fix counts as "unknown" (never locked on it). */
+function motionSample(m: DriverVehicleMotionDto | null | undefined): { speedKph: number | null; fixAt: string | null } | null {
+  if (!m || m.stale || m.speedKph === null) return null;
+  return { speedKph: m.speedKph, fixAt: m.fixAt };
 }
 
-function PassengerRow({ p, tripId, moving, queue }: { p: DriverPassengerDto; tripId: string; moving: boolean; queue: QueueFn }) {
+/** Calls the operator's transport desk (never a passenger). Allowed while moving (doc 09 §5.1). */
+function CallButton({ phone, title }: { phone: string | null | undefined; title: string }) {
+  const { t } = useTranslation();
+  if (!phone) return null;
+  return (
+    <BigAction
+      title={title}
+      icon={PhoneIcon}
+      tone="info"
+      hint={t('Use hands-free while driving')}
+      onPress={() => Linking.openURL(`tel:${phone.replace(/[^0-9+]/g, '')}`).catch(() => undefined)}
+    />
+  );
+}
+
+function PassengerRow({ p, stop, tripId, moving, queue, now }: { p: DriverPassengerDto; stop: DriverStopDto; tripId: string; moving: boolean; queue: QueueFn; now: number }) {
   const { t } = useTranslation();
   const c = useColors();
   const q = useDriverQueue();
   const local = q.events.filter((e) => e.tripId === tripId);
   const pending = passengerPending(p, local);
-  const buttons = passengerButtons(p, local);
+  const buttons = passengerButtons(p, local, stop.seq);
+  const atPickup = stop.seq === p.pickupSeq;
+  // Event order: ARRIVED first (queued or GPS), then BOARDED / NO_SHOW; NO_SHOW only 5 min after the arrival.
+  const unlocked = !atPickup || pickupUnlocked(stop, local);
+  const noShowAt = atPickup ? noShowAvailableAt(stop, local) : null;
+  const wait = noShowAt ? countdown(noShowAt, now) : null;
   const meta = PASSENGER_STATUS_META[p.status];
   const noShow = () =>
     Alert.alert(
@@ -68,18 +90,33 @@ function PassengerRow({ p, tripId, moving, queue }: { p: DriverPassengerDto; tri
           ) : null}
         </View>
       )}
-      {!moving && buttons.length > 0 && (
+      {!moving && buttons.length > 0 && !unlocked && (
+        <Text size="sm" tone="muted">
+          {t('Mark the stop as arrived first.')}
+        </Text>
+      )}
+      {!moving && buttons.length > 0 && unlocked && (
         <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
           {buttons.includes('BOARDED') && <BigAction style={{ flex: 1 }} title={t('Boarded')} icon={UserCheckIcon} tone="success" onPress={() => void queue({ tripId, type: 'BOARDED', passengerTripId: p.passengerTripId })} />}
-          {buttons.includes('NO_SHOW') && <BigAction style={{ flex: 1 }} title={t('No-show')} icon={UserXIcon} tone="destructive" onPress={noShow} />}
-          {buttons.includes('DROPPED') && <BigAction style={{ flex: 1 }} title={t('Dropped')} icon={CheckIcon} onPress={() => void queue({ tripId, type: 'DROPPED', passengerTripId: p.passengerTripId })} />}
+          {buttons.includes('NO_SHOW') && (
+            <BigAction
+              style={{ flex: 1 }}
+              title={wait ? t('No-show in {{time}}', { time: wait }) : t('No-show')}
+              icon={UserXIcon}
+              tone="destructive"
+              onPress={noShow}
+              disabled={!!wait}
+              hint={wait ? t('No-show can be recorded 5 minutes after arriving') : undefined}
+            />
+          )}
+          {buttons.includes('DROPPED') && <BigAction style={{ flex: 1 }} title={t('Dropped')} icon={CheckIcon} onPress={() => void queue({ tripId, type: 'DROPPED', passengerTripId: p.passengerTripId, stopSeq: stop.seq })} />}
         </View>
       )}
     </View>
   );
 }
 
-function StopCard({ stop, trip, current, moving, queue, tz }: { stop: DriverStopDto; trip: DriverTripDetailDto; current: boolean; moving: boolean; queue: QueueFn; tz: string }) {
+function StopCard({ stop, trip, current, moving, queue, tz, now }: { stop: DriverStopDto; trip: DriverTripDetailDto; current: boolean; moving: boolean; queue: QueueFn; tz: string; now: number }) {
   const { t } = useTranslation();
   const c = useColors();
   const navOn = useNavHandoff();
@@ -142,7 +179,7 @@ function StopCard({ stop, trip, current, moving, queue, tz }: { stop: DriverStop
       {current && !moving && passengers.length > 0 && (
         <View>
           {passengers.map((p) => (
-            <PassengerRow key={p.passengerTripId} p={p} tripId={trip.id} moving={moving} queue={queue} />
+            <PassengerRow key={p.passengerTripId} p={p} stop={stop} tripId={trip.id} moving={moving} queue={queue} now={now} />
           ))}
         </View>
       )}
@@ -167,7 +204,13 @@ export function DriverTripScreen({ id }: { id: string }) {
   const start = useStartTrip(id);
   const q = useDriverQueue();
   const trip = query.data;
-  const motion = useVehicleMotion(vehicleSample(trip));
+  const active = useAppActive();
+  const running = trip?.plannedTripStatus === 'STARTED' || trip?.plannedTripStatus === 'IN_PROGRESS';
+  // Poll the vehicle's live speed every 10 s while this screen is open, the app is in front and the trip is open.
+  const motionQuery = useTripMotion(id, !!trip && active && (running || trip.plannedTripStatus === 'SCHEDULED'));
+  const sample = motionSample(motionQuery.data ?? trip?.vehicleMotion);
+  const motion = useVehicleMotion(sample);
+  const now = useNow(1_000);
   const [saveError, setSaveError] = useState<string | null>(null);
   const local = q.events.filter((e) => e.tripId === id);
 
@@ -272,11 +315,12 @@ export function DriverTripScreen({ id }: { id: string }) {
         <Card style={{ borderColor: c.warning }}>
           <Text weight="700">{t('Vehicle moving: only navigation is available')}</Text>
         </Card>
-      ) : !vehicleSample(trip) ? (
+      ) : !sample && running ? (
         <Text size="xs" tone="muted">
-          {t('The vehicle speed is not available, so actions are not locked while driving. Do not use the phone while driving.')}
+          {t('The vehicle has no fresh GPS position, so actions are not locked. Do not use the phone while driving.')}
         </Text>
       ) : null}
+      <CallButton phone={trip.dispatcherPhone ?? me.data?.dispatcherPhone} title={t('Call dispatcher')} />
 
       {start.isError && <ErrorBanner message={driverErrorText(start.error)} />}
       {!moving && trip.allowedActions.includes('start') && (
@@ -291,7 +335,7 @@ export function DriverTripScreen({ id }: { id: string }) {
         </Text>
       )}
       {(moving && cur ? [cur] : stops).map((s) => (
-        <StopCard key={s.seq} stop={s} trip={trip} current={cur?.seq === s.seq} moving={moving} queue={queue} tz={tz} />
+        <StopCard key={s.seq} stop={s} trip={trip} current={cur?.seq === s.seq} moving={moving} queue={queue} tz={tz} now={now} />
       ))}
 
       {!moving && (
