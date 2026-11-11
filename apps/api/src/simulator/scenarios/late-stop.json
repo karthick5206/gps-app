@@ -1,0 +1,7 @@
+{
+  "name": "late-stop",
+  "description": "Waits 15 extra minutes at Anna Nagar Roundtana, so Kilpauk Medical College (and the stops after it) are reached about 15 min after the planned arrival: TRIP_STOP_LATE (threshold 10 min).",
+  "route": "chennai-route.json",
+  "cruiseKph": 30,
+  "scenario": { "delayAtStopSec": { "stop": 2, "sec": 900 } }
+}

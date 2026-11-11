@@ -1,0 +1,7 @@
+{
+  "name": "unscheduled-stop",
+  "description": "Stands still for 7 minutes on the road between Anna Nagar and Kilpauk (45 % of the path), away from every stop: UNSCHEDULED_STOP event (speed < 3 km/h for 5 min or more).",
+  "route": "chennai-route.json",
+  "cruiseKph": 30,
+  "scenario": { "unscheduledStop": { "atFrac": 0.45, "sec": 420 } }
+}
