@@ -77,7 +77,11 @@ FAILED=()        # names of failed checks
 WARNED=()        # gate checks downgraded to WARN (tracking with HEALTH_GATE_TRACKING=warn)
 FAILED_UNITS=()  # units whose journal is printed on failure
 BODY="$(mktemp)"
-trap 'rm -f "$BODY"' EXIT
+HDR=""           # private header file with the optimiser token (routing probe); removed on every exit path
+trap 'rm -f "$BODY" ${HDR:+"$HDR"}' EXIT
+# E4 security review L9: an interrupted gate (Ctrl-C, SIGTERM from release.sh's caller) still runs the EXIT trap.
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 SECONDS=0
 
 remaining() { echo $(( HEALTH_TIMEOUT_SEC - SECONDS )); }
@@ -242,7 +246,7 @@ check_routing() {
     line SKIP routing "HEALTH_GATE_ROUTING=0"
     return 0
   fi
-  local url="${OPTIMIZER_URL:-http://127.0.0.1:8090}" host token hdr code left max
+  local url="${OPTIMIZER_URL:-http://127.0.0.1:8090}" host token code left max
   url="${url%/}/health"
   host="$(url_host "$url")"
   if ! is_local_host "$host"; then
@@ -257,22 +261,22 @@ check_routing() {
     add_unit veetrax-optimizer
     return 1
   fi
-  hdr="$(mktemp)"
-  chmod 600 "$hdr"
-  printf 'Authorization: Bearer %s\n' "$token" >"$hdr"
+  HDR="$(mktemp)"
+  chmod 600 "$HDR"
+  printf 'Authorization: Bearer %s\n' "$token" >"$HDR"
   token=""
   while :; do
     left="$(remaining)"
     max=$(( left < 5 ? (left < 1 ? 1 : left) : 5 ))
-    code="$(curl -q -s --proto '=http,https' -H @"$hdr" -o "$BODY" -w '%{http_code}' --connect-timeout "$max" --max-time "$max" -- "$url" 2>/dev/null)" || true
+    code="$(curl -q -s --proto '=http,https' -H @"$HDR" -o "$BODY" -w '%{http_code}' --connect-timeout "$max" --max-time "$max" -- "$url" 2>/dev/null)" || true
     code="${code:-000}"
     if [[ "$code" == 200 ]]; then
-      rm -f "$hdr"
+      rm -f "$HDR"; HDR=""
       line PASS routing "optimiser $(safe_url "$url") HTTP 200 after ${SECONDS} s"
       return 0
     fi
     if (( $(remaining) <= 0 )); then
-      rm -f "$hdr"
+      rm -f "$HDR"; HDR=""
       local hint=""
       [[ "$code" == 401 ]] && hint=" (token refused: OPTIMIZER_TOKEN in apps/api/.env and $OPTIMIZER_TOKEN_FILE must match)"
       line FAIL routing "optimiser $(safe_url "$url") last answer: $(describe "$code")$hint after ${SECONDS} s"

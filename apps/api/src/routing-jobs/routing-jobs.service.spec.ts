@@ -1,7 +1,7 @@
 import { HttpException } from '@nestjs/common';
 import type { AuthContext } from '../access/auth-context';
 import { MemoryJobQueue } from './job-queue';
-import { JobRecord, MemoryJobStore, StoreTx } from './job-store';
+import { ActiveLimitExceeded, JobRecord, MemoryJobStore, StoreTx } from './job-store';
 import { RoutingHttpError } from './routing-flags';
 import { PlanJobLink, RateLimiter, RoutingJobsService, toJobDto } from './routing-jobs.service';
 
@@ -77,6 +77,42 @@ describe('RoutingJobsService (API side)', () => {
     expect(store.rows.size).toBe(1);
     expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, timeLimitS: 30, weights: W }, KEY))).toEqual({ status: 422, code: 'IDEMPOTENCY_KEY_REUSED' });
     expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-2', expectedVersion: 3, weights: W }, undefined))).toMatchObject({ status: 400 });
+  });
+
+  it('L1: a key replays only for the user who used it and while the plan is visible; anyone else gets 422 without the job', async () => {
+    // user-1 (company scope) enqueues on branch b1's plan; user-2 (ASSIGNED, branch b2) sends the same key and body.
+    const a = await svc.enqueueOptimize(ctx(), { planId: 'plan-b', expectedVersion: 3, weights: W }, KEY);
+    const other = ctx({ userId: 'user-2', dataScope: 'ASSIGNED', branchIds: ['b2'] } as Partial<AuthContext>);
+    const e = await svc.enqueueOptimize(other, { planId: 'plan-b', expectedVersion: 3, weights: W }, KEY).catch((x: HttpException) => x);
+    expect(e).toBeInstanceOf(HttpException);
+    expect((e as HttpException).getStatus()).toBe(422);
+    const body = JSON.stringify((e as HttpException).getResponse());
+    expect(body).toContain('IDEMPOTENCY_KEY_REUSED');
+    expect(body).not.toContain(a.job.jobId);
+    // A whole-company colleague with the same key and body: still not a replay of someone else's job.
+    expect(await codeOf(svc.enqueueOptimize(ctx({ userId: 'user-3' }), { planId: 'plan-b', expectedVersion: 3, weights: W }, KEY))).toEqual({ status: 422, code: 'IDEMPOTENCY_KEY_REUSED' });
+    // The owner after losing sight of the plan (now ASSIGNED to another branch): no replay either.
+    expect(await codeOf(svc.enqueueOptimize(ctx({ dataScope: 'ASSIGNED', branchIds: ['b2'] } as Partial<AuthContext>), { planId: 'plan-b', expectedVersion: 3, weights: W }, KEY))).toEqual({
+      status: 422,
+      code: 'IDEMPOTENCY_KEY_REUSED',
+    });
+    // The owner, still in scope: the replay.
+    expect(await svc.enqueueOptimize(ctx(), { planId: 'plan-b', expectedVersion: 3, weights: W }, KEY)).toMatchObject({ replay: true, job: { jobId: a.job.jobId } });
+  });
+
+  it('per-company concurrency is checked atomically with the insert (store maxActive): concurrent racers cannot all pass', async () => {
+    const out = await Promise.all(
+      ['plan-1', 'plan-2', 'plan-3'].map((p, i) =>
+        svc.enqueueOptimize(ctx(), { planId: p, expectedVersion: 3, weights: W }, `race-key-000${i}`).then(
+          () => 'ok',
+          (e: HttpException) => (e.getResponse() as { code: string }).code,
+        ),
+      ),
+    );
+    expect(out.filter((o) => o === 'ok')).toHaveLength(2);
+    expect(out.filter((o) => o === 'QUOTA_EXCEEDED')).toHaveLength(1);
+    expect(store.rows.size).toBe(2);
+    await expect(store.create({ companyId: 'company-1', userId: 'u', planId: null, kind: 'optimize', input: null, idempotencyKey: null, requestHash: null, timeoutS: 60, maxAttempts: 3, maxActive: 2 })).rejects.toBeInstanceOf(ActiveLimitExceeded);
   });
 
   it('the same key in another company is a different job (keys are per company)', async () => {

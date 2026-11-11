@@ -32,6 +32,7 @@ import { AdaptiveLimiter, BuildGate } from './limiter';
 import { MatrixMetrics } from './matrix-metrics';
 import type { CellOutcome, MatrixBuild, MatrixBuildOptions, MatrixPoint, MatrixStats, PointReport } from './matrix-types';
 import { Arc, chunkTrails, eulerTrails, legsOf } from './walks';
+import { scrubCoordinates } from '../engine-text';
 
 /** India graph bbox (Photon search uses the same, `geocoding.service.ts`): lng 68–98, lat 6–37. */
 export const COVERAGE = { minLat: 6, maxLat: 37, minLng: 68, maxLng: 98 };
@@ -290,7 +291,7 @@ export class MatrixBuilder {
         consecutive++;
         if (consecutive >= this.config.failLimit && !breaker) {
           breaker = true;
-          this.logger.warn(`Matrix build stopped after ${consecutive} engine failures in a row: ${f.message}`);
+          this.logger.warn(`Matrix build stopped after ${consecutive} engine failures in a row: ${scrubCoordinates(f.message)}`);
         }
       };
       const noteSuccess = () => {
@@ -474,7 +475,7 @@ export class MatrixBuilder {
           noteSuccess();
           if (this.config.strategy === 'auto' && !this.walkTrust.has(trustKey)) {
             this.walkTrust.set(trustKey, 'unsupported');
-            this.logger.warn(`Routing engine gives no per-leg details (${r.message}); using single routes for graph ${trustKey}.`);
+            this.logger.warn(`Routing engine gives no per-leg details (${scrubCoordinates(r.message)}); using single routes for graph ${trustKey}.`);
           }
           for (const [a, b] of open) extra.push(pairTask(a, b));
         } else {
@@ -542,7 +543,7 @@ export class MatrixBuilder {
         : budget.signal.aborted
           ? { reason: 'ENGINE_TIMEOUT', message: `The matrix time budget (${Math.round((deadline - started) / 1000)} s) ran out before every cell was computed.` }
           : breaker && fail.last
-            ? { reason: fail.last.reason, message: `Stopped after ${this.config.failLimit} routing-engine failures in a row: ${fail.last.message}` }
+            ? { reason: fail.last.reason, message: `Stopped after ${this.config.failLimit} routing-engine failures in a row: ${scrubCoordinates(fail.last.message)}` }
             : null;
       for (let a = 0; a < n; a++) {
         for (let b = 0; b < n; b++) {
@@ -626,7 +627,7 @@ export class MatrixBuilder {
         const top = stopReason?.reason ?? [...reasons.entries()].sort((x, y) => y[1] - x[1])[0][0];
         degraded = {
           reason: top,
-          message: `${unknownCells.length} of ${stats.requested} cells could not be computed${stopReason ? `: ${stopReason.message}` : fail.last ? `: ${fail.last.message}` : ''}. They are unknown, not unreachable; run the build again to resume from the cache.`,
+          message: `${unknownCells.length} of ${stats.requested} cells could not be computed${stopReason ? `: ${scrubCoordinates(stopReason.message)}` : fail.last ? `: ${scrubCoordinates(fail.last.message)}` : ''}. They are unknown, not unreachable; run the build again to resume from the cache.`,
           retryAfterS: 60,
         };
       }

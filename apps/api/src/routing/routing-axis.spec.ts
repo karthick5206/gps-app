@@ -68,7 +68,7 @@ describe('route shapes are [lng, lat] (RR-14)', () => {
 
   it('GraphHopperProvider.route', async () => {
     jest.spyOn(global, 'fetch').mockImplementation(async () => answer());
-    const r = await new GraphHopperProvider(readRouterConfig({ ROUTER_URL: 'http://gh.test:8989', ROUTER_ENGINE: 'graphhopper' })).route(FROM, TO);
+    const r = await new GraphHopperProvider(readRouterConfig({ ROUTER_URL: 'http://gh.internal:8989', ROUTER_ENGINE: 'graphhopper' })).route(FROM, TO);
     expect(r.ok).toBe(true);
     if (r.ok) expectLngLat(r.value.path);
   });

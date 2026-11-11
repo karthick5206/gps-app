@@ -7,6 +7,10 @@ Wants=network-online.target
 User=veetrax
 WorkingDirectory=/opt/veetrax/app/apps/api
 EnvironmentFile=/opt/veetrax/app/apps/api/.env
+# Optimiser token (E4 security review L9): read from the optimiser's own file (root:veetrax 0640, OPTIMIZER_TOKEN=...),
+# so it need not be copied into apps/api/.env, which every VeeTrax unit loads. The units that do not call the
+# optimiser (gateway, processor, notifier, summarizer) have this path made inaccessible (InaccessiblePaths).
+Environment=OPTIMIZER_TOKEN_FILE=/etc/veetrax/optimizer.env
 # Exits 0 at once when ETMS_ROUTING is not "on"; Restart=on-failure leaves it stopped then.
 ExecStart=/usr/bin/node --max-old-space-size=768 dist/routing-worker/main.js
 Restart=on-failure
@@ -15,13 +19,35 @@ RestartSec=10
 # the lease sweeper of the next worker start.
 TimeoutStopSec=45
 # Shared 6 vCPU / 27 GB host (PostgreSQL 8 GB, GraphHopper, Photon 3 GB, the API stack): the worker mostly waits on
-# GraphHopper and the optimiser, so one core and 1 GiB are ample; lower priority than tracking.
+# GraphHopper and the optimiser, so one core and 1 GiB are ample; lower priority than tracking; never swaps.
 CPUQuota=100%
 MemoryMax=1G
+MemorySwapMax=0
 Nice=10
+# Network: loopback only (PostgreSQL, Valkey, GraphHopper and the optimiser all listen on 127.0.0.1 / ::1). A
+# DATABASE_URL / REDIS_URL / ROUTER_URL on another host needs IPAddressAllow= for it (systemctl edit).
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# File system: read-only everywhere (ProtectSystem=strict). The worker writes nothing to disk (logs go to the
+# journal), so there are no ReadWritePaths; /tmp is private.
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
 # Logs (ids, counts and error codes only, never coordinates): journalctl -u veetrax-routing-worker -f
 
 [Install]

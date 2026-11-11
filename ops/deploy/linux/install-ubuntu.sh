@@ -219,13 +219,16 @@ if routing_on; then
   echo "== ETMS route planning (ETMS_ROUTING=on): veetrax-routing-worker + veetrax-optimizer"
   install -m 644 "$HERE/veetrax-routing-worker.service" "$HERE/veetrax-optimizer.service" /etc/systemd/system/
   install -d -o veetrax -g veetrax /opt/veetrax/venvs
-  # Optimiser token (>= 24 chars): generated once, root:veetrax 0640, never printed. Copy it into apps/api/.env as
-  # OPTIMIZER_TOKEN (with OPTIMIZER_URL=http://127.0.0.1:8090); the service gets no other secret.
-  install -d -m 750 -o root -g veetrax /etc/veetrax
+  # Optimiser token (>= 24 chars): generated once, root:veetrax 0640, never printed. veetrax-api and
+  # veetrax-routing-worker read it through OPTIMIZER_TOKEN_FILE (set in their units; E4 security review L9), so it is
+  # NOT copied into apps/api/.env; the other VeeTrax units have the file made inaccessible. The optimiser gets no other
+  # secret. Set OPTIMIZER_URL=http://127.0.0.1:8090 in apps/api/.env.
+  # An existing /etc/veetrax (backup.conf lives there) keeps its owner and mode; only a missing one is created.
+  [[ -d /etc/veetrax ]] || install -d -m 750 -o root -g veetrax /etc/veetrax
   if [[ ! -s /etc/veetrax/optimizer.env ]]; then
     (umask 027; echo "OPTIMIZER_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '=+/')" > /etc/veetrax/optimizer.env)
     chown root:veetrax /etc/veetrax/optimizer.env
-    echo "   created /etc/veetrax/optimizer.env: copy its OPTIMIZER_TOKEN into apps/api/.env (+ OPTIMIZER_URL=http://127.0.0.1:8090)"
+    echo "   created /etc/veetrax/optimizer.env (read by the optimiser, the API and the routing worker; add OPTIMIZER_URL=http://127.0.0.1:8090 to apps/api/.env)"
   fi
   # The optimiser needs Python 3.14 (ortools cp314 wheels, doc 17 R-9); release.sh builds the venv with the hashed lock.
   if ! command -v python3.14 >/dev/null; then

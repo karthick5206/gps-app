@@ -8,6 +8,8 @@
  * of unknown type.
  */
 
+import { privateServiceUrlProblem } from '../private-url';
+
 export const SUPPORTED_ENGINE = 'graphhopper';
 
 export type RouterConfig =
@@ -30,6 +32,12 @@ export function readRouterConfig(env: NodeJS.ProcessEnv = process.env): RouterCo
   const baseUrl = (env.ROUTER_URL ?? '').trim().replace(/\/+$/, '');
   if (!baseUrl) return { state: 'disabled', message: 'Routing engine disabled: ROUTER_URL is not set.' };
   const engine = (env.ROUTER_ENGINE ?? '').trim().toLowerCase();
+  // E4 security review L3: every consented home point of an optimisation / plan edit goes to this engine, so it must
+  // be self-hosted (loopback / private network), unless ROUTING_ALLOW_PUBLIC_ENGINE=1 (test rigs only). Production
+  // (http://127.0.0.1:8989) and dev (localhost) pass. Applies to the E4 GraphHopperProvider and the matrix builder; the
+  // v1.8 RoutingService (live ETAs) reads ROUTER_URL itself and is deliberately unchanged (pre-existing, documented).
+  const problem = privateServiceUrlProblem(baseUrl, env);
+  if (problem) return { state: 'refused', engine: engine || '(unset)', message: `ROUTER_URL refused: ${problem}. Point it at the self-hosted GraphHopper (e.g. http://127.0.0.1:8989).` };
   if (engine === SUPPORTED_ENGINE) return { state: 'graphhopper', baseUrl };
   const message = engine
     ? `ROUTER_ENGINE=${engine} is not supported by the routing provider: GraphHopper is the only road engine (ETMS D3). ` +

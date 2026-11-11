@@ -85,8 +85,9 @@ jobs:
         working-directory: apps/api
       - name: TimescaleDB present
         run: test -n "$(PGPASSWORD=ci psql -h localhost -U ci -d veetrax_ci_test -tAc "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'")"
-      # ETMS and shared-settings DB tests. stock.db-test.ts needs its own throw-away database and is not in this job yet.
-      - run: npx jest --ci --runInBand --testRegex 'src/(etms|common)/.*\.db-test\.ts$'
+      # ETMS, shared-settings and E4 routing DB tests (routing-jobs, routing/usage: E4 QA B5). stock.db-test.ts needs its
+      # own throw-away database and is not in this job yet.
+      - run: npx jest --ci --runInBand --testRegex 'src/(etms|common|routing-jobs|routing)/.*\.db-test\.ts$'
         working-directory: apps/api
 
   optimizer:
@@ -105,6 +106,49 @@ jobs:
       - run: python -m pytest
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+  optimizer-int:
+    # E4 QA B5: the API worker against the real OR-Tools service, started from the locked, hashed venv on loopback with
+    # a throw-away token (optimizer-real.int-test.ts: contract v2, verification, pins, optimiser stopped, wrong token).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ROUTING_OPTIMIZER_TEST_URL: http://127.0.0.1:18090
+      # The suite fails instead of skipping when the URL / token are missing.
+      OPTIMIZER_INT_REQUIRED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Optimiser venv (locked, hashed wheels only)
+        working-directory: services/routing-optimizer
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes --no-deps --only-binary=:all: -r requirements.lock
+      - name: Start the optimiser on 127.0.0.1:18090 with a random token
+        working-directory: services/routing-optimizer
+        run: |
+          token="$(python -c 'import secrets; print(secrets.token_hex(24))')"
+          echo "::add-mask::$token"
+          echo "ROUTING_OPTIMIZER_TEST_TOKEN=$token" >> "$GITHUB_ENV"
+          OPTIMIZER_TOKEN="$token" OPTIMIZER_CONCURRENCY=2 nohup .venv/bin/python -m optimizer.server --host 127.0.0.1 --port 18090 > optimizer.log 2>&1 &
+          for i in $(seq 1 60); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18090/health || true)"
+            [ "$code" = 401 ] && exit 0
+            sleep 1
+          done
+          cat optimizer.log
+          exit 1
+      - run: npm ci
+      - run: npm run build:shared
+      - run: npx prisma generate
+        working-directory: apps/api
+      - run: npx jest --ci --runInBand --testRegex 'optimizer-real\.int-test\.ts$'
+        working-directory: apps/api
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 20

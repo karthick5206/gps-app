@@ -312,6 +312,30 @@ expect_out "FAIL line" 'FAIL  routing +optimiser token not readable'
 run_case "routing on, public optimiser host: FAIL, not fetched" 1 "${healthy[@]}" ETMS_ROUTING=on OPTIMIZER_URL="https://optimizer.example.com" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env"
 expect_out "FAIL line" 'FAIL  routing.*not a loopback or private host'
 run_case "routing on, HEALTH_GATE_ROUTING=0: SKIP" 0 "${healthy[@]}" ETMS_ROUTING=on HEALTH_GATE_ROUTING=0
+
+# E4 security review L9: the private token header file never outlives the gate (FAIL path and SIGTERM mid-probe).
+echo
+echo "### routing probe temp files are removed (FAIL run, then SIGTERM while polling)"
+GATE_TMP="$(mktemp -d)"
+env TMPDIR="$GATE_TMP" HEALTH_GATE_SYSTEMD=0 HEALTH_POLL_SEC=1 HEALTH_TIMEOUT_SEC=2 ROUTER_URL= GEOCODER_URL= MARTIN_URL= "${healthy[@]}" \
+  ETMS_ROUTING=on OPTIMIZER_URL="http://127.0.0.1:$BAD_PORT" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env" bash "$GATE" >/dev/null 2>&1
+env TMPDIR="$GATE_TMP" HEALTH_GATE_SYSTEMD=0 HEALTH_POLL_SEC=1 HEALTH_TIMEOUT_SEC=30 ROUTER_URL= GEOCODER_URL= MARTIN_URL= "${healthy[@]}" \
+  ETMS_ROUTING=on OPTIMIZER_URL="http://127.0.0.1:$BAD_PORT" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env" bash "$GATE" >/dev/null 2>&1 &
+gate_pid=$!
+for _ in $(seq 1 50); do
+  grep -rqs 'test-token-0123456789' "$GATE_TMP" && break
+  sleep 0.1
+done
+grep -rqs 'test-token-0123456789' "$GATE_TMP" || { echo "!!! header file never seen while polling"; FAILURES=$((FAILURES + 1)); }
+kill -TERM "$gate_pid" 2>/dev/null
+wait "$gate_pid" 2>/dev/null
+left="$(find "$GATE_TMP" -type f | wc -l)"
+echo "--> temp files left: $left"
+if [[ "$left" != 0 ]]; then
+  echo "!!! temp files left after the gate: $(find "$GATE_TMP" -type f)"
+  FAILURES=$((FAILURES + 1))
+fi
+rm -rf "$GATE_TMP"
 rm -rf "$TOKEN_DIR"
 
 echo "### release.sh --health-only (APP_DIR=$REPO, expect exit 1 and the rollback text)"

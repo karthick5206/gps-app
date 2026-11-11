@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 User=veetrax
 WorkingDirectory=/opt/veetrax/app/services/routing-optimizer
-# OPTIMIZER_TOKEN (>= 24 chars, the same value as OPTIMIZER_TOKEN in apps/api/.env), created by install-ubuntu.sh;
-# root:veetrax 0640. The API's .env (database secrets) is NOT given to this service.
+# OPTIMIZER_TOKEN (>= 24 chars), created by install-ubuntu.sh; root:veetrax 0640. The API and the routing worker read
+# the same file (OPTIMIZER_TOKEN_FILE); the API's .env (database secrets) is NOT given to this service.
 EnvironmentFile=/etc/veetrax/optimizer.env
 Environment=OPTIMIZER_HOST=127.0.0.1
 Environment=OPTIMIZER_PORT=8090
@@ -35,6 +35,19 @@ ProtectSystem=strict
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
+# E4 security review L9: further sandboxing, compatible with CPython 3.14 + OR-Tools (spawn workers use /dev/shm,
+# which PrivateDevices keeps; no JIT, no namespaces, no capabilities, no realtime scheduling needed).
+PrivateDevices=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
 # Logs (one line per request, never bodies): journalctl -u veetrax-optimizer -f
 
 [Install]

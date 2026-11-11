@@ -75,7 +75,9 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     if (!vehicles) throw new RoutingHttpError('LIMIT_EXCEEDED', 'Add at least one vehicle to the plan before optimising');
     if (vehicles > ROUTING_LIMITS.optimizeVehicles) throw new RoutingHttpError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeVehicles} vehicles per optimisation`);
     if (stops > ROUTING_LIMITS.optimizeStops) throw new RoutingHttpError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeStops} stops per optimisation`);
-    const moved = await t.routePlan.updateMany({ where: { id: planId, companyId: ctx.companyId, version: expectedVersion, status: plan.status }, data: { status: 'OPTIMIZING', ...(weights ? { options: { ...optionsOf(plan.options), weights: { ...weights } } as Prisma.InputJsonValue } : {}) } });
+    // QA B3: the status before the run (DRAFT / PLANNED) is kept in options, so a failed or cancelled run gives it back.
+    const options = { ...optionsOf(plan.options), ...(weights ? { weights: { ...weights } } : {}), statusBeforeOptimize: plan.status };
+    const moved = await t.routePlan.updateMany({ where: { id: planId, companyId: ctx.companyId, version: expectedVersion, status: plan.status }, data: { status: 'OPTIMIZING', options: options as Prisma.InputJsonValue } });
     if (!moved.count) throw new RoutingHttpError('PLAN_STALE', 'The plan changed meanwhile; reload it and try again');
     return { profile: (plan.profile as RoutingProfile) ?? 'car' };
   }
@@ -85,7 +87,12 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     // Only when no other job of the plan is still active (one per plan by construction; defensive).
     const active = await this.db.routingJob.count({ where: { planId: job.planId, status: { in: ['QUEUED', 'RUNNING'] } } });
     if (active) return;
-    await this.db.routePlan.updateMany({ where: { id: job.planId, companyId: job.companyId, status: 'OPTIMIZING' }, data: { status: 'DRAFT' } });
+    const plan = await this.db.routePlan.findFirst({ where: { id: job.planId, companyId: job.companyId, status: 'OPTIMIZING' }, select: { options: true } });
+    if (!plan) return;
+    // QA B3: back to the status before the run (a failed re-optimisation keeps a PLANNED plan PLANNED); DRAFT otherwise.
+    const before = optionsOf(plan.options).statusBeforeOptimize;
+    const status: RoutePlanStatus = before === 'PLANNED' ? 'PLANNED' : 'DRAFT';
+    await this.db.routePlan.updateMany({ where: { id: job.planId, companyId: job.companyId, status: 'OPTIMIZING' }, data: { status } });
   }
 
   async visible(ctx: AuthContext, planId: string): Promise<boolean> {
@@ -194,7 +201,8 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     const next = inputs.version + 1;
     const moved = await tx.routePlan.updateMany({
       where: { id: inputs.planId, companyId: inputs.companyId, version: inputs.version, status: 'OPTIMIZING' },
-      data: { status: 'DRAFT' satisfies RoutePlanStatus, version: next, graphVersion },
+      // QA B3: a successful optimisation leaves the plan PLANNED (ready to review and publish; still editable).
+      data: { status: 'PLANNED' satisfies RoutePlanStatus, version: next, graphVersion },
     });
     // Consent withdrawal / erasure / an edit bumped the version meanwhile: the whole result is discarded (R4: no half plan).
     if (!moved.count) throw new JobError('PLAN_STALE', 'The plan changed while optimising; the result was discarded');
@@ -225,7 +233,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
       tx.routePlanStop.findMany({ where: { planId: inputs.planId }, orderBy: [{ assignmentId: 'asc' }, { sequence: 'asc' }], select: { id: true, ref: true, assignmentId: true, sequence: true, etaS: true, unassignedReason: true } }),
     ]);
     const snapshot: RoutePlanVersionSnapshot = {
-      status: 'DRAFT',
+      status: 'PLANNED',
       assignments: assignments.map((a) => ({ ...a, stopIds: stops.filter((s) => s.assignmentId === a.id).map((s) => s.id) })),
       stops,
     };

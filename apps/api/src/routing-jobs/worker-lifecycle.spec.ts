@@ -99,7 +99,7 @@ describe('routing worker lifecycle', () => {
     const w1 = worker('w1');
     w1.start(1);
     await until(async () => (await store.get(j.id))?.status === 'RUNNING');
-    expect((await store.get(j.id))!.lockedBy).toBe('w1');
+    expect((await store.get(j.id))!.lockedBy).toMatch(/^w1:/);
     w1.kill(); // SIGKILL: no heartbeat, nothing written
     matrix.mode = 'ok';
     const w2 = worker('w2');
@@ -107,9 +107,48 @@ describe('routing worker lifecycle', () => {
     await until(async () => (await store.get(j.id))?.status === 'SUCCEEDED', 5_000);
     const row = (await store.get(j.id))!;
     expect(row.attempts).toBe(2);
-    expect(row.lockedBy).toBe('w2');
+    expect(row.lockedBy).toMatch(/^w2:/);
     expect(plans.writes).toHaveLength(1);
     expect(w2.metrics().takenOver).toBe(1);
+  });
+
+  it('L7: lease token per claim — a stale run of the SAME worker cannot write while another of its slots owns the job', async () => {
+    const gates = [0, 1].map(() => {
+      let open!: () => void;
+      return { p: new Promise<void>((r) => (open = r)), open: () => open() };
+    });
+    const writes: string[] = [];
+    let calls = 0;
+    const r = new Map<string, JobRunner>([
+      [
+        'optimize',
+        async () => {
+          const n = ++calls;
+          await gates[n - 1].p;
+          return { result: { run: n }, graphVersion: null, within: async () => void writes.push(`run${n}`) };
+        },
+      ],
+    ]);
+    const j = await newJob();
+    const w = worker('w1', { heartbeatMs: 10_000 }, r); // no heartbeat within the lease: an event-loop stall
+    const stale = w.process(j.id);
+    await until(async () => (await store.get(j.id))?.status === 'RUNNING');
+    const first = (await store.get(j.id))!.lockedBy!;
+    await sleep(350);
+    expect(await worker('sweeper').sweep()).toMatchObject({ requeued: 1 });
+    const fresh = w.process(j.id); // the same process re-claims it (another slot)
+    await until(async () => (await store.get(j.id))?.status === 'RUNNING' && calls === 2);
+    const second = (await store.get(j.id))!.lockedBy!;
+    expect(first).toMatch(/^w1:[0-9a-f-]{36}$/);
+    expect(second).toMatch(/^w1:[0-9a-f-]{36}$/);
+    expect(second).not.toBe(first);
+    expect(await store.renewLease(j.id, first, new Date(Date.now() + 60_000))).toBe(false);
+    gates[0].open(); // the stale run finishes first, while the job is RUNNING under the second claim
+    expect(await stale).toBe('lease-lost');
+    expect(writes).toEqual([]);
+    gates[1].open();
+    expect(await fresh).toBe('succeeded');
+    expect(writes).toEqual(['run2']);
   });
 
   it('R4: a slow worker that lost its lease cannot write its late result', async () => {
@@ -139,7 +178,7 @@ describe('routing worker lifecycle', () => {
       const w = worker(id);
       await queue.publish(j.id);
       const run = w.process(j.id);
-      await until(async () => (await store.get(j.id))?.status === 'RUNNING' && (await store.get(j.id))?.lockedBy === id);
+      await until(async () => (await store.get(j.id))?.status === 'RUNNING' && (await store.get(j.id))?.lockedBy?.startsWith(`${id}:`) === true);
       w.kill();
       void run;
       await sleep(350);

@@ -14,18 +14,27 @@ Security (owner decision 2026-11-09):
 Each solve runs in a worker process (spawn, at most OPTIMIZER_CONCURRENCY): OR-Tools holds the GIL while it searches
 on C++ transit matrices, so solving in the HTTP process would stall /health and the 429 path. A crashed worker (e.g.
 killed by MemoryMax) gives HTTP 503 and the pool is rebuilt for the next request.
+
+Robustness (E4 security review L5):
+  * The solve result is awaited at most timeLimitS + OPTIMIZER_RESULT_GRACE_S (default 30 s); a worker that does not
+    answer by then is terminated, the pool rebuilt, and the request answered 503 (transient for the API).
+  * Malformed input is always a JSON 400 (bad or missing Content-Length, invalid or too deeply nested JSON, wrong
+    option types); any other failure is a JSON 500. A request is never answered by dropping the connection.
+  * The solver slot is taken before the body is read; handler threads are bounded (OPTIMIZER_MAX_CONNECTIONS, default
+    16; further connections are closed at once) and every connection has a 30 s socket timeout.
 """
 from __future__ import annotations
 
 import argparse
-import multiprocessing
 import hmac
 import ipaddress
 import json
+import multiprocessing
 import os
 import sys
 import threading
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from concurrent.futures.process import BrokenProcessPool
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -35,6 +44,10 @@ from .solver import LIMITS, solve
 
 MAX_BODY = 8 * 1024 * 1024
 MIN_TOKEN = 24
+#: The solver wire format is a few levels deep (problem -> stops -> timeWindows -> pair); 32 is generous.
+MAX_JSON_DEPTH = 32
+#: Socket timeout of a connection (seconds): a client that sends nothing for this long is dropped.
+HANDLER_TIMEOUT_S = 30
 
 
 def parse_allow(raw: str | None) -> list[ipaddress._BaseNetwork]:
@@ -53,7 +66,7 @@ def allowed(addr: str, nets: list[ipaddress._BaseNetwork]) -> bool:
 
 
 class Config:
-    def __init__(self, token: str, allow: list, slots: int):
+    def __init__(self, token: str, allow: list, slots: int, solve_fn=solve, grace_s: float = 30.0):
         self.token = token
         self.allow = allow
         self.slots = threading.BoundedSemaphore(slots)
@@ -61,22 +74,38 @@ class Config:
         self.busy = 0
         self.lock = threading.Lock()
         self.pool: ProcessPoolExecutor | None = None
+        self.solve_fn = solve_fn
+        self.grace_s = grace_s
 
-    def solve(self, problem: dict) -> dict | None:
-        """Solve in a worker process; None if the worker died (the pool is then rebuilt on the next call)."""
+    def _drop_pool(self, pool: ProcessPoolExecutor, terminate: bool) -> None:
+        with self.lock:
+            if self.pool is pool:
+                self.pool = None
+        if terminate:
+            # A worker that ignores its time limit: kill it (shutdown alone would wait for the running task).
+            for proc in list((getattr(pool, '_processes', None) or {}).values()):
+                try:
+                    proc.terminate()
+                except Exception:  # noqa: BLE001 - already gone
+                    pass
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    def solve(self, problem: dict, time_limit_s: float) -> dict | str:
+        """Solve in a worker process. Returns the result, or 'crashed' (the worker died) / 'timeout' (no answer within
+        the time limit + grace: the workers are terminated). Either way the pool is rebuilt on the next call."""
         with self.lock:
             if self.pool is None:
                 self.pool = ProcessPoolExecutor(max_workers=self.size, mp_context=multiprocessing.get_context('spawn'),
                                                 max_tasks_per_child=50)
             pool = self.pool
         try:
-            return pool.submit(solve, problem).result()
+            return pool.submit(self.solve_fn, problem).result(timeout=time_limit_s + self.grace_s)
         except BrokenProcessPool:
-            with self.lock:
-                if self.pool is pool:
-                    self.pool = None
-            pool.shutdown(wait=False, cancel_futures=True)
-            return None
+            self._drop_pool(pool, terminate=False)
+            return 'crashed'
+        except FuturesTimeout:
+            self._drop_pool(pool, terminate=True)
+            return 'timeout'
 
     def close(self) -> None:
         with self.lock:
@@ -85,15 +114,45 @@ class Config:
             pool.shutdown(wait=False, cancel_futures=True)
 
 
+def json_depth_ok(value, limit: int = MAX_JSON_DEPTH) -> bool:
+    """Iterative nesting check (no recursion)."""
+    stack = [(value, 1)]
+    while stack:
+        v, d = stack.pop()
+        if isinstance(v, (dict, list)):
+            if d > limit:
+                return False
+            stack.extend((c, d + 1) for c in (v.values() if isinstance(v, dict) else v))
+    return True
+
+
+def requested_time_limit(problem) -> float:
+    """The solver's own clamp of options.timeLimitS (solver.solve; default 10 s). Never raises."""
+    opts = problem.get('options') if isinstance(problem, dict) else None
+    v = opts.get('timeLimitS', 10) if isinstance(opts, dict) else 10
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float('inf'), float('-inf')):
+        v = 10
+    return float(max(1, min(int(v), LIMITS['timeLimitS'])))
+
+
+class BadRequest(Exception):
+    pass
+
+
 def make_handler(cfg: Config):
     class Handler(BaseHTTPRequestHandler):
-        server_version = 'veetrax-routing-optimizer/0.2'
+        server_version = 'veetrax-routing-optimizer/0.3'
+        # L5: socket timeout per connection (a slow or silent client is dropped).
+        timeout = HANDLER_TIMEOUT_S
 
         def _send(self, code: int, body: dict) -> None:
             data = json.dumps(body).encode()
             self.send_response(code)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(data)))
+            if code >= 400:
+                self.send_header('Connection', 'close')
+                self.close_connection = True
             self.end_headers()
             self.wfile.write(data)
 
@@ -107,38 +166,84 @@ def make_handler(cfg: Config):
                 return False
             return True
 
+        def _internal(self) -> None:
+            exc = sys.exc_info()[0]
+            print(f'{self.address_string()} internal error: {exc.__name__ if exc else "?"}', flush=True)  # class only, never the body
+            try:
+                self._send(500, {'status': 'ERROR', 'error': 'internal error'})
+            except Exception:  # noqa: BLE001 - the client is gone
+                pass
+
         def do_GET(self) -> None:  # noqa: N802
-            if not self._guard():
-                return
-            if self.path == '/health':
-                self._send(200, {'ok': True, 'ortools': ortools.__version__, 'limits': LIMITS, 'slots': cfg.size, 'busy': cfg.busy})
-            else:
-                self._send(404, {'error': 'not found'})
+            try:
+                if not self._guard():
+                    return
+                if self.path == '/health':
+                    self._send(200, {'ok': True, 'ortools': ortools.__version__, 'limits': LIMITS, 'slots': cfg.size, 'busy': cfg.busy})
+                else:
+                    self._send(404, {'error': 'not found'})
+            except Exception:  # noqa: BLE001 - never drop the connection without an answer
+                self._internal()
 
         def do_POST(self) -> None:  # noqa: N802
+            try:
+                self._post()
+            except BadRequest as e:
+                self._send(400, {'status': 'INVALID_INPUT', 'error': str(e)})
+            except Exception:  # noqa: BLE001 - every other failure is a JSON 500
+                self._internal()
+
+        def _length(self) -> int:
+            raw = (self.headers.get('Content-Length') or '').strip()
+            if not raw.isdigit():
+                raise BadRequest('Content-Length must be a non-negative integer')
+            return int(raw)
+
+        def _read_problem(self, length: int) -> dict:
+            raw = self.rfile.read(length)
+            if len(raw) != length:
+                raise BadRequest('body shorter than Content-Length')
+            try:
+                problem = json.loads(raw)
+            except (ValueError, RecursionError):  # JSONDecodeError, bad UTF-8, nested too deep for the parser
+                raise BadRequest('invalid JSON body') from None
+            if not json_depth_ok(problem):
+                raise BadRequest(f'JSON nested deeper than {MAX_JSON_DEPTH} levels')
+            if not isinstance(problem, dict):
+                raise BadRequest('problem must be an object')
+            return problem
+
+        def _post(self) -> None:
             if not self._guard():
                 return
             if self.path != '/optimize':
                 return self._send(404, {'error': 'not found'})
-            length = int(self.headers.get('Content-Length') or 0)
+            length = self._length()
             if not 0 < length <= MAX_BODY:
                 return self._send(413, {'error': f'body must be 1..{MAX_BODY} bytes'})
-            try:
-                problem = json.loads(self.rfile.read(length))
-            except json.JSONDecodeError:
-                return self._send(400, {'error': 'invalid JSON'})
+            # L5: the slot is taken before the body is read and parsed, so at most OPTIMIZER_CONCURRENCY bodies are in
+            # memory at once; a full service answers 429 without reading anything.
             if not cfg.slots.acquire(blocking=False):
                 return self._send(429, {'error': 'optimizer busy', 'slots': cfg.size})
             with cfg.lock:
                 cfg.busy += 1
             try:
-                result = cfg.solve(problem)
+                problem = self._read_problem(length)
+                try:
+                    result = cfg.solve(problem, requested_time_limit(problem))
+                except (TypeError, ValueError, KeyError, IndexError, AttributeError, RecursionError):
+                    # Raised inside the worker by a problem the validator let through: the input, not the service.
+                    raise BadRequest('invalid problem') from None
             finally:
                 with cfg.lock:
                     cfg.busy -= 1
                 cfg.slots.release()
-            if result is None:
-                return self._send(503, {'error': 'solver worker crashed'})
+            if result == 'crashed':
+                return self._send(503, {'status': 'ERROR', 'error': 'solver worker crashed'})
+            if result == 'timeout':
+                return self._send(503, {'status': 'ERROR', 'error': 'solver did not answer within its time limit; worker restarted'})
+            if not isinstance(result, dict) or not isinstance(result.get('status'), str):
+                return self._send(500, {'status': 'ERROR', 'error': 'solver answer is not a result'})
             self._send(400 if result['status'] == 'INVALID_INPUT' else 200, result)
 
         def log_message(self, fmt: str, *args) -> None:  # one line per request, never the body or headers
@@ -147,20 +252,53 @@ def make_handler(cfg: Config):
     return Handler
 
 
-def build_server(host: str, port: int, env: dict) -> ThreadingHTTPServer:
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with at most `max_connections` handler threads (L5); further connections are closed at once."""
+
+    daemon_threads = True
+    max_connections = 16
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._conn = threading.BoundedSemaphore(self.max_connections)
+
+    def process_request(self, request, client_address):
+        if not self._conn.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._conn.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._conn.release()
+
+
+def build_server(host: str, port: int, env: dict, solve_fn=solve) -> ThreadingHTTPServer:
     token = env.get('OPTIMIZER_TOKEN', '')
     if len(token) < MIN_TOKEN:
         raise SystemExit(f'OPTIMIZER_TOKEN must be set (>= {MIN_TOKEN} characters); refusing to start')
-    cfg = Config(token, parse_allow(env.get('OPTIMIZER_ALLOW')), max(1, int(env.get('OPTIMIZER_CONCURRENCY', '2'))))
+    cfg = Config(token, parse_allow(env.get('OPTIMIZER_ALLOW')), max(1, int(env.get('OPTIMIZER_CONCURRENCY', '2'))),
+                 solve_fn=solve_fn, grace_s=float(env.get('OPTIMIZER_RESULT_GRACE_S', '30')))
     family_v6 = ':' in host
 
     def server_close(self) -> None:
-        ThreadingHTTPServer.server_close(self)
+        BoundedThreadingHTTPServer.server_close(self)
         cfg.close()
 
-    cls = type('Srv', (ThreadingHTTPServer,), {'address_family': __import__('socket').AF_INET6 if family_v6 else __import__('socket').AF_INET,
-                                               'server_close': server_close})
-    return cls((host, port), make_handler(cfg))
+    cls = type('Srv', (BoundedThreadingHTTPServer,), {
+        'address_family': __import__('socket').AF_INET6 if family_v6 else __import__('socket').AF_INET,
+        'server_close': server_close,
+        'max_connections': max(2, int(env.get('OPTIMIZER_MAX_CONNECTIONS', '16'))),
+    })
+    srv = cls((host, port), make_handler(cfg))
+    srv.cfg = cfg
+    return srv
 
 
 def main() -> None:

@@ -1171,6 +1171,9 @@ describe('ETMS isolation matrix (E4): route plans leak checks', () => {
     expect(JSON.stringify(plan)).not.toMatch(new RegExp(`${xb}|${x}|13\\.0701|x7-p`));
     expect(plan.assignments[0].geometry).toBeNull();
     expect(await codeOf(w.controllers.e4.plans.movePassenger(disp, w.plans.party.plan, { expectedVersion: 1, bookingId: xb, toAssignmentId: null }))).toBe('NOT_FOUND');
+    // E4 security review (informational): the route carrying that passenger cannot be relocked / reassigned either.
+    expect(await codeOf(w.controllers.e4.plans.updateAssignment(disp, w.plans.party.plan, w.plans.party.assignment, { expectedVersion: 1, locked: true }))).toBe('NOT_FOUND');
+    expect(w.store.table('routePlan').find((p) => p.id === w.plans.party.plan)).toMatchObject({ version: 1 });
     const err = await errorOf(w.controllers.e4.plans.publish(disp, w.plans.party.plan, { expectedVersion: 1 }, `k-${randomUUID()}`));
     expect(err).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE', routes: [{ code: 'NOT_FOUND' }] } });
     // The whole-company admin sees every point.

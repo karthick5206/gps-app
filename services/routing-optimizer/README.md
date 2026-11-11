@@ -46,11 +46,15 @@ outside the repository).
 | `OPTIMIZER_HOST` / `--host` | `127.0.0.1` | Bind address. A non-loopback bind must be set explicitly. |
 | `OPTIMIZER_PORT` / `--port` | `8090` | |
 | `OPTIMIZER_ALLOW` | `127.0.0.1/32,::1/128` | Source CIDR allow-list; others get 403 before the body is read. |
-| `OPTIMIZER_CONCURRENCY` | `2` | Solves at once; further requests get 429 (the caller retries later). |
+| `OPTIMIZER_CONCURRENCY` | `2` | Solves at once; further requests get 429 (the caller retries later). The slot is taken before the body is read. |
+| `OPTIMIZER_RESULT_GRACE_S` | `30` | A solve that has not answered after `timeLimitS` + this is killed (workers terminated, pool rebuilt) and answered 503. |
+| `OPTIMIZER_MAX_CONNECTIONS` | `16` | Handler threads at most; further connections are closed at once. Every connection has a 30 s socket timeout. |
 
 Endpoints: `GET /health` → `{ok, ortools, limits, slots, busy}`; `POST /optimize` (body ≤ 8 MB) → the result below,
-HTTP 400 for `INVALID_INPUT`, **503** if the solver worker process died (e.g. killed by `MemoryMax`; the pool is
-rebuilt for the next request), 200 otherwise. The access log has one line per request and never logs bodies or
+HTTP 400 (JSON, `INVALID_INPUT`) for any malformed request (bad `Content-Length`, invalid or more than 32 levels deep
+JSON, wrong option types, input that made the worker raise), **503** if the solver worker process died (e.g. killed by
+`MemoryMax`) or overran its time limit (the pool is rebuilt for the next request), JSON 500 for anything else, 200
+otherwise. A request is never answered by dropping the connection. The access log has one line per request and never logs bodies or
 headers.
 
 Each solve runs in a **worker process** (`spawn`, pool size = `OPTIMIZER_CONCURRENCY`, recycled every 50 solves).

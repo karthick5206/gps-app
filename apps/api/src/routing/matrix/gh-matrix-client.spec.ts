@@ -18,7 +18,23 @@ describe('classifyError (GraphHopper 11 error JSON)', () => {
   it('never reads another 400 as no-route; 5xx is an engine fault', () => {
     expect(classifyError(400, { message: 'No path found due to maximum nodes exceeded 1000000' })).toMatchObject({ kind: 'failure', reason: 'LIMIT_EXCEEDED', transport: false });
     expect(classifyError(400, null)).toMatchObject({ kind: 'failure', reason: 'LIMIT_EXCEEDED' });
-    expect(classifyError(503, { message: 'busy' })).toMatchObject({ kind: 'failure', reason: 'ENGINE_UNREACHABLE', transport: true, message: 'GraphHopper returned 503: busy' });
+    expect(classifyError(503, { message: 'busy' })).toMatchObject({ kind: 'failure', reason: 'ENGINE_UNREACHABLE', transport: true, message: 'GraphHopper returned HTTP 503' });
+  });
+  it('L4: engine text never comes through — coordinate-bearing GraphHopper messages map to fixed text', () => {
+    const bodies = [
+      { message: 'Point 1 is too far from Point 2: 13.0812,80.2654' },
+      { message: 'Cannot calculate route between 13.0812, 80.2654 and 13.0604, 80.2496' },
+      { message: 'java.lang.IllegalStateException at 13.081234 80.265401' },
+    ];
+    for (const body of bodies) {
+      for (const status of [400, 500, 503]) {
+        const r = classifyError(status, body);
+        expect(r).toMatchObject({ kind: 'failure' });
+        expect(JSON.stringify(r)).not.toMatch(/13\.0[68]|80\.2[46]/);
+      }
+    }
+    const t = thrownFailure(Object.assign(new TypeError('fetch failed for http://127.0.0.1:8989/route?point=13.0812,80.2654'), { cause: { code: 'ECONNREFUSED' } }));
+    expect(t).toMatchObject({ reason: 'ENGINE_UNREACHABLE', message: 'GraphHopper unreachable (TypeError ECONNREFUSED)' });
   });
 });
 
