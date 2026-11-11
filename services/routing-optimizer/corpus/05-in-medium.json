@@ -1,0 +1,20 @@
+{
+  "id": "05-in-medium",
+  "description": "IN, 60 passengers, 4/6/12 fleet, two garages",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 105,
+    "direction": "IN",
+    "passengers": 60,
+    "depots": 2,
+    "fleet": {
+      "4": 4,
+      "6": 4,
+      "12": 4
+    },
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 423045
+  }
+}

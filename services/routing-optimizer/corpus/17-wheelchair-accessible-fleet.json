@@ -1,0 +1,20 @@
+{
+  "id": "17-wheelchair-accessible-fleet",
+  "description": "OUT, 30 passengers incl. 3 wheelchair users, 2 accessible vehicles",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 117,
+    "direction": "OUT",
+    "passengers": 30,
+    "fleet": {
+      "6": 3,
+      "12": 2
+    },
+    "wheelchair": 3,
+    "wheelchairVehicles": 2,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 250616
+  }
+}

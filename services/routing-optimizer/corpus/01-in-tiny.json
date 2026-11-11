@@ -1,0 +1,19 @@
+{
+  "id": "01-in-tiny",
+  "description": "IN, 5 passengers, one 6-seat van",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 101,
+    "direction": "IN",
+    "passengers": 5,
+    "radiusKm": 5,
+    "fleet": {
+      "6": 1
+    },
+    "groupShare": 0,
+    "timeLimitS": 5
+  },
+  "expect": {
+    "objectiveBound": 44397
+  }
+}

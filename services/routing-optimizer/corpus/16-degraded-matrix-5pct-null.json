@@ -1,0 +1,20 @@
+{
+  "id": "16-degraded-matrix-5pct-null",
+  "description": "IN, 50 passengers, 5% null cells between homes",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 116,
+    "direction": "IN",
+    "passengers": 50,
+    "fleet": {
+      "4": 4,
+      "6": 4,
+      "12": 2
+    },
+    "nullShare": 0.05,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 434523
+  }
+}

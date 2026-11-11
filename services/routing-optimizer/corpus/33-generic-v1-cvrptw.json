@@ -1,0 +1,19 @@
+{
+  "id": "33-generic-v1-cvrptw",
+  "description": "Contract v1 (no trip): depot 0, grouped demand 1-3, some time windows",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 133,
+    "direction": null,
+    "passengers": 120,
+    "fleet": {
+      "12": 12
+    },
+    "groupShare": 0.4,
+    "weights": null,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 60732
+  }
+}

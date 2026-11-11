@@ -1,0 +1,23 @@
+{
+  "id": "32-weights-distance-only",
+  "description": "OUT, same as 31 but distance only (no vehicle weight)",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 131,
+    "direction": "OUT",
+    "passengers": 60,
+    "fleet": {
+      "4": 6,
+      "6": 6,
+      "12": 4,
+      "26": 2
+    },
+    "weights": {
+      "distance": 1
+    },
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 166404
+  }
+}

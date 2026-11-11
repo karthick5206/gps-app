@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { geometryRing } from '@/features/geofences/geometry';
 import { onStyleReady, useBasemap } from '@/features/geofences/map/use-basemap';
 import { cn } from '@/lib/utils';
+import { miniMapOptions } from './mini-map-options';
 import { SEVERITY_COLOR } from './severity';
 
 const SRC = 'mini';
@@ -27,7 +28,7 @@ export function MiniMap({
 }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
-  const { map, unsupported } = useBasemap(ref, { center: [lng, lat], zoom, interactive: false, attributionControl: false });
+  const { map, unsupported } = useBasemap(ref, miniMapOptions(lng, lat, zoom));
 
   useEffect(() => {
     if (!map) return;

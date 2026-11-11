@@ -1,0 +1,22 @@
+{
+  "id": "19-night-out-escort-rule",
+  "description": "OUT night drop, 30% flagged passengers (no last drop without escort), 2 escort vehicles",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 119,
+    "direction": "OUT",
+    "passengers": 40,
+    "shiftS": 79200,
+    "fleet": {
+      "4": 3,
+      "6": 4,
+      "12": 2
+    },
+    "flaggedShare": 0.3,
+    "escortVehicles": 2,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 271200
+  }
+}

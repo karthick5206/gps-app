@@ -1,0 +1,21 @@
+{
+  "id": "27-in-open-start-current-positions",
+  "description": "IN, half the fleet starts at its current position (open start), three garages",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 127,
+    "direction": "IN",
+    "passengers": 50,
+    "depots": 3,
+    "fleet": {
+      "4": 4,
+      "6": 4,
+      "12": 2
+    },
+    "openStartShare": 0.5,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 375871
+  }
+}
