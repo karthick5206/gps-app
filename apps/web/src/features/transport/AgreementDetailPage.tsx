@@ -1,5 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
-import type { Paginated, PoiDto, TransportAgreementDto, TransportAgreementSide } from '@veetracer/shared';
+import type { TransportAgreementDto, TransportAgreementSide } from '@veetracer/shared';
 import { ArrowLeftIcon, CheckCircle2Icon, CircleDashedIcon, ClockIcon, HandshakeIcon, MapPinIcon, ShieldCheckIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,9 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAuth } from '@/features/auth/auth-context';
 import { formatReportTime } from '@/features/reports/report-time';
-import { ApiError, api, errorMessage } from '@/lib/api';
+import { ApiError, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import {
   AGREEMENT_STATUS_HINT,
@@ -27,7 +25,8 @@ import {
   SIDE_LABEL,
 } from './agreement-format';
 import { AgreementActionButtons, AgreementStatusBadge, useAgreementActions, validityText } from './agreement-ui';
-import { useAgreement } from './use-agreements';
+import { historyActor, historyDetail, historyLabel } from './agreement-views-format';
+import { useAgreement, useAgreementHistory, useAgreementSites } from './use-agreements';
 
 function BackLink() {
   const { t } = useTranslation();
@@ -62,18 +61,71 @@ function Term({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** Names of the customer's sites, only when the acting company is the customer and may list its places. */
-function useSiteNames(a: TransportAgreementDto | undefined): Map<string, string> | null {
-  const { me, can } = useAuth();
-  const enabled = !!a && a.siteIds.length > 0 && a.customerCompanyId === me?.company.id && can('pois');
-  const q = useQuery({
-    queryKey: ['options', '/pois', 'agreement-sites'],
-    queryFn: ({ signal }) => api.get<Paginated<PoiDto>>('/pois', { pageSize: 200 }, signal),
-    enabled,
-    staleTime: 60_000,
-  });
-  if (!enabled || !q.data) return null;
-  return new Map(q.data.items.map((p) => [p.id, p.name]));
+/**
+ * Customer sites named on the agreement: both parties see their names (GET /agreements/:id/sites returns id + name of
+ * exactly the scoped sites, nothing else); "all sites" lists none.
+ */
+function SitesSection({ a }: { a: TransportAgreementDto }) {
+  const { t } = useTranslation();
+  const q = useAgreementSites(a.id, a.siteIds.length > 0);
+  return (
+    <Section title={t('Sites')} icon={MapPinIcon}>
+      {a.siteIds.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t('All customer sites.')}</p>
+      ) : q.isPending ? (
+        <Skeleton className="h-6 w-48" />
+      ) : q.isError ? (
+        <p className="text-sm text-muted-foreground">{t('{{n}} customer site(s).', { n: a.siteIds.length })}</p>
+      ) : (
+        <>
+          <ul className="flex flex-wrap gap-1.5">
+            {q.data.sites.map((s) => (
+              <li key={s.id}>
+                <Badge variant="secondary">{s.name}</Badge>
+              </li>
+            ))}
+          </ul>
+          {q.data.unavailableCount > 0 && <p className="text-xs text-muted-foreground">{t('{{n}} site(s) no longer active.', { n: q.data.unavailableCount })}</p>}
+        </>
+      )}
+    </Section>
+  );
+}
+
+/** Full history from the audit log (GET /agreements/:id/history); the summary timeline while it loads or if it fails. */
+function TimelineSection({ a }: { a: TransportAgreementDto }) {
+  const { t } = useTranslation();
+  const q = useAgreementHistory(a.id, a.version);
+  const items = q.data
+    ? q.data.map((e) => {
+        const actor = historyActor(e);
+        const detail = historyDetail(e);
+        const who = [actor.name, actor.sideLabel && t(actor.sideLabel)].filter(Boolean).join(' · ');
+        const lines = [who, detail.fields.length ? t('Changed: {{fields}}', { fields: detail.fields.map((f) => t(f)).join(', ') }) : null, detail.reason ? `${t('Reason')}: ${detail.reason}` : null];
+        return { key: e.id, label: historyLabel(e), at: e.at, lines: lines.filter((l): l is string => !!l) };
+      })
+    : agreementTimeline(a).map((e) => ({ key: e.key, label: e.label, at: e.at, lines: e.detail ? [e.detail] : [] }));
+  return (
+    <Section title={t('Timeline')} icon={ClockIcon}>
+      <ol className="relative grid gap-3 border-l pl-4" aria-busy={q.isPending || undefined}>
+        {items.map((e) => (
+          <li key={e.key} className="relative">
+            <span className="absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-card bg-primary" aria-hidden />
+            <p className="text-sm font-medium">{t(e.label)}</p>
+            <p className="text-xs text-muted-foreground tabular-nums">{formatReportTime(e.at)}</p>
+            {e.lines.map((l, i) => (
+              <p key={i} className="text-xs break-words">
+                {l}
+              </p>
+            ))}
+          </li>
+        ))}
+      </ol>
+      <p className="text-xs text-muted-foreground">
+        {q.isError ? t('The full history could not be loaded; showing the main dates.') : t('People of the other company are shown by their side only.')}
+      </p>
+    </Section>
+  );
 }
 
 function ApprovalRow({ a, side }: { a: TransportAgreementDto; side: TransportAgreementSide }) {
@@ -104,7 +156,6 @@ export function AgreementDetailPage() {
   const { id } = useParams<{ id: string }>();
   const query = useAgreement(id);
   const a = query.data;
-  const siteNames = useSiteNames(a);
   const { request, dialogs } = useAgreementActions();
 
   if (query.isError) {
@@ -129,7 +180,6 @@ export function AgreementDetailPage() {
   }
 
   const grants = orderedGrants(a.grants);
-  const timeline = agreementTimeline(a);
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4 p-4 sm:p-6">
@@ -187,21 +237,7 @@ export function AgreementDetailPage() {
             )}
           </Section>
 
-          <Section title={t('Sites')} icon={MapPinIcon}>
-            {a.siteIds.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('All customer sites.')}</p>
-            ) : siteNames ? (
-              <ul className="flex flex-wrap gap-1.5">
-                {a.siteIds.map((s) => (
-                  <li key={s}>
-                    <Badge variant="secondary">{siteNames.get(s) ?? t('Inactive place')}</Badge>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t('{{n}} customer site(s). Only the customer company sees their names.', { n: a.siteIds.length })}</p>
-            )}
-          </Section>
+          <SitesSection a={a} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">
@@ -212,19 +248,7 @@ export function AgreementDetailPage() {
             </ul>
           </Section>
 
-          <Section title={t('Timeline')} icon={ClockIcon}>
-            <ol className="relative grid gap-3 border-l pl-4">
-              {timeline.map((e) => (
-                <li key={e.key} className="relative">
-                  <span className="absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-card bg-primary" aria-hidden />
-                  <p className="text-sm font-medium">{t(e.label)}</p>
-                  <p className="text-xs text-muted-foreground tabular-nums">{formatReportTime(e.at)}</p>
-                  {e.detail && <p className="text-xs break-words">{e.detail}</p>}
-                </li>
-              ))}
-            </ol>
-            <p className="text-xs text-muted-foreground">{t('Every change is also recorded in the audit log.')}</p>
-          </Section>
+          <TimelineSection a={a} />
         </div>
       </div>
 

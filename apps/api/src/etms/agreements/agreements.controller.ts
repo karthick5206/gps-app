@@ -1,9 +1,16 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import type { TransportAgreementDto } from '@veetracer/shared';
+import type {
+  TransportAgreementDto,
+  TransportAgreementHistoryEntryDto,
+  TransportAgreementSitesDto,
+  TransportAgreementSummaryDto,
+  TransportSiteOptionDto,
+} from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
-import { Auth, RequirePermission } from '../../access/decorators';
+import { Auth, RequireAnyPermission, RequirePermission } from '../../access/decorators';
 import { TransportFeatureGuard } from '../transport-feature.guard';
-import { AgreementCommandDto, AgreementListQuery, AgreementReasonDto, CreateAgreementDto, UpdateAgreementDto } from './agreements.dto';
+import { AgreementViewsService } from './agreement-views.service';
+import { AgreementCommandDto, AgreementListQuery, AgreementReasonDto, AgreementSiteOptionsQuery, CreateAgreementDto, UpdateAgreementDto } from './agreements.dto';
 import { AgreementsService } from './agreements.service';
 
 /**
@@ -13,16 +20,43 @@ import { AgreementsService } from './agreements.service';
 @Controller('transport/agreements')
 @UseGuards(TransportFeatureGuard)
 export class AgreementsController {
-  constructor(private readonly service: AgreementsService) {}
+  constructor(
+    private readonly service: AgreementsService,
+    private readonly views: AgreementViewsService,
+  ) {}
 
   @Get() @RequirePermission('etms_partners', 'view')
   list(@Auth() ctx: AuthContext, @Query() query: AgreementListQuery) {
     return this.service.list(ctx, query);
   }
 
+  /** Dashboard counts per status + "awaiting my approval" in one request (declared before `:id`). */
+  @Get('summary') @RequirePermission('etms_partners', 'view')
+  summary(@Auth() ctx: AuthContext): Promise<TransportAgreementSummaryDto> {
+    return this.views.summary(ctx);
+  }
+
+  /** The acting company's own places for the agreement site picker; no `pois` permission needed. */
+  @Get('site-options') @RequireAnyPermission(['etms_partners', 'edit'], ['etms_partners', 'create'])
+  siteOptions(@Auth() ctx: AuthContext, @Query() query: AgreementSiteOptionsQuery): Promise<TransportSiteOptionDto[]> {
+    return this.views.siteOptions(ctx, query.q, query.customerCompanyId);
+  }
+
   @Get(':id') @RequirePermission('etms_partners', 'view')
   get(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<TransportAgreementDto> {
     return this.service.get(ctx, id);
+  }
+
+  /** Names of the customer sites the agreement is limited to (parties only; "all sites" lists nothing). */
+  @Get(':id/sites') @RequirePermission('etms_partners', 'view')
+  sites(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<TransportAgreementSitesDto> {
+    return this.views.sites(ctx, id);
+  }
+
+  /** Full history from the audit log; other-party actors appear by side only. */
+  @Get(':id/history') @RequirePermission('etms_partners', 'view')
+  history(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<TransportAgreementHistoryEntryDto[]> {
+    return this.views.history(ctx, id);
   }
 
   @Post() @RequirePermission('etms_partners', 'create')

@@ -132,6 +132,32 @@ export function assertTransportAccess(ctx: TransportCtx, row: TransportRowRef | 
   if (!agreement.grants.includes(grant)) throw new ForbiddenException({ message: 'Your agreement with this customer does not allow this', code: 'FORBIDDEN_GRANT' });
 }
 
+/** The parts of an agreement row the site scope looks at. */
+export interface AgreementSiteRef {
+  providerCompanyId: string;
+  customerCompanyId: string;
+  siteIds: readonly string[];
+}
+
+/**
+ * Customer sites whose names the caller may see for one agreement (doc 10 §2.2 item 4, minimum data): the parties
+ * (and the Super Admin on the platform, PLAT) see exactly the sites the agreement names, never other customer places;
+ * an agreement without sites means "all sites" and yields no list (`siteIds: []`, `allSites: true`), so a provider never
+ * gets an enumeration of the customer's places. null = not a party → the caller answers 404.
+ * Unlike actingCustomers this does not require the agreement to be in force: a provider reviews the sites of a
+ * DRAFT / PROPOSED agreement before approving it.
+ */
+export function agreementSiteScope(
+  ctx: Pick<AuthContext, 'companyId' | 'homeCompanyId' | 'isSuperAdmin'>,
+  a: AgreementSiteRef,
+): { customerCompanyId: string; siteIds: string[]; allSites: boolean } | null {
+  const party = a.customerCompanyId === ctx.companyId || a.providerCompanyId === ctx.companyId;
+  const platform = ctx.isSuperAdmin && ctx.companyId === ctx.homeCompanyId;
+  if (!party && !platform) return null;
+  const siteIds = [...new Set(a.siteIds)];
+  return { customerCompanyId: a.customerCompanyId, siteIds, allSites: siteIds.length === 0 };
+}
+
 export function transportNotFound(message = 'Not found'): NotFoundException {
   return new NotFoundException({ message, code: 'NOT_FOUND' });
 }

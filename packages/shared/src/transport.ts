@@ -120,7 +120,94 @@ export interface TransportAgreementListQuery {
   format?: 'json' | 'csv';
 }
 
-/** Error `code` values ETMS sets on HTTP errors (doc 05 §4), E1a subset plus AGREEMENT_DUPLICATE. */
+// ───────────────────────────── E1a gaps: directory, sites, history, summary ─────────────────────────────
+
+/** GET /api/transport/companies/lookup?q= — minimum query length (trimmed). */
+export const TRANSPORT_COMPANY_LOOKUP_MIN_CHARS = 3;
+/** Lookups per user per minute before 429 RATE_LIMITED. */
+export const TRANSPORT_COMPANY_LOOKUP_PER_MINUTE = 30;
+
+/**
+ * One entry of the partner-company directory (privacy-safe): only active business companies with the `etms` add-on
+ * switched on, and only these fields. Never contacts, users, vehicles or settings. `city` comes from the billing
+ * profile when it has one (there is no country column; billing is India-only today).
+ */
+export interface TransportCompanyLookupDto {
+  id: string;
+  name: string;
+  city: string | null;
+}
+
+/** A customer site (Poi) named on an agreement: id and name only. */
+export interface TransportAgreementSiteDto {
+  id: string;
+  name: string;
+}
+
+/**
+ * GET /api/transport/agreements/:id/sites — the customer sites the agreement is limited to. `allSites` = the agreement
+ * names no sites (covers every customer site); the list is then empty, also for the customer, so a provider never gets
+ * an enumeration of the customer's places. `unavailableCount` = named sites since deactivated or deleted.
+ */
+export interface TransportAgreementSitesDto {
+  agreementId: string;
+  allSites: boolean;
+  sites: TransportAgreementSiteDto[];
+  unavailableCount: number;
+}
+
+/** GET /api/transport/agreements/site-options — the customer's own active places for the agreement site picker. */
+export interface TransportSiteOptionDto {
+  id: string;
+  name: string;
+  branchName: string | null;
+}
+
+/** What happened in one agreement history entry (from the audit log). */
+export type TransportAgreementHistoryKind = 'CREATED' | 'EDITED' | 'PROPOSED' | 'APPROVED' | 'SUSPENDED' | 'RESUMED' | 'ENDED';
+
+/** Agreement terms an EDITED entry can list. */
+export type TransportAgreementTermField = 'validFrom' | 'validTo' | 'grants' | 'siteIds' | 'dataProfile';
+export const TRANSPORT_AGREEMENT_TERM_FIELDS: readonly TransportAgreementTermField[] = ['validFrom', 'validTo', 'grants', 'siteIds', 'dataProfile'];
+
+/**
+ * GET /api/transport/agreements/:id/history — one entry, oldest first. Minimum data (doc 10 §2.3): `actorName` is the
+ * person only when the actor acted for the viewer's company (or the viewer is the Super Admin on the platform);
+ * otherwise null and the screens show the side ("Customer", "Provider", "VeeTrax support"). Never IPs or user ids.
+ */
+export interface TransportAgreementHistoryEntryDto {
+  id: string;
+  at: string;
+  kind: TransportAgreementHistoryKind;
+  actorSide: TransportAgreementSide | 'PLATFORM' | null;
+  actorName: string | null;
+  fromStatus: TransportAgreementStatus | null;
+  toStatus: TransportAgreementStatus | null;
+  /** EDITED: the terms that changed. */
+  changedFields: TransportAgreementTermField[];
+  /** SUSPENDED / ENDED: the reason given. */
+  reason: string | null;
+}
+
+/** A proposed agreement waiting for the caller's side (dashboard list). */
+export interface TransportAgreementAwaitingDto {
+  id: string;
+  counterpartyName: string;
+  updatedAt: string;
+}
+
+/**
+ * GET /api/transport/agreements/summary — counts over the agreements visible to the caller, plus the proposed ones the
+ * caller's company still has to approve (0 / empty without `etms_partners:edit`; up to 10 listed, newest first).
+ */
+export interface TransportAgreementSummaryDto {
+  byStatus: Record<TransportAgreementStatus, number>;
+  total: number;
+  awaitingMyApproval: number;
+  awaiting: TransportAgreementAwaitingDto[];
+}
+
+/** Error `code` values ETMS sets on HTTP errors (doc 05 §4), E1a subset plus AGREEMENT_DUPLICATE and RATE_LIMITED. */
 export type TransportErrorCode =
   | 'VALIDATION_FAILED'
   | 'FORBIDDEN_GRANT'
@@ -129,7 +216,8 @@ export type TransportErrorCode =
   | 'VERSION_CONFLICT'
   | 'INVALID_STATE'
   | 'AGREEMENT_INACTIVE'
-  | 'AGREEMENT_DUPLICATE';
+  | 'AGREEMENT_DUPLICATE'
+  | 'RATE_LIMITED';
 
 // ───────────────────────────── State machine (pure) ─────────────────────────────
 

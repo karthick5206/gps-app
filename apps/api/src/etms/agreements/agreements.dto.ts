@@ -47,3 +47,9 @@ export class AgreementReasonDto implements TransportAgreementReasonInput {
   @IsString() @IsNotEmpty() @MaxLength(500) reason!: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) expectedVersion?: number;
 }
+
+export class AgreementSiteOptionsQuery {
+  @IsOptional() @IsString() @MaxLength(100) q?: string;
+  /** Super Admin only: whose places to list (ignored for everyone else). */
+  @IsOptional() @IsUUID() customerCompanyId?: string;
+}
