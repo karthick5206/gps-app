@@ -136,14 +136,14 @@ if ($ValkeyHealthUrl) {
 }
 
 # ---- API readiness and tracking ----------------------------------------------------------------------------------
-$ready = Get-Json "http://localhost:$ApiPort/api/health/ready"
+$ready = Get-Json "http://127.0.0.1:$ApiPort/api/health/ready"
 if ($ready.code -eq 0) {
   if (Test-Expected 'veetracer-api') { Raise 'api:down' 'API not answering' "GET /api/health/ready did not answer: $($ready.error)" }
 } elseif ($ready.code -ne 200) {
   $db = $ready.body.checks.database; $c = $ready.body.checks.cache
   Raise 'api:ready' 'API not ready (database or cache unusable)' "database ok=$($db.ok) $($db.error); cache ok=$($c.ok) $($c.error)"
 }
-$tracking = Get-Json "http://localhost:$ApiPort/api/health/tracking"
+$tracking = Get-Json "http://127.0.0.1:$ApiPort/api/health/tracking"
 if ($tracking.body -and $tracking.body.status -eq 'CRITICAL') {
   $msgs = ($tracking.body.issues | Where-Object { $_.severity -eq 'CRITICAL' } | ForEach-Object { "- $($_.message)" }) -join "`n"
   Raise 'tracking:critical' 'GPS tracking pipeline CRITICAL' $msgs
