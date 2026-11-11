@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import {
+  driverDisplayName,
   ROUTE_PLAN_EDITABLE,
   routePlanLocks,
   type EtaModel,
@@ -37,6 +38,8 @@ export interface ViewBooking {
   pickupLabel: string | null;
   dropLabel: string | null;
   branchId: string | null;
+  /** Passenger's full name (only turned into "First L." for callers that may see names). */
+  displayName?: string | null;
 }
 
 export interface PlanPointView {
@@ -47,6 +50,8 @@ export interface PlanPointView {
   ownerBranch: Map<string, string | null>;
   inBranch: (branchId: string | null | undefined) => boolean;
   names: { vehicles: Map<string, { name: string; plateNumber: string | null }>; drivers: Map<string, string> };
+  /** The caller may see passenger names (dispatch / bookings / passengers view): stops then carry "First L.". */
+  showNames?: boolean;
 }
 
 export const toRuleStop = (s: StopRow): RuleStop => ({
@@ -116,11 +121,13 @@ export function seatsLookup(bookings: Map<string, { passengerCount: number }>) {
  * branches (4 decimals unless whole-company), another branch's passenger anonymised (no booking / profile id), a
  * route's geometry only when none of its stops is hidden. Returns the profile ids whose points were shown (L1 audit).
  */
-export function toPlanDetail(p: PlanRow, view: PlanPointView): { dto: RoutePlanDetailDto; shown: string[] } {
+export function toPlanDetail(p: PlanRow, view: PlanPointView): { dto: RoutePlanDetailDto; shown: string[]; named: string[] } {
   const locks = routePlanLocks(p.options);
   const decimals = view.precise ? 6 : 4;
   const seats = seatsLookup(view.bookings);
   const shown = new Set<string>();
+  /** Profiles whose (short) name this read returned (ACCESS audit, with `shown`). */
+  const named = new Set<string>();
   const hiddenOn = new Set<string>();
   const stops: RoutePlanStopViewDto[] = [...p.stops]
     .sort((a, b) => (a.assignmentId ?? '~').localeCompare(b.assignmentId ?? '~') || (a.sequence ?? 1e9) - (b.sequence ?? 1e9) || a.ref.localeCompare(b.ref))
@@ -134,6 +141,9 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView): { dto: RoutePlanD
       const ownLabel = b && kind ? (kind === 'PICKUP' ? b.pickupLabel : b.dropLabel) : null;
       const pt = (v: number | null) => (v === null ? null : hidden ? null : owner ? round(v, decimals) : v);
       const anonymous = hidden === 'OUT_OF_SCOPE' || outOfScope(s, view);
+      // "First L." as on the driver manifest, only for callers that may see names and never for an anonymised stop.
+      const passengerName = view.showNames && !anonymous && b?.displayName ? driverDisplayName(b.displayName) : null;
+      if (passengerName && b) named.add(b.profileId);
       return {
         id: s.id,
         ref: anonymous ? `stop-${s.id.slice(0, 8)}` : s.ref,
@@ -160,6 +170,7 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView): { dto: RoutePlanD
         pinned: locks.pinnedStopIds.has(s.id),
         plannedArrival: p.planStartAt && s.etaS !== null ? new Date(p.planStartAt.getTime() + s.etaS * 1000).toISOString() : null,
         seats: s.bookingId ? (s.stopKind === 'PICKUP' ? (seats(s.bookingId) ?? 1) : 0) : s.demand,
+        passengerName,
       };
     });
   const rule = p.stops.map(toRuleStop);
@@ -221,7 +232,7 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView): { dto: RoutePlanD
     violations: assignments.flatMap((a) => a.violations),
     unassigned: p.stops.filter((s) => !s.assignmentId).length,
   };
-  return { dto, shown: [...shown] };
+  return { dto, shown: [...shown], named: [...named] };
 }
 
 export function toPlanSummary(p: Pick<PlanRow, 'id' | 'name' | 'planDate' | 'status' | 'direction' | 'version' | 'updatedAt'> & { stops: { assignmentId: string | null }[]; assignments: unknown[] }): RoutePlanSummaryDto {

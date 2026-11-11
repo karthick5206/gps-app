@@ -192,6 +192,10 @@ const detailPoints = (result: unknown, role: MatrixRole, own: string) => {
   const exact = pickup!.lat === E4_PICKUP.lat;
   if (role === 'customerDispatcher' && (exact || pickup!.lat !== 13.0612)) fail(`${role} gets ${pickup!.lat}, expected 4 decimals`);
   if ((role === 'customerAdmin' || role === 'superAdminSwitched') && !exact) fail(`${role} gets a rounded point`);
+  // Passenger names as "First L." (driver-manifest rule) for callers who may see names; never a full surname.
+  if (role === 'customerAdmin' || role === 'customerDispatcher') {
+    if (!pickup!.passengerName || !/^\S+( \p{Lu}\.)?$/u.test(pickup!.passengerName)) fail(`${role} gets passengerName ${pickup!.passengerName}`);
+  }
 };
 
 /** Compare: metrics only (no stop, point or passenger name). */

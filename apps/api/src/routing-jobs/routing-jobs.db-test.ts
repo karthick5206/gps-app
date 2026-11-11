@@ -29,6 +29,7 @@ import { InMemoryUsageHook } from './usage-hook';
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
 const W = { vehicle: 7_200, distance: 0, time: 1, routeDuration: 0 };
+const ctxForResult = ctxFor('x');
 
 d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
   jest.setTimeout(120_000);
@@ -200,9 +201,10 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     await prisma.$executeRawUnsafe(`INSERT INTO "TrackedObject" (id, "companyId", name, "updatedAt") VALUES ('${van}', '${g.company}', 'Van X', now())`);
     await prisma.transportVehicleProfile.create({ data: { objectId: van, companyId: g.company, seats: 6 } });
     const audit = new AuditService(prisma as never);
-    const plans = new RoutePlansService(prisma as never, audit, { recordPersonalAccess: async () => undefined } as never, null);
+    const accessLog: { ids: string[]; extra: Record<string, unknown> }[] = [];
+    const plans = new RoutePlansService(prisma as never, audit, { recordPersonalAccess: async (_c: unknown, _v: unknown, ids: string[], _p: unknown, extra: Record<string, unknown>) => void accessLog.push({ ids, extra }) } as never, null);
     const creator = new RoutePlanCreateService(prisma as never, audit, plans);
-    const c = ctxFor(g.company);
+    const c = { ...ctxFor(g.company), permissions: { etms_dispatch: ['view'] } } as typeof ctxForResult;
     const dto = { name: 'Login 1 Dec', planDate: '2026-12-01', direction: 'IN' as const, sitePoiId: g.office, objectIds: [van], depot: { lat: 13.06, lng: 80.25 } };
     const r = await creator.create(c, dto, 'create-key-0001');
     expect(r.replay).toBe(false);
@@ -216,6 +218,12 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     const drop = plan.stops.find((s) => s.bookingId === g.bookings[1] && s.stopKind === 'DROP')!;
     expect(drop).toMatchObject({ poiId: g.office, profileId: null, timeWindows: [[7_200, 10_800]] });
     expect(plan.stops.some((s) => s.lat === 12.5)).toBe(false);
+    // "First L." on the plan detail for a caller who may see names, and the read is ACCESS-audited with the names.
+    expect(r.value.stops.find((s) => s.bookingId === g.bookings[1] && s.stopKind === 'PICKUP')!.passengerName).toBe('Synthetic 1.');
+    expect(accessLog.at(-1)).toMatchObject({ extra: { passengerNames: 2 } });
+    expect(accessLog.at(-1)!.ids).toEqual(expect.arrayContaining([g.profiles[0], g.profiles[1]]));
+    const noNames = await plans.get(ctxFor(g.company), r.value.id);
+    expect(noNames.stops.every((s) => !s.passengerName)).toBe(true);
     expect(plan.versions).toEqual([expect.objectContaining({ version: 1, changeType: 'CREATED' })]);
     expect(JSON.stringify(plan.versions[0].snapshot)).not.toMatch(/"lat"|13.0/);
     // replay and key reuse

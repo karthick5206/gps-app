@@ -101,9 +101,9 @@ export class RoutePlansService {
 
   async get(ctx: AuthContext, id: string): Promise<RoutePlanDetailDto> {
     const plan = await this.find(ctx, id);
-    const { dto, shown } = toPlanDetail(plan, await this.view(ctx, plan));
-    // L1: a read that returned personal points is ACCESS-audited (de-duplicated per user, view and day).
-    await this.dispatch.recordPersonalAccess(ctx, 'plan', shown, dto.precise, { planId: id });
+    const { dto, shown, named } = toPlanDetail(plan, await this.view(ctx, plan));
+    // L1: a read that returned personal points or passenger names is ACCESS-audited (de-duplicated per user, view and day).
+    await this.dispatch.recordPersonalAccess(ctx, 'plan', [...new Set([...shown, ...named])], dto.precise, { planId: id, ...(named.length ? { passengerNames: named.length } : {}) });
     return dto;
   }
 
@@ -537,6 +537,8 @@ export class RoutePlansService {
       bookings,
       ownerBranch,
       inBranch: (b) => inProfileBranch(ctx, b),
+      // Names: callers who may see passengers on dispatch / bookings / the passenger list (as the E3 board shows them).
+      showNames: can(ctx.permissions, 'etms_dispatch', 'view') || can(ctx.permissions, 'etms_bookings', 'view') || can(ctx.permissions, 'etms_passengers', 'view'),
       names: { vehicles: new Map(objects.map((o) => [o.id, { name: o.name, plateNumber: o.plateNumber }])), drivers: new Map(drivers.map((d) => [d.id, d.name])) },
     };
   }
@@ -544,8 +546,8 @@ export class RoutePlansService {
   private async bookingSeats(stops: { bookingId: string | null }[]): Promise<Map<string, ViewBooking>> {
     const ids = [...new Set(stops.flatMap((s) => (s.bookingId ? [s.bookingId] : [])))];
     if (!ids.length) return new Map();
-    const rows = await this.prisma.transportBooking.findMany({ where: { id: { in: ids } }, select: { id: true, passengerCount: true, profileId: true, pickupLabel: true, dropLabel: true, profile: { select: { branchId: true } } } });
-    return new Map(rows.map((b) => [b.id, { id: b.id, passengerCount: b.passengerCount, profileId: b.profileId, pickupLabel: b.pickupLabel, dropLabel: b.dropLabel, branchId: b.profile?.branchId ?? null }]));
+    const rows = await this.prisma.transportBooking.findMany({ where: { id: { in: ids } }, select: { id: true, passengerCount: true, profileId: true, pickupLabel: true, dropLabel: true, profile: { select: { branchId: true, displayName: true } } } });
+    return new Map(rows.map((b) => [b.id, { id: b.id, passengerCount: b.passengerCount, profileId: b.profileId, pickupLabel: b.pickupLabel, dropLabel: b.dropLabel, branchId: b.profile?.branchId ?? null, displayName: b.profile?.displayName ?? null }]));
   }
 
   private async recordVersion(tx: Prisma.TransactionClient, ctx: AuthContext, plan: Pick<PlanRow, 'id' | 'companyId' | 'assignments'>, version: number, changeType: RoutePlanChangeType, status: RoutePlanStatus, stops: RuleStop[]): Promise<void> {

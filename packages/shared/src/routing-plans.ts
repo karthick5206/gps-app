@@ -55,6 +55,12 @@ export interface RoutePlanStopViewDto extends Omit<RoutePlanStopDto, 'lat' | 'ln
   pinned: boolean;
   /** planStartAt + etaS (ISO), null while the route is not timed. */
   plannedArrival: string | null;
+  /**
+   * The booking's passenger as "First L." (driver-manifest rule), only for callers who may see passenger names (dispatch /
+   * bookings / passengers view) and never on an anonymised stop; null otherwise. Every read that returns names is
+   * ACCESS-audited.
+   */
+  passengerName?: string | null;
   /** Seats this stop's booking takes (the booking's passengerCount; demand for generic stops). */
   seats: number;
 }
