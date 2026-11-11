@@ -219,8 +219,11 @@ export class PlannedTripsService {
       // `before`: a concurrent edit (one moves the time, the other sets the driver) is seen, so both cannot pass M3.
       const fresh = await tx.plannedTrip.findUniqueOrThrow({ where: { id }, include: { stops: { orderBy: { seq: 'asc' } } } });
       if (fresh.status !== 'SCHEDULED') throw new ConflictException('The trip has started meanwhile; reload it');
-      // A concurrent edit moved it to another vehicle / driver: lock those too (advisory locks are re-entrant).
-      if (fresh.objectId !== before.objectId || fresh.driverId !== before.driverId) await lockTripResources(tx, { objectIds: [fresh.objectId], driverIds: [fresh.driverId] });
+      // A concurrent edit moved it to another vehicle / driver. Taking a second set of locks here would break the global
+      // sorted lock order and can deadlock (security re-check ND1), so refuse and let the caller reload instead.
+      if (fresh.objectId !== before.objectId || fresh.driverId !== before.driverId) {
+        throw new ConflictException({ message: 'The trip changed meanwhile; reload it', code: 'TRIP_CHANGED' });
+      }
       let shifted: ReturnType<typeof shiftTripTimes<PlannedTripStop>> | null = null;
       if (start !== null && start !== fresh.plannedStart.getTime()) {
         shifted = shiftTripTimes(fresh, [...fresh.stops].sort((a, b) => a.seq - b.seq), start);
