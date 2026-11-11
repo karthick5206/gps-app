@@ -1,3 +1,7 @@
+// E3 pulls PlannedTripsModule (routes.dto → @nestjs/mapped-types, an ESM-only package jest cannot load). The DTO
+// classes are never validated here, so a minimal stand-in is enough.
+jest.mock('@nestjs/mapped-types', () => ({ PartialType: (c: new () => object) => class extends c {} }));
+
 import { randomUUID } from 'crypto';
 import { HttpException, RequestMethod, type ExecutionContext } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
@@ -24,7 +28,17 @@ import { PeopleService } from '../people/people.service';
 import { TransportSettingsController } from '../settings/transport-settings.controller';
 import { TransportSettingsService } from '../settings/transport-settings.service';
 import { TransportFeatureGuard } from '../transport-feature.guard';
-import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Resource, type Target } from './isolation-matrix';
+import { PlannedTripsService } from '../../planned-trips/planned-trips.service';
+import { BookingGeneratorService } from '../dispatch/booking-generator.service';
+import { BookingsService } from '../dispatch/bookings.service';
+import { DispatchService } from '../dispatch/dispatch.service';
+import { BookingsController, DispatchController, MyTransportTripsController, SchedulesController, ShiftsController, TransportTripsController } from '../dispatch/e3.controllers';
+import { MeTransportService } from '../dispatch/me-transport.service';
+import { SchedulesService } from '../dispatch/schedules.service';
+import { TripLiveService } from '../dispatch/trip-live';
+import { TripsService } from '../dispatch/trips.service';
+import { E3_RESOURCES, e3Ids, seedE3, type E3Resource } from './isolation-matrix-e3';
+import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Target } from './isolation-matrix';
 import { MemoryStore } from './memory-store';
 
 // ───────────────────────────── Route discovery (generic completeness guard) ─────────────────────────────
@@ -160,7 +174,11 @@ function buildApp() {
 /** The ETMS controllers wired to real services on `prisma` (geocoder off, Redis a no-op). */
 function controllersFor(prisma: Obj): Controllers {
   const audit = new AuditService(prisma as never);
-  const redis = { invalidateCache: async () => undefined };
+  const redis = {
+    invalidateCache: async () => undefined,
+    // E3: generator lock, rate limiter, live cache reads and the plannedTrip.update push (nothing is cached here).
+    client: { get: async () => null, mget: async (...keys: string[]) => keys.map(() => null), set: async () => 'OK', eval: async () => 1, publish: async () => 1 },
+  };
   const geocoding = { enabled: false, search: async () => [] };
   const notices = new ConsentNoticeService(prisma as never, audit);
   const people = new PeopleService(prisma as never, audit, redis as never, geocoding as never, notices);
@@ -174,6 +192,25 @@ function controllersFor(prisma: Obj): Controllers {
     notices: new ConsentNoticesController(notices),
     vehicles: new TransportVehiclesController(fleet),
     driverLogin: new DriverLoginController(fleet),
+    e3: e3Controllers(prisma, audit, redis, people),
+  };
+}
+
+/** E3 controllers on the same store: routing off (no GraphHopper), processor cache invalidation a no-op. */
+function e3Controllers(prisma: Obj, audit: AuditService, redis: object, people: PeopleService) {
+  const plannedTrips = new PlannedTripsService(prisma as never, audit, { invalidate: async () => undefined } as never);
+  const routing = { enabled: false, route: async () => null, routeVia: async () => null };
+  const live = new TripLiveService(prisma as never, redis as never, plannedTrips);
+  const generator = new BookingGeneratorService(prisma as never, redis as never);
+  const schedules = new SchedulesService(prisma as never, audit, generator);
+  const dispatch = new DispatchService(prisma as never, audit, routing as never, live, redis as never);
+  return {
+    shifts: new ShiftsController(schedules),
+    schedules: new SchedulesController(schedules),
+    bookings: new BookingsController(new BookingsService(prisma as never, audit, redis as never)),
+    dispatch: new DispatchController(dispatch),
+    trips: new TransportTripsController(new TripsService(prisma as never, audit, plannedTrips, dispatch, live), dispatch),
+    meTrips: new MyTransportTripsController(new MeTransportService(prisma as never, people, redis as never)),
   };
 }
 
@@ -224,7 +261,7 @@ async function buildE2App() {
   }
   const vehicle = (companyId: string, branchId: string) => store.insert('trackedObject', { companyId, branchId, type: 'VEHICLE', name: `Van ${companyId}`, plateNumber: null, isActive: true }).id as string;
   const driver = (companyId: string, branchId: string, userId: string) => store.insert('driver', { companyId, branchId, name: `Driver ${companyId}`, mobile: null, isActive: true, userId }).id as string;
-  const party: Record<Exclude<Resource, 'agreement'>, string> = {
+  const party: Record<'passenger' | 'vehicle' | 'driver', string> = {
     passenger: partyPassenger,
     vehicle: vehicle('custA', 'brA1'),
     driver: driver('custA', 'brA1', login('user-driverA', 'custA', ETMS_DRIVER_ROLE_NAME, 'driver.a@corp.test')),
@@ -333,6 +370,11 @@ async function run(route: DiscoveredRoute, entry: MatrixEntry, ctx: AuthContext,
   }
 }
 
+/** The E3 id a resource's `Target.id` shows (informational; E3 entries read their ids from `Target.e3`). */
+function resourceKey(r: E3Resource): 'shift' | 'schedule' | 'booking' | 'trip' | 'changeSet' {
+  return r === 'myTrip' ? 'trip' : r === 'myBooking' ? 'booking' : r;
+}
+
 // ───────────────────────────── Generated tests ─────────────────────────────
 
 const ROUTES = discoverEtmsRoutes();
@@ -340,8 +382,9 @@ const byRoute = new Map(ISOLATION_MATRIX.map((e) => [e.route, e]));
 
 describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
   it('discovers the ETMS routes from Nest metadata', () => {
-    // E1a: 16 routes; E2 (EtmsPeopleModule, imported): 25.
-    expect(ROUTES.length).toBeGreaterThanOrEqual(41);
+    // E1a: 16 routes; E2 (EtmsPeopleModule, imported): 25; E3 (EtmsDispatchModule, imported): 41.
+    expect(ROUTES.length).toBeGreaterThanOrEqual(82);
+    for (const c of [ShiftsController, SchedulesController, BookingsController, DispatchController, TransportTripsController, MyTransportTripsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     for (const c of [PassengersController, MyTransportConsentController, ConsentNoticesController, TransportVehiclesController, DriverLoginController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
   });
@@ -381,10 +424,21 @@ describe('ETMS isolation matrix: route × role × ownership', () => {
   it.each(CASES)('%s as %s on %s resource → %s', async (routeKey, role, own, expected) => {
     const entry = byRoute.get(routeKey)!;
     const route = ROUTES.find((r) => r.key === routeKey)!;
+    if (entry.resource && (E3_RESOURCES as readonly string[]).includes(entry.resource)) {
+      const w = await buildE2App();
+      const world = seedE3(w.store, { party: { passenger: w.party.passenger, vehicle: w.party.vehicle, driver: w.party.driver }, other: { passenger: w.other.passenger, vehicle: w.other.vehicle, driver: w.other.driver } });
+      const ids = e3Ids(world, own);
+      const target: Target = { id: ids[resourceKey(entry.resource as E3Resource)], version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA', ids: w.ids, e3: { ids, world } };
+      entry.prepare?.(w.store, target);
+      const res = await run(route, entry, caller(role, w), target, w.controllers);
+      expect(res.status).toBe(expected);
+      if (res.status === 200) entry.verify?.(res.result, role, own, target);
+      return;
+    }
     if (entry.resource && entry.resource !== 'agreement') {
       const w = await buildE2App();
       const resource = entry.resource;
-      const id = own === 'party' ? w.party[resource] : own === 'other' ? w.other[resource] : randomUUID();
+      const id = own === 'party' ? w.party[resource as 'passenger'] : own === 'other' ? w.other[resource as 'passenger'] : randomUUID();
       const target: Target = { id, version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA', ids: w.ids };
       const res = await run(route, entry, caller(role, w), target, w.controllers);
       expect(res.status).toBe(expected);
