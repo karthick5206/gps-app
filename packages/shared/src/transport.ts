@@ -149,17 +149,22 @@ export const TRANSPORT_COMPANY_LOOKUP_PER_COMPANY_PER_MINUTE = 60;
  */
 export interface TransportSettingsDto {
   directoryListed: boolean;
+  /** E5: transport desk phone shown to drivers and passengers ("call the desk"); absent when not set. */
+  deskPhone?: string;
 }
 
 export interface UpdateTransportSettingsInput {
   directoryListed?: boolean;
+  /** E5: null clears it. */
+  deskPhone?: string | null;
 }
 
 /** Reads `Company.settings.etms` (anything missing or malformed = defaults). */
 export function transportSettingsOf(settings: unknown): TransportSettingsDto {
   const s = typeof settings === 'object' && settings !== null && !Array.isArray(settings) ? (settings as Record<string, unknown>).etms : undefined;
   const etms = typeof s === 'object' && s !== null && !Array.isArray(s) ? (s as Record<string, unknown>) : {};
-  return { directoryListed: etms.directoryListed === true };
+  const phone = typeof etms.deskPhone === 'string' && etms.deskPhone.trim() ? etms.deskPhone.trim() : null;
+  return { directoryListed: etms.directoryListed === true, ...(phone ? { deskPhone: phone } : {}) };
 }
 
 /**

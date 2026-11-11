@@ -853,6 +853,8 @@ export interface MeTripDto {
   coRiders: number;
   /** Inside the vehicle-visibility window right now (poll /vehicle). */
   liveVisible: boolean;
+  /** E5: the transport desk phone of the trip's operator ("call the desk"); null when not set. Never the driver's number. */
+  deskPhone: string | null;
 }
 
 export type MeVehicleDto =

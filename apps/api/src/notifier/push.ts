@@ -30,6 +30,15 @@ export function pushStyle(alertType: unknown, parkingAlarm = false): Pick<PushMe
   return parkingAlarm || (typeof alertType === 'string' && isEmergencyAlert(alertType)) ? { channelId: 'sos', sound: 'sos_siren.wav' } : { channelId: 'alerts', sound: 'default' };
 }
 
+/**
+ * ETMS push payload (D7 / L4, doc 02 §8.3): exactly `{ kind, tripId, notificationId }` — whatever else the caller
+ * passed is dropped, so no name, phone, address, plate or coordinate can reach Expo / FCM / APNs through `data`.
+ */
+export function transportPushData(data: Record<string, unknown>): Record<string, unknown> {
+  const str = (v: unknown) => (typeof v === 'string' ? v : null);
+  return { kind: str(data.kind), tripId: str(data.tripId), notificationId: str(data.notificationId) };
+}
+
 export interface PushResult {
   /** Tokens accepted by the push service. */
   sent: number;

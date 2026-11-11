@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { ME_VEHICLE_WINDOW, TRANSPORT_E3_LIMITS, type EtaValue, type MeBookingDto, type MeTripDto, type MeVehicleDto, type PlannedStopStatus } from '@veetracer/shared';
+import { ME_VEHICLE_WINDOW, TRANSPORT_E3_LIMITS, transportSettingsOf, type EtaValue, type MeBookingDto, type MeTripDto, type MeVehicleDto, type PlannedStopStatus } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { iso } from '../../common/dto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -141,11 +141,15 @@ export class MeTransportService {
   private async names(seats: SeatRow[]) {
     const objectIds = [...new Set(seats.flatMap((s) => (s.trip.plannedTrip ? [s.trip.plannedTrip.objectId] : [])))];
     const driverIds = [...new Set(seats.flatMap((s) => (s.trip.plannedTrip?.driverId ? [s.trip.plannedTrip.driverId] : [])))];
-    const [objects, drivers] = await Promise.all([
+    const operatorIds = [...new Set(seats.map((s) => s.trip.providerCompanyId))];
+    const [objects, drivers, operators] = await Promise.all([
       objectIds.length ? this.prisma.trackedObject.findMany({ where: { id: { in: objectIds } }, select: { id: true, name: true, plateNumber: true } }) : [],
       driverIds.length ? this.prisma.driver.findMany({ where: { id: { in: driverIds } }, select: { id: true, name: true } }) : [],
+      operatorIds.length ? this.prisma.company.findMany({ where: { id: { in: operatorIds } }, select: { id: true, settings: true } }) : [],
     ]);
-    return { objects: new Map(objects.map((o) => [o.id, o])), drivers: new Map(drivers.map((d) => [d.id, d.name])) };
+    // E5: the operator's transport desk phone (Company.settings.etms.deskPhone) for "call the desk".
+    const phones = new Map(operators.map((c) => [c.id, transportSettingsOf(c.settings).deskPhone ?? null]));
+    return { objects: new Map(objects.map((o) => [o.id, o])), drivers: new Map(drivers.map((d) => [d.id, d.name])), phones };
   }
 
   /** ETA to my stop from the v1.8 tracker, only when my pickup is the trip's next stop; else none (never invented). */
@@ -190,6 +194,7 @@ export class MeTransportService {
       pointsHidden: !consent && hasPoint ? 'CONSENT_REQUIRED' : null,
       coRiders: s.trip.passengers.filter((p) => p.id !== s.id && p.status !== 'CANCELLED').length,
       liveVisible: !!w && now >= w.start && now <= w.end,
+      deskPhone: n.phones.get(s.trip.providerCompanyId) ?? null,
     };
   }
 }
