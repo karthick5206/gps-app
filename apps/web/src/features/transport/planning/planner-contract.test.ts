@@ -177,3 +177,15 @@ test('capabilities come from GET /routing/capabilities (no fallback guessing)', 
   await client.capabilities();
   assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), ['GET /routing/capabilities']);
 });
+
+test('QA re-check: a plan created without passengers (no bookings for the shift) is not optimised and says why', async () => {
+  const { calls, client } = recorder((c) => (c.path.endsWith('/optimize') ? JOB : { ...PLAN, emptyReason: 'NO_BOOKINGS_FOR_SHIFT' }));
+  const r = await startOptimise(client, INPUT, createKeyStore(() => `e${calls.length}`).keyFor);
+  assert.equal(r[0].error, null);
+  assert.equal(r[0].job, null);
+  assert.equal(r[0].empty, 'NO_BOOKINGS_FOR_SHIFT');
+  assert.equal(r[0].planId, PLAN.id);
+  assert.equal(calls.filter((c) => c.path.endsWith('/optimize')).length, 0, 'no optimise job for an empty plan');
+  // the API answer carries the field (plan-create.ts CreatedRoutePlanDto)
+  assert.ok(src('etms/planning/plan-create.ts').includes('emptyReason: RoutePlanEmptyReason | null;'), 'CreatedRoutePlanDto.emptyReason');
+});

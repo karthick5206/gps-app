@@ -2,7 +2,7 @@ import { Body, Controller, Headers, HttpCode, HttpException, Injectable, Param, 
 import { OptimizeOptionsDto } from '../../routing-jobs/routing-jobs.controller';
 import { RoutingJobsService } from '../../routing-jobs/routing-jobs.service';
 import { Prisma } from '@prisma/client';
-import { ETMS_PLANNING_MENU, ROUTING_LIMITS, ROUTING_PROFILES, type RoutingJobDto, type RoutePlanDetailDto, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
+import { ETMS_PLANNING_MENU, ROUTING_LIMITS, ROUTING_PROFILES, type RoutingJobDto, type RoutePlanDetailDto, type RoutePlanEmptyReason, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsISO8601, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf, ValidateNested } from 'class-validator';
 import { objectScopeWhere } from '../../access/access-rules';
@@ -41,7 +41,18 @@ export class CreateRoutePlanDto {
 export type CreatedRoutePlanDto = RoutePlanDetailDto & {
   /** Bookings of the service date / direction / site not put on the plan, and why (ids only). */
   skippedBookings: { bookingId: string; reason: 'consent_required' | 'needs_location' | 'out_of_scope' }[];
+  /** Set when the plan has no passenger, with why (QA re-check: a shift without bookings no longer looks like a bug). */
+  emptyReason: RoutePlanEmptyReason | null;
+  /** Bookings found for the scope, planned and skipped. On a replay: planned from the plan, found / skipped unknown (null). */
+  bookingCounts: { found: number | null; planned: number; skipped: number | null };
 };
+
+/** Why a plan created from `found` bookings with `planned` on it is empty (null when it has passengers). */
+export function emptyReasonOf(found: number, planned: number, shiftId: string | null | undefined): RoutePlanEmptyReason | null {
+  if (planned > 0) return null;
+  if (found > 0) return 'ALL_SKIPPED';
+  return shiftId ? 'NO_BOOKINGS_FOR_SHIFT' : 'NO_BOOKINGS';
+}
 
 const H = 3_600_000;
 
@@ -196,7 +207,10 @@ export class RoutePlanCreateService {
       return again;
     });
     if (typeof planId !== 'string') return planId; // lost the race to a concurrent create with the same key: its replay
-    return { value: { ...(await this.plans.get(ctx, planId)), skippedBookings: skipped }, replay: false };
+    return {
+      value: { ...(await this.plans.get(ctx, planId)), skippedBookings: skipped, emptyReason: emptyReasonOf(bookings.length, usable.length, dto.shiftId), bookingCounts: { found: bookings.length, planned: usable.length, skipped: skipped.length } },
+      replay: false,
+    };
   }
 
   /**
@@ -213,7 +227,13 @@ export class RoutePlanCreateService {
       if (e instanceof HttpException && e.getStatus() === 404) throw idempotencyReused();
       throw e;
     });
-    return { value: { ...value, skippedBookings: [] }, replay: true };
+    const planned = new Set(value.stops.map((s) => s.bookingId).filter((b): b is string => !!b)).size;
+    // A replay cannot tell how many bookings were skipped at create time; an empty plan is reported as having found none
+    // only for its shift (the create answer already explained it the first time).
+    return {
+      value: { ...value, skippedBookings: [], emptyReason: planned ? null : value.shiftId ? 'NO_BOOKINGS_FOR_SHIFT' : 'NO_BOOKINGS', bookingCounts: { found: null, planned, skipped: null } },
+      replay: true,
+    };
   }
 
   /**

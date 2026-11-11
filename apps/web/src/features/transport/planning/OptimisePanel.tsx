@@ -176,6 +176,18 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
               <li key={s.seed.shiftId} className="rounded-lg border p-3">
                 {s.job ? (
                   <JobProgress jobId={s.job.jobId} planId={s.planId} label={s.seed.name} canCancel={canPlan} />
+                ) : s.empty ? (
+                  <div className="grid gap-1">
+                    <span className="text-sm font-medium">{s.seed.name}</span>
+                    <p role="status" className="text-sm text-warning-fg">
+                      {s.empty === 'NO_BOOKINGS_FOR_SHIFT'
+                        ? t('No bookings for this shift on this date.')
+                        : s.empty === 'NO_BOOKINGS'
+                          ? t('No bookings for this site and direction on this date.')
+                          : t('Bookings were found, but none could be planned (routing consent, location or scope).')}{' '}
+                      {t('Nothing was optimised.')}
+                    </p>
+                  </div>
                 ) : (
                   <div className="grid gap-1">
                     <span className="text-sm font-medium">{s.seed.name}</span>

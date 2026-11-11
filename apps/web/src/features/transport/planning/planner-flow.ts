@@ -3,7 +3,7 @@
  * contract tests run them over the real HTTP client with a recording transport, so the request shapes the screens
  * send are the ones checked (B1 / B2 of the E4 QA round).
  */
-import type { RoutingJobDto, TransportDirection } from '@veetracer/shared';
+import type { RoutePlanEmptyReason, RoutingJobDto, TransportDirection } from '@veetracer/shared';
 import type { CreatePlanRequest, OptimizeOptions, PlannerClient } from './planner-api.ts';
 import { solverObjective, type PlannerPlan, type PlannerWeights, type PlanSeed } from './planner-format.ts';
 
@@ -21,6 +21,8 @@ export interface StartedPlan {
   planId: string | null;
   job: RoutingJobDto | null;
   error: unknown;
+  /** The plan was created without passengers (e.g. no booking for the shift): not optimised; the screen says why. */
+  empty?: RoutePlanEmptyReason | null;
 }
 
 /**
@@ -63,6 +65,10 @@ export async function startOptimise(c: PlannerClient, input: OptimiseInput, keyF
       const body = createRequest(seed, input);
       const plan = await c.createPlan(body, keyFor(`create:${seed.shiftId}`, body));
       planId = plan.id;
+      if (plan.emptyReason) {
+        out.push({ seed, planId, job: null, error: null, empty: plan.emptyReason });
+        continue;
+      }
       const opt = { planId: plan.id, ...optimizeOptions(plan, input) };
       const job = await c.optimize(opt, keyFor(`optimize:${plan.id}`, opt));
       out.push({ seed, planId, job, error: null });

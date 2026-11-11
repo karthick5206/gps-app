@@ -154,6 +154,21 @@ export interface RoutePlanRouteViolation {
 
 export const ROUTE_PLAN_ROUTE_VIOLATIONS = ['VEHICLE_NO_SEATS', 'VEHICLE_DUPLICATE'] as const;
 
+/**
+ * Why a newly created plan has no passenger (POST /transport/route-plans answer, E4 QA re-check):
+ * NO_BOOKINGS_FOR_SHIFT: no open booking carries the chosen shift on that date / direction / site; NO_BOOKINGS: none at
+ * all (no shift chosen); ALL_SKIPPED: bookings exist but none could be planned (see skippedBookings for the reasons).
+ */
+export const ROUTE_PLAN_EMPTY_REASONS = ['NO_BOOKINGS_FOR_SHIFT', 'NO_BOOKINGS', 'ALL_SKIPPED'] as const;
+export type RoutePlanEmptyReason = (typeof ROUTE_PLAN_EMPTY_REASONS)[number];
+
+/** Booking counts of a plan create: found for the scope, put on the plan, skipped (with a reason). */
+export interface RoutePlanCreateCounts {
+  found: number;
+  planned: number;
+  skipped: number;
+}
+
 // ───────────────────────────── compare (metrics only: no stops, no points, no names of passengers) ─────────────────────────────
 
 export interface RoutePlanMetricsDto {

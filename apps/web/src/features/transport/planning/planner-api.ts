@@ -22,7 +22,11 @@ import type {
   RoutingJobDto,
   TransportDirection,
 } from '@veetracer/shared';
+import type { RoutePlanEmptyReason } from '@veetracer/shared';
 import type { PlanEditResult, PlannerPlan, PlannerWeights } from './planner-format';
+
+/** POST /transport/route-plans answer: the plan, plus why it has no passenger (null / absent when it has some). */
+export type CreatedPlannerPlan = PlannerPlan & { emptyReason?: RoutePlanEmptyReason | null };
 
 export const PLANS_ENDPOINT = '/transport/route-plans';
 export const JOBS_ENDPOINT = '/routing/jobs';
@@ -54,7 +58,7 @@ export interface PlannerClient {
   getPlan(id: string, signal?: AbortSignal): Promise<PlannerPlan>;
   history(id: string, signal?: AbortSignal): Promise<RoutePlanVersionDto[]>;
   compare(ids: readonly string[], signal?: AbortSignal): Promise<RoutePlanCompareDto>;
-  createPlan(body: CreatePlanRequest, idempotencyKey: string): Promise<PlannerPlan>;
+  createPlan(body: CreatePlanRequest, idempotencyKey: string): Promise<CreatedPlannerPlan>;
   optimize(body: OptimizeJobRequest, idempotencyKey: string): Promise<RoutingJobDto>;
   /** Re-optimise a saved plan (alias of the job endpoint, same body minus planId). */
   optimizePlan(planId: string, body: OptimizeOptions, idempotencyKey: string): Promise<RoutingJobDto>;

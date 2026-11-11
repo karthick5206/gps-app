@@ -2,7 +2,7 @@
 import type { RoutePlanCompareDto, RoutePlanPublishResult, RoutePlanSummaryDto, RoutePlanVersionDto, RoutingCapabilities, RoutingJobDto } from '@veetracer/shared';
 /** Query values (same shape as lib/api QueryParams; no path alias so node --test can load this file). */
 export type QueryParams = Record<string, string | number | boolean | null | undefined>;
-import { CAPABILITIES_ENDPOINT, JOBS_ENDPOINT, PLANS_ENDPOINT, type PlannerClient } from './planner-api.ts';
+import { CAPABILITIES_ENDPOINT, JOBS_ENDPOINT, PLANS_ENDPOINT, type CreatedPlannerPlan, type PlannerClient } from './planner-api.ts';
 import { toEditResult, toList, type PlannerPlan } from './planner-format.ts';
 
 /** The transport the HTTP client uses; tests pass a recorder to check the exact requests (planner-contract.test.ts). */
@@ -21,7 +21,7 @@ export function createHttpPlannerClient(tx: PlannerTransport): PlannerClient {
     getPlan: (id, signal) => tx.get<PlannerPlan>(plan(id), undefined, signal),
     history: async (id, signal) => toList(await tx.get<RoutePlanVersionDto[] | { items: RoutePlanVersionDto[] }>(`${plan(id)}/history`, undefined, signal)),
     compare: (ids, signal) => tx.get<RoutePlanCompareDto>(`${PLANS_ENDPOINT}/compare`, { ids: ids.join(',') }, signal),
-    createPlan: (body, key) => keyed<PlannerPlan>(PLANS_ENDPOINT, body, key),
+    createPlan: (body, key) => keyed<CreatedPlannerPlan>(PLANS_ENDPOINT, body, key),
     optimize: (body, key) => keyed<RoutingJobDto>(`${JOBS_ENDPOINT}/optimize`, body, key),
     optimizePlan: (id, body, key) => keyed<RoutingJobDto>(`${plan(id)}/optimize`, body, key),
     getJob: (id, signal) => tx.get<RoutingJobDto>(`${JOBS_ENDPOINT}/${encodeURIComponent(id)}`, undefined, signal),

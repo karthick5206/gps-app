@@ -209,6 +209,7 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     const r = await creator.create(c, dto, 'create-key-0001');
     expect(r.replay).toBe(false);
     expect(r.value.skippedBookings).toEqual([{ bookingId: g.bookings[2], reason: 'consent_required' }]);
+    expect(r.value).toMatchObject({ emptyReason: null, bookingCounts: { found: 3, planned: 2, skipped: 1 } });
     const plan = await prisma.routePlan.findUniqueOrThrow({ where: { id: r.value.id }, include: { stops: true, assignments: true, versions: true } });
     expect(plan).toMatchObject({ status: 'DRAFT', version: 1, direction: 'IN', sitePoiId: g.office, depot: { lat: 13.0827, lng: 80.2707 } });
     expect(plan.assignments).toEqual([expect.objectContaining({ objectId: van, capacity: 6 })]);

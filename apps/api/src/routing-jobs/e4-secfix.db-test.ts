@@ -30,12 +30,24 @@ const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
 const W = { vehicle: 7_200, distance: 0, time: 1, routeDuration: 0 };
 
+/** Interactive-transaction options: a new connection through the WSL / CI network can take more than Prisma's 2 s maxWait. */
+const TX = { timeout: 60_000, maxWait: 30_000 };
 const deferred = () => {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => (resolve = r));
   return { promise, resolve };
 };
 const codeOf = (p: Promise<unknown>) => p.then(() => 'OK', (e: unknown) => (e instanceof HttpException ? ((e.getResponse() as { code?: string }).code ?? `HTTP_${e.getStatus()}`) : `error: ${(e as Error).message}`));
+/**
+ * SQLSTATE of a refused write, whatever Prisma wraps it in: raw (P2010) errors carry it as meta.code or "Code: `…`";
+ * model errors map unique / foreign-key violations to P2002 / P2003 (a trigger raising 23503 surfaces as P2003).
+ */
+const sqlState = (p: Promise<unknown>): Promise<string> =>
+  p.then(
+    () => 'OK',
+    (e: { code?: string; meta?: { code?: string }; message?: string }) =>
+      e.meta?.code ?? /Code: `(\w+)`/.exec(e.message ?? '')?.[1] ?? ({ P2002: '23505', P2003: '23503' } as Record<string, string>)[e.code ?? ''] ?? `unexpected ${e.code ?? e.message}`,
+  );
 
 d(`E4 security fixes + QA backend items on ${dbName || '(no scratch DB)'}`, () => {
   jest.setTimeout(180_000);
@@ -84,12 +96,15 @@ d(`E4 security fixes + QA backend items on ${dbName || '(no scratch DB)'}`, () =
         await go.promise;
         await tx.routePlanStop.update({ where: { id: g.pickups[0] }, data: { assignmentId: g.vans[0], sequence: 0 } });
       },
-      { timeout: 60_000 },
+      TX,
     );
     await planLocked.promise;
-    const withdraw = prisma.$transaction((tx) => withdrawRoutingPlanPoints(tx, g.company, g.profiles[0]), { timeout: 60_000 });
-    await until(async () => (await lockWaiters()) > 0, 10_000); // the withdrawal waits for the plan lock
-    go.resolve(); // before the fix the edit's stop update deadlocked here (the withdrawal already held the stop)
+    const withdraw = prisma.$transaction((tx) => withdrawRoutingPlanPoints(tx, g.company, g.profiles[0]), TX);
+    try {
+      await until(async () => (await lockWaiters()) > 0, 30_000); // the withdrawal waits for the plan lock
+    } finally {
+      go.resolve(); // before the fix the edit's stop update deadlocked here (the withdrawal already held the stop)
+    }
     await expect(edit).resolves.toBeUndefined();
     await expect(withdraw).resolves.toEqual({ removed: 1, anonymised: 0, planIds: [g.plan] });
     expect(await prisma.routePlanStop.findUnique({ where: { id: g.pickups[0] } })).toBeNull();
@@ -127,12 +142,15 @@ d(`E4 security fixes + QA backend items on ${dbName || '(no scratch DB)'}`, () =
         });
         await gw.write(gated, row, inputs, w, null, [], 'gh-test');
       },
-      { timeout: 60_000 },
+      TX,
     );
     await planLocked.promise;
-    const withdraw = prisma.$transaction((tx) => withdrawRoutingPlanPoints(tx, g.company, g.profiles[0]), { timeout: 60_000 });
-    await until(async () => (await lockWaiters()) > 0, 10_000);
-    go.resolve();
+    const withdraw = prisma.$transaction((tx) => withdrawRoutingPlanPoints(tx, g.company, g.profiles[0]), TX);
+    try {
+      await until(async () => (await lockWaiters()) > 0, 30_000);
+    } finally {
+      go.resolve();
+    }
     await expect(write).resolves.toBeUndefined();
     await expect(withdraw).resolves.toEqual({ removed: 1, anonymised: 0, planIds: [g.plan] });
     const plan = await prisma.routePlan.findUniqueOrThrow({ where: { id: g.plan }, include: { stops: true } });
@@ -148,10 +166,10 @@ d(`E4 security fixes + QA backend items on ${dbName || '(no scratch DB)'}`, () =
     const job = (await jobs().enqueueOptimize(ctxFor(g.company), { planId: g.plan, expectedVersion: 1, timeLimitS: 5, weights: W }, `l2-${randomUUID()}`)).job;
     const row = (await store.get(job.jobId))!;
     const inputs = await gw.load(row, parseOptimizeInput(row)); // the precise point was read
-    expect(await prisma.$transaction((tx) => eraseRoutingPlanPoints(tx, g.company, g.profiles[0], [g.bookings[0]]))).toBe(1);
+    expect(await prisma.$transaction((tx) => eraseRoutingPlanPoints(tx, g.company, g.profiles[0], [g.bookings[0]]), TX)).toBe(1);
     expect(await prisma.routePlan.findUniqueOrThrow({ where: { id: g.plan } })).toMatchObject({ status: 'OPTIMIZING', version: 2 });
     const matrix = { snapped: [{ snapDistanceM: 12, lat: 13.0102, lng: 80.2102 }] } as never;
-    await expect(prisma.$transaction((tx) => gw.write(tx, row, inputs, { assignments: [], unassigned: [] }, matrix, [{ stopId: g.pickups[0], index: 0 }], 'gh-test'))).rejects.toMatchObject({ code: 'PLAN_STALE' });
+    await expect(prisma.$transaction((tx) => gw.write(tx, row, inputs, { assignments: [], unassigned: [] }, matrix, [{ stopId: g.pickups[0], index: 0 }], 'gh-test'), TX)).rejects.toMatchObject({ code: 'PLAN_STALE' });
     expect(await prisma.routePlanStop.findUniqueOrThrow({ where: { id: g.pickups[0] } })).toMatchObject({ lat: 13.01, lng: 80.21, snapDistanceM: null, snappedLat: null, snappedLng: null, name: null });
   });
 
@@ -169,6 +187,12 @@ d(`E4 security fixes + QA backend items on ${dbName || '(no scratch DB)'}`, () =
     const [a, b] = await Promise.all([creator.create(owner, dto, key), creator.create(owner, dto, key)]);
     expect(a.value.id).toBe(b.value.id);
     expect([a.replay, b.replay].sort()).toEqual([false, true]);
+    // QA re-check: an empty plan says why (no booking on 2 Dec at all; none for a chosen shift).
+    const fresh = a.replay ? b : a;
+    expect(fresh.value).toMatchObject({ emptyReason: 'NO_BOOKINGS', bookingCounts: { found: 0, planned: 0, skipped: 0 } });
+    expect((a.replay ? a : b).value.emptyReason).toBe('NO_BOOKINGS');
+    const withShift = await creator.create(owner, { ...dto, shiftId: g.shift }, `l1-${randomUUID()}`);
+    expect(withShift.value).toMatchObject({ emptyReason: 'NO_BOOKINGS_FOR_SHIFT', bookingCounts: { found: 0, planned: 0 } });
     expect(await prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM "RoutePlan" WHERE "companyId" = ${g.company}::uuid AND options->>'createKey' = ${key}`).toEqual([{ n: 1n }]);
     // Same key and body from another user of the company: 422, without the plan.
     const other = await creator.create(ctxFor(g.company), dto, key).catch((e: HttpException) => e);
@@ -176,7 +200,7 @@ d(`E4 security fixes + QA backend items on ${dbName || '(no scratch DB)'}`, () =
     expect((other as HttpException).getStatus()).toBe(422);
     expect(JSON.stringify((other as HttpException).getResponse())).not.toContain(a.value.id);
     // The database refuses a second plan with the key whatever the code does (unique index).
-    await expect(prisma.$executeRawUnsafe(`INSERT INTO "RoutePlan" (id, "companyId", name, "planDate", options, "updatedAt") VALUES (gen_random_uuid(), '${g.company}', 'dup', '2026-12-02', '{"createKey":"${key}"}', now())`)).rejects.toThrow(/RoutePlan_companyId_createKey_key|unique/i);
+    expect(await sqlState(prisma.$executeRawUnsafe(`INSERT INTO "RoutePlan" (id, "companyId", name, "planDate", options, "updatedAt") VALUES (gen_random_uuid(), '${g.company}', 'dup', '2026-12-02', '{"createKey":"${key}"}', now())`))).toBe('23505');
     // Informational: an inactive vehicle is refused; a depot that is not a company place is refused.
     await prisma.trackedObject.update({ where: { id: van }, data: { isActive: false } });
     expect(await codeOf(creator.create(owner, dto, `l1-${randomUUID()}`))).toBe('NOT_FOUND');
@@ -213,28 +237,59 @@ d(`E4 security fixes + QA backend items on ${dbName || '(no scratch DB)'}`, () =
     expect(await prisma.routePlanStop.count({ where: { planId: ids.A } })).toBe(0);
   });
 
+  it('R4: retention vs. a late job result write (job row, then plan row): no deadlock; the written plan is kept', async () => {
+    const g = await seed('r4');
+    await prisma.routePlan.update({ where: { id: g.plan }, data: { status: 'OPTIMIZING', planDate: new Date('2020-01-01') } });
+    const job = await prisma.routingJob.create({ data: { companyId: g.company, planId: g.plan, kind: 'optimize', status: 'RUNNING', lockedBy: 'w:late', lockedUntil: new Date(Date.now() + 60_000) } });
+    const jobLocked = deferred();
+    const go = deferred();
+    // The worker's succeed(): the job row first, then the plan (PrismaJobStore.succeed → PrismaPlanGateway.write).
+    const worker = prisma.$transaction(
+      async (tx) => {
+        await tx.routingJob.updateMany({ where: { id: job.id, status: 'RUNNING', lockedBy: 'w:late' }, data: { status: 'SUCCEEDED', phase: 'done', progress: 100, finishedAt: new Date(), lockedUntil: null } });
+        jobLocked.resolve();
+        await go.promise;
+        await tx.routePlan.updateMany({ where: { id: g.plan, status: 'OPTIMIZING' }, data: { status: 'PLANNED', version: { increment: 1 } } });
+      },
+      TX,
+    );
+    await jobLocked.promise;
+    const purge = purgeStuckRoutePlans(prisma, g.company, new Date('2026-01-01'), false, 10); // routing off: would cancel the job
+    try {
+      await until(async () => (await lockWaiters()) > 0, 30_000); // retention waits on the job row, holding no plan lock
+    } finally {
+      go.resolve();
+    }
+    await expect(worker).resolves.toBeUndefined();
+    await expect(purge).resolves.toBe(0); // the plan is PLANNED now: not stuck any more
+    expect(await prisma.routePlan.findUniqueOrThrow({ where: { id: g.plan } })).toMatchObject({ status: 'PLANNED' });
+    expect(await prisma.routingJob.findUniqueOrThrow({ where: { id: job.id } })).toMatchObject({ status: 'SUCCEEDED', planId: g.plan });
+  });
+
   // ───────────────────────────── L8 ─────────────────────────────
 
   it('L8: triggers refuse cross-plan / cross-company links; clearing a link and purges still work', async () => {
     const g = await seed('l8');
     const h = await seed('l8-other');
     // RoutePlanStop on another plan's assignment
-    await expect(prisma.routePlanStop.update({ where: { id: g.pickups[0] }, data: { assignmentId: h.vans[0] } })).rejects.toThrow(/is not on plan/);
+    expect(await sqlState(prisma.routePlanStop.update({ where: { id: g.pickups[0] }, data: { assignmentId: h.vans[0] } }))).toBe('23503');
     await expect(prisma.routePlanStop.update({ where: { id: g.pickups[0] }, data: { assignmentId: g.vans[1] } })).resolves.toBeDefined();
     await expect(prisma.routePlanStop.update({ where: { id: g.pickups[0] }, data: { assignmentId: null } })).resolves.toBeDefined();
     // RoutingJob on another company's plan
-    await expect(prisma.routingJob.create({ data: { companyId: g.company, planId: h.plan, kind: 'optimize' } })).rejects.toThrow(/does not belong to company/);
+    expect(await sqlState(prisma.routingJob.create({ data: { companyId: g.company, planId: h.plan, kind: 'optimize' } }))).toBe('23503');
     const ok = await prisma.routingJob.create({ data: { companyId: g.company, planId: g.plan, kind: 'optimize', status: 'FAILED', finishedAt: new Date() } });
-    await expect(prisma.routingJob.update({ where: { id: ok.id }, data: { planId: h.plan } })).rejects.toThrow(/does not belong to company/);
+    expect(await sqlState(prisma.routingJob.update({ where: { id: ok.id }, data: { planId: h.plan } }))).toBe('23503');
     // TransportTrip links: plan of the trip's operator only; the assignment of that plan only
     const pt = randomUUID();
     const trip = randomUUID();
-    await prisma.$executeRawUnsafe(`INSERT INTO "PlannedTrip" (id, "companyId", origin, "routeName", "corridorM", "plannedStart", "plannedEnd", "updatedAt") VALUES ('${pt}', '${g.company}', 'ETMS', 'L8', 200, '2026-12-01T02:30:00Z', '2026-12-01T03:30:00Z', now())`);
+    const van = randomUUID();
+    await prisma.$executeRawUnsafe(`INSERT INTO "TrackedObject" (id, "companyId", name, "updatedAt") VALUES ('${van}', '${g.company}', 'Van L8', now())`);
+    await prisma.$executeRawUnsafe(`INSERT INTO "PlannedTrip" (id, "companyId", origin, "objectId", "routeName", "corridorM", "plannedStart", "plannedEnd", "updatedAt") VALUES ('${pt}', '${g.company}', 'ETMS', '${van}', 'L8', 200, '2026-12-01T02:30:00Z', '2026-12-01T03:30:00Z', now())`);
     extra.push(() => prisma.$executeRawUnsafe(`DELETE FROM "PlannedTrip" WHERE id = '${pt}'`));
     await prisma.$executeRawUnsafe(`INSERT INTO "TransportTrip" (id, "plannedTripId", "providerCompanyId", "customerCompanyId", "serviceDate", direction, "seatCapacity", "updatedAt") VALUES ('${trip}', '${pt}', '${g.company}', '${g.company}', '2026-12-01', 'IN', 4, now())`);
     extra.push(() => prisma.$executeRawUnsafe(`DELETE FROM "TransportTrip" WHERE id = '${trip}'`));
-    await expect(prisma.$executeRawUnsafe(`UPDATE "TransportTrip" SET "routePlanId" = '${h.plan}' WHERE id = '${trip}'`)).rejects.toThrow(/does not belong to operator/);
-    await expect(prisma.$executeRawUnsafe(`UPDATE "TransportTrip" SET "routePlanId" = '${g.plan}', "routeAssignmentId" = '${h.vans[0]}' WHERE id = '${trip}'`)).rejects.toThrow(/route assignment/);
+    expect(await sqlState(prisma.$executeRawUnsafe(`UPDATE "TransportTrip" SET "routePlanId" = '${h.plan}' WHERE id = '${trip}'`))).toBe('23503');
+    expect(await sqlState(prisma.$executeRawUnsafe(`UPDATE "TransportTrip" SET "routePlanId" = '${g.plan}', "routeAssignmentId" = '${h.vans[0]}' WHERE id = '${trip}'`))).toBe('23503');
     expect(await prisma.$executeRawUnsafe(`UPDATE "TransportTrip" SET "routePlanId" = '${g.plan}', "routeAssignmentId" = '${g.vans[0]}' WHERE id = '${trip}'`)).toBe(1);
     // A plan purge nulls both links (FK SET NULL fires the trigger with null values: never refused).
     await prisma.routePlan.delete({ where: { id: g.plan } });
