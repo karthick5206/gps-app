@@ -1,21 +1,20 @@
-import type { DispatchBoardDto, Paginated, RoutePlanRouteError, RoutingJobDto, TransportShiftDto } from '@veetracer/shared';
+import type { DispatchBoardDto, Paginated, RoutePlanRouteError, TransportShiftDto } from '@veetracer/shared';
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { e3ErrorText } from '../dispatch/e3-format';
 import { DISPATCH_ENDPOINT, invalidateDispatch, SHIFTS_ENDPOINT } from '../dispatch/use-e3';
 import type { PlanListQuery } from './planner-api';
 import { call, plannerClient, plannerKeys } from './planner-client';
+import { publishPlan, reoptimise, startOptimise, type KeyStore, type OptimiseInput, type StartedPlan } from './planner-flow';
 import {
   jobPollMs,
   newKey,
   plannerErrorKind,
   plannerErrorText,
-  solverObjective,
   type PlanEditResult,
   type PlannerErrorKind,
   type PlannerPlan,
   type PlannerWeights,
-  type PlanSeed,
 } from './planner-format';
 
 export function invalidatePlans(qc: QueryClient, id?: string) {
@@ -150,44 +149,18 @@ export function useCancelJob() {
   });
 }
 
-export interface StartedPlan {
-  seed: PlanSeed;
-  planId: string | null;
-  job: RoutingJobDto | null;
-  error: unknown;
-}
-
-export interface OptimiseInput {
-  planDate: string;
-  direction: 'IN' | 'OUT';
-  seeds: PlanSeed[];
-  objectIds: string[];
-  weights: PlannerWeights;
-  timeLimitS: number;
-}
+export type { OptimiseInput, StartedPlan } from './planner-flow';
 
 /**
- * Creates one plan per seed (shift) with the chosen vehicles and starts its optimisation job. Each seed reports on its
- * own; one failing does not stop the others (07 §5: never block the rest).
+ * Creates one plan per seed (shift) with the chosen vehicles and starts its optimise job (planner-flow). Keys come from
+ * the screen's key store, so a retry of the same action replays on the server instead of creating twice.
  */
-export function useStartOptimise() {
+export function useStartOptimise(keys: KeyStore) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: OptimiseInput): Promise<StartedPlan[]> => {
-      const c = await plannerClient();
-      const out: StartedPlan[] = [];
-      for (const seed of input.seeds) {
-        let planId: string | null = null;
-        try {
-          const plan = await c.createPlan({ name: seed.name, planDate: input.planDate, direction: input.direction, shiftId: seed.shiftId, sitePoiId: seed.sitePoiId, objectIds: input.objectIds, ...(seed.planStartAt ? { planStartAt: seed.planStartAt } : {}) });
-          planId = plan.id;
-          const job = await c.optimize({ planId: plan.id, expectedVersion: plan.version, timeLimitS: input.timeLimitS, objective: solverObjective(input.weights) }, newKey());
-          qc.setQueryData(plannerKeys.job(job.jobId), job);
-          out.push({ seed, planId, job, error: null });
-        } catch (error) {
-          out.push({ seed, planId, job: null, error });
-        }
-      }
+      const out = await startOptimise(await plannerClient(), input, keys.keyFor);
+      for (const r of out) if (r.job) qc.setQueryData(plannerKeys.job(r.job.jobId), r.job);
       return out;
     },
     onSettled: () => invalidatePlans(qc),
@@ -195,12 +168,15 @@ export function useStartOptimise() {
 }
 
 /** Re-optimise a saved plan (pinned stops and locked routes stay as they are). */
-export function useReoptimise(plan: PlannerPlan | undefined) {
+export function useReoptimise(plan: PlannerPlan | undefined, keys: KeyStore) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { weights: PlannerWeights; timeLimitS: number; key: string }) =>
-      call((c) => c.optimize({ planId: (plan as PlannerPlan).id, expectedVersion: (plan as PlannerPlan).version, timeLimitS: input.timeLimitS, objective: solverObjective(input.weights) }, input.key)),
+    mutationFn: (input: { weights: PlannerWeights; timeLimitS: number }) => call((c) => reoptimise(c, plan as PlannerPlan, input, keys.keyFor)),
     onSuccess: (job) => qc.setQueryData(plannerKeys.job(job.jobId), job),
+    onError: (err) => {
+      const st = (err as { status?: number }).status;
+      if (plan && typeof st === 'number' && st < 500) keys.forget(`reoptimize:${plan.id}`);
+    },
     onSettled: () => plan && invalidatePlans(qc, plan.id),
   });
 }
@@ -247,11 +223,16 @@ export function usePlanEdit(plan: PlannerPlan | undefined) {
   });
 }
 
-/** Publish with a stable Idempotency-Key per (plan, version) attempt; the caller keeps the key for retries. */
-export function usePublishPlan(plan: PlannerPlan | undefined) {
+/** Publish with a key per (plan, version) attempt from the screen's key store; a refused publish (4xx) frees it. */
+export function usePublishPlan(plan: PlannerPlan | undefined, keys: KeyStore) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (key: string) => call((c) => c.publish((plan as PlannerPlan).id, { expectedVersion: (plan as PlannerPlan).version }, key)),
+    mutationFn: () => call((c) => publishPlan(c, plan as PlannerPlan, keys.keyFor)),
+    onSuccess: () => plan && keys.forget(`publish:${plan.id}`),
+    onError: (err) => {
+      const st = (err as { status?: number }).status;
+      if (plan && typeof st === 'number' && st < 500) keys.forget(`publish:${plan.id}`);
+    },
     onSettled: () => {
       if (plan) invalidatePlans(qc, plan.id);
       invalidateDispatch(qc);
@@ -268,4 +249,5 @@ export function useDiscardPlan() {
 }
 
 export { newKey };
+export { createKeyStore, type KeyStore } from './planner-flow';
 export { PLANNING_MENU, PLANNING_PATH, planPath, plannerFlagOn, useCapabilities, usePlannerMenuHidden, plannerKeys } from './planner-client';

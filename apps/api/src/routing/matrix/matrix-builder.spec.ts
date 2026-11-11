@@ -258,6 +258,7 @@ describe('MatrixBuilder against the matrix stub', () => {
     expect(b.status).toBe('UNAVAILABLE');
     expect(b.degraded?.reason).toBe('ENGINE_TIMEOUT');
     expect(b.unknownCells.length).toBe(12);
+    expect(b.degraded?.message).not.toMatch(/\.\./); // QA B7: no double full stop
     expect(b.points.every((p) => p.issue === 'NOT_CHECKED')).toBe(true);
   });
 

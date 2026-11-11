@@ -137,7 +137,7 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
             {scored.winner !== null && (
               <tr className="bg-muted/30">
                 <th scope="row" className="p-2 text-left font-medium">
-                  {t('Weighted score (lower is better)')}
+                  {t('Estimated cost by your weights (lower is better)')}
                 </th>
                 {plans.map((p, i) => (
                   <td key={p.id} className="p-2 tabular-nums">
@@ -173,7 +173,7 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
               })}
               {scored.winner !== null && (
                 <div className="contents">
-                  <dt className="font-medium">{t('Weighted score (lower is better)')}</dt>
+                  <dt className="font-medium">{t('Estimated cost by your weights (lower is better)')}</dt>
                   <dd className="text-right tabular-nums">
                     {scored.scores[i]} {scored.winner === i && <Badge variant="success">{t('Best by your weights')}</Badge>}
                   </dd>
@@ -191,6 +191,7 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
         {w && scored.missing.length > 0 && (
           <p className="text-sm text-warning-fg">{t('No overall result: some plans have no engine numbers for {{what}}.', { what: scored.missing.map((k) => t(WEIGHT_LABEL[k])).join(', ') })}</p>
         )}
+        {w && scored.excluded.length > 0 && <p className="text-sm text-muted-foreground">{t('Plans that leave more passengers unassigned cannot win on cost: {{names}}.', { names: scored.excluded.map((i) => plans[i]?.name ?? '').join(', ') })}</p>}
         {w && scored.winner === null && !scored.missing.length && <p className="text-sm text-muted-foreground">{t('The weighted scores tie: no single best plan.')}</p>}
       </Card>
 

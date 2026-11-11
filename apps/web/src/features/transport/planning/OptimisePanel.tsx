@@ -15,7 +15,7 @@ import { DIRECTION_LABEL, shiftTimesLabel } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
 import { capabilityView, completeWeights, planSeeds, type ShiftChoice, type WeightDraft } from './planner-format';
 import { JobProgress, WeightsEditor } from './planner-ui';
-import { plannerErrorMessage, plannerErrorOf, useActiveShifts, usePlannerVehicles, useStartOptimise, type StartedPlan } from './use-planner';
+import { createKeyStore, newKey, plannerErrorMessage, plannerErrorOf, useActiveShifts, usePlannerVehicles, useStartOptimise, type StartedPlan } from './use-planner';
 
 const TIME_LIMITS = [10, 30, 60] as const;
 
@@ -38,7 +38,9 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
   const { t } = useTranslation();
   const shifts = useActiveShifts();
   const fleet = usePlannerVehicles(state.day, state.direction);
-  const start = useStartOptimise();
+  // Idempotency-Keys per action: a retry of the same form replays on the server (no second plan / job).
+  const [keys] = useState(() => createKeyStore(newKey));
+  const start = useStartOptimise(keys);
   const [touched, setTouched] = useState(false);
   const health = capabilityView(caps);
 
@@ -60,8 +62,9 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
 
   const problems: string[] = [];
   if (!seeds.length) problems.push(t('Choose at least one shift.'));
+  if (seeds.some((x) => !x.sitePoiId)) problems.push(t('A chosen shift has no site: choose exactly one site for it.'));
   if (!chosenVehicles.length) problems.push(t('Choose at least one vehicle.'));
-  if (!weights) problems.push(t('Set every objective weight (at least one above 0).'));
+  if (!weights) problems.push(t('Set all four weights (at least one of distance, driving or route length above 0).'));
   const ready = problems.length === 0 && health.canOptimise && canPlan;
 
   const run = () => {
@@ -69,7 +72,18 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
     if (!ready || !weights) return;
     start.mutate(
       { planDate: state.day, direction: state.direction, seeds, objectIds: chosenVehicles.map((v) => v.objectId), weights, timeLimitS: state.timeLimitS },
-      { onSuccess: (r) => setStarted(r) },
+      {
+        onSuccess: (r) => {
+          setStarted(r);
+          for (const x of r) {
+            const st = (x.error as { status?: number } | null)?.status;
+            // Refused (4xx: nothing written) → a new key next time; network / 5xx → the same key replays.
+            if (x.error && typeof st === 'number' && st < 500) keys.forget(`create:${x.seed.shiftId}`);
+          }
+          // Every plan started: a new click is a new action (new plans).
+          if (r.every((x) => x.job)) keys.clear();
+        },
+      },
     );
   };
 
@@ -131,7 +145,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
           {shifts.isError && <FormError message={plannerErrorMessage(shifts.error, t)} />}
         </div>
 
-        <WeightsEditor idPrefix="opt-w" value={state.weights} onChange={(w) => setState((s) => ({ ...s, weights: w }))} />
+        <WeightsEditor idPrefix="opt-w" showErrors={touched} value={state.weights} onChange={(w) => setState((s) => ({ ...s, weights: w }))} />
 
         <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
           <Field label={t('Time limit per plan')} htmlFor="opt-limit">

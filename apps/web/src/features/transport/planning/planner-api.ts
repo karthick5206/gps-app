@@ -1,17 +1,17 @@
 /**
- * Typed client of the APIs the planner uses:
- * - plans (E4-F, `packages/shared/src/routing-plans.ts`): `/api/transport/route-plans` list / detail / history /
- *   compare / move-passenger / sequence / assignments / stops / discard / publish;
- * - optimise jobs (E4-E): `/api/routing/jobs/optimize`, `/api/routing/jobs/:id`, `/:id/cancel`.
- * Not on the server yet (integration points, see the WP 4.5 evidence): plan creation from the day's bookings
- * (`POST /transport/route-plans`) and a capabilities endpoint (`GET /routing/capabilities`); the HTTP client derives
- * the capabilities meanwhile. Kept free of React so the synthetic stand-in (`planner-mock.ts`) can implement it too.
+ * Typed client of the APIs the planner uses (shapes mirror the API DTOs; `planner-contract.test.ts` checks them):
+ * - plans (`packages/shared/src/routing-plans.ts`): `/api/transport/route-plans` create (Idempotency-Key) / list /
+ *   detail / history / compare / move-passenger / sequence / assignments / stops / discard / publish (Idempotency-Key)
+ *   and the optimise alias `POST /:id/optimize`;
+ * - optimise jobs: `POST /api/routing/jobs/optimize` (Idempotency-Key), `GET /:id`, `POST /:id/cancel`;
+ * - `GET /api/routing/capabilities`.
+ * Kept free of React so the synthetic stand-in (`planner-mock.ts`) can implement it too.
  */
 import type {
   CreateRoutePlanRequest,
+  RoutePlanAssignmentUpdateRequest,
   RoutePlanCompareDto,
   RoutePlanMovePassengerRequest,
-  RoutePlanAssignmentUpdateRequest,
   RoutePlanPublishResult,
   RoutePlanResequenceRequest,
   RoutePlanStatus,
@@ -22,7 +22,7 @@ import type {
   RoutingJobDto,
   TransportDirection,
 } from '@veetracer/shared';
-import type { PlanEditResult, PlannerPlan } from './planner-format';
+import type { PlanEditResult, PlannerPlan, PlannerWeights } from './planner-format';
 
 export const PLANS_ENDPOINT = '/transport/route-plans';
 export const JOBS_ENDPOINT = '/routing/jobs';
@@ -34,16 +34,19 @@ export interface PlanListQuery {
   status?: RoutePlanStatus | null;
 }
 
-/** Proposed body of `POST /transport/route-plans` (not on the server yet): the plan and its vehicles in one call. */
-export type CreatePlanRequest = CreateRoutePlanRequest & { objectIds: string[] };
+/** `POST /transport/route-plans` (CreateRoutePlanDto): ETMS fields required, plus the plan's vehicles. */
+export type CreatePlanRequest = CreateRoutePlanRequest & { direction: TransportDirection; sitePoiId: string; objectIds: string[] };
 
-/** `POST /routing/jobs/optimize` (E4-E OptimizeJobDto). The objective weights stay in the browser (P6). */
-export interface OptimizeJobRequest {
-  planId: string;
+/** Body of `POST /transport/route-plans/:id/optimize` (OptimizeOptionsDto): explicit weights are required (P6). */
+export interface OptimizeOptions {
   expectedVersion: number;
   timeLimitS?: number;
   objective?: 'duration' | 'distance';
+  weights: PlannerWeights;
 }
+
+/** Body of `POST /routing/jobs/optimize` (OptimizeJobDto). */
+export type OptimizeJobRequest = OptimizeOptions & { planId: string };
 
 export interface PlannerClient {
   capabilities(signal?: AbortSignal): Promise<RoutingCapabilities>;
@@ -51,8 +54,10 @@ export interface PlannerClient {
   getPlan(id: string, signal?: AbortSignal): Promise<PlannerPlan>;
   history(id: string, signal?: AbortSignal): Promise<RoutePlanVersionDto[]>;
   compare(ids: readonly string[], signal?: AbortSignal): Promise<RoutePlanCompareDto>;
-  createPlan(body: CreatePlanRequest): Promise<PlannerPlan>;
+  createPlan(body: CreatePlanRequest, idempotencyKey: string): Promise<PlannerPlan>;
   optimize(body: OptimizeJobRequest, idempotencyKey: string): Promise<RoutingJobDto>;
+  /** Re-optimise a saved plan (alias of the job endpoint, same body minus planId). */
+  optimizePlan(planId: string, body: OptimizeOptions, idempotencyKey: string): Promise<RoutingJobDto>;
   getJob(id: string, signal?: AbortSignal): Promise<RoutingJobDto>;
   cancelJob(id: string): Promise<RoutingJobDto>;
   movePassenger(planId: string, body: RoutePlanMovePassengerRequest): Promise<PlanEditResult>;

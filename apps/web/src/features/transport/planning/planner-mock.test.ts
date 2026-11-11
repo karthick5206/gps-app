@@ -8,12 +8,12 @@ import { test } from 'node:test';
 import { createMockPlannerClient, FIXTURE_VEHICLES } from './planner-mock.ts';
 import { changedRoutes, engineEta, mapPoints, metricsFromCompare, planMetrics, routesOf, shiftStop, stopEta, weightedScores } from './planner-format.ts';
 
-const W = { vehicles: 2, distance: 5, driveTime: 3, maxRide: 4, unassigned: 10 };
+const W = { vehicle: 7200, distance: 0, time: 1, routeDuration: 0 };
 const THREE = FIXTURE_VEHICLES.slice(0, 3).map((v) => v.objectId);
 
 async function optimised(c: ReturnType<typeof createMockPlannerClient>, objectIds = THREE, key = `k-${Math.random()}`) {
-  const plan = await c.createPlan({ name: 'Login 09:00', planDate: '2026-11-12', planStartAt: '2026-11-12T01:30:00.000Z', direction: 'IN', shiftId: 'sh-1', sitePoiId: 'poi-site-1', objectIds });
-  const job = await c.optimize({ planId: plan.id, expectedVersion: plan.version, timeLimitS: 10, objective: 'duration' }, key);
+  const plan = await c.createPlan({ name: 'Login 09:00', planDate: '2026-11-12', planStartAt: '2026-11-12T01:30:00.000Z', direction: 'IN', shiftId: 'sh-1', sitePoiId: 'poi-site-1', objectIds }, `c-${key}`);
+  const job = await c.optimize({ planId: plan.id, expectedVersion: plan.version, timeLimitS: 10, objective: 'duration', weights: W }, key);
   const states: string[] = [job.state];
   for (let i = 0; i < 6; i++) {
     const j = await c.getJob(job.jobId);
@@ -38,9 +38,9 @@ test('optimise: job goes queued → running → succeeded with progress; plan re
 
 test('optimise is idempotent per key; cancel stops a running job and the plan goes back to draft', async () => {
   const c = createMockPlannerClient();
-  const plan = await c.createPlan({ name: 'x', planDate: '2026-11-12', direction: 'IN', objectIds: ['veh-1'] });
-  const job = await c.optimize({ planId: plan.id, expectedVersion: plan.version }, 'same');
-  assert.equal((await c.optimize({ planId: plan.id, expectedVersion: plan.version }, 'same')).jobId, job.jobId);
+  const plan = await c.createPlan({ name: 'x', planDate: '2026-11-12', direction: 'IN', objectIds: ['veh-1'], sitePoiId: 'poi-site-1' }, 'c-cancel');
+  const job = await c.optimize({ planId: plan.id, expectedVersion: plan.version, weights: W }, 'same');
+  assert.equal((await c.optimize({ planId: plan.id, expectedVersion: plan.version, weights: W }, 'same')).jobId, job.jobId);
   await c.getJob(job.jobId);
   await c.cancelJob(job.jobId);
   assert.equal((await c.getJob(job.jobId)).state, 'cancelled');
@@ -95,7 +95,7 @@ test('compare two plans on metrics, then publish one (E3 trips, replay) and disc
   assert.equal(mb.unassigned, 2, 'two vehicles leave one more passenger over');
   assert.ok(!('stops' in cmp.plans[0] && Array.isArray((cmp.plans[0] as unknown as { stops: unknown }).stops)), 'metrics only');
   assert.equal(weightedScores([ma, mb], null).winner, null, 'no winner without weights');
-  assert.notEqual(weightedScores([ma, mb], { ...W, maxRide: 0 }).winner, null);
+  assert.notEqual(weightedScores([ma, mb], W).winner, null);
   const pub = await c.publish(a.id, { expectedVersion: a.version }, 'pub-1');
   assert.equal(pub.trips.length, planMetrics(a).vehiclesUsed);
   assert.ok(pub.trips.every((t) => t.transportTripId));
@@ -115,7 +115,7 @@ test('engine down: optimise refused as routing unavailable; edits degraded; 0 ET
   const caps = await c.capabilities();
   assert.equal(caps.engineReachable, false);
   assert.equal(caps.liveTraffic, false);
-  await assert.rejects(() => c.optimize({ planId: plan.id, expectedVersion: plan.version }, 'k'), (e: { code: string }) => e.code === 'ROUTING_UNAVAILABLE');
+  await assert.rejects(() => c.optimize({ planId: plan.id, expectedVersion: plan.version, weights: W }, 'k'), (e: { code: string }) => e.code === 'ROUTING_UNAVAILABLE');
   const p = await c.getPlan(plan.id);
   let shown = 0;
   for (const s of p.stops) if (stopEta(s, p.assignments.find((x) => x.id === s.assignmentId), p.planStartAt, 'Asia/Kolkata').at) shown++;
