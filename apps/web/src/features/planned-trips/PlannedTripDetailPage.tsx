@@ -2,7 +2,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { PlannedTripDto, PlannedTripEventDto, PlannedTripStopDto } from '@veetracer/shared';
 import { AlertTriangleIcon, ArrowLeftIcon, CalendarClockIcon, ChevronDownIcon, ChevronUpIcon, LayersIcon, OctagonPauseIcon, RouteIcon } from 'lucide-react';
 import type { ExpressionSpecification } from 'maplibre-gl';
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { FormError } from '@/components/form-error';
@@ -58,14 +58,14 @@ const TONE_TEXT: Record<StopTone, string> = {
 
 const HOUR = 3_600_000;
 
-function useTripMap(containerRef: RefObject<HTMLDivElement | null>, onFollowInterrupted: () => void) {
+/** The map lives in a container that only mounts once the trip has loaded, so it is keyed on the element (callback ref), not a ref object. */
+function useTripMap(el: HTMLDivElement | null, onFollowInterrupted: () => void) {
   const [map, setMap] = useState<HistoryMap | null>(null);
   const [unsupported, setUnsupported] = useState(false);
   const cb = useRef(onFollowInterrupted);
   cb.current = onFollowInterrupted;
   const reducedMotion = useReducedMotion();
   useEffect(() => {
-    const el = containerRef.current;
     if (!el) return;
     let m: HistoryMap;
     try {
@@ -90,7 +90,7 @@ function useTripMap(containerRef: RefObject<HTMLDivElement | null>, onFollowInte
       m.destroy();
       setMap(null);
     };
-  }, [containerRef]);
+  }, [el]);
   useEffect(() => map?.setReducedMotion(reducedMotion), [map, reducedMotion]);
   return { map, unsupported };
 }
@@ -303,8 +303,8 @@ export function PlannedTripDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine]);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const { map, unsupported } = useTripMap(containerRef, () => setFollow(false));
+  const [mapEl, setMapEl] = useState<HTMLDivElement | null>(null);
+  const { map, unsupported } = useTripMap(mapEl, () => setFollow(false));
 
   useEffect(() => {
     if (!map) return;
@@ -443,7 +443,7 @@ export function PlannedTripDetailPage() {
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <Card className="min-w-0 gap-0 overflow-hidden py-0">
           <div className="relative h-[360px] sm:h-[480px]">
-            <div ref={containerRef} className="h-full w-full" role="region" aria-label={t('Trip map')} />
+            <div ref={setMapEl} className="h-full w-full" role="region" aria-label={t('Trip map')} />
             {!unsupported && (
               <div className="pointer-events-none absolute right-2 bottom-7 sm:right-3">
                 <MapLegend />
