@@ -11,9 +11,21 @@ alerts (with acknowledge), dashboard, reports (view and share Excel/PDF/CSV), de
 | Variable | Default | Purpose |
 |---|---|---|
 | `EXPO_PUBLIC_SERVER_URL` | `https://gps.mintplus.co.in` | Server the app talks to (`/api` and the `/live` socket) |
-| `EXPO_PUBLIC_MAP_STYLE_LIGHT` / `_DARK` | OpenFreeMap styles | Same basemaps as the web map |
+| `EXPO_PUBLIC_MAP_STYLE_STANDARD` / `_LIGHT` / `_DARK` | OpenFreeMap styles (fleet screens only) | Same basemaps as the web map |
 
 Put overrides in `apps/mobile/.env.local` (not committed).
+
+**Employee transport (ETMS E5) and maps:** the Passenger and Driver screens use only the self-hosted styles from
+`EXPO_PUBLIC_MAP_STYLE_*` (`SELF_HOSTED_MAP_STYLE` in `src/lib/config.ts`) and have no OpenFreeMap fallback. A build
+without these variables shows those screens without a map (the text description stays). Gate G8: builds for
+passengers or drivers must set them to the server's own tiles (for example `https://app.veetrax.com/tiles/...`).
+
+**Server URL (owner decision O12, not applied):** `eas.json` still sets `EXPO_PUBLIC_SERVER_URL` to
+`https://gps.mintplus.co.in`. New builds are meant to use `https://app.veetrax.com`, but changing `eas.json` needs a
+separate approval, so it is unchanged here.
+
+Checks: `npm test` (pure logic with `node --test`: offline event queue, trip window, role routing, push targets,
+in-motion rules, navigation hand-off) and `npx tsc --noEmit`.
 
 App ids: Android package and iOS bundle id are both `com.sasvata.veetrax` (`app.json`). Change them
 **before** the first store upload; they can't change afterwards.

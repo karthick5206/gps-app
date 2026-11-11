@@ -6,6 +6,18 @@ import { Platform } from 'react-native';
 import { isAlarmAlert } from '@veetracer/shared';
 import { api } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
+import { isTransportPush, transportPushTarget } from '@/features/transport/push-target';
+import type { TransportRoles } from '@/features/transport/roles';
+
+/** Passenger / driver sections the signed-in user may open (set by the root layout from /auth/me). */
+let transportRoles: Pick<TransportRoles, 'passenger' | 'driver'> = { passenger: false, driver: false };
+export function setTransportPushRoles(roles: Pick<TransportRoles, 'passenger' | 'driver'>): void {
+  transportRoles = { passenger: roles.passenger, driver: roles.driver };
+}
+
+/** ETMS (employee transport) channels, doc 08 §7.2: generic texts only; PRIVATE so the lock screen hides the body. */
+export const TRIP_CHANNEL = 'trip';
+export const INFO_CHANNEL = 'info';
 
 /**
  * Push alerts: the app registers its Expo push token with the API after sign-in; the notifier sends alerts for
@@ -58,6 +70,16 @@ export async function ensureChannels(): Promise<void> {
     enableLights: true,
     lightColor: '#ff0000',
     enableVibrate: true,
+  });
+  await Notifications.setNotificationChannelAsync(TRIP_CHANNEL, {
+    name: i18n.t('Trip updates'),
+    importance: Notifications.AndroidImportance.HIGH,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+  });
+  await Notifications.setNotificationChannelAsync(INFO_CHANNEL, {
+    name: i18n.t('Booking and account notices'),
+    importance: Notifications.AndroidImportance.DEFAULT,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
   });
 }
 
@@ -113,6 +135,13 @@ export function openSos(alertId: string, test = false): void {
 function openFromNotification(n: Notifications.Notification, tapped: boolean): void {
   const data = n.request.content.data ?? {};
   if (data.sosTest) return openSos('test', true);
+  // Employee transport (D7): the payload is only { kind, tripId | bookingId | incidentId }. Nothing from it is shown;
+  // the opened screen fetches the details over the authenticated API.
+  if (isTransportPush(data)) {
+    const target = tapped ? transportPushTarget(data, transportRoles) : null;
+    if (target) router.push(target as Parameters<typeof router.push>[0]);
+    return;
+  }
   const alertId = data.alertId;
   if (typeof alertId !== 'string') return;
   if (isAlarmAlert(data.type as string | undefined, data) && !openedSos.has(alertId)) openSos(alertId);

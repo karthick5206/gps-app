@@ -2,30 +2,49 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import '@/lib/i18n';
 import { AuthProvider, useAuth } from '@/features/auth/auth';
+import { setTransportPushRoles } from '@/features/notifications/push';
+import { transportRoles, type TransportRoles } from '@/features/transport/roles';
+import { useTransportQueueLifecycle } from '@/features/transport/queue-store';
 import { useBrandBarStyle, useColors, useScheme } from '@/lib/theme';
 
 SplashScreen.preventAutoHideAsync();
 
 function RootStack() {
-  const { status } = useAuth();
+  const { status, me } = useAuth();
   const { t } = useTranslation();
   const scheme = useScheme();
   const c = useColors();
   const barStyle = useBrandBarStyle();
 
+  // Which shell (fleet / passenger / driver, ETMS E5): from the server's /auth/me. The last known roles are kept while
+  // /auth/me refetches (company switch), so the navigator is not torn down; before the first answer the splash stays.
+  const current = useMemo(() => (status === 'authenticated' && me ? transportRoles(me) : null), [status, me]);
+  const [lastRoles, setLastRoles] = useState<TransportRoles | null>(null);
   useEffect(() => {
-    if (status !== 'loading') SplashScreen.hideAsync();
-  }, [status]);
-  if (status === 'loading') return null;
+    if (current) setLastRoles(current);
+    else if (status !== 'authenticated') setLastRoles(null);
+  }, [current, status]);
+  const roles = status === 'authenticated' ? (current ?? lastRoles) : null;
+  // Set during render (idempotent module value): the shells' tap handler reads it in their own mount effects, which
+  // run before this component's effects, so a cold-start tap on a trip push already knows the roles.
+  setTransportPushRoles(roles ?? { passenger: false, driver: false });
+  useTransportQueueLifecycle(status === 'authenticated' && roles?.driver ? (me?.user.id ?? null) : null);
+  const ready = status === 'anonymous' || (status === 'authenticated' && !!roles);
+
+  useEffect(() => {
+    if (ready) SplashScreen.hideAsync();
+  }, [ready]);
+  if (!ready) return null;
 
   const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
   const theme = { ...base, colors: { ...base.colors, primary: c.primary, background: c.background, card: c.card, text: c.foreground, border: c.border } };
   const signedIn = status === 'authenticated';
+  const shell = roles?.shell ?? 'fleet';
   return (
     <ThemeProvider value={theme}>
       {/* Every screen starts with the brand header band (the sign-in screen too), so the bar follows the band. */}
@@ -40,8 +59,32 @@ function RootStack() {
           contentStyle: { backgroundColor: c.background },
         }}
       >
-        <Stack.Protected guard={signedIn}>
+        {/* One shell at a time; the first available group is where a signed-in user lands. */}
+        <Stack.Protected guard={signedIn && shell === 'fleet'}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false, title: t('Home') }} />
+        </Stack.Protected>
+        <Stack.Protected guard={signedIn && shell === 'passenger'}>
+          <Stack.Screen name="(passenger)" options={{ headerShown: false, title: t('My commute') }} />
+        </Stack.Protected>
+        <Stack.Protected guard={signedIn && shell === 'driver'}>
+          <Stack.Screen name="(driver)" options={{ headerShown: false, title: t('My transport duty') }} />
+        </Stack.Protected>
+        {/* Passenger screens: the Passenger shell, and "My commute" inside the fleet / driver shells (P3). */}
+        <Stack.Protected guard={signedIn && !!roles?.passenger}>
+          <Stack.Screen name="commute/index" options={{ title: t('My commute') }} />
+          <Stack.Screen name="commute/bookings" options={{ title: t('My bookings') }} />
+          <Stack.Screen name="commute/notices" options={{ title: t('Notices') }} />
+          <Stack.Screen name="commute/consent" options={{ title: t('Privacy & consent') }} />
+          <Stack.Screen name="commute/trip/[id]" options={{ title: t('My trip') }} />
+        </Stack.Protected>
+        {/* Driver screens: the Driver shell, and "My transport duty" inside the fleet shell. */}
+        <Stack.Protected guard={signedIn && !!roles?.driver}>
+          <Stack.Screen name="duty/index" options={{ title: t('My transport duty') }} />
+          <Stack.Screen name="duty/trip/[id]" options={{ title: t('Trip') }} />
+          <Stack.Screen name="duty/report/[id]" options={{ title: t('Report a problem') }} />
+          <Stack.Screen name="duty/sync" options={{ title: t('Sync') }} />
+        </Stack.Protected>
+        <Stack.Protected guard={signedIn}>
           <Stack.Screen name="vehicle/[id]" options={{ title: t('Vehicle') }} />
           <Stack.Screen name="alert/[id]" options={{ title: t('Alert') }} />
           <Stack.Screen name="sos/[id]" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade', contentStyle: { backgroundColor: '#c62828' } }} />
