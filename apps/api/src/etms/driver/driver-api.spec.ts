@@ -7,6 +7,7 @@ import type { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { PlannedTripsService } from '../../planned-trips/planned-trips.service';
 import { TripLiveService } from '../dispatch/trip-live';
+import { todayIn } from '../dispatch/service-dates';
 import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { TransportNotifyRelayService } from '../notifications/transport-notify-relay.service';
 import { MemoryStore, type Obj } from '../testing/memory-store';
@@ -46,7 +47,7 @@ function world(opts: { plannedStartInMin?: number } = {}) {
   const pt = store.insert('plannedTrip', { companyId: 'custA', origin: 'ETMS', routeId: null, objectId: vehicle, driverId: dA, routeName: 'Login 09:00', corridorM: 200, plannedStart: new Date(start), plannedEnd: new Date(start + 60 * MIN), status: 'SCHEDULED', nextStopSeq: null });
   const s0 = store.insert('plannedTripStop', { tripId: pt.id, seq: 0, name: 'Pickup 1', lat: 13.06, lng: 80.24, radiusM: 100, plannedArrival: new Date(start), plannedDeparture: new Date(start) });
   const s1 = store.insert('plannedTripStop', { tripId: pt.id, seq: 1, name: 'Office', lat: 13.05, lng: 80.25, radiusM: 100, plannedArrival: new Date(start + 60 * MIN), plannedDeparture: new Date(start + 60 * MIN) });
-  const tt = store.insert('transportTrip', { plannedTripId: pt.id, providerCompanyId: 'custA', customerCompanyId: 'custA', serviceDate: new Date(new Date(start).toISOString().slice(0, 10) + 'T00:00:00Z'), direction: 'IN', seatCapacity: 4, occupiedSeats: 2, publishedAt: new Date() });
+  const tt = store.insert('transportTrip', { plannedTripId: pt.id, providerCompanyId: 'custA', customerCompanyId: 'custA', serviceDate: new Date(todayIn('Asia/Kolkata', start) + 'T00:00:00Z'), direction: 'IN', seatCapacity: 4, occupiedSeats: 2, publishedAt: new Date() });
   const seat = (profileId: string) => {
     const b = store.insert('transportBooking', { customerCompanyId: 'custA', providerCompanyId: 'custA', profileId, status: 'ASSIGNED', serviceDate: tt.serviceDate, direction: 'IN', timeZone: 'Asia/Kolkata', windowStart: new Date(start - 30 * MIN), windowEnd: new Date(start + 60 * MIN) });
     return store.insert('transportTripPassenger', { tripId: tt.id, bookingId: b.id, customerCompanyId: 'custA', providerCompanyId: 'custA', pickupStopId: s0.id, dropStopId: s1.id, pickupSeq: 0, dropSeq: 1, seats: 1, createdAt: new Date(Date.now() + store.table('transportTripPassenger').length) }).id as string;
