@@ -13,7 +13,7 @@ import {
 import type { AuthContext } from '../access/auth-context';
 import { idempotencyKey as parseIdempotencyKey, requestHash } from '../etms/dispatch/e3-common';
 import type { JobQueue } from './job-queue';
-import { ActiveLimitExceeded, DuplicateIdempotencyKey, JobRecord, RoutingJobStore, StoreTx } from './job-store';
+import { ActiveLimitExceeded, DuplicateIdempotencyKey, JobRecord, PlanNotFound, RoutingJobStore, StoreTx } from './job-store';
 import { RoutingHttpError } from './routing-flags';
 import type { SolverWeights } from './optimize-problem';
 
@@ -163,6 +163,7 @@ export class RoutingJobsService {
         if (winner) return { job: await this.replayOf(ctx, winner, hash), replay: true };
       }
       if (e instanceof ActiveLimitExceeded) throw activeLimit();
+      if (e instanceof PlanNotFound) throw new RoutingHttpError('JOB_NOT_FOUND', 'Plan not found');
       throw e;
     }
     await this.queue.publish(row.id).catch((e) => this.logger.warn(`job ${row.id} not published (${(e as Error).message}); the sweeper re-publishes it`));

@@ -62,6 +62,17 @@ d(`T1 E2E regressions on ${dbName || '(no scratch DB)'}`, () => {
     for (const s of p.stops) expect(s.timeWindows).toBeUndefined();
   });
 
+  it("T1-D6 optimise with another company's plan id or an unknown id → 404 Plan not found (was a 409 \"In use\" from the FK / company check); no job row", async () => {
+    const mine = await seedPlan(prisma, partnerId, companies, 't1-d6-mine');
+    const theirs = await seedPlan(prisma, partnerId, companies, 't1-d6-theirs');
+    const svc = new RoutingJobsService(store, new MemoryJobQueue(), gw, { hit: async () => true });
+    for (const planId of [theirs.plan, randomUUID()]) {
+      await expect(svc.enqueueOptimize(ctxFor(mine.company), { planId, expectedVersion: 1, timeLimitS: 5, weights: W }, `k-${randomUUID()}`)).rejects.toMatchObject({ status: 404, response: { code: 'JOB_NOT_FOUND', message: 'Plan not found' } });
+    }
+    expect(await prisma.routingJob.count({ where: { companyId: mine.company } })).toBe(0);
+    expect((await prisma.routePlan.findUniqueOrThrow({ where: { id: theirs.plan } })).status).toBe('DRAFT');
+  });
+
   it('T1-D1 generic plan (no direction): the booking window still applies to the stop', async () => {
     const g = await seedPlan(prisma, partnerId, companies, 't1-d1-generic');
     await prisma.routePlan.update({ where: { id: g.plan }, data: { direction: null } });

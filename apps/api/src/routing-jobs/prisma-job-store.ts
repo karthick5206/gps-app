@@ -1,7 +1,7 @@
 import { Prisma, PrismaClient, RoutingJob } from '@prisma/client';
 import type { RoutingJobPhase } from '@veetracer/shared';
 import { FailureDecision, JobErrorBody } from './job-state';
-import { ActiveLimitExceeded, CancelOutcome, DuplicateIdempotencyKey, JobListFilter, JobRecord, NewJob, RoutingJobStore, StoreTx } from './job-store';
+import { ActiveLimitExceeded, CancelOutcome, DuplicateIdempotencyKey, JobListFilter, JobRecord, NewJob, RoutingJobStore, StoreTx, PlanNotFound } from './job-store';
 
 type Db = Pick<PrismaClient, 'routingJob' | '$transaction'>;
 
@@ -52,6 +52,9 @@ export class PrismaJobStore implements RoutingJobStore {
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002' && job.idempotencyKey) throw new DuplicateIdempotencyKey();
+      // T1-D6: a plan id that is not this company's (unknown, or another company's: the e4_security_hardening trigger)
+      // fails the insert with 23503 before the plan reservation could answer 404.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003' && job.planId) throw new PlanNotFound();
       throw e;
     }
   }
