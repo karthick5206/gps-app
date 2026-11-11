@@ -361,6 +361,7 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
       }
       return strip(j);
     },
+    planJobs: async (planId) => [...jobs.values()].filter((j) => j.planId === planId && (j.state === 'queued' || j.state === 'running')).map(strip),
     cancelJob: async (jobId) => {
       const j = jobs.get(jobId) ?? fail(404, 'JOB_NOT_FOUND', 'Job not found');
       if (j.state === 'queued' || j.state === 'running') j.cancelRequested = true;

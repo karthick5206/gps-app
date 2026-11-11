@@ -3933,6 +3933,8 @@ export const HI: Record<string, string> = {
   'No bookings for this shift on this date.': 'इस तारीख़ को इस शिफ़्ट के लिए कोई बुकिंग नहीं है।',
   'No bookings for this site and direction on this date.': 'इस तारीख़ को इस साइट और दिशा के लिए कोई बुकिंग नहीं है।',
   'Bookings were found, but none could be planned (routing consent, location or scope).': 'बुकिंग मिलीं, पर किसी को भी योजना में नहीं रखा जा सका (रूटिंग सहमति, स्थान या दायरा)।',
+  'Outside your branches': 'आपकी शाखाओं से बाहर',
+  '{{n}} booking(s) not included in this plan; they stay in the dispatch queue:': '{{n}} बुकिंग इस योजना में शामिल नहीं हैं; वे डिस्पैच कतार में रहती हैं:',
   'Nothing was optimised.': 'कुछ भी ऑप्टिमाइज़ नहीं किया गया।',
   'Started optimisations show here with their progress. You can leave this page; plans stay under Plans.': 'शुरू किए गए ऑप्टिमाइज़ेशन अपनी प्रगति के साथ यहाँ दिखते हैं। आप यह पेज छोड़ सकते हैं; योजनाएँ \'योजनाएँ\' में रहती हैं।',
   'Starts a driver session now. A driver already on another vehicle is moved here.': 'अभी ड्राइवर सेशन शुरू करता है। किसी अन्य वाहन पर पहले से मौजूद ड्राइवर यहाँ स्थानांतरित हो जाएगा।',

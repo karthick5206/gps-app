@@ -3933,6 +3933,8 @@ export const TA: Record<string, string> = {
   'No bookings for this shift on this date.': 'இந்தத் தேதியில் இந்த ஷிஃப்டுக்கு முன்பதிவுகள் இல்லை.',
   'No bookings for this site and direction on this date.': 'இந்தத் தேதியில் இந்த இடம் மற்றும் திசைக்கு முன்பதிவுகள் இல்லை.',
   'Bookings were found, but none could be planned (routing consent, location or scope).': 'முன்பதிவுகள் கிடைத்தன, ஆனால் எதையும் திட்டத்தில் சேர்க்க முடியவில்லை (வழித்தட ஒப்புதல், இருப்பிடம் அல்லது வரம்பு).',
+  'Outside your branches': 'உங்கள் கிளைகளுக்கு வெளியே',
+  '{{n}} booking(s) not included in this plan; they stay in the dispatch queue:': '{{n}} முன்பதிவுகள் இந்தத் திட்டத்தில் சேர்க்கப்படவில்லை; அவை டிஸ்பேட்ச் வரிசையில் இருக்கும்:',
   'Nothing was optimised.': 'எதுவும் உகப்பாக்கப்படவில்லை.',
   'Started optimisations show here with their progress. You can leave this page; plans stay under Plans.': 'தொடங்கிய உகப்பாக்கங்கள் அவற்றின் முன்னேற்றத்துடன் இங்கே தெரியும். இந்தப் பக்கத்தை விட்டுச் செல்லலாம்; திட்டங்கள் \'திட்டங்கள்\' பகுதியில் இருக்கும்.',
   'Starts a driver session now. A driver already on another vehicle is moved here.': 'இப்போதே ஓட்டுநர் அமர்வைத் தொடங்கும். ஏற்கனவே வேறு வாகனத்தில் உள்ள ஓட்டுநர் இங்கே மாற்றப்படுவார்.',

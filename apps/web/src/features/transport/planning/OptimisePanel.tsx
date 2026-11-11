@@ -13,7 +13,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { DIRECTION_LABEL, shiftTimesLabel } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
-import { capabilityView, completeWeights, planSeeds, type ShiftChoice, type WeightDraft } from './planner-format';
+import { capabilityView, completeWeights, planSeeds, skippedSummary, type ShiftChoice, type WeightDraft } from './planner-format';
 import { JobProgress, WeightsEditor } from './planner-ui';
 import { createKeyStore, newKey, plannerErrorMessage, plannerErrorOf, useActiveShifts, usePlannerVehicles, useStartOptimise, type StartedPlan } from './use-planner';
 
@@ -27,6 +27,25 @@ export interface OptimiseState {
   vehicleIds: string[];
   weights: WeightDraft;
   timeLimitS: number;
+}
+
+/** Bookings the new plan left out, per reason: they stay in the dispatch queue (T2 E2E). */
+function SkippedBookings({ skipped }: { skipped: { bookingId: string; reason: string }[] | undefined }) {
+  const { t } = useTranslation();
+  const rows = skippedSummary(skipped);
+  if (!rows.length) return null;
+  return (
+    <div role="status" className="grid gap-0.5 rounded-md bg-muted p-2 text-xs">
+      <span className="font-medium">{t('{{n}} booking(s) not included in this plan; they stay in the dispatch queue:', { n: rows.reduce((n, r) => n + r.n, 0) })}</span>
+      <ul className="list-disc ps-4">
+        {rows.map((r) => (
+          <li key={r.reason}>
+            {t(r.label)}: <span className="tabular-nums">{r.n}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 /**
@@ -171,9 +190,9 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
         {started.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('Started optimisations show here with their progress. You can leave this page; plans stay under Plans.')}</p>
         ) : (
-          <ul className="grid gap-3">
+          <ul className="grid grid-cols-[minmax(0,1fr)] gap-3">
             {started.map((s) => (
-              <li key={s.seed.shiftId} className="rounded-lg border p-3">
+              <li key={s.seed.shiftId} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border p-3">
                 {s.job ? (
                   <JobProgress jobId={s.job.jobId} planId={s.planId} label={s.seed.name} canCancel={canPlan} />
                 ) : s.empty ? (
@@ -196,6 +215,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
                     </p>
                   </div>
                 )}
+                <SkippedBookings skipped={s.skipped} />
               </li>
             ))}
           </ul>

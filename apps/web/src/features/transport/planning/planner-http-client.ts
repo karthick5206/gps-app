@@ -25,6 +25,7 @@ export function createHttpPlannerClient(tx: PlannerTransport): PlannerClient {
     optimize: (body, key) => keyed<RoutingJobDto>(`${JOBS_ENDPOINT}/optimize`, body, key),
     optimizePlan: (id, body, key) => keyed<RoutingJobDto>(`${plan(id)}/optimize`, body, key),
     getJob: (id, signal) => tx.get<RoutingJobDto>(`${JOBS_ENDPOINT}/${encodeURIComponent(id)}`, undefined, signal),
+    planJobs: async (planId, signal) => toList(await tx.get<RoutingJobDto[] | { items: RoutingJobDto[] }>(JOBS_ENDPOINT, { planId, state: 'queued,running', limit: 5 }, signal)),
     cancelJob: (id) => tx.send<RoutingJobDto>('POST', `${JOBS_ENDPOINT}/${encodeURIComponent(id)}/cancel`, {}),
     movePassenger: async (id, body) => toEditResult(await tx.send<unknown>('POST', `${plan(id)}/move-passenger`, body)),
     resequence: async (id, body) => toEditResult(await tx.send<unknown>('PUT', `${plan(id)}/sequence`, body)),

@@ -141,6 +141,16 @@ export function useJob(id: string | null) {
   });
 }
 
+/** Open jobs of a plan (after a reload the page has no job id of its own; the plan detail carries none). */
+export function usePlanOpenJobs(planId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [...plannerKeys.job(''), 'plan', planId ?? ''],
+    queryFn: ({ signal }) => call((c) => c.planJobs(planId as string, signal)),
+    enabled: !!planId && enabled,
+    refetchInterval: enabled ? 3000 : false,
+  });
+}
+
 export function useCancelJob() {
   const qc = useQueryClient();
   return useMutation({

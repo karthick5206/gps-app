@@ -61,7 +61,8 @@ import {
   shiftStop,
   stopEta,
   stopLabel,
-  unassignedStops,
+  activeJobId,
+  unassignedPassengers,
   vehicleColor,
   VIOLATION_LABEL,
   plannerErrorText,
@@ -84,6 +85,7 @@ import {
   usePlan,
   usePlanEdit,
   usePlanHistory,
+  usePlanOpenJobs,
   usePlannerVehicles,
   usePublishPlan,
   useReoptimise,
@@ -125,6 +127,9 @@ export function PlanReviewPage() {
   const history = useState(false);
   const [showHistory, setShowHistory] = history;
   const hist = usePlanHistory(plan?.id ?? null, showHistory);
+  const [jobId, setJobId] = useState<string | null>(null);
+  // After a reload (or a job started in another tab) the page finds the plan's running job on the server.
+  const openJobs = usePlanOpenJobs(plan?.id ?? null, plan?.status === 'OPTIMIZING' && !jobId);
   const [focus, setFocus] = useState<number | null>(null);
   const [lastCheck, setLastCheck] = useState<RoutePlanStopViolation[] | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -138,7 +143,6 @@ export function PlanReviewPage() {
   const [discardOpen, setDiscardOpen] = useState(false);
   const [reoptOpen, setReoptOpen] = useState(false);
   const [reoptWeights, setReoptWeights] = useState<WeightDraft | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
   const [degraded, setDegraded] = useState<string | null>(null);
 
   const metrics = useMemo(() => (plan ? planMetrics(plan, lastCheck ?? undefined) : null), [plan, lastCheck]);
@@ -181,10 +185,10 @@ export function PlanReviewPage() {
   const { points, hidden } = mapPoints(plan, plan.precise);
   const lines = routeLines(plan);
   const nonEngine = plan.assignments.some((a) => a.eta && !engineEta(a.eta));
-  const unassigned = unassignedStops(plan.stops);
+  const unassigned = unassignedPassengers(plan.stops, plan.direction);
   const routes = routesOf(plan);
   const busy = edit.isPending || plan.status === 'OPTIMIZING';
-  const activeJob = jobId ?? (plan.status === 'OPTIMIZING' ? (plan.lastJobId ?? null) : null);
+  const activeJob = activeJobId(plan, jobId, openJobs.data);
 
   const runEdit = (e: PlanEdit, ok: string) => {
     setEditError(null);

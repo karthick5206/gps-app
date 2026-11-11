@@ -3,7 +3,7 @@
  * contract tests run them over the real HTTP client with a recording transport, so the request shapes the screens
  * send are the ones checked (B1 / B2 of the E4 QA round).
  */
-import type { RoutePlanEmptyReason, RoutingJobDto, TransportDirection } from '@veetracer/shared';
+import type { RoutePlanCreateCounts, RoutePlanEmptyReason, RoutingJobDto, TransportDirection } from '@veetracer/shared';
 import type { CreatePlanRequest, OptimizeOptions, PlannerClient } from './planner-api.ts';
 import { solverObjective, type PlannerPlan, type PlannerWeights, type PlanSeed } from './planner-format.ts';
 
@@ -23,6 +23,9 @@ export interface StartedPlan {
   error: unknown;
   /** The plan was created without passengers (e.g. no booking for the shift): not optimised; the screen says why. */
   empty?: RoutePlanEmptyReason | null;
+  /** Bookings the server left out of the plan (reason per booking) and the booking counts, shown with the plan. */
+  skipped?: { bookingId: string; reason: string }[];
+  counts?: RoutePlanCreateCounts | null;
 }
 
 /**
@@ -65,13 +68,14 @@ export async function startOptimise(c: PlannerClient, input: OptimiseInput, keyF
       const body = createRequest(seed, input);
       const plan = await c.createPlan(body, keyFor(`create:${seed.shiftId}`, body));
       planId = plan.id;
+      const left = { skipped: plan.skippedBookings ?? [], counts: plan.bookingCounts ?? null };
       if (plan.emptyReason) {
-        out.push({ seed, planId, job: null, error: null, empty: plan.emptyReason });
+        out.push({ seed, planId, job: null, error: null, empty: plan.emptyReason, ...left });
         continue;
       }
       const opt = { planId: plan.id, ...optimizeOptions(plan, input) };
       const job = await c.optimize(opt, keyFor(`optimize:${plan.id}`, opt));
-      out.push({ seed, planId, job, error: null });
+      out.push({ seed, planId, job, error: null, ...left });
     } catch (error) {
       out.push({ seed, planId, job: null, error });
     }

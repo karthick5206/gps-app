@@ -199,6 +199,14 @@ export function unassignedStops<S extends Pick<RoutePlanStopDto, 'assignmentId'>
   return stops.filter((s) => !s.assignmentId);
 }
 
+/**
+ * Passengers without a seat: one row per passenger (the stop that stands for them, see passengerEnd), not both ends of
+ * the booking. The office end of an unassigned booking is not a passenger (T2 E2E: "Unassigned 42 / 25").
+ */
+export function unassignedPassengers<S extends Pick<RoutePlanStopDto, 'assignmentId' | 'stopKind'>>(stops: readonly S[], direction: TransportDirection | null): S[] {
+  return unassignedStops(stops).filter((s) => passengerEnd(s, direction));
+}
+
 /** Seats a route uses: each passenger counted once (at the stop that stands for them, see passengerEnd). */
 export function routeLoad(stops: readonly (Pick<RoutePlanStopDto, 'demand' | 'stopKind'> & { seats?: number })[], direction: TransportDirection | null): number {
   return stops.filter((s) => passengerEnd(s, direction)).reduce((n, s) => n + Math.max(0, (s.seats ?? s.demand) || 0), 0);
@@ -254,7 +262,7 @@ export function planMetrics(plan: Pick<PlannerPlan, 'stops' | 'assignments' | 'd
       else rides.push(r);
     }
   }
-  const unassigned = unassignedStops(plan.stops);
+  const unassigned = unassignedPassengers(plan.stops, plan.direction);
   const unassignedByReason: Record<string, number> = {};
   for (const s of unassigned) {
     const k = s.unassignedReason ?? 'not_optimised';
@@ -298,7 +306,8 @@ export function metricsFromCompare(d: RoutePlanMetricsDto, detail?: PlanMetrics 
     seatsUsed: d.seats,
     seats: vehicleSeats,
     passengers: d.passengers,
-    unassigned: d.unassigned,
+    // The server counts unassigned stops (both ends of a booking); the detail of the same version counts passengers.
+    unassigned: detail ? detail.unassigned : d.unassigned,
     unassignedByReason: detail?.unassignedByReason ?? {},
     violations: d.violations,
     violationsByKind: detail?.violationsByKind ?? {},
@@ -336,6 +345,30 @@ export const UNASSIGNED_REASON_LABEL: Record<OptimizeUnassignedReason | 'not_opt
   pinned_assignment_infeasible: 'The pinned vehicle cannot serve it',
   max_ride_unachievable: 'Ride would exceed the maximum ride time',
 };
+
+/** Why plan creation left a booking out (CreatedRoutePlanDto.skippedBookings[].reason). */
+export const SKIPPED_REASON_LABEL: Record<string, string> = {
+  consent_required: 'Passenger consent missing',
+  needs_location: 'Pickup or drop point missing',
+  out_of_scope: 'Outside your branches',
+};
+
+/** Bookings a new plan left out, counted per reason (in the order first seen). */
+export function skippedSummary(skipped: readonly { bookingId: string; reason: string }[] | null | undefined): { reason: string; label: string; n: number }[] {
+  const m = new Map<string, number>();
+  for (const s of skipped ?? []) m.set(s.reason, (m.get(s.reason) ?? 0) + 1);
+  return [...m].map(([reason, n]) => ({ reason, label: SKIPPED_REASON_LABEL[reason] ?? reason, n }));
+}
+
+/**
+ * The job whose progress the plan page shows: the one started on this page, else (after a reload, or a job started
+ * elsewhere) the plan's open job from GET /routing/jobs?planId (the plan detail carries no job id).
+ */
+export function activeJobId(plan: Pick<PlannerPlan, 'status' | 'lastJobId'>, localJobId: string | null, planJobs: readonly Pick<RoutingJobDto, 'jobId' | 'state'>[] | null | undefined): string | null {
+  if (localJobId) return localJobId;
+  if (plan.status !== 'OPTIMIZING') return null;
+  return plan.lastJobId ?? planJobs?.find((j) => j.state === 'queued' || j.state === 'running')?.jobId ?? null;
+}
 
 export function unassignedReason(code: string | null | undefined): string {
   if (!code) return UNASSIGNED_REASON_LABEL.not_optimised;
