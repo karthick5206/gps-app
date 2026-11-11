@@ -1,0 +1,27 @@
+{
+  "id": "23-pinned-to-missing-vehicle",
+  "description": "OUT, 2 stops pinned to a vehicle not in the fleet",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 123,
+    "direction": "OUT",
+    "passengers": 20,
+    "groupShare": 0,
+    "fleet": {
+      "6": 4
+    },
+    "pinBad": 2,
+    "timeLimitS": 5
+  },
+  "expect": {
+    "minUnassigned": 2,
+    "maxUnassigned": 2,
+    "requireCodes": [
+      "PINNED_ASSIGNMENT_INFEASIBLE"
+    ],
+    "allowedCodes": [
+      "PINNED_ASSIGNMENT_INFEASIBLE"
+    ],
+    "objectiveBound": 165976
+  }
+}

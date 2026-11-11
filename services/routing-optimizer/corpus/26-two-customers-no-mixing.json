@@ -1,0 +1,20 @@
+{
+  "id": "26-two-customers-no-mixing",
+  "description": "IN, two customers at one site: one customer per vehicle (P2)",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 126,
+    "direction": "IN",
+    "passengers": 40,
+    "fleet": {
+      "4": 4,
+      "6": 4,
+      "12": 2
+    },
+    "customers": 2,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 446183
+  }
+}

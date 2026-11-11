@@ -1,0 +1,25 @@
+{
+  "id": "31-weights-vehicle-heavy",
+  "description": "OUT, 60 passengers, vehicle weight dominates distance (fewest vehicles)",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 131,
+    "direction": "OUT",
+    "passengers": 60,
+    "fleet": {
+      "4": 6,
+      "6": 6,
+      "12": 4,
+      "26": 2
+    },
+    "weights": {
+      "vehicle": 1000000,
+      "distance": 1
+    },
+    "timeLimitS": 10
+  },
+  "expect": {
+    "maxVehiclesUsed": 5,
+    "objectiveBound": 5416976
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "id": "28-out-return-to-garage",
+  "description": "OUT, vehicles return to their garages (closed end)",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 128,
+    "direction": "OUT",
+    "passengers": 50,
+    "depots": 2,
+    "fleet": {
+      "4": 4,
+      "6": 4,
+      "12": 2
+    },
+    "openEnd": false,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 468171
+  }
+}

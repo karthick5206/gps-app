@@ -1,0 +1,22 @@
+{
+  "id": "36-in-b4-300x40",
+  "description": "IN, 300 passengers, 40 vehicles (B4-size stretch case)",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 136,
+    "direction": "IN",
+    "passengers": 300,
+    "depots": 4,
+    "fleet": {
+      "4": 8,
+      "6": 10,
+      "12": 12,
+      "26": 6,
+      "40": 4
+    },
+    "timeLimitS": 60
+  },
+  "expect": {
+    "objectiveBound": 946508
+  }
+}

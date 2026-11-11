@@ -1,0 +1,18 @@
+{
+  "id": "03-in-small-mixed",
+  "description": "IN, 20 passengers, 4/6-seat fleet",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 103,
+    "direction": "IN",
+    "passengers": 20,
+    "fleet": {
+      "4": 3,
+      "6": 3
+    },
+    "timeLimitS": 5
+  },
+  "expect": {
+    "objectiveBound": 247100
+  }
+}
