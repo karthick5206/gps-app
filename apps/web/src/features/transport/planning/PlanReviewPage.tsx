@@ -17,7 +17,7 @@ import {
   SendIcon,
   Trash2Icon,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -50,6 +50,7 @@ import {
   isEditablePlan,
   mapPoints,
   mergeViolations,
+  publishable,
   movePassenger,
   changedRoutes,
   planMetrics,
@@ -70,6 +71,7 @@ import {
 } from './planner-format';
 import { CapabilityChip, EtaFootnote, EtaQualityBadge, JobProgress, MetricsGrid, PlanStatusBadge, UnassignedReasonText, ViolationList, WeightsEditor } from './planner-ui';
 import {
+  createKeyStore,
   newKey,
   PLANNING_MENU,
   PLANNING_PATH,
@@ -115,9 +117,11 @@ export function PlanReviewPage() {
   const q = usePlan(flag ? id : null);
   const plan = q.data;
   const edit = usePlanEdit(plan);
-  const publish = usePublishPlan(plan);
+  // Idempotency-Keys for this page's keyed actions (publish, re-optimise): a retry replays, a 4xx frees the key.
+  const [keys] = useState(() => createKeyStore(newKey));
+  const publish = usePublishPlan(plan, keys);
   const discard = useDiscardPlan();
-  const reopt = useReoptimise(plan);
+  const reopt = useReoptimise(plan, keys);
   const history = useState(false);
   const [showHistory, setShowHistory] = history;
   const hist = usePlanHistory(plan?.id ?? null, showHistory);
@@ -135,8 +139,6 @@ export function PlanReviewPage() {
   const [reoptOpen, setReoptOpen] = useState(false);
   const [reoptWeights, setReoptWeights] = useState<WeightDraft | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  const publishKey = useRef<{ version: number; key: string } | null>(null);
-  const reoptKey = useRef<{ version: number; key: string } | null>(null);
   const [degraded, setDegraded] = useState<string | null>(null);
 
   const metrics = useMemo(() => (plan ? planMetrics(plan, lastCheck ?? undefined) : null), [plan, lastCheck]);
@@ -144,7 +146,8 @@ export function PlanReviewPage() {
   const support = !!access?.support;
   const editable = !!plan && isEditablePlan(plan.status) && plan.editable !== false;
   const canEdit = editable && can(PLANNING_MENU, 'edit') && (access?.canEdit ?? false) && !support;
-  const canPublish = !!plan && plan.status === 'PLANNED' && can(PLANNING_MENU, 'command') && (access?.canPublish ?? false) && !support;
+  // B3: DRAFT or PLANNED with at least one route that has passengers and no blocking violation; the server decides the rest.
+  const canPublish = !!plan && publishable(plan, lastCheck ?? undefined) && can(PLANNING_MENU, 'command') && (access?.canPublish ?? false) && !support;
   const canDiscard = editable && can(PLANNING_MENU, 'delete') && (access?.canDelete ?? false) && !support;
   const canReopt = editable && can(PLANNING_MENU, 'create') && (access?.canPlan ?? false) && !support && capabilityView(caps.data).canOptimise;
   const health = capabilityView(caps.data);
@@ -218,11 +221,9 @@ export function PlanReviewPage() {
     if (next.length) runEdit({ kind: 'sequence', assignments: next }, ok);
   };
   const doPublish = () => {
-    // Same key for retries of the same version (a lost answer replays); a refused publish (4xx) frees it.
-    if (!publishKey.current || publishKey.current.version !== plan.version) publishKey.current = { version: plan.version, key: newKey() };
-    publish.mutate(publishKey.current.key, {
+    // Key per (plan, version) from the page's key store: a retry replays; a refusal (4xx) frees it (usePublishPlan).
+    publish.mutate(undefined, {
       onSuccess: (r) => {
-        publishKey.current = null;
         setPublished(r);
         setPublishOpen(false);
         const msg = t('Published: {{n}} trip(s) created in dispatch.', { n: r.trips.length });
@@ -230,8 +231,6 @@ export function PlanReviewPage() {
         toast.success(msg);
       },
       onError: (err) => {
-        const e = err as { status?: number };
-        if (typeof e.status === 'number' && e.status < 500) publishKey.current = null;
         if (plannerErrorOf(err).kind === 'conflict') setConflict(true);
       },
     });
@@ -629,7 +628,7 @@ export function PlanReviewPage() {
             <DialogDescription>{t('Pinned stops keep their route and position; everything else may change. A new version is saved.')}</DialogDescription>
           </DialogHeader>
           <DialogBody className="grid gap-3">
-            <WeightsEditor idPrefix="re-w" value={weightsForReopt} onChange={setReoptWeights} />
+            <WeightsEditor idPrefix="re-w" showErrors value={weightsForReopt} onChange={setReoptWeights} />
             {reopt.isError && <FormError message={plannerErrorMessage(reopt.error, t)} />}
           </DialogBody>
           <DialogFooter>
@@ -641,9 +640,8 @@ export function PlanReviewPage() {
               onClick={() => {
                 const w = completeWeights(weightsForReopt);
                 if (!w) return;
-                if (!reoptKey.current || reoptKey.current.version !== plan.version) reoptKey.current = { version: plan.version, key: newKey() };
                 reopt.mutate(
-                  { weights: w, timeLimitS: 30, key: reoptKey.current.key },
+                  { weights: w, timeLimitS: 30 },
                   {
                     onSuccess: (job) => {
                       setJobId(job.jobId);

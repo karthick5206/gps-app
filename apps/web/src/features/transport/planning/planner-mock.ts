@@ -17,7 +17,7 @@ import type {
   RoutingCapabilities,
   RoutingJobDto,
 } from '@veetracer/shared';
-import type { CreatePlanRequest, PlannerClient } from './planner-api';
+import type { CreatePlanRequest, OptimizeJobRequest, PlannerClient } from './planner-api';
 import type { PlanEditResult, PlannerAssignment, PlannerPlan, PlannerStop } from './planner-format';
 
 export class MockApiError extends Error {
@@ -89,7 +89,13 @@ export interface MockPlanner extends PlannerClient {
   plans(): PlannerPlan[];
 }
 
-export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => string } = {}): MockPlanner {
+/**
+ * The mock refuses what the API refuses (so it cannot hide a contract mismatch again): a missing Idempotency-Key on
+ * create / optimise / publish (400 IDEMPOTENCY_KEY_REQUIRED), unknown body fields (forbidNonWhitelisted) and missing or
+ * invalid weights (OptimizeOptionsDto / P6). `optimisedStatus`: the status an optimisation leaves (PLANNED; DRAFT models
+ * a server that does not set PLANNED).
+ */
+export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => string; optimisedStatus?: 'PLANNED' | 'DRAFT' } = {}): MockPlanner {
   let mode: MockMode = opts.mode ?? 'ok';
   const now = opts.now ?? (() => new Date().toISOString());
   const plans = new Map<string, PlannerPlan>();
@@ -97,11 +103,32 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
   const jobKeys = new Map<string, string>();
   const publishKeys = new Map<string, RoutePlanPublishResult>();
   const history = new Map<string, RoutePlanVersionDto[]>();
+  const createKeys = new Map<string, { planId: string; hash: string }>();
   let seq = 0;
   const nextId = (p: string) => `${p}-${++seq}`;
 
   const fail = (status: number, code: string, message: string, body?: unknown): never => {
     throw new MockApiError(status, code, message, body);
+  };
+  const requireKey = (key: string | undefined) => {
+    if (!key || !key.trim()) fail(400, 'IDEMPOTENCY_KEY_REQUIRED', 'Send an Idempotency-Key header');
+  };
+  const only = (body: object, allowed: string[]) => {
+    const extra = Object.keys(body).filter((k) => !allowed.includes(k));
+    if (extra.length) fail(400, 'VALIDATION_FAILED', `property ${extra.join(', ')} should not exist`);
+  };
+  const validWeights = (w: unknown) => {
+    const o = w as Record<string, unknown> | null | undefined;
+    if (!o || typeof o !== 'object') fail(400, 'VALIDATION_FAILED', 'weights should not be null or undefined');
+    const keys = ['vehicle', 'distance', 'time', 'routeDuration'];
+    only(o as object, keys);
+    const max: Record<string, number> = { vehicle: 1e7, distance: 1e4, time: 1e4, routeDuration: 1e4 };
+    for (const k of keys) {
+      const v = (o as Record<string, unknown>)[k];
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > max[k]) fail(400, 'VALIDATION_FAILED', `weights.${k} must be a number 0..${max[k]}`);
+    }
+    const n = o as Record<string, number>;
+    if (!(n.distance > 0 || n.time > 0 || n.routeDuration > 0)) fail(400, 'VALIDATION_FAILED', 'weights {vehicle, distance, time, routeDuration} are required: numbers >= 0, one of distance / time / routeDuration > 0');
   };
   const get = (id: string) => plans.get(id) ?? fail(404, 'NOT_FOUND', 'Plan not found');
   const editable = (p: PlannerPlan, expected: number) => {
@@ -234,7 +261,7 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
       free.set(target.id, (free.get(target.id) ?? 0) - 1);
       i++;
     }
-    p.status = 'PLANNED';
+    p.status = opts.optimisedStatus ?? 'PLANNED';
     p.graphVersion = 'gh-test/synthetic';
     retime(p);
     p.version += 1;
@@ -254,6 +281,22 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
       durationS: timed ? active.reduce((n, a) => n + (a.durationS ?? 0), 0) : null,
       seatUtilisation: cap ? seats / cap : null, violations: p.violations.length, graphVersion: p.graphVersion,
     };
+  };
+
+  const enqueue = (body: OptimizeJobRequest, key: string): RoutingJobDto => {
+      requireKey(key);
+      validWeights(body.weights);
+      const replay = jobKeys.get(key);
+      if (replay) return strip(jobs.get(replay)!);
+      if (mode === 'engine-down') fail(503, 'ROUTING_UNAVAILABLE', 'Routing engine unreachable');
+      const p = get(body.planId);
+      editable(p, body.expectedVersion);
+      if (!p.assignments.length) fail(400, 'INVALID_INPUT', 'No vehicles on the plan');
+      p.status = 'OPTIMIZING';
+      const job: RoutingJobDto & { polls: number } = { jobId: nextId('job'), kind: 'optimize', state: 'queued', phase: null, progress: 0, attempts: 0, maxAttempts: 3, cancelRequested: false, planId: p.id, createdAt: now(), startedAt: null, finishedAt: null, graphVersion: 'gh-test/synthetic', attribution: '© OpenStreetMap contributors', polls: 0 };
+      jobs.set(job.jobId, job);
+      jobKeys.set(key, job.jobId);
+      return strip(job);
   };
 
   const strip = ({ polls: _p, ...dto }: RoutingJobDto & { polls: number }): RoutingJobDto => clone(dto);
@@ -280,19 +323,26 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
       if (ids.length < 2 || ids.length > 5) fail(400, 'INVALID_INPUT', 'Compare 2 to 5 plans');
       return { plans: ids.map((id) => metrics(get(id))) };
     },
-    createPlan: async (body) => clone(create(body)),
+    createPlan: async (body, key) => {
+      requireKey(key);
+      only(body, ['name', 'planDate', 'planStartAt', 'profile', 'branchId', 'depot', 'direction', 'shiftId', 'sitePoiId', 'objectIds']);
+      if (!body.sitePoiId || !body.direction || !Array.isArray(body.objectIds) || !body.objectIds.length) fail(400, 'VALIDATION_FAILED', 'direction, sitePoiId and objectIds are required');
+      const seen = createKeys.get(key);
+      if (seen) {
+        if (seen.hash !== JSON.stringify(body)) fail(422, 'IDEMPOTENCY_KEY_REUSED', 'Key reused with another body');
+        return clone(get(seen.planId));
+      }
+      const p = create(body);
+      createKeys.set(key, { planId: p.id, hash: JSON.stringify(body) });
+      return clone(p);
+    },
+    optimizePlan: async (planId, body, key) => {
+      only(body, ['expectedVersion', 'timeLimitS', 'objective', 'weights']);
+      return enqueue({ ...body, planId }, key);
+    },
     optimize: async (body, key) => {
-      const replay = jobKeys.get(key);
-      if (replay) return strip(jobs.get(replay)!);
-      if (mode === 'engine-down') fail(503, 'ROUTING_UNAVAILABLE', 'Routing engine unreachable');
-      const p = get(body.planId);
-      editable(p, body.expectedVersion);
-      if (!p.assignments.length) fail(400, 'INVALID_INPUT', 'No vehicles on the plan');
-      p.status = 'OPTIMIZING';
-      const job: RoutingJobDto & { polls: number } = { jobId: nextId('job'), kind: 'optimize', state: 'queued', phase: null, progress: 0, attempts: 0, maxAttempts: 3, cancelRequested: false, planId: p.id, createdAt: now(), startedAt: null, finishedAt: null, graphVersion: 'gh-test/synthetic', attribution: '© OpenStreetMap contributors', polls: 0 };
-      jobs.set(job.jobId, job);
-      jobKeys.set(key, job.jobId);
-      return strip(job);
+      only(body, ['planId', 'expectedVersion', 'timeLimitS', 'objective', 'weights']);
+      return enqueue(body, key);
     },
     getJob: async (jobId) => {
       const j = jobs.get(jobId) ?? fail(404, 'JOB_NOT_FOUND', 'Job not found');
@@ -374,11 +424,13 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
       return edited(p, 'EDITED', new Set());
     },
     publish: async (id, body, key) => {
+      requireKey(key);
+      only(body, ['expectedVersion', 'idempotencyKey']);
       const replay = publishKeys.get(key);
       if (replay) return clone(replay);
       const p = get(id);
       editable(p, body.expectedVersion);
-      if (p.status !== 'PLANNED') fail(409, 'PLAN_NOT_PUBLISHABLE', 'Optimise the plan first', { code: 'PLAN_NOT_PUBLISHABLE', routes: [] });
+      if (!p.assignments.some((a) => p.stops.some((st) => st.assignmentId === a.id))) fail(409, 'PLAN_NOT_PUBLISHABLE', 'No route has passengers', { code: 'PLAN_NOT_PUBLISHABLE', routes: [] });
       const used = p.assignments.filter((a) => p.stops.some((s) => s.assignmentId === a.id));
       const untimed = used.filter((a) => a.eta === null || a.endS === null);
       if (untimed.length) fail(409, 'PLAN_NOT_PUBLISHABLE', 'Some routes have no times', { code: 'PLAN_NOT_PUBLISHABLE', routes: untimed.map((a) => ({ assignmentId: a.id, vehicleLabel: a.vehicleLabel, code: 'ROUTING_UNAVAILABLE', message: 'Route not timed' })) });

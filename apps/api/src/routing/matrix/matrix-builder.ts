@@ -626,7 +626,7 @@ export class MatrixBuilder {
         const top = stopReason?.reason ?? [...reasons.entries()].sort((x, y) => y[1] - x[1])[0][0];
         degraded = {
           reason: top,
-          message: `${unknownCells.length} of ${stats.requested} cells could not be computed${stopReason ? `: ${stopReason.message}` : fail.last ? `: ${fail.last.message}` : ''}. They are unknown, not unreachable; run the build again to resume from the cache.`,
+          message: `${unknownCells.length} of ${stats.requested} cells could not be computed${stopReason ? `: ${stopReason.message.replace(/\.+$/, '')}` : fail.last ? `: ${fail.last.message.replace(/\.+$/, '')}` : ''}. They are unknown, not unreachable; run the build again to resume from the cache.`,
           retryAfterS: 60,
         };
       }

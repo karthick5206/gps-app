@@ -1,6 +1,7 @@
 import type { RoutePlanStatus, RoutePlanStopViolation, RoutingCapabilities } from '@veetracer/shared';
 import { NO_LIVE_TRAFFIC_NOTICE } from '@veetracer/shared';
 import { CircleAlertIcon, CircleStopIcon, RouteIcon, RouteOffIcon } from 'lucide-react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +19,7 @@ import {
   unassignedReason,
   VIOLATION_LABEL,
   WEIGHT_KEYS,
+  WEIGHT_HINT,
   WEIGHT_LABEL,
   WEIGHT_MAX,
   WEIGHT_MIN,
@@ -25,6 +27,7 @@ import {
   type EtaQuality,
   type PlanMetrics,
   type WeightDraft,
+  type WeightKey,
 } from './planner-format';
 import { plannerErrorMessage, useCancelJob, useJob } from './use-planner';
 import { planPath } from './planner-client';
@@ -115,36 +118,52 @@ export function JobProgress({ jobId, planId, label, canCancel }: { jobId: string
   );
 }
 
-/** Explicit objective weights (P6): every weight must be set; 0 = ignore. */
-export function WeightsEditor({ value, onChange, idPrefix, disabled }: { value: WeightDraft; onChange: (w: WeightDraft) => void; idPrefix: string; disabled?: boolean }) {
+/** Explicit solver weights (P6): the four the API takes; every one must be set (0 = ignore), nothing is assumed. */
+export function WeightsEditor({ value, onChange, idPrefix, disabled, showErrors }: { value: WeightDraft; onChange: (w: WeightDraft) => void; idPrefix: string; disabled?: boolean; showErrors?: boolean }) {
   const { t } = useTranslation();
   return (
-    <fieldset className="grid gap-2" disabled={disabled}>
+    <fieldset className="grid min-w-0 gap-2" disabled={disabled}>
       <legend className="mb-1 text-sm font-medium">{t('Objective weights')}</legend>
-      <p className="text-xs text-muted-foreground">{t('Set every weight from {{min}} (ignore) to {{max}} (most important). Nothing is assumed.', { min: WEIGHT_MIN, max: WEIGHT_MAX })}</p>
+      <p className="text-xs text-muted-foreground">{t('Set all four weights (0 ignores one; at least one of distance, driving or route length above 0). Nothing is assumed.')}</p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {WEIGHT_KEYS.map((k) => (
-          <div key={k} className="flex items-center justify-between gap-2 rounded-md border bg-card px-3 py-1.5">
-            <label htmlFor={`${idPrefix}-${k}`} className="min-w-0 text-sm">
-              {t(WEIGHT_LABEL[k])}
-            </label>
-            <Input
-              id={`${idPrefix}-${k}`}
-              type="number"
-              inputMode="numeric"
-              min={WEIGHT_MIN}
-              max={WEIGHT_MAX}
-              step={1}
-              value={value[k] ?? ''}
-              placeholder="—"
-              aria-invalid={value[k] === null || undefined}
-              onChange={(e) => onChange({ ...value, [k]: parseWeight(e.target.value) })}
-              className="h-8 w-16 shrink-0 text-right tabular-nums"
-            />
-          </div>
+          <WeightInput key={k} id={`${idPrefix}-${k}`} k={k} value={value[k]} invalid={!!showErrors && value[k] === null} onChange={(n) => onChange({ ...value, [k]: n })} />
         ))}
       </div>
     </fieldset>
+  );
+}
+
+function WeightInput({ id, k, value, invalid, onChange }: { id: string; k: WeightKey; value: number | null; invalid: boolean; onChange: (n: number | null) => void }) {
+  const { t } = useTranslation();
+  const [text, setText] = useState(value === null ? '' : String(value));
+  // Follow outside changes (another form prefilled) without fighting the user's typing ("0." stays "0.").
+  if ((value === null ? '' : String(value)) !== text && parseWeight(text, k) !== value) setText(value === null ? '' : String(value));
+  return (
+    <div className="grid min-w-0 gap-1 rounded-md border bg-card px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor={id} className="min-w-0 text-sm">
+          {t(WEIGHT_LABEL[k])}
+        </label>
+        <Input
+          id={id}
+          type="text"
+          inputMode="decimal"
+          value={text}
+          placeholder="—"
+          aria-invalid={invalid || undefined}
+          aria-describedby={`${id}-hint`}
+          onChange={(e) => {
+            setText(e.target.value);
+            onChange(parseWeight(e.target.value, k));
+          }}
+          className="h-8 w-24 shrink-0 text-right tabular-nums"
+        />
+      </div>
+      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        {t(WEIGHT_HINT[k])} {t('Range {{min}}–{{max}}.', { min: WEIGHT_MIN, max: WEIGHT_MAX[k].toLocaleString() })}
+      </p>
+    </div>
   );
 }
 

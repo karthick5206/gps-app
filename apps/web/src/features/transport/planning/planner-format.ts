@@ -37,17 +37,14 @@ const english: Translate = (key, vars) => key.replace(/\{\{(\w+)\}\}/g, (_, name
 
 // ───────────────────────────── plans API views (E4-F routing-plans.ts) ─────────────────────────────
 
-/** A stop as the caller may see it (consent-gated point: lat / lng null when withheld). */
-export type PlannerStop = RoutePlanStopViewDto & {
-  /** Passenger display name, when the API sends one (never an address). */
-  passengerName?: string | null;
-};
+/** A stop as the caller may see it (consent-gated point: lat / lng null when withheld; `passengerName` "First L." when the caller may see names). */
+export type PlannerStop = RoutePlanStopViewDto;
 export type PlannerAssignment = RoutePlanAssignmentViewDto;
 
 /** The plan detail (GET /transport/route-plans/:id) plus what the web keeps for its own screens. */
 export type PlannerPlan = Omit<RoutePlanDetailDto, 'stops'> & {
   stops: PlannerStop[];
-  /** Weights the user set when this plan was optimised from this browser (web-side; the jobs API takes only the objective). */
+  /** Weights the user set when this plan was optimised from this browser (the API stores them on the plan). */
   weights?: PlannerWeights | null;
   /** The last optimise job started for the plan (web-side). */
   lastJobId?: string | null;
@@ -71,45 +68,56 @@ export function toList<T>(raw: T[] | { items: T[] } | null | undefined): T[] {
 
 // ───────────────────────────── objective weights (P6: explicit, never implied) ─────────────────────────────
 
-export const WEIGHT_KEYS = ['vehicles', 'distance', 'driveTime', 'maxRide', 'unassigned'] as const;
+/**
+ * The solver weights exactly as the jobs API takes them (`OptimizeOptionsDto.weights`, solver `options.weights`):
+ * vehicle = fixed cost of each vehicle used; distance = cost per metre; time = cost per second of drive time;
+ * routeDuration = cost per second of each route's span. All in the same cost unit. No defaults: the user sets each.
+ */
+export const WEIGHT_KEYS = ['vehicle', 'distance', 'time', 'routeDuration'] as const;
 export type WeightKey = (typeof WEIGHT_KEYS)[number];
 export type PlannerWeights = Record<WeightKey, number>;
 /** Form state: null = not set yet (the user must set every weight; 0 = ignore). */
 export type WeightDraft = Record<WeightKey, number | null>;
 
 export const WEIGHT_LABEL: Record<WeightKey, string> = {
-  vehicles: 'Fewer vehicles',
-  distance: 'Less distance',
-  driveTime: 'Less drive time',
-  maxRide: 'Shorter longest ride',
-  unassigned: 'Fewer unassigned passengers',
+  vehicle: 'Cost of each vehicle used',
+  distance: 'Cost per metre driven',
+  time: 'Cost per second of driving',
+  routeDuration: 'Cost per second of route length',
 };
+export const WEIGHT_HINT: Record<WeightKey, string> = {
+  vehicle: 'Counted in seconds of driving: 7200 means a vehicle is used only if it saves about 2 h.',
+  distance: 'Use with a road distance objective; 0 to ignore distance.',
+  time: 'Total drive time of all routes; 1 is a common start.',
+  routeDuration: 'Keeps each route (and so the longest ride) short; 0 to ignore.',
+};
+/** Limits of the API DTO (SolverWeightsDto). */
 export const WEIGHT_MIN = 0;
-export const WEIGHT_MAX = 10;
+export const WEIGHT_MAX: Record<WeightKey, number> = { vehicle: 10_000_000, distance: 10_000, time: 10_000, routeDuration: 10_000 };
 
 export function emptyWeights(): WeightDraft {
-  return { vehicles: null, distance: null, driveTime: null, maxRide: null, unassigned: null };
+  return { vehicle: null, distance: null, time: null, routeDuration: null };
 }
 
-/** Parses one weight input ("" → null; clamps to 0..10; whole numbers). */
-export function parseWeight(text: string): number | null {
-  const s = text.trim();
+/** Parses one weight input ("" → null; clamps to the API range; decimals allowed). */
+export function parseWeight(text: string, key: WeightKey): number | null {
+  const s = text.trim().replace(',', '.');
   if (!s) return null;
   const n = Number(s);
   if (!Number.isFinite(n)) return null;
-  return Math.max(WEIGHT_MIN, Math.min(WEIGHT_MAX, Math.round(n)));
+  return Math.max(WEIGHT_MIN, Math.min(WEIGHT_MAX[key], n));
 }
 
-/** The weights when every one is set and at least one is above 0; otherwise null. */
+/** The weights when every one is set and one of distance / time / routeDuration is above 0 (the API rule); else null. */
 export function completeWeights(d: WeightDraft): PlannerWeights | null {
   if (WEIGHT_KEYS.some((k) => d[k] === null)) return null;
   const w = d as PlannerWeights;
-  return WEIGHT_KEYS.some((k) => w[k] > 0) ? { ...w } : null;
+  return w.distance > 0 || w.time > 0 || w.routeDuration > 0 ? { ...w } : null;
 }
 
-/** The solver objective the weights imply (the optimiser takes distance or duration; the rest go as weights). */
+/** The P3 objective sent alongside (informational; explicit weights win on the solver). */
 export function solverObjective(w: PlannerWeights): 'distance' | 'duration' {
-  return w.distance > w.driveTime ? 'distance' : 'duration';
+  return w.distance > 0 && w.time === 0 && w.routeDuration === 0 ? 'distance' : 'duration';
 }
 
 // ───────────────────────────── ETA provenance ─────────────────────────────
@@ -352,6 +360,23 @@ export const PLAN_STATUS_META: Record<RoutePlanStatus, { label: string; tone: To
   CANCELLED: { label: 'Discarded', tone: 'muted' },
 };
 
+/** Violations that make a route unpublishable (the rest are warnings the user acknowledges). */
+export const BLOCKING_VIOLATIONS: readonly RoutePlanStopViolation['kind'][] = ['over_capacity', 'unreachable'];
+
+/**
+ * Whether to offer Publish (B3): a DRAFT or PLANNED plan that is still editable with at least one route that has
+ * passengers and no blocking violation. The server decides the rest (409 PLAN_NOT_PUBLISHABLE with routes[]).
+ */
+export function publishable(plan: Pick<PlannerPlan, 'status' | 'editable' | 'stops' | 'assignments' | 'violations'>, extra?: readonly RoutePlanStopViolation[]): boolean {
+  if (plan.status !== 'DRAFT' && plan.status !== 'PLANNED') return false;
+  if (plan.editable === false) return false;
+  const blocked = new Set(mergeViolations(plan.violations ?? [], extra ?? []).filter((v) => BLOCKING_VIOLATIONS.includes(v.kind)).map((v) => v.stopId));
+  return plan.assignments.some((a) => {
+    const stops = plan.stops.filter((s) => s.assignmentId === a.id);
+    return stops.length > 0 && !stops.some((s) => blocked.has(s.id)) && !(a.violations ?? []).some((v) => BLOCKING_VIOLATIONS.includes(v.kind));
+  });
+}
+
 export function isEditablePlan(status: RoutePlanStatus): boolean {
   return status === 'DRAFT' || status === 'PLANNED';
 }
@@ -402,7 +427,8 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   PLAN_NOT_PUBLISHABLE: 'This plan cannot be published yet: some routes need attention (see below).',
   ROUTE_LOCKED: 'That route is locked. Unlock it first.',
   STOP_PINNED: 'That stop is pinned. Unpin it first.',
-  PLAN_CREATE_UNAVAILABLE: 'Creating plans from the day’s bookings is not available on this server yet.',
+  SITE_REQUIRED: 'A chosen shift has no site: choose exactly one site for it.',
+  IDEMPOTENCY_KEY_REQUIRED: 'The request was missing its retry key. Try again.',
   // Job error codes (RoutingJobError.code / RoutingDegradedReason).
   ENGINE_DISABLED: 'Routing unavailable: the road engine is switched off.',
   ENGINE_NOT_SUPPORTED: 'Routing unavailable: this engine is not supported.',
@@ -754,30 +780,30 @@ export function deltaPercent(value: number | null, baseline: number | null): str
   return `${p > 0 ? '+' : '−'}${Math.abs(p)} %`;
 }
 
-const WEIGHTED: Record<WeightKey, CompareMetric> = { vehicles: 'vehicles', distance: 'distance', driveTime: 'driveTime', maxRide: 'maxRide', unassigned: 'unassigned' };
-
 /**
- * Weighted score per plan (lower is better; each metric divided by its largest value across the plans). null for
- * every plan when there are no weights (no overall winner without configured weights) or a weighted metric is
- * missing for some plan.
+ * Estimated solver cost per plan by the user's weights (lower is better): vehicle × vehicles used + distance × metres
+ * + (time + routeDuration) × route seconds (the routes' drive time stands for their spans). Only plans with the fewest
+ * unassigned passengers can win (the solver never trades a passenger for cost). No weights → no scores and no winner;
+ * a weighted metric missing for some plan (no engine numbers) → no winner, with the missing keys.
  */
-export function weightedScores(metrics: readonly PlanMetrics[], weights: PlannerWeights | null): { scores: (number | null)[]; winner: number | null; missing: WeightKey[] } {
-  const none = { scores: metrics.map(() => null), winner: null, missing: [] as WeightKey[] };
+export function weightedScores(
+  metrics: readonly PlanMetrics[],
+  weights: PlannerWeights | null,
+): { scores: (number | null)[]; winner: number | null; missing: WeightKey[]; excluded: number[] } {
+  const none = { scores: metrics.map(() => null), winner: null, missing: [] as WeightKey[], excluded: [] as number[] };
   if (!weights || metrics.length < 2) return none;
-  const keys = WEIGHT_KEYS.filter((k) => weights[k] > 0);
-  if (!keys.length) return none;
-  const missing = keys.filter((k) => metrics.some((m) => metricValue(m, WEIGHTED[k]) === null));
+  const missing: WeightKey[] = [];
+  if (weights.distance > 0 && metrics.some((m) => m.distanceM === null)) missing.push('distance');
+  if (weights.time > 0 && metrics.some((m) => m.driveS === null)) missing.push('time');
+  if (weights.routeDuration > 0 && metrics.some((m) => m.driveS === null)) missing.push('routeDuration');
   if (missing.length) return { ...none, missing };
-  const scores = metrics.map((m) =>
-    keys.reduce((sum, k) => {
-      const max = Math.max(...metrics.map((x) => metricValue(x, WEIGHTED[k]) as number));
-      const v = metricValue(m, WEIGHTED[k]) as number;
-      return sum + weights[k] * (max > 0 ? v / max : 0);
-    }, 0),
-  );
-  const min = Math.min(...scores);
-  const winners = scores.map((s, i) => [s, i] as const).filter(([s]) => Math.abs(s - min) < 1e-9);
-  return { scores: scores.map((s) => Math.round(s * 100) / 100), winner: winners.length === 1 ? winners[0][1] : null, missing: [] };
+  const scores = metrics.map((m) => weights.vehicle * m.vehiclesUsed + weights.distance * (m.distanceM ?? 0) + (weights.time + weights.routeDuration) * (m.driveS ?? 0));
+  const fewest = Math.min(...metrics.map((m) => m.unassigned));
+  const excluded = metrics.map((m, i) => (m.unassigned > fewest ? i : -1)).filter((i) => i >= 0);
+  const eligible = scores.map((sc, i) => [sc, i] as const).filter(([, i]) => !excluded.includes(i));
+  const min = Math.min(...eligible.map(([sc]) => sc));
+  const winners = eligible.filter(([sc]) => Math.abs(sc - min) < 1e-9);
+  return { scores: scores.map((sc) => Math.round(sc)), winner: winners.length === 1 ? winners[0][1] : null, missing: [], excluded };
 }
 
 /** UUID v4 for Idempotency-Key (crypto.randomUUID when available). */

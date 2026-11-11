@@ -32,6 +32,7 @@ import {
   zonedIso,
   type PlannerAssignment,
   metricsFromCompare,
+  publishable,
   type PlannerPlan,
   type PlannerStop,
 } from './planner-format.ts';
@@ -130,17 +131,33 @@ test('stopLabel never shows an address for personal points', () => {
   assert.equal(stopLabel(stop('s1', { name: 'Gate 2', personal: false })), 'Gate 2');
 });
 
-test('weights must be set explicitly (P6); objective follows them', () => {
+test('weights are the four solver weights, set explicitly (P6), with the API ranges and rule', () => {
   const d = emptyWeights();
-  assert.equal(completeWeights(d), null);
-  assert.equal(parseWeight(''), null);
-  assert.equal(parseWeight('12'), 10);
-  assert.equal(parseWeight('-3'), 0);
-  assert.equal(completeWeights({ vehicles: 0, distance: 0, driveTime: 0, maxRide: 0, unassigned: 0 }), null, 'all zero is no objective');
-  const w = completeWeights({ vehicles: 3, distance: 5, driveTime: 2, maxRide: 4, unassigned: 10 });
-  assert.ok(w);
-  assert.equal(solverObjective(w), 'distance');
-  assert.equal(solverObjective({ ...w, driveTime: 5 }), 'duration');
+  assert.deepEqual(Object.keys(d).sort(), ['distance', 'routeDuration', 'time', 'vehicle'], 'exactly SolverWeightsDto keys');
+  assert.equal(completeWeights(d), null, 'no defaults');
+  assert.equal(completeWeights({ ...d, vehicle: 7200, time: 1, distance: 0 }), null, 'every weight must be set');
+  assert.equal(parseWeight('', 'time'), null);
+  assert.equal(parseWeight('0,5', 'time'), 0.5);
+  assert.equal(parseWeight('20000', 'time'), 10_000);
+  assert.equal(parseWeight('20000000', 'vehicle'), 10_000_000);
+  assert.equal(parseWeight('-3', 'distance'), 0);
+  assert.equal(completeWeights({ vehicle: 5000, distance: 0, time: 0, routeDuration: 0 }), null, 'needs distance, time or routeDuration > 0');
+  const w = completeWeights({ vehicle: 7200, distance: 0, time: 1, routeDuration: 0 });
+  assert.deepEqual(w, { vehicle: 7200, distance: 0, time: 1, routeDuration: 0 });
+  assert.equal(solverObjective(w!), 'duration');
+  assert.equal(solverObjective({ vehicle: 0, distance: 1, time: 0, routeDuration: 0 }), 'distance');
+});
+
+test('publish is offered for DRAFT and PLANNED with a route that has passengers and no blocking violation (B3)', () => {
+  assert.equal(publishable(plan({ status: 'DRAFT' })), true, 'DRAFT after optimisation');
+  assert.equal(publishable(plan({ status: 'PLANNED' })), true);
+  for (const status of ['OPTIMIZING', 'PUBLISHED', 'CANCELLED'] as const) assert.equal(publishable(plan({ status })), false, status);
+  assert.equal(publishable(plan({ editable: false })), false);
+  assert.equal(publishable(plan({ stops: plan().stops.map((s) => ({ ...s, assignmentId: null })) })), false, 'nothing assigned');
+  const over = [{ stopId: 's1', ref: 'S1', kind: 'over_capacity' as const, etaS: null, window: null }, { stopId: 's3', ref: 'S3', kind: 'over_capacity' as const, etaS: null, window: null }];
+  assert.equal(publishable(plan({ violations: over })), false, 'every route blocked');
+  assert.equal(publishable(plan({ violations: [over[0]] })), true, 'one clean route is enough; the server decides the rest');
+  assert.equal(publishable(plan({ violations: [{ stopId: 's1', ref: 'S1', kind: 'late', etaS: 1, window: [0, 0] }, { stopId: 's3', ref: 'S3', kind: 'late', etaS: 1, window: [0, 0] }] })), true, 'warnings do not block');
 });
 
 test('compare: Best only where unambiguous, no overall winner without weights', () => {
@@ -153,11 +170,18 @@ test('compare: Best only where unambiguous, no overall winner without weights', 
   assert.equal(deltaPercent(1, 0), null);
   const a = planMetrics(plan());
   const b = planMetrics(plan({ assignments: [asg('a1'), asg('a2', { distanceM: 50_000 })] }));
-  assert.deepEqual(weightedScores([a, b], null), { scores: [null, null], winner: null, missing: [] });
-  const r = weightedScores([a, b], { vehicles: 0, distance: 10, driveTime: 0, maxRide: 0, unassigned: 0 });
+  assert.deepEqual(weightedScores([a, b], null), { scores: [null, null], winner: null, missing: [], excluded: [] });
+  const r = weightedScores([a, b], { vehicle: 0, distance: 1, time: 0, routeDuration: 0 });
   assert.equal(r.winner, 0);
+  assert.deepEqual(r.scores, [15_000, 60_000], 'cost = distance weight × metres');
+  const v = weightedScores([a, b], { vehicle: 7200, distance: 0, time: 1, routeDuration: 1 });
+  assert.equal(v.scores[0], 7200 * 2 + 2 * 2700);
   const none = planMetrics(plan({ assignments: [asg('a1', { eta: LIVE }), asg('a2', { eta: LIVE })] }));
-  assert.deepEqual(weightedScores([a, none], { vehicles: 0, distance: 10, driveTime: 0, maxRide: 0, unassigned: 0 }).missing, ['distance']);
+  assert.deepEqual(weightedScores([a, none], { vehicle: 0, distance: 1, time: 0, routeDuration: 0 }).missing, ['distance']);
+  const more = { ...a, unassigned: a.unassigned + 1, distanceM: 1 };
+  const x = weightedScores([a, more], { vehicle: 0, distance: 1, time: 0, routeDuration: 0 });
+  assert.deepEqual(x.excluded, [1], 'more unassigned passengers never wins on cost');
+  assert.equal(x.winner, 0);
 });
 
 test('explicit edits: up / down, move, passenger pickup + drop move together', () => {
