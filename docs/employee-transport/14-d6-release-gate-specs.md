@@ -1,8 +1,24 @@
 # 14 · D6 release gate: implementation-ready specifications for G1–G8 (E0.5)
 
+> **Owner review 2026-11-11 (after reviewing this document)**
+>
+> - **Authorised for implementation and isolated testing only: v1.8.1.** It covers G6 (health checks and the
+>   `release.sh` health gate), G1 (share-page coordinate fix), G8 web (remove the hard-coded OpenFreeMap, self-hosted
+>   tile fallbacks, a build check against external map URLs) and the inert G4 installer AOF settings for **fresh
+>   installs** (the installer is not run on production). Branch: `feature/hardening-v1.8.1` from `origin/main`.
+> - **Not authorised:** production deployment or restart, production Valkey changes, DB migrations, mobile store
+>   submission, purchases or provisioning, destructive DB or backup operations.
+> - **On hold:** v1.8.2 G5 (review after v1.8.1); G4 production AOF (separate maintenance approval, safety gate in G4);
+>   v1.8.3 G2 + G3 (high-risk notifier change); v1.8.4 G7 phase A (separate review); G7 phase B off-site (provider,
+>   purchase and provisioning approval); G8 mobile (mobile URL decision recorded in §9 Q4, EAS build approval).
+> - **Corrections applied in this document:** A — G2 guarantee (no exactly-once promise; DB duplicates vs external
+>   duplicates); B — G4 production safety gate; C — G7 restore gate and key handling; D — G8 compatibility protection
+>   for old mobile installations.
+> - **Open questions:** resolved in §9 with the decision date 2026-11-11 (README §7).
+
 | Item | Value |
 |---|---|
-| Status | **Specification only — nothing here is implemented, tested or deployed.** E0.5 is a documentation and planning phase (README §1.1). Every item ships as a separate v1.8.x patch **only after separate owner approval** (O1). |
+| Status | **Specification; v1.8.1 (G6, G1, G8 web, inert G4 installer edit) authorised 2026-11-11 for implementation and isolated testing only — nothing is deployed.** All other items are on hold (box above). Every item still ships as a separate v1.8.x patch and reaches production **only after separate owner approval** (O1). |
 | Code baseline | worktree `D:\Vibhav\gps-app-wt\etms` = **v1.8.0 (f5b151b)**; every path and line below was re-read in this worktree on 2026-11-11. The routing branch was read with `git -C D:\Vibhav\gps-app show feature/routing-engine:<path>`. |
 | Production facts | Lead check 2026-11-11 (README §2, `11` box): Ubuntu, systemd `veetrax-{api,gateway,processor,notifier,summarizer}`, deploy via `ops/deploy/linux/release.sh`; Valkey 7.2 `appendonly no`; nightly local backup `/usr/local/sbin/veetrax-local-backup` from `/etc/cron.d/veetrax-backup` (21:30 UTC, `/var/backups/veetrax`, 14 days; `pg_dump -Fc` + Valkey RDB + config tarball incl. `.env` files and `/root/.veetrax-db-pass`; script **not in the repo**); no SMS / mail provider; `NODE_ENV=production`; web built with `VITE_MAP_STYLE_*` → `app.veetrax.com/tiles`; mobile EAS builds set no `EXPO_PUBLIC_MAP_STYLE_*` and `apps/mobile/eas.json` points at `gps.mintplus.co.in`; GraphHopper :8989, Photon :2322, Martin :3000 on localhost only. These are not verifiable from the repo and are taken as given. Exact production versions: `16` Lead box (Node 24.22.2, PostgreSQL 18.6 + TimescaleDB 2.31.0, Valkey 7.2.13, CPU without AVX). **Lead confirmations (E0.5 integration, 2026-11-11):** the production web build sets all three `VITE_MAP_STYLE_*` to `app.veetrax.com/tiles` (so F1 below is a live breach on the share page only); the production backup does **not** include uploaded files (`apps/api/var`). |
 | Owner approvals that bound this spec | D1–D8 (D6 = this gate); **L4** push exception with generic payloads; **O8** encrypted off-site object storage, independent of production and of Git, user-controlled keys, nothing provisioned yet (provider and cost presented first, Q-03); **O9** keep the existing Google Maps hand-offs. |
@@ -90,6 +106,7 @@ Web engineer; reviewer: Lead. 0.25–0.4 ew. Depends on none, apart from GraphHo
 
 ### Deployment notes
 Web-only (`release.sh --web-only`). Proposed for v1.8.1 together with G6 and the G8 web part. Separate owner approval is required.
+**Status 2026-11-11:** authorised for implementation and isolated testing only (v1.8.1); deployment not authorised.
 
 ---
 
@@ -156,8 +173,15 @@ lower bound to the index predicate (`AND "createdAt" >= '<deploy date>'`) and to
    - Both are two cheap indexed counts per collection.
 6. **Producers are unchanged** (no edit to the seven insert sites). This is the smallest blast radius: the sweeper is the safety net for every producer, including future ones. ETMS events use the `OutboxEvent` instead (E1a, `05` §5).
 
+**Delivery guarantee (owner correction A, 2026-11-11). G2 does not promise exactly-once delivery.** It guarantees:
+1. **Durable job recovery:** every committed `Alert` gets a notification job, from the stream or from the sweeper, until it is `notifiedAt` or DEAD.
+2. **Per-recipient deduplication within VeeTrax:** at most one `NotificationLog` record per `alertId + channel + recipient` (`dedupeKey` unique index).
+3. **At-least-once delivery attempts:** a failed or interrupted attempt is retried within the budget (5 deliveries, 3 lease takeovers).
+4. **A bounded, documented duplicate risk at the external-provider boundary:** if a process dies after the provider accepted a message but before the status `UPDATE`, or a lease is taken over after a send slower than 5 min, the recipient can receive the same message twice. The bound is one extra message per lease takeover, at most 3 per `dedupeKey`. It is documented in the notifier runbook and in the UI help text.
+5. **Provider idempotency keys wherever supported:** the `dedupeKey` (or a hash of it) is passed as the provider's idempotency or client reference field where the provider API supports one, so that the provider can drop the repeat. Each provider's support is recorded in the test evidence (supported / not supported / not verifiable); where unsupported, risk 4 applies unchanged.
+
 **Does it change existing GPS-alert behaviour? Yes, intentionally:**
-- notifications are at-least-once with per-recipient dedupe, not at-most-once;
+- notification attempts are at-least-once with per-recipient dedupe of VeeTrax records, not at-most-once;
 - a transient DB / provider error in a job leads to up to 5 redeliveries about 60–90 s apart, instead of silent loss;
 - a partially sent alert completes its missing recipients;
 - an alert whose XADD failed is notified about 60–90 s late instead of never.
@@ -166,7 +190,7 @@ Users may receive notifications that today are silently dropped, and webhooks fi
 
 ### Risks and blast radius
 - **Notifier process:** e-mail, SMS, push, WhatsApp and Arattai alert notifications, test messages, webhooks for alerts.
-- **Duplicates:** possible only if a process dies between the provider accepting a message and the status `UPDATE` (milliseconds), or on a lease takeover after a slow (> 5 min) send. Documented as accepted.
+- **Duplicates:** duplicate **DB records** are prevented by the unique `dedupeKey`. Duplicate **external messages** are possible only if a process dies between the provider accepting a message and the status `UPDATE` (milliseconds), or on a lease takeover after a slow (> 5 min) send. This is the bounded, documented risk of the delivery guarantee above (at most one extra message per takeover), reduced by provider idempotency keys where supported, and measured in the acceptance tests.
 - **Migration lock** on `Alert` (see above).
 - **Sweeper load:** bounded (500 rows / 30 s, indexed).
 - **Redelivery storm** if a bug makes every job throw: capped at 5 deliveries per entry, then DEAD + System Health. Note: System Health e-mails go nowhere today, because no mail provider is configured (C2); the issue shows on the System Health page and its socket.
@@ -176,9 +200,10 @@ Users may receive notifications that today are silently dropped, and webhooks fi
 1. **Chaos "XADD `vt:notify` fails after alert commit"** (new scenario `notify-xadd-fail`; Valkey blackholed for the notify write only, or killed between the processor commit and the XADD, 100 synthetic alerts):
    - 100 % of the alerts get a notification job and a `NotificationLog` row per recipient and channel within **2 min of recovery**;
    - 0 lost;
-   - 0 duplicates per `alertId + recipient + channel` (`SELECT … GROUP BY … HAVING count(*) > 1` returns 0).
+   - **duplicate DB records = 0:** no two `NotificationLog` rows per `alertId + recipient + channel` (`SELECT … GROUP BY … HAVING count(*) > 1` returns 0).
 2. **Notifier job failure:** with an injected throw in `handleAlert` (fake provider or DB fault), the entry is **not** acked, it is redelivered, and it succeeds once the fault is removed. With a permanent fault it is DEAD after 5 deliveries, `notifyError` is set, and `pipeline.notify-dead` is raised.
-3. **Partial resend:** kill the notifier after 1 of 3 recipients; after restart, all 3 have exactly one row.
+3. **Partial resend:** kill the notifier after 1 of 3 recipients; after restart, all 3 have exactly one `NotificationLog` row (duplicate DB records = 0).
+3a. **Duplicate external messages: bounded, documented, measured** (separate from the DB-record count). The fake provider records every message it accepts. In `notifier-kill-mid-send` (kill between provider acceptance and the status `UPDATE`, ≥ 100 iterations) and in a forced slow-send lease takeover, report the number of duplicate accepted messages per `dedupeKey`. Pass: no `dedupeKey` exceeds the documented bound (one extra message per takeover, at most 3), every duplicate falls in one of the two documented windows, and the measured rate is written into the evidence. Where a provider supports an idempotency key, a test shows the key is sent and stable across retries of the same `dedupeKey`.
 4. **Zero-recipient and zero-channel alerts** get `notifiedAt` set and are never swept.
 5. The existing chaos suite still loses **0 positions** (baseline 26,521 / 26,521, `docs/reliability/test-evidence.md` §2.1), re-run per condition C6.
 6. The API Jest suite is green.
@@ -197,7 +222,7 @@ Users may receive notifications that today are silently dropped, and webhooks fi
 - **Manual, test instance (`veetrax_assess`, Valkey db 1, API :4100):** raise SOS from `sim:route`, stop the notifier for 3 min, start it, confirm delivery rows and `notifiedAt`.
 
 ### Evidence required for sign-off
-- A dated folder `docs/employee-transport/evidence/<date>-g2/` with `results.md` + `results.json` from the chaos runs (counts per scenario, duplicate query output).
+- A dated folder `docs/employee-transport/evidence/<date>-g2/` with `results.md` + `results.json` from the chaos runs (counts per scenario; the DB duplicate query output, which must be 0; the measured external duplicate count per scenario against its bound; the provider idempotency-key support table).
 - Jest output with pass counts.
 - Migration SQL and the measured index build time on the synthetic table.
 - After the deploy: the System Health screenshot (no `pipeline.notify-*` issues), `SELECT count(*) FROM "Alert" WHERE "notifiedAt" IS NULL AND "createdAt" BETWEEN now()-interval '24 hours' AND now()-interval '5 minutes'` = 0 one day after the deploy (read-only query by the Lead), and the deploy record.
@@ -213,7 +238,8 @@ notifier support, the G3 columns (same migration), and the production row count 
 
 ### Deployment notes
 Ships together with G3 as v1.8.3 (one migration, one notifier owner, `12` §2.2 parallelism note). Deploy off-peak.
-Watch `pipeline.notify-*` for 24 h. Separate owner approval is required.
+Watch `pipeline.notify-*` for 24 h. Separate owner approval is required. **Status 2026-11-11: on hold** (high-risk
+notifier change; not part of v1.8.1).
 
 ---
 
@@ -275,7 +301,7 @@ Redeploy the previous tag. The new columns stay; old code writes `SENT` again (s
 Backend engineer (notifier); reviewer: Lead. 0.4–0.6 ew. Depends on the G2 migration (shared columns).
 
 ### Deployment notes
-v1.8.3 together with G2. Separate owner approval is required.
+v1.8.3 together with G2. Separate owner approval is required. **Status 2026-11-11: on hold** with G2.
 
 ---
 
@@ -305,13 +331,24 @@ The Ubuntu install script never adopted the AOF settings from the hardened kit.
    - `no-appendfsync-on-rewrite no`
 
    Keep the RDB `save` lines. For a **fresh** install only, restart is safe (no data yet).
-2. **Production change procedure** (new `ops/deploy/linux/VALKEY-AOF.md`, run in an owner-approved off-peak window; **no Valkey restart needed**):
-   1. Pre-check: `valkey-cli INFO persistence`, `INFO memory` (`used_memory_human`), `df -h /var/lib/valkey`, `XLEN vt:positions`, `XLEN vt:notify`, `XINFO GROUPS vt:positions`, `XINFO GROUPS vt:notify`.
+
+   **This installer edit is the only G4 item in v1.8.1 (authorised 2026-11-11 for implementation and isolated testing).** It is inert for production: the installer is not run on production. **Not part of v1.8.1:** any `CONFIG SET`, any edit of the production `/etc/valkey/valkey.conf`, any Valkey restart, any `maxmemory` change.
+2. **Production change procedure** (new `ops/deploy/linux/VALKEY-AOF.md`, run in an owner-approved off-peak window; **no Valkey restart needed**). **On hold: needs a separate maintenance approval**, given only after the drill evidence below and only if the safety gate passes.
+
+   **Production safety gate (owner correction B, 2026-11-11), all required before the owner is asked to authorise the window:**
+   - **Measured free disk and memory**, recorded in the transcript just before step 2: free space on the Valkey `dir` filesystem ≥ 3× `used_memory_dataset` plus 2 GiB, and available host memory (`MemAvailable`) ≥ `used_memory_rss` (fork copy-on-write worst case) plus 2 GiB. If either is below, stop; do not run step 2.
+   - **Stream and consumer-group counts before and after:** `XLEN`, `XINFO GROUPS` (`pending`, `lag`) for `vt:positions` and `vt:notify`, and `DBSIZE`, captured in step 1 and step 6. Post-counts equal pre-counts plus normal traffic, and every consumer group is still present.
+   - **AOF rewrite completed with a successful write status:** `aof_rewrite_in_progress:0`, `aof_enabled:1`, `aof_last_bgrewrite_status:ok`, `aof_last_write_status:ok` before the config file is touched (step 3).
+   - **Documented recovery procedure if the rewrite fails** (in `VALKEY-AOF.md`, rehearsed on the drill instance): if `aof_last_bgrewrite_status:err` or `aof_last_write_status:err`, or the rewrite does not finish within the agreed time, run `CONFIG SET appendonly no` at once (Valkey keeps its data in memory and accepts writes again); **do not** edit `valkey.conf` and **do not** restart; confirm `rdb_last_bgsave_status:ok` (run `BGSAVE` if needed) and the stream / group counts; collect `INFO persistence`, `df`, and the Valkey journal; leave any partial files in `appendonlydir` for analysis; report to the owner before any retry.
+   - **`maxmemory`:** any change needs its own separate approval (§9 Q8); it is never part of the AOF window.
+
+   Procedure:
+   1. Pre-check: `valkey-cli INFO persistence`, `INFO memory` (`used_memory_human`, `used_memory_rss`, `used_memory_dataset`), `df -h /var/lib/valkey`, `grep MemAvailable /proc/meminfo`, `DBSIZE`, `XLEN vt:positions`, `XLEN vt:notify`, `XINFO GROUPS vt:positions`, `XINFO GROUPS vt:notify`. Apply the safety-gate thresholds.
    2. `valkey-cli CONFIG SET appendonly yes` (the server rewrites an AOF from memory in the background), then `CONFIG SET appendfsync everysec`.
    3. Wait for `aof_rewrite_in_progress:0`, `aof_enabled:1`, `aof_last_bgrewrite_status:ok` and `aof_last_write_status:ok`.
    4. Persist: edit `/etc/valkey/valkey.conf` with the same lines as step 1. Then `CONFIG GET appendonly` / `appendfsync` and `grep` the file to prove they match.
    5. **Never** edit the file and restart before step 3: that starts Valkey empty.
-   6. Post-check: the same counters as step 1; System Health `valkey.aof` WARN cleared.
+   6. Post-check: the same counters as step 1; System Health `valkey.aof` WARN cleared. On any failure in steps 2–4, follow the recovery procedure above.
 3. **Backup interaction (G7):** keep the RDB `BGSAVE` copy in the backup bundle. Optionally add an AOF directory tarball, as in `ops/valkey/valkey-backup.sh` l.35.
 4. No application code change.
 
@@ -333,13 +370,15 @@ GPS-alert behaviour: unchanged (durability only).
 2. **AOF restore onto a fresh Valkey:** copy `appendonlydir` to a new empty `dir`, start a second instance, and get the same counts (pattern `ops/valkey/test/restore-test.sh`).
 3. **Chaos `cache-restart-empty` passes with AOF on.** Also add a scenario `cache-kill-aof`: kill -9 then restart with data, expecting 0 lost and no group recreation.
 4. **Measured:** rewrite duration, peak RSS during the rewrite, AOF size after the rewrite, and the p99 of processor batch latency with and without AOF (from the chaos report).
-5. **Production after the window:** `CONFIG GET appendonly` = `yes`; `INFO persistence` shows `aof_enabled:1` and `aof_last_write_status:ok`; System Health has no `valkey.aof` issue.
+4a. **Recovery procedure rehearsed** on the drill instance: a rewrite forced to fail (for example a full or read-only `dir` on the throwaway instance) is handled by the documented steps, with no data loss and the stream / group counts unchanged.
+4b. **v1.8.1 installer edit:** on a fresh throwaway install (test host or VM, never production) `install-ubuntu.sh` leaves the AOF lines in `valkey.conf` exactly once after two runs (idempotent), and Valkey starts with `aof_enabled:1`.
+5. **Production after the window (only after the separate maintenance approval):** the safety-gate transcript is complete (free disk and memory measured, before / after counts, rewrite and write status `ok`); `CONFIG GET appendonly` = `yes`; `INFO persistence` shows `aof_enabled:1` and `aof_last_write_status:ok`; System Health has no `valkey.aof` issue.
 
 ### Test plan
 - **Unit:** none.
 - **Integration / chaos:** `chaos-run.ts` with its private Valkey started with `--appendonly yes`.
 - **Manual drill** as above on the test host. Script it as `ops/deploy/linux/valkey-aof-drill.sh` (new, test-only, refuses port 6379 and any `REDIS_URL` without `127.0.0.1:63[89]x`).
-- **Production:** only the documented `CONFIG SET` procedure, in the window.
+- **Production:** only the documented `CONFIG SET` procedure with its safety gate, in a separately approved window. Nothing in production under v1.8.1.
 
 ### Evidence required for sign-off
 - The drill log (before / after `XLEN`, `XINFO GROUPS`, `XPENDING` summary, timings, RSS, AOF size).
@@ -353,8 +392,8 @@ GPS-alert behaviour: unchanged (durability only).
 Ops engineer; approver: owner (window). 0.4–0.6 ew. Depends on a Valkey 7.2 binary on the test host and the owner-approved window.
 
 ### Deployment notes
-- The `install-ubuntu.sh` edit has no effect on the running server; it can merge in v1.8.1.
-- The production change is a config operation in its own approved window. Recommended **after** v1.8.2 and **before** v1.8.3, so G2's sweeper and AOF together close the notify gap.
+- The `install-ubuntu.sh` edit has no effect on the running server; it is part of v1.8.1 (**authorised 2026-11-11 for implementation and isolated testing only**, fresh installs).
+- The production change is a config operation in its own approved window. Recommended **after** v1.8.2 and **before** v1.8.3, so G2's sweeper and AOF together close the notify gap. **Status 2026-11-11: on hold** — separate maintenance approval, after the safety gate above.
 
 ---
 
@@ -412,7 +451,7 @@ Redeploy the previous tag. No schema or data change.
 Backend engineer (live gateway); reviewer: security role; Lead for `RedisKeys`. 0.4–0.6 ew. No other dependencies. It is an E1a entry dependency (`12` §3).
 
 ### Deployment notes
-v1.8.2 (API restart only). Separate owner approval is required.
+v1.8.2 (API restart only). Separate owner approval is required. **Status 2026-11-11: on hold**, reviewed after v1.8.1.
 
 ---
 
@@ -457,7 +496,7 @@ The map stack was added later (`ops/deploy/linux/maps/README.md`) without monito
    - poll `${GATEWAY_HEALTH_URL:-http://127.0.0.1:4121/health}` until 200;
    - poll `${TRACKING_HEALTH_URL:-http://127.0.0.1:4000/api/health/tracking}` and accept 200 (OK / WARN). The default is on; `HEALTH_GATE_TRACKING=0` disables it for a first install with no devices.
    - Map services (not deployed by `release.sh`): `curl` each configured URL and print a **warning only**.
-2. **On failure:** print `journalctl -u <failed unit> -n 50 --no-pager`, then "RELEASE FAILED HEALTH GATE — roll back with `REF=$PREV bash release.sh`", and exit **1**. No automatic rollback (open question §9 Q7).
+2. **On failure:** print `journalctl -u <failed unit> -n 50 --no-pager`, then "RELEASE FAILED HEALTH GATE — roll back with `REF=$PREV bash release.sh`", and exit **1**. No automatic rollback (owner decision 2026-11-11, §9 Q7).
 3. **`--health-only` flag:** runs only the gate, with no checkout, build or restart. This is the "dry run", usable on the test instance with `API_HEALTH_URL=http://127.0.0.1:4100/api/health/ready`.
 4. Update the l.6 header.
 
@@ -493,6 +532,8 @@ Ops engineer (+ backend for the collector); Lead for the shared contract. 0.5–
 
 ### Deployment notes
 v1.8.1. Ship it **first**, so that every later patch is deployed through the gate. Separate owner approval is required.
+**Status 2026-11-11:** authorised for implementation and isolated testing only (v1.8.1); deployment not authorised.
+Severities as proposed and no automatic rollback (§9 Q7).
 
 ---
 
@@ -535,9 +576,10 @@ Backups were set up by hand on the new Ubuntu host during the move (v1.8.0), out
      - `UPLOAD_CMD=""`
    - `ops/deploy/linux/veetrax-backup.service` + `veetrax-backup.timer`: `OnCalendar=*-*-* 21:30:00 UTC`, `Persistent=true`, runs as root, `Nice=10`, `IOSchedulingClass=idle`. They replace the cron entry, which is removed only after two successful timer runs.
    - `ops/deploy/linux/BACKUP.md`, the runbook: what is backed up, schedule, RPO (≤ 24 h) / RTO target (≤ 2 h), key custody, restore steps, quarterly drill, retiring the GitHub Release flow, and what to do on a failed backup.
-3. **Encryption:**
-   - GPG public key on the server. The private key is generated **offline on the owner's machine** and never placed on the server or in Git.
-   - The previous plaintext local archives are deleted after the first verified encrypted run (owner approval). `/var/backups/veetrax` mode `0700` root.
+3. **Encryption (all backups; owner decision Q3, 2026-11-11):**
+   - GPG public key on the server. The private key is generated **offline on the owner's machine** and **never** placed on the server or in Git.
+   - **Existing plaintext backups are not deleted** until an encrypted backup **and its restore** have been verified (acceptance criterion 1) **and** the deletion is separately approved by the owner. `/var/backups/veetrax` mode `0700` root.
+   - **Scope (owner correction C):** `apps/api/var` (documents, selfies, invoices, media, reports) is in the backup scope (`UPLOADS_DIR` above), and its file count and total size are written to the manifest.
 4. **System Health** (`checks.ts` + `system-health.service.ts`):
    - read `BACKUP_STATUS_FILE` (default `/var/backups/veetrax/last-status.json`);
    - the script writes it world-readable (`0644`, no secrets: time, size, sha256, counts, `uploaded`);
@@ -562,6 +604,8 @@ decision of 2026-11-09 recorded in `docs/modernization/backup-plan.md` §4, with
 List API (publication 2026-11-04, e.g. S3 Standard $0.025 / GB-month, Glacier Instant Retrieval $0.005 / GB-month,
 egress $0.1093 / GB; estimate today < $0.10 / month) and an existing kit. It is consistent with O8 (approved
 2026-11-11) and needs **only owner confirmation and purchase approval** (README §7 O10). Nothing is bought or created.
+**Owner decision 2026-11-11 (§9 Q1, O10): AWS S3 Mumbai (ap-south-1) is confirmed as the target. The purchase is NOT
+authorised**; it needs its own approval together with G7 phase B provisioning.
 The other candidates below remain alternatives if the owner does not confirm; their prices are not given here and must be
 quoted at decision time.
 
@@ -584,11 +628,11 @@ Required properties for any choice:
 - TLS;
 - a restore cost known in advance.
 
-**Key custody procedure (proposed, for owner approval, O1):**
+**Key custody procedure (owner decision 2026-11-11, §9 Q2 / O11; the deputy's name is still open):**
 1. The owner generates the GPG key pair (RSA 4096 or ed25519 / cv25519) offline, with a strong passphrase.
-2. The private key and passphrase are stored in **two** places controlled by the owner (for example an encrypted USB in a safe plus a password-manager entry or a printed paper key in a separate location). Never on the server, in Git, in chat or in e-mail.
-3. Only the public key goes to `/etc/veetrax/veetrax-backup.pub.asc`.
-4. A named deputy (owner decision) may be given a sealed copy for continuity.
+2. The owner holds **two protected copies** of the private key and passphrase in places the owner controls (for example an encrypted USB in a safe plus a password-manager entry or a printed paper key in a separate location). Never on the server, in Git, in chat or in e-mail.
+3. The server gets **only** the public key (`/etc/veetrax/veetrax-backup.pub.asc`) and **write-only** storage credentials.
+4. **One sealed deputy copy** is part of the decision. The deputy must be **explicitly named** before a real recovery arrangement is considered; until then this part stays open (O11).
 5. Restore: the key is imported only into the throw-away `GNUPGHOME` of `veetrax-restore.sh` on the drill / restore host, which deletes it on exit.
 6. Rotation: on staff change or suspicion, generate a new key, switch the public key on the server, and keep the old private key until the last backup encrypted to it expires.
 7. Storage credentials: the server holds write-only. Read / delete stay with the owner and are rotated yearly.
@@ -605,14 +649,15 @@ GPS-alert behaviour: unchanged.
 - Removing the cron before the timer is proven leaves a gap.
 
 ### Acceptance criteria
-1. **Restore drill on a non-production host** (test host or staging, C3; never production):
+1. **Restore gate: drill on a non-production host** (test host or staging, C3; never production). All of the following must be proven (owner correction C, 2026-11-11):
    - download (phase B) or copy (phase A) the latest encrypted bundle;
    - `veetrax-restore.sh` into an empty `veetrax_restore_test`;
-   - the manifest row counts **equal** for all `COUNT_TABLES` (`VERIFY: PASS`);
-   - uploads restored (file count and total size equal the manifest; **add both to the manifest**);
-   - config restored into a quarantine directory (not applied);
-   - the Valkey RDB loads into a throwaway Valkey 7.2 (`valkey-check-rdb` OK, `DBSIZE` > 0);
-   - **RTO measured ≤ 2 h** from "start download" to "API on the restored DB answers `/api/health/ready`".
+   - **DB table counts match:** the manifest row counts **equal** for all `COUNT_TABLES` (`VERIFY: PASS`);
+   - **uploaded files match:** the restored `apps/api/var` file count **and** total size equal the manifest (**add both to the manifest**);
+   - **Valkey RDB valid:** it passes `valkey-check-rdb` and loads into a throwaway Valkey 7.2 (`DBSIZE` > 0);
+   - **config restored into quarantine only:** a separate quarantine directory, compared by checksum against the manifest; it is **never applied automatically** (no copy into `/etc`, `/opt/veetrax` or `.env` by any script);
+   - **restore time measured**, target RTO ≤ 2 h, from "start download" to "API on the restored DB answers `/api/health/ready`";
+   - the private key is used only in the throw-away `GNUPGHOME` on the drill host and is **never** on the production server or in Git.
 2. `backup.stale` WARN appears when `last-status.json` is older than 26 h (simulated on the test instance) and clears after a run.
 3. `git ls-files` contains no dump, archive, key or secret, and the CI secret-scan job is green and fails on a planted test file.
 4. The key custody record exists: who holds the key, where, and the number of copies. It is written in `BACKUP.md` without the key itself.
@@ -645,6 +690,7 @@ the installed script, and a non-production drill host (C3).
 - **Phase A** (repo kit, timer, local encryption, freshness check) as v1.8.4. Installing the timer and removing plaintext archives are production operations needing explicit approval.
 - **Phase B** only after the purchase is approved and provisioned.
 - Separate owner approval for each.
+- **Status 2026-11-11: both phases on hold.** Phase A: separate review. Phase B: provider confirmed (S3 Mumbai), but purchase and provisioning need approval. The read-only, secrets-redacted capture of the installed script and cron is approved (§9 Q11); no destructive backup operation is authorised.
 
 ---
 
@@ -686,15 +732,19 @@ OpenFreeMap was the development default and was never replaced in code. One page
 
 **Mobile:**
 1. `config.ts` l.7–11: default to `${SERVER_URL}/tiles/styles/{liberty,positron,dark}.json`.
-2. `eas.json` `build.base.env`: set `EXPO_PUBLIC_MAP_STYLE_STANDARD|LIGHT|DARK=https://app.veetrax.com/tiles/styles/…json`, and `EXPO_PUBLIC_SERVER_URL` per the owner's decision (§9 Q4). The recommended default is `https://app.veetrax.com` (`08` §1.4 item 3, `12` G8).
+2. `eas.json` `build.base.env`: set `EXPO_PUBLIC_MAP_STYLE_STANDARD|LIGHT|DARK=https://app.veetrax.com/tiles/styles/…json`, and `EXPO_PUBLIC_SERVER_URL=https://app.veetrax.com` (**owner decision 2026-11-11, §9 Q4 / O12**: new builds use `https://app.veetrax.com`).
 3. **No change** to the O9 hand-offs or to push registration (Expo / FCM, L4).
+4. **Compatibility protection for old installations (owner correction D, 2026-11-11):** existing installs may still use `gps.mintplus.co.in`. That endpoint **stays functional** (serving or proxying to production, not a redirect that breaks API calls) for the whole migration period. **Changing the mobile production build** (a store submission with the new URL) and **retiring the old endpoint** each need a **separate owner approval**; neither is part of v1.8.1. Retirement is proposed only once request logs show old-build traffic on `gps.mintplus.co.in` has dropped to an owner-agreed level.
+
+**Status 2026-11-11:** the web part is in v1.8.1 (authorised for implementation and isolated testing only). The mobile
+part is **on hold**: the URL is decided, but the EAS build and any store submission need approval.
 
 GPS-alert behaviour: unchanged.
 
 ### Risks and blast radius
 - **All maps** on web and mobile. If `/tiles` is down (Martin or Caddy), maps are blank instead of falling back to a third party, which is intended and monitored by G6 `maps.martin`.
 - **Local development** without Martin shows blank maps unless the developer opts in.
-- **Mobile server URL change:** new builds talk to a different host. Existing installs keep `gps.mintplus.co.in` until updated, so that host must keep serving (or redirecting) during the transition. The owner must confirm what `gps.mintplus.co.in` points at today.
+- **Mobile server URL change:** new builds talk to a different host. Existing installs keep `gps.mintplus.co.in` until updated, so that host must keep serving during the transition (owner correction D: the old endpoint is preserved; retiring it needs separate approval). What `gps.mintplus.co.in` points at today is to be recorded before the mobile build is approved.
 - The Martin styles are pinned to `app.veetrax.com` (`make-styles.sh` `SITE`).
 
 ### Acceptance criteria
@@ -707,6 +757,7 @@ GPS-alert behaviour: unchanged.
    - a browser capture (HAR) of the live map, history, geofences, routes and the **public share page** shows 0 requests to any host other than the app origin;
    - with `VITE_MAP_STYLE_*` unset, the build still contains no OpenFreeMap URL and maps load from `/tiles/…`.
 3. `eas.json` diff reviewed by the Lead; `make-styles.sh` output has no external host (its existing check).
+4. **Old-install compatibility (owner correction D):** with a current store build (old URL), against the test host aliased as `gps.mintplus.co.in` or, after the approved mobile release, by a read-only check of production: login, live map and alert list work through `gps.mintplus.co.in`, and `GET https://gps.mintplus.co.in/api/health/ready` returns 200. A new build pointed at `https://app.veetrax.com` passes criterion 1 at the same time.
 
 ### Test plan
 - **Unit:** `basemap.spec`, in shared or web (`node --test`): `selfHostedStyles`, `satelliteStyle` with an injected base; the share page uses the configured style (component-level test or a grep-based test).
@@ -734,7 +785,7 @@ mobile server URL, O4 tools for captures, and a reachable test `/tiles`.
 
 ### Deployment notes
 - **Web part** in v1.8.1 (`release.sh --web-only` would suffice; bundled with G1 and G6).
-- **Mobile part** is an EAS build plus a store submission, not a server deploy. It follows the owner's decision on the server URL and needs its own approval (it changes what all newly installed apps talk to).
+- **Mobile part** is an EAS build plus a store submission, not a server deploy. The server URL is decided (`https://app.veetrax.com`, 2026-11-11); the EAS build, the store submission and any retirement of `gps.mintplus.co.in` each need their own approval (they change what newly installed apps talk to). **On hold.**
 
 ---
 
@@ -756,6 +807,12 @@ Each patch needs a **separate owner approval** before production (O1, `12` §1).
 Alternative if fewer deploys are wanted: merge v1.8.2 into v1.8.1 (both low risk, no migration). **Not recommended**:
 it makes a session-logic regression harder to isolate.
 
+**Status (owner review 2026-11-11):** v1.8.1 = **authorised for implementation and isolated testing only** (branch
+`feature/hardening-v1.8.1` from `origin/main`; no production deployment or restart). Every other row = **on hold**:
+v1.8.2 reviewed after v1.8.1; the G4 ops window needs a separate maintenance approval; v1.8.3 is a high-risk notifier
+change; v1.8.4 needs a separate review; G7 phase B needs provider purchase and provisioning approval; G8 mobile needs
+EAS build approval.
+
 ---
 
 ## 8. Cross-cutting test-environment notes
@@ -773,22 +830,24 @@ it makes a session-logic regression harder to isolate.
 
 ## 9. Open questions for the owner
 
-Each question is merged into README §7 under the ID shown (E0.5 Lead integration). None is answered.
+Each question is merged into README §7 under the ID shown (E0.5 Lead integration). **All twelve were answered by the
+owner on 2026-11-11** (column "Owner decision"); the parts that stay open are marked **open**. The recommended
+defaults are kept for the record.
 
-| # | Question | Recommended default |
-|---|---|---|
-| Q1 | **Off-site storage provider (O8 / Q-03; README O10).** Does the 2026-11-09 choice of AWS S3 Mumbai (`docs/modernization/backup-plan.md` §4, verified prices) still stand, and is the purchase approved? India data residency required? | **Confirm AWS S3 ap-south-1** (earlier owner decision, verified prices, kit exists) and approve the purchase when G7 phase B is authorised; alternatives (e.g. Cloudflare R2) only if the owner does not confirm |
-| Q2 | **(README O11)** **Key custody:** who generates and holds the GPG private key, where are the two copies, is there a named deputy, and who may run a restore? Who holds the storage read / delete credential? | Owner holds both copies (safe + password manager); one sealed deputy copy; the server gets public key and write-only credential only |
-| Q3 | **(README O11)** Is today's local backup (`/var/backups/veetrax`) encrypted? It holds `.env` files and `/root/.veetrax-db-pass`. May the plaintext archives be deleted after the first verified encrypted run? | Encrypt everything; delete plaintext after verification. *(Uploads: Lead-confirmed that today's backup omits `apps/api/var`; adding them is now part of G7's scope, `12` §2.1.)* |
-| Q4 | **(README O12)** **Mobile server URL:** keep `gps.mintplus.co.in` (current `eas.json` and code default) or switch new builds to `app.veetrax.com`? What does `gps.mintplus.co.in` serve today, and must it keep serving old installs? | Switch to `app.veetrax.com`; keep `gps.mintplus.co.in` proxying or redirecting to production until old installs have updated |
-| Q5 | **(README O17)** G2 retry budget: DEAD after 5 deliveries (≈ 5–8 min)? Sweeper window 24 h? CRITICAL only for SOS / CRASH? | Yes to all three |
-| Q6 | **(README O17)** G3: show `SKIPPED` ("provider not configured") also in development, and leave historical `SENT` rows unchanged with a UI note? | Yes |
-| Q7 | **(README O17)** G6: Martin down = CRITICAL, GraphHopper / Photon = WARN until ETMS? Should a failed release gate roll back automatically? | Yes to the severities; no automatic rollback (manual `REF=<previous>` with the printed command) |
-| Q8 | **(README O17 / O1)** G4 maintenance window. Should a `maxmemory` limit be set for Valkey as a separate item (today none, with `noeviction`)? | Off-peak IST window; raise `maxmemory` as a separate approved item after measuring |
-| Q9 | **(README C3 / O13)** Test host capabilities (C3): GraphHopper / Photon / Martin and a Valkey 7.2 binary on the test host, or wait for staging? | Stubs for E0.5 unit / integration evidence; the real stop / start checks on staging, or on the test host if the services fit |
-| Q10 | **(README O4)** O4 tools for evidence: Playwright, gitleaks, tshark / Wireshark (captures), shellcheck | Approve (free, dev-only) |
-| Q11 | **(README O18)** Lead read-only access to the production backup script and cron for the G7 capture | Approve, redacting secrets in any notes |
-| Q12 | **(README O19)** O9 scope: do the web `AttendancePage.tsx` Google Maps links (l.106, l.159) count as "existing hand-offs" to keep? | Yes, keep them (user-initiated, existing) |
+| # | Question | Recommended default | Owner decision (2026-11-11) |
+|---|---|---|---|
+| Q1 | **Off-site storage provider (O8 / Q-03; README O10).** Does the 2026-11-09 choice of AWS S3 Mumbai (`docs/modernization/backup-plan.md` §4, verified prices) still stand, and is the purchase approved? India data residency required? | **Confirm AWS S3 ap-south-1** (earlier owner decision, verified prices, kit exists) and approve the purchase when G7 phase B is authorised; alternatives (e.g. Cloudflare R2) only if the owner does not confirm | ✅ **Resolved.** AWS S3 Mumbai (ap-south-1) confirmed as the target. **Purchase NOT authorised.** |
+| Q2 | **(README O11)** **Key custody:** who generates and holds the GPG private key, where are the two copies, is there a named deputy, and who may run a restore? Who holds the storage read / delete credential? | Owner holds both copies (safe + password manager); one sealed deputy copy; the server gets public key and write-only credential only | ✅ **Resolved, except the deputy.** The owner holds two protected private-key copies plus one sealed deputy copy; the server gets only the public key and write-only storage credentials. **Open:** the deputy must be explicitly named before a real recovery arrangement is considered. |
+| Q3 | **(README O11)** Is today's local backup (`/var/backups/veetrax`) encrypted? It holds `.env` files and `/root/.veetrax-db-pass`. May the plaintext archives be deleted after the first verified encrypted run? | Encrypt everything; delete plaintext after verification. *(Uploads: Lead-confirmed that today's backup omits `apps/api/var`; adding them is now part of G7's scope, `12` §2.1.)* | ✅ **Resolved.** Encrypt all backups. Do not delete existing plaintext backups until an encrypted backup and its restore have been verified **and** deletion is separately approved. |
+| Q4 | **(README O12)** **Mobile server URL:** keep `gps.mintplus.co.in` (current `eas.json` and code default) or switch new builds to `app.veetrax.com`? What does `gps.mintplus.co.in` serve today, and must it keep serving old installs? | Switch to `app.veetrax.com`; keep `gps.mintplus.co.in` proxying or redirecting to production until old installs have updated | ✅ **Resolved.** New mobile builds use `https://app.veetrax.com`; the old endpoint is preserved for existing installations (G8 correction D). The EAS build, store submission and retirement of the old endpoint need separate approval. |
+| Q5 | **(README O17)** G2 retry budget: DEAD after 5 deliveries (≈ 5–8 min)? Sweeper window 24 h? CRITICAL only for SOS / CRASH? | Yes to all three | ✅ **Resolved.** Five deliveries, a 24-hour sweep window, CRITICAL for SOS / CRASH. |
+| Q6 | **(README O17)** G3: show `SKIPPED` ("provider not configured") also in development, and leave historical `SENT` rows unchanged with a UI note? | Yes | ✅ **Resolved.** `SKIPPED` for unconfigured providers in development and production; historical records are preserved. |
+| Q7 | **(README O17)** G6: Martin down = CRITICAL, GraphHopper / Photon = WARN until ETMS? Should a failed release gate roll back automatically? | Yes to the severities; no automatic rollback (manual `REF=<previous>` with the printed command) | ✅ **Resolved.** Proposed health severities approved; no automatic rollback. |
+| Q8 | **(README O17 / O1)** G4 maintenance window. Should a `maxmemory` limit be set for Valkey as a separate item (today none, with `noeviction`)? | Off-peak IST window; raise `maxmemory` as a separate approved item after measuring | ✅ **Resolved.** `maxmemory` stays a separate future decision. *(The G4 production window itself stays under O1: separate maintenance approval after the G4 safety gate.)* |
+| Q9 | **(README C3 / O13)** Test host capabilities (C3): GraphHopper / Photon / Martin and a Valkey 7.2 binary on the test host, or wait for staging? | Stubs for E0.5 unit / integration evidence; the real stop / start checks on staging, or on the test host if the services fit | ✅ **Resolved (test approach).** Local stubs for early tests; staging is required for production-class service checks. **Open:** C3 for the staging host itself (and O13). |
+| Q10 | **(README O4)** O4 tools for evidence: Playwright, gitleaks, tshark / Wireshark (captures), shellcheck | Approve (free, dev-only) | ✅ **Resolved.** Free, developer-only test tools approved; no paid overage, no production installation. |
+| Q11 | **(README O18)** Lead read-only access to the production backup script and cron for the G7 capture | Approve, redacting secrets in any notes | ✅ **Resolved.** Read-only, secrets-redacted inspection of the backup script and cron approved. |
+| Q12 | **(README O19)** O9 scope: do the web `AttendancePage.tsx` Google Maps links (l.106, l.159) count as "existing hand-offs" to keep? | Yes, keep them (user-initiated, existing) | ✅ **Resolved.** Existing attendance Google Maps links preserved under O9. |
 
 ---
 

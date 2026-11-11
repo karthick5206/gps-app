@@ -8,7 +8,7 @@ state, proposed target architecture, data model, contracts, phased plan, risks a
 | Item | Value |
 |---|---|
 | Status | **E0 approved by the owner on 2026-11-11** (architecture direction). No code, schema, configuration or server was changed. Nothing in these documents is implemented or tested unless a section cites existing code or a Lead production check. |
-| Decisions | **Approved 2026-11-11:** D1–D8, L4, O8, O9 (record and conditions in §1.1). Every other §7 decision stays **unresolved**. |
+| Decisions | **Approved 2026-11-11:** D1–D8, L4, O8, O9 (record and conditions in §1.1). Also decided 2026-11-11 after the doc 14 review: O4, O10 (target only, no purchase), O12, O17, O19 resolved; O11 and O18 partly (§1.1, §7). v1.8.1 authorised for implementation and isolated testing only. All other §7 decisions stay **unresolved**. |
 | Next step | **E0.5 is a documentation and planning phase only** (§1.1). Its deliverables are complete and listed for owner review in **§9**. Implementation of any D6 item, deployment, paid storage, destructive DB changes and infrastructure changes need separate owner authorisation. |
 
 ### 1.1 Owner approval record (2026-11-11)
@@ -19,7 +19,11 @@ state, proposed target architecture, data model, contracts, phased plan, risks a
 | L4: push | **Approved** as a limited Expo → FCM / APNs exception | Generic payloads only; sensitive trip details are fetched through authenticated VeeTrax APIs. |
 | O8: backups | **Approved:** encrypted off-site object storage, independent of production and of Git, with **user-controlled encryption keys** | Provider and cost are presented before anything is bought (decision Q-03); nothing is provisioned under this approval. |
 | O9: Google Maps hand-offs | **Preserve the existing hand-offs during E0.5**; introduce no new external sharing of passenger or driver location by default | Applies to new ETMS flows (e.g. driver navigation, L6, stays an open decision). |
-| Not authorised | Implementation, production deployment, paid storage provisioning, destructive database changes, infrastructure changes | **All eight D6 items (G1–G8) remain outstanding.** |
+| Not authorised | Implementation, production deployment, paid storage provisioning, destructive database changes, infrastructure changes | **All eight D6 items (G1–G8) remain outstanding.** *(Superseded for v1.8.1 implementation only by the 2026-11-11 review rows below.)* |
+| **v1.8.1 (D6), owner review of `14` on 2026-11-11** | **Approved for implementation and isolated testing only:** G6 health checks + `release.sh` health gate; G1 share-page coordinate fix; G8 web (remove the hard-coded OpenFreeMap, self-hosted tiles, build check against external map URLs); the inert G4 installer AOF settings for fresh installs (the installer is not run on production) | Branch `feature/hardening-v1.8.1` from `origin/main`; test instance only. **Not authorised:** production deployment or restart, production Valkey changes, DB migrations, mobile store submission, purchases or provisioning, destructive DB or backup operations. No G-item is deployed. |
+| **On hold (2026-11-11)** | v1.8.2 G5 (review after v1.8.1); G4 production AOF (separate maintenance approval); v1.8.3 G2 + G3 (high-risk notifier change); v1.8.4 G7 phase A (separate review); G7 phase B off-site (provider purchase and provisioning approval); G8 mobile (EAS build approval; URL decided, O12) | Each needs its own owner approval. |
+| **Corrections to `14` (2026-11-11)** | Applied in `14`: **A** G2 — no exactly-once promise (durable job recovery, per-recipient dedupe in VeeTrax, at-least-once attempts, bounded documented duplicate risk at the provider boundary, provider idempotency keys where supported; DB duplicates = 0 vs external duplicates bounded and measured); **B** G4 — production safety gate; **C** G7 — uploads in scope, restore gate, private key never on the server or in Git; **D** G8 — old mobile installs keep `gps.mintplus.co.in` working | Mobile production build change and old-endpoint retirement need separate approval. |
+| **`14` §9 open questions (2026-11-11)** | Resolved: O4, O10 (purchase not authorised), O12, O17, O19; partly resolved: O11 (deputy not named), O18 (backup capture only) | Still open: C3 (staging host), O1 (deployments, AOF window), O13. See §7. |
 
 **E0.5 (documentation and planning), as directed:**
 1. resolve the outstanding documentation contradictions
@@ -212,19 +216,21 @@ remaining part is a genuine owner decision from §7; no answer is chosen. Totals
 The seven false claims of `VALIDATION.md` §2.3 are corrected in place (F1 `06` §5; F2 `07` §1.3; F3 `07` §6.1; F4 `08`
 §1.2; F5 `09` §1.1; F6 `09` §1.4; F7 `09` §1.5), each with a `Corrected in E0.5 (2026-11-11)` note and code evidence.
 
-## 7. Owner decision list (P7, L4, O8, O9 approved 2026-11-11; all others unresolved)
+## 7. Owner decision list (P7, L4, O8, O9 approved 2026-11-11; O4, O10, O12, O17, O19 resolved 2026-11-11 after the `14` review; all others unresolved)
 
 Merged and de-duplicated from the agents' open questions (`01` §13, `04` §11, `03` §8, `06` §8, `07` §9, `08` §8, `09`
 §8, `10` §8, `11` §9) and, in E0.5, from `14` §9, `15` §13 and `16` §9 (new IDs O10–O19 and L8; the source question
-numbers carry the README ID). **Apart from the four rows marked ✅, none of these is answered; each shows the
-recommended default only.** Unresolved: **33** (C1–C3, L1–L3, L5–L8, O1–O7, O10–O19, P1–P6).
+numbers carry the README ID). **Rows marked ✅ are decided** (four approvals of 2026-11-11, plus five IDs resolved by
+the owner's review of `14` on 2026-11-11, `14` §9). O11 and O18 are **partly resolved** (◐; the remaining part is
+named in the row). The other rows show the recommended default only. Unresolved: **28** (C1–C3, L1–L3, L5–L8,
+O1–O3, O5–O7, O11 ◐, O13–O16, O18 ◐, P1–P6).
 
 | ID | Group | Decision needed | Recommended default | Sources |
 |---|---|---|---|---|
 | P7 ✅ **Approved 2026-11-11** | Product | Approve D1–D8, in particular R1 scope and exclusions (D8) | Approve as written | Lead |
 | C1 | Commercial | ETMS pricing / licensing (driver and passenger `User`s are seat-free today) | No licensing change through the pilot; decide before general availability | `01` §8, `09` Q2 |
 | C2 | Commercial | Messaging providers: activate Smartping DLT (India) and a mail provider; US SMS provider later; masked calling | Activate Smartping + ZeptoMail before E5; US SMS decided in E8; masked calling out of scope (paid) | `01` Q1–Q2, `10` Q5, `09` Q7 |
-| C3 | Commercial / ops | Staging host (production-class, for E4 benchmarks, E7 load, E9 soak) | **Updated in E0.5:** a **separate** x86 VM on another physical host (≥ 32 GB, CPU model without AVX) before E4 benchmarks. Capped WSL2 on the dev PC is **not** feasible as staging (28.8 GB host RAM, global `.wslconfig`, AVX present while production has none) and serves only labelled pre-checks; Mintplus server as load generator only if available | `11` Q2, `13` §2, `16` §3.2 / Q1, `14` Q9 |
+| C3 (still open; test approach decided 2026-11-11, `14` Q9: local stubs for early tests, staging required for production-class service checks) | Commercial / ops | Staging host (production-class, for E4 benchmarks, E7 load, E9 soak) | **Updated in E0.5:** a **separate** x86 VM on another physical host (≥ 32 GB, CPU model without AVX) before E4 benchmarks. Capped WSL2 on the dev PC is **not** feasible as staging (28.8 GB host RAM, global `.wslconfig`, AVX present while production has none) and serves only labelled pre-checks; Mintplus server as load generator only if available | `11` Q2, `13` §2, `16` §3.2 / Q1, `14` Q9 |
 | L1 | Legal | Who reviews DPDP (India) and US monitoring notices; which US states first | Named counsel engaged at E0 approval; India first; US states chosen before E8 | `10` Q11 |
 | L2 | Legal | Gender-related / night-shift safety rules and how the attribute is recorded | Off by default; configurable per customer after legal sign-off; self-declared attribute; never sent to drivers | `10` Q7, `06` Q6 |
 | L3 | Legal | Retention: bookings / trips / events, incidents + legal hold, consent; provider access to history after an agreement ends | Bookings / trips / events 1 year; incidents 7 years with legal hold; consent life of account + statutory period; provider loses row access at agreement end (aggregates only) | `01` Q4, `03` Q2, `10` Q8, `11` Q6 |
@@ -232,25 +238,25 @@ recommended default only.** Unresolved: **33** (C1–C3, L1–L3, L5–L8, O1–
 | L5 | Legal | Purge and erasure semantics | Customer purge keeps provider trip headers anonymised (SetNull); data-subject erasure anonymises profile and booking addresses in place, keeps statistics | `03` Q3–Q4 |
 | L6 | Legal / privacy | Driver navigation hand-off to third-party map apps (pickup coordinates leave the phone) | `geo:` chooser, labels without names; owner may restrict to OSM-based apps | `09` Q1 |
 | L7 | Legal / security | Super Admin access to passenger PII and incidents | Require a reason header and a customer-visible sensitive-access log | `10` Q9 |
-| O1 | Ops | Approve each E0.5 v1.8.x deployment and the Valkey AOF maintenance window (key custody details split out to O11) | Approve each patch of §9.3 individually (v1.8.1 first, incl. the share-page fix); AOF in an off-peak window after the private-Valkey recovery drill | `10` Q3–Q4, `11` Q5, `14` §7 / Q8 |
+| O1 (still open; 2026-11-11: v1.8.1 approved for implementation and isolated testing only, no deployment; G4 window needs a separate maintenance approval after the `14` G4 safety gate) | Ops | Approve each E0.5 v1.8.x deployment and the Valkey AOF maintenance window (key custody details split out to O11) | Approve each patch of §9.3 individually (v1.8.1 first, incl. the share-page fix); AOF in an off-peak window after the private-Valkey recovery drill | `10` Q3–Q4, `11` Q5, `14` §7 / Q8 |
 | O2 | Ops | Optimiser resources on production vs a separate host | ≤ 3 GB / 1.5 cores after staging benchmarks; separate host if B6 fails | `06` Q3 |
 | O3 | Ops | GraphHopper re-import for `foot` (+ `van`) profiles | Plan for E4b after B8 on staging; manual stop assignment until then | `06` Q2, Q9 |
-| O4 | Ops | New dev tools (Playwright, jest-expo + RNTL, Maestro CLI, k6) and CI service containers | Approve all (free, dev-only); CI containers on every PR | `11` Q3–Q4 |
+| O4 ✅ **Resolved 2026-11-11** (`14` Q10): free, developer-only test tools approved; no paid overage, no production installation | Ops | New dev tools (Playwright, jest-expo + RNTL, Maestro CLI, k6) and CI service containers | Approve all (free, dev-only); CI containers on every PR | `11` Q3–Q4 |
 | O5 | Ops / product | Escalation contacts and 24×7 desk per site; behaviour when a company is suspended mid-shift | Each site provides a desk number + contacts (users or external numbers); SOS and active trips continue during suspension | `10` Q10, Q12 |
 | O6 | Ops | Device lab and iOS at pilot | Android-first pilot with 3 OEMs; one iOS device for shell smoke tests | `11` Q8, `09` Q9, `08` Q5 |
 | O7 | Ops | Custody of `feature/routing-engine` / `feature/routing-r0` (single local copy; upstream `origin/main`, `push.default` unset). **Owner instruction (E0.5): keep them isolated — no push, no merge** | **Updated in E0.5:** an **off-repo `git bundle` custody copy** (e.g. on a second disk; optionally encrypted with the owner key; hashes recorded, bundle never in Git) — **recommended, not done; owner to approve**. Any remote copy only with explicit owner approval; optionally unset the `origin/main` upstream | `06` Q4, `15` §11.6 / Q9 |
 | O8 ✅ **Approved 2026-11-11**: encrypted off-site object storage, independent of production and Git, user-controlled keys; nothing provisioned yet | Ops / security | Off-site target for encrypted backups. The Windows flow (`ops/backup/README.md`) uploads age-encrypted dumps as GitHub Release assets to `veetrax/dailydbbackup`; Release assets are not Git history but do store backups on GitHub | Use a non-Git object store (or a second disk / host) for the Linux production backup; retire the GitHub Release target after the G7 drill. Provider and purchase: **O10** (default AWS S3 Mumbai, earlier owner decision 2026-11-09) | E0 review (VALIDATION.md §8) |
 | O9 ✅ **Approved 2026-11-11**: keep existing hand-offs during E0.5; no new external location sharing by default | Ops / privacy | Existing fleet-app hand-offs to Google Maps (`apps/mobile/src/app/sos/[id].tsx` `openDirections`, `attendance-day.tsx` `openMap`) and existing alert pushes that send full alert text and data to Expo (`notifier/push.ts`) | Decide together with L4 / L6; no change in E0.5 unless the owner asks | E0 review (VALIDATION.md §6–7) |
-| O10 | Ops / commercial | Off-site backup provider and purchase (under the approved O8) | **AWS S3 Mumbai (ap-south-1)** — the earlier owner decision of 2026-11-09 with verified prices (`docs/modernization/backup-plan.md` §4); needs only owner **confirmation and purchase approval** when G7 phase B is authorised; alternatives (Cloudflare R2, Backblaze B2, GCS / Azure India, second host) only if not confirmed. Nothing bought | `14` G7 / Q1 |
-| O11 | Ops / security | Backup key custody and encryption: who generates and holds the GPG private key (two copies), deputy, who may restore, who holds the storage read / delete credential; encrypt today's local backups and delete plaintext after verification | Owner generates the key offline and holds both copies (safe + password manager), one sealed deputy copy; server holds the public key and a write-only credential only; encrypt everything, delete plaintext after the first verified run | `14` Q2–Q3, `10` Q3–Q4 |
-| O12 | Ops / product | Mobile server URL for new EAS builds (`eas.json` and code default point at `gps.mintplus.co.in`) | Switch new builds to `https://app.veetrax.com`; keep `gps.mintplus.co.in` proxying or redirecting until old installs update; owner confirms what it serves today | `14` Q4, `08` Q2 |
-| O13 | Ops | Second WSL distro (`veetrax-test`) on the dev PC and a `--wsl-distro` option for `chaos-run.ts` (for Valkey 7.2 / systemd drills) | Approve (free, isolated from the dev stack) | `16` Q3, `14` Q9 |
+| O10 ✅ **Resolved 2026-11-11** (`14` Q1): AWS S3 Mumbai (ap-south-1) confirmed as the target; **purchase NOT authorised** | Ops / commercial | Off-site backup provider and purchase (under the approved O8) | **AWS S3 Mumbai (ap-south-1)** — the earlier owner decision of 2026-11-09 with verified prices (`docs/modernization/backup-plan.md` §4); needs only owner **confirmation and purchase approval** when G7 phase B is authorised; alternatives (Cloudflare R2, Backblaze B2, GCS / Azure India, second host) only if not confirmed. Nothing bought | `14` G7 / Q1 |
+| O11 ◐ **Partly resolved 2026-11-11** (`14` Q2–Q3): owner holds two protected private-key copies plus one sealed deputy copy; server gets only the public key and write-only storage credentials; encrypt all backups; keep existing plaintext backups until an encrypted backup and its restore are verified and deletion is separately approved. **Open:** the deputy must be explicitly named before a real recovery arrangement is considered | Ops / security | Backup key custody and encryption: who generates and holds the GPG private key (two copies), deputy, who may restore, who holds the storage read / delete credential; encrypt today's local backups and delete plaintext after verification | Owner generates the key offline and holds both copies (safe + password manager), one sealed deputy copy; server holds the public key and a write-only credential only; encrypt everything, delete plaintext after the first verified run | `14` Q2–Q3, `10` Q3–Q4 |
+| O12 ✅ **Resolved 2026-11-11** (`14` Q4): new mobile builds use `https://app.veetrax.com`; the old endpoint is preserved for existing installations. Mobile production build change and old-endpoint retirement need separate approval | Ops / product | Mobile server URL for new EAS builds (`eas.json` and code default point at `gps.mintplus.co.in`) | Switch new builds to `https://app.veetrax.com`; keep `gps.mintplus.co.in` proxying or redirecting until old installs update; owner confirms what it serves today | `14` Q4, `08` Q2 |
+| O13 (still open; `14` Q9 decided the test approach only) | Ops | Second WSL distro (`veetrax-test`) on the dev PC and a `--wsl-distro` option for `chaos-run.ts` (for Valkey 7.2 / systemd drills) | Approve (free, isolated from the dev stack) | `16` Q3, `14` Q9 |
 | O14 | Ops / data | Synthetic phone-number pattern `+91 00000 xxxxx` | Approve unless the SMS provider gives a reserved test range | `16` Q4, `11` Q9 |
 | O15 | Ops | CI: repository privacy and free Actions quota (≈ +1,000 min / month); move CI and test processes to Node 24 | Confirm quota, no paid overage; Node 24 in WP 1a.3 | `16` Q5–Q6 |
 | O16 | Ops / infra | Creating `btree_gist` on production (available 1.8, not installed, needs superuser): superuser deploy-user migration or install script | Install script as `postgres` (reviewed infra step), migration adds only the constraints; otherwise transactional checks only | `15` §8.2 / Q3 |
-| O17 | Ops | Gate operating parameters: G2 retry budget (DEAD after 5, sweeper 24 h, CRITICAL for SOS / CRASH); G3 `SKIPPED` also in dev; G6 severities and no automatic rollback; separate Valkey `maxmemory` item | Yes to the `14` defaults; `maxmemory` as a separate approved item after measuring | `14` Q5–Q8 |
-| O18 | Ops / access | Production touch points: Lead read-only access to the installed backup script and cron (G7 capture); who performs T5 steps (share-link creation, aggregate query, production build capture) | Approve read-only access with secrets redacted; T5 steps by the owner or Lead after each approved deploy, never agents | `14` Q11, `16` Q8 |
-| O19 | Ops / privacy | O9 scope: do the web `AttendancePage.tsx` Google Maps links count as existing hand-offs to keep? | Yes (user-initiated, existing) | `14` Q12 |
+| O17 ✅ **Resolved 2026-11-11** (`14` Q5–Q8): five deliveries, 24-hour sweep window, CRITICAL for SOS / CRASH; `SKIPPED` for unconfigured providers in development and production, historical records preserved; proposed health severities, no automatic rollback; `maxmemory` stays a separate future decision | Ops | Gate operating parameters: G2 retry budget (DEAD after 5, sweeper 24 h, CRITICAL for SOS / CRASH); G3 `SKIPPED` also in dev; G6 severities and no automatic rollback; separate Valkey `maxmemory` item | Yes to the `14` defaults; `maxmemory` as a separate approved item after measuring | `14` Q5–Q8 |
+| O18 ◐ **Partly resolved 2026-11-11** (`14` Q11): read-only, secrets-redacted inspection of the backup script and cron approved. **Open:** who performs the T5 steps (`16` Q8) | Ops / access | Production touch points: Lead read-only access to the installed backup script and cron (G7 capture); who performs T5 steps (share-link creation, aggregate query, production build capture) | Approve read-only access with secrets redacted; T5 steps by the owner or Lead after each approved deploy, never agents | `14` Q11, `16` Q8 |
+| O19 ✅ **Resolved 2026-11-11** (`14` Q12): existing attendance Google Maps links preserved under O9 | Ops / privacy | O9 scope: do the web `AttendancePage.tsx` Google Maps links count as existing hand-offs to keep? | Yes (user-initiated, existing) | `14` Q12 |
 | L8 | Legal / privacy | Use of a **copy of production data** (real personal data) for migration rehearsal or a G7 restore drill | **Synthetic, volume-scaled data only** (`12` §1, `16` §8 S2); a production copy only with explicit owner approval, on an owner-controlled host, destroyed afterwards | `15` Q8, `16` Q7 |
 | P1 | Product | Provider model details: customer may contract several providers; agreement approval in-app by both sides or Super Admin on paper; who creates customer companies; shuttle-stop ownership | Several providers allowed; both sides approve in-app (Super Admin may draft); Super Admin creates customer companies in E1b; stops customer-owned | `10` Q1–Q2, `04` Q3–Q4, `07` Q1 |
 | P2 | Product | Trip model: approve D2; one customer per trip vs pooled shuttles; recurring rosters vs daily trips | Approve D2; one customer per trip in R1 (pooling later via passenger rows); fixed shuttles via `Route` + `RouteSchedule`, door-to-door daily trips with "repeat to date" | `04` Q1–Q2, `03` Q1, `06` Q8, `07` Q2 |
@@ -281,6 +287,10 @@ recommended default only.** Unresolved: **33** (C1–C3, L1–L3, L5–L8, O1–
 E0.5 was **documentation and planning only**. Nothing was implemented, deployed, provisioned, bought, migrated or
 pushed; no code, schema, configuration, server or database was changed. **All eight D6 gate items (G1–G8) remain
 outstanding.** The owner reviews this section before authorising any implementation (§1.1).
+
+**Owner review of 2026-11-11 (§1.1):** v1.8.1 (G6, G1, G8 web, inert G4 installer edit) is **authorised for
+implementation and isolated testing only** on `feature/hardening-v1.8.1` from `origin/main`; nothing is deployed. All
+other patches are **on hold**. Corrections A–D were applied to `14`, and `14` §9 records the question resolutions.
 
 ### 9.1 The six directed items
 
@@ -323,22 +333,28 @@ outstanding.** The owner reviews this section before authorising any implementat
 13. **Routing branches:** local only, upstream `origin/main`, `push.default` unset. Owner instruction: no push, no merge.
     C4 / O7 now recommend an off-repo `git bundle` custody copy (not done; owner to approve).
 
-### 9.3 D6 patch plan (proposed in `14` §7; each patch needs its own owner approval — none is approved)
+### 9.3 D6 patch plan (proposed in `14` §7; status after the owner review of 2026-11-11 — no patch is approved for production)
 
-| Order | Patch | Contents | Migration / restart |
-|---|---|---|---|
-| 1 | **v1.8.1** | G6 health checks + `release.sh` gate; G1 share-page line; G8 web part (share-page style, self-hosted fallbacks, dist check); G4 `install-ubuntu.sh` edit (inert on the running host) | API restart + web build; no migration |
-| 2 | **v1.8.2** | G5 session-bound sockets (E1a entry dependency) | API restart; no migration |
-| 3 | Ops window | G4 production AOF switch (`CONFIG SET`, no restart), after the private-Valkey drill | none |
-| 4 | **v1.8.3** | G2 + G3 notifier durability and truthful status | additive migration (`Alert.notifiedAt`, `NotificationLog` columns) + restarts |
-| 5 | **v1.8.4** | G7 phase A: repo kit, systemd timer, local GPG encryption incl. uploads, freshness check | API restart; production timer install |
-| 6 | Ops | G7 phase B: off-site store (O10), restore drill, retire the GitHub Release flow | none; needs purchase approval |
-| parallel | Mobile build | G8 mobile: EAS profiles and config defaults, after the server-URL decision (O12) | none; store submission |
+| Order | Patch | Contents | Migration / restart | Status (2026-11-11) |
+|---|---|---|---|---|
+| 1 | **v1.8.1** | G6 health checks + `release.sh` gate; G1 share-page line; G8 web part (share-page style, self-hosted fallbacks, dist check); G4 `install-ubuntu.sh` edit (inert on the running host; fresh installs only) | API restart + web build; no migration | **Authorised — implementation in progress, not deployed.** Implementation and isolated testing only, branch `feature/hardening-v1.8.1` from `origin/main`; production deployment / restart needs separate approval |
+| 2 | **v1.8.2** | G5 session-bound sockets (E1a entry dependency) | API restart; no migration | **On hold** — review after v1.8.1 |
+| 3 | Ops window | G4 production AOF switch (`CONFIG SET`, no restart), after the private-Valkey drill and the `14` G4 safety gate | none | **On hold** — separate maintenance approval; `maxmemory` a separate future decision |
+| 4 | **v1.8.3** | G2 + G3 notifier durability (at-least-once, no exactly-once promise) and truthful status | additive migration (`Alert.notifiedAt`, `NotificationLog` columns) + restarts | **On hold** — high-risk notifier change |
+| 5 | **v1.8.4** | G7 phase A: repo kit, systemd timer, local GPG encryption incl. uploads, freshness check | API restart; production timer install | **On hold** — separate review |
+| 6 | Ops | G7 phase B: off-site store (O10: S3 Mumbai confirmed), restore drill, retire the GitHub Release flow | none; needs purchase approval | **On hold** — purchase and provisioning not authorised |
+| parallel | Mobile build | G8 mobile: EAS profiles and config defaults; new builds use `https://app.veetrax.com` (O12), old endpoint `gps.mintplus.co.in` kept working | none; store submission | **On hold** — EAS build, store submission and old-endpoint retirement need separate approval |
 
 0.5-9 (permission ceiling, R-12) and 0.5-10 (SOS ack audit) are E1a entry items outside the gate (`12` §2.2); they are
 not yet assigned to a patch.
 
 ### 9.4 Not authorised
+
+*Updated 2026-11-11:* the v1.8.1 items (G6, G1, G8 web, inert G4 installer edit) are now authorised for
+implementation and isolated testing only, and free developer-only test tools are approved (O4, no production
+installation). Everything else below stays not authorised, in particular production deployment or restart, production
+Valkey changes, DB migrations, mobile store submission, purchases or provisioning, and destructive DB or backup
+operations.
 
 Implementation of any G-item or WP; any production deployment or production configuration change (including the
 Valkey AOF switch and the backup timer); any migration run or extension install (`btree_gist`); buying or provisioning
@@ -348,7 +364,9 @@ outside production; destructive database changes.
 
 ### 9.5 Unresolved owner decisions after E0.5
 
-**33 unresolved** (§7): C1–C3; L1–L3, L5–L8; O1–O7, O10–O19; P1–P6. Approved: P7 (D1–D8), L4, O8, O9.
+**Updated 2026-11-11 after the `14` review: 28 unresolved** (§7): C1–C3; L1–L3, L5–L8; O1–O3, O5–O7, O11 (deputy
+not named), O13–O16, O18 (T5 steps); P1–P6. Approved: P7 (D1–D8), L4, O8, O9. Resolved 2026-11-11: O4, O10 (purchase
+not authorised), O12, O17, O19. *(Before the review: 33 unresolved.)*
 New in E0.5: **O10** off-site provider confirmation (S3 Mumbai) and purchase; **O11** key custody and encryption;
 **O12** mobile server URL; **O13** second WSL distro; **O14** synthetic phone pattern; **O15** CI quota and Node 24;
 **O16** `btree_gist` creation path; **O17** gate operating parameters; **O18** production touch points (read-only
@@ -357,4 +375,6 @@ rehearsal or restore drills. Updated in E0.5: **C3** (separate staging host), **
 **O7** (`git bundle` custody instead of a push).
 
 Needed first, in the Lead's view: O1 for v1.8.1 (closes the live share-page breach and G1), O12 and O18 (unblock G8
-mobile and the G7 capture), O10 / O11 (G7), C3 (E4 benchmarks), O7 (single-copy risk).
+mobile and the G7 capture), O10 / O11 (G7), C3 (E4 benchmarks), O7 (single-copy risk). *2026-11-11: O12, O10 and the
+O18 backup-capture part are decided; v1.8.1 is authorised for implementation only, so O1 (its deployment), the O11
+deputy name, C3 and O7 remain the first open items.*
