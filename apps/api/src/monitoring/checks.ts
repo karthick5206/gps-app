@@ -37,6 +37,26 @@ export interface CheckInput {
   lastPersistedAt?: number | null;
   /** Map-service probes (map-services.ts). Undefined: not collected. */
   maps?: MapServiceState[];
+  /**
+   * D6 G2 alert notification state from PostgreSQL (SystemHealthService.notifyBacklog). Undefined: not collected;
+   * null: the database could not be asked (the database.* issues report that).
+   */
+  notify?: NotifyBacklog | null;
+}
+
+/** Alert types whose DEAD notification job is CRITICAL (D6 G2, owner decision: SOS / CRASH). */
+export const CRITICAL_NOTIFY_TYPES: readonly string[] = ['SOS', 'CRASH'];
+
+/** DEAD and un-notified alerts (D6 G2), two indexed counts on "Alert". */
+export interface NotifyBacklog {
+  /** Alerts whose notification job was declared DEAD ("notifyError") in the last notifyDeadWindowHours, per type. */
+  dead: { type: string; count: number; latestId: string; latestError: string }[];
+  /** Alerts without a finished job (notifiedAt / notifyError NULL, ≤ 24 h) older than notifyUnqueuedWarnMin. */
+  unqueued: number;
+  /** … of which older than notifyUnqueuedCritMin. */
+  unqueuedCrit: number;
+  /** Age of the oldest of them; null when there is none. */
+  oldestUnqueuedSec: number | null;
 }
 
 export type Issue = Omit<HealthIssue, 'since'>;
@@ -213,6 +233,49 @@ function notifierChecks(input: CheckInput, t: HealthThresholds, out: Issue[]): v
   }
 }
 
+/**
+ * D6 G2 (spec G2 Proposed change §5, acceptance #2):
+ * - pipeline.notify-dead: an alert's notification job used up its 5 deliveries; its recipients were not notified and
+ *   nothing retries it. CRITICAL when any of them is SOS / CRASH, else WARN.
+ * - pipeline.notify-unqueued: alerts without a finished job after notifyUnqueuedWarnMin (WARN) / notifyUnqueuedCritMin
+ *   (CRITICAL); the sweeper should have re-queued them within ~2 min, so the notifier or Valkey is not working.
+ * Both come from PostgreSQL (survive notifier restarts), not from the heartbeat's in-memory counters.
+ */
+function notifyBacklogChecks(input: CheckInput, t: HealthThresholds, out: Issue[]): void {
+  const n = input.notify;
+  if (!n) return;
+  const dead = n.dead.reduce((s, d) => s + d.count, 0);
+  if (dead > 0) {
+    const critical = n.dead.filter((d) => CRITICAL_NOTIFY_TYPES.includes(d.type));
+    const criticalCount = critical.reduce((s, d) => s + d.count, 0);
+    const latest = (critical[0] ?? n.dead[0])!;
+    const types = n.dead.map((d) => `${d.type} ${d.count}`).join(', ');
+    out.push({
+      id: 'pipeline.notify-dead',
+      check: 'alert notifications (DEAD)',
+      section: 'pipeline',
+      severity: criticalCount ? 'CRITICAL' : 'WARN',
+      message:
+        `${fmt(dead)} alert notification job(s) are DEAD in the last ${t.notifyDeadWindowHours} h${criticalCount ? ` (${fmt(criticalCount)} SOS / CRASH)` : ''}: ` +
+        `their recipients were not notified and nothing retries them (${types}). Latest: alert ${latest.latestId} (${latest.type}): ${latest.latestError.slice(0, 160)}. ` +
+        'Fix the cause, then set "notifyError" = NULL on the alert to let the sweeper retry it.',
+    });
+  }
+  if (n.unqueued > 0) {
+    const crit = n.unqueuedCrit > 0;
+    out.push({
+      id: 'pipeline.notify-unqueued',
+      check: 'alert notifications (pending)',
+      section: 'pipeline',
+      severity: crit ? 'CRITICAL' : 'WARN',
+      message:
+        `${fmt(n.unqueued)} alert(s) have no finished notification job after ${t.notifyUnqueuedWarnMin} min` +
+        `${n.oldestUnqueuedSec !== null ? ` (oldest ${minutes(n.oldestUnqueuedSec)})` : ''}${crit ? `, ${fmt(n.unqueuedCrit)} of them older than ${t.notifyUnqueuedCritMin} min` : ''}. ` +
+        'The notifier re-queues them every 30 s: check that the notifier is running and Valkey is reachable.',
+    });
+  }
+}
+
 /** Data forwarding targets (from gateway / notifier heartbeats) failing for more than 5 minutes. */
 function relayChecks(input: CheckInput, out: Issue[]): void {
   const instances = input.processes.flatMap((p) => p.instances);
@@ -335,6 +398,7 @@ export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] 
   queueChecks(input, t, out);
   storeChecks(input, t, out);
   notifierChecks(input, t, out);
+  notifyBacklogChecks(input, t, out);
   relayChecks(input, out);
   mapChecks(input, out);
   return out.sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.id.localeCompare(b.id));

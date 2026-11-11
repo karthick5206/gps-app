@@ -68,10 +68,13 @@ export class RulesBatch {
     const out: Prisma.PrismaPromise<number>[] = [];
     const a = this.alerts;
     if (a.length) {
+      // "createdAt" (timestamp without time zone) is written explicitly in UTC, as Prisma does: the column default
+      // CURRENT_TIMESTAMP would store the session TimeZone's wall clock, while the notify sweeper (D6 G2) and the
+      // Prisma-written alerts treat the column as UTC.
       out.push(prisma.$executeRaw`
         INSERT INTO "Alert" ("id", "companyId", "objectId", "deviceId", "type", "severity", "message", "lat", "lng",
-                             "geofenceId", "data", "occurredAt", "ackRequired")
-        SELECT * FROM unnest(
+                             "geofenceId", "data", "occurredAt", "ackRequired", "createdAt")
+        SELECT *, (now() AT TIME ZONE 'UTC') FROM unnest(
           ${a.map((x) => x.id)}::text[]::uuid[],
           ${a.map((x) => x.object.companyId)}::text[]::uuid[],
           ${a.map((x) => x.object.objectId)}::text[]::uuid[],

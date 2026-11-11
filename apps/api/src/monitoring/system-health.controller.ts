@@ -155,6 +155,8 @@ export class MetricsController {
           const nm = p.metrics as NotifierMetrics;
           for (const [channel, n] of Object.entries(nm.sent)) m.add('vt_notifier_sent_total', 'Notifications sent since start', 'counter', n, { ...l, channel });
           for (const [channel, n] of Object.entries(nm.failed)) m.add('vt_notifier_failed_total', 'Notifications failed since start', 'counter', n, { ...l, channel });
+          m.add('vt_notifier_dead_jobs_total', 'Notification jobs declared DEAD since start', 'counter', nm.deadJobs ?? 0, l);
+          if (typeof nm.unnotifiedAlerts === 'number') m.add('vt_notifier_unnotified_alerts', 'Alerts without a finished notification job at the last sweep', 'gauge', nm.unnotifiedAlerts, l);
         }
         if (p.role === 'gateway') {
           for (const g of (p.metrics as GatewayMetrics).listeners) {

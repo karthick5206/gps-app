@@ -97,7 +97,19 @@ export interface NotifierMetrics {
   sent: Record<string, number>;
   failed: Record<string, number>;
   skipped: number;
+  /** Last failure of any kind (overwritten by the next one; see lastDead for DEAD jobs). */
   lastError: HealthError | null;
+  /** D6 G2: notification jobs declared DEAD (delivery budget used up) since start. */
+  deadJobs?: number;
+  /** D6 G2: the last DEAD job (kept apart from lastError, so later ordinary failures do not hide it). */
+  lastDead?: HealthError | null;
+  /**
+   * D6 G2 sweeper (only on the instance that holds the sweep lock): alerts older than 60 s without a finished
+   * notification job found by the last sweep (capped at the sweep batch, 500), when it ran, and re-queued since start.
+   */
+  unnotifiedAlerts?: number | null;
+  lastSweepAt?: string | null;
+  sweptAlerts?: number;
   /** HTTP_JSON data forwarding targets handled by this notifier. */
   relay?: RelayTargetStats[];
 }

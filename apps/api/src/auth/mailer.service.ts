@@ -46,6 +46,15 @@ export function keepMailCopies(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NODE_ENV !== 'production' || env.MAIL_KEEP_COPIES === 'true';
 }
 
+/**
+ * Subject for log lines: every run of 4+ digits is masked, so sign-in / activation / reset codes (e.g. "483920 is your
+ * VeeTrax sign-in code") and phone numbers in subjects never reach journald; a link (a company template could put
+ * {{reset_link}} in the subject) is replaced by [link].
+ */
+export function logSubject(subject: string): string {
+  return subject.replace(/https?:\/\/\S+/gi, '[link]').replace(/\d{4,}/g, '******');
+}
+
 /** M1 mailer: renders through nodemailer's stream transport and writes the HTML body to var/mail/ (dev / opt-in). */
 @Injectable()
 export class MailerService {
@@ -73,8 +82,8 @@ export class MailerService {
     if (!keepMailCopies()) {
       // Production: deliver through the real channel only; never store content on disk.
       const messageId = await this.deliver(message);
-      if (!this.provider) this.logger.warn(`Mail "${message.subject}" to ${message.to} NOT DELIVERED: no mail provider configured (content withheld in production)`);
-      else this.logger.log(`Mail "${message.subject}" to ${message.to} sent via ${this.provider}`);
+      if (!this.provider) this.logger.warn(`Mail "${logSubject(message.subject)}" to ${message.to} NOT DELIVERED: no mail provider configured (content withheld in production)`);
+      else this.logger.log(`Mail "${logSubject(message.subject)}" to ${message.to} sent via ${this.provider}`);
       return { provider: this.provider, messageId, file: '' };
     }
     const { messageId: _stable, ...copy } = message;
@@ -95,7 +104,7 @@ export class MailerService {
     }
     const messageId = await this.deliver(message);
     const extra = message.attachments?.length ? ` (+${message.attachments.length} attachment(s), ${stem}.eml)` : '';
-    this.logger.log(`Mail "${message.subject}" to ${message.to} written to ${file}${extra}`);
+    this.logger.log(`Mail "${logSubject(message.subject)}" to ${message.to} written to ${file}${extra}`);
     return { provider: this.provider, messageId, file };
   }
 

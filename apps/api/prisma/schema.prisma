@@ -1007,7 +1007,7 @@ model Alert {
   /// D6 G2: set when the job was declared DEAD (delivery budget used up); excludes the alert from the sweeper.
   notifyError String?
 
-  /// D6 G2 sweeper: partial index "Alert_notify_pending_idx" (createdAt WHERE notifiedAt IS NULL AND notifyError IS NULL …) lives in the migration.
+  /// D6 G2 sweeper: partial index "Alert_notify_pending_idx" (createdAt WHERE notifiedAt IS NULL AND notifyError IS NULL …) and System Health "Alert_notify_dead_idx" (createdAt WHERE notifyError IS NOT NULL) live in the migration.
   @@index([companyId, occurredAt(sort: Desc)])
   @@index([objectId, occurredAt(sort: Desc)])
   /// Unread count / NEW filters: company + status + recent first.
@@ -1046,7 +1046,7 @@ model NotificationLog {
   nextAttemptAt     DateTime? @db.Timestamptz(3)
   /// D6 G3: provider message / ticket / request id where the provider returns one.
   providerMessageId String?
-  /// D6 G2: alertId:channel:recipient; unique when set (partial unique index "NotificationLog_dedupeKey_key" in the migration).
+  /// D6 G2: alertId:CHANNEL:<HMAC-SHA256 of the recipient> (no address in clear); unique when set (partial unique index "NotificationLog_dedupeKey_key" in the migration).
   dedupeKey         String?
 
   @@index([alertId])

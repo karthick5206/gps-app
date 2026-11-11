@@ -63,6 +63,8 @@ export class NotifySweeper {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   readonly totals = { ticks: 0, alerts: 0, logs: 0, errors: 0 };
+  /** Last sweep that held the lock: alerts without a finished job it found (≤ batch) and when (notifier metrics). */
+  private last: { found: number; at: number } | null = null;
 
   constructor(
     private readonly db: Db,
@@ -71,6 +73,11 @@ export class NotifySweeper {
     private readonly clock: () => number = Date.now,
   ) {
     this.opts = { ...DEFAULT_SWEEPER_OPTIONS, ...opts };
+  }
+
+  /** For NotifierMetrics (D6 G2): null until this instance swept once (another instance may hold the lock). */
+  stats(): { unnotifiedAlerts: number | null; lastSweepAt: string | null; sweptAlerts: number } {
+    return { unnotifiedAlerts: this.last?.found ?? null, lastSweepAt: this.last ? new Date(this.last.at).toISOString() : null, sweptAlerts: this.totals.alerts };
   }
 
   start(): void {
@@ -130,7 +137,9 @@ export class NotifySweeper {
   }
 
   private async sweepAlerts(tx: Tx): Promise<number> {
-    // "createdAt" is a timestamp without time zone holding UTC; the floor literal must match the partial index.
+    // "createdAt" is a timestamp without time zone holding UTC: every producer writes UTC (Prisma, and the processor's
+    // raw INSERT sets it to now() AT TIME ZONE 'UTC'), and the bounds are now() AT TIME ZONE 'UTC', so the comparison
+    // does not depend on the session TimeZone. The floor literal must match the partial index.
     const rows = await tx.$queryRaw<{ id: string; companyId: string }[]>`
       SELECT "id", "companyId" FROM "Alert"
        WHERE "notifiedAt" IS NULL AND "notifyError" IS NULL
@@ -139,6 +148,7 @@ export class NotifySweeper {
          AND "createdAt" > (now() AT TIME ZONE 'UTC') - (${this.opts.windowMs}::bigint * interval '1 millisecond')
        ORDER BY "createdAt"
        LIMIT ${this.opts.batch}`;
+    this.last = { found: rows.length, at: this.clock() };
     const due = rows.filter((r) => this.due(`a:${r.id}`));
     if (!due.length) return 0;
     const pipeline = this.redis.pipeline();

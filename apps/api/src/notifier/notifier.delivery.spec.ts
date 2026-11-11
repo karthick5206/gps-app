@@ -58,6 +58,26 @@ describe('NotifierService.processAll (D6 G2 retry budget)', () => {
     expect(svc.metrics().lastError?.message).toContain('DEAD alert a1');
   });
 
+  it('DEAD state stays visible in metrics: deadJobs + lastDead survive later ordinary failures (M1)', async () => {
+    const { svc } = makeNotifier();
+    const handle = jest.spyOn(svc, 'handleAlert').mockRejectedValue(new Error('template broken'));
+    await svc.processAll([job('1-0', 'a1')], new Map([['1-0', 5]]));
+    handle.mockRejectedValue(new Error('db blip'));
+    await svc.processAll([job('2-0', 'a2')], new Map([['2-0', 1]]));
+    const m = svc.metrics();
+    expect(m.lastError?.message).toBe('db blip'); // overwritten, as before …
+    expect(m.deadJobs).toBe(1); // … but the DEAD counter and record are kept apart
+    expect(m.lastDead?.message).toBe('DEAD alert a1: dead after 5 deliveries: template broken');
+    expect(m.lastDead?.at).toEqual(expect.any(String));
+  });
+
+  it('metrics carry the sweeper counts (un-notified alerts at the last sweep)', async () => {
+    const { svc } = makeNotifier();
+    expect(svc.metrics()).toMatchObject({ deadJobs: 0, lastDead: null, unnotifiedAlerts: null, lastSweepAt: null, sweptAlerts: 0 });
+    svc.attachSweeper({ stats: () => ({ unnotifiedAlerts: 7, lastSweepAt: '2026-11-14T10:00:00.000Z', sweptAlerts: 12 }) });
+    expect(svc.metrics()).toMatchObject({ unnotifiedAlerts: 7, lastSweepAt: '2026-11-14T10:00:00.000Z', sweptAlerts: 12 });
+  });
+
   it('a job redelivered beyond the budget is DEAD without running (poison job)', async () => {
     const { svc, redis, prisma } = makeNotifier();
     const handle = jest.spyOn(svc, 'handleAlert').mockResolvedValue(undefined);
@@ -124,6 +144,26 @@ describe('NotifierService per-recipient dedupe (D6 G2)', () => {
     expect(row.status).toBe('FAILED');
     expect(row.error).toBe('abandoned after 3 lease takeovers');
     expect(sms.calls).toBe(4); // 1 original + 3 takeovers = the documented bound (3 extra)
+  });
+
+  it('stores and logs no recipient address: hashed dedupe key, takeover log names the row only (PII)', async () => {
+    let hang = true;
+    const sms = new FakeSms(true, () => (hang ? new Promise(() => undefined) : { provider: 'fake', messageId: 'S-1' }));
+    const { svc, ledger } = makeNotifier({ sms });
+    const warn = jest.spyOn((svc as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn').mockImplementation(() => undefined);
+    const deliver = deliverOf(svc);
+    void deliver(alert, 'SMS', r('+919800000001'), msg);
+    await new Promise((res) => setImmediate(res));
+    ledger.expireLeases();
+    hang = false;
+    await deliver(alert, 'SMS', r('+919800000001'), msg);
+    const row = ledger.list[0];
+    expect(row.dedupeKey).toMatch(new RegExp(`^${alert.id}:SMS:[0-9a-f]{64}$`));
+    expect(row.dedupeKey).not.toContain('9800000001');
+    const logged = warn.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(logged).toContain(`Taking over SMS row ${row.id} of alert ${alert.id}`);
+    expect(logged).not.toContain('9800000001');
+    expect(logged).not.toContain(row.dedupeKey);
   });
 });
 

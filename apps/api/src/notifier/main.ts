@@ -33,6 +33,7 @@ async function main(): Promise<void> {
   const heartbeat = startHeartbeat(redis.client, 'notifier', () => ({ ...notifier.metrics(), relay: relay.snapshot() }));
   // D6 G2: re-queues alerts whose notification job was lost (XADD failed, crash, Valkey restart); one instance at a time.
   const sweeper = new NotifySweeper(app.get(PrismaService), redis.client);
+  notifier.attachSweeper(sweeper);
   sweeper.start();
   const shutdown = () => {
     Logger.log('Stopping after the current jobs…', 'Notifier');

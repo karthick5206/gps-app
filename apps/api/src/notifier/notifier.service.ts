@@ -24,8 +24,9 @@ import { createPushProvider, PushProvider, pushStyle } from './push';
 import { ArattaiOtp } from './arattai';
 import { createSmsProvider, SmsProvider } from './sms';
 import { notConfiguredReason, outcome, writesDevCopy } from './delivery-outcome';
-import { dedupeKey, deadBeforeRun, deadReason, MAX_DELIVERIES, onJobFailure, providerRef } from './delivery-state';
+import { dedupeKey, deadBeforeRun, deadReason, maskRecipient, MAX_DELIVERIES, onJobFailure, providerRef } from './delivery-state';
 import { FinishInput, NotificationLedger } from './notification-ledger';
+import type { NotifySweeper } from './notify-sweeper';
 
 const READ_COUNT = 50;
 const BLOCK_MS = 2000;
@@ -79,6 +80,10 @@ export class NotifierService {
   private readonly ledger: NotificationLedger;
   /** Jobs declared DEAD since start (delivery budget used up). */
   deadJobs = 0;
+  /** Last DEAD job; separate from lastError, which the next ordinary failure overwrites (D6 G2). */
+  private lastDead: { message: string; at: string } | null = null;
+  /** The sweeper of this process (notifier/main.ts), for the un-notified alert counts in the heartbeat. */
+  private sweeper: Pick<NotifySweeper, 'stats'> | null = null;
   private readonly lists = new Map<string, { rows: RecipientListRow[]; at: number }>();
   private readonly templates = new Map<string, { rows: MessageTemplate[]; at: number }>();
   private stopping = false;
@@ -117,7 +122,12 @@ export class NotifierService {
     await Promise.allSettled([...this.deferred]);
   }
 
+  attachSweeper(sweeper: Pick<NotifySweeper, 'stats'>): void {
+    this.sweeper = sweeper;
+  }
+
   metrics(): NotifierMetrics {
+    const sweep = this.sweeper?.stats();
     return {
       jobs: this.totals.jobs,
       jobsPerSec: this.jobRate.rate(this.totals.jobs),
@@ -125,6 +135,11 @@ export class NotifierService {
       failed: { ...this.totals.failed },
       skipped: this.totals.skipped,
       lastError: this.lastError,
+      deadJobs: this.deadJobs,
+      lastDead: this.lastDead,
+      unnotifiedAlerts: sweep?.unnotifiedAlerts ?? null,
+      lastSweepAt: sweep?.lastSweepAt ?? null,
+      sweptAlerts: sweep?.sweptAlerts ?? 0,
     };
   }
 
@@ -294,7 +309,8 @@ export class NotifierService {
     }
     await this.redis.client.xack(RedisKeys.notifyStream, RedisKeys.notifierGroup, job.id);
     this.deadJobs++;
-    this.lastError = { message: `DEAD ${job.alertId ? `alert ${job.alertId}` : `job ${job.id}`}: ${reason}`.slice(0, 300), at: new Date().toISOString() };
+    this.lastDead = { message: `DEAD ${job.alertId ? `alert ${job.alertId}` : `job ${job.id}`}: ${reason}`.slice(0, 300), at: new Date().toISOString() };
+    this.lastError = this.lastDead;
     this.logger.error(`Job ${job.id} is DEAD (${job.alertId ? `alert ${job.alertId}` : `${job.logIds.length} message(s)`}): ${reason}`);
   }
 
@@ -429,7 +445,7 @@ Driver event: ${link}`,
    * Returns 'busy' when another worker holds a live lease on the row (nothing was sent here).
    */
   private async deliver(alert: Alert, channel: NotifyChannel, r: Recipient, msg: Rendered, attachments?: MailAttachment[]): Promise<'done' | 'busy'> {
-    const key = dedupeKey(alert.id, channel, r.address);
+    const key = dedupeKey(alert.id, channel, r.address, this.env?.jwtSecret);
     const claim = await this.ledger.claim({
       companyId: alert.companyId,
       alertId: alert.id,
@@ -443,7 +459,8 @@ Driver event: ${link}`,
     if (claim.kind === 'busy') return 'busy';
     if (claim.kind === 'abandoned') this.count(channel, 'FAILED', 'abandoned after lease takeovers');
     if (claim.kind !== 'claimed') return 'done';
-    if (claim.takeover) this.logger.warn(`Taking over ${key} (lease expired; a duplicate external message is possible if the earlier send was accepted)`);
+    // Row id + alert id only: the dedupe key is opaque, and no recipient address is logged (no PII in journald).
+    if (claim.takeover) this.logger.warn(`Taking over ${channel} row ${claim.id} of alert ${alert.id} (lease expired; a duplicate external message is possible if the earlier send was accepted)`);
     const res = await this.attemptAlert(alert, channel, r, msg, key, attachments);
     await this.ledger.finish(claim.id, claim.attempts, res);
     this.count(channel, res.status, res.error);
@@ -505,7 +522,7 @@ Driver event: ${link}`,
       if (writesDevCopy()) {
         devCopy = await this.send(channel, to, msg, null, attachments).then(
           () => true,
-          (e: Error) => (this.logger.warn(`Development copy of ${channel} to ${to} failed: ${e.message}`), false),
+          (e: Error) => (this.logger.warn(`Development copy of ${channel} to ${maskRecipient(to)} failed: ${e.message}`), false),
         );
       }
       return { ...outcome({ channel, configured: false, devCopy }), provider, sendAttempts: 0 };

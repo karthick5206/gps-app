@@ -125,4 +125,20 @@ describe('NotifySweeper (D6 G2)', () => {
     expect((await sweeper.tick()).logs).toBe(120);
     expect(xadds.map((a) => (JSON.parse(a[6] as string) as string[]).length)).toEqual([50, 50, 20]);
   });
+
+  it('reports the un-notified alerts found by the last sweep for the notifier heartbeat (M1)', async () => {
+    const { sweeper, clock } = setup({ alerts: [{ id: 'a1', companyId: 'c1' }, { id: 'a2', companyId: 'c1' }] });
+    expect(sweeper.stats()).toEqual({ unnotifiedAlerts: null, lastSweepAt: null, sweptAlerts: 0 });
+    await sweeper.tick();
+    expect(sweeper.stats()).toEqual({ unnotifiedAlerts: 2, lastSweepAt: '2026-11-14T10:00:00.000Z', sweptAlerts: 2 });
+    clock.advance(30_000);
+    await sweeper.tick(); // still found (not re-queued again within 5 min): the count stays visible
+    expect(sweeper.stats()).toMatchObject({ unnotifiedAlerts: 2, lastSweepAt: '2026-11-14T10:00:30.000Z', sweptAlerts: 2 });
+  });
+
+  it('without the lock it reports nothing (another instance sweeps)', async () => {
+    const { sweeper } = setup({ locked: false, alerts: [{ id: 'a1', companyId: 'c1' }] });
+    await sweeper.tick();
+    expect(sweeper.stats().unnotifiedAlerts).toBeNull();
+  });
 });

@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+import { NOTIFY_SWEEP_FLOOR } from '../notifier/notify-sweeper';
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { AppEnv } from '../config/env';
@@ -93,5 +95,42 @@ describe('SystemHealthService.collect with stubbed map services', () => {
     const r = await round(Date.parse('2026-11-11T11:00:00Z'));
     expect(r.martin).toMatchObject({ configured: true, ok: true, status: 'OK' });
     expect(r.mapIssues).toEqual([]);
+  });
+});
+
+describe('SystemHealthService alert notification checks (D6 G2)', () => {
+  it('collect → input.notify → pipeline.notify-dead CRITICAL for a DEAD SOS job', async () => {
+    const svc = service('http://127.0.0.1:1');
+    jest.spyOn(svc.mapServices, 'collect').mockResolvedValue([]);
+    jest.spyOn(svc, 'notifyBacklog').mockResolvedValue({ dead: [{ type: 'SOS', count: 1, latestId: 'a-sos', latestError: 'dead after 5 deliveries: boom' }], unqueued: 0, unqueuedCrit: 0, oldestUnqueuedSec: null });
+    const c = await svc.collect(Date.parse('2026-11-14T10:00:00Z'));
+    const dto = svc.toDto(c, [], []);
+    expect(dto.issues.map((i) => `${i.id}:${i.severity}`)).toEqual(['pipeline.notify-dead:CRITICAL']);
+    expect(dto.status).toBe('CRITICAL');
+  });
+
+  it('notifyBacklog: two indexed, time-zone-safe counts; null when the database fails', async () => {
+    const sql: Prisma.Sql[] = [];
+    const prisma = {
+      $queryRaw: jest.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        const q = Prisma.sql(strings, ...values);
+        sql.push(q);
+        return q.sql.includes('"notifyError" IS NOT NULL')
+          ? [{ type: 'CRASH', count: 2, latestId: 'a1', latestError: 'dead after 5 deliveries: x' }]
+          : [{ unqueued: 3, crit: 1, oldest: 1900.5 }];
+      }),
+    };
+    const svc = new SystemHealthService(prisma as unknown as PrismaService, {} as RedisService, {} as AppEnv);
+    expect(await svc.notifyBacklog()).toEqual({ dead: [{ type: 'CRASH', count: 2, latestId: 'a1', latestError: 'dead after 5 deliveries: x' }], unqueued: 3, unqueuedCrit: 1, oldestUnqueuedSec: 1900.5 });
+    const [dead, pending] = sql;
+    expect(dead.sql).toContain(`"createdAt" > (now() AT TIME ZONE 'UTC') - (`);
+    expect(dead.values).toEqual([24]);
+    // Same predicate + constant floor as the partial index "Alert_notify_pending_idx" (and the sweeper).
+    expect(pending.sql).toContain('"notifiedAt" IS NULL AND "notifyError" IS NULL');
+    expect(pending.sql).toContain(`TIMESTAMP '${NOTIFY_SWEEP_FLOOR}'`);
+    expect(pending.sql).not.toMatch(/current_setting|LOCALTIMESTAMP|CURRENT_TIMESTAMP/i);
+    expect(pending.values).toEqual([30, 5]);
+    prisma.$queryRaw.mockRejectedValue(new Error('down'));
+    expect(await svc.notifyBacklog()).toBeNull();
   });
 });

@@ -6,6 +6,10 @@ import { dedupeKey, MAX_TAKEOVERS } from './delivery-state';
 import { NotificationLedger } from './notification-ledger';
 import { NotifierService } from './notifier.service';
 import { NotifySweeper } from './notify-sweeper';
+import { evaluateChecks } from '../monitoring/checks';
+import { SystemHealthService } from '../monitoring/system-health.service';
+import { loadThresholds } from '../monitoring/thresholds';
+import { RulesBatch } from '../processor/rules/rules-engine';
 import { FakeMailer, FakeSms } from './notifier.spec-helpers';
 import type { SmsMessage, SmsResult } from './sms';
 
@@ -322,6 +326,45 @@ d('D6 G2 / G3 durable notifications (real DB + Valkey db 1)', () => {
     await healthy.svc.processAll([{ id: '2-0', alertId: b, logIds: [] }], new Map([['2-0', 2]]));
     expect(healthy.xack).toHaveBeenCalledWith('vt:notify', 'notifier', '2-0');
     expect(await prisma.notificationLog.findMany({ where: { alertId: b } })).toEqual([expect.objectContaining({ status: 'SENT' })]);
+  });
+
+  it('M1: System Health sees DEAD (CRITICAL for SOS) and un-notified alerts in the real DB', async () => {
+    const health = new SystemHealthService(prisma as never, {} as never, {} as never);
+    const before = (await health.notifyBacklog())!;
+    const sos = { id: randomUUID(), companyId: ids.company, objectId: ids.object, type: 'SOS', severity: 'CRITICAL' as const, message: 'SOS', occurredAt: new Date(), createdAt: new Date(Date.now() - 120_000) };
+    await prisma.alert.create({ data: sos });
+    const failing = notifier({ rulesThrow: new Error('injected permanent fault') });
+    await failing.svc.processAll([{ id: '9-0', alertId: sos.id, logIds: [] }], new Map([['9-0', 5]]));
+    expect(failing.svc.metrics()).toMatchObject({ deadJobs: 1, lastDead: expect.objectContaining({ message: expect.stringContaining(`DEAD alert ${sos.id}`) }) });
+    const [stuck] = await makeAlerts(1, 10 * 60_000); // 10 min old, never notified
+    const after = (await health.notifyBacklog())!;
+    expect(after.dead.find((d) => d.type === 'SOS')).toMatchObject({ count: (before.dead.find((d) => d.type === 'SOS')?.count ?? 0) + 1, latestId: sos.id });
+    expect(after.unqueued).toBeGreaterThanOrEqual(before.unqueued + 1);
+    const issues = evaluateChecks({ now: Date.now(), expectedRoles: [], processes: [], ports: [], queues: [], database: { reachable: true } as never, valkey: { reachable: false } as never, host: { diskFreePercent: null } as never, notifications: null, startupGrace: false, notify: after }, loadThresholds({}));
+    expect(issues.filter((i) => i.id.startsWith('pipeline.notify')).map((i) => `${i.id}:${i.severity}`)).toEqual(['pipeline.notify-dead:CRITICAL', 'pipeline.notify-unqueued:WARN']);
+    await prisma.alert.updateMany({ where: { id: { in: [stuck] } }, data: { notifiedAt: new Date() } });
+  });
+
+  it('PII: dedupe keys in the DB hold a keyed hash, never the recipient address', async () => {
+    const rows = await prisma.notificationLog.findMany({ where: { companyId: ids.company, dedupeKey: { not: null } }, select: { recipient: true, dedupeKey: true, alertId: true, channel: true } });
+    expect(rows.length).toBeGreaterThan(100);
+    for (const r of rows) {
+      expect(r.dedupeKey).toMatch(/^[0-9a-f-]{36}:[A-Z]+:[0-9a-f]{64}$/);
+      expect(r.dedupeKey).not.toContain(r.recipient.trim().toLowerCase());
+      expect(r.dedupeKey).toBe(dedupeKey(r.alertId!, r.channel, r.recipient));
+    }
+  });
+
+  it('time zone: the processor raw INSERT stores createdAt in UTC under a non-UTC session TimeZone', async () => {
+    const id = randomUUID();
+    const batch = new RulesBatch(null as never, [{ id, type: 'OVERSPEED', severity: 'WARNING', message: 'tz', occurredAt: Date.now(), lat: null, lng: null, geofenceId: null, geofenceName: null, data: {}, ackRequired: false, object: { objectId: ids.object, companyId: ids.company, branchId: null, name: 'TN', plateNumber: null, deviceId: null, speedLimitKph: null } }] as never, [], [], new Map());
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL TimeZone = 'Asia/Kolkata'`;
+      for (const s of batch.statements(tx as never)) await s;
+    });
+    const [{ skew }] = await prisma.$queryRaw<{ skew: number }[]>`SELECT abs(EXTRACT(EPOCH FROM ("createdAt" - (now() AT TIME ZONE 'UTC'))))::float8 AS skew FROM "Alert" WHERE id = ${id}::uuid`;
+    expect(skew).toBeLessThan(60); // UTC wall clock, not +5:30
+    await prisma.alert.updateMany({ where: { id }, data: { notifiedAt: new Date() } });
   });
 
   it('Valkey semantics the retry budget relies on: XPENDING times_delivered grows with each XAUTOCLAIM', async () => {

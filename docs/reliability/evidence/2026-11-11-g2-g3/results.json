@@ -1,12 +1,12 @@
 {
-  "run": "a9658555",
-  "date": "2026-11-11T08:12:52.369Z",
+  "run": "c278a29c",
+  "date": "2026-11-11T08:45:33.649Z",
   "xaddFailRecovery": {
     "alerts": 100,
     "recipients": 300,
     "lost": 0,
     "duplicateDbRecords": 0,
-    "recoveryMs": 1286
+    "recoveryMs": 1241
   },
   "killMidSend": {
     "iterations": 100,
@@ -45,5 +45,28 @@
       "error": "SMS provider not configured",
       "provider": "console"
     }
-  ]
+  ],
+  "securityFixes": {
+    "reviewFindings": "v183-security review 2026-11-11: M1, L1, L2, L3, L4, L5, L6",
+    "integrationTests": {
+      "passed": 18,
+      "failed": 0
+    },
+    "dedupeKeyFormat": "alertId:CHANNEL:HMAC-SHA256(pepper, lower(trim(recipient))), pepper = HMAC(JWT_SECRET, \"veetrax:notify-dedupe:v1\")",
+    "dedupeKeysWithClearRecipient": 0,
+    "healthChecksOnRealDb": {
+      "pipeline.notify-dead": "CRITICAL (DEAD SOS)",
+      "pipeline.notify-unqueued": "WARN (10 min old)"
+    },
+    "rawInsertCreatedAtSkewUnderAsiaKolkataSec": "< 60 (UTC)",
+    "migration": {
+      "lockTimeout": "5s",
+      "heldAccessShareLockOnAlert": "migrate deploy failed after ~5 s with 55P03, nothing applied (no columns, no indexes)",
+      "afterResolveRolledBackAndRedeploy": "applied; 4 partial indexes; prisma migrate diff empty",
+      "queuedBackfill": {
+        "olderThan5min": "FAILED \"Queued before the v1.8.3 upgrade and not completed; not retried\"",
+        "youngerThan5min": "left QUEUED"
+      }
+    }
+  }
 }

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
 /**
  * D6 G2 delivery guarantee (owner correction A, 2026-11-11). NOT exactly-once. What VeeTrax guarantees:
@@ -24,8 +24,46 @@ export const MAX_TAKEOVERS = 3;
 
 export type Channel = 'EMAIL' | 'SMS' | 'PUSH' | 'WHATSAPP' | 'ARATTAI' | 'INAPP';
 
-export function dedupeKey(alertId: string, channel: string, recipient: string): string {
-  return `${alertId}:${channel}:${recipient.trim().toLowerCase()}`;
+/** Domain separation for the recipient hash (a different purpose than the JWT signatures sharing the secret). */
+const DEDUPE_CONTEXT = 'veetrax:notify-dedupe:v1';
+let pepperCache: { secret: string; key: Buffer } | null = null;
+
+/**
+ * Server-side pepper for recipient hashes: HMAC(JWT_SECRET, DEDUPE_CONTEXT). Every API / notifier process requires
+ * JWT_SECRET (loadEnv), so production keys are always peppered. Without a secret (unit tests, scripts) the context
+ * string itself is the key, i.e. a plain SHA-256-based hash of the normalised recipient.
+ */
+function pepper(secret: string | undefined): Buffer {
+  const s = secret ?? '';
+  if (pepperCache?.secret !== s) pepperCache = { secret: s, key: s ? createHmac('sha256', s).update(DEDUPE_CONTEXT).digest() : Buffer.from(DEDUPE_CONTEXT) };
+  return pepperCache.key;
+}
+
+/**
+ * Opaque recipient reference: HMAC-SHA256 of the normalised (trimmed, lower-case) address with the server-side pepper.
+ * A plain SHA-256 of a phone number or e-mail is reversible by enumeration (all 10^10 Indian mobile numbers take
+ * minutes), so a keyed hash is used: the dedupe key and log lines reveal nothing without the secret.
+ */
+export function recipientHash(recipient: string, secret: string | undefined = process.env.JWT_SECRET): string {
+  return createHmac('sha256', pepper(secret)).update(recipient.trim().toLowerCase()).digest('hex');
+}
+
+/**
+ * `alertId:CHANNEL:<recipientHash>`: unique per alert + channel + recipient without the address in clear (no PII in
+ * NotificationLog."dedupeKey", in logs or in the SMTP Message-ID). Rotating JWT_SECRET changes the hash: only an alert
+ * that is mid-delivery at that moment can then get one extra message per recipient already sent.
+ */
+export function dedupeKey(alertId: string, channel: string, recipient: string, secret: string | undefined = process.env.JWT_SECRET): string {
+  return `${alertId}:${channel}:${recipientHash(recipient, secret)}`;
+}
+
+/** Recipient for log lines: `o***@example.com`, `+91*******01`, `user:1234…`. */
+export function maskRecipient(recipient: string): string {
+  const r = recipient.trim();
+  const at = r.indexOf('@');
+  if (at > 0) return `${r[0]}***${r.slice(at)}`;
+  if (r.startsWith('user:')) return `${r.slice(0, 9)}…`;
+  return r.length > 6 ? `${r.slice(0, 3)}${'*'.repeat(r.length - 5)}${r.slice(-2)}` : '***';
 }
 
 /** Stable, opaque reference derived from the dedupe key (sent to providers that accept a client reference). */

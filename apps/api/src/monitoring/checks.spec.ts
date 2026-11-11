@@ -1,5 +1,5 @@
 import { DatabaseDto, HostDto, PortDto, ProcessInstanceDto, ProcessRole, QueueDto, ValkeyDto } from '@veetracer/shared';
-import { bufferSecondsLeft, CheckInput, evaluateChecks, MAP_FAILS_BEFORE_ISSUE, statusOf } from './checks';
+import { bufferSecondsLeft, CheckInput, evaluateChecks, MAP_FAILS_BEFORE_ISSUE, NotifyBacklog, statusOf } from './checks';
 import { MapServiceState } from './map-services';
 import { loadMonitorConfig, loadThresholds } from './thresholds';
 import { diffIssues } from './transitions';
@@ -325,5 +325,51 @@ describe('thresholds and helpers', () => {
     expect(parseInfo('# Memory\r\nused_memory:100\r\nmaxmemory:0\r\n')).toEqual({ used_memory: '100', maxmemory: '0' });
     expect(streamIdTime('1792379623201-0')).toBe(1792379623201);
     expect(shortError(new Error('\nInvalid `prisma.$queryRaw()` invocation:\n\n\nCan\'t reach database server at `localhost:1`'))).toBe("Can't reach database server at `localhost:1`");
+  });
+});
+
+describe('alert notification checks (D6 G2)', () => {
+  const backlog = (over: Partial<NotifyBacklog> = {}): NotifyBacklog => ({ dead: [], unqueued: 0, unqueuedCrit: 0, oldestUnqueuedSec: null, ...over });
+  const dead = (type: string, count = 1) => ({ type, count, latestId: `alert-${type}`, latestError: 'dead after 5 deliveries: template broken' });
+  const run = (notify: NotifyBacklog | null | undefined) => evaluateChecks({ ...healthy(), notify }, t);
+
+  it('nothing DEAD or pending (or not collected / database down) → no issue', () => {
+    expect(ids({ ...healthy(), notify: backlog() })).toEqual([]);
+    expect(ids({ ...healthy(), notify: null })).toEqual([]);
+    expect(ids({ ...healthy(), notify: undefined })).toEqual([]);
+  });
+
+  it('pipeline.notify-dead: WARN for ordinary alert types', () => {
+    const issues = run(backlog({ dead: [dead('OVERSPEED', 2), dead('GEOFENCE_EXIT')] }));
+    expect(issues.map((i) => `${i.id}:${i.severity}`)).toEqual(['pipeline.notify-dead:WARN']);
+    expect(issues[0]).toMatchObject({ section: 'pipeline' });
+    expect(issues[0].message).toContain('3 alert notification job(s) are DEAD in the last 24 h');
+    expect(issues[0].message).toContain('OVERSPEED 2, GEOFENCE_EXIT 1');
+    expect(issues[0].message).toContain('alert-OVERSPEED');
+  });
+
+  it.each(['SOS', 'CRASH'])('pipeline.notify-dead: CRITICAL when any DEAD job is %s (and names that alert)', (type) => {
+    const issues = run(backlog({ dead: [dead('OVERSPEED', 5), dead(type)] }));
+    expect(issues.map((i) => `${i.id}:${i.severity}`)).toEqual(['pipeline.notify-dead:CRITICAL']);
+    expect(issues[0].message).toContain('(1 SOS / CRASH)');
+    expect(issues[0].message).toContain(`alert alert-${type} (${type})`);
+  });
+
+  it('pipeline.notify-unqueued: WARN after 5 min, CRITICAL once any is older than 30 min', () => {
+    expect(t.notifyUnqueuedWarnMin).toBe(5);
+    expect(t.notifyUnqueuedCritMin).toBe(30);
+    expect(t.notifyDeadWindowHours).toBe(24);
+    let issues = run(backlog({ unqueued: 4, unqueuedCrit: 0, oldestUnqueuedSec: 600 }));
+    expect(issues.map((i) => `${i.id}:${i.severity}`)).toEqual(['pipeline.notify-unqueued:WARN']);
+    expect(issues[0].message).toContain('4 alert(s) have no finished notification job after 5 min (oldest 10 min)');
+    issues = run(backlog({ unqueued: 4, unqueuedCrit: 1, oldestUnqueuedSec: 2400 }));
+    expect(issues.map((i) => `${i.id}:${i.severity}`)).toEqual(['pipeline.notify-unqueued:CRITICAL']);
+    expect(issues[0].message).toContain('1 of them older than 30 min');
+  });
+
+  it('both issues at once; thresholds are env-configurable', () => {
+    expect(ids({ ...healthy(), notify: backlog({ dead: [dead('SOS')], unqueued: 1, oldestUnqueuedSec: 400 }) })).toEqual(['pipeline.notify-dead:CRITICAL', 'pipeline.notify-unqueued:WARN']);
+    const custom = loadThresholds({ HEALTH_NOTIFY_UNQUEUED_WARN_MIN: '10', HEALTH_NOTIFY_UNQUEUED_CRIT_MIN: '60', HEALTH_NOTIFY_DEAD_WINDOW_HOURS: '48' });
+    expect(custom).toMatchObject({ notifyUnqueuedWarnMin: 10, notifyUnqueuedCritMin: 60, notifyDeadWindowHours: 48 });
   });
 });

@@ -1,4 +1,5 @@
-import { claimDecision, deadBeforeRun, deadReason, dedupeKey, finalAttempts, LEASE_MS, MAX_DELIVERIES, MAX_TAKEOVERS, onJobFailure, providerRef } from './delivery-state';
+import { createHash } from 'node:crypto';
+import { claimDecision, deadBeforeRun, deadReason, dedupeKey, finalAttempts, LEASE_MS, maskRecipient, MAX_DELIVERIES, MAX_TAKEOVERS, onJobFailure, providerRef, recipientHash } from './delivery-state';
 
 describe('D6 G2 delivery state machine', () => {
   const now = new Date('2026-11-14T10:00:00Z');
@@ -12,10 +13,32 @@ describe('D6 G2 delivery state machine', () => {
   });
 
   it('builds one dedupe key per alert + channel + recipient (case / whitespace-insensitive recipient)', () => {
-    expect(dedupeKey('a1', 'SMS', '+919800000001')).toBe('a1:SMS:+919800000001');
+    expect(dedupeKey('a1', 'SMS', '+919800000001')).toMatch(/^a1:SMS:[0-9a-f]{64}$/);
     expect(dedupeKey('a1', 'EMAIL', ' Ops@Example.com ')).toBe(dedupeKey('a1', 'EMAIL', 'ops@example.com'));
+    expect(dedupeKey('a1', 'SMS', '+919800000001')).not.toBe(dedupeKey('a1', 'SMS', '+919800000002'));
     expect(dedupeKey('a1', 'EMAIL', 'x@y.z')).not.toBe(dedupeKey('a1', 'SMS', 'x@y.z'));
     expect(dedupeKey('a1', 'SMS', '1')).not.toBe(dedupeKey('a2', 'SMS', '1'));
+  });
+
+  it('keeps no recipient PII in the key: keyed hash with the server-side pepper (JWT_SECRET)', () => {
+    const secret = 'x'.repeat(40);
+    const k = dedupeKey('a1', 'EMAIL', 'ops@example.com', secret);
+    expect(k).not.toContain('ops');
+    expect(k).not.toContain('example');
+    expect(dedupeKey('a1', 'SMS', '+919800000001', secret)).not.toContain('9800000001');
+    // stable for the same secret (redeliveries, restarts, several notifier hosts) …
+    expect(dedupeKey('a1', 'EMAIL', 'OPS@example.com ', secret)).toBe(k);
+    // … and not a plain SHA-256 that could be reversed by enumerating phone numbers without the secret
+    expect(recipientHash('+919800000001', secret)).not.toBe(createHash('sha256').update('+919800000001').digest('hex'));
+    expect(recipientHash('+919800000001', secret)).not.toBe(recipientHash('+919800000001', 'y'.repeat(40)));
+    expect(recipientHash('+919800000001', secret)).not.toBe(recipientHash('+919800000001', undefined));
+  });
+
+  it('masks recipients for log lines', () => {
+    expect(maskRecipient('ops@example.com')).toBe('o***@example.com');
+    expect(maskRecipient('+919800000001')).toBe('+91********01');
+    expect(maskRecipient('user:0b7c4d1e-0000-4000-8000-000000000001')).toBe('user:0b7c…');
+    expect(maskRecipient('123')).toBe('***');
   });
 
   it('derives a stable, opaque provider reference from the key', () => {
