@@ -1,0 +1,15 @@
+[Unit]
+Description=VeeTrax map tiles (Martin, India vector tiles) on localhost:3000
+After=network-online.target
+# Built by Planetiler (OpenMapTiles schema) and moved here; see ops/deploy/linux/maps/README.md
+ConditionPathExists=/opt/veetrax/maps/india.pmtiles
+
+[Service]
+User=veetrax
+ExecStart=/usr/local/bin/martin --listen-addresses 127.0.0.1:3000 --workers 4 /opt/veetrax/maps/india.pmtiles
+Restart=on-failure
+RestartSec=10
+# Logs: journalctl -u veetrax-martin -f
+
+[Install]
+WantedBy=multi-user.target

@@ -11,9 +11,16 @@ BRANCH="${BRANCH:-main}"
 SERVICES="veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer"
 cd "$APP_DIR"
 
-echo "== code ($BRANCH)"
-git fetch origin "$BRANCH"
-git merge --ff-only "origin/$BRANCH"
+if [[ -n "${REF:-}" ]]; then
+  # Production: pin to a release tag, e.g. REF=v1.7.1 bash release.sh
+  echo "== code ($REF)"
+  git fetch --tags origin
+  git checkout --detach "$REF"
+else
+  echo "== code ($BRANCH)"
+  git fetch origin "$BRANCH"
+  git merge --ff-only "origin/$BRANCH"
+fi
 git log --oneline -1
 
 if [[ "${1:-}" == "--web-only" ]]; then
@@ -30,7 +37,12 @@ npm run build -w @veetracer/web
 (cd apps/api && npx prisma generate && npm run build)
 
 echo "== database"
-(cd apps/api && npx prisma migrate deploy && npm run db:seed)
+# Load apps/api/.env so migrate and the seed see the same settings as the services (systemd EnvironmentFile).
+set -a; source apps/api/.env; set +a
+(cd apps/api && npx prisma migrate deploy)
+# Idempotent seed: platform, Super Admin, device models, system lookups. With NODE_ENV=production it never creates
+# the demo company; the first run on an empty database needs SUPER_ADMIN_EMAIL + SUPER_ADMIN_PASSWORD.
+(cd apps/api && npm run db:seed)
 
 echo "== restart"
 sudo systemctl restart $SERVICES
