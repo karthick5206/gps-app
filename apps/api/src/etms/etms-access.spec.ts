@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException, type ExecutionContext } from '@nestjs/common';
+import { ForbiddenException, NotFoundException, UseGuards, type ExecutionContext } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
 import { ETMS_ROLE_TEMPLATES, moduleMenuKeys, type CompanyFeature, type PermissionMap } from '@veetracer/shared';
 import { validateRolePermissions } from '../access/access-rules';
@@ -54,6 +54,17 @@ describe('ETMS module gating (MenuDef.requires)', () => {
     expect(gps.canActivate(httpCtx(caller({ live_map: ['view'] }, ['etms'])))).toBe(true);
     expect(() => gps.canActivate(httpCtx(caller({}, ['etms'])))).toThrow('Permission denied');
     expect(codeOf(() => gps.canActivate(httpCtx(caller({}, []))))).toBeUndefined();
+  });
+
+  it('a feature-gated ETMS controller guarded by a fleet menu (vehicles, driver login): 404 without the add-on, even with no grant', () => {
+    @UseGuards(TransportFeatureGuard)
+    class GatedController {}
+    const fleetRoute = guardFor([['objects', 'edit']]);
+    const on = (auth: Partial<AuthContext>) => ({ ...httpCtx(auth, 'PUT'), getClass: () => GatedController }) as unknown as ExecutionContext;
+    expect(codeOf(() => fleetRoute.canActivate(on(caller({}, []))))).toBe('NOT_FOUND');
+    expect(codeOf(() => fleetRoute.canActivate(on(caller({ objects: ['edit'] }, []))))).toBe('NOT_FOUND');
+    expect(() => fleetRoute.canActivate(on(caller({}, ['etms'])))).toThrow('Permission denied');
+    expect(fleetRoute.canActivate(on(caller({ objects: ['edit'] }, ['etms'])))).toBe(true);
   });
 
   describe('TransportFeatureGuard', () => {
