@@ -704,6 +704,22 @@ export function currentConsents(rows: { purpose: string; granted: boolean; notic
   return [...by.values()].sort((a, b) => a.purpose.localeCompare(b.purpose));
 }
 
+/**
+ * Channels that can carry a valid grant under the E2 final consent model (security review M2): the passenger's own
+ * session (WEB / PASSENGER_APP) or an offline consent the admin recorded with evidence (ADMIN_RECORDED_OFFLINE; the
+ * database CHECK requires evidenceRef + note). ADMIN_ON_BEHALF only ever withdraws.
+ */
+export const CONSENT_GRANT_CHANNELS: readonly ConsentChannel[] = ['WEB', 'PASSENGER_APP', 'ADMIN_RECORDED_OFFLINE'];
+
+/**
+ * The routing (TRANSPORT_PROFILE) consent under the E2 final model: the latest row is a grant through a grant channel.
+ * Every ETMS use of a passenger's location (E3 pickup points, assignment, generator) goes through this rule.
+ */
+export function routingConsentEffective(rows: Parameters<typeof currentConsents>[0]): boolean {
+  const c = currentConsents(rows).find((x) => x.purpose === ROUTING_CONSENT_PURPOSE);
+  return !!c?.active && (CONSENT_GRANT_CHANNELS as readonly string[]).includes(c.channel ?? '');
+}
+
 /** Whether `purpose` is currently granted. */
 export function consentActive(rows: Parameters<typeof currentConsents>[0], purpose: string): boolean {
   return currentConsents(rows).find((c) => c.purpose === purpose)?.active ?? false;

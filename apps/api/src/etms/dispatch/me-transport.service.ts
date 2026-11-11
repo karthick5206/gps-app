@@ -1,0 +1,198 @@
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { ME_VEHICLE_WINDOW, TRANSPORT_E3_LIMITS, type EtaValue, type MeBookingDto, type MeTripDto, type MeVehicleDto, type PlannedStopStatus } from '@veetracer/shared';
+import { AuthContext } from '../../access/auth-context';
+import { iso } from '../../common/dto';
+import { PrismaService } from '../../prisma/prisma.service';
+import { RedisKeys } from '../../redis/keys';
+import { RedisService } from '../../redis/redis.service';
+import { addDays } from '../../summarizer/tz';
+import { parseLive } from '../../tracking/live-object';
+import { PeopleService } from '../people/people.service';
+import { dateOnly, dayKeyOf, invalid, notFound, serviceDate } from './e3-common';
+import { derivedStateOf } from './e3-mapping';
+import { MeRangeQuery } from './e3.dto';
+import { todayIn } from './service-dates';
+
+const MIN = 60_000;
+
+const SEAT_INCLUDE = {
+  booking: { select: { id: true, profileId: true, windowStart: true, windowEnd: true, timeZone: true, pickupLabel: true, dropLabel: true } },
+  trip: {
+    include: {
+      plannedTrip: { include: { stops: { orderBy: { seq: 'asc' as const } } } },
+      passengers: { select: { id: true, status: true, seats: true, pickupSeq: true, dropSeq: true } },
+    },
+  },
+} satisfies Prisma.TransportTripPassengerInclude;
+type SeatRow = Prisma.TransportTripPassengerGetPayload<{ include: typeof SEAT_INCLUDE }>;
+
+/**
+ * Vehicle-visibility window of one passenger on one trip (pure; 05 §2.8, 10 §4.3): from planned start − 30 min (or
+ * the actual start if earlier) until the passenger is dropped / the trip ended, + 10 min grace. Null = never visible
+ * (cancelled trip, passenger no-show / cancelled, trip detached).
+ */
+export function vehicleWindow(
+  pt: { status: string; plannedStart: Date; plannedEnd: Date; actualStart: Date | null; actualEnd: Date | null } | null,
+  seat: { status: string; droppedAt: Date | null },
+): { start: number; end: number } | null {
+  if (!pt || pt.status === 'CANCELLED') return null;
+  if (seat.status === 'NO_SHOW' || seat.status === 'CANCELLED') return null;
+  const start = Math.min(pt.plannedStart.getTime() - ME_VEHICLE_WINDOW.beforeStartMin * MIN, pt.actualStart?.getTime() ?? Infinity);
+  const closed = pt.status === 'COMPLETED' || pt.status === 'INCOMPLETE';
+  const endBase = seat.droppedAt?.getTime() ?? (closed ? (pt.actualEnd ?? pt.plannedEnd).getTime() : Math.max(pt.plannedEnd.getTime(), Date.now()));
+  return { start, end: endBase + ME_VEHICLE_WINDOW.afterEndMin * MIN };
+}
+
+/**
+ * The passenger's own trips and bookings (05 §2.8; D5 relationship guard): only rows of the caller's own active
+ * profile (403 NOT_A_PASSENGER otherwise), other ids 404. Narrow DTOs: vehicle name / plate, the driver's first name,
+ * own stop only, co-rider count. The vehicle position is served only inside the window, by polling this API — never
+ * through the company-wide /live socket (docs 08 / 10).
+ */
+@Injectable()
+export class MeTransportService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly people: PeopleService,
+    private readonly redis: RedisService,
+  ) {}
+
+  async trips(ctx: AuthContext, q: MeRangeQuery): Promise<MeTripDto[]> {
+    const me = await this.people.myProfileRow(ctx);
+    const { from, to } = await this.range(ctx, q);
+    const seats = await this.prisma.transportTripPassenger.findMany({
+      where: { customerCompanyId: ctx.companyId, booking: { profileId: me.id }, status: { not: 'CANCELLED' }, trip: { serviceDate: { gte: dateOnly(from), lte: dateOnly(to) } } },
+      include: SEAT_INCLUDE,
+      take: 200,
+    });
+    const mine = seats.filter((s) => s.booking.profileId === me.id);
+    const names = await this.names(mine);
+    return mine.map((s) => this.toMeTrip(s, names)).sort((a, b) => a.window.start.localeCompare(b.window.start));
+  }
+
+  async trip(ctx: AuthContext, tripId: string): Promise<MeTripDto> {
+    const seat = await this.seat(ctx, tripId);
+    return this.toMeTrip(seat, await this.names([seat]));
+  }
+
+  /** The trip's vehicle, only inside the window (`{ visible: false }` outside); own trip only. */
+  async vehicle(ctx: AuthContext, tripId: string): Promise<MeVehicleDto> {
+    const seat = await this.seat(ctx, tripId);
+    const pt = seat.trip.plannedTrip;
+    const w = vehicleWindow(pt, seat);
+    const now = Date.now();
+    if (!pt || !w || now < w.start || now > w.end) return { visible: false, reason: 'OUTSIDE_WINDOW' };
+    const live = parseLive(await this.redis.client.get(RedisKeys.live(pt.objectId)).catch(() => null));
+    if (!live || live.lat === null || live.lng === null || live.licenceLocked) return { visible: false, reason: 'NO_FIX' };
+    return {
+      visible: true,
+      lat: live.lat,
+      lng: live.lng,
+      heading: Number.isFinite(live.course) ? live.course : null,
+      speedKph: Number.isFinite(live.speedKph) ? live.speedKph : null,
+      fixAt: live.fixTime ?? live.serverTime ?? new Date(now).toISOString(),
+      eta: this.myEta(seat),
+    };
+  }
+
+  async bookings(ctx: AuthContext, q: MeRangeQuery): Promise<MeBookingDto[]> {
+    const me = await this.people.myProfileRow(ctx);
+    const { from, to } = await this.range(ctx, q);
+    const rows = await this.prisma.transportBooking.findMany({
+      where: { customerCompanyId: ctx.companyId, profileId: me.id, serviceDate: { gte: dateOnly(from), lte: dateOnly(to) } },
+      include: { passengers: { select: { tripId: true, status: true } } },
+      orderBy: [{ windowStart: 'asc' }],
+      take: 200,
+    });
+    return rows.filter((r) => r.profileId === me.id).map(toMeBooking);
+  }
+
+  async booking(ctx: AuthContext, id: string): Promise<MeBookingDto> {
+    const me = await this.people.myProfileRow(ctx);
+    const row = await this.prisma.transportBooking.findFirst({ where: { id, customerCompanyId: ctx.companyId, profileId: me.id }, include: { passengers: { select: { tripId: true, status: true } } } });
+    if (!row || row.profileId !== me.id) throw notFound();
+    return toMeBooking(row);
+  }
+
+  // ───────────────────────────── helpers ─────────────────────────────
+
+  private async seat(ctx: AuthContext, tripId: string): Promise<SeatRow> {
+    const me = await this.people.myProfileRow(ctx);
+    const seat = await this.prisma.transportTripPassenger.findFirst({
+      where: { tripId, customerCompanyId: ctx.companyId, booking: { profileId: me.id }, status: { not: 'CANCELLED' } },
+      include: SEAT_INCLUDE,
+    });
+    if (!seat || seat.booking.profileId !== me.id || seat.status === 'CANCELLED') throw notFound();
+    return seat;
+  }
+
+  private async range(ctx: AuthContext, q: MeRangeQuery): Promise<{ from: string; to: string }> {
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true } });
+    const today = todayIn(company.timezone);
+    const from = q.from ? serviceDate(q.from, 'from') : addDays(today, -TRANSPORT_E3_LIMITS.meDefaultPastDays);
+    const to = q.to ? serviceDate(q.to, 'to') : addDays(today, TRANSPORT_E3_LIMITS.meDefaultFutureDays);
+    if (to < from || to > addDays(from, TRANSPORT_E3_LIMITS.meMaxRangeDays)) throw invalid(`Ask for at most ${TRANSPORT_E3_LIMITS.meMaxRangeDays} days`);
+    return { from, to };
+  }
+
+  private async names(seats: SeatRow[]) {
+    const objectIds = [...new Set(seats.flatMap((s) => (s.trip.plannedTrip ? [s.trip.plannedTrip.objectId] : [])))];
+    const driverIds = [...new Set(seats.flatMap((s) => (s.trip.plannedTrip?.driverId ? [s.trip.plannedTrip.driverId] : [])))];
+    const [objects, drivers] = await Promise.all([
+      objectIds.length ? this.prisma.trackedObject.findMany({ where: { id: { in: objectIds } }, select: { id: true, name: true, plateNumber: true } }) : [],
+      driverIds.length ? this.prisma.driver.findMany({ where: { id: { in: driverIds } }, select: { id: true, name: true } }) : [],
+    ]);
+    return { objects: new Map(objects.map((o) => [o.id, o])), drivers: new Map(drivers.map((d) => [d.id, d.name])) };
+  }
+
+  /** ETA to my stop from the v1.8 tracker, only when my pickup is the trip's next stop; else none (never invented). */
+  private myEta(seat: SeatRow): EtaValue {
+    const pt = seat.trip.plannedTrip;
+    if (!pt || seat.status !== 'PENDING') return { at: null, model: null };
+    if (pt.nextStopSeq === seat.pickupSeq && pt.etaNextStop) return { at: iso(pt.etaNextStop), model: 'TRACKER' };
+    return { at: null, model: null };
+  }
+
+  private toMeTrip(s: SeatRow, n: Awaited<ReturnType<MeTransportService['names']>>): MeTripDto {
+    const pt = s.trip.plannedTrip;
+    const pick = pt?.stops.find((x) => x.seq === s.pickupSeq);
+    const drop = pt?.stops.find((x) => x.seq === s.dropSeq);
+    const w = vehicleWindow(pt, s);
+    const now = Date.now();
+    const o = pt ? n.objects.get(pt.objectId) : undefined;
+    const driver = pt?.driverId ? n.drivers.get(pt.driverId) : undefined;
+    return {
+      id: s.tripId,
+      passengerTripId: s.id,
+      serviceDate: dayKeyOf(s.trip.serviceDate),
+      direction: s.trip.direction,
+      timeZone: s.booking.timeZone,
+      window: { start: iso(s.booking.windowStart), end: iso(s.booking.windowEnd) },
+      derivedState: derivedStateOf(s.trip),
+      myStatus: s.status,
+      vehicle: o ? { name: o.name, plate: o.plateNumber } : null,
+      driverFirstName: driver ? driver.trim().split(/\s+/)[0] : null,
+      myStop: pick ? { seq: pick.seq, label: s.booking.pickupLabel ?? pick.name, plannedAt: iso(pick.plannedArrival), status: pick.status as PlannedStopStatus, eta: this.myEta(s) } : null,
+      myDrop: drop ? { seq: drop.seq, label: s.booking.dropLabel ?? drop.name, plannedAt: iso(drop.plannedArrival) } : null,
+      coRiders: s.trip.passengers.filter((p) => p.id !== s.id && p.status !== 'CANCELLED').length,
+      liveVisible: !!w && now >= w.start && now <= w.end,
+    };
+  }
+}
+
+function toMeBooking(r: Prisma.TransportBookingGetPayload<{ include: { passengers: { select: { tripId: true; status: true } } } }>): MeBookingDto {
+  return {
+    id: r.id,
+    status: r.status,
+    source: r.source,
+    serviceDate: dayKeyOf(r.serviceDate),
+    direction: r.direction,
+    timeZone: r.timeZone,
+    windowStart: iso(r.windowStart),
+    windowEnd: iso(r.windowEnd),
+    pickupLabel: r.pickupLabel,
+    dropLabel: r.dropLabel,
+    tripId: r.passengers.find((p) => p.status !== 'CANCELLED')?.tripId ?? null,
+  };
+}

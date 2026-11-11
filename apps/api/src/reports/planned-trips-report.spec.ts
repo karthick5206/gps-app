@@ -85,6 +85,23 @@ describe('planned-trip reports in ReportDataService', () => {
     expect((await renderReport([data], 'PDF')).buffer.subarray(0, 4).toString()).toBe('%PDF');
   });
 
+  it('TRIP_PERFORMANCE per route: ETMS trips without a route form their own group, never "No driver" (15 §7.1 #19)', async () => {
+    const { prisma, service } = setup([trip('t1'), trip('e1', { routeId: null, routeName: 'Transport 2026-11-05 login' }), trip('e2', { routeId: null, driverId: null, routeName: 'Transport 2026-11-05 logout' })]);
+    const data = await service.generate(allowed, req('TRIP_PERFORMANCE'));
+    expect((data.rows as TripPerformanceReportRow[]).map((r) => [r.groupId, r.groupName, r.trips])).toEqual([
+      ['r1', 'Morning run', 1],
+      [null, 'Employee transport (no route)', 2],
+    ]);
+    // Only real route ids are looked up (null filtered before the query).
+    expect(prisma.route.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: { in: ['r1'] } }) }));
+  });
+
+  it('PLANNED_TRIPS keeps a null routeId for ETMS trips', async () => {
+    const { service } = setup([trip('e1', { routeId: null, routeName: 'Transport login' })]);
+    const data = await service.generate(allowed, req('PLANNED_TRIPS'));
+    expect((data.rows as PlannedTripReportRow[])[0]).toMatchObject({ tripId: 'e1', routeId: null, routeName: 'Transport login' });
+  });
+
   it('TRIP_PERFORMANCE per driver names drivers', async () => {
     const { service } = setup([trip('t1'), trip('t2', { driverId: null })]);
     const data = await service.generate(allowed, req('TRIP_PERFORMANCE', { groupBy: 'DRIVER' }));

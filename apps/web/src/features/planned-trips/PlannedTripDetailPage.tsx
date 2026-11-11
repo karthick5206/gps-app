@@ -26,7 +26,7 @@ import { ApiError, errorMessage } from '@/lib/api';
 import { formatDuration } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useTripActionDialogs } from './TripDialogs';
-import { actualDwellSec, formatClock, isActiveTrip, plannedDwellSec, progressLabel, trackWindow } from './trip-format';
+import { actualDwellSec, formatClock, isActiveTrip, isEtmsTrip, plannedDwellSec, progressLabel, trackWindow, tripSourceLabel } from './trip-format';
 import { buildPlanFeatures, corridorWidth, deviationFeatures, deviationSegments, lineLatitude, planBounds, plannedLine, stopTone, type StopTone } from './trip-map';
 import { DelayText, TripActionButtons, TripStatusBadge } from './trip-ui';
 import { usePlannedTripLive, useTrip } from './use-planned-trips';
@@ -386,7 +386,7 @@ export function PlannedTripDetailPage() {
   return (
     <div className="flex w-full min-w-0 flex-col gap-4 p-4 sm:p-6">
       <PageHeader
-        title={trip.routeName}
+        title={tripSourceLabel(trip, t)}
         description={
           <>
             {trip.objectName ?? '—'}
@@ -400,6 +400,17 @@ export function PlannedTripDetailPage() {
           </>
         }
       />
+
+      {isEtmsTrip(trip) && (
+        <div role="note" className="flex flex-wrap items-center gap-2 rounded-lg border border-info/40 bg-info-soft p-3 text-sm text-info-fg">
+          <span className="min-w-0 flex-1">{t('Managed by employee transport: passengers, changes and cancelling are done in Transport → Dispatch.')}</span>
+          {can('etms_dispatch') && (
+            <Button asChild size="sm" variant="outline">
+              <Link to="/transport/dispatch">{t('Open Dispatch')}</Link>
+            </Button>
+          )}
+        </div>
+      )}
 
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">

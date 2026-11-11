@@ -167,6 +167,8 @@ function world() {
       },
     },
     pushToken: { deleteMany: async () => ({ count: 0 }) },
+    // E3 tables (erasure touches them): this world has no bookings.
+    transportBooking: { count: async () => 0, findMany: async () => [] },
     $executeRaw: async () => 0,
     $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join('?');

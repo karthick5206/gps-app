@@ -1,5 +1,5 @@
 import { Prisma, PrismaClient } from '@prisma/client';
-import { ETMS_E2_TEMPLATE_PERMISSIONS, ETMS_ROLE_TEMPLATES, type PermissionMap } from '@veetracer/shared';
+import { ETMS_E2_TEMPLATE_PERMISSIONS, ETMS_E3_TEMPLATE_PERMISSIONS, ETMS_ROLE_TEMPLATES, type PermissionMap } from '@veetracer/shared';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -29,12 +29,14 @@ export async function ensureEtmsRoleTemplates(db: Db, companyId: string): Promis
   return created;
 }
 
-/** A template's permissions plus the menus later phases add to it (E2: etms_passengers). */
+/** A template's permissions plus the menus later phases add to it (E2: etms_passengers; E3: schedules, bookings, dispatch). */
 export function templatePermissions(name: string, base: PermissionMap): PermissionMap {
   const out: PermissionMap = { ...base };
-  for (const [menu, actions] of Object.entries(ETMS_E2_TEMPLATE_PERMISSIONS[name] ?? {})) {
-    const key = menu as keyof PermissionMap;
-    out[key] = [...new Set([...(out[key] ?? []), ...(actions ?? [])])];
+  for (const extra of [ETMS_E2_TEMPLATE_PERMISSIONS, ETMS_E3_TEMPLATE_PERMISSIONS]) {
+    for (const [menu, actions] of Object.entries(extra[name] ?? {})) {
+      const key = menu as keyof PermissionMap;
+      out[key] = [...new Set([...(out[key] ?? []), ...(actions ?? [])])];
+    }
   }
   return out;
 }

@@ -69,7 +69,8 @@ export async function tripPerformanceReport(
   maxRows: number,
 ): Promise<{ rows: TripPerformanceReportRow[]; totals: Record<string, number>; totalRows: number }> {
   const facts = await loadTripFacts(prisma, companyId, objects, range);
-  const routeIds = groupBy === 'ROUTE' ? [...new Set(facts.map((f) => f.routeId))] : [];
+  // ETMS door-to-door trips have no route (null): they form their own group and need no name lookup.
+  const routeIds = groupBy === 'ROUTE' ? [...new Set(facts.map((f) => f.routeId).filter((id): id is string => id !== null))] : [];
   const [routes, drivers] = await Promise.all([
     routeIds.length ? prisma.route.findMany({ where: { companyId, id: { in: routeIds } }, select: { id: true, name: true } }) : [],
     groupBy === 'DRIVER' ? driverNames(prisma, companyId, facts) : new Map<string, string>(),

@@ -68,8 +68,13 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   etms_partners: page(() => import('@/features/transport/PartnersPage'), 'PartnersPage'),
   // E2: passengers (list, editor, import, consent, app access).
   etms_passengers: page(() => import('@/features/transport/PassengersPage'), 'PassengersPage'),
+  // E3: shifts & schedules, bookings, dispatch board (WP 3.4–3.5).
+  etms_schedules: page(() => import('@/features/transport/dispatch/ShiftsSchedulesPage'), 'ShiftsSchedulesPage'),
+  etms_bookings: page(() => import('@/features/transport/dispatch/BookingsPage'), 'BookingsPage'),
+  etms_dispatch: page(() => import('@/features/transport/dispatch/DispatchPage'), 'DispatchPage'),
   etms_settings: page(() => import('@/features/transport/TransportSettingsPage'), 'TransportSettingsPage'),
-  etms_self: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyCommutePage'),
+  // E3 WP 3.6: the passenger's own bookings and trips (vehicle only inside the trip window).
+  etms_self: page(() => import('@/features/transport/dispatch/MyTransportPage'), 'MyTransportPage'),
   etms_driver: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyTransportDutyPage'),
   alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
   message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
@@ -77,6 +82,7 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
 
 /** Detail pages inside a menu (same permission as the menu). */
 const PlannedTripDetailPage = page(() => import('@/features/planned-trips/PlannedTripDetailPage'), 'PlannedTripDetailPage');
+const TransportTripDetailPage = page(() => import('@/features/transport/dispatch/TransportTripDetailPage'), 'TransportTripDetailPage');
 const AgreementDetailPage = page(() => import('@/features/transport/AgreementDetailPage'), 'AgreementDetailPage');
 /** E2 vehicle seats: a fleet screen of the transport module (permission objects; the page checks the etms add-on). */
 const VehicleSeatsPage = page(() => import('@/features/transport/VehicleSeatsPage'), 'VehicleSeatsPage');
@@ -153,6 +159,16 @@ export const router = createBrowserRouter([
               <RequirePermission menu="etms_partners">
                 <Suspense fallback={<PageFallback />}>
                   <AgreementDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/transport/trips/:id',
+            element: (
+              <RequirePermission menu="etms_dispatch">
+                <Suspense fallback={<PageFallback />}>
+                  <TransportTripDetailPage />
                 </Suspense>
               </RequirePermission>
             ),

@@ -40,14 +40,14 @@ const ACTION_META: Record<TripAction, { label: string; icon: typeof PlayIcon; de
 };
 
 /** Actions this user may run on a trip in its status (all need Planned trips → edit). */
-export function useAllowedActions(status: PlannedTripStatus): TripAction[] {
+export function useAllowedActions(trip: Pick<PlannedTripSummaryDto, 'status' | 'origin'>): TripAction[] {
   const { can } = useAuth();
-  return can('plannedTrips', 'edit') ? tripActions(status) : [];
+  return can('plannedTrips', 'edit') ? tripActions(trip.status, trip.origin) : [];
 }
 
 export function TripActionsMenu({ trip, onAction, className }: { trip: PlannedTripSummaryDto; onAction: (a: TripAction, trip: PlannedTripSummaryDto) => void; className?: string }) {
   const { t } = useTranslation();
-  const actions = useAllowedActions(trip.status);
+  const actions = useAllowedActions(trip);
   if (!actions.length) return null;
   return (
     <DropdownMenu>
@@ -73,7 +73,7 @@ export function TripActionsMenu({ trip, onAction, className }: { trip: PlannedTr
 /** The same actions as buttons (trip detail header). */
 export function TripActionButtons({ trip, onAction }: { trip: PlannedTripSummaryDto; onAction: (a: TripAction, trip: PlannedTripSummaryDto) => void }) {
   const { t } = useTranslation();
-  const actions = useAllowedActions(trip.status);
+  const actions = useAllowedActions(trip);
   return (
     <>
       {actions.map((a) => {

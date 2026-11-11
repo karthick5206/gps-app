@@ -18,7 +18,8 @@ export interface PerfStopInput {
 
 export interface PerfTripInput {
   id: string;
-  routeId: string;
+  /** Null for ETMS door-to-door trips (origin ETMS). */
+  routeId: string | null;
   routeName: string;
   objectId: string;
   driverId: string | null;
@@ -39,7 +40,7 @@ export interface PerfTripInput {
 /** One trip reduced to what the reports need. */
 export interface TripFacts {
   id: string;
-  routeId: string;
+  routeId: string | null;
   routeName: string;
   objectId: string;
   driverId: string | null;
@@ -196,10 +197,15 @@ function figures(a: Acc) {
   };
 }
 
-/** Group key of a trip; DRIVER uses null for trips without a driver. */
+/** Group key of a trip; null = trips without a driver (DRIVER) or without a route (ROUTE: ETMS door-to-door trips). */
 export function groupKey(f: TripFacts, groupBy: TripPerformanceGroupBy): string | null {
   return groupBy === 'ROUTE' ? f.routeId : groupBy === 'DRIVER' ? f.driverId : f.objectId;
 }
+
+/** Group label of trips without a driver (DRIVER grouping). */
+export const NO_DRIVER_GROUP_LABEL = 'No driver';
+/** Group label of trips without a master Route (ROUTE grouping): ETMS door-to-door runs. */
+export const NO_ROUTE_GROUP_LABEL = 'Employee transport (no route)';
 
 export interface PerformanceNames {
   /** Current route name (falls back to the latest trip's snapshot name). */
@@ -231,7 +237,9 @@ export function tripPerformance(
     add(total, f);
   }
   const nameOf = (key: string | null, snapshot: string): string => {
-    if (key === null) return 'No driver';
+    // A null key means "no driver" only when grouping by driver; by route it is an ETMS trip without a master Route
+    // (15 §7.1 #19, C-12: it used to be labelled "No driver" for every grouping).
+    if (key === null) return groupBy === 'ROUTE' ? NO_ROUTE_GROUP_LABEL : groupBy === 'DRIVER' ? NO_DRIVER_GROUP_LABEL : 'Unknown object';
     if (groupBy === 'ROUTE') return names.route?.(key) ?? snapshot;
     if (groupBy === 'DRIVER') return names.driver?.(key) ?? 'Unknown driver';
     return names.vehicle?.(key) ?? 'Unknown object';

@@ -4,16 +4,18 @@ import { AgreementsController } from './agreements/agreements.controller';
 import { AgreementsService } from './agreements/agreements.service';
 import { CompanyDirectoryController } from './directory/company-directory.controller';
 import { CompanyDirectoryService } from './directory/company-directory.service';
+import { EtmsDispatchModule } from './dispatch/dispatch.module';
 import { EtmsPeopleModule } from './people/people.module';
 import { TransportSettingsController } from './settings/transport-settings.controller';
 import { TransportSettingsService } from './settings/transport-settings.service';
 
 /**
  * Employee transport (ETMS). E1a: service agreements, the partner directory and the company ETMS settings; E2: people
- * (EtmsPeopleModule — passengers, consent notices, vehicle seats, driver/passenger logins); later phases add theirs here.
+ * (EtmsPeopleModule — passengers, consent notices, vehicle seats, driver/passenger logins); E3: schedules, bookings,
+ * dispatch and transport trips (EtmsDispatchModule); later phases add theirs here.
  */
 @Module({
-  imports: [EtmsPeopleModule],
+  imports: [EtmsPeopleModule, EtmsDispatchModule],
   controllers: [AgreementsController, CompanyDirectoryController, TransportSettingsController],
   providers: [AgreementsService, AgreementViewsService, CompanyDirectoryService, TransportSettingsService],
   exports: [AgreementsService],

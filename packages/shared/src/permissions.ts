@@ -42,6 +42,9 @@ export const MENU_KEYS = [
   'etms_dashboard',
   'etms_partners',
   'etms_passengers',
+  'etms_schedules',
+  'etms_bookings',
+  'etms_dispatch',
   'etms_settings',
   'etms_self',
   'etms_driver',
@@ -95,10 +98,13 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },
   { key: 'plannedTrips', label: 'Planned trips', group: 'main', path: '/planned-trips', actions: CRUD },
   // Employee transport (ETMS, doc 07 §2.2): only when the company add-on `etms` is on. E1a ships these keys, E2 adds
-  // etms_passengers; later phases add etms_dispatch, etms_bookings, etms_schedules, etms_stops, etms_incidents, etms_policies, … .
+  // etms_passengers, E3 etms_schedules / etms_bookings / etms_dispatch; later phases add etms_stops, etms_incidents, etms_policies, … .
   { key: 'etms_dashboard', label: 'Transport dashboard', group: 'transport', path: '/transport', actions: ['view', 'export'], requires: ETMS },
   { key: 'etms_partners', label: 'Customers / Providers & agreements', group: 'transport', path: '/transport/partners', actions: CRUD, requires: ETMS },
   { key: 'etms_passengers', label: 'Passengers', group: 'transport', path: '/transport/passengers', actions: CRUD, requires: ETMS },
+  { key: 'etms_schedules', label: 'Shifts & schedules', group: 'transport', path: '/transport/schedules', actions: CRUD, requires: ETMS },
+  { key: 'etms_bookings', label: 'Bookings', group: 'transport', path: '/transport/bookings', actions: CRUD, requires: ETMS },
+  { key: 'etms_dispatch', label: 'Dispatch', group: 'transport', path: '/transport/dispatch', actions: ['view', 'edit', 'command', 'export'], requires: ETMS },
   { key: 'etms_settings', label: 'Transport settings', group: 'transport', path: '/transport/settings', actions: ['view', 'edit'], requires: ETMS },
   { key: 'etms_self', label: 'My commute', group: 'transport', path: '/transport/me', actions: ['view', 'create', 'edit'], requires: ETMS },
   { key: 'etms_driver', label: 'My transport duty', group: 'transport', path: '/transport/driver', actions: ['view', 'edit'], requires: ETMS },

@@ -20,6 +20,14 @@ export type PlannedTripEventKind = (typeof PLANNED_TRIP_EVENT_KINDS)[number];
 
 export type PlannedTripClosedBy = 'AUTO' | 'MANUAL' | 'TIMEOUT';
 
+/**
+ * Who manages a planned trip (ETMS D2, migration planned_trip_origin): ROUTE = v1.8 trips from a Route (routeId always
+ * set); ETMS = employee-transport runs published by dispatch (routeId null for door-to-door, set for fixed shuttles),
+ * changed only through /api/transport/* (the planned-trips edit / cancel refuse them with 409 MANAGED_BY_ETMS).
+ */
+export const PLANNED_TRIP_ORIGINS = ['ROUTE', 'ETMS'] as const;
+export type PlannedTripOrigin = (typeof PLANNED_TRIP_ORIGINS)[number];
+
 /** Limits of the route editor (validated by the API). */
 export const ROUTE_LIMITS = {
   minStops: 2,
@@ -181,7 +189,9 @@ export interface PlannedTripEventDto {
 
 export interface PlannedTripSummaryDto {
   id: string;
-  routeId: string;
+  /** Null for ETMS door-to-door trips (origin ETMS). */
+  routeId: string | null;
+  origin: PlannedTripOrigin;
   scheduleId: string | null;
   routeName: string;
   objectId: string;

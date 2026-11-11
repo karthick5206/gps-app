@@ -7,6 +7,7 @@ import {
   PlannedTripDto,
   PlannedTripEventDto,
   PlannedTripEventKind,
+  PlannedTripOrigin,
   PlannedTripStopDto,
   PlannedTripSummaryDto,
   RoutePath,
@@ -21,6 +22,7 @@ import { driverScopeWhere } from '../drivers/drivers.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CancelPlannedTripDto, CreatePlannedTripDto, ManualTripActionDto, PlannedTripListQuery, UpdatePlannedTripDto } from './planned-trips.dto';
 import { buildTripSnapshot, shiftTripTimes, SnapshotRoute } from './snapshot';
+import { lockTripResources } from './trip-locks';
 import { canCancelTrip, canCompleteTrip, canEditTrip, canStartTrip } from './trip-rules';
 
 const ENTITY = 'planned_trip';
@@ -63,6 +65,11 @@ const CSV: CsvSpec<PlannedTripSummaryDto> = {
 function auditSnapshot(t: PlannedTrip, extra: Record<string, unknown> = {}) {
   const { path, ...rest } = t;
   return { ...rest, pathPoints: Array.isArray(path) ? path.length : 0, ...extra };
+}
+
+/** 409 for a write to an ETMS-managed trip through the v1.8 endpoints (05 §2.6: changes go through change sets). */
+export function managedByEtms(): ConflictException {
+  return new ConflictException({ message: 'This trip is managed by employee transport; change it from the transport trip', code: 'MANAGED_BY_ETMS' });
 }
 
 /** Everything needed to create a trip from a route (one-off or generated). */
@@ -152,16 +159,20 @@ export class PlannedTripsService {
   }
 
   /**
-   * Inserts a trip with its stops (no audit, no invalidation: callers do that). Used by `create` and by the
-   * generator; a duplicate generated trip fails with P2002 on (scheduleId, plannedStart).
+   * Inserts a ROUTE trip with its stops (no audit, no invalidation: callers do that). Used by `create` and by the
+   * generator; a duplicate generated trip fails with P2002 on (scheduleId, plannedStart). Takes the vehicle / driver
+   * advisory locks the ETMS publish transaction uses (15 §8.4), so the two paths serialise per vehicle.
    */
   async insertTrip(input: NewTripInput, db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<PlannedTrip> {
+    if (db === this.prisma) return this.prisma.$transaction((tx) => this.insertTrip(input, tx));
+    await lockTripResources(db as Prisma.TransactionClient, { objectIds: [input.objectId], driverIds: [input.driverId] });
     const snap = buildTripSnapshot(input.route, input.plannedStartMs);
     return db.plannedTrip.create({
       data: {
         companyId: input.companyId,
         branchId: input.branchId,
         routeId: input.routeId,
+        origin: 'ROUTE' satisfies PlannedTripOrigin,
         scheduleId: input.scheduleId,
         objectId: input.objectId,
         driverId: input.driverId,
@@ -181,6 +192,7 @@ export class PlannedTripsService {
   /** Vehicle, driver, planned start (stop times shift with it) and notes; only while SCHEDULED. */
   async update(ctx: AuthContext, id: string, dto: UpdatePlannedTripDto): Promise<PlannedTripDto> {
     const before = await this.find(ctx, id);
+    if (before.origin === 'ETMS') throw managedByEtms();
     if (!canEditTrip(before.status)) throw new ConflictException('Only a scheduled trip can be edited');
     const data: Prisma.PlannedTripUncheckedUpdateInput = {};
     if (dto.objectId !== undefined && dto.objectId !== before.objectId) {
@@ -200,6 +212,7 @@ export class PlannedTripsService {
       }
     }
     const row = await this.prisma.$transaction(async (tx) => {
+      await lockTripResources(tx, { objectIds: [before.objectId, data.objectId as string | undefined], driverIds: [before.driverId, data.driverId as string | null | undefined] });
       const claimed = await tx.plannedTrip.updateMany({ where: { id, status: 'SCHEDULED' }, data });
       if (!claimed.count) throw new ConflictException('The trip has started meanwhile; reload it');
       if (shifted) {
@@ -216,6 +229,8 @@ export class PlannedTripsService {
 
   async cancel(ctx: AuthContext, id: string, dto: CancelPlannedTripDto): Promise<PlannedTripDto> {
     const before = await this.find(ctx, id);
+    // ETMS trips are cancelled through /api/transport/trips/:id/cancel, which also cancels the passenger rows (15 §7.1).
+    if (before.origin === 'ETMS') throw managedByEtms();
     if (!canCancelTrip(before.status)) throw new ConflictException(`A ${before.status.toLowerCase().replace('_', ' ')} trip cannot be cancelled`);
     const reason = dto.reason.trim();
     if (!reason) throw new BadRequestException('Give a reason');
@@ -332,6 +347,7 @@ export class PlannedTripsService {
     return {
       id: t.id,
       routeId: t.routeId,
+      origin: t.origin as PlannedTripOrigin,
       scheduleId: t.scheduleId,
       routeName: t.routeName,
       objectId: t.objectId,

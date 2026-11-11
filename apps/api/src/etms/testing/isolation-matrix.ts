@@ -14,6 +14,8 @@ import type { CompanyDirectoryController } from '../directory/company-directory.
 import type { ConsentNoticesController, DriverLoginController, MyTransportConsentController, PassengersController, TransportVehiclesController } from '../people/people.controller';
 import type { TransportSettingsController } from '../settings/transport-settings.controller';
 import type { AuthContext } from '../../access/auth-context';
+import { E3_MATRIX, type E3Controllers, type E3Ids, type E3Resource, type E3World } from './isolation-matrix-e3';
+import type { MemoryStore } from './memory-store';
 
 /**
  * Callers. Customer = custA, provider = prov; the "other" agreement is prov2 ↔ custB. Templates carry the E2 additions
@@ -41,8 +43,8 @@ export type Ownership = 'party' | 'other' | 'none';
 export type Expected = 200 | 403 | 404;
 export type RoleTable = Record<MatrixRole, Expected>;
 
-/** What `Target.id` points at: an agreement (E1a) or an E2 row. */
-export type Resource = 'agreement' | 'passenger' | 'vehicle' | 'driver';
+/** What `Target.id` points at: an agreement (E1a), an E2 row, or an E3 row (isolation-matrix-e3.ts). */
+export type Resource = 'agreement' | 'passenger' | 'vehicle' | 'driver' | E3Resource;
 
 export interface Controllers {
   agreements: AgreementsController;
@@ -53,6 +55,8 @@ export interface Controllers {
   notices: ConsentNoticesController;
   vehicles: TransportVehiclesController;
   driverLogin: DriverLoginController;
+  /** E3 controllers (schedules, bookings, dispatch, trips, the passenger's own trips). */
+  e3: E3Controllers;
 }
 
 export interface Target {
@@ -64,6 +68,8 @@ export interface Target {
   customerCompanyId: string;
   /** E2 world: ids of the rows the result checks look for. */
   ids?: { partyPassenger: string; otherPassenger: string; outsideSitePassenger: string };
+  /** E3 world: the ids of this ownership and both companies' rows. */
+  e3?: { ids: E3Ids; world: E3World };
 }
 
 export interface MatrixEntry {
@@ -77,6 +83,8 @@ export interface MatrixEntry {
   expect: Partial<Record<Ownership, RoleTable>>;
   /** Extra check of a 2xx result (projection, rows visible), beyond the status code. */
   verify?(result: unknown, role: MatrixRole, own: Ownership, t: Target): void;
+  /** E3: put the target in the state the command needs (e.g. a started trip) before the call. */
+  prepare?(store: MemoryStore, t: Target): void;
 }
 
 const REASON = 'isolation matrix';
@@ -340,5 +348,18 @@ function E2_MATRIX(): MatrixEntry[] {
   ];
 }
 
-/** Every ETMS route: E1a (agreements, directory, settings) and E2 (people). */
-export const ISOLATION_MATRIX: MatrixEntry[] = [...E1A_MATRIX, ...E2_MATRIX()];
+/** E3 entries (declared in isolation-matrix-e3.ts) in the common MatrixEntry shape. */
+function E3_ENTRIES(): MatrixEntry[] {
+  return E3_MATRIX.map((e) => ({
+    route: e.route,
+    resource: e.resource,
+    state: 'ACTIVE',
+    invoke: (c, ctx, t) => e.invoke(c.e3, ctx, t.e3!.ids, t.e3!.world),
+    expect: e.expect,
+    ...(e.prepare ? { prepare: (store: MemoryStore, t: Target) => e.prepare!(store, t.e3!.ids, t.e3!.world) } : {}),
+    ...(e.verify ? { verify: (result: unknown, role: MatrixRole, own: Ownership, t: Target) => e.verify!(result, role, own, t.e3!.ids, t.e3!.world) } : {}),
+  }));
+}
+
+/** Every ETMS route: E1a (agreements, directory, settings), E2 (people) and E3 (schedules, bookings, dispatch, trips, self view). */
+export const ISOLATION_MATRIX: MatrixEntry[] = [...E1A_MATRIX, ...E2_MATRIX(), ...E3_ENTRIES()];

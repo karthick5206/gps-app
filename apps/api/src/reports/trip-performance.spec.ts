@@ -1,4 +1,4 @@
-import { PerfStopInput, PerfTripInput, pathKm, plannedKmOf, plannedTripRow, plannedTripTotals, straightLegsKm, tripFacts, tripPerformance } from './trip-performance';
+import { NO_DRIVER_GROUP_LABEL, NO_ROUTE_GROUP_LABEL, PerfStopInput, PerfTripInput, pathKm, plannedKmOf, plannedTripRow, plannedTripTotals, straightLegsKm, tripFacts, tripPerformance } from './trip-performance';
 import { renderReport } from './report-files';
 import { ReportData } from './report-data.service';
 
@@ -98,6 +98,20 @@ describe('tripPerformance', () => {
       ['d1', 'Zed', 2],
       [null, 'No driver', 2],
     ]);
+  });
+
+  it('null keys: "No driver" only when grouping by driver; by route an ETMS trip without a route is labelled as such (C-12)', () => {
+    const withEtms = [...trips, tripFacts(trip({ id: 'e1', routeId: null, routeName: 'Transport login', driverId: null, stops: [stop(0, 'DEPARTED', 0), stop(1, 'ARRIVED', 0)] }))];
+    const byRoute = tripPerformance(withEtms, 'ROUTE').rows;
+    expect(byRoute.map((r) => [r.groupId, r.groupName])).toEqual([
+      ['r1', 'Route A'],
+      ['r2', 'Route B'],
+      [null, NO_ROUTE_GROUP_LABEL],
+    ]);
+    expect(byRoute.some((r) => r.groupName === NO_DRIVER_GROUP_LABEL)).toBe(false);
+    const byDriver = tripPerformance(withEtms, 'DRIVER').rows;
+    expect(byDriver.find((r) => r.groupId === null)).toMatchObject({ groupName: NO_DRIVER_GROUP_LABEL, trips: 3 });
+    expect(plannedTripRow(withEtms[withEtms.length - 1], { vehicle: () => undefined, driver: () => undefined })).toMatchObject({ routeId: null, routeName: 'Transport login' });
   });
 
   it('groups per vehicle', () => {

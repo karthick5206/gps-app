@@ -18,12 +18,15 @@ import {
   trackWindow,
   tripActions,
   tripProgress,
+  isEtmsTrip,
+  tripSourceLabel,
 } from './trip-format.ts';
 
 function summary(over: Partial<PlannedTripSummaryDto> = {}): PlannedTripSummaryDto {
   return {
     id: 't1',
     routeId: 'r1',
+    origin: 'ROUTE',
     scheduleId: null,
     routeName: 'Route A',
     objectId: 'o1',
@@ -197,4 +200,24 @@ test('company time zone: wall time ↔ instant and day ranges', () => {
   assert.equal(formatClock('2026-11-10T03:30:00.000Z', 'Asia/Kolkata', '2026-11-10'), '09:00');
   assert.equal(formatClock(null, 'Asia/Kolkata'), '—');
   assert.match(formatClock('2026-11-10T20:00:00.000Z', 'Asia/Kolkata', '2026-11-10', 'en-GB'), /^11 Nov 01:30$/);
+});
+
+// ETMS trips (migration planned_trip_origin): door-to-door ones have no Route.
+const etmsDoorToDoor = summary({ origin: 'ETMS', routeId: null, routeName: 'Transport 2026-11-10 login' });
+
+test('null-route ETMS fixture: label, actions, progress and live update', () => {
+  assert.equal(isEtmsTrip(etmsDoorToDoor), true);
+  assert.equal(isEtmsTrip(summary()), false);
+  assert.equal(tripSourceLabel(etmsDoorToDoor), 'Employee transport · door to door');
+  assert.equal(tripSourceLabel(summary({ origin: 'ETMS', routeId: 'r9', routeName: 'Shuttle A' })), 'Employee transport · Shuttle A');
+  assert.equal(tripSourceLabel(summary()), 'Route A');
+  // Planned-trips edit / cancel refuse ETMS trips (409 MANAGED_BY_ETMS): only start / complete are offered.
+  assert.deepEqual(tripActions('SCHEDULED', 'ETMS'), ['start']);
+  assert.deepEqual(tripActions('IN_PROGRESS', 'ETMS'), ['complete']);
+  assert.deepEqual(tripActions('COMPLETED', 'ETMS'), []);
+  assert.deepEqual(tripActions('SCHEDULED', 'ROUTE'), ['edit', 'start', 'cancel']);
+  assert.equal(progressLabel(etmsDoorToDoor), '5 stops');
+  const live = applyLiveUpdate(etmsDoorToDoor, { id: 't1', status: 'STARTED', nextStopSeq: 1, etaNextStop: null, delaySec: 60, actualStart: '2026-11-10T03:31:00.000Z', actualEnd: null, deviationCount: 0, maxDeviationM: null });
+  assert.equal(live.routeId, null);
+  assert.equal(live.status, 'STARTED');
 });

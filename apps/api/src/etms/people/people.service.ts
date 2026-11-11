@@ -8,6 +8,7 @@ import {
   normaliseEmail,
   normalisePhone,
   phoneCountryForTimezone,
+  routingConsentEffective,
   validHomePoint,
   type AuditLogDto,
   type ConsentChannel,
@@ -30,6 +31,7 @@ import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query
 import { assertPrivateGeocoder, GeocodingService } from '../../geocoding/geocoding.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { assertNoOpenBookings, eraseTransportData } from '../dispatch/erasure';
 import { ConsentNoticeService } from './consent-notice.service';
 import {
   LOGIN_USER_INCLUDE,
@@ -75,7 +77,7 @@ export const ERASED_MARK = '[erased]';
 /** Lets the erasure transaction remove the identity from consent evidence (trigger "etms_evidence_guard"). */
 const ERASURE_EVIDENCE_WRITE = Prisma.sql`SET LOCAL veetrax.evidence_write = 'erasure'`;
 /** Audit keys whose values identify the passenger: replaced by ERASED_MARK in the passenger's audit trail on erasure. */
-const ERASE_AUDIT_KEYS = new Set(['displayName', 'name', 'mobile', 'email', 'employeeCode', 'homeAddress', 'homeLat', 'homeLng', 'accessibility', 'emergencyContacts', 'note']);
+const ERASE_AUDIT_KEYS = new Set(['displayName', 'name', 'mobile', 'email', 'employeeCode', 'homeAddress', 'homeLat', 'homeLng', 'accessibility', 'emergencyContacts', 'note', 'reason', 'statusReason']);
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Date);
 const eraseLeaves = (v: unknown): unknown => (v === null || v === undefined ? v : Array.isArray(v) ? v.map(eraseLeaves) : isPlainObject(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, eraseLeaves(x)])) : ERASED_MARK);
 /** An audit `changes` value with every identifying key's value erased (structure, other keys and nulls kept). */
@@ -139,6 +141,17 @@ export async function latestConsents(db: Db, profileIds: string[]): Promise<Map<
     ORDER BY "profileId", "purpose", "occurredAt" DESC`;
   for (const r of rows) (out.get(r.profileId) ?? out.set(r.profileId, []).get(r.profileId)!).push(r);
   return out;
+}
+
+/**
+ * Profiles (of the given ids) whose routing consent is effective under the E2 final model (routingConsentEffective:
+ * latest TRANSPORT_PROFILE row a grant through the passenger's own channel or a recorded offline consent). The one gate
+ * E3 uses for pickup points, assignment and generated bookings (D8, 10 §4.2).
+ */
+export async function activeRoutingConsents(db: Db, profileIds: string[]): Promise<Set<string>> {
+  const ids = [...new Set(profileIds)];
+  const rows = await latestConsents(db, ids);
+  return new Set(ids.filter((id) => routingConsentEffective(rows.get(id) ?? [])));
 }
 
 /** Profiles (of the given companies) whose latest TRANSPORT_PROFILE consent row is a grant. */
@@ -605,6 +618,8 @@ export class PeopleService {
     if (row.anonymisedAt) throw new ConflictException(err('INVALID_STATE', 'This passenger was already erased'));
     if (row.isActive) throw new ConflictException(err('INVALID_STATE', 'Archive the passenger before erasing the personal data'));
     if (dto.confirm.trim() !== row.employeeCode) throw new BadRequestException(err('ERASE_CONFIRM_MISMATCH', 'Type the employee code exactly to confirm'));
+    // E3: upcoming bookings are cancelled first (frees their seats); erasure never changes a future trip.
+    await assertNoOpenBookings(this.prisma, row.companyId, row.id);
     const userId = row.userId;
     const erasedAt = new Date();
     await this.prisma.$transaction(async (tx) => {
@@ -612,6 +627,8 @@ export class PeopleService {
       const consentRows = await tx.employeeTransportConsent.updateMany({ where: { profileId: row.id, companyId: row.companyId }, data: { subjectUserId: null, actorUserId: null, ip: null, appVersion: null } });
       await tx.employeeTransportConsent.updateMany({ where: { profileId: row.id, companyId: row.companyId, note: { not: null } }, data: { note: ERASED_MARK } });
       await tx.transportPassengerNotice.deleteMany({ where: { profileId: row.id, companyId: row.companyId } });
+      // E3 copies of the home point (bookings, planned stops, server drafts): coarsened / removed (dispatch/erasure.ts).
+      const transport = await eraseTransportData(tx, row.companyId, row.id, ERASED_MARK);
       await tx.employeeTransportProfile.update({
         where: { id: row.id },
         data: {
@@ -655,6 +672,7 @@ export class PeopleService {
             { entity: 'User', changes: { path: ['passengerId'], equals: row.id } },
             { entity: 'User', changes: { path: ['passengerId', 'to'], equals: row.id } },
             { entity: CONSENT_ENTITY, changes: { path: ['profileId', 'to'], equals: row.id } },
+            ...(transport.bookingIds.length ? [{ entity: 'TransportBooking', entityId: { in: transport.bookingIds } }] : []),
           ],
         },
         select: { id: true, changes: true },
@@ -668,7 +686,7 @@ export class PeopleService {
       }
       await this.audit.record(
         ctx,
-        { action: 'UPDATE', entity: PROFILE_ENTITY, entityId: row.id, details: { what: 'erased', policy: ERASURE_POLICY, consentRows: consentRows.count, auditEntriesScrubbed: scrubbed, ...(login ? { login: login.outcome, loginAnonymised: login.anonymised } : {}) } },
+        { action: 'UPDATE', entity: PROFILE_ENTITY, entityId: row.id, details: { what: 'erased', policy: ERASURE_POLICY, consentRows: consentRows.count, auditEntriesScrubbed: scrubbed, transportBookings: transport.bookings, transportStops: transport.stops, transportDrafts: transport.drafts, ...(login ? { login: login.outcome, loginAnonymised: login.anonymised } : {}) } },
         tx,
       );
       if (userId) await this.audit.record(ctx, { action: 'UPDATE', entity: 'User', entityId: userId, details: { what: 'passenger-erased', outcome: login?.outcome ?? 'NONE', passengerId: row.id } }, tx);
