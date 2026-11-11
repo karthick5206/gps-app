@@ -32,6 +32,8 @@ import { NOTIFY_SWEEP_FLOOR } from '../notifier/notify-sweeper';
 import { bufferSecondsLeft, CheckInput, evaluateChecks, Issue, NotifyBacklog, statusOf, worst } from './checks';
 import { HEARTBEAT_TTL_SEC } from './heartbeat';
 import { MapServiceMonitor, MapServiceState } from './map-services';
+import { etmsRoutingEnabled } from '../routing/matrix/matrix-config';
+import { MATRIX_STATS_KEY, parseMatrixStats } from '../routing/matrix/matrix-metrics';
 import { HealthThresholds, loadMonitorConfig, loadThresholds, MonitorConfig } from './thresholds';
 import { pairs, parseInfo, shortError, streamIdTime, toNumber, withTimeout } from './util';
 
@@ -110,7 +112,7 @@ export class SystemHealthService {
   // ── report ────────────────────────────────────────────────────────────────
 
   async collect(now = Date.now()): Promise<Collected> {
-    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt, maps, notify, etmsRelay] = await Promise.all([
+    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt, maps, notify, etmsRelay, etmsMatrix] = await Promise.all([
       this.valkeyInfo(),
       this.heartbeats().catch(() => [] as ProcessHeartbeat[]),
       this.series().catch(() => [] as SeriesSample[]),
@@ -121,6 +123,7 @@ export class SystemHealthService {
       this.mapServices.collect(now).catch(() => this.mapServices.snapshot()),
       this.notifyBacklog(),
       this.etmsRelay(),
+      this.etmsMatrix(),
     ]);
     const processes = this.processes(heartbeats, now);
     const ports = this.ports(heartbeats);
@@ -142,6 +145,7 @@ export class SystemHealthService {
       maps,
       notify,
       etmsRelay,
+      etmsMatrix,
     };
     const issues = evaluateChecks(input, this.thresholds);
     applyStatuses(input, issues);
@@ -409,6 +413,16 @@ export class SystemHealthService {
       if (!raw) return { lastOkAt: null, hwm: null, full: false };
       const s = JSON.parse(raw) as { at?: unknown; hwm?: unknown; full?: unknown };
       return { lastOkAt: typeof s.at === 'number' ? s.at : null, hwm: typeof s.hwm === 'number' ? s.hwm : null, full: s.full === true };
+    } catch {
+      return null;
+    }
+  }
+
+  /** E4 WP 4.1b: last matrix builds (any process); undefined when ETMS_ROUTING is off. */
+  async etmsMatrix(): Promise<CheckInput['etmsMatrix']> {
+    if (!etmsRoutingEnabled()) return undefined;
+    try {
+      return parseMatrixStats(await withTimeout(this.valkey.get(MATRIX_STATS_KEY), TIMEOUT_MS, 'Valkey GET'));
     } catch {
       return null;
     }
