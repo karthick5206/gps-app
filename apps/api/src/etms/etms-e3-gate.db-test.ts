@@ -11,11 +11,11 @@
  *   CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_e3h_x_test npx jest --testRegex 'etms-e3-gate\.db-test\.ts$' --runInBand
  *
  * Test names carry the exit criterion they prove (`[AC1]` … `[AC9]` = doc 12 §5 E3 exit criteria 1–9, `[ISO]` =
- * tenant / branch isolation; see the gate script's map). Tests named `[pending secfix Bn]` assert the behaviour after
- * the E3 security fixes (branch `etms/e3-secfix`, QA defects B1–B5); they are skipped unless `ETMS_E3_SECFIX=1` (gate:
- * `--secfix`). Tests named `[known defect Hn]` cover defects this harness found outside that scope (README); skipped
- * unless `ETMS_E3_KNOWN_DEFECTS=1` (gate: `--known-defects`). Synthetic tenants only (tag `e3h-…`); every company the
- * suite creates is purged again with the purge planner in afterAll.
+ * tenant / branch isolation; see the gate script's map). Tests named `[secfix Bn]` are regression tests for the E3
+ * security fixes (QA defects B1–B5) and `[fixed HDn]` for the harness-found defects HD1 / HD2; both run by default
+ * since the fixes merged. Fixtures follow the secured publish rules (M2): a personal stop is the own pickup of a
+ * consenting passenger seated in the same change set, site / depot stops name a company place (poiId). Synthetic
+ * tenants only (tag `e3h-…`); every company the suite creates is purged again with the purge planner in afterAll.
  */
 jest.mock('@nestjs/mapped-types', () => ({ PartialType: (c: new () => object) => class extends c {} }));
 
@@ -43,13 +43,13 @@ import { GraphHopperStub } from './testing/graphhopper-stub';
 
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
-/** Tests that need the etms/e3-secfix fixes (QA B1–B5) run only when ETMS_E3_SECFIX=1. */
-const secfix = process.env.ETMS_E3_SECFIX === '1' ? it : it.skip;
 /**
- * Defects the harness found that are NOT in the etms/e3-secfix scope (see the gate README, "Known defects"): skipped
- * unless ETMS_E3_KNOWN_DEFECTS=1 (gate: --known-defects); turn on once fixed.
+ * Regression tests for the E3 security fixes (QA B1–B5, merged with etms/e3-secfix) and for the harness-found defects
+ * HD1 / HD2 (fixed with ND1). They used to be skipped until the fixes landed; they now always run. The gate's
+ * --secfix / --known-defects flags (ETMS_E3_SECFIX / ETMS_E3_KNOWN_DEFECTS) are still accepted and change nothing.
  */
-const known = process.env.ETMS_E3_KNOWN_DEFECTS === '1' ? it : it.skip;
+const secfix = it;
+const known = it;
 
 const H = 3_600_000;
 const TAG = `e3h-${Date.now().toString(36)}`;
@@ -130,9 +130,16 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
   const ctxOf = (c: Pick<E3Company, 'id' | 'features'>, o: { userId?: string; branchIds?: string[] } = {}): Ctx =>
     ({ userId: o.userId ?? randomUUID(), companyId: c.id, homeCompanyId: c.id, isSuperAdmin: false, permissions: {}, dataScope: o.branchIds ? 'ASSIGNED' : 'COMPANY', branchIds: o.branchIds ?? [], objectIds: [], features: c.features, agreements: [], ip: null }) as never;
 
+  /** Per company: a second company place (depot) the empty / not-yet-seated trips start from (M2: no unowned personal stop). */
+  const depots = new Map<string, { id: string; lat: number; lng: number }>();
   async function seed(plan: ReturnType<typeof planE3Synthetic>) {
     companies.push(...plan.companies.map((c) => c.id));
     await seedE3Synthetic(prisma, plan, partnerId);
+    for (const c of plan.companies) {
+      const dep = { id: randomUUID(), lat: Math.round((c.sites[0].lat + 0.02) * 1e5) / 1e5, lng: c.sites[0].lng };
+      await prisma.$executeRawUnsafe(`INSERT INTO "Poi" (id, "companyId", name, category, lat, lng, "updatedAt") VALUES ('${dep.id}', '${c.id}', '${TAG} depot', 'OFFICE', ${dep.lat}, ${dep.lng}, now())`);
+      depots.set(c.id, dep);
+    }
     return plan.companies;
   }
   async function tenant(key: string, spec: Partial<E3CompanySpec> = {}): Promise<E3Company> {
@@ -144,16 +151,28 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     const p = c.passengers[i];
     const id = randomUUID();
     const site = c.sites[0];
-    await prisma.$executeRawUnsafe(`INSERT INTO "TransportBooking" (id, "customerCompanyId", "profileId", source, "serviceDate", direction, "timeZone", "pickupLat", "pickupLng", "dropLat", "dropLng", "windowStart", "windowEnd", status, "updatedAt")
-      VALUES ('${id}', '${c.id}', '${p.id}', 'ADHOC', '${day}', '${dir}', '${c.timezone}', ${p.homeLat}, ${p.homeLng}, ${site.lat}, ${site.lng}, '${new Date(start).toISOString()}', '${new Date(start + 1.5 * H).toISOString()}', 'PENDING_ASSIGNMENT', now())`);
+    // IN: pickup = the passenger's home (personal point, consent seeded), drop = the office (a company place).
+    await prisma.$executeRawUnsafe(`INSERT INTO "TransportBooking" (id, "customerCompanyId", "profileId", source, "serviceDate", direction, "timeZone", "pickupLat", "pickupLng", "dropLat", "dropLng", "dropPoiId", "windowStart", "windowEnd", status, "updatedAt")
+      VALUES ('${id}', '${c.id}', '${p.id}', 'ADHOC', '${day}', '${dir}', '${c.timezone}', ${p.homeLat}, ${p.homeLng}, ${site.lat}, ${site.lng}, '${site.id}', '${new Date(start).toISOString()}', '${new Date(start + 1.5 * H).toISOString()}', 'PENDING_ASSIGNMENT', now())`);
     return id;
   }
-  const stopsFrom = (c: E3Company, from: number, extra: { lat: number; lng: number }[] = []) => [
-    ...[{ lat: c.passengers[0].homeLat, lng: c.passengers[0].homeLng }, ...extra].map((p, i) => ({ seq: i, point: { ...p, label: `Pickup ${i + 1}` }, plannedArrival: new Date(from + i * 10 * 60_000).toISOString() })),
-    { seq: extra.length + 1, point: { lat: c.sites[0].lat, lng: c.sites[0].lng, label: 'Office' }, plannedArrival: new Date(from + H).toISOString() },
-  ];
-  const createTrip = (c: E3Company, objectId: string, from: number, o: { driverId?: string | null; extra?: { lat: number; lng: number }[] } = {}): DispatchChangeOp => ({ op: 'CREATE_TRIP', tempId: 't', objectId, driverId: o.driverId ?? null, plannedStart: new Date(from).toISOString(), stops: stopsFrom(c, from, o.extra) });
-  const addPax = (tripId: string, bookingId: string, dropSeq = 1): DispatchChangeOp => ({ op: 'ADD_PASSENGER', tripId, bookingId, pickupSeq: 0, dropSeq });
+  /** Home of passenger i (a personal point: valid as a stop only when that consenting passenger is seated there in the same change set). */
+  const home = (c: E3Company, i: number) => ({ lat: c.passengers[i].homeLat, lng: c.passengers[i].homeLng });
+  /**
+   * Ad-hoc stops under the M2 publish rule: stop 0 = the first seated passenger's home (`pickup`) or else the company
+   * depot (a place, poiId); `extra` personal pickups next; the last stop = the office site (poiId).
+   */
+  const stopsFrom = (c: E3Company, from: number, o: { pickup?: { lat: number; lng: number }; extra?: { lat: number; lng: number }[] } = {}) => {
+    const dep = depots.get(c.id)!;
+    const first = o.pickup ? { ...o.pickup, label: 'Pickup 1' } : { lat: dep.lat, lng: dep.lng, label: 'Depot', poiId: dep.id };
+    const extra = o.extra ?? [];
+    return [
+      ...[first, ...extra.map((p, i) => ({ ...p, label: `Pickup ${i + 2}` }))].map((point, i) => ({ seq: i, point, plannedArrival: new Date(from + i * 10 * 60_000).toISOString() })),
+      { seq: extra.length + 1, point: { lat: c.sites[0].lat, lng: c.sites[0].lng, label: 'Office', poiId: c.sites[0].id }, plannedArrival: new Date(from + H).toISOString() },
+    ];
+  };
+  const createTrip = (c: E3Company, objectId: string, from: number, o: { driverId?: string | null; pickup?: { lat: number; lng: number }; extra?: { lat: number; lng: number }[] } = {}): DispatchChangeOp => ({ op: 'CREATE_TRIP', tempId: 't', objectId, driverId: o.driverId ?? null, plannedStart: new Date(from).toISOString(), stops: stopsFrom(c, from, o) });
+  const addPax = (tripId: string, bookingId: string, dropSeq = 1, pickupSeq = 0): DispatchChangeOp => ({ op: 'ADD_PASSENGER', tripId, bookingId, pickupSeq, dropSeq });
   const summary: Record<string, unknown> = {};
 
   beforeAll(async () => {
@@ -310,7 +329,7 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     const r = {
       rows: rows.length,
       parallelNew: parallel.filter((x) => x === `NEW ${rows[0]?.id}`).length,
-      // Losers of the parallel race: a replay of the same booking (or, known defect H1, 409 BOOKING_DUPLICATE).
+      // Losers of the parallel race: a replay of the same booking (409 BOOKING_DUPLICATE was HD1, fixed; the [fixed HD1] test asserts replays only).
       parallelOther: parallel.every((x) => x === `NEW ${rows[0]?.id}` || x === `REPLAY ${rows[0]?.id}` || x === 'BOOKING_DUPLICATE'),
       retries: tally(retries),
       reused,
@@ -321,7 +340,7 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     expect(r).toEqual({ rows: 1, parallelNew: 1, parallelOther: true, retries: { [`REPLAY ${rows[0].id}`]: 50 }, reused: 'IDEMPOTENCY_KEY_REUSED', noKey: 'IDEMPOTENCY_KEY_REQUIRED', otherKey: 'BOOKING_DUPLICATE' });
   });
 
-  known('[AC2][known defect H1] parallel double submit: every request with the key gets the same booking back (no 409 BOOKING_DUPLICATE for the loser)', async () => {
+  known('[AC2][fixed HD1] parallel double submit: every request with the key gets the same booking back (no 409 BOOKING_DUPLICATE for the loser)', async () => {
     const c = await tenant('DOUBLE-H1', { passengers: 10 });
     const ctx = ctxOf(c);
     const day = addDays(localDayKey(Date.now(), 'Asia/Kolkata'), 6);
@@ -335,7 +354,7 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     const ctx = ctxOf(c);
     const t0 = Date.parse('2027-02-08T02:00:00Z');
     const b = await booking(c, 0, '2027-02-08', t0);
-    const input = { serviceDate: '2027-02-08', direction: 'IN' as const, changes: [createTrip(c, c.vehicles[0].id, t0), addPax('t', b)] };
+    const input = { serviceDate: '2027-02-08', direction: 'IN' as const, changes: [createTrip(c, c.vehicles[0].id, t0, { pickup: home(c, 0) }), addPax('t', b)] };
     const key = randomUUID();
     const firstRun = await dispatch.submit(ctx, input, key);
     const replays = await Promise.all(Array.from({ length: 5 }, () => dispatch.submit(ctx, input, key)));
@@ -353,12 +372,12 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     expect(r).toEqual({ firstReplay: false, replays: 5, reused: 'IDEMPOTENCY_KEY_REUSED', noKey: 'IDEMPOTENCY_KEY_REQUIRED', plannedTrips: 1, ledgerRows: 1 });
   });
 
-  known('[AC2][known defect H2] change-set publish: parallel submits with one key — the losers get the winner\'s result back (not VEHICLE_BUSY)', async () => {
+  known('[AC2][fixed HD2] change-set publish: parallel submits with one key — the losers get the winner\'s result back (not VEHICLE_BUSY)', async () => {
     const c = await tenant('DOUBLE-H2');
     const ctx = ctxOf(c);
     const t0 = Date.parse('2027-02-05T02:00:00Z');
     const b = await booking(c, 0, '2027-02-05', t0);
-    const input = { serviceDate: '2027-02-05', direction: 'IN' as const, changes: [createTrip(c, c.vehicles[0].id, t0), addPax('t', b)] };
+    const input = { serviceDate: '2027-02-05', direction: 'IN' as const, changes: [createTrip(c, c.vehicles[0].id, t0, { pickup: home(c, 0) }), addPax('t', b)] };
     const key = randomUUID();
     const res = await Promise.all(Array.from({ length: 4 }, () => dispatch.submit(ctx, input, key).then((x) => (x.replay ? 'REPLAY' : 'PUBLISHED'), (e: unknown) => outcome(Promise.reject(e)))));
     expect(tally(res)).toEqual({ PUBLISHED: 1, REPLAY: 3 });
@@ -369,7 +388,7 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     const ctx = ctxOf(c);
     const t0 = Date.parse('2027-02-09T02:00:00Z');
     const b = await booking(c, 0, '2027-02-09', t0);
-    const input = { serviceDate: '2027-02-09', direction: 'IN' as const, changes: [createTrip(c, c.vehicles[0].id, t0), addPax('t', b)] };
+    const input = { serviceDate: '2027-02-09', direction: 'IN' as const, changes: [createTrip(c, c.vehicles[0].id, t0, { pickup: home(c, 0) }), addPax('t', b)] };
     const key = randomUUID();
     const res = await Promise.all(Array.from({ length: 4 }, () => dispatch.submit(ctx, input, key).then((x) => (x.replay ? 'REPLAY' : 'PUBLISHED'), (e: unknown) => outcome(Promise.reject(e)))));
     const plannedTrips = await prisma.plannedTrip.count({ where: { companyId: c.id } });
@@ -389,7 +408,7 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     const bs = await Promise.all([0, 1, 2, 3, 4].map((i) => booking(c, i, day, t0)));
     const refused = await outcome(dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0), ...bs.slice(0, 4).map((b) => addPax('t', b))] }, randomUUID()));
     const afterRefused = { plannedTrips: await prisma.plannedTrip.count({ where: { companyId: c.id } }), assigned: await prisma.transportBooking.count({ where: { customerCompanyId: c.id, status: 'ASSIGNED' } }), changeSets: await prisma.transportChangeSet.count({ where: { companyId: c.id } }) };
-    const ok = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0), addPax('t', bs[0]), addPax('t', bs[1])] }, randomUUID());
+    const ok = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0, { pickup: home(c, 0) }), addPax('t', bs[0]), addPax('t', bs[1])] }, randomUUID());
     const trip = await prisma.transportTrip.findUniqueOrThrow({ where: { id: ok.value.trips[0].id }, include: { plannedTrip: true, passengers: true, events: true } });
     // A booking already seated, given to a second trip in the same change set as a new trip: all of it rolls back.
     const twice = await outcome(dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[1].id, t0), addPax('t', bs[2]), addPax('t', bs[0])] }, randomUUID()));
@@ -418,12 +437,15 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     const bs = await Promise.all(c.passengers.map((_, i) => booking(c, i, day, t0)));
     const r0 = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0)] }, randomUUID());
     const tripId = r0.value.trips[0].id;
-    const round1 = await Promise.all(bs.slice(0, 8).map((b) => outcome(dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [addPax(tripId, b)], expectedVersions: { [tripId]: 1 } }, randomUUID()))));
+    // Eight dispatchers (one login each): change-set publish is rate limited per user (changeSetsPerMinute), so one
+    // shared login retrying for eight would be throttled (429) instead of exercising the version / capacity rules.
+    const workers = Array.from({ length: 9 }, () => ctxOf(c));
+    const round1 = await Promise.all(bs.slice(0, 8).map((b, w) => outcome(dispatch.submit(workers[w], { serviceDate: day, direction: 'IN', changes: [addPax(tripId, b)], expectedVersions: { [tripId]: 1 } }, randomUUID()))));
     const round2 = await Promise.all(
-      bs.slice(1, 9).map(async (b) => {
-        for (let i = 0; i < 40; i++) {
+      bs.slice(1, 9).map(async (b, w) => {
+        for (let i = 0; i < 15; i++) {
           const t = await prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId } });
-          const res = await outcome(dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [addPax(tripId, b)], expectedVersions: { [tripId]: t.version } }, randomUUID()));
+          const res = await outcome(dispatch.submit(workers[w + 1], { serviceDate: day, direction: 'IN', changes: [addPax(tripId, b)], expectedVersions: { [tripId]: t.version } }, randomUUID()));
           if (res !== 'VERSION_CONFLICT') return res;
         }
         return 'GAVE_UP';
@@ -461,8 +483,8 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     const day = '2027-02-15';
     const t0 = Date.parse(`${day}T02:00:00Z`);
     const bs = await Promise.all([0, 1, 2].map((i) => booking(c, i, day, t0)));
-    const t1 = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0), addPax('t', bs[0]), addPax('t', bs[1])] }, randomUUID());
-    const t2 = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[1].id, t0), addPax('t', bs[2])] }, randomUUID());
+    const t1 = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0, { pickup: home(c, 0) }), addPax('t', bs[0]), addPax('t', bs[1])] }, randomUUID());
+    const t2 = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[1].id, t0, { pickup: home(c, 2) }), addPax('t', bs[2])] }, randomUUID());
     const p0 = ctxOf(c, { userId: c.passengers[0].userId! });
     const mine = await me.trips(p0, { from: day, to: day });
     const text = JSON.stringify(mine);
@@ -485,7 +507,7 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     const day = '2027-02-16';
     const t0 = Date.parse(`${day}T02:00:00Z`);
     const bs = await Promise.all([0, 1].map((i) => booking(c, i, day, t0)));
-    const r0 = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0), ...bs.map((b) => addPax('t', b))] }, randomUUID());
+    const r0 = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0, { pickup: home(c, 0) }), ...bs.map((b) => addPax('t', b))] }, randomUUID());
     const tripId = r0.value.trips[0].id;
     const ptId = r0.value.trips[0].plannedTripId!;
     await trips.start(ctx, tripId, {});
@@ -558,9 +580,14 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
 
     it('[AC9] GraphHopper up: publish stores the road path; candidates give a ROAD ETA from the trip stop', async () => {
       stub.reset();
-      const r = await up().dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0), addPax('t', bs[0])] }, randomUUID());
+      const r = await up().dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0, { pickup: home(c, 0) }), addPax('t', bs[0])] }, randomUUID());
       tripId = r.value.trips[0].id;
-      const pt = await prisma.plannedTrip.findUniqueOrThrow({ where: { id: r.value.trips[0].plannedTripId! } });
+      // B3 fix: publish returns before routing; the road path is written in the background after the commit. Poll.
+      let pt = await prisma.plannedTrip.findUniqueOrThrow({ where: { id: r.value.trips[0].plannedTripId! } });
+      for (let i = 0; i < 50 && pt.path === null; i++) {
+        await sleep(200);
+        pt = await prisma.plannedTrip.findUniqueOrThrow({ where: { id: pt.id } });
+      }
       const cand = await up().dispatch.candidates(ctx, { bookingIds: [bs[1]] });
       const trip = cand.candidates.find((x) => x.tripId === tripId)!;
       const board = await up().dispatch.board(ctx, { serviceDate: day });
@@ -577,7 +604,7 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
       const cand = await svc.dispatch.candidates(ctx, { bookingIds: [bs[1]] });
       const candMs = Date.now() - t;
       const t1 = Date.now();
-      const pub = await svc.dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[1].id, t0), addPax('t', bs[2])] }, randomUUID());
+      const pub = await svc.dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[1].id, t0, { pickup: home(c, 2) }), addPax('t', bs[2])] }, randomUUID());
       const publishMs = Date.now() - t1;
       const pt = await prisma.plannedTrip.findUniqueOrThrow({ where: { id: pub.value.trips[0].plannedTripId! } });
       const res = { invented: cand.candidates.filter((x) => x.eta.at !== null || (x.eta as { durationSec?: number }).durationSec !== undefined).length, reasons: tally(cand.candidates.map((x) => String((x.eta as { degraded?: string }).degraded ?? 'none'))), candMs, publishMs, path: pt.path };
@@ -588,7 +615,7 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
       expect(res.publishMs).toBeLessThan(3_000);
     });
 
-    secfix('[AC9][pending secfix B2] GraphHopper stopped: the board and candidates report routing unavailable (not "Routing OK" / NO_ROUTE)', async () => {
+    secfix('[AC9][secfix B2] GraphHopper stopped: the board and candidates report routing unavailable (not "Routing OK" / NO_ROUTE)', async () => {
       await stub.stop();
       const svc = up();
       const board = await svc.dispatch.board(ctx, { serviceDate: day });
@@ -604,7 +631,7 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
       const cand = await svc.dispatch.candidates(ctx, { bookingIds: [bs[3]] });
       const candMs = Date.now() - t;
       const t1 = Date.now();
-      const pub = await svc.dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[2].id, t0, { extra: [{ lat: c.passengers[3].homeLat, lng: c.passengers[3].homeLng }] }), addPax('t', bs[3], 2)] }, randomUUID());
+      const pub = await svc.dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[2].id, t0, { extra: [home(c, 3)] }), addPax('t', bs[3], 2, 1)] }, randomUUID());
       const publishMs = Date.now() - t1;
       const pt = await prisma.plannedTrip.findUniqueOrThrow({ where: { id: pub.value.trips[0].plannedTripId! } });
       const res = { invented: cand.candidates.filter((x) => x.eta.at !== null).length, candMs, publishMs, path: pt.path, status: pub.value.status };
@@ -615,11 +642,11 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
       expect(res.status).toBe('PUBLISHED');
     });
 
-    secfix('[AC9][pending secfix B3] GraphHopper hanging: publishing does not wait for routing (< 3 s; 02 §5.4)', async () => {
+    secfix('[AC9][secfix B3] GraphHopper hanging: publishing does not wait for routing (< 3 s; 02 §5.4)', async () => {
       stub.mode = 'hang';
       const svc = up();
       const t1 = Date.now();
-      await svc.dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[3].id, t0, { extra: [{ lat: c.passengers[4].homeLat, lng: c.passengers[4].homeLng }] }), addPax('t', bs[4], 2)] }, randomUUID());
+      await svc.dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[3].id, t0, { extra: [home(c, 4)] }), addPax('t', bs[4], 2, 1)] }, randomUUID());
       expect(Date.now() - t1).toBeLessThan(3_000);
     });
 
@@ -673,39 +700,41 @@ d(`ETMS E3 gate (WP 3.8) on ${dbName}`, () => {
     it('[ISO] North dispatcher: seats a North passenger on a North van; South bookings are hidden from board / candidates / GET', async () => {
       const bn = await booking(c, 0, day, t0);
       const bsouth = await booking(c, 1, day, t0);
-      const ok = await outcome(dispatch.submit(north, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0), addPax('t', bn)] }, randomUUID()));
+      const ok = await outcome(dispatch.submit(north, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0, { pickup: home(c, 0) }), addPax('t', bn)] }, randomUUID()));
       const board = await dispatch.board(north, { serviceDate: day });
       const r = { ok, boardHasSouth: board.queue.some((q) => q.id === bsouth), get: await statusOf(bookings.get(north, bsouth)), candidates: await outcome(dispatch.candidates(north, { bookingIds: [bsouth] })), southVan: await outcome(dispatch.submit(north, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[1].id, t0 + 4 * H)] }, randomUUID())) };
       summary.ac10Branch = r;
       expect(r).toEqual({ ok: 'OK', boardHasSouth: false, get: 404, candidates: 'NOT_FOUND', southVan: 'NOT_FOUND' });
     });
 
-    secfix('[ISO][pending secfix B1] North dispatcher cannot seat a South passenger through ADD_PASSENGER (QA SCOPE-3/5)', async () => {
+    secfix('[ISO][secfix B1] North dispatcher cannot seat a South passenger through ADD_PASSENGER (QA SCOPE-3/5)', async () => {
       const bsouth = await booking(c, 3, day, t0 + 2 * H);
+      // Depot start (a company place), so the only thing the change set can trip over is the branch scope.
       const res = await outcome(dispatch.submit(north, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[2].id, t0 + 2 * H), addPax('t', bsouth)] }, randomUUID()));
-      expect(res).not.toBe('OK');
+      expect(res).toBe('NOT_FOUND');
       expect((await prisma.transportBooking.findUniqueOrThrow({ where: { id: bsouth } })).status).toBe('PENDING_ASSIGNMENT');
     });
 
-    secfix('[ISO][pending secfix B1] North dispatcher cannot put a South passenger\'s pickup on a trip through ADD_STOP', async () => {
+    secfix('[ISO][secfix B1] North dispatcher cannot put a South passenger\'s pickup on a trip through ADD_STOP', async () => {
       const bn = await booking(c, 4, day, t0 + 6 * H);
       const bsouth = await booking(c, 5, day, t0 + 6 * H);
-      const pub = await dispatch.submit(north, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[2].id, t0 + 6 * H), addPax('t', bn)] }, randomUUID());
+      const pub = await dispatch.submit(north, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[2].id, t0 + 6 * H, { pickup: home(c, 4) }), addPax('t', bn)] }, randomUUID());
       const tripId = pub.value.trips[0].id;
-      const res = await outcome(dispatch.submit(north, { serviceDate: day, direction: 'IN', expectedVersions: { [tripId]: 1 }, changes: [{ op: 'ADD_STOP', tripId, bookingId: bsouth, end: 'PICKUP', afterSeq: 0 }] }, randomUUID()));
-      expect(res).not.toBe('OK');
+      const res = await outcome(dispatch.submit(north, { serviceDate: day, direction: 'IN', expectedVersions: { [tripId]: 1 }, changes: [{ op: 'ADD_STOP', tripId, bookingId: bsouth, end: 'PICKUP', afterSeq: 0 }, { op: 'ADD_PASSENGER', tripId, bookingId: bsouth, pickupSeq: 1, dropSeq: 2 }] }, randomUUID()));
+      // The South passenger has consented, so a 403 CONSENT_REQUIRED would mean scope was never checked: it must be 404.
+      expect(res).toBe('NOT_FOUND');
       const stops = await prisma.plannedTripStop.count({ where: { tripId: pub.value.trips[0].plannedTripId! } });
       expect(stops).toBe(2);
     });
   });
 
-  secfix('[AC3][pending secfix B5] dispatcher start does not mark the first (pickup) stop DEPARTED before the van gets there', async () => {
+  secfix('[AC3][secfix B5] dispatcher start does not mark the first (pickup) stop DEPARTED before the van gets there', async () => {
     const c = await tenant('START', { passengers: 1 });
     const ctx = ctxOf(c);
     const day = '2027-02-22';
     const t0 = Date.parse(`${day}T02:00:00Z`);
     const b = await booking(c, 0, day, t0);
-    const r0 = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0), addPax('t', b)] }, randomUUID());
+    const r0 = await dispatch.submit(ctx, { serviceDate: day, direction: 'IN', changes: [createTrip(c, c.vehicles[0].id, t0, { pickup: home(c, 0) }), addPax('t', b)] }, randomUUID());
     await trips.start(ctx, r0.value.trips[0].id, {});
     const first = await prisma.plannedTripStop.findFirstOrThrow({ where: { tripId: r0.value.trips[0].plannedTripId!, seq: 0 } });
     // Whatever status the fix chooses for the first stop, it is not "departed now" (GPS records the real times).

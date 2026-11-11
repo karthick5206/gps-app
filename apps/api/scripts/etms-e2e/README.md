@@ -12,8 +12,6 @@ the v1.8 tracker and runs dispatcher / passenger bots over HTTP. Synthetic data 
 # Only the server and credentials of this URL are used. The database it names is never opened.
 export E3H_PG_URL='postgresql://<user>:<password>@127.0.0.1:5432/postgres'
 npm run etms:gate -w @veetracer/api                    # takes about 2 minutes
-npm run etms:gate -w @veetracer/api -- --secfix        # after etms/e3-secfix is merged
-npm run etms:gate -w @veetracer/api -- --known-defects # once H1 / H2 below are fixed
 npm run etms:gate -w @veetracer/api -- --http          # plus the HTTP stage, about 4-5 minutes
 ```
 
@@ -123,27 +121,28 @@ database) and `ETMS_SIM_REDIS_URL` (not db 0).
 | AC10: Routes / Planned trips unchanged | Regression unit specs for planned trips, routes and reports. |
 | ISO (supporting) | **Another tenant:** gets 404 on GET, candidates and seating a booking, and on using the other tenant's vehicle. Its board is empty. **Branch-scoped dispatcher:** South bookings are hidden and a South van gives 404. |
 
-## Pending on etms/e3-secfix (run with `--secfix` after the merge)
+## Regression tests for the merged fixes (always on)
 
-Each of these tests fails on `etms/e3` today. This was checked: all five fail with `--secfix`.
+The E3 security fixes (QA B1–B5, etms/e3-secfix) and the harness-found defects HD1 / HD2 (fixed with ND1) are merged
+into `etms/e3` (5056c54). Their tests used to be skipped until the fixes landed. They now run by default. The flags
+`--secfix` / `--known-defects` are still accepted and change nothing for these tests.
 
-| Test | QA defect |
+| Test | Fix |
 |---|---|
-| `[ISO][pending secfix B1]` ADD_PASSENGER and ADD_STOP of another branch's booking by a branch-scoped dispatcher | B1 |
-| `[AC9][pending secfix B2]` GraphHopper stopped: board / candidates say routing unavailable | B2 |
-| `[AC9][pending secfix B3]` GraphHopper hanging: publish under 3 s | B3 |
-| `[AC3][pending secfix B5]` dispatcher start does not mark the first pickup stop DEPARTED | B5 |
-| `[AC3b][pending secfix B5]` (HTTP stage) the same over HTTP, with the real processor | B5 |
+| `[ISO][secfix B1]` ADD_PASSENGER / ADD_STOP of a South booking by a North dispatcher. Both must give **404 `NOT_FOUND`** (scope). The ADD_STOP case uses a consenting passenger, so a 403 `CONSENT_REQUIRED` would reveal that scope was never checked. | B1 / M6 |
+| `[AC9][secfix B2]` GraphHopper stopped: board / candidates say routing unavailable | B2 |
+| `[AC9][secfix B3]` GraphHopper hanging: publish under 3 s. The road path is written after the commit; the "GraphHopper up" test polls for it. | B3 |
+| `[AC3][secfix B5]`, `[AC3b][secfix B5]` dispatcher start does not mark the first pickup stop DEPARTED (in-process and over HTTP with the real processor) | B5 |
+| `[AC2][fixed HD1]` parallel double submit of a booking: every request gets the same booking back (was 409 `BOOKING_DUPLICATE` for a loser) | HD1 |
+| `[AC2][fixed HD2]` parallel change-set publish with one key: the losers replay the winner (was 409 `VEHICLE_BUSY`) | HD2 |
 
-If secfix changes the `RoutingService` constructor, adjust `routingFor()` in the gate suite. It is the only place
-that builds one.
+**Fixtures follow the secured publish rule (M2):**
+- A stop that is not a company place must be the own pickup / drop of a consenting passenger seated in the same change set.
+- Site stops and the depot that empty trips start from name a company place (`poiId`, within the place-match distance, created before any draft).
+- Booking drops name the office place.
 
-## Known defects found by the harness (not in the secfix scope; `--known-defects`)
-
-| ID | Defect | Where |
-|---|---|---|
-| H1 (Low) | When the same Idempotency-Key is submitted in parallel, a losing request can get **409 `BOOKING_DUPLICATE`** instead of a replay of the winner. It happened in every default gate run (2 of 5 losers in the last one). It is a race, so the stricter `--known-defects` test does not catch it every time. Exactly one booking is still created. | `BookingsService.create`: the active-duplicate pre-check runs before the key's unique violation can turn into a replay. It should re-check the key, or replay when the duplicate carries the same key. |
-| H2 (Low) | When the same Idempotency-Key is submitted in parallel to change-set publish, the losers get **409 `VEHICLE_BUSY`** instead of the winner's result. The advisory lock serialises them, then the overlap check fires before the ledger's unique key. Exactly one publish still happens. | `DispatchService.publishWithKey` / `apply`: look the key up again after taking the locks. |
+If a later change alters the `RoutingService` constructor, adjust `routingFor()` in the gate suite. It is the only
+place that builds one.
 
 ## Gaps compared with the WP 3.8 definition
 

@@ -17,8 +17,8 @@
  *      the bot cycle and sim-trip through the processor (criterion 3b); every process stopped, also on failure;
  *   6. drops the scratch database (unless --keep) and prints / writes the summary to apps/api/var/etms-e2e/<stamp>/.
  *
- * Flags: --secfix (also run the `[pending secfix Bn]` tests: set once etms/e3-secfix is merged), --known-defects (the
- * `[known defect Hn]` tests: set once those are fixed), --http [--no-build] [--valkey-db 11] [--valkey-url redis://127.0.0.1:6379],
+ * Flags: --secfix / --known-defects (kept, harmless: the B1-B5 and HD1 / HD2 regression tests now always run; they only
+ * matter for future tests tagged `[pending …]`), --http [--no-build] [--valkey-db 11] [--valkey-url redis://127.0.0.1:6379],
  * --http-only (skip the jest stages; debugging), --keep, --skip-unit,
  * --out <dir>. Refuses any database name that is not `veetrax_e3h_*_test`, and the names veetracer / veetrax_assess.
  */
@@ -211,7 +211,7 @@ async function main() {
     ...rows.map((r) => `| ${r.id} | ${r.passed} | ${r.failed} | ${r.pending} | **${r.verdict}** | ${r.text} |`),
     '',
     `Tests: ${results.filter((r) => r.status === 'passed').length} passed, ${failedTests.length} failed, ${results.length - results.filter((r) => r.status === 'passed').length - failedTests.length} skipped (of which ${pendingTests.length} pending secfix, ${knownTests.length} known defects).`,
-    'PASS* = passed, with tests skipped (pending the etms/e3-secfix fixes: --secfix; or known defects: --known-defects).',
+    'PASS* = passed, with some tests skipped (e.g. tests tagged [pending …], or skips inside the regression specs).',
     ...(failedTests.length ? ['', 'Failed:', ...failedTests.map((f) => `- [${f.criterion}] ${f.file}: ${f.title}\n    ${(f.failure ?? '').split('\n')[0]}`)] : []),
     ...(pendingTests.length ? ['', 'Pending secfix (skipped):', ...pendingTests.map((p) => `- ${p.title}`)] : []),
     ...(knownTests.length ? ['', 'Known defects (skipped, see README):', ...knownTests.map((p) => `- ${p.title}`)] : []),

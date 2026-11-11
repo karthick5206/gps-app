@@ -36,7 +36,7 @@ export async function runBotCycle(api: Api, acc: HttpAccounts, prisma: PrismaCli
   // ── Dispatcher bot: bookings ──
   const bookingIds: string[] = [];
   for (let i = 0; i < 3; i++) {
-    const r = await api.call(disp, 'POST', '/transport/bookings', { passengerId: ist.passengers[i].id, serviceDate: today, direction: 'IN', windowStart: new Date(start - MIN).toISOString(), windowEnd: new Date(start + 60 * MIN).toISOString(), pickup: { ...pickups[i], label: `Bot pickup ${i + 1}` }, drop: { lat: office.lat, lng: office.lng, label: 'Office' } }, { 'idempotency-key': randomUUID() });
+    const r = await api.call(disp, 'POST', '/transport/bookings', { passengerId: ist.passengers[i].id, serviceDate: today, direction: 'IN', windowStart: new Date(start - MIN).toISOString(), windowEnd: new Date(start + 60 * MIN).toISOString(), pickup: { ...pickups[i], label: `Bot pickup ${i + 1}` }, drop: { lat: office.lat, lng: office.lng, label: 'Office', poiId: office.id } }, { 'idempotency-key': randomUUID() });
     if (r.s >= 300) throw new Error(`booking ${i}: ${sc(r)} ${JSON.stringify(r.b).slice(0, 200)}`);
     bookingIds.push(r.b.id);
   }
@@ -46,7 +46,7 @@ export async function runBotCycle(api: Api, acc: HttpAccounts, prisma: PrismaCli
   rec.check('BOT', 'candidates over HTTP: the 6-seat van is a feasible candidate with a road ETA from the stub (or a degraded reason, never a guess)', cand.s === 200 && (cand.b.candidates as { objectId: string; feasible: boolean }[]).some((c) => c.objectId === vehicle.id && c.feasible), { s: cand.s, n: cand.b?.candidates?.length, routing: cand.b?.routingAvailable });
 
   // ── Publish ──
-  const stops = [...pickups.map((p, i) => ({ seq: i, point: { ...p, label: `Bot pickup ${i + 1}` }, plannedArrival: new Date(start + i * 2 * MIN).toISOString() })), { seq: 3, point: { lat: office.lat, lng: office.lng, label: 'Office' }, plannedArrival: new Date(start + 8 * MIN).toISOString() }];
+  const stops = [...pickups.map((p, i) => ({ seq: i, point: { ...p, label: `Bot pickup ${i + 1}` }, plannedArrival: new Date(start + i * 2 * MIN).toISOString() })), { seq: 3, point: { lat: office.lat, lng: office.lng, label: 'Office', poiId: office.id }, plannedArrival: new Date(start + 8 * MIN).toISOString() }];
   const pub = await api.call(disp, 'POST', '/transport/dispatch/change-sets', { serviceDate: today, direction: 'IN', changes: [{ op: 'CREATE_TRIP', tempId: 'bot', objectId: vehicle.id, driverId: ist.drivers[0].id, plannedStart: new Date(start).toISOString(), stops }, ...bookingIds.map((b, i) => ({ op: 'ADD_PASSENGER', tripId: 'bot', bookingId: b, pickupSeq: i, dropSeq: 3 }))] }, { 'idempotency-key': randomUUID() });
   if (pub.s !== 200) throw new Error(`publish: ${sc(pub)} ${JSON.stringify(pub.b).slice(0, 300)}`);
   const tripId = pub.b.trips[0].id as string;
@@ -102,7 +102,7 @@ export async function runBotCycle(api: Api, acc: HttpAccounts, prisma: PrismaCli
   rec.check('AC3b', 'GPS never sets BOARDED: at every stop, passengers without a dispatcher outcome were still PENDING', gpsBoarded.length === 0, gpsBoarded);
   const events = await prisma.transportTripEvent.findMany({ where: { tripId, kind: { in: ['BOARDED', 'NO_SHOW', 'DROPPED'] } }, select: { kind: true, source: true, actorType: true } });
   rec.check('AC3b', 'every passenger outcome event came from the dispatcher (source WEB), none from GPS / SYSTEM', events.length === 5 && events.every((e) => e.source === 'WEB'), events);
-  rec.tagged('AC3b', 'pending secfix B5', 'after a dispatcher start, the first pickup stop is not DEPARTED until GPS sees the van leave it', () => afterStart.status !== 'DEPARTED', { status: afterStart.status, actualArrival: afterStart.actualArrival, actualDeparture: afterStart.actualDeparture });
+  rec.tagged('AC3b', 'secfix B5', 'after a dispatcher start, the first pickup stop is not DEPARTED until GPS sees the van leave it', () => afterStart.status !== 'DEPARTED', { status: afterStart.status, actualArrival: afterStart.actualArrival, actualDeparture: afterStart.actualDeparture });
 
   // ── Dispatcher: complete; passenger bot: own outcome ──
   const done = await api.call(disp, 'POST', `/transport/trips/${tripId}/complete`, { note: 'e3h bot' });

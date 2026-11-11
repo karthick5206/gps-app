@@ -26,7 +26,7 @@ export async function runHttpChecks(api: Api, acc: HttpAccounts, rec: Recorder):
   rec.check(C, 'synthetic users log in over HTTP (admin, North dispatcher, fleet user, CTRL / OFF admins, passenger)', Object.values(tok).every(Boolean));
   const day = addDays(localDayKey(Date.now(), 'Asia/Kolkata'), 2);
   const site = ist.sites[0];
-  const body = (i: number, d = day) => ({ passengerId: ist.passengers[i].id, serviceDate: d, direction: 'IN', windowStart: `${d}T02:00:00.000Z`, windowEnd: `${d}T03:30:00.000Z`, drop: { lat: site.lat, lng: site.lng } });
+  const body = (i: number, d = day) => ({ passengerId: ist.passengers[i].id, serviceDate: d, direction: 'IN', windowStart: `${d}T02:00:00.000Z`, windowEnd: `${d}T03:30:00.000Z`, drop: { lat: site.lat, lng: site.lng, poiId: site.id } });
 
   // ── Auth required on every ETMS route (sample) ──
   const sample: [string, string, unknown?][] = [
@@ -101,7 +101,7 @@ export async function runHttpChecks(api: Api, acc: HttpAccounts, rec: Recorder):
     serviceDate: day,
     direction: 'IN',
     changes: [
-      { op: 'CREATE_TRIP', tempId: 't', objectId: ist.vehicles[0].id, driverId: null, plannedStart: new Date(t0).toISOString(), stops: [{ seq: 0, point: { lat: ist.passengers[2].homeLat, lng: ist.passengers[2].homeLng, label: 'Pickup' }, plannedArrival: new Date(t0).toISOString() }, { seq: 1, point: { lat: site.lat, lng: site.lng, label: 'Office' }, plannedArrival: new Date(t0 + 3_600_000).toISOString() }] },
+      { op: 'CREATE_TRIP', tempId: 't', objectId: ist.vehicles[0].id, driverId: null, plannedStart: new Date(t0).toISOString(), stops: [{ seq: 0, point: { lat: ist.passengers[2].homeLat, lng: ist.passengers[2].homeLng, label: 'Pickup' }, plannedArrival: new Date(t0).toISOString() }, { seq: 1, point: { lat: site.lat, lng: site.lng, label: 'Office', poiId: site.id }, plannedArrival: new Date(t0 + 3_600_000).toISOString() }] },
       { op: 'ADD_PASSENGER', tripId: 't', bookingId: first.b.id, pickupSeq: 0, dropSeq: 1 },
     ],
   };

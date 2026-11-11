@@ -47,7 +47,7 @@ export interface CheckResult {
   detail?: unknown;
 }
 
-/** Collects the HTTP stage's checks in the gate's result shape. Tagged checks (pending secfix / known defect) run only when enabled. */
+/** Collects the HTTP stage's checks in the gate's result shape. Tagged checks (regressions of merged fixes) always run. */
 export class Recorder {
   readonly results: CheckResult[] = [];
   constructor(private readonly enabled: { secfix: boolean; known: boolean }) {}
@@ -58,9 +58,12 @@ export class Recorder {
     return ok;
   }
 
-  /** A check that needs a fix first: `tag` = 'pending secfix B5' or 'known defect H3'. */
+  /**
+   * A check tied to a fix, `tag` = e.g. 'secfix B5'. The fixes are merged, so it always runs; a tag starting with
+   * 'pending' (a future fix not merged yet) is recorded as pending unless --secfix / --known-defects is given.
+   */
   tagged(criterion: string, tag: string, title: string, ok: () => boolean, detail?: unknown): void {
-    const on = tag.startsWith('pending secfix') ? this.enabled.secfix : this.enabled.known;
+    const on = !tag.startsWith('pending') || (tag.includes('secfix') ? this.enabled.secfix : this.enabled.known);
     if (!on) {
       this.results.push({ criterion, title: `[${criterion}][${tag}] ${title}`, status: 'pending', detail });
       return;
