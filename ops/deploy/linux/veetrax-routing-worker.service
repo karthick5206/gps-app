@@ -12,6 +12,12 @@ EnvironmentFile=/opt/veetrax/app/apps/api/.env
 # optimiser (gateway, processor, notifier, summarizer) have this path made inaccessible (InaccessiblePaths).
 Environment=OPTIMIZER_TOKEN_FILE=/etc/veetrax/optimizer.env
 # Exits 0 at once when ETMS_ROUTING is not "on"; Restart=on-failure leaves it stopped then.
+# E4 re-check R3: a private /proc with hidepid=invisible (other users' processes are hidden). All VeeTrax units run as
+# the same user "veetrax", and invisible does not hide same-user processes, so this is defence in depth only: separating
+# the optimiser token from the other units for real needs a separate system user for veetrax-api / veetrax-routing-worker
+# (or PrivatePIDs=yes, systemd >= 257). ProcSubset=pid is not set: it hides /proc/version, /proc/meminfo and
+# /proc/cpuinfo, which the API's System Health (os.cpus / loadavg) and the Prisma engine's platform probe read.
+ProtectProc=invisible
 ExecStart=/usr/bin/node --max-old-space-size=768 dist/routing-worker/main.js
 Restart=on-failure
 RestartSec=10
