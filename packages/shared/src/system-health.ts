@@ -249,6 +249,27 @@ export interface HostDto {
   uptimeSec: number;
 }
 
+/** Self-hosted map services watched by System Health (see ops/deploy/linux/maps/README.md). */
+export type MapServiceName = 'graphhopper' | 'photon' | 'martin';
+
+/** Last health probe of one map service. A service whose URL is not set is not monitored (`configured: false`). */
+export interface MapServiceDto {
+  name: MapServiceName;
+  /** "Routing (GraphHopper)" etc. */
+  label: string;
+  status: HealthStatus;
+  configured: boolean;
+  /** The URL probed (`<base>/health`, `<base>/status`); null when not configured. */
+  probeUrl: string | null;
+  /** Result of the last probe (true while not configured). */
+  ok: boolean;
+  latencyMs: number | null;
+  error: string | null;
+  /** Probes failed in a row; an issue is raised from 2 on. */
+  consecutiveFailures: number;
+  checkedAt: string | null;
+}
+
 /** One 10-second sample of the pipeline. */
 export interface ThroughputPoint {
   t: string;
@@ -265,7 +286,7 @@ export interface HealthIssue {
   id: string;
   /** Short label of the check. */
   check: string;
-  section: 'processes' | 'ports' | 'queues' | 'database' | 'valkey' | 'host' | 'pipeline';
+  section: 'processes' | 'ports' | 'queues' | 'database' | 'valkey' | 'host' | 'pipeline' | 'maps';
   severity: IssueSeverity;
   message: string;
   since: string;
@@ -291,6 +312,8 @@ export interface SystemHealthDto {
   database: DatabaseDto;
   valkey: ValkeyDto;
   host: HostDto;
+  /** GraphHopper, Photon and Martin (not configured ones included, so the page can say "not monitored"). */
+  maps: MapServiceDto[];
   throughput: ThroughputPoint[];
 }
 

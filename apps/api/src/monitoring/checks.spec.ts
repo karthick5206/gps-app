@@ -1,5 +1,6 @@
 import { DatabaseDto, HostDto, PortDto, ProcessInstanceDto, ProcessRole, QueueDto, ValkeyDto } from '@veetracer/shared';
-import { bufferSecondsLeft, CheckInput, evaluateChecks, statusOf } from './checks';
+import { bufferSecondsLeft, CheckInput, evaluateChecks, MAP_FAILS_BEFORE_ISSUE, statusOf } from './checks';
+import { MapServiceState } from './map-services';
 import { loadMonitorConfig, loadThresholds } from './thresholds';
 import { diffIssues } from './transitions';
 import { pairs, parseInfo, shortError, streamIdTime } from './util';
@@ -189,6 +190,62 @@ describe('evaluateChecks', () => {
     expect(statusOf(issues, 'process.api')).toBe('WARN');
     expect(statusOf(issues, 'process.api.host-api')).toBe('WARN');
     expect(statusOf(issues, 'process.gateway')).toBe('OK');
+  });
+});
+
+describe('map-service checks (G6)', () => {
+  const LABEL = { graphhopper: 'Routing (GraphHopper)', photon: 'Addresses (Photon)', martin: 'Map tiles (Martin)' } as const;
+  const svc = (name: MapServiceState['name'], over: Partial<MapServiceState> = {}): MapServiceState => ({
+    name,
+    label: LABEL[name],
+    configured: true,
+    probeUrl: `http://127.0.0.1:1/${name}`,
+    ok: true,
+    latencyMs: 3,
+    error: null,
+    consecutiveFailures: 0,
+    checkedAt: NOW,
+    ...over,
+  });
+  const down = (name: MapServiceState['name'], fails = 2) => svc(name, { ok: false, latencyMs: null, error: 'ECONNREFUSED', consecutiveFailures: fails });
+
+  it('all configured and answering → no issues', () => {
+    expect(ids({ ...healthy(), maps: [svc('graphhopper'), svc('photon'), svc('martin')] })).toEqual([]);
+  });
+
+  it('a service that is not configured raises nothing, even if its last state says failed', () => {
+    const notConfigured = (name: MapServiceState['name']) => ({ ...down(name, 5), configured: false, probeUrl: null });
+    expect(ids({ ...healthy(), maps: [notConfigured('graphhopper'), notConfigured('photon'), notConfigured('martin')] })).toEqual([]);
+    expect(ids({ ...healthy(), maps: undefined })).toEqual([]);
+  });
+
+  it('severities: Martin CRITICAL, GraphHopper and Photon WARN', () => {
+    const issues = evaluateChecks({ ...healthy(), maps: [down('graphhopper'), down('photon'), down('martin')] }, t);
+    expect(issues.map((i) => `${i.id}:${i.severity}`)).toEqual(['maps.martin:CRITICAL', 'maps.graphhopper:WARN', 'maps.photon:WARN']);
+    expect(issues.every((i) => i.section === 'maps')).toBe(true);
+    expect(issues[0].message).toMatch(/Map tiles \(Martin\) is not answering at http:\/\/127\.0\.0\.1:1\/martin \(ECONNREFUSED; 2 checks in a row\): map tiles unavailable/);
+    expect(issues[1].message).toContain('routing, ETAs and road snapping are skipped');
+    expect(issues[2].message).toContain('addresses and place search unavailable');
+  });
+
+  it('2-consecutive rule: one failed probe is not reported yet', () => {
+    expect(MAP_FAILS_BEFORE_ISSUE).toBe(2);
+    expect(ids({ ...healthy(), maps: [down('martin', 1)] })).toEqual([]);
+    expect(ids({ ...healthy(), maps: [down('martin', 2)] })).toEqual(['maps.martin:CRITICAL']);
+    expect(ids({ ...healthy(), maps: [down('martin', 7)] })).toEqual(['maps.martin:CRITICAL']);
+  });
+
+  it('recovery: the next successful probe clears the issue', () => {
+    expect(ids({ ...healthy(), maps: [down('photon', 3)] })).toEqual(['maps.photon:WARN']);
+    expect(ids({ ...healthy(), maps: [svc('photon')] })).toEqual([]);
+  });
+
+  it('map issues are still checked while Valkey is down, and statusOf covers them', () => {
+    const input = { ...healthy(), valkey: { ...valkey, reachable: false, error: 'down' }, maps: [down('graphhopper')] };
+    const issues = evaluateChecks(input, t);
+    expect(issues.map((i) => i.id)).toEqual(['valkey.unreachable', 'maps.graphhopper']);
+    expect(statusOf(issues, 'maps.graphhopper')).toBe('WARN');
+    expect(statusOf(issues, 'maps.martin')).toBe('OK');
   });
 });
 

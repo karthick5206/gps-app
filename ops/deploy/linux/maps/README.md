@@ -10,7 +10,14 @@ Everything the maps need runs on the production server. Browsers and the API nev
 | Caddy | `/tiles/india/*` → Martin; `/tiles/{styles,fonts,sprites}` static | 443 | `/opt/veetrax/maps/tiles` | |
 
 API settings (`apps/api/.env`): `GEOCODER=photon`, `GEOCODER_URL=http://127.0.0.1:2322`, `ROUTER_ENGINE=graphhopper`,
-`ROUTER_URL=http://127.0.0.1:8989`. Satellite imagery stays off (`ESRI_BASEMAP_KEY` unset), because imagery can't be self-hosted.
+`ROUTER_URL=http://127.0.0.1:8989`, `MARTIN_URL=http://127.0.0.1:3000`. Satellite imagery stays off (`ESRI_BASEMAP_KEY` unset), because imagery can't be self-hosted.
+
+**Monitoring (v1.8.1):** System Health probes each configured service every ~15 s (2 s timeout) and raises an issue
+after 2 failed checks in a row: `maps.martin` CRITICAL (blank maps), `maps.graphhopper` and `maps.photon` WARN. A
+service whose URL is unset is not monitored. Probes: GraphHopper `GET /health`, Photon `GET /status`, Martin
+`GET /health` (any 2xx = up; confirm these paths on staging against the installed versions). `MARTIN_URL` is used only
+for this check; unset it to silence the Martin check. `release.sh` also probes these once after a deploy and prints a
+WARN line only (it does not deploy them, so they never fail the release gate). Details: `docs/MONITORING.md`.
 
 Web settings (`apps/web/.env`, build time): `VITE_MAP_STYLE_STANDARD|LIGHT|DARK=https://app.veetrax.com/tiles/styles/{liberty,positron,dark}.json`.
 The mobile apps need the same through `EXPO_PUBLIC_MAP_STYLE_STANDARD|LIGHT|DARK` and a new build.
