@@ -35,6 +35,8 @@ export interface PlanStopInput {
   atSite: boolean;
   /** Data owner (customer company) of a passenger stop: one customer per vehicle (README P2). */
   customerId: string | null;
+  /** Pinned stop: stays on this assignment (solver pinnedVehicleId). */
+  pinnedAssignmentId?: string | null;
 }
 
 export interface PlanVehicleInput {
@@ -69,6 +71,8 @@ export interface PlanInputs {
   direction: 'IN' | 'OUT' | null;
   depot: MatrixPoint | null;
   site: MatrixPoint | null;
+  /** Locked routes (RoutePlan.options.lockedAssignmentIds): not re-solved, their stops untouched by the write. */
+  lockedAssignmentIds?: string[];
   /** Max ride time per passenger (s), from the plan options; null = none. */
   maxRideS: number | null;
   /** RoutePlan.options solver settings (validated by the loader). */
@@ -96,7 +100,9 @@ export const DEFAULT_HORIZON_S = 86_400;
 
 /** Points and roles of the problem; throws INVALID_INPUT when the plan cannot be solved at all. */
 export function planPoints(inp: PlanInputs): BuiltProblem {
-  if (!inp.vehicles.length) throw new JobError('INVALID_INPUT', 'The plan has no vehicles: add at least one vehicle before optimising');
+  if (!inp.vehicles.length) {
+    throw new JobError('INVALID_INPUT', inp.lockedAssignmentIds?.length ? 'Every vehicle of the plan is locked: unlock a route to optimise' : 'The plan has no vehicles: add at least one vehicle before optimising');
+  }
   if (inp.direction && inp.site) {
     const siteStops = inp.stops.filter((s) => s.atSite);
     const solverStops = inp.stops.filter((s) => !s.atSite);
@@ -130,7 +136,7 @@ export interface SolverProblemV2 {
   schemaVersion?: 1 | 2;
   matrix: { durationsS: (number | null)[][]; distancesM?: (number | null)[][] | null };
   vehicles: { id: string; startIndex: number | null; endIndex: number | null; capacity?: number | null; timeWindow?: [number, number] | null; type?: string; wheelchairSpaces?: number }[];
-  stops: (SolverStop & { customerId?: string })[];
+  stops: (SolverStop & { customerId?: string; pinnedVehicleId?: string })[];
   horizonS: number;
   trip?: { direction: 'IN' | 'OUT'; siteIndex: number; siteWindow: [number, number]; maxRideS?: number };
   options: SolverOptions & { weights: SolverWeights; deterministic?: boolean; allowMixedCustomers?: boolean };
@@ -149,6 +155,7 @@ export function siteWindow(b: BuiltProblem, horizonS: number): [number, number] 
 export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, opts: { timeLimitS: number; objective?: 'duration' | 'distance' }): SolverProblemV2 {
   const windowEnds = [...b.solverStops, ...b.siteStops].flatMap((s) => (s.timeWindows ?? []).map((w) => w[1]));
   const horizonS = Math.max(DEFAULT_HORIZON_S, ...windowEnds.map((e) => Math.ceil(e) + 3_600));
+  const vehicleIds = new Set(inp.vehicles.map((v) => v.assignmentId));
   const stops: SolverStop[] = b.solverStops.map((s, i) => ({
     id: s.id,
     locationIndex: b.firstStopIndex + i,
@@ -157,6 +164,7 @@ export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, 
     ...(s.timeWindows?.length ? { timeWindows: s.timeWindows.map(([a, z]) => [Math.round(a), Math.round(z)] as [number, number]) } : {}),
     priority: 1,
     ...(s.customerId ? { customerId: s.customerId } : {}),
+    ...(s.pinnedAssignmentId && vehicleIds.has(s.pinnedAssignmentId) ? { pinnedVehicleId: s.pinnedAssignmentId } : {}),
   }));
   return {
     schemaVersion: 2,
@@ -320,13 +328,13 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
 }
 
 /** Points the engine could not use become unassigned stops (no number is ever guessed for them). */
-export function snapExclusions(b: BuiltProblem, m: BuiltMatrix): Map<string, OptimizeUnassignedReason> {
-  const out = new Map<string, OptimizeUnassignedReason>();
+export function snapExclusions(b: BuiltProblem, m: BuiltMatrix): Map<string, string> {
+  const out = new Map<string, string>();
   for (const inv of m.invalid) {
     const i = inv.index - b.firstStopIndex;
     if (i < 0) continue; // a depot / site problem fails the whole job (see the runner)
     const s = b.solverStops[i];
-    if (s) out.set(s.id, inv.reason === 'OUTSIDE_COVERAGE' ? 'outside_coverage' : inv.reason === 'POINT_NOT_ON_ROAD' ? 'not_on_road' : 'unreachable_location');
+    if (s) out.set(s.id, inv.reason);
   }
   return out;
 }

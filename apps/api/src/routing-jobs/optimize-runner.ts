@@ -84,6 +84,7 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     await ctx.phase('matrix', PROGRESS.matrixStart);
     const m = await deps.matrix.build(built.points, inputs.profile, {
       signal: ctx.signal,
+      depots: [...Array(built.firstStopIndex).keys()],
       onProgress: async (done, total) => ctx.progress(phaseProgress(PROGRESS.matrixStart, PROGRESS.matrixEnd, total ? done / total : 0)),
     });
     if (!m.ok) throw new JobError(m.degraded, `Road matrix unavailable: ${m.message}`);
@@ -92,7 +93,7 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     if (shape) throw new JobError('ENGINE_UNREACHABLE', `Road matrix unusable (${shape})`);
     if (matrix.invalid.some((i) => i.index < built.firstStopIndex)) {
       const r = matrix.invalid.find((i) => i.index < built.firstStopIndex)!.reason;
-      throw new JobError(r, 'The depot or site is not on the road network; no plan was computed');
+      throw new JobError(r === 'outside_coverage' ? 'OUTSIDE_COVERAGE' : 'POINT_NOT_ON_ROAD', `The depot or site cannot be routed (${r}); no plan was computed`);
     }
     await deps.usage.add(job.companyId, { matrixCells: matrix.cells.computed, cacheHits: matrix.cells.cached });
 

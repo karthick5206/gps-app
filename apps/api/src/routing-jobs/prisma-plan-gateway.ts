@@ -39,6 +39,16 @@ export function weightsOf(raw: unknown): SolverWeights | undefined {
   return out.distance || out.time || out.routeDuration ? out : undefined;
 }
 
+/**
+ * Lock / pin sets of `RoutePlan.options` (same keys and rules as shared `routePlanLocks` on etms/e4-plans; switch to
+ * that helper when the plans branch is merged).
+ */
+export function planLocks(options: unknown): { lockedAssignmentIds: Set<string>; pinnedStopIds: Set<string> } {
+  const o = (options && typeof options === 'object' ? options : {}) as Record<string, unknown>;
+  const ids = (v: unknown) => new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  return { lockedAssignmentIds: ids(o.lockedAssignmentIds), pinnedStopIds: ids(o.pinnedStopIds) };
+}
+
 /** Plan visible to the caller: own company; branch-scoped users only their branches' plans (and branch-less ones). */
 export function planVisibleTo(ctx: Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds'>, plan: { companyId: string; branchId: string | null }): boolean {
   if (plan.companyId !== ctx.companyId) return false;
@@ -116,9 +126,13 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     const startMs = plan.planStartAt?.getTime() ?? null;
     const rel = (d: Date) => Math.max(0, Math.round((d.getTime() - (startMs as number)) / 1000));
 
+    // Locks and pins (RoutePlan.options, written by the plans API): a locked route keeps its stops and order and is
+    // not re-solved; a pinned stop stays on its current vehicle (solver pinnedVehicleId).
+    const locks = planLocks(plan.options);
     const stops: PlanStopInput[] = [];
     const excluded: PlanInputs['excluded'] = [];
     for (const s of plan.stops) {
+      if (s.assignmentId && locks.lockedAssignmentIds.has(s.assignmentId)) continue; // fixed route: untouched
       const owner = ownerOf(s);
       const booking = s.bookingId ? bookings.get(s.bookingId) : undefined;
       if (owner && !consenting.has(owner)) {
@@ -149,6 +163,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
         personal: !!owner,
         atSite,
         customerId: s.customerCompanyId,
+        pinnedAssignmentId: locks.pinnedStopIds.has(s.id) && s.assignmentId ? s.assignmentId : null,
       });
     }
     const options = (plan.options && typeof plan.options === 'object' && !Array.isArray(plan.options) ? plan.options : {}) as { maxRideS?: unknown; weights?: unknown; deterministic?: unknown; allowMixedCustomers?: unknown };
@@ -164,7 +179,8 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
       maxRideS: typeof options.maxRideS === 'number' && options.maxRideS > 0 ? options.maxRideS : null,
       solver: { weights: weightsOf(options.weights), deterministic: options.deterministic === true, allowMixedCustomers: options.allowMixedCustomers === true },
       stops,
-      vehicles: plan.assignments.map((a) => {
+      lockedAssignmentIds: [...locks.lockedAssignmentIds],
+      vehicles: plan.assignments.filter((a) => !locks.lockedAssignmentIds.has(a.id)).map((a) => {
         const vp = a.objectId ? seats.get(a.objectId) : undefined;
         return { assignmentId: a.id, label: a.vehicleLabel, capacity: a.capacity ?? vp?.seats ?? null, type: vp?.category ?? null, wheelchairSpaces: vp?.wheelchairSpaces ?? 0 };
       }),
@@ -181,7 +197,12 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     });
     // Consent withdrawal / erasure / an edit bumped the version meanwhile: the whole result is discarded (R4: no half plan).
     if (!moved.count) throw new JobError('PLAN_STALE', 'The plan changed while optimising; the result was discarded');
-    await tx.routePlanStop.updateMany({ where: { planId: inputs.planId }, data: { assignmentId: null, sequence: null, etaS: null, unassignedReason: null } });
+    // Stops of locked routes keep their assignment, order and times.
+    const locked = inputs.lockedAssignmentIds ?? [];
+    await tx.routePlanStop.updateMany({
+      where: { planId: inputs.planId, ...(locked.length ? { OR: [{ assignmentId: null }, { assignmentId: { notIn: locked } }] } : {}) },
+      data: { assignmentId: null, sequence: null, etaS: null, unassignedReason: null },
+    });
     const eta = uncalibratedEta(graphVersion) as unknown as Prisma.InputJsonValue;
     for (const a of w.assignments) {
       await tx.routeAssignment.updateMany({
@@ -194,7 +215,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     if (matrix) {
       for (const p of points) {
         const snap = matrix.snapped[p.index];
-        if (snap) await tx.routePlanStop.updateMany({ where: { id: p.stopId, planId: inputs.planId }, data: { snappedLat: snap.lat, snappedLng: snap.lng, snapDistanceM: Math.round(snap.snapDistanceM), snapGraphVersion: graphVersion } });
+        if (snap) await tx.routePlanStop.updateMany({ where: { id: p.stopId, planId: inputs.planId }, data: { ...(snap.lat !== undefined && snap.lng !== undefined ? { snappedLat: snap.lat, snappedLng: snap.lng } : {}), snapDistanceM: Math.round(snap.snapDistanceM), snapGraphVersion: graphVersion } });
       }
     }
     // Version snapshot: ids, sequences and times only (shared RoutePlanVersionSnapshot: no coordinates, no names).

@@ -24,7 +24,7 @@ export type JobLogicalState = 'QUEUED' | 'MATRIX' | 'SOLVING' | 'DONE' | 'FAILED
 export const FINAL_STATES: readonly JobLogicalState[] = ['DONE', 'FAILED', 'CANCELLED'];
 
 /** Error codes of a job: the shared ones plus the two the worker itself produces. */
-export type JobErrorCode = RoutingJobError['code'] | 'WORKER_LOST' | 'INTERNAL_ERROR';
+export type JobErrorCode = RoutingJobError['code'] | 'WORKER_LOST' | 'INTERNAL_ERROR' | 'MATRIX_INCOMPLETE' | 'MATRIX_BUSY';
 
 export interface JobErrorBody {
   code: JobErrorCode;
@@ -107,6 +107,9 @@ export const TRANSIENT_CODES: ReadonlySet<JobErrorCode> = new Set<JobErrorCode>(
   'OPTIMIZER_UNAVAILABLE',
   'OPTIMIZER_BUSY',
   'WORKER_LOST',
+  // E4-B matrix: PARTIAL build (cells resume from the cache) / the builder's queue is full.
+  'MATRIX_INCOMPLETE',
+  'MATRIX_BUSY',
 ]);
 
 /** Exponential back-off: 5 s, 10 s, 20 s, … capped at 5 min. */

@@ -133,9 +133,9 @@ describe('optimise problem mapping (solver contract v2)', () => {
     const b = planPoints(syntheticPlan());
     const m = testMatrix(5);
     m.invalid = [
-      { index: 2, reason: 'POINT_NOT_ON_ROAD' },
-      { index: 4, reason: 'OUTSIDE_COVERAGE' },
-      { index: 0, reason: 'NO_ROUTE' },
+      { index: 2, reason: 'not_on_road' },
+      { index: 4, reason: 'outside_coverage' },
+      { index: 0, reason: 'unreachable_location' },
     ];
     expect([...snapExclusions(b, m)]).toEqual([
       ['pick-1', 'not_on_road'],

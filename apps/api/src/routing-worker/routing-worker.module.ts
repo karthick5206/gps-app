@@ -6,7 +6,8 @@ import { RedisService } from '../redis/redis.service';
 import { ROUTING_SWEEP_LOCK, type JobQueue } from '../routing-jobs/job-queue';
 import type { RoutingJobStore } from '../routing-jobs/job-store';
 import { defaultWorkerOptions, RoutingJobWorker } from '../routing-jobs/job-worker';
-import { MATRIX_PORT, MatrixPort, providerMatrixPort } from '../routing-jobs/matrix-port';
+import { builderMatrixPort, MATRIX_PORT, MatrixPort } from '../routing-jobs/matrix-port';
+import { MatrixBuilder } from '../routing/matrix/matrix-builder';
 import { optimizeRunner } from '../routing-jobs/optimize-runner';
 import { solverPort } from '../routing-jobs/optimizer-port';
 import { OptimizerClient } from '../routing/optimizer/optimizer.client';
@@ -15,7 +16,6 @@ import { PrismaPlanGateway } from '../routing-jobs/prisma-plan-gateway';
 import { routingJobProviders } from '../routing-jobs/routing-jobs.module';
 import { ROUTING_JOB_QUEUE, ROUTING_JOB_STORE } from '../routing-jobs/routing-jobs.service';
 import { ROUTING_USAGE_HOOK, RoutingUsageHook, safeUsage } from '../routing-jobs/usage-hook';
-import { ROUTING_PROVIDER, RoutingProvider } from '../routing/provider/routing-provider';
 import { RoutingModule } from '../routing/routing.module';
 
 /** Builds the job worker of this process (kinds: `optimize`; `matrix` jobs are not executed yet). */
@@ -40,14 +40,14 @@ export class RoutingWorkerHost {
 
 /**
  * Routing worker process (`dist/routing-worker/main.js`, veetrax-routing-worker.service): optimisation jobs from
- * `vt:routing:jobs`. Engine access only through RoutingProvider (GraphHopper; the M1 matrix builder of E4-B plugs in
- * at MATRIX_PORT), the solver through OptimizerClient (OPTIMIZER_URL + OPTIMIZER_TOKEN).
+ * `vt:routing:jobs`. Engine access only through RoutingProvider (GraphHopper; the E4-B MatrixBuilder at MATRIX_PORT), the solver through OptimizerClient (OPTIMIZER_URL + OPTIMIZER_TOKEN).
  */
 @Module({
   imports: [AppConfigModule, PrismaModule, RedisModule, RoutingModule],
   providers: [
     ...routingJobProviders,
-    { provide: MATRIX_PORT, useFactory: (p: RoutingProvider) => providerMatrixPort(p), inject: [ROUTING_PROVIDER] },
+    // E4-B travel-time matrix (GraphHopper, graph-versioned cache, sparse k-nearest for large plans).
+    { provide: MATRIX_PORT, useFactory: (b: MatrixBuilder) => builderMatrixPort(b), inject: [MatrixBuilder] },
     // RoutingUsage upsert-increment (E4-D salvage); OptimizerClient comes from RoutingModule.
     { provide: ROUTING_USAGE_HOOK, useExisting: RoutingUsageService },
     RoutingWorkerHost,
