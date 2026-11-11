@@ -179,7 +179,7 @@ export class MyTransportConsentController {
 
   @Post('consent') @HttpCode(200) @RequirePermission('etms_self', 'view')
   record(@Auth() ctx: AuthContext, @Body() dto: RecordConsentDto): Promise<PassengerConsentsDto> {
-    return this.people.recordMyConsent(ctx, dto, 'WEB');
+    return this.people.recordMyConsent(ctx, dto, dto.channel === 'PASSENGER_APP' ? 'PASSENGER_APP' : 'WEB');
   }
 
   /** In-app notices about changes someone else made (consent recorded / withdrawn by the admin, login changes). */

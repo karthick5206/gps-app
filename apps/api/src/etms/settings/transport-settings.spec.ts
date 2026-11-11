@@ -90,3 +90,13 @@ describe('ETMS error responses always carry a code (doc 05 §4, QA BUG-6)', () =
     expect(run('/api/vehicles', outdated()).body.currentVersion).toBeUndefined();
   });
 });
+
+describe('E5: transport desk phone setting', () => {
+  it('is stored under etms.deskPhone, trimmed, cleared with null; absent by default', async () => {
+    const { svc, company } = setup({ features: ['etms'] });
+    expect(await svc.get(ctx())).toEqual({ directoryListed: false });
+    expect(await svc.update(ctx(), { deskPhone: ' +91 44 4000 1234 ' })).toEqual({ directoryListed: false, deskPhone: '+91 44 4000 1234' });
+    expect(company.settings).toMatchObject({ etms: { directoryListed: false, deskPhone: '+91 44 4000 1234' } });
+    expect(await svc.update(ctx(), { deskPhone: null })).toEqual({ directoryListed: false });
+  });
+});

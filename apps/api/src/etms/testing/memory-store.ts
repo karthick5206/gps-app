@@ -64,6 +64,8 @@ const RELATIONS: Record<string, Record<string, Rel>> = {
   transportTrip: { plannedTrip: { model: 'plannedTrip', fk: 'plannedTripId' }, shift: { model: 'transportShift', fk: 'shiftId' }, passengers: { model: 'transportTripPassenger', many: { by: 'tripId' } } },
   transportTripPassenger: { booking: { model: 'transportBooking', fk: 'bookingId' }, trip: { model: 'transportTrip', fk: 'tripId' } },
   plannedTrip: { stops: { model: 'plannedTripStop', many: { by: 'tripId' } }, events: { model: 'plannedTripEvent', many: { by: 'tripId' } } },
+  // E5
+  transportDriverDuty: { object: { model: 'trackedObject', fk: 'objectId' } },
 };
 
 /** Nested `create` written to a child table (model → relation → [child model, back-reference column]). */
@@ -84,6 +86,9 @@ const DEFAULTS: Record<string, () => Obj> = {
   transportChangeSet: () => ({ idempotencyKey: null, requestHash: null, draft: null, result: null, publishedAt: null }),
   plannedTrip: () => ({ status: 'SCHEDULED', origin: 'ROUTE', actualStart: null, actualEnd: null, closedBy: null, cancelReason: null, notes: null, nextStopSeq: 0, etaNextStop: null, delaySec: null, deviationCount: 0, maxDeviationM: null, distanceKm: null, driverId: null, scheduleId: null, path: null }),
   plannedTripStop: () => ({ status: 'PENDING', actualArrival: null, actualDeparture: null, delaySec: null }),
+  // E5
+  transportDriverDuty: () => ({ endedAt: null, objectId: null, source: 'DRIVER_APP', endClientEventId: null, startedByUserId: null }),
+  transportNotification: () => ({ pushQueued: false, readAt: null, tripId: null }),
 };
 
 export class MemoryStore {

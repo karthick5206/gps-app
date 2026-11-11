@@ -291,6 +291,8 @@ export interface RecordConsentInput {
   granted: boolean;
   noticeVersion?: string;
   locale?: string;
+  /** E5: self-service channel, WEB (default) or PASSENGER_APP (the mobile app). Only these two are accepted. */
+  channel?: 'WEB' | 'PASSENGER_APP';
 }
 
 /**
