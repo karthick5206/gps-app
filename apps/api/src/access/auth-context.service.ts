@@ -4,8 +4,9 @@ import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolvePermissions } from './access-rules';
-import { ALL_COMPANIES } from '@veetracer/shared';
-import { AccessTokenPayload, AuthContext, SharedVehicle } from './auth-context';
+import { ALL_COMPANIES, withoutUnavailableMenus } from '@veetracer/shared';
+import { companyFeatures } from '../common/company-features';
+import { AccessTokenPayload, AuthContext, SharedVehicle, TransportAgreementScope } from './auth-context';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -45,7 +46,7 @@ export class AuthContextService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
-        company: { select: { status: true } },
+        company: { select: { status: true, settings: true, isPlatform: true } },
         roles: { include: { role: { include: { permissions: true } } } },
         branches: { select: { branchId: true } },
         objects: { select: { objectId: true } },
@@ -56,18 +57,24 @@ export class AuthContextService {
     if (!user.isSuperAdmin && user.company.status !== 'ACTIVE') throw new ForbiddenException('Company suspended');
 
     let companyId = user.companyId;
+    let acting: { settings: unknown; isPlatform: boolean } = user.company;
     const allCompanies = user.isSuperAdmin && requestedCompanyId === ALL_COMPANIES;
     if (user.isSuperAdmin && requestedCompanyId && !allCompanies && requestedCompanyId !== companyId) {
       if (!UUID_RE.test(requestedCompanyId)) throw new ForbiddenException('Unknown company');
-      const exists = await this.prisma.company.count({ where: { id: requestedCompanyId } });
-      if (!exists) throw new ForbiddenException('Unknown company');
+      const selected = await this.prisma.company.findUnique({ where: { id: requestedCompanyId }, select: { settings: true, isPlatform: true } });
+      if (!selected) throw new ForbiddenException('Unknown company');
       companyId = requestedCompanyId;
+      acting = selected;
     }
 
-    const { permissions, dataScope } = resolvePermissions(
+    const features = companyFeatures(acting);
+    const resolved = resolvePermissions(
       user.roles.map((ur) => ur.role),
       user.isSuperAdmin,
     );
+    const dataScope = resolved.dataScope;
+    // Module menus (e.g. ETMS) are hidden and refused while the acting company's add-on is off (MenuDef.requires).
+    const permissions = withoutUnavailableMenus(resolved.permissions, features);
     return {
       userId: user.id,
       homeCompanyId: user.companyId,
@@ -79,8 +86,39 @@ export class AuthContextService {
       branchIds: user.branches.map((b) => b.branchId),
       objectIds: user.objects.map((o) => o.objectId),
       shares: dataScope === 'COMPANY' && !allCompanies ? await this.sharesOf(companyId) : [],
+      features,
+      agreements: features.includes('etms') && !allCompanies ? await this.agreementsOf(companyId) : [],
       ip,
     };
+  }
+
+  /**
+   * ETMS (D1): ACTIVE agreements in force now where this company is the provider and the customer is active. Read per
+   * request (like shares), so suspending or ending an agreement takes effect on the next request; sockets pick it up on
+   * their refresh (forUser again).
+   */
+  private async agreementsOf(companyId: string): Promise<TransportAgreementScope[]> {
+    const now = new Date();
+    const rows = await this.prisma.transportServiceAgreement.findMany({
+      where: {
+        providerCompanyId: companyId,
+        customerCompanyId: { not: companyId },
+        status: 'ACTIVE',
+        validFrom: { lte: now },
+        OR: [{ validTo: null }, { validTo: { gt: now } }],
+        customer: { status: 'ACTIVE' },
+      },
+      select: { id: true, customerCompanyId: true, grants: true, siteIds: true, dataProfile: true, validFrom: true, validTo: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      customerCompanyId: r.customerCompanyId,
+      grants: [...r.grants],
+      siteIds: [...r.siteIds],
+      dataProfile: r.dataProfile,
+      validFrom: r.validFrom.getTime(),
+      validTo: r.validTo?.getTime() ?? null,
+    }));
   }
 
   /** Vehicles of other companies shared with this one right now. */

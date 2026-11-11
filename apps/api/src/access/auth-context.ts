@@ -1,4 +1,4 @@
-import { DataScope, PermissionMap } from '@veetracer/shared';
+import { CompanyFeature, DataScope, PermissionMap, TransportDataProfile, TransportGrant } from '@veetracer/shared';
 import { Request } from 'express';
 
 /** A vehicle of another company that this company may view (see VehicleShare). */
@@ -8,6 +8,23 @@ export interface SharedVehicle {
   /** Nothing from before this time may be shown (ms). */
   startAt: number;
   alertsOn: boolean;
+}
+
+/**
+ * ETMS (D1): an ACTIVE service agreement in which the acting company is the transport provider, loaded per request like
+ * `shares`. The provider acts for `customerCompanyId` only within `grants` and `siteIds`; ctx.companyId never changes.
+ */
+export interface TransportAgreementScope {
+  id: string;
+  customerCompanyId: string;
+  grants: TransportGrant[];
+  /** Customer site (Poi) ids; empty = every customer site. */
+  siteIds: string[];
+  dataProfile: TransportDataProfile;
+  /** ms */
+  validFrom: number;
+  /** ms; null = open-ended. */
+  validTo: number | null;
 }
 
 /** Who is calling and in which company they act; built per request from the access token. */
@@ -32,6 +49,13 @@ export interface AuthContext {
    * (objectReadScopeWhere); objectScopeWhere never includes them, so edits and commands can't reach a shared vehicle.
    */
   shares?: SharedVehicle[];
+  /** Add-ons of the acting company (Company.settings.features); module menus are stripped from `permissions` without them. */
+  features?: CompanyFeature[];
+  /**
+   * ETMS: active agreements where the acting company is the provider (only when the add-on `etms` is on). Read only
+   * through access/transport-scope.ts; existing GPS modules never look at it.
+   */
+  agreements?: TransportAgreementScope[];
   ip: string | null;
   /** Login session behind the access token (absent for internal contexts such as sockets or schedulers). */
   sessionId?: string | null;
