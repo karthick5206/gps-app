@@ -26,6 +26,8 @@ export const RedisKeys = {
   engineStopPrepareRateUser: (objectId: string, userId: string) => `vt:estop:rl:${objectId}:${userId}`,
   engineStopPrepareRateVehicle: (objectId: string) => `vt:estop:rl:${objectId}`,
   loginFailures: (email: string) => `vt:auth:fail:${email}`,
+  /** Pub/sub: sessions signed out (`SessionsRevokedMessage`); every API instance closes the matching `/live` sockets. */
+  sessionsRevoked: 'vt:sessions:revoked',
   // ── Video (JT/T 1078) ──
   /** Pub/sub: video signalling requests for the dashcams connected to one gateway (`VideoGatewayRequest`). */
   videoChannel: (gatewayId: string) => `vt:video:gw:${gatewayId}`,
