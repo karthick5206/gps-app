@@ -15,6 +15,7 @@ import {
 } from '@veetracer/shared';
 import { isFailing, relayStatsFromHeartbeats } from '../relay/stats';
 import { MapServiceState } from './map-services';
+import { matrixHealthIssues, MatrixStatsSnapshot } from '../routing/matrix/matrix-metrics';
 import { HealthThresholds } from './thresholds';
 
 /** Everything the checks look at (collected by SystemHealthService). */
@@ -50,6 +51,11 @@ export interface CheckInput {
   etmsRelay?: { lastOkAt: number | null; hwm: number | null; full: boolean } | null;
   /** ETMS E4 routing worker / optimiser / job queue. Undefined: not collected; enabled false: nothing checked. */
   routing?: RoutingHealthDto;
+  /**
+   * E4 WP 4.1b: the last travel-time matrix builds (Valkey `vt:etms:mx:stats`, written by whichever process built
+   * them). Undefined: ETMS_ROUTING off; null: nothing recorded or Valkey could not be asked.
+   */
+  etmsMatrix?: MatrixStatsSnapshot | null;
 }
 
 /** Alert types whose DEAD notification job is CRITICAL (D6 G2, owner decision: SOS / CRASH). */
@@ -486,6 +492,7 @@ export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] 
   notifyBacklogChecks(input, t, out);
   relayChecks(input, out);
   etmsRelayChecks(input, t, out);
+  if (input.etmsMatrix) out.push(...matrixHealthIssues(input.etmsMatrix, input.now));
   mapChecks(input, out);
   routingChecks(input, out);
   return out.sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.id.localeCompare(b.id));

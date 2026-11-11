@@ -121,6 +121,25 @@ describe('evaluateChecks', () => {
     expect(at(routing({ jobs: { queued: 3, running: 0, failed24h: 0, oldestQueuedAgeSec: 600 } }))).toEqual(['routing.queue:WARN']);
   });
 
+  it('E4 WP 4.1b: a degraded last matrix build → maps.etms-matrix WARN; off / none → nothing', () => {
+    const snap = (status: 'COMPLETE' | 'PARTIAL') => ({
+      at: NOW,
+      builds: 1,
+      degraded: status === 'COMPLETE' ? 0 : 1,
+      reasons: {},
+      p50MsPerCell: 2,
+      p95MsPerCell: 2,
+      cacheHitRatio: 0,
+      last: { at: NOW, status, reason: status === 'COMPLETE' ? null : 'ENGINE_UNREACHABLE', points: 5, requested: 20, cached: 0, computed: 10, unknown: 10, durationMs: 20, msPerCell: 2, strategy: 'walk' as const },
+      lastOkAt: null,
+      lastDegradedAt: NOW,
+    });
+    expect(ids({ ...healthy(), etmsMatrix: undefined })).toEqual([]);
+    expect(ids({ ...healthy(), etmsMatrix: null })).toEqual([]);
+    expect(ids({ ...healthy(), etmsMatrix: snap('COMPLETE') })).toEqual([]);
+    expect(ids({ ...healthy(), etmsMatrix: snap('PARTIAL') })).toEqual(['maps.etms-matrix:WARN']);
+  });
+
   it('E5 L3: transport notification relay lag → WARN after 5 min, CRITICAL after 30 min; backlog → WARN; off → nothing', () => {
     const at = (relay: CheckInput['etmsRelay'], grace = false) => ids({ ...healthy(), etmsRelay: relay, startupGrace: grace });
     expect(at(undefined)).toEqual([]);
