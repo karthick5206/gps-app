@@ -9,7 +9,7 @@ import { shortError } from './util';
  *   martin       GET <MARTIN_URL>/health    when MARTIN_URL is set (production http://127.0.0.1:3000)
  *
  * A service whose setting is missing is "not configured": it is not probed and raises nothing. Any 2xx answer within
- * the timeout counts as up. Results are cached for `minIntervalMs`, so page refreshes do not add probes, and the
+ * the timeout counts as up; a redirect (3xx) is never followed and counts as down. Results are cached for `minIntervalMs`, so page refreshes do not add probes, and the
  * checks only raise an issue after MAP_FAILS_BEFORE_ISSUE failed probes in a row (no flapping on one slow answer).
  *
  * Local only: the services are self-hosted, so only loopback, private-network and single-label hosts are probed (see
@@ -146,11 +146,17 @@ export async function probeMapService(url: string, timeoutMs = MAP_PROBE_TIMEOUT
       u.username = '';
       u.password = '';
     }
-    const res = await fetchImpl(u.toString(), { signal: AbortSignal.timeout(timeoutMs), headers });
+    // redirect: 'manual': a 3xx is never followed (its Location could be a public host, which would defeat the
+    // local-only rule) and counts as down.
+    const res = await fetchImpl(u.toString(), { signal: AbortSignal.timeout(timeoutMs), headers, redirect: 'manual' });
     // Read the body (releases the connection). The timeout covers it: headers followed by a stalled body is a failure,
     // not "up" (the error goes to the catch below).
     await res.arrayBuffer();
     const latencyMs = Math.round((performance.now() - started) * 10) / 10;
+    // Node's fetch (undici) returns the real 3xx response; a spec-style opaque redirect has status 0. Both fail.
+    if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+      return { ok: false, latencyMs, error: `HTTP ${res.status || '3xx'} (redirect not followed)` };
+    }
     return res.ok ? { ok: true, latencyMs, error: null } : { ok: false, latencyMs, error: `HTTP ${res.status}` };
   } catch (error) {
     const e = error as { name?: string; cause?: { code?: string } };

@@ -204,6 +204,62 @@ total="$(export PATH="$WORK/bin:$PATH" FAKE_LOG="$WORK/log" VK="$WORK/valkey.con
   source <(sed -n '/^vk_conf()/,/^}/p; /^vk_cli()/,/^}/p; /^vk_total_keys()/,/^}/p' "$WORK/block.sh"); vk_total_keys)"
 expect sum "db0 3 + db2 4 + db15 10 = 17" test "$total" == 17
 
+echo "### QA-4: Valkey stopped, 'appendonly yes' in the file, non-empty dump.rdb, NO AOF (would boot empty)"
+not_touched_or_started() { ! grep -qE '^(start|restart) valkey-server' "$WORK/log.systemctl"; }
+stock_conf
+sed -i 's/^appendonly no$/appendonly yes/' "$WORK/valkey.conf"
+echo "REDIS0011 data" >"$WORK/data/dump.rdb"
+cp "$WORK/valkey.conf" "$WORK/valkey.conf.before"
+out="$(FAKE_DOWN=1 run_block)"
+expect qa4 "config file byte-for-byte unchanged" cmp -s "$WORK/valkey.conf" "$WORK/valkey.conf.before"
+expect qa4 "Valkey neither started nor restarted" not_touched_or_started
+expect qa4 "warning printed" grep -q "would ignore the dump file and boot EMPTY" <<<"$out"
+expect qa4 "says it was NOT started (no 'not restarted (aof-on)' claim)" bash -c 'grep -q "NOT started (aof-missing" <<<"$1" && ! grep -q "aof-on" <<<"$1"' _ "$out"
+echo "$out" | sed 's/^/      /'
+
+echo "### QA-4 neighbours: stopped, 'appendonly yes', AOF present (with or without a dump) / nothing on disk: aof-on"
+for variant in aof-and-dump aof-only nothing; do
+  stock_conf
+  sed -i 's/^appendonly no$/appendonly yes/' "$WORK/valkey.conf"
+  case "$variant" in
+    aof-and-dump) echo "REDIS0011 data" >"$WORK/data/dump.rdb"; mkdir -p "$WORK/data/appendonlydir"; echo x >"$WORK/data/appendonlydir/appendonly.aof.1.base.rdb" ;;
+    aof-only) mkdir -p "$WORK/data/appendonlydir"; echo x >"$WORK/data/appendonlydir/appendonly.aof.1.base.rdb" ;;
+  esac
+  out="$(FAKE_DOWN=1 run_block)"
+  expect "qa4-$variant" "AOF settings written" applied
+  expect "qa4-$variant" "started, not restarted" not_restarted
+  expect "qa4-$variant" "aof-on note" grep -q 'not restarted (aof-on)' <<<"$out"
+done
+
+echo "### Sec-M1: sudoers lines are exact commands; release.sh's restart form matches one of them"
+SUDOERS="$WORK/sudoers"
+sed -n "/^cat > \"\$SUDOERS_TMP\" <<'EOF'$/,/^EOF$/p" "$INSTALL" | sed '1d;$d' >"$SUDOERS"
+sed 's/^/      /' "$SUDOERS"
+expect sudoers "sudoers block found" test -s "$SUDOERS"
+expect sudoers "no wildcard anywhere" bash -c "! grep -q '[*?]' '$SUDOERS'"
+# Each allowed command (the comma-separated list after NOPASSWD:), one per line.
+ALLOWED="$(sed -n 's/^veetrax ALL=(root) NOPASSWD: //p' "$SUDOERS" | sed 's/, /\n/g')"
+allowed() { grep -qxF -- "$1" <<<"$ALLOWED"; }
+# The exact command release.sh runs: 'sudo systemctl restart $SERVICES' with its default SERVICES (word split).
+REL_SERVICES="$(sed -n 's/^ *SERVICES="\${SERVICES:-\(.*\)}"$/\1/p' "$HERE/../release.sh" | head -1)"
+expect sudoers "release.sh default SERVICES found" test -n "$REL_SERVICES"
+expect sudoers "release.sh still restarts with 'sudo systemctl restart \$SERVICES'" grep -q '^ *sudo systemctl restart \$SERVICES$' "$HERE/../release.sh"
+# shellcheck disable=SC2086
+expect sudoers "all five in one command (release.sh form) allowed" allowed "/usr/bin/systemctl restart $(echo $REL_SERVICES)"
+for u in veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer; do
+  expect sudoers "single restart of $u allowed" allowed "/usr/bin/systemctl restart $u"
+done
+expect sudoers "systemctl reload caddy kept" allowed "/usr/bin/systemctl reload caddy"
+for denied in "/usr/bin/systemctl restart veetrax-api postgresql@18-main" "/usr/bin/systemctl restart veetrax-api ssh valkey-server" \
+  "/usr/bin/systemctl restart veetrax-evil" "/usr/bin/systemctl restart postgresql@18-main" "/usr/bin/systemctl stop veetrax-api"; do
+  expect sudoers "denied: $denied" bash -c '! grep -qxF -- "$1" <<<"$2"' _ "$denied" "$ALLOWED"
+done
+if command -v visudo >/dev/null; then
+  expect sudoers "visudo -cf accepts it" visudo -cf "$SUDOERS"
+else
+  echo "  note sudoers: visudo not available here; syntax checked by the exact-line checks above (the installer runs visudo -cf)"
+fi
+
 echo
 if (( FAILURES )); then echo "install-valkey-aof-test: $FAILURES check(s) FAILED"; exit 1; fi
 echo "install-valkey-aof-test: all checks passed"

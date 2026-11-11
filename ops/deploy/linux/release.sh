@@ -27,7 +27,7 @@ main() {
 
   GATE="$APP_DIR/ops/deploy/linux/health-gate.sh"
   if [[ "$mode" == "--health-only" ]]; then
-    load_env
+    load_env $GATE_ENV_KEYS
     health_gate "$(cat "$STATE_DIR/release-prev" 2>/dev/null || echo '<previous tag>')"
     return
   fi
@@ -75,27 +75,53 @@ main() {
   (cd apps/api && npx prisma generate && npm run build)
 
   echo "== database"
-  # Load apps/api/.env so migrate and the seed see the same settings as the services (systemd EnvironmentFile).
-  load_env
-  (cd apps/api && npx prisma migrate deploy)
+  # Every apps/api/.env setting is exported (read literally, see load_env) so migrate and the seed see the same
+  # settings as the services (systemd EnvironmentFile), as before; only inside this subshell, so the database
+  # secrets do not reach the gate and its curl calls.
   # Idempotent seed: platform, Super Admin, device models, system lookups. With NODE_ENV=production it never creates
   # the demo company; the first run on an empty database needs SUPER_ADMIN_EMAIL + SUPER_ADMIN_PASSWORD.
-  (cd apps/api && npm run db:seed)
+  (
+    load_env
+    cd apps/api
+    npx prisma migrate deploy
+    npm run db:seed
+  )
 
   echo "== restart"
+  # Exactly this form ("systemctl restart" + the five units in this order) is what the installer's sudoers allows.
   # shellcheck disable=SC2086 # word splitting on purpose: one argument per unit
   sudo systemctl restart $SERVICES
+  load_env $GATE_ENV_KEYS
   health_gate "$prev"
 }
 
-# apps/api/.env: database settings for migrate and the seed, map-service URLs for the gate's WARN lines.
+# The apps/api/.env settings the health gate reads (ports, map-service URLs) plus the gate's own settings.
+GATE_ENV_KEYS="API_PORT GATEWAY_HEALTH_PORT ROUTER_URL ROUTER_ENGINE GEOCODER GEOCODER_URL MARTIN_URL MAP_PROBE_ALLOW_PUBLIC
+  API_HEALTH_URL GATEWAY_HEALTH_URL TRACKING_HEALTH_URL HEALTH_TIMEOUT_SEC HEALTH_POLL_SEC
+  HEALTH_GATE_SYSTEMD HEALTH_GATE_GATEWAY HEALTH_GATE_TRACKING HEALTH_GATE_MAPS"
+
+# load_env [KEY...]: exports settings from apps/api/.env (all of them, or only the named keys) WITHOUT running the
+# file as bash (Sec-L5): the file has systemd EnvironmentFile syntax, so `&`, `;`, `$`, backticks or `$(...)` in a
+# value (a password, a DATABASE_URL query) are taken literally, as the services see them, never executed or
+# expanded. Lines are KEY=VALUE (an optional leading `export ` is ignored); one pair of surrounding "..." or '...' is
+# removed; blank lines, comments and anything else are skipped; a later line wins. Keys that would change how this
+# script or its child processes run (PATH, IFS, BASH_ENV, LD_*, ...) are never taken from the file.
 load_env() {
-  if [[ -f apps/api/.env ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source apps/api/.env
-    set +a
-  fi
+  local f="$APP_DIR/apps/api/.env" line key val
+  [[ -f "$f" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+    key="${BASH_REMATCH[2]}"
+    val="${BASH_REMATCH[3]}"
+    if (( $# )) && [[ " $* " != *" $key "* ]]; then continue; fi
+    case "$key" in
+      PATH | IFS | HOME | SHELL | ENV | BASH_ENV | SHELLOPTS | BASHOPTS | PS4 | LD_* | BASH_FUNC_* | GATE | GATE_COPY | APP_DIR | SERVICES | STATE_DIR) continue ;;
+    esac
+    val="${val%"${val##*[![:space:]]}"}" # trailing whitespace
+    if [[ "$val" =~ ^\"(.*)\"$ || "$val" =~ ^\'(.*)\'$ ]]; then val="${BASH_REMATCH[1]}"; fi
+    export "$key=$val"
+  done <"$f"
 }
 
 # Builds the web app and makes it live; returns 1 on any failure. apps/web/dist exists afterwards in every case.
