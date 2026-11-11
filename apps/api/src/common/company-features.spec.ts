@@ -8,7 +8,7 @@ describe('company add-ons', () => {
   });
 
   it('the platform company has every add-on', () => {
-    expect(companyFeatures({ settings: {}, isPlatform: true })).toEqual(['attendanceInsightsPlus']);
+    expect(companyFeatures({ settings: {}, isPlatform: true })).toEqual(['attendanceInsightsPlus', 'etms']);
   });
 
   it('replacing the add-ons keeps the other settings', () => {

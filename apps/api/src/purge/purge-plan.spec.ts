@@ -111,3 +111,31 @@ describe('planPurge', () => {
     expect(() => rootCondition("1' OR '1'='1")).toThrow('Invalid id');
   });
 });
+
+describe('planPurge: ETMS TransportServiceAgreement (doc 15 §3.1, §9.6)', () => {
+  // Two RESTRICT FKs to Company, no "companyId" column (so the logical key never applies), actor columns without FK.
+  const etms: Catalog = {
+    fks: [
+      ...cat.fks,
+      { child: 'TransportServiceAgreement', col: 'providerCompanyId', parent: 'Company', refCol: 'id', del: 'r' },
+      { child: 'TransportServiceAgreement', col: 'customerCompanyId', parent: 'Company', refCol: 'id', del: 'r' },
+    ],
+    columns: new Map([...cat.columns, ['TransportServiceAgreement', new Set(['id', 'providerCompanyId', 'customerCompanyId', 'createdById', 'approvedByCustomerUserId', 'approvedByProviderUserId'])]]),
+  };
+  const id = 'aaaaaaaa-2222-3333-4444-555555555555';
+
+  it('purging either party deletes the agreement, through each FK, before the company', () => {
+    const steps = planPurge(etms, 'Company', rootCondition(id));
+    const agr = steps.filter((s) => s.table === 'TransportServiceAgreement').map((s) => stepSql(s));
+    expect(agr).toEqual([
+      `DELETE FROM "TransportServiceAgreement" WHERE "providerCompanyId" IN (SELECT "id" FROM "Company" WHERE "id" = '${id}')`,
+      `DELETE FROM "TransportServiceAgreement" WHERE "customerCompanyId" IN (SELECT "id" FROM "Company" WHERE "id" = '${id}')`,
+    ]);
+    const order = tables(steps);
+    expect(order.lastIndexOf('TransportServiceAgreement')).toBeLessThan(order.lastIndexOf('Company'));
+  });
+
+  it('a user, vehicle or device purge never touches agreements (actor columns have no FK)', () => {
+    for (const root of ['User', 'TrackedObject', 'Device']) expect(tables(planPurge(etms, root, rootCondition(id)))).not.toContain('TransportServiceAgreement');
+  });
+});

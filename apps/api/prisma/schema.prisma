@@ -50,6 +50,8 @@ enum AuditAction {
   LOGIN_FAILED
   LOGOUT
   PASSWORD_RESET
+  /// Sensitive read (ETMS: home address, phone reveal, live location, manifest; doc 05 §1). Added by etms_accounts.
+  ACCESS
 }
 
 model Partner {
@@ -110,6 +112,9 @@ model Company {
   invoices       Invoice[]
   creditNotes    CreditNote[]
   stockMovements StockMovement[]
+  /// ETMS (D1): agreements where this company is the transport provider / the corporate customer.
+  transportAgreementsAsProvider TransportServiceAgreement[] @relation("TransportAgreementProvider")
+  transportAgreementsAsCustomer TransportServiceAgreement[] @relation("TransportAgreementCustomer")
 }
 
 model Branch {
@@ -2797,4 +2802,74 @@ model PlannedTripEvent {
   data    Json?
 
   @@index([tripId, startAt])
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Employee transport (ETMS). Migration etms_accounts (E1a, docs/employee-transport/15 §3). Raw SQL in the migration
+// (Prisma cannot express it): partial unique "TransportServiceAgreement_live_pair_key" and the CHECKs
+// _parties_check, _validity_check, _version_check, _lists_check, _active_approved_check, _ended_check.
+
+/// Agreement lifecycle (D1 / P1). PROPOSED = terms frozen while both sides approve.
+enum TransportAgreementStatus {
+  DRAFT
+  PROPOSED
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+
+/// Closed grant list (doc 10 §2.2 item 3).
+enum TransportGrant {
+  VIEW_BOOKINGS
+  MANAGE_DISPATCH
+  VIEW_PASSENGER_MINIMAL
+  VIEW_PASSENGER_CONTACT
+  MANAGE_SCHEDULES
+  RECEIVE_INCIDENTS
+  MANAGE_INCIDENTS
+  VIEW_REPORTS
+  OVERRIDE_SAFETY_WARN
+}
+
+enum TransportDataProfile {
+  MINIMAL
+  STANDARD
+}
+
+/// Provider ↔ corporate customer contract with closed grants (D1). Corporate-managed mode has no row
+/// (provider = customer). No companyId column on purpose: the purge planner reaches it through both Restrict FKs, so
+/// purging either party deletes the agreement (doc 15 §1.2, §3.1). One live (DRAFT / PROPOSED / ACTIVE / SUSPENDED)
+/// agreement per pair: partial unique index in the migration. Actor columns have no FK (a user purge never touches it).
+model TransportServiceAgreement {
+  id                       String                   @id @default(uuid()) @db.Uuid
+  providerCompanyId        String                   @db.Uuid
+  customerCompanyId        String                   @db.Uuid
+  status                   TransportAgreementStatus @default(DRAFT)
+  validFrom                DateTime                 @db.Timestamptz(3)
+  /// Open-ended when null.
+  validTo                  DateTime?                @db.Timestamptz(3)
+  grants                   TransportGrant[]         @default([])
+  /// Customer site (Poi, OFFICE) ids; no FK, validated on write. Empty = every customer site.
+  siteIds                  String[]                 @default([]) @db.Uuid
+  dataProfile              TransportDataProfile     @default(MINIMAL)
+  approvedByCustomerAt     DateTime?                @db.Timestamptz(3)
+  approvedByCustomerUserId String?                  @db.Uuid
+  approvedByProviderAt     DateTime?                @db.Timestamptz(3)
+  approvedByProviderUserId String?                  @db.Uuid
+  suspendedAt              DateTime?                @db.Timestamptz(3)
+  endedAt                  DateTime?                @db.Timestamptz(3)
+  /// Suspend / end reason.
+  statusReason             String?
+  /// Optimistic concurrency (expectedVersion).
+  version                  Int                      @default(1)
+  createdById              String?                  @db.Uuid
+  createdAt                DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime                 @updatedAt @db.Timestamptz(3)
+
+  provider Company @relation("TransportAgreementProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
+  customer Company @relation("TransportAgreementCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
+
+  @@index([providerCompanyId, status])
+  @@index([customerCompanyId, status])
 }

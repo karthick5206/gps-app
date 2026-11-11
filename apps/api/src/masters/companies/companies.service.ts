@@ -5,7 +5,8 @@ import { AuthContext } from '../../access/auth-context';
 import { ensureSystemRoles } from '../../access/system-roles';
 import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
-import { withFeatures } from '../../common/company-features';
+import { companyFeatures, withFeatures } from '../../common/company-features';
+import { ensureEtmsRoleTemplates } from '../../etms/etms-role-templates';
 import { toCompanySummary } from '../../common/company-summary';
 import { iso } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
@@ -95,6 +96,7 @@ export class CompaniesService {
         data: { partnerId: partner.id, name: dto.name.trim(), accountType: dto.accountType, timezone: dto.timezone, retentionDays: dto.retentionDays, ...(dto.features ? { settings: withFeatures({}, dto.features) as Prisma.InputJsonValue } : {}) },
       });
       const roles = await ensureSystemRoles(tx, company.id);
+      if (dto.features?.includes('etms')) await ensureEtmsRoleTemplates(tx, company.id);
       const branch = await tx.branch.create({ data: { companyId: company.id, name: 'Head Office' } });
       await tx.user.create({
         data: {
@@ -121,12 +123,19 @@ export class CompaniesService {
   async update(ctx: AuthContext, id: string, dto: UpdateCompanyDto): Promise<CompanyDto> {
     const before = await this.find(id);
     const { features, ...fields } = dto;
-    const row = await this.prisma.company.update({
-      where: { id },
-      data: { ...fields, name: dto.name?.trim(), ...(features ? { settings: withFeatures(before.settings, features) as Prisma.InputJsonValue } : {}) },
-      include: INCLUDE,
+    // ETMS module switch (P6): turning the add-on on seeds the transport role templates once; turning it off keeps them
+    // (menus are hidden and refused while off, nothing is deleted).
+    const etmsOn = !!features?.includes('etms') && !companyFeatures(before).includes('etms');
+    const { row, templates } = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.company.update({
+        where: { id },
+        data: { ...fields, name: dto.name?.trim(), ...(features ? { settings: withFeatures(before.settings, features) as Prisma.InputJsonValue } : {}) },
+        include: INCLUDE,
+      });
+      return { row: updated, templates: etmsOn ? await ensureEtmsRoleTemplates(tx, id) : [] };
     });
     await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before, after: row });
+    if (templates.length) await this.audit.record(ctx, { action: 'CREATE', entity: 'role', entityId: null, details: { reason: 'etms module enabled', companyId: id, roles: templates } });
     if ((dto.status && dto.status !== before.status) || features) await this.redis.invalidateCache('company');
     return toDto(row);
   }
