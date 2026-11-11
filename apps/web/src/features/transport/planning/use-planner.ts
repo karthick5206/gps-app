@@ -222,7 +222,7 @@ export function usePlanEdit(plan: PlannerPlan | undefined) {
         }
       }),
     onSuccess: (r) => {
-      qc.setQueryData(plannerKeys.plan(r.plan.id), (old: PlannerPlan | undefined) => ({ ...r.plan, weights: old?.weights, lastJobId: old?.lastJobId }));
+      qc.setQueryData(plannerKeys.plan(r.plan.id), (old: PlannerPlan | undefined) => ({ ...r.plan, weights: r.plan.weights ?? old?.weights, lastJobId: old?.lastJobId }));
       void qc.invalidateQueries({ queryKey: plannerKeys.plans });
       void qc.invalidateQueries({ queryKey: plannerKeys.compare });
       void qc.invalidateQueries({ queryKey: plannerKeys.history(r.plan.id) });

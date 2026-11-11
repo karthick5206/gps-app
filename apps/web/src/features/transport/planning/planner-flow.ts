@@ -14,6 +14,8 @@ export interface OptimiseInput {
   objectIds: string[];
   weights: PlannerWeights;
   timeLimitS: number;
+  /** T2-D5: the branch of the new plans (branch-scoped users; null / absent for a whole-company plan). */
+  branchId?: string | null;
 }
 
 export interface StartedPlan {
@@ -39,7 +41,7 @@ export class SeedError extends Error {
   readonly code = 'SITE_REQUIRED';
 }
 
-export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDate' | 'direction' | 'objectIds'>): CreatePlanRequest {
+export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDate' | 'direction' | 'objectIds' | 'branchId'>): CreatePlanRequest {
   if (!seed.sitePoiId) throw new SeedError('The shift has no site');
   return {
     name: seed.name,
@@ -49,6 +51,7 @@ export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDa
     sitePoiId: seed.sitePoiId,
     objectIds: [...input.objectIds],
     ...(seed.planStartAt ? { planStartAt: seed.planStartAt } : {}),
+    ...(input.branchId ? { branchId: input.branchId } : {}),
   };
 }
 

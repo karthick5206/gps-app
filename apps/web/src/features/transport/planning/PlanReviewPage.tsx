@@ -17,7 +17,7 @@ import {
   SendIcon,
   Trash2Icon,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -41,10 +41,13 @@ import { SimpleSelect } from '../dispatch/e3-ui';
 import { transportTripPath } from '../dispatch/use-e3';
 import { PlanMap } from './PlanMap';
 import {
+  canShiftStop,
   capabilityView,
   completeWeights,
-  emptyWeights,
   engineEta,
+  reoptimiseDefaults,
+  routeDriveSummary,
+  timeLimitOptions,
   formatDuration,
   formatKm,
   isEditablePlan,
@@ -143,6 +146,15 @@ export function PlanReviewPage() {
   const [discardOpen, setDiscardOpen] = useState(false);
   const [reoptOpen, setReoptOpen] = useState(false);
   const [reoptWeights, setReoptWeights] = useState<WeightDraft | null>(null);
+  const [reoptLimit, setReoptLimit] = useState<number | null>(null);
+  // K1 / K2: keyboard focus survives an edit (the clicked button is disabled while it runs) and a dialog opened from
+  // a button returns focus to it. Buttons carry data-focus-key; the first focusable key of the list wins.
+  const pendingFocus = useRef<string[] | null>(null);
+  const dialogReturn = useRef<string[] | null>(null);
+  useEffect(() => {
+    if (!pendingFocus.current || edit.isPending) return;
+    if (focusKey(pendingFocus.current)) pendingFocus.current = null;
+  });
   const [degraded, setDegraded] = useState<string | null>(null);
 
   const metrics = useMemo(() => (plan ? planMetrics(plan, lastCheck ?? undefined) : null), [plan, lastCheck]);
@@ -190,8 +202,10 @@ export function PlanReviewPage() {
   const busy = edit.isPending || plan.status === 'OPTIMIZING';
   const activeJob = activeJobId(plan, jobId, openJobs.data);
 
-  const runEdit = (e: PlanEdit, ok: string) => {
+  const runEdit = (e: PlanEdit, ok: string, focusAfter?: string[]) => {
     setEditError(null);
+    const active = typeof document !== 'undefined' ? document.activeElement?.getAttribute('data-focus-key') : null;
+    pendingFocus.current = focusAfter ?? (active ? [active] : null);
     edit.mutate(e, {
       onSuccess: (r) => {
         setConflict(false);
@@ -213,16 +227,33 @@ export function PlanReviewPage() {
   const reorder = (stop: PlannerStop, delta: -1 | 1) => {
     const next = changedRoutes(routes, shiftStop(routes, stop.id, delta));
     if (!next.length) return;
-    runEdit({ kind: 'sequence', assignments: next }, delta < 0 ? t('{{name}} moved up.', { name: stopLabel(stop, t) }) : t('{{name}} moved down.', { name: stopLabel(stop, t) }));
+    const dir = delta < 0 ? 'up' : 'down';
+    runEdit({ kind: 'sequence', assignments: next }, delta < 0 ? t('{{name}} moved up.', { name: stopLabel(stop, t) }) : t('{{name}} moved down.', { name: stopLabel(stop, t) }), [`${stop.id}:${dir}`, `${stop.id}:${dir === 'up' ? 'down' : 'up'}`, `${stop.id}:pin`]);
+  };
+  const openMove = (s: PlannerStop) => {
+    dialogReturn.current = [`${s.id}:move`, `${s.id}:pin`];
+    setMoveReq(s);
+  };
+  const openVehicle = (aid: string) => {
+    dialogReturn.current = [`route:${aid}:vehicle`, `route:${aid}:lock`];
+    setVehicleReq(aid);
+  };
+  // Radix returns focus to a DialogTrigger only; these dialogs open from state, so focus goes back by key.
+  const returnFocus = (e: Event) => {
+    e.preventDefault();
+    const keys = dialogReturn.current;
+    dialogReturn.current = null;
+    if (keys && !pendingFocus.current) focusKey(keys);
   };
   const moveTo = (stop: PlannerStop, assignmentId: string) => {
     setMoveReq(null);
     const idx = plan.assignments.findIndex((a) => a.id === assignmentId);
     const ok = t('{{name}} moved to route {{n}}.', { name: stopLabel(stop, t), n: idx + 1 });
     // A booking moves with both ends (POST move-passenger); a generic stop through the sequence.
-    if (stop.bookingId) return runEdit({ kind: 'move', bookingId: stop.bookingId, toAssignmentId: assignmentId }, ok);
+    const back = [`${stop.id}:move`, `${stop.id}:pin`];
+    if (stop.bookingId) return runEdit({ kind: 'move', bookingId: stop.bookingId, toAssignmentId: assignmentId }, ok, back);
     const next = changedRoutes(routes, movePassenger(routes, plan.stops, stop.id, assignmentId));
-    if (next.length) runEdit({ kind: 'sequence', assignments: next }, ok);
+    if (next.length) runEdit({ kind: 'sequence', assignments: next }, ok, back);
   };
   const doPublish = () => {
     // Key per (plan, version) from the page's key store: a retry replays; a refusal (4xx) frees it (usePublishPlan).
@@ -239,7 +270,10 @@ export function PlanReviewPage() {
       },
     });
   };
-  const weightsForReopt = reoptWeights ?? (plan.weights ? { ...plan.weights } : emptyWeights());
+  // T2-L4: the plan's stored weights (options.weights) and a time limit within the API range.
+  const reoptDefaults = reoptimiseDefaults(plan);
+  const weightsForReopt = reoptWeights ?? reoptDefaults.weights;
+  const limitForReopt = reoptLimit ?? reoptDefaults.timeLimitS;
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-3 p-4 sm:p-6">
@@ -367,7 +401,11 @@ export function PlanReviewPage() {
                 </div>
                 {a.driverName && <p className="text-xs text-muted-foreground">{t('Driver: {{name}}', { name: a.driverName })}</p>}
                 <p className="text-xs text-muted-foreground">
-                  {engineEta(a.eta) ? t('{{km}} · {{time}} drive', { km: formatKm(a.distanceM), time: formatDuration(a.adjustedDurationS ?? a.durationS, t) }) : stops.length ? t('No engine distance or time yet') : t('No stops on this route')}
+                  {(() => {
+                    // T2-L1: engine numbers only when the engine produced both (not "— · — drive" after an edit while it was down).
+                    const d = routeDriveSummary(a, stops.length);
+                    return d.kind === 'engine' ? t('{{km}} · {{time}} drive', { km: formatKm(d.distanceM), time: formatDuration(d.durationS, t) }) : d.kind === 'pending' ? t('No engine distance or time yet') : t('No stops on this route');
+                  })()}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   <Button size="sm" variant="ghost" aria-pressed={focus === i} onClick={() => setFocus(focus === i ? null : i)}>
@@ -375,13 +413,14 @@ export function PlanReviewPage() {
                   </Button>
                   {canEdit && (
                     <>
-                      <Button size="sm" variant="ghost" disabled={busy || a.locked} onClick={() => setVehicleReq(a.id)}>
+                      <Button size="sm" variant="ghost" data-focus-key={`route:${a.id}:vehicle`} disabled={busy || a.locked} onClick={() => openVehicle(a.id)}>
                         <CarFrontIcon /> {t('Change vehicle')}
                       </Button>
                       <Button
                         size="sm"
                         variant="ghost"
                         aria-pressed={a.locked}
+                        data-focus-key={`route:${a.id}:lock`}
                         disabled={busy}
                         onClick={() => runEdit({ kind: 'lock', assignmentId: a.id, locked: !a.locked }, a.locked ? t('Route {{n}} unlocked.', { n: i + 1 }) : t('Route {{n}} locked: re-optimising keeps its stops and order.', { n: i + 1 }))}
                       >
@@ -435,21 +474,22 @@ export function PlanReviewPage() {
                           )}
                           {canEdit && (
                             <div className="flex flex-wrap gap-1">
-                              <Button size="icon-sm" variant="outline" disabled={busy || k === 0 || s.pinned || a.locked} onClick={() => reorder(s, -1)} aria-label={t('Move {{name}} up', { name: stopLabel(s, t) })}>
+                              <Button size="icon-sm" variant="outline" data-focus-key={`${s.id}:up`} disabled={busy || !canShiftStop(stops, k, -1) || a.locked} onClick={() => reorder(s, -1)} aria-label={t('Move {{name}} up', { name: stopLabel(s, t) })}>
                                 <ArrowUpIcon />
                               </Button>
-                              <Button size="icon-sm" variant="outline" disabled={busy || k === stops.length - 1 || s.pinned || a.locked} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
+                              <Button size="icon-sm" variant="outline" data-focus-key={`${s.id}:down`} disabled={busy || !canShiftStop(stops, k, 1) || a.locked} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
                                 <ArrowDownIcon />
                               </Button>
-                              <Button size="sm" variant="outline" disabled={busy || s.pinned || a.locked || plan.assignments.length < 2} onClick={() => setMoveReq(s)}>
+                              <Button size="sm" variant="outline" data-focus-key={`${s.id}:move`} disabled={busy || s.pinned || a.locked || plan.assignments.length < 2} onClick={() => openMove(s)}>
                                 <ArrowRightLeftIcon /> {t('Move to…')}
                               </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 aria-pressed={!!s.pinned}
+                                data-focus-key={`${s.id}:pin`}
                                 disabled={busy}
-                                onClick={() => runEdit({ kind: 'pin', stopId: s.id, pinned: !s.pinned }, s.pinned ? t('{{name}} unpinned.', { name: stopLabel(s, t) }) : t('{{name}} pinned to this route and position.', { name: stopLabel(s, t) }))}
+                                onClick={() => runEdit({ kind: 'pin', stopId: s.id, pinned: !s.pinned }, s.pinned ? t('{{name}} unpinned.', { name: stopLabel(s, t) }) : t('{{name}} pinned to this vehicle. Re-optimising keeps it on this vehicle; its place in the order may change.', { name: stopLabel(s, t) }))}
                               >
                                 {s.pinned ? <PinOffIcon /> : <PinIcon />} {s.pinned ? t('Unpin') : t('Pin')}
                               </Button>
@@ -538,16 +578,23 @@ export function PlanReviewPage() {
         plan={plan}
         onClose={() => setMoveReq(null)}
         onPick={(aid) => moveReq && moveTo(moveReq, aid)}
+        onCloseAutoFocus={returnFocus}
       />
 
       {vehicleReq && (
         <VehicleDialog
           plan={plan}
           assignmentId={vehicleReq}
-          onClose={() => setVehicleReq(null)}
+          onClose={() => {
+            setVehicleReq(null);
+            const keys = dialogReturn.current;
+            dialogReturn.current = null;
+            if (keys) requestAnimationFrame(() => focusKey(keys));
+          }}
+          onCloseAutoFocus={returnFocus}
           onPick={(v) => {
             const idx = plan.assignments.findIndex((a) => a.id === vehicleReq);
-            runEdit({ kind: 'vehicle', assignmentId: vehicleReq, objectId: v.objectId }, t('Route {{n}} now uses {{vehicle}}.', { n: idx + 1, vehicle: v.name }));
+            runEdit({ kind: 'vehicle', assignmentId: vehicleReq, objectId: v.objectId }, t('Route {{n}} now uses {{vehicle}}.', { n: idx + 1, vehicle: v.name }), [`route:${vehicleReq}:vehicle`, `route:${vehicleReq}:lock`]);
             setVehicleReq(null);
           }}
         />
@@ -629,10 +676,13 @@ export function PlanReviewPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('Re-optimise this plan')}</DialogTitle>
-            <DialogDescription>{t('Pinned stops keep their route and position; everything else may change. A new version is saved.')}</DialogDescription>
+            <DialogDescription>{t('Pinned stops stay on their vehicle and locked routes keep their stops and order; everything else may change. A new version is saved.')}</DialogDescription>
           </DialogHeader>
           <DialogBody className="grid gap-3">
             <WeightsEditor idPrefix="re-w" showErrors value={weightsForReopt} onChange={setReoptWeights} />
+            <Field label={t('Time limit per plan')} htmlFor="re-limit">
+              <SimpleSelect id="re-limit" value={String(limitForReopt)} onChange={(v) => setReoptLimit(Number(v))} options={timeLimitOptions(caps.data?.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
+            </Field>
             {reopt.isError && <FormError message={plannerErrorMessage(reopt.error, t)} />}
           </DialogBody>
           <DialogFooter>
@@ -645,7 +695,7 @@ export function PlanReviewPage() {
                 const w = completeWeights(weightsForReopt);
                 if (!w) return;
                 reopt.mutate(
-                  { weights: w, timeLimitS: 30 },
+                  { weights: w, timeLimitS: limitForReopt },
                   {
                     onSuccess: (job) => {
                       setJobId(job.jobId);
@@ -666,7 +716,20 @@ export function PlanReviewPage() {
   );
 }
 
-function MoveDialog({ stop, plan, onClose, onPick }: { stop: PlannerStop | null; plan: PlannerPlan; onClose: () => void; onPick: (assignmentId: string) => void }) {
+/** Focus the first enabled element of the page with one of these data-focus-key values (K1 / K2). */
+function focusKey(keys: readonly string[]): boolean {
+  if (typeof document === 'undefined') return false;
+  for (const k of keys) {
+    const el = document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(k)}"]`);
+    if (el && !(el as HTMLButtonElement).disabled) {
+      el.focus();
+      return true;
+    }
+  }
+  return false;
+}
+
+function MoveDialog({ stop, plan, onClose, onPick, onCloseAutoFocus }: { stop: PlannerStop | null; plan: PlannerPlan; onClose: () => void; onPick: (assignmentId: string) => void; onCloseAutoFocus?: (e: Event) => void }) {
   const { t } = useTranslation();
   const [target, setTarget] = useState<string>('');
   const options = plan.assignments.filter((a) => a.id !== stop?.assignmentId).map((a) => {
@@ -677,7 +740,7 @@ function MoveDialog({ stop, plan, onClose, onPick }: { stop: PlannerStop | null;
   const chosen = target && options.some((o) => o.value === target) ? target : (options[0]?.value ?? '');
   return (
     <Dialog open={!!stop} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{t('Move passenger')}</DialogTitle>
           <DialogDescription>{stop ? t('{{name}}: pickup and drop move together. The plan is re-checked after the move.', { name: stopLabel(stop, t) }) : ''}</DialogDescription>
@@ -700,7 +763,7 @@ function MoveDialog({ stop, plan, onClose, onPick }: { stop: PlannerStop | null;
   );
 }
 
-function VehicleDialog({ plan, assignmentId, onClose, onPick }: { plan: PlannerPlan; assignmentId: string; onClose: () => void; onPick: (v: { objectId: string; name: string; seats: number | null }) => void }) {
+function VehicleDialog({ plan, assignmentId, onClose, onPick, onCloseAutoFocus }: { plan: PlannerPlan; assignmentId: string; onClose: () => void; onPick: (v: { objectId: string; name: string; seats: number | null }) => void; onCloseAutoFocus?: (e: Event) => void }) {
   const { t } = useTranslation();
   const fleet = usePlannerVehicles(plan.planDate, plan.direction ?? 'IN');
   const [value, setValue] = useState('');
@@ -712,7 +775,7 @@ function VehicleDialog({ plan, assignmentId, onClose, onPick }: { plan: PlannerP
   const tooSmall = !!chosen && (chosen.seats ?? 0) < load;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{t('Change vehicle')}</DialogTitle>
           <DialogDescription>{a ? t('{{vehicle}} carries {{n}} passenger(s) on this route.', { vehicle: a.vehicleLabel, n: load }) : ''}</DialogDescription>

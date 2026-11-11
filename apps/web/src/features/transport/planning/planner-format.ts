@@ -271,7 +271,8 @@ export function planMetrics(plan: Pick<PlannerPlan, 'stops' | 'assignments' | 'd
   const violations = mergeViolations(plan.violations ?? [], extraViolations ?? []);
   const violationsByKind: Record<string, number> = {};
   for (const v of violations) violationsByKind[v.kind] = (violationsByKind[v.kind] ?? 0) + 1;
-  const engineOk = used.every((a) => engineEta(a.eta));
+  // T2-L1: no route in use → no distance / time ("—"), not 0 m / 0 min.
+  const engineOk = used.length > 0 && used.every((a) => engineEta(a.eta));
   return {
     vehiclesUsed: used.length,
     vehiclesTotal: plan.assignments.length,
@@ -460,6 +461,8 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   PLAN_NOT_PUBLISHABLE: 'This plan cannot be published yet: some routes need attention (see below).',
   ROUTE_LOCKED: 'That route is locked. Unlock it first.',
   STOP_PINNED: 'That stop is pinned. Unpin it first.',
+  DRIVER_DUPLICATE: 'This driver already drives another route of this plan.',
+  VEHICLE_DUPLICATE: 'This vehicle already drives another route of this plan.',
   SITE_REQUIRED: 'A chosen shift has no site: choose exactly one site for it.',
   IDEMPOTENCY_KEY_REQUIRED: 'The request was missing its retry key. Try again.',
   // Job error codes (RoutingJobError.code / RoutingDegradedReason).
@@ -508,6 +511,8 @@ export function plannerErrorKind(code: string | null | undefined, status?: numbe
     case 'PLAN_NOT_PUBLISHABLE':
     case 'ROUTE_LOCKED':
     case 'STOP_PINNED':
+    case 'DRIVER_DUPLICATE':
+    case 'VEHICLE_DUPLICATE':
     case 'LIMIT_EXCEEDED':
     case 'INVALID_INPUT':
     case 'OUTSIDE_COVERAGE':
@@ -847,4 +852,115 @@ export function newKey(rand: () => number = Math.random): string {
     const r = Math.floor(rand() * 16);
     return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
+}
+
+// ───────────────────────────── E4 end-to-end round (T1 / T2, 2026-11-11) ─────────────────────────────
+
+export interface PlanBranch {
+  id: string;
+  name: string;
+}
+export type BranchChoice = { mode: 'none' } | { mode: 'fixed'; branch: PlanBranch } | { mode: 'pick'; branches: PlanBranch[] } | { mode: 'missing' };
+
+/**
+ * T2-D5: which branch a new plan is for. Whole-company roles need none; a branch-scoped role with one branch plans for
+ * it (shown, not asked); with several the user picks one (required); with none the role cannot plan.
+ */
+export function planBranchChoice(access: { scope: RoutingAccess['scope']; branches?: readonly PlanBranch[] | null }): BranchChoice {
+  if (access.scope === 'COMPANY') return { mode: 'none' };
+  const b = [...(access.branches ?? [])];
+  if (b.length === 1) return { mode: 'fixed', branch: b[0] };
+  if (b.length > 1) return { mode: 'pick', branches: b };
+  return { mode: 'missing' };
+}
+
+export type RouteDriveSummary = { kind: 'engine'; distanceM: number; durationS: number } | { kind: 'pending' } | { kind: 'empty' };
+
+/**
+ * T2-L1: the route's distance / drive time line. Engine numbers only when the engine produced both (an edit while the
+ * engine is down keeps the ETA model but clears distance and time): otherwise "No engine distance or time yet".
+ */
+export function routeDriveSummary(a: Pick<RoutePlanAssignmentDto, 'eta' | 'distanceM' | 'durationS'> & { adjustedDurationS?: number | null }, stopCount: number): RouteDriveSummary {
+  if (!stopCount) return { kind: 'empty' };
+  const durationS = a.adjustedDurationS ?? a.durationS;
+  if (!engineEta(a.eta) || a.distanceM === null || a.distanceM === undefined || durationS === null || durationS === undefined) return { kind: 'pending' };
+  return { kind: 'engine', distanceM: a.distanceM, durationS };
+}
+
+export interface JobOutcome {
+  tone: Tone;
+  label: string;
+  detail: string | null;
+  vars: Record<string, number>;
+}
+
+/**
+ * T2-L2: how a job ended, for the job card. A succeeded job that seated nobody, or left passengers unassigned, is a
+ * warning that says so (passenger counts from the plan when it is at hand: the job result counts stops), not a green
+ * "Done".
+ */
+export function jobOutcome(job: Pick<RoutingJobDto, 'state' | 'result'>, plan?: Pick<PlannerPlan, 'stops' | 'direction'> | null): JobOutcome {
+  const meta = JOB_STATE_META[job.state];
+  if (job.state !== 'succeeded') return { tone: meta.tone, label: meta.label, detail: null, vars: {} };
+  const r = job.result as { routes?: { stops?: unknown[] }[]; unassigned?: unknown[] } | undefined;
+  const left = r?.unassigned?.length ?? 0;
+  if (!r || !left) return { tone: 'success', label: 'Done', detail: null, vars: {} };
+  const seated = (r.routes ?? []).reduce((n, x) => n + (x.stops?.length ?? 0), 0);
+  const vars: Record<string, number> = plan ? { n: unassignedPassengers(plan.stops, plan.direction).length, total: plan.stops.filter((s) => passengerEnd(s, plan.direction)).length } : {};
+  if (!seated) return { tone: 'warning', label: 'Done · nobody seated', detail: 'No passenger could be seated: every one is unassigned. The plan lists the reason for each.', vars };
+  return { tone: 'warning', label: 'Done · some unassigned', detail: plan ? '{{n}} of {{total}} passengers could not be seated. The plan lists the reasons.' : 'Some passengers could not be seated. The plan lists the reasons.', vars };
+}
+
+/**
+ * T2-L3: whether "move up / down" may be offered for the stop at index k: not past either end, and neither the stop
+ * nor the neighbour it swaps with is pinned (a pinned stop never moves by hand; the API answers STOP_PINNED).
+ */
+export function canShiftStop(stops: readonly { pinned?: boolean | null }[], k: number, delta: -1 | 1): boolean {
+  const j = k + delta;
+  if (k < 0 || k >= stops.length || j < 0 || j >= stops.length) return false;
+  return !stops[k].pinned && !stops[j].pinned;
+}
+
+/** T2-L4: time limits offered (seconds), within the API range (1 … limits.optimizeTimeLimitS). */
+export function timeLimitOptions(maxS: number | null | undefined): number[] {
+  const base = [10, 30, 60];
+  if (!maxS || maxS <= 0) return base;
+  const out = base.filter((n) => n <= maxS);
+  if (!out.includes(maxS) && maxS < 60) out.push(maxS);
+  return out;
+}
+
+/** T2-L4: re-optimise starts from the weights the plan was last optimised with (stored on the plan), 30 s. */
+export function reoptimiseDefaults(plan: { weights?: PlannerWeights | null }): { weights: WeightDraft; timeLimitS: number } {
+  return { weights: plan.weights ? { ...plan.weights } : emptyWeights(), timeLimitS: 30 };
+}
+
+export interface SteadyProgress {
+  jobId: string;
+  value: number;
+  retrying: boolean;
+}
+
+/**
+ * T2-O1: progress shown for a job never goes backwards (a retry restarts the worker's own count, e.g. 40 % → 17 %);
+ * the retry is labelled instead. A new job starts from its own value.
+ */
+export function steadyProgress(prev: SteadyProgress | null, job: Pick<RoutingJobDto, 'jobId' | 'progress' | 'attempts' | 'state'>): SteadyProgress {
+  const now = job.state === 'succeeded' ? 100 : Math.max(0, Math.min(100, job.progress));
+  const value = prev && prev.jobId === job.jobId ? Math.max(prev.value, now) : now;
+  return { jobId: job.jobId, value, retrying: job.attempts > 1 };
+}
+
+/** T2-L5: MapLibre control strings (its `locale` keys → English source text, translated through i18n). */
+export const MAP_CONTROL_STRINGS: Record<string, string> = {
+  'Map.Title': 'Map',
+  'NavigationControl.ZoomIn': 'Zoom in',
+  'NavigationControl.ZoomOut': 'Zoom out',
+  'NavigationControl.ResetBearing': 'Drag to rotate map, click to reset north',
+  'AttributionControl.ToggleAttribution': 'Toggle attribution',
+  'AttributionControl.MapFeedback': 'Map feedback',
+};
+
+export function mapControlLocale(t: (key: string) => string): Record<string, string> {
+  return Object.fromEntries(Object.entries(MAP_CONTROL_STRINGS).map(([k, v]) => [k, t(v)]));
 }

@@ -86,7 +86,12 @@ function SearchableList({
           }}
           onKeyDown={onKeyDown}
           placeholder={searchPlaceholder ?? t('Search…')}
+          role="combobox"
+          aria-expanded
+          aria-autocomplete="list"
+          aria-label={searchPlaceholder ?? t('Search…')}
           aria-controls={listId}
+          aria-activedescendant={visible[active] ? `${listId}-opt-${active}` : undefined}
           className="h-10 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
         {loading && <Spinner className="text-muted-foreground" />}
@@ -98,8 +103,10 @@ function SearchableList({
           return (
             <li
               key={o.value}
+              id={`${listId}-opt-${i}`}
               role="option"
               aria-selected={selected}
+              data-active={i === active || undefined}
               onMouseEnter={() => setActive(i)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onPick(o)}

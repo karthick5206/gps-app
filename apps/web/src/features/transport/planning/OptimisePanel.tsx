@@ -13,11 +13,9 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { DIRECTION_LABEL, shiftTimesLabel } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
-import { capabilityView, completeWeights, planSeeds, skippedSummary, type ShiftChoice, type WeightDraft } from './planner-format';
+import { capabilityView, completeWeights, planBranchChoice, planSeeds, skippedSummary, timeLimitOptions, type ShiftChoice, type WeightDraft } from './planner-format';
 import { JobProgress, WeightsEditor } from './planner-ui';
 import { createKeyStore, newKey, plannerErrorMessage, plannerErrorOf, useActiveShifts, usePlannerVehicles, useStartOptimise, type StartedPlan } from './use-planner';
-
-const TIME_LIMITS = [10, 30, 60] as const;
 
 export interface OptimiseState {
   day: string;
@@ -27,6 +25,8 @@ export interface OptimiseState {
   vehicleIds: string[];
   weights: WeightDraft;
   timeLimitS: number;
+  /** T2-D5: the branch chosen by a branch-scoped user with several branches. */
+  branchId: string | null;
 }
 
 /** Bookings the new plan left out, per reason: they stay in the dispatch queue (T2 E2E). */
@@ -78,19 +78,24 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
   const weights = completeWeights(state.weights);
   const seeds = planSeeds({ day: state.day, direction: state.direction, shifts: shiftChoices, shiftIds: state.shiftIds, siteIds: state.siteIds, tz: fleet.data?.timeZone ?? tz ?? 'UTC' }, t);
   const chosenVehicles = withSeats.filter((v) => state.vehicleIds.includes(v.objectId));
+  // T2-D5: a branch-scoped user plans for one of their branches (one: fixed; several: picked).
+  const branch = planBranchChoice(caps?.access ?? { scope: 'COMPANY' });
+  const branchId = branch.mode === 'fixed' ? branch.branch.id : branch.mode === 'pick' && branch.branches.some((b) => b.id === state.branchId) ? state.branchId : null;
 
   const problems: string[] = [];
   if (!seeds.length) problems.push(t('Choose at least one shift.'));
   if (seeds.some((x) => !x.sitePoiId)) problems.push(t('A chosen shift has no site: choose exactly one site for it.'));
   if (!chosenVehicles.length) problems.push(t('Choose at least one vehicle.'));
   if (!weights) problems.push(t('Set all four weights (at least one of distance, driving or route length above 0).'));
+  if (branch.mode === 'pick' && !branchId) problems.push(t('Choose the branch for the plan.'));
+  if (branch.mode === 'missing') problems.push(t('Your role has no branch to plan for. Ask an administrator to assign you a branch.'));
   const ready = problems.length === 0 && health.canOptimise && canPlan;
 
   const run = () => {
     setTouched(true);
     if (!ready || !weights) return;
     start.mutate(
-      { planDate: state.day, direction: state.direction, seeds, objectIds: chosenVehicles.map((v) => v.objectId), weights, timeLimitS: state.timeLimitS },
+      { planDate: state.day, direction: state.direction, seeds, objectIds: chosenVehicles.map((v) => v.objectId), weights, timeLimitS: state.timeLimitS, branchId },
       {
         onSuccess: (r) => {
           setStarted(r);
@@ -160,6 +165,12 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
           >
             <MultiSelect id="opt-vehicles" value={state.vehicleIds} onChange={(v) => setState((s) => ({ ...s, vehicleIds: v }))} options={vehicleOptions} loading={fleet.isPending} placeholder={t('Choose vehicles')} searchPlaceholder={t('Search name or plate…')} emptyText={t('No vehicles with seats')} invalid={touched && !chosenVehicles.length} />
           </Field>
+          {branch.mode === 'pick' && (
+            <Field label={t('Branch')} htmlFor="opt-branch" className="sm:col-span-2" hint={t('The plan takes the bookings of this branch.')} error={touched && !branchId ? t('Choose the branch for the plan.') : undefined}>
+              <SimpleSelect id="opt-branch" value={branchId ?? ''} onChange={(v) => setState((s) => ({ ...s, branchId: v || null }))} options={[{ value: '', label: t('Choose a branch') }, ...branch.branches.map((b) => ({ value: b.id, label: b.name }))]} />
+            </Field>
+          )}
+          {branch.mode === 'fixed' && <p className="text-sm text-muted-foreground sm:col-span-2">{t('Plans are made for your branch {{name}}.', { name: branch.branch.name })}</p>}
           {fleet.isError && <FormError message={plannerErrorMessage(fleet.error, t)} />}
           {shifts.isError && <FormError message={plannerErrorMessage(shifts.error, t)} />}
         </div>
@@ -168,7 +179,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
 
         <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
           <Field label={t('Time limit per plan')} htmlFor="opt-limit">
-            <SimpleSelect id="opt-limit" value={String(state.timeLimitS)} onChange={(v) => setState((s) => ({ ...s, timeLimitS: Number(v) }))} options={TIME_LIMITS.filter((n) => !caps || n <= caps.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
+            <SimpleSelect id="opt-limit" value={String(state.timeLimitS)} onChange={(v) => setState((s) => ({ ...s, timeLimitS: Number(v) }))} options={timeLimitOptions(caps?.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
           </Field>
           <Button onClick={run} disabled={start.isPending || !canPlan || !health.canOptimise}>
             {start.isPending ? <Spinner /> : <PlayIcon />} {seeds.length > 1 ? t('Optimise {{n}} plans', { n: seeds.length }) : t('Optimise')}

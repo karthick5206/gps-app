@@ -217,3 +217,18 @@ test('T2 E2E: the create answer\'s skipped bookings reach the screen', async () 
   assert.deepEqual(r[0].counts, { found: 8, planned: 6, skipped: 2 });
   assert.ok(r[0].job, 'still optimised');
 });
+
+test('T2-D5: a branch dispatcher\'s plan carries the chosen branch (CreateRoutePlanDto.branchId); a whole-company plan sends none', async () => {
+  const BR = '66666666-6666-4666-8666-666666666666';
+  const { calls, client } = recorder((c) => (c.path.endsWith('/optimize') ? JOB : PLAN));
+  await startOptimise(client, { ...INPUT, branchId: BR }, createKeyStore(() => `b${Math.random()}`).keyFor);
+  const create = calls.find((c) => c.method === 'POST' && c.path === '/transport/route-plans');
+  assert.ok(create);
+  assert.equal((create.body as { branchId?: string }).branchId, BR);
+  assertBody(create.body, dto('etms/planning/plan-create.ts', 'CreateRoutePlanDto'), 'create with branch');
+  const company = recorder((c) => (c.path.endsWith('/optimize') ? JOB : PLAN));
+  await startOptimise(company.client, { ...INPUT, branchId: null }, createKeyStore(() => `c${Math.random()}`).keyFor);
+  assert.ok(!('branchId' in (company.calls[0].body as object)), 'no branchId for a whole-company plan');
+  // The API lists the caller's own branches in the capabilities (RoutingAccess.branches) for the picker.
+  assert.ok(src('routing-jobs/routing-capabilities.controller.ts').includes('branches'), 'capabilities expose the caller\'s branches');
+});
