@@ -19,11 +19,14 @@ After `systemctl restart`, `release.sh` runs `health-gate.sh`:
 3. `GATEWAY_HEALTH_URL` (default `http://127.0.0.1:${GATEWAY_HEALTH_PORT:-4121}/health`) answers 200
    (skipped when `GATEWAY_HEALTH_PORT=0`, i.e. the gateway's health listener is off);
 4. `TRACKING_HEALTH_URL` (default `http://127.0.0.1:${API_PORT:-4000}/api/health/tracking`) answers 200, i.e. OK or
-   WARN. **`HEALTH_GATE_TRACKING`** decides what a 503 (tracking CRITICAL) means:
-   - `1` (default): retried until the deadline; still 503 then is a **WARN**, not a FAIL. Right after a restart the
-     processor may need longer than the deadline to work off its backlog (lag CRITICAL), which is not a broken
-     release. Re-check a few minutes later with `release.sh --health-only`. No answer or any other code still fails;
-   - `strict`: a 503 at the deadline fails the gate;
+   WARN. It is retried until the deadline, because right after a restart the processor may lag for a while.
+   **`HEALTH_GATE_TRACKING`**:
+   - `1` (default, spec G6: 200 only): anything but 200 at the deadline, including a 503 (tracking CRITICAL), **fails**
+     the gate. (`strict` is accepted as the same value.)
+   - `warn` (opt-in, the operator's explicit choice, e.g. after a long outage with a known backlog): a 503 at the
+     deadline is only a **WARN** and the gate passes "with warnings: tracking". No answer or any other code still
+     fails. This also hides a stuck processor (devices connected, nothing persisted), so re-check a few minutes later
+     with `release.sh --health-only` until tracking answers 200;
    - `0`: skipped, e.g. on a first install with no devices;
 5. map services (`ROUTER_URL`, `GEOCODER_URL`, `MARTIN_URL` from `apps/api/.env`) are probed once and only **warned**
    about, because `release.sh` does not deploy them. Only loopback / private / single-label hosts are probed; a public
@@ -38,8 +41,11 @@ the failed units. Exit 2 means the gate could not run (bad setting, no curl); `r
 without the rollback text.
 
 **Journal tail.** `release.sh` runs as `veetrax`, which cannot read the system journal. The gate tries, in order:
-plain `journalctl`; `sudo -n journalctl -u <unit> -n 50 --no-pager` when sudoers allows exactly that; otherwise it
-prints "run as root: sudo journalctl -u <unit> -n 50 --no-pager". `install-ubuntu.sh` grants the five exact commands
+`journalctl -q -u <unit> -n 50 --no-pager`, used only if it exits 0 **and** prints real entries (not journalctl's
+multi-line "Hint: You are currently not seeing messages …" / "No journal files were opened …" notice, and not an empty
+result from the user's own journal); then `sudo -n journalctl -u <unit> -n 50 --no-pager` when sudoers allows exactly
+that (no `-q`: the arguments must match the sudoers line); otherwise it prints "journal not readable as veetrax; run
+as root: sudo journalctl -u <unit> -n 50 --no-pager". `install-ubuntu.sh` grants the five exact commands
 (one per `veetrax-*` unit, fixed arguments). A wildcard line such as `journalctl -u veetrax-* -n * --no-pager` was
 **not** used: a sudoers `*` also matches spaces, so it would allow other units and options such as `--vacuum-time`
 (deleting the journal) or `--file`. **Existing production server** (the installer is not re-run there): until the owner
@@ -69,7 +75,13 @@ and exits 1. The previous release is the tag (or commit) that was checked out be
   copies `health-gate.sh` to a temp file **before** the checkout and runs that copy, so the rollback is still gated
   and a healthy rollback ends with "Release is healthy". If no gate exists at all, the gate is skipped with a clear
   message (never "RELEASE FAILED"). After such a rollback `--health-only` is gone with the old tree; the failure text
-  then prints `git show <prev>:ops/deploy/linux/health-gate.sh > /tmp/health-gate.sh && bash /tmp/health-gate.sh`.
+  then prints a command that extracts `health-gate.sh` from `<prev>` into a `mktemp` file and runs it with
+  `apps/api/.env` loaded (so the test instance's `API_PORT` is honoured).
+- **Web app on such a rollback:** a tag older than v1.8.1 ignores `VEETRAX_WEB_OUTDIR` and rebuilds `apps/web/dist`
+  in place. `release.sh` notices this before the build (no `VEETRAX_WEB_OUTDIR` in its `vite.config`), copies the
+  live build to `apps/web/dist.prev` first, skips the swap, and runs the external-maps check on `apps/web/dist` when
+  that tree has the check (v1.8.0 has none: "was not checked" note). If that build or check fails, `dist.prev` is put
+  back as `dist`, so the site is never left without `apps/web/dist`.
 - `release.sh` runs inside a `main` function that bash reads completely first, so the checkout changing the script
   while it runs cannot mix old and new lines.
 
@@ -80,6 +92,19 @@ and exits 1. The previous release is the tag (or commit) that was checked out be
 it passes does it replace the live `apps/web/dist` (two renames; the previous build stays in `apps/web/dist.prev`). If
 the build or the check fails, the live web app is untouched and `release.sh` prints "WEB BUILD FAILED" with the
 rollback command (the checkout and `node_modules` are already at the new release; nothing was migrated or restarted).
+If the second rename fails, `dist.prev` is moved back to `dist` before that message.
+
+- **The swap window (accepted).** Between `mv dist dist.prev` and `mv dist.next dist`, two back-to-back `rename()`
+  calls in the same folder, `apps/web/dist` does not exist for microseconds. A request in exactly that instant gets a
+  404 from Caddy and a reload fixes it. A symlink swap (`dist -> dist-<ts>`, `ln -sfn` + `mv -T`) was considered and
+  not used: the first run would still need the same two renames to turn the real folder into a link; a pre-v1.8.1
+  rollback would build into the link's target in place; `dist/` in `.gitignore` does not match a symlink (it would show
+  as untracked); old `dist-<ts>` folders need pruning; and `mv --exchange` (atomic) needs coreutils 9.5, newer than
+  Ubuntu 24.04's. Caddy's `root` stays the plain folder `/opt/veetrax/app/apps/web/dist`.
+- Clients that still hold the old `index.html` request old hashed chunks, which now live only in `dist.prev`; a lazy
+  route fails until the page is reloaded (pre-existing, unchanged).
+- **Quick manual restore** of the previous web build (as `veetrax`, no restart needed; Caddy serves it at once):
+  `cd /opt/veetrax/app/apps/web && mv dist dist.bad && mv dist.prev dist`.
 
 - The check flags known outside map hosts (OpenFreeMap, OSM tiles, Mapbox, MapTiler, Google, Esri, CARTO, Stadia,
   Thunderforest, HERE, TomTom, Bing, Ola Maps, Mappls / MapmyIndia, Protomaps, VersaTiles, Geoapify, …), Google
@@ -115,11 +140,12 @@ no-appendfsync-on-rewrite no
 
 - **Fresh installs only.** With `appendonly yes` in the file and no AOF on disk, a restarted Valkey starts **empty**
   and ignores `dump.rdb`. So the script first decides the state of Valkey and writes the lines only when it is
-  **empty** (running: `DBSIZE` 0; stopped: no dump file under the unquoted `dir` / `dbfilename` and no
+  **empty** (running: 0 keys in **all** databases, the sum of `keys=` over every `dbN` line of `INFO keyspace`, so a
+  shared Valkey with keys only in db1+ is not "empty"; stopped: no dump file under the unquoted `dir` / `dbfilename` and no
   `appendonlydir`) or **AOF is already on** (`CONFIG GET appendonly` = `yes`, or `appendonly yes` in a stopped
   server's file). On a server with data and AOF off it prints a WARNING and leaves the file alone.
 - **Password.** `valkey-cli` gets the password from `REDISCLI_AUTH` or, if unset, from `requirepass` in the conf file
-  (through the environment, never the command line). If Valkey does not answer `PONG` / a number for `DBSIZE` with it
+  (through the environment, never the command line). If Valkey does not answer `PONG` / a well-formed `INFO keyspace` section with it
   (`NOAUTH`, `WRONGPASS`, `LOADING`, …) the state is **unknown** and treated as "has data": WARNING, file unchanged,
   no restart.
 - **Restart only when empty.** Valkey is restarted only in the empty case. With AOF already on, the file is updated

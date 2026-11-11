@@ -162,8 +162,10 @@ cap. When the processor is stopped the net rate equals the input rate.
   - Details, plus the Windows watchdog: [reliability/ingestion-reliability.md](reliability/ingestion-reliability.md).
 - **Release health gate** (Ubuntu): `ops/deploy/linux/release.sh` runs `ops/deploy/linux/health-gate.sh` after the
   restart: every `veetrax-*` unit active (30 s), then `/api/health/ready`, the gateway `/health` and
-  `/api/health/tracking` must answer 200 within `HEALTH_TIMEOUT_SEC` (default 90). Map services are probed once and
-  only warned about. On failure it prints the journal tail and `REF=<previous> bash release.sh`, and exits 1; it never
+  `/api/health/tracking` must answer 200 within `HEALTH_TIMEOUT_SEC` (default 90); a tracking 503 at the deadline
+  fails the gate (spec G6). `HEALTH_GATE_TRACKING=warn` is an explicit operator opt-in that turns only that 503 into a
+  WARN; `HEALTH_GATE_TRACKING=0` skips tracking (first install). Map services are probed once and only warned about.
+  On failure it prints the journal tail and `REF=<previous> bash release.sh`, and exits 1; it never
   rolls back by itself. `bash release.sh --health-only` runs the gate alone. Settings are listed in the script header;
   `bash ops/deploy/linux/test/health-gate-test.sh` exercises it against local stubs.
 

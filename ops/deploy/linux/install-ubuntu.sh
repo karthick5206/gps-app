@@ -70,16 +70,26 @@ vk_cli() {
 }
 # State of this Valkey, decided before the file is touched:
 #   aof-on   running (authenticated) with appendonly yes, or stopped with 'appendonly yes' in the file
-#   empty    running with DBSIZE 0, or stopped with no dump file and no AOF directory on disk
-#   data     running with keys, or stopped with a non-empty dump file / AOF directory
-#   unknown  running but no PONG with the password (NOAUTH, WRONGPASS, LOADING, ...) or no number from DBSIZE:
-#            treated like data (the safe side)
+#   empty    running with 0 keys in ALL databases (INFO keyspace), or stopped with no dump file and no AOF directory
+#   data     running with keys in any database, or stopped with a non-empty dump file / AOF directory
+#   unknown  running but no PONG with the password (NOAUTH, WRONGPASS, LOADING, ...) or an INFO keyspace answer that
+#            cannot be read: treated like data (the safe side)
+# Total keys over every dbN line of INFO keyspace (DBSIZE would count db0 only; a shared Valkey may use db1+).
+# Prints nothing unless the answer is a well-formed keyspace section ("# Keyspace" + only dbN:keys=<n>,... lines).
+vk_total_keys() {
+  vk_cli INFO keyspace | tr -d '\r' | awk '
+    /^# Keyspace$/ { hdr = 1; next }
+    /^$/ { next }
+    /^db[0-9]+:keys=[0-9]+(,|$)/ { split($0, a, /[=,]/); n += a[2]; next }
+    { bad = 1 }
+    END { if (hdr && !bad) print n + 0 }'
+}
 vk_state() {
   local pong dir dump aofdir
   pong="$(vk_cli ping)"
   if [[ "$pong" == PONG ]]; then
     if [[ "$(vk_cli CONFIG GET appendonly | sed -n 2p)" == yes ]]; then echo aof-on; return; fi
-    case "$(vk_cli DBSIZE)" in
+    case "$(vk_total_keys)" in
       0) echo empty ;;
       '' | *[!0-9]*) echo unknown ;;
       *) echo data ;;
@@ -120,7 +130,7 @@ case "$VK_STATE" in
     echo "         Turn AOF on online first (valkey-cli CONFIG SET appendonly yes, wait for aof_rewrite_in_progress:0), then re-run."
     ;;
   *)
-    echo "WARNING: could not ask Valkey whether it holds data (no PONG / DBSIZE with the configured password; REDISCLI_AUTH?)."
+    echo "WARNING: could not ask Valkey whether it holds data (no PONG / readable INFO keyspace with the configured password; REDISCLI_AUTH?)."
     echo "         Treated as holding data: AOF settings NOT written, Valkey NOT restarted."
     ;;
 esac
@@ -130,7 +140,11 @@ if [[ "$VK_STATE" == empty ]]; then
 else
   # Starts a stopped Valkey with its unchanged data; a running one is left alone.
   systemctl start valkey-server
-  echo "NOTE: Valkey was not restarted ($VK_STATE); the settings above take effect at its next planned restart."
+  if [[ "$VK_STATE" == aof-on ]]; then
+    echo "NOTE: Valkey was not restarted (aof-on); the settings above take effect at its next planned restart."
+  else
+    echo "NOTE: Valkey was not restarted ($VK_STATE); its config file was not changed."
+  fi
 fi
 
 echo "== database"
@@ -152,6 +166,7 @@ install -d -o veetrax -g veetrax "$APP_DIR" /opt/veetrax/maps /var/lib/veetrax
 # --vacuum-time, --file, other units), so 'journalctl -u veetrax-* -n *' would grant far more than a read of 50 lines.
 # Written to a temp file and checked with visudo first, so a mistake can never leave a broken sudoers.d file.
 SUDOERS_TMP="$(mktemp)"
+trap 'rm -f "$SUDOERS_TMP"' EXIT # also when visudo rejects it and set -e ends the installer
 cat > "$SUDOERS_TMP" <<'EOF'
 veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-*, /usr/bin/systemctl reload caddy
 veetrax ALL=(root) NOPASSWD: /usr/bin/journalctl -u veetrax-api -n 50 --no-pager, /usr/bin/journalctl -u veetrax-gateway -n 50 --no-pager, /usr/bin/journalctl -u veetrax-processor -n 50 --no-pager, /usr/bin/journalctl -u veetrax-notifier -n 50 --no-pager, /usr/bin/journalctl -u veetrax-summarizer -n 50 --no-pager
@@ -159,6 +174,7 @@ EOF
 visudo -cf "$SUDOERS_TMP"
 install -m 440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/veetrax
 rm -f "$SUDOERS_TMP"
+trap - EXIT
 
 echo "== systemd services"
 HERE="$(cd "$(dirname "$0")" && pwd)"

@@ -63,7 +63,7 @@ main() {
 
   if [[ "$mode" == "--web-only" ]]; then
     npm run build:shared
-    build_web || web_build_failed "$prev" "nothing was restarted"
+    build_web || web_build_failed "$prev" "nothing was restarted" web-only
     echo "Web rebuilt; Caddy serves the new files at once."
     return
   fi
@@ -71,7 +71,7 @@ main() {
   echo "== build"
   npm ci --no-audit --no-fund
   npm run build:shared
-  build_web || web_build_failed "$prev" "nothing was migrated or restarted"
+  build_web || web_build_failed "$prev" "nothing was migrated or restarted" full
   (cd apps/api && npx prisma generate && npm run build)
 
   echo "== database"
@@ -98,26 +98,77 @@ load_env() {
   fi
 }
 
-# Builds the web app into apps/web/dist.next (vite build + the G8 external-maps check, VEETRAX_WEB_OUTDIR), then swaps
-# it in for the live apps/web/dist; the previous build stays in apps/web/dist.prev. On any failure the live dist is
-# untouched. Called as `build_web || ...`, so set -e is off inside: every step checks its own status.
+# Builds the web app and makes it live; returns 1 on any failure. apps/web/dist exists afterwards in every case.
+#   v1.8.1+ tree: vite build + the G8 external-maps check into apps/web/dist.next (VEETRAX_WEB_OUTDIR), then two renames
+#     (dist -> dist.prev, dist.next -> dist). On a failed build the live dist is untouched; if the second rename fails,
+#     dist.prev is moved back. Between the two renames dist is missing for the time of one rename() system call
+#     (microseconds); a request in exactly that instant gets a 404 and a reload fixes it (accepted, see README).
+#   Older tree (a rollback to v1.8.0 or older): its vite ignores VEETRAX_WEB_OUTDIR and rebuilds the live dist in place.
+#     The live build is copied to dist.prev first; after the build the external-maps check runs on dist (when the tree
+#     has the check script). If the build or the check fails, dist.prev is put back as dist.
+# Called as `build_web || ...`, so set -e is off inside: every step checks its own status.
 build_web() {
-  local web="$APP_DIR/apps/web"
+  local web="$APP_DIR/apps/web" legacy=0
   rm -rf "$web/dist.next" || return 1
+  if [[ -d "$web/dist" ]] && ! grep -qs VEETRAX_WEB_OUTDIR "$web"/vite.config.*; then
+    legacy=1
+    echo "   This release builds the web app in place (its vite ignores VEETRAX_WEB_OUTDIR): live build copied to apps/web/dist.prev first."
+    { rm -rf "$web/dist.prev" && cp -a "$web/dist" "$web/dist.prev"; } || return 1
+  fi
   if ! VEETRAX_WEB_OUTDIR=dist.next npm run build -w @veetracer/web; then
+    rm -rf "$web/dist.next"
+    if (( legacy )) || [[ ! -d "$web/dist" ]]; then restore_prev_web "$web"; fi
+    return 1
+  fi
+  if [[ ! -d "$web/dist.next" ]]; then
+    # The build ignored VEETRAX_WEB_OUTDIR (an older tree) and rebuilt dist in place: no swap; check dist itself.
+    if [[ ! -d "$web/dist" ]]; then
+      echo "web build produced neither apps/web/dist.next nor apps/web/dist" >&2
+      restore_prev_web "$web"
+      return 1
+    fi
+    if [[ -f "$APP_DIR/scripts/check-no-external-maps.mjs" ]]; then
+      if ! (cd "$APP_DIR" && env -u VEETRAX_WEB_OUTDIR node scripts/check-no-external-maps.mjs apps/web/dist); then
+        restore_prev_web "$web"
+        return 1
+      fi
+    else
+      echo "NOTE: this release has no scripts/check-no-external-maps.mjs; its web build was not checked for outside map hosts."
+    fi
+    return 0
+  fi
+  # v1.8.1+ tree: swap dist.next in.
+  if ! rm -rf "$web/dist.prev"; then rm -rf "$web/dist.next"; return 1; fi
+  if [[ -d "$web/dist" ]] && ! mv -T "$web/dist" "$web/dist.prev"; then rm -rf "$web/dist.next"; return 1; fi
+  if ! mv -T "$web/dist.next" "$web/dist"; then
+    [[ -e "$web/dist" ]] || restore_prev_web "$web"
     rm -rf "$web/dist.next"
     return 1
   fi
-  rm -rf "$web/dist.prev" || return 1
-  if [[ -d "$web/dist" ]]; then mv "$web/dist" "$web/dist.prev" || return 1; fi
-  mv "$web/dist.next" "$web/dist" || return 1
+}
+
+# Puts apps/web/dist.prev back as the live apps/web/dist (after a failed in-place build, check or swap).
+restore_prev_web() {
+  local web="$1"
+  [[ -d "$web/dist.prev" ]] || return 0
+  if rm -rf "$web/dist" && mv -T "$web/dist.prev" "$web/dist"; then
+    echo "   apps/web/dist restored from apps/web/dist.prev (the build that was live before)."
+  else
+    echo "WARNING: could not restore apps/web/dist from apps/web/dist.prev; do it by hand:" >&2
+    echo "         rm -rf $web/dist && mv $web/dist.prev $web/dist" >&2
+  fi
 }
 
 web_build_failed() {
-  local prev="$1" what="$2"
+  local prev="$1" what="$2" mode="$3"
   echo
-  echo "WEB BUILD FAILED (vite build or the external-maps check above) — the live web app was NOT replaced; $what."
-  echo "  The code checkout and node_modules are now at the new release while the services still run the old one."
+  echo "WEB BUILD FAILED (vite build, the external-maps check or the swap, see above) — the live web app was NOT replaced"
+  echo "  (or the previous build was put back); $what."
+  if [[ "$mode" == web-only ]]; then
+    echo "  The code checkout is now at the new release while the services still run the old one."
+  else
+    echo "  The code checkout and node_modules are now at the new release while the services still run the old one."
+  fi
   echo "  Fix the cause (e.g. VITE_MAP_STYLE_* in apps/web/.env pointing at an outside host) and run the release again,"
   echo "  or return to the running release:"
   echo "       REF=$prev bash $APP_DIR/ops/deploy/linux/release.sh"
@@ -141,7 +192,8 @@ health_gate() {
   # How to re-run the gate: the checked-out release may have no gate of its own (after a rollback to v1.8.0).
   local recheck="bash $APP_DIR/ops/deploy/linux/release.sh --health-only"
   if [[ ! -f "$APP_DIR/ops/deploy/linux/health-gate.sh" ]]; then
-    recheck="git -C $APP_DIR show $prev:ops/deploy/linux/health-gate.sh > /tmp/health-gate.sh && bash /tmp/health-gate.sh"
+    # A private temp file, and apps/api/.env loaded (API_PORT, map URLs) as release.sh --health-only would.
+    recheck="g=\$(mktemp) && git -C $APP_DIR show $prev:ops/deploy/linux/health-gate.sh > \"\$g\" && (set -a; . $APP_DIR/apps/api/.env; set +a; bash \"\$g\"); rm -f \"\$g\""
   fi
   if (( code == 2 )); then
     echo

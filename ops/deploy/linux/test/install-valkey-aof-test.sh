@@ -21,6 +21,8 @@ fi
 mkdir -p "$WORK/bin" "$WORK/data"
 # Fake valkey-cli. FAKE_DOWN=1: not running (no answer, exit 1). FAKE_PASS: the server's password; without the right
 # REDISCLI_AUTH every command answers NOAUTH, as a real password-protected Valkey does. Logs its arguments.
+# INFO keyspace answers like the real one (CRLF line ends, "# Keyspace" then one dbN line per non-empty database):
+# from FAKE_DBSIZE keys in db0, or verbatim FAKE_KEYSPACE (printf %b) when set.
 cat >"$WORK/bin/valkey-cli" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >>"$FAKE_LOG.cli"
@@ -34,6 +36,12 @@ case "$*" in
   ping) echo PONG ;;
   "CONFIG GET appendonly") printf 'appendonly\n%s\n' "${FAKE_AOF:-no}" ;;
   DBSIZE) echo "${FAKE_DBSIZE:-0}" ;;
+  "INFO keyspace")
+    if [[ -n "${FAKE_KEYSPACE+x}" ]]; then printf '%b' "$FAKE_KEYSPACE"
+    else
+      printf '# Keyspace\r\n'
+      [[ "${FAKE_DBSIZE:-0}" != 0 ]] && printf 'db0:keys=%s,expires=0,avg_ttl=0\r\n' "$FAKE_DBSIZE"
+    fi ;;
 esac
 FAKE
 cat >"$WORK/bin/systemctl" <<'FAKE'
@@ -97,6 +105,7 @@ out="$(FAKE_DBSIZE=42 run_block)"
 expect data-aof-off "file unchanged" unchanged
 expect data-aof-off "warning printed" grep -q 'AOF settings NOT written' <<<"$out"
 expect data-aof-off "not restarted" not_restarted
+expect data-aof-off "no 'settings take effect' note (nothing was written)" bash -c '! grep -q "take effect" <<<"$1"' _ "$out"
 echo "$out" | sed 's/^/      /'
 
 echo "### existing server: keys present, AOF already on (CONFIG SET done online; a rewrite may still run)"
@@ -162,6 +171,38 @@ stock_conf
 out="$(REDISCLI_AUTH=envpw FAKE_PASS=envpw FAKE_DBSIZE=5 run_block)"
 expect env-pass "file unchanged (data)" unchanged
 expect env-pass "data warning, not the unknown one" grep -q 'already holds data' <<<"$out"
+
+echo "### keys only in db1 (DBSIZE of db0 would say 0): a shared Valkey is not empty"
+stock_conf
+out="$(FAKE_DBSIZE=0 FAKE_KEYSPACE='# Keyspace\r\ndb1:keys=7,expires=0,avg_ttl=0\r\n' run_block)"
+expect db1-only "file unchanged (data)" unchanged
+expect db1-only "data warning" grep -q 'already holds data' <<<"$out"
+expect db1-only "not restarted" not_restarted
+expect db1-only "keyspace asked, not DBSIZE" bash -c "grep -qx 'INFO keyspace' '$WORK/log.cli' && ! grep -q DBSIZE '$WORK/log.cli'"
+
+echo "### keyspace header only (CRLF), i.e. 0 keys in every database"
+stock_conf
+FAKE_KEYSPACE='# Keyspace\r\n' run_block >/dev/null
+expect keyspace-empty "AOF settings written" applied
+expect keyspace-empty "restarted (empty)" restarted
+
+echo "### unreadable INFO keyspace answers count as has data (unknown)"
+# An error reply, no reply, a non-number count, an unexpected line, no "# Keyspace" header.
+for ks in 'ERR unknown command\r\n' '' '# Keyspace\r\ndb0:keys=abc,expires=0\r\n' '# Keyspace\r\nsomething else\r\n' 'db0:keys=0,expires=0\r\n'; do
+  stock_conf
+  out="$(FAKE_KEYSPACE="$ks" run_block)"
+  expect "unparseable '$ks'" "file unchanged" unchanged
+  expect "unparseable '$ks'" "unknown warning" grep -q 'could not ask Valkey' <<<"$out"
+  expect "unparseable '$ks'" "not restarted" not_restarted
+done
+
+echo "### the total is summed over every database"
+# Only the three helper functions, sourced on their own (no config write, no systemctl).
+total="$(export PATH="$WORK/bin:$PATH" FAKE_LOG="$WORK/log" VK="$WORK/valkey.conf" \
+  FAKE_KEYSPACE='# Keyspace\r\ndb0:keys=3,expires=1,avg_ttl=5\r\ndb2:keys=4,expires=0,avg_ttl=0\r\ndb15:keys=10\r\n'
+  # shellcheck disable=SC1090
+  source <(sed -n '/^vk_conf()/,/^}/p; /^vk_cli()/,/^}/p; /^vk_total_keys()/,/^}/p' "$WORK/block.sh"); vk_total_keys)"
+expect sum "db0 3 + db2 4 + db15 10 = 17" test "$total" == 17
 
 echo
 if (( FAILURES )); then echo "install-valkey-aof-test: $FAILURES check(s) FAILED"; exit 1; fi

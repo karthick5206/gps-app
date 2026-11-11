@@ -15,9 +15,10 @@
 #   HEALTH_TIMEOUT_SEC    whole gate deadline, default 90; HEALTH_POLL_SEC retry interval, default 3
 #   HEALTH_GATE_SYSTEMD   auto (default: only where systemctl exists) | 1 | 0
 #   HEALTH_GATE_GATEWAY / HEALTH_GATE_MAPS  1 (default) | 0 to skip that part
-#   HEALTH_GATE_TRACKING  1 (default): tracking is retried until the deadline; still 503 then = WARN, not FAIL, because
-#                         right after a restart the processor may need longer than the deadline to work off its backlog
-#                         (re-check with release.sh --health-only). strict = a 503 at the deadline FAILS the gate.
+#   HEALTH_GATE_TRACKING  1 (default, spec G6): tracking is retried until the deadline (processor lag right after a
+#                         restart); anything but 200 then FAILS the gate. ('strict' is accepted as the same.)
+#                         warn = opt-in, operator's own choice: a 503 (tracking CRITICAL) at the deadline is only a WARN
+#                         (no answer or any other code still fails); re-check later with release.sh --health-only.
 #                         0 = skipped (a first install with no devices yet).
 #   ROUTER_URL + ROUTER_ENGINE=graphhopper, GEOCODER=photon + GEOCODER_URL, MARTIN_URL: map services, probed once
 #                         and reported as WARN only (release.sh does not deploy them, so they never fail the gate).
@@ -50,8 +51,8 @@ for n in HEALTH_TIMEOUT_SEC HEALTH_POLL_SEC; do
     exit 2
   fi
 done
-if [[ ! "$HEALTH_GATE_TRACKING" =~ ^(0|1|strict)$ ]]; then
-  echo "health-gate: HEALTH_GATE_TRACKING must be 1, strict or 0 (got '$HEALTH_GATE_TRACKING')" >&2
+if [[ ! "$HEALTH_GATE_TRACKING" =~ ^(0|1|strict|warn)$ ]]; then
+  echo "health-gate: HEALTH_GATE_TRACKING must be 1 (strict), warn or 0 (got '$HEALTH_GATE_TRACKING')" >&2
   exit 2
 fi
 if ! command -v curl >/dev/null; then
@@ -63,7 +64,7 @@ if [[ "$HEALTH_GATE_SYSTEMD" == auto ]]; then
 fi
 
 FAILED=()        # names of failed checks
-WARNED=()        # gate checks downgraded to WARN (tracking)
+WARNED=()        # gate checks downgraded to WARN (tracking with HEALTH_GATE_TRACKING=warn)
 FAILED_UNITS=()  # units whose journal is printed on failure
 BODY="$(mktemp)"
 trap 'rm -f "$BODY"' EXIT
@@ -110,7 +111,7 @@ url_host() {
 is_local_host() {
   local h="$1" a b
   case "$h" in
-    localhost | *.localhost | *.local | *.internal | *.lan | ::1 | fc*:* | fd*:* | fe80:*) return 0 ;; # IPv6 only with a ':'
+    localhost | *.localhost | *.local | *.internal | *.lan | ::1 | fc*:* | fd*:* | fe[89ab]?:*) return 0 ;; # IPv6 only with a ':'
   esac
   if [[ "$h" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+\.[0-9]+$ ]]; then
     a="${BASH_REMATCH[1]}" b="${BASH_REMATCH[2]}"
@@ -144,8 +145,8 @@ poll_http() {
         printf '      body: %s\n' "$(head -c 400 "$BODY" | tr -d '\r' | tr '\n' ' ')"
       fi
       if [[ "$verdict" == WARN ]]; then
-        echo "      not failing the gate (HEALTH_GATE_TRACKING=1): a backlog after the restart can keep tracking CRITICAL"
-        echo "      for a while. Re-check in a few minutes with release.sh --health-only; HEALTH_GATE_TRACKING=strict fails here."
+        echo "      not failing the gate only because HEALTH_GATE_TRACKING=warn was chosen (the default fails here)."
+        echo "      Re-check in a few minutes with release.sh --health-only; tracking must reach 200."
         WARNED+=("$name")
         return 0
       fi
@@ -205,16 +206,18 @@ check_maps() {
 }
 
 # Journal tail of one unit, best effort. The 'veetrax' user that runs release.sh is not in systemd-journal / adm, so:
-#   1. plain journalctl (works as root or for a member of those groups);
-#   2. sudo -n journalctl, only when sudoers allows exactly this command (install-ubuntu.sh grants it per unit);
+#   1. journalctl -q (works as root or for a member of those groups); used only when it exits 0 AND prints real entries;
+#   2. sudo -n journalctl -u <unit> -n 50 --no-pager, only when sudoers allows exactly this command (install-ubuntu.sh
+#      grants it per unit; no -q there, the arguments must match the sudoers line);
 #   3. otherwise a hint with the command to run as root.
+# Without permission journalctl prints a multi-line notice instead of entries ("Hint: You are currently not seeing
+# messages ...", indented continuation lines, "No journal files were opened due to insufficient permissions.") and
+# exits 1; with only the user's own journal readable it exits 0 with no entries. Neither counts as readable.
 journal_tail() {
-  local unit="$1" out
+  local unit="$1" out code=0
   local cmd=(journalctl -u "$unit" -n 50 --no-pager)
-  out="$("${cmd[@]}" 2>&1)"
-  # Readable entries = any line other than journalctl's own notices ("-- No entries --", "Hint: ...", "No journal
-  # files were opened due to insufficient permissions.").
-  if grep -vqE '^(-- |Hint: |No journal files were (opened|found))|^[[:space:]]*$' <<<"$out"; then
+  out="$(journalctl -q -u "$unit" -n 50 --no-pager 2>&1)" || code=$?
+  if (( code == 0 )) && journal_has_entries "$out"; then
     printf '%s\n' "$out"
     return
   fi
@@ -222,8 +225,18 @@ journal_tail() {
     sudo -n "${cmd[@]}" 2>&1 || true
     return
   fi
-  [[ -n "$out" ]] && printf '%s\n' "$out"
+  if (( code == 0 )) && [[ "$(id -u 2>/dev/null)" == 0 ]]; then
+    echo "      (no journal entries for $unit)"
+    return
+  fi
   echo "      (journal not readable as $(id -un 2>/dev/null || echo this user); run as root: sudo journalctl -u $unit -n 50 --no-pager)"
+}
+
+# True when journalctl output holds at least one log entry: a line that is not one of journalctl's own notices
+# ("-- No entries --", "Hint: ...", "No journal files were ...", "Failed to ...") and not indented (the notice's
+# continuation lines; an entry's own continuation lines only follow an entry line).
+journal_has_entries() {
+  grep -vqE '^([[:space:]]|-- |Hint: |No journal files were |Failed to |$)' <<<"$1"
 }
 
 echo "== health gate (deadline ${HEALTH_TIMEOUT_SEC} s)"
@@ -231,8 +244,8 @@ if [[ "$HEALTH_GATE_SYSTEMD" == 1 ]]; then check_units; else line SKIP systemd "
 poll_http FAIL api "$API_HEALTH_URL" veetrax-api
 if [[ "$HEALTH_GATE_GATEWAY" == 1 ]]; then poll_http FAIL gateway "$GATEWAY_HEALTH_URL" veetrax-gateway; else line SKIP gateway "HEALTH_GATE_GATEWAY=0"; fi
 case "$HEALTH_GATE_TRACKING" in
-  strict) poll_http FAIL tracking "$TRACKING_HEALTH_URL" veetrax-processor veetrax-gateway ;;
-  1) poll_http WARN tracking "$TRACKING_HEALTH_URL" veetrax-processor veetrax-gateway ;;
+  1 | strict) poll_http FAIL tracking "$TRACKING_HEALTH_URL" veetrax-processor veetrax-gateway ;;
+  warn) poll_http WARN tracking "$TRACKING_HEALTH_URL" veetrax-processor veetrax-gateway ;;
   *) line SKIP tracking "HEALTH_GATE_TRACKING=0" ;;
 esac
 if [[ "$HEALTH_GATE_MAPS" == 1 ]]; then check_maps; else line SKIP maps "HEALTH_GATE_MAPS=0"; fi
