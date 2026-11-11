@@ -15,6 +15,7 @@ import {
   type RoutePlanPublishResult,
   type RoutePlanRouteError,
   type RoutePlanStatus,
+  type RoutePlanRouteViolation,
   type RoutePlanStopViolation,
   type RoutePlanSummaryDto,
   type RoutePlanVersionDto,
@@ -246,12 +247,19 @@ export class RoutePlansService {
       const d = await this.prisma.driver.findFirst({ where: { AND: [driverScopeWhere(ctx), { id: dto.driverId, isActive: true }] }, select: { id: true } });
       if (!d) throw notFound('Driver not found');
     }
-    return this.edit(ctx, id, dto.expectedVersion, async (plan) => {
+    return this.edit(ctx, id, dto.expectedVersion, async (plan, view) => {
       const a = plan.assignments.find((x) => x.id === assignmentId);
       if (!a) throw notFound('Route not found');
+      // E4 security review (informational): like the stop edits, a branch dispatcher may change only a route that
+      // carries no passenger outside their scope (another branch's passenger is a 404, as everywhere).
+      if (plan.stops.some((s) => s.assignmentId === a.id && outOfScope(s, view))) throw notFound('Route not found');
       const locks = routePlanLocks(plan.options);
       const lockedNow = dto.locked ?? locks.lockedAssignmentIds.has(a.id);
       if (locks.lockedAssignmentIds.has(a.id) && dto.locked !== false && (dto.objectId !== undefined || dto.driverId !== undefined)) throw planError(HttpStatus.CONFLICT, 'ROUTE_LOCKED', 'The route is locked; unlock it first');
+      // QA B4: one vehicle cannot drive two routes of the same plan (publish would refuse it as VEHICLE_BUSY later).
+      if (vehicle && plan.assignments.some((x) => x.id !== a.id && x.objectId === vehicle.id)) {
+        throw planError(HttpStatus.CONFLICT, 'VEHICLE_DUPLICATE', 'This vehicle already drives another route of this plan');
+      }
       const data: Prisma.RouteAssignmentUncheckedUpdateInput = {};
       if (vehicle) Object.assign(data, { objectId: vehicle.id, vehicleLabel: vehicle.plateNumber ? `${vehicle.name} (${vehicle.plateNumber})`.slice(0, 120) : vehicle.name, capacity: vehicle.transportProfile?.seats ?? null });
       if (dto.driverId !== undefined) data.driverId = dto.driverId;
@@ -340,6 +348,15 @@ export class RoutePlansService {
     const timed = stops.map((s) => (etas.has(s.id) ? { ...s, etaS: etas.get(s.id)! } : s));
     const violations: RoutePlanStopViolation[] = [];
     for (const aid of e.checked) violations.push(...routeViolations(routeStops(timed, aid), capacity.get(aid) ?? null, seats, e.retime.has(aid) && !degraded));
+    // QA B4: a route with a vehicle but no seat profile (capacity null) cannot be published; say so now.
+    const routeViolationsOut: RoutePlanRouteViolation[] = [];
+    for (const aid of e.checked) {
+      const a = plan.assignments.find((x) => x.id === aid);
+      const objectId = (e.assignments?.get(aid)?.objectId as string | null | undefined) ?? a?.objectId ?? null;
+      if (objectId && (capacity.get(aid) ?? null) === null) {
+        routeViolationsOut.push({ assignmentId: aid, code: 'VEHICLE_NO_SEATS', message: 'The vehicle has no passenger seats set; set its seats before publishing' });
+      }
+    }
 
     const next = plan.version + 1;
     await this.prisma.$transaction(async (tx) => {
@@ -361,7 +378,7 @@ export class RoutePlansService {
       await this.recordVersion(tx, ctx, { ...plan, assignments }, next, e.changeType, plan.status as RoutePlanStatus, timed);
       await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: id, details: { ...e.details, version: next, violations: violations.length, ...(degraded ? { degraded } : {}) } as Prisma.InputJsonValue }, tx);
     });
-    return { plan: await this.get(ctx, id), violations, degraded };
+    return { plan: await this.get(ctx, id), violations, degraded, routeViolations: routeViolationsOut };
   }
 
   /**
@@ -410,6 +427,11 @@ export class RoutePlansService {
    * (advisory locks, scope, consent, capacity, overlap, ledger, Idempotency-Key). Inside that same transaction the plan
    * becomes PUBLISHED (version compare-and-set) and each TransportTrip gets routePlanId / routeAssignmentId. Any failure
    * rolls back every route; the error names the route that failed.
+   *
+   * States (QA B3 decision): a successful optimisation leaves the plan PLANNED; manual edits keep its status (a PLANNED
+   * plan stays PLANNED and editable). A never-optimised DRAFT plan may also be published (a dispatcher may build a plan
+   * by hand), but only when every route passes the same per-route validation as a PLANNED one (scope, seats, consent,
+   * pickup before drop, bookings still open); otherwise 409 PLAN_NOT_PUBLISHABLE and nothing is written.
    */
   async publish(ctx: AuthContext, id: string, dto: PublishDto, headerKey: string | undefined): Promise<Replayable<RoutePlanPublishResult>> {
     // Publishing makes dispatch trips: the caller needs the dispatcher's publish grant too (like a change set).

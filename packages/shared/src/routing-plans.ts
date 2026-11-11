@@ -139,7 +139,20 @@ export interface RoutePlanEditResult {
   violations: RoutePlanStopViolation[];
   /** Set when changed routes could not be re-timed on the road engine: their ETAs are null (never estimated). */
   degraded: RoutingDegradedReason | null;
+  /**
+   * Route-level checks of the routes the edit touched (E4 QA B4): VEHICLE_NO_SEATS (the vehicle has no seat profile;
+   * publish refuses it). A vehicle already on another route of the plan is refused outright (409 VEHICLE_DUPLICATE).
+   */
+  routeViolations?: RoutePlanRouteViolation[];
 }
+
+export interface RoutePlanRouteViolation {
+  assignmentId: string;
+  code: (typeof ROUTE_PLAN_ROUTE_VIOLATIONS)[number];
+  message: string;
+}
+
+export const ROUTE_PLAN_ROUTE_VIOLATIONS = ['VEHICLE_NO_SEATS', 'VEHICLE_DUPLICATE'] as const;
 
 // ───────────────────────────── compare (metrics only: no stops, no points, no names of passengers) ─────────────────────────────
 
@@ -191,7 +204,7 @@ export interface RoutePlanRouteError {
 }
 
 /** Error codes of the plans API (besides the common and E3 ones). */
-export const ROUTE_PLAN_ERROR_CODES = ['PLAN_STALE', 'PLAN_NOT_EDITABLE', 'PLAN_NOT_PUBLISHABLE', 'ROUTE_LOCKED', 'STOP_PINNED', 'ROUTING_DISABLED'] as const;
+export const ROUTE_PLAN_ERROR_CODES = ['PLAN_STALE', 'PLAN_NOT_EDITABLE', 'PLAN_NOT_PUBLISHABLE', 'ROUTE_LOCKED', 'STOP_PINNED', 'ROUTING_DISABLED', 'VEHICLE_DUPLICATE'] as const;
 export type RoutePlanErrorCode = (typeof ROUTE_PLAN_ERROR_CODES)[number];
 
 // ───────────────────────────── access (P6 templates) ─────────────────────────────
