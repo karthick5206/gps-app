@@ -52,6 +52,7 @@ import { RelayModule } from './relay/relay.controller';
 import { InventoryModule } from './inventory/inventory.module';
 import { SimsModule } from './sims/sims.module';
 import { PlannedTripsModule } from './planned-trips/planned-trips.module';
+import { EtmsModule } from './etms/etms.module';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { PlannedTripsModule } from './planned-trips/planned-trips.module';
     TemplatesModule,
     GeofencesModule,
     PlannedTripsModule,
+    EtmsModule,
     ReportsModule,
     ReportSchedulesModule,
     DashboardModule,

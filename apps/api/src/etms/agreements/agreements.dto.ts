@@ -1,0 +1,49 @@
+import {
+  TRANSPORT_AGREEMENT_STATUSES,
+  TRANSPORT_DATA_PROFILES,
+  TRANSPORT_GRANTS,
+  type CreateTransportAgreementInput,
+  type TransportAgreementCommandInput,
+  type TransportAgreementReasonInput,
+  type TransportAgreementSide,
+  type TransportAgreementStatus,
+  type TransportDataProfile,
+  type TransportGrant,
+  type UpdateTransportAgreementInput,
+} from '@veetracer/shared';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, ArrayUnique, IsArray, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateIf } from 'class-validator';
+import { ListQueryDto } from '../../common/list-query';
+
+export class AgreementListQuery extends ListQueryDto {
+  @IsOptional() @IsIn(TRANSPORT_AGREEMENT_STATUSES) agreementStatus?: TransportAgreementStatus;
+  @IsOptional() @IsIn(['PROVIDER', 'CUSTOMER']) side?: TransportAgreementSide;
+}
+
+export class CreateAgreementDto implements CreateTransportAgreementInput {
+  @IsUUID() providerCompanyId!: string;
+  @IsUUID() customerCompanyId!: string;
+  @IsISO8601() validFrom!: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsISO8601() validTo?: string | null;
+  @IsArray() @ArrayUnique() @ArrayMaxSize(TRANSPORT_GRANTS.length) @IsIn(TRANSPORT_GRANTS, { each: true }) grants!: TransportGrant[];
+  @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(500) @IsUUID('all', { each: true }) siteIds?: string[];
+  @IsOptional() @IsIn(TRANSPORT_DATA_PROFILES) dataProfile?: TransportDataProfile;
+}
+
+export class UpdateAgreementDto implements UpdateTransportAgreementInput {
+  @IsOptional() @IsISO8601() validFrom?: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsISO8601() validTo?: string | null;
+  @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(TRANSPORT_GRANTS.length) @IsIn(TRANSPORT_GRANTS, { each: true }) grants?: TransportGrant[];
+  @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(500) @IsUUID('all', { each: true }) siteIds?: string[];
+  @IsOptional() @IsIn(TRANSPORT_DATA_PROFILES) dataProfile?: TransportDataProfile;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) expectedVersion?: number;
+}
+
+export class AgreementCommandDto implements TransportAgreementCommandInput {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) expectedVersion?: number;
+}
+
+export class AgreementReasonDto implements TransportAgreementReasonInput {
+  @IsString() @IsNotEmpty() @MaxLength(500) reason!: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) expectedVersion?: number;
+}
