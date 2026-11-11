@@ -1,0 +1,16 @@
+[Unit]
+Description=VeeTrax routing (GraphHopper, India) on localhost:8989
+After=network-online.target
+
+[Service]
+User=veetrax
+WorkingDirectory=/opt/veetrax/maps/graphhopper
+# The first start imports India (CH + LM preparation); later starts load graph-cache in under a minute.
+ExecStart=/usr/bin/java -Xms2g -Xmx8g -XX:+UseG1GC -Ddw.graphhopper.datareader.file=/opt/veetrax/maps/india-latest.osm.pbf -jar graphhopper-web-11.1.jar server config.yml
+Restart=on-failure
+RestartSec=30
+SuccessExitStatus=143
+# Logs: journalctl -u veetrax-graphhopper -f
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 [Unit]
 Description=VeeTrax summarizer
-After=network-online.target postgresql.service redis-server.service
+After=network-online.target postgresql.service valkey-server.service
 Wants=network-online.target
 
 [Service]

@@ -1,0 +1,49 @@
+# VeeTrax production (Ubuntu): /etc/caddy/Caddyfile. Caddy gets and renews the HTTPS certificates itself.
+# DNS (all DNS-only / grey cloud): app, @ (and www once added) and track -> the server.
+# track.veetrax.com is for devices only (raw TCP ports, no website).
+
+app.veetrax.com {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# REST API (also live video streams) and live updates (WebSockets)
+	handle /api/* {
+		reverse_proxy 127.0.0.1:4000
+	}
+	handle /socket.io/* {
+		reverse_proxy 127.0.0.1:4000
+	}
+
+	# Self-hosted map: India vector tiles from Martin (/tiles/india/{z}/{x}/{y} -> martin /india/{z}/{x}/{y})
+	handle /tiles/india/* {
+		uri strip_prefix /tiles
+		header Cache-Control "public, max-age=86400"
+		reverse_proxy 127.0.0.1:3000
+	}
+	# Styles, fonts and sprites (nothing is loaded from outside)
+	handle_path /tiles/* {
+		root * /opt/veetrax/maps/tiles
+		header Cache-Control "public, max-age=86400"
+		file_server
+	}
+
+	# Web app: hashed assets cached long, single-page app falls back to index.html
+	handle {
+		root * /opt/veetrax/app/apps/web/dist
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# The bare domain goes to the app until there is a landing page. Add www.veetrax.com here once its DNS record exists.
+veetrax.com {
+	redir https://app.veetrax.com{uri} permanent
+}

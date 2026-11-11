@@ -1,0 +1,45 @@
+# VeeTrax self-hosted routing: GraphHopper 11.1, India (Geofabrik india-latest.osm.pbf).
+# /opt/veetrax/maps/graphhopper/config.yml. Listens on localhost:8989 only; the API uses /route and /match (profile car).
+# To refresh the road data: stop the service, delete graph-cache, replace the .pbf, start (it re-imports, ~30–60 min).
+graphhopper:
+  datareader.file: /opt/veetrax/maps/india-latest.osm.pbf
+  graph.location: /opt/veetrax/maps/graphhopper/graph-cache
+  profiles:
+    - name: car
+      custom_model_files: [car.json]
+  # CH: fast point-to-point routes (gap estimates). LM: speeds up map matching (/match), which can't use CH.
+  profiles_ch:
+    - profile: car
+  profiles_lm:
+    - profile: car
+  prepare.ch.threads: 2
+  prepare.lm.threads: 2
+  graph.encoded_values: car_access, car_average_speed, road_access
+  prepare.min_network_size: 200
+  prepare.subnetworks.threads: 2
+  routing.snap_preventions_default: tunnel, bridge, ferry
+  routing.non_ch.max_waypoint_distance: 1000000
+  import.osm.ignored_highways: footway,construction,cycleway,path,steps,pedestrian,bridleway
+  graph.dataaccess.default_type: RAM_STORE
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: localhost
+      max_request_header_size: 50k
+  request_log:
+    appenders: []
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: localhost
+
+logging:
+  appenders:
+    - type: console
+      time_zone: UTC
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  loggers:
+    "com.graphhopper.osm_warnings":
+      level: WARN
