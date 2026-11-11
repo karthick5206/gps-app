@@ -1,0 +1,28 @@
+{
+  "id": "15-disconnected-islands",
+  "description": "OUT, 30 passengers, 3 homes with no road (null rows/columns)",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 115,
+    "direction": "OUT",
+    "passengers": 30,
+    "groupShare": 0,
+    "fleet": {
+      "6": 4,
+      "12": 1
+    },
+    "islands": 3,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "minUnassigned": 3,
+    "maxUnassigned": 3,
+    "requireCodes": [
+      "ROUTING_UNAVAILABLE"
+    ],
+    "allowedCodes": [
+      "ROUTING_UNAVAILABLE"
+    ],
+    "objectiveBound": 241728
+  }
+}

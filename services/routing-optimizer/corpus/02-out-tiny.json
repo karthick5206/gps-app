@@ -1,0 +1,19 @@
+{
+  "id": "02-out-tiny",
+  "description": "OUT, 5 passengers, one 6-seat van, open end",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 102,
+    "direction": "OUT",
+    "passengers": 5,
+    "radiusKm": 5,
+    "fleet": {
+      "6": 1
+    },
+    "groupShare": 0,
+    "timeLimitS": 5
+  },
+  "expect": {
+    "objectiveBound": 40041
+  }
+}

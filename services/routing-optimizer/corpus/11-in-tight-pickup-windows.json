@@ -1,0 +1,21 @@
+{
+  "id": "11-in-tight-pickup-windows",
+  "description": "IN, 40 passengers, 10-minute pickup windows",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 111,
+    "direction": "IN",
+    "passengers": 40,
+    "fleet": {
+      "4": 4,
+      "6": 4,
+      "12": 2
+    },
+    "pickupWindowS": 600,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "maxUnassigned": 40,
+    "objectiveBound": 503672
+  }
+}

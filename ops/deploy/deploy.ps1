@@ -11,7 +11,7 @@ param(
   [string]$Tag,
   [switch]$Rollback,
   [string]$Root = (Resolve-Path "$PSScriptRoot\..\..").Path,
-  [string]$HealthUrl = 'http://localhost:4000/api/health',
+  [string]$HealthUrl = 'http://127.0.0.1:4000/api/health',
   [string]$BackupCommand = '',              # e.g. 'wsl -d Ubuntu -u root -e bash /mnt/d/.../ops/backup/veetrax-backup.sh /etc/veetrax/backup.conf' or the server's nightly-backup.ps1 -Mode full
   [switch]$SkipBackup,
   [string[]]$Processes = @('api', 'gateway', 'processor', 'notifier', 'summarizer', 'web')

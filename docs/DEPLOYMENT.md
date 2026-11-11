@@ -46,6 +46,7 @@ flowchart LR
 | `GEOCODER` | `none` or a self-hosted Photon/Nominatim (never public Nominatim in production) |
 | `SUPER_ADMIN_PASSWORD` | only when running the seed on an empty database (≥ 12 characters) |
 | `WEBHOOK_ALLOW_PRIVATE`, `RELAY_ALLOW_PRIVATE` | unset (`true` re-opens private-network targets) |
+| `API_HOST` | unset: the API then listens on 127.0.0.1 (production), reached only through the local proxy / tunnel. Set a private address only for a proxy on another host; `0.0.0.0` restores listening on every interface |
 
 ## 4. First-time setup (once per server)
 ```powershell

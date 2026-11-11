@@ -48,6 +48,10 @@ services:
   api:
     <<: *app
     command: ["node", "--max-old-space-size=512", "dist/main.js"]
+    # Caddy is another container: listen on every interface of the compose network (the API binds 127.0.0.1 by
+    # default when NODE_ENV=production, see API_HOST in apps/api/.env.example). Only "expose", never "ports".
+    environment:
+      API_HOST: 0.0.0.0
     expose: ["4100"]
 
   gateway:

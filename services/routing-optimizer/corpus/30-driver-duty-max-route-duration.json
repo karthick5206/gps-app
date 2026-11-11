@@ -1,0 +1,26 @@
+{
+  "id": "30-driver-duty-max-route-duration",
+  "description": "IN, 50-minute route-duration cap per vehicle",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 130,
+    "direction": "IN",
+    "passengers": 40,
+    "radiusKm": 10,
+    "fleet": {
+      "4": 6,
+      "6": 6,
+      "12": 2
+    },
+    "maxDurationS": 3000,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "maxUnassigned": 40,
+    "allowedCodes": [
+      "MAX_ROUTE_DURATION",
+      "NOT_SCHEDULED"
+    ],
+    "objectiveBound": 243398
+  }
+}

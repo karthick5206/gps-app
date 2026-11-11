@@ -1,0 +1,26 @@
+{
+  "id": "13-infeasible-capacity",
+  "description": "OUT, 30 passengers, 12 seats: capacity exhausted",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 113,
+    "direction": "OUT",
+    "passengers": 30,
+    "groupShare": 0,
+    "fleet": {
+      "6": 2
+    },
+    "timeLimitS": 5
+  },
+  "expect": {
+    "minUnassigned": 18,
+    "maxUnassigned": 18,
+    "requireCodes": [
+      "CAPACITY_EXHAUSTED"
+    ],
+    "allowedCodes": [
+      "CAPACITY_EXHAUSTED"
+    ],
+    "objectiveBound": 189082668
+  }
+}
