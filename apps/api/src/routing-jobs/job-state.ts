@@ -34,6 +34,8 @@ export interface JobErrorBody {
   retry?: number;
   /** Attempt the error happened in. */
   attempt?: number;
+  /** T3-D2: busy refusals in a row (OPTIMIZER_BUSY / MATRIX_BUSY); they do not use attempts. */
+  busy?: number;
 }
 
 export function logicalState(status: RoutingJobStatus, phase: string | null | undefined): JobLogicalState {
@@ -118,8 +120,22 @@ export function backoffMs(attempt: number): number {
   return Math.min(5 * 60_000, 5_000 * 2 ** Math.max(0, attempt - 1));
 }
 
+/**
+ * T3-D2: "busy" answers (the optimiser's slots are all taken: HTTP 429; the matrix builder's queue is full) are not a
+ * failure of the job. They do not use one of its attempts, wait longer than the 5 s / 10 s transient back-off (a
+ * guided solve holds the optimiser slot for its whole time limit, 10–60 s), are jittered so waiting workers do not
+ * retry in lockstep, and give up only when the job's own budget (createdAt + timeoutS) would be overrun.
+ */
+export const BUSY_CODES: ReadonlySet<JobErrorCode> = new Set<JobErrorCode>(['OPTIMIZER_BUSY', 'MATRIX_BUSY']);
+
+/** Busy back-off: 10 s, 20 s, 40 s, then 60 s, each ±25 % (rand in [0, 1)). */
+export function busyBackoffMs(n: number, rand: () => number = Math.random): number {
+  const base = Math.min(60_000, 10_000 * 2 ** Math.max(0, n - 1));
+  return Math.round(base * (0.75 + 0.5 * Math.min(1, Math.max(0, rand()))));
+}
+
 export type FailureDecision =
-  | { to: 'QUEUED'; notBeforeMs: number; error: JobErrorBody }
+  | { to: 'QUEUED'; notBeforeMs: number; error: JobErrorBody; refundAttempt?: boolean }
   | { to: 'FAILED'; error: JobErrorBody }
   | { to: 'CANCELLED' };
 
@@ -129,10 +145,22 @@ export type FailureDecision =
  */
 export function decideFailure(
   e: { code: JobErrorCode; message: string },
-  job: { attempts: number; maxAttempts: number; cancelRequested: boolean },
+  job: { attempts: number; maxAttempts: number; cancelRequested: boolean; busy?: number; createdAtMs?: number; timeoutS?: number },
   now: number,
+  rand: () => number = Math.random,
 ): FailureDecision {
   if (job.cancelRequested || e.code === 'CANCELLED') return { to: 'CANCELLED' };
+  if (BUSY_CODES.has(e.code)) {
+    const busy = (job.busy ?? 0) + 1;
+    const wait = busyBackoffMs(busy, rand);
+    const deadline = job.createdAtMs !== undefined && job.timeoutS ? job.createdAtMs + job.timeoutS * 1000 : Number.POSITIVE_INFINITY;
+    if (now + wait > deadline) {
+      const waited = Math.round((now - (job.createdAtMs ?? now)) / 1000);
+      const what = e.code === 'MATRIX_BUSY' ? 'The road-distance builder' : 'The optimiser';
+      return { to: 'FAILED', error: { code: e.code, message: `${what} stayed busy for ${waited} s (${busy} busy answers); gave up within the job's ${job.timeoutS} s budget. Try again later.`, attempt: job.attempts, busy } };
+    }
+    return { to: 'QUEUED', notBeforeMs: now + wait, refundAttempt: true, error: { code: e.code, message: e.message, retry: Math.ceil(wait / 1000), attempt: Math.max(0, job.attempts - 1), busy } };
+  }
   if (TRANSIENT_CODES.has(e.code) && job.attempts < job.maxAttempts) {
     const wait = backoffMs(job.attempts);
     return { to: 'QUEUED', notBeforeMs: now + wait, error: { code: e.code, message: e.message, retry: Math.ceil(wait / 1000), attempt: job.attempts } };

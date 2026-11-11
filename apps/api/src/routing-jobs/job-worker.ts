@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { RoutingJobPhase } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { decideFailure, decideLeaseExpiry, JobErrorCode, PROGRESS } from './job-state';
+import { BUSY_CODES, decideFailure, decideLeaseExpiry, JobErrorCode, PROGRESS } from './job-state';
 import type { JobQueue } from './job-queue';
 import type { JobRecord, RoutingJobStore, StoreTx } from './job-store';
 import { scrubCoordinates } from '../routing/engine-text';
@@ -274,7 +274,8 @@ export class RoutingJobWorker {
           { code: 'INTERNAL_ERROR' as const, message: 'Internal error while optimising; see the worker log' };
     if (!(e instanceof JobError)) this.logger.error(`job ${job.id}: ${safeErrorLog(e)}`);
     const cancelRequested = err.code === 'CANCELLED' || (await this.store.cancelRequested(job.id).catch(() => false));
-    const d = decideFailure(err, { attempts: job.attempts, maxAttempts: job.maxAttempts, cancelRequested }, this.clock());
+    const busy = job.error && BUSY_CODES.has(job.error.code) ? (job.error.busy ?? 0) : 0;
+    const d = decideFailure(err, { attempts: job.attempts, maxAttempts: job.maxAttempts, cancelRequested, busy, createdAtMs: job.createdAt.getTime(), timeoutS: job.timeoutS }, this.clock());
     const ok = await this.store.settle(job.id, lease, d, new Date(this.clock()));
     if (!ok) {
       this.counters.leaseLost++;
@@ -283,7 +284,7 @@ export class RoutingJobWorker {
     this.lastError = d.to === 'CANCELLED' ? this.lastError : { code: err.code, at: new Date(this.clock()).toISOString() };
     if (d.to === 'QUEUED') {
       this.counters.retried++;
-      this.logger.warn(`job ${job.id}: ${err.code}; retry ${job.attempts + 1}/${job.maxAttempts} in ${d.error.retry} s`);
+      this.logger.warn(d.refundAttempt ? `job ${job.id}: ${err.code} (busy ${d.error.busy}); retried in ${d.error.retry} s without using an attempt` : `job ${job.id}: ${err.code}; retry ${job.attempts + 1}/${job.maxAttempts} in ${d.error.retry} s`);
       const t = setTimeout(() => void this.queue.publish(job.id).catch(() => undefined), Math.max(0, d.notBeforeMs - this.clock()) + 50);
       t.unref();
       this.timers.add(t);

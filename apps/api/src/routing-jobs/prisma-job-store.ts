@@ -132,7 +132,7 @@ export class PrismaJobStore implements RoutingJobStore {
   }
 
   private data(d: FailureDecision, now: Date): Prisma.RoutingJobUpdateManyMutationInput {
-    if (d.to === 'QUEUED') return { status: 'QUEUED', phase: null, lockedBy: null, lockedUntil: null, notBefore: d.notBeforeMs ? new Date(d.notBeforeMs) : null, error: d.error as unknown as Prisma.InputJsonValue };
+    if (d.to === 'QUEUED') return { status: 'QUEUED', phase: null, lockedBy: null, lockedUntil: null, notBefore: d.notBeforeMs ? new Date(d.notBeforeMs) : null, error: d.error as unknown as Prisma.InputJsonValue, ...(d.refundAttempt ? { attempts: { decrement: 1 } } : {}) };
     if (d.to === 'FAILED') return { status: 'FAILED', phase: null, lockedUntil: null, finishedAt: now, error: d.error as unknown as Prisma.InputJsonValue };
     return { status: 'CANCELLED', phase: null, lockedUntil: null, finishedAt: now };
   }
