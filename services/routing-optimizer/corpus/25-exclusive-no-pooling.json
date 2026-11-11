@@ -1,0 +1,20 @@
+{
+  "id": "25-exclusive-no-pooling",
+  "description": "OUT, 4 passengers on exclusive (individual) journeys",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 125,
+    "direction": "OUT",
+    "passengers": 24,
+    "groupShare": 0,
+    "fleet": {
+      "4": 6,
+      "12": 2
+    },
+    "exclusive": 4,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 304456
+  }
+}

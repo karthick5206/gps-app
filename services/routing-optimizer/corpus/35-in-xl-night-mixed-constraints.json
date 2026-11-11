@@ -1,0 +1,30 @@
+{
+  "id": "35-in-xl-night-mixed-constraints",
+  "description": "IN, 180 passengers night shift: escort rule, wheelchair, narrow lanes, pinned, open starts",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 135,
+    "direction": "IN",
+    "passengers": 180,
+    "depots": 3,
+    "shiftS": 21600,
+    "fleet": {
+      "4": 5,
+      "6": 6,
+      "12": 7,
+      "26": 4,
+      "40": 3
+    },
+    "flaggedShare": 0.2,
+    "escortVehicles": 6,
+    "wheelchair": 3,
+    "wheelchairVehicles": 3,
+    "narrowShare": 0.15,
+    "pinned": 5,
+    "openStartShare": 0.3,
+    "timeLimitS": 30
+  },
+  "expect": {
+    "objectiveBound": 1059118
+  }
+}

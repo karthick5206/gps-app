@@ -1,0 +1,27 @@
+{
+  "id": "14-infeasible-fleet-unavailable",
+  "description": "IN, every vehicle available only after the shift: nothing routable",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 114,
+    "direction": "IN",
+    "passengers": 10,
+    "fleet": {
+      "6": 3
+    },
+    "lateVehicles": 3,
+    "timeLimitS": 5
+  },
+  "expect": {
+    "minUnassigned": 1,
+    "maxUnassigned": 10,
+    "requireCodes": [
+      "NO_COMPATIBLE_VEHICLE"
+    ],
+    "allowedCodes": [
+      "NO_COMPATIBLE_VEHICLE"
+    ],
+    "minUnusableVehicles": 3,
+    "objectiveBound": 0
+  }
+}
