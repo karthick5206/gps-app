@@ -18,6 +18,7 @@ import { FuelEventRow, IoSessionRow, PositionRow, RawPacketRow, UnknownDeviceRow
 import { IoAlertInput, RuleInput } from './rules/evaluate';
 import { emptyIoKindState, ioReading, IoState, parseIoState, stepIo } from '../io-sensors/io-logic';
 import { RulesBatch, RulesEngine } from './rules/rules-engine';
+import { PlannedTripBatch, PlannedTripTracker } from '../planned-trips/tracker/tracker-engine';
 import { statusChangedEvent, vehicleState, WebhookEventMessage, WebhookEventPublisher } from '../webhooks/events';
 
 const LAST_SEEN_THROTTLE_MS = 10_000;
@@ -119,6 +120,7 @@ export class PositionProcessor {
     private readonly rules: RulesEngine | null = null,
     private readonly drivers: DriverIdentification | null = null,
     private readonly webhooks: WebhookEventPublisher | null = null,
+    private readonly plannedTrips: PlannedTripTracker | null = null,
   ) {}
 
   /** Returns the number of entries processed (acknowledged). */
@@ -190,15 +192,17 @@ export class PositionProcessor {
     batch.ioSessions = io.sessions;
 
     let rules = await this.evaluateRules(ruleInputs);
+    let trips = await this.evaluateTrips(ruleInputs);
     if (changed.size) await this.publish(changed, tracks);
     if (changed.size && this.webhooks) await this.emitStatusChanges(changed, statusBefore);
     try {
-      await writeBatch(this.prisma, batch, rules?.statements(this.prisma));
+      await writeBatch(this.prisma, batch, [...(rules?.statements(this.prisma) ?? []), ...(trips?.statements() ?? [])]);
     } catch (error) {
-      if (!rules) throw error;
-      // Never let alert rows hold positions hostage: retry the batch without them (rule state is not committed).
-      this.logger.error(`Batch write with alerts failed, retrying without: ${(error as Error).message}`);
+      if (!rules && !trips) throw error;
+      // Never let alert rows / trip progress hold positions hostage: retry the batch without them (their state is not committed).
+      this.logger.error(`Batch write with alerts / planned trips failed, retrying without: ${(error as Error).message}`);
       rules = null;
+      trips = null;
       await writeBatch(this.prisma, batch);
     }
     for (const mid of batchMids) this.seen.add(mid);
@@ -206,6 +210,7 @@ export class PositionProcessor {
     await this.saveIo(io);
     await this.redis.xack(RedisKeys.positionsStream, RedisKeys.processorGroup, ...entries.map((e) => e.id));
     if (rules) await this.commitRules(rules);
+    if (trips) await this.commitTrips(trips);
     return entries.length;
   }
 
@@ -547,6 +552,25 @@ export class PositionProcessor {
     } catch (error) {
       this.logger.error(`Rules evaluation failed: ${(error as Error).message}`);
       return null;
+    }
+  }
+
+  /** Planned-trip tracking (same inputs as the rules) never blocks position processing either. */
+  private async evaluateTrips(inputs: RuleInput[]): Promise<PlannedTripBatch | null> {
+    if (!this.plannedTrips || !inputs.length) return null;
+    try {
+      return await this.plannedTrips.evaluate(inputs);
+    } catch (error) {
+      this.logger.error(`Planned-trip tracking failed: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  private async commitTrips(trips: PlannedTripBatch): Promise<void> {
+    try {
+      await trips.commit();
+    } catch (error) {
+      this.logger.error(`Planned-trip commit failed: ${(error as Error).message}`);
     }
   }
 

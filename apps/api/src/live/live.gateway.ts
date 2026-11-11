@@ -1,6 +1,6 @@
 import { Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, WebSocketGateway } from '@nestjs/websockets';
-import { ALL_COMPANIES, AlertDto, AlertsAckedEvent, LiveObject, SystemHealthSummary } from '@veetracer/shared';
+import { ALL_COMPANIES, AlertDto, AlertsAckedEvent, LiveObject, PLANNED_TRIP_SOCKET_EVENT, PlannedTripLiveUpdate, SystemHealthSummary } from '@veetracer/shared';
 import { Namespace, Socket } from 'socket.io';
 import { hasPermission, objectScopeWhere, shareOf } from '../access/access-rules';
 import { asSharedLive } from './shared-live';
@@ -76,9 +76,11 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         .catch((error: Error) => next(new Error(error.message || 'Unauthorized')));
     });
 
-    this.redis.subscribe([RedisKeys.liveUpdates, RedisKeys.cacheInvalidate, RedisKeys.alertsChannel, RedisKeys.alertsState, RedisKeys.healthUpdates], (channel, message) => {
+    const channels = [RedisKeys.liveUpdates, RedisKeys.cacheInvalidate, RedisKeys.alertsChannel, RedisKeys.alertsState, RedisKeys.healthUpdates, RedisKeys.plannedTripUpdates];
+    this.redis.subscribe(channels, (channel, message) => {
       if (channel === RedisKeys.liveUpdates) this.onUpdate(message);
       else if (channel === RedisKeys.alertsChannel) this.onAlert(message);
+      else if (channel === RedisKeys.plannedTripUpdates) this.onPlannedTrip(message);
       else if (channel === RedisKeys.alertsState) this.onAlertState(message);
       else if (channel === RedisKeys.healthUpdates) this.onSystemHealth(message);
       else this.scheduleRefresh();
@@ -178,6 +180,24 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     for (const client of this.byShared.get(event.alert.objectId) ?? []) {
       if (!hasPermission(client.ctx, 'alerts', 'view') || client.locked.has(event.alert.objectId)) continue;
       if (shareOf(client.ctx, event.alert.objectId)?.alertsOn) client.socket.emit('alert', { ...event.alert, ackRequired: false });
+    }
+  }
+
+  /**
+   * Planned-trip progress from the processor's tracker: emitted immediately as `plannedTrip.update` to the company's
+   * sockets holding `plannedTrips:view` with the vehicle in scope (not to vehicles shared from other companies).
+   */
+  private onPlannedTrip(message: string): void {
+    let msg: { companyId: string; objectId: string; update: PlannedTripLiveUpdate };
+    try {
+      msg = JSON.parse(message) as typeof msg;
+    } catch {
+      return;
+    }
+    if (!msg?.update?.id) return;
+    for (const client of this.clientsOf(msg.companyId) ?? []) {
+      if (!hasPermission(client.ctx, 'plannedTrips', 'view') || client.locked.has(msg.objectId)) continue;
+      if (client.allowed === null || client.allowed.has(msg.objectId)) client.socket.emit(PLANNED_TRIP_SOCKET_EVENT, msg.update);
     }
   }
 

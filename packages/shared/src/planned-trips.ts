@@ -241,28 +241,32 @@ export interface PlannedTripListQuery {
   tripStatus?: PlannedTripStatus;
 }
 
-/** Socket push when a trip changes (stage 2). */
+/** @deprecated Stage 1 placeholder; the live push is `PLANNED_TRIP_SOCKET_EVENT` with a `PlannedTripLiveUpdate`. */
 export interface PlannedTripUpdateEvent {
   companyId: string;
   trip: PlannedTripSummaryDto;
 }
 
-/** Socket.io event (company room, `/live` namespace) carrying a `PlannedTripLiveUpdate`. */
+/**
+ * Socket.io event (namespace `/live`) emitted to the company's sockets with `plannedTrips:view` (and the vehicle in
+ * scope) when a tracked trip's status, next stop, ETA, delay or stop actuals change. Payload: `PlannedTripLiveUpdate`.
+ */
 export const PLANNED_TRIP_SOCKET_EVENT = 'plannedTrip.update';
 
-/** Live progress of a planned trip pushed by the processor (`plannedTrip.update`). */
-export interface PlannedTripLiveUpdate {
-  id: string;
-  status: PlannedTripStatus;
-  nextStopSeq: number | null;
-  etaNextStop: string | null;
+/** Stop actuals in a live update (all stops of the trip, sent whenever any stop changed). */
+export interface PlannedTripLiveStop {
+  seq: number;
+  status: PlannedStopStatus;
+  actualArrival: string | null;
+  actualDeparture: string | null;
   delaySec: number | null;
-  actualStart: string | null;
-  actualEnd: string | null;
-  deviationCount: number;
-  maxDeviationM: number | null;
-  /** Stops that changed (by seq). */
-  stops?: { seq: number; status: PlannedStopStatus; actualArrival: string | null; actualDeparture: string | null; delaySec: number | null }[];
+}
+
+/** Payload of `PLANNED_TRIP_SOCKET_EVENT`: the live fields of `PlannedTripSummaryDto` (merge into the row by `id`). */
+export interface PlannedTripLiveUpdate
+  extends Pick<PlannedTripSummaryDto, 'id' | 'status' | 'nextStopSeq' | 'etaNextStop' | 'delaySec' | 'actualStart' | 'actualEnd' | 'deviationCount' | 'maxDeviationM'> {
+  /** Present when stop actuals changed. */
+  stops?: PlannedTripLiveStop[];
 }
 
 /** Reason sent with RedisKeys.rulesInvalidate after a write that changes trips. */

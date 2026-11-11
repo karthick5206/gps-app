@@ -66,6 +66,11 @@ export interface AlertVarsContext {
 const n = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const litres = (v: unknown): string => (n(v) === null ? '' : `${(Math.round(n(v)! * 10) / 10).toString()} L`);
+const metres = (v: unknown): string => {
+  const m = n(v);
+  if (m === null) return '';
+  return m >= 1000 ? `${(Math.round(m / 100) / 10).toString()} km` : `${Math.round(m)} m`;
+};
 
 /** Template variables for an alert (COMMON_PLACEHOLDERS + type-specific ones). */
 export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string, string> {
@@ -107,6 +112,11 @@ export function alertVars(a: AlertVarsInput, c: AlertVarsContext): Record<string
     litres: litres(d.deltaL),
     fuel_before: litres(d.litresBefore),
     fuel_after: litres(d.litresAfter),
+    // Planned trips (route deviation, stop late / skipped, not started, completed).
+    route: str(d.routeName),
+    stop: str(d.stopName),
+    delay: n(d.delayMin) === null ? '' : `${n(d.delayMin)! < 0 ? '-' : ''}${Math.abs(Math.round(n(d.delayMin)!))} min`,
+    distance: metres(d.distanceM),
   };
 }
 
