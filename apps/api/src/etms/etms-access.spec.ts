@@ -33,7 +33,7 @@ describe('ETMS module gating (MenuDef.requires)', () => {
   const etmsRoute = guardFor([['etms_partners', 'view']]);
 
   it('ETMS menus are the module menus', () => {
-    expect(moduleMenuKeys('etms')).toEqual(['etms_dashboard', 'etms_partners', 'etms_passengers', 'etms_schedules', 'etms_bookings', 'etms_dispatch', 'etms_settings', 'etms_self', 'etms_driver']);
+    expect(moduleMenuKeys('etms')).toEqual(['etms_dashboard', 'etms_partners', 'etms_passengers', 'etms_schedules', 'etms_bookings', 'etms_dispatch', 'etms_planning', 'etms_settings', 'etms_self', 'etms_driver']);
   });
 
   it('company without the add-on: plain 404, even for a role that holds the menu', () => {

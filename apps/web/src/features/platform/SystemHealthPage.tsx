@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { PointQualitySettingsDto, DatabaseDto, HealthEvent, HealthIssue, HostDto, MapServiceDto, PortDto, ProcessInstanceDto, ProcessRoleDto, QueueDto, SystemHealthDto, ThroughputPoint, ValkeyDto } from '@veetracer/shared';
+import type { PointQualitySettingsDto, DatabaseDto, HealthEvent, HealthIssue, HostDto, MapServiceDto, PortDto, ProcessInstanceDto, ProcessRoleDto, QueueDto, RoutingHealthDto, SystemHealthDto, ThroughputPoint, ValkeyDto } from '@veetracer/shared';
 import { ActivityIcon, AlertTriangleIcon, CheckCircle2Icon, CircleDotIcon, DatabaseIcon, HardDriveIcon, MailIcon, MapIcon, OctagonAlertIcon, RefreshCwIcon, SendIcon, ServerIcon, ZapIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -531,6 +531,51 @@ function MapServicesCard({ maps }: { maps: MapServiceDto[] }) {
   );
 }
 
+/** ETMS planning (E4): routing worker, optimiser and job queue; "Disabled" while ETMS_ROUTING is off. */
+function RoutingCard({ r }: { r: RoutingHealthDto }) {
+  const { t } = useTranslation();
+  if (!r.enabled || r.status === 'DISABLED') {
+    return (
+      <Section title="Route planning (ETMS)" icon={MapIcon}>
+        <Row label={t('Routing worker')}><span className="text-muted-foreground">{t('Disabled')}</span></Row>
+        <Row label={t('Optimiser')}><span className="text-muted-foreground">{t('Disabled')}</span></Row>
+        <p className="mt-1 text-xs text-muted-foreground">{t('Off unless ETMS_ROUTING=on. Manual dispatch never depends on it.')}</p>
+      </Section>
+    );
+  }
+  return (
+    <Section title="Route planning (ETMS)" icon={MapIcon} status={r.status}>
+      <Row label={t('Routing workers')}>{r.workers ? <StatusBadge status="OK" label={String(r.workers)} /> : <StatusBadge status="CRITICAL" label={t('None running')} />}</Row>
+      <Row label={t('Optimiser')} hint={r.optimizer.probeUrl ?? undefined}>
+        {!r.optimizer.configured ? (
+          <StatusBadge status="WARN" label={t('Not configured')} />
+        ) : r.optimizer.ok ? (
+          <span className="inline-flex items-center gap-2">
+            <StatusBadge status="OK" label="Up" />
+            <span className="tabular-nums text-muted-foreground">{r.optimizer.latencyMs === null ? '—' : `${r.optimizer.latencyMs} ms`}</span>
+          </span>
+        ) : (
+          <Tooltip content={r.optimizer.error ?? ''}>
+            <span>
+              <StatusBadge status="WARN" label={t('Down')} />
+            </span>
+          </Tooltip>
+        )}
+      </Row>
+      {r.jobs && (
+        <>
+          <Row label={t('Jobs queued / running')}>
+            <span className="tabular-nums">{r.jobs.queued} / {r.jobs.running}</span>
+          </Row>
+          <Row label={t('Failed (24 h)')}>
+            <span className="tabular-nums">{r.jobs.failed24h}</span>
+          </Row>
+        </>
+      )}
+    </Section>
+  );
+}
+
 // ── settings ─────────────────────────────────────────────────────────────────
 
 function SettingsPanel() {
@@ -678,6 +723,7 @@ export function SystemHealthPage() {
             <ValkeyCard v={data.valkey} />
             <HostCard h={data.host} />
             <MapServicesCard maps={data.maps ?? []} />
+            {data.routing && <RoutingCard r={data.routing} />}
           </div>
           {can('sa_system_health', 'edit') && <SettingsPanel />}
           {can('sa_system_health', 'edit') && <FeaturesPanel />}

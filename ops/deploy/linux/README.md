@@ -149,6 +149,28 @@ and exits 1. The previous release is the tag (or commit) that was checked out be
 - `release.sh` runs inside a `main` function that bash reads completely first, so the checkout changing the script
   while it runs cannot mix old and new lines.
 
+## ETMS route planning: routing worker + optimiser (E4 WP 4.2, inert by default)
+
+Two optional units, installed and released **only with `ETMS_ROUTING=on`** (installer: environment variable;
+release / gate: `apps/api/.env`). Off (the default) nothing changes: no unit, no sudoers line, no venv, and the gate
+prints `SKIP routing disabled`; System Health shows "Route planning (ETMS): Disabled".
+
+| Unit | Runs | Caps (shared 6 vCPU / 27 GB host) |
+|---|---|---|
+| `veetrax-routing-worker` | `node dist/routing-worker/main.js`: optimisation jobs from `vt:routing:jobs` (`RoutingJob` rows are the truth); exits 0 when the switch is off | `CPUQuota=100%`, `MemoryMax=1G`, `Nice=10` |
+| `veetrax-optimizer` | OR-Tools service, `127.0.0.1:8090`, venv `/opt/veetrax/venvs/routing-optimizer` (Python 3.14, hashed lock) | `CPUQuota=150%`, `MemoryMax=3G`, `Nice=10`, `OPTIMIZER_CONCURRENCY=1`, loopback-only `IPAddressAllow` |
+
+- `ETMS_ROUTING=on DB_PASS=… bash install-ubuntu.sh` installs and enables both units, adds their sudoers lines
+  (restart of the seven units in release order, journal tails) and creates `/etc/veetrax/optimizer.env`
+  (`OPTIMIZER_TOKEN`, root:veetrax 0640). Copy that token into `apps/api/.env` as `OPTIMIZER_TOKEN` with
+  `OPTIMIZER_URL=http://127.0.0.1:8090`. Python 3.14 must be installed separately (doc 17 R-9).
+- `release.sh` with `ETMS_ROUTING=on`: refreshes the venv from `services/routing-optimizer/requirements.lock`
+  (`--require-hashes --no-deps --only-binary=:all:`; failure stops the release before migrations), restarts the two
+  units with the other five, and the gate checks both units plus the optimiser `/health` (token read from
+  `OPTIMIZER_TOKEN_FILE`, default `/etc/veetrax/optimizer.env`, into a private header file).
+- A killed worker's job is re-queued after its lease (60 s) by any worker, at most 3 attempts, then FAILED with
+  `WORKER_LOST`. Manual dispatch never depends on either unit.
+
 ## Web build and the external-maps check (G8 web)
 
 `release.sh` builds the web app into `apps/web/dist.next` (`VEETRAX_WEB_OUTDIR=dist.next npm run build -w

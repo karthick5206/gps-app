@@ -15,6 +15,7 @@ import type { ConsentNoticesController, DriverLoginController, MyTransportConsen
 import type { TransportSettingsController } from '../settings/transport-settings.controller';
 import type { AuthContext } from '../../access/auth-context';
 import { E3_MATRIX, type E3Controllers, type E3Ids, type E3Resource, type E3World } from './isolation-matrix-e3';
+import { E4_MATRIX, type E4Controllers, type E4Ids, type E4Resource, type E4World } from './isolation-matrix-e4';
 import { DRIVER_MATRIX_ROLES, E5_MATRIX, type E5Controllers, type E5Resource, type E5World } from './isolation-matrix-e5';
 import type { MemoryStore } from './memory-store';
 
@@ -56,7 +57,7 @@ export type Expected = 200 | 403 | 404;
 export type RoleTable = Record<BaseRole, Expected> & Partial<Record<DriverRole, Expected>>;
 
 /** What `Target.id` points at: an agreement (E1a), an E2 row, or an E3 row (isolation-matrix-e3.ts). */
-export type Resource = 'agreement' | 'passenger' | 'vehicle' | 'driver' | E3Resource | E5Resource;
+export type Resource = 'agreement' | 'passenger' | 'vehicle' | 'driver' | E3Resource | E4Resource | E5Resource;
 
 export interface Controllers {
   agreements: AgreementsController;
@@ -69,6 +70,8 @@ export interface Controllers {
   driverLogin: DriverLoginController;
   /** E3 controllers (schedules, bookings, dispatch, trips, the passenger's own trips). */
   e3: E3Controllers;
+  /** E4 controllers (route plans). */
+  e4: E4Controllers;
   /** E5 controllers (driver API, passenger notifications). */
   e5: E5Controllers;
 }
@@ -84,6 +87,8 @@ export interface Target {
   ids?: { partyPassenger: string; otherPassenger: string; outsideSitePassenger: string };
   /** E3 world: the ids of this ownership and both companies' rows. */
   e3?: { ids: E3Ids; world: E3World };
+  /** E4 world (route plans). */
+  e4?: { ids: E4Ids; world: E4World };
   /** E5 world. */
   e5?: { ids: E5World['party']; world: E5World };
 }
@@ -377,6 +382,19 @@ function E3_ENTRIES(): MatrixEntry[] {
   }));
 }
 
+/** E4 entries (declared in isolation-matrix-e4.ts) in the common MatrixEntry shape. */
+function E4_ENTRIES(): MatrixEntry[] {
+  return E4_MATRIX.map((e) => ({
+    route: e.route,
+    resource: e.resource,
+    state: 'ACTIVE',
+    invoke: (c, ctx, t) => e.invoke(c.e4, ctx, t.e4!.ids, t.e4!.world),
+    expect: e.expect,
+    ...(e.prepare ? { prepare: (store: MemoryStore, t: Target) => e.prepare!(store, t.e4!.ids, t.e4!.world) } : {}),
+    ...(e.verify ? { verify: (result: unknown, role: MatrixRole, own: Ownership, t: Target) => e.verify!(result, role, own, t.e4!.ids, t.e4!.world) } : {}),
+  }));
+}
+
 /** E5 entries (declared in isolation-matrix-e5.ts) in the common MatrixEntry shape. */
 function E5_ENTRIES(): MatrixEntry[] {
   return E5_MATRIX.map((e) => ({
@@ -402,4 +420,4 @@ function withDriverDefaults(e: MatrixEntry): MatrixEntry {
 }
 
 /** Every ETMS route: E1a (agreements, directory, settings), E2 (people), E3 (schedules, bookings, dispatch, trips, self view), E5 (driver API, notifications). */
-export const ISOLATION_MATRIX: MatrixEntry[] = [...E1A_MATRIX, ...E2_MATRIX(), ...E3_ENTRIES(), ...E5_ENTRIES()].map(withDriverDefaults);
+export const ISOLATION_MATRIX: MatrixEntry[] = [...E1A_MATRIX, ...E2_MATRIX(), ...E3_ENTRIES(), ...E4_ENTRIES(), ...E5_ENTRIES()].map(withDriverDefaults);
