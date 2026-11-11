@@ -64,6 +64,8 @@ const RELATIONS: Record<string, Record<string, Rel>> = {
   transportTrip: { plannedTrip: { model: 'plannedTrip', fk: 'plannedTripId' }, shift: { model: 'transportShift', fk: 'shiftId' }, passengers: { model: 'transportTripPassenger', many: { by: 'tripId' } } },
   transportTripPassenger: { booking: { model: 'transportBooking', fk: 'bookingId' }, trip: { model: 'transportTrip', fk: 'tripId' } },
   plannedTrip: { stops: { model: 'plannedTripStop', many: { by: 'tripId' } }, events: { model: 'plannedTripEvent', many: { by: 'tripId' } } },
+  // E4
+  routePlan: { assignments: { model: 'routeAssignment', many: { by: 'planId' } }, stops: { model: 'routePlanStop', many: { by: 'planId' } }, transportTrips: { model: 'transportTrip', many: { by: 'routePlanId' } } },
   // E5
   transportDriverDuty: { object: { model: 'trackedObject', fk: 'objectId' } },
 };
@@ -80,12 +82,14 @@ const DEFAULTS: Record<string, () => Obj> = {
   transportSchedule: () => ({ isActive: true, version: 1, stopPoiId: null, validTo: null }),
   transportScheduleException: () => ({ override: null, reason: null }),
   transportBooking: () => ({ status: 'REQUESTED', version: 1, providerCompanyId: null, agreementId: null, scheduleId: null, shiftId: null, statusReason: null, cutoffAt: null, idempotencyKey: null, idempotencyHash: null, note: null, passengerCount: 1, pickupPoiId: null, dropPoiId: null, pickupLabel: null, dropLabel: null }),
-  transportTrip: () => ({ occupiedSeats: 0, version: 1, publishedAt: null, acknowledgedAt: null, cancelledAt: null, cancelReason: null, interruptedAt: null, shiftId: null, sitePoiId: null, agreementId: null }),
+  transportTrip: () => ({ routePlanId: null, routeAssignmentId: null, occupiedSeats: 0, version: 1, publishedAt: null, acknowledgedAt: null, cancelledAt: null, cancelReason: null, interruptedAt: null, shiftId: null, sitePoiId: null, agreementId: null }),
   transportTripPassenger: () => ({ status: 'PENDING', seats: 1, boardedAt: null, droppedAt: null, noShowAt: null, noShowReason: null, cancelReason: null, outcomeSource: null, outcomeAt: null }),
   transportTripEvent: () => ({ outcome: 'ACCEPTED', receivedAt: new Date(), data: {} }),
   transportChangeSet: () => ({ idempotencyKey: null, requestHash: null, draft: null, result: null, publishedAt: null }),
   plannedTrip: () => ({ status: 'SCHEDULED', origin: 'ROUTE', actualStart: null, actualEnd: null, closedBy: null, cancelReason: null, notes: null, nextStopSeq: 0, etaNextStop: null, delaySec: null, deviationCount: 0, maxDeviationM: null, distanceKm: null, driverId: null, scheduleId: null, path: null }),
   plannedTripStop: () => ({ status: 'PENDING', actualArrival: null, actualDeparture: null, delaySec: null }),
+  // E4
+  routePlan: () => ({ status: 'DRAFT', profile: 'car', options: {}, version: 1, publishedAt: null, planStartAt: null, graphVersion: null, depot: null, direction: null, shiftId: null, sitePoiId: null, branchId: null, createdById: null }),
   // E5
   transportDriverDuty: () => ({ endedAt: null, objectId: null, source: 'DRIVER_APP', endClientEventId: null, startedByUserId: null }),
   transportNotification: () => ({ pushQueued: false, readAt: null, tripId: null }),

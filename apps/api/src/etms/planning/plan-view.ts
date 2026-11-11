@@ -86,6 +86,17 @@ export function hiddenReason(owner: string | null, view: Pick<PlanPointView, 'co
   return view.consents.has(owner) ? null : 'CONSENT_REQUIRED';
 }
 
+/**
+ * A stop that belongs to a passenger outside the caller's branches (its personal point, or a site stop of their
+ * booking): anonymous for that caller (no booking / profile id, neutral ref) and never editable by them (404).
+ */
+export function outOfScope(s: Pick<StopRow, 'profileId' | 'poiId' | 'bookingId'>, view: Pick<PlanPointView, 'bookings' | 'ownerBranch' | 'inBranch'>): boolean {
+  const owner = planStopOwner(s, view.bookings);
+  if (owner && !view.inBranch(view.ownerBranch.has(owner) ? view.ownerBranch.get(owner) : undefined)) return true;
+  const b = s.bookingId ? view.bookings.get(s.bookingId) : undefined;
+  return !!b && !view.inBranch(b.branchId);
+}
+
 /** GeoJSON line of an assignment (stored as [[lng, lat], …] or as a LineString object). */
 function lineOf(json: unknown): [number, number][] | null {
   const coords = Array.isArray(json) ? json : json && typeof json === 'object' ? (json as { coordinates?: unknown }).coordinates : null;
@@ -122,7 +133,7 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView): { dto: RoutePlanD
       const kind = s.stopKind === 'PICKUP' || s.stopKind === 'DROP' ? s.stopKind : null;
       const ownLabel = b && kind ? (kind === 'PICKUP' ? b.pickupLabel : b.dropLabel) : null;
       const pt = (v: number | null) => (v === null ? null : hidden ? null : owner ? round(v, decimals) : v);
-      const anonymous = hidden === 'OUT_OF_SCOPE';
+      const anonymous = hidden === 'OUT_OF_SCOPE' || outOfScope(s, view);
       return {
         id: s.id,
         ref: anonymous ? `stop-${s.id.slice(0, 8)}` : s.ref,

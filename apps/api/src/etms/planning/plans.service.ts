@@ -34,7 +34,7 @@ import { preciseFor } from '../dispatch/e3-mapping';
 import type { Replayable } from '../dispatch/bookings.service';
 import { activeRoutingConsents } from '../people/people.service';
 import { buildPlanChangeSet, pairProblem, planMetrics, retime, routeStops, routeViolations, type PublishBooking, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
-import { PLAN_INCLUDE, hiddenReason, personalOwners, planSnapshot, planStopOwner, seatsLookup, toPlanDetail, toPlanSummary, toRuleStop, type PlanPointView, type PlanRow, type ViewBooking } from './plan-view';
+import { PLAN_INCLUDE, outOfScope, personalOwners, planSnapshot, seatsLookup, toPlanDetail, toPlanSummary, toRuleStop, type PlanPointView, type PlanRow, type ViewBooking } from './plan-view';
 import type { AssignmentUpdateDto, DiscardDto, MovePassengerDto, PlanListQuery, PublishDto, ResequenceDto, StopUpdateDto } from './plans.dto';
 
 export const PLAN_ENTITY = 'RoutePlan';
@@ -114,9 +114,9 @@ export class RoutePlansService {
     let foreign = new Set<string>();
     if (ctx.dataScope !== 'COMPANY') {
       const view = await this.view(ctx, plan);
-      foreign = new Set(plan.stops.filter((s) => hiddenReason(planStopOwner(s, view.bookings), view) === 'OUT_OF_SCOPE').map((s) => s.id));
+      foreign = new Set(plan.stops.filter((s) => outOfScope(s, view)).map((s) => s.id));
     }
-    return rows.map((r) => {
+    return [...rows].sort((a, b) => b.version - a.version).map((r) => {
       const snap = r.snapshot as unknown as RoutePlanVersionSnapshot;
       const stops = (snap?.stops ?? []).map((s) => (foreign.has(s.id) ? { ...s, ref: `stop-${s.id.slice(0, 8)}` } : s));
       return { version: r.version, changeType: r.changeType, changedById: r.changedById, createdAt: r.createdAt.toISOString(), snapshot: { ...snap, stops } };
@@ -147,7 +147,7 @@ export class RoutePlansService {
     return this.edit(ctx, id, dto.expectedVersion, async (plan, view) => {
       const ends = plan.stops.filter((s) => s.bookingId === dto.bookingId);
       // Another branch's passenger is a 404 for a branch dispatcher, like any id out of scope.
-      if (!ends.length || ends.some((s) => hiddenReason(planStopOwner(s, view.bookings), view) === 'OUT_OF_SCOPE')) throw notFound('Booking not found on this plan');
+      if (!ends.length || ends.some((s) => outOfScope(s, view))) throw notFound('Booking not found on this plan');
       const locks = routePlanLocks(plan.options);
       if (ends.some((s) => locks.pinnedStopIds.has(s.id))) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', 'A stop of this passenger is pinned; unpin it first');
       const from = ends[0].assignmentId;
@@ -216,7 +216,7 @@ export class RoutePlansService {
           placements.delete(sid);
           continue;
         }
-        if (hiddenReason(planStopOwner(s, view.bookings), view) === 'OUT_OF_SCOPE') throw notFound('Stop not found');
+        if (outOfScope(s, view)) throw notFound('Stop not found');
         if (locks.pinnedStopIds.has(sid)) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', `Stop ${s.ref} is pinned; unpin it first`);
         for (const r of [s.assignmentId, to.assignmentId]) {
           if (!r) continue;
@@ -275,7 +275,7 @@ export class RoutePlansService {
   async updateStop(ctx: AuthContext, id: string, stopId: string, dto: StopUpdateDto): Promise<RoutePlanEditResult> {
     return this.edit(ctx, id, dto.expectedVersion, async (plan, view) => {
       const s = plan.stops.find((x) => x.id === stopId);
-      if (!s || hiddenReason(planStopOwner(s, view.bookings), view) === 'OUT_OF_SCOPE') throw notFound('Stop not found');
+      if (!s || outOfScope(s, view)) throw notFound('Stop not found');
       const locks = routePlanLocks(plan.options);
       const pinned = new Set(locks.pinnedStopIds);
       if (dto.pinned) pinned.add(s.id);
