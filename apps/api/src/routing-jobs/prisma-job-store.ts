@@ -1,7 +1,7 @@
 import { Prisma, PrismaClient, RoutingJob } from '@prisma/client';
 import type { RoutingJobPhase } from '@veetracer/shared';
 import { FailureDecision, JobErrorBody } from './job-state';
-import { CancelOutcome, DuplicateIdempotencyKey, JobListFilter, JobRecord, NewJob, RoutingJobStore, StoreTx } from './job-store';
+import { ActiveLimitExceeded, CancelOutcome, DuplicateIdempotencyKey, JobListFilter, JobRecord, NewJob, RoutingJobStore, StoreTx } from './job-store';
 
 type Db = Pick<PrismaClient, 'routingJob' | '$transaction'>;
 
@@ -21,6 +21,16 @@ export class PrismaJobStore implements RoutingJobStore {
   async create(job: NewJob, onCreate?: (tx: StoreTx, job: JobRecord) => Promise<{ input?: unknown } | void>): Promise<JobRecord> {
     try {
       return await this.db.$transaction(async (tx) => {
+        if (job.maxActive !== undefined) {
+          // Informational finding (quota TOCTOU): one inserter per company at a time (transaction-scoped advisory lock,
+          // released at commit) and the count taken under it, so concurrent requests cannot all pass the limit. A
+          // same-key duplicate that waited here is still answered as a replay, not as a quota error.
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`routing-active:${job.companyId}`}, 0))::text`;
+          if (job.idempotencyKey && (await tx.routingJob.count({ where: { companyId: job.companyId, idempotencyKey: job.idempotencyKey } }))) throw new DuplicateIdempotencyKey();
+          const now = new Date();
+          const active = await tx.routingJob.count({ where: { companyId: job.companyId, OR: [{ status: 'QUEUED' }, { status: 'RUNNING', lockedUntil: { gt: now } }] } });
+          if (active >= job.maxActive) throw new ActiveLimitExceeded();
+        }
         let row = await tx.routingJob.create({
           data: {
             companyId: job.companyId,

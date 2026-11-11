@@ -48,10 +48,18 @@ export interface NewJob {
   requestHash: string | null;
   timeoutS: number;
   maxAttempts: number;
+  /**
+   * Per-company limit of active jobs (QUEUED + RUNNING with a live lease), checked atomically with the insert (under a
+   * per-company lock in the Prisma store), so concurrent requests cannot all pass a separate count. Absent = no limit.
+   */
+  maxActive?: number;
 }
 
 /** Thrown by `create` when (companyId, idempotencyKey) already exists (a concurrent duplicate request). */
 export class DuplicateIdempotencyKey extends Error {}
+
+/** Thrown by `create` when the company already has `maxActive` active jobs. */
+export class ActiveLimitExceeded extends Error {}
 
 /** Opaque transaction handle handed to `succeed(…, within)` (a Prisma TransactionClient in production). */
 export type StoreTx = unknown;
@@ -129,10 +137,12 @@ export class MemoryJobStore implements RoutingJobStore {
     r.phase = phase;
   }
 
-  async create(job: NewJob, onCreate?: (tx: StoreTx, job: JobRecord) => Promise<{ input?: unknown } | void>): Promise<JobRecord> {
+  async create(newJob: NewJob, onCreate?: (tx: StoreTx, job: JobRecord) => Promise<{ input?: unknown } | void>): Promise<JobRecord> {
+    const { maxActive, ...job } = newJob;
     if (job.idempotencyKey && [...this.rows.values()].some((r) => r.companyId === job.companyId && r.idempotencyKey === job.idempotencyKey)) {
       throw new DuplicateIdempotencyKey();
     }
+    if (maxActive !== undefined && this.active(job.companyId, new Date()) >= maxActive) throw new ActiveLimitExceeded();
     const row: JobRecord = {
       id: nextId(),
       ...job,
@@ -151,11 +161,18 @@ export class MemoryJobStore implements RoutingJobStore {
       startedAt: null,
       finishedAt: null,
     };
-    if (onCreate) {
-      const patch = await onCreate(undefined, { ...row });
-      if (patch && patch.input !== undefined) row.input = patch.input;
-    }
+    // Inserted before onCreate (which awaits), so the key / limit checks above stay atomic for concurrent creates; an
+    // onCreate failure removes it again (the Prisma store rolls the transaction back).
     this.rows.set(row.id, row);
+    if (onCreate) {
+      try {
+        const patch = await onCreate(undefined, { ...row });
+        if (patch && patch.input !== undefined) row.input = patch.input;
+      } catch (e) {
+        this.rows.delete(row.id);
+        throw e;
+      }
+    }
     return { ...row };
   }
 
@@ -285,8 +302,12 @@ export class MemoryJobStore implements RoutingJobStore {
       .map((r) => r.id);
   }
 
-  async activeCount(companyId: string, now: Date) {
+  private active(companyId: string, now: Date): number {
     return [...this.rows.values()].filter((r) => r.companyId === companyId && (r.status === 'QUEUED' || (r.status === 'RUNNING' && r.lockedUntil && r.lockedUntil > now))).length;
+  }
+
+  async activeCount(companyId: string, now: Date) {
+    return this.active(companyId, now);
   }
 
   async createdSince(companyId: string, since: Date) {

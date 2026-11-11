@@ -114,7 +114,7 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     const { w } = makeWorker('db-w1');
     expect(await w.process(job.jobId)).toBe('succeeded');
     const plan = await prisma.routePlan.findUniqueOrThrow({ where: { id: g.plan }, include: { stops: true, assignments: true, versions: true } });
-    expect(plan).toMatchObject({ status: 'DRAFT', version: 2, graphVersion: 'gh-test/2026-11-10' });
+    expect(plan).toMatchObject({ status: 'PLANNED', version: 2, graphVersion: 'gh-test/2026-11-10' });
     const onVan1 = plan.stops.filter((s) => s.assignmentId === g.vans[0]).sort((a, b) => a.sequence! - b.sequence!);
     expect(onVan1.map((s) => s.stopKind)).toEqual(['PICKUP', 'PICKUP', 'PICKUP', 'DROP', 'DROP', 'DROP']);
     expect(plan.assignments.find((a) => a.id === g.vans[0])!.etaModel).toMatchObject({ calibrated: false, liveTraffic: false });
@@ -153,7 +153,7 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     expect(await w2.sweep()).toMatchObject({ requeued: 1 });
     expect(await w2.process(job.jobId)).toBe('succeeded');
     const row = await prisma.routingJob.findUniqueOrThrow({ where: { id: job.jobId } });
-    expect(row).toMatchObject({ status: 'SUCCEEDED', attempts: 2, lockedBy: 'db-rescuer' });
+    expect(row).toMatchObject({ status: 'SUCCEEDED', attempts: 2, lockedBy: expect.stringMatching(/^db-rescuer:[0-9a-f-]{36}$/) });
     expect(await prisma.routePlanVersion.count({ where: { planId: g.plan } })).toBe(1);
   });
 
@@ -205,12 +205,12 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     const plans = new RoutePlansService(prisma as never, audit, { recordPersonalAccess: async (_c: unknown, _v: unknown, ids: string[], _p: unknown, extra: Record<string, unknown>) => void accessLog.push({ ids, extra }) } as never, null);
     const creator = new RoutePlanCreateService(prisma as never, audit, plans);
     const c = { ...ctxFor(g.company), permissions: { etms_dispatch: ['view'] } } as typeof ctxForResult;
-    const dto = { name: 'Login 1 Dec', planDate: '2026-12-01', direction: 'IN' as const, sitePoiId: g.office, objectIds: [van], depot: { lat: 13.06, lng: 80.25 } };
+    const dto = { name: 'Login 1 Dec', planDate: '2026-12-01', direction: 'IN' as const, sitePoiId: g.office, objectIds: [van], depot: { lat: 13.0828, lng: 80.2708 } }; // ~15 m from HQ: stored as HQ's own point
     const r = await creator.create(c, dto, 'create-key-0001');
     expect(r.replay).toBe(false);
     expect(r.value.skippedBookings).toEqual([{ bookingId: g.bookings[2], reason: 'consent_required' }]);
     const plan = await prisma.routePlan.findUniqueOrThrow({ where: { id: r.value.id }, include: { stops: true, assignments: true, versions: true } });
-    expect(plan).toMatchObject({ status: 'DRAFT', version: 1, direction: 'IN', sitePoiId: g.office });
+    expect(plan).toMatchObject({ status: 'DRAFT', version: 1, direction: 'IN', sitePoiId: g.office, depot: { lat: 13.0827, lng: 80.2707 } });
     expect(plan.assignments).toEqual([expect.objectContaining({ objectId: van, capacity: 6 })]);
     expect(plan.stops).toHaveLength(4);
     const pick = plan.stops.find((s) => s.bookingId === g.bookings[1] && s.stopKind === 'PICKUP')!;

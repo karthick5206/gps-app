@@ -5,16 +5,32 @@ import { hostname } from 'node:os';
 import { decideFailure, decideLeaseExpiry, JobErrorCode, PROGRESS } from './job-state';
 import type { JobQueue } from './job-queue';
 import type { JobRecord, RoutingJobStore, StoreTx } from './job-store';
+import { scrubCoordinates } from '../routing/engine-text';
 
-/** A typed job failure: `code` decides retry vs final (job-state.ts TRANSIENT_CODES). Messages never hold coordinates. */
+/**
+ * A typed job failure: `code` decides retry vs final (job-state.ts TRANSIENT_CODES). Messages never hold coordinates:
+ * the message is stored in RoutingJob.error and shown by GET /routing/jobs/:id, so it is scrubbed here as the last
+ * line of defence (E4 security review L4) even though every producer uses fixed text.
+ */
 export class JobError extends Error {
   constructor(
     readonly code: JobErrorCode,
     message: string,
   ) {
-    super(message);
+    super(scrubCoordinates(message));
     this.name = 'JobError';
   }
+}
+
+/**
+ * An unknown error for the journal without its message (E4 security review, informational: a Prisma validation error
+ * prints the query arguments, which may be plan values): the class, a driver code if any, and the stack frames only.
+ */
+export function safeErrorLog(e: unknown): string {
+  if (!(e instanceof Error)) return `non-Error thrown (${typeof e})`;
+  const code = (e as { code?: unknown }).code;
+  const frames = (e.stack ?? '').split('\n').filter((l) => /^\s+at /.test(l)).slice(0, 10);
+  return [`${e.name}${typeof code === 'string' ? ` ${code}` : ''}`, ...frames].join('\n');
 }
 
 /** This worker lost the job (lease expired and taken over): stop without writing anything. */
@@ -135,7 +151,7 @@ export class RoutingJobWorker {
     try {
       await p;
     } catch (e) {
-      this.logger.error(`job run: ${(e as Error).message}`);
+      this.logger.error(`job run: ${safeErrorLog(e)}`);
     } finally {
       this.inflight.delete(p);
     }
@@ -172,7 +188,10 @@ export class RoutingJobWorker {
   /** Executes one job if this worker wins the claim. Safe to call any number of times for the same id. */
   async process(jobId: string): Promise<ProcessOutcome> {
     if (this.stopping) return 'skipped';
-    const job = await this.store.claim(jobId, this.id, new Date(this.clock()), this.opts.leaseMs);
+    // E4 security review L7: a lease token per claim (worker id = host + pid + random, plus a claim UUID), so a stale run
+    // of this same process (its lease expired and another slot re-claimed the job) can neither renew nor write.
+    const lease = `${this.id}:${randomUUID()}`;
+    const job = await this.store.claim(jobId, lease, new Date(this.clock()), this.opts.leaseMs);
     if (!job) return 'skipped';
     this.counters.claimed++;
     if (job.attempts > 1 && job.error?.code === 'WORKER_LOST') this.counters.takenOver++;
@@ -190,7 +209,7 @@ export class RoutingJobWorker {
       beating = true;
       void (async () => {
         try {
-          const kept = await this.store.renewLease(job.id, this.id, new Date(this.clock() + this.opts.leaseMs));
+          const kept = await this.store.renewLease(job.id, lease, new Date(this.clock() + this.opts.leaseMs));
           if (!kept) return abort(new LeaseLost('lease lost'));
           if (await this.store.cancelRequested(job.id)) abort(new JobError('CANCELLED', 'Cancelled by the user'));
         } catch {
@@ -208,8 +227,8 @@ export class RoutingJobWorker {
     const ctx: JobContext = {
       job,
       signal: ac.signal,
-      phase: async (phase, progress) => guard(await this.store.progress(job.id, this.id, { phase, progress: Math.min(99, Math.round(progress)) })),
-      progress: async (pct) => guard(await this.store.progress(job.id, this.id, { progress: Math.max(PROGRESS.claimed, Math.min(99, Math.round(pct))) })),
+      phase: async (phase, progress) => guard(await this.store.progress(job.id, lease, { phase, progress: Math.min(99, Math.round(progress)) })),
+      progress: async (pct) => guard(await this.store.progress(job.id, lease, { progress: Math.max(PROGRESS.claimed, Math.min(99, Math.round(pct))) })),
       checkpoint: async () => {
         if (ac.signal.aborted) throw ac.signal.reason as Error;
         if (await this.store.cancelRequested(job.id)) {
@@ -223,7 +242,7 @@ export class RoutingJobWorker {
       const out = await Promise.race([runner(ctx), aborted]);
       if (this.killed) return 'lease-lost';
       await ctx.checkpoint(); // a cancel that arrived during the last step wins over the result
-      const done = await this.store.succeed(job.id, this.id, out.result, out.graphVersion, new Date(this.clock()), out.within);
+      const done = await this.store.succeed(job.id, lease, out.result, out.graphVersion, new Date(this.clock()), out.within);
       if (!done) {
         this.counters.leaseLost++;
         this.logger.warn(`job ${job.id}: lease lost before the result was stored; the run that took over owns it`);
@@ -234,7 +253,7 @@ export class RoutingJobWorker {
       return 'succeeded';
     } catch (e) {
       if (this.killed) return 'lease-lost';
-      return await this.fail(job, e);
+      return await this.fail(job, lease, e);
     } finally {
       clearTimeout(timeout);
       clearInterval(heartbeat);
@@ -242,7 +261,7 @@ export class RoutingJobWorker {
     }
   }
 
-  private async fail(job: JobRecord, e: unknown): Promise<ProcessOutcome> {
+  private async fail(job: JobRecord, lease: string, e: unknown): Promise<ProcessOutcome> {
     if (e instanceof LeaseLost) {
       this.counters.leaseLost++;
       this.logger.warn(`job ${job.id}: lease lost; stopped without writing`);
@@ -253,10 +272,10 @@ export class RoutingJobWorker {
         ? { code: e.code, message: e.message }
         : // Never echo an unknown error's message to the user (it may hold internals); the log keeps the stack.
           { code: 'INTERNAL_ERROR' as const, message: 'Internal error while optimising; see the worker log' };
-    if (!(e instanceof JobError)) this.logger.error(`job ${job.id}: ${(e as Error)?.stack ?? String(e)}`);
+    if (!(e instanceof JobError)) this.logger.error(`job ${job.id}: ${safeErrorLog(e)}`);
     const cancelRequested = err.code === 'CANCELLED' || (await this.store.cancelRequested(job.id).catch(() => false));
     const d = decideFailure(err, { attempts: job.attempts, maxAttempts: job.maxAttempts, cancelRequested }, this.clock());
-    const ok = await this.store.settle(job.id, this.id, d, new Date(this.clock()));
+    const ok = await this.store.settle(job.id, lease, d, new Date(this.clock()));
     if (!ok) {
       this.counters.leaseLost++;
       return 'lease-lost';

@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { purgeDriverEvents, sweepIncoming } from '../driver-events/media-retention';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { etmsRoutingEnabled } from '../etms/transport-feature.guard';
+import { purgeStuckRoutePlans } from './stuck-route-plans';
 
 export const RETENTION_LOCK_KEY = 'vt:retention:lock';
 export const RETENTION_LAST_RUN_KEY = 'vt:retention:last';
@@ -57,6 +59,8 @@ export class RetentionService {
   private readonly instance = randomUUID();
   private readonly enabled = (process.env.RETENTION ?? 'on').toLowerCase() !== 'off';
   private running = false;
+  /** ETMS_ROUTING switch (overridable in tests). */
+  routingOn: () => boolean = () => etmsRoutingEnabled();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -145,6 +149,8 @@ export class RetentionService {
           'routePlans',
           () => this.prisma.$executeRaw`DELETE FROM "RoutePlan" WHERE id IN (SELECT id FROM "RoutePlan" WHERE "companyId" = ${c.id}::uuid AND "planDate" < ${cutoff} AND "status" <> 'OPTIMIZING' LIMIT ${ROUTING_BATCH})`,
         ],
+        // E4 security review L6: OPTIMIZING plans past the cutoff whose job is terminal or missing, or with routing off.
+        ['routePlansStuck', () => purgeStuckRoutePlans(this.prisma, c.id, cutoff, this.routingOn(), ROUTING_BATCH)],
         ['alerts', () => this.prisma.$executeRaw`DELETE FROM "Alert" WHERE id IN (SELECT id FROM "Alert" WHERE "companyId" = ${c.id}::uuid AND "occurredAt" < ${cutoff} LIMIT ${BATCH})`],
       ];
       for (const [key, step] of steps) if (!(await drain(key, step))) complete = false;

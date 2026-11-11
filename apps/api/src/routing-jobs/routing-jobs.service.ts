@@ -13,7 +13,7 @@ import {
 import type { AuthContext } from '../access/auth-context';
 import { idempotencyKey as parseIdempotencyKey, requestHash } from '../etms/dispatch/e3-common';
 import type { JobQueue } from './job-queue';
-import { DuplicateIdempotencyKey, JobRecord, RoutingJobStore, StoreTx } from './job-store';
+import { ActiveLimitExceeded, DuplicateIdempotencyKey, JobRecord, RoutingJobStore, StoreTx } from './job-store';
 import { RoutingHttpError } from './routing-flags';
 import type { SolverWeights } from './optimize-problem';
 
@@ -64,6 +64,9 @@ export interface JobListQuery {
   state?: string;
   limit?: number;
 }
+
+const activeLimit = () =>
+  new RoutingHttpError('QUOTA_EXCEEDED', `At most ${ROUTING_LIMITS.concurrentOptimizePerCompany} optimisations may run at once for a company; wait for one to finish`);
 
 /** Default whole-job budget: solver limit + matrix + slack. */
 export const jobTimeoutS = (timeLimitS: number) => Math.min(900, timeLimitS + 240);
@@ -120,14 +123,13 @@ export class RoutingJobsService {
     const hash = requestHash(body);
 
     const existing = await this.store.findByKey(ctx.companyId, key);
-    if (existing) return { job: this.replayOf(existing, hash), replay: true };
+    if (existing) return { job: await this.replayOf(ctx, existing, hash), replay: true };
 
     if (!(await this.rate.hit(ctx.userId, ROUTING_LIMITS.perUserPerMinute, now.getTime()))) {
       throw new RoutingHttpError('QUOTA_EXCEEDED', `At most ${ROUTING_LIMITS.perUserPerMinute} routing requests per minute; try again shortly`);
     }
-    if ((await this.store.activeCount(ctx.companyId, now)) >= ROUTING_LIMITS.concurrentOptimizePerCompany) {
-      throw new RoutingHttpError('QUOTA_EXCEEDED', `At most ${ROUTING_LIMITS.concurrentOptimizePerCompany} optimisations may run at once for a company; wait for one to finish`);
-    }
+    // Early answer only: the binding check is atomic inside the insert (NewJob.maxActive, under a per-company lock).
+    if ((await this.store.activeCount(ctx.companyId, now)) >= ROUTING_LIMITS.concurrentOptimizePerCompany) throw activeLimit();
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     if ((await this.store.createdSince(ctx.companyId, dayStart)) >= ROUTING_LIMITS.perCompanyPerDay) {
       throw new RoutingHttpError('QUOTA_EXCEEDED', 'The daily optimisation limit of this company is used up');
@@ -146,6 +148,7 @@ export class RoutingJobsService {
           requestHash: hash,
           timeoutS: jobTimeoutS(timeLimitS),
           maxAttempts: DEFAULT_MAX_ATTEMPTS,
+          maxActive: ROUTING_LIMITS.concurrentOptimizePerCompany,
         },
         async (tx) => {
           const { profile } = await this.plans.reserve(tx, ctx, req.planId, req.expectedVersion, weights);
@@ -157,8 +160,9 @@ export class RoutingJobsService {
     } catch (e) {
       if (e instanceof DuplicateIdempotencyKey) {
         const winner = await this.store.findByKey(ctx.companyId, key);
-        if (winner) return { job: this.replayOf(winner, hash), replay: true };
+        if (winner) return { job: await this.replayOf(ctx, winner, hash), replay: true };
       }
+      if (e instanceof ActiveLimitExceeded) throw activeLimit();
       throw e;
     }
     await this.queue.publish(row.id).catch((e) => this.logger.warn(`job ${row.id} not published (${(e as Error).message}); the sweeper re-publishes it`));
@@ -166,10 +170,14 @@ export class RoutingJobsService {
     return { job: toJobDto(row), replay: false };
   }
 
-  private replayOf(row: JobRecord, hash: string): RoutingJobDto {
-    if (row.requestHash && row.requestHash !== hash) {
-      throw new RoutingHttpError('IDEMPOTENCY_KEY_REUSED', 'This Idempotency-Key was already used for a different request');
-    }
+  /**
+   * E4 security review L1 (the E3 L3 rule): a key replays only for the user who used it, with the same body, and only
+   * while the plan is still visible to that user. Anything else is 422 IDEMPOTENCY_KEY_REUSED carrying nothing of the job.
+   */
+  private async replayOf(ctx: AuthContext, row: JobRecord, hash: string): Promise<RoutingJobDto> {
+    const reused = () => new RoutingHttpError('IDEMPOTENCY_KEY_REUSED', 'This Idempotency-Key was already used for a different request');
+    if (row.userId !== ctx.userId || (row.requestHash && row.requestHash !== hash)) throw reused();
+    if (row.planId && !(await this.plans.visible(ctx, row.planId))) throw reused();
     return toJobDto(row);
   }
 

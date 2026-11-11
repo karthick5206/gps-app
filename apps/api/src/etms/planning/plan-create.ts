@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, Injectable, Param, ParseUUIDPipe, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, HttpException, Injectable, Param, ParseUUIDPipe, Post, Res, UseGuards } from '@nestjs/common';
 import { OptimizeOptionsDto } from '../../routing-jobs/routing-jobs.controller';
 import { RoutingJobsService } from '../../routing-jobs/routing-jobs.service';
 import { Prisma } from '@prisma/client';
@@ -12,6 +12,7 @@ import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { dateOnly, idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound, requestHash } from '../dispatch/e3-common';
 import { PERSONAL_STOP_NAME } from '../dispatch/personal-points';
+import { haversineMeters } from '../../tracking/geo';
 import { activeRoutingConsents } from '../people/people.service';
 import { TransportFeatureGuard } from '../transport-feature.guard';
 import { PlanningFeatureGuard } from './planning-feature.guard';
@@ -64,19 +65,17 @@ export class RoutePlanCreateService {
     if (ctx.allCompanies) throw invalid('Select one company to plan its routes');
     const key = idempotencyKey(rawKey);
     const hash = requestHash(dto);
-    const existing = await this.prisma.routePlan.findFirst({ where: { companyId: ctx.companyId, options: { path: ['createKey'], equals: key } }, select: { id: true, options: true } });
-    if (existing) {
-      const o = (existing.options ?? {}) as { createHash?: string };
-      if (o.createHash !== hash) throw idempotencyReused();
-      return { value: { ...(await this.plans.get(ctx, existing.id)), skippedBookings: [] }, replay: true };
-    }
+    const replay = await this.replay(ctx, key, hash);
+    if (replay) return replay;
     // Another company's site is a 404 before anything else (no hint that it exists).
     const site = await this.prisma.poi.findFirst({ where: { id: dto.sitePoiId, companyId: ctx.companyId }, select: { id: true, name: true, lat: true, lng: true } });
     if (!site) throw notFound('Site not found');
     if (ctx.dataScope !== 'COMPANY' && (!dto.branchId || !ctx.branchIds.includes(dto.branchId))) throw invalid('Choose one of your branches for the plan');
     if (dto.shiftId && !(await this.prisma.transportShift.findFirst({ where: { id: dto.shiftId, companyId: ctx.companyId }, select: { id: true } }))) throw notFound('Shift not found');
+    const depot = dto.depot ? await this.depotPlace(ctx, dto.depot) : null;
     const objectIds = [...new Set(dto.objectIds)];
-    const objects = await this.prisma.trackedObject.findMany({ where: { AND: [objectScopeWhere(ctx), { id: { in: objectIds } }] }, select: { id: true, name: true, plateNumber: true } });
+    // E4 security review (informational): inactive vehicles are refused like unknown ones.
+    const objects = await this.prisma.trackedObject.findMany({ where: { AND: [objectScopeWhere(ctx), { id: { in: objectIds }, isActive: true }] }, select: { id: true, name: true, plateNumber: true } });
     if (objects.length !== objectIds.length) throw notFound('Vehicle not found');
     const seats = new Map((await this.prisma.transportVehicleProfile.findMany({ where: { objectId: { in: objectIds } }, select: { objectId: true, seats: true } })).map((v) => [v.objectId, v.seats]));
 
@@ -114,6 +113,8 @@ export class RoutePlanCreateService {
     const rel = (d: Date) => Math.max(0, Math.round((d.getTime() - startMs) / 1000));
 
     const planId = await this.prisma.$transaction(async (tx) => {
+      // L1: (companyId, options->>'createKey') is unique (migration 20261119090000): a concurrent create with the
+      // same key fails here and is answered as a replay below.
       const plan = await tx.routePlan.create({
         data: {
           companyId: ctx.companyId,
@@ -123,7 +124,7 @@ export class RoutePlanCreateService {
           planStartAt: new Date(startMs),
           status: 'DRAFT',
           profile: dto.profile ?? 'car',
-          depot: dto.depot ? { lat: dto.depot.lat, lng: dto.depot.lng } : Prisma.DbNull,
+          depot: depot ? { lat: depot.lat, lng: depot.lng } : Prisma.DbNull,
           options: { createKey: key, createHash: hash },
           direction: dto.direction,
           shiftId: dto.shiftId ?? null,
@@ -188,9 +189,57 @@ export class RoutePlanCreateService {
       await tx.routePlanVersion.create({ data: { planId: plan.id, companyId: ctx.companyId, version: 1, changeType: 'CREATED', snapshot: snapshot as unknown as Prisma.InputJsonValue, changedById: ctx.userId } });
       await this.audit.record(ctx, { action: 'CREATE', entity: PLAN_ENTITY, entityId: plan.id, details: { direction: dto.direction, planDate: dto.planDate, bookings: usable.length, skipped: skipped.length, vehicles: objectIds.length } }, tx);
       return plan.id;
+    }).catch(async (e: unknown) => {
+      if (!isCreateKeyConflict(e)) throw e;
+      const again = await this.replay(ctx, key, hash);
+      if (!again) throw e;
+      return again;
     });
+    if (typeof planId !== 'string') return planId; // lost the race to a concurrent create with the same key: its replay
     return { value: { ...(await this.plans.get(ctx, planId)), skippedBookings: skipped }, replay: false };
   }
+
+  /**
+   * Idempotency-Key replay (E4 security review L1, the E3 L3 rule): only for the user who created the plan with that
+   * key and the same body, and only while the plan is visible to them (`plans.get` is scoped); anything else is 422
+   * IDEMPOTENCY_KEY_REUSED without the plan.
+   */
+  private async replay(ctx: AuthContext, key: string, hash: string): Promise<{ value: CreatedRoutePlanDto; replay: boolean } | null> {
+    const existing = await this.prisma.routePlan.findFirst({ where: { companyId: ctx.companyId, options: { path: ['createKey'], equals: key } }, select: { id: true, options: true, createdById: true } });
+    if (!existing) return null;
+    const o = (existing.options ?? {}) as { createHash?: string };
+    if (o.createHash !== hash || existing.createdById !== ctx.userId) throw idempotencyReused();
+    const value = await this.plans.get(ctx, existing.id).catch((e: unknown) => {
+      if (e instanceof HttpException && e.getStatus() === 404) throw idempotencyReused();
+      throw e;
+    });
+    return { value: { ...value, skippedBookings: [] }, replay: true };
+  }
+
+  /**
+   * E4 security review (informational): the depot must be a company place. The client point is matched to the
+   * caller's company places within DEPOT_MATCH_M and the plan stores that place's own coordinates (never an arbitrary
+   * client point, so never a personal address). Vehicle live positions are not accepted as a depot (they live in
+   * Valkey and change; a garage is a company place).
+   */
+  private async depotPlace(ctx: AuthContext, p: { lat: number; lng: number }): Promise<{ lat: number; lng: number }> {
+    const d = DEPOT_MATCH_M / 111_000;
+    const dl = d / Math.max(0.1, Math.cos((p.lat * Math.PI) / 180));
+    const near = await this.prisma.poi.findMany({ where: { companyId: ctx.companyId, lat: { gte: p.lat - d, lte: p.lat + d }, lng: { gte: p.lng - dl, lte: p.lng + dl } }, select: { lat: true, lng: true } });
+    const best = near.map((x) => ({ x, m: haversineMeters(p.lat, p.lng, x.lat, x.lng) })).filter((c) => c.m <= DEPOT_MATCH_M).sort((a, b) => a.m - b.m)[0];
+    if (!best) throw invalid('The depot must be one of your company places');
+    return { lat: best.x.lat, lng: best.x.lng };
+  }
+}
+
+/** How far a client depot point may be from the company place it names. */
+export const DEPOT_MATCH_M = 150;
+
+/** Unique violation of RoutePlan (companyId, options->>'createKey') (a concurrent create with the same key). */
+function isCreateKeyConflict(e: unknown): boolean {
+  if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return true;
+  const msg = e instanceof Error ? e.message : '';
+  return /RoutePlan_companyId_createKey_key/.test(msg) || /23505/.test(msg);
 }
 
 /**
