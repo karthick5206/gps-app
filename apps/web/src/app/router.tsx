@@ -72,6 +72,8 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   etms_schedules: page(() => import('@/features/transport/dispatch/ShiftsSchedulesPage'), 'ShiftsSchedulesPage'),
   etms_bookings: page(() => import('@/features/transport/dispatch/BookingsPage'), 'BookingsPage'),
   etms_dispatch: page(() => import('@/features/transport/dispatch/DispatchPage'), 'DispatchPage'),
+  // E4: route planner page (WP 4.5, web agent); until it lands the menu shows the dispatch board.
+  etms_planning: page(() => import('@/features/transport/dispatch/DispatchPage'), 'DispatchPage'),
   etms_settings: page(() => import('@/features/transport/TransportSettingsPage'), 'TransportSettingsPage'),
   // E3 WP 3.6: the passenger's own bookings and trips (vehicle only inside the trip window).
   etms_self: page(() => import('@/features/transport/dispatch/MyTransportPage'), 'MyTransportPage'),

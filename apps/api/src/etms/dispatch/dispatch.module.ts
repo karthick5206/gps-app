@@ -22,6 +22,6 @@ import { TripsService } from './trips.service';
   imports: [EtmsPeopleModule],
   controllers: [ShiftsController, SchedulesController, BookingsController, DispatchController, TransportTripsController, MyTransportTripsController],
   providers: [PlannedTripsService, RoutingService, BookingGeneratorService, SchedulesService, BookingsService, DispatchService, TripsService, MeTransportService, TripLiveService],
-  exports: [BookingGeneratorService],
+  exports: [BookingGeneratorService, DispatchService],
 })
 export class EtmsDispatchModule {}
