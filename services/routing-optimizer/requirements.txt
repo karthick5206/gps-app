@@ -1,0 +1,2 @@
+# Pinned. Python 3.14 (WSL Ubuntu); ortools 9.15.6755 is the release with cp314 wheels.
+ortools==9.15.6755

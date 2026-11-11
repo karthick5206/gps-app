@@ -88,6 +88,23 @@ jobs:
       # ETMS and shared-settings DB tests. stock.db-test.ts needs its own throw-away database and is not in this job yet.
       - run: npx jest --ci --runInBand --testRegex 'src/(etms|common)/.*\.db-test\.ts$'
         working-directory: apps/api
+
+  optimizer:
+    # services/routing-optimizer (OR-Tools). Locked, hashed wheels from PyPI only; the tests use no network.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/routing-optimizer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.4'
+      - run: python -m pip install --require-hashes --no-deps --only-binary=:all: -r requirements.lock
+      - run: python -m pytest
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 20
