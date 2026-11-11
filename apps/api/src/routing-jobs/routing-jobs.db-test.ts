@@ -239,6 +239,26 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     const { w, solver } = makeWorker('db-w5');
     expect(await w.process(job.jobId)).toBe('succeeded');
     expect(solver.lastProblem!.options.weights).toEqual(W);
+
+    // Security delta D1: a dispatcher limited to branch Y never learns of branch X bookings: not listed as
+    // out_of_scope, not counted in bookingCounts, and the plan is reported as having found nothing.
+    await prisma.transportBooking.updateMany({ where: { id: { in: g.bookings } }, data: { status: 'PENDING_ASSIGNMENT' } });
+    const bx = await prisma.branch.create({ data: { companyId: g.company, name: 'Branch X' } });
+    const by = await prisma.branch.create({ data: { companyId: g.company, name: 'Branch Y' } });
+    try {
+      await prisma.employeeTransportProfile.updateMany({ where: { id: { in: g.profiles } }, data: { branchId: bx.id } });
+      await prisma.trackedObject.update({ where: { id: van }, data: { branchId: by.id } });
+      const branchY = { ...c, dataScope: 'ASSIGNED', branchIds: [by.id] } as typeof ctxForResult;
+      const ry = await creator.create(branchY, { ...dto, name: 'Branch Y login', branchId: by.id }, 'create-key-d1-0001');
+      expect(ry.value.skippedBookings).toEqual([]);
+      expect(ry.value).toMatchObject({ emptyReason: 'NO_BOOKINGS', bookingCounts: { found: 0, planned: 0, skipped: 0 } });
+      for (const id of g.bookings) expect(JSON.stringify(ry.value)).not.toContain(id);
+    } finally {
+      await prisma.routePlan.deleteMany({ where: { companyId: g.company, name: 'Branch Y login' } });
+      await prisma.trackedObject.update({ where: { id: van }, data: { branchId: null } });
+      await prisma.employeeTransportProfile.updateMany({ where: { id: { in: g.profiles } }, data: { branchId: null } });
+      await prisma.branch.deleteMany({ where: { id: { in: [bx.id, by.id] } } });
+    }
   });
 
   it('retention trims finished jobs past ROUTING_JOB_RETENTION_DAYS', async () => {

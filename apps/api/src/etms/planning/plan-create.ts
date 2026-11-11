@@ -103,8 +103,11 @@ export class RoutePlanCreateService {
       orderBy: { windowStart: 'asc' },
     });
     const skipped: CreatedRoutePlanDto['skippedBookings'] = [];
-    const inScope = bookings.filter((b) => {
-      const ok = inProfileBranch(ctx, b.profile.branchId) && (!dto.branchId || !b.profile.branchId || b.profile.branchId === dto.branchId);
+    // Security delta D1: bookings outside the caller's own branches are invisible to them, so they are neither listed
+    // nor counted. `out_of_scope` only names bookings the caller can see that fall outside the plan's branch.
+    const visible = bookings.filter((b) => inProfileBranch(ctx, b.profile.branchId));
+    const inScope = visible.filter((b) => {
+      const ok = !dto.branchId || !b.profile.branchId || b.profile.branchId === dto.branchId;
       if (!ok) skipped.push({ bookingId: b.id, reason: 'out_of_scope' });
       return ok;
     });
@@ -208,7 +211,7 @@ export class RoutePlanCreateService {
     });
     if (typeof planId !== 'string') return planId; // lost the race to a concurrent create with the same key: its replay
     return {
-      value: { ...(await this.plans.get(ctx, planId)), skippedBookings: skipped, emptyReason: emptyReasonOf(bookings.length, usable.length, dto.shiftId), bookingCounts: { found: bookings.length, planned: usable.length, skipped: skipped.length } },
+      value: { ...(await this.plans.get(ctx, planId)), skippedBookings: skipped, emptyReason: emptyReasonOf(visible.length, usable.length, dto.shiftId), bookingCounts: { found: visible.length, planned: usable.length, skipped: skipped.length } },
       replay: false,
     };
   }
