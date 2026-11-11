@@ -1,0 +1,18 @@
+{
+  "name": "Koyambedu - Chennai Central (demo)",
+  "code": "SIM-CHN-01",
+  "corridorM": 200,
+  "stops": [
+    { "name": "Koyambedu CMBT", "lat": 13.0694, "lng": 80.1948, "radiusM": 100, "offsetMin": 0, "waitMin": 2 },
+    { "name": "Anna Nagar Roundtana", "lat": 13.0866, "lng": 80.2104, "radiusM": 100, "offsetMin": 8, "waitMin": 2 },
+    { "name": "Kilpauk Medical College", "lat": 13.0786, "lng": 80.2422, "radiusM": 100, "offsetMin": 18, "waitMin": 2 },
+    { "name": "Egmore Station", "lat": 13.078, "lng": 80.261, "radiusM": 100, "offsetMin": 25, "waitMin": 2 },
+    { "name": "Chennai Central", "lat": 13.0827, "lng": 80.2757, "radiusM": 100, "offsetMin": 30, "waitMin": 0 }
+  ],
+  "path": [
+    [80.1948, 13.0694], [80.196, 13.0735], [80.1985, 13.079], [80.2015, 13.085], [80.206, 13.0858],
+    [80.2104, 13.0866], [80.215, 13.085], [80.218, 13.082], [80.2215, 13.0785], [80.225, 13.0752],
+    [80.23, 13.0762], [80.236, 13.0775], [80.2422, 13.0786], [80.248, 13.0782], [80.254, 13.0778],
+    [80.261, 13.078], [80.266, 13.0795], [80.271, 13.0812], [80.2757, 13.0827]
+  ]
+}
