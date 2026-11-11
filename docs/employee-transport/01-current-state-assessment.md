@@ -223,3 +223,5 @@ system rows `companyId null`), `Document` (driver/vehicle documents + expiry rem
 3. Is an employee allowed to be a passenger in two corporate customers with the same mobile? (`User.mobile` is
    globally unique.)
 4. Should ETMS data have its own retention, separate from `Company.retentionDays` (Position is deleted after 30–180 days)?
+
+> **Update in E0.5 (2026-11-11):** Q1 is answered by the Lead production check (no SMS or mail provider configured, README §2); fixing the false `SENT` is gate **G3** of **D6, approved as a pre-pilot gate on 2026-11-11** (not yet implemented). Q3 is answered for E1–E3 by **D5, approved 2026-11-11** (one login per person, global unique mobile / email); later multi-membership stays owner decision **P3**. Still open (README §7): Q2 → **C2**; Q4 → **L3**.

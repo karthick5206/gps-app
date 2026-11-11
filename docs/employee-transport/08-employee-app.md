@@ -58,7 +58,7 @@ Why, in one table:
 | Activation | `POST /tracker/v1/activate/request` (admin must have created the Device) → 6-digit code by SMS, email, or read out by the admin → `/activate/verify` returns an opaque token (stored hashed in `MobileTrackerSession.tokenHash`); activating revokes earlier tokens; `activate/restore` by hashed Android ID after reinstall; self-service only for personal/family accounts (business users are refused) | `apps/api/src/mobile-tracker/mobile-tracker.controller.ts` `MobileTrackerController`; `mobile-tracker.service.ts` `requestCode`, `verify`, `startSession`, `restore`; `self-service.ts` `TrackerSelfService.findOwner` (BUSINESS → 403) |
 | Token scope | Token resolves to a Device (`session()` → `deviceId`, company, assignments); no User, no permissions | `mobile-tracker.service.ts` `session` |
 | Licence | Each phone is a `MOBILE_TRACKER` licence seat | `apps/api/prisma/schema.prisma` `enum LicenceType` |
-| Location engine | Native Kotlin foreground service (`foregroundServiceType=location`, `START_STICKY`), restart on boot / update / task removal, WorkManager watchdog, OEM autostart helpers, SQLite queue (20 000), jump filter | `modules/veetrax-tracker/android/.../TrackerService.kt`, `Engine.kt`, `BootReceiver.kt`, `WatchdogWorker.kt`, `PointQueue.kt`, `JumpFilter.kt` |
+| Location engine | Native Kotlin foreground service (`foregroundServiceType=location`, `START_STICKY`), restart on boot / update / task removal, WorkManager watchdog, OEM autostart helpers, SQLite queue (cap 50 000 rows, oldest dropped), jump filter | `modules/veetrax-tracker/android/.../TrackerService.kt`, `Engine.kt`, `BootReceiver.kt`, `WatchdogWorker.kt`, `PointQueue.kt`, `JumpFilter.kt` |
 | Permissions | `ACCESS_FINE/COARSE/BACKGROUND_LOCATION`, `FOREGROUND_SERVICE_LOCATION`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `RECEIVE_BOOT_COMPLETED`, `CAMERA` | `apps/tracker/app.json` `android.permissions` |
 | Admin-forced tracking | `Device.trackingRequired`: the employee **cannot** stop tracking from the phone | `schema.prisma` `Device.trackingRequired`; `src/components/HomeMenu.tsx` `confirmDeactivate` (`S.requiredBody`) |
 | Consent | Prominent disclosure screen before OS dialogs (Play policy) | `src/app/disclosure.tsx`; README "Google Play: background location declaration" |
@@ -68,7 +68,7 @@ Why, in one table:
 | Platforms | Android only ("built and tested for Android only") | README "iOS" |
 | Store | Play listing constant `PLAY_STORE.tracker`; background-location declaration = "Fleet / workforce tracking" | `store-links.ts`; README "Google Play" |
 
-> **Validation note (E0 review):** The tracker queue cap is **50 000**, not 20 000 (`apps/tracker/modules/veetrax-tracker/android/.../PointQueue.kt` l.18 `CAP = 50_000`). Same error in `09` §1.4.
+> **Corrected in E0.5 (2026-11-11):** The Location engine row said "SQLite queue (20 000)". Re-verified at v1.8.0: `apps/tracker/modules/veetrax-tracker/android/.../trackerengine/PointQueue.kt` l.18 `const val CAP = 50_000`; rows above `CAP` are trimmed oldest-first (l.49–54). The same error in `09` §1.4 is corrected there.
 
 ### 1.3 Server-side authentication (relevant to passengers)
 
@@ -92,6 +92,10 @@ Why, in one table:
 3. **Maps leak (pre-existing):** unless store builds were made with `EXPO_PUBLIC_MAP_STYLE_*`, the mobile app loads
    OpenFreeMap tiles from a third party, contrary to the "nothing leaves the server" rule. Must be fixed (build env)
    before any passenger build. Also `eas.json` still points at `gps.mintplus.co.in`, not `app.veetrax.com`.
+
+   > **E0.5 Lead note (2026-11-11):** Gate G8 covers the mobile builds and also the web public share page, which
+   > hard-codes OpenFreeMap (`PublicSharePage.tsx:104`) (`12` §2.1, `14` G8). The server URL for new builds is owner
+   > decision O12 (README §7; default `https://app.veetrax.com`). G8 is outstanding.
 4. OTP sign-in depends on India-only channels (Smartping DLT / Arattai). US passengers have no OTP channel today.
 
 ---
@@ -145,7 +149,7 @@ US-state privacy reviews) that the transport app does not track them.
 **Option A.** Shared foundations (plan §4.4) come for free; authorisation is never shared: the passenger shell trusts
 only the server's answers (`Me.permissions` + own-scope endpoints).
 
-> **Validation note (E0 review):** This is a recommendation, not a settled decision: hosting passenger and driver shells in `apps/mobile` is D4, which is **Proposed — needs owner approval** (README §5).
+> **Resolved in E0.5 (2026-11-11):** Option A is the approved direction: hosting the passenger and driver shells in `apps/mobile` is **D4, approved by the owner on 2026-11-11** (README §1.1, §5). The E0 review had noted that it was then only a recommendation. Nothing is implemented; the store listing / white-label question stays owner decision P6.
 
 ### 2.6 Triggers that would justify a separate binary later [P]
 
@@ -174,6 +178,8 @@ already has a VeeTrax personal/family account (same mobile) cannot get a second 
 (a) per-company uniqueness (schema change, broad impact on OTP lookup); (b) allow a User to hold memberships in several
 companies (larger change); (c) for E1–E3, refuse with a clear message and let the admin use a different email/mobile.
 Recommend (c) now, (b) evaluated later.
+
+> **Resolved in E0.5 (2026-11-11):** **D5, approved by the owner on 2026-11-11** (README §1.1, §5), adopts this mapping: passenger = `User` + **Passenger** role + `EmployeeTransportProfile`, relationship-based access on `/api/me/transport/*`, and option (c) for E1–E3 (one login per person, `IDENTITY_IN_USE`). The Passenger role is seeded as a per-company role template only when `etms` is enabled (`12` WP 1a.2), not added to the global `SYSTEM_ROLES`, so "system role" in §3.1 / §3.3 should read "role template". The menu key is `etms_self` (Lead naming, `02` §3.1), not `transport_self`. Still open: option (b) multi-membership and dual-role users (**P3**), and the final template set (**P6**).
 
 ### 3.2 Activation (organisation-approved)
 
@@ -399,6 +405,8 @@ genuine breach of the maps rule today unless builds already set `EXPO_PUBLIC_MAP
 
 > **Validation note (E0 review):** Existing-code fact missing here: today's notifier already sends the full alert text and the alert `data` to Expo (`apps/api/src/notifier/push.ts` l.72; `notifier.service.ts` l.421–425), and `PushToken.sessionId` is optional (`schema.prisma` l.637), with tokens without a session also targeted (`notifier.service.ts` l.417). The D7 payload rules (`02` §8.3) apply to ETMS pushes; the existing fleet-alert payloads are outside the D7 rules and should be reviewed by the owner (L4).
 
+> **Resolved in E0.5 (2026-11-11):** The owner **approved D7 / L4 on 2026-11-11** as a limited Expo → FCM / APNs exception: generic payloads only, sensitive trip details fetched through authenticated VeeTrax APIs (README §1.1). This matches the recommendation above (Option 1 with payload minimisation; direct FCM / APNs evaluated in E8). For the existing fleet-alert pushes, **O9 (approved 2026-11-11)** keeps current behaviour during E0.5 and allows no new external sharing of passenger or driver location by default. The OpenFreeMap default in mobile builds remains outstanding as gate **G8**.
+
 ---
 
 ## 8. Open questions
@@ -415,3 +423,5 @@ genuine breach of the maps rule today unless builds already set `EXPO_PUBLIC_MAP
 | Q8 | Store listing: is the owner willing to reposition the "VeeTrax" Play/App Store listing to cover passengers, or does any corporate customer require a white-label app (trigger for a separate binary, §2.6)? | Owner |
 | Q9 | Should the tracker app's existing employee self-service (attendance, SOS) ever merge into the passenger shell? Recommendation: no; keep tracker for workforce tracking only. | Owner |
 | Q10 | HR/leave integration for "report non-attendance": manual in app for E1–E3, integration later? | Owner, Agent 1 |
+
+> **Resolved in E0.5 (2026-11-11):** Q1 is answered by **L4 / D7, approved 2026-11-11** (generic payloads; details via VeeTrax APIs). Q3 is answered for E1–E3 by **D5, approved 2026-11-11** (one login per person, global unique mobile / email). Still open, with no answer chosen here (README §7): Q2 → checked under gate G8 (a build fact, not a design choice); Q3 beyond E1–E3 and Q4 → **P3**; Q5 → **O6** / **C2**; Q6 → **P5**; Q7 → **P4**; Q8 → **P6**; Q9 and Q10 are not listed in README §7 and stay with the Lead / owner.

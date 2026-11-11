@@ -118,7 +118,7 @@ features/notifications/siren.ts); web repeats siren. POST /alerts/:id/ack (alert
 
 | Hop | Valkey down | Valkey restarted empty | Evidence |
 |---|---|---|---|
-| Hardware → gateway | Fixes fsynced to disk spool and replayed (chaos: 36,220 sent, 0 lost) | Same | `gateway/main.ts` (`GATEWAY_SPOOL`, `GATEWAY_SPOOL_MAX_MB` 1024), R-41 |
+| Hardware → gateway | Fixes fsynced to disk spool and replayed (chaos full run 2026-11-09: 26,521 sent, 26,521 received, 0 lost, 0 duplicates) | Same | `gateway/main.ts` (`GATEWAY_SPOOL`, `GATEWAY_SPOOL_MAX_MB` 1024), R-41 |
 | Tracker app → API | `upload()` pipeline fails → `ServiceUnavailableException`; phone keeps the point and retries | Same | `mobile-tracker/mobile-tracker.service.ts upload` ("a failed write must not be confirmed") |
 | Stream trimming | `MAXLEN ~` can drop entries in long outages | — | R-05 |
 | Processor → `Alert` row | No input while Valkey is down; resumes on recovery | NOGROUP recreated | `redis/stream-groups.ts ensureStreamGroup` |
@@ -128,10 +128,15 @@ features/notifications/siren.ts); web repeats siren. POST /alerts/:id/ack (alert
 | Duplicate protection | Skips an alert that already has any `NotificationLog` row (also skips a partial resend) | — | `handleAlert` (`notificationLog.count({ where: { alertId } })`) |
 | Valkey persistence | Installer sets `noeviction` and localhost bind; **does not enable AOF** (package default persistence; not verified on host) | — | `ops/deploy/linux/install-ubuntu.sh` lines 51–57 |
 
-> **Validation note (E0 review):** Figure mismatch: 36,220 appears only in `docs/modernization/05-technical-risk-register.md` l.110; the cited full chaos evidence reports **26,521 / 26,521, 0 lost, 0 duplicates** (`docs/modernization/test-evidence.md` l.74–75; `evidence/2026-11-09-full-run/results.json`). Both are manual runs on 2026-11-09; CI runs neither.
+> **Resolved in E0.5 (2026-11-11):** The row said "chaos: 36,220 sent, 0 lost". 36,220 appears only in `docs/modernization/05-technical-risk-register.md` l.110 (R-41). The full chaos evidence reports **26,521 / 26,521, 0 lost, 0 duplicates** (re-checked: `docs/reliability/test-evidence.md` l.75; `docs/reliability/evidence/2026-11-09-full-run/results.md` l.17; the E0 review cited the folder as `docs/modernization/`). The row now uses the evidence figure. Both are manual runs on 2026-11-09 and CI runs neither; condition C6 requires a re-run on the test instance before they serve as acceptance baselines.
 
 **Conclusion:** location data is durable; **alert notification is at-most-once across a Valkey hiccup**. Acceptable
 for fleet alerts, not for ETMS SOS.
+
+> **E0.5 Lead note (2026-11-11):** The loss window is wider than a failed `XADD`: the processor acks positions before
+> the rule commit, so a process crash between the DB commit and the `XADD` also loses the job (`14` G2 / F6); G2's
+> sweeper covers both. For W4 / R-14 the post-G5 probe baseline is 0 FAIL with **21 PASS** (20 original + F-1) (`12` G5).
+> The 26,521 / 0-lost chaos figure ran on Node 22 / Valkey 9 and must be re-run on production versions (C6, `16` §6).
 
 ### 1.6 Retention controls (Verified)
 
@@ -221,7 +226,7 @@ themselves; whether the production `.env` sets it is **not verifiable from the r
 9. **Prerequisites:** fix R-12 (permission ceiling) and R-14 (socket session) before E1; add `READ_SENSITIVE` (or
    a separate `SensitiveAccessLog`) for passenger address/phone/live-location views.
 
-> **Validation note (E0 review):** Naming resolved by the Lead: menu keys are **`etms_*`** (`etms_bookings`, `etms_dispatch`, `etms_passengers`, `etms_policies`, `etms_incidents`, `etms_partners` for agreements), plus `etms_self` / `etms_driver`; semantics map 1:1 (`02` §3.1; `05` §1). Web routes follow `features/transport/*`.
+> **Resolved in E0.5 (2026-11-11):** The `transport_*` key names in item 7 are replaced by the Lead's working names (`02` §3.1); Agent 6's semantics are kept. The final key set and group placement remain owner decision **P6** (Open). E0 review detail: menu keys are **`etms_*`** (`etms_bookings`, `etms_dispatch`, `etms_passengers`, `etms_policies`, `etms_incidents`, `etms_partners` for agreements), plus `etms_self` / `etms_driver`; semantics map 1:1 (`02` §3.1; `05` §1). Web routes follow `features/transport/*`.
 
 ### 2.3 Authorisation matrix (Proposed)
 
@@ -268,7 +273,7 @@ the tracker app authenticates a *device* (`MobileTrackerSession`, `ingestToken`)
 | Data after trip | Manifest removed from the device; history shows trip ids and counts, not passenger names | Own history per retention |
 | Prohibited | Bulk export, search across passengers, viewing past manifests, screenshots of manifest (Android `FLAG_SECURE` on manifest screen) | Viewing any other passenger, live vehicle outside own trip window |
 
-> **Validation note (E0 review):** Contradicts D4 as adopted: the driver phone needs **no GPS initially**; driver phone location is **not collected by default** (the vehicle device or a tracker-app phone fitted to the vehicle feeds the tracker). An optional while-in-use fix may be attached to an SOS or event (`02` §7.1; `09` §2.1). The duty-window rule here applies only if the owner later enables driver-phone location.
+> **Resolved in E0.5 (2026-11-11):** The "driver phone location only while on duty" cell (and the matching rows in §4.1, §4.2 `DRIVER_DUTY_LOCATION` and §4.3) is superseded by **D4, approved by the owner on 2026-11-11** (README §1.1, §5). Agent 6's original reasoning is kept for the record. The driver phone needs **no GPS initially**; driver phone location is **not collected by default** (the vehicle device or a tracker-app phone fitted to the vehicle feeds the tracker). An optional while-in-use fix may be attached to an SOS or event (`02` §7.1; `09` §2.1). The duty-window rule here applies only if the owner later enables driver-phone location.
 
 **Minimum-data rules (server-enforced projections):** a DTO per audience (`PassengerForDriverDto`,
 `PassengerForProviderDto`, `PassengerForCorporateDto`); gender is never sent to drivers (used only inside the policy
@@ -299,7 +304,7 @@ ip/device`. Notice texts are versioned templates per country and language (reuse
 The tracker's existing local disclosure becomes server-recorded. Withdrawal is as easy as granting and takes effect
 on the next upload.
 
-> **Validation note (E0 review):** Modelled as **`EmployeeTransportConsent`** (Agent 1's table with these purposes; `02` §3.1, §7.3). Likewise `SafetyPolicy*` → `TransportPolicy*`, `Incident` / `IncidentEvent` / `EscalationStep` → `TransportIncident` / `TransportIncidentEvent` / `TransportEscalationStep`, and `IncidentDelivery` → delivery states on the extended `NotificationLog`.
+> **Resolved in E0.5 (2026-11-11):** Lead names apply (`02` §3.1; condition C2). `ConsentRecord` is modelled as **`EmployeeTransportConsent`** (Agent 1's table with these purposes; `02` §3.1, §7.3). Likewise `SafetyPolicy*` → `TransportPolicy*`, `Incident` / `IncidentEvent` / `EscalationStep` → `TransportIncident` / `TransportIncidentEvent` / `TransportEscalationStep`, and `IncidentDelivery` → delivery states on the extended `NotificationLog`.
 
 ### 4.3 Time-window limits (enforced server-side, not only in the app)
 
@@ -506,3 +511,5 @@ Postgres is up; notifications catch up from the outbox after Valkey returns; no 
     are in scope first?
 12. **Suspension semantics (R-21):** when a provider or customer is suspended mid-shift, do active trips and SOS keep
     working (recommended: yes for SOS)?
+
+> **Resolved in E0.5 (2026-11-11):** Answered by decisions **approved by the owner on 2026-11-11** (README §1.1): Q1 first half by **D1** (each party is a `Company`; `Partner` stays billing-only); Q3 by **D6** (G2 notifier ack-on-failure, G5 logout / socket; R-12 as E0.5 item 0.5-9), approved as a gate, with implementation still needing separate authorisation; Q4 first half by the Lead production check (`NODE_ENV=production`, README §2); Q6 by **D4** (passenger phones not tracked continuously; opt-in, window-limited). Still open, with no answer chosen here (README §7): Q1 (several providers) and Q2 → **P1**; Q4 AOF window → **O1** (gate G4); Q5 → **C2**; Q7 → **L2**; Q8 → **L3**; Q9 → **L7**; Q10 and Q12 → **O5**; Q11 → **L1**.

@@ -61,7 +61,7 @@
 
 | Item | Evidence |
 |---|---|
-| Map | MapLibre GL; self-hosted tiles via `features/live/map/map-style.ts` `styleUrl()` / `basemap-store.ts` (Martin + Planetiler India per brief §1). |
+| Map | MapLibre GL; basemap style chosen in `features/live/map/map-style.ts` `styleUrl()` / `basemap-store.ts`. **Code default is OpenFreeMap** (external `tiles.openfreemap.org`); the web build uses the self-hosted Martin tiles (Planetiler India) only when `VITE_MAP_STYLE_*` is set at build time, which the production web build is configured to do (`ops/deploy/linux/maps/README.md` l.15). Mobile builds are not yet configured (gate G8). |
 | Live map controller | `features/live/map/map-controller.ts` `class MapController` (clustering, glide, follow, labels, reduced motion); add-on layers re-attach on style change via `layers/addon.ts` `keepAlive()` / `beneathMarkers()` (used by `alert-layer.ts`, `geofence-layer.ts`, `poi-layer.ts`). |
 | History / playback | `features/history/history-map.ts` `class HistoryMap`, `playback-engine.ts` `PlaybackEngine`, `PlaybackBar.tsx`; reused by `PlannedTripDetailPage.tsx` with `trip-map.ts` (`buildPlanFeatures`, `deviationFeatures`, corridor). |
 | Route editing map | `features/routes/RouteMap.tsx` (draggable `maplibregl.Marker` per stop, `PlaceSearch`), road preview `features/routes/api.ts` `usePathPreview` (GraphHopper via `routing.service.ts` `routeVia`). |
@@ -71,7 +71,12 @@
 | Alerts UX | `features/alerts/alert-center.ts` (bell, unread, `pendingAck`, siren via `sound.ts` `playSiren`, voice, critical popup), `AlertsPage.tsx` `AckDialog`; `packages/shared/src/alerts.ts`: `SOS` type (`mandatory: true`, CRITICAL), `EMERGENCY_ALERT_TYPES`, `ACK_MANDATORY_TYPES = ['SOS','CRASH']`. |
 | Routing health | Main: no routing health endpoint (`routing.controller.ts` only `POST estimate-gaps`). Routing branch: `RoutingCapabilities { engineReachable, workers, etaBands, liveTraffic:false … }`, `UNCALIBRATED_ETA_NOTICE`, `NO_LIVE_TRAFFIC_NOTICE`, `OptimizeUnassignedReason` (`git show feature/routing-engine:packages/shared/src/routing.ts`). |
 
-> **Validation note (E0 review):** Partly wrong as a code fact. `apps/web/src/features/live/map/map-style.ts` l.34–36 falls back to **OpenFreeMap** (`packages/shared/src/basemap.ts` `OPENFREEMAP`, `tiles.openfreemap.org`) unless `VITE_MAP_STYLE_*` is set at build time; production uses self-hosted Martin only because its build env sets those variables (`ops/deploy/linux/maps/README.md`). Likewise the road preview is GraphHopper only because production sets `ROUTER_ENGINE=graphhopper`; the code default is `valhalla` (`routing.service.ts` l.22). `12` G8 now also checks the web bundle.
+> **Corrected in E0.5 (2026-11-11):** The Map row said "self-hosted tiles via `map-style.ts`". Re-verified at v1.8.0: `apps/web/src/features/live/map/map-style.ts` `STYLE_URLS` falls back to **OpenFreeMap** (`OPENFREEMAP` from `packages/shared/src/basemap.ts`, `tiles.openfreemap.org`) unless `VITE_MAP_STYLE_STANDARD|LIGHT|DARK` is set at build time; `apps/web/.env.example` itself lists OpenFreeMap URLs; the production web build is configured for self-hosted Martin by `ops/deploy/linux/maps/README.md` l.15. Mobile builds are not yet configured (`apps/mobile/src/lib/config.ts` l.8–10; `apps/mobile/eas.json` sets no style). Closing this for every build is gate **G8** (`12` §2.1, which also checks the web bundle). Retained from the E0 review: likewise the road preview is GraphHopper only because production sets `ROUTER_ENGINE=graphhopper`; the code default is `valhalla` (`routing.service.ts` l.22). `12` G8 now also checks the web bundle.
+
+> **E0.5 Lead note (2026-11-11):** One web page bypasses `map-style.ts`: the public share page hard-codes
+> `style: OPENFREEMAP.standard` (`apps/web/src/features/live-share/PublicSharePage.tsx:104`), so it loads OpenFreeMap on
+> production despite the self-hosted build settings. ETMS screens must take their style from `map-style.ts` only. Gate
+> G8 covers the share page (`12` §2.1, `14` G8).
 
 ### 1.4 Reusable patterns (what ETMS screens should be built from)
 
@@ -177,7 +182,7 @@ Three layers, all **off by default** (brief §3.4):
 2. **Build flag** `etms` in `UI_FLAGS`, in `OFF_BY_DEFAULT` (port the mechanism from `feature/routing-engine:apps/web/src/lib/flags.ts`) so even dev builds hide it until `VITE_UI_FLAGS=etms` or `localStorage['vt.flags']='etms'`.
 3. **Menu gating** in one place: extend `MenuDef` with `requires?: { companyFeature?: CompanyFeature; uiFlag?: UiFlag }` (unifying the routing branch's `featureFlag`) and apply it in `buildNav()`, `router.tsx` (don't register the route) and `HomeRedirect`. Role permissions may exist while the module is off; nothing shows.
 
-> **Validation note (E0 review):** Lead naming decision: the company feature is **`etms`** (plus `etmsProvider` in E1b), not `employeeTransport` (`02` §3.1). The three-layer gating and 404-when-off are the recommended design, still subject to owner approval of D1–D8.
+> **Resolved in E0.5 (2026-11-11):** The company feature is **`etms`** (plus `etmsProvider` in E1b), not `employeeTransport` (Lead naming, `02` §3.1). D1–D8 were **approved by the owner on 2026-11-11** (README §1.1), so the three-layer gating with 404-when-off is the adopted design direction (not implemented). The final menu-key set, group placement and role templates remain owner decision **P6** (Open).
 
 Rollback = switch the add-on off: no migration reversal, existing menus untouched.
 
@@ -218,7 +223,7 @@ Phases from plan §16: E1 accounts/authorization, E2 employee/driver/fleet, E3 b
 | Transport dashboard | KPIs, needs attention | aggregates | drill-down | dashboard `refresh/kit.tsx` | `TransportKpis` | E7 |
 | Reports (Employee transport category) | Plan §14 reports | report rows | run, schedule, export | `ReportsPage`, `report-catalog.ts`, `ScheduledReportsPage` | report column defs only | E7 |
 
-> **Validation note (E0 review):** Phasing changed by D8: R1 (E3) includes a **basic** transport trip list / detail with manifest and a basic board (queue + trips + map, explicit assign actions) plus dispatcher progression and per-passenger outcomes (`12` §5 WP 3.5; README §6). Full board actions remain E7.
+> **Resolved in E0.5 (2026-11-11):** The E5 / E7 phases in the table above are superseded by **D8, approved by the owner on 2026-11-11** (README §1.1, §5); Agent 3's original phasing is kept for the record. R1 (E3) includes a **basic** transport trip list / detail with manifest and a basic board (queue + trips + map, explicit assign actions) plus dispatcher progression and per-passenger outcomes (`12` §5 WP 3.5; README §6). Full board actions remain E7.
 
 ---
 
@@ -271,7 +276,7 @@ Primary interaction is **explicit and keyboard accessible**; drag is an optional
 3. Choose a trip → the change goes to a **Change tray** (pending, unpublished edits with a count badge). Each change shows its effect (seats, ETA delta). Undo per change.
 4. **Publish** (`etms_dispatch:command`) sends the batch as one versioned change with an optional/required reason; drivers and passengers are notified by the backend. A conflict (`transport.plan.changed` with a newer version) shows a merge prompt instead of overwriting.
 
-> **Validation note (E0 review):** For R1 (E3) the assign action must not depend on the optimiser or routing: `POST /api/transport/dispatch/candidates` returns free seats only in E3; detour and ETA arrive in E4 and are `null` + `degraded` when routing is down (`05` §2.6; `02` §9). Policy results arrive in E6. The ranked `AssignPicker` described here is the E7 form; the E3 bookings list's "assign" (§6.3) uses the seats-only picker.
+> **Resolved in E0.5 (2026-11-11):** Settled by **D8 and D3, approved by the owner on 2026-11-11** (R1 excludes OR-Tools; manual dispatch keeps working when the optimiser is unavailable). For R1 (E3) the assign action must not depend on the optimiser or routing: `POST /api/transport/dispatch/candidates` returns free seats only in E3; detour and ETA arrive in E4 and are `null` + `degraded` when routing is down (`05` §2.6; `02` §9). Policy results arrive in E6. The ranked `AssignPicker` described here is the E7 form; the E3 bookings list's "assign" (§6.3) uses the seats-only picker.
 
 Other actions from a trip card menu (same pattern as `TripActionsMenu`): *Reassign vehicle*, *Reassign driver*, *Change pickup stop*, *Change vehicle type*, *Remove passenger*, *Re-optimise this trip*, *Cancel / suspend* (required reason, like `TripDialogs` cancel), *Escalate*. Reordering stops uses `StopList` move up/down buttons.
 
@@ -316,9 +321,9 @@ Presentation rules: best value per row gets a subtle "Best" marker (icon + text)
 ### 6.1 Employees (passengers)
 - List: `MasterPage` with columns name, employee ID, site, shift, pickup type (Door / Stop), stop or area, phone (masked by permission), status, last trip. Filters: site, shift, pickup type, "no pickup location", "outside service zone". Bulk: activate/deactivate, assign shift, assign stop.
 - Import: CSV/XLSX template per country (India / US address columns, §7), preview with row errors (bad phone, unknown site, address not found), pick rows, commit; geocoding runs server-side against self-hosted Photon and returns confidence; low-confidence rows go to a "Needs location" filter.
-- Editor (full-screen, `RouteEditor` shell) tabs: **Profile** (name, IDs, site, gender only if a policy needs it, accessibility needs), **Pickup & drop** (map with `PlaceSearch`, draggable home pin, road check: show `NOT_ON_ROAD` / `OUTSIDE_GRAPH` issues; or choose a shuttle stop from `NearestStopsList` with walking distance and time), **Schedule** (shift, days, exceptions), **Safety & contacts** (emergency contacts, escort requirement), **History** (`HistorySheet` + trips). Home address visibility follows Agent 6's rules (dispatcher sees area/landmark only).
+- Editor (full-screen, `RouteEditor` shell) tabs: **Profile** (name, IDs, site, gender only if a policy needs it, accessibility needs), **Pickup & drop** (map with `PlaceSearch`, draggable home pin, road check (**Proposed**, needs `RoutingProvider.locate`, E4): show "not on a road" / "outside coverage" issues using the proposed contract codes `POINT_NOT_ON_ROAD` / `OUTSIDE_COVERAGE` (`05` §4); or choose a shuttle stop from `NearestStopsList` with walking distance and time), **Schedule** (shift, days, exceptions), **Safety & contacts** (emergency contacts, escort requirement), **History** (`HistorySheet` + trips). Home address visibility follows Agent 6's rules (dispatcher sees area/landmark only).
 
-> **Validation note (E0 review):** `NOT_ON_ROAD` / `OUTSIDE_GRAPH` do not exist in code; they are proposed (the contract names are `POINT_NOT_ON_ROAD` / `OUTSIDE_COVERAGE`, `05` §4). The road check needs `RoutingProvider.locate` (E4); in E2 the editor shows the pin and Photon result without a snap check, or calls GraphHopper `/nearest` directly if WP 2.2 adds it.
+> **Corrected in E0.5 (2026-11-11):** The editor text presented a `NOT_ON_ROAD` / `OUTSIDE_GRAPH` road check as existing. Re-verified: neither code exists in v1.8.0 (`git grep` over `apps/` and `packages/` finds nothing). On the unmerged `feature/routing-engine` they are internal branch codes only (`routing-v2.service.ts` l.213 `NOT_ON_ROAD`; `coverageIssue` returns `OUTSIDE_GRAPH`, `access.spec.ts` l.75). The road check is **proposed**, with the contract codes `POINT_NOT_ON_ROAD` / `OUTSIDE_COVERAGE` (`05` §4). Retained from the E0 review: the road check needs `RoutingProvider.locate` (E4); in E2 the editor shows the pin and Photon result without a snap check, or calls GraphHopper `/nearest` directly if WP 2.2 adds it.
 
 ### 6.2 Pickup and shuttle stops editor
 - Map-first: stops as markers, passenger homes as a density layer (counts only, no names) to see coverage; walking radius rings per stop.
@@ -502,6 +507,8 @@ Today `currentLocale()` (`apps/web/src/lib/i18n.ts`) returns `en-IN` / `hi-IN` /
 | Q10 | What may a Dispatcher and a Provider admin see of an employee's home address and phone? | Masking in lists, editor and map (plan §5 "minimum necessary"). | Area/landmark + masked phone with click-to-call through the platform; full address only for corporate admin. |
 | Q11 | Employee SOS (no vehicle): new incident event and console, or extend `AlertDto` to allow no `objectId`? | Current alert scoping is per vehicle. | Separate incident model and `transport.sos` event; mirrored into the bell. |
 | Q12 | Seat capacity: a field on `TrackedObject` or a transport-attributes table? | Occupancy bars, scenario metrics and assignment checks depend on it. | Agent 1 decides; UI reads one `capacity` value. |
+
+> **Resolved in E0.5 (2026-11-11):** D1–D8 were **approved by the owner on 2026-11-11** (README §1.1). Q1 is answered by **D1** (each party is a `Company`, linked by `TransportServiceAgreement`); P1 still covers the provider-model details. Q2 is answered by **D2** (reuse `PlannedTrip` + 1:1 `TransportTrip` + `TransportTripPassenger` manifest). Q3 follows **D3** (only the ported `route_plans` key, E4; no `etms_planning`, `02` §3.1). Q11 follows the Lead model (`TransportIncident` + `TransportIncidentEvent`, `02` §3.1). Q12 follows the Lead schema (`TransportVehicleProfile`, E2). Q10 follows the minimisation rules in `02` §7 / `10` §2.3 (home address hidden from provider roles and drivers). Still open, with no answer chosen here: Q4–Q8 → owner decision **P6** (README §7). Q9 (phone-validation library) is not an owner decision in README §7; it is an implementation choice for E2 (a new dependency would need approval like O4).
 
 ---
 

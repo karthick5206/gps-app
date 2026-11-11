@@ -190,7 +190,7 @@ Ways to get a matrix with GraphHopper:
 
 **Option A, behind the `RoutingProvider` adapter (§3), with Valhalla kept as a written fallback but not deployed.**
 
-> **Validation note (E0 review):** D3 (owner instruction 2026-11-11) puts **Valhalla out of scope**, including as a parked fallback; if the GraphHopper matrix fails benchmarks, the fallback is the custom GH endpoint (M2), then an owner decision. Related existing fact: main's `RoutingService` still defaults `ROUTER_ENGINE` to `valhalla` when unset (`apps/api/src/routing/routing.service.ts` l.22); production sets `graphhopper`. The E4 adapter should make GraphHopper the only supported value.
+> **Resolved in E0.5 (2026-11-11):** The recommendation above (Valhalla as a written fallback) and step 1's "Add a Valhalla provider only if M2 also misses them" are superseded by **D3, approved by the owner on 2026-11-11** (README §1.1, §5): **Valhalla is out of scope**, including as a parked fallback. If the GraphHopper matrix fails benchmarks, the fallback is the custom GH endpoint (M2), then a new owner decision. Agent 2's original reasoning is kept for the record. Related existing fact (from the E0 review): main's `RoutingService` still defaults `ROUTER_ENGINE` to `valhalla` when unset (`apps/api/src/routing/routing.service.ts` l.22); production sets `graphhopper`. The E4 adapter should make GraphHopper the only supported value.
 
 1. GraphHopper stays the only road engine for route, legs, map matching and **matrix**. Start with M1 (`/route`
    fan-out with a sparse k-nearest matrix and a graph-versioned cache). If the §7 benchmarks miss the targets, build
@@ -459,14 +459,16 @@ tables for vehicle movement. Add passenger and plan linkage in new tables.** The
 | Concern | v1.8.0 today | ETMS need | Proposal |
 |---|---|---|---|
 | Trip skeleton | `PlannedTrip` (vehicle, driver, planned start / end, snapshot path, stops) | Same | **Reuse** |
-| Required `routeId` | Required FK to a master `Route` (unique name per company, shown in Masters → Routes) | Daily optimised trips aren't masters | Option 1: generated `Route` with `source='ETMS'` (hidden from Masters by default) per recurring roster pattern, which fits `RouteSchedule` for stable rosters. Option 2: relax `PlannedTrip.routeId` to nullable (a widening change) and add `routePlanId`. **Prefer option 1 for recurring rosters and option 2 for daily ad-hoc plans**; Agent 1 decides |
+| Required `routeId` | Required column (`routeId String @db.Uuid`, `schema.prisma` l.2723) that names a master `Route` (unique name per company, shown in Masters → Routes) **by value only: no foreign key and no Prisma relation** | Daily optimised trips aren't masters | Option 1: generated `Route` with `source='ETMS'` (hidden from Masters by default) per recurring roster pattern, which fits `RouteSchedule` for stable rosters. Option 2: relax `PlannedTrip.routeId` to nullable (a widening change) and add `routePlanId`. **Prefer option 1 for recurring rosters and option 2 for daily ad-hoc plans**; Agent 1 decides |
 | Stop times | `RouteStop.offsetMin` / `waitMin`; snapshot copies to `PlannedTripStop.plannedArrival` / `plannedDeparture` | Optimiser times per stop | Write `PlannedTripStop` directly from `PlanProposal.trips[].stops` via `insertTrip`-like code; the snapshot builder already accepts per-stop offsets |
 | Passengers per stop | None | Manifest: who boards / alights at which seq, booking id, boarding status (boarded / no-show), OTP / check-in | **New table** (e.g. `TransportTripPassenger(tripId, stopSeq, passengerId, bookingId, action, status, …)`), keyed to `PlannedTripStop` by `(tripId, seq)` |
 | Direction / shift | None | login / logout, shift id, site | New nullable columns on `PlannedTrip` or a 1:1 `TransportTripMeta` |
 | Plan → trips | None | Proposal, versions, publish, audit | Salvage the branch's `RoutePlan` + `RoutePlanVersion` concepts, renamed (§6). Publishing creates `PlannedTrip`s in one transaction and calls `PlannedTripsService.invalidate(companyId)` |
 | Idempotent publish | Generator uses `@@unique([scheduleId, plannedStart])` | Re-publish must not duplicate | Unique `(routePlanId, planVersion, vehicleId, direction)` or the publish key on the new meta table |
 
-> **Validation note (E0 review):** Two corrections. (1) `PlannedTrip.routeId` is a required column (`schema.prisma` l.2723) but **not an FK**: `PlannedTrip` has no relation to `Route` (`01` §10), so `DROP NOT NULL` is DDL-trivial and the risk is the ~72 code references in 15 files (`03` §3). (2) Option 1 relies on `Route.source='ETMS'`, a column that does not exist on `Route`. Adopted: nullable `routeId` + `origin` for ETMS trips; fixed shuttles keep real `Route`s; door-to-door rosters via "repeat to date" drafts (README §6, owner decision P2).
+> **Corrected in E0.5 (2026-11-11):** The "Required `routeId`" row said "Required FK to a master `Route`". Re-verified at v1.8.0: `PlannedTrip.routeId` is `String @db.Uuid` without `@relation` (`apps/api/prisma/schema.prisma` l.2723), `Route` has no `PlannedTrip[]` back-relation (l.2649–2672), and migration `20261113090000_routes_planned_trips` adds FKs to `Route` only from `RouteStop` and `RouteSchedule` (`migration.sql` l.157, l.160). So `DROP NOT NULL` is DDL-trivial; the work is the ~72 code references in 15 files (`03` §3). Also from the E0 review: Option 1 relies on `Route.source='ETMS'`, a column that does not exist on `Route`.
+>
+> **Resolved in E0.5 (2026-11-11):** Option 1 vs option 2 is settled by **D2, approved by the owner on 2026-11-11**: ETMS trips use a nullable `routeId` + `origin` (`ROUTE` / `ETMS`) and a 1:1 `TransportTrip`, with no generated hidden `Route`s. Still open: whether fixed shuttles keep real `Route` + `RouteSchedule` and door-to-door rosters use "repeat to date" drafts (the recommended default) is owner decision **P2** (README §7).
 
 **Live progress reuse (Verified mechanism, Proposed extension):**
 - `PlannedTripTracker` (processor) already gives arrival / departure per stop radius, skipped stops, deviation
@@ -518,7 +520,7 @@ tables for vehicle movement. Add passenger and plan linkage in new tables.** The
 | Geocoder evaluation corpus (`ops/routing/geocoder/*`) | Keep as test data for pickup-address QA | Photon is already in production; G4 / G6 findings still apply to address quality |
 | E2E hosting benchmark kit, hosting-options, cost-estimate | Drop | Premise (separate paid routing host) superseded by the 27 GiB server |
 
-> **Validation note (E0 review):** Contradicts D3 and is internally inconsistent with this doc's own R-2 (which names only `RouteStop` as the clash). D3 keeps `RoutePlan`, `RouteAssignment`, `RoutePlanVersion`, `RoutingJob`, `RoutingUsage` and renames **only the conflicting `RouteStop`** (working name `RoutePlanStop`), and only after reviewing schema ownership, migration history and FK dependencies (`02` §3.1; `12` §7 WP 4.0). "Park" for the Valhalla adapter is replaced by "out of scope" (D3).
+> **Resolved in E0.5 (2026-11-11):** The rows above that rename all plan models to `TransportPlan*` and "Park" Valhalla are superseded by **D3, approved by the owner on 2026-11-11** (README §1.1, §5). Agent 2's original reasoning is kept for the record. E0 review detail: the rows contradict D3 and are internally inconsistent with this doc's own R-2 (which names only `RouteStop` as the clash). D3 keeps `RoutePlan`, `RouteAssignment`, `RoutePlanVersion`, `RoutingJob`, `RoutingUsage` and renames **only the conflicting `RouteStop`** (working name `RoutePlanStop`), and only after reviewing schema ownership, migration history and FK dependencies (`02` §3.1; `12` §7 WP 4.0). "Park" for the Valhalla adapter is replaced by "out of scope" (D3).
 
 **Rebase plan (Proposed; do not start in E0):**
 1. Cut a new branch from `origin/main` (v1.8.0). **Don't rebase the 38 commits.** Cherry-pick or port by area in
@@ -530,6 +532,11 @@ tables for vehicle movement. Add passenger and plan linkage in new tables.** The
    `routingV2` / ETMS on the web.
 3. Leave the original branch untouched as an archive. Push it to a private remote ref only if the owner approves;
    today it exists only on the dev PC (**risk: single copy**).
+
+> **E0.5 Lead note (2026-11-11):** Owner instruction for E0.5: keep `feature/routing-engine` and
+> `feature/routing-r0` **isolated — no push, no merge**. Lead check: both are local only, upstream `origin/main`,
+> `push.default` unset. The custody recommendation is now an **off-repo `git bundle` copy** (not done; owner to approve,
+> README §7 O7; VALIDATION C4). The compatibility review plan is `15` §11.
 
 **Risks:**
 - R-1: losing the only copy of the branch (local-only)
@@ -595,6 +602,8 @@ synthetic passengers only. Production runs only with owner approval, off-peak, a
 
 1. **Engine:** do you approve GraphHopper as the only road engine for ETMS (Option A), with Valhalla parked as a
    written fallback? Valhalla is deployed only if the GH matrix benchmarks fail.
+
+   > **Resolved in E0.5 (2026-11-11):** Answered by **D3, approved by the owner on 2026-11-11**: GraphHopper is the only road engine and Valhalla is **out of scope**, not a parked fallback. The other questions stay open as owner decisions (README §7): Q2 / Q9 → O3, Q3 → O2, Q4 → O7, Q6 → L2, Q7 / Q10 → P4, Q8 → P2; question 5 is gate G1 (`12` §2).
 2. **GH profiles:** may we plan a GH re-import to add a `foot` profile (walking to shuttle stops) and possibly a
    `van` / `bus` profile? It means 30–60 min without routing during the off-peak re-import, plus extra RAM measured
    first on a non-production machine.
@@ -602,6 +611,9 @@ synthetic passengers only. Production runs only with owner approval, off-peak, a
    ≤ 1.5 cores)? Or should optimisation run on another machine you own?
 4. **Branch custody:** may `feature/routing-engine` / `feature/routing-r0` be pushed to a private remote ref as an
    archive? Today they exist only on the dev PC.
+
+   > **E0.5 Lead note (2026-11-11):** Under the owner's E0.5 instruction (no push, no merge) this question is
+   > restated as README §7 O7: an off-repo `git bundle` custody copy, recommended, not done.
 5. **Live bug:** fix the public share-page ETA line (lat and lng swapped, RR-14) in a v1.8.x patch, separate from
    ETMS?
 6. **Safety rules:** which night-shift / women-safety rules are mandatory for India customers (first pickup / last

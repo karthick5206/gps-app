@@ -44,9 +44,9 @@ Schema: `apps/api/prisma/schema.prisma` (line numbers below refer to it). Nothin
 | Billing / licensing | `LicenceSeat`, `LicenceOrder`, `Invoice` | **Untouched** | Annual device model preserved |
 | Feature flag | `Company.settings.features` / `COMPANY_FEATURES` (`packages/shared/src/api.ts` l.68) | **Extend** values `etms`, `etmsProvider` | Per-company flag + env kill switch `ETMS=off` |
 
-> **Validation note (E0 review):** Contradicts the Lead decision. D5 names the role **Passenger** (not Employee), and `12` WP 1a.2 seeds Corporate admin / Dispatcher / Passenger / Driver as **role templates only when `etms` is enabled for a company**, explicitly *not* added to the global `SYSTEM_ROLES` (`ensureSystemRoles` would otherwise create them in every company). The flag name is `etms` (`02` §3.1).
+> **Resolved in E0.5 (2026-11-11):** The Roles row above (and the `SYSTEM_ROLES` row in §3) are superseded by **D5, approved by the owner on 2026-11-11** (README §1.1, §5): the role is **Passenger**, not Employee. Agent 1's original text is kept for the record; the schema owner follows `02` / `12`, not this row (condition C2). The final template set and group placement remain owner decision **P6** (Open). E0 review detail: D5 names the role **Passenger** (not Employee), and `12` WP 1a.2 seeds Corporate admin / Dispatcher / Passenger / Driver as **role templates only when `etms` is enabled for a company**, explicitly *not* added to the global `SYSTEM_ROLES` (`ensureSystemRoles` would otherwise create them in every company). The flag name is `etms` (`02` §3.1).
 
-> **Validation note (E0 review):** Renamed by the Lead to **`EmployeeTransportConsent`** because Agent 6's purposes include non-location ones (`02` §3.1; `12` WP 2.0). The same applies to rows 3 of §2 and to `04` §3 / §9.
+> **Resolved in E0.5 (2026-11-11):** Lead names apply (`02` §3.1; condition C2): the consent table is **`EmployeeTransportConsent`** (renamed because Agent 6's purposes include non-location ones; `12` WP 2.0), which also applies to row 3 of §2 and to `04` §3 / §9. Likewise the Incident row's `TransportIncidentAction` is replaced by append-only **`TransportIncidentEvent`** + `TransportEscalationStep` (`02` §3.1), and the Fleet allocation row's phase is **E1b**, not E2 (`12` §6; see the note after §2).
 
 ## 2. Genuinely required new tables (answer to question 8)
 
@@ -72,14 +72,14 @@ contacts), **M** medium (name, employee code, trip history), **L** none/low.
 | 9 | `TransportTripPassenger` | id, tripId, companyId (customer), bookingId, pickupStopId, dropStopId, status PENDING/BOARDED/NO_SHOW/DROPPED/CANCELLED, boardedAt, droppedAt, noShowReason, updatedByUserId | FK trip Cascade; booking Restrict; stops → PlannedTripStop SetNull | **partial unique** (bookingId) WHERE status <> 'CANCELLED' (one active seat per booking); idx (tripId, status) | ETMS retention | M |
 | 10 | `TransportTripEvent` | id, tripId, companyId, kind, actorType DRIVER/EMPLOYEE/DISPATCHER/SYSTEM, actorUserId?, source, clientEventId?, occurredAt (device), receivedAt, lat?, lng?, passengerId?, data JSON | FK trip Cascade | unique (tripId, clientEventId); idx (tripId, occurredAt) | ETMS retention; append-only | M |
 
-> **Validation note (E0 review):** Two columns here differ from the adopted design. (1) `status (business enum)`: D2 keeps `PlannedTripStatus` as the only trip lifecycle and derives the plan §9 states (`02` §5.1–5.2); `TransportTrip` gets timestamps (`publishedAt`, `acknowledgedAt`, `interruptedAt`), not a status enum. (2) Table 7 (`TransportBooking`) carries only the customer `companyId`; the Lead requires both `customerCompanyId` and `providerCompanyId` on every dual-keyed row (`02` §4.1). Note for the schema owner: the purge planner's logical key matches only a column named exactly `companyId` (`apps/api/src/purge/purge-plan.ts` `LOGICAL_KEY`, l.42), so dual-keyed rows without a `companyId` column are reached only through explicit FKs; decide this per table when 3.0 is written (`03` §4 rule).
+> **Resolved in E0.5 (2026-11-11):** Two columns here are superseded by approved decisions (README §1.1, §5; Agent 1's original table is kept for the record). (1) `TransportTrip.status (business enum)`: **D2, approved 2026-11-11**, preserves `PlannedTripStatus` as the only trip lifecycle and derives the plan §9 states (`02` §5.1–5.2); `TransportTrip` records milestones as timestamps (`publishedAt`, `acknowledgedAt`, `interruptedAt`) and passengers carry per-passenger states; no status enum. (2) Table 7 (`TransportBooking`) carries only the customer `companyId`; **D1, approved 2026-11-11**, requires both `customerCompanyId` and `providerCompanyId` on dual-keyed rows, provider nullable until assignment (`02` §4.1). Retained from the E0 review (informational), note for the schema owner: the purge planner's logical key matches only a column named exactly `companyId` (`apps/api/src/purge/purge-plan.ts` `LOGICAL_KEY`, l.42), so dual-keyed rows without a `companyId` column are reached only through explicit FKs; decide this per table when 3.0 is written (`03` §4 rule).
 
 **Needed in later phases (not E1–E3):** `TransportVehicleProfile` (E2), `TransportStopProfile` (E2),
 `TransportFleetAllocation` (E2), `TransportDriverDuty` (E5), `TransportIncident` + `TransportIncidentAction` (E6,
 longer retention, legal hold flag, last-known location snapshot so it survives Position retention),
 `TransportPolicy` + `TransportPolicyVersion` (E6). Cost records (E7) only after owner decision.
 
-> **Validation note (E0 review):** Phase differs from the plan: `12` §6 creates `TransportFleetAllocation` in **E1b** (provider UI, after E3), because R1 is corporate-managed only (D8) and needs no provider fleet allocation. `TransportVehicleProfile` is E2 (resolved, README §6).
+> **Resolved in E0.5 (2026-11-11):** Phases follow `12`: `TransportFleetAllocation` is created in **E1b** (provider UI, after E3), not E2, because R1 is corporate-managed only under **D8, approved 2026-11-11**, and needs no provider fleet allocation (`12` §6). `TransportVehicleProfile` is **E2**, needed for R1 capacity checks (README §6). `TransportIncidentAction` is replaced by `TransportIncidentEvent` + `TransportEscalationStep` (`02` §3.1).
 
 **Not created (deliberately):** booking-passengers, schedule-instances, trip-stops (= `PlannedTripStop`),
 trip-versions (= `RoutePlanVersion` + `AuditLog`), optimisation jobs (= `RoutingJob`), vehicle/driver duplicates,
@@ -94,6 +94,12 @@ any GPS/position table, any notification table.
 | `NotificationLog` | `purpose String?`, `refType String?`, `refId String? @db.Uuid`, `dedupeKey String? @unique`, `providerMessageId String?`, `attempts Int @default(0)`, `nextAttemptAt Timestamptz?` + index (status, nextAttemptAt) | needs notifier code; also fix false SENT for console/no-provider (`01` §6.2) |
 | `AuditAction` enum | add `ACCESS` | enum ADD VALUE is additive (not inside a transaction on old PG; PG 18 fine) |
 | `COMPANY_FEATURES` / `MENUS` / `SYSTEM_ROLES` (code) | `etms`, `etmsProvider`; menus `etms_*`; roles Employee/Driver/Dispatcher | **Do not** backfill `RolePermission` to existing roles (unlike the routes migration l.171) while flags are off |
+
+> **E0.5 Lead note (2026-11-11):** Superseded for implementation by `15` (database change plan, condition C2). The
+> `PlannedTrip` change ships as its own migration `planned_trip_origin` together with WP 3.1, and the reference count
+> is **72 lines in 15 files** excluding specs (79 / 18 including them), of which 4 need a code change (`15` §7.1). The
+> E3 tables include **`TransportChangeSet`** (`15` §5.8). The `trip-performance.ts` "No driver" label bug is scheduled for
+> WP 3.1 (`12` §5).
 
 ## 4. Tenant purge and company delete (V) and implications
 
@@ -131,6 +137,11 @@ Retention (`retention/retention.service.ts`) separately trims Position/Trip/Stop
 - ETMS (P): one migration per phase, names after the current head (e.g. `202612xxxxxxxx_etms_accounts`), additive
   only, no backfill of permissions, tested on a fresh DB and on a production-like copy, plus a purge test.
 
+> **E0.5 Lead note (2026-11-11):** "One migration per phase" has a documented exception: E3 has two migrations,
+> `etms_bookings_trips` (WP 3.0) and `planned_trip_origin` (WP 3.1, same PR) (`12` §1, `15` §9.1). "Tested on a
+> production-like copy" means synthetic, volume-scaled data unless the owner decides otherwise (README §7 L8).
+> `btree_gist` is available on production but not installed and needs superuser (owner decision O16).
+
 ## 6. `feature/routing-engine` schema conflict (V) and resolution (P)
 
 Evidence: `git show feature/routing-engine:apps/api/prisma/schema.prisma`; merge-base with main `07077b6`
@@ -159,7 +170,7 @@ Resolution (recommended):
   Restrict (walked by purge) — they are.
 - ETMS depends on this only from E4; E1–E3 must not wait for it (optimiser optional, manual dispatch first).
 
-> **Validation note (E0 review):** Superseded by D3 and `12` §1 / §7: the routing work is ported **selectively onto a fresh branch from main after a compatibility review**, never by rebasing or merging `feature/routing-engine`; the `RouteStop` → `RoutePlanStop` rename happens only after that review of schema ownership, migration history and FK dependencies. The migration facts above are correct (verified: branch migrations `20261110110000_routing_engine_v2`, `20261110120000_routing_jobs_plan_versions`; main has `20261110090000`, `20261110100000` before them and `20261112090000`…`20261113090000` after them; merge-base `07077b6`).
+> **Resolved in E0.5 (2026-11-11):** The bullet "Rebase/merge main into the branch first" is superseded by **D3, approved by the owner on 2026-11-11** (README §1.1, §5) and `12` §1 / §7. Agent 1's original reasoning is kept for the record. The old branch stays isolated until its compatibility review (E0.5 item 6). Likewise "Reuse after merge" in the §1 optimisation row means reuse after that selective port. The routing work is ported **selectively onto a fresh branch from main after a compatibility review**, never by rebasing or merging `feature/routing-engine`; the `RouteStop` → `RoutePlanStop` rename happens only after that review of schema ownership, migration history and FK dependencies. The migration facts above are correct (verified: branch migrations `20261110110000_routing_engine_v2`, `20261110120000_routing_jobs_plan_versions`; main has `20261110090000`, `20261110100000` before them and `20261112090000`…`20261113090000` after them; merge-base `07077b6`).
 
 ## 7. Question 6 — using telemetry without duplicating it (V + P)
 
@@ -189,3 +200,5 @@ and support a legal-hold export; (2) `Position` has no `companyId`; every read m
 4. Data-subject erasure: anonymise profile and booking addresses in place, keep trip statistics?
 5. Merge order: will `feature/routing-engine` be rebased with the `RoutePlanStop` rename before ETMS E4?
 6. Should `NotificationLog` become the ETMS delivery ledger (extend, recommended) — confirms no second notification table.
+
+> **Resolved in E0.5 (2026-11-11):** Q1 is answered by **D2, approved 2026-11-11** (`PlannedTrip.routeId` nullable + `origin`). Q5 is answered by **D3, approved 2026-11-11**: no rebase; selective port onto a fresh branch from main after the compatibility review, and the `RouteStop` rename only after that review. Q6 follows the Lead design (`NotificationLog` extended, `02` §3.1 / §3.2). Still open, with no answer chosen here (README §7): Q2 → **L3**; Q3 and Q4 → **L5**.

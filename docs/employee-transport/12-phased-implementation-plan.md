@@ -1,8 +1,13 @@
 # 12 · ETMS phased implementation plan (Lead Architect)
 
-Status: **Proposed — needs owner approval.** No phase has started; nothing below is implemented or tested. Exit
-criteria come from plan §17 and `11-testing-and-acceptance.md` §7. Estimates are in `13` §3. **R1** = first release
-(E1a + E2 + E3, D8).
+Status: **Phasing under the architecture direction approved by the owner on 2026-11-11** (D1–D8, L4, O8, O9; record in
+[README](README.md) §1.1). The plan itself is planning material: no phase has started, nothing below is implemented or
+tested, and **all eight D6 gate items (G1–G8) are outstanding**. Implementation, deployment, paid storage, destructive
+database changes and infrastructure changes each need separate owner authorisation; every other README §7 decision is
+unresolved. E0.5 documentation and planning is complete (README §9); implementation-ready gate specs are in
+[14](14-d6-release-gate-specs.md), the database change plan in [15](15-database-change-plan.md) and the test-environment
+requirements in [16](16-test-environment-requirements.md). Exit criteria come from plan §17 and
+`11-testing-and-acceptance.md` §7. Estimates are in `13` §3. **R1** = first release (E1a + E2 + E3, D8).
 
 Short references: `01` = [01-current-state-assessment.md](01-current-state-assessment.md), `02` =
 [02-target-architecture.md](02-target-architecture.md), `03` =
@@ -18,9 +23,9 @@ Short references: `01` = [01-current-state-assessment.md](01-current-state-asses
 | Rule | Detail |
 |---|---|
 | Branching | One integration branch per phase from `main` (e.g. `feature/etms-e1a`); work packages (WP) on short-lived branches merged into it; phase merged into a release branch only after its test gate. The routing port (E4) starts from a **fresh branch from main**, never a rebase of `feature/routing-engine` (D3). |
-| Single-owner, merge-gated files | **Schema** (`apps/api/prisma/schema.prisma` + migrations): schema owner only, one migration per phase named after the current head. **Contracts** (`packages/shared/src/transport*.ts`, `routing.ts`, `RedisKeys`): Lead only. **Navigation** (`packages/shared/src/permissions.ts` `MENUS`, `apps/web/src/features/shell/nav.ts`, `apps/web/src/app/router.tsx`, mobile `_layout.tsx`): web lead only. Other WPs consume these after they merge (WP-x.0 of each phase). |
+| Single-owner, merge-gated files | **Schema** (`apps/api/prisma/schema.prisma` + migrations): schema owner only, one migration per phase, dated after the current head of `origin/main` when it merges (`15` §9.1). **Documented exceptions:** E0.5 G2 / G3 add `Alert.notifiedAt` and the `NotificationLog` columns in their own v1.8.3 patch; **E3 has two migrations** — `etms_bookings_trips` (WP 3.0) and `planned_trip_origin`, which ships **in the same PR as WP 3.1** because the `routeId` type change breaks `tsc` until the null-tolerance code merges (`15` §7.1, §12 C-1, confirmed by the Lead in E0.5). E4 may likewise pair the ported `routing_engine_v2` with a small `etms_planning_links` migration (`TransportTrip.routePlanId`, snapped coordinates; `15` §2, §10), decided in its compatibility review. Migration names for later phases are indicative (`15` §2). **Contracts** (`packages/shared/src/transport*.ts`, `routing.ts`, `RedisKeys`): Lead only. **Navigation** (`packages/shared/src/permissions.ts` `MENUS`, `apps/web/src/features/shell/nav.ts`, `apps/web/src/app/router.tsx`, mobile `_layout.tsx`): web lead only. Other WPs consume these after they merge (WP-x.0 of each phase). |
 | Flags | `ETMS=off` env kill switch, company feature `etms`, web flag `etms` (`OFF_BY_DEFAULT`); routing additionally `ROUTING_ENGINE_V2` (or `ETMS_ROUTING`). Default off everywhere. |
-| Data | Synthetic only (`11` §6). Test instance `veetrax_assess` / `_test` databases; production never used for tests or load. |
+| Data | Synthetic only (`11` §6). Test instance `veetrax_assess` / `_test` databases; production never used for tests or load. Test tiers T1–T5 and version parity with production (Node 24.22.2, PostgreSQL 18.6 + TimescaleDB 2.31.0, Valkey 7.2.13; `16` Lead box) are defined in `16`. Using a copy of production data for any rehearsal or drill is owner decision L8 (README §7). |
 | Deployment | No production deployment or migration without explicit owner approval per release. E0.5 patches are v1.8.x releases, each approved separately. E1–E3 ship **no production deployment** (D8). |
 | Secrets and backups | Never commit database backups, dumps, archives, private keys, push / APNs credentials or other secrets to Git. Encrypted backups live outside the repo; the repo holds scripts and documentation only. |
 | Evidence | Each WP closes with a `PROGRESS.md` row (item · risk · commit · tests with pass counts) and dated evidence under `docs/employee-transport/evidence/` (tokens redacted, `0a92ec5` pattern). |
@@ -57,7 +62,14 @@ E1a → E2 → E3 is the **smallest useful release** (D8). E1b (provider UI) run
 **D6 is a release gate that must be passed before any pilot. It is not finished work: nothing below is implemented.**
 Recommended timing: start right after E0 approval, as independent v1.8.x patches, so that E1a builds on the fixed
 paths; the gate itself is checked again at E9 before the pilot. Each gate item names an owner role, measurable
-acceptance criteria and the verification evidence the Lead requires.
+acceptance criteria and the verification evidence the Lead requires. **Implementation-ready specifications** (problem,
+root cause, change, risks, tests, evidence, rollback, effort) are in [14](14-d6-release-gate-specs.md); where `14` is
+more precise, it governs. Effort for G1–G8: **4.5–6.7 ew** (`14` §0; `13` §3.2).
+
+**Proposed patch grouping (`14` §7; each patch needs its own owner approval, O1; none is approved):** v1.8.1 = G6 +
+G1 + G8 web part (incl. the share-page style fix) + the inert G4 `install-ubuntu.sh` edit; v1.8.2 = G5; ops window = G4
+production AOF switch; v1.8.3 = G2 + G3 (the only migration); v1.8.4 = G7 phase A; ops = G7 phase B (off-site, after
+the provider and purchase approval, O10); G8 mobile = a separate EAS build track after the server-URL decision (O12).
 
 ### 2.1 Gate items
 
@@ -66,11 +78,11 @@ acceptance criteria and the verification evidence the Lead requires.
 | G1 | **Share-page bug**: `apps/web/src/features/live-share/PublicSharePage.tsx:139` swaps `[lng,lat]` returned by `live-share.service.ts:179`; port RR-14 `share-eta.ts` | Web engineer; reviewer: Lead | Road line drawn on the road for 3 synthetic shares (Chennai, Bengaluru, Delhi NCR) with GraphHopper on; unit test on the coordinate mapper; no other `[la, ln]` swap in `features/live-share` | Unit test output; Playwright screenshots before / after on the test instance; owner-approved v1.8.x deploy record + one production screenshot after deploy |
 | G2 | **Lost alert notifications**: `Alert.notifiedAt` set by the notifier after handling (also with zero recipients); notifier sweeper re-queues alerts with `notifiedAt IS NULL` older than 60 s (bounded to 24 h) and `NotificationLog` rows stuck `QUEUED`; no `XACK` on job failure (retry with backoff, then `DEAD` + System Health alert) | Backend engineer (notifier); schema owner for the additive columns | Chaos scenario "XADD `vt:notify` fails after alert commit": 100 % of alerts get a notification job within 2 min of recovery, 0 lost, 0 duplicates per alert + recipient + channel; notifier job failure leaves the entry un-acked and retried; existing chaos suite: 0 positions lost | Chaos run `results.md` / `results.json` in a dated evidence folder; Jest output with pass counts |
 | G3 | **Misleading SENT status**: console SMS provider and unconfigured mailer record `SKIPPED` with reason `provider not configured`, never `SENT`; `NotificationLog` gains `attempts`, `nextAttemptAt`, `providerMessageId`, `dedupeKey` (`03` §3) | Backend engineer (notifier) | Unit test per provider (console, Smartping fake, SMTP unset, Zoho unset, Expo fake): status matches provider outcome in 100 % of cases; fake-provider 5xx → `FAILED` after retries (`11` R7) | Jest output; one test-instance run showing `SKIPPED` rows with reason; production check after deploy: no new `SENT` rows with provider `console` / `mailer`-not-configured |
-| G4 | **Valkey AOF including recovery validation**: `appendonly yes`, `appendfsync everysec` in `ops/deploy/linux/install-ubuntu.sh`; production change in an approved maintenance window | Ops engineer; approver: owner | On the test instance: `kill -9` Valkey and restart → `vt:positions` / `vt:notify` entries and consumer groups present; `cache-restart-empty` chaos scenario passes with AOF on; AOF rewrite and disk use measured; restore of an AOF file onto a fresh Valkey succeeds | Recovery drill log (before / after `XLEN`, `XINFO GROUPS`), chaos results, `CONFIG GET appendonly` on production after the window |
-| G5 | **Logout closes or invalidates live connections** (R-14): socket disconnected on logout / session revocation; `refreshAll()` re-checks the session | Backend engineer (live gateway); reviewer: security role | Socket receives no event within 5 s after logout or admin revoke in 100 % of 20 runs; `tenant-isolation-probes` F-1 → PASS; 20/20 probes still PASS | Probe script output; Jest test for the gateway |
+| G4 | **Valkey AOF including recovery validation**: `appendonly yes`, `appendfsync everysec` in `ops/deploy/linux/install-ubuntu.sh`; production change in an approved maintenance window (`CONFIG SET`, no restart, `14` G4) | Ops engineer; approver: owner | On a **dedicated, private Valkey 7.2 drill instance** (own port and data directory; **not** the shared WSL Valkey whose db 1 serves the test instance and whose db 0 serves the dev stack, `16` §2.2 I2): `kill -9` Valkey and restart → `vt:positions` / `vt:notify` entries and consumer groups present; `cache-restart-empty` chaos scenario passes with AOF on; AOF rewrite and disk use measured; restore of an AOF file onto a fresh Valkey succeeds | Recovery drill log (before / after `XLEN`, `XINFO GROUPS`), chaos results, `CONFIG GET appendonly` on production after the window |
+| G5 | **Logout closes or invalidates live connections** (R-14): socket disconnected on logout / session revocation; `refreshAll()` re-checks the session | Backend engineer (live gateway); reviewer: security role | Socket receives no event within 5 s after logout or admin revoke in 100 % of 20 runs; `tenant-isolation-probes` F-1 → PASS; probe baseline after G5: **0 FAIL, all 20 original probes PASS and F-1 PASS = 21 PASS** (`16` §6.1, Q13) | Probe script output; Jest test for the gateway |
 | G6 | **Routing / map health checks**: System Health checks for GraphHopper `:8989`, Photon `:2322`, Martin (`monitoring/checks.ts`); `release.sh` post-deploy health gate (poll `/api/health/ready` + gateway `:4121/health`, fail the release otherwise) | Ops engineer | Stopping each service on the test instance raises the check within 2 min and clears it after restart; `release.sh` dry run fails (non-zero exit) when the API is unhealthy and passes when healthy | Unit tests for checks; screenshots / logs of the alert raised and cleared; `release.sh` dry-run transcript |
-| G7 | **Secure backup and restore process**: backup / restore **script and documentation** moved into `ops/deploy/linux/` (from the installed `/etc/cron.d/veetrax-backup` + `/usr/local/sbin/veetrax-local-backup`), reconciled with the existing `ops/backup/veetrax-backup.sh` / `veetrax-restore.sh` (GPG to a public key, verified restore, manifest counts); encrypted output stored **outside the repo**; the off-site target is an owner decision (O8: the Windows flow in `ops/backup/README.md` uses GitHub Release assets); backup freshness checked by System Health | Ops engineer; approver: owner (key custody, off-site target) | Restore drill into an empty `veetrax_restore_test`: manifest row counts equal (pattern `ops/backup/veetrax-restore.sh`), RTO measured ≤ 2 h; backup older than 26 h raises System Health WARN; `git` contains no dump, archive, key or secret (CI secret scan / `.gitignore` check) | Drill log with counts and timings in the evidence folder; secret-scan output; documented key custody (where the encryption key is kept, by whom) |
-| G8 | **Mobile builds without external maps**: EAS profiles set `EXPO_PUBLIC_SERVER_URL=https://app.veetrax.com` and self-hosted `EXPO_PUBLIC_MAP_STYLE_*` (no OpenFreeMap) (`08` §1.4 item 3) | Mobile engineer; web engineer for the web check | Network capture of a preview build on an Android emulator during 5 min of map use: 0 requests to hosts other than `app.veetrax.com` (except push registration, D7); `eas.json` reviewed. Web: the production bundle is built with `VITE_MAP_STYLE_*` and a browser capture of live map + share page shows 0 requests to `openfreemap.org` (code default in `map-style.ts` l.34–36) | Capture summaries (host lists), build id, `eas.json` diff, web build env check |
+| G7 | **Secure backup and restore process**: **scope includes uploaded files** — the production backup today does **not** include `apps/api/var` (documents, selfies, invoices; Lead check 2026-11-11), and its encryption is unknown although it holds `.env` files; G7 adds uploads and mandatory client-side encryption (`14` G7). Backup / restore **script and documentation** moved into `ops/deploy/linux/` (from the installed `/etc/cron.d/veetrax-backup` + `/usr/local/sbin/veetrax-local-backup`), reconciled with the existing `ops/backup/veetrax-backup.sh` / `veetrax-restore.sh` (GPG to a public key, verified restore, manifest counts); encrypted output stored **outside the repo**; off-site storage per **O8 (approved 2026-11-11)**; provider default **AWS S3 Mumbai (ap-south-1)**, the earlier owner decision of 2026-11-09 with verified prices (`docs/modernization/backup-plan.md` §4), needing only owner confirmation and purchase approval (O10; nothing bought); the Windows flow's GitHub Release target is retired after the drill; backup freshness checked by System Health | Ops engineer; approver: owner (key custody, off-site target) | Restore drill into an empty `veetrax_restore_test` on a non-production host: manifest row counts equal (pattern `ops/backup/veetrax-restore.sh`), upload file count and size equal the manifest, RTO measured ≤ 2 h; backup older than 26 h raises System Health WARN; `git` contains no dump, archive, key or secret (CI secret scan / `.gitignore` check) | Drill log with counts and timings in the evidence folder; secret-scan output; documented key custody (where the encryption key is kept, by whom) |
+| G8 | **Mobile builds and the public share page without external maps**: (a) **public share page** — `apps/web/src/features/live-share/PublicSharePage.tsx:104` hard-codes `style: OPENFREEMAP.standard`, so the production share page loads OpenFreeMap tiles **although** the production build sets all three `VITE_MAP_STYLE_*` to `app.veetrax.com/tiles` (Lead-verified 2026-11-11): a **live breach** of "nothing leaves the server"; recommended to ship in v1.8.1 next to G1 (owner approval outstanding); (b) web fallbacks in `map-style.ts` / `packages/shared/src/basemap.ts` point at the self-hosted `/tiles`; (c) **mobile builds** — EAS profiles set `EXPO_PUBLIC_SERVER_URL` (default `https://app.veetrax.com`, owner decision O12) and self-hosted `EXPO_PUBLIC_MAP_STYLE_*` (`08` §1.4 item 3; `14` G8) | Mobile engineer; web engineer for the web part | Mobile: network capture of a preview build on an Android emulator during 5 min of map use: 0 requests to hosts other than the configured server (except push registration, D7 / L4); `eas.json` reviewed. Web: `grep -rIl openfreemap apps/web/dist` empty, and a browser capture (HAR) of live map, history, geofences, routes **and the public share page** shows 0 requests to any host other than the app origin (a bundle merely built with `VITE_MAP_STYLE_*` is **not** sufficient: it passes while the share page leaks) | Capture summaries (host lists), build id, `eas.json` diff, dist grep, web build env check; after deploy a production HAR host list of the share page |
 
 ### 2.2 Additional hardening (E1a entry criteria, outside the 8-item gate)
 
@@ -83,7 +95,8 @@ acceptance criteria and the verification evidence the Lead requires.
 hold the only migrations (`Alert.notifiedAt`, `NotificationLog` columns → schema owner).
 
 **Exit criteria:** every gate item has its acceptance criteria met and evidence filed; full existing API + web suites
-pass; chaos suite 0 positions lost; owner approves each production deployment separately. The pilot (E9) cannot start
+pass; chaos suite 0 positions lost, re-run on production versions (Node 24, Valkey 7.2; C6, `16` §6 — the 2026-11-09
+baselines ran on Node 22 / Valkey 9); owner approves each production deployment separately. The pilot (E9) cannot start
 until G1–G8 are verified on production. **Dependencies:** none (can start on approval). **Test gate:** CI (`ci.yml`
 api + web) green on each v1.8.x patch; chaos suite and isolation probe re-run on the test instance with results in the
 evidence folder; each patch merged to `main` only after its gate evidence is reviewed by the Lead.
@@ -100,13 +113,13 @@ passenger / driver identities as roles, outbox table, isolation test suite and C
 | 1a.0 | Migration `etms_accounts`: `TransportServiceAgreement`, `OutboxEvent`, `AuditAction += ACCESS`; shared contracts skeleton; `MENUS` (`etms_*`, `etms_self`, `etms_driver`, group `transport`), `MenuDef.requires` gating; `COMPANY_FEATURES += etms` | **Merge-gated** (schema / contracts / navigation owners); first |
 | 1a.1 | `AuthContext.agreements` loading + `access/transport-scope.ts` helpers + relationship guards + `TransportFeatureGuard`; cache invalidation | after 1a.0 |
 | 1a.2 | Role templates (Corporate admin, Dispatcher, Passenger, Driver) seeded **only** when `etms` is enabled for a company — not added to global `SYSTEM_ROLES`, no backfill to existing roles (`03` §3, `07` Q5) | after 1a.0; parallel with 1a.1 |
-| 1a.3 | Isolation matrix generator + completeness guard (`11` §3.1); CI job with PostgreSQL 18 + TimescaleDB + Valkey service containers and one `TEST_DATABASE_URL` guard helper | parallel from start (fixtures follow 1a.0) |
+| 1a.3 | Isolation matrix generator + completeness guard (`11` §3.1); CI job with PostgreSQL 18 + TimescaleDB + Valkey 7.2 service containers on Node 24 (production versions, `16` §5) and one `TEST_DATABASE_URL` guard helper; confirm `btree_gist` is available in the CI image (`15` §8.2) | parallel from start (fixtures follow 1a.0) |
 | 1a.4 | Outbox writer library + relay in the notifier (`SKIP LOCKED`), `vt:transport:updates`, socket fan-out skeleton | after 1a.0; parallel with 1a.1 |
 | 1a.5 | Web: transport group visible behind flags, empty pages, module switch in `CompaniesPage.tsx` | after 1a.0 |
 
 **Dependencies:** G5 (R-14) and 0.5-9 (R-12) merged (Agent 6 calls them E1 blockers, `10` §1.9).
 **Exit criteria (plan §17 E1; `11` §7):** isolation matrix 100 % pass incl. agreement scopes (expired / suspended /
-site-limited) on fixtures; completeness guard green; `tenant-isolation-probe.ts` 20/20 PASS; full existing suites pass
+site-limited) on fixtures; completeness guard green; `tenant-isolation-probe.ts` 0 FAIL with 21 PASS (20 original + F-1 after G5), re-run on production versions (C6); full existing suites pass
 with ETMS flags off **and** on; reports golden unchanged. **Test gate:** CI with DB job green; Playwright: each new role
 logs in and sees only its menus.
 
@@ -151,8 +164,8 @@ never proof of boarding; v1.8 `PlannedTripStatus` / `PlannedStopStatus` semantic
 
 | WP | Deliverable | Parallel / gated |
 |---|---|---|
-| 3.0 | Migration `etms_bookings_trips`: `TransportShift`, `TransportSchedule`, `TransportScheduleException`, `TransportBooking`, `TransportTrip`, `TransportTripPassenger`, `TransportTripEvent`; `PlannedTrip.routeId` nullable + `origin`; index `PlannedTrip(driverId, plannedStart)` | **Merge-gated** |
-| 3.1 | `routeId`-null tolerance across the ~71 references in 15 files (`03` §3): planned-trips service / reports / web / shared | after 3.0; **must merge before 3.4** |
+| 3.0 | Migration `etms_bookings_trips`: `TransportShift`, `TransportSchedule`, `TransportScheduleException`, `TransportBooking`, `TransportTrip`, `TransportTripPassenger`, `TransportTripEvent`, **`TransportChangeSet`** (idempotency ledger + drafts for dispatch change sets, `02` §5.4, `05` §1, `15` §5.8 / C-2, confirmed by the Lead) — eight tables | **Merge-gated** |
+| 3.1 | Migration **`planned_trip_origin`** in the **same PR** (`PlannedTrip.routeId` nullable + `origin` + CHECKs, index `PlannedTrip(driverId, plannedStart)`, and — only if `btree_gist` is installed everywhere — the two ETMS-scoped exclusion constraints; `15` §7.1, §8.2) + `routeId`-null tolerance: **72 lines in 15 files** excluding `*.spec.ts` (79 / 18 including them), of which 4 need a code change and 8 a type change (`15` §7.1); `PlannedTripsService.update` refuses `origin = ETMS` (409 `MANAGED_BY_ETMS`); **fix the existing `trip-performance.ts` `nameOf` bug** that labels every null group key "No driver", also when grouping by route (`15` §7.1 #19, C-12) | after 3.0; **must merge before 3.4** |
 | 3.2 | Shifts / schedules API + generator job (rolling 72 h, idempotent, site time zone, overnight, US DST) | after 3.0 |
 | 3.3 | Bookings API (states, cut-offs, partial unique index, idempotency key, rate limit) | after 3.0; parallel with 3.2 |
 | 3.4 | Dispatch: board read model, candidates (seats; ETA only if routing up), change-set publish transaction (`02` §5.4), repeat-to-date drafts, dispatcher progression (start / complete / acknowledge-on-behalf wrapping v1.8 commands) and per-passenger outcome endpoint | after 3.1, 3.3 |
@@ -166,7 +179,10 @@ US DST week) generated, modified and cancelled with correct counts; double submi
 `PlannedTrip` + header + passengers atomically and the v1.8 tracker follows the trip under `sim:route` (stop arrivals,
 ETA, alerts); capacity never exceeded under concurrent change sets (409 on version conflict); passenger sees only own
 leg and the vehicle only inside the window; a GPS stop arrival without a dispatcher outcome leaves every passenger
-`PENDING` (test asserts GPS never sets `BOARDED`); everything works with GraphHopper stopped (no road ETA, no invented
+`PENDING` (test asserts GPS never sets `BOARDED`); `trip-performance` grouping by route shows a route-specific label for
+null-route trips (never "No driver"); booking burst (`11` §5.1–5.2) measured on T3 as an **indicative** figure only —
+the burst SLO of record is measured on staging at E9 (resolves `16` Q12; `11` §7 E3 "on staging" is superseded);
+everything works with GraphHopper stopped (no road ETA, no invented
 numbers); existing Routes / Planned trips behaviour unchanged (golden + regression).
 **Test gate:** full run on `veetrax_assess` with `sim:route` + bots + Playwright; evidence folder; **no production
 deployment** — owner decides afterwards whether to pilot.
@@ -179,7 +195,7 @@ deployment** — owner decides afterwards whether to pilot.
 (`07` §2.5), `TransportFleetAllocation`, provider projections (MINIMAL), Super Admin reason header + customer-visible
 sensitive-access log (`10` §2.2 item 8).
 
-WPs: 1b.0 migration `TransportFleetAllocation` (gated); 1b.1 agreement workflow API; 1b.2 web partners screens +
+WPs: 1b.0 migration `etms_fleet_allocation` (`TransportFleetAllocation`, gated; `15` §10); 1b.1 agreement workflow API; 1b.2 web partners screens +
 context picker; 1b.3 provider-side isolation fixtures (2 providers × 3 customers). **Dependencies:** E3; owner
 decision P1 (approval model, who creates customer companies). **Exit criteria:** isolation matrix incl. all
 provider-to-customer leakage cases (`11` §3.2 items 1–10) green; agreement end revokes access within one request.
@@ -193,7 +209,9 @@ provider-to-customer leakage cases (`11` §3.2 items 1–10) green; agreement en
 bookings, dispatch, planned trips, live tracking (`02` §1.1). **Valhalla is out of scope.** Manual dispatch (E3) must
 keep working when the optimiser or worker is unavailable; E4 never makes it a prerequisite.
 
-Prep (can start right after E0.5, on staging):
+Prep (can start right after E0.5; benchmarks need the staging host, C3). Until the review, `feature/routing-engine` and
+`feature/routing-r0` stay **isolated on the dev PC: no push, no merge, no rebase** (owner instruction, E0.5). Custody is
+owner decision O7 (recommended: an off-repo `git bundle` copy, not done). The review plan is `15` §11.
 1. **Compatibility review** (routing agent + schema owner, written report): for each candidate area of
    `feature/routing-engine` — schema ownership of the six models, migration history (branch migrations
    `20261110110000` / `20261110120000` sort before main's deployed `20261112*` / `20261113090000`), FK dependencies
@@ -203,22 +221,23 @@ Prep (can start right after E0.5, on staging):
    optimiser service, (c) `RoutingProvider` + `GraphHopperProvider` wrapping `RoutingService` with unchanged behaviour,
    (d) GH matrix M1 (sparse k-nearest, cache per graph version), (e) jobs / worker / usage. The conflicting branch
    `RouteStop` is renamed (working name `RoutePlanStop`) **only after** the review confirms ownership, history and
-   FK dependencies; migrations are regenerated and re-dated after main's head. RR-14 is already handled by G1.
+   FK dependencies; migrations are regenerated and re-dated after main's head. RR-14 is planned under G1 (outstanding; not ported by E4).
 3. Benchmarks B1–B6 (`06` §7) on staging. Main phase: ETMS
 problem builder (door-to-door login / logout with max ride time, mixed fleet), per-passenger unassigned reasons,
 scenario comparison, plan editor, publish into `PlannedTrip`, routing-health chip, GH ETA calibration plan (B9).
 
 | WP | Deliverable | Parallel / gated |
 |---|---|---|
-| 4.0 | After the compatibility review: migration `routing_engine_v2` (regenerated, re-dated after main's head; `RoutePlan`, `RouteAssignment`, `RoutePlanStop`, `RoutingJob`, `RoutingUsage`, `RoutePlanVersion`) + `routing.ts` contracts | **Merge-gated** |
+| 4.0 | After the compatibility review: migration `routing_engine_v2` (regenerated, re-dated after main's head; `RoutePlan`, `RouteAssignment`, `RoutePlanStop`, `RoutingJob`, `RoutingUsage`, `RoutePlanVersion`) + `etms_planning_links` (`TransportTrip.routePlanId`, snapped coordinates; `15` §10) + `routing.ts` contracts | **Merge-gated** |
 | 4.1 | Adapter + GH provider + matrix builder + cache; degraded results | after 4.0 contracts |
 | 4.2 | Worker + jobs + metering port; systemd units with caps | parallel with 4.1 |
 | 4.3 | OR-Tools extensions: max ride time (transposed login model), allowed vehicles, second capacity (wheelchair), fixed vehicle cost, `RegisterTransitMatrix`; pytest in CI | parallel (Python, isolated) |
 | 4.4 | Routing corpus (~30 problems, haversine × 1.35 matrices in CI; real GH nightly on staging) | parallel |
 | 4.5 | Web planner / scenario compare / plan editor (salvage `RoutePlannerPage`, `PlanEditor` pieces) | after 4.1 API |
-| 4.6 (E4b, optional) | GH `foot` (+ `van`) profile re-import, Stage-1 stop assignment, `TransportStopProfile` | owner decision O3; after B8 |
+| 4.6 (E4b, optional) | GH `foot` (+ `van`) profile re-import, Stage-1 stop assignment, `TransportStopProfile` (migration `etms_stop_profile`, `15` §2) | owner decision O3; after B8 |
 
-**Dependencies:** E3 (bookings, publish path), staging host (external), owner decisions on engine (D3) and resource cap
+**Dependencies:** E3 (bookings, publish path), staging host (C3: a **separate** production-class x86 host without AVX;
+the capped-WSL2 option is not feasible on the 28.8 GB dev PC, `16` §3.2), owner decisions on engine (D3) and resource cap
 (O2). **Exit criteria (plan §17 E4; `11` §7):** 30/30 corpus problems pass all invariants; R4 (worker crash) and R5
 (engine down) pass; with the optimiser stopped, the full R1 manual-dispatch E2E still passes; with the engine down,
 0 ETAs shown with a live source (Playwright + API contract); manual edits
@@ -256,7 +275,7 @@ evaluation on every assignment change and optimiser hard constraints, escalation
 delivery receipts (Expo receipts, SMS DLR) and per-recipient states, signed escalation-contact links, incident
 retention + legal hold, ETMS SOS not disableable / not suppressed while a trip is active.
 
-WPs: 6.0 migration (`TransportPolicy`, `TransportPolicyVersion`, `TransportPolicyOverride`, `TransportEscalationStep`,
+WPs: 6.0 migration `etms_safety` (`TransportPolicy`, `TransportPolicyVersion`, `TransportPolicyOverride`, `TransportEscalationStep`,
 `NotificationLog` delivery states) gated; 6.1 policy engine + registry; 6.2 escalation sweeper + receipts; 6.3 web
 policies + incident console; 6.4 retention / purge exclusions. **Dependencies:** E5; **legal review** (L1, L2) before any
 mandatory rule is enabled; SMS provider (C2) for SMS escalation. **Exit criteria (plan §17 E6):** each mandatory rule
@@ -270,7 +289,7 @@ suite, chaos R1 / R7, Playwright emergency console.
 
 **Scope:** board actions (change tray, reassign vehicle / driver, change stop, cancel / suspend, escalate, merge prompt
 on `transport.plan.changed`), intra-day re-optimise of one trip, reports (plan §14), transport dashboard, rate cards and
-cost estimates (only with configured inputs). WPs: 7.0 migration for rate cards / cost records, only if the owner
+cost estimates (only with configured inputs). WPs: 7.0 migration `etms_costing` for rate cards / cost records, only if the owner
 approves costing (C1), merge-gated; 7.1 board actions; 7.2 reports + goldens; 7.3 dashboard; 7.4 costing.
 **Dependencies:** E4, E6, E1b. **Exit criteria (plan §17 E7):** Playwright normal, breakdown / reassign,
 no-show and late-shift journeys; R8 concurrent edits; 1,000-vehicle live board p95 ≤ 3 s on staging. **Test gate:**
@@ -282,7 +301,7 @@ Playwright + k6 / socket load on staging.
 
 **Scope:** company country + site time zone, `en-US` locale, phone / address formats (`07` §7.4), email-OTP fallback
 for US and SMS outages (`08` §3.2), US SMS adapter (if C2 approved), evaluation of direct FCM / APNs vs Expo (`02` §8.1, L4), HRMS import adapters (file-based), ETMS webhook
-events, optional SSO (OIDC). WPs: 8.0 migration `Company` country + site time zone fields (merge-gated, schema owner);
+events, optional SSO (OIDC). WPs: 8.0 migration `company_locale` (`Company` country + site time zone fields; merge-gated, schema owner);
 8.1 locale and formats; 8.2 OTP / SMS adapters; 8.3 HRMS adapters + webhooks; 8.4 push-path evaluation report.
 **Dependencies:** E7; owner decisions C2, P6. **Exit criteria (plan §17 E8):** webhook
 HMAC + HRMS adapter suites; locale snapshots en / hi / ta (+ en-US); US tenant run (America/Chicago, DST weekend)
@@ -294,8 +313,8 @@ green. **Test gate:** integration + locale suites.
 
 **Scope:** staging soak and load, chaos suite with ETMS scenarios, backup / restore drill incl. ETMS tables, device lab
 checklist, runbook, rollback rehearsal (flags off, migrations stay), monitoring (`11` §8), pilot plan. **Dependencies:**
-E8; staging host; legal sign-off. **Exit criteria (plan §17 E9; `11` §7):** staging meets every `11` §5.2 SLO twice plus
-a 24 h soak; chaos 0 lost; restore within RTO; ETMS alerts live on staging; signed acceptance; **explicit owner
+E8; staging host; legal sign-off. **Exit criteria (plan §17 E9; `11` §7):** staging meets every `11` §5.2 SLO twice
+(including the E3 booking-burst SLO of record) plus a 24 h soak; chaos 0 lost; restore within RTO; ETMS alerts live on staging; signed acceptance; **explicit owner
 deployment approval**. **Test gate:** full regression + evidence pack.
 
 ---

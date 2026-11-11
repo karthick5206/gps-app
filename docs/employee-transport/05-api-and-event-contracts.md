@@ -1,7 +1,9 @@
 # 05 · ETMS API and event contracts (Lead Architect)
 
-Status: **everything in this document is Proposed — needs owner approval.** No route, DTO, channel or table below
-exists in code. Conventions marked **(V)** are verified in `origin/main` f5b151b. Architecture context:
+Status: **contract design under the architecture direction approved by the owner on 2026-11-11** (D1–D8, L4, O8, O9;
+record and conditions in [README](README.md) §1.1). The contracts themselves are design, not implemented;
+implementation needs separate owner authorisation, and every README §7 decision other than P7 / L4 / O8 / O9 is still
+open (where a contract depends on one, the decision ID is cited). No route, DTO, channel or table below exists in code. Conventions marked **(V)** are verified in `origin/main` f5b151b. Architecture context:
 [02-target-architecture.md](02-target-architecture.md). Short references: `02` = 02-target-architecture.md, `03` =
 [03-database-model-inventory-and-reuse.md](03-database-model-inventory-and-reuse.md), `04` =
 [04-proposed-data-model-and-erd.md](04-proposed-data-model-and-erd.md), `06`–`11` = the agent documents with those
@@ -20,7 +22,7 @@ numbers, `12` = [12-phased-implementation-plan.md](12-phased-implementation-plan
 | Feature gate | `TransportFeatureGuard` on every ETMS controller: 404 when `ETMS=off` or company feature `etms` absent (`07` §2.4). |
 | Lists | Query DTO extends `ListQueryDto` (V `common/list-query.ts`: `q, page, pageSize ≤ 200, sort, order, status, format json/csv`); response `Paginated<T>` from `@veetracer/shared`; CSV needs `export` (V). |
 | Ids and times | UUID ids; timestamps ISO-8601 UTC; service dates `YYYY-MM-DD` in the **site** time zone; every DTO with a local time also carries `timeZone`. Coordinates as `{lat, lng}` in DTOs, `[lng, lat]` only in GeoJSON paths (the share-page bug, RR-14, came from mixing these). |
-| Idempotency | Header `Idempotency-Key` (UUID, client-generated) **required** on booking create, dispatch change-set publish, plan publish, incident / SOS create; stored as unique `(companyId, idempotencyKey)` on the target row. Repeat with same body → original response, header `Idempotent-Replay: true`. Same key, different body → 422 `IDEMPOTENCY_KEY_REUSED`. Trip events use `clientEventId` per event (§3.8). |
+| Idempotency | Header `Idempotency-Key` (UUID, client-generated) **required** on booking create, dispatch change-set publish, plan publish, incident / SOS create; stored as unique `(companyId, idempotencyKey)` on the target row (for dispatch change sets the target is the E3 ledger table `TransportChangeSet`, with a `requestHash`; for bookings `(customerCompanyId, idempotencyKey)` on `TransportBooking`; `15` §5.4, §5.8, §8.1). Repeat with same body → original response, header `Idempotent-Replay: true`. Same key, different body → 422 `IDEMPOTENCY_KEY_REUSED`. Trip events use `clientEventId` per event (§3.8). |
 | Concurrency | Mutable aggregates (`TransportBooking`, `TransportTrip`, `RoutePlan`) carry `version`; writes send `expectedVersion`; mismatch → 409 `VERSION_CONFLICT` with the current version. |
 | Errors | Existing shape (V `common/http-exception.filter.ts`): `{ statusCode, message, code? }`. ETMS always sets `code` (§4). Other-tenant ids → **404**, never 403 (`11` §3.2 item 7). |
 | Rate limits | Booking create, OTP, SOS per user / IP through a Valkey-backed throttler with DB fallback (W7 / R-26 fix; E3). |
@@ -391,7 +393,7 @@ Rules: rooms assigned server-side (no client subscribe, V `live.gateway.ts`); so
 invalidates its caches on reconnect (V `use-planned-trips.ts`) and the SOS lane polls REST while disconnected.
 
 Mobile: the passenger shell polls `GET /api/me/transport/trips/:id` and `/vehicle` every 10–15 s while the trip screen
-is open (E3–E5); push (Expo, D7, `02` §8) carries `{ kind, tripId }` only: generic text, no names, addresses or
+is open (E3–E5); push (Expo, D7 / L4 approved 2026-11-11, `02` §8) carries `{ kind, tripId }` only: generic text, no names, addresses or
 coordinates; details are fetched through the authenticated APIs above. The driver shell uses `GET /api/driver/v1/sync` plus
 push; a driver-scoped room for the bound vehicle (`transport.driver.vehicle`) is an E5 option, not a requirement.
 

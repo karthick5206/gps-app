@@ -26,14 +26,14 @@ Scope: the driver side of brief questions 3 (Expo hosting) and 10 (driver permis
   `objectScopeWhere`). No scope exists of the form "trips assigned to me".
 - Nothing in `schema.prisma` links `Driver` and `User`. `User.mobile` is **globally `@unique`** while `Driver.mobile` is not.
 - Mobile login already supports e-mail + password and **OTP by mobile**: `apps/mobile/src/app/login.tsx` → `/auth/otp/request`,
-  `/auth/otp/verify`; `apps/api/src/auth/auth.service.ts` › `requestOtp`, `verifyOtp` (looks up `User` by `mobile`, 10-min
-  code, 5 attempts, single use). OTP needs SMS or Arattai configured (`OTP_UNAVAILABLE` otherwise).
+  `/auth/otp/verify`; `apps/api/src/auth/auth.service.ts` › `requestOtp`, `verifyOtp` (looks up `User` by `mobile`, 5-min
+  code, 30 s resend interval, 5 attempts, single use). OTP needs SMS or Arattai configured (`OTP_UNAVAILABLE` otherwise).
 - Workaround that is possible today, and why it is wrong: give a driver a `User` with the `User` role and ASSIGNED scope
   on the vehicle. The person then sees the vehicle's **live map, history, alerts and every planned trip of that vehicle**
   (`apps/api/src/planned-trips/planned-trips.service.ts` › `scopeWhere` filters by `objectId`, not by driver). That is
   far too much access, so do not use it.
 
-> **Validation note (E0 review):** OTP lifetime is **5 minutes**, not 10 (`apps/api/src/auth/auth.service.ts` l.29 `OTP_TTL_MS = 5 * 60_000`; resend 30 s, 5 attempts, l.30–31). `08` §3 has it right.
+> **Corrected in E0.5 (2026-11-11):** The OTP bullet said "10-min code". Re-verified at v1.8.0: `apps/api/src/auth/auth.service.ts` l.29 `OTP_TTL_MS = 5 * 60_000` (5 minutes; used for `expiresAt` at l.89), `OTP_RESEND_MS = 30_000` (l.30), `OTP_MAX_ATTEMPTS = 5` (l.31). This now agrees with `08` §3.
 
 ### 1.3 Trip infrastructure that can be reused (v1.8.0)
 
@@ -63,11 +63,11 @@ passengers as out of scope. `apps/mobile` has **no** planned-trip screen; it app
 | API client | `apps/mobile/src/lib/api.ts` › `api`, `ApiError`, 401 refresh, `X-Company-Id` |
 | Push incl. high-priority SOS channel | `apps/mobile/src/features/notifications/push.ts` › `ensureChannels` (`sos` channel, bypass DND), `registerForPush`; native `apps/mobile/modules/veetrax-alarm` |
 | i18n (shared resources, hi / ta) | `apps/mobile/src/lib/i18n.ts` (`i18nResources` from `@veetracer/shared`) |
-| Maps (MapLibre, self-hosted tiles) | `apps/mobile/src/features/map/FleetMap.tsx`, `basemap.ts` |
+| Maps (MapLibre; **default styles are external OpenFreeMap**, self-hosted only if `EXPO_PUBLIC_MAP_STYLE_*` is set at build time, which no mobile build does yet: gate G8) | `apps/mobile/src/features/map/FleetMap.tsx`, `basemap.ts`; `apps/mobile/src/lib/config.ts` `MAP_STYLE` |
 | Realtime socket | `apps/mobile/src/features/live/realtime.ts` |
 | **Precedent for external navigation** | `apps/mobile/src/app/sos/[id].tsx` › `openDirections` (`google.navigation:` / `maps://`, web Google Maps fallback); `attendance-day.tsx` › `openMap` (Google Maps URL) |
 
-> **Validation note (E0 review):** Not true for `apps/mobile` today: `apps/mobile/src/lib/config.ts` l.8–10 defaults to **OpenFreeMap** and `apps/mobile/eas.json` sets no `EXPO_PUBLIC_MAP_STYLE_*` (see `08` §1.4; fixed by gate G8). The realtime socket accepts `live_map:view` **or** `alerts:view` (`live.gateway.ts` l.70).
+> **Corrected in E0.5 (2026-11-11):** The Maps row said "MapLibre, self-hosted tiles". Re-verified at v1.8.0: `apps/mobile/src/lib/config.ts` l.8–10 `MAP_STYLE` defaults to `tiles.openfreemap.org` and `apps/mobile/eas.json` sets no `EXPO_PUBLIC_MAP_STYLE_*`, so mobile builds fetch external tiles today (as `08` §1.4 says). Only the production **web** build is configured for self-hosted Martin tiles (`VITE_MAP_STYLE_*`, `ops/deploy/linux/maps/README.md` l.15). Fixing the mobile builds is gate **G8** (`12` §2.1). Retained from the E0 review: the realtime socket accepts `live_map:view` **or** `alerts:view` (`live.gateway.ts` l.70).
 
 No background location, no SQLite and no offline queue exist in `apps/mobile` (`package.json` has no `expo-sqlite` or
 `expo-location`).
@@ -77,7 +77,7 @@ No background location, no SQLite and no offline queue exist in `apps/mobile` (`
 | Pattern | Evidence | Reuse for driver events? |
 |---|---|---|
 | Separate device auth: OTP activation → opaque token, a new activation revokes old tokens | `docs/mobile-tracker/API.md` §1–2; `apps/tracker/src/app/activate.tsx` | No. The token identifies a **device**, not a person, so it cannot be used for driver identity. |
-| Native SQLite queue (WAL), primary key = fix time `t`, `CONFLICT_IGNORE`, cap 20 000, **oldest dropped** | `.../trackerengine/PointQueue.kt` › `add`, `peek`, `remove`, `CAP` | Copy the idempotent-key and FIFO ideas. **Do not** copy the silent drop-oldest: losing a "boarded" or "SOS" event is unacceptable. |
+| Native SQLite queue (WAL), primary key = fix time `t`, `CONFLICT_IGNORE`, cap 50 000, **oldest dropped** | `.../trackerengine/PointQueue.kt` › `add`, `peek`, `remove`, `CAP` | Copy the idempotent-key and FIFO ideas. **Do not** copy the silent drop-oldest: losing a "boarded" or "SOS" event is unacceptable. |
 | Upload oldest-first batches; delete from queue **only after 2xx**; exponential backoff 5 s → 10 min; stop on 401 / 403 | `.../trackerengine/Uploader.kt` › `drain`, `send`, `backoff` | Yes. This is the confirm-before-delete pattern. |
 | Every non-2xx answer is retried (comment: "a proxy or a server bug must never cost points") | `Uploader.kt` › `send` (`else -> backoff("Rejected…")`) | Partly. Driver events need a **terminal REJECTED** outcome (409 / 422 with a code) shown to the driver, otherwise a rule violation would retry forever. Note: `apps/tracker/README.md` says "other 4xx drop the batch", which contradicts the code. That is a doc drift. |
 | Server-side idempotency via `createMany … skipDuplicates` | `apps/api/src/mobile-tracker/mobile-tracker.service.ts` (tracker events, ~L477 / L594 / L604) | Yes. Use a unique key plus insert-or-return. |
@@ -85,7 +85,7 @@ No background location, no SQLite and no offline queue exist in `apps/mobile` (`
 | Phone readiness checks (permissions, notifications, battery optimisation) | `apps/tracker/src/components/ChecksCards.tsx` › `useChecks` | Yes, for the "notification and connectivity checks" duty step. |
 | Server moves only to allow-listed domains | `docs/mobile-tracker/API.md` §5; `ServerMove.kt` | Only relevant if the driver shell ever runs in the tracker binary. |
 
-> **Validation note (E0 review):** Cap is **50 000** (`PointQueue.kt` l.18). The design conclusion (do not copy drop-oldest) stands. Also: `DriverAssignment.source` is a `String` column (`schema.prisma` l.408 block), with the `MANUAL | RFID` union only in `packages/shared/src/drivers.ts`; adding `APP` needs no migration.
+> **Corrected in E0.5 (2026-11-11):** The queue row said "cap 20 000". Re-verified at v1.8.0: `apps/tracker/modules/veetrax-tracker/android/.../trackerengine/PointQueue.kt` l.18 `const val CAP = 50_000` (oldest rows above `CAP` trimmed, l.49–54). The design conclusion (do not copy drop-oldest) stands. Retained from the E0 review: `DriverAssignment.source` is a `String` column (`schema.prisma` l.408 block), with the `MANUAL | RFID` union only in `packages/shared/src/drivers.ts`; adding `APP` needs no migration.
 
 ### 1.6 Command safety (Q-01)
 
@@ -168,6 +168,8 @@ the processor from the vehicle's device). Start, stop arrival, deviation and ETA
    expired, and, where the vehicle has an RFID reader, the open `DriverAssignment` for the vehicle matching the trip's
    driver (`source = RFID`).
 
+> **Resolved in E0.5 (2026-11-11):** **D5, approved by the owner on 2026-11-11** (README §1.1, §5), adopts items 1 and 3–5: driver = additive `Driver.userId` + Driver role, relationship-based access on `/api/driver/v1/*`, one login per person for E1–E3. Two names differ from item 2: the menu key is **`etms_driver`** (Lead naming, `02` §3.1), not `driver_duty`; and the Driver role is a per-company role template seeded only when `etms` is enabled (`12` WP 1a.2), not a global system role. The final template set is owner decision **P6** and multi-company drivers are **P3** (both Open).
+
 ---
 
 ## 4. Duty and trip workflow
@@ -196,6 +198,8 @@ off these values. Add **additive sub-state fields and an event log** instead.
 | `BREAKDOWN` | — | Overlay: an open incident on an IN_PROGRESS trip (the vehicle may still move or be replaced). |
 | `EMERGENCY` | — | Overlay: open SOS incident (§7.3). |
 | `INTERRUPTED` | — | New **terminal** trip outcome, set by the dispatcher when a breakdown or emergency ends the run. Passengers are transferred to a replacement trip (Lead / Agent 1 decide whether this is a status or `closedBy` + reason). |
+
+> **Resolved in E0.5 (2026-11-11):** This mapping is the basis of **D2, approved by the owner on 2026-11-11** (README §1.1, §5): `PlannedTripStatus` is preserved unchanged and the plan §9 states are derived from `PlannedTrip` / `PlannedTripStop` statuses, `TransportTrip` milestone timestamps and per-passenger states (`02` §5.2). It supersedes the `TransportTrip` business-status enum proposed in `03` §2 / `04` §6. `INTERRUPTED` is recorded as `PlannedTrip` → `INCOMPLETE` (`closedBy = MANUAL`) plus `TransportTrip.interruptedAt` + reason, not as a new status (`02` §5.2). In R1 (D8) the dispatcher, not a driver app, sends these commands.
 
 Whether ETMS trips **are** `PlannedTrip` rows or a new `transport_trip` that references one is decided by Agent 1 and the
 Lead. This mapping holds either way, because the driver events address `(tripId, stopSeq, passengerTripId)`.
@@ -305,6 +309,8 @@ high contrast, voice prompts (reuse `expo-speech` as in `features/notifications/
   allow-list or an OsmAnd-specific intent) / in-app only. Open question Q1.
 
 > **Validation note (E0 review):** The cited precedent is not a `geo:` chooser: `apps/mobile/src/app/sos/[id].tsx` `openDirections` uses `google.navigation:` (straight into the Google Maps app) / `maps://` with a web Google Maps fallback, and `attendance-day.tsx` `openMap` opens a Google Maps URL. So the existing fleet app already hands coordinates to Google. The driver hand-off is correctly an **owner decision** (README §7 L6), and the existing SOS / attendance links should be included in that decision.
+
+> **Update in E0.5 (2026-11-11):** For the existing links the owner has decided **O9 (approved 2026-11-11)**: preserve the existing Google Maps hand-offs during E0.5 and introduce no new external sharing of passenger or driver location by default (README §1.1). The driver navigation hand-off proposed above is a **new** ETMS flow, so it stays **Open as owner decision L6**; until L6 is decided, the default under O9 is no external hand-off.
 
 ---
 
@@ -428,6 +434,8 @@ In-motion lock (§5.1). Checklist blocks (§4.3). Incident reporting works with 
 | Q8 | No-show minimum wait and the pickup-arrival tolerance (`k × radiusM`): customer-configurable defaults? | 5 min, k = 3 |
 | Q9 | iOS driver support at launch, or Android first? (`apps/mobile` builds both; the tracker fallback is Android only.) | Both for the shell |
 | Q10 | Should telemetry freshness at trip start **block** or **warn**? | Warn + dispatcher alert |
+
+> **Resolved in E0.5 (2026-11-11):** The cross-agent dependency below is settled by **D2, approved 2026-11-11** (reuse `PlannedTrip`; ETMS events in `TransportTripEvent`); the driver login itself (Q2, first half) by **D5, approved 2026-11-11**. Still open, with no answer chosen here (README §7): Q1 → **L6** (O9 keeps only the *existing* hand-offs); Q2 licence-seat part → **C1**; Q3 → **P3**; Q4–Q8 and Q10 → **P5**; Q9 → **O6**.
 
 Cross-agent dependencies: whether the trip entity reuses `PlannedTrip` and where event storage lives (Agent 1 / Lead);
 incident and SOS durability (Agents 6, 7); the employee-side PIN and no-show notification (Agent 4); dispatcher override

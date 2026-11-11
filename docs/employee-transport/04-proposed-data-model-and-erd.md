@@ -34,7 +34,7 @@ resolve the set of customer company ids with an ACTIVE agreement and filter cust
 minimum-field projection. Existing `AuthContext` stays unchanged; a helper `agreementScope(ctx)` is added next to
 `access-rules.ts`.
 
-> **Validation note (E0 review):** Not adopted. D1 loads active agreements into `AuthContext` (`ctx.agreements`, Agent 6's design) and builds every ETMS where-clause in one helper file `access/transport-scope.ts` (`02` §4.2; `12` WP 1a.1).
+> **Resolved in E0.5 (2026-11-11):** The `agreementScope(ctx)` helper with an unchanged `AuthContext` is superseded by **D1, approved by the owner on 2026-11-11** (README §1.1, §5); Agent 1's original reasoning is kept for the record. D1 loads active agreements into `AuthContext` (`ctx.agreements`, Agent 6's design) and builds every ETMS where-clause in one helper file `access/transport-scope.ts` (`02` §4.2; `12` WP 1a.1).
 
 ## 3. Passenger (employee transport profile)
 
@@ -47,7 +47,7 @@ minimum-field projection. Existing `AuthContext` stays unchanged; a helper `agre
   rules (§4.2, §10).
 - Not reused: `TrackedObject PERSON` / tracker app (continuous tracking, device token, attendance semantics).
 
-> **Validation note (E0 review):** Per D5 the role is **Passenger**, seeded as a role template when `etms` is enabled, not a global system role (`12` WP 1a.2). The consent table is named **`EmployeeTransportConsent`** (`02` §3.1); the ERD in §9 uses the old name.
+> **Resolved in E0.5 (2026-11-11):** Per **D5, approved by the owner on 2026-11-11** (README §1.1, §5), the role is **Passenger**, not Employee. It is seeded as a per-company role template when `etms` is enabled, not as a global system role (`12` WP 1a.2); the final template set is owner decision **P6** (Open). The consent table is named **`EmployeeTransportConsent`** (Lead naming, `02` §3.1; condition C2). The ERD in §9 and the ownership table in §10 keep Agent 1's old name `EmployeeLocationConsent`.
 
 ## 4. Places: offices, shuttle stops, pickup points
 
@@ -96,7 +96,7 @@ to `plannedEnd + 120 min`; telematics status SCHEDULED/STARTED/IN_PROGRESS/COMPL
   an assignment creates `PlannedTrip` + `PlannedTripStop` + `TransportTrip` + `TransportTripPassenger` in one
   transaction.
 
-> **Validation note (E0 review):** Contradicts D2 as adopted: no second lifecycle enum. `PlannedTripStatus` stays the only status; plan §9 states are derived from `PlannedTrip` / `PlannedTripStop` / `TransportTrip` timestamps and per-passenger states (`02` §5.2, from `09` §4.1). Kept here as Agent 1's alternative; owner may still prefer a column (README §6).
+> **Resolved in E0.5 (2026-11-11):** The `TransportTrip.status` business lifecycle above is superseded by **D2, approved by the owner on 2026-11-11** (README §1.1, §5): no second lifecycle enum. `PlannedTripStatus` is preserved as the only status; plan §9 states are derived from `PlannedTrip` / `PlannedTripStop` statuses, `TransportTrip` milestone timestamps (`publishedAt`, `acknowledgedAt`, `interruptedAt`) and per-passenger states (`02` §5.2, from `09` §4.1). Agent 1's reasoning is kept for the record only; the E0 remark "owner may still prefer a column" no longer applies. Option C itself (§11 Q1) is approved as part of D2.
 
 ## 7. Stops and passengers per stop
 
@@ -119,7 +119,7 @@ Shuttle: many passengers per stop; door-to-door: typically one per stop.
 | Fleet allocation | `TransportFleetAllocation(agreementId, objectId?, driverId?, validity)` (E2) |
 | Vehicle transport attributes | `TransportVehicleProfile(objectId PK)`: seat capacity, wheelchair, AC, category |
 
-> **Validation note (E0 review):** Phase: `12` §6 puts `TransportFleetAllocation` in **E1b**, not E2. Incident tables: the Lead uses `TransportIncident` + append-only **`TransportIncidentEvent`** + `TransportEscalationStep` instead of `TransportIncidentAction` (`02` §3.1; `12` WP 5.0 / 6.0). Policy override table `TransportPolicyOverride` added in E6.
+> **Resolved in E0.5 (2026-11-11):** Phase: `TransportFleetAllocation` is created in **E1b**, not E2 (`12` §6), because R1 is corporate-managed only under **D8, approved 2026-11-11**. Optimisation jobs: "once merged" means after the selective port of **D3, approved 2026-11-11**. Incident tables (Lead naming, condition C2): the Lead uses `TransportIncident` + append-only **`TransportIncidentEvent`** + `TransportEscalationStep` instead of `TransportIncidentAction` (`02` §3.1; `12` WP 5.0 / 6.0). Policy override table `TransportPolicyOverride` added in E6.
 
 ## 9. ERD
 
@@ -174,6 +174,10 @@ erDiagram
 
 > **Validation note (E0 review):** Self-reference: the routing-branch models are described in `06` §1.3 and `03` §6, not `04` §6. Verified: `RoutePlan` is at `feature/routing-engine:apps/api/prisma/schema.prisma` l.2192.
 
+> **E0.5 Lead note (2026-11-11):** This ERD is input, not the schema of record (condition C2). The authoritative R1
+> table list is `15` §2: **13 tables**, including **`TransportChangeSet`** (dispatch change-set idempotency ledger and
+> drafts, `15` §5.8), which is not drawn here; no `TransportTrip` business-status enum (D2).
+
 ## 10. Ownership summary
 
 | Owner | Entities |
@@ -191,3 +195,5 @@ erDiagram
    provider (new self-service flow)?
 4. Shuttle stops owned by customer, provider, or both?
 5. Is a separate Employee web login needed, or mobile app only?
+
+> **Resolved in E0.5 (2026-11-11):** Q1 is answered by **D2, approved 2026-11-11** (option C). Q5 is answered by **D8 / D5, approved 2026-11-11**: R1 gives the passenger a view of their own trip on the web and in the read-only mobile shell, with the same `User` login. Still open, with no answer chosen here (README §7): Q2 → **P2** (one customer per trip in R1 is the recommended default); Q3 and Q4 → **P1**.

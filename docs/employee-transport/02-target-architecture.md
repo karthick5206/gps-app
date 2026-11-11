@@ -1,8 +1,12 @@
 # 02 · ETMS target architecture (Lead Architect)
 
-Status: **Proposed — needs owner approval.** Nothing here exists in code. Baseline facts are **Verified** only where a
-path / symbol or a Lead production check is cited. Baseline: `origin/main` **f5b151b** = v1.8.0. Decisions D1–D8 are
-listed in [README](README.md) §5; this document shows how they fit together. **R1** = the first release (E1a + E2 + E3,
+Status: **Architecture direction approved by the owner on 2026-11-11** (D1–D8, L4, O8, O9; record and conditions in
+[README](README.md) §1.1). Validation conditions C2–C6 (`VALIDATION.md` §13) still apply; implementation, deployment,
+paid storage, destructive database changes and infrastructure changes need separate owner authorisation, and all eight
+D6 gate items (G1–G8) remain outstanding. Every other README §7 decision is still unresolved. Nothing here exists in
+code. Baseline facts are **Verified** only where a path / symbol or a Lead production check is cited. Baseline:
+`origin/main` **f5b151b** = v1.8.0. Decisions D1–D8 are listed in [README](README.md) §5; this document shows how they
+fit together. **R1** = the first release (E1a + E2 + E3,
 D8).
 
 Short references used below: `01` = [01-current-state-assessment.md](01-current-state-assessment.md), `03` =
@@ -13,7 +17,9 @@ Short references used below: `01` = [01-current-state-assessment.md](01-current-
 `08` = [08-employee-app.md](08-employee-app.md), `09` = [09-driver-app.md](09-driver-app.md), `10` =
 [10-security-safety-and-privacy.md](10-security-safety-and-privacy.md), `11` =
 [11-testing-and-acceptance.md](11-testing-and-acceptance.md), `12` = [12-phased-implementation-plan.md](12-phased-implementation-plan.md),
-`13` = [13-risks-dependencies-and-estimates.md](13-risks-dependencies-and-estimates.md).
+`13` = [13-risks-dependencies-and-estimates.md](13-risks-dependencies-and-estimates.md), `14` =
+[14-d6-release-gate-specs.md](14-d6-release-gate-specs.md), `15` = [15-database-change-plan.md](15-database-change-plan.md),
+`16` = [16-test-environment-requirements.md](16-test-environment-requirements.md).
 
 ---
 
@@ -41,8 +47,12 @@ Short references used below: `01` = [01-current-state-assessment.md](01-current-
 
 Tile caveat (Verified, E0 review): web and mobile code fall back to **OpenFreeMap** when no style variables are set at
 build time (`apps/web/src/features/live/map/map-style.ts` l.34–36, `apps/mobile/src/lib/config.ts` l.8–10,
-`packages/shared/src/basemap.ts`). Production web uses Martin only through its `VITE_MAP_STYLE_*` build settings; mobile
-EAS profiles set none. Gate G8 closes this for both.
+`packages/shared/src/basemap.ts`). Production web uses Martin only through its `VITE_MAP_STYLE_*` build settings (Lead-verified 2026-11-11: all three point
+at `app.veetrax.com/tiles`); mobile EAS profiles set none. **Exception found in E0.5:** the public share page
+(`apps/web/src/features/live-share/PublicSharePage.tsx:104`) hard-codes `style: OPENFREEMAP.standard`, so on production
+it loads OpenFreeMap tiles despite the build settings — a live breach of "nothing leaves the server" (`14` G8 F1). Gate
+G8 closes all three (share page, web fallbacks, mobile builds); it is outstanding, and the share-page fix is recommended
+for v1.8.1 next to G1, subject to owner approval.
 
 ---
 
@@ -97,7 +107,7 @@ flowchart LR
     VK[("Valkey 7.2<br/>vt:positions, vt:notify, vt:plannedtrips:updates<br/>+ NEW vt:transport:updates, vt:routing:jobs")]
   end
 
-  EXPO["Expo push → FCM / APNs<br/>(D7 exception, pending owner approval L4)"]
+  EXPO["Expo push → FCM / APNs<br/>(D7 exception, approved 2026-11-11 as L4:<br/>generic payloads only)"]
 
   DEV -->|TCP| GWY --> VK
   TRK -->|HTTPS /api/tracker/v1| API
@@ -173,7 +183,8 @@ theme, so a later split into a separate binary stays cheap (`08` §2.6).
 | Item | Agents' proposals | Lead choice |
 |---|---|---|
 | Company feature flag | `etms` + `etmsProvider` (`03` §1) vs `employeeTransport` (`07` §2.4) | `etms` (E1a); `etmsProvider` added in E1b |
-| Web menu keys | `etms_*` (`07` §2.2) vs `transport_*` (`10` §2.2 item 7) | `etms_*` (navigation owner's catalogue); Agent 6's semantics map 1:1 |
+| Web menu keys | `etms_*` (`07` §2.2) vs `transport_*` (`10` §2.2 item 7) | `etms_*` (navigation owner's catalogue); Agent 6's semantics map 1:1. Working names: the final key set and group placement are owner decision P6 (open) |
+| Passenger / driver role | system role "Employee" in global `SYSTEM_ROLES` (`03` §1, `04` §3) vs "Passenger" (`08` §3, `10` §3) | **Passenger** and **Driver** (D5, approved 2026-11-11), seeded as per-company role templates only when `etms` is enabled (`12` WP 1a.2); final template set is owner decision P6 (open) |
 | Passenger self key | `transport_self` (`08` §3.3) | `etms_self` (view, create, edit) |
 | Driver key | `driver_duty` (`09` §3) | `etms_driver` (view, edit) |
 | Planning menu | `etms_planning` vs branch `route_plans` (`07` Q3) | one key: port `route_plans`, place it in the `transport` group (E4) |
@@ -182,6 +193,8 @@ theme, so a later split into a separate binary stays cheap (`08` §2.6).
 | Incident tables | `TransportIncident` + `TransportIncidentAction` (`04` §8) vs `Incident`, `IncidentEvent`, `EscalationStep`, `IncidentDelivery` (`10` §6.2) | `TransportIncident`, `TransportIncidentEvent` (append-only), `TransportEscalationStep`; delivery states on extended `NotificationLog` (`03` §3), no separate delivery table |
 | Branch plan models | rename only `RouteStop` → `RoutePlanStop` (`03` §6) vs rename all to `TransportPlan*` (`06` §6) | D3: keep `RoutePlan`, `RouteAssignment`, `RoutePlanVersion`, `RoutingJob`, `RoutingUsage`; rename the conflicting `RouteStop` **only after** reviewing schema ownership, migration history and FK dependencies (E4 WP 4.0); `RoutePlanStop` is the working name |
 | Vehicle capacity phase | `TransportVehicleProfile` listed as "not E1–E3" and "E2" in the same paragraph (`03` §2) | E2 (R1 needs seat capacity for manual assignment) |
+| Change-set ledger (E0.5) | §5.4 / `05` §1 require a unique `(companyId, idempotencyKey)` "on the change set", but no table was named | **`TransportChangeSet`** in E3 migration `etms_bookings_trips` (`15` §5.8, C-2; Lead-confirmed). R1 has **13** new tables |
+| E3 migrations (E0.5) | `12` §1 "one migration per phase" vs the `routeId` type change breaking `tsc` | E3 has two: `etms_bookings_trips` (WP 3.0) and `planned_trip_origin` (with WP 3.1, same PR) (`15` §7.1, C-1; Lead-confirmed) |
 
 ---
 
@@ -250,7 +263,7 @@ resource matrix is in `05` §6.
 | Record | Role | Owner of writes |
 |---|---|---|
 | `PlannedTrip` (+ `PlannedTripStop`, `PlannedTripEvent`) | Execution and telemetry record: vehicle, driver, stop snapshot, path, telematics status, live ETA / delay, GPS stop arrival | Processor tracker (Verified `planned-trips/tracker/*`); dispatch at creation; manual start / complete / cancel via existing compare-and-set |
-| `PlannedTrip.routeId` → **nullable**, new `origin` (`ROUTE` \| `ETMS`) | ETMS daily door-to-door runs have no master `Route`; fixed shuttle runs keep a real `Route` + `RouteSchedule` | migration (E3); ~71 `routeId` references in 15 files must tolerate null (`03` §3) |
+| `PlannedTrip.routeId` → **nullable**, new `origin` (`ROUTE` \| `ETMS`) | ETMS daily door-to-door runs have no master `Route`; fixed shuttle runs keep a real `Route` + `RouteSchedule` | migration `planned_trip_origin` (E3, ships with WP 3.1); 72 `routeId` lines in 15 files (79 / 18 incl. specs) must tolerate null, 4 with code changes (`15` §7.1) |
 | `TransportTrip` (1:1, `plannedTripId` FK **SetNull**) | Business header: `customerCompanyId`, `providerCompanyId`, `agreementId?`, `routePlanId?`, `direction`, `shiftId?`, `seatCapacity` snapshot, `version`, `publishedAt`, `acknowledgedAt/By`, `interruptedAt` + reason, `cancelReason` | `transport/trips` command handler |
 | `TransportTripPassenger` | One row per booking on a trip: pickup / drop stop (FK `PlannedTripStop.id` SetNull **plus** `pickupSeq` / `dropSeq` snapshot so events can address `(tripId, seq)` as `09` §4.1 does), status `PENDING / BOARDED / NO_SHOW / DROPPED / CANCELLED`, actual times, actor, source | same |
 | `TransportTripEvent` | Append-only human / app events with `clientEventId` idempotency, `occurredAt` + `receivedAt`, actor, source (`WEB` / `DRIVER_APP` / `PASSENGER_APP` / `SYSTEM`), outcome (`ACCEPTED / DUPLICATE / REJECTED / LATE`) | same |
@@ -310,7 +323,9 @@ COMMIT → PlannedTripsService.invalidate(companyId) so the tracker picks the tr
 ```
 
 Re-publish increments `TransportTrip.version` and requires `expectedVersion` (409 on mismatch, `11` R8). Idempotency:
-unique `(companyId, idempotencyKey)` on the change set (`05` §1). Road path: if GraphHopper answers, the path and leg
+unique `(companyId, idempotencyKey)` on `TransportChangeSet` (`05` §1, `15` §5.8); vehicle / driver overlap is checked
+under an advisory lock across all origins, plus ETMS-scoped exclusion constraints only if `btree_gist` is installed
+(`15` §8.2, §8.4). Road path: if GraphHopper answers, the path and leg
 times come from `RoutingService.routeVia`; otherwise `path = NULL`, "no road ETA" — publishing never waits for routing.
 
 ---
@@ -399,13 +414,13 @@ tracker.
 ```
 typed address ─▶ API ─▶ Photon (loopback) ─▶ candidates ─▶ user confirms ─▶ original point stored
 map pin / saved place / one-shot GPS ─▶ API (validate) ─▶ original point stored ─▶ GraphHopper locate (loopback) ─▶ snapped point stored
-tiles: web + mobile ─▶ Martin (self-hosted styles; mobile builds fixed in E0.5 G8)
+tiles: web + mobile ─▶ Martin (self-hosted styles; target state: today only the production web build is configured, mobile builds via gate G8)
 vehicle position ─▶ passenger: narrow DTO, own trip, window only (dispatch → drop + grace)
 ```
 
 | Rule | Enforcement |
 |---|---|
-| Self-hosted only | GraphHopper, Photon, Martin on loopback; no external map SDK, no analytics SDK, no location transmission to third parties from server or apps. Exceptions: D7 push transport (no coordinates in payloads, §8) and the driver navigation hand-off (E5, owner decision; `09` §5.2). |
+| Self-hosted only | GraphHopper, Photon, Martin on loopback; no external map SDK, no analytics SDK, no location transmission to third parties from server or apps. Exceptions: D7 push transport (approved 2026-11-11 as L4; no coordinates in payloads, §8) and the driver navigation hand-off (E5, open owner decision L6; `09` §5.2). Existing fleet-app Google Maps hand-offs are preserved during E0.5 and no new external location sharing is introduced by default (O9, approved 2026-11-11). |
 | Consent and purpose limitation | `EmployeeTransportConsent(purpose, noticeVersion, granted, at, channel)`; each location use checks its purpose (`10` §4.2); withdrawal effective on the next request |
 | Window limits | Passenger sees the vehicle only inside the trip window; employee location (E5 optional "share while waiting") accepted only inside its window and rejected otherwise (`10` §4.3) |
 | Minimisation | Home address hidden from provider roles and drivers (pickup point only); `AuditAction.ACCESS` on every reveal of home address, phone, live location (`10` §2.3) |
@@ -415,8 +430,11 @@ vehicle position ─▶ passenger: narrow DTO, own trip, window only (dispatch �
 
 ## 8. Push notifications (D7, approved-exception design)
 
-D7 is an explicit architectural exception to "nothing leaves the server", **to be approved by the owner**; maps,
-routing and geocoding stay self-hosted.
+D7 is an explicit architectural exception to "nothing leaves the server". **The owner approved it on 2026-11-11 (D7,
+L4)** as a limited Expo → FCM / APNs exception: generic payloads only, sensitive trip details fetched through
+authenticated VeeTrax APIs (README §1.1). Maps, routing and geocoding stay self-hosted. Existing fleet-alert pushes
+(full alert text to Expo, `notifier/push.ts`) are kept unchanged during E0.5 under O9 (approved 2026-11-11); the rules
+below govern ETMS pushes.
 
 ### 8.1 Options
 
@@ -476,10 +494,12 @@ until a GraphHopper calibration exists every ETA is labelled uncalibrated and "n
 | `veetrax-routing-worker` (Node) + `veetrax-optimizer` (Python) | New units, `MemoryMax=3G`, `CPUQuota=150%`, `Nice=10`, loopback only (`06` §7) | E4, only after compatibility review and benchmarks on non-production |
 | GraphHopper | No change through E4a. `foot` (+ `van`) re-import is a separate owner decision (O3) | E4b |
 | Valkey | `appendonly yes`, `appendfsync everysec`, with recovery validation | E0.5 gate G4 |
-| Backups | Backup / restore **scripts and documentation** in the repo (`ops/deploy/linux/`, reusing `ops/backup/veetrax-backup.sh` / `veetrax-restore.sh`); encrypted backups stored **outside** the repo; no database dumps, archives, private keys or secrets in Git. The older Windows flow (`ops/backup/README.md`) uploads encrypted dumps as GitHub Release assets; whether that counts as acceptable storage is owner decision O8 | E0.5 gate G7 |
-| Mobile | EAS builds with `EXPO_PUBLIC_SERVER_URL=https://app.veetrax.com` and self-hosted `EXPO_PUBLIC_MAP_STYLE_*` (`08` §1.4 item 3) | E0.5 gate G8 |
+| Backups | Backup / restore **scripts and documentation** in the repo (`ops/deploy/linux/`, reusing `ops/backup/veetrax-backup.sh` / `veetrax-restore.sh`); encrypted backups stored **outside** the repo; no database dumps, archives, private keys or secrets in Git. The older Windows flow (`ops/backup/README.md`) uploads encrypted dumps as GitHub Release assets. Off-site target: **O8, approved 2026-11-11**: encrypted off-site object storage, independent of production and of Git, with user-controlled encryption keys; provider default AWS S3 Mumbai (ap-south-1) per the earlier owner decision of 2026-11-09 with verified prices (`docs/modernization/backup-plan.md` §4), awaiting owner confirmation and purchase approval (O10); nothing provisioned. **Scope adds uploaded files** (`apps/api/var`), which today's production backup omits (`14` G7) | E0.5 gate G7 |
+| Mobile | EAS builds with `EXPO_PUBLIC_SERVER_URL` (default `https://app.veetrax.com`, owner decision O12) and self-hosted `EXPO_PUBLIC_MAP_STYLE_*` (`08` §1.4 item 3) | E0.5 gate G8 |
+| Web share page | Use the configured self-hosted style instead of the hard-coded OpenFreeMap style (`PublicSharePage.tsx:104`) | E0.5 gate G8, proposed v1.8.1 |
 
-Lead-verified production facts (2026-11-11): `NODE_ENV=production` is set; memory 10 GiB used / 16 GiB available
+Lead-verified production facts (2026-11-11; versions in `16` Lead box: Node 24.22.2, PostgreSQL 18.6 + TimescaleDB
+2.31.0, Valkey 7.2.13, CPU without AVX; `btree_gist` 1.8 available but not installed): `NODE_ENV=production` is set; memory 10 GiB used / 16 GiB available
 (GraphHopper RSS 8.6 GB, Photon 1.1 GB); Valkey `appendonly no`; nightly local backup cron installed but not in the
 repo; no SMS or mail provider configured. Agent 7's "≈ 3 GB headroom" (`11` §1.6) sums configured maxima and is a
 planning ceiling, not current use; load tests never run on production.

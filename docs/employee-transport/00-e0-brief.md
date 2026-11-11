@@ -17,6 +17,12 @@ its outdated baseline and fixes shared terms, rules and file ownership. **E0 is 
 | *Correction (E0 review, 2026-11-11)* | "Tiles: self-hosted Martin" holds for the **production web build** only because its build env sets `VITE_MAP_STYLE_*`. The code defaults of web (`apps/web/src/features/live/map/map-style.ts` l.34–36) and mobile (`apps/mobile/src/lib/config.ts` l.8–10) are **OpenFreeMap** (`tiles.openfreemap.org`), and `apps/mobile/eas.json` sets no map style, so current mobile store builds most likely fetch third-party tiles. Likewise `RoutingService` defaults `ROUTER_ENGINE` to `valhalla` when unset (production sets `graphhopper`). Addressed by gate G8 (`12` §2). |
 | Passengers | No Student / Passenger / Employee-passenger model in main. "Employee" today = staff attendance + phone tracker (`apps/api/src/attendance`, `mobile-tracker`). |
 
+> **E0.5 Lead note (2026-11-11):** The correction row above is incomplete. The public share page hard-codes
+> `style: OPENFREEMAP.standard` (`apps/web/src/features/live-share/PublicSharePage.tsx:104`), so production share pages
+> load OpenFreeMap tiles **even though** the production web build sets all three `VITE_MAP_STYLE_*` to
+> `app.veetrax.com/tiles` (Lead-verified). Gate G8 now covers it (README §2, §9.2; `12` §2.1; `14` G8). Exact production
+> versions are in the Lead box of `16`; the production CPU has no AVX.
+
 Read code from `origin/main` (`git show origin/main:<path>`, `git grep … origin/main -- <paths>`) or from the worktree
 `D:\Vibhav\gps-app-wt\etms` (same commit). Read the routing branch with `git show feature/routing-engine:<path>`.
 

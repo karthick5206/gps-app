@@ -18,7 +18,7 @@
 | 3 | Existing vs proposed clearly separated | **Pass with exceptions.** V/P tagging is consistent. Six passages presented proposed or env-dependent behaviour as existing; each now has a note. |
 | 4 | Schema conflicts with v1.8 | **Documented; none blocks R1.** 12 items, listed in §4. The `RouteStop` clash and the out-of-order branch migrations affect E4 only. |
 | 5 | R1 independent of Driver app and optimiser | **Pass.** `12` dependencies and `05` R1 routes need neither. One UX passage (`07` `AssignPicker` in E3) was noted. |
-| 6 | No external map / routing / geocoding calls proposed | **Pass with conditions.** No doc proposes one. The *existing* code defaults to OpenFreeMap tiles and has Google Maps hand-offs. G8 was extended to the web bundle and owner decision O9 was added. The driver navigation hand-off is an owner decision (L6). |
+| 6 | No external map / routing / geocoding calls proposed | **Pass with conditions.** No doc proposes one. The *existing* code defaults to OpenFreeMap tiles and has Google Maps hand-offs. G8 was extended to the web bundle and owner decision O9 was added. The driver navigation hand-off is an owner decision (L6). **E0.5 Lead check (2026-11-11):** production `apps/web/.env` sets all three `VITE_MAP_STYLE_*` to `https://app.veetrax.com/tiles/styles/…`, and the browser check after the v1.8.0 deploy recorded 502 requests, all to app.veetrax.com. The built bundle still contains the OpenFreeMap fallback string (1 asset), which is never requested at runtime. Mobile builds remain unconfigured (G8). O9 approved: existing hand-offs are kept. **Superseded in part by the E0.5 integration (§15):** the public share page hard-codes `style: OPENFREEMAP.standard` (`PublicSharePage.tsx:104`), so share pages on production **do** request OpenFreeMap despite the build settings (the browser check above did not open a share page). Live breach; G8 now covers it; fix recommended for v1.8.1, needs owner approval. No document *proposes* an external call. |
 | 7 | Notification exception explicit | **Pass.** D7, `02` §8 and L4 cover it. Two places that called D7 "approved" were reworded. |
 | 8 | Backup restrictions | **Pass with condition.** The restriction is stated in `12` §1, G7 and `02` §10, and nothing proposes backups in Git. Existing Windows backups go to GitHub Release assets; owner decision O8 was added. |
 | 9 | D6 items have owner, measurable acceptance and evidence | **Pass.** All of G1–G8 have all three. |
@@ -179,7 +179,7 @@ Lead docs (`02`, `05`, `12`, `13`) open with "Proposed — needs owner approval"
 3. `07` §4.3 / §5 use routing-branch features (`RoutingCapabilities`, `RoutingJob`, planner page) as available. They are labelled "routing branch", but that branch is unmerged; the E4 port is selective (D3).
 4. `06` §1.4 says "Owner accepted Photon": a deployment fact, with no recorded decision.
 5. `09` §5.2 cites `openDirections` as the precedent for a `geo:` chooser; it is actually a direct Google Maps intent.
-6. `11` uses manual 2026-11-09 probe and chaos runs ("20/20 PASS", "0 lost") as the E1 / E9 baseline. They are real committed evidence (`docs/modernization/tenant-isolation-probes.md`, `test-evidence.md`) but not CI-produced (condition C6).
+6. `11` uses manual 2026-11-09 probe and chaos runs ("20/20 PASS", "0 lost") as the E1 / E9 baseline. They are real committed evidence (`docs/modernization/tenant-isolation-probes.md`, `docs/reliability/test-evidence.md`; path corrected in E0.5) but not CI-produced (condition C6).
 
 ---
 
@@ -300,6 +300,9 @@ All eight items have an owner, measurable acceptance and evidence. The two extra
 
 ## 11. Owner decisions presented as settled
 
+*Historical (E0 review, before the owner approved D1–D8, L4, O8 and O9 on 2026-11-11). "Proposed" / "pending" below
+describes the state at that time; the current state is README §1.1 and §15 below.*
+
 | Spot | Issue | Action |
 |---|---|---|
 | `02` §2 diagram | "D7 approved exception" | Fixed |
@@ -317,6 +320,9 @@ Not counted as violations: `09` "masked call out of scope" (C2 lists it as a rec
 ---
 
 ## 12. Estimates
+
+*Superseded in E0.5 (§15): E0.5 implementation is now 5.0–7.5 ew and the totals 55.0–87.5 / 57.0–91.5 ew (`13` §3.2). The
+figures below are the E0 check.*
 
 - **Arithmetic checked:**
   - R1 (E1a 3–5 + E2 4–6 + E3 6–9) = **13–20** ✓; E0.5 + R1 = **15.5–24** ✓.
@@ -340,16 +346,18 @@ Not counted as violations: `09` "masked call out of scope" (C2 lists it as a rec
 |---|---|---|
 | C1 | Owner approves D1–D8 (P7) and decides L4 (push exception) before WP 3.7 ships push, and O8 (backup off-site target) before the G7 drill | Before E0.5 / E1a start |
 | C2 | The schema owner writes the E1a / E2 / E3 migrations from `02` §3.1 / §4 / §5 and `12` (Lead names, D2 derived states, dual keys, no global `SYSTEM_ROLES` change), **not** verbatim from `03` §2 / `04`. The purge logical-key choice (S11) is made per table in WP 2.0 / 3.0 | E1a–E3 |
-| C3 | G8 is verified for both mobile builds and the web bundle. Owner decides O9 (existing Google Maps links and full-text alert pushes) | E0.5 |
-| C4 | `feature/routing-engine` is archived to a private remote ref (O7) before any E4 work. The compatibility review re-runs the branch test counts instead of quoting its docs | Before E4 prep |
+| C3 | G8 is verified for both mobile builds and the web bundle, **including the public share page** (`PublicSharePage.tsx:104`, dist grep + HAR; added in E0.5). Owner decides O9 (existing Google Maps links and full-text alert pushes) — *O9 approved 2026-11-11* | E0.5 implementation |
+| C4 | *Reworded in E0.5 (owner instruction: keep the routing branches isolated — no push, no merge):* an **off-repo `git bundle` custody copy** of `feature/routing-engine` and `feature/routing-r0` is recommended before any E4 work (bundle verified, hashes recorded, never in Git) — **not done; owner to approve (O7)**. The compatibility review (`15` §11) re-runs the branch test counts instead of quoting its docs | Before E4 prep |
 | C5 | Agents correct F2–F7 the next time they edit `07` / `08` / `09`. The validation notes are authoritative until then | Next revision |
-| C6 | The isolation-probe and chaos baselines ("20/20 PASS", "0 lost") are re-run on the test instance (ideally in CI) before they serve as E1a / E5 / E9 acceptance baselines; today they are manual runs from 2026-11-09 | E0.5 / E1a |
+| C6 | The isolation-probe and chaos baselines ("20/20 PASS", "0 lost") are re-run on the test instance (ideally in CI) **on production versions** (Node 24.22.2, PostgreSQL 18.6 + TimescaleDB 2.31.0, Valkey 7.2.13; `16` §6) before they serve as E1a / E5 / E9 acceptance baselines; today they are manual runs from 2026-11-09 on Node 22 / Valkey 9. After G5 the probe baseline is 0 FAIL / 21 PASS | E0.5 / E1a |
 
 There are no blockers.
 
 ---
 
 ## 14. Edits made by this review
+
+*Historical record of the E0 review edits (before the 2026-11-11 approvals). E0.5 edits are listed in §15.*
 
 ### 14.1 Lead documents (fixed directly)
 
@@ -398,3 +406,70 @@ Each note is a `> **Validation note (E0 review):** …` blockquote placed after 
 | `11` | §1.6 backup README row (GitHub Release assets; reuse `ops/backup` scripts); §9 Q5 (answered by Lead box) | Point 8; consistency |
 
 No application code, Prisma schema, migration, configuration or flag was modified. No database, server or external service was contacted. Nothing was committed.
+
+---
+
+## 15. E0.5 consistency check (2026-11-11)
+
+Performed by the Lead during the final E0.5 integration, across all 18 documents (`README.md`, `00`–`16`,
+`VALIDATION.md`). Documentation only: no code, schema, configuration, server or database was touched; nothing was
+committed. Method: `grep` sweeps for each criterion, a script that resolves every relative `.md` link, and a manual
+cross-read of the migration, table and estimate figures in `02`, `05`, `12`, `13`, `14` and `15`. Lead facts applied
+in this pass: production versions (`16` Lead box), production web build `VITE_MAP_STYLE_*` verified, the share-page
+OpenFreeMap hard-code (`PublicSharePage.tsx:104`), the backup gap for uploads (`apps/api/var`), `btree_gist` (available
+1.8, not installed, superuser needed), the earlier S3 Mumbai owner decision (`docs/modernization/backup-plan.md` §4),
+the routing-branch git facts and the owner's no-push / no-merge instruction.
+
+### 15.1 Results
+
+| # | Criterion | Result | Notes |
+|---|---|---|---|
+| 1 | No document calls D1–D8 / L4 / O8 / O9 "proposed" or "pending" | **Pass after fixes** | Fixed: `12` status line ("Proposed — needs owner approval"); README §4 Q9 ("Proposed D1"); README §5 D7 ("to be approved"). Remaining hits are historical E0 records, now labelled as such (VALIDATION §11, §14; README §6 "D7 / D5 wording" row) |
+| 2 | No document claims any G-item is done | **Pass after fixes** | Fixed: `12` §7 "RR-14 is already handled by G1" → "planned under G1 (outstanding)"; `03` note wording. README §1.1, §9, `02`, `12`, `13`, `14`–`16` state that G1–G8 are outstanding |
+| 3 | No document proposes external map, routing or geocoding calls | **Pass, with one live existing breach documented** | No proposal found. Existing breach: the public share page hard-codes OpenFreeMap on production (new finding; summary check #6 superseded in part). G8 now covers it; fix recommended for v1.8.1, needs owner approval. Map-data downloads for staging builds (`16` §3.3) and the Expo push exception (L4) are not runtime map / routing / geocoding calls |
+| 4 | No backups or secrets in Git | **Pass** | Every backup passage keeps dumps, archives, keys and credentials outside Git (`12` §1, G7, `14` G7, `15` §11.6 bundle "never in Git", `16` §8). G7 adds a CI secret scan |
+| 5 | Migration names, table names and phase assignments match between `02`, `05`, `12` and `15` | **Pass after fixes** | `12` WP 3.0 gains `TransportChangeSet` (8 E3 tables, 13 R1 tables); WP 3.1 now carries migration `planned_trip_origin` (same PR); `12` §1 records the E3 two-migration exception; later-phase names aligned with `15` §2 (`etms_fleet_allocation`, `etms_planning_links`, `etms_stop_profile`, `etms_safety`, `etms_costing`, `company_locale`). `02` §3.1 / §5.1 / §5.4 and `05` §1 updated. `routeId` count reconciled to 72 / 15 (79 / 18 incl. specs) in `02`, `12`, `13` ETR-24 and a note in `03` |
+| 6 | Effort numbers match between `12`, `13` and `14` | **Pass after fixes** | G1–G8 = 4.5–6.7 ew in all three; E0.5 implementation 5.0–7.5 ew (+0.5–0.8 for 0.5-9 / 0.5-10); totals 55.0–87.5 excl. E4b, 57.0–91.5 incl.; arithmetic shown in `13` §3.2; §12 above marked superseded |
+| 7 | Every relative `.md` link resolves | **Pass** | 79 relative links, 0 broken (after adding links to `14`–`16` in README, `02`, `12`, `13`) |
+| 8 | Owner decisions not presented as settled | **Pass after fixes** | `15` Q3 (`btree_gist`) split into the Lead-answered availability and owner decision O16; `15` Q8's "restore on the production host" default flagged against `12` §1 and listed as L8 with a synthetic-only default; S3 Mumbai presented as a default awaiting confirmation (O10), not as bought; O7 rewritten as a recommendation; C-1 / C-2 / C-12 and the `16` Q12 / Q13 resolutions are Lead technical choices, not owner decisions |
+
+### 15.2 Contradictions raised by `14`–`16` and how they were handled
+
+| Source | Contradiction | Handling |
+|---|---|---|
+| `16` §9.1 item 1, Q1 | Capped-WSL2 staging (README C3 default, `11` §5.4 option B) cannot fit: 28.8 GB host, global `.wslconfig`, AVX on dev vs none on production | README C3 default changed to a separate host (**still unresolved**); `12` §7, `13` ETR-37 / §2; Lead note in `11` §5.4 |
+| `16` §9.1 item 2, `14` F8 | G4 drill on the test instance would hit the shared Valkey (db 1 / db 0) | `12` G4 requires a private Valkey 7.2 drill instance |
+| `16` §9.1 item 3, Q12 | E3 burst SLO "on staging" (`11` §7) vs no staging dependency (`12` §5) | Lead: T3 indicative in E3; SLO of record on staging at E9 (`12` §5, §12; Lead note in `11` §7) |
+| `16` §9.1 item 4, Q13 | G5 "20/20 still PASS" vs 21 PASS rows after the fix | Lead: 0 FAIL, 21 PASS (`12` G5, E1a; `14` G5) |
+| `16` §9.1 item 6 | Baselines ran on Node 22 / Valkey 9 | C6 reworded to production versions; `12` §2 exit criteria; `13` ETR-46 |
+| `15` C-1 | One migration per phase vs the `routeId` type change | Lead-confirmed; `12` §1 exception |
+| `15` C-2 | Change-set uniqueness without a table | Lead-confirmed `TransportChangeSet`; `12`, `02`, `05` |
+| `15` C-12 | `trip-performance.ts` "No driver" for null keys | In WP 3.1 scope and E3 exit criteria |
+| `15` C-16 | C4 / O7 "push" vs the owner's no-push instruction | C4 and O7 reworded to an off-repo `git bundle` custody copy (recommended, not done) |
+| `14` F1 | Share page hard-codes OpenFreeMap; old G8 web acceptance insufficient | `12` G8 rewritten; README §2 / §6 / §9; `02` §1.1 / §10; check #6 superseded in part; notes in `00`, `07`, `08` |
+| `14` F3 / F4 | Backup omits uploads; earlier S3 Mumbai decision not in the pack | `12` G7, `13` ETR-17, `02` §10, README O8 / O10 |
+| `14` F9 | E0.5 estimate too low | `13` §3.2 reconciled |
+
+### 15.3 Files changed in this pass
+
+| File | Change |
+|---|---|
+| `README.md` | §1 next-step row; §2 production versions + five new Lead verifications; §3 reading order and rows for `14`–`16`; §4 Q8 (`TransportChangeSet`, 13 tables) and Q9 wording; §5 D7 wording; §6 "Map tiles today" row; §7 intro with count (33 unresolved), C3, O1, O7, O8 updated, new O10–O19 and L8; §8 row; new **§9 E0.5 deliverables — for owner review** |
+| `02-target-architecture.md` | Short refs to `14`–`16`; §1.1 tile caveat (share page); §3.1 rows for `TransportChangeSet` and the E3 migrations; §5.1 `routeId` count / migration; §5.4 idempotency + overlap; §10 backups (uploads, S3 default), mobile (O12), new share-page row, production versions |
+| `05-api-and-event-contracts.md` | §1 idempotency row names the `TransportChangeSet` / `TransportBooking` keys |
+| `12-phased-implementation-plan.md` | Status line; §1 schema exceptions and data rule; §2 intro (link to `14`, effort, patch grouping), G4, G5, G7, G8, exit criteria; WP 1a.3, E1a exit; WP 3.0 / 3.1, E3 exit; E1b, E4 (isolation, staging, migrations, RR-14 wording), E6–E9 migration names / burst SLO |
+| `13-risks-dependencies-and-estimates.md` | Status paragraph; short refs; ETR-12, ETR-17, ETR-24, ETR-27, ETR-37; new ETR-46, ETR-47; staging dependency row; §3.2 E0.5 rows, totals and arithmetic |
+| `14-d6-release-gate-specs.md` | Lead confirmations in the header; estimate resolution; G5 probe count; G7 S3 Mumbai default with verified prices; §9 README IDs, Q1 / Q3; §10 F1 / F3 / F4 / F9 status |
+| `15-database-change-plan.md` | §8.2 `btree_gist` Lead answer; §9.1 row 4 and exception note; §11.5 git facts and instruction; §12 C-1 / C-2 / C-12 / C-16; §13 Q3 / Q8 / Q9 |
+| `16-test-environment-requirements.md` | §9 README IDs; Q1; Q2 partly answered; Q12 / Q13 resolved; §9.1 Lead resolution |
+| `VALIDATION.md` | Summary check #6 superseded in part; C3, C4, C6 reworded; historical labels on §11, §12, §14; this §15 |
+| `00`, `03`, `04`, `06`, `07`, `08`, `10`, `11` | `> **E0.5 Lead note:**` blockquotes only (11 notes: `00` 1, `03` 2, `04` 1, `06` 2, `07` 1, `08` 1, `10` 1, `11` 2) |
+
+`01` and `09` needed no change. The 21 / 3 contradiction resolutions and the F1–F7 corrections made earlier in E0.5
+were left intact.
+
+### 15.4 Left open (owner decisions, not inconsistencies)
+
+The three E0 contradictions tied to P6 (×2) and P2, and the 33 unresolved README §7 decisions. Everything that would
+make the documents act on an answer (patch approvals, staging host, storage purchase, key custody, mobile server URL,
+`btree_gist`, branch custody, production-data use) is listed there with a recommended default only.

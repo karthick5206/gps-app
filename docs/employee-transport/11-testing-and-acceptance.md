@@ -101,6 +101,8 @@ Gaps in CI:
 
 > **Validation note (E0 review):** Relevant to D6 / G7 and not flagged here: the Windows backup uploads age-encrypted dumps as **GitHub Release assets** to the private repo `veetrax/dailydbbackup` (`ops/backup/README.md` l.10), using a token with Contents read/write. Release assets are not Git history, but they do store backups on GitHub. Whether that storage is acceptable under D6 is an owner decision (README §7 O8). The repo also holds WSL-targeted `ops/backup/veetrax-backup.sh` / `veetrax-restore.sh` (GPG to a public key, upload only via an approved `UPLOAD_CMD`), which G7 should reuse.
 
+> **Update in E0.5 (2026-11-11):** **O8 was approved by the owner on 2026-11-11** (README §1.1): encrypted off-site object storage, independent of production and of Git, with user-controlled encryption keys. Provider and cost are presented before anything is bought (decision Q-03), and nothing is provisioned under this approval. The G7 backup **and restore** drill (D6, approved as a gate, still outstanding) is planned against that target.
+
 ---
 
 ## 2. ETMS test strategy per phase (Proposed)
@@ -157,7 +159,7 @@ Declare the policy once and generate the tests. File: `apps/api/src/etms/testing
 
 | Axis | Values |
 |---|---|
-| **Role** | Super Admin; Corporate Admin; Corporate Manager (`DataScope = 'ASSIGNED'`, site/shift-scoped); Provider Admin; Provider Dispatcher; Driver; Employee (passenger); public API key (`AuthContext.apiKey` scopes); anonymous; existing GPS roles (Admin/Manager/User/Viewer) of a non-ETMS company |
+| **Role** | Super Admin; Corporate Admin; Corporate Manager (`DataScope = 'ASSIGNED'`, site/shift-scoped); Provider Admin; Provider Dispatcher; Driver; Passenger (role name per D5, approved 2026-11-11; was "Employee (passenger)"); public API key (`AuthContext.apiKey` scopes); anonymous; existing GPS roles (Admin/Manager/User/Viewer) of a non-ETMS company |
 | **Resource** | passenger profile, home location, pickup point, booking, recurring schedule, route plan, transport trip, trip live position, trip passenger manifest, vehicle, driver, SOS incident, notification log, report run/export file, document/photo, Socket.IO trip room, webhook delivery |
 | **Scope** (relative to the caller) | own; other customer of the same provider; customer of another provider; customer with **no** agreement; **expired / suspended** agreement; agreement restricted to a site/shift; another tenant with no ETMS; driver: own assigned trip, inside vs outside the trip window; employee: own vs co-passenger |
 | **Action** | list, read, create, update, delete, export, subscribe (socket), search/autocomplete |
@@ -247,6 +249,12 @@ How it works:
 4. **Load generators run off-box** (another machine or a Windows host), so they do not steal CPU.
 5. **Gate.** E9 is not signed off until the staging run meets §5.2 for 2 consecutive runs plus a 24 h soak (1,000 vehicles, 3 shift peaks) with no memory growth over 10 % per process.
 
+> **E0.5 Lead note (2026-11-11):** Option B (capped WSL2, `memory=27GB`, `processors=6`) is **not feasible** as
+> production-class staging: the dev PC has 28.8 GB RAM in total, `.wslconfig` is global (it also caps the dev stack and
+> needs `wsl --shutdown`), and the dev CPU has AVX while production has none (`16` §3.2). README C3 now recommends a
+> **separate host** (still unresolved); a reduced WSL2 profile serves only labelled pre-checks. The G4 Valkey drill uses
+> a private Valkey 7.2 instance, never the shared WSL Valkey (`12` G4, `16` §2.2).
+
 ---
 
 ## 6. Synthetic data generator (Proposed)
@@ -288,6 +296,12 @@ How it works:
 | E8 | Integration/localisation suites | Webhook HMAC + HRMS adapter suites. Locale snapshots for en/hi/ta/kn. US tenant run green. |
 | E9 | Signed acceptance, rollback plan, monitoring, deployment approval | Staging meets every §5.2 SLO twice plus the 24 h soak. Chaos suite (existing + ETMS) 0 lost. Backup/restore drill R9 within RTO. ETMS alerts (§8) are live on staging. Rollback rehearsed: flags off plus the additive migration left in place. Owner sign-off recorded in `PROGRESS.md` / the decision log. |
 
+> **E0.5 Lead note (2026-11-11):** E3 "Burst SLO met on staging" is superseded: in E3 the booking burst is measured on
+> the local isolated instance (T3) as an indicative figure; the burst SLO of record is measured on staging at E9 (`12`
+> §5, §12; `16` Q12). E1 "`tenant-isolation-probe.ts` 20/20 PASS" becomes 0 FAIL with 21 PASS after G5 (`12` §3).
+> Both the probe and the chaos baselines must be re-run on production versions (Node 24.22.2, PostgreSQL 18.6 +
+> TimescaleDB 2.31.0, Valkey 7.2.13), not the Node 22 / Valkey 9 of the 2026-11-09 runs (C6, `16` §6).
+
 ---
 
 ## 8. Observability additions (Proposed)
@@ -315,3 +329,5 @@ How it works:
 9. **India test phone numbers:** is the non-allocatable `+91 00000…` pattern acceptable, or do you have a reserved test range from the SMS provider?
 
 > **Validation note (E0 review):** Answered by the Lead's production check in the box at the top of this document (2026-11-11): the nightly cron `/etc/cron.d/veetrax-backup` is installed (script not in the repo) and Valkey `appendonly` is `no`. Agent 7 did not access the server; those facts are the Lead's.
+
+> **Update in E0.5 (2026-11-11):** Q1 is covered by **D6, approved as a pre-pilot gate on 2026-11-11** (G2 lost alert notifications; ETMS events via `OutboxEvent`, `02` §3.1); implementation still needs separate authorisation. The other questions stay open as owner decisions (README §7): Q2 → **C3**; Q3 and Q4 → **O4**; Q6 → **L3**; Q8 → **O6**. Q7 and Q9 are not listed in README §7 and stay with the owner.
