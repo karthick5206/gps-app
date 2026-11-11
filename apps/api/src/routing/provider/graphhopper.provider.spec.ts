@@ -2,10 +2,11 @@ import { RedisService } from '../../redis/redis.service';
 import { RoutingService } from '../routing.service';
 import { A, B, C, D, GH_ERROR, GH_INFO, GH_MATCH, GH_ROUTE } from './graphhopper.fixtures';
 import { GraphHopperProvider } from './graphhopper.provider';
+import { matrixEngineSource } from '../matrix/matrix.factory';
 import { readRouterConfig, requireGraphHopper, RoutingEngineConfigError } from './router-config';
 import { Pt } from './routing-provider';
 
-const BASE = 'http://gh.test:8989';
+const BASE = 'http://graphhopper.internal:8989';
 type Reply = { status: number; body: unknown } | 'network' | 'timeout';
 
 const key = (pts: Pt[]) => pts.map((p) => `${p.lat},${p.lng}`).join('|');
@@ -195,6 +196,27 @@ describe('GraphHopperProvider', () => {
       expect(() => requireGraphHopper({ ROUTER_URL: BASE, ...(engine ? { ROUTER_ENGINE: engine } : {}) })).toThrow(RoutingEngineConfigError);
     });
 
+    it('L3: a public ROUTER_URL is refused (no engine call); loopback / private / ROUTING_ALLOW_PUBLIC_ENGINE=1 pass', async () => {
+      const calls = installFakeGh({ [key([A, B])]: ok(GH_ROUTE.AB) });
+      for (const url of ['https://graphhopper.com/api/1', 'http://8.8.8.8:8989', 'http://maps.example.com:8989', 'http://user:pw@127.0.0.1:8989', 'ftp://127.0.0.1']) {
+        const cfg = readRouterConfig({ ROUTER_URL: url, ROUTER_ENGINE: 'graphhopper' });
+        expect(cfg).toMatchObject({ state: 'refused', message: expect.stringMatching(/^ROUTER_URL refused: /) });
+        const p = new GraphHopperProvider(cfg);
+        expect(p.enabled).toBe(false);
+        expect(await p.route(A, B)).toMatchObject({ ok: false, degraded: 'ENGINE_NOT_SUPPORTED' });
+        expect(() => requireGraphHopper({ ROUTER_URL: url, ROUTER_ENGINE: 'graphhopper' })).toThrow(RoutingEngineConfigError);
+      }
+      expect(calls).toEqual([]);
+      // production (loopback), dev (localhost), a private network host, a single-label service name, the test-rig hatch
+      for (const url of ['http://127.0.0.1:8989', 'http://localhost:8989', 'http://10.0.0.5:8989', 'http://graphhopper:8989']) {
+        expect(readRouterConfig({ ROUTER_URL: url, ROUTER_ENGINE: 'graphhopper' })).toEqual({ state: 'graphhopper', baseUrl: url });
+      }
+      expect(readRouterConfig({ ROUTER_URL: 'http://maps.example.com:8989', ROUTER_ENGINE: 'graphhopper', ROUTING_ALLOW_PUBLIC_ENGINE: '1' })).toEqual({ state: 'graphhopper', baseUrl: 'http://maps.example.com:8989' });
+      expect(readRouterConfig({ ROUTER_URL: 'http://maps.example.com:8989', ROUTER_ENGINE: 'graphhopper', ROUTING_ALLOW_PUBLIC_ENGINE: '0' }).state).toBe('refused');
+      // the matrix builder takes the same config: no engine for a refused URL
+      expect(matrixEngineSource(readRouterConfig({ ROUTER_URL: 'http://8.8.8.8:8989', ROUTER_ENGINE: 'graphhopper' }))).toMatchObject({ engine: null, reason: 'ENGINE_NOT_SUPPORTED' });
+    });
+
     it('config: GraphHopper accepted case-insensitively, trailing slash trimmed', () => {
       expect(readRouterConfig({ ROUTER_URL: `${BASE}//`, ROUTER_ENGINE: ' GraphHopper ' })).toEqual({ state: 'graphhopper', baseUrl: BASE });
       expect(requireGraphHopper({ ROUTER_URL: BASE, ROUTER_ENGINE: 'graphhopper' })).toBe(BASE);
@@ -258,7 +280,7 @@ describe('GraphHopperProvider', () => {
       expect(r.value.path).toEqual(GH_MATCH.paths[0].points.coordinates);
       expect(r.value.offRoadIndexes).toEqual([2]);
       expect(r.value.matchedDistanceM).toBeGreaterThan(1500);
-      expect(calls[0]).toMatch(/^http:\/\/gh\.test:8989\/match\?profile=car&points_encoded=false/);
+      expect(calls[0]).toMatch(/^http:\/\/graphhopper\.internal:8989\/match\?profile=car&points_encoded=false/);
     });
 
     it('mapMatch failures are typed', async () => {

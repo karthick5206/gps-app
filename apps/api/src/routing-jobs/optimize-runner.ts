@@ -8,6 +8,7 @@ import type { RoutingUsageHook } from './usage-hook';
 import { weightsOf } from './prisma-plan-gateway';
 import type { SolverWeights } from './optimize-problem';
 import { coverageIssue } from '../routing/service-area/coverage';
+import { scrubCoordinates } from '../routing/engine-text';
 
 /** The optimise job input (shared RoutingJobInput) plus the explicit objective weights (P6). */
 export type OptimizeJobInput = Extract<RoutingJobInput, { kind: 'optimize' }> & { weights?: SolverWeights };
@@ -94,7 +95,7 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
       depots: [...Array(built.firstStopIndex).keys()],
       onProgress: async (done, total) => ctx.progress(phaseProgress(PROGRESS.matrixStart, PROGRESS.matrixEnd, total ? done / total : 0)),
     });
-    if (!m.ok) throw new JobError(m.degraded, `Road matrix unavailable: ${m.message}`);
+    if (!m.ok) throw new JobError(m.degraded, `Road matrix unavailable: ${scrubCoordinates(m.message)}`);
     let matrix = m.value;
     const shape = matrixShapeProblem(matrix, built.points.length);
     if (shape) throw new JobError('ENGINE_UNREACHABLE', `Road matrix unusable (${shape})`);

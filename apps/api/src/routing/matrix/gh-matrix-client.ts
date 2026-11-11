@@ -19,6 +19,7 @@
 import type { DegradedReason, RoutingProfile } from '../provider/routing-provider';
 import type { MatrixPoint } from './matrix-types';
 import { haversineMeters } from '../../tracking/geo';
+import { transportErrorText } from '../engine-text';
 
 export type EngineFailure = { kind: 'failure'; reason: DegradedReason; message: string; transport: boolean };
 
@@ -81,7 +82,8 @@ export function thrownFailure(error: unknown): EngineFailure {
   const name = (error as { name?: string } | null)?.name;
   if (name === 'TimeoutError') return { kind: 'failure', reason: 'ENGINE_TIMEOUT', message: 'GraphHopper did not answer in time', transport: true };
   if (name === 'AbortError') return { kind: 'failure', reason: 'LIMIT_EXCEEDED', message: 'Matrix build cancelled', transport: false };
-  return { kind: 'failure', reason: 'ENGINE_UNREACHABLE', message: `GraphHopper unreachable: ${(error as Error)?.message ?? String(error)}`, transport: true };
+  // L4: the error class / code only, never the error text (it may hold the request URL with its points).
+  return { kind: 'failure', reason: 'ENGINE_UNREACHABLE', message: `GraphHopper unreachable (${transportErrorText(error)})`, transport: true };
 }
 
 type GhError = { message?: unknown; hints?: { message?: unknown; details?: unknown; point_index?: unknown }[] };
@@ -99,10 +101,11 @@ export function classifyError(status: number, body: GhError | null): { kind: 'no
     if (/connection between locations not found/i.test(message) || /ConnectionNotFound/.test(String(body?.hints?.[0]?.details ?? ''))) {
       return { kind: 'noroute' };
     }
-    // e.g. maximum visited nodes, too many points: not a proof that no route exists.
-    return { kind: 'failure', reason: 'LIMIT_EXCEEDED', message: `GraphHopper refused the request: ${message || 'HTTP 400'}`, transport: false };
+    // e.g. maximum visited nodes, too many points, points too far apart: not a proof that no route exists. L4: the
+    // engine text is classified, never forwarded (it can quote a point: "… too far from Point 2: 13.08,80.26").
+    return { kind: 'failure', reason: 'LIMIT_EXCEEDED', message: 'GraphHopper refused the request (engine limit or invalid request; HTTP 400)', transport: false };
   }
-  return { kind: 'failure', reason: 'ENGINE_UNREACHABLE', message: `GraphHopper returned ${status}${message ? `: ${message}` : ''}`, transport: true };
+  return { kind: 'failure', reason: 'ENGINE_UNREACHABLE', message: `GraphHopper returned HTTP ${status}`, transport: true };
 }
 
 type GhPath = {

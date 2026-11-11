@@ -5,6 +5,7 @@ import { decodePolyline } from '../route-estimate';
 import { fillLegs, parseGraphHopperRoute, RouteViaLeg } from '../route-via';
 import type { MatrixBuilder } from '../matrix/matrix-builder';
 import { providerMatrix } from '../matrix/provider-matrix';
+import { transportErrorText } from '../engine-text';
 import { readRouterConfig, RouterConfig } from './router-config';
 import {
   AVAILABLE_PROFILES,
@@ -232,7 +233,7 @@ export class GraphHopperProvider implements RoutingProvider {
   private thrown(error: unknown): Unavailable {
     const name = (error as { name?: string } | null)?.name;
     if (name === 'TimeoutError' || name === 'AbortError') return unavailable('ENGINE_TIMEOUT', 'GraphHopper did not answer in time');
-    return unavailable('ENGINE_UNREACHABLE', `GraphHopper unreachable: ${(error as Error)?.message ?? String(error)}`);
+    return unavailable('ENGINE_UNREACHABLE', `GraphHopper unreachable (${transportErrorText(error)})`);
   }
 
   /** `GET /route` exactly as `RoutingService` sends it (car profile, encoded points, no instructions). */
@@ -251,13 +252,14 @@ export class GraphHopperProvider implements RoutingProvider {
         .then((j: { message?: unknown }) => (typeof j?.message === 'string' ? j.message : ''))
         .catch(() => '');
       // 400 = no route / point not near a road; anything else is an engine problem worth logging (as RoutingService).
+      // L4: the engine text is only classified, never forwarded ("Cannot find point 0: 13.08,80.26" quotes the point).
       if (res.status === 400) {
         return /cannot find point/i.test(message)
-          ? unavailable('POINT_NOT_ON_ROAD', message)
-          : unavailable('NO_ROUTE', message || 'GraphHopper found no route');
+          ? unavailable('POINT_NOT_ON_ROAD', 'GraphHopper could not place a point on a road')
+          : unavailable('NO_ROUTE', 'GraphHopper found no route');
       }
       this.logger.warn(`Routing engine returned ${res.status}`);
-      return unavailable('ENGINE_UNREACHABLE', `GraphHopper returned ${res.status}${message ? `: ${message}` : ''}`);
+      return unavailable('ENGINE_UNREACHABLE', `GraphHopper returned HTTP ${res.status}`);
     }
     try {
       return { ok: true, json: await res.json() };

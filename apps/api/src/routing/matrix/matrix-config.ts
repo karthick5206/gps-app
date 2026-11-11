@@ -1,3 +1,4 @@
+import { etmsRoutingEnabled } from '../../etms/transport-feature.guard';
 /**
  * Matrix settings (env). Everything is off unless `ETMS_ROUTING=on` (and the ETMS master switch `ETMS` is not `off`).
  * Defaults are sized for the shared 6-vCPU production host (doc 17 R-5, doc 06 §7): GraphHopper answers one request
@@ -40,10 +41,8 @@ const int = (v: string | undefined, def: number, min: number, max: number): numb
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
 };
 
-export function etmsRoutingEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  if ((env.ETMS ?? '').trim().toLowerCase() === 'off') return false;
-  return ['on', '1', 'true'].includes((env.ETMS_ROUTING ?? '').trim().toLowerCase());
-}
+/** One definition of the ETMS_ROUTING switch (exactly `on`, and ETMS not off): transport-feature.guard (E4 security review). */
+export { etmsRoutingEnabled };
 
 export function readMatrixConfig(env: NodeJS.ProcessEnv = process.env): MatrixConfig {
   const strategy = (env.ETMS_MATRIX_STRATEGY ?? 'auto').trim().toLowerCase();
