@@ -1,0 +1,124 @@
+import { ROUTING_AVAILABLE_PROFILES, ROUTING_LIMITS, RoutingJobInput, SolverResult } from '@veetracer/shared';
+import type { JobRecord, StoreTx } from './job-store';
+import { PROGRESS, phaseProgress } from './job-state';
+import { JobError, JobRunner } from './job-worker';
+import { BuiltMatrix, matrixShapeProblem, MatrixPort } from './matrix-port';
+import { mapSolverResult, PlanInputs, planPoints, PlanWrite, snapExclusions, SolverProblemV2, solverProblem } from './optimize-problem';
+import type { RoutingUsageHook } from './usage-hook';
+
+export type OptimizeJobInput = Extract<RoutingJobInput, { kind: 'optimize' }>;
+
+/** Reads the plan inputs and writes the DRAFT result (Prisma in production, fakes in tests). */
+export interface PlanGateway {
+  /**
+   * The plan's stops, vehicles, seats and windows, read at run time (so an erasure or consent withdrawal before the
+   * run is honoured). Personal points without active routing consent and stops of inactive bookings are moved to
+   * `excluded` and their coordinates never leave this call. Throws PLAN_STALE / INVALID_INPUT / LIMIT_EXCEEDED.
+   */
+  load(job: JobRecord, input: OptimizeJobInput): Promise<PlanInputs>;
+  /** Writes the result as a DRAFT plan version inside the job's SUCCEEDED transaction. Throws PLAN_STALE. */
+  write(tx: StoreTx, job: JobRecord, inputs: PlanInputs, write: PlanWrite, matrix: BuiltMatrix | null, points: { stopId: string; index: number }[], graphVersion: string | null): Promise<void>;
+}
+
+export interface SolverPort {
+  solve(problem: SolverProblemV2, signal?: AbortSignal): Promise<SolverResult>;
+}
+
+export function parseOptimizeInput(job: JobRecord): OptimizeJobInput {
+  const i = job.input as Partial<OptimizeJobInput> | null;
+  if (!i || i.kind !== 'optimize' || typeof i.planId !== 'string' || i.planId !== job.planId || !Number.isInteger(i.planVersion)) {
+    throw new JobError('INVALID_INPUT', 'Job input is not an optimise request for its plan');
+  }
+  return {
+    kind: 'optimize',
+    planId: i.planId,
+    planVersion: i.planVersion as number,
+    profile: i.profile ?? 'car',
+    timeLimitS: Math.max(1, Math.min(ROUTING_LIMITS.optimizeTimeLimitS, Math.round(Number(i.timeLimitS) || 10))),
+    ...(i.objective ? { objective: i.objective } : {}),
+  };
+}
+
+/** Rows / columns `keep` of a square matrix (stops dropped because the engine could not snap them). */
+function subMatrix(m: BuiltMatrix, keep: number[]): BuiltMatrix {
+  const pick = <T>(rows: T[][]) => keep.map((i) => keep.map((j) => rows[i][j]));
+  return { ...m, durationsS: pick(m.durationsS), distancesM: pick(m.distancesM), snapped: keep.map((i) => m.snapped[i] ?? null), invalid: [] };
+}
+
+/**
+ * The optimise job (kind `optimize`): load the plan → build the matrix (E4-B port) → solve (OR-Tools service) → store
+ * the result as a DRAFT plan version. It never publishes: publishing into PlannedTrip / TransportTrip is the plans
+ * service's command (doc 15 §8.4). Logs carry ids and counts only, never coordinates or names.
+ */
+export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; solver: SolverPort; usage: RoutingUsageHook }): JobRunner {
+  return async (ctx) => {
+    const { job } = ctx;
+    const input = parseOptimizeInput(job);
+    await ctx.checkpoint();
+    let inputs = await deps.plans.load(job, input);
+    if (!(ROUTING_AVAILABLE_PROFILES as readonly string[]).includes(inputs.profile)) {
+      throw new JobError('PROFILE_NOT_AVAILABLE', `Routing profile "${inputs.profile}" is not available on this server`);
+    }
+    if (inputs.stops.length > ROUTING_LIMITS.optimizeStops) throw new JobError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeStops} stops per optimisation (plan has ${inputs.stops.length})`);
+    if (inputs.vehicles.length > ROUTING_LIMITS.optimizeVehicles) throw new JobError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeVehicles} vehicles per optimisation`);
+    let built = planPoints(inputs);
+    if (built.points.length > ROUTING_LIMITS.optimizeLocations) throw new JobError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeLocations} locations per optimisation`);
+
+    if (!built.solverStops.length) {
+      // Nothing to route (e.g. every passenger withdrew consent): store the empty result, no engine or solver call.
+      const empty: SolverResult = { status: 'FEASIBLE', provenOptimal: false, routes: [], unassigned: [] };
+      const { write, result } = mapSolverResult(inputs, built, empty, null);
+      const frozen = inputs;
+      return { result, graphVersion: null, within: (tx: StoreTx) => deps.plans.write(tx, job, frozen, write, null, [], null) };
+    }
+
+    await ctx.phase('matrix', PROGRESS.matrixStart);
+    const m = await deps.matrix.build(built.points, inputs.profile, {
+      signal: ctx.signal,
+      onProgress: async (done, total) => ctx.progress(phaseProgress(PROGRESS.matrixStart, PROGRESS.matrixEnd, total ? done / total : 0)),
+    });
+    if (!m.ok) throw new JobError(m.degraded, `Road matrix unavailable: ${m.message}`);
+    let matrix = m.value;
+    const shape = matrixShapeProblem(matrix, built.points.length);
+    if (shape) throw new JobError('ENGINE_UNREACHABLE', `Road matrix unusable (${shape})`);
+    if (matrix.invalid.some((i) => i.index < built.firstStopIndex)) {
+      const r = matrix.invalid.find((i) => i.index < built.firstStopIndex)!.reason;
+      throw new JobError(r, 'The depot or site is not on the road network; no plan was computed');
+    }
+    await deps.usage.add(job.companyId, { matrixCells: matrix.cells.computed, cacheHits: matrix.cells.cached });
+
+    // Stops the engine could not snap: unassigned with their reason, removed from the problem (never guessed).
+    const bad = snapExclusions(built, matrix);
+    if (bad.size) {
+      const keepStops = inputs.stops.filter((s) => !bad.has(s.id));
+      const keepIdx = [...Array(built.firstStopIndex).keys(), ...built.solverStops.map((s, i) => (bad.has(s.id) ? -1 : built.firstStopIndex + i)).filter((i) => i >= 0)];
+      inputs = { ...inputs, stops: keepStops, excluded: [...inputs.excluded, ...[...bad].map(([stopId, reason]) => ({ stopId, reason }))] };
+      matrix = subMatrix(matrix, keepIdx);
+      built = planPoints(inputs);
+    }
+    await ctx.checkpoint();
+
+    await ctx.phase('solve', PROGRESS.solveStart);
+    let solved: SolverResult;
+    if (built.solverStops.length) {
+      const problem = solverProblem(inputs, built, matrix, { timeLimitS: input.timeLimitS, objective: input.objective });
+      await deps.usage.add(job.companyId, { optimizeJobs: 1 });
+      solved = await deps.solver.solve(problem, ctx.signal);
+      if (solved.status === 'NO_SOLUTION') throw new JobError('NO_ROUTE', 'The optimiser found no feasible plan for these stops and vehicles');
+    } else {
+      solved = { status: 'FEASIBLE', provenOptimal: false, routes: [], unassigned: [] };
+    }
+    await ctx.progress(PROGRESS.writing);
+    await ctx.checkpoint();
+
+    const { write, result } = mapSolverResult(inputs, built, solved, matrix.graphVersion);
+    const points = built.solverStops.map((s, i) => ({ stopId: s.id, index: built.firstStopIndex + i }));
+    const frozen = inputs;
+    const usedMatrix = matrix;
+    return {
+      result,
+      graphVersion: matrix.graphVersion,
+      within: (tx: StoreTx) => deps.plans.write(tx, job, frozen, write, usedMatrix, points, usedMatrix.graphVersion),
+    };
+  };
+}
