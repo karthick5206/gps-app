@@ -765,10 +765,20 @@ const PLANNED_TRIPS: ReportColumn[] = [
   kmCol('distanceKm'),
 ];
 
-/** Columns for a report result: the trip performance report names its first column after the grouping. */
+const groupedColumns = new WeakMap<ReportTypeDef, Map<TripPerformanceGroupBy, ReportColumn[]>>();
+
+/**
+ * Columns for a report result: the trip performance report names its first column after the grouping. The array is
+ * cached per definition and grouping so it keeps its identity across renders (ReportTable memoises on `columns` and
+ * reports its view to the page; a fresh array each render looped "Maximum update depth exceeded").
+ */
 export function columnsForResult(def: ReportTypeDef, groupBy?: TripPerformanceGroupBy): ReportColumn[] {
   if (def.type !== 'TRIP_PERFORMANCE' || !groupBy) return def.columns;
-  return def.columns.map((c, i) => (i === 0 ? { ...c, header: TRIP_PERFORMANCE_GROUP_HEADER[groupBy] } : c));
+  let byGroup = groupedColumns.get(def);
+  if (!byGroup) groupedColumns.set(def, (byGroup = new Map()));
+  let cols = byGroup.get(groupBy);
+  if (!cols) byGroup.set(groupBy, (cols = def.columns.map((c, i) => (i === 0 ? { ...c, header: TRIP_PERFORMANCE_GROUP_HEADER[groupBy] } : c))));
+  return cols;
 }
 
 export type ReportCategory = 'Staff attendance' | 'Routes & trips' | 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Fuel log (manual)' | 'Sensors' | 'Devices' | 'Compliance';
