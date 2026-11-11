@@ -7,7 +7,12 @@ import type { RelayTargetStats } from './relay';
 
 /** Processes of the platform; each writes a heartbeat every 5 s. */
 export const PROCESS_ROLES = ['api', 'gateway', 'processor', 'notifier', 'summarizer'] as const;
-export type ProcessRole = (typeof PROCESS_ROLES)[number];
+/**
+ * Processes that run only when their feature is switched on (ETMS E4: the routing worker with ETMS_ROUTING=on). Not in
+ * the default expected roles; listed on the page only while they write heartbeats.
+ */
+export const OPTIONAL_PROCESS_ROLES = ['routing-worker'] as const;
+export type ProcessRole = (typeof PROCESS_ROLES)[number] | (typeof OPTIONAL_PROCESS_ROLES)[number];
 
 /** OK = healthy, WARN = degraded, CRITICAL = data loss or outage likely. */
 export type HealthStatus = 'OK' | 'WARN' | 'CRITICAL';
@@ -126,12 +131,42 @@ export interface ApiMetrics {
   sweeperLastRunAt: string | null;
 }
 
+/** ETMS E4 routing worker (optimisation jobs). */
+export interface RoutingWorkerMetrics {
+  slots: number;
+  inflight: number;
+  claimed: number;
+  succeeded: number;
+  failed: number;
+  retried: number;
+  cancelled: number;
+  leaseLost: number;
+  takenOver: number;
+  lastError: { code: string; at: string } | null;
+  /** Last optimiser /health probe of this worker (null = not probed yet). */
+  optimizerOk: boolean | null;
+}
+
 export interface RoleMetrics {
   gateway: GatewayMetrics;
   processor: ProcessorMetrics;
   notifier: NotifierMetrics;
   summarizer: SummarizerMetrics;
   api: ApiMetrics;
+  'routing-worker': RoutingWorkerMetrics;
+}
+
+/**
+ * ETMS planning / optimisation health (E4): the routing worker processes, the OR-Tools optimiser service and the job
+ * queue. `enabled: false` (ETMS_ROUTING off, the default) = status DISABLED, nothing probed, no issue raised.
+ */
+export interface RoutingHealthDto {
+  enabled: boolean;
+  status: HealthStatus | 'DISABLED';
+  workers: number;
+  optimizer: { configured: boolean; ok: boolean; probeUrl: string | null; latencyMs: number | null; error: string | null; checkedAt: string | null };
+  /** null when the database could not be asked (or routing is disabled). */
+  jobs: { queued: number; running: number; failed24h: number; oldestQueuedAgeSec: number | null } | null;
 }
 
 export interface ProcessHeartbeat<R extends ProcessRole = ProcessRole> {
@@ -298,7 +333,7 @@ export interface HealthIssue {
   id: string;
   /** Short label of the check. */
   check: string;
-  section: 'processes' | 'ports' | 'queues' | 'database' | 'valkey' | 'host' | 'pipeline' | 'maps';
+  section: 'processes' | 'ports' | 'queues' | 'database' | 'valkey' | 'host' | 'pipeline' | 'maps' | 'routing';
   severity: IssueSeverity;
   message: string;
   since: string;
@@ -326,6 +361,8 @@ export interface SystemHealthDto {
   host: HostDto;
   /** GraphHopper, Photon and Martin (not configured ones included, so the page can say "not monitored"). */
   maps: MapServiceDto[];
+  /** ETMS E4 routing worker + optimiser (status DISABLED while ETMS_ROUTING is off). Absent on older APIs. */
+  routing?: RoutingHealthDto;
   throughput: ThroughputPoint[];
 }
 

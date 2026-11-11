@@ -32,6 +32,8 @@ import { NOTIFY_SWEEP_FLOOR } from '../notifier/notify-sweeper';
 import { bufferSecondsLeft, CheckInput, evaluateChecks, Issue, NotifyBacklog, statusOf, worst } from './checks';
 import { HEARTBEAT_TTL_SEC } from './heartbeat';
 import { MapServiceMonitor, MapServiceState } from './map-services';
+import { RoutingHealthMonitor } from './routing-health';
+import { PrismaJobStore } from '../routing-jobs/prisma-job-store';
 import { HealthThresholds, loadMonitorConfig, loadThresholds, MonitorConfig } from './thresholds';
 import { pairs, parseInfo, shortError, streamIdTime, toNumber, withTimeout } from './util';
 
@@ -89,6 +91,11 @@ export class SystemHealthService {
   private readonly startedAt = Date.now();
   /** GraphHopper / Photon / Martin probes (only the configured ones; results reused for 10 s). */
   readonly mapServices = new MapServiceMonitor();
+  /** ETMS E4 routing worker / optimiser / job queue (DISABLED unless ETMS_ROUTING=on). */
+  private routingMonitor: RoutingHealthMonitor | null = null;
+  private get routingHealth(): RoutingHealthMonitor {
+    return (this.routingMonitor ??= new RoutingHealthMonitor(new PrismaJobStore(this.prisma)));
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -122,6 +129,7 @@ export class SystemHealthService {
       this.notifyBacklog(),
       this.etmsRelay(),
     ]);
+    const routing = await this.routingHealth.collect(heartbeats, now, this.thresholds.heartbeatStaleSec).catch(() => undefined);
     const processes = this.processes(heartbeats, now);
     const ports = this.ports(heartbeats);
     const rates = this.rates(series);
@@ -142,6 +150,7 @@ export class SystemHealthService {
       maps,
       notify,
       etmsRelay,
+      routing,
     };
     const issues = evaluateChecks(input, this.thresholds);
     applyStatuses(input, issues);
@@ -168,6 +177,7 @@ export class SystemHealthService {
       valkey: c.input.valkey,
       host: c.input.host,
       maps: mapServiceDtos(c.input.maps ?? [], c.issues),
+      ...(c.input.routing ? { routing: c.input.routing } : {}),
       throughput: c.throughput,
     };
   }
@@ -626,4 +636,5 @@ function applyStatuses(input: CheckInput, issues: Issue[]): void {
   input.database.status = statusOf(issues, 'database');
   input.valkey.status = statusOf(issues, 'valkey');
   input.host.status = statusOf(issues, 'host');
+  if (input.routing?.enabled) input.routing.status = worst(issues.filter((i) => i.section === 'routing').map((i) => i.severity));
 }

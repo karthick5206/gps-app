@@ -33,6 +33,8 @@ export interface PlanStopInput {
   personal: boolean;
   /** At the plan's site (route end for IN, route start for OUT): not a solver stop. */
   atSite: boolean;
+  /** Data owner (customer company) of a passenger stop: one customer per vehicle (README P2). */
+  customerId: string | null;
 }
 
 export interface PlanVehicleInput {
@@ -41,6 +43,22 @@ export interface PlanVehicleInput {
   label: string;
   /** Passenger seats; null = unlimited. */
   capacity: number | null;
+  /** TransportVehicleProfile.category (matched against allowed vehicle types later). */
+  type: string | null;
+  wheelchairSpaces: number;
+}
+
+/** Objective weights (README P6: always explicit). */
+export interface SolverWeights {
+  vehicle: number;
+  distance: number;
+  time: number;
+  routeDuration: number;
+}
+
+/** Defaults: vehicles first, then road time (or distance). Overridable per plan (RoutePlan.options.weights). */
+export function defaultWeights(objective: 'duration' | 'distance' = 'duration'): SolverWeights {
+  return objective === 'distance' ? { vehicle: 50_000, distance: 1, time: 0, routeDuration: 0 } : { vehicle: 7_200, distance: 0, time: 1, routeDuration: 0 };
 }
 
 export interface PlanInputs {
@@ -53,6 +71,8 @@ export interface PlanInputs {
   site: MatrixPoint | null;
   /** Max ride time per passenger (s), from the plan options; null = none. */
   maxRideS: number | null;
+  /** RoutePlan.options solver settings (validated by the loader). */
+  solver?: { weights?: SolverWeights; deterministic?: boolean; allowMixedCustomers?: boolean };
   stops: PlanStopInput[];
   vehicles: PlanVehicleInput[];
   /** Stops left out before solving (consent withdrawn, booking no longer active …), with the reason. */
@@ -109,11 +129,11 @@ const int = (v: number | null) => (v === null ? null : Math.round(v));
 export interface SolverProblemV2 {
   schemaVersion?: 1 | 2;
   matrix: { durationsS: (number | null)[][]; distancesM?: (number | null)[][] | null };
-  vehicles: { id: string; startIndex: number | null; endIndex: number | null; capacity?: number | null; timeWindow?: [number, number] | null }[];
-  stops: SolverStop[];
+  vehicles: { id: string; startIndex: number | null; endIndex: number | null; capacity?: number | null; timeWindow?: [number, number] | null; type?: string; wheelchairSpaces?: number }[];
+  stops: (SolverStop & { customerId?: string })[];
   horizonS: number;
   trip?: { direction: 'IN' | 'OUT'; siteIndex: number; siteWindow: [number, number]; maxRideS?: number };
-  options: SolverOptions;
+  options: SolverOptions & { weights: SolverWeights; deterministic?: boolean; allowMixedCustomers?: boolean };
 }
 
 /** The site window: IN = when the vehicles may arrive, OUT = when they may leave (from the site stops' windows). */
@@ -136,18 +156,31 @@ export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, 
     serviceS: Math.max(0, Math.round(s.serviceS)),
     ...(s.timeWindows?.length ? { timeWindows: s.timeWindows.map(([a, z]) => [Math.round(a), Math.round(z)] as [number, number]) } : {}),
     priority: 1,
+    ...(s.customerId ? { customerId: s.customerId } : {}),
   }));
   return {
-    ...(b.trip ? { schemaVersion: 2 as const } : {}),
+    schemaVersion: 2,
     matrix: { durationsS: m.durationsS.map((r) => r.map(int)), distancesM: m.distancesM.map((r) => r.map(int)) },
-    vehicles: inp.vehicles.map((v) => ({ id: v.assignmentId, startIndex: b.startIndex, endIndex: b.endIndex, capacity: v.capacity })),
+    // Start / end always explicit (a missing startIndex means 0, which is the site in trip mode).
+    vehicles: inp.vehicles.map((v) => ({
+      id: v.assignmentId,
+      startIndex: b.startIndex,
+      endIndex: b.endIndex,
+      capacity: v.capacity,
+      ...(v.type ? { type: v.type } : {}),
+      ...(v.wheelchairSpaces ? { wheelchairSpaces: v.wheelchairSpaces } : {}),
+    })),
     stops,
     horizonS,
     ...(b.trip
       ? { trip: { direction: b.trip.direction, siteIndex: b.trip.siteIndex, siteWindow: siteWindow(b, horizonS), ...(inp.maxRideS ? { maxRideS: Math.round(inp.maxRideS) } : {}) } }
       : {}),
-    // solver.py: "distance" uses distancesM (always sent here); anything else minimises time.
-    options: { timeLimitS: opts.timeLimitS, objective: opts.objective ?? 'duration' },
+    options: {
+      timeLimitS: opts.timeLimitS,
+      weights: inp.solver?.weights ?? defaultWeights(opts.objective),
+      ...(inp.solver?.deterministic ? { deterministic: true } : {}),
+      ...(inp.solver?.allowMixedCustomers ? { allowMixedCustomers: true } : {}),
+    },
   };
 }
 
@@ -164,7 +197,34 @@ export interface AssignmentWrite {
 
 export interface PlanWrite {
   assignments: AssignmentWrite[];
-  unassigned: { stopId: string; reason: string }[];
+  unassigned: { stopId: string; reason: string; code?: string }[];
+}
+
+/**
+ * Essential re-checks of a solver answer before anything is stored (mirrors the core of `optimizer.verify`; doc 06
+ * §4.5 "optimiser output is never trusted"): seats per route, every visit inside one of its stop's windows, and in
+ * trip mode the site arrival (IN) / departure (OUT) inside the site window. A violation fails the job; no plan is written.
+ */
+export function verifyRoutes(inp: PlanInputs, b: BuiltProblem, r: SolverResult): void {
+  const stop = new Map(b.solverStops.map((s) => [s.id, s]));
+  const vehicle = new Map(inp.vehicles.map((v) => [v.assignmentId, v]));
+  const site = (r as SolverResult & { trip?: { siteWindow?: [number, number] } }).trip?.siteWindow ?? null;
+  const bad = (what: string) => {
+    throw new JobError('INVALID_INPUT', `Optimizer result failed verification: ${what}`);
+  };
+  for (const route of r.routes) {
+    const cap = vehicle.get(route.vehicleId)?.capacity ?? null;
+    const seats = route.stops.reduce((n, v) => n + Math.max(0, Math.round(stop.get(v.stopId)?.demand ?? 0)), 0);
+    if (cap !== null && seats > cap) bad(`vehicle over capacity (${seats} > ${cap})`);
+    for (const v of route.stops) {
+      const tw = stop.get(v.stopId)?.timeWindows;
+      if (tw?.length && !tw.some(([a, z]) => v.serviceStartS >= a - 1 && v.serviceStartS <= z + 1)) bad('a visit outside its time window');
+    }
+    if (site && b.trip) {
+      const at = b.trip.direction === 'IN' ? route.endS : (route as { siteDepartureS?: number }).siteDepartureS ?? route.startS;
+      if (at < site[0] - 1 || at > site[1] + 1) bad(`site ${b.trip.direction === 'IN' ? 'arrival' : 'departure'} outside the site window`);
+    }
+  }
 }
 
 /**
@@ -188,14 +248,15 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
     assignments.push({ assignmentId: route.vehicleId, visits, startS: int(route.startS), endS: int(route.endS), durationS: int(route.durationS), distanceM: int(route.distanceM) });
   }
   const unassigned: PlanWrite['unassigned'] = [...inp.excluded];
-  for (const u of r.unassigned) {
-    if (stopIds.has(u.stopId) && !seen.has(u.stopId)) {
-      unassigned.push({ stopId: u.stopId, reason: u.reason });
-      seen.add(u.stopId);
-    }
+  for (const u of r.unassigned as (SolverResult['unassigned'][number] & { code?: string })[]) {
+    if (!stopIds.has(u.stopId) || seen.has(u.stopId)) throw new JobError('INVALID_INPUT', 'Optimizer answered with an unknown or repeated unassigned stop');
+    unassigned.push({ stopId: u.stopId, reason: u.reason, ...(u.code ? { code: u.code } : {}) });
+    seen.add(u.stopId);
   }
-  // Every solver stop is either on a route or unassigned (the service guarantees it; enforce it anyway).
-  for (const s of b.solverStops) if (!seen.has(s.id)) unassigned.push({ stopId: s.id, reason: 'no_solution_found' });
+  // Every solver stop exactly once: on a route or unassigned ("optimiser output is never trusted", doc 06 §4.5).
+  const missing = b.solverStops.filter((s) => !seen.has(s.id)).length;
+  if (missing) throw new JobError('INVALID_INPUT', `Optimizer result incomplete: ${missing} stop(s) neither routed nor unassigned`);
+  verifyRoutes(inp, b, r);
 
   // Site stops follow their booking's other end (IN: last, at the route end; OUT: first, at the route start).
   const routeOfBooking = new Map<string, AssignmentWrite>();
@@ -245,7 +306,7 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
           eta,
         };
       }),
-    unassigned: unassigned.map((u) => ({ stopId: u.stopId, reason: u.reason as OptimizeUnassignedReason })),
+    unassigned: unassigned.map((u) => ({ stopId: u.stopId, reason: u.reason as OptimizeUnassignedReason, ...(u.code ? { code: u.code } : {}) })),
     ...(r.stats ? { stats: r.stats } : {}),
     ...(r.note ? { note: r.note } : {}),
   };

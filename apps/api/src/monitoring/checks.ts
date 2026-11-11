@@ -8,6 +8,7 @@ import {
   ProcessorMetrics,
   ProcessRole,
   ProcessRoleDto,
+  RoutingHealthDto,
   QueueDto,
   SpoolMetrics,
   ValkeyDto,
@@ -47,6 +48,8 @@ export interface CheckInput {
    * (ETMS or the relay switched off); null: Valkey could not be asked. lastOkAt null = no pass recorded yet.
    */
   etmsRelay?: { lastOkAt: number | null; hwm: number | null; full: boolean } | null;
+  /** ETMS E4 routing worker / optimiser / job queue. Undefined: not collected; enabled false: nothing checked. */
+  routing?: RoutingHealthDto;
 }
 
 /** Alert types whose DEAD notification job is CRITICAL (D6 G2, owner decision: SOS / CRASH). */
@@ -423,6 +426,50 @@ function mapChecks(input: CheckInput, out: Issue[]): void {
   }
 }
 
+/** A QUEUED optimisation job older than this means no worker is taking jobs (WARN). */
+export const ROUTING_QUEUE_WARN_SEC = 300;
+
+/**
+ * ETMS E4 planning (only while ETMS_ROUTING=on; "disabled" raises nothing):
+ * - routing.worker CRITICAL: no routing worker heartbeat — optimisation jobs wait in the queue;
+ * - routing.engine CRITICAL (chaos R5): GraphHopper not answering while planning is on — no road matrix, optimisation
+ *   jobs fail with ENGINE_UNREACHABLE after their retries; no ETA is invented meanwhile;
+ * - routing.optimizer WARN: the OR-Tools service is not answering (or refuses the token) — jobs fail with
+ *   OPTIMIZER_UNAVAILABLE; manual dispatch is not affected;
+ * - routing.queue WARN: the oldest queued job is older than ROUTING_QUEUE_WARN_SEC.
+ */
+function routingChecks(input: CheckInput, out: Issue[]): void {
+  const r = input.routing;
+  if (!r?.enabled) return;
+  if (r.workers === 0 && !input.startupGrace && input.valkey.reachable) {
+    out.push({ id: 'routing.worker', check: 'routing worker', section: 'routing', severity: 'CRITICAL', message: 'No routing worker is running (veetrax-routing-worker): optimisation jobs wait in the queue. Manual dispatch is not affected.' });
+  }
+  const gh = (input.maps ?? []).find((m) => m.name === 'graphhopper');
+  if (!gh?.configured) {
+    out.push({ id: 'routing.engine', check: 'routing engine', section: 'routing', severity: 'CRITICAL', message: 'ETMS planning is on but no road engine is configured (ROUTER_URL + ROUTER_ENGINE=graphhopper): every optimisation fails.' });
+  } else if (!gh.ok && gh.consecutiveFailures >= MAP_FAILS_BEFORE_ISSUE) {
+    out.push({
+      id: 'routing.engine',
+      check: 'routing engine',
+      section: 'routing',
+      severity: 'CRITICAL',
+      message: `GraphHopper is not answering (${gh.error ?? 'failed'}): no road matrix, so optimisation jobs fail after their retries and no plan or ETA is computed. Manual dispatch keeps working.`,
+    });
+  }
+  if (!r.optimizer.configured || !r.optimizer.ok) {
+    out.push({
+      id: 'routing.optimizer',
+      check: 'route optimiser',
+      section: 'routing',
+      severity: 'WARN',
+      message: `The route optimiser (veetrax-optimizer) is ${r.optimizer.configured ? `not answering (${r.optimizer.error ?? 'failed'})` : `not configured (${r.optimizer.error ?? 'OPTIMIZER_URL / OPTIMIZER_TOKEN'})`}: optimisation jobs fail; manual dispatch is not affected.`,
+    });
+  }
+  if (r.jobs && r.jobs.oldestQueuedAgeSec !== null && r.jobs.oldestQueuedAgeSec > ROUTING_QUEUE_WARN_SEC) {
+    out.push({ id: 'routing.queue', check: 'optimisation queue', section: 'routing', severity: 'WARN', message: `${r.jobs.queued} optimisation job(s) queued, the oldest for ${Math.round(r.jobs.oldestQueuedAgeSec / 60)} min.` });
+  }
+}
+
 /** All checks; returns the issues that are currently WARN or CRITICAL. Pure (unit-tested). */
 export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] {
   const out: Issue[] = [];
@@ -440,6 +487,7 @@ export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] 
   relayChecks(input, out);
   etmsRelayChecks(input, t, out);
   mapChecks(input, out);
+  routingChecks(input, out);
   return out.sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.id.localeCompare(b.id));
 }
 

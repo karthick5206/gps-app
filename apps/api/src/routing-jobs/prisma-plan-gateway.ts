@@ -6,7 +6,7 @@ import { activeRoutingConsents } from '../etms/people/people.service';
 import type { JobRecord, StoreTx } from './job-store';
 import { JobError } from './job-worker';
 import type { BuiltMatrix } from './matrix-port';
-import type { PlanInputs, PlanStopInput, PlanWrite } from './optimize-problem';
+import type { PlanInputs, PlanStopInput, PlanWrite, SolverWeights } from './optimize-problem';
 import type { OptimizeJobInput, PlanGateway } from './optimize-runner';
 import { RoutingHttpError } from './routing-flags';
 import type { PlanJobLink } from './routing-jobs.service';
@@ -27,6 +27,16 @@ function pointOf(raw: Prisma.JsonValue | null): { lat: number; lng: number } | n
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const { lat, lng } = raw as { lat?: unknown; lng?: unknown };
   return typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+}
+
+/** RoutePlan.options.weights when complete and valid (all four finite, ≥ 0, one of distance / time / routeDuration > 0). */
+export function weightsOf(raw: unknown): SolverWeights | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const w = raw as Record<string, unknown>;
+  const keys = ['vehicle', 'distance', 'time', 'routeDuration'] as const;
+  if (!keys.every((k) => typeof w[k] === 'number' && Number.isFinite(w[k]) && (w[k] as number) >= 0)) return undefined;
+  const out = Object.fromEntries(keys.map((k) => [k, w[k] as number])) as unknown as SolverWeights;
+  return out.distance || out.time || out.routeDuration ? out : undefined;
 }
 
 /** Plan visible to the caller: own company; branch-scoped users only their branches' plans (and branch-less ones). */
@@ -98,9 +108,9 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     const owners = [...new Set(plan.stops.map(ownerOf).filter((p): p is string => !!p))];
     const consenting = owners.length ? await activeRoutingConsents(this.db, owners) : new Set<string>();
     const seats = new Map(
-      (await this.db.transportVehicleProfile.findMany({ where: { objectId: { in: plan.assignments.map((a) => a.objectId).filter((o): o is string => !!o) } }, select: { objectId: true, seats: true } })).map((v) => [
+      (await this.db.transportVehicleProfile.findMany({ where: { objectId: { in: plan.assignments.map((a) => a.objectId).filter((o): o is string => !!o) } }, select: { objectId: true, seats: true, wheelchairSpaces: true, category: true } })).map((v) => [
         v.objectId,
-        v.seats,
+        v,
       ]),
     );
     const startMs = plan.planStartAt?.getTime() ?? null;
@@ -138,9 +148,10 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
         bookingId: s.bookingId,
         personal: !!owner,
         atSite,
+        customerId: s.customerCompanyId,
       });
     }
-    const options = (plan.options && typeof plan.options === 'object' && !Array.isArray(plan.options) ? plan.options : {}) as { maxRideS?: unknown };
+    const options = (plan.options && typeof plan.options === 'object' && !Array.isArray(plan.options) ? plan.options : {}) as { maxRideS?: unknown; weights?: unknown; deterministic?: unknown; allowMixedCustomers?: unknown };
     this.logger.log(`job ${job.id}: plan ${plan.id} v${plan.version}: ${stops.length} stop(s), ${excluded.length} left out, ${plan.assignments.length} vehicle(s)`);
     return {
       planId: plan.id,
@@ -151,8 +162,12 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
       depot: pointOf(plan.depot),
       site: plan.sitePoi ? { lat: plan.sitePoi.lat, lng: plan.sitePoi.lng } : null,
       maxRideS: typeof options.maxRideS === 'number' && options.maxRideS > 0 ? options.maxRideS : null,
+      solver: { weights: weightsOf(options.weights), deterministic: options.deterministic === true, allowMixedCustomers: options.allowMixedCustomers === true },
       stops,
-      vehicles: plan.assignments.map((a) => ({ assignmentId: a.id, label: a.vehicleLabel, capacity: a.capacity ?? (a.objectId ? (seats.get(a.objectId) ?? null) : null) })),
+      vehicles: plan.assignments.map((a) => {
+        const vp = a.objectId ? seats.get(a.objectId) : undefined;
+        return { assignmentId: a.id, label: a.vehicleLabel, capacity: a.capacity ?? vp?.seats ?? null, type: vp?.category ?? null, wheelchairSpaces: vp?.wheelchairSpaces ?? 0 };
+      }),
       excluded,
     };
   }

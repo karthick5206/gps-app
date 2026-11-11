@@ -25,6 +25,9 @@ const LIMITS = {
   unknownDevices: 30,
   webhookDeliveries: Number(process.env.WEBHOOK_LOG_RETENTION_DAYS ?? WEBHOOK_LOG_RETENTION_DAYS),
   expiredAuth: 7,
+  /** ETMS E4 (doc 17 S-7): finished optimisation jobs and daily routing usage. */
+  routingJobs: Number(process.env.ROUTING_JOB_RETENTION_DAYS ?? 30),
+  routingUsage: Number(process.env.ROUTING_USAGE_RETENTION_DAYS ?? 400),
 };
 
 export interface RetentionRunStats {
