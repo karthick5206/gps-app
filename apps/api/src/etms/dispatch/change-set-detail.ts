@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { TRANSPORT_E3_LIMITS } from '@veetracer/shared';
 import type { ChangeSetChangeView, ChangeSetStopView, DispatchChangeOp, DispatchChangeSetInput, GeoPoint, TransportBookingStatus, TransportChangeSetDetailDto, TransportChangeSetSummaryDto, TransportPassengerRef } from '@veetracer/shared';
 import { objectScopeWhere } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
@@ -8,6 +9,7 @@ import { activeRoutingConsents } from '../people/people.service';
 import { parseChangeOps } from './change-ops';
 import { bookingReadWhere, inProfileBranch, notFound, round, tripReadWhere } from './e3-common';
 import { preciseFor } from './e3-mapping';
+import { metres } from './personal-points';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const near = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => Math.abs(a.lat - b.lat) < 1e-4 && Math.abs(a.lng - b.lng) < 1e-4;
@@ -28,6 +30,9 @@ export async function changeSetDetail(
 ): Promise<TransportChangeSetDetailDto> {
   const row = await prisma.transportChangeSet.findFirst({ where: { id, companyId: ctx.companyId } });
   if (!row) throw notFound();
+  // Security re-check N3: a published / discarded change set keeps no changes to judge its scope by: whole-company
+  // roles and its creator only (as the list shows it).
+  if ((row.status !== 'DRAFT' || !row.draft) && ctx.dataScope !== 'COMPANY' && row.createdById !== ctx.userId) throw notFound();
   const base: TransportChangeSetDetailDto = { ...summary(row), reason: null, expectedVersions: {}, changes: [], issues: [] };
   if (row.status !== 'DRAFT' || !row.draft) return base;
   const draft = row.draft as unknown as DispatchChangeSetInput;
@@ -89,9 +94,20 @@ export async function changeSetDetail(
     if (b.dropLat !== null && b.dropLng !== null && !b.dropPoiId) withheld.push({ lat: b.dropLat, lng: b.dropLng });
   }
   const precise = preciseFor(ctx, ctx.companyId);
-  const stopView = (s: { seq: number; point: GeoPoint; plannedArrival: string }): ChangeSetStopView => {
+  // Security re-check N5: a personal (non-place) stop is shown only when it is the end of a consenting passenger seated
+  // on that new trip by the same draft (publish refuses any other); otherwise no point and no label.
+  const linked = (tempId: string, p: GeoPoint) =>
+    ops.some((o) => {
+      if (o.op !== 'ADD_PASSENGER' || o.tripId !== tempId) return false;
+      const b = booking.get(o.bookingId);
+      if (!b || !consents.has(b.profileId)) return false;
+      const ends = [b.pickupLat !== null && b.pickupLng !== null && !b.pickupPoiId ? { lat: b.pickupLat, lng: b.pickupLng } : null, b.dropLat !== null && b.dropLng !== null && !b.dropPoiId ? { lat: b.dropLat, lng: b.dropLng } : null];
+      return ends.some((e) => e && metres(e, p) <= TRANSPORT_E3_LIMITS.personalStopMatchM);
+    });
+  const stopView = (tempId: string) => (s: { seq: number; point: GeoPoint; plannedArrival: string }): ChangeSetStopView => {
     const p = s.point;
     if (p.poiId) return { seq: s.seq, label: p.label ?? null, point: p, plannedArrival: s.plannedArrival };
+    if (!linked(tempId, p)) return { seq: s.seq, label: null, point: null, plannedArrival: s.plannedArrival };
     if (withheld.some((w) => near(w, p))) return { seq: s.seq, label: p.label ?? null, point: null, plannedArrival: s.plannedArrival };
     const d = precise ? 6 : 4;
     return { seq: s.seq, label: p.label ?? null, point: { lat: round(p.lat, d), lng: round(p.lng, d), label: p.label ?? null, poiId: null }, plannedArrival: s.plannedArrival };
@@ -100,7 +116,7 @@ export async function changeSetDetail(
   const changes: ChangeSetChangeView[] = ops.map((o): ChangeSetChangeView => {
     switch (o.op) {
       case 'CREATE_TRIP':
-        return { op: o.op, tempId: o.tempId, objectId: o.objectId, vehicleName: vehicleName.get(o.objectId) ?? null, driverId: o.driverId ?? null, driverName: o.driverId ? (driverName.get(o.driverId) ?? null) : null, plannedStart: o.plannedStart, routeId: o.routeId ?? null, name: o.name ?? null, stops: (o.stops ?? []).map(stopView) };
+        return { op: o.op, tempId: o.tempId, objectId: o.objectId, vehicleName: vehicleName.get(o.objectId) ?? null, driverId: o.driverId ?? null, driverName: o.driverId ? (driverName.get(o.driverId) ?? null) : null, plannedStart: o.plannedStart, routeId: o.routeId ?? null, name: o.name ?? null, stops: (o.stops ?? []).map(stopView(o.tempId)) };
       case 'ADD_PASSENGER': {
         const b = booking.get(o.bookingId);
         return { op: o.op, tripId: o.tripId, tripLabel: tripLabel(o.tripId), bookingId: o.bookingId, passenger: ref(b?.profile), bookingStatus: (b?.status as TransportBookingStatus | undefined) ?? null, pickupSeq: o.pickupSeq, dropSeq: o.dropSeq };

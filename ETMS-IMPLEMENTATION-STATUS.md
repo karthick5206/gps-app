@@ -13,13 +13,13 @@ evidence in the phase log below.
 |---|---|---|---|---|---|---|
 | v1.8.1 / D6 (G1, G6, G8 web, G4 script) | Deployed | Deployed | Not started (G8 mobile on hold) | Passed | Passed | Deployed (2026-11-11 08:12 UTC, a393a2c) |
 | D6 v1.8.2 (G5) | Deployed | — | — | Passed | Passed | Deployed (2026-11-11 09:31 UTC, a92fa45) |
-| D6 v1.8.3 (G2+G3) | In review (fixes f42d076) | — | — | Passed with issues → re-check running | Passed with conditions (fixed) | Not started |
+| D6 v1.8.3 (G2+G3) | Deployed | — | — | Passed | Passed | Deployed (2026-11-11 10:05 UTC, f42d076) |
 | D6 v1.8.4 (G7-A), G8 mobile, G4 prod AOF | In progress (G7-A) | Not started | Not started | Not started | Not started | Blocked (owner public key; AOF window) |
-| E1a | Passed (merged 20a718d) | In progress | Not started | Not started | Not started | Not started |
-| E2 | Not started | Not started | Not started | Not started | Not started | Not started |
-| E3 | Not started | Not started | Not started | Not started | Not started | Not started |
+| E1a | Deployed | Deployed | Not started | Passed | Passed | Deployed (2026-11-11 10:10 UTC, v1.9.0) |
+| E2 | Deployed | Deployed | Not started | Passed | Passed (conditions: L5 + reset residual before real data) | Deployed (2026-11-11 11:57 UTC, v1.10.0, ETMS off) |
+| E3 | Deployed | Deployed | Moved to E5 (WP 3.6/3.7 delivered with E5) | Passed (re-check + WP 3.8 gate 1,606/0) | Passed (conditions: owner L5 / L7 / withdrawal policy before real data) | Deployed (2026-11-11 15:23 UTC, v1.11.0, ETMS off) |
 | E4 | In progress (review doc 17 done; optimiser + RoutingProvider on etms/e4-optimizer) | Not started | Not started | Not started | Not started | Not started |
-| E5 | Not started | Not started | Not started | Not started | Not started | Not started |
+| E5 | In review (driver API, notifications; fixes running on etms/e5) | — | In review (passenger + driver shells; device tests pending) | Passed with issues (B1–B8 in fix) | Passed with conditions (M1–M3 in fix) | Not started |
 | E6 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E7 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E8 | Not started | Not started | Not started | Not started | Not started | Not started |
@@ -81,3 +81,27 @@ procedure (release branch → tag → main).
 - **2026-11-11 · E1a:** QA FAIL (BUG-1 = Sec F2, BUG-2 = F8, two exit criteria missing) and Security PASS WITH CONDITIONS (F1 High, R-12). A fix branch `etms/e1a-secfix` is running; it also covers the isolation-matrix generator and the CI DB job. E1a won't deploy until a re-check passes.
 - **2026-11-11 · E2:** backend done (`20261115090000_etms_people`; 10k-row import in 4.0 s; 1,384 API tests) and web done (239 web tests). A gap round is running on `etms/e2-gaps`. QA and security follow once E1a's final version is merged.
 - **2026-11-11 · v1.8.4 (G7-A):** built (c7258fa): GPG to the public key only, uploads included, restore drill, systemd timer, freshness check. 83/83 drill tests. **Blocked: the owner's public key and fingerprint.**
+- **2026-11-11 10:05 UTC · v1.8.3 deployed (f42d076).**
+  - Migration `notifier_durability`; health gate PASS 11/11.
+  - Indexes and columns verified; no notify issues.
+  - QA re-check PASS WITH ISSUES (low residuals). Security conditions met.
+- **2026-11-11 10:10 UTC · v1.9.0 = E1a deployed (9b86444).**
+  - Migration `etms_accounts`; health gate PASS.
+  - 0 agreements, 8 constraints, 4 indexes; no company has ETMS.
+  - Browser check: 754 requests, all to app.veetrax.com.
+  - QA re-check PASS WITH ISSUES; security re-check PASS WITH CONDITIONS. C2 met (0 roles affected); C1 reproduced locally (fresh `_test` DB, 21/21); the GitHub PR run is pending the owner.
+- **2026-11-11 11:57 UTC · v1.10.0 = E2 deployed (7d55411).**
+  - Migration `etms_people`: 5 tables plus the consent evidence trigger; health gate PASS; ETMS off.
+  - QA re-check PASS WITH ISSUES: 55/55 security checks, B1–B10 fixed, 27/27 DB tests. Security re-check PASS WITH CONDITIONS.
+  - **No real passenger data until the owner confirms L5 (erasure, including audit rewrite / `evidenceRef` / legal hold) and accepts the manual reset-link residual.**
+  - Residuals: 33 untranslated strings; the dispatcher "approximate" label; `evidenceRef` kept on erase.
+  - `main` fast-forwarded to 7d55411.
+- **2026-11-11 15:23 UTC · v1.11.0 = E3 deployed (493befe, tag v1.11.0).**
+  - Reviews: QA PASS WITH ISSUES → fixes (B1–B5, R1, R2, N1) → re-check passed. Security FAIL (H1 + M1–M6) → fixes → re-check PASS WITH CONDITIONS (N1–N5) → fixes → round 2 passed (ND1 fixed in 4f3c922). Harness defects HD1/HD2 fixed.
+  - WP 3.8 gate (`npm run etms:gate -- --http`): 1,606 passed, 0 failed (AC1–AC10, AC3b sim-trip, HTTP, bots, ISO 1,293). API 2,994 / web 278 tests; web build + check-no-external-maps OK.
+  - Before deploy: backup 15:19 UTC (ok); `.env` saved to `/root/api.env.before-v1.11.0`; `CREATE EXTENSION btree_gist` (1.8). PlannedTrip had 0 rows, so the migration lock had no impact.
+  - Release: migrations `etms_bookings_trips` + `planned_trip_origin` applied; health gate PASS 11/11.
+  - Post-deploy: 0 pending migrations; both EXCLUDE constraints present; public health 200; ETMS and planned-trips routes 401 without a token; no outside map hosts in the bundle; no customer company has `etms` (platform only, as before).
+  - `main` fast-forwarded to 493befe.
+  - Owner decisions open before real passenger data: L5 (erasure incl. vehicle history residue), L7 (address labels in booking lists / CSV without consent), consent withdrawal cancels bookings vs "needs location", the 20 change-sets/min limit, and the N5 place-creation residual.
+- **2026-11-11 · E5:** backend (d78183b, 728b013, 64c1c46) + mobile merged onto E3 as `etms/e5` (76b38f7). API 3,718 / mobile 50 / DB 42 tests. Security PASS WITH CONDITIONS (M1 backdated arrival, M2 delay flood, M3 screenshot blocking); QA PASS WITH ISSUES (B1–B4 Medium relay defects). Fix round running. Not in branch: SOS (WP 5.4), passenger self-booking (WP 5.3), Maestro / sim scenarios (WP 5.5).

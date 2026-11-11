@@ -8,7 +8,7 @@ import { AuditService } from '../../audit/audit.service';
 import { PlannedTripsService } from '../../planned-trips/planned-trips.service';
 import { MemoryStore, type Obj } from '../testing/memory-store';
 import { parseChangeOps } from './change-ops';
-import { DispatchService, insertedArrival } from './dispatch.service';
+import { CANDIDATE_ETA_BUDGET_MS, DispatchService, insertedArrival } from './dispatch.service';
 import { TripLiveService } from './trip-live';
 import { TripsService } from './trips.service';
 
@@ -23,7 +23,14 @@ const MIN = 60_000;
 const DAY = '2026-12-01';
 const T0 = Date.parse(`${DAY}T02:00:00Z`);
 
-type Routing = { enabled: boolean; available?: () => Promise<boolean>; route: (a: unknown, b: unknown) => Promise<{ m: number; s: number; shape: [number, number][] } | null>; routeVia: (p: unknown[]) => Promise<{ path: unknown } | null> };
+type Road = { m: number; s: number; shape: [number, number][] };
+type Routing = {
+  enabled: boolean;
+  available?: () => Promise<boolean>;
+  route: (a: unknown, b: unknown) => Promise<Road | null>;
+  routeStatus?: (a: unknown, b: unknown) => Promise<Road | 'NO_ROUTE' | 'UNAVAILABLE'>;
+  routeVia: (p: unknown[]) => Promise<{ path: unknown } | null>;
+};
 
 function world(opts: { seats?: number; routing?: Partial<Routing> } = {}) {
   const store = new MemoryStore();
@@ -62,6 +69,8 @@ function world(opts: { seats?: number; routing?: Partial<Routing> } = {}) {
   const redis = { client: { get: async () => null, mget: async (...k: string[]) => k.map(() => null), set: async () => 'OK', eval: async () => 1, publish: async () => 1 } };
   const plannedTrips = new PlannedTripsService(prisma as never, audit, { invalidate: async () => undefined } as never);
   const routing: Routing = { enabled: false, route: async () => null, routeVia: async () => null, ...opts.routing };
+  // RoutingService.routeStatus as the real one derives it: a null route is "no route", a failure "unavailable".
+  routing.routeStatus ??= (a, b) => routing.route(a, b).then((r) => r ?? ('NO_ROUTE' as const), () => 'UNAVAILABLE' as const);
   const live = new TripLiveService(prisma as never, redis as never, plannedTrips);
   const dispatch = new DispatchService(prisma as never, audit, routing as never, live, redis as never);
   const ctx = { userId: 'u1', companyId: 'c1', homeCompanyId: 'c1', isSuperAdmin: false, permissions: {}, dataScope: 'COMPANY', branchIds: [], objectIds: [], features: ['etms'], agreements: [], ip: null } as never;
@@ -303,4 +312,121 @@ describe('routing health and publish without waiting (QA B2 / B3)', () => {
     expect(c.candidates.filter((x) => x.feasible).every((x) => x.eta.at === null)).toBe(true);
     expect(c.candidates.some((x) => x.eta.degraded === 'ROUTING_UNAVAILABLE')).toBe(true);
   }, 20_000);
+});
+
+describe('candidate ETAs in parallel under one budget; unavailable is never "no route" (QA R1 / R2)', () => {
+  /** Five published trips (one per van, all in branch br1), each with a free seat, and a booking to place. */
+  async function fiveTrips(routing: Partial<Routing>) {
+    const w = world({ routing: { enabled: true, available: async () => true, ...routing } as Partial<Routing> });
+    const vans = [w.v1];
+    for (let i = 3; i <= 6; i++) {
+      const id = w.store.insert('trackedObject', { companyId: 'c1', branchId: 'br1', name: `Van ${i}`, plateNumber: `TN0${i}`, isActive: true }).id as string;
+      w.store.insert('transportVehicleProfile', { objectId: id, companyId: 'c1', seats: 3 });
+      vans.push(id);
+    }
+    for (const [i, v] of vans.entries()) {
+      const a = w.booking(w.passenger(`S${i}`));
+      await w.dispatch.submit(w.ctx, { serviceDate: DAY, direction: 'IN', changes: [createTrip(v), { op: 'ADD_PASSENGER', tripId: 't', bookingId: a, pickupSeq: 0, dropSeq: 1 }] }, randomUUID());
+    }
+    const b = w.booking(w.passenger('Q'), { pickupLat: 13.08, pickupLng: 80.27 });
+    return { w, b };
+  }
+
+  it('R1: /route hangs → the five ETAs are asked for at once and the search answers after the ~2.5 s budget, unfinished ETAs ROUTING_UNAVAILABLE', async () => {
+    const started: number[] = [];
+    let n = 0;
+    const { w, b } = await fiveTrips({
+      // The first answers with a road time, the second says "no route", the rest never answer.
+      routeStatus: () => {
+        started.push(Date.now());
+        const i = n++;
+        if (i === 0) return Promise.resolve({ m: 4200, s: 600, shape: [] });
+        if (i === 1) return Promise.resolve('NO_ROUTE' as const);
+        return new Promise(() => undefined);
+      },
+    });
+    const t0 = Date.now();
+    const c = await w.dispatch.candidates(w.ctx, { bookingIds: [b] });
+    const took = Date.now() - t0;
+    expect(took).toBeGreaterThanOrEqual(CANDIDATE_ETA_BUDGET_MS - 50);
+    expect(took).toBeLessThan(CANDIDATE_ETA_BUDGET_MS + 1_000); // sequential 2 s timeouts took up to ~10 s
+    expect(started).toHaveLength(5);
+    expect(Math.max(...started) - Math.min(...started)).toBeLessThan(200); // in parallel, not one after another
+    const trips = c.candidates.filter((x) => x.kind === 'TRIP');
+    expect(trips).toHaveLength(5);
+    expect(trips.filter((x) => x.eta.model === 'ROAD')).toHaveLength(1);
+    expect(trips.filter((x) => x.eta.degraded === 'NO_ROUTE')).toHaveLength(1);
+    expect(trips.filter((x) => x.eta.at === null && x.eta.degraded === 'ROUTING_UNAVAILABLE')).toHaveLength(3);
+    expect(c).toMatchObject({ routingAvailable: true, degraded: null });
+  }, 15_000);
+
+  it('R1: when every ETA answers quickly the search does not wait for the budget', async () => {
+    const { w, b } = await fiveTrips({ routeStatus: async () => ({ m: 1000, s: 120, shape: [] }) });
+    const t0 = Date.now();
+    const c = await w.dispatch.candidates(w.ctx, { bookingIds: [b] });
+    expect(Date.now() - t0).toBeLessThan(1_000);
+    expect(c.candidates.filter((x) => x.kind === 'TRIP').every((x) => x.eta.model === 'ROAD')).toBe(true);
+  });
+
+  it('R2: a timed-out / failed route call reports ROUTING_UNAVAILABLE, only a genuine no-route answer NO_ROUTE', async () => {
+    const down = await seeded({ routing: { enabled: true, available: async () => true, routeStatus: async () => 'UNAVAILABLE' } as Partial<Routing> });
+    expect((await down.dispatch.candidates(down.ctx, { bookingIds: [down.b] })).candidates.find((x) => x.kind === 'TRIP')!.eta).toEqual({ at: null, model: null, degraded: 'ROUTING_UNAVAILABLE' });
+    const threw = await seeded({ routing: { enabled: true, available: async () => true, routeStatus: async () => Promise.reject(new Error('boom')) } as Partial<Routing> });
+    expect((await threw.dispatch.candidates(threw.ctx, { bookingIds: [threw.b] })).candidates.find((x) => x.kind === 'TRIP')!.eta).toEqual({ at: null, model: null, degraded: 'ROUTING_UNAVAILABLE' });
+    const none = await seeded({ routing: { enabled: true, available: async () => true, routeStatus: async () => 'NO_ROUTE' } as Partial<Routing> });
+    expect((await none.dispatch.candidates(none.ctx, { bookingIds: [none.b] })).candidates.find((x) => x.kind === 'TRIP')!.eta).toEqual({ at: null, model: null, degraded: 'NO_ROUTE' });
+  });
+});
+
+describe('draft saves are branch-scoped like a publish (security re-check N1)', () => {
+  it('a North-only dispatcher cannot store a DRAFT naming a South booking, seat, trip or van (404, nothing written)', async () => {
+    const w = await seeded();
+    // South: van 2 (br2) with a trip carrying South passenger P13.
+    const p13 = w.booking(w.passenger('P13', true, 'br2'));
+    const south = await w.dispatch.submit(w.ctx, { serviceDate: DAY, direction: 'IN', changes: [createTrip(w.v2), { op: 'ADD_PASSENGER', tripId: 't', bookingId: p13, pickupSeq: 0, dropSeq: 1 }] }, randomUUID());
+    const southTrip = south.value.trips[0].id;
+    const seat = w.store.table('transportTripPassenger').find((x) => x.bookingId === p13)!.id as string;
+    const southPending = w.booking(w.passenger('S2', true, 'br2'));
+    const north = { ...(w.ctx as object), userId: 'u-north', dataScope: 'ASSIGNED', branchIds: ['br1'] } as never;
+    const later = { plannedStart: new Date(T0 + 5 * H).toISOString(), stops: stops(T0 + 5 * H) };
+    const bodies: DispatchChangeOp[][] = [
+      [createTrip(w.v1, later), { op: 'ADD_PASSENGER', tripId: 't', bookingId: southPending, pickupSeq: 0, dropSeq: 1 }],
+      [addStop(w.tripId, southPending, 0)],
+      [addStop(southTrip, w.b, 0)],
+      [{ op: 'REMOVE_PASSENGER', passengerTripId: seat, reason: 'x' }],
+      [{ op: 'REASSIGN_VEHICLE', tripId: southTrip, objectId: w.v1 }],
+      [{ op: 'REASSIGN_VEHICLE', tripId: w.tripId, objectId: w.v2 }],
+      [{ op: 'REASSIGN_DRIVER', tripId: southTrip, driverId: null }],
+      [createTrip(w.v2, later)],
+      [createTrip(w.v1, later), { op: 'REMOVE_PASSENGER', passengerTripId: seat, reason: 'x' }],
+    ];
+    const sets = w.store.table('transportChangeSet').length;
+    const audits = w.store.table('auditLog').length;
+    for (const changes of bodies) {
+      expect(await code(w.dispatch.submit(north, { serviceDate: DAY, direction: 'IN', draft: true, expectedVersions: { [w.tripId]: 1, [southTrip]: 1 }, changes }, undefined))).toEqual([404, 'NOT_FOUND']);
+    }
+    expect(w.store.table('transportChangeSet')).toHaveLength(sets);
+    expect(w.store.table('auditLog')).toHaveLength(audits);
+    // Positive control: a North-only draft is saved.
+    const ok = await w.dispatch.submit(north, { serviceDate: DAY, direction: 'IN', draft: true, changes: [createTrip(w.v1, later), { op: 'ADD_PASSENGER', tripId: 't', bookingId: w.b, pickupSeq: 0, dropSeq: 1 }] }, undefined);
+    expect(ok.value).toMatchObject({ status: 'DRAFT' });
+    expect(w.store.table('transportChangeSet')).toHaveLength(sets + 1);
+  });
+
+  it('repeat-to-date carries only bookings in the dispatcher’s branches (its drafts pass the same check)', async () => {
+    const w = await seeded();
+    const NEXT = '2026-12-02';
+    // A South passenger rides the North trip (seated by a whole-company admin); both have a booking the next day.
+    const sp = w.passenger('SR', true, 'br2');
+    const sb = w.booking(sp);
+    await w.dispatch.submit(w.ctx, { serviceDate: DAY, direction: 'IN', expectedVersions: { [w.tripId]: 1 }, changes: [{ op: 'ADD_PASSENGER', tripId: w.tripId, bookingId: sb, pickupSeq: 0, dropSeq: 1 }] }, randomUUID());
+    const shift = (o: Obj) => ({ serviceDate: new Date(`${NEXT}T00:00:00Z`), windowStart: new Date(T0 + 24 * H), windowEnd: new Date(T0 + 25.5 * H), cutoffAt: new Date(T0 + 23 * H), ...o });
+    const aProfile = w.store.table('transportBooking').find((x) => x.id === w.a)!.profileId as string;
+    w.booking(aProfile, shift({}));
+    w.booking(sp, shift({}));
+    const north = { ...(w.ctx as object), userId: 'u-north', dataScope: 'ASSIGNED', branchIds: ['br1'] } as never;
+    const r = await w.dispatch.repeat(north, w.tripId, { toDate: NEXT });
+    expect(r.drafts).toHaveLength(1);
+    expect(r.drafts[0]).toMatchObject({ passengers: 1, missingBookings: [sp] });
+  });
 });

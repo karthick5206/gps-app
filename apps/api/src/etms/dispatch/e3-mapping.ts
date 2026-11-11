@@ -346,8 +346,12 @@ export function toTripDetail(
     path,
     stops: stopDtos,
     passengers: manifest.sort((a, b) => a.pickupSeq - b.pickupSeq || a.createdAt.getTime() - b.createdAt.getTime()).map((p) => toPassengerDto(p, stops, tripOpen, view.consents.has(p.booking.profileId))),
-    // Events of passengers outside the caller's branches are left out with them.
-    events: events.filter((e) => !e.passengerTripId || manifest.some((p) => p.id === e.passengerTripId)).map(toEventDto),
+    // Events of passengers outside the caller's branches are left out with them; a seat-less event (STOP_ADDED …) loses
+    // the booking id of a booking that is not on the caller's manifest (security re-check N5).
+    events: events
+      .filter((e) => !e.passengerTripId || manifest.some((p) => p.id === e.passengerTripId))
+      .map(toEventDto)
+      .map((e) => (typeof e.data.bookingId === 'string' && !manifest.some((p) => p.bookingId === e.data.bookingId) ? { ...e, data: Object.fromEntries(Object.entries(e.data).filter(([k]) => k !== 'bookingId')) } : e)),
     allowedActions: tripAllowedActions(t, writable),
   };
 }

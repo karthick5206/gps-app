@@ -857,6 +857,17 @@ describe('ETMS isolation matrix (E3 security review): v1.8 reads, trip detail, c
     expect(w.store.table('plannedTrip')).toHaveLength(trips);
     // ADD_STOP with that booking on the dispatcher's own trip → 404 too.
     expect(await codeOf(w.controllers.e3.dispatch.submit(disp, { serviceDate: w.world.tomorrow, direction: 'IN', expectedVersions: { [w.world.party.trip]: 1 }, changes: [{ op: 'ADD_STOP', tripId: w.world.party.trip, bookingId: xb, end: 'PICKUP', afterSeq: 0 }] } as never, `k-${randomUUID()}`))).toBe('NOT_FOUND');
+    // Security re-check N1: the same bodies saved as drafts by the dispatcher are scope-checked like a publish: 404 and
+    // no draft row (nor its audit entry) is stored. A draft naming only the dispatcher's own branch is still saved.
+    const sets = w.store.table('transportChangeSet').length;
+    const audits = w.store.table('auditLog').length;
+    const addStop = { serviceDate: w.world.later, direction: 'IN' as const, expectedVersions: { [w.world.party.trip]: 1 }, changes: [{ op: 'ADD_STOP', tripId: w.world.party.trip, bookingId: xb, end: 'PICKUP', afterSeq: 0 }] };
+    for (const b of [repro, addStop, { ...body, serviceDate: w.world.later }]) expect(await codeOf(w.controllers.e3.dispatch.submit(disp, { ...b, draft: true } as never, undefined))).toBe('NOT_FOUND');
+    expect(w.store.table('transportChangeSet')).toHaveLength(sets);
+    expect(w.store.table('auditLog')).toHaveLength(audits);
+    const own = await w.controllers.e3.dispatch.submit(disp, { ...repro, changes: [repro.changes[0]], draft: true } as never, undefined);
+    expect(own).toMatchObject({ status: 'DRAFT' });
+    expect(w.store.table('transportChangeSet')).toHaveLength(sets + 1);
     Object.assign(w.store.table('transportBooking').find((b) => b.id === xb)!, { serviceDate: seated.serviceDate });
     // The admin saves that change as a draft: invisible to the branch-A dispatcher, and not theirs to publish or discard.
     const saved = await w.controllers.e3.dispatch.submit(caller('customerAdmin', w), { ...body, draft: true } as never, undefined);
@@ -998,4 +1009,44 @@ describe('ETMS isolation matrix (E5 integration): driver stop points follow cons
       }
     });
   }
+});
+
+describe('ETMS isolation matrix (E3 security re-check N3 / N4 / N5)', () => {
+  it('published change sets are the creator’s or whole-company; outcomes and event booking ids stay in the branch; unlinked draft home points are hidden', async () => {
+    const w = await e3World();
+    const disp = caller('customerDispatcher', w);
+    const admin = caller('customerAdmin', w);
+    // N3: the admin's published change set is not in the branch dispatcher's list and its detail is a 404.
+    const pub = await w.controllers.e3.dispatch.submit(admin, { serviceDate: w.world.tomorrow, direction: 'IN', expectedVersions: { [w.world.party.trip]: 1 }, changes: [{ op: 'REASSIGN_DRIVER', tripId: w.world.party.trip, driverId: null }] } as never, `k-${randomUUID()}`);
+    expect((await w.controllers.e3.dispatch.changeSets(disp, { status: 'PUBLISHED' } as never)).map((d) => d.id)).not.toContain(pub.changeSetId);
+    expect((await w.controllers.e3.dispatch.changeSets(admin, { status: 'PUBLISHED' } as never)).map((d) => d.id)).toContain(pub.changeSetId);
+    expect(await codeOf(w.controllers.e3.dispatch.changeSet(disp, pub.changeSetId))).toBe('NOT_FOUND');
+    // N4: another branch's passenger seated on the dispatcher's own van: recording an outcome is a 404.
+    const x = w.store.insert('employeeTransportProfile', { companyId: 'custA', employeeCode: 'X5', displayName: 'Passenger X5', branchId: 'brA9' }).id as string;
+    const seated = w.store.table('transportBooking').find((b) => b.id === w.world.party.seatedBooking)!;
+    const xb = w.store.insert('transportBooking', { ...seated, id: undefined, profileId: x }).id as string;
+    const xs = w.store.insert('transportTripPassenger', { tripId: w.world.party.trip, bookingId: xb, customerCompanyId: 'custA', providerCompanyId: 'custA', pickupSeq: 0, dropSeq: 1, seats: 1 }).id as string;
+    Object.assign(w.store.table('plannedTrip').find((p) => p.id === w.world.party.plannedTrip)!, { status: 'IN_PROGRESS', actualStart: new Date() });
+    expect(await codeOf(w.controllers.e3.trips.outcome(disp, w.world.party.trip, xs, { outcome: 'BOARDED' } as never))).toBe('NOT_FOUND');
+    expect(w.store.table('transportTripPassenger').find((p) => p.id === xs)).toMatchObject({ status: 'PENDING' });
+    // N5: a seat-less event naming that booking: the branch dispatcher's detail carries no booking id; the admin's does.
+    w.store.insert('transportTripEvent', { tripId: w.world.party.trip, providerCompanyId: 'custA', customerCompanyId: 'custA', passengerTripId: null, kind: 'STOP_ADDED', actorType: 'DISPATCHER', source: 'WEB', occurredAt: new Date(), data: { bookingId: xb, end: 'PICKUP' } });
+    expect(JSON.stringify(await w.controllers.e3.trips.get(disp, w.world.party.trip))).not.toContain(xb);
+    expect(JSON.stringify(await w.controllers.e3.trips.get(admin, w.world.party.trip))).toContain(xb);
+    // N5: a hand-made draft with a home point nobody consenting is seated at: no point and no label in the detail.
+    const at = Date.parse(`${w.world.later}T03:30:00Z`);
+    const d = w.store.insert('transportChangeSet', {
+      companyId: 'custA',
+      status: 'DRAFT',
+      createdById: 'user-customerAdmin',
+      serviceDate: new Date(`${w.world.later}T00:00:00Z`),
+      direction: 'IN',
+      draft: { serviceDate: w.world.later, direction: 'IN', expectedVersions: {}, changes: [{ op: 'CREATE_TRIP', tempId: 't', objectId: w.party.vehicle, plannedStart: new Date(at - 3_600_000).toISOString(), stops: [{ seq: 0, point: { lat: 13.0612, lng: 80.2412, label: '5 Secret Lane' }, plannedArrival: new Date(at - 3_600_000).toISOString() }, { seq: 1, point: { lat: 13.05, lng: 80.25, poiId: w.world.party.place }, plannedArrival: new Date(at).toISOString() }] }] },
+    });
+    for (const role of [disp, admin]) {
+      const detail = await w.controllers.e3.dispatch.changeSet(role, d.id as string);
+      expect((detail.changes[0] as { stops: unknown[] }).stops[0]).toMatchObject({ point: null, label: null });
+      expect(JSON.stringify(detail)).not.toContain('Secret Lane');
+    }
+  });
 });
