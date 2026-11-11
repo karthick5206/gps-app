@@ -44,6 +44,7 @@ const EVENT_LABEL: Record<string, string> = {
   COMPLETED: 'Trip completed',
   CANCELLED: 'Trip cancelled',
   NO_SHOW_REVIEW: 'Check: no-show after an arrival the GPS did not confirm',
+  OUTCOME_REVIEW: 'Check: boarded or dropped after an arrival the GPS did not confirm',
 };
 const SOURCE_LABEL: Record<string, string> = { WEB: 'Dispatcher (web)', DRIVER_APP: 'Driver app', PASSENGER_APP: 'Passenger app', SYSTEM: 'System' };
 const STOP_STATUS_LABEL: Record<string, string> = { PENDING: 'Not reached', ARRIVED: 'Arrived', DEPARTED: 'Departed', SKIPPED: 'Skipped' };

@@ -43,8 +43,20 @@ export type StopSnap = {
    * server at arrivalReceivedAt. Null / undefined = confirmed (GPS tracker, dispatcher, or a verified ARRIVED).
    */
   arrivalUnverified?: boolean;
+  /**
+   * Re-check R-2: the arrival-setting ARRIVED reached the server more than arrivalFixMaxSkewMs after its (clamped) time
+   * (a retroactive tap, even if a stored-track fix confirms it). Treated like an unverified arrival for the wait and review.
+   */
+  arrivalLate?: boolean;
+  /** Server receipt of the arrival-setting ARRIVED when it is unverified or late (the NO_SHOW wait starts there). */
   arrivalReceivedAt?: Date | null;
 };
+
+/** Outcome review codes (SYSTEM review events on the dispatcher's timeline; M1, re-check R-2 / R-3). */
+export type OutcomeReview = 'NO_SHOW_UNVERIFIED_ARRIVAL' | 'NO_SHOW_LATE_ARRIVAL' | 'BOARDED_UNVERIFIED_ARRIVAL' | 'DROPPED_UNVERIFIED_ARRIVAL';
+
+/** The stop's arrival could not be trusted as live (GPS did not confirm it, or it was reported retroactively). */
+const doubtful = (stop: StopSnap | undefined): boolean => !!stop && (!!stop.arrivalUnverified || !!stop.arrivalLate);
 export type PassengerSnap = { id: string; status: TransportPassengerStatus; pickupSeq: number; dropSeq: number };
 
 export interface TripSnapshot {
@@ -90,7 +102,7 @@ export type Effect =
   | { kind: 'COMPLETE'; from: PlannedTripStatus };
 
 export type Decision =
-  | { outcome: 'ACCEPTED'; effect: Effect; verified?: 'gps' | 'unverified_location' | null; code?: null; review?: 'NO_SHOW_UNVERIFIED_ARRIVAL' }
+  | { outcome: 'ACCEPTED'; effect: Effect; verified?: 'gps' | 'unverified_location' | null; code?: null; review?: OutcomeReview }
   | { outcome: Exclude<DriverTripEventOutcome, 'ACCEPTED'>; code: DriverErrorCode | 'ALREADY_RECORDED'; effect?: undefined; verified?: undefined; review?: undefined };
 
 const OPEN: readonly (PlannedTripStatus | null)[] = ['SCHEDULED', 'STARTED', 'IN_PROGRESS'];
@@ -215,19 +227,26 @@ export function decide(s: TripSnapshot, e: EventIn, now: number): Decision {
         if (!driverOutcomeAllowed(p.status, to)) return reject('CONFLICT');
         const early = e.stopSeq !== undefined && e.stopSeq !== p.dropSeq;
         if (early && !e.reasonCode) return reject('NOT_AT_DROP_STOP');
-        return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: early } };
+        // R-3: a drop at a stop whose arrival is doubtful is accepted but goes to the dispatcher for review.
+        const at = s.stops.find((x) => x.seq === (e.stopSeq ?? p.dropSeq));
+        return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: early }, ...(doubtful(at) ? { review: 'DROPPED_UNVERIFIED_ARRIVAL' as const } : {}) };
       }
       if (!driverOutcomeAllowed(p.status, to)) return reject('CONFLICT');
       const pickup = s.stops.find((x) => x.seq === p.pickupSeq);
       if (!pickup || (pickup.status !== 'ARRIVED' && pickup.status !== 'DEPARTED')) return gap ? retry() : reject('STOP_NOT_ARRIVED');
-      if (to === 'NO_SHOW' && pickup.actualArrival && e.occurredAt.getTime() - pickup.actualArrival.getTime() < L.noShowMinWaitMin * MIN) return reject('WAIT_NOT_ELAPSED');
-      if (to === 'NO_SHOW' && pickup.arrivalUnverified) {
-        // M1: an arrival the GPS did not confirm starts the wait when the server heard of it, never earlier (a backdated
-        // ARRIVED cannot unlock a no-show in the same batch). RETRY: the queue keeps it and sends it again later.
+      // R-1: the no-show's time never counts beyond the server's now (a device clock up to 2 min fast cannot shorten
+      // the wait).
+      const noShowAt = Math.min(e.occurredAt.getTime(), now);
+      if (to === 'NO_SHOW' && pickup.actualArrival && noShowAt - pickup.actualArrival.getTime() < L.noShowMinWaitMin * MIN) return reject('WAIT_NOT_ELAPSED');
+      if (to === 'NO_SHOW' && doubtful(pickup)) {
+        // M1 / R-2: an arrival the GPS did not confirm, or one reported retroactively, starts the wait when the server
+        // heard of it, never earlier. RETRY: the queue keeps it and sends it again later.
         const from = Math.max(pickup.actualArrival?.getTime() ?? 0, pickup.arrivalReceivedAt?.getTime() ?? now);
         if (now - from < L.noShowMinWaitMin * MIN) return retry('WAIT_NOT_ELAPSED');
-        return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false }, review: 'NO_SHOW_UNVERIFIED_ARRIVAL' };
+        return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false }, review: pickup.arrivalUnverified ? 'NO_SHOW_UNVERIFIED_ARRIVAL' : 'NO_SHOW_LATE_ARRIVAL' };
       }
+      // R-3: BOARDED after a doubtful arrival is accepted (boarding cannot be proven) but reviewed like a no-show.
+      if (to === 'BOARDED' && doubtful(pickup)) return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false }, review: 'BOARDED_UNVERIFIED_ARRIVAL' };
       return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false } };
     }
 
@@ -241,7 +260,8 @@ export function decide(s: TripSnapshot, e: EventIn, now: number): Decision {
 
 /**
  * Mirror an accepted effect in the snapshot so later events of the same batch see it. meta.now = server receipt,
- * meta.verified = the ARRIVED's GPS check (an unverified arrival keeps its receipt time for the NO_SHOW wait).
+ * meta.verified = the ARRIVED's GPS check (an unverified or late arrival keeps its receipt time for the NO_SHOW wait).
+ * An arrival is late (R-2) when the server receives it more than arrivalFixMaxSkewMs after its (clamped) time.
  */
 export function applyToSnapshot(s: TripSnapshot, effect: Effect, at: Date, meta: { now?: number; verified?: 'gps' | 'unverified_location' | null } = {}): void {
   switch (effect.kind) {
@@ -251,8 +271,10 @@ export function applyToSnapshot(s: TripSnapshot, effect: Effect, at: Date, meta:
     case 'ARRIVE': {
       const stop = s.stops.find((x) => x.id === effect.stopId)!;
       if (stop.status === 'PENDING') {
+        const now = meta.now ?? Date.now();
         const unverified = meta.verified === 'unverified_location';
-        Object.assign(stop, { status: 'ARRIVED', actualArrival: at, arrivalUnverified: unverified, arrivalReceivedAt: unverified ? new Date(meta.now ?? Date.now()) : null });
+        const late = arrivalIsLate(at, now);
+        Object.assign(stop, { status: 'ARRIVED', actualArrival: at, arrivalUnverified: unverified, arrivalLate: late, arrivalReceivedAt: unverified || late ? new Date(now) : null });
       }
       break;
     }
@@ -270,6 +292,11 @@ export function applyToSnapshot(s: TripSnapshot, effect: Effect, at: Date, meta:
       if (effect.overlay === 'DELAY') s.lastDelayAt = new Date(meta.now ?? Date.now());
       break;
   }
+}
+
+/** Re-check R-2: an ARRIVED received more than arrivalFixMaxSkewMs after the time it is stored at is retroactive. */
+export function arrivalIsLate(at: Date, receivedAt: number): boolean {
+  return receivedAt - at.getTime() > L.arrivalFixMaxSkewMs;
 }
 
 /** Whether an online-only command's device time is fresh enough to execute (else 409 STALE_COMMAND). */

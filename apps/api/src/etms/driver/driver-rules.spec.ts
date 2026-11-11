@@ -239,9 +239,37 @@ describe('E5 security review: rules (M1, M2, L1, L2)', () => {
     expect(runAt(s, [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: new Date(NOW - 10 * MIN) }), ev('NO_SHOW', 2, { passengerTripId: 'p1' })])).toEqual(['ACCEPTED', 'RETRY:WAIT_NOT_ELAPSED']);
     expect(s.stops[0]).toMatchObject({ arrivalUnverified: true, arrivalReceivedAt: new Date(NOW) });
     expect(runAt(s, [ev('NO_SHOW', 2, { passengerTripId: 'p1', occurredAt: new Date(NOW + 6 * MIN) })], NOW + 6 * MIN)).toEqual(['ACCEPTED:NO_SHOW_UNVERIFIED_ARRIVAL']);
-    // A GPS-verified arrival keeps the plain rule (wait from the arrival time, no review).
-    const g = snap({ actualStart: new Date(NOW - 30 * MIN), track: [{ lat: 13.0601, lng: 80.2401, at: new Date(NOW - 10 * MIN) }] });
-    expect(runAt(g, [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: new Date(NOW - 10 * MIN) }), ev('NO_SHOW', 2, { passengerTripId: 'p1' })])).toEqual(['ACCEPTED', 'ACCEPTED']);
+    // A live GPS-verified arrival keeps the plain rule (wait from the arrival time, no review).
+    const g = snap({ actualStart: new Date(NOW - 30 * MIN), track: [{ lat: 13.0601, lng: 80.2401, at: new Date(NOW - 30_000) }] });
+    expect(runAt(g, [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: new Date(NOW - 30_000) })])).toEqual(['ACCEPTED']);
+    expect(runAt(g, [ev('NO_SHOW', 2, { passengerTripId: 'p1', occurredAt: new Date(NOW + 5 * MIN) })], NOW + 5 * MIN)).toEqual(['ACCEPTED']);
+  });
+
+  it('R-1: a NO_SHOW dated in the future (device clock fast) cannot shorten the wait after a verified arrival', () => {
+    const s = snap({ actualStart: new Date(NOW - 30 * MIN), fix: { lat: 13.0601, lng: 80.2401, at: new Date(NOW) } });
+    expect(runAt(s, [ev('ARRIVED', 1, { stopSeq: 0 })])).toEqual(['ACCEPTED']);
+    // 3 real minutes later, the device says +5 min (2 min fast): refused; at 5 real minutes: accepted.
+    expect(runAt(s, [ev('NO_SHOW', 2, { passengerTripId: 'p1', occurredAt: new Date(NOW + 5 * MIN) })], NOW + 3 * MIN)).toEqual(['REJECTED:WAIT_NOT_ELAPSED']);
+    expect(runAt(s, [ev('NO_SHOW', 3, { passengerTripId: 'p1', occurredAt: new Date(NOW + 5 * MIN) })], NOW + 5 * MIN)).toEqual(['ACCEPTED']);
+  });
+
+  it('R-2: an ARRIVED reported retroactively (> 2 min late) verified by an earlier track pass: wait from receipt, then review', () => {
+    const s = snap({ actualStart: new Date(NOW - 30 * MIN), track: [{ lat: 13.0601, lng: 80.2401, at: new Date(NOW - 24 * MIN) }] });
+    expect(runAt(s, [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: new Date(NOW - 24 * MIN) }), ev('NO_SHOW', 2, { passengerTripId: 'p1' })])).toEqual(['ACCEPTED', 'RETRY:WAIT_NOT_ELAPSED']);
+    expect(s.stops[0]).toMatchObject({ arrivalUnverified: false, arrivalLate: true, arrivalReceivedAt: new Date(NOW) });
+    expect(runAt(s, [ev('NO_SHOW', 2, { passengerTripId: 'p1', occurredAt: new Date(NOW + 5 * MIN) })], NOW + 5 * MIN)).toEqual(['ACCEPTED:NO_SHOW_LATE_ARRIVAL']);
+  });
+
+  it('R-3: BOARDED and DROPPED after an unverified arrival are accepted with a review', () => {
+    const s = snap({ actualStart: new Date(NOW - 30 * MIN) });
+    expect(runAt(s, [ev('ARRIVED', 1, { stopSeq: 0 }), ev('BOARDED', 2, { passengerTripId: 'p1' }), ev('DROPPED', 3, { passengerTripId: 'p1', stopSeq: 0, reasonCode: 'PASSENGER_REQUEST' })])).toEqual([
+      'ACCEPTED',
+      'ACCEPTED:BOARDED_UNVERIFIED_ARRIVAL',
+      'ACCEPTED:DROPPED_UNVERIFIED_ARRIVAL',
+    ]);
+    // A GPS-confirmed live arrival: no review.
+    const g = snap({ actualStart: new Date(NOW - 30 * MIN), fix: { lat: 13.0601, lng: 80.2401, at: new Date(NOW) } });
+    expect(runAt(g, [ev('ARRIVED', 1, { stopSeq: 0 }), ev('BOARDED', 2, { passengerTripId: 'p1' })])).toEqual(['ACCEPTED', 'ACCEPTED']);
   });
 
   it('M2: one REPORT_DELAY per trip and 15 min (DUPLICATE TOO_FREQUENT); breakdown reports are not limited', () => {

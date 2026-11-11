@@ -137,8 +137,15 @@ export class TransportNotifyRelayService {
   // ───────────────────────────── Trip events ─────────────────────────────
 
   async fromEvents(now: number): Promise<NotifyItem[]> {
-    const hwm = await this.storedHwm();
-    const from = Math.max(now - RELAY_LOOKBACK_MS, hwm ?? 0);
+    let hwm = await this.storedHwm();
+    if (hwm !== null && hwm > now) {
+      // Re-check R-4: a mark in the future (clock jump, bad write) would skip every event below it: ignored.
+      this.logger.warn(`Ignoring a relay high-water mark in the future (${new Date(hwm).toISOString()}); reading the last 24 h`);
+      hwm = null;
+    }
+    // Never later than now − overlap (events from a writer whose clock is slightly behind are still read), never more
+    // than 24 h back.
+    const from = Math.min(Math.max(now - RELAY_LOOKBACK_MS, hwm ?? 0), now - RELAY_OVERLAP_MS);
     const events = await this.prisma.transportTripEvent.findMany({
       where: { receivedAt: { gte: new Date(from) }, outcome: 'ACCEPTED', kind: { in: [...RELAY_KINDS] } },
       orderBy: { receivedAt: 'asc' },

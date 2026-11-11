@@ -45,7 +45,7 @@ import { TransportNotificationsService } from '../notifications/transport-notifi
 import { DRIVER_SELECT, resolveDriver, type MeDriver } from './driver-identity';
 import { DriverDutyEndDto, DriverDutyStartDto, DriverStartTripDto, DriverSyncQuery, DriverTripEventBatchDto, DriverTripListDto } from './driver.dto';
 import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
-import { applyToSnapshot, correctedTime, decide, effectiveTime, isDriverEventType, licenceValid, onlineCommandFresh, storedKind, withinStartWindow, type Decision, type Fix, type TripSnapshot } from './driver-rules';
+import { applyToSnapshot, arrivalIsLate, correctedTime, decide, effectiveTime, isDriverEventType, licenceValid, onlineCommandFresh, storedKind, withinStartWindow, type Decision, type Fix, type TripSnapshot } from './driver-rules';
 
 type Db = Prisma.TransactionClient;
 const H = 3_600_000;
@@ -344,6 +344,7 @@ export class DriverApiService {
       };
       const accepted: string[] = [];
       const reviews: string[] = [];
+      const outcomeReviews: string[] = [];
       const inBatch = new Map<string, string>();
       for (const e of events) {
         const base = { clientEventId: e.clientEventId, seq: e.seq };
@@ -403,19 +404,22 @@ export class DriverApiService {
             ...(d.verified ? { verified: d.verified } : {}),
             ...(setsArrival && d.outcome === 'ACCEPTED' ? { setArrival: true } : {}),
             ...(review ? { review } : {}),
+            ...(setsArrival && d.outcome === 'ACCEPTED' && arrivalIsLate(at, now) ? { lateArrival: true } : {}),
             ...(d.effect?.kind === 'OUTCOME' && d.effect.earlyDrop ? { earlyDrop: true } : {}),
             ...(e.passengerTripId && !p ? { unknownPassengerTripId: e.passengerTripId } : {}),
           },
         });
         if (review && p) {
-          // M1 (d): a no-show after an arrival the vehicle GPS did not confirm goes to the dispatcher's trip timeline.
+          // M1 (d) / R-2 / R-3: an outcome after an arrival the vehicle GPS did not confirm (or one reported
+          // retroactively) goes to the dispatcher's trip timeline: NO_SHOW_REVIEW for a no-show, OUTCOME_REVIEW otherwise.
+          const reviewKind = review.startsWith('NO_SHOW') ? 'NO_SHOW_REVIEW' : 'OUTCOME_REVIEW';
           await tx.transportTripEvent.create({
             data: {
               tripId: tt.id,
               providerCompanyId: tt.providerCompanyId,
               customerCompanyId: tt.customerCompanyId,
               passengerTripId: p.id,
-              kind: 'NO_SHOW_REVIEW',
+              kind: reviewKind,
               actorType: 'SYSTEM',
               actorUserId: null,
               actorDriverId: me.id,
@@ -423,15 +427,15 @@ export class DriverApiService {
               outcome: 'ACCEPTED',
               stopSeq,
               occurredAt: new Date(now),
-              data: { code: review, noShowClientEventId: e.clientEventId } as Prisma.InputJsonValue,
+              data: (reviewKind === 'NO_SHOW_REVIEW' ? { code: review, noShowClientEventId: e.clientEventId } : { code: review, outcome: e.type, clientEventId: e.clientEventId }) as Prisma.InputJsonValue,
             },
           });
-          reviews.push(p.id);
+          (reviewKind === 'NO_SHOW_REVIEW' ? reviews : outcomeReviews).push(p.id);
         }
         snap.lastSeq = Math.max(snap.lastSeq ?? 0, e.seq);
         results.set(e.clientEventId, { ...base, outcome: d.outcome, code: (d.code ?? null) as DriverTripEventResult['code'], verified: d.verified ?? null, receivedAt: row.receivedAt.toISOString() });
       }
-      if (accepted.length) await this.audit.record(ctx, { action: 'UPDATE', entity: TRIP_ENTITY, entityId: id, details: { driverEvents: accepted, source: 'DRIVER_APP', ...(reviews.length ? { noShowReview: reviews } : {}) } }, tx);
+      if (accepted.length) await this.audit.record(ctx, { action: 'UPDATE', entity: TRIP_ENTITY, entityId: id, details: { driverEvents: accepted, source: 'DRIVER_APP', ...(reviews.length ? { noShowReview: reviews } : {}), ...(outcomeReviews.length ? { outcomeReview: outcomeReviews } : {}) } }, tx);
     });
     if (changed) await this.live.changed(ctx.companyId, [m.pt.id]);
     const after = assigned ? await this.one(ctx, me, id, true) : null;
@@ -841,18 +845,20 @@ function pointHiddenOf(pv: StopPoint | undefined): 'PASSENGER_CANCELLED' | 'CONS
 type ArrivalEvent = { kind: string; stopSeq: number | null; data: Prisma.JsonValue; occurredAt: Date; receivedAt: Date };
 
 /**
- * M1: whether a reached stop's arrival came from a driver ARRIVED the vehicle GPS could not confirm (and when the server
- * received it). The arrival-setting event is marked `setArrival`; rows stored before that are matched on the arrival time.
+ * M1 / R-2: whether a reached stop's arrival came from a driver ARRIVED the vehicle GPS could not confirm, or one the
+ * server received more than arrivalFixMaxSkewMs after its time (and when the server received it). The arrival-setting
+ * event is marked `setArrival`; rows stored before that are matched on the arrival time.
  */
-function arrivalCheck(s: { seq: number; actualArrival: Date | null }, history: ArrivalEvent[]): { arrivalUnverified: boolean; arrivalReceivedAt: Date | null } {
-  if (!s.actualArrival) return { arrivalUnverified: false, arrivalReceivedAt: null };
+function arrivalCheck(s: { seq: number; actualArrival: Date | null }, history: ArrivalEvent[]): { arrivalUnverified: boolean; arrivalLate: boolean; arrivalReceivedAt: Date | null } {
+  if (!s.actualArrival) return { arrivalUnverified: false, arrivalLate: false, arrivalReceivedAt: null };
   const setter = history.find((h) => {
     if (h.kind !== 'ARRIVED' || h.stopSeq !== s.seq) return false;
     const d = (h.data ?? {}) as { setArrival?: unknown };
     return d.setArrival === true || (d.setArrival === undefined && h.occurredAt.getTime() === s.actualArrival!.getTime());
   });
   const unverified = !!setter && (setter.data as { verified?: unknown } | null)?.verified === 'unverified_location';
-  return { arrivalUnverified: unverified, arrivalReceivedAt: unverified ? setter!.receivedAt : null };
+  const late = !!setter && arrivalIsLate(setter.occurredAt, setter.receivedAt.getTime());
+  return { arrivalUnverified: unverified, arrivalLate: late, arrivalReceivedAt: unverified || late ? setter!.receivedAt : null };
 }
 
 function latest(ds: Date[]): Date | null {

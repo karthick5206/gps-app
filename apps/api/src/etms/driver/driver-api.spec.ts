@@ -598,12 +598,25 @@ describe('E5 security review fixes (M1, M2, L1, L2, L4, L5, L6, L7)', () => {
     await startedEarlier(near, 30);
     near.setLive(14.4, 80.5); // the live fix is elsewhere now; the track at the time was at the stop
     position(near, 13.0601, 80.2401, 10);
-    const r = await near.svc.events(near.ctx('u-dA'), near.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: ago(10) }), ev('NO_SHOW', 2, { passengerTripId: near.ids.pax1, reasonCode: 'NOT_AT_PICKUP' })] });
-    expect(r.results.map((x) => [x.outcome, x.verified])).toEqual([
-      ['ACCEPTED', 'gps'],
-      ['ACCEPTED', null],
+    const noShow = ev('NO_SHOW', 2, { passengerTripId: near.ids.pax1, reasonCode: 'NOT_AT_PICKUP' });
+    const r = await near.svc.events(near.ctx('u-dA'), near.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: ago(10) }), noShow] });
+    // R-2: verified by the track, but reported 10 min late: the wait starts at receipt (RETRY) and the no-show is reviewed.
+    expect(r.results.map((x) => [x.outcome, x.verified ?? null, x.code])).toEqual([
+      ['ACCEPTED', 'gps', null],
+      ['RETRY', null, 'WAIT_NOT_ELAPSED'],
     ]);
-    expect(near.store.table('transportTripEvent').some((e) => e.kind === 'NO_SHOW_REVIEW')).toBe(false);
+    const arrived = near.store.table('transportTripEvent').find((e) => e.kind === 'ARRIVED' && e.outcome === 'ACCEPTED')!;
+    expect(arrived.data).toMatchObject({ verified: 'gps', setArrival: true, lateArrival: true });
+    arrived.receivedAt = new Date(Date.now() - 6 * MIN); // 6 minutes later (the history read, not the snapshot)
+    expect(outcomes(await near.svc.events(near.ctx('u-dA'), near.ids.tt, { events: [noShow] }))).toEqual(['ACCEPTED']);
+    expect(near.store.table('transportTripEvent').filter((e) => e.kind === 'NO_SHOW_REVIEW').map((e) => (e.data as { code: string }).code)).toEqual(['NO_SHOW_LATE_ARRIVAL']);
+    // A live tap at the stop (on time, GPS-confirmed): plain rule, no review.
+    const live = world();
+    consent(live, live.ids.pAsha);
+    await startedEarlier(live, 30);
+    live.setLive(13.0601, 80.2401);
+    expect((await live.svc.events(live.ctx('u-dA'), live.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0 })] })).results[0]).toMatchObject({ outcome: 'ACCEPTED', verified: 'gps' });
+    expect(live.store.table('transportTripEvent').find((e) => e.kind === 'ARRIVED')!.data).not.toHaveProperty('lateArrival');
 
     const far = world();
     consent(far, far.ids.pAsha);
@@ -836,5 +849,40 @@ describe('E5 QA fixes: relay grouping (B1), atomic notify (B6), language (B7), s
     expect(await c.relay.run(Date.now())).toBe(0);
     const s = world({ plannedStartInMin: 20 });
     expect(await s.relay.run(Date.now())).toBe(1); // still SCHEDULED: Asha is reminded
+  });
+});
+
+describe('E5 security re-check residuals (R-3 service, R-4)', () => {
+  it('R-3: BOARDED after an unverified arrival writes a SYSTEM OUTCOME_REVIEW event and outcomeReview in the audit', async () => {
+    const w = world();
+    consent(w, w.ids.pAsha);
+    await started(w);
+    const r = await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0 }), ev('BOARDED', 2, { passengerTripId: w.ids.pax1 })] });
+    expect(outcomes(r)).toEqual(['ACCEPTED', 'ACCEPTED']);
+    expect(w.store.table('transportTripEvent').filter((e) => e.kind === 'OUTCOME_REVIEW')).toEqual([
+      expect.objectContaining({ actorType: 'SYSTEM', source: 'SYSTEM', passengerTripId: w.ids.pax1, stopSeq: 0, data: expect.objectContaining({ code: 'BOARDED_UNVERIFIED_ARRIVAL', outcome: 'BOARDED' }) }),
+    ]);
+    expect(w.store.table('auditLog').some((a) => JSON.stringify(a.changes ?? {}).includes('outcomeReview'))).toBe(true);
+    expect(w.row('transportTripPassenger', w.ids.pax1).status).toBe('BOARDED');
+  });
+
+  it('R-4: a high-water mark in the future is ignored (events are not skipped); from never passes now − 5 min', async () => {
+    const w = world({ plannedStartInMin: 120 });
+    const kv = new Map<string, string>();
+    const redis = { client: { get: async (k: string) => kv.get(k) ?? null, set: async (k: string, v: string) => (kv.set(k, v), 'OK'), eval: async () => 1, xadd: async () => '1-0', publish: async () => 1 } };
+    const notifications = new TransportNotificationsService(w.store.client() as never, redis as never);
+    const relay = new TransportNotifyRelayService(w.store.client() as never, redis as never, notifications);
+    const at = new Date(Date.now() - 2 * MIN);
+    w.store.insert('transportTripEvent', { tripId: w.ids.tt, providerCompanyId: 'custA', customerCompanyId: 'custA', kind: 'PUBLISHED', actorType: 'DISPATCHER', source: 'WEB', occurredAt: at, receivedAt: at, data: { driverId: w.ids.dA } });
+    kv.set('vt:etms:notify:hwm', String(Date.now() + 3_600_000)); // a clock jump wrote a mark 1 h ahead
+    expect(await relay.run(Date.now())).toBe(1);
+    const now = Date.now();
+    expect(Number(kv.get('vt:etms:notify:hwm'))).toBeLessThanOrEqual(now - 5 * MIN);
+    // A mark 1 min ago (just under now): still read from now − 5 min, so a writer 4 min behind is not missed.
+    const behind = new Date(now - 4 * MIN);
+    w.row('plannedTrip', w.ids.pt).driverId = w.ids.dA2;
+    w.store.insert('transportTripEvent', { tripId: w.ids.tt, providerCompanyId: 'custA', customerCompanyId: 'custA', kind: 'DRIVER_CHANGED', actorType: 'DISPATCHER', source: 'WEB', occurredAt: behind, receivedAt: behind, data: { from: w.ids.dA, to: w.ids.dA2 } });
+    kv.set('vt:etms:notify:hwm', String(now - 60_000));
+    expect(await relay.run(now)).toBe(2); // TRIP_UNASSIGNED + TRIP_ASSIGNED
   });
 });
