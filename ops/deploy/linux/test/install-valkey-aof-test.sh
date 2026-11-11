@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests the Valkey AOF block of install-ubuntu.sh (release-gate spec G4) on a temporary copy of a valkey.conf with a
-# fake valkey-cli. Runs nothing as root and touches no real Valkey:
+# fake valkey-cli and a fake systemctl. Runs nothing as root and touches no real Valkey or service:
 #   bash ops/deploy/linux/test/install-valkey-aof-test.sh
 set -uo pipefail
 
@@ -10,23 +10,41 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 FAILURES=0
 
-# The block under test: from the AOF comment up to (not including) 'systemctl enable valkey-server'.
-sed -n '/^# AOF (release-gate spec G4)/,/^systemctl enable valkey-server/p' "$INSTALL" | sed '$d' >"$WORK/block.sh"
-grep -q 'vk_set appendonly yes' "$WORK/block.sh" || { echo "AOF block not found in install-ubuntu.sh"; exit 2; }
+# The block under test: from the AOF comment up to (not including) the next section, so the restart decision is
+# tested too.
+sed -n '/^# AOF (release-gate spec G4)/,/^echo "== database"/p' "$INSTALL" | sed '$d' >"$WORK/block.sh"
+if ! grep -q 'vk_set appendonly yes' "$WORK/block.sh" || ! grep -q 'systemctl restart valkey-server' "$WORK/block.sh"; then
+  echo "AOF block not found in install-ubuntu.sh"
+  exit 2
+fi
 
 mkdir -p "$WORK/bin" "$WORK/data"
-cat >"$WORK/bin/valkey-cli" <<'EOF'
+# Fake valkey-cli. FAKE_DOWN=1: not running (no answer, exit 1). FAKE_PASS: the server's password; without the right
+# REDISCLI_AUTH every command answers NOAUTH, as a real password-protected Valkey does. Logs its arguments.
+cat >"$WORK/bin/valkey-cli" <<'FAKE'
 #!/usr/bin/env bash
+echo "$*" >>"$FAKE_LOG.cli"
+if [[ "${FAKE_DOWN:-0}" == 1 ]]; then echo "Could not connect to Valkey at 127.0.0.1:6379: Connection refused" >&2; exit 1; fi
+if [[ -n "${FAKE_PASS:-}" && "${REDISCLI_AUTH:-}" != "$FAKE_PASS" ]]; then
+  [[ -n "${REDISCLI_AUTH:-}" ]] && echo "AUTH failed: WRONGPASS invalid username-password pair or user is disabled." >&2
+  echo "NOAUTH Authentication required."
+  exit 0
+fi
 case "$*" in
-  ping) echo "${FAKE_PING-PONG}" ;;
+  ping) echo PONG ;;
   "CONFIG GET appendonly") printf 'appendonly\n%s\n' "${FAKE_AOF:-no}" ;;
-  "INFO keyspace") printf '%b' "${FAKE_KEYSPACE:-# Keyspace\r\n}" ;;
+  DBSIZE) echo "${FAKE_DBSIZE:-0}" ;;
 esac
-EOF
-chmod +x "$WORK/bin/valkey-cli"
+FAKE
+cat >"$WORK/bin/systemctl" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" >>"$FAKE_LOG.systemctl"
+FAKE
+chmod +x "$WORK/bin/valkey-cli" "$WORK/bin/systemctl"
 
 stock_conf() {
-  cat >"$WORK/valkey.conf" <<EOF
+  rm -rf "$WORK/data" && mkdir -p "$WORK/data"
+  cat >"$WORK/valkey.conf" <<CONF
 bind 127.0.0.1 -::1
 save 3600 1 300 100 60 10000
 dir $WORK/data
@@ -36,10 +54,13 @@ appendfsync always
 # appendfsync no
 no-appendfsync-on-rewrite yes
 auto-aof-rewrite-percentage 100
-EOF
+CONF
 }
 
-run_block() { (export PATH="$WORK/bin:$PATH"; VK="$WORK/valkey.conf"; set -euo pipefail; source "$WORK/block.sh") 2>&1; }
+run_block() {
+  rm -f "$WORK/log.cli" "$WORK/log.systemctl"
+  (export PATH="$WORK/bin:$PATH" FAKE_LOG="$WORK/log"; VK="$WORK/valkey.conf"; set -euo pipefail; source "$WORK/block.sh") 2>&1
+}
 
 expect() { # expect <case> <description> <command...>
   local name="$1" what="$2"
@@ -54,48 +75,93 @@ applied() {
 }
 unchanged() { grep -qx 'appendonly no' "$WORK/valkey.conf" && ! grep -q 'aof-use-rdb-preamble' "$WORK/valkey.conf"; }
 once() { [[ "$(grep -c "^$1 " "$WORK/valkey.conf")" == 1 ]]; }
+restarted() { grep -qx 'restart valkey-server' "$WORK/log.systemctl"; }
+not_restarted() { ! grep -q '^restart' "$WORK/log.systemctl" && grep -qx 'start valkey-server' "$WORK/log.systemctl"; }
 
-echo "### fresh install (Valkey running, no keys)"
+echo "### fresh install (Valkey running, DBSIZE 0)"
 stock_conf
-out="$(FAKE_KEYSPACE='# Keyspace\r\n' run_block)"
+out="$(FAKE_DBSIZE=0 run_block)"
 expect fresh "AOF settings written" applied
 expect fresh "RDB save line kept" grep -qx 'save 3600 1 300 100 60 10000' "$WORK/valkey.conf"
 expect fresh "commented lines left alone" grep -qx '# appendfsync no' "$WORK/valkey.conf"
 expect fresh "no warning" test -z "$out"
-FAKE_KEYSPACE='# Keyspace\r\n' run_block >/dev/null
+expect fresh "restarted (empty Valkey)" restarted
+FAKE_DBSIZE=0 run_block >/dev/null
 expect fresh "idempotent: each key once after a re-run" bash -c "$(declare -f once); WORK='$WORK'; once appendonly && once appendfsync && once aof-use-rdb-preamble && once no-appendfsync-on-rewrite"
 expect fresh "no maxmemory line added" bash -c "! grep -q '^maxmemory ' '$WORK/valkey.conf'"
-cat "$WORK/valkey.conf" | sed 's/^/      /'
+sed 's/^/      /' "$WORK/valkey.conf"
 
 echo "### existing server: keys present, appendonly off"
 stock_conf
-out="$(FAKE_KEYSPACE='# Keyspace\r\ndb1:keys=42,expires=0\r\n' run_block)"
+out="$(FAKE_DBSIZE=42 run_block)"
 expect data-aof-off "file unchanged" unchanged
 expect data-aof-off "warning printed" grep -q 'AOF settings NOT written' <<<"$out"
+expect data-aof-off "not restarted" not_restarted
 echo "$out" | sed 's/^/      /'
 
-echo "### existing server: keys present, AOF already on (CONFIG SET done online)"
+echo "### existing server: keys present, AOF already on (CONFIG SET done online; a rewrite may still run)"
 stock_conf
-FAKE_AOF=yes FAKE_KEYSPACE='# Keyspace\r\ndb0:keys=42\r\n' run_block >/dev/null
+out="$(FAKE_AOF=yes FAKE_DBSIZE=42 run_block)"
 expect data-aof-on "AOF settings persisted to the file" applied
+expect data-aof-on "not restarted (never during a possible AOF rewrite)" not_restarted
+expect data-aof-on "note printed" grep -q 'not restarted (aof-on)' <<<"$out"
 
 echo "### Valkey stopped, non-empty dump.rdb"
 stock_conf
 echo "REDIS0011 data" >"$WORK/data/dump.rdb"
-out="$(FAKE_PING='' run_block)"
+out="$(FAKE_DOWN=1 run_block)"
 expect stopped-dump "file unchanged" unchanged
 expect stopped-dump "warning printed" grep -q 'AOF settings NOT written' <<<"$out"
+expect stopped-dump "started with its data, not restarted" not_restarted
 
-echo "### Valkey stopped, no dump.rdb"
+echo "### Valkey stopped, quoted dir and a custom dbfilename"
 stock_conf
-rm -f "$WORK/data/dump.rdb"
-FAKE_PING='' run_block >/dev/null
+sed -i "s|^dir .*|dir \"$WORK/data\"|" "$WORK/valkey.conf"
+echo 'dbfilename vt.rdb' >>"$WORK/valkey.conf"
+echo "REDIS0011 data" >"$WORK/data/vt.rdb"
+FAKE_DOWN=1 run_block >/dev/null
+expect stopped-quoted "file unchanged (dump found via the unquoted dir + dbfilename)" unchanged
+
+echo "### Valkey stopped, only an AOF directory on disk"
+stock_conf
+mkdir -p "$WORK/data/appendonlydir" && echo x >"$WORK/data/appendonlydir/appendonly.aof.1.base.rdb"
+FAKE_DOWN=1 run_block >/dev/null
+expect stopped-aofdir "file unchanged" unchanged
+
+echo "### Valkey stopped, no data on disk"
+stock_conf
+FAKE_DOWN=1 run_block >/dev/null
 expect stopped-empty "AOF settings written" applied
+expect stopped-empty "restarted" restarted
 
-echo "### unexpected INFO answer (e.g. password set)"
+echo "### password set on the server, none known to the installer (real NOAUTH path), no dump.rdb"
 stock_conf
-out="$(FAKE_KEYSPACE='(error) NOAUTH Authentication required.\n' run_block)"
-expect noauth "file unchanged (treated as has data)" unchanged
+out="$(FAKE_PASS=s3cret FAKE_DBSIZE=0 run_block)"
+expect noauth "file unchanged (unknown = has data)" unchanged
+expect noauth "warning printed" grep -q 'could not ask Valkey' <<<"$out"
+expect noauth "not restarted" not_restarted
+echo "$out" | sed 's/^/      /'
+
+echo "### wrong requirepass in the conf file"
+stock_conf
+echo 'requirepass wrong' >>"$WORK/valkey.conf"
+FAKE_PASS=s3cret FAKE_DBSIZE=0 run_block >/dev/null
+expect wrongpass "file unchanged" unchanged
+expect wrongpass "not restarted" not_restarted
+
+echo "### requirepass (quoted) in the conf file, empty server"
+stock_conf
+echo 'requirepass "s3cret"' >>"$WORK/valkey.conf"
+FAKE_PASS=s3cret FAKE_DBSIZE=0 run_block >/dev/null
+expect conf-pass "authenticated: AOF settings written" applied
+expect conf-pass "restarted (empty)" restarted
+expect conf-pass "password never on the valkey-cli command line" bash -c "! grep -q s3cret '$WORK/log.cli'"
+
+echo "### REDISCLI_AUTH from the environment, server with keys"
+stock_conf
+out="$(REDISCLI_AUTH=envpw FAKE_PASS=envpw FAKE_DBSIZE=5 run_block)"
+expect env-pass "file unchanged (data)" unchanged
+expect env-pass "data warning, not the unknown one" grep -q 'already holds data' <<<"$out"
 
 echo
 if (( FAILURES )); then echo "install-valkey-aof-test: $FAILURES check(s) FAILED"; exit 1; fi
