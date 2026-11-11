@@ -2,9 +2,9 @@ import { randomUUID } from 'crypto';
 import { HttpException, RequestMethod, type ExecutionContext } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
-import { ETMS_ROLE_TEMPLATES, SYSTEM_ROLES, withoutUnavailableMenus, type CompanyFeature, type PermissionMap } from '@veetracer/shared';
+import { ETMS_DRIVER_ROLE_NAME, ETMS_PASSENGER_ROLE_NAME, ETMS_ROLE_TEMPLATES, SYSTEM_ROLES, withoutUnavailableMenus, type CompanyFeature, type PermissionMap } from '@veetracer/shared';
 import { resolvePermissions } from '../../access/access-rules';
-import type { AuthContext } from '../../access/auth-context';
+import type { AuthContext, TransportAgreementScope } from '../../access/auth-context';
 import { REQUIRED_PERMISSIONS } from '../../access/decorators';
 import { PermissionGuard } from '../../access/permission.guard';
 import { AuditService } from '../../audit/audit.service';
@@ -14,11 +14,18 @@ import { AgreementsController } from '../agreements/agreements.controller';
 import { AgreementsService } from '../agreements/agreements.service';
 import { CompanyDirectoryController } from '../directory/company-directory.controller';
 import { CompanyDirectoryService } from '../directory/company-directory.service';
+import { ensureEtmsRoleTemplates, templatePermissions } from '../etms-role-templates';
 import { EtmsModule } from '../etms.module';
+import { ConsentNoticeService } from '../people/consent-notice.service';
+import { FleetLinksService } from '../people/fleet-links.service';
+import { PassengerImportService } from '../people/passenger-import.service';
+import { ConsentNoticesController, DriverLoginController, MyTransportConsentController, PassengersController, TransportVehiclesController } from '../people/people.controller';
+import { PeopleService } from '../people/people.service';
 import { TransportSettingsController } from '../settings/transport-settings.controller';
 import { TransportSettingsService } from '../settings/transport-settings.service';
 import { TransportFeatureGuard } from '../transport-feature.guard';
-import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Target } from './isolation-matrix';
+import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Resource, type Target } from './isolation-matrix';
+import { MemoryStore } from './memory-store';
 
 // ───────────────────────────── Route discovery (generic completeness guard) ─────────────────────────────
 
@@ -31,9 +38,34 @@ interface DiscoveredRoute {
 
 const joinPath = (...parts: (string | undefined)[]) => parts.flatMap((p) => (p ?? '').split('/')).filter(Boolean).join('/');
 
-/** Every route of every controller registered in EtmsModule, read from Nest metadata (no hand-written list). */
+/**
+ * Every controller of EtmsModule AND of every module it imports, recursively (E2's EtmsPeopleModule, later phases'
+ * modules): a sub-module must not be a way around the completeness guard. Dynamic modules ({ module }) and forwardRef
+ * imports are followed too.
+ */
+export function etmsControllers(root: Ctor = EtmsModule): Ctor[] {
+  const seen = new Set<unknown>();
+  const out: Ctor[] = [];
+  const visit = (m: unknown) => {
+    if (m && typeof m === 'object' && 'forwardRef' in m) m = (m as { forwardRef: () => unknown }).forwardRef();
+    if (m && typeof m === 'object' && 'module' in m) {
+      const dyn = m as { module: Ctor; controllers?: Ctor[]; imports?: unknown[] };
+      out.push(...(dyn.controllers ?? []));
+      (dyn.imports ?? []).forEach(visit);
+      m = dyn.module;
+    }
+    if (typeof m !== 'function' || seen.has(m)) return;
+    seen.add(m);
+    out.push(...((Reflect.getMetadata('controllers', m) ?? []) as Ctor[]));
+    ((Reflect.getMetadata('imports', m) ?? []) as unknown[]).forEach(visit);
+  };
+  visit(root);
+  return [...new Set(out)];
+}
+
+/** Every route of every ETMS controller (etmsControllers), read from Nest metadata (no hand-written list). */
 function discoverEtmsRoutes(): DiscoveredRoute[] {
-  const controllers = (Reflect.getMetadata('controllers', EtmsModule) ?? []) as Ctor[];
+  const controllers = etmsControllers();
   const out: DiscoveredRoute[] = [];
   for (const controller of controllers) {
     const base = Reflect.getMetadata(PATH_METADATA, controller) as string | undefined;
@@ -122,14 +154,90 @@ function buildApp() {
     $executeRaw: async () => 1,
   };
   prisma.$transaction = async (arg: unknown) => (typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as Promise<unknown>[]));
+  return { rows, controllers: controllersFor(prisma) };
+}
+
+/** The ETMS controllers wired to real services on `prisma` (geocoder off, Redis a no-op). */
+function controllersFor(prisma: Obj): Controllers {
   const audit = new AuditService(prisma as never);
   const redis = { invalidateCache: async () => undefined };
-  const controllers: Controllers = {
+  const geocoding = { enabled: false, search: async () => [] };
+  const notices = new ConsentNoticeService(prisma as never, audit);
+  const people = new PeopleService(prisma as never, audit, redis as never, geocoding as never, notices);
+  const fleet = new FleetLinksService(prisma as never, audit, redis as never);
+  return {
     agreements: new AgreementsController(new AgreementsService(prisma as never, audit, redis as never), new AgreementViewsService(prisma as never)),
     directory: new CompanyDirectoryController(new CompanyDirectoryService(prisma as never, null as never, audit)),
     settings: new TransportSettingsController(new TransportSettingsService(prisma as never, audit)),
+    passengers: new PassengersController(people, new PassengerImportService(prisma as never, audit, geocoding as never)),
+    myConsent: new MyTransportConsentController(people),
+    notices: new ConsentNoticesController(notices),
+    vehicles: new TransportVehiclesController(fleet),
+    driverLogin: new DriverLoginController(fleet),
   };
-  return { rows, controllers };
+}
+
+// ───────────────────────────── E2 world (passengers, vehicles, drivers, logins) ─────────────────────────────
+
+const DAY = 86_400_000;
+
+/**
+ * custA (customer) and custB (no agreement with anyone), each with a branch, office sites, a passenger, a vehicle and a
+ * driver with a login; custA's passenger has the login of `customerPassenger` and a current consent notice. The
+ * prov ↔ custA agreement is ACTIVE, grants VIEW_PASSENGER_MINIMAL and covers siteA1 only (a second custA passenger
+ * at siteA2 is outside it). Rows go through the same Prisma calls the services make (MemoryStore).
+ */
+async function buildE2App() {
+  const store = new MemoryStore();
+  for (const c of COMPANIES) store.insert('company', { ...structuredClone(c), timezone: 'Asia/Kolkata' });
+  const prisma = store.client();
+  for (const companyId of ['custA', 'custB', 'prov']) await ensureEtmsRoleTemplates(prisma as never, companyId);
+  const roleId = (companyId: string, name: string) => store.table('role').find((r) => r.companyId === companyId && r.name === name)!.id as string;
+  for (const [id, companyId] of [['brA1', 'custA'], ['brB1', 'custB']]) store.insert('branch', { id, companyId, name: id, isActive: true });
+  for (const [id, companyId] of [['siteA1', 'custA'], ['siteA2', 'custA'], ['siteB1', 'custB']]) store.insert('poi', { id, companyId, name: id, category: 'OFFICE', lat: 13.05, lng: 80.25, isActive: true });
+
+  const login = (id: string, companyId: string, role: string, email: string) => {
+    store.insert('user', { id, companyId, name: id, email });
+    store.table('userRole').push({ userId: id, roleId: roleId(companyId, role) });
+    return id;
+  };
+  const passenger = (companyId: string, code: string, branchId: string, officePoiId: string, userId: string | null) =>
+    store.insert('employeeTransportProfile', {
+      companyId,
+      employeeCode: code,
+      displayName: `Passenger ${code}`,
+      branchId,
+      officePoiId,
+      userId,
+      email: `${code.toLowerCase()}@corp.test`,
+      mobile: `+9198765${code.replace(/\D/g, '').padStart(5, '0')}`,
+      homeAddress: `${code} Secret Lane`,
+      homeLat: 13.061234,
+      homeLng: 80.241234,
+      homeGeocodeSource: 'PIN',
+    }).id as string;
+  const partyPassenger = passenger('custA', 'A1', 'brA1', 'siteA1', login('user-customerPassenger', 'custA', ETMS_PASSENGER_ROLE_NAME, 'a1.login@corp.test'));
+  const outsideSitePassenger = passenger('custA', 'A2', 'brA1', 'siteA2', null);
+  const otherPassenger = passenger('custB', 'B1', 'brB1', 'siteB1', login('user-passengerB', 'custB', ETMS_PASSENGER_ROLE_NAME, 'b1.login@corp.test'));
+  for (const companyId of ['custA', 'custB']) {
+    store.insert('transportConsentNotice', { companyId, purpose: 'TRANSPORT_PROFILE', seq: 1, version: 'v1', title: 'Transport data', body: 'Pickup point for routing.', locale: 'en', effectiveFrom: new Date(Date.now() - DAY), createdById: null });
+  }
+  const vehicle = (companyId: string, branchId: string) => store.insert('trackedObject', { companyId, branchId, type: 'VEHICLE', name: `Van ${companyId}`, plateNumber: null, isActive: true }).id as string;
+  const driver = (companyId: string, branchId: string, userId: string) => store.insert('driver', { companyId, branchId, name: `Driver ${companyId}`, mobile: null, isActive: true, userId }).id as string;
+  const party: Record<Exclude<Resource, 'agreement'>, string> = {
+    passenger: partyPassenger,
+    vehicle: vehicle('custA', 'brA1'),
+    driver: driver('custA', 'brA1', login('user-driverA', 'custA', ETMS_DRIVER_ROLE_NAME, 'driver.a@corp.test')),
+  };
+  const other: typeof party = {
+    passenger: otherPassenger,
+    vehicle: vehicle('custB', 'brB1'),
+    driver: driver('custB', 'brB1', login('user-driverB', 'custB', ETMS_DRIVER_ROLE_NAME, 'driver.b@corp.test')),
+  };
+  const agreement = seed(store.table('transportServiceAgreement'), 'prov', 'custA', 'ACTIVE');
+  Object.assign(agreement, { grants: ['VIEW_BOOKINGS', 'VIEW_PASSENGER_MINIMAL'], siteIds: ['siteA1'] });
+  const scope: TransportAgreementScope = { id: agreement.id as string, customerCompanyId: 'custA', grants: ['VIEW_BOOKINGS', 'VIEW_PASSENGER_MINIMAL'], siteIds: ['siteA1'], dataProfile: 'MINIMAL', validFrom: Date.now() - DAY, validTo: null };
+  return { store, controllers: controllersFor(prisma), party, other, scope, ids: { partyPassenger, otherPassenger, outsideSitePassenger } };
 }
 
 /** One agreement in `status` with consistent approvals (the DB CHECKs: ACTIVE / SUSPENDED only with both). */
@@ -163,13 +271,19 @@ function seed(rows: Obj[], providerCompanyId: string, customerCompanyId: string,
 
 // ───────────────────────────── Callers ─────────────────────────────
 
-const tpl = (name: string) => ETMS_ROLE_TEMPLATES.find((r) => r.name === name)!;
+/** A template as seeded now: the E1a permissions plus the menus later phases add (templatePermissions). */
+const tpl = (name: string) => {
+  const def = ETMS_ROLE_TEMPLATES.find((r) => r.name === name)!;
+  return { ...def, permissions: templatePermissions(def.name, def.permissions) };
+};
 const grants = (p: PermissionMap) => Object.entries(p).map(([menu, actions]) => ({ menu, actions: [...(actions ?? [])] }));
 
-function caller(role: MatrixRole): AuthContext {
+/** E2 world: branch-scoped callers hold brA1; providers carry the prov ↔ custA agreement (as AuthContextService loads it). */
+function caller(role: MatrixRole, e2?: { scope: TransportAgreementScope }): AuthContext {
   const def = {
     customerAdmin: { companyId: 'custA', role: tpl('Transport admin') },
     customerDispatcher: { companyId: 'custA', role: tpl('Transport dispatcher') },
+    customerPassenger: { companyId: 'custA', role: tpl('Transport passenger') },
     providerAdmin: { companyId: 'prov', role: tpl('Transport admin') },
     providerDispatcher: { companyId: 'prov', role: tpl('Transport dispatcher') },
     fleetUser: { companyId: 'custA', role: SYSTEM_ROLES.find((r) => r.name === 'Manager')! },
@@ -188,10 +302,10 @@ function caller(role: MatrixRole): AuthContext {
     isCompanyAdmin: isSuperAdmin,
     permissions: withoutUnavailableMenus(resolved.permissions, features),
     dataScope: resolved.dataScope,
-    branchIds: [],
+    branchIds: e2 && resolved.dataScope === 'ASSIGNED' && def.companyId === 'custA' ? ['brA1'] : [],
     objectIds: [],
     features,
-    agreements: [],
+    agreements: e2 && def.companyId === 'prov' ? [e2.scope] : [],
     ip: null,
   };
 }
@@ -201,7 +315,7 @@ function caller(role: MatrixRole): AuthContext {
 const permissionGuard = new PermissionGuard(new Reflector());
 const featureGuard = new TransportFeatureGuard();
 
-async function run(route: DiscoveredRoute, entry: MatrixEntry, ctx: AuthContext, target: Target, controllers: Controllers): Promise<number> {
+async function run(route: DiscoveredRoute, entry: MatrixEntry, ctx: AuthContext, target: Target, controllers: Controllers): Promise<{ status: number; result?: unknown }> {
   const handler = (route.controller.prototype as Record<string, object>)[route.handler];
   const exec = {
     getType: () => 'http',
@@ -212,10 +326,9 @@ async function run(route: DiscoveredRoute, entry: MatrixEntry, ctx: AuthContext,
   try {
     permissionGuard.canActivate(exec);
     featureGuard.canActivate(exec);
-    await entry.invoke(controllers, ctx, target);
-    return 200;
+    return { status: 200, result: await entry.invoke(controllers, ctx, target) };
   } catch (e) {
-    if (e instanceof HttpException) return e.getStatus();
+    if (e instanceof HttpException) return { status: e.getStatus() };
     throw e;
   }
 }
@@ -227,7 +340,9 @@ const byRoute = new Map(ISOLATION_MATRIX.map((e) => [e.route, e]));
 
 describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
   it('discovers the ETMS routes from Nest metadata', () => {
-    expect(ROUTES.length).toBeGreaterThanOrEqual(16);
+    // E1a: 16 routes; E2 (EtmsPeopleModule, imported): 25.
+    expect(ROUTES.length).toBeGreaterThanOrEqual(41);
+    for (const c of [PassengersController, MyTransportConsentController, ConsentNoticesController, TransportVehiclesController, DriverLoginController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
   });
 
@@ -236,11 +351,11 @@ describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
     expect(ISOLATION_MATRIX.map((e) => e.route).filter((k) => !ROUTES.some((r) => r.key === k))).toEqual([]);
   });
 
-  it('every entry covers every role, and :id routes cover both party and other-company ownership', () => {
+  it('every entry covers every role, and routes with a path parameter cover both party and other-company ownership', () => {
     for (const e of ISOLATION_MATRIX) {
       const owners = Object.keys(e.expect) as Ownership[];
       expect([e.route, owners.length > 0]).toEqual([e.route, true]);
-      if (e.route.includes(':id')) expect([e.route, owners.sort()]).toEqual([e.route, ['other', 'party']]);
+      if (/:w+/.test(e.route)) expect([e.route, owners.sort()]).toEqual([e.route, ['other', 'party']]);
       for (const o of owners) expect([e.route, o, Object.keys(e.expect[o]!).sort()]).toEqual([e.route, o, [...MATRIX_ROLES].sort()]);
     }
   });
@@ -266,6 +381,16 @@ describe('ETMS isolation matrix: route × role × ownership', () => {
   it.each(CASES)('%s as %s on %s resource → %s', async (routeKey, role, own, expected) => {
     const entry = byRoute.get(routeKey)!;
     const route = ROUTES.find((r) => r.key === routeKey)!;
+    if (entry.resource && entry.resource !== 'agreement') {
+      const w = await buildE2App();
+      const resource = entry.resource;
+      const id = own === 'party' ? w.party[resource] : own === 'other' ? w.other[resource] : randomUUID();
+      const target: Target = { id, version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA', ids: w.ids };
+      const res = await run(route, entry, caller(role, w), target, w.controllers);
+      expect(res.status).toBe(expected);
+      if (res.status === 200) entry.verify?.(res.result, role, own, target);
+      return;
+    }
     const { rows, controllers } = buildApp();
     let target: Target = { id: randomUUID(), version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA' };
     if (entry.state !== 'none') {
@@ -276,6 +401,8 @@ describe('ETMS isolation matrix: route × role × ownership', () => {
     } else if (own === 'other') {
       target = { ...target, providerCompanyId: 'prov2', customerCompanyId: 'custB' };
     }
-    expect(await run(route, entry, caller(role), target, controllers)).toBe(expected);
+    const res = await run(route, entry, caller(role), target, controllers);
+    expect(res.status).toBe(expected);
+    if (res.status === 200) entry.verify?.(res.result, role, own, target);
   });
 });

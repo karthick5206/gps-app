@@ -8,63 +8,86 @@
  * resource exists), 404 = not found (other tenant's id, or the company's `etms` add-on is off: never 403, so it can't
  * tell the route or the row exists).
  */
-import type { TransportAgreementStatus } from '@veetracer/shared';
+import type { PassengerDto, TransportAgreementStatus } from '@veetracer/shared';
 import type { AgreementsController } from '../agreements/agreements.controller';
 import type { CompanyDirectoryController } from '../directory/company-directory.controller';
+import type { ConsentNoticesController, DriverLoginController, MyTransportConsentController, PassengersController, TransportVehiclesController } from '../people/people.controller';
 import type { TransportSettingsController } from '../settings/transport-settings.controller';
 import type { AuthContext } from '../../access/auth-context';
 
-/** Callers. Customer = custA, provider = prov; the "other" agreement is prov2 ↔ custB. */
+/**
+ * Callers. Customer = custA, provider = prov; the "other" agreement is prov2 ↔ custB. Templates carry the E2 additions
+ * (templatePermissions). Branch-scoped callers hold branch brA1, where the party passenger / vehicle / driver live.
+ */
 export const MATRIX_ROLES = [
   'customerAdmin', // custA, template "Transport admin" (COMPANY)
-  'customerDispatcher', // custA, template "Transport dispatcher" (ASSIGNED)
+  'customerDispatcher', // custA, template "Transport dispatcher" (ASSIGNED, branch brA1)
+  'customerPassenger', // custA, template "Transport passenger": the login of the party passenger (E2)
   'providerAdmin', // prov, "Transport admin"
   'providerDispatcher', // prov, "Transport dispatcher"
-  'fleetUser', // custA (etms on), built-in Manager role, no ETMS grants
+  'fleetUser', // custA (etms on), built-in Manager role (branch brA1), no ETMS grants (but objects / drivers edit)
   'etmsOffCompany', // a company with the add-on off, whose role still holds every ETMS grant
   'superAdmin', // platform company (PLAT)
   'superAdminSwitched', // Super Admin with X-Company-Id = custA
 ] as const;
 export type MatrixRole = (typeof MATRIX_ROLES)[number];
 
-/** party = the caller's company is a party (prov ↔ custA); other = an agreement between two other companies; none = no row. */
+/**
+ * Agreements: party = the caller's company is a party (prov ↔ custA); other = an agreement between two other companies;
+ * none = no row. E2 resources: party = the custA row (passenger / vehicle / driver in branch brA1, passenger office
+ * siteA1, which the prov ↔ custA agreement covers); other = the same kind of row of custB (no agreement with anyone).
+ */
 export type Ownership = 'party' | 'other' | 'none';
 export type Expected = 200 | 403 | 404;
 export type RoleTable = Record<MatrixRole, Expected>;
+
+/** What `Target.id` points at: an agreement (E1a) or an E2 row. */
+export type Resource = 'agreement' | 'passenger' | 'vehicle' | 'driver';
 
 export interface Controllers {
   agreements: AgreementsController;
   directory: CompanyDirectoryController;
   settings: TransportSettingsController;
+  passengers: PassengersController;
+  myConsent: MyTransportConsentController;
+  notices: ConsentNoticesController;
+  vehicles: TransportVehiclesController;
+  driverLogin: DriverLoginController;
 }
 
 export interface Target {
-  /** The agreement for this ownership (prepared in `state`); undefined for ownership 'none'. */
+  /** The agreement (or E2 row, see Resource) for this ownership; a random id for ownership 'none'. */
   id: string;
   version: number;
   /** For create: the parties to put in the body. */
   providerCompanyId: string;
   customerCompanyId: string;
+  /** E2 world: ids of the rows the result checks look for. */
+  ids?: { partyPassenger: string; otherPassenger: string; outsideSitePassenger: string };
 }
 
 export interface MatrixEntry {
   /** `METHOD path` exactly as discovered from Nest metadata, e.g. `POST transport/agreements/:id/approve`. */
   route: string;
-  /** State of the target agreement before the call; 'none' = no agreements exist (create). */
+  /** Default 'agreement'. E2 entries run in the E2 world (passengers, vehicles, drivers, logins, an ACTIVE prov ↔ custA agreement). */
+  resource?: Resource;
+  /** State of the target agreement before the call; 'none' = no agreements exist (create). E2 entries: 'ACTIVE'. */
   state: TransportAgreementStatus | 'none';
   invoke(c: Controllers, ctx: AuthContext, t: Target): Promise<unknown>;
   expect: Partial<Record<Ownership, RoleTable>>;
+  /** Extra check of a 2xx result (projection, rows visible), beyond the status code. */
+  verify?(result: unknown, role: MatrixRole, own: Ownership, t: Target): void;
 }
 
 const REASON = 'isolation matrix';
 
 // Shorthands for the common shapes (spelled out, so each table reads as policy).
-const READ_ALL: RoleTable = { customerAdmin: 200, customerDispatcher: 200, providerAdmin: 200, providerDispatcher: 200, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 };
-const READ_OTHER: RoleTable = { customerAdmin: 404, customerDispatcher: 404, providerAdmin: 404, providerDispatcher: 404, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 404 };
-const ADMINS_ONLY: RoleTable = { customerAdmin: 200, customerDispatcher: 403, providerAdmin: 200, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 };
-const WRITE_OTHER: RoleTable = { customerAdmin: 404, customerDispatcher: 403, providerAdmin: 404, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 404 };
+const READ_ALL: RoleTable = { customerAdmin: 200, customerDispatcher: 200, customerPassenger: 403, providerAdmin: 200, providerDispatcher: 200, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 };
+const READ_OTHER: RoleTable = { customerAdmin: 404, customerDispatcher: 404, customerPassenger: 403, providerAdmin: 404, providerDispatcher: 404, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 404 };
+const ADMINS_ONLY: RoleTable = { customerAdmin: 200, customerDispatcher: 403, customerPassenger: 403, providerAdmin: 200, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 };
+const WRITE_OTHER: RoleTable = { customerAdmin: 404, customerDispatcher: 403, customerPassenger: 403, providerAdmin: 404, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 404 };
 
-export const ISOLATION_MATRIX: MatrixEntry[] = [
+const E1A_MATRIX: MatrixEntry[] = [
   // ── Agreements: reads ──
   { route: 'GET transport/agreements', state: 'DRAFT', invoke: (c, ctx) => c.agreements.list(ctx, {}), expect: { none: READ_ALL } },
   { route: 'GET transport/agreements/summary', state: 'DRAFT', invoke: (c, ctx) => c.agreements.summary(ctx), expect: { none: READ_ALL } },
@@ -80,7 +103,7 @@ export const ISOLATION_MATRIX: MatrixEntry[] = [
     expect: {
       party: ADMINS_ONLY,
       // Not a party: 403 FORBIDDEN_GRANT for company users; VeeTrax support may draft for any pair (P1).
-      other: { customerAdmin: 403, customerDispatcher: 403, providerAdmin: 403, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 },
+      other: { customerAdmin: 403, customerDispatcher: 403, customerPassenger: 403, providerAdmin: 403, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 },
     },
   },
   { route: 'PATCH transport/agreements/:id', state: 'DRAFT', invoke: (c, ctx, t) => c.agreements.update(ctx, t.id, { grants: ['VIEW_REPORTS'], expectedVersion: t.version, reason: REASON }), expect: { party: ADMINS_ONLY, other: WRITE_OTHER } },
@@ -91,7 +114,7 @@ export const ISOLATION_MATRIX: MatrixEntry[] = [
     invoke: (c, ctx, t) => c.agreements.approve(ctx, t.id, { expectedVersion: t.version }),
     expect: {
       // P1 / F2: each party approves its own side; VeeTrax support never, also after switching into a party.
-      party: { customerAdmin: 200, customerDispatcher: 403, providerAdmin: 200, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 403, superAdminSwitched: 403 },
+      party: { customerAdmin: 200, customerDispatcher: 403, customerPassenger: 403, providerAdmin: 200, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 403, superAdminSwitched: 403 },
       other: { ...WRITE_OTHER, superAdmin: 403 },
     },
   },
@@ -101,7 +124,7 @@ export const ISOLATION_MATRIX: MatrixEntry[] = [
     invoke: (c, ctx, t) => c.agreements.suspend(ctx, t.id, { reason: REASON, expectedVersion: t.version }),
     expect: {
       // Only the customer (or VeeTrax support) suspends.
-      party: { customerAdmin: 200, customerDispatcher: 403, providerAdmin: 403, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 },
+      party: { customerAdmin: 200, customerDispatcher: 403, customerPassenger: 403, providerAdmin: 403, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 },
       other: WRITE_OTHER,
     },
   },
@@ -111,7 +134,7 @@ export const ISOLATION_MATRIX: MatrixEntry[] = [
     invoke: (c, ctx, t) => c.agreements.resume(ctx, t.id, { expectedVersion: t.version }),
     expect: {
       // Only the customer resumes (re-activating grants is never VeeTrax support's call).
-      party: { customerAdmin: 200, customerDispatcher: 403, providerAdmin: 403, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 403, superAdminSwitched: 403 },
+      party: { customerAdmin: 200, customerDispatcher: 403, customerPassenger: 403, providerAdmin: 403, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 403, superAdminSwitched: 403 },
       other: { ...WRITE_OTHER, superAdmin: 403 },
     },
   },
@@ -122,3 +145,133 @@ export const ISOLATION_MATRIX: MatrixEntry[] = [
   { route: 'GET transport/settings', state: 'none', invoke: (c, ctx) => c.settings.get(ctx), expect: { none: ADMINS_ONLY } },
   { route: 'PATCH transport/settings', state: 'none', invoke: (c, ctx) => c.settings.update(ctx, { directoryListed: true }), expect: { none: ADMINS_ONLY } },
 ];
+
+// ───────────────────────────── E2: people (doc 05 §2.2–2.3 / §6, doc 10 §2) ─────────────────────────────
+
+/**
+ * Passengers. Customer admin: everything, FULL projection. Dispatcher: own branch, STANDARD (home address hidden), no
+ * create / delete / import, no consent records. Provider: read-only MINIMAL, only under an in-force agreement granting
+ * VIEW_PASSENGER_MINIMAL and only at the agreement's sites; writes 403. Fleet user (no etms_passengers) and the
+ * passenger itself 403; etms-off company 404. Super Admin must switch into the company (platform context: 404).
+ */
+const P_LIST: RoleTable = { customerAdmin: 200, customerDispatcher: 200, customerPassenger: 403, providerAdmin: 200, providerDispatcher: 200, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 };
+const P_READ: RoleTable = { customerAdmin: 200, customerDispatcher: 200, customerPassenger: 403, providerAdmin: 200, providerDispatcher: 200, fleetUser: 403, etmsOffCompany: 404, superAdmin: 404, superAdminSwitched: 200 };
+const P_OTHER: RoleTable = { customerAdmin: 404, customerDispatcher: 404, customerPassenger: 403, providerAdmin: 404, providerDispatcher: 404, fleetUser: 403, etmsOffCompany: 404, superAdmin: 404, superAdminSwitched: 404 };
+const P_EDIT: RoleTable = { ...P_READ, providerAdmin: 403, providerDispatcher: 403 };
+const P_FULL_ONLY: RoleTable = { ...P_EDIT, customerDispatcher: 403 };
+/** Delete: the dispatcher template has no etms_passengers:delete (guard 403 before any lookup). */
+const P_DELETE: RoleTable = P_FULL_ONLY;
+const P_DELETE_OTHER: RoleTable = { ...P_OTHER, customerDispatcher: 403, providerDispatcher: 403 };
+/** Create / import into the caller's OWN company (whole-company roles with etms_passengers:create). */
+const P_CREATE: RoleTable = { customerAdmin: 200, customerDispatcher: 403, customerPassenger: 403, providerAdmin: 200, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 };
+const P_GEOCODE: RoleTable = { ...P_LIST };
+/** /me/transport/consent: only the passenger itself (etms_self + own active profile; others 403 NOT_A_PASSENGER). */
+const SELF: RoleTable = { customerAdmin: 403, customerDispatcher: 403, customerPassenger: 200, providerAdmin: 403, providerDispatcher: 403, fleetUser: 403, etmsOffCompany: 404, superAdmin: 403, superAdminSwitched: 403 };
+/** Consent notices: always the caller's own company; read with settings or passengers view, publish = whole-company settings edit. */
+const N_READ: RoleTable = { ...P_LIST };
+const N_PUBLISH: RoleTable = { ...P_CREATE };
+/**
+ * Vehicle seats and driver logins use the fleet grants (objects / drivers): own company only, branch-scoped for
+ * ASSIGNED roles, never a provider. Edits need objects:edit / drivers:edit, which only the fleet Manager holds here.
+ */
+const F_LIST: RoleTable = { customerAdmin: 200, customerDispatcher: 200, customerPassenger: 403, providerAdmin: 200, providerDispatcher: 200, fleetUser: 200, etmsOffCompany: 404, superAdmin: 200, superAdminSwitched: 200 };
+const F_READ: RoleTable = { customerAdmin: 200, customerDispatcher: 200, customerPassenger: 403, providerAdmin: 404, providerDispatcher: 404, fleetUser: 200, etmsOffCompany: 404, superAdmin: 404, superAdminSwitched: 200 };
+const F_READ_OTHER: RoleTable = { customerAdmin: 404, customerDispatcher: 404, customerPassenger: 403, providerAdmin: 404, providerDispatcher: 404, fleetUser: 404, etmsOffCompany: 404, superAdmin: 404, superAdminSwitched: 404 };
+const F_WRITE: RoleTable = { customerAdmin: 403, customerDispatcher: 403, customerPassenger: 403, providerAdmin: 403, providerDispatcher: 403, fleetUser: 200, etmsOffCompany: 404, superAdmin: 404, superAdminSwitched: 200 };
+const F_WRITE_OTHER: RoleTable = { ...F_WRITE, fleetUser: 404, superAdminSwitched: 404 };
+
+const PROJECTION: Partial<Record<MatrixRole, PassengerDto['projection']>> = {
+  customerAdmin: 'FULL',
+  superAdminSwitched: 'FULL',
+  customerDispatcher: 'STANDARD',
+  providerAdmin: 'MINIMAL',
+  providerDispatcher: 'MINIMAL',
+};
+
+function fail(message: string): never {
+  throw new Error(`isolation matrix: ${message}`);
+}
+
+/** Detail of the party passenger: the projection of the role; the home address only for FULL. */
+function verifyDetail(result: unknown, role: MatrixRole, own: Ownership): void {
+  if (own !== 'party') return;
+  const p = result as PassengerDto;
+  if (p.projection !== PROJECTION[role]) fail(`${role} got projection ${p.projection}`);
+  const address = p.home?.address ?? null;
+  if ((p.projection === 'FULL') !== (address !== null)) fail(`${role} (${p.projection}) home address ${address === null ? 'missing' : 'leaked'}`);
+  if (p.projection === 'MINIMAL' && (p.home !== null || p.branchId !== null || p.appAccess !== null)) fail(`${role} MINIMAL leaks home / branch / login`);
+}
+
+/** List: the party passenger in the role's projection; never custB's; the one outside the agreement sites never for providers. */
+function verifyList(result: unknown, role: MatrixRole, _own: Ownership, t: Target): void {
+  const items = (result as { items: PassengerDto[] }).items;
+  const ids = t.ids!;
+  const party = items.find((i) => i.id === ids.partyPassenger);
+  const want = PROJECTION[role];
+  if ((party?.projection ?? undefined) !== want) fail(`${role} list: party passenger ${party ? party.projection : 'absent'}, expected ${want ?? 'absent'}`);
+  if (items.some((i) => i.id === ids.otherPassenger)) fail(`${role} list shows another company's passenger`);
+  const outside = items.some((i) => i.id === ids.outsideSitePassenger);
+  if (outside !== (want === 'FULL' || want === 'STANDARD')) fail(`${role} list: passenger outside the agreement sites ${outside ? 'shown' : 'hidden'}`);
+  if (items.some((i) => i.projection === 'STANDARD' && i.home?.address)) fail(`${role} list shows a home address`);
+}
+
+const CSV = 'employee_code,name,mobile\nM1,Matrix Import,9876500101\n';
+const upload = () => ({ buffer: Buffer.from(CSV, 'utf8'), originalname: 'passengers.csv' });
+
+function E2_MATRIX(): MatrixEntry[] {
+  const P = 'passenger' as const;
+  return [
+    // ── Passengers: reads ──
+    { route: 'GET transport/passengers', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.list(ctx, {}), expect: { none: P_LIST }, verify: verifyList },
+    { route: 'GET transport/passengers/geocode', resource: P, state: 'ACTIVE', invoke: (c) => c.passengers.geocode({ q: '5 Main Road' }), expect: { none: P_GEOCODE } },
+    { route: 'GET transport/passengers/:id', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.get(ctx, t.id), expect: { party: P_READ, other: P_OTHER }, verify: verifyDetail },
+    { route: 'GET transport/passengers/:id/history', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.history(ctx, t.id), expect: { party: P_READ, other: P_OTHER } },
+    { route: 'GET transport/passengers/:id/consents', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.consents(ctx, t.id), expect: { party: P_FULL_ONLY, other: P_OTHER } },
+    // ── Passengers: writes ──
+    {
+      route: 'POST transport/passengers',
+      resource: P,
+      state: 'ACTIVE',
+      invoke: (c, ctx) => c.passengers.create(ctx, { employeeCode: 'NEW1', displayName: 'New Passenger', mobile: '9876500111' }),
+      expect: { none: P_CREATE },
+    },
+    { route: 'PATCH transport/passengers/:id', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.update(ctx, t.id, { displayName: 'Renamed Passenger' }), expect: { party: P_EDIT, other: P_OTHER } },
+    { route: 'DELETE transport/passengers/:id', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.archive(ctx, t.id), expect: { party: P_DELETE, other: P_DELETE_OTHER } },
+    { route: 'POST transport/passengers/import/preview', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.preview(ctx, upload(), { geocode: 'false' }), expect: { none: P_CREATE } },
+    { route: 'POST transport/passengers/import/commit', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.commit(ctx, upload(), { geocode: 'false' }), expect: { none: P_CREATE } },
+    { route: 'POST transport/passengers/:id/app-access', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.grantAppAccess(ctx, t.id, {}), expect: { party: P_EDIT, other: P_OTHER } },
+    { route: 'DELETE transport/passengers/:id/app-access', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.revokeAppAccess(ctx, t.id, {}), expect: { party: P_EDIT, other: P_OTHER } },
+    {
+      route: 'POST transport/passengers/:id/consents',
+      resource: P,
+      state: 'ACTIVE',
+      invoke: (c, ctx, t) => c.passengers.recordConsent(ctx, t.id, { purpose: 'TRANSPORT_PROFILE', granted: true }),
+      expect: { party: P_FULL_ONLY, other: P_OTHER },
+    },
+    // ── The passenger's own consent ──
+    { route: 'GET me/transport/consent', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.myConsent.current(ctx), expect: { none: SELF } },
+    { route: 'GET me/transport/consent/notices', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.myConsent.notices(ctx), expect: { none: SELF } },
+    { route: 'GET me/transport/consent/history', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.myConsent.history(ctx), expect: { none: SELF } },
+    { route: 'POST me/transport/consent', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.myConsent.record(ctx, { purpose: 'TRANSPORT_PROFILE', granted: true }), expect: { none: SELF } },
+    // ── Consent notices ──
+    { route: 'GET transport/consent-notices', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.notices.list(ctx), expect: { none: N_READ } },
+    {
+      route: 'POST transport/consent-notices',
+      resource: P,
+      state: 'ACTIVE',
+      invoke: (c, ctx) => c.notices.publish(ctx, { purpose: 'TRANSPORT_PROFILE', title: 'Transport data', body: 'We use your pickup point to plan trips.' }),
+      expect: { none: N_PUBLISH },
+    },
+    // ── Vehicle seats ──
+    { route: 'GET transport/vehicles', resource: 'vehicle', state: 'ACTIVE', invoke: (c, ctx) => c.vehicles.list(ctx, {}), expect: { none: F_LIST } },
+    { route: 'GET transport/vehicles/:objectId/profile', resource: 'vehicle', state: 'ACTIVE', invoke: (c, ctx, t) => c.vehicles.get(ctx, t.id), expect: { party: F_READ, other: F_READ_OTHER } },
+    { route: 'PUT transport/vehicles/:objectId/profile', resource: 'vehicle', state: 'ACTIVE', invoke: (c, ctx, t) => c.vehicles.put(ctx, t.id, { seats: 12, wheelchairSpaces: 1 }), expect: { party: F_WRITE, other: F_WRITE_OTHER } },
+    // ── Driver logins ──
+    { route: 'GET drivers/:id/login', resource: 'driver', state: 'ACTIVE', invoke: (c, ctx, t) => c.driverLogin.get(ctx, t.id), expect: { party: F_READ, other: F_READ_OTHER } },
+    { route: 'POST drivers/:id/login', resource: 'driver', state: 'ACTIVE', invoke: (c, ctx, t) => c.driverLogin.grant(ctx, t.id, {}), expect: { party: F_WRITE, other: F_WRITE_OTHER } },
+    { route: 'DELETE drivers/:id/login', resource: 'driver', state: 'ACTIVE', invoke: (c, ctx, t) => c.driverLogin.revoke(ctx, t.id, {}), expect: { party: F_WRITE, other: F_WRITE_OTHER } },
+  ];
+}
+
+/** Every ETMS route: E1a (agreements, directory, settings) and E2 (people). */
+export const ISOLATION_MATRIX: MatrixEntry[] = [...E1A_MATRIX, ...E2_MATRIX()];
