@@ -40,6 +40,11 @@ import {
   ScanFaceIcon,
   WarehouseIcon,
   CardSimIcon,
+  BusIcon,
+  CarFrontIcon,
+  HandshakeIcon,
+  LayoutDashboardIcon,
+  Settings2Icon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -84,12 +89,12 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   pois: MapPinIcon,
   routes: RouteIcon,
   plannedTrips: CalendarClockIcon,
-  // ETMS placeholders (E1a backend); the Web agent sets the final icons (doc 07 §2.2).
-  etms_dashboard: GaugeIcon,
-  etms_partners: Building2Icon,
-  etms_settings: SettingsIcon,
-  etms_self: RouteIcon,
-  etms_driver: TruckIcon,
+  // Employee transport (doc 07 §2.2; self / driver are the mobile-first passenger and driver entries).
+  etms_dashboard: LayoutDashboardIcon,
+  etms_partners: HandshakeIcon,
+  etms_settings: Settings2Icon,
+  etms_self: BusIcon,
+  etms_driver: CarFrontIcon,
   alert_settings: BellRingIcon,
   message_templates: MailIcon,
   report_schedules: CalendarClockIcon,
