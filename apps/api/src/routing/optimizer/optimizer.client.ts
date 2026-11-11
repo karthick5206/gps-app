@@ -1,10 +1,11 @@
 import { Logger } from '@nestjs/common';
+import { readFileSync } from 'node:fs';
 import { SOLVER_LIMITS, SolverProblem, SolverResult } from '@veetracer/shared';
 import { etmsRoutingEnabled } from '../../etms/transport-feature.guard';
 import { defaultFetch, FetchLike } from '../fetch-like';
 import { privateServiceUrlProblem } from '../private-url';
 import { RoutingError } from '../routing.errors';
-
+import { scrubCoordinates } from '../engine-text';
 
 export interface OptimizerClientConfig {
   baseUrl: string;
@@ -14,16 +15,44 @@ export interface OptimizerClientConfig {
 }
 
 /**
- * Reads `OPTIMIZER_URL` / `OPTIMIZER_TOKEN`. The client is configured only when `ETMS_ROUTING=on`, the URL is a
- * private / loopback URL (`privateServiceUrlProblem`) and a token is set (the service refuses to start without one).
+ * The token in a token file: the optimiser's own EnvironmentFile format (`OPTIMIZER_TOKEN=<token>`, last one wins, quotes
+ * stripped; /etc/veetrax/optimizer.env, so one file serves the optimiser, the API, the worker and the health gate), or
+ * a file holding just the token.
  */
-export function readOptimizerConfig(env: NodeJS.ProcessEnv = process.env): OptimizerClientConfig {
+export function tokenFromFile(content: string): string {
+  const lines = content.split(/\r?\n/).map((l) => /^\s*OPTIMIZER_TOKEN=(.*)$/.exec(l)?.[1]).filter((v): v is string => v !== undefined);
+  const raw = lines.length ? lines[lines.length - 1] : content;
+  return raw.trim().replace(/^(['"])(.*)\1$/, '$2').trim();
+}
+
+/**
+ * Reads `OPTIMIZER_URL` and the token. The client is configured only when `ETMS_ROUTING=on`, the URL is a
+ * private / loopback URL (`privateServiceUrlProblem`) and a token is set (the service refuses to start without one).
+ *
+ * Token (E4 security review L9): `OPTIMIZER_TOKEN_FILE` (production: /etc/veetrax/optimizer.env, root:veetrax 0640, set
+ * by the veetrax-api and veetrax-routing-worker units; the other units have the path made inaccessible) wins over
+ * `OPTIMIZER_TOKEN` (dev, tests), so the token need not sit in apps/api/.env, which every VeeTrax unit loads. An
+ * unreadable or empty file leaves the client off (never falls back to the env value).
+ */
+export function readOptimizerConfig(env: NodeJS.ProcessEnv = process.env, readFile: (path: string) => string = (f) => readFileSync(f, 'utf8')): OptimizerClientConfig {
   const baseUrl = (env.OPTIMIZER_URL ?? '').trim().replace(/\/+$/, '');
-  const token = (env.OPTIMIZER_TOKEN ?? '').trim();
+  const tokenFile = (env.OPTIMIZER_TOKEN_FILE ?? '').trim();
+  let token = (env.OPTIMIZER_TOKEN ?? '').trim();
+  let tokenProblem: string | null = null;
+  if (tokenFile) {
+    try {
+      token = tokenFromFile(readFile(tokenFile));
+      if (!token) tokenProblem = 'OPTIMIZER_TOKEN_FILE is empty';
+    } catch (e) {
+      token = '';
+      tokenProblem = `OPTIMIZER_TOKEN_FILE is not readable (${(e as { code?: string }).code ?? 'error'})`;
+    }
+  }
   if (!etmsRoutingEnabled(env)) return { baseUrl: '', token: '', problem: 'ETMS_ROUTING is off' };
   if (!baseUrl) return { baseUrl: '', token: '', problem: 'OPTIMIZER_URL is not set' };
   const urlProblem = privateServiceUrlProblem(baseUrl, env);
   if (urlProblem) return { baseUrl: '', token: '', problem: `OPTIMIZER_URL refused: ${urlProblem}` };
+  if (tokenProblem) return { baseUrl: '', token: '', problem: tokenProblem };
   if (!token) return { baseUrl: '', token: '', problem: 'OPTIMIZER_TOKEN is not set' };
   return { baseUrl, token, problem: null };
 }
@@ -86,7 +115,11 @@ export class OptimizerClient {
     // Every solver slot busy: transient, the caller retries with back-off instead of failing.
     if (res.status === 429) throw new RoutingError('OPTIMIZER_BUSY', 'Optimizer busy; retried shortly');
     const body = (await res.json().catch(() => ({}))) as Partial<SolverResult>;
-    if (res.status === 400) throw new RoutingError('LIMIT_EXCEEDED', body.error ?? 'Optimizer rejected the problem');
+    // A rejected problem (HTTP 400: limits or malformed input) is final, never retried (LIMIT_EXCEEDED is not a
+    // transient code). Its text is the service's own fixed message, scrubbed and bounded anyway (L4).
+    if (res.status === 400) {
+      throw new RoutingError('LIMIT_EXCEEDED', typeof body.error === 'string' && body.error ? scrubCoordinates(body.error).slice(0, 200) : 'Optimizer rejected the problem');
+    }
     if (!res.ok) throw new RoutingError('OPTIMIZER_UNAVAILABLE', `Optimizer error (HTTP ${res.status})`);
     if (!Array.isArray(body.routes) || !Array.isArray(body.unassigned) || typeof body.status !== 'string') {
       throw new RoutingError('OPTIMIZER_UNAVAILABLE', 'Optimizer answer is not a result');

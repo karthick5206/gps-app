@@ -1,6 +1,7 @@
 import { RoutingError } from '../routing.errors';
-import { OptimizerClient, readOptimizerConfig } from './optimizer.client';
+import { OptimizerClient, readOptimizerConfig, tokenFromFile } from './optimizer.client';
 import { SolverProblem } from '@veetracer/shared';
+import { decideFailure } from '../../routing-jobs/job-state';
 
 const TOKEN = 'x'.repeat(32);
 const ON = { ETMS_ROUTING: 'on', OPTIMIZER_URL: 'http://127.0.0.1:8090/', OPTIMIZER_TOKEN: TOKEN };
@@ -86,5 +87,42 @@ describe('OptimizerClient', () => {
 
   it('the 400 message of the service reaches the caller', async () => {
     await expect(client(json(400, { error: 'stops: 501 > 500' })).c.solve(problem)).rejects.toMatchObject({ message: 'stops: 501 > 500' });
+  });
+});
+
+describe('E4 security review fixes (optimiser client)', () => {
+  it('L9: OPTIMIZER_TOKEN_FILE wins over OPTIMIZER_TOKEN; an unreadable or empty file leaves the client off', () => {
+    const files: Record<string, string> = { '/etc/veetrax/optimizer-client.token': `${'f'.repeat(40)}\n` };
+    const read = (p: string) => {
+      if (!(p in files)) throw Object.assign(new Error(`ENOENT: no such file ${p}`), { code: 'ENOENT' });
+      return files[p];
+    };
+    expect(readOptimizerConfig({ ...ON, OPTIMIZER_TOKEN_FILE: '/etc/veetrax/optimizer-client.token' }, read)).toEqual({ baseUrl: 'http://127.0.0.1:8090', token: 'f'.repeat(40), problem: null });
+    expect(readOptimizerConfig({ ETMS_ROUTING: 'on', OPTIMIZER_URL: ON.OPTIMIZER_URL, OPTIMIZER_TOKEN_FILE: '/etc/veetrax/optimizer-client.token' }, read).token).toBe('f'.repeat(40));
+    expect(readOptimizerConfig({ ...ON, OPTIMIZER_TOKEN_FILE: '/nope' }, read)).toEqual({ baseUrl: '', token: '', problem: 'OPTIMIZER_TOKEN_FILE is not readable (ENOENT)' });
+    files['/empty'] = '  \n';
+    expect(readOptimizerConfig({ ...ON, OPTIMIZER_TOKEN_FILE: '/empty' }, read).problem).toBe('OPTIMIZER_TOKEN_FILE is empty');
+    // the optimiser's EnvironmentFile format (/etc/veetrax/optimizer.env) is read as well
+    files['/etc/veetrax/optimizer.env'] = `# generated\nOPTIMIZER_TOKEN="${'e'.repeat(43)}"\r\n`;
+    expect(readOptimizerConfig({ ...ON, OPTIMIZER_TOKEN_FILE: '/etc/veetrax/optimizer.env' }, read).token).toBe('e'.repeat(43));
+    expect(tokenFromFile('OPTIMIZER_TOKEN=a\nOPTIMIZER_TOKEN=b\n')).toBe('b');
+    expect(tokenFromFile('OPTIMIZER_TOKEN=\n')).toBe('');
+  });
+
+  it('L5: a 400 (malformed input or limits) is final — LIMIT_EXCEEDED, which the job state machine never retries', async () => {
+    for (const body of [{ status: 'INVALID_INPUT', error: 'invalid JSON body' }, { status: 'INVALID_INPUT', error: 'options.timeLimitS must be a number' }, {}]) {
+      const e = await client(json(400, body)).c.solve(problem).catch((x: RoutingError) => x);
+      expect(e).toBeInstanceOf(RoutingError);
+      expect((e as RoutingError).code).toBe('LIMIT_EXCEEDED');
+      expect(decideFailure({ code: 'LIMIT_EXCEEDED', message: (e as RoutingError).message }, { attempts: 1, maxAttempts: 3, cancelRequested: false }, 0)).toMatchObject({ to: 'FAILED' });
+    }
+    // a JSON 500 from the service stays transient (OPTIMIZER_UNAVAILABLE: retried with back-off)
+    expect(await codeOf(client(json(500, { status: 'ERROR', error: 'internal error' })).c.solve(problem))).toBe('OPTIMIZER_UNAVAILABLE');
+  });
+
+  it('L4: a 400 text is scrubbed of coordinate-looking values and bounded', async () => {
+    const e = (await client(json(400, { error: `bad point 13.0812,80.2654 ${'x'.repeat(400)}` })).c.solve(problem).catch((x: RoutingError) => x)) as RoutingError;
+    expect(e.message).not.toMatch(/13\.0812|80\.2654/);
+    expect(e.message.length).toBeLessThanOrEqual(200);
   });
 });

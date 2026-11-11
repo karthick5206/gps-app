@@ -20,6 +20,7 @@ The solver never claims optimality unless OR-Tools proves it (`provenOptimal`): 
 """
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -199,6 +200,11 @@ def validate(problem: dict) -> _Ctx:
         raise InvalidProblem('options must be an object')
     if opts.get('firstSolution') is not None and opts['firstSolution'] not in FIRST_SOLUTION:
         raise InvalidProblem(f'options.firstSolution must be one of {sorted(FIRST_SOLUTION)}')
+    # E4 security review L5: numeric options are checked here (a wrong type is a 400, never a worker exception).
+    for key in ('timeLimitS', 'solutionLimit', 'seed'):
+        v = opts.get(key)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)):
+            raise InvalidProblem(f'options.{key} must be a finite number')
     weights = _weights(opts.get('weights'), dist is not None)
 
     norm_v, vids = [], set()
