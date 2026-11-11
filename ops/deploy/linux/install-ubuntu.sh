@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # VeeTrax first install on Ubuntu 24.04 (run as root: DB_PASS=... bash install-ubuntu.sh).
-# Installs Node.js 24, PostgreSQL 18 + TimescaleDB, Valkey, Caddy, Java 21 (GraphHopper / Photon / Planetiler);
+# Installs Node.js 24, PostgreSQL 18 + TimescaleDB, Valkey (AOF on, fresh installs only), Caddy, Java 21 (GraphHopper / Photon / Planetiler);
 # creates the 'veetrax' user, the database and the systemd services, and enables the firewall.
 # First used for the production server (app.veetrax.com) on 2026-11-10. Safe to re-run.
 # Afterwards: create apps/api/.env, REF=v1.x.y bash ops/deploy/linux/release.sh, Caddyfile (ops/deploy/linux/Caddyfile).
@@ -48,11 +48,44 @@ listen_addresses = 'localhost'
 EOF
 systemctl restart "postgresql@${PG}-main"
 
-echo "== valkey: localhost only, never evict the position stream"
+echo "== valkey: localhost only, never evict the position stream, AOF persistence"
 VK=/etc/valkey/valkey.conf
 sed -i 's/^#\? *maxmemory-policy .*/maxmemory-policy noeviction/' "$VK"
 grep -q '^maxmemory-policy' "$VK" || echo 'maxmemory-policy noeviction' >> "$VK"
 grep -q '^bind 127.0.0.1' "$VK" || sed -i 's/^#\? *bind .*/bind 127.0.0.1 -::1/' "$VK"
+# AOF (release-gate spec G4): queued positions, notification jobs and live state survive a Valkey restart; the RDB
+# 'save' lines stay. No maxmemory is set here (separate decision). Only uncommented lines are replaced, else appended.
+vk_set() {
+  if grep -q "^$1 " "$VK"; then sed -i "s/^$1 .*/$1 $2/" "$VK"; else echo "$1 $2" >> "$VK"; fi
+}
+# Does this Valkey already hold data? (Running: any keys. Stopped: a non-empty dump.rdb in its 'dir'.)
+vk_has_data() {
+  local ks dir
+  if [[ "$(valkey-cli ping 2>/dev/null)" == PONG ]]; then
+    ks="$(valkey-cli INFO keyspace 2>/dev/null || true)"
+    # Any unexpected answer (e.g. a password is set) counts as "has data": the safe side.
+    [[ "$ks" == *"# Keyspace"* ]] || return 0
+    grep -q '^db[0-9]' <<<"$ks"
+  else
+    dir="$(awk '$1 == "dir" { print $2 }' "$VK" | tail -1)"
+    [[ -s "${dir:-/var/lib/valkey}/dump.rdb" ]]
+  fi
+}
+# With appendonly yes in the file and no AOF yet, a restarted Valkey starts EMPTY and ignores dump.rdb. So the file
+# is changed only on a fresh (empty) Valkey or where AOF is already on; a server with data and AOF off must be
+# switched online first (CONFIG SET appendonly yes, wait for the rewrite), see release-gate spec G4.
+if [[ "$(valkey-cli CONFIG GET appendonly 2>/dev/null | sed -n 2p)" == yes ]] || ! vk_has_data; then
+  vk_set appendonly yes
+  vk_set appendfsync everysec
+  vk_set auto-aof-rewrite-percentage 100
+  vk_set auto-aof-rewrite-min-size 64mb
+  vk_set aof-use-rdb-preamble yes
+  vk_set aof-load-truncated yes
+  vk_set no-appendfsync-on-rewrite no
+else
+  echo "WARNING: Valkey already holds data with appendonly off; AOF settings NOT written (a restart would start it empty)."
+  echo "         Turn AOF on online first (valkey-cli CONFIG SET appendonly yes, wait for aof_rewrite_in_progress:0), then re-run."
+fi
 systemctl enable valkey-server
 systemctl restart valkey-server
 
