@@ -305,6 +305,11 @@ const MAP_IMPACT: Record<MapServiceState['name'], { severity: Issue['severity'];
 /** Self-hosted GraphHopper / Photon / Martin; services that are not configured are not checked. */
 function mapChecks(input: CheckInput, out: Issue[]): void {
   for (const m of input.maps ?? []) {
+    if (m.configured && m.misconfigured) {
+      // A public host in the setting: never probed (map-services.ts isLocalHost), reported as a configuration WARN.
+      out.push({ id: `maps.${m.name}`, check: m.label, section: 'maps', severity: 'WARN', message: `${m.label} at ${m.probeUrl}: ${m.misconfigured}.` });
+      continue;
+    }
     if (!m.configured || m.ok || m.consecutiveFailures < MAP_FAILS_BEFORE_ISSUE) continue;
     const { severity, impact } = MAP_IMPACT[m.name];
     out.push({

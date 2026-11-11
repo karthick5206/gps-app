@@ -1,7 +1,7 @@
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { CheckInput, evaluateChecks } from './checks';
-import { MapServiceMonitor, MapServiceState, mapServiceTargets, probeMapService } from './map-services';
+import { isLocalHost, MapServiceMonitor, MapServiceState, mapServiceTargets, probeMapService, redactUrl } from './map-services';
 import { mapServiceDtos } from './system-health.service';
 import { loadThresholds } from './thresholds';
 
@@ -115,7 +115,7 @@ describe('MapServiceMonitor', () => {
 
   it('reuses the last result within minIntervalMs and shares one probe between concurrent callers', async () => {
     const fetchImpl = jest.fn(async () => new Response('OK', { status: 200 }));
-    const monitor = new MapServiceMonitor(mapServiceTargets({ MARTIN_URL: 'http://martin.test' }), { minIntervalMs: 10_000, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const monitor = new MapServiceMonitor(mapServiceTargets({ MARTIN_URL: 'http://127.0.0.1:3999' }), { minIntervalMs: 10_000, fetchImpl: fetchImpl as unknown as typeof fetch });
     await Promise.all([monitor.collect(1_000), monitor.collect(1_000)]);
     await monitor.collect(5_000);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -136,7 +136,7 @@ describe('MapServiceMonitor', () => {
 describe('mapServiceDtos (System Health report rows)', () => {
   it('status comes from the maps.<name> issue: a single failure still shows OK (retrying), 2 show the severity', async () => {
     const fetchImpl = jest.fn(async () => new Response('down', { status: 503 }));
-    const monitor = new MapServiceMonitor(mapServiceTargets({ MARTIN_URL: 'http://martin.test' }), { minIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const monitor = new MapServiceMonitor(mapServiceTargets({ MARTIN_URL: 'http://127.0.0.1:3999' }), { minIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch });
     const rows = async () => {
       const maps = await monitor.collect(Date.parse('2026-11-11T10:00:00Z'));
       const issues = evaluateChecks({ ...baseInput(), maps }, t);
@@ -144,8 +144,82 @@ describe('mapServiceDtos (System Health report rows)', () => {
     };
     let dto = await rows();
     expect(dto.map((d) => [d.name, d.configured, d.status])).toEqual([['graphhopper', false, 'OK'], ['photon', false, 'OK'], ['martin', true, 'OK']]);
-    expect(dto[2]).toMatchObject({ ok: false, error: 'HTTP 503', consecutiveFailures: 1, probeUrl: 'http://martin.test/health', checkedAt: '2026-11-11T10:00:00.000Z' });
+    expect(dto[2]).toMatchObject({ ok: false, error: 'HTTP 503', consecutiveFailures: 1, probeUrl: 'http://127.0.0.1:3999/health', checkedAt: '2026-11-11T10:00:00.000Z' });
     dto = await rows();
     expect(dto[2]).toMatchObject({ status: 'CRITICAL', consecutiveFailures: 2 });
+  });
+});
+
+describe('local-only probes and URL redaction (m6)', () => {
+  it('isLocalHost: loopback, private ranges and internal names only', () => {
+    for (const h of ['127.0.0.1', '127.8.9.10', 'localhost', 'tiles.localhost', '10.1.2.3', '172.16.0.1', '172.31.255.254', '192.168.1.20', '169.254.1.1', '[::1]', 'fd12:3456::1', 'fe80::1', 'martin', 'photon.internal', 'gh.lan', 'box.local']) {
+      expect([h, isLocalHost(h)]).toEqual([h, true]);
+    }
+    for (const h of ['photon.komoot.io', 'graphhopper.com', '8.8.8.8', '172.32.0.1', '172.15.0.1', '192.169.0.1', '11.0.0.1', '[2001:db8::1]', 'fdroid.org', 'fcbarcelona.com', '']) {
+      expect([h, isLocalHost(h)]).toEqual([h, false]);
+    }
+  });
+
+  it('redactUrl drops userinfo, query and fragment', () => {
+    expect(redactUrl('http://user:secret@127.0.0.1:2322/status?key=abc#x')).toBe('http://127.0.0.1:2322/status');
+    expect(redactUrl('http://127.0.0.1:3000/health')).toBe('http://127.0.0.1:3000/health');
+    expect(redactUrl('not a url')).toBe('(invalid URL)');
+    expect(redactUrl(null)).toBeNull();
+  });
+
+  it('a public host is reported as a misconfiguration and never fetched', async () => {
+    const fetchImpl = jest.fn(async () => new Response('OK', { status: 200 }));
+    const targets = mapServiceTargets({ GEOCODER: 'photon', GEOCODER_URL: 'https://photon.komoot.io', ROUTER_ENGINE: 'graphhopper', ROUTER_URL: 'https://graphhopper.com/api/1?key=SECRET' });
+    const monitor = new MapServiceMonitor(targets, { minIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch });
+    await monitor.collect();
+    const maps = await monitor.collect();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const [gh, photon] = maps;
+    expect(photon).toMatchObject({ configured: true, ok: false, probeUrl: 'https://photon.komoot.io/status', consecutiveFailures: 0 });
+    expect(photon.misconfigured).toMatch(/photon\.komoot\.io is not a loopback or private host .*MAP_PROBE_ALLOW_PUBLIC=1/);
+    expect(gh.probeUrl).toBe('https://graphhopper.com/api/1/health'); // key stripped for display
+    const issues = evaluateChecks({ ...baseInput(), maps }, t);
+    expect(issues.map((i) => `${i.id}:${i.severity}`)).toEqual(['maps.graphhopper:WARN', 'maps.photon:WARN']);
+    expect(JSON.stringify(issues)).not.toContain('SECRET');
+    const dto = mapServiceDtos(maps, issues);
+    expect(dto.map((d) => d.status)).toEqual(['WARN', 'WARN', 'OK']);
+    expect(JSON.stringify(dto)).not.toContain('SECRET');
+  });
+
+  it('MAP_PROBE_ALLOW_PUBLIC=1 allows a public host (the full URL, query included, is fetched)', async () => {
+    const fetchImpl = jest.fn(async () => new Response('OK', { status: 200 }));
+    const targets = mapServiceTargets({ GEOCODER: 'photon', GEOCODER_URL: 'https://photon.example.org/?key=k', MAP_PROBE_ALLOW_PUBLIC: '1' });
+    const maps = await new MapServiceMonitor(targets, { minIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch }).collect();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect((fetchImpl.mock.calls[0] as unknown[])[0]).toBe('https://photon.example.org/status?key=k');
+    expect(maps[1]).toMatchObject({ ok: true, misconfigured: null, probeUrl: 'https://photon.example.org/status' });
+  });
+
+  it('userinfo is sent as Basic auth, never in the fetched or shown URL, and failures do not leak it', async () => {
+    const fetchImpl = jest.fn(async () => new Response('down', { status: 503 }));
+    const monitor = new MapServiceMonitor(mapServiceTargets({ MARTIN_URL: 'http://ops:hunter2@127.0.0.1:3000' }), { minIntervalMs: 0, fetchImpl: fetchImpl as unknown as typeof fetch });
+    await monitor.collect();
+    const maps = await monitor.collect();
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://127.0.0.1:3000/health');
+    expect((init.headers as Record<string, string>).authorization).toBe(`Basic ${Buffer.from('ops:hunter2').toString('base64')}`);
+    const issues = evaluateChecks({ ...baseInput(), maps }, t);
+    expect(issues.map((i) => i.id)).toEqual(['maps.martin']);
+    expect(JSON.stringify({ issues, dto: mapServiceDtos(maps, issues) })).not.toContain('hunter2');
+  });
+
+  it('a server that sends headers and then stalls the body counts as a timeout', async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain', 'content-length': '100' });
+      res.write('O'); // headers + 1 byte, then nothing
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    try {
+      const r = await probeMapService(`http://127.0.0.1:${portOf(server)}/health`, 300);
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe('no answer within 300 ms');
+    } finally {
+      await close(server);
+    }
   });
 });

@@ -200,6 +200,7 @@ describe('map-service checks (G6)', () => {
     label: LABEL[name],
     configured: true,
     probeUrl: `http://127.0.0.1:1/${name}`,
+    misconfigured: null,
     ok: true,
     latencyMs: 3,
     error: null,
@@ -238,6 +239,14 @@ describe('map-service checks (G6)', () => {
   it('recovery: the next successful probe clears the issue', () => {
     expect(ids({ ...healthy(), maps: [down('photon', 3)] })).toEqual(['maps.photon:WARN']);
     expect(ids({ ...healthy(), maps: [svc('photon')] })).toEqual([]);
+  });
+
+  it('a public host in the setting is a configuration WARN at once (even for Martin), not an outage', () => {
+    const why = 'not probed: photon.komoot.io is not a loopback or private host (self-hosted services only; MAP_PROBE_ALLOW_PUBLIC=1 allows it)';
+    const pub = (name: MapServiceState['name']) => svc(name, { probeUrl: 'https://photon.komoot.io/status', misconfigured: why, ok: false, error: why });
+    const issues = evaluateChecks({ ...healthy(), maps: [pub('photon'), pub('martin')] }, t);
+    expect(issues.map((i) => `${i.id}:${i.severity}`).sort()).toEqual(['maps.martin:WARN', 'maps.photon:WARN']);
+    expect(issues.find((i) => i.id === 'maps.photon')!.message).toBe(`Addresses (Photon) at https://photon.komoot.io/status: ${why}.`);
   });
 
   it('map issues are still checked while Valkey is down, and statusOf covers them', () => {

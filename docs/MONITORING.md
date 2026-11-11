@@ -48,7 +48,7 @@ The numbers come from the counters the processes already keep for their periodic
 | valkey | PING latency, INFO: memory / maxmemory, AOF, last RDB save, clients, evicted keys |
 | throughput | last 60 min of 10-second samples: received (`entries-added` delta) vs processed (`entries-read − pending` delta), lag/backlog |
 | host | API host: free disk for `HEALTH_DATA_DIR` (default `apps/api/var`, `fs.statfs`), load average, memory |
-| maps | self-hosted map services, one GET each (2 s timeout, results reused for 10 s): GraphHopper `<ROUTER_URL>/health` (only with `ROUTER_ENGINE=graphhopper`), Photon `<GEOCODER_URL>/status` (only with `GEOCODER=photon`), Martin `<MARTIN_URL>/health`. A service without its URL is **not monitored** (shown as such, never an issue). Any 2xx answer counts as up |
+| maps | self-hosted map services, one GET each (2 s timeout, results reused for 10 s): GraphHopper `<ROUTER_URL>/health` (only with `ROUTER_ENGINE=graphhopper`), Photon `<GEOCODER_URL>/status` (only with `GEOCODER=photon`), Martin `<MARTIN_URL>/health`. A service without its URL is **not monitored** (shown as such, never an issue). Any 2xx answer with its full body within the timeout counts as up. Only loopback / private / single-label hosts are probed: a public host is a `maps.<name>` WARN ("not probed", misconfiguration) and is never fetched unless `MAP_PROBE_ALLOW_PUBLIC=1`. URLs on the page, in issues and e-mails carry no userinfo or query string |
 | issues / events | current checks with since-times; last 50 transitions |
 
 Also: `GET …/status` (cheap summary for the top-bar banner), `GET …/settings` (recipients + thresholds in effect),
