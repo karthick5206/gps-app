@@ -10,16 +10,23 @@ Security (owner decision 2026-11-09):
   * OPTIMIZER_ALLOW: comma-separated CIDRs allowed to connect (default 127.0.0.1/32,::1/128). Other sources get 403
     before the body is read.
   * --host / OPTIMIZER_HOST defaults to 127.0.0.1; a non-loopback bind (e.g. the WireGuard address) must be explicit.
+
+Each solve runs in a worker process (spawn, at most OPTIMIZER_CONCURRENCY): OR-Tools holds the GIL while it searches
+on C++ transit matrices, so solving in the HTTP process would stall /health and the 429 path. A crashed worker (e.g.
+killed by MemoryMax) gives HTTP 503 and the pool is rebuilt for the next request.
 """
 from __future__ import annotations
 
 import argparse
+import multiprocessing
 import hmac
 import ipaddress
 import json
 import os
 import sys
 import threading
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import ortools
@@ -53,6 +60,29 @@ class Config:
         self.size = slots
         self.busy = 0
         self.lock = threading.Lock()
+        self.pool: ProcessPoolExecutor | None = None
+
+    def solve(self, problem: dict) -> dict | None:
+        """Solve in a worker process; None if the worker died (the pool is then rebuilt on the next call)."""
+        with self.lock:
+            if self.pool is None:
+                self.pool = ProcessPoolExecutor(max_workers=self.size, mp_context=multiprocessing.get_context('spawn'),
+                                                max_tasks_per_child=50)
+            pool = self.pool
+        try:
+            return pool.submit(solve, problem).result()
+        except BrokenProcessPool:
+            with self.lock:
+                if self.pool is pool:
+                    self.pool = None
+            pool.shutdown(wait=False, cancel_futures=True)
+            return None
+
+    def close(self) -> None:
+        with self.lock:
+            pool, self.pool = self.pool, None
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
 
 
 def make_handler(cfg: Config):
@@ -102,11 +132,13 @@ def make_handler(cfg: Config):
             with cfg.lock:
                 cfg.busy += 1
             try:
-                result = solve(problem)
+                result = cfg.solve(problem)
             finally:
                 with cfg.lock:
                     cfg.busy -= 1
                 cfg.slots.release()
+            if result is None:
+                return self._send(503, {'error': 'solver worker crashed'})
             self._send(400 if result['status'] == 'INVALID_INPUT' else 200, result)
 
         def log_message(self, fmt: str, *args) -> None:  # one line per request, never the body or headers
@@ -121,7 +153,13 @@ def build_server(host: str, port: int, env: dict) -> ThreadingHTTPServer:
         raise SystemExit(f'OPTIMIZER_TOKEN must be set (>= {MIN_TOKEN} characters); refusing to start')
     cfg = Config(token, parse_allow(env.get('OPTIMIZER_ALLOW')), max(1, int(env.get('OPTIMIZER_CONCURRENCY', '2'))))
     family_v6 = ':' in host
-    cls = type('Srv', (ThreadingHTTPServer,), {'address_family': __import__('socket').AF_INET6 if family_v6 else __import__('socket').AF_INET})
+
+    def server_close(self) -> None:
+        ThreadingHTTPServer.server_close(self)
+        cfg.close()
+
+    cls = type('Srv', (ThreadingHTTPServer,), {'address_family': __import__('socket').AF_INET6 if family_v6 else __import__('socket').AF_INET,
+                                               'server_close': server_close})
     return cls((host, port), make_handler(cfg))
 
 
@@ -133,7 +171,10 @@ def main() -> None:
     srv = build_server(a.host, a.port, dict(os.environ))
     print(f'routing-optimizer listening on {a.host}:{a.port} (ortools {ortools.__version__}); token required; '
           f'allow {os.environ.get("OPTIMIZER_ALLOW", "127.0.0.1/32,::1/128")}', flush=True)
-    srv.serve_forever()
+    try:
+        srv.serve_forever()
+    finally:
+        srv.server_close()
 
 
 if __name__ == '__main__':

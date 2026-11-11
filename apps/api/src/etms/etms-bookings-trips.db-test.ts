@@ -468,7 +468,7 @@ d(`ETMS E3 services on ${dbName}`, () => {
     });
     expect(out.refused).toBe('INVALID_STATE');
     expect(out.afterWindow).toBe('allowed');
-    expect(out.counts).toEqual({ bookings: 2, stops: 1, drafts: 1, paths: 1, exceptions: 0 });
+    expect(out.counts).toEqual({ bookings: 2, stops: 1, drafts: 1, paths: 1, exceptions: 0, planStops: 0 });
     expect(out.seated).toEqual({ pickupLat: 13.06, pickupLng: 80.24, pickupLabel: null, note: null, statusReason: null, status: 'ASSIGNED', dropLat: 13.05 });
     expect(out.stops).toEqual([
       { seq: 0, name: '[erased]', lat: 13.06, lng: 80.24 },

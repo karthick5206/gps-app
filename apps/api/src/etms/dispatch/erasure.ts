@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { ACTIVE_BOOKING_STATUSES, DRIVER_REASON_CODES, TRANSPORT_E3_LIMITS } from '@veetracer/shared';
 import { draftTouches } from './consent-withdrawal';
 import { nearAny } from './personal-points';
+import { eraseRoutingPlanPoints } from './routing-plan-privacy';
 
 type Tx = Prisma.TransactionClient;
 
@@ -31,6 +32,8 @@ export interface TransportErasure {
   /** Planned trips whose road path was cleared (it ran through one of the passenger's points). */
   paths: number;
   exceptions: number;
+  /** E4: routing-plan stops at the passenger's personal points (coarsened; name, snapped point and geometry removed). */
+  planStops: number;
   /** Booking ids: their audit trail is scrubbed with the passenger's. */
   bookingIds: string[];
   /** The passenger's schedule ids: their audit trail (exceptions with pickup / reason) is scrubbed too. */
@@ -50,7 +53,8 @@ export interface TransportErasure {
  *   closed driver lists on those events is cleared, and the driver's note on REPORT_DELAY / REPORT_BREAKDOWN of every
  *   trip the passenger rode is replaced by the erasure mark (E5 security review L1);
  * - schedule exceptions: pickup overrides removed (an override left empty is deleted), reasons cleared;
- * - server-held DRAFT change sets naming one of the bookings or carrying a stop near one of the points are discarded.
+ * - server-held DRAFT change sets naming one of the bookings or carrying a stop near one of the points are discarded;
+ * - E4: the passenger's personal-point stops in routing plans are coarsened the same way (routing-plan-privacy.ts).
  * Inherent residue (owner decision L5): the vehicle's own position history shows where it stopped at the planned time.
  */
 export async function eraseTransportData(tx: Tx, companyId: string, profileId: string, mark: string, home: { lat: number; lng: number } | null = null): Promise<TransportErasure> {
@@ -149,5 +153,6 @@ export async function eraseTransportData(tx: Tx, companyId: string, profileId: s
     await tx.transportChangeSet.update({ where: { id: d.id }, data: { status: 'REJECTED', draft: Prisma.DbNull, result: { discardedBy: 'erasure' } as Prisma.InputJsonValue } });
     drafts++;
   }
-  return { bookings: bookings.length, stops: mine.length, drafts, paths: pathTrips.length, exceptions, bookingIds: ids, scheduleIds };
+  const planStops = await eraseRoutingPlanPoints(tx, companyId, profileId, ids);
+  return { bookings: bookings.length, stops: mine.length, drafts, paths: pathTrips.length, exceptions, planStops, bookingIds: ids, scheduleIds };
 }

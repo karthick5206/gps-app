@@ -133,6 +133,12 @@ model Company {
   /// ETMS E5: driver duties (operator) and the in-app notification inbox of the company's logins.
   transportDriverDuties         TransportDriverDuty[]
   transportNotifications        TransportNotification[]
+  /// ETMS E4: routing plans, jobs and metering (FK Restrict, walked by a company purge).
+  routePlans                    RoutePlan[]
+  routingJobs                   RoutingJob[]
+  routingUsage                  RoutingUsage[]
+  /// ETMS E4 (Cascade): passenger stops of this company (as customer) in operator plans.
+  routePlanStopsAsCustomer      RoutePlanStop[]             @relation("RoutePlanStopCustomer")
 }
 
 model Branch {
@@ -152,6 +158,9 @@ model Branch {
   pois                      Poi[]
   /// ETMS E2 (SetNull): an archived branch leaves the passenger company-wide.
   employeeTransportProfiles EmployeeTransportProfile[]
+
+  /// ETMS E4 (SetNull): routing plans of this branch.
+  routePlans RoutePlan[]
 
   @@unique([companyId, name])
 }
@@ -348,33 +357,35 @@ model TrackedObject {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  company           Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch            Branch?                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  assignments       DeviceAssignment[]
-  groups            VehicleGroupMember[]
-  users             UserObject[]
-  remarks           ObjectRemark[]
-  commands          DeviceCommand[]
-  drivers           DriverAssignment[]
-  documents         Document[]
-  services          ServiceReminder[]
-  serviceLog        ServiceRecord[]
-  fuelConfig        FuelConfig?
-  parkingSchedule   ParkingSchedule?
-  liveShares        LiveShare[]
-  expenses          Expense[]
-  fuelEvents        FuelEvent[]
-  ioSessions        IoSession[]
-  driverEvents      DriverEvent[]
-  attendanceDays    AttendanceDay[]
-  sharedWith        VehicleShare[]
-  attendanceOutings AttendanceOuting[]
-  attendanceSelfies AttendanceSelfie[]
-  stockMovements    StockMovement[]
+  company               Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch                Branch?                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  assignments           DeviceAssignment[]
+  groups                VehicleGroupMember[]
+  users                 UserObject[]
+  remarks               ObjectRemark[]
+  commands              DeviceCommand[]
+  drivers               DriverAssignment[]
+  documents             Document[]
+  services              ServiceReminder[]
+  serviceLog            ServiceRecord[]
+  fuelConfig            FuelConfig?
+  parkingSchedule       ParkingSchedule?
+  liveShares            LiveShare[]
+  expenses              Expense[]
+  fuelEvents            FuelEvent[]
+  ioSessions            IoSession[]
+  driverEvents          DriverEvent[]
+  attendanceDays        AttendanceDay[]
+  sharedWith            VehicleShare[]
+  attendanceOutings     AttendanceOuting[]
+  attendanceSelfies     AttendanceSelfie[]
+  stockMovements        StockMovement[]
   /// ETMS E2: seats / wheelchair spaces (side table, doc 15 §7.3).
-  transportProfile  TransportVehicleProfile?
+  transportProfile      TransportVehicleProfile?
   /// ETMS E5: driver duties bound to this vehicle (SetNull on a vehicle purge).
   transportDriverDuties TransportDriverDuty[]
+  /// ETMS E4 (SetNull): plan assignments keep their history after a vehicle purge.
+  routeAssignments      RouteAssignment[]
 
   @@index([companyId, branchId])
 }
@@ -429,14 +440,16 @@ model Driver {
   createdAt            DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
 
-  company      Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch       Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  user         User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
-  assignments  DriverAssignment[]
-  documents    Document[]
-  driverEvents DriverEvent[]
+  company          Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch           Branch?               @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user             User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  assignments      DriverAssignment[]
+  documents        Document[]
+  driverEvents     DriverEvent[]
   /// ETMS E5: duty records (Cascade).
-  transportDuties TransportDriverDuty[]
+  transportDuties  TransportDriverDuty[]
+  /// ETMS E4 (SetNull): plan assignments keep their history.
+  routeAssignments RouteAssignment[]
 
   @@unique([companyId, rfidTag])
   @@unique([companyId, employeeId])
@@ -942,6 +955,9 @@ model Poi {
   transportBookingPickupFor TransportBooking[]         @relation("TransportBookingPickup")
   transportBookingDropFor   TransportBooking[]         @relation("TransportBookingDrop")
   transportTripSiteFor      TransportTrip[]            @relation("TransportTripSite")
+  /// ETMS E4 (SetNull): plan site and plan stops at this place.
+  routePlanSiteFor          RoutePlan[]                @relation("RoutePlanSite")
+  routePlanStopFor          RoutePlanStop[]            @relation("RoutePlanStopPoi")
 
   @@index([companyId, isActive])
   @@index([companyId, lat, lng])
@@ -1074,24 +1090,24 @@ model AlertRead {
 }
 
 model NotificationLog {
-  id         String             @id @default(uuid()) @db.Uuid
-  companyId  String             @db.Uuid
-  alertId    String?            @db.Uuid
-  channel    NotifyChannel
-  recipient  String
-  templateId String?            @db.Uuid
-  subject    String?
-  body       String
-  status     NotificationStatus
-  error      String?
-  provider   String?
-  createdAt  DateTime           @default(now())
+  id                String             @id @default(uuid()) @db.Uuid
+  companyId         String             @db.Uuid
+  alertId           String?            @db.Uuid
+  channel           NotifyChannel
+  recipient         String
+  templateId        String?            @db.Uuid
+  subject           String?
+  body              String
+  status            NotificationStatus
+  error             String?
+  provider          String?
+  createdAt         DateTime           @default(now())
   /// SENT = accepted by the provider (there are no delivery receipts).
-  sentAt     DateTime?
+  sentAt            DateTime?
   /// D6 G2/G3: provider attempts (an interrupted run counts as one).
-  attempts          Int       @default(0)
+  attempts          Int                @default(0)
   /// D6 G2: lease of the worker sending a QUEUED row; another worker may take it over after this time.
-  nextAttemptAt     DateTime? @db.Timestamptz(3)
+  nextAttemptAt     DateTime?          @db.Timestamptz(3)
   /// D6 G3: provider message / ticket / request id where the provider returns one.
   providerMessageId String?
   /// D6 G2: alertId:CHANNEL:<HMAC-SHA256 of the recipient> (no address in clear); unique when set (partial unique index "NotificationLog_dedupeKey_key" in the migration).
@@ -1099,7 +1115,7 @@ model NotificationLog {
   /// ETMS E5 (05 §5.6): what a pre-rendered message belongs to, e.g. refType TRANSPORT_NOTIFICATION + refId (the push
   /// data { kind, tripId, notificationId } is rebuilt from that row; nothing personal is stored here).
   refType           String?
-  refId             String?   @db.Uuid
+  refId             String?            @db.Uuid
 
   @@index([alertId])
   @@index([companyId, createdAt(sort: Desc)])
@@ -2998,16 +3014,18 @@ model EmployeeTransportProfile {
   createdAt             DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
 
-  company     Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch      Branch?                    @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  user        User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
-  officePoi   Poi?                       @relation("TransportProfileOffice", fields: [officePoiId], references: [id], onDelete: SetNull)
-  defaultStop Poi?                       @relation("TransportProfileStop", fields: [defaultStopPoiId], references: [id], onDelete: SetNull)
-  consents    EmployeeTransportConsent[]
-  notices     TransportPassengerNotice[]
+  company        Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch         Branch?                    @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user           User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  officePoi      Poi?                       @relation("TransportProfileOffice", fields: [officePoiId], references: [id], onDelete: SetNull)
+  defaultStop    Poi?                       @relation("TransportProfileStop", fields: [defaultStopPoiId], references: [id], onDelete: SetNull)
+  consents       EmployeeTransportConsent[]
+  notices        TransportPassengerNotice[]
   /// ETMS E3: recurring commutes (composite FK, Cascade) and bookings (composite FK, Restrict: history kept).
-  schedules   TransportSchedule[]
-  bookings    TransportBooking[]
+  schedules      TransportSchedule[]
+  bookings       TransportBooking[]
+  /// ETMS E4 (Cascade): personal-point stops in routing plans.
+  routePlanStops RoutePlanStop[]
 
   @@unique([companyId, employeeCode])
   @@unique([id, companyId])
@@ -3194,11 +3212,13 @@ model TransportShift {
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
-  company   Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  sitePoi   Poi?                @relation("TransportShiftSite", fields: [sitePoiId], references: [id], onDelete: SetNull)
-  schedules TransportSchedule[]
-  bookings  TransportBooking[]
-  trips     TransportTrip[]
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sitePoi    Poi?                @relation("TransportShiftSite", fields: [sitePoiId], references: [id], onDelete: SetNull)
+  schedules  TransportSchedule[]
+  bookings   TransportBooking[]
+  trips      TransportTrip[]
+  /// ETMS E4 (SetNull).
+  routePlans RoutePlan[]
 
   @@unique([companyId, name])
   @@unique([id, companyId])
@@ -3298,15 +3318,17 @@ model TransportBooking {
   createdAt         DateTime               @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime               @updatedAt @db.Timestamptz(3)
 
-  customer   Company                    @relation("TransportBookingCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
-  provider   Company?                   @relation("TransportBookingProvider", fields: [providerCompanyId], references: [id], onDelete: SetNull)
-  agreement  TransportServiceAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
-  profile    EmployeeTransportProfile   @relation(fields: [profileId, customerCompanyId], references: [id, companyId], onDelete: Restrict)
-  schedule   TransportSchedule?         @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
-  shift      TransportShift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
-  pickupPoi  Poi?                       @relation("TransportBookingPickup", fields: [pickupPoiId], references: [id], onDelete: SetNull)
-  dropPoi    Poi?                       @relation("TransportBookingDrop", fields: [dropPoiId], references: [id], onDelete: SetNull)
-  passengers TransportTripPassenger[]
+  customer       Company                    @relation("TransportBookingCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
+  provider       Company?                   @relation("TransportBookingProvider", fields: [providerCompanyId], references: [id], onDelete: SetNull)
+  agreement      TransportServiceAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  profile        EmployeeTransportProfile   @relation(fields: [profileId, customerCompanyId], references: [id, companyId], onDelete: Restrict)
+  schedule       TransportSchedule?         @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  shift          TransportShift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  pickupPoi      Poi?                       @relation("TransportBookingPickup", fields: [pickupPoiId], references: [id], onDelete: SetNull)
+  dropPoi        Poi?                       @relation("TransportBookingDrop", fields: [dropPoiId], references: [id], onDelete: SetNull)
+  passengers     TransportTripPassenger[]
+  /// ETMS E4 (SetNull): plan stops serving this booking.
+  routePlanStops RoutePlanStop[]
 
   @@unique([customerCompanyId, idempotencyKey])
   @@unique([scheduleId, serviceDate, direction])
@@ -3346,25 +3368,32 @@ model TransportTrip {
   interruptReason      String?
   cancelledAt          DateTime?          @db.Timestamptz(3)
   cancelReason         String?
+  /// ETMS E4 (etms_planning_links): the plan / assignment this trip was published from (FK SetNull: a plan purge leaves
+  /// the executed header; unique assignment = idempotent re-publish).
+  routePlanId          String?            @db.Uuid
+  routeAssignmentId    String?            @unique @db.Uuid
   createdById          String?            @db.Uuid
   createdAt            DateTime           @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime           @updatedAt @db.Timestamptz(3)
 
-  plannedTrip PlannedTrip?               @relation(fields: [plannedTripId], references: [id], onDelete: SetNull)
-  provider    Company                    @relation("TransportTripProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
-  customer    Company?                   @relation("TransportTripCustomer", fields: [customerCompanyId], references: [id], onDelete: SetNull)
-  agreement   TransportServiceAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
-  shift       TransportShift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
-  sitePoi     Poi?                       @relation("TransportTripSite", fields: [sitePoiId], references: [id], onDelete: SetNull)
-  passengers  TransportTripPassenger[]
-  events      TransportTripEvent[]
+  plannedTrip     PlannedTrip?               @relation(fields: [plannedTripId], references: [id], onDelete: SetNull)
+  provider        Company                    @relation("TransportTripProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
+  customer        Company?                   @relation("TransportTripCustomer", fields: [customerCompanyId], references: [id], onDelete: SetNull)
+  agreement       TransportServiceAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  shift           TransportShift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  sitePoi         Poi?                       @relation("TransportTripSite", fields: [sitePoiId], references: [id], onDelete: SetNull)
+  routePlan       RoutePlan?                 @relation(fields: [routePlanId], references: [id], onDelete: SetNull)
+  routeAssignment RouteAssignment?           @relation(fields: [routeAssignmentId], references: [id], onDelete: SetNull)
+  passengers      TransportTripPassenger[]
+  events          TransportTripEvent[]
   /// ETMS E5: notifications about this trip (SetNull: the inbox entry survives a trip purge).
-  notifications TransportNotification[]
+  notifications   TransportNotification[]
 
   @@unique([id, providerCompanyId])
   @@index([providerCompanyId, serviceDate])
   @@index([customerCompanyId, serviceDate])
   @@index([agreementId])
+  @@index([routePlanId])
 }
 
 /// One booking on one trip (dual-keyed; customer data on an operator trip). Composite FKs, row id first: trip Cascade,
@@ -3531,5 +3560,244 @@ model TransportNotification {
   trip    TransportTrip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt(sort: Desc)])
+  @@index([companyId, createdAt])
+}
+
+// ───────────────────────────── ETMS E4: routing and optimisation (migration routing_engine_v2) ─────────────────────────────
+// Ported from feature/routing-engine (doc 17 §1.3) with the doc 17 §2.1 / §2.5 changes: the branch's RouteStop is
+// RoutePlanStop (v1.8 RouteStop is a master-route stop); no FK on actor columns (S-1); assignments reference Driver
+// (D5) instead of an assignee user (S-3) and keep their history on a vehicle / driver purge (FK SetNull, S-2, R2 Q-c);
+// no COMPLETED plan state (S-4, D2); RoutingJob.planId indexed (S-5); engine-neutral `profile` instead of `costing`;
+// geometry as GeoJSON JSON. ETMS links (bookings, profiles, places, published trips) are in etms_planning_links.
+
+/// Plan lifecycle. Execution states live on PlannedTrip / TransportTrip (D2): a plan is a proposal, read-only after PUBLISHED.
+enum RoutePlanStatus {
+  DRAFT
+  OPTIMIZING
+  PLANNED
+  PUBLISHED
+  CANCELLED
+}
+
+/// Background job state (the RoutingJob row is the source of truth; a Valkey stream only wakes the workers).
+enum RoutingJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+/// A day plan of one operator company (companyId = the operator, FK Restrict: a company purge walks it). Children carry
+/// companyId with composite FKs (row id first) so PostgreSQL rejects a cross-company child. Raw SQL: CHECK version >= 1,
+/// CHECK profile in (car, van, bus, foot), CHECK PUBLISHED => publishedAt.
+model RoutePlan {
+  id           String              @id @default(uuid()) @db.Uuid
+  companyId    String              @db.Uuid
+  branchId     String?             @db.Uuid
+  name         String
+  planDate     DateTime            @db.Date
+  /// Plan seconds (etaS, startS, time windows) are relative to this instant.
+  planStartAt  DateTime?           @db.Timestamptz(3)
+  status       RoutePlanStatus     @default(DRAFT)
+  /// RoutingProfile: car | van | bus | foot.
+  profile      String              @default("car")
+  /// Graph the numbers were computed on (OSM extract + engine version).
+  graphVersion String?
+  /// Company place { lat, lng } (never a personal point).
+  depot        Json?
+  options      Json                @default("{}")
+  version      Int                 @default(1)
+  publishedAt  DateTime?           @db.Timestamptz(3)
+  /// ETMS (etms_planning_links): direction, shift (customer master, SetNull) and site (Poi, SetNull) the plan was built for.
+  direction    TransportDirection?
+  shiftId      String?             @db.Uuid
+  sitePoiId    String?             @db.Uuid
+  /// Actor column without FK (doc 15 §1.1).
+  createdById  String?             @db.Uuid
+  createdAt    DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime            @updatedAt @db.Timestamptz(3)
+
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch         Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  shift          TransportShift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  sitePoi        Poi?               @relation("RoutePlanSite", fields: [sitePoiId], references: [id], onDelete: SetNull)
+  /// ETMS: trips published from this plan (SetNull on the trip side: executed headers survive a plan purge).
+  transportTrips TransportTrip[]
+  assignments    RouteAssignment[]
+  stops          RoutePlanStop[]
+  versions       RoutePlanVersion[]
+  jobs           RoutingJob[]
+
+  @@unique([id, companyId])
+  @@index([companyId, planDate])
+  @@index([companyId, status])
+}
+
+/// One vehicle's route in a plan. Vehicle / driver FKs SetNull (R2 Q-c: plan history survives a vehicle or driver purge;
+/// an FK on objectId also disables the purge planner's TrackedObject logical-key walk). Driver identity through
+/// Driver.userId (D5, R2 Q-b); no assignee user column. Raw SQL: CHECK seq >= 0, non-negative numbers, startS <= endS.
+model RouteAssignment {
+  id                String   @id @default(uuid()) @db.Uuid
+  planId            String   @db.Uuid
+  companyId         String   @db.Uuid
+  objectId          String?  @db.Uuid
+  driverId          String?  @db.Uuid
+  vehicleLabel      String
+  seq               Int      @default(0)
+  /// Seats snapshot used for the solve (TransportVehicleProfile.seats); null = unlimited.
+  capacity          Int?
+  distanceM         Int?
+  durationS         Int?
+  /// durationS × the band factor (= durationS while uncalibrated).
+  adjustedDurationS Int?
+  startS            Int?
+  endS              Int?
+  /// GeoJSON [[lng, lat], ...] road path (PD H when it runs through a passenger's home: erasure clears it).
+  geometry          Json?
+  /// EtaModel of the numbers above.
+  etaModel          Json?
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+
+  plan          RoutePlan       @relation(fields: [planId, companyId], references: [id, companyId], onDelete: Cascade)
+  object        TrackedObject?  @relation(fields: [objectId], references: [id], onDelete: SetNull)
+  driver        Driver?         @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  stops         RoutePlanStop[]
+  /// ETMS: the TransportTrip this assignment was published into (unique on the trip side).
+  transportTrip TransportTrip?
+
+  @@index([planId])
+  @@index([objectId])
+  @@index([driverId])
+}
+
+/// A stop of a day plan (renamed from the routing branch's RouteStop, doc 17 §2.1). Raw SQL: CHECK lat / lng ranges,
+/// demand / serviceS / sequence / etaS non-negative.
+model RoutePlanStop {
+  id                String   @id @default(uuid()) @db.Uuid
+  planId            String   @db.Uuid
+  companyId         String   @db.Uuid
+  assignmentId      String?  @db.Uuid
+  ref               String
+  /// Generic label; never an address for a personal point.
+  name              String?
+  lat               Float
+  lng               Float
+  demand            Int      @default(0)
+  serviceS          Int      @default(0)
+  /// [[startS, endS], ...] after planStartAt.
+  timeWindows       Json?
+  sequence          Int?
+  etaS              Int?
+  unassignedReason  String?
+  /// ETMS (etms_planning_links). PICKUP | DROP: which end of the booking this stop is; null for generic stops.
+  stopKind          String?
+  /// Data owner of a passenger stop (FK Company Cascade: a customer purge removes its passengers from operator plans).
+  customerCompanyId String?  @db.Uuid
+  /// The booking this stop serves (FK SetNull; same customer checked in the service).
+  bookingId         String?  @db.Uuid
+  /// Set when the point is the passenger's personal point (home / ad-hoc address; PD H): consent-gated, access-audited,
+  /// coarsened by erasure and consent withdrawal. FK Cascade: a hard-deleted profile takes its personal stops with it.
+  profileId         String?  @db.Uuid
+  /// Set when the point is a company place (site, shuttle stop); never personal. FK SetNull.
+  poiId             String?  @db.Uuid
+  /// Road-snapped point used for routing (doc 02 §7.2: original and snapped stored separately).
+  snappedLat        Float?
+  snappedLng        Float?
+  snapDistanceM     Int?
+  snapGraphVersion  String?
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+
+  plan       RoutePlan                 @relation(fields: [planId, companyId], references: [id, companyId], onDelete: Cascade)
+  assignment RouteAssignment?          @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  customer   Company?                  @relation("RoutePlanStopCustomer", fields: [customerCompanyId], references: [id], onDelete: Cascade)
+  booking    TransportBooking?         @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  profile    EmployeeTransportProfile? @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  poi        Poi?                      @relation("RoutePlanStopPoi", fields: [poiId], references: [id], onDelete: SetNull)
+
+  @@unique([planId, ref])
+  @@unique([planId, bookingId, stopKind])
+  @@index([assignmentId])
+  @@index([bookingId])
+  @@index([profileId])
+  @@index([customerCompanyId])
+  @@index([poiId])
+}
+
+/// Background routing job (optimise / matrix). companyId FK Restrict; planId FK SetNull (indexed, S-5); userId is an
+/// actor column (no FK). input never carries passenger coordinates (RoutingJobInput). Raw SQL: CHECK kind, phase,
+/// progress 0..100, attempts / maxAttempts / timeoutS, finished status => finishedAt.
+model RoutingJob {
+  id              String           @id @default(uuid()) @db.Uuid
+  companyId       String           @db.Uuid
+  planId          String?          @db.Uuid
+  userId          String?          @db.Uuid
+  /// optimize | matrix.
+  kind            String
+  status          RoutingJobStatus @default(QUEUED)
+  /// matrix | assign_stops | solve | route_legs | done.
+  phase           String?
+  input           Json?
+  result          Json?
+  error           Json?
+  progress        Int              @default(0)
+  attempts        Int              @default(0)
+  maxAttempts     Int              @default(3)
+  timeoutS        Int              @default(120)
+  cancelRequested Boolean          @default(false)
+  idempotencyKey  String?
+  /// Request-body hash: the same key with another body → 422 IDEMPOTENCY_KEY_REUSED.
+  requestHash     String?
+  lockedBy        String?
+  lockedUntil     DateTime?        @db.Timestamptz(3)
+  notBefore       DateTime?        @db.Timestamptz(3)
+  graphVersion    String?
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  startedAt       DateTime?        @db.Timestamptz(3)
+  finishedAt      DateTime?        @db.Timestamptz(3)
+
+  company Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  plan    RoutePlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, createdAt])
+  @@index([status, lockedUntil])
+  @@index([planId])
+  @@index([finishedAt])
+}
+
+/// Daily routing metering per company (FK Restrict, walked by a company purge). Raw SQL: CHECK counters >= 0.
+model RoutingUsage {
+  companyId    String   @db.Uuid
+  day          DateTime @db.Date
+  routes       Int      @default(0)
+  matrixCells  Int      @default(0)
+  optimizeJobs Int      @default(0)
+  cacheHits    Int      @default(0)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@id([companyId, day])
+  @@index([day])
+}
+
+/// Edit history of a plan (one row per saved version). snapshot is a RoutePlanVersionSnapshot: ids, sequences and times
+/// only, no coordinates or names. changedById is an actor column (no FK). Raw SQL: CHECK version >= 1.
+model RoutePlanVersion {
+  id          String   @id @default(uuid()) @db.Uuid
+  planId      String   @db.Uuid
+  companyId   String   @db.Uuid
+  version     Int
+  changeType  String
+  snapshot    Json
+  changedById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  plan RoutePlan @relation(fields: [planId, companyId], references: [id, companyId], onDelete: Cascade)
+
+  @@unique([planId, version])
   @@index([companyId, createdAt])
 }
