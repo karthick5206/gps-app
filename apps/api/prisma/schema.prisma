@@ -130,6 +130,9 @@ model Company {
   transportTripEventsAsProvider TransportTripEvent[]        @relation("TransportTripEventProvider")
   transportTripEventsAsCustomer TransportTripEvent[]        @relation("TransportTripEventCustomer")
   transportChangeSets           TransportChangeSet[]
+  /// ETMS E5: driver duties (operator) and the in-app notification inbox of the company's logins.
+  transportDriverDuties         TransportDriverDuty[]
+  transportNotifications        TransportNotification[]
 }
 
 model Branch {
@@ -183,6 +186,8 @@ model User {
   /// ETMS E2 (D5): the passenger profile / driver this login belongs to (both SetNull on a user purge).
   employeeTransportProfile EmployeeTransportProfile?
   driver                   Driver?
+  /// ETMS E5: in-app transport notifications (Cascade on a user purge).
+  transportNotifications   TransportNotification[]
 
   @@index([companyId])
 }
@@ -368,6 +373,8 @@ model TrackedObject {
   stockMovements    StockMovement[]
   /// ETMS E2: seats / wheelchair spaces (side table, doc 15 §7.3).
   transportProfile  TransportVehicleProfile?
+  /// ETMS E5: driver duties bound to this vehicle (SetNull on a vehicle purge).
+  transportDriverDuties TransportDriverDuty[]
 
   @@index([companyId, branchId])
 }
@@ -428,6 +435,8 @@ model Driver {
   assignments  DriverAssignment[]
   documents    Document[]
   driverEvents DriverEvent[]
+  /// ETMS E5: duty records (Cascade).
+  transportDuties TransportDriverDuty[]
 
   @@unique([companyId, rfidTag])
   @@unique([companyId, employeeId])
@@ -1087,6 +1096,10 @@ model NotificationLog {
   providerMessageId String?
   /// D6 G2: alertId:CHANNEL:<HMAC-SHA256 of the recipient> (no address in clear); unique when set (partial unique index "NotificationLog_dedupeKey_key" in the migration).
   dedupeKey         String?
+  /// ETMS E5 (05 §5.6): what a pre-rendered message belongs to, e.g. refType TRANSPORT_NOTIFICATION + refId (the push
+  /// data { kind, tripId, notificationId } is rebuilt from that row; nothing personal is stored here).
+  refType           String?
+  refId             String?   @db.Uuid
 
   @@index([alertId])
   @@index([companyId, createdAt(sort: Desc)])
@@ -3338,6 +3351,8 @@ model TransportTrip {
   sitePoi     Poi?                       @relation("TransportTripSite", fields: [sitePoiId], references: [id], onDelete: SetNull)
   passengers  TransportTripPassenger[]
   events      TransportTripEvent[]
+  /// ETMS E5: notifications about this trip (SetNull: the inbox entry survives a trip purge).
+  notifications TransportNotification[]
 
   @@unique([id, providerCompanyId])
   @@index([providerCompanyId, serviceDate])
@@ -3424,6 +3439,8 @@ model TransportTripEvent {
   @@unique([tripId, clientEventId])
   @@index([tripId, occurredAt])
   @@index([providerCompanyId, receivedAt])
+  /// ETMS E5: the notification relay scans recent events of every company.
+  @@index([receivedAt])
 }
 
 /// Dispatch change-set ledger (operator-owned): idempotency of publish (unique company + key, request hash) and
@@ -3448,4 +3465,64 @@ model TransportChangeSet {
 
   @@unique([companyId, idempotencyKey])
   @@index([companyId, serviceDate, status])
+}
+
+// ───────────────────────────── ETMS E5: driver operations and notifications (migration etms_driver_ops) ─────────────────────────────
+
+/// A driver's duty (doc 09 §4.2, doc 15 §10 E5): started / ended in the driver app, online only. Operator-owned:
+/// companyId FK Restrict (a company purge walks it), driver FK Cascade, vehicle FK SetNull (the duty survives a
+/// vehicle purge). Raw SQL: partial unique "one open duty per driver" (endedAt IS NULL), CHECK endedAt >= startedAt,
+/// CHECK source. R1 writes no DriverAssignment (owner decision P5).
+model TransportDriverDuty {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @db.Uuid
+  driverId           String    @db.Uuid
+  objectId           String?   @db.Uuid
+  startedAt          DateTime  @db.Timestamptz(3)
+  endedAt            DateTime? @db.Timestamptz(3)
+  /// DRIVER_APP | WEB.
+  source             String    @default("DRIVER_APP")
+  /// The driver's login (no FK, as every ETMS actor column).
+  startedByUserId    String?   @db.Uuid
+  startClientEventId String    @db.Uuid
+  endClientEventId   String?   @db.Uuid
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  driver  Driver         @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  object  TrackedObject? @relation(fields: [objectId], references: [id], onDelete: SetNull)
+
+  @@unique([driverId, startClientEventId])
+  @@index([companyId, startedAt])
+  @@index([driverId, startedAt(sort: Desc)])
+}
+
+/// In-app transport notification (D7 / L4: the authoritative history; push is only a generic wake-up). One row per
+/// recipient login and fact (dedupeKey unique: the relay / scheduler may run again without duplicating). Holds no
+/// personal data: kind + trip id + generic text. companyId = the recipient's company (FK Restrict, walked by a company
+/// purge); user FK Cascade; trip FK SetNull. Raw SQL: CHECK audience, CHECK kind.
+model TransportNotification {
+  id         String    @id @default(uuid()) @db.Uuid
+  companyId  String    @db.Uuid
+  userId     String    @db.Uuid
+  /// DRIVER | PASSENGER.
+  audience   String
+  /// TransportNotificationKind.
+  kind       String
+  tripId     String?   @db.Uuid
+  title      String
+  body       String
+  dedupeKey  String    @unique
+  /// A PUSH NotificationLog row was queued for it (G2 durable delivery).
+  pushQueued Boolean   @default(false)
+  readAt     DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trip    TransportTrip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([companyId, createdAt])
 }

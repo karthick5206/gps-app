@@ -38,6 +38,10 @@ import { SchedulesService } from '../dispatch/schedules.service';
 import { TripLiveService } from '../dispatch/trip-live';
 import { TripsService } from '../dispatch/trips.service';
 import { E3_RESOURCES, e3Ids, seedE3, type E3Resource } from './isolation-matrix-e3';
+import { DRIVER_USERS, E5_RESOURCES, e5Ids, seedE5 } from './isolation-matrix-e5';
+import { DriverApiService } from '../driver/driver-api.service';
+import { DriverController, MyTransportNotificationsController } from '../driver/driver.controller';
+import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Target } from './isolation-matrix';
 import { MemoryStore } from './memory-store';
 
@@ -177,7 +181,7 @@ function controllersFor(prisma: Obj): Controllers {
   const redis = {
     invalidateCache: async () => undefined,
     // E3: generator lock, rate limiter, live cache reads and the plannedTrip.update push (nothing is cached here).
-    client: { get: async () => null, mget: async (...keys: string[]) => keys.map(() => null), set: async () => 'OK', eval: async () => 1, publish: async () => 1 },
+    client: { get: async () => null, mget: async (...keys: string[]) => keys.map(() => null), set: async () => 'OK', eval: async () => 1, publish: async () => 1, xadd: async () => '1-0' },
   };
   const geocoding = { enabled: false, search: async () => [] };
   const notices = new ConsentNoticeService(prisma as never, audit);
@@ -193,6 +197,18 @@ function controllersFor(prisma: Obj): Controllers {
     vehicles: new TransportVehiclesController(fleet),
     driverLogin: new DriverLoginController(fleet),
     e3: e3Controllers(prisma, audit, redis, people),
+    e5: e5Controllers(prisma, audit, redis, people),
+  };
+}
+
+/** E5 controllers on the same store (no live cache, no stream: Redis a no-op). */
+function e5Controllers(prisma: Obj, audit: AuditService, redis: object, people: PeopleService) {
+  const plannedTrips = new PlannedTripsService(prisma as never, audit, { invalidate: async () => undefined } as never);
+  const live = new TripLiveService(prisma as never, redis as never, plannedTrips);
+  const notifications = new TransportNotificationsService(prisma as never, redis as never);
+  return {
+    driver: new DriverController(new DriverApiService(prisma as never, audit, redis as never, live, notifications), notifications, prisma as never),
+    myNotifications: new MyTransportNotificationsController(notifications, people, prisma as never),
   };
 }
 
@@ -274,7 +290,7 @@ async function buildE2App() {
   const agreement = seed(store.table('transportServiceAgreement'), 'prov', 'custA', 'ACTIVE');
   Object.assign(agreement, { grants: ['VIEW_BOOKINGS', 'VIEW_PASSENGER_MINIMAL'], siteIds: ['siteA1'] });
   const scope: TransportAgreementScope = { id: agreement.id as string, customerCompanyId: 'custA', grants: ['VIEW_BOOKINGS', 'VIEW_PASSENGER_MINIMAL'], siteIds: ['siteA1'], dataProfile: 'MINIMAL', validFrom: Date.now() - DAY, validTo: null };
-  return { store, controllers: controllersFor(prisma), party, other, scope, ids: { partyPassenger, otherPassenger, outsideSitePassenger } };
+  return { store, controllers: controllersFor(prisma), party, other, scope, roleId, ids: { partyPassenger, otherPassenger, outsideSitePassenger } };
 }
 
 /** One agreement in `status` with consistent approvals (the DB CHECKs: ACTIVE / SUSPENDED only with both). */
@@ -327,12 +343,15 @@ function caller(role: MatrixRole, e2?: { scope: TransportAgreementScope }): Auth
     etmsOffCompany: { companyId: 'off', role: tpl('Transport admin') },
     superAdmin: { companyId: 'platform', role: null },
     superAdminSwitched: { companyId: 'custA', role: null },
+    assignedDriver: { companyId: 'custA', role: tpl('Transport driver') },
+    otherDriver: { companyId: 'custA', role: tpl('Transport driver') },
+    foreignDriver: { companyId: 'custB', role: tpl('Transport driver') },
   }[role];
   const isSuperAdmin = def.role === null;
   const resolved = resolvePermissions(def.role ? [{ dataScope: def.role.dataScope, permissions: grants(def.role.permissions) }] : [], isSuperAdmin);
   const features = companyFeatures(COMPANIES.find((c) => c.id === def.companyId) as { settings: unknown; isPlatform?: boolean }) as CompanyFeature[];
   return {
-    userId: `user-${role}`,
+    userId: role in DRIVER_USERS ? DRIVER_USERS[role as keyof typeof DRIVER_USERS].userId : `user-${role}`,
     homeCompanyId: isSuperAdmin ? 'platform' : def.companyId,
     companyId: def.companyId,
     isSuperAdmin,
@@ -386,6 +405,9 @@ describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
     expect(ROUTES.length).toBeGreaterThanOrEqual(87);
     for (const c of [ShiftsController, SchedulesController, BookingsController, DispatchController, TransportTripsController, MyTransportTripsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     for (const c of [PassengersController, MyTransportConsentController, ConsentNoticesController, TransportVehiclesController, DriverLoginController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
+    // E5 (EtmsDriverModule, imported): 12 driver routes + 4 passenger notification routes.
+    for (const c of [DriverController, MyTransportNotificationsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
+    expect(ROUTES.filter((r) => r.key.includes(' driver/v1/')).length).toBe(12);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
   });
 
@@ -424,6 +446,18 @@ describe('ETMS isolation matrix: route × role × ownership', () => {
   it.each(CASES)('%s as %s on %s resource → %s', async (routeKey, role, own, expected) => {
     const entry = byRoute.get(routeKey)!;
     const route = ROUTES.find((r) => r.key === routeKey)!;
+    if (entry.resource && (E5_RESOURCES as readonly string[]).includes(entry.resource)) {
+      const w = await buildE2App();
+      const world = seedE3(w.store, { party: { passenger: w.party.passenger, vehicle: w.party.vehicle, driver: w.party.driver }, other: { passenger: w.other.passenger, vehicle: w.other.vehicle, driver: w.other.driver } });
+      const e5 = seedE5(w.store, world, { party: w.party.driver, other: w.other.driver }, w.roleId);
+      const ids = e5Ids(e5, own);
+      const target: Target = { id: ids.trip, version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA', ids: w.ids, e5: { ids, world: e5 } };
+      entry.prepare?.(w.store, target);
+      const res = await run(route, entry, caller(role, w), target, w.controllers);
+      expect(res.status).toBe(expected);
+      if (res.status === 200) entry.verify?.(res.result, role, own, target);
+      return;
+    }
     if (entry.resource && (E3_RESOURCES as readonly string[]).includes(entry.resource)) {
       const w = await buildE2App();
       const world = seedE3(w.store, { party: { passenger: w.party.passenger, vehicle: w.party.vehicle, driver: w.party.driver }, other: { passenger: w.other.passenger, vehicle: w.other.vehicle, driver: w.other.driver } });

@@ -20,7 +20,8 @@ import { RedisService } from '../redis/redis.service';
 import { htmlToText, isSendable } from '../templates/render';
 import { loadAlertContext, Rendered, renderTemplate } from '../templates/template-renderer';
 import { withRetries } from './retry';
-import { createPushProvider, PushProvider, pushStyle } from './push';
+import { createPushProvider, PushProvider, pushStyle, transportPushData } from './push';
+import { TRANSPORT_PUSH_CHANNEL } from '@veetracer/shared';
 import { ArattaiOtp } from './arattai';
 import { createSmsProvider, SmsProvider } from './sms';
 import { notConfiguredReason, outcome, writesDevCopy } from './delivery-outcome';
@@ -573,7 +574,9 @@ Driver event: ${link}`,
     const body = (msg.text || htmlToText(msg.body)).slice(0, 500);
     let result: Awaited<ReturnType<PushProvider['send']>> | null = null;
     const { error, attempts } = await withRetries(async () => {
-      result = await this.push.send(rows.map((r) => r.token), { title, body, data, ...pushStyle(data.type, data.parkingAlarm === true) });
+      const style = data.transport === true ? { channelId: TRANSPORT_PUSH_CHANNEL, sound: 'default' } : pushStyle(data.type, data.parkingAlarm === true);
+      const payload = data.transport === true ? transportPushData(data) : data;
+      result = await this.push.send(rows.map((r) => r.token), { title, body, data: payload, ...style });
     });
     const res = result as Awaited<ReturnType<PushProvider['send']>> | null;
     if (res?.invalidTokens.length) await this.prisma.pushToken.deleteMany({ where: { token: { in: res.invalidTokens } } });
@@ -595,7 +598,10 @@ Driver event: ${link}`,
     if (claimed === null) return;
     let res: FinishInput;
     if (log.channel === 'PUSH') {
-      res = { ...(await this.sendPush(log.recipient, { templateId: log.templateId, subject: log.subject, body: log.body, text: log.body, missing: [] }, { test: true })), provider: this.push.name };
+      const data = await this.pushDataFor(log);
+      res = data
+        ? { ...(await this.sendPush(log.recipient, { templateId: log.templateId, subject: log.subject, body: log.body, text: log.body, missing: [] }, data)), provider: this.push.name }
+        : { status: 'SKIPPED', error: 'Notification no longer exists', sendAttempts: 0, provider: this.push.name };
     } else {
       let msg: Rendered = { templateId: log.templateId, subject: log.subject, body: log.body, text: log.channel === 'EMAIL' ? htmlToText(log.body) : log.body, missing: [] };
       if (log.channel === 'SMS' && log.templateId) {
@@ -606,6 +612,17 @@ Driver event: ${link}`,
     }
     await this.ledger.finish(log.id, claimed, res);
     this.count(log.channel, res.status, res.error);
+  }
+
+  /**
+   * Push data of a pre-rendered PUSH row. ETMS (refType TRANSPORT_NOTIFICATION, D7 / L4): only { kind, tripId,
+   * notificationId }, rebuilt from the in-app notification row, on the app's 'trip' channel; null when that row is gone.
+   * Everything else (test messages, reminders): { test: true } as before.
+   */
+  private async pushDataFor(log: NotificationLog): Promise<Record<string, unknown> | null> {
+    if (log.refType !== 'TRANSPORT_NOTIFICATION' || !log.refId) return { test: true };
+    const n = await this.prisma.transportNotification.findUnique({ where: { id: log.refId }, select: { id: true, kind: true, tripId: true } });
+    return n ? { transport: true, kind: n.kind, tripId: n.tripId, notificationId: n.id } : null;
   }
 
   // ───────────── caches ─────────────
