@@ -44,7 +44,9 @@ function world() {
   const users: Obj[] = [];
   const roles: Obj[] = [];
   const userRoles: Obj[] = [];
-  const userWithRoles = (u: Obj | undefined) => (u ? { ...u, roles: userRoles.filter((ur) => ur.userId === u.id).map((ur) => ({ ...ur, role: roles.find((r) => r.id === ur.roleId) })) } : null);
+  /** A role row with its grants (rows pushed by hand default to no grants, ASSIGNED). */
+  const grantOf = (r: Obj | undefined) => (r ? { dataScope: 'ASSIGNED', permissions: [], ...r } : null);
+  const userWithRoles = (u: Obj | undefined) => (u ? { ...u, roles: userRoles.filter((ur) => ur.userId === u.id).map((ur) => ({ ...ur, role: grantOf(roles.find((r) => r.id === ur.roleId)) })) } : null);
   const prisma: Obj = {
     trackedObject: {
       findMany: async ({ where, skip, take }: { where: Obj; skip: number; take: number }) =>
@@ -61,9 +63,9 @@ function world() {
     },
     company: { findUnique: async () => ({ timezone: 'Asia/Kolkata' }) },
     role: {
-      findUnique: async ({ where }: { where: { companyId_name: { companyId: string; name: string } } }) => roles.find((r) => r.companyId === where.companyId_name.companyId && r.name === where.companyId_name.name) ?? null,
+      findUnique: async ({ where }: { where: { companyId_name: { companyId: string; name: string } } }) => grantOf(roles.find((r) => r.companyId === where.companyId_name.companyId && r.name === where.companyId_name.name)),
       create: async ({ data }: { data: Obj }) => {
-        const r = { id: `role-${roles.length + 1}`, companyId: data.companyId, name: data.name };
+        const r = { id: `role-${roles.length + 1}`, companyId: data.companyId, name: data.name, dataScope: data.dataScope, permissions: (data.permissions as { create: Obj[] } | undefined)?.create ?? [] };
         roles.push(r);
         return r;
       },
@@ -93,7 +95,7 @@ function world() {
   prisma.$transaction = async (arg: unknown) => (typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as Promise<unknown>[]));
   const audits: Obj[] = [];
   const svc = new FleetLinksService(prisma as never, { record: async (_c: unknown, e: Obj) => audits.push(e) } as never, { invalidateCache: async () => undefined } as never);
-  return { svc, drivers, users, audits };
+  return { svc, drivers, users, roles, userRoles, audits };
 }
 
 function ctx(companyId: string, over: Partial<AuthContext> = {}): AuthContext {
@@ -148,5 +150,30 @@ describe('DELETE /api/drivers/:id/login?mode=', () => {
     expect(w.users).toHaveLength(1); // never deleted
     expect(w.audits.some((a) => (a.details as Obj | undefined)?.what === 'driver-login-unlinked')).toBe(true);
     await expect(w.svc.revokeDriverLogin(ctx(B), 'd1', 'unlink')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('POST /api/drivers/:id/login: R-12 role-grant ceiling', () => {
+  const driverEditor = (over: Partial<AuthContext> = {}) => ctx(A, { userId: 'mgr', dataScope: 'ASSIGNED', branchIds: ['b1'], permissions: { drivers: ['view', 'edit'] }, ...over });
+  const CEILING = { response: { code: 'PERMISSION_CEILING' } };
+
+  it('the seeded driver template is within a driver editor’s ceiling; a widened one is 403 unless the caller holds it', async () => {
+    const w = world();
+    expect((await w.svc.grantDriverLogin(driverEditor(), 'd1', {})).outcome).toBe('CREATED');
+    const w2 = world();
+    w2.roles.push({ id: 'r-drv', companyId: A, name: 'Transport driver', dataScope: 'ASSIGNED', permissions: [{ menu: 'etms_driver', actions: ['view'] }, { menu: 'live_map', actions: ['view', 'command'] }] });
+    await expect(w2.svc.grantDriverLogin(driverEditor(), 'd1', {})).rejects.toMatchObject(CEILING);
+    expect(w2.users).toHaveLength(0);
+    expect((await w2.svc.grantDriverLogin(driverEditor({ permissions: { drivers: ['view', 'edit'], live_map: ['view', 'command'] } }), 'd1', {})).outcome).toBe('CREATED');
+  });
+
+  it('resetting the password of a linked login that holds a role above the caller is 403', async () => {
+    const w = world();
+    w.roles.push({ id: 'r-boss', companyId: A, name: 'Fleet boss', dataScope: 'COMPANY', permissions: [{ menu: 'users', actions: ['edit'] }] });
+    w.users.push({ id: 'u-boss', companyId: A, email: 'boss@corp.test', mobile: null, isActive: true, isSuperAdmin: false, passwordHash: 'x' });
+    w.userRoles.push({ userId: 'u-boss', roleId: 'r-boss' });
+    expect((await w.svc.grantDriverLogin(driverEditor(), 'd1', { email: 'boss@corp.test' })).outcome).toBe('LINKED');
+    await expect(w.svc.grantDriverLogin(driverEditor(), 'd1', { password: 'takeover1' })).rejects.toMatchObject(CEILING);
+    expect(w.users[0].passwordHash).toBe('x');
   });
 });

@@ -98,7 +98,9 @@ function world() {
       user: user ? { ...user, roles: userRoles.filter((ur) => ur.userId === user.id).map((ur) => ({ role: roles.find((x) => x.id === ur.roleId) })) } : null,
     };
   };
-  const userWithRoles = (u: Obj | undefined) => (u ? { ...u, roles: userRoles.filter((ur) => ur.userId === u.id) } : null);
+  /** A role row with its grants (rows pushed by hand default to no grants, ASSIGNED). */
+  const grantOf = (r: Obj | undefined) => (r ? { dataScope: 'ASSIGNED', permissions: [], ...r } : null);
+  const userWithRoles = (u: Obj | undefined) => (u ? { ...u, roles: userRoles.filter((ur) => ur.userId === u.id).map((ur) => ({ ...ur, role: grantOf(roles.find((r) => r.id === ur.roleId)) })) } : null);
   let tick = 0;
   const prisma: Obj = {
     employeeTransportProfile: {
@@ -167,9 +169,9 @@ function world() {
     branch: { count: async ({ where }: { where: Obj }) => branches.filter((b) => matches(b, where)).length },
     poi: { count: async ({ where }: { where: Obj }) => pois.filter((p) => matches(p, where)).length },
     role: {
-      findUnique: async ({ where }: { where: { companyId_name: { companyId: string; name: string } } }) => roles.find((r) => r.companyId === where.companyId_name.companyId && r.name === where.companyId_name.name) ?? null,
+      findUnique: async ({ where }: { where: { companyId_name: { companyId: string; name: string } } }) => grantOf(roles.find((r) => r.companyId === where.companyId_name.companyId && r.name === where.companyId_name.name)),
       create: async ({ data }: { data: Obj }) => {
-        const r = { id: randomUUID(), companyId: data.companyId, name: data.name };
+        const r = { id: randomUUID(), companyId: data.companyId, name: data.name, dataScope: data.dataScope, permissions: (data.permissions as { create: Obj[] } | undefined)?.create ?? [] };
         roles.push(r);
         return r;
       },
@@ -599,6 +601,56 @@ describe('passenger app access (D5, P3 one login per person)', () => {
     expect(after.appAccess).toMatchObject({ active: false, otherRoles: true });
     expect(w.users[0].isActive).toBe(true);
     expect(w.userRoles).toEqual([{ userId: 'u-fleet', roleId: 'r-fleet' }]);
+  });
+
+  describe('R-12 role-grant ceiling', () => {
+    const passengerEditor = (over: Partial<AuthContext> = {}) => ctx(A, { userId: 'disp', dataScope: 'ASSIGNED', branchIds: ['b1'], permissions: { etms_passengers: ['view', 'edit'] }, ...over });
+    const CEILING = { response: { code: 'PERMISSION_CEILING' } };
+
+    it('the seeded passenger template is within any passenger editor’s ceiling (its self-service menu does not count)', async () => {
+      const w = world();
+      const p = w.add({ email: 'asha@corp.test' });
+      expect((await w.svc.grantAppAccess(passengerEditor(), p.id as string, {})).outcome).toBe('CREATED');
+    });
+
+    it('a widened "Transport passenger" role (more menus or whole-company scope) is 403 PERMISSION_CEILING; the company Admin may', async () => {
+      const w = world();
+      const role: Obj = { id: 'r-pass', companyId: A, name: 'Transport passenger', dataScope: 'ASSIGNED', permissions: [{ menu: 'etms_self', actions: ['view'] }, { menu: 'users', actions: ['view', 'edit'] }] };
+      w.roles.push(role);
+      const p = w.add({ email: 'asha@corp.test' });
+      await expect(w.svc.grantAppAccess(passengerEditor(), p.id as string, {})).rejects.toMatchObject(CEILING);
+      expect(w.users).toHaveLength(0);
+      role.permissions = [{ menu: 'etms_self', actions: ['view', 'create', 'edit'] }];
+      await expect(w.svc.grantAppAccess(passengerEditor(), p.id as string, {})).rejects.toMatchObject(CEILING);
+      role.permissions = [{ menu: 'etms_self', actions: ['view'] }];
+      role.dataScope = 'COMPANY';
+      await expect(w.svc.grantAppAccess(passengerEditor(), p.id as string, {})).rejects.toMatchObject(CEILING);
+      // The company Admin is above the ceiling.
+      expect((await w.svc.grantAppAccess(passengerEditor({ isCompanyAdmin: true }), p.id as string, {})).outcome).toBe('CREATED');
+    });
+
+    it('linking one’s own login to a passenger cannot take a widened template either', async () => {
+      const w = world();
+      w.roles.push({ id: 'r-pass', companyId: A, name: 'Transport passenger', dataScope: 'ASSIGNED', permissions: [{ menu: 'etms_self', actions: ['view'] }, { menu: 'roles', actions: ['edit'] }] });
+      w.users.push({ id: 'disp', companyId: A, email: 'disp@corp.test', mobile: null, isActive: true, isSuperAdmin: false, passwordHash: 'x' });
+      const p = w.add({ email: 'disp@corp.test' });
+      await expect(w.svc.grantAppAccess(passengerEditor(), p.id as string, {})).rejects.toMatchObject(CEILING);
+      expect(w.userRoles).toHaveLength(0);
+    });
+
+    it('setting the password of a dual-role login whose other role is above the caller is 403; linking without a password is fine', async () => {
+      const w = world();
+      w.roles.push({ id: 'r-boss', companyId: A, name: 'Fleet boss', dataScope: 'COMPANY', permissions: [{ menu: 'users', actions: ['view', 'edit'] }] });
+      w.users.push({ id: 'u-boss', companyId: A, email: 'boss@corp.test', mobile: null, isActive: true, isSuperAdmin: false, passwordHash: 'x' });
+      w.userRoles.push({ userId: 'u-boss', roleId: 'r-boss' });
+      const p = w.add({ email: 'boss@corp.test' });
+      expect((await w.svc.grantAppAccess(passengerEditor(), p.id as string, {})).outcome).toBe('LINKED');
+      await expect(w.svc.grantAppAccess(passengerEditor(), p.id as string, { password: 'takeover1' })).rejects.toMatchObject(CEILING);
+      expect(w.users.find((u) => u.id === 'u-boss')?.passwordHash).toBe('x');
+      // A caller who holds those rights may, as in Users.
+      const peer = passengerEditor({ dataScope: 'COMPANY', permissions: { etms_passengers: ['view', 'edit'], users: ['view', 'edit'] } });
+      expect((await w.svc.grantAppAccess(peer, p.id as string, { password: 'newpass12' })).outcome).toBe('REACTIVATED');
+    });
   });
 
   it('a User already linked to another passenger cannot be linked again', async () => {

@@ -156,6 +156,7 @@ export class FleetLinksService {
         roleName: ETMS_DRIVER_ROLE_NAME,
         currentUserId: d.userId,
         linkedElsewhere: async (userId) => (await tx.driver.count({ where: { userId, NOT: { id: d.id } } })) > 0,
+        actor: ctx,
       });
       if (d.userId !== res.userId) await tx.driver.update({ where: { id: d.id }, data: { userId: res.userId } });
       await this.audit.record(ctx, { action: res.outcome === 'CREATED' ? 'CREATE' : 'UPDATE', entity: 'User', entityId: res.userId, details: { what: 'driver-login', outcome: res.outcome, driverId: d.id, passwordChanged: !!dto.password } }, tx);

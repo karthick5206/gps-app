@@ -323,6 +323,7 @@ export class PeopleService {
         roleName: ETMS_PASSENGER_ROLE_NAME,
         currentUserId: row.userId,
         linkedElsewhere: async (userId) => (await tx.employeeTransportProfile.count({ where: { userId, NOT: { id: row.id } } })) > 0,
+        actor: ctx,
       });
       if (row.userId !== link.userId) await tx.employeeTransportProfile.update({ where: { id: row.id }, data: { userId: link.userId } });
       if (link.outcome === 'CREATED') await this.audit.record(ctx, { action: 'CREATE', entity: 'User', entityId: link.userId, after: { name: row.displayName, email, mobile, role: ETMS_PASSENGER_ROLE_NAME, passengerId: row.id } }, tx);
