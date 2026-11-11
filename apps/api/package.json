@@ -17,6 +17,8 @@
     "sim": "tsx src/simulator/gt06-sim.ts",
     "sim:route": "tsx src/simulator/route-sim.ts",
     "sim:register": "tsx src/simulator/register.ts",
+    "etms:gate": "tsx scripts/etms-e2e/gate.ts",
+    "etms:gh-stub": "tsx scripts/etms-e2e/graphhopper-stub.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
