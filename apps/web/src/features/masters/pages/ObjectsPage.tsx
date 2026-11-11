@@ -9,7 +9,8 @@ import {
   type VehicleGroupDto,
   type VehicleType,
 } from '@veetracer/shared';
-import { CpuIcon, FileCheck2Icon, FuelIcon, TruckIcon } from 'lucide-react';
+import { BusIcon, CpuIcon, FileCheck2Icon, FuelIcon, TruckIcon } from 'lucide-react';
+import { Link } from 'react-router';
 import { AssetLinksSheet, type AssetLinksTarget } from '@/features/sims/AssetLinksSheet';
 import { Button } from '@/components/ui/button';
 import { FuelSettingsDialog, type FuelTarget } from '@/features/fuel/FuelSettingsDialog';
@@ -203,7 +204,9 @@ const rowLabel = (r: TrackedObjectDto) => (r.plateNumber ? `${r.name} (${r.plate
 
 export function ObjectsPage() {
   const { t } = useTranslation();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
+  // ETMS WP 2.4 / QA B7: passenger seats are edited by the fleet role that edits vehicles; reachable from here.
+  const showSeats = can('objects', 'edit') && !!me?.company.features.includes('etms');
   const [compliance, setCompliance] = useState<ComplianceTarget | null>(null);
   const [fuel, setFuel] = useState<FuelTarget | null>(null);
   const [assets, setAssets] = useState<AssetLinksTarget | null>(null);
@@ -236,6 +239,15 @@ export function ObjectsPage() {
       defaultSort={{ id: 'name', desc: false }}
       Form={ObjectForm}
       emptyIcon={TruckIcon}
+      headerActions={
+        showSeats ? (
+          <Button variant="outline" asChild>
+            <Link to="/transport/vehicles" aria-label={t('Passenger seats')}>
+              <BusIcon /> <span className="hidden sm:inline">{t('Passenger seats')}</span>
+            </Link>
+          </Button>
+        ) : undefined
+      }
       rowActions={(r) => (
               <>
                 {r.device && (

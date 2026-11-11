@@ -152,6 +152,8 @@ export interface ExistingProfile {
   branchId: string | null;
   accessibility: PassengerAccessibility;
   isActive: boolean;
+  /** The passenger's login (an import that archives the passenger disables it, L3). */
+  userId?: string | null;
 }
 
 export interface ImportLookups {

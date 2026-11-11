@@ -8,3 +8,8 @@ ops/valkey/** text eol=lf
 
 # Web fonts are binary
 *.woff2 binary
+
+# Prisma checksums cover the exact bytes of each migration: keep them LF on every platform (QA B8), so a
+# Windows checkout computes the same checksum as the Linux checkout production was migrated from.
+apps/api/prisma/migrations/**/migration.sql text eol=lf
+apps/api/prisma/migrations/migration_lock.toml text eol=lf

@@ -192,13 +192,22 @@ function fail(message: string): never {
   throw new Error(`isolation matrix: ${message}`);
 }
 
-/** Detail of the party passenger: the projection of the role; the home address only for FULL. */
+/**
+ * Detail of the party passenger: the projection of the role; the home address and point only for FULL (M3: a dispatcher
+ * gets no home coordinates at all); consent records only for FULL (L4); login identifiers in clear only for FULL (L5).
+ * The party passenger has no routing consent in the matrix world, so nobody gets a pickup point.
+ */
 function verifyDetail(result: unknown, role: MatrixRole, own: Ownership): void {
   if (own !== 'party') return;
   const p = result as PassengerDto;
   if (p.projection !== PROJECTION[role]) fail(`${role} got projection ${p.projection}`);
+  const full = p.projection === 'FULL';
   const address = p.home?.address ?? null;
-  if ((p.projection === 'FULL') !== (address !== null)) fail(`${role} (${p.projection}) home address ${address === null ? 'missing' : 'leaked'}`);
+  if (full !== (address !== null)) fail(`${role} (${p.projection}) home address ${address === null ? 'missing' : 'leaked'}`);
+  if (full !== (p.home?.lat != null && p.home?.lng != null)) fail(`${role} (${p.projection}) home coordinates ${full ? 'missing' : 'leaked'}`);
+  if (p.pickup !== null) fail(`${role} got a pickup point without routing consent`);
+  if (full !== (p.consents !== null)) fail(`${role} (${p.projection}) consent records ${full ? 'missing' : 'leaked'}`);
+  if (p.appAccess && !full && (!p.appAccess.email?.includes('•') && p.appAccess.email !== null)) fail(`${role} sees the login email in clear`);
   if (p.projection === 'MINIMAL' && (p.home !== null || p.branchId !== null || p.appAccess !== null)) fail(`${role} MINIMAL leaks home / branch / login`);
 }
 
@@ -212,7 +221,49 @@ function verifyList(result: unknown, role: MatrixRole, _own: Ownership, t: Targe
   if (items.some((i) => i.id === ids.otherPassenger)) fail(`${role} list shows another company's passenger`);
   const outside = items.some((i) => i.id === ids.outsideSitePassenger);
   if (outside !== (want === 'FULL' || want === 'STANDARD')) fail(`${role} list: passenger outside the agreement sites ${outside ? 'shown' : 'hidden'}`);
-  if (items.some((i) => i.projection === 'STANDARD' && i.home?.address)) fail(`${role} list shows a home address`);
+  if (items.some((i) => i.home?.address)) fail(`${role} list shows a home address`);
+  // M3: list rows never carry coordinates of a home (or of a pickup), for any role; consent records only for FULL (L4);
+  // login identifiers always masked (L5).
+  if (items.some((i) => i.home?.lat != null || i.home?.lng != null || i.pickup !== null)) fail(`${role} list carries coordinates`);
+  if (items.some((i) => i.projection !== 'FULL' && i.consents !== null)) fail(`${role} list carries consent records`);
+  if (items.some((i) => i.appAccess?.email && !i.appAccess.email.includes('•'))) fail(`${role} list shows a login email in clear`);
+}
+
+/**
+ * History (L12): MINIMAL never shows an actor, IP, home or contact field without the grant; STANDARD only profile
+ * entries (no consent / login / notice entries, L4), no home fields, no IP; ACCESS rows only for FULL.
+ */
+const HOME_FIELD_KEYS = ['homeAddress', 'homeLat', 'homeLng', 'homeGeocodeSource', 'homeGeocodeConfidence', 'emergencyContacts'];
+function verifyHistory(result: unknown, role: MatrixRole, own: Ownership): void {
+  if (own !== 'party') return;
+  const p = PROJECTION[role];
+  for (const e of result as { entity: string; action: string; userId: string | null; userName: string | null; ip: string | null; changes: unknown }[]) {
+    const keys = JSON.stringify(e.changes ?? {});
+    if (p !== 'FULL' && e.action === 'ACCESS') fail(`${role} history shows read events`);
+    if (p !== 'FULL' && e.entity !== 'EmployeeTransportProfile') fail(`${role} history shows ${e.entity} entries`);
+    if (p !== 'FULL' && e.ip) fail(`${role} history shows an IP`);
+    if (p !== 'FULL' && HOME_FIELD_KEYS.some((k) => keys.includes(`"${k}"`))) fail(`${role} history shows home fields`);
+    if (p === 'MINIMAL' && (e.userId || e.userName)) fail(`${role} history shows the actor`);
+    if (keys.includes('Secret Lane')) fail(`${role} history shows a home address`);
+  }
+}
+
+/** Consent records (FULL only): rows of the party passenger only. */
+function verifyConsents(result: unknown, role: MatrixRole, own: Ownership): void {
+  if (own !== 'party') return;
+  const r = result as { current: unknown[]; history: { id: string }[] };
+  if (!Array.isArray(r.current) || !Array.isArray(r.history)) fail(`${role} consents: unexpected shape`);
+}
+
+/** Geocode (Photon, self-hosted only): candidates, never anything of a passenger. */
+function verifyGeocode(result: unknown, role: MatrixRole): void {
+  if (!Array.isArray(result)) fail(`${role} geocode: not a candidate list`);
+}
+
+/** Import report (L12): only the file's own values and the caller's company; never another tenant's data. */
+function verifyImport(result: unknown, role: MatrixRole): void {
+  const text = JSON.stringify(result);
+  for (const leak of ['custB', 'b1.login@corp.test', 'Passenger B1', 'another company']) if (text.includes(leak)) fail(`${role} import report leaks "${leak}"`);
 }
 
 const CSV = 'employee_code,name,mobile\nM1,Matrix Import,9876500101\n';
@@ -223,10 +274,10 @@ function E2_MATRIX(): MatrixEntry[] {
   return [
     // ── Passengers: reads ──
     { route: 'GET transport/passengers', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.list(ctx, {}), expect: { none: P_LIST }, verify: verifyList },
-    { route: 'GET transport/passengers/geocode', resource: P, state: 'ACTIVE', invoke: (c) => c.passengers.geocode({ q: '5 Main Road' }), expect: { none: P_GEOCODE } },
+    { route: 'GET transport/passengers/geocode', resource: P, state: 'ACTIVE', invoke: (c) => c.passengers.geocode({ q: '5 Main Road' }), expect: { none: P_GEOCODE }, verify: verifyGeocode },
     { route: 'GET transport/passengers/:id', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.get(ctx, t.id), expect: { party: P_READ, other: P_OTHER }, verify: verifyDetail },
-    { route: 'GET transport/passengers/:id/history', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.history(ctx, t.id), expect: { party: P_READ, other: P_OTHER } },
-    { route: 'GET transport/passengers/:id/consents', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.consents(ctx, t.id), expect: { party: P_FULL_ONLY, other: P_OTHER } },
+    { route: 'GET transport/passengers/:id/history', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.history(ctx, t.id), expect: { party: P_READ, other: P_OTHER }, verify: verifyHistory },
+    { route: 'GET transport/passengers/:id/consents', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.consents(ctx, t.id), expect: { party: P_FULL_ONLY, other: P_OTHER }, verify: verifyConsents },
     // ── Passengers: writes ──
     {
       route: 'POST transport/passengers',
@@ -237,22 +288,37 @@ function E2_MATRIX(): MatrixEntry[] {
     },
     { route: 'PATCH transport/passengers/:id', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.update(ctx, t.id, { displayName: 'Renamed Passenger' }), expect: { party: P_EDIT, other: P_OTHER } },
     { route: 'DELETE transport/passengers/:id', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.archive(ctx, t.id), expect: { party: P_DELETE, other: P_DELETE_OTHER } },
-    { route: 'POST transport/passengers/import/preview', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.preview(ctx, upload(), { geocode: 'false' }), expect: { none: P_CREATE } },
-    { route: 'POST transport/passengers/import/commit', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.commit(ctx, upload(), { geocode: 'false' }), expect: { none: P_CREATE } },
+    { route: 'POST transport/passengers/import/preview', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.preview(ctx, upload(), { geocode: 'false' }), expect: { none: P_CREATE }, verify: verifyImport },
+    { route: 'POST transport/passengers/import/commit', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.commit(ctx, upload(), { geocode: 'false' }), expect: { none: P_CREATE }, verify: verifyImport },
     { route: 'POST transport/passengers/:id/app-access', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.grantAppAccess(ctx, t.id, {}), expect: { party: P_EDIT, other: P_OTHER } },
     { route: 'DELETE transport/passengers/:id/app-access', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.revokeAppAccess(ctx, t.id, {}), expect: { party: P_EDIT, other: P_OTHER } },
+    // M1: the reset token is the only way to change the password of a used login; same scope as app access.
+    { route: 'POST transport/passengers/:id/app-access/reset', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.resetAppAccess(ctx, t.id), expect: { party: P_EDIT, other: P_OTHER } },
     {
+      // M2: a grant on the passenger's behalf is only a recorded offline consent (evidence + note); corporate admin only.
       route: 'POST transport/passengers/:id/consents',
       resource: P,
       state: 'ACTIVE',
-      invoke: (c, ctx, t) => c.passengers.recordConsent(ctx, t.id, { purpose: 'TRANSPORT_PROFILE', granted: true }),
+      invoke: (c, ctx, t) => c.passengers.recordConsent(ctx, t.id, { purpose: 'TRANSPORT_PROFILE', granted: true, evidenceRef: 'FORM-7', note: 'Signed paper form' }),
       expect: { party: P_FULL_ONLY, other: P_OTHER },
+    },
+    {
+      // M5: erase an archived passenger (archived first here); corporate admin only, like DELETE.
+      route: 'POST transport/passengers/:id/erase',
+      resource: P,
+      state: 'ACTIVE',
+      invoke: async (c, ctx, t) => {
+        await c.passengers.archive(ctx, t.id).catch(() => undefined);
+        return c.passengers.erase(ctx, t.id, { confirm: 'A1' });
+      },
+      expect: { party: P_DELETE, other: P_DELETE_OTHER },
     },
     // ── The passenger's own consent ──
     { route: 'GET me/transport/consent', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.myConsent.current(ctx), expect: { none: SELF } },
     { route: 'GET me/transport/consent/notices', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.myConsent.notices(ctx), expect: { none: SELF } },
     { route: 'GET me/transport/consent/history', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.myConsent.history(ctx), expect: { none: SELF } },
     { route: 'POST me/transport/consent', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.myConsent.record(ctx, { purpose: 'TRANSPORT_PROFILE', granted: true }), expect: { none: SELF } },
+    { route: 'GET me/transport/notices', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.myConsent.inbox(ctx), expect: { none: SELF } },
     // ── Consent notices ──
     { route: 'GET transport/consent-notices', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.notices.list(ctx), expect: { none: N_READ } },
     {
@@ -270,6 +336,7 @@ function E2_MATRIX(): MatrixEntry[] {
     { route: 'GET drivers/:id/login', resource: 'driver', state: 'ACTIVE', invoke: (c, ctx, t) => c.driverLogin.get(ctx, t.id), expect: { party: F_READ, other: F_READ_OTHER } },
     { route: 'POST drivers/:id/login', resource: 'driver', state: 'ACTIVE', invoke: (c, ctx, t) => c.driverLogin.grant(ctx, t.id, {}), expect: { party: F_WRITE, other: F_WRITE_OTHER } },
     { route: 'DELETE drivers/:id/login', resource: 'driver', state: 'ACTIVE', invoke: (c, ctx, t) => c.driverLogin.revoke(ctx, t.id, {}), expect: { party: F_WRITE, other: F_WRITE_OTHER } },
+    { route: 'POST drivers/:id/login/reset', resource: 'driver', state: 'ACTIVE', invoke: (c, ctx, t) => c.driverLogin.reset(ctx, t.id), expect: { party: F_WRITE, other: F_WRITE_OTHER } },
   ];
 }
 

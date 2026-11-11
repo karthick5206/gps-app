@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
-import { HttpException, RequestMethod, type ExecutionContext } from '@nestjs/common';
+import { HttpException, RequestMethod, StreamableFile, type ExecutionContext } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
-import { ETMS_DRIVER_ROLE_NAME, ETMS_PASSENGER_ROLE_NAME, ETMS_ROLE_TEMPLATES, SYSTEM_ROLES, withoutUnavailableMenus, type CompanyFeature, type PermissionMap } from '@veetracer/shared';
+import { ETMS_DRIVER_ROLE_NAME, ETMS_PASSENGER_ROLE_NAME, ETMS_ROLE_TEMPLATES, SYSTEM_ROLES, withoutUnavailableMenus, type CompanyFeature, type PassengerDto, type PermissionMap } from '@veetracer/shared';
 import { resolvePermissions } from '../../access/access-rules';
 import type { AuthContext, TransportAgreementScope } from '../../access/auth-context';
 import { REQUIRED_PERMISSIONS } from '../../access/decorators';
@@ -340,8 +340,8 @@ const byRoute = new Map(ISOLATION_MATRIX.map((e) => [e.route, e]));
 
 describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
   it('discovers the ETMS routes from Nest metadata', () => {
-    // E1a: 16 routes; E2 (EtmsPeopleModule, imported): 25.
-    expect(ROUTES.length).toBeGreaterThanOrEqual(41);
+    // E1a: 16 routes; E2 (EtmsPeopleModule, imported): 29 (25 + security review: app-access reset, erase, notices, driver login reset).
+    expect(ROUTES.length).toBeGreaterThanOrEqual(45);
     for (const c of [PassengersController, MyTransportConsentController, ConsentNoticesController, TransportVehiclesController, DriverLoginController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
   });
@@ -355,7 +355,7 @@ describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
     for (const e of ISOLATION_MATRIX) {
       const owners = Object.keys(e.expect) as Ownership[];
       expect([e.route, owners.length > 0]).toEqual([e.route, true]);
-      if (/:w+/.test(e.route)) expect([e.route, owners.sort()]).toEqual([e.route, ['other', 'party']]);
+      if (/:\w+/.test(e.route)) expect([e.route, owners.sort()]).toEqual([e.route, ['other', 'party']]);
       for (const o of owners) expect([e.route, o, Object.keys(e.expect[o]!).sort()]).toEqual([e.route, o, [...MATRIX_ROLES].sort()]);
     }
   });
@@ -406,3 +406,108 @@ describe('ETMS isolation matrix: route × role × ownership', () => {
     if (res.status === 200) entry.verify?.(res.result, role, own, target);
   });
 });
+
+// ───────────────────────────── Leak checks beyond list and detail (security review L12, M2, M3, M4) ─────────────────────────────
+
+const csvText = async (f: unknown): Promise<string> => {
+  const chunks: Buffer[] = [];
+  for await (const c of (f as StreamableFile).getStream()) chunks.push(Buffer.from(c as Buffer));
+  return Buffer.concat(chunks).toString('utf8');
+};
+type Dto = PassengerDto;
+const auditsOf = (w: Awaited<ReturnType<typeof buildE2App>>, companyId: string) => w.store.table('auditLog').filter((a) => a.companyId === companyId);
+
+describe('ETMS isolation matrix: export, history, consents, pickup, import report, geocode', () => {
+  it('CSV export (M4): a provider exports none of the customer’s passengers; a dispatcher’s export has no home address or point', async () => {
+    const w = await buildE2App();
+    const provider = await csvText(await w.controllers.passengers.list(caller('providerAdmin', w), { format: 'csv' } as never));
+    expect(provider).not.toContain('A1');
+    expect(provider.trim().split('\n')).toHaveLength(1); // header only
+    const dispatcher = await csvText(await w.controllers.passengers.list(caller('customerDispatcher', w), { format: 'csv' } as never));
+    expect(dispatcher).toContain('A1');
+    expect(dispatcher).not.toContain('Secret Lane');
+    expect(dispatcher).not.toContain('13.06');
+    expect(dispatcher).not.toContain('B1');
+    const admin = await csvText(await w.controllers.passengers.list(caller('customerAdmin', w), { format: 'csv' } as never));
+    expect(admin).toContain('A1 Secret Lane');
+  });
+
+  it('provider reads (M4): a JSON list page with the customer’s passengers is ACCESS-audited in the customer’s log', async () => {
+    const w = await buildE2App();
+    await w.controllers.passengers.list(caller('providerAdmin', w), {} as never);
+    const entry = auditsOf(w, 'custA').find((a) => a.action === 'ACCESS' && (a.changes as { what?: string }).what === 'list');
+    expect(entry).toMatchObject({ userId: 'user-providerAdmin', changes: expect.objectContaining({ projection: 'MINIMAL', rows: 1, actingCompanyId: 'prov' }) });
+    expect(auditsOf(w, 'prov').some((a) => a.action === 'ACCESS')).toBe(false);
+  });
+
+  it('pickup (M3): only with the passenger’s own routing consent, on the detail view; dispatchers never get the home point', async () => {
+    const w = await buildE2App();
+    const id = w.ids.partyPassenger;
+    for (const role of ['customerDispatcher', 'providerAdmin'] as const) expect((await w.controllers.passengers.get(caller(role, w), id)).pickup).toBeNull();
+    await w.controllers.myConsent.record(caller('customerPassenger', w), { purpose: 'TRANSPORT_PROFILE', granted: true });
+    const disp = await w.controllers.passengers.get(caller('customerDispatcher', w), id);
+    expect(disp.pickup).toEqual({ kind: 'HOME', lat: 13.0612, lng: 80.2412, label: null, poiId: null });
+    expect(disp.home).toMatchObject({ address: null, lat: null, lng: null });
+    expect((await w.controllers.passengers.get(caller('providerAdmin', w), id)).pickup).toMatchObject({ lat: 13.0612 });
+    for (const role of ['customerAdmin', 'customerDispatcher', 'providerAdmin'] as const) {
+      const rows = ((await w.controllers.passengers.list(caller(role, w), {} as never)) as { items: Dto[] }).items;
+      expect(rows.every((r) => r.pickup === null && r.home?.lat == null)).toBe(true);
+    }
+    // The admin's detail read of the home point is ACCESS-audited and says so.
+    await w.controllers.passengers.get(caller('customerAdmin', w), id);
+    expect(auditsOf(w, 'custA').some((a) => a.action === 'ACCESS' && (a.changes as { homeLocation?: boolean }).homeLocation === true)).toBe(true);
+  });
+
+  it('consent on behalf (M2): the admin may withdraw or record an offline consent with evidence; history and notices show it', async () => {
+    const w = await buildE2App();
+    const id = w.ids.partyPassenger;
+    const admin = caller('customerAdmin', w);
+    await expect(w.controllers.passengers.recordConsent(admin, id, { purpose: 'TRANSPORT_PROFILE', granted: true })).rejects.toMatchObject({ status: 403, response: { code: 'CONSENT_SELF_ONLY' } });
+    const granted = await w.controllers.passengers.recordConsent(admin, id, { purpose: 'TRANSPORT_PROFILE', granted: true, evidenceRef: 'FORM-12', note: 'Signed at onboarding' });
+    expect(granted.history.find((h) => h.granted)).toMatchObject({ channel: 'ADMIN_RECORDED_OFFLINE', evidenceRef: 'FORM-12', note: 'Signed at onboarding' });
+    const withdrawn = await w.controllers.passengers.recordConsent(admin, id, { purpose: 'TRANSPORT_PROFILE', granted: false });
+    expect(withdrawn.history.find((h) => !h.granted)).toMatchObject({ channel: 'ADMIN_ON_BEHALF', evidenceRef: null, note: null });
+    expect(withdrawn.current.find((c) => c.purpose === 'TRANSPORT_PROFILE')?.active).toBe(false);
+    const inbox = await w.controllers.myConsent.inbox(caller('customerPassenger', w));
+    expect(inbox.map((n) => n.kind).sort()).toEqual(['CONSENT_RECORDED_OFFLINE', 'CONSENT_WITHDRAWN_BY_ADMIN']);
+    expect(inbox.every((n) => n.channel === 'IN_APP')).toBe(true);
+    // History: the admin sees consent and notice entries; the dispatcher and the provider see none of them (L4).
+    const adminHistory = await w.controllers.passengers.history(admin, id);
+    expect(adminHistory.some((e) => e.entity === 'EmployeeTransportConsent')).toBe(true);
+    expect(adminHistory.some((e) => e.entity === 'TransportPassengerNotice')).toBe(true);
+    for (const role of ['customerDispatcher', 'providerAdmin'] as const) {
+      const h = await w.controllers.passengers.history(caller(role, w), id);
+      expect(h.every((e) => e.entity === 'EmployeeTransportProfile')).toBe(true);
+      verifyNoConsentDetail(await w.controllers.passengers.get(caller(role, w), id));
+    }
+  });
+
+  it('import report (L12): never names another tenant, even when a contact belongs to another company’s login', async () => {
+    const w = await buildE2App();
+    const file = { buffer: Buffer.from('employee_code,name,email\nM9,Probe Person,b1.login@corp.test\n', 'utf8'), originalname: 'p.csv' };
+    const report = await w.controllers.passengers.preview(caller('customerAdmin', w), file, { geocode: 'false' });
+    const text = JSON.stringify(report);
+    for (const leak of ['custB', 'Passenger B1', 'another company']) expect(text).not.toContain(leak);
+  });
+
+  it('geocode (L11): refused with GEOCODER_NOT_PRIVATE when GEOCODER_URL is a public host; nothing is sent', async () => {
+    const w = await buildE2App();
+    const saved = { g: process.env.GEOCODER, u: process.env.GEOCODER_URL };
+    try {
+      process.env.GEOCODER = 'photon';
+      process.env.GEOCODER_URL = 'https://photon.komoot.io';
+      await expect(w.controllers.passengers.geocode({ q: '5 Main Road' })).rejects.toMatchObject({ status: 503, response: { code: 'GEOCODER_NOT_PRIVATE' } });
+      process.env.GEOCODER_URL = 'http://127.0.0.1:2322';
+      await expect(w.controllers.passengers.geocode({ q: '5 Main Road' })).resolves.toEqual([]);
+    } finally {
+      if (saved.g === undefined) delete process.env.GEOCODER;
+      else process.env.GEOCODER = saved.g;
+      if (saved.u === undefined) delete process.env.GEOCODER_URL;
+      else process.env.GEOCODER_URL = saved.u;
+    }
+  });
+});
+
+function verifyNoConsentDetail(p: PassengerDto): void {
+  expect(p.consents).toBeNull();
+}

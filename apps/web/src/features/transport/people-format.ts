@@ -203,9 +203,10 @@ export function locationStatus(p: Pick<PassengerDto, 'projection' | 'needsLocati
   if (p.needsLocation) return { kind: 'NEEDS_LOCATION', label: 'Needs location', tone: 'warning', detail: { key: 'No home point and no pickup stop yet.' } };
   if (p.defaultStop) return { kind: 'STOP', label: 'Pickup stop', tone: 'info', detail: { key: 'Picked up at {{name}}', vars: { name: p.defaultStop.name } } };
   if (p.hasHomeLocation) {
-    if (!p.home || p.home.lat === null) return { kind: 'HOME_HIDDEN', label: 'Home set', tone: 'neutral', detail: { key: 'The home point is not shown to your role.' } };
-    if (isApproximate(p.projection)) return { kind: 'HOME_APPROX', label: 'Home (approximate)', tone: 'neutral', detail: { key: 'Rounded to about 11 m for your role.' } };
-    return { kind: 'HOME', label: 'Home pinned', tone: 'success' };
+    // Security review M3: list rows carry no coordinates for any role (the corporate admin's detail view does);
+    // dispatchers and providers never get the home point, only the pickup point once the passenger consented.
+    if (p.projection === 'FULL') return { kind: 'HOME', label: 'Home pinned', tone: 'success' };
+    return { kind: 'HOME_HIDDEN', label: 'Home set', tone: 'neutral', detail: { key: 'The home point is not shown to your role.' } };
   }
   return { kind: 'NONE', label: 'No location', tone: 'muted' };
 }
@@ -227,7 +228,8 @@ export const consentPurposeLabel = (purpose: string): string => CONSENT_PURPOSE_
 export const CONSENT_CHANNEL_LABEL: Record<string, string> = {
   WEB: 'Web',
   PASSENGER_APP: 'Passenger app',
-  ADMIN_ON_BEHALF: 'Admin on behalf',
+  ADMIN_ON_BEHALF: 'Withdrawn by the admin',
+  ADMIN_RECORDED_OFFLINE: 'Recorded offline by the admin',
 };
 export const consentChannelLabel = (channel: string | null | undefined): string => (channel ? (CONSENT_CHANNEL_LABEL[channel] ?? channel) : '—');
 

@@ -3,8 +3,16 @@
 --   TransportVehicleProfile (operator-owned seat-capacity side table, PD L), Driver.userId (nullable, unique, SET NULL),
 --   TransportConsentNotice (company-level versioned consent notice text, doc 10 §4.2, PD L; added 2026-11-11 before
 --   the migration shipped, E2 gap 2).
+-- * Amended 2026-11-11 before the migration shipped (E2 security review M1 / M2 / L9, QA B3): consent columns
+--   evidenceRef / note and CHECKs (an ADMIN_ON_BEHALF row is a withdrawal, an ADMIN_RECORDED_OFFLINE row a grant with
+--   evidence); table TransportPassengerNotice (in-app notification intent, composite FK to the profile, Cascade);
+--   trigger "etms_evidence_guard" making consent and consent-notice rows immutable except through a controlled path: a
+--   transaction that ran SET LOCAL veetrax.evidence_write = 'erasure' may UPDATE consent rows (identity removal of a
+--   data-subject erasure), 'purge' may DELETE (purge.service.ts sets it for every purge); the role backfill below.
 -- * Poi categories OFFICE / SHUTTLE_STOP need no DDL (Poi.category is a string).
--- * No data: no backfill, no RolePermission rows (role templates are seeded by code when `etms` is switched on).
+-- * Data: role templates are seeded by code when `etms` is switched on; the only data change is the idempotent
+--   RolePermission backfill at the end (QA B3): `etms_passengers` on the unchanged E1a "Transport admin" /
+--   "Transport dispatcher" templates of companies that switched `etms` on before E2. No other backfill.
 -- * Locks: Driver gets a nullable column (metadata only) and a unique index on a small table; the four new tables are
 --   empty, so their FKs take only a brief SHARE ROW EXCLUSIVE on Company / Branch / User / Poi / TrackedObject.
 --
@@ -12,11 +20,14 @@
 -- vehicle profiles are then unread and Driver.userId is ignored by fleet code. A defect is fixed by a new forward
 -- migration (relax a CHECK, add a column). A full revert needs owner authorisation (destructive once rows exist):
 --   DROP TABLE "EmployeeTransportConsent"; DROP TABLE "EmployeeTransportProfile"; DROP TABLE "TransportVehicleProfile";
---   DROP TABLE "TransportConsentNotice"; ALTER TABLE "Driver" DROP COLUMN "userId";
+--   DROP TABLE "TransportPassengerNotice"; DROP TABLE "TransportConsentNotice"; ALTER TABLE "Driver" DROP COLUMN "userId";
+--   DROP FUNCTION "etms_evidence_guard"() CASCADE; (the backfilled RolePermission rows may stay: unread when off).
 --
 -- Purge (doc 15 §6): company purge → profile via its companyId FK (RESTRICT, walked) and consents via the composite
 -- profile FK (row id first, so the planner sees profileId → id) and the companyId logical key (no FK on that column);
--- vehicle profiles via the companyId logical key; consent notices via their companyId FK (RESTRICT, walked). Vehicle purge → TransportVehicleProfile CASCADE. User purge →
+-- vehicle profiles via the companyId logical key; consent notices via their companyId FK (RESTRICT, walked); passenger
+-- notices via the composite profile FK (CASCADE) and the companyId logical key. Consent / consent-notice deletes need the
+-- purge path above (the evidence trigger). Vehicle purge → TransportVehicleProfile CASCADE. User purge →
 -- EmployeeTransportProfile.userId and Driver.userId SET NULL (rows and their personal data survive: erasure routine,
 -- WP 2.6 / L5). No CHECK involves a column that a purge sets to NULL (doc 15 §1.3).
 
@@ -64,6 +75,8 @@ CREATE TABLE "EmployeeTransportConsent" (
     "locale" TEXT,
     "granted" BOOLEAN NOT NULL,
     "channel" TEXT NOT NULL,
+    "evidenceRef" TEXT,
+    "note" TEXT,
     "appVersion" TEXT,
     "ip" TEXT,
     "occurredAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -102,6 +115,23 @@ CREATE TABLE "TransportConsentNotice" (
 
     CONSTRAINT "TransportConsentNotice_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateTable
+CREATE TABLE "TransportPassengerNotice" (
+    "id" UUID NOT NULL,
+    "companyId" UUID NOT NULL,
+    "profileId" UUID NOT NULL,
+    "userId" UUID,
+    "kind" TEXT NOT NULL,
+    "channel" TEXT NOT NULL DEFAULT 'IN_APP',
+    "details" JSONB NOT NULL DEFAULT '{}',
+    "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "TransportPassengerNotice_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "TransportPassengerNotice_profileId_createdAt_idx" ON "TransportPassengerNotice"("profileId", "createdAt" DESC);
 
 -- CreateIndex
 CREATE UNIQUE INDEX "EmployeeTransportProfile_userId_key" ON "EmployeeTransportProfile"("userId");
@@ -152,6 +182,9 @@ ALTER TABLE "EmployeeTransportProfile" ADD CONSTRAINT "EmployeeTransportProfile_
 ALTER TABLE "EmployeeTransportConsent" ADD CONSTRAINT "EmployeeTransportConsent_profileId_companyId_fkey" FOREIGN KEY ("profileId", "companyId") REFERENCES "EmployeeTransportProfile"("id", "companyId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "TransportPassengerNotice" ADD CONSTRAINT "TransportPassengerNotice_profileId_companyId_fkey" FOREIGN KEY ("profileId", "companyId") REFERENCES "EmployeeTransportProfile"("id", "companyId") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "TransportVehicleProfile" ADD CONSTRAINT "TransportVehicleProfile_objectId_fkey" FOREIGN KEY ("objectId") REFERENCES "TrackedObject"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -174,3 +207,52 @@ ALTER TABLE "TransportVehicleProfile" ADD CONSTRAINT "TransportVehicleProfile_wh
 -- Notice versions are "v1", "v2"… derived from seq; a notice always has text.
 ALTER TABLE "TransportConsentNotice" ADD CONSTRAINT "TransportConsentNotice_version_check"
   CHECK ("seq" >= 1 AND "version" = 'v' || "seq"::text AND length(btrim("body")) > 0 AND length(btrim("title")) > 0);
+-- Consent on someone's behalf (security review M2): an admin may withdraw (ADMIN_ON_BEHALF), never grant; an offline
+-- grant the admin records (ADMIN_RECORDED_OFFLINE) always carries its evidence reference and a note.
+ALTER TABLE "EmployeeTransportConsent" ADD CONSTRAINT "EmployeeTransportConsent_on_behalf_check"
+  CHECK ("channel" <> 'ADMIN_ON_BEHALF' OR NOT "granted");
+ALTER TABLE "EmployeeTransportConsent" ADD CONSTRAINT "EmployeeTransportConsent_offline_evidence_check"
+  CHECK ("channel" <> 'ADMIN_RECORDED_OFFLINE' OR ("granted" AND length(btrim(coalesce("evidenceRef", ''))) > 0 AND length(btrim(coalesce("note", ''))) > 0));
+
+-- Append-only evidence (security review L9): consent and consent-notice rows cannot be changed or deleted, except
+-- through a controlled path that declares itself for the current transaction only (SET LOCAL):
+--   veetrax.evidence_write = 'erasure' -> UPDATE allowed (data-subject erasure removes the identity from consent rows);
+--   veetrax.evidence_write = 'purge'   -> DELETE allowed (company purge, purge.service.ts).
+CREATE FUNCTION "etms_evidence_guard"() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  mode text := current_setting('veetrax.evidence_write', true);
+BEGIN
+  IF TG_OP = 'UPDATE' AND mode = 'erasure' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'DELETE' AND mode = 'purge' THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION 'ETMS_EVIDENCE_IMMUTABLE: % on "%" refused (append-only evidence)', TG_OP, TG_TABLE_NAME
+    USING ERRCODE = 'P0001';
+END;
+$$;
+CREATE TRIGGER "EmployeeTransportConsent_evidence_guard" BEFORE UPDATE OR DELETE ON "EmployeeTransportConsent"
+  FOR EACH ROW EXECUTE FUNCTION "etms_evidence_guard"();
+CREATE TRIGGER "TransportConsentNotice_evidence_guard" BEFORE UPDATE OR DELETE ON "TransportConsentNotice"
+  FOR EACH ROW EXECUTE FUNCTION "etms_evidence_guard"();
+
+-- ETMS-E2-BACKFILL-BEGIN (QA B3; idempotent; the DB test runs this block again)
+-- Companies that switched `etms` on before E2 hold the E1a role templates without the Passengers menu, and
+-- ensureEtmsRoleTemplates never changes an existing role. Add `etms_passengers` (ETMS_E2_TEMPLATE_PERMISSIONS) to roles
+-- that still ARE the seeded templates: same name, seeded description and data scope, not a system role. A role the
+-- company renamed, re-described or re-scoped is its own and is left alone; a role that already has an
+-- `etms_passengers` row keeps it (ON CONFLICT DO NOTHING). Production had 0 such companies on 2026-11-11.
+INSERT INTO "RolePermission" ("roleId", "menu", "actions")
+SELECT r."id", 'etms_passengers', ARRAY['view', 'create', 'edit', 'delete', 'export']
+FROM "Role" r
+WHERE r."name" = 'Transport admin' AND r."description" = 'Employee transport: corporate admin (agreements, settings, trips)'
+  AND r."dataScope" = 'COMPANY' AND NOT r."isSystem"
+ON CONFLICT ("roleId", "menu") DO NOTHING;
+INSERT INTO "RolePermission" ("roleId", "menu", "actions")
+SELECT r."id", 'etms_passengers', ARRAY['view', 'edit']
+FROM "Role" r
+WHERE r."name" = 'Transport dispatcher' AND r."description" = 'Employee transport: dispatcher for assigned branches / sites'
+  AND r."dataScope" = 'ASSIGNED' AND NOT r."isSystem"
+ON CONFLICT ("roleId", "menu") DO NOTHING;
+-- ETMS-E2-BACKFILL-END

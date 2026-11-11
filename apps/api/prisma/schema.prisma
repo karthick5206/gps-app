@@ -2951,6 +2951,7 @@ model EmployeeTransportProfile {
   officePoi   Poi?                       @relation("TransportProfileOffice", fields: [officePoiId], references: [id], onDelete: SetNull)
   defaultStop Poi?                       @relation("TransportProfileStop", fields: [defaultStopPoiId], references: [id], onDelete: SetNull)
   consents    EmployeeTransportConsent[]
+  notices     TransportPassengerNotice[]
 
   @@unique([companyId, employeeCode])
   @@unique([id, companyId])
@@ -2962,6 +2963,9 @@ model EmployeeTransportProfile {
 /// consent per purpose is the latest row. Composite FK (profileId, companyId) → profile (id, companyId), Restrict, row id
 /// first (doc 15 §1.2): an application never hard-deletes consent evidence, a company purge still deletes it. No FK on
 /// companyId (logical key) and none to User (a user purge leaves the evidence). PD class M.
+/// Raw SQL (security review M2 / L9): CHECK an ADMIN_ON_BEHALF row is a withdrawal and an ADMIN_RECORDED_OFFLINE row a
+/// grant with evidenceRef + note; trigger "etms_evidence_guard" rejects UPDATE / DELETE except inside a transaction that
+/// set veetrax.evidence_write = 'erasure' (UPDATE: identity removal) or 'purge' (DELETE: company purge).
 model EmployeeTransportConsent {
   id            String   @id @default(uuid()) @db.Uuid
   companyId     String   @db.Uuid
@@ -2976,8 +2980,12 @@ model EmployeeTransportConsent {
   locale        String?
   /// false = withdrawal row.
   granted       Boolean
-  /// WEB | PASSENGER_APP | ADMIN_ON_BEHALF.
+  /// WEB | PASSENGER_APP (own session) | ADMIN_ON_BEHALF (admin withdrawal) | ADMIN_RECORDED_OFFLINE (admin-recorded offline grant).
   channel       String
+  /// ADMIN_RECORDED_OFFLINE: paper form id or similar (required by CHECK).
+  evidenceRef   String?
+  /// ADMIN_RECORDED_OFFLINE: the admin's note (required by CHECK; "[erased]" after a data-subject erasure).
+  note          String?
   appVersion    String?
   ip            String?
   occurredAt    DateTime @default(now()) @db.Timestamptz(3)
@@ -2991,6 +2999,7 @@ model EmployeeTransportConsent {
 /// reads before granting a purpose. Immutable rows, one per (company, purpose, seq); a change publishes the next version
 /// (version = "v" + seq). Current notice = highest seq whose effectiveFrom has passed. Consent rows store the version
 /// string (EmployeeTransportConsent.noticeVersion). FK companyId → Company Restrict (a company purge walks it). PD class L.
+/// Raw SQL: trigger "etms_evidence_guard" rejects UPDATE / DELETE outside a purge.
 model TransportConsentNotice {
   id            String   @id @default(uuid()) @db.Uuid
   companyId     String   @db.Uuid
@@ -3008,6 +3017,28 @@ model TransportConsentNotice {
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
   @@unique([companyId, purpose, seq])
+}
+
+/// In-app notice to a passenger about a change someone else made (security review M1 / M2): consent recorded offline or
+/// withdrawn by the admin, login password set, reset issued, login disabled. The E2 notification intent: no SMS / mail
+/// provider is used, channel is always IN_APP. Composite FK (profileId, companyId) → profile, Cascade, row id first (doc
+/// 15 §1.4); no FK on companyId (logical key) or userId. Deleted by a data-subject erasure. PD class L.
+model TransportPassengerNotice {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  profileId String   @db.Uuid
+  /// The passenger's login at the time (no FK).
+  userId    String?  @db.Uuid
+  /// PassengerNoticeKind (open set).
+  kind      String
+  channel   String   @default("IN_APP")
+  /// purpose / noticeVersion / evidenceRef …; nothing personal.
+  details   Json     @default("{}")
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  profile EmployeeTransportProfile @relation(fields: [profileId, companyId], references: [id, companyId], onDelete: Cascade)
+
+  @@index([profileId, createdAt(sort: Desc)])
 }
 
 /// Passenger capacity of an operator's vehicle (side table, doc 15 §4.3 / §7.3; FuelConfig pattern): FK Cascade on the

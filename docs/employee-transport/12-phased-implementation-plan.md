@@ -142,9 +142,9 @@ shuttle stops as `Poi`; driver login link.
 | 2.1 | Passenger API + projections + import preview / commit (10k rows), geocoding via `GeocodingService.search` (Photon), "Needs location" queue | after 2.0 |
 | 2.2 | Web: passengers `MasterPage`, `PassengerImportDialog`, passenger editor (`RouteEditor` shell, `PlaceSearch`, draggable home pin, masked fields) | after 2.0 contracts; parallel with 2.1 against mocked contracts |
 | 2.3 | App-access invite: `User` with Passenger role in the customer company, `IDENTITY_IN_USE` handling (D5), invite via configured channel or manual code | after 2.1 |
-| 2.4 | Vehicle profile (seats) tab on Vehicles; driver login link on Drivers | after 2.0; parallel |
-| 2.5 | Synthetic data generator `apps/api/scripts/etms-synth/` (seeded, `11` §6): sites, homes, passengers, fleets, shifts | parallel from E1a |
-| 2.6 | Erasure / anonymisation routine design + purge tests for the new tables (`03` §4) | after 2.0 |
+| 2.4 | Vehicle profile (seats) tab on Vehicles; driver login link on Drivers | after 2.0; parallel. **As built:** seats page `/transport/vehicles`, linked from Vehicles & Objects ("Passenger seats", fleet `objects:edit`) and Passengers; driver login on Drivers. Seats and driver logins stay on the fleet grants (`objects` / `drivers` edit), not on the Transport admin template: a provider operator needs a fleet role (L13, owner decision pending) |
+| 2.5 | Synthetic data generator `apps/api/scripts/etms-synth/` (seeded, `11` §6): sites, homes, passengers, fleets, shifts | parallel from E1a. **As built:** `apps/api/scripts/etms-synthetic-people.ts` (passengers + home pins in Chennai / Bengaluru / Austin / Columbus, offices, shift windows; +91 00000… / +1 555-01… phones, @synthetic.example) |
+| 2.6 | Erasure / anonymisation routine design + purge tests for the new tables (`03` §4) | after 2.0. **As built:** "Erase personal data" (L5 default, pending owner confirmation), DB-tested with the evidence trigger |
 
 **Dependencies:** E1a. **Exit criteria (plan §17 E2):** re-importing the same 10k file creates 0 new rows; unique
 constraints tested; vehicle capacity and ownership have unit + DB tests; import ≤ 60 s for 10k rows on the test

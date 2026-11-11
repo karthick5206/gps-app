@@ -343,7 +343,7 @@ export function PassengerImportDialog({ open, onOpenChange }: { open: boolean; o
                       <TableHead className="w-14">{t('Row')}</TableHead>
                       <TableHead>{t('Employee')}</TableHead>
                       <TableHead>{t('Result')}</TableHead>
-                      <TableHead>{t('Issues')}</TableHead>
+                      <TableHead className="hidden sm:table-cell">{t('Issues')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -485,14 +485,28 @@ function PreviewRow({ row, canImport, checked, onToggle }: { row: PassengerImpor
         {canImport && <Checkbox checked={checked} onCheckedChange={(v) => onToggle(!!v)} aria-label={t('Import row {{n}}', { n: row.row })} />}
       </TableCell>
       <TableCell className="tabular-nums">{row.row}</TableCell>
-      <TableCell>
+      <TableCell className="min-w-0">
         <span className="block font-medium">{row.displayName || '—'}</span>
         <span className="font-mono text-xs text-muted-foreground">{row.employeeCode || '—'}</span>
+        {/* QA B10: on a phone the issues are stacked under the employee, so the reason a row failed is never off-screen. */}
+        <div className="mt-1 text-xs whitespace-normal sm:hidden">
+          <RowIssues row={row} />
+        </div>
       </TableCell>
       <TableCell>
         <Badge variant={meta.tone}>{t(meta.label)}</Badge>
       </TableCell>
-      <TableCell className="min-w-[14rem] text-xs">
+      <TableCell className="hidden min-w-[14rem] text-xs sm:table-cell">
+        <RowIssues row={row} />
+      </TableCell>
+    </TableRow>
+  );
+}
+
+/** Errors, warnings and the geocode match of one preview row. */
+function RowIssues({ row }: { row: PassengerImportRowResult }) {
+  const { t } = useTranslation();
+  return (
         <ul className="space-y-0.5">
           {row.errors.map((e, i) => (
             <li key={`e${i}`} className="text-destructive">
@@ -515,7 +529,5 @@ function PreviewRow({ row, canImport, checked, onToggle }: { row: PassengerImpor
           )}
           {!row.errors.length && !row.warnings.length && !row.geocode && <li className="text-muted-foreground">—</li>}
         </ul>
-      </TableCell>
-    </TableRow>
   );
 }

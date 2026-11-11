@@ -81,8 +81,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
       const b = body as Record<string, unknown>;
       if (typeof b.code === 'string') extra.code = b.code;
       if (typeof b.licenceType === 'string') extra.licenceType = b.licenceType;
-      // ETMS details clients act on (doc 05 §4): the current version on VERSION_CONFLICT, the wait on RATE_LIMITED.
-      if (transport && typeof b.currentVersion === 'number') extra.currentVersion = b.currentVersion;
+      // ETMS details clients act on (doc 05 §4): the current version on VERSION_CONFLICT (a number) and on
+      // CONSENT_NOTICE_OUTDATED (the notice version string, also on the passenger's /api/me/transport routes), the wait on RATE_LIMITED.
+      const etmsSelf = /^\/api\/me\/transport(\/|$|\?)/.test(req?.originalUrl ?? req?.url ?? '');
+      if ((transport || etmsSelf) && (typeof b.currentVersion === 'number' || typeof b.currentVersion === 'string')) extra.currentVersion = b.currentVersion;
       if (transport && typeof b.retryAfterSec === 'number') {
         extra.retryAfterSec = b.retryAfterSec;
         res.setHeader?.('Retry-After', String(b.retryAfterSec));

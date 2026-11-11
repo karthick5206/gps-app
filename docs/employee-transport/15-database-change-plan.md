@@ -264,6 +264,18 @@ Name per `02` §3.1 (Agent 1's table, Agent 6's purposes).
   logical key (no FK on `companyId` itself) → deleted. User purge → untouched (no FK to `User`).
 - **PD:** M. **Retention:** life of account + statutory period (L3). **State:** append-only rows; current consent =
   latest row per purpose.
+- **E2 security review (migration amended before it shipped, 2026-11-11):** columns `evidenceRef`, `note`; CHECKs
+  `EmployeeTransportConsent_on_behalf_check` (an `ADMIN_ON_BEHALF` row is a withdrawal) and
+  `EmployeeTransportConsent_offline_evidence_check` (an `ADMIN_RECORDED_OFFLINE` row is a grant with evidence + note);
+  trigger `etms_evidence_guard` on this table and `TransportConsentNotice`: UPDATE / DELETE refused unless the
+  transaction ran `SET LOCAL veetrax.evidence_write = 'erasure'` (UPDATE only: data-subject erasure removes subject,
+  actor, IP, app version, note) or `'purge'` (DELETE only: `PurgeService` sets it for every purge). New table
+  `TransportPassengerNotice` (in-app notification intent; composite FK `(profileId, companyId)` → profile, Cascade;
+  companyId logical key; deleted by erasure). Data-subject erasure (L5 default, **pending owner confirmation of L5**):
+  profile anonymised in place (`anonymisedAt` set), consent rows kept without identity, the passenger's audit entries
+  kept with identifying values replaced by `[erased]`, login disabled + unlinked (a transport-only User anonymised).
+  Composite tenant FKs are used where §1.4 asks (ETMS → ETMS); references into existing tables stay simple FKs +
+  service checks (§1.4), incl. `TransportVehicleProfile.companyId` (set from the vehicle).
 
 ### 4.3 `TransportVehicleProfile` (operator-owned side table)
 

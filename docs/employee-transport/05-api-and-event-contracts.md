@@ -58,6 +58,9 @@ Phase column = first phase that ships the route (`12`). "Perm" = `menu:action`.
 | `DELETE /api/transport/passengers/:id/app-access?mode=disable\|unlink` | `etms_passengers:edit` | `disable` (default): transport role removed, or `User.isActive=false` when it has no other role; link kept. `unlink`: the same, then `profile.userId` cleared. The User is never deleted | E2 |
 | `GET /api/transport/passengers/:id/consents` | `etms_passengers:view` | Consent history (read-only) | E2 |
 | `GET /api/transport/passengers/:id/history` | `etms_passengers:view` | Audit trail redacted per projection (home / health / emergency values never shown; STANDARD without home fields; MINIMAL fields only for providers); audited read | E2 |
+| `POST /api/transport/passengers/:id/app-access/reset` | `etms_passengers:edit` | One-time reset token for an existing login (security review M1): the admin hands it over, the person sets their own password at `/reset-password`. An admin-chosen password only for a login that never signed in and has none (else 409 `PASSWORD_RESET_REQUIRED`); another contact on a linked login → 409 `LOGIN_ALREADY_LINKED`. Same on `POST /api/drivers/:id/login/reset` (`drivers:edit`) | E2 |
+| `POST /api/transport/passengers/:id/erase` | `etms_passengers:delete`, FULL only | "Erase personal data" of an archived passenger, body `{ confirm: <employee code> }`; L5 default (pending owner confirmation): anonymise in place, keep statistics and consent history without identity, disable + unlink the login (M5) | E2 |
+| `GET /api/me/transport/notices` | `etms_self:view` | In-app notices to the passenger about changes someone else made (consent recorded offline / withdrawn by the admin, login password / reset / disable). The E2 notification intent: no SMS / mail provider | E2 |
 | `GET /api/transport/consent-notices` · `POST` | `etms_settings:view` or `etms_passengers:view` / `etms_settings:edit` (whole company) | Company-level versioned consent notice per purpose (`10` §4.2); grants record the current version (409 `CONSENT_NOTICE_MISSING` / `CONSENT_NOTICE_OUTDATED`) | E2 |
 
 ### 2.3 Fleet, drivers, stops
@@ -423,7 +426,7 @@ C create, E edit, D delete / cancel, X export, A acknowledge / approve, O overri
 | Company feature `etms`, role templates | V/E PLAT | V | — | — | — | — |
 | Service agreement | V/E PLAT (reason) | V/A/suspend COMPANY [E1b] | V COMPANY | — | — | V/C(draft)/A COMPANY |
 | Employee transport profile (PII) | V PLAT (reason, `ACCESS` audit) | V/C/E/D/X COMPANY (FULL) | V/E SITE (home address masked) | V/E OWN | V ASSIGNED: first name, pickup point, trip window only | V AGR(`VIEW_PASSENGER_MINIMAL`), MINIMAL |
-| Consent records | V PLAT (reason) | V COMPANY | — | V/C (grant / withdraw) OWN | — | — |
+| Consent records | V PLAT (reason) | V COMPANY; withdraw on behalf, or record an offline grant with evidence (E2 security review M2) | — | V/C (grant / withdraw) OWN | — | — |
 | Shift / recurring schedule | V PLAT | V/C/E/D COMPANY | V/C/E/D SITE | V OWN [E5: C/E/D exceptions OWN] | — | V AGR(`MANAGE_SCHEDULES`) |
 | Booking | V PLAT | V/C/E/D/X COMPANY | V/C/E/D SITE | V OWN [E5: C/D OWN within policy] | — | V/X AGR(`VIEW_BOOKINGS`) |
 | Dispatch change set / publish / trip progression | — (support only via audited company switch) | V/E/O COMPANY | V/E SITE (`etms_dispatch:command` to publish / progress) | — | — | V/E AGR(`MANAGE_DISPATCH`) |
