@@ -35,9 +35,12 @@ export function selfHostedStyles(base: string): Required<BasemapUrls> {
   };
 }
 
-/** Site of a self-hosted style URL (`<site>/tiles/styles/<name>.json`), or null for any other URL. */
+/**
+ * Site of a self-hosted style URL (`<site>/tiles/styles/<name>.json`, optionally with `?query` / `#fragment`, e.g. a
+ * cache buster), or null for any other URL.
+ */
 export function selfHostedSite(styleUrl: string): string | null {
-  const m = /^(.*)\/tiles\/styles\/[^/?#]+$/.exec(styleUrl);
+  const m = /^(.*?)\/tiles\/styles\/[^/?#]+(?:[?#].*)?$/.exec(styleUrl);
   return m ? m[1] : null;
 }
 

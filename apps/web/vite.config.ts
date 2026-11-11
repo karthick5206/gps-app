@@ -27,6 +27,9 @@ export default defineConfig({
     },
   },
   build: {
+    // release.sh builds into a side folder (VEETRAX_WEB_OUTDIR=dist.next), checks it, then swaps it in for the live
+    // dist; scripts/check-no-external-maps.mjs reads the same variable.
+    outDir: process.env.VEETRAX_WEB_OUTDIR?.trim() || 'dist',
     // maplibre-gl alone is ~800 kB minified and is already isolated in the lazily loaded live-map chunk.
     chunkSizeWarningLimit: 1100,
   },

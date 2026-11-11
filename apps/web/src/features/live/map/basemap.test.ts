@@ -86,3 +86,49 @@ test('build-check matcher: flags outside map hosts, allows attribution and the O
     assert.deepEqual(findExternalMapHosts(ok), [], ok);
   }
 });
+
+test('build-check matcher: India and other commercial map hosts, Google embeds, and unknown hosts serving map files', () => {
+  for (const bad of [
+    'https://api.olamaps.io/tiles/vector/v1/styles/default-light-standard/style.json', // Ola Maps
+    'https://apis.mappls.com/advancedmaps/api/k/map_sdk?layer=vector', // Mappls (MapmyIndia)
+    'https://apis.mapmyindia.com/advancedmaps/v1/k/still_image', // MapmyIndia
+    'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf', // Protomaps public assets
+    'https://build.protomaps.com/20251101.pmtiles',
+    'https://tiles.versatiles.org/assets/styles/colorful/style.json', // VersaTiles
+    'https://maps.geoapify.com/v1/styles/osm-bright/style.json?apiKey=k', // Geoapify
+    'https://tiles.stadiamaps.com/styles/alidade_smooth.json', // Stadia
+    'https://tile.thunderforest.com/transport/{z}/{x}/{y}.png', // Thunderforest
+    'https://vector.hereapi.com/v2/vectortiles/base/mc/{z}/{x}/{y}/omv', // HERE
+    'https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png', // TomTom
+    'https://mapbox.com/', // bare Mapbox host
+    'src={`https://www.google.com/maps?q=${lat},${lng}&output=embed`}', // Google iframe embed behind the O9 prefix
+    'https://www.google.com/maps/embed/v1/place?key=k&q=Chennai',
+    'https://tiles.example.net/data/{z}/{x}/{y}.pbf', // unknown host: tile template
+    'https://cdn.example.org/glyphs/{fontstack}/{range}.pbf', // unknown host: glyphs
+    'https://maps.example.in/styles/basic/style.json', // unknown host: style
+    'https://maps.example.in/sprites/basic/sprite@2x.png', // unknown host: sprite
+  ]) {
+    assert.ok(findExternalMapHosts(`const u = "${bad}";`).length > 0, bad);
+  }
+  // Our own sites, same-origin paths, loopback and non-map outside links stay allowed.
+  for (const ok of [
+    'https://app.veetrax.com/tiles/india/{z}/{x}/{y}',
+    'https://app.veetrax.com/tiles/fonts/{fontstack}/{range}.pbf',
+    'https://us.veetrax.com/tiles/styles/dark.json?v=2',
+    '`${b}/tiles/india/{z}/{x}/{y}` `${b}/tiles/fonts/{fontstack}/{range}.pbf`',
+    'http://localhost:8099/tiles/styles/liberty.json http://127.0.0.1:3000/india/{z}/{x}/{y}',
+    'https://checkout.razorpay.com/v1/checkout.js https://wa.me/?text=hi https://play.google.com/store/apps/details?id=x',
+    'href={`https://www.google.com/maps?q=${fix.lat},${fix.lng}`}', // O9 link without embed
+    'There is no road here.', // the word "here" is not the HERE host
+  ]) {
+    assert.deepEqual(findExternalMapHosts(ok), [], ok);
+  }
+});
+
+test('selfHostedSite tolerates a query string or fragment on the style URL', () => {
+  assert.equal(selfHostedSite(`${SITE}/tiles/styles/liberty.json?v=2`), SITE);
+  assert.equal(selfHostedSite(`${SITE}/tiles/styles/liberty.json#x`), SITE);
+  assert.equal(selfHostedSite('https://maps.example.com/styles/liberty.json?v=2'), null);
+  const s = basemapStyle('satellite', 'light', SAT, { standard: `${SITE}/tiles/styles/liberty.json?v=2`, light: 'x', dark: 'y' }) as { glyphs: string };
+  assert.equal(s.glyphs, `${SITE}/tiles/fonts/{fontstack}/{range}.pbf`);
+});

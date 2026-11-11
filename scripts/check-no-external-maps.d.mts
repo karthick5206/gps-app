@@ -2,3 +2,4 @@
 export declare const RULES: ReadonlyArray<readonly [string, RegExp]>;
 export declare const EXEMPT: readonly RegExp[];
 export declare function findExternalMapHosts(text: string): { rule: string; index: number; excerpt: string }[];
+export declare const ALLOWED_MAP_HOSTS: readonly RegExp[];
