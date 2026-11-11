@@ -1,0 +1,21 @@
+{
+  "id": "24-narrow-lanes-small-vehicles-only",
+  "description": "IN, 40% of homes allow only car4/suv6",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 124,
+    "direction": "IN",
+    "passengers": 40,
+    "fleet": {
+      "4": 3,
+      "6": 3,
+      "12": 2,
+      "26": 1
+    },
+    "narrowShare": 0.4,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 378404
+  }
+}

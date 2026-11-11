@@ -1,0 +1,27 @@
+{
+  "id": "21-requires-escort-none-available",
+  "description": "OUT, 3 passengers need an escort vehicle, fleet has none",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 121,
+    "direction": "OUT",
+    "passengers": 15,
+    "groupShare": 0,
+    "fleet": {
+      "6": 3
+    },
+    "requiresEscort": 3,
+    "timeLimitS": 5
+  },
+  "expect": {
+    "minUnassigned": 3,
+    "maxUnassigned": 3,
+    "requireCodes": [
+      "SAFETY_RULE"
+    ],
+    "allowedCodes": [
+      "SAFETY_RULE"
+    ],
+    "objectiveBound": 90363
+  }
+}

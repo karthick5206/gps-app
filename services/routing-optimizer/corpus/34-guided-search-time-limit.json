@@ -1,0 +1,21 @@
+{
+  "id": "34-guided-search-time-limit",
+  "description": "IN, 100 passengers, guided local search to the time limit",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 134,
+    "direction": "IN",
+    "passengers": 100,
+    "depots": 2,
+    "fleet": {
+      "4": 4,
+      "6": 5,
+      "12": 5
+    },
+    "search": "guided",
+    "timeLimitS": 8
+  },
+  "expect": {
+    "objectiveBound": 676217
+  }
+}

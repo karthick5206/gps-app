@@ -1,0 +1,20 @@
+{
+  "id": "22-pinned-assignments",
+  "description": "IN, 30 passengers, 6 pinned to vehicles (keep this assignment)",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 122,
+    "direction": "IN",
+    "passengers": 30,
+    "fleet": {
+      "4": 2,
+      "6": 3,
+      "12": 1
+    },
+    "pinned": 6,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 367180
+  }
+}

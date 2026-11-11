@@ -1,0 +1,21 @@
+{
+  "id": "08-out-large",
+  "description": "OUT, 120 passengers, 4/6/12/26 fleet, three garages",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 108,
+    "direction": "OUT",
+    "passengers": 120,
+    "depots": 3,
+    "fleet": {
+      "4": 4,
+      "6": 5,
+      "12": 6,
+      "26": 3
+    },
+    "timeLimitS": 20
+  },
+  "expect": {
+    "objectiveBound": 481319
+  }
+}

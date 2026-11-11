@@ -1,0 +1,21 @@
+{
+  "id": "29-partial-fleet-availability",
+  "description": "IN, 3 of 12 vehicles available only after the shift",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 129,
+    "direction": "IN",
+    "passengers": 40,
+    "fleet": {
+      "4": 3,
+      "6": 4,
+      "12": 5
+    },
+    "lateVehicles": 3,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "minUnusableVehicles": 3,
+    "objectiveBound": 347008
+  }
+}

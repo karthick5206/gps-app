@@ -1,0 +1,22 @@
+{
+  "id": "09-in-xl-200x25",
+  "description": "IN, 200 passengers, 25 vehicles 4/6/12/26/40",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 109,
+    "direction": "IN",
+    "passengers": 200,
+    "depots": 3,
+    "fleet": {
+      "4": 5,
+      "6": 6,
+      "12": 7,
+      "26": 4,
+      "40": 3
+    },
+    "timeLimitS": 30
+  },
+  "expect": {
+    "objectiveBound": 792305
+  }
+}

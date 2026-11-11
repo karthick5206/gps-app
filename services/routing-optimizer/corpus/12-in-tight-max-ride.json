@@ -1,0 +1,28 @@
+{
+  "id": "12-in-tight-max-ride",
+  "description": "IN, 40 passengers, 35-minute max ride: far homes reported",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 112,
+    "direction": "IN",
+    "passengers": 40,
+    "fleet": {
+      "4": 6,
+      "6": 6
+    },
+    "maxRideS": 2100,
+    "radiusKm": 16,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "maxUnassigned": 40,
+    "requireCodes": [
+      "MAX_RIDE_UNACHIEVABLE"
+    ],
+    "allowedCodes": [
+      "MAX_RIDE_UNACHIEVABLE",
+      "NOT_SCHEDULED"
+    ],
+    "objectiveBound": 433827
+  }
+}

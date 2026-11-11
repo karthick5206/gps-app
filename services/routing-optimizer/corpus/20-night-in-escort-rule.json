@@ -1,0 +1,22 @@
+{
+  "id": "20-night-in-escort-rule",
+  "description": "IN night pickup, 30% flagged passengers (no first pickup without escort), 2 escort vehicles",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 120,
+    "direction": "IN",
+    "passengers": 40,
+    "shiftS": 21600,
+    "fleet": {
+      "4": 3,
+      "6": 4,
+      "12": 2
+    },
+    "flaggedShare": 0.3,
+    "escortVehicles": 2,
+    "timeLimitS": 10
+  },
+  "expect": {
+    "objectiveBound": 376142
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "18-wheelchair-no-accessible-vehicle",
+  "description": "OUT, 2 wheelchair users and no accessible vehicle",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 118,
+    "direction": "OUT",
+    "passengers": 15,
+    "groupShare": 0,
+    "fleet": {
+      "6": 3
+    },
+    "wheelchair": 2,
+    "timeLimitS": 5
+  },
+  "expect": {
+    "minUnassigned": 2,
+    "maxUnassigned": 2,
+    "requireCodes": [
+      "NO_COMPATIBLE_VEHICLE"
+    ],
+    "allowedCodes": [
+      "NO_COMPATIBLE_VEHICLE"
+    ],
+    "objectiveBound": 158364
+  }
+}
