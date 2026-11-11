@@ -61,6 +61,8 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   stock: page(() => import('@/features/stock/StockPage'), 'StockPage'),
   geofences: page(() => import('@/features/geofences/GeofencesPage'), 'GeofencesPage'),
   pois: page(() => import('@/features/pois/PoisPage'), 'PoisPage'),
+  routes: page(() => import('@/features/routes/RoutesPage'), 'RoutesPage'),
+  plannedTrips: page(() => import('@/features/planned-trips/PlannedTripsPage'), 'PlannedTripsPage'),
   alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
   message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };

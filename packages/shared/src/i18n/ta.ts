@@ -1131,6 +1131,8 @@ export const TA: Record<string, string> = {
   'Geofence summary': 'ஜியோஃபென்ஸ் சுருக்கம்',
   'Geofence visits': 'ஜியோஃபென்ஸ் வருகைகள்',
   'Geofences': 'ஜியோஃபென்ஸ்கள்',
+  'Routes': 'வழித்தடங்கள்',
+  'Planned trips': 'திட்டமிட்ட பயணங்கள்',
   'Geofences only': 'ஜியோஃபென்ஸ்கள் மட்டும்',
   'GeoJSON': 'GeoJSON',
   'GeoJSON FeatureCollection (Polygon features, or Point features with a': 'GeoJSON FeatureCollection (Polygon அம்சங்கள், அல்லது Point அம்சங்கள் உடன்',

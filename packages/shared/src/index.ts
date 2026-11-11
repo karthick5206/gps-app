@@ -39,3 +39,4 @@ export * from './inventory';
 export * from './sim';
 export * from './report-insights';
 export * from './messaging';
+export * from './planned-trips';

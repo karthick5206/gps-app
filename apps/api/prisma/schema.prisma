@@ -2625,3 +2625,176 @@ model MessagingSettings {
   arattaiLastError      String?
   updatedAt             DateTime  @updatedAt
 }
+
+// ───────────── Routes & planned trips (module RTE, docs/routes-trips/SPEC.md) ─────────────
+// Not the automatic Trip / Stop of the summarizer: a planned trip follows a Route and holds a snapshot of it.
+
+enum PlannedTripStatus {
+  SCHEDULED
+  STARTED
+  IN_PROGRESS
+  COMPLETED
+  INCOMPLETE
+  CANCELLED
+}
+
+enum PlannedStopStatus {
+  PENDING
+  ARRIVED
+  DEPARTED
+  SKIPPED
+}
+
+/// Reusable plan: ordered stops with planned times relative to the trip start, a road path and a deviation corridor.
+model Route {
+  id          String          @id @default(uuid()) @db.Uuid
+  companyId   String          @db.Uuid
+  branchId    String?         @db.Uuid
+  name        String
+  code        String?
+  description String?
+  /// Half-width (m) of the deviation corridor around `path`.
+  corridorM   Int             @default(200)
+  /// [[lng,lat], ...] along roads from the routing engine; null = straight lines between stops.
+  path        Json?
+  /// Of `path` (m).
+  distanceM   Int?
+  /// Routing-engine driving time (s, no waits).
+  durationSec Int?
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @db.Timestamptz(3)
+  stops       RouteStop[]
+  schedules   RouteSchedule[]
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+}
+
+model RouteStop {
+  id         String  @id @default(uuid()) @db.Uuid
+  routeId    String  @db.Uuid
+  route      Route   @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  /// 0 = start, last = end.
+  seq        Int
+  name       String
+  lat        Float
+  lng        Float
+  /// Arrival radius (m).
+  radiusM    Int     @default(100)
+  /// Planned arrival, minutes after the trip's planned start (start stop: 0).
+  offsetMin  Int     @default(0)
+  /// Planned dwell (min); planned departure = arrival + wait.
+  waitMin    Int     @default(0)
+  /// Optional: stop taken from a geofence / place.
+  geofenceId String? @db.Uuid
+
+  @@unique([routeId, seq])
+}
+
+/// Days of the week + local start time; generates planned trips (API generator, next 24 h).
+model RouteSchedule {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @db.Uuid
+  routeId   String    @db.Uuid
+  route     Route     @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  /// 0 = Sunday … 6 = Saturday (company timezone).
+  days      Int[]
+  /// Local minutes after midnight.
+  startMin  Int
+  /// Default vehicle (required to generate).
+  objectId  String?   @db.Uuid
+  /// Default driver.
+  driverId  String?   @db.Uuid
+  validFrom DateTime? @db.Date
+  validTo   DateTime? @db.Date
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([companyId, isActive])
+}
+
+/// Driver + vehicle + route + planned start; holds a snapshot of the route so editing the route never alters it.
+model PlannedTrip {
+  id             String             @id @default(uuid()) @db.Uuid
+  companyId      String             @db.Uuid
+  branchId       String?            @db.Uuid
+  routeId        String             @db.Uuid
+  scheduleId     String?            @db.Uuid
+  objectId       String             @db.Uuid
+  driverId       String?            @db.Uuid
+  /// Snapshot.
+  routeName      String
+  /// Snapshot.
+  corridorM      Int
+  /// Snapshot [[lng,lat], ...].
+  path           Json?
+  plannedStart   DateTime           @db.Timestamptz(3)
+  /// Last stop's planned arrival.
+  plannedEnd     DateTime           @db.Timestamptz(3)
+  status         PlannedTripStatus  @default(SCHEDULED)
+  actualStart    DateTime?          @db.Timestamptz(3)
+  actualEnd      DateTime?          @db.Timestamptz(3)
+  /// AUTO | MANUAL | TIMEOUT
+  closedBy       String?
+  cancelReason   String?
+  notes          String?
+  /// Actual, start → end.
+  distanceKm     Float?
+  deviationCount Int                @default(0)
+  maxDeviationM  Int?
+  /// Live: next stop not yet arrived.
+  nextStopSeq    Int?
+  /// Live.
+  etaNextStop    DateTime?          @db.Timestamptz(3)
+  /// Live / final: latest known delay vs plan (s, + late, − early).
+  delaySec       Int?
+  createdById    String?            @db.Uuid
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+  stops          PlannedTripStop[]
+  events         PlannedTripEvent[]
+
+  @@unique([scheduleId, plannedStart])
+  @@index([companyId, plannedStart])
+  @@index([objectId, status])
+  @@index([routeId, plannedStart])
+}
+
+model PlannedTripStop {
+  id               String            @id @default(uuid()) @db.Uuid
+  tripId           String            @db.Uuid
+  trip             PlannedTrip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  seq              Int
+  name             String
+  lat              Float
+  lng              Float
+  radiusM          Int
+  plannedArrival   DateTime          @db.Timestamptz(3)
+  plannedDeparture DateTime          @db.Timestamptz(3)
+  actualArrival    DateTime?         @db.Timestamptz(3)
+  actualDeparture  DateTime?         @db.Timestamptz(3)
+  status           PlannedStopStatus @default(PENDING)
+  /// actualArrival − plannedArrival (s).
+  delaySec         Int?
+
+  @@unique([tripId, seq])
+}
+
+/// Unscheduled stop or deviation episode recorded during a trip.
+model PlannedTripEvent {
+  id      String      @id @default(uuid()) @db.Uuid
+  tripId  String      @db.Uuid
+  trip    PlannedTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  /// UNSCHEDULED_STOP | DEVIATION
+  kind    String
+  startAt DateTime    @db.Timestamptz(3)
+  endAt   DateTime?   @db.Timestamptz(3)
+  lat     Float
+  lng     Float
+  /// DEVIATION: { maxM }, UNSCHEDULED_STOP: { durationSec }
+  data    Json?
+
+  @@index([tripId, startAt])
+}

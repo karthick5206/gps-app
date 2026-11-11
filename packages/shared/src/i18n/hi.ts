@@ -1131,6 +1131,8 @@ export const HI: Record<string, string> = {
   'Geofence summary': 'जियोफेंस सारांश',
   'Geofence visits': 'जियोफेंस विज़िट',
   'Geofences': 'जियोफेंस',
+  'Routes': 'मार्ग',
+  'Planned trips': 'नियोजित यात्राएँ',
   'Geofences only': 'केवल जियोफेंस',
   'GeoJSON': 'GeoJSON',
   'GeoJSON FeatureCollection (Polygon features, or Point features with a': 'GeoJSON FeatureCollection (Polygon फ़ीचर, या Point फ़ीचर जिनमें',
