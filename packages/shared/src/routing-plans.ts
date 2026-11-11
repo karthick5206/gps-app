@@ -23,8 +23,11 @@ import type {
 
 /**
  * `RoutePlan.options` keys written by the plans API and honoured by the optimiser (WP 4.2 worker): a locked route keeps
- * its stops and order, a pinned stop stays on its route at its position. Manual edits that would change a locked route
- * or move a pinned stop are refused (409 ROUTE_LOCKED / STOP_PINNED) until it is unlocked / unpinned.
+ * its stops and order (it is not re-solved); a pinned stop stays on its vehicle (solver `pinnedVehicleId`), but
+ * re-optimising may change its place in that vehicle's order (T2-D6: the solver has no position constraint, and a
+ * position is not well defined once the route gains or loses passengers; lock the route to keep an exact order).
+ * Manual edits that would change a locked route or move a pinned stop (to another route, out of every route or to
+ * another place in the order) are refused (409 ROUTE_LOCKED / STOP_PINNED) until it is unlocked / unpinned.
  */
 export interface RoutePlanLockOptions {
   lockedAssignmentIds?: string[];
@@ -90,6 +93,16 @@ export interface RoutePlanDetailDto extends Omit<RoutePlanDto, 'stops' | 'assign
   violations: RoutePlanStopViolation[];
   /** Stops without a route (with the optimiser's reason when it left them out). */
   unassigned: number;
+  /** Solver weights stored with the last optimisation (RoutePlan.options.weights); null before any (T2-L4: re-optimise prefills them). */
+  weights?: RoutePlanWeights | null;
+}
+
+/** The four explicit solver weights (OptimizeOptionsDto.weights). */
+export interface RoutePlanWeights {
+  vehicle: number;
+  distance: number;
+  time: number;
+  routeDuration: number;
 }
 
 // ───────────────────────────── manual edits (each with the version the client saw: 409 PLAN_STALE otherwise) ─────────────────────────────

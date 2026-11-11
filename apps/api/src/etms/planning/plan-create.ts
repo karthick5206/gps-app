@@ -81,7 +81,10 @@ export class RoutePlanCreateService {
     // Another company's site is a 404 before anything else (no hint that it exists).
     const site = await this.prisma.poi.findFirst({ where: { id: dto.sitePoiId, companyId: ctx.companyId }, select: { id: true, name: true, lat: true, lng: true } });
     if (!site) throw notFound('Site not found');
-    if (ctx.dataScope !== 'COMPANY' && (!dto.branchId || !ctx.branchIds.includes(dto.branchId))) throw invalid('Choose one of your branches for the plan');
+    // T2-D5: a branch-scoped caller with exactly one branch plans for that branch when none is named (the planner UI
+    // had no branch to send for such a user); with several branches the request must name one of them.
+    const branchId = dto.branchId ?? (ctx.dataScope !== 'COMPANY' && ctx.branchIds.length === 1 ? ctx.branchIds[0] : null);
+    if (ctx.dataScope !== 'COMPANY' && (!branchId || !ctx.branchIds.includes(branchId))) throw invalid('Choose one of your branches for the plan');
     if (dto.shiftId && !(await this.prisma.transportShift.findFirst({ where: { id: dto.shiftId, companyId: ctx.companyId }, select: { id: true } }))) throw notFound('Shift not found');
     const depot = dto.depot ? await this.depotPlace(ctx, dto.depot) : null;
     const objectIds = [...new Set(dto.objectIds)];
@@ -107,7 +110,7 @@ export class RoutePlanCreateService {
     // nor counted. `out_of_scope` only names bookings the caller can see that fall outside the plan's branch.
     const visible = bookings.filter((b) => inProfileBranch(ctx, b.profile.branchId));
     const inScope = visible.filter((b) => {
-      const ok = !dto.branchId || !b.profile.branchId || b.profile.branchId === dto.branchId;
+      const ok = !branchId || !b.profile.branchId || b.profile.branchId === branchId;
       if (!ok) skipped.push({ bookingId: b.id, reason: 'out_of_scope' });
       return ok;
     });
@@ -132,7 +135,7 @@ export class RoutePlanCreateService {
       const plan = await tx.routePlan.create({
         data: {
           companyId: ctx.companyId,
-          branchId: dto.branchId ?? null,
+          branchId,
           name: dto.name.trim(),
           planDate: dateOnly(dto.planDate),
           planStartAt: new Date(startMs),

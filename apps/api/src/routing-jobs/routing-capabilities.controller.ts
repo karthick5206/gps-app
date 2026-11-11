@@ -20,6 +20,7 @@ import { readMatrixConfig } from '../routing/matrix/matrix-config';
 import { OptimizerClient } from '../routing/optimizer/optimizer.client';
 import { ROUTING_PROVIDER, type RoutingProvider } from '../routing/provider/routing-provider';
 import { HEARTBEAT_TTL_SEC } from '../monitoring/heartbeat';
+import { PrismaService } from '../prisma/prisma.service';
 
 /** Capabilities plus the matrix limits and why the engine is unavailable (no host, URL or message is ever included). */
 export type RoutingCapabilitiesDto = RoutingCapabilities & {
@@ -38,6 +39,7 @@ export class RoutingCapabilitiesService {
     @Inject(ROUTING_PROVIDER) private readonly provider: RoutingProvider,
     private readonly optimizer: OptimizerClient,
     private readonly redis: RedisService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /** Live routing-worker processes: heartbeat keys `vt:health:proc:routing-worker:*` (TTL 20 s). */
@@ -63,9 +65,20 @@ export class RoutingCapabilitiesService {
       canPublish: can(ctx.permissions, ETMS_PLANNING_MENU, 'command') && can(ctx.permissions, 'etms_dispatch', 'command'),
       scope: ctx.dataScope === 'COMPANY' ? ('COMPANY' as const) : ('ASSIGNED' as const),
       support: false,
+      branches: await this.branches(ctx),
     };
     if (!this.cached || now - this.cached.at > CACHE_MS) this.cached = { at: now, value: await this.collect() };
     return { ...this.cached.value, access };
+  }
+
+  /**
+   * T2-D5: the branches a branch-scoped caller plans for (their own, ids and names; never another company's, even if
+   * the context named one). Whole-company roles need none, so none are listed.
+   */
+  private async branches(ctx: AuthContext): Promise<{ id: string; name: string }[]> {
+    if (ctx.dataScope === 'COMPANY' || !ctx.branchIds.length) return [];
+    const rows = await this.prisma.branch.findMany({ where: { companyId: ctx.companyId, id: { in: ctx.branchIds } }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    return rows.map((b) => ({ id: b.id, name: b.name }));
   }
 
   private async collect(): Promise<Omit<RoutingCapabilitiesDto, 'access'>> {

@@ -260,6 +260,11 @@ export class RoutePlansService {
       if (vehicle && plan.assignments.some((x) => x.id !== a.id && x.objectId === vehicle.id)) {
         throw planError(HttpStatus.CONFLICT, 'VEHICLE_DUPLICATE', 'This vehicle already drives another route of this plan');
       }
+      // T1-D5: likewise one driver cannot drive two routes of the same plan (publish refused it later as DRIVER_BUSY,
+      // naming the plan's own other route).
+      if (dto.driverId && plan.assignments.some((x) => x.id !== a.id && x.driverId === dto.driverId)) {
+        throw planError(HttpStatus.CONFLICT, 'DRIVER_DUPLICATE', 'This driver already drives another route of this plan');
+      }
       const data: Prisma.RouteAssignmentUncheckedUpdateInput = {};
       if (vehicle) Object.assign(data, { objectId: vehicle.id, vehicleLabel: vehicle.plateNumber ? `${vehicle.name} (${vehicle.plateNumber})`.slice(0, 120) : vehicle.name, capacity: vehicle.transportProfile?.seats ?? null });
       if (dto.driverId !== undefined) data.driverId = dto.driverId;
@@ -279,7 +284,11 @@ export class RoutePlansService {
     });
   }
 
-  /** Pin / unpin a stop (the optimiser keeps a pinned stop on its route at its position). */
+  /**
+   * Pin / unpin a stop. Re-optimising keeps a pinned stop on its vehicle (solver pinnedVehicleId); its place in the
+   * order may change (T2-D6: no solver position constraint; lock the route to keep the exact order). Manual edits never
+   * move a pinned stop (STOP_PINNED).
+   */
   async updateStop(ctx: AuthContext, id: string, stopId: string, dto: StopUpdateDto): Promise<RoutePlanEditResult> {
     return this.edit(ctx, id, dto.expectedVersion, async (plan, view) => {
       const s = plan.stops.find((x) => x.id === stopId);

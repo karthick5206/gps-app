@@ -16,6 +16,7 @@ import {
   type RoutingProfile,
   type TransportDirection,
 } from '@veetracer/shared';
+import { weightsOf } from '../../routing-jobs/prisma-plan-gateway';
 import { round } from '../dispatch/e3-common';
 import { PERSONAL_STOP_NAME } from '../dispatch/personal-points';
 import { routeStops, routeViolations, windowsOf, type RuleStop } from './plan-rules';
@@ -231,6 +232,8 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView): { dto: RoutePlanD
     editable: (ROUTE_PLAN_EDITABLE as readonly string[]).includes(p.status),
     violations: assignments.flatMap((a) => a.violations),
     unassigned: p.stops.filter((s) => !s.assignmentId).length,
+    // T2-L4: the weights the last optimisation ran with (options.weights), for re-optimise to prefill; never invented.
+    weights: weightsOf((p.options as { weights?: unknown } | null)?.weights) ?? null,
   };
   return { dto, shown: [...shown], named: [...named] };
 }

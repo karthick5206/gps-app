@@ -507,6 +507,12 @@ export interface RoutingAccess {
   scope: RoutingScope;
   /** Super Admin acting in another company: read-only, every request audited. */
   support: boolean;
+  /**
+   * Branches the caller may plan for (T2-D5): a branch-scoped (ASSIGNED) role's own branches, ids and names, nothing
+   * else; empty for whole-company roles (a plan needs no branch). A caller with exactly one branch may omit
+   * CreateRoutePlanRequest.branchId (the API uses that branch); with several the client must name one.
+   */
+  branches?: { id: string; name: string }[];
   reason?: string;
 }
 

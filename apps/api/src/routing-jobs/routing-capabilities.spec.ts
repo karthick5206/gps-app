@@ -11,7 +11,23 @@ function service(over: { reachable?: boolean; optimizer?: boolean; keys?: string
   const optimizer = { health: jest.fn(async () => over.optimizer ?? true) };
   const keys = over.keys ?? ['vt:health:proc:routing-worker:host-1', 'vt:health:proc:notifier:host-1'];
   const redis = { client: { zrangebyscore: jest.fn(async () => keys), exists: jest.fn(async () => 1) } };
-  return { svc: new RoutingCapabilitiesService(provider as never, optimizer as never, redis as never), provider, optimizer };
+  // Branch table (T2-D5): the capabilities list the caller's own branches only.
+  const branches = [
+    { id: 'b-n', companyId: 'c1', name: 'North' },
+    { id: 'b-s', companyId: 'c1', name: 'South' },
+    { id: 'b-x', companyId: 'c2', name: 'Other company' },
+  ];
+  const prisma = {
+    branch: {
+      findMany: jest.fn(async ({ where }: { where: { companyId: string; id: { in: string[] } } }) =>
+        branches
+          .filter((b) => b.companyId === where.companyId && where.id.in.includes(b.id))
+          .map(({ id, name }) => ({ id, name }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      ),
+    },
+  };
+  return { svc: new RoutingCapabilitiesService(provider as never, optimizer as never, redis as never, prisma as never), provider, optimizer, prisma };
 }
 
 describe('GET /api/routing/capabilities', () => {
@@ -48,5 +64,17 @@ describe('GET /api/routing/capabilities', () => {
     expect(provider.health).toHaveBeenCalledTimes(1);
     await svc.get(ctx, 20_000);
     expect(provider.health).toHaveBeenCalledTimes(2);
+  });
+
+  it('T2-D5: a branch-scoped caller gets their own branches (ids and names), never another company’s; whole-company callers none', async () => {
+    delete process.env.ETMS_ROUTING;
+    const { svc, prisma } = service();
+    const assigned = { ...ctx, dataScope: 'ASSIGNED', branchIds: ['b-s', 'b-n', 'b-x'] } as unknown as AuthContext;
+    expect((await svc.get(assigned)).access.branches).toEqual([
+      { id: 'b-n', name: 'North' },
+      { id: 'b-s', name: 'South' },
+    ]);
+    expect(prisma.branch.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { companyId: 'c1', id: { in: ['b-s', 'b-n', 'b-x'] } } }));
+    expect((await svc.get(ctx)).access.branches).toEqual([]);
   });
 });

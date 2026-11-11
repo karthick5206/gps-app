@@ -230,6 +230,7 @@ function e4Controllers(prisma: Obj, audit: AuditService, redis: object) {
     { health: async () => ({ reachable: false, checkedAt: new Date().toISOString(), degraded: 'ENGINE_DISABLED' }), capabilities: async () => ({ ok: false, degraded: 'ENGINE_DISABLED', message: 'off' }) } as never,
     { health: async () => false } as never,
     { client: { zrangebyscore: async () => [], exists: async () => 0 } } as never,
+    prisma as never,
   );
   return {
     plans: new RoutePlansController(plans),
