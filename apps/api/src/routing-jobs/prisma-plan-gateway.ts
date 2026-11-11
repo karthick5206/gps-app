@@ -129,6 +129,8 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     );
     const startMs = plan.planStartAt?.getTime() ?? null;
     const rel = (d: Date) => Math.max(0, Math.round((d.getTime() - (startMs as number)) / 1000));
+    // Trip mode (login / logout to one site) exactly as planPoints decides it.
+    const tripMode = !!plan.direction && !!plan.sitePoi;
 
     // Locks and pins (RoutePlan.options, written by the plans API): a locked route keeps its stops and order and is
     // not re-solved; a pinned stop stays on its current vehicle (solver pinnedVehicleId).
@@ -153,7 +155,11 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
       }
       const atSite = !!plan.sitePoiId && s.poiId === plan.sitePoiId;
       let tw = windowsOf(s.timeWindows);
-      if (!tw && booking && startMs !== null) tw = [[rel(booking.windowStart), rel(booking.windowEnd)]];
+      // The booking window is the SITE window (IN: arrival at the site, OUT: departure from it; doc 06 §4.2), so in trip
+      // mode it belongs to the site stop only. A passenger's own pickup (IN) / drop (OUT) gets no window from it: its
+      // time follows from the route and the max ride. Copying it there forced every pickup into the arrival window
+      // (T1 E2E defect T1-D1: 5 vans used where 2 suffice, longer rides refused).
+      if (!tw && booking && startMs !== null && (atSite || !tripMode)) tw = [[rel(booking.windowStart), rel(booking.windowEnd)]];
       stops.push({
         id: s.id,
         ref: s.ref,
