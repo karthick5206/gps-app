@@ -61,9 +61,14 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   stock: page(() => import('@/features/stock/StockPage'), 'StockPage'),
   geofences: page(() => import('@/features/geofences/GeofencesPage'), 'GeofencesPage'),
   pois: page(() => import('@/features/pois/PoisPage'), 'PoisPage'),
+  routes: page(() => import('@/features/routes/RoutesPage'), 'RoutesPage'),
+  plannedTrips: page(() => import('@/features/planned-trips/PlannedTripsPage'), 'PlannedTripsPage'),
   alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
   message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };
+
+/** Detail pages inside a menu (same permission as the menu). */
+const PlannedTripDetailPage = page(() => import('@/features/planned-trips/PlannedTripDetailPage'), 'PlannedTripDetailPage');
 
 function PageFallback() {
   return (
@@ -121,6 +126,16 @@ export const router = createBrowserRouter([
               ),
             };
           }),
+          {
+            path: '/planned-trips/:id',
+            element: (
+              <RequirePermission menu="plannedTrips">
+                <Suspense fallback={<PageFallback />}>
+                  <PlannedTripDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
           {
             path: '/claim',
             element: (

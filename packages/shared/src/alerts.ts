@@ -30,7 +30,7 @@ export interface AlertParamDef {
 export interface AlertTypeDef {
   code: AlertTypeCode;
   label: string;
-  category: 'Driving' | 'Driver safety' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety' | 'Compliance' | 'Sensors';
+  category: 'Driving' | 'Driver safety' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety' | 'Compliance' | 'Sensors' | 'Trips';
   /** Device-model capability required; null = any GPS device. */
   capability: string | null;
   defaultSeverity: AlertSeverity;
@@ -100,6 +100,11 @@ export const ALERT_TYPE_CODES = [
   'ATTENDANCE_ABSENT',
   'ATTENDANCE_LEFT_SITE',
   'ATTENDANCE_STILL_OUT',
+  'ROUTE_DEVIATION',
+  'TRIP_STOP_LATE',
+  'TRIP_STOP_SKIPPED',
+  'TRIP_NOT_STARTED',
+  'TRIP_COMPLETED',
 ] as const;
 export type AlertTypeCode = (typeof ALERT_TYPE_CODES)[number];
 
@@ -256,6 +261,24 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
     params: [{ key: 'speedKph', label: 'Alert when the door is open above', type: 'number', unit: 'km/h', default: 10, min: 1, max: 120 }],
     placeholders: [],
   },
+  // ── Planned trips (routes & planned trips, docs/routes-trips/SPEC.md §4.4; raised by the processor's trip tracker) ──
+  {
+    code: 'ROUTE_DEVIATION', label: 'Route deviation', category: 'Trips', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
+    params: [{ key: 'minDistanceM', label: 'Alert when off the planned path by more than', type: 'number', unit: 'm', default: null, min: 50, max: 10_000, hint: 'Empty = the route\'s corridor width' }],
+    placeholders: ['route', 'distance'],
+  },
+  {
+    code: 'TRIP_STOP_LATE', label: 'Late at trip stop', category: 'Trips', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
+    params: [{ key: 'lateMin', label: 'Alert when a stop is reached later than plan by more than', type: 'number', unit: 'min', default: 10, min: 1, max: 600 }],
+    placeholders: ['route', 'stop', 'delay'],
+  },
+  { code: 'TRIP_STOP_SKIPPED', label: 'Trip stop skipped', category: 'Trips', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: ['route', 'stop'] },
+  {
+    code: 'TRIP_NOT_STARTED', label: 'Trip not started', category: 'Trips', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
+    params: [{ key: 'graceMin', label: 'Alert when not started this long after the planned start', type: 'number', unit: 'min', default: 30, min: 5, max: 240 }],
+    placeholders: ['route', 'delay'],
+  },
+  { code: 'TRIP_COMPLETED', label: 'Trip completed', category: 'Trips', capability: null, defaultSeverity: 'INFO', defaultEnabled: false, mandatory: false, params: [], placeholders: ['route', 'delay'] },
 ];
 
 /** Catalogue default cooldown (minutes) per alert type when nothing is configured (shared by API and web). */
@@ -321,6 +344,12 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   DOOR_OPEN: 1,
   DOOR_CLOSED: 1,
   DOOR_OPEN_WHILE_MOVING: 5,
+  // Planned trips: cooldown keys are per trip (deviation) or per trip stop, so these only guard against repeats.
+  ROUTE_DEVIATION: 15,
+  TRIP_STOP_LATE: 0,
+  TRIP_STOP_SKIPPED: 0,
+  TRIP_NOT_STARTED: 0,
+  TRIP_COMPLETED: 0,
 };
 
 export const ALERT_TYPE_MAP: Record<AlertTypeCode, AlertTypeDef> = Object.fromEntries(ALERT_TYPES.map((t) => [t.code, t])) as Record<AlertTypeCode, AlertTypeDef>;

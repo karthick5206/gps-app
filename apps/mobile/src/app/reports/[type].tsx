@@ -8,6 +8,7 @@ import {
   type ReportRequest,
   type ReportResponse,
   type ReportType,
+  type TripPerformanceGroupBy,
 } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { FileSpreadsheetIcon, FileTextIcon, PlayIcon, SheetIcon } from 'lucide-react-native';
@@ -18,7 +19,7 @@ import { DateField, SelectField, toYmd, VehiclePicker } from '@/components/picke
 import { Button, Card, Chips, EmptyState, ErrorBanner, Field, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { liveStore } from '@/features/live/live-store';
-import { cellText, computeTotals, REPORT_DEF_MAP, type Row } from '@/features/reports/report-defs';
+import { cellText, columnsForResult, computeTotals, REPORT_DEF_MAP, type Row } from '@/features/reports/report-defs';
 import { daySpan } from '@/features/reports/report-format';
 import { api, errorMessage } from '@/lib/api';
 import { downloadAndShare } from '@/lib/share-file';
@@ -103,6 +104,7 @@ export default function ReportRunScreen() {
   const [objectIds, setObjectIds] = useState<string[]>([]);
   const [picker, setPicker] = useState(false);
   const [minDuration, setMinDuration] = useState(type === 'HALT' ? '30' : '');
+  const [groupBy, setGroupBy] = useState<TripPerformanceGroupBy>('ROUTE');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
 
   const pickPreset = (p: Preset) => {
@@ -118,8 +120,9 @@ export default function ReportRunScreen() {
       to,
       ...(periodic ? { period } : {}),
       ...(minDuration && ['HALT', 'STOPS', 'IDLE'].includes(type) ? { options: { minDurationMin: Number(minDuration) } } : {}),
+      ...(type === 'TRIP_PERFORMANCE' ? { options: { groupBy } } : {}),
     }),
-    [type, objectIds, from, to, periodic, period, minDuration],
+    [type, objectIds, from, to, periodic, period, minDuration, groupBy],
   );
 
   const validation = (() => {
@@ -144,7 +147,7 @@ export default function ReportRunScreen() {
     }
   };
 
-  const columns = def?.columns ?? [];
+  const columns = useMemo(() => (def ? columnsForResult(def, run.data?.groupBy) : []), [def, run.data]);
   const rows = run.data?.rows ?? [];
   const totals = useMemo(() => (run.data ? computeTotals(columns, rows, run.data.totals) : {}), [run.data, columns, rows]);
   const totalCols = columns.filter((col) => totals[col.id] !== undefined);
@@ -192,6 +195,17 @@ export default function ReportRunScreen() {
                   { value: 'DAY', label: t('Daily') },
                   { value: 'WEEK', label: t('Weekly') },
                   { value: 'MONTH', label: t('Monthly') },
+                ]}
+              />
+            )}
+            {type === 'TRIP_PERFORMANCE' && (
+              <Chips
+                value={groupBy}
+                onChange={setGroupBy}
+                options={[
+                  { value: 'ROUTE', label: t('Per route') },
+                  { value: 'DRIVER', label: t('Per driver') },
+                  { value: 'VEHICLE', label: t('Per vehicle') },
                 ]}
               />
             )}

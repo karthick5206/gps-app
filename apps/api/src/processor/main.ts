@@ -12,6 +12,10 @@ import { PositionProcessor } from './position-processor';
 import { RulesEngine } from './rules/rules-engine';
 import { StreamConsumer } from './stream-consumer';
 import { WebhookEventPublisher } from '../webhooks/events';
+import { PLANNED_TRIPS_INVALIDATE_REASON } from '@veetracer/shared';
+import { PlannedTripTracker } from '../planned-trips/tracker/tracker-engine';
+import { RoutingService } from '../routing/routing.service';
+import type { RedisService } from '../redis/redis.service';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -28,19 +32,32 @@ async function main(): Promise<void> {
   const cache = new DeviceCache(prisma);
   const rulesRepo = new RulesRepository(prisma);
   const drivers = new DriverIdentification(prisma);
+  // Planned-trip live tracking (kill switch PLANNED_TRIPS=off). The routing engine (ROUTER_URL) only caps the ETA;
+  // RoutingService.route needs nothing but the Valkey client.
+  const routing = new RoutingService({ client: redis } as unknown as RedisService);
+  const plannedTrips =
+    (process.env.PLANNED_TRIPS ?? 'on').toLowerCase() === 'off' ? null : new PlannedTripTracker(redis, prisma, rulesRepo, undefined, routing.enabled ? routing : null);
   subscriber.on('message', (channel: string, message: string) => {
     if (channel === RedisKeys.rulesInvalidate) {
-      rulesRepo.invalidate(parseCompanyId(message));
+      const { companyId, reason } = parseInvalidate(message);
+      // Trip writes only change the trip lists, not alert settings / geofences.
+      if (reason === PLANNED_TRIPS_INVALIDATE_REASON) plannedTrips?.invalidate(companyId);
+      else rulesRepo.invalidate(companyId);
       return;
     }
     cache.clear();
     drivers.clear();
     rulesRepo.invalidate();
+    plannedTrips?.invalidate();
   });
   await subscriber.subscribe(RedisKeys.cacheInvalidate, RedisKeys.rulesInvalidate);
 
   const rules = process.env.RULES_ENGINE === 'off' ? null : new RulesEngine(redis, rulesRepo);
-  const consumer = new StreamConsumer(redis, new PositionProcessor(prisma, redis, cache, rules, drivers, new WebhookEventPublisher(redis)), consumerName);
+  const consumer = new StreamConsumer(
+    redis,
+    new PositionProcessor(prisma, redis, cache, rules, drivers, new WebhookEventPublisher(redis), plannedTrips),
+    consumerName,
+  );
   const heartbeat = startHeartbeat(redis, 'processor', () => consumer.metrics());
   const shutdown = () => {
     logger.log('Stopping after the current batch…');
@@ -56,12 +73,12 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-function parseCompanyId(message: string): string | null {
+function parseInvalidate(message: string): { companyId: string | null; reason: string | null } {
   try {
-    const body = JSON.parse(message) as { companyId?: unknown };
-    return typeof body.companyId === 'string' ? body.companyId : null;
+    const body = JSON.parse(message) as { companyId?: unknown; reason?: unknown };
+    return { companyId: typeof body.companyId === 'string' ? body.companyId : null, reason: typeof body.reason === 'string' ? body.reason : null };
   } catch {
-    return null;
+    return { companyId: null, reason: null };
   }
 }
 

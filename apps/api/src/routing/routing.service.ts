@@ -2,10 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { GapEstimateResponse, GapEstimateSegment } from '@veetracer/shared';
 import { RedisService } from '../redis/redis.service';
 import { decodePolyline, MAX_ESTIMATE_STRAIGHT_M, plausibleRoute } from './route-estimate';
+import { fillLegs, parseGraphHopperRoute, parseValhallaTrip, RouteViaLeg, RouteViaResult, ViaPoint } from './route-via';
 import { haversineMeters } from '../tracking/geo';
 
 const CACHE_TTL_SEC = 30 * 86_400;
 const MISS_TTL_SEC = 86_400;
+/** Pairwise leg requests run this many at a time. */
+const LEG_CONCURRENCY = 6;
 
 /**
  * Likely roads through track gaps (History draws them dashed as "estimated"), from a self-hosted routing engine:
@@ -56,6 +59,63 @@ export class RoutingService {
     const r = await this.fetchRoute({ fromLat: from.lat, fromLng: from.lng, toLat: to.lat, toLng: to.lng } as GapEstimateSegment).catch(() => null);
     await this.redis.client.set(key, r ? JSON.stringify(r) : '', 'EX', 60).catch(() => undefined);
     return r;
+  }
+
+  /**
+   * Road route through all points in order (planned-trip routes): [lng, lat] path, total metres / seconds and one leg
+   * per consecutive pair. GraphHopper: one `/route` call with every point for the path, plus one call per pair for the
+   * legs (a failed pair is filled in proportion to its straight length). Valhalla: one call (legs come with it).
+   * Null when the engine is off, fails or finds no route. Not cached: called on route save / editor preview only.
+   */
+  async routeVia(points: ViaPoint[]): Promise<RouteViaResult | null> {
+    if (!this.enabled || points.length < 2) return null;
+    try {
+      if (this.engine !== 'graphhopper') return await this.viaValhalla(points);
+      const whole = await this.viaGraphHopper(points);
+      if (!whole) return null;
+      if (points.length === 2) return { ...whole, legs: [{ distanceM: whole.distanceM, durationSec: whole.durationSec }] };
+      const legs: (RouteViaLeg | null)[] = [];
+      for (let i = 0; i < points.length - 1; i += LEG_CONCURRENCY) {
+        const pairs = points.slice(i, Math.min(points.length, i + LEG_CONCURRENCY + 1));
+        const batch = await Promise.all(
+          pairs.slice(1).map((p, j) =>
+            this.viaGraphHopper([pairs[j], p])
+              .then((r) => (r ? { distanceM: r.distanceM, durationSec: r.durationSec } : null))
+              .catch(() => null),
+          ),
+        );
+        legs.push(...batch);
+      }
+      return { ...whole, legs: fillLegs(points, legs, whole.distanceM, whole.durationSec) };
+    } catch (error) {
+      this.logger.warn(`Route via ${points.length} points failed: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  private async viaGraphHopper(points: ViaPoint[]) {
+    const q = new URLSearchParams({ profile: 'car', points_encoded: 'true', instructions: 'false', calc_points: 'true' });
+    for (const p of points) q.append('point', `${p.lat},${p.lng}`);
+    const res = await fetch(`${this.baseUrl}/route?${q.toString()}`, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) {
+      if (res.status !== 400) this.logger.warn(`Routing engine returned ${res.status}`);
+      return null;
+    }
+    return parseGraphHopperRoute(await res.json());
+  }
+
+  private async viaValhalla(points: ViaPoint[]): Promise<RouteViaResult | null> {
+    const res = await fetch(`${this.baseUrl}/route`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locations: points.map((p) => ({ lat: p.lat, lon: p.lng, radius: 50 })), costing: 'auto', directions_type: 'none' }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      if (res.status !== 400) this.logger.warn(`Routing engine returned ${res.status}`);
+      return null;
+    }
+    return parseValhallaTrip(await res.json(), points.length);
   }
 
   private fetchRoute(gap: GapEstimateSegment): Promise<{ m: number; s: number; shape: [number, number][] } | null> {

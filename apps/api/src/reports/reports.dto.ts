@@ -1,4 +1,4 @@
-import { REPORT_TYPES, ReportFormat, ReportOptions, ReportPeriod, ReportRequest, ReportScope, ReportType, ROW_KEY_LENGTH, VIEW_MAX_ROWS } from '@veetracer/shared';
+import { REPORT_TYPES, ReportFormat, ReportOptions, ReportPeriod, ReportRequest, ReportScope, ReportType, ROW_KEY_LENGTH, TRIP_PERFORMANCE_GROUP_BY, TripPerformanceGroupBy, VIEW_MAX_ROWS } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
@@ -15,6 +15,7 @@ export class ReportOptionsDto implements ReportOptions {
   @IsOptional() @IsInt() @Min(1) @Max(240) breakMin?: number;
   @IsOptional() @IsInt() @Min(0) @Max(3600) minOverspeedSec?: number;
   @IsOptional() @IsInt() @Min(5) @Max(43_200) inactiveAfterMin?: number;
+  @IsOptional() @IsIn(TRIP_PERFORMANCE_GROUP_BY) groupBy?: TripPerformanceGroupBy;
 }
 
 export class ReportRequestDto implements ReportRequest {

@@ -1,0 +1,7 @@
+{
+  "name": "deviation",
+  "description": "Between Kilpauk and Egmore (68-80 % of the path) takes a parallel road 400 m north of the route: ROUTE_DEVIATION opens after 2 fixes beyond the 200 m corridor and closes on rejoining.",
+  "route": "chennai-route.json",
+  "cruiseKph": 30,
+  "scenario": { "deviation": { "fromFrac": 0.68, "toFrac": 0.8, "offsetM": 400, "side": "left" } }
+}

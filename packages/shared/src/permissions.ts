@@ -28,6 +28,7 @@ export const MENU_KEYS = [
   'history',
   'alerts',
   'parking_mode',
+  'plannedTrips',
   'driver_scores',
   'attendance',
   'expenses',
@@ -42,6 +43,7 @@ export const MENU_KEYS = [
   'roles',
   'lookups',
   'geofences',
+  'routes',
   'pois',
   'alert_settings',
   'message_templates',
@@ -74,6 +76,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'alerts', label: 'Alerts', group: 'main', path: '/alerts', actions: ['view', 'edit', 'export'] },
   { key: 'parking_mode', label: 'Parking mode', group: 'main', path: '/parking-mode', actions: ['view', 'edit'] },
   { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },
+  { key: 'plannedTrips', label: 'Planned trips', group: 'main', path: '/planned-trips', actions: CRUD },
   // Drivers & staff: behaviour, safety and attendance.
   { key: 'dms', label: 'DMS dashboard', group: 'people', path: '/dms', actions: ['view', 'export'] },
   { key: 'driver_events', label: 'Driver events', group: 'people', path: '/driver-events', actions: ['view', 'edit', 'export'] },
@@ -91,6 +94,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'branches', label: 'Branches', group: 'masters', path: '/masters/branches', actions: CRUD },
   { key: 'documents', label: 'Documents & Service', group: 'masters', path: '/masters/documents', actions: CRUD },
   { key: 'geofences', label: 'Geofences', group: 'masters', path: '/masters/geofences', actions: CRUD },
+  { key: 'routes', label: 'Routes', group: 'masters', path: '/routes', actions: CRUD },
   { key: 'pois', label: 'Points of Interest', group: 'masters', path: '/masters/pois', actions: CRUD },
   { key: 'lookups', label: 'Lookups', group: 'masters', path: '/masters/lookups', actions: CRUD },
   { key: 'alert_settings', label: 'Alert Settings', group: 'alerting', path: '/alerting/settings', actions: ['view', 'create', 'edit', 'delete'] },
@@ -117,7 +121,7 @@ export const MENUS: readonly MenuDef[] = [
 export type PermissionMap = Partial<Record<MenuKey, Action[]>>;
 
 /** Menus hidden for personal (INDIVIDUAL) accounts: business structure they don't need. Permissions are unchanged. */
-export const PERSONAL_HIDDEN_MENUS: readonly MenuKey[] = ['branches', 'vehicle_groups', 'lookups', 'roles', 'audit_log', 'api', 'message_templates', 'drivers'];
+export const PERSONAL_HIDDEN_MENUS: readonly MenuKey[] = ['branches', 'vehicle_groups', 'lookups', 'roles', 'audit_log', 'api', 'message_templates', 'drivers', 'routes', 'plannedTrips'];
 
 /** Data scope of a role: whole company, or only assigned branches/objects. */
 export type DataScope = 'COMPANY' | 'ASSIGNED';
@@ -154,6 +158,8 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
       expenses: ['view', 'create', 'delete'],
       reports: ['view', 'export'],
       geofences: ['view', 'create', 'edit', 'export'],
+      routes: ['view', 'create', 'edit', 'delete', 'export'],
+      plannedTrips: ['view', 'create', 'edit', 'delete', 'export'],
       pois: ['view', 'create', 'edit', 'delete', 'export'],
       alert_settings: ['view', 'create', 'edit'],
       message_templates: ['view'],
@@ -175,6 +181,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     permissions: {
       dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], parking_mode: ['view', 'edit'], driver_scores: ['view'], expenses: ['view', 'create'], reports: ['view'], driver_events: ['view'], dms: ['view'],
       geofences: ['view'], pois: ['view'], report_schedules: ['view', 'create', 'edit', 'delete'], objects: ['view'], drivers: ['view'], documents: ['view'], vehicle_groups: ['view'],
+      routes: ['view'], plannedTrips: ['view'],
     },
   },
   {

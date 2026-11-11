@@ -51,6 +51,7 @@ import { TemplatesModule } from './templates/templates.module';
 import { RelayModule } from './relay/relay.controller';
 import { InventoryModule } from './inventory/inventory.module';
 import { SimsModule } from './sims/sims.module';
+import { PlannedTripsModule } from './planned-trips/planned-trips.module';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { SimsModule } from './sims/sims.module';
     AlertsModule,
     TemplatesModule,
     GeofencesModule,
+    PlannedTripsModule,
     ReportsModule,
     ReportSchedulesModule,
     DashboardModule,

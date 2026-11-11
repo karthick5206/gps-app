@@ -1,0 +1,7 @@
+{
+  "name": "on-time",
+  "description": "Drives the route at 30 km/h with the planned 2 min dwells: trip starts on leaving Koyambedu, every stop arrived and departed on time, completes at Chennai Central.",
+  "route": "chennai-route.json",
+  "cruiseKph": 30,
+  "scenario": {}
+}

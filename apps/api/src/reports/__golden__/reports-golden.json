@@ -696,6 +696,90 @@
       },
       "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "csvSha256": "989911d5299d1b366c1066e04d0cc5db79388e040eec2afe7d2f003198660be0"
+    },
+    "TRIP_PERFORMANCE · route": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "groups": 0,
+        "trips": 0,
+        "completed": 0,
+        "incomplete": 0,
+        "cancelled": 0,
+        "ratedStops": 0,
+        "onTimeStops": 0,
+        "skippedStops": 0,
+        "plannedKm": 0,
+        "actualKm": 0,
+        "deviations": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "43a51001f99b2c78647898b369c7cafc60802c8ea96c44828f38c73cb78801f9"
+    },
+    "TRIP_PERFORMANCE · driver": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "groups": 0,
+        "trips": 0,
+        "completed": 0,
+        "incomplete": 0,
+        "cancelled": 0,
+        "ratedStops": 0,
+        "onTimeStops": 0,
+        "skippedStops": 0,
+        "plannedKm": 0,
+        "actualKm": 0,
+        "deviations": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "1fd3f20e15226f1bce4716b1d56585733c5bbf4f9253c5d8a480a2e739cb6c3e"
+    },
+    "TRIP_PERFORMANCE · vehicle": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "groups": 0,
+        "trips": 0,
+        "completed": 0,
+        "incomplete": 0,
+        "cancelled": 0,
+        "ratedStops": 0,
+        "onTimeStops": 0,
+        "skippedStops": 0,
+        "plannedKm": 0,
+        "actualKm": 0,
+        "deviations": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "adec8c8dbce613ac53a94e61662142f00cb33f90e4a2cf99c7f6b68d523ff493"
+    },
+    "PLANNED_TRIPS · default": {
+      "rows": 0,
+      "totalRows": 0,
+      "truncated": false,
+      "period": null,
+      "totals": {
+        "count": 0,
+        "completed": 0,
+        "incomplete": 0,
+        "cancelled": 0,
+        "stopsDone": 0,
+        "stopCount": 0,
+        "skippedStops": 0,
+        "onTimeStops": 0,
+        "deviationCount": 0,
+        "plannedKm": 0,
+        "distanceKm": 0
+      },
+      "rowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "csvSha256": "841aa11b2fd4ebf2895c389766311e1f2bc61a59684830f3aa6986e283f833c9"
     }
   }
 }

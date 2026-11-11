@@ -43,6 +43,8 @@ export const REPORT_KEYWORDS: Record<string, string[]> = {
   ATTENDANCE_PAYROLL: ['attendance', 'salary', 'payroll', 'lop', 'payable days', 'overtime'],
   ATTENDANCE_OUTINGS: ['attendance', 'outside', 'outing', 'left site', 'personal'],
   ATTENDANCE_CORRECTIONS: ['attendance', 'corrections', 'manual', 'changed', 'audit'],
+  TRIP_PERFORMANCE: ['route', 'planned trip', 'schedule', 'on time', 'punctuality', 'delay', 'late', 'skipped stop', 'deviation', 'bus', 'driver', 'performance'],
+  PLANNED_TRIPS: ['route', 'planned trip', 'schedule', 'timetable', 'delay', 'late', 'stops', 'skipped', 'deviation', 'bus', 'trip log'],
 };
 
 export function normalizeText(s: string): string {

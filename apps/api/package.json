@@ -15,6 +15,7 @@
     "notifier:dev": "tsx watch src/notifier/main.ts",
     "summarizer:dev": "tsx watch src/summarizer/main.ts",
     "sim": "tsx src/simulator/gt06-sim.ts",
+    "sim:route": "tsx src/simulator/route-sim.ts",
     "sim:register": "tsx src/simulator/register.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

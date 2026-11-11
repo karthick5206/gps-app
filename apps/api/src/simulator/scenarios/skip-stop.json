@@ -1,0 +1,7 @@
+{
+  "name": "skip-stop",
+  "description": "Drives past Egmore Station 175 m away (radius 100 m) without stopping and arrives at Chennai Central: Egmore SKIPPED (TRIP_STOP_SKIPPED), trip completes. The bypass stays inside the 200 m corridor.",
+  "route": "chennai-route.json",
+  "cruiseKph": 30,
+  "scenario": { "skipStop": 3 }
+}

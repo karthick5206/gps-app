@@ -71,6 +71,8 @@ export function formatValue(v: number | null | undefined, f: ValueFormat): strin
       return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`;
     case 'kmpl':
       return `${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km/L`;
+    case 'min':
+      return `${v.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} min`;
     default:
       return Math.round(v).toLocaleString();
   }
