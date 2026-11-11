@@ -109,7 +109,8 @@ def test_unreachable_cells_and_competition_for_a_window():
     m2['durationsS'][2][0] = None
     res2 = solve({'matrix': m2, 'vehicles': [{'id': 'v'}],
                   'stops': [{'id': 'island', 'locationIndex': 2}], 'options': {'timeLimitS': 1}})
-    assert res2['unassigned'] == [{'stopId': 'island', 'reason': 'unreachable_location'}]
+    # v2 adds the doc 06 §4.6 code next to the P3 reason (additive).
+    assert res2['unassigned'] == [{'stopId': 'island', 'reason': 'unreachable_location', 'code': 'ROUTING_UNAVAILABLE'}]
 
 
 def test_never_claims_optimal_without_proof():
