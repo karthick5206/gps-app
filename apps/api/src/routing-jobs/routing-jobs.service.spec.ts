@@ -34,6 +34,7 @@ class FakeLink implements PlanJobLink {
 }
 
 const allow: RateLimiter = { hit: async () => true };
+const W = { vehicle: 7_200, distance: 0, time: 1, routeDuration: 0 };
 const KEY = 'idem-key-0001';
 
 async function codeOf(p: Promise<unknown>): Promise<{ status: number; code: string }> {
@@ -59,61 +60,69 @@ describe('RoutingJobsService (API side)', () => {
   });
 
   it('creates a QUEUED job (input without coordinates), reserves the plan and publishes it', async () => {
-    const r = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, timeLimitS: 15 }, KEY);
+    const r = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, timeLimitS: 15, weights: W }, KEY);
     expect(r.replay).toBe(false);
     expect(r.job).toMatchObject({ kind: 'optimize', state: 'queued', phase: null, progress: 0, attempts: 0, maxAttempts: 3, planId: 'plan-1' });
     const row = (await store.get(r.job.jobId))!;
-    expect(row.input).toEqual({ kind: 'optimize', planId: 'plan-1', planVersion: 3, profile: 'car', timeLimitS: 15 });
+    expect(row.input).toEqual({ kind: 'optimize', planId: 'plan-1', planVersion: 3, profile: 'car', timeLimitS: 15, weights: W });
     expect(row.timeoutS).toBe(255);
     expect(link.status.get('plan-1')).toBe('OPTIMIZING');
     expect(queue.published).toEqual([r.job.jobId]);
   });
 
   it('Idempotency-Key: same body → the same job (replay); another body → 422 IDEMPOTENCY_KEY_REUSED; missing → 400', async () => {
-    const a = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3 }, KEY);
-    const b = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3 }, KEY);
+    const a = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, KEY);
+    const b = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, KEY);
     expect(b).toMatchObject({ replay: true, job: { jobId: a.job.jobId } });
     expect(store.rows.size).toBe(1);
-    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, timeLimitS: 30 }, KEY))).toEqual({ status: 422, code: 'IDEMPOTENCY_KEY_REUSED' });
-    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-2', expectedVersion: 3 }, undefined))).toMatchObject({ status: 400 });
+    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, timeLimitS: 30, weights: W }, KEY))).toEqual({ status: 422, code: 'IDEMPOTENCY_KEY_REUSED' });
+    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-2', expectedVersion: 3, weights: W }, undefined))).toMatchObject({ status: 400 });
   });
 
   it('the same key in another company is a different job (keys are per company)', async () => {
-    await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3 }, KEY);
-    expect(await codeOf(svc.enqueueOptimize(ctx({ companyId: 'company-2' }), { planId: 'plan-1', expectedVersion: 3 }, KEY))).toEqual({ status: 404, code: 'JOB_NOT_FOUND' });
+    await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, KEY);
+    expect(await codeOf(svc.enqueueOptimize(ctx({ companyId: 'company-2' }), { planId: 'plan-1', expectedVersion: 3, weights: W }, KEY))).toEqual({ status: 404, code: 'JOB_NOT_FOUND' });
   });
 
   it('stale plan version → 409 PLAN_STALE; a plan already optimising → 409; nothing is left behind', async () => {
-    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 2 }, KEY))).toEqual({ status: 409, code: 'PLAN_STALE' });
+    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 2, weights: W }, KEY))).toEqual({ status: 409, code: 'PLAN_STALE' });
     expect(store.rows.size).toBe(0);
     link.status.set('plan-1', 'OPTIMIZING');
-    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3 }, 'idem-key-0002'))).toEqual({ status: 409, code: 'PLAN_NOT_EDITABLE' });
+    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, 'idem-key-0002'))).toEqual({ status: 409, code: 'PLAN_NOT_EDITABLE' });
   });
 
   it('per-company concurrency: the third active optimisation is 429 QUOTA_EXCEEDED', async () => {
-    await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3 }, 'idem-key-a001');
-    await svc.enqueueOptimize(ctx(), { planId: 'plan-2', expectedVersion: 3 }, 'idem-key-a002');
-    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-3', expectedVersion: 3 }, 'idem-key-a003'))).toEqual({ status: 429, code: 'QUOTA_EXCEEDED' });
+    await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, 'idem-key-a001');
+    await svc.enqueueOptimize(ctx(), { planId: 'plan-2', expectedVersion: 3, weights: W }, 'idem-key-a002');
+    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-3', expectedVersion: 3, weights: W }, 'idem-key-a003'))).toEqual({ status: 429, code: 'QUOTA_EXCEEDED' });
     // another company is not affected
     const other = new RoutingJobsService(store, queue, { ...link, reserve: async () => ({ profile: 'car' as const }), release: async () => undefined, visible: async () => true }, allow);
-    await expect(other.enqueueOptimize(ctx({ companyId: 'company-2' }), { planId: 'plan-x', expectedVersion: 1 }, 'idem-key-a004')).resolves.toBeDefined();
+    await expect(other.enqueueOptimize(ctx({ companyId: 'company-2' }), { planId: 'plan-x', expectedVersion: 1, weights: W }, 'idem-key-a004')).resolves.toBeDefined();
   });
 
   it('per-user rate limit → 429 QUOTA_EXCEEDED', async () => {
     const limited = new RoutingJobsService(store, queue, link, { hit: async () => false });
-    expect(await codeOf(limited.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3 }, KEY))).toEqual({ status: 429, code: 'QUOTA_EXCEEDED' });
+    expect(await codeOf(limited.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, KEY))).toEqual({ status: 429, code: 'QUOTA_EXCEEDED' });
+  });
+
+  it('weights are required and explicit (P6): missing / negative / all-zero cost terms → 400; they are part of the request hash', async () => {
+    for (const w of [undefined, { ...W, time: -1 }, { vehicle: 1, distance: 0, time: 0, routeDuration: 0 }, { ...W, distance: Number.NaN }]) {
+      expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: w as never }, KEY))).toMatchObject({ status: 400 });
+    }
+    await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, KEY);
+    expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: { ...W, distance: 1 } }, KEY))).toEqual({ status: 422, code: 'IDEMPOTENCY_KEY_REUSED' });
   });
 
   it('a lost publish (Valkey down) still creates the job (the sweeper re-publishes it)', async () => {
     queue.publish = async () => {
       throw new Error('Valkey down');
     };
-    const r = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3 }, KEY);
+    const r = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, KEY);
     expect((await store.get(r.job.jobId))!.status).toBe('QUEUED');
   });
 
   it('reads are company-scoped: another company gets 404; branch users do not see other branches', async () => {
-    const { job } = await svc.enqueueOptimize(ctx(), { planId: 'plan-b', expectedVersion: 3 }, KEY);
+    const { job } = await svc.enqueueOptimize(ctx(), { planId: 'plan-b', expectedVersion: 3, weights: W }, KEY);
     expect((await svc.get(ctx(), job.jobId)).jobId).toBe(job.jobId);
     expect(await codeOf(svc.get(ctx({ companyId: 'company-2' }), job.jobId))).toEqual({ status: 404, code: 'JOB_NOT_FOUND' });
     expect(await codeOf(svc.get(ctx({ dataScope: 'ASSIGNED', branchIds: ['b2'] }), job.jobId))).toEqual({ status: 404, code: 'JOB_NOT_FOUND' });
@@ -124,12 +133,12 @@ describe('RoutingJobsService (API side)', () => {
   });
 
   it('cancel: QUEUED → cancelled at once (plan released); RUNNING → cancel requested; finished → 409', async () => {
-    const a = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3 }, 'idem-key-c001');
+    const a = await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, 'idem-key-c001');
     expect(await svc.cancel(ctx(), a.job.jobId)).toMatchObject({ state: 'cancelled', cancelRequested: true });
     expect(link.status.get('plan-1')).toBe('DRAFT');
     expect(await codeOf(svc.cancel(ctx(), a.job.jobId))).toMatchObject({ status: 409 });
 
-    const b = await svc.enqueueOptimize(ctx(), { planId: 'plan-2', expectedVersion: 3 }, 'idem-key-c002');
+    const b = await svc.enqueueOptimize(ctx(), { planId: 'plan-2', expectedVersion: 3, weights: W }, 'idem-key-c002');
     await store.claim(b.job.jobId, 'w1', new Date(), 60_000);
     expect(await svc.cancel(ctx(), b.job.jobId)).toMatchObject({ state: 'running', phase: 'matrix', cancelRequested: true });
     expect(link.status.get('plan-2')).toBe('OPTIMIZING'); // the worker releases it when it stops

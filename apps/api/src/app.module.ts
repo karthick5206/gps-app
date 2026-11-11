@@ -53,7 +53,6 @@ import { InventoryModule } from './inventory/inventory.module';
 import { SimsModule } from './sims/sims.module';
 import { PlannedTripsModule } from './planned-trips/planned-trips.module';
 import { EtmsModule } from './etms/etms.module';
-import { RoutingJobsModule } from './routing-jobs/routing-jobs.module';
 
 @Module({
   imports: [
@@ -90,8 +89,6 @@ import { RoutingJobsModule } from './routing-jobs/routing-jobs.module';
     GeofencesModule,
     PlannedTripsModule,
     EtmsModule,
-    // ETMS E4 optimisation jobs (404 unless ETMS_ROUTING=on; executed by dist/routing-worker/main.js).
-    RoutingJobsModule,
     ReportsModule,
     ReportSchedulesModule,
     DashboardModule,

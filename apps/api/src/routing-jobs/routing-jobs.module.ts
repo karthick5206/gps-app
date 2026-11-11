@@ -5,6 +5,11 @@ import { routingRateKey, ValkeyJobQueue } from './job-queue';
 import { PrismaJobStore } from './prisma-job-store';
 import { PrismaPlanGateway } from './prisma-plan-gateway';
 import { RoutingJobsController } from './routing-jobs.controller';
+import { RoutingCapabilitiesController, RoutingCapabilitiesService } from './routing-capabilities.controller';
+import { GraphHopperProvider } from '../routing/provider/graphhopper.provider';
+import { readRouterConfig } from '../routing/provider/router-config';
+import { ROUTING_PROVIDER } from '../routing/provider/routing-provider';
+import { OptimizerClient, readOptimizerConfig } from '../routing/optimizer/optimizer.client';
 import { RateLimiter, ROUTING_JOB_QUEUE, ROUTING_JOB_STORE, ROUTING_PLAN_LINK, ROUTING_RATE_LIMITER, RoutingJobsService } from './routing-jobs.service';
 
 /** Per-user submit counter in Valkey (one-minute window). Valkey down: allowed (the DB limits still apply), logged by the caller. */
@@ -36,8 +41,13 @@ export const routingJobProviders = [
  * never executes jobs; `dist/routing-worker/main.js` (veetrax-routing-worker.service) does.
  */
 @Module({
-  controllers: [RoutingJobsController],
+  controllers: [RoutingJobsController, RoutingCapabilitiesController],
   providers: [
+    // Engine + optimiser for the capabilities probe, provided here (not via RoutingModule, whose fleet controller must
+    // not join the ETMS module graph).
+    { provide: ROUTING_PROVIDER, useFactory: () => new GraphHopperProvider(readRouterConfig(process.env)) },
+    { provide: OptimizerClient, useFactory: () => new OptimizerClient(readOptimizerConfig(process.env)) },
+    RoutingCapabilitiesService,
     ...routingJobProviders,
     { provide: ROUTING_RATE_LIMITER, useFactory: valkeyRateLimiter, inject: [RedisService] },
     RoutingJobsService,

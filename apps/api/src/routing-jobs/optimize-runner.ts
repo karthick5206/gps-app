@@ -5,9 +5,12 @@ import { JobError, JobRunner } from './job-worker';
 import { BuiltMatrix, matrixShapeProblem, MatrixPort } from './matrix-port';
 import { mapSolverResult, PlanInputs, planPoints, PlanWrite, snapExclusions, SolverProblemV2, solverProblem } from './optimize-problem';
 import type { RoutingUsageHook } from './usage-hook';
+import { weightsOf } from './prisma-plan-gateway';
+import type { SolverWeights } from './optimize-problem';
 import { coverageIssue } from '../routing/service-area/coverage';
 
-export type OptimizeJobInput = Extract<RoutingJobInput, { kind: 'optimize' }>;
+/** The optimise job input (shared RoutingJobInput) plus the explicit objective weights (P6). */
+export type OptimizeJobInput = Extract<RoutingJobInput, { kind: 'optimize' }> & { weights?: SolverWeights };
 
 /** Reads the plan inputs and writes the DRAFT result (Prisma in production, fakes in tests). */
 export interface PlanGateway {
@@ -27,6 +30,7 @@ export interface SolverPort {
 
 export function parseOptimizeInput(job: JobRecord): OptimizeJobInput {
   const i = job.input as Partial<OptimizeJobInput> | null;
+  const weights = i?.weights ? weightsOf(i.weights) : undefined;
   if (!i || i.kind !== 'optimize' || typeof i.planId !== 'string' || i.planId !== job.planId || !Number.isInteger(i.planVersion)) {
     throw new JobError('INVALID_INPUT', 'Job input is not an optimise request for its plan');
   }
@@ -37,6 +41,7 @@ export function parseOptimizeInput(job: JobRecord): OptimizeJobInput {
     profile: i.profile ?? 'car',
     timeLimitS: Math.max(1, Math.min(ROUTING_LIMITS.optimizeTimeLimitS, Math.round(Number(i.timeLimitS) || 10))),
     ...(i.objective ? { objective: i.objective } : {}),
+    ...(weights ? { weights } : {}),
   };
 }
 
@@ -57,6 +62,8 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     const input = parseOptimizeInput(job);
     await ctx.checkpoint();
     let inputs = await deps.plans.load(job, input);
+    // The job's own weights win over the plan's stored ones (they are the same unless the plan was edited meanwhile).
+    if (input.weights) inputs = { ...inputs, solver: { ...inputs.solver, weights: input.weights } };
     if (!(ROUTING_AVAILABLE_PROFILES as readonly string[]).includes(inputs.profile)) {
       throw new JobError('PROFILE_NOT_AVAILABLE', `Routing profile "${inputs.profile}" is not available on this server`);
     }

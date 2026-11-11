@@ -20,11 +20,15 @@ import { PrismaJobStore } from './prisma-job-store';
 import { PrismaPlanGateway } from './prisma-plan-gateway';
 import { RoutingJobsService } from './routing-jobs.service';
 import { cleanupSeeded, ctxFor, seedPartner, seedPlan } from './testing/db-seed';
+import { AuditService } from '../audit/audit.service';
+import { RoutePlanCreateService } from '../etms/planning/plan-create';
+import { RoutePlansService } from '../etms/planning/plans.service';
 import { FakeMatrix, FakeSolver, sleep, until } from './testing/fakes';
 import { InMemoryUsageHook } from './usage-hook';
 
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
+const W = { vehicle: 7_200, distance: 0, time: 1, routeDuration: 0 };
 
 d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
   jest.setTimeout(120_000);
@@ -46,7 +50,7 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
 
   async function enqueue(g: { company: string; plan: string }, key = `k-${randomUUID()}`) {
     const svc = new RoutingJobsService(store, new MemoryJobQueue(), gw, { hit: async () => true });
-    return (await svc.enqueueOptimize(ctxFor(g.company), { planId: g.plan, expectedVersion: 1, timeLimitS: 5 }, key)).job;
+    return (await svc.enqueueOptimize(ctxFor(g.company), { planId: g.plan, expectedVersion: 1, timeLimitS: 5, weights: W }, key)).job;
   }
 
   beforeAll(async () => {
@@ -87,15 +91,15 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     const g = await seed('enqueue');
     const svc = new RoutingJobsService(store, new MemoryJobQueue(), gw, { hit: async () => true });
     const c = ctxFor(g.company);
-    const a = await svc.enqueueOptimize(c, { planId: g.plan, expectedVersion: 1 }, 'enqueue-key-1');
-    const b = await svc.enqueueOptimize(c, { planId: g.plan, expectedVersion: 1 }, 'enqueue-key-1');
+    const a = await svc.enqueueOptimize(c, { planId: g.plan, expectedVersion: 1, weights: W }, 'enqueue-key-1');
+    const b = await svc.enqueueOptimize(c, { planId: g.plan, expectedVersion: 1, weights: W }, 'enqueue-key-1');
     expect(b).toMatchObject({ replay: true, job: { jobId: a.job.jobId } });
     expect((await prisma.routePlan.findUniqueOrThrow({ where: { id: g.plan } })).status).toBe('OPTIMIZING');
     const row = await prisma.routingJob.findUniqueOrThrow({ where: { id: a.job.jobId } });
     expect(JSON.stringify(row.input)).not.toMatch(/lat|lng|13\.0|80\.2/);
-    await expect(svc.enqueueOptimize(c, { planId: g.plan, expectedVersion: 1 }, 'enqueue-key-2')).rejects.toMatchObject({ status: 409 });
+    await expect(svc.enqueueOptimize(c, { planId: g.plan, expectedVersion: 1, weights: W }, 'enqueue-key-2')).rejects.toMatchObject({ status: 409 });
     const g2 = await seed('stale');
-    await expect(svc.enqueueOptimize(ctxFor(g2.company), { planId: g2.plan, expectedVersion: 7 }, 'enqueue-key-3')).rejects.toMatchObject({ status: 409 });
+    await expect(svc.enqueueOptimize(ctxFor(g2.company), { planId: g2.plan, expectedVersion: 7, weights: W }, 'enqueue-key-3')).rejects.toMatchObject({ status: 409 });
     expect(await prisma.routingJob.count({ where: { companyId: g2.company } })).toBe(0);
     expect((await prisma.routePlan.findUniqueOrThrow({ where: { id: g2.plan } })).status).toBe('DRAFT');
     // cancel while queued releases the plan
@@ -182,6 +186,50 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     expect(solver.lastProblem!.stops.map((s) => s.id)).not.toContain(g.pickups[2]);
     const locked = await prisma.routePlanStop.findMany({ where: { id: { in: [g.pickups[2], g.drops[2]] } } });
     expect(locked.every((s) => s.assignmentId === g.vans[1] && s.sequence === 1)).toBe(true);
+  });
+
+  it('POST transport/route-plans: DRAFT plan from the open bookings — consented booking points only, site windows, one route per vehicle', async () => {
+    const g = await seed('create');
+    await prisma.routePlan.delete({ where: { id: g.plan } });
+    await prisma.transportBooking.updateMany({ where: { id: { in: g.bookings } }, data: { status: 'PENDING_ASSIGNMENT' } });
+    // the passenger's profile home is somewhere else: the plan must use the booking's pickup, never the profile home
+    await prisma.employeeTransportProfile.update({ where: { id: g.profiles[1] }, data: { homeLat: 12.5, homeLng: 79.5 } });
+    // passenger 2 withdrew routing consent: skipped, no point copied
+    await prisma.$executeRawUnsafe(`INSERT INTO "EmployeeTransportConsent" (id, "companyId", "profileId", purpose, "noticeVersion", granted, channel, "occurredAt") VALUES (gen_random_uuid(), '${g.company}', '${g.profiles[2]}', 'TRANSPORT_PROFILE', 'v1', false, 'WEB', now() + interval '1 second')`);
+    const van = randomUUID();
+    await prisma.$executeRawUnsafe(`INSERT INTO "TrackedObject" (id, "companyId", name, "updatedAt") VALUES ('${van}', '${g.company}', 'Van X', now())`);
+    await prisma.transportVehicleProfile.create({ data: { objectId: van, companyId: g.company, seats: 6 } });
+    const audit = new AuditService(prisma as never);
+    const plans = new RoutePlansService(prisma as never, audit, { recordPersonalAccess: async () => undefined } as never, null);
+    const creator = new RoutePlanCreateService(prisma as never, audit, plans);
+    const c = ctxFor(g.company);
+    const dto = { name: 'Login 1 Dec', planDate: '2026-12-01', direction: 'IN' as const, sitePoiId: g.office, objectIds: [van], depot: { lat: 13.06, lng: 80.25 } };
+    const r = await creator.create(c, dto, 'create-key-0001');
+    expect(r.replay).toBe(false);
+    expect(r.value.skippedBookings).toEqual([{ bookingId: g.bookings[2], reason: 'consent_required' }]);
+    const plan = await prisma.routePlan.findUniqueOrThrow({ where: { id: r.value.id }, include: { stops: true, assignments: true, versions: true } });
+    expect(plan).toMatchObject({ status: 'DRAFT', version: 1, direction: 'IN', sitePoiId: g.office });
+    expect(plan.assignments).toEqual([expect.objectContaining({ objectId: van, capacity: 6 })]);
+    expect(plan.stops).toHaveLength(4);
+    const pick = plan.stops.find((s) => s.bookingId === g.bookings[1] && s.stopKind === 'PICKUP')!;
+    expect(pick).toMatchObject({ lat: 13.02, lng: 80.22, profileId: g.profiles[1], poiId: null, customerCompanyId: g.company, demand: 1, name: 'Passenger pickup' });
+    const drop = plan.stops.find((s) => s.bookingId === g.bookings[1] && s.stopKind === 'DROP')!;
+    expect(drop).toMatchObject({ poiId: g.office, profileId: null, timeWindows: [[7_200, 10_800]] });
+    expect(plan.stops.some((s) => s.lat === 12.5)).toBe(false);
+    expect(plan.versions).toEqual([expect.objectContaining({ version: 1, changeType: 'CREATED' })]);
+    expect(JSON.stringify(plan.versions[0].snapshot)).not.toMatch(/"lat"|13.0/);
+    // replay and key reuse
+    expect((await creator.create(c, dto, 'create-key-0001')).replay).toBe(true);
+    await expect(creator.create(c, { ...dto, name: 'Other' }, 'create-key-0001')).rejects.toMatchObject({ status: 422 });
+    // another company's site: 404
+    await expect(creator.create(ctxFor(randomUUID()), dto, 'create-key-0002')).rejects.toMatchObject({ status: 404 });
+    // the new plan optimises end to end (weights stored on the plan)
+    const svc = new RoutingJobsService(store, new MemoryJobQueue(), gw, { hit: async () => true });
+    const job = (await svc.enqueueOptimize(c, { planId: plan.id, expectedVersion: 1, timeLimitS: 5, weights: W }, 'create-opt-0001')).job;
+    expect(((await prisma.routePlan.findUniqueOrThrow({ where: { id: plan.id } })).options as { weights?: unknown }).weights).toEqual(W);
+    const { w, solver } = makeWorker('db-w5');
+    expect(await w.process(job.jobId)).toBe('succeeded');
+    expect(solver.lastProblem!.options.weights).toEqual(W);
   });
 
   it('retention trims finished jobs past ROUTING_JOB_RETENTION_DAYS', async () => {

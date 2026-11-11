@@ -29,6 +29,8 @@ function pointOf(raw: Prisma.JsonValue | null): { lat: number; lng: number } | n
   return typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
 }
 
+const optionsOf = (raw: unknown): Record<string, unknown> => (raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {});
+
 /** RoutePlan.options.weights when complete and valid (all four finite, ≥ 0, one of distance / time / routeDuration > 0). */
 export function weightsOf(raw: unknown): SolverWeights | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -50,9 +52,11 @@ export function planLocks(options: unknown): { lockedAssignmentIds: Set<string>;
 }
 
 /** Plan visible to the caller: own company; branch-scoped users only their branches' plans (and branch-less ones). */
-export function planVisibleTo(ctx: Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds'>, plan: { companyId: string; branchId: string | null }): boolean {
+export function planVisibleTo(ctx: Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'userId'>, plan: { companyId: string; branchId: string | null; createdById?: string | null }): boolean {
+  // Same rule as RoutePlansService.planWhere: own company; ASSIGNED roles their branches' plans and branch-less plans they made.
   if (plan.companyId !== ctx.companyId) return false;
-  return ctx.dataScope === 'COMPANY' || !plan.branchId || ctx.branchIds.includes(plan.branchId);
+  if (ctx.dataScope === 'COMPANY') return true;
+  return plan.branchId ? ctx.branchIds.includes(plan.branchId) : plan.createdById === ctx.userId;
 }
 
 /**
@@ -67,9 +71,9 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
 
   // ───────────── API side (PlanJobLink) ─────────────
 
-  async reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number): Promise<{ profile: RoutingProfile }> {
+  async reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights): Promise<{ profile: RoutingProfile }> {
     const t = tx as Tx;
-    const plan = await t.routePlan.findFirst({ where: { id: planId, companyId: ctx.companyId }, select: { id: true, companyId: true, branchId: true, status: true, version: true, profile: true } });
+    const plan = await t.routePlan.findFirst({ where: { id: planId, companyId: ctx.companyId }, select: { id: true, companyId: true, branchId: true, createdById: true, status: true, version: true, profile: true, options: true } });
     if (!plan || !planVisibleTo(ctx, plan)) throw new RoutingHttpError('JOB_NOT_FOUND', 'Plan not found');
     if (plan.version !== expectedVersion) throw new RoutingHttpError('PLAN_STALE', 'The plan changed meanwhile; reload it and try again', { currentVersion: plan.version });
     if (plan.status === 'OPTIMIZING') throw new RoutingHttpError('PLAN_NOT_EDITABLE', 'An optimisation is already running for this plan');
@@ -78,7 +82,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     if (!vehicles) throw new RoutingHttpError('LIMIT_EXCEEDED', 'Add at least one vehicle to the plan before optimising');
     if (vehicles > ROUTING_LIMITS.optimizeVehicles) throw new RoutingHttpError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeVehicles} vehicles per optimisation`);
     if (stops > ROUTING_LIMITS.optimizeStops) throw new RoutingHttpError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeStops} stops per optimisation`);
-    const moved = await t.routePlan.updateMany({ where: { id: planId, companyId: ctx.companyId, version: expectedVersion, status: plan.status }, data: { status: 'OPTIMIZING' } });
+    const moved = await t.routePlan.updateMany({ where: { id: planId, companyId: ctx.companyId, version: expectedVersion, status: plan.status }, data: { status: 'OPTIMIZING', ...(weights ? { options: { ...optionsOf(plan.options), weights: { ...weights } } as Prisma.InputJsonValue } : {}) } });
     if (!moved.count) throw new RoutingHttpError('PLAN_STALE', 'The plan changed meanwhile; reload it and try again');
     return { profile: (plan.profile as RoutingProfile) ?? 'car' };
   }
@@ -92,7 +96,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
   }
 
   async visible(ctx: AuthContext, planId: string): Promise<boolean> {
-    const plan = await this.db.routePlan.findFirst({ where: { id: planId, companyId: ctx.companyId }, select: { companyId: true, branchId: true } });
+    const plan = await this.db.routePlan.findFirst({ where: { id: planId, companyId: ctx.companyId }, select: { companyId: true, branchId: true, createdById: true } });
     // A plan purged by retention: its finished jobs stay readable to whole-company users only.
     return plan ? planVisibleTo(ctx, plan) : ctx.dataScope === 'COMPANY';
   }

@@ -48,7 +48,7 @@ export async function cleanupSeeded(prisma: PrismaClient, companies: string[], p
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SELECT set_config('veetrax.evidence_write', 'purge', true)`);
     for (const c of companies) {
-      for (const t of ['RoutingJob', 'RoutingUsage', 'RoutePlan', 'TransportBooking', 'EmployeeTransportConsent', 'EmployeeTransportProfile', 'TransportShift', 'Poi']) {
+      for (const t of ['RoutingJob', 'RoutingUsage', 'RoutePlan', 'TransportBooking', 'EmployeeTransportConsent', 'EmployeeTransportProfile', 'TransportShift', 'Poi', 'TrackedObject', 'AuditLog']) {
         await tx.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "${t === 'TransportBooking' ? 'customerCompanyId' : 'companyId'}" = '${c}'`);
       }
       await tx.$executeRawUnsafe(`DELETE FROM "Company" WHERE id = '${c}'`);

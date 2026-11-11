@@ -16,6 +16,16 @@ import { idempotencyKey as parseIdempotencyKey, requestHash } from '../etms/disp
 import type { JobQueue } from './job-queue';
 import { DuplicateIdempotencyKey, JobRecord, RoutingJobStore, StoreTx } from './job-store';
 import { RoutingHttpError } from './routing-flags';
+import type { SolverWeights } from './optimize-problem';
+
+/** P6: all four weights finite and >= 0, at least one of distance / time / routeDuration > 0 (else 400). */
+export function checkWeights(w: SolverWeights | undefined): SolverWeights {
+  const keys = ['vehicle', 'distance', 'time', 'routeDuration'] as const;
+  if (!w || !keys.every((k) => typeof w[k] === 'number' && Number.isFinite(w[k]) && w[k] >= 0) || !(w.distance || w.time || w.routeDuration)) {
+    throw new BadRequestException({ message: 'weights {vehicle, distance, time, routeDuration} are required: numbers >= 0, one of distance / time / routeDuration > 0', code: 'VALIDATION_FAILED' });
+  }
+  return { vehicle: w.vehicle, distance: w.distance, time: w.time, routeDuration: w.routeDuration };
+}
 
 export const ROUTING_JOB_STORE = Symbol('ROUTING_JOB_STORE');
 export const ROUTING_JOB_QUEUE = Symbol('ROUTING_JOB_QUEUE');
@@ -29,7 +39,7 @@ export interface PlanJobLink {
    * within the limits, and moves it to OPTIMIZING. Throws RoutingHttpError (404 / 409 PLAN_STALE / PLAN_NOT_EDITABLE /
    * 422 LIMIT_EXCEEDED). Returns the plan's routing profile.
    */
-  reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number): Promise<{ profile: RoutingProfile }>;
+  reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights): Promise<{ profile: RoutingProfile }>;
   /** Plan OPTIMIZING → DRAFT (no version change) after a job FAILED / was CANCELLED. Idempotent. */
   release(job: Pick<JobRecord, 'companyId' | 'planId'>): Promise<void>;
   /** Plan visible to the caller (job reads are filtered by it). */
@@ -46,6 +56,8 @@ export interface OptimizeJobRequest {
   expectedVersion: number;
   timeLimitS?: number;
   objective?: 'duration' | 'distance';
+  /** Explicit objective weights (README P6); stored on the plan and sent to the solver. */
+  weights: SolverWeights;
 }
 
 export interface JobListQuery {
@@ -103,8 +115,9 @@ export class RoutingJobsService {
   async enqueueOptimize(ctx: AuthContext, req: OptimizeJobRequest, rawKey: string | undefined, now = new Date()): Promise<{ job: RoutingJobDto; replay: boolean }> {
     if (ctx.allCompanies) throw new BadRequestException({ message: 'Select one company to optimise its plans', code: 'VALIDATION_FAILED' });
     const key = parseIdempotencyKey(rawKey);
+    const weights = checkWeights(req.weights);
     const timeLimitS = Math.max(1, Math.min(ROUTING_LIMITS.optimizeTimeLimitS, Math.round(req.timeLimitS ?? 10)));
-    const body = { kind: 'optimize', planId: req.planId, expectedVersion: req.expectedVersion, timeLimitS, objective: req.objective ?? 'duration' };
+    const body = { kind: 'optimize', planId: req.planId, expectedVersion: req.expectedVersion, timeLimitS, objective: req.objective ?? 'duration', weights };
     const hash = requestHash(body);
 
     const existing = await this.store.findByKey(ctx.companyId, key);
@@ -136,8 +149,9 @@ export class RoutingJobsService {
           maxAttempts: DEFAULT_MAX_ATTEMPTS,
         },
         async (tx) => {
-          const { profile } = await this.plans.reserve(tx, ctx, req.planId, req.expectedVersion);
-          const input: RoutingJobInput = { kind: 'optimize', planId: req.planId, planVersion: req.expectedVersion, profile, timeLimitS, ...(req.objective ? { objective: req.objective } : {}) };
+          const { profile } = await this.plans.reserve(tx, ctx, req.planId, req.expectedVersion, weights);
+          // Ids, numbers and the weights only: never a coordinate or a name (shared RoutingJobInput rule).
+          const input: RoutingJobInput & { weights: SolverWeights } = { kind: 'optimize', planId: req.planId, planVersion: req.expectedVersion, profile, timeLimitS, ...(req.objective ? { objective: req.objective } : {}), weights };
           return { input };
         },
       );

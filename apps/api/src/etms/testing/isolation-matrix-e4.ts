@@ -13,6 +13,9 @@ import { randomUUID } from 'crypto';
 import type { RoutePlanDetailDto, RoutePlanSummaryDto } from '@veetracer/shared';
 import type { AuthContext } from '../../access/auth-context';
 import type { RoutePlansController } from '../planning/plans.controller';
+import type { RoutePlanCreateController } from '../planning/plan-create';
+import type { RoutingJobsController } from '../../routing-jobs/routing-jobs.controller';
+import type { RoutingCapabilitiesController } from '../../routing-jobs/routing-capabilities.controller';
 import type { E3World } from './isolation-matrix-e3';
 import type { MatrixRole, RoleTable } from './isolation-matrix';
 import type { MemoryStore } from './memory-store';
@@ -22,6 +25,10 @@ export const E4_RESOURCES: readonly E4Resource[] = ['routePlan'];
 
 export interface E4Controllers {
   plans: RoutePlansController;
+  /** WP 4.2: plan creation from bookings, optimisation jobs, capabilities. */
+  create: RoutePlanCreateController;
+  jobs: RoutingJobsController;
+  caps: RoutingCapabilitiesController;
 }
 
 export interface E4Ids {
@@ -33,6 +40,10 @@ export interface E4Ids {
   booking: string;
   passenger: string;
   vehicle: string;
+  /** A QUEUED optimisation job of `plan2` (WP 4.2). */
+  job: string;
+  /** The company place the plans serve (site of a new plan). */
+  site: string;
 }
 
 export interface E4World {
@@ -100,7 +111,32 @@ function seedCompany(store: MemoryStore, companyId: string, branchId: string, e3
   const one = seedPlan(store, companyId, branchId, e3, later, booking.id as string, `Morning ${companyId}`);
   // A second plan (an alternative) over the same booking, for compare.
   const two = seedPlan(store, companyId, branchId, e3, later, booking.id as string, `Alternative ${companyId}`);
-  return { ...one, plan2: two.plan, booking: booking.id as string, passenger: e3.passenger, vehicle: e3.vehicle };
+  const job = store.insert('routingJob', {
+    companyId,
+    planId: two.plan,
+    userId: null,
+    kind: 'optimize',
+    status: 'QUEUED',
+    phase: null,
+    input: { kind: 'optimize', planId: two.plan, planVersion: 1, profile: 'car', timeLimitS: 10 },
+    result: null,
+    error: null,
+    progress: 0,
+    attempts: 0,
+    maxAttempts: 3,
+    timeoutS: 250,
+    cancelRequested: false,
+    idempotencyKey: null,
+    requestHash: null,
+    lockedBy: null,
+    lockedUntil: null,
+    notBefore: null,
+    graphVersion: null,
+    createdAt: new Date(),
+    startedAt: null,
+    finishedAt: null,
+  });
+  return { ...one, plan2: two.plan, booking: booking.id as string, passenger: e3.passenger, vehicle: e3.vehicle, job: job.id as string, site: e3.place };
 }
 
 /** Adds the E4 rows to an E3 world. */
@@ -112,7 +148,7 @@ export function e4Ids(w: E4World, own: 'party' | 'other' | 'none'): E4Ids {
   if (own === 'party') return w.party;
   if (own === 'other') return w.other;
   const r = () => randomUUID();
-  return { plan: r(), plan2: r(), assignment: r(), pickupStop: r(), dropStop: r(), booking: r(), passenger: r(), vehicle: r() };
+  return { plan: r(), plan2: r(), assignment: r(), pickupStop: r(), dropStop: r(), booking: r(), passenger: r(), vehicle: r(), job: r(), site: r() };
 }
 
 // ───────────────────────────── Expected outcomes ─────────────────────────────
@@ -164,7 +200,47 @@ const metricsOnly = (result: unknown, role: MatrixRole) => {
   if (text.includes('13.06') || text.includes('Passenger') || text.includes('stops":[')) fail(`${role} compare carries stop data`);
 };
 
+const W = { vehicle: 7_200, distance: 0, time: 1, routeDuration: 0 };
+
+/** No host, URL or engine message in the capabilities answer. */
+const noHosts = (result: unknown, role: MatrixRole) => {
+  if (/https?:|127\.0\.0\.1|localhost|:8989|:8090/.test(JSON.stringify(result))) fail(`${role} capabilities carry a host / URL`);
+};
+
+/** Job lists never show another company's job. */
+const noOtherJobs = (result: unknown, role: MatrixRole, _own: string, _ids: E4Ids, w: E4World) => {
+  if ((result as { jobId: string }[]).some((j) => j.jobId === w.other.job)) fail(`${role} job list shows another company's job`);
+};
+
+/** A new plan from the company's own open booking: personal pickup = the booking's consented point, never another company's. */
+const createdFromOwnBooking = (result: unknown, role: MatrixRole, _own: string, _ids: E4Ids, w: E4World) => {
+  const p = result as RoutePlanDetailDto & { skippedBookings: unknown[] };
+  if (p.stops.some((s) => s.bookingId === w.other.booking)) fail(`${role} plan took another company's booking`);
+  if (!p.stops.some((s) => s.bookingId === w.party.booking && s.stopKind === 'PICKUP')) fail(`${role} plan lacks the company's open booking`);
+};
+
 export const E4_MATRIX: E4Entry[] = [
+  // ── WP 4.2: create a plan from bookings, optimisation jobs, capabilities ──
+  {
+    route: 'POST transport/route-plans',
+    resource: 'routePlan',
+    invoke: (c, ctx, _t, w) =>
+      c.create.create(ctx, { name: 'New plan', planDate: w.later, direction: 'IN', sitePoiId: w.party.site, objectIds: [w.party.vehicle], branchId: ctx.dataScope === 'COMPANY' ? null : 'brA1' }, key()),
+    // custA's site and vehicle: custA roles create; everyone else 404 (another company's site), no menu 403.
+    expect: { none: OWN_PLAN },
+    verify: createdFromOwnBooking,
+  },
+  { route: 'GET routing/capabilities', resource: 'routePlan', invoke: (c, ctx) => c.caps.get(ctx), expect: { none: LIST }, verify: noHosts },
+  {
+    route: 'POST routing/jobs/optimize',
+    resource: 'routePlan',
+    invoke: (c, ctx, _t, w) => c.jobs.optimize(ctx, { planId: w.party.plan, expectedVersion: 1, weights: W }, key()),
+    expect: { none: OWN_PLAN },
+  },
+  { route: 'GET routing/jobs', resource: 'routePlan', invoke: (c, ctx) => c.jobs.list(ctx, {}), expect: { none: LIST }, verify: noOtherJobs },
+  { route: 'GET routing/jobs/:id', resource: 'routePlan', invoke: (c, ctx, t) => c.jobs.get(ctx, t.job), expect: { party: OWN_PLAN, other: OTHER_PLAN } },
+  { route: 'POST routing/jobs/:id/cancel', resource: 'routePlan', invoke: (c, ctx, t) => c.jobs.cancel(ctx, t.job), expect: { party: OWN_PLAN, other: OTHER_PLAN } },
+  // ── P9 plans ──
   { route: 'GET transport/route-plans', resource: 'routePlan', invoke: (c, ctx) => c.plans.list(ctx, {}), expect: { none: LIST }, verify: noOtherPlans },
   // compare names the company's own two plans: 404 for every caller outside custA (a plan of another scope is never compared).
   { route: 'GET transport/route-plans/compare', resource: 'routePlan', invoke: (c, ctx, _t, w) => c.plans.compare(ctx, { ids: `${w.party.plan},${w.party.plan2}` }), expect: { none: OWN_PLAN }, verify: metricsOnly },

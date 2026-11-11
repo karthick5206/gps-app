@@ -47,6 +47,13 @@ import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, typ
 import { MemoryStore } from './memory-store';
 import { RoutePlansController } from '../planning/plans.controller';
 import { RoutePlansService } from '../planning/plans.service';
+import { RoutePlanCreateController, RoutePlanCreateService } from '../planning/plan-create';
+import { MemoryJobQueue } from '../../routing-jobs/job-queue';
+import { PrismaJobStore } from '../../routing-jobs/prisma-job-store';
+import { PrismaPlanGateway } from '../../routing-jobs/prisma-plan-gateway';
+import { RoutingCapabilitiesController, RoutingCapabilitiesService } from '../../routing-jobs/routing-capabilities.controller';
+import { RoutingJobsController } from '../../routing-jobs/routing-jobs.controller';
+import { RoutingJobsService } from '../../routing-jobs/routing-jobs.service';
 import { E4_RESOURCES, e4Ids, seedE4 } from './isolation-matrix-e4';
 
 // E4 route plans are hidden (404) unless ETMS_ROUTING=on; the matrix runs them switched on (the off case: isolation-matrix-e4.spec.ts).
@@ -215,7 +222,21 @@ function e4Controllers(prisma: Obj, audit: AuditService, redis: object) {
   const routing = { enabled: false, route: async () => null, routeVia: async () => null };
   const dispatch = new DispatchService(prisma as never, audit, routing as never, new TripLiveService(prisma as never, redis as never, plannedTrips), redis as never);
   const provider = { routeVia: async () => ({ ok: false, degraded: 'ENGINE_DISABLED', message: 'off' }) };
-  return { plans: new RoutePlansController(new RoutePlansService(prisma as never, audit, dispatch, provider as never)) };
+  const plans = new RoutePlansService(prisma as never, audit, dispatch, provider as never);
+  // WP 4.2: jobs on the same store (in-memory queue, no rate limit), capabilities with the engine / optimiser off.
+  const gateway = new PrismaPlanGateway(prisma as never);
+  const jobs = new RoutingJobsService(new PrismaJobStore(prisma as never), new MemoryJobQueue(), gateway, { hit: async () => true });
+  const caps = new RoutingCapabilitiesService(
+    { health: async () => ({ reachable: false, checkedAt: new Date().toISOString(), degraded: 'ENGINE_DISABLED' }), capabilities: async () => ({ ok: false, degraded: 'ENGINE_DISABLED', message: 'off' }) } as never,
+    { health: async () => false } as never,
+    { client: { zrangebyscore: async () => [], exists: async () => 0 } } as never,
+  );
+  return {
+    plans: new RoutePlansController(plans),
+    create: new RoutePlanCreateController(new RoutePlanCreateService(prisma as never, audit, plans)),
+    jobs: new RoutingJobsController(jobs),
+    caps: new RoutingCapabilitiesController(caps),
+  };
 }
 
 /** E5 controllers on the same store (no live cache, no stream: Redis a no-op). */
