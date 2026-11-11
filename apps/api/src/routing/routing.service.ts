@@ -48,8 +48,9 @@ export class RoutingService {
   }
 
   /**
-   * Road route between two points (delivery ETA): metres, seconds and [lat, lng] shape; null without an engine or
-   * route. Cached 60 s on ~110 m rounded ends so a share page polled every few seconds costs one engine call a minute.
+   * Road route between two points (delivery ETA): metres, seconds and [lng, lat] shape (GeoJSON order, as
+   * decodePolyline returns it); null without an engine or route. Cached 60 s on ~110 m rounded ends so a share page
+   * polled every few seconds costs one engine call a minute.
    */
   async route(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<{ m: number; s: number; shape: [number, number][] } | null> {
     if (!this.enabled) return null;

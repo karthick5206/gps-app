@@ -7,6 +7,7 @@ import { useParams } from 'react-router';
 import { Logo } from '@/components/logo';
 import { formatDuration } from '@/lib/format';
 import { statusColor } from '@/lib/status-tokens';
+import { etaRouteFeatures } from './share-eta';
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const dayClock = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -136,7 +137,7 @@ export function PublicSharePage() {
       const src = m.getSource('trail') as GeoJSONSource | undefined;
       src?.setData({ type: 'FeatureCollection', features: data.trail.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: data.trail.map(([, la, ln]) => [ln, la]) } }] : [] });
       const eta = data.eta;
-      (m.getSource('route') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: eta && eta.route.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: eta.route.map(([la, ln]) => [ln, la]) } }] : [] });
+      (m.getSource('route') as GeoJSONSource | undefined)?.setData(etaRouteFeatures(eta?.route));
       if (eta && !destMarker.current) destMarker.current = new maplibregl.Marker({ color: '#f59e0b' }).setLngLat([eta.destination.lng, eta.destination.lat]).addTo(m);
       if (lat === null || lng === null) return;
       if (!marker.current) marker.current = new maplibregl.Marker({ element: markerElement(), rotationAlignment: 'map' }).setLngLat([lng, lat]).addTo(m);
