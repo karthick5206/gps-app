@@ -21,6 +21,7 @@ import {
 import { AuthContext } from '../../access/auth-context';
 import { iso, isoOrNull } from '../../common/dto';
 import { dayKeyOf, round } from './e3-common';
+import { roundPath, stopOwner } from './personal-points';
 
 /** Row shapes and DTO mappers of the E3 module (no database access here). */
 
@@ -228,20 +229,21 @@ export function tripAllowedActions(t: Pick<TripRow, 'publishedAt' | 'acknowledge
 }
 
 export const PASSENGER_DETAIL_INCLUDE = {
-  booking: { select: { pickupLabel: true, dropLabel: true, profile: { select: { id: true, displayName: true, employeeCode: true } } } },
+  booking: { select: { profileId: true, pickupLabel: true, dropLabel: true, pickupPoiId: true, dropPoiId: true, profile: { select: { id: true, displayName: true, employeeCode: true, branchId: true } } } },
 } satisfies Prisma.TransportTripPassengerInclude;
 export type PassengerDetailRow = Prisma.TransportTripPassengerGetPayload<{ include: typeof PASSENGER_DETAIL_INCLUDE }>;
 
-export function toPassengerDto(p: PassengerDetailRow, stops: { seq: number; status: string }[], tripOpen: boolean): TransportTripPassengerDto {
+export function toPassengerDto(p: PassengerDetailRow, stops: { seq: number; status: string }[], tripOpen: boolean, consent = true): TransportTripPassengerDto {
   const pickupStop = stops.find((s) => s.seq === p.pickupSeq);
+  // L7: a personal end's label is free text (often an address): shown only while the passenger's routing consent is active.
   return {
     id: p.id,
     bookingId: p.bookingId,
     passenger: { id: p.booking.profile.id, displayName: p.booking.profile.displayName, employeeCode: p.booking.profile.employeeCode },
     pickupSeq: p.pickupSeq,
     dropSeq: p.dropSeq,
-    pickupLabel: p.booking.pickupLabel,
-    dropLabel: p.booking.dropLabel,
+    pickupLabel: consent || p.booking.pickupPoiId ? p.booking.pickupLabel : null,
+    dropLabel: consent || p.booking.dropPoiId ? p.booking.dropLabel : null,
     seats: p.seats,
     status: p.status,
     boardedAt: isoOrNull(p.boardedAt),
@@ -274,25 +276,56 @@ export function toEventDto(e: Prisma.TransportTripEventGetPayload<object>): Tran
   };
 }
 
+/**
+ * What the caller may see of the passengers' personal points on a trip (E3 security review M1, E2 M3): exact for the
+ * customer's whole-company roles (`precise`), else 4 decimals; only for owners whose routing consent is active
+ * (`consents`) and who are in the caller's branches (`ownerBranch` + `inBranch`).
+ */
+export interface TripPointView {
+  precise: boolean;
+  consents: Set<string>;
+  /** Branch of each personal-stop owner / passenger profile (profile id → branch id, null = company-wide). */
+  ownerBranch: Map<string, string | null>;
+  inBranch: (branchId: string | null | undefined) => boolean;
+}
+
+/** Owner profile ids of the personal stops of a trip (for the consent / branch lookups of TripPointView). */
+export function personalStopOwners(t: Pick<TripRow, 'plannedTrip'>, passengers: PassengerDetailRow[]): string[] {
+  const pt = t.plannedTrip;
+  if (!pt) return [];
+  const owners = (pt.stops ?? []).map((s) => stopOwner(s, passengers, !!pt.routeId));
+  return [...new Set(owners.filter((o): o is string => !!o && o !== 'UNKNOWN'))];
+}
+
 export function toTripDetail(
   t: TripRow,
   n: TripNames,
   passengers: PassengerDetailRow[],
   events: Prisma.TransportTripEventGetPayload<object>[],
   writable: boolean,
+  view: TripPointView,
 ): TransportTripDto {
   const pt = t.plannedTrip;
   const stops = pt?.stops ?? [];
   const tripOpen = writable && !!pt && ['STARTED', 'IN_PROGRESS', 'COMPLETED', 'INCOMPLETE'].includes(pt.status);
-  return {
-    ...toTripSummary(t, n),
-    path: pt && Array.isArray(pt.path) ? (pt.path as unknown as RoutePath) : null,
-    stops: stops.map((s) => ({
+  const inScope = (profileId: string) => view.inBranch(view.ownerBranch.has(profileId) ? view.ownerBranch.get(profileId) : undefined);
+  const decimals = view.precise ? 6 : 4;
+  let anyHidden = false;
+  const stopDtos = stops.map((s) => {
+    const owner = stopOwner(s, passengers, !!pt?.routeId);
+    const hidden: 'CONSENT_REQUIRED' | 'OUT_OF_SCOPE' | null = !owner ? null : owner === 'UNKNOWN' ? 'CONSENT_REQUIRED' : !inScope(owner) ? 'OUT_OF_SCOPE' : !view.consents.has(owner) ? 'CONSENT_REQUIRED' : null;
+    if (hidden) anyHidden = true;
+    // The visible label of a personal stop is the owner's own booking label for that end (the stored name is neutral).
+    const ownerSeat = owner && owner !== 'UNKNOWN' ? passengers.find((p) => p.booking.profileId === owner && (p.pickupStopId === s.id || p.dropStopId === s.id)) : undefined;
+    const ownerLabel = ownerSeat ? (ownerSeat.pickupStopId === s.id ? ownerSeat.booking.pickupLabel : ownerSeat.booking.dropLabel) : null;
+    return {
       id: s.id,
       seq: s.seq,
-      name: s.name,
-      lat: s.lat,
-      lng: s.lng,
+      name: !owner ? s.name : hidden ? `Stop ${s.seq + 1}` : (ownerLabel ?? s.name),
+      lat: hidden ? null : owner ? round(s.lat, decimals) : s.lat,
+      lng: hidden ? null : owner ? round(s.lng, decimals) : s.lng,
+      personal: !!owner,
+      pointHidden: hidden,
       plannedArrival: iso(s.plannedArrival),
       plannedDeparture: iso(s.plannedDeparture),
       actualArrival: isoOrNull(s.actualArrival),
@@ -301,9 +334,20 @@ export function toTripDetail(
       pickups: passengers.filter((p) => p.status !== 'CANCELLED' && p.pickupSeq === s.seq).length,
       drops: passengers.filter((p) => p.status !== 'CANCELLED' && p.dropSeq === s.seq).length,
       outcomesPending: passengers.filter((p) => p.status === 'PENDING' && p.pickupSeq === s.seq).length,
-    })),
-    passengers: [...passengers].sort((a, b) => a.pickupSeq - b.pickupSeq || a.createdAt.getTime() - b.createdAt.getTime()).map((p) => toPassengerDto(p, stops, tripOpen)),
-    events: events.map(toEventDto),
+    };
+  });
+  // The road path runs through every stop: withheld when any stop is hidden, rounded like the stops otherwise.
+  const rawPath = pt && Array.isArray(pt.path) ? (pt.path as unknown as RoutePath) : null;
+  const path = !rawPath || anyHidden ? null : view.precise ? rawPath : roundPath(rawPath, decimals);
+  // The manifest lists only passengers of the caller's branches (seat counts stay whole: occupancy is not personal).
+  const manifest = passengers.filter((p) => view.inBranch(p.booking.profile.branchId));
+  return {
+    ...toTripSummary(t, n),
+    path,
+    stops: stopDtos,
+    passengers: manifest.sort((a, b) => a.pickupSeq - b.pickupSeq || a.createdAt.getTime() - b.createdAt.getTime()).map((p) => toPassengerDto(p, stops, tripOpen, view.consents.has(p.booking.profileId))),
+    // Events of passengers outside the caller's branches are left out with them.
+    events: events.filter((e) => !e.passengerTripId || manifest.some((p) => p.id === e.passengerTripId)).map(toEventDto),
     allowedActions: tripAllowedActions(t, writable),
   };
 }

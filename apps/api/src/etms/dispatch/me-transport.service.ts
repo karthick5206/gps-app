@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ME_VEHICLE_WINDOW, TRANSPORT_E3_LIMITS, type EtaValue, type MeBookingDto, type MeTripDto, type MeVehicleDto, type PlannedStopStatus } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
@@ -9,12 +9,18 @@ import { RedisService } from '../../redis/redis.service';
 import { addDays } from '../../summarizer/tz';
 import { parseLive } from '../../tracking/live-object';
 import { PeopleService, activeRoutingConsents } from '../people/people.service';
-import { dateOnly, dayKeyOf, invalid, notFound, serviceDate } from './e3-common';
+import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
+import { dateOnly, dayKeyOf, e3Error, invalid, notFound, serviceDate } from './e3-common';
 import { derivedStateOf } from './e3-mapping';
 import { MeRangeQuery } from './e3.dto';
 import { todayIn } from './service-dates';
 
 const MIN = 60_000;
+/**
+ * L2: an open trip's window never runs past planned end + the v1.8 timeout (120 min, when the sweep closes it as
+ * INCOMPLETE) + the grace, even if the sweep job is disabled.
+ */
+const OPEN_TRIP_MAX_AFTER_END_MIN = 120;
 
 const SEAT_INCLUDE = {
   booking: { select: { id: true, profileId: true, windowStart: true, windowEnd: true, timeZone: true, pickupLabel: true, dropLabel: true, pickupLat: true, pickupLng: true, dropLat: true, dropLng: true } },
@@ -40,7 +46,8 @@ export function vehicleWindow(
   if (seat.status === 'NO_SHOW' || seat.status === 'CANCELLED') return null;
   const start = Math.min(pt.plannedStart.getTime() - ME_VEHICLE_WINDOW.beforeStartMin * MIN, pt.actualStart?.getTime() ?? Infinity);
   const closed = pt.status === 'COMPLETED' || pt.status === 'INCOMPLETE';
-  const endBase = seat.droppedAt?.getTime() ?? (closed ? (pt.actualEnd ?? pt.plannedEnd).getTime() : Math.max(pt.plannedEnd.getTime(), Date.now()));
+  const hardEnd = pt.plannedEnd.getTime() + OPEN_TRIP_MAX_AFTER_END_MIN * MIN;
+  const endBase = seat.droppedAt?.getTime() ?? (closed ? (pt.actualEnd ?? pt.plannedEnd).getTime() : Math.min(Math.max(pt.plannedEnd.getTime(), Date.now()), hardEnd));
   return { start, end: endBase + ME_VEHICLE_WINDOW.afterEndMin * MIN };
 }
 
@@ -52,11 +59,15 @@ export function vehicleWindow(
  */
 @Injectable()
 export class MeTransportService {
+  private readonly vehicleLimiter: FixedWindowLimiter;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly people: PeopleService,
     private readonly redis: RedisService,
-  ) {}
+  ) {
+    this.vehicleLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:me-vehicle', TRANSPORT_E3_LIMITS.meVehiclePerMinute, 60_000);
+  }
 
   async trips(ctx: AuthContext, q: MeRangeQuery): Promise<MeTripDto[]> {
     const me = await this.people.myProfileRow(ctx);
@@ -80,6 +91,9 @@ export class MeTransportService {
 
   /** The trip's vehicle, only inside the window (`{ visible: false }` outside); own trip only. */
   async vehicle(ctx: AuthContext, tripId: string): Promise<MeVehicleDto> {
+    // L2: at most meVehiclePerMinute polls per user and trip (the app polls every 15 s).
+    const rl = await this.vehicleLimiter.hit(`${ctx.userId}:${tripId}`);
+    if (!rl.allowed) throw e3Error(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMITED', `Too many requests; try again in ${rl.retryAfterSec} s`, { retryAfterSec: rl.retryAfterSec });
     const seat = await this.seat(ctx, tripId);
     const pt = seat.trip.plannedTrip;
     const w = vehicleWindow(pt, seat);

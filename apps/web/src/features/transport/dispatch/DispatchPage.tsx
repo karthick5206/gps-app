@@ -48,6 +48,7 @@ import { CandidatesPanel, DraftReview, DraftTray, QueuePanel, TripsPanel, type P
 import { DIRECTION_LABEL, isEditableTrip, newUuid } from './e3-format';
 import { ConnectionChip, e3ErrorMessage, RoutingChip, SimpleSelect } from './e3-ui';
 import { ReasonDialog } from './ReasonDialog';
+import { locatedStops } from './TransportMap';
 import {
   fetchTransportTrip,
   SHIFTS_ENDPOINT,
@@ -162,7 +163,7 @@ export function DispatchPage() {
       const seqs: Record<string, NonNullable<ReturnType<typeof defaultPlacement>>> = {};
       for (const b of list) {
         // A pickup far from every stop gets its own new stop (ADD_STOP on publish); otherwise the nearest stops.
-        const s = defaultPlacement(detail.stops, b, direction);
+        const s = defaultPlacement(locatedStops(detail.stops), b, direction);
         if (s) seqs[b.id] = s;
       }
       setDraft((d) => addToTrip(d, { id: trip.id, version: trip.version }, list, seqs));

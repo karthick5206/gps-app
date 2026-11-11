@@ -2841,11 +2841,18 @@ model PlannedTripStop {
   status           PlannedStopStatus        @default(PENDING)
   /// actualArrival − plannedArrival (s).
   delaySec         Int?
+  /// ETMS E3 (security review M1 / M2 / M5): the passenger (EmployeeTransportProfile) whose personal point (home or an
+  /// ad-hoc address) this stop is; NULL for company sites and v1.8 route stops. Drives consent / branch hiding, consent
+  /// withdrawal and erasure. Checked by the app only (no FK: the v1.8 table stays independent of ETMS).
+  profileId        String?                  @db.Uuid
+  /// ETMS E3: the company place (Poi) an ETMS stop was planned at (sites are never personal). App-checked, no FK.
+  poiId            String?                  @db.Uuid
   /// ETMS E3 (SetNull): passengers picked up / dropped at this stop (the seq snapshot survives a vehicle purge).
   transportPickups TransportTripPassenger[] @relation("TransportPassengerPickupStop")
   transportDrops   TransportTripPassenger[] @relation("TransportPassengerDropStop")
 
   @@unique([tripId, seq])
+  @@index([profileId])
 }
 
 /// Unscheduled stop or deviation episode recorded during a trip.

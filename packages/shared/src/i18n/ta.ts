@@ -135,7 +135,7 @@ export const TA: Record<string, string> = {
   '{{n}} passenger-day(s) had no booking waiting and were left out.': '{{n}} பயணி-நாட்களுக்குக் காத்திருக்கும் முன்பதிவு இல்லாததால் விடப்பட்டன.',
   '{{n}} passenger(s) added to {{trip}} in the draft. Check the pickup stops before publishing.': 'வரைவில் {{trip}} இல் {{n}} பயணிகள் சேர்க்கப்பட்டனர். வெளியிடும் முன் பிக்அப் நிறுத்தங்களைச் சரிபார்க்கவும்.',
   '{{n}} passenger(s) added to the new trip in the draft.': 'வரைவில் புதிய பயணத்தில் {{n}} பயணிகள் சேர்க்கப்பட்டனர்.',
-  '{{n}} passenger(s) have no outcome yet. Record boarded or no-show for each first; the server refuses to complete otherwise.': '{{n}} பயணிகளுக்கு இன்னும் முடிவு இல்லை. முதலில் ஒவ்வொருவருக்கும் ஏறினார் அல்லது வரவில்லை எனப் பதிவு செய்யவும்; இல்லையெனில் சர்வர் முடிக்க மறுக்கும்.',
+  '{{n}} passenger(s) have no outcome yet. You can still complete the trip; they stay marked "outcome not recorded" for review. Record boarded or no-show first if you know it.': '{{n}} பயணிகளுக்கு இன்னும் முடிவு இல்லை. நீங்கள் பயணத்தை இன்னும் முடிக்கலாம்; அவர்கள் மதிப்பாய்வுக்காக "முடிவு பதிவு செய்யப்படவில்லை" எனக் குறிக்கப்பட்டிருப்பார்கள். உங்களுக்குத் தெரிந்தால் முதலில் ஏறினார் அல்லது வரவில்லை எனப் பதிவு செய்யுங்கள்.',
   '{{n}} pending change(s) will be thrown away. Nothing was published.': '{{n}} நிலுவை மாற்றங்கள் நீக்கப்படும். எதுவும் வெளியிடப்படவில்லை.',
   '{{n}} pts': '{{n}} புள்ளிகள்',
   '{{n}} record': '{{n}} பதிவு',

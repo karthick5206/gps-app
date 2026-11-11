@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { type TransportTripActorType, type TransportTripEventKind, type TransportTripEventSource } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
+import { idempotencyReused } from './e3-common';
 
 /**
  * Row locks and the append-only event writer used inside E3 write transactions (15 §8.4: advisory locks per vehicle /
@@ -73,8 +74,15 @@ export async function releaseSeat(tx: Tx, p: { id: string; tripId: string; seats
   return true;
 }
 
-/** True when this clientEventId was already recorded on the trip (a retried command is a no-op). */
-export async function seenClientEvent(db: Pick<Tx, 'transportTripEvent'>, tripId: string, clientEventId: string | undefined): Promise<boolean> {
+/**
+ * True when this clientEventId was already recorded on the trip by the same user for the same command (a retried command
+ * is a no-op). The same id used by another user, or for another command, is 422 IDEMPOTENCY_KEY_REUSED (E3 security
+ * review L3: never a silent no-op of someone else's command, never a replay of their result).
+ */
+export async function seenClientEvent(db: Pick<Tx, 'transportTripEvent'>, tripId: string, clientEventId: string | undefined, actorUserId?: string, kind?: string): Promise<boolean> {
   if (!clientEventId) return false;
-  return (await db.transportTripEvent.count({ where: { tripId, clientEventId } })) > 0;
+  const e = await db.transportTripEvent.findFirst({ where: { tripId, clientEventId }, select: { actorUserId: true, kind: true } });
+  if (!e) return false;
+  if ((actorUserId !== undefined && e.actorUserId !== actorUserId) || (kind !== undefined && e.kind !== kind)) throw idempotencyReused();
+  return true;
 }

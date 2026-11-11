@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   ACTIVE_TRIP_STATUSES_FOR_OVERLAP,
@@ -33,19 +33,23 @@ import { RoutingService } from '../../routing/routing.service';
 import { haversineMeters } from '../../tracking/geo';
 import { parseLive } from '../../tracking/live-object';
 import { addDays, localDayRange } from '../../summarizer/tz';
+import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
 import { activeRoutingConsents } from '../people/people.service';
 import { UNSEATED_STATUSES } from './booking-generator.service';
 import { BOOKING_ENTITY, type Replayable } from './bookings.service';
 import { adhocStops, parseChangeOps } from './change-ops';
 import { changeSetDetail } from './change-set-detail';
 import {
+  assertBookingAccess,
   assertTripWrite,
   bookingReadWhere,
   conflict,
   constraintOf,
   dateOnly,
   dayKeyOf,
+  e3Error,
   forbidden,
+  inProfileBranch,
   idempotencyKey,
   idempotencyReused,
   invalid,
@@ -58,7 +62,8 @@ import {
   tripReadWhere,
   versionConflict,
 } from './e3-common';
-import { BOOKING_INCLUDE, TRIP_INCLUDE, toBookingDto, toTripSummary, type TripNames } from './e3-mapping';
+import { BOOKING_INCLUDE, TRIP_INCLUDE, preciseFor, toBookingDto, toTripSummary, type TripNames } from './e3-mapping';
+import { metres, PERSONAL_STOP_NAME, recordPersonalAccess, stopOwner } from './personal-points';
 import { BoardQuery, CandidatesDto, ChangeSetDto, ChangeSetListQuery, RepeatTripDto } from './e3.dto';
 import { dayRange, sameWallTime, weekdayOf } from './service-dates';
 import { TripLiveService } from './trip-live';
@@ -75,10 +80,16 @@ interface PreparedTrip {
   routeId: string | null;
   corridorM: number;
   path: unknown;
-  stops: { seq: number; name: string; lat: number; lng: number; radiusM: number; plannedArrival: Date; plannedDeparture: Date }[];
+  stops: { seq: number; name: string; lat: number; lng: number; radiusM: number; plannedArrival: Date; plannedDeparture: Date; poiId?: string | null; profileId?: string | null }[];
   plannedStart: Date;
   plannedEnd: Date;
 }
+
+/** Candidates wait at most this long for one road ETA (QA B3): a slow engine degrades to "routing unavailable". */
+const CANDIDATE_ETA_TIMEOUT_MS = 2_000;
+
+/** A company place an ad-hoc stop may claim must be within this distance of the place's own point (m). */
+const PLACE_MATCH_M = 200;
 
 /** The planned stop a TRIP candidate's road ETA starts from. */
 interface FromStop {
@@ -145,13 +156,42 @@ interface TripState {
  */
 @Injectable()
 export class DispatchService {
+  private readonly logger = new Logger('EtmsDispatch');
+  private readonly candidateLimiter: FixedWindowLimiter;
+  private readonly changeSetLimiter: FixedWindowLimiter;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly routing: RoutingService,
     private readonly live: TripLiveService,
     private readonly redis: RedisService,
-  ) {}
+  ) {
+    // L4: GraphHopper amplification — per-user throttles on the two routing entry points.
+    this.candidateLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:candidates', TRANSPORT_E3_LIMITS.candidatesPerMinute, 60_000);
+    this.changeSetLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:change-sets', TRANSPORT_E3_LIMITS.changeSetsPerMinute, 60_000);
+  }
+
+  /** L1: ACCESS-audit a read that returned passengers' personal points (de-duplicated per user, view and day). */
+  recordPersonalAccess(ctx: AuthContext, view: 'board' | 'trip' | 'candidates', profileIds: string[], precise: boolean, extra: Record<string, unknown> = {}): Promise<void> {
+    return recordPersonalAccess(this.audit, this.redis, ctx, view, profileIds, precise, extra);
+  }
+
+  /**
+   * QA B2: routing is "available" only when it is configured AND the engine answers its health probe (GraphHopper
+   * /health through map-services: 2 s timeout, result reused 10 s). Otherwise the board and the ETAs say "routing
+   * unavailable" instead of "no road route".
+   */
+  private async routingUp(): Promise<boolean> {
+    const r = this.routing as RoutingService & { available?: () => Promise<boolean> };
+    if (!r.enabled) return false;
+    return typeof r.available === 'function' ? r.available().catch(() => false) : true;
+  }
+
+  private async throttle(limiter: FixedWindowLimiter, ctx: AuthContext, what: string): Promise<void> {
+    const rl = await limiter.hit(ctx.userId);
+    if (!rl.allowed) throw e3Error(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMITED', `Too many ${what}; try again in ${rl.retryAfterSec} s`, { retryAfterSec: rl.retryAfterSec });
+  }
 
   // ───────────────────────────── Board ─────────────────────────────
 
@@ -180,14 +220,19 @@ export class DispatchService {
     // consent is active (E2 M3: dispatcher pickup only with consent); sites always.
     const consents = await this.consents(queue.map((b) => b.profileId));
     const now = Date.now();
+    const queueDtos = queue.map((b) => toBookingDto(b, ctx, { view: 'detail', consent: consents.has(b.profileId) }, now));
+    // L1: the board returns personal points in bulk (exact for whole-company roles): one ACCESS entry per day and set.
+    const shown = queueDtos.filter((b) => (b.pickup && !b.pickup.poiId) || (b.drop && !b.drop.poiId)).map((b) => b.passenger.id);
+    await this.recordPersonalAccess(ctx, 'board', shown, preciseFor(ctx, ctx.companyId), { serviceDate: day });
     return {
       serviceDate: day,
       direction: q.direction ?? null,
       timeZone: company.timezone,
-      queue: queue.map((b) => toBookingDto(b, ctx, { view: 'detail', consent: consents.has(b.profileId) }, now)),
+      queue: queueDtos,
       trips: trips.map((t) => toTripSummary(t, names)),
       vehicles,
-      drafts: drafts.map(toChangeSetSummary),
+      // M6 / L7: a branch-scoped dispatcher sees only the drafts whose every vehicle, trip and passenger is in scope.
+      drafts: (await this.visibleDrafts(ctx, drafts, objectIds)).map(toChangeSetSummary),
       counts: {
         bookings: total,
         queued: queue.length,
@@ -196,7 +241,7 @@ export class DispatchService {
         seats: trips.reduce((s, t) => s + t.seatCapacity, 0),
         occupied: trips.reduce((s, t) => s + t.occupiedSeats, 0),
       },
-      routingAvailable: this.routing.enabled,
+      routingAvailable: await this.routingUp(),
     };
   }
 
@@ -248,6 +293,7 @@ export class DispatchService {
    * routing answers; otherwise `eta.at` is null with the degraded reason and the dispatcher assigns manually.
    */
   async candidates(ctx: AuthContext, dto: CandidatesDto): Promise<DispatchCandidatesDto> {
+    await this.throttle(this.candidateLimiter, ctx, 'candidate searches');
     const ids = [...new Set(dto.bookingIds)];
     const bookings = await this.prisma.transportBooking.findMany({ where: { AND: [bookingReadWhere(ctx), { id: { in: ids }, customerCompanyId: ctx.companyId }] }, include: { profile: { select: { branchId: true } } } });
     if (bookings.length !== ids.length) throw notFound('Booking not found');
@@ -265,6 +311,8 @@ export class DispatchService {
     // A personal pickup is used for distances / routing only with consent (D8; E2 M3); a site pickup always.
     const first = bookings.filter((b) => b.pickupLat !== null && (b.pickupPoiId || consents.has(b.profileId))).sort((a, b) => a.windowStart.getTime() - b.windowStart.getTime())[0];
     const pickup = first ? { lat: first.pickupLat as number, lng: first.pickupLng as number } : null;
+    // L1: distances / road ETAs are computed from a consented personal pickup: an ACCESS entry like the board's.
+    if (first && !first.pickupPoiId) await this.recordPersonalAccess(ctx, 'candidates', [first.profileId], preciseFor(ctx, ctx.companyId), { bookingIds: ids.slice(0, 50) });
     const winStart = dto.at ? parseInstant(dto.at, 'at') : Math.min(...bookings.map((b) => b.windowStart.getTime()));
     const winEnd = Math.max(winStart + MIN, ...bookings.map((b) => b.windowEnd.getTime()));
 
@@ -352,7 +400,7 @@ export class DispatchService {
     }
     out.sort((a, b) => Number(b.feasible) - Number(a.feasible) || (a.straightM ?? Infinity) - (b.straightM ?? Infinity) || b.freeSeats - a.freeSeats);
 
-    const routingAvailable = this.routing.enabled;
+    const routingAvailable = await this.routingUp();
     let etaBudget = 5;
     for (const c of out) {
       const compute = c.feasible && etaBudget-- > 0;
@@ -373,7 +421,8 @@ export class DispatchService {
     if (!pickup) return { at: null, model: null, degraded: 'NO_PICKUP' };
     if (!fix) return { at: null, model: null, degraded: 'NO_FIX' };
     if (!compute) return { at: null, model: null };
-    const r = await this.routing.route(fix, pickup).catch(() => null);
+    const r = await this.routeQuickly(fix, pickup);
+    if (r === 'TIMEOUT') return { at: null, model: null, degraded: 'ROUTING_UNAVAILABLE' };
     if (!r) return { at: null, model: null, degraded: 'NO_ROUTE' };
     return { at: new Date(Date.now() + r.s * 1000).toISOString(), model: 'ROAD', durationSec: Math.round(r.s), from: 'VEHICLE_FIX' };
   }
@@ -387,15 +436,28 @@ export class DispatchService {
     if (!routingAvailable) return { at: null, model: null, degraded: 'ROUTING_UNAVAILABLE' };
     if (!pickup || !from) return { at: null, model: null, degraded: 'NO_PICKUP' };
     if (!compute) return { at: null, model: null };
-    const r = await this.routing.route({ lat: from.lat, lng: from.lng }, pickup).catch(() => null);
+    const r = await this.routeQuickly({ lat: from.lat, lng: from.lng }, pickup);
+    if (r === 'TIMEOUT') return { at: null, model: null, degraded: 'ROUTING_UNAVAILABLE' };
     if (!r) return { at: null, model: null, degraded: 'NO_ROUTE' };
     return { at: new Date(from.departure.getTime() + r.s * 1000).toISOString(), model: 'ROAD', durationSec: Math.round(r.s), from: 'TRIP_STOP', fromStopSeq: from.seq };
+  }
+
+  /** One road route for a candidate ETA, or 'TIMEOUT' after CANDIDATE_ETA_TIMEOUT_MS (QA B3). */
+  private async routeQuickly(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<{ s: number } | null | 'TIMEOUT'> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'TIMEOUT'>((resolve) => (timer = setTimeout(() => resolve('TIMEOUT'), CANDIDATE_ETA_TIMEOUT_MS)));
+    try {
+      return await Promise.race([this.routing.route(from, to).catch(() => null), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // ───────────────────────────── Change sets ─────────────────────────────
 
   async submit(ctx: AuthContext, dto: ChangeSetDto, rawKey: string | undefined): Promise<Replayable<ChangeSetResult>> {
     const input: DispatchChangeSetInput = { serviceDate: serviceDate(dto.serviceDate), direction: dto.direction, changes: parseChangeOps(dto.changes), expectedVersions: dto.expectedVersions ?? {}, reason: dto.reason };
+    await this.throttle(this.changeSetLimiter, ctx, 'change sets');
     if (dto.draft) return { value: await this.saveDraft(ctx, input, null), replay: false };
     const key = idempotencyKey(rawKey);
     return this.publishWithKey(ctx, input, key, null);
@@ -407,7 +469,7 @@ export class DispatchService {
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
-    return rows.map(toChangeSetSummary);
+    return (await this.visibleDrafts(ctx, rows, await this.scopedObjectIds(ctx))).map(toChangeSetSummary);
   }
 
   /** One saved change set with its changes and names (E3 gap 2; dispatcher-scoped, see change-set-detail.ts). */
@@ -420,6 +482,8 @@ export class DispatchService {
     const key = idempotencyKey(rawKey);
     const row = await this.prisma.transportChangeSet.findFirst({ where: { id, companyId: ctx.companyId } });
     if (!row) throw notFound();
+    // M6 / L3: the caller must be allowed to see this change set before anything (a replay included) is returned.
+    await this.assertDraftAccess(ctx, row);
     if (row.status === 'PUBLISHED' && row.idempotencyKey === key && row.result) return { value: row.result as unknown as ChangeSetResult, replay: true };
     if (row.status !== 'DRAFT' || !row.draft) throw conflict('INVALID_STATE', 'Only a draft can be published');
     const draft = row.draft as unknown as DispatchChangeSetInput;
@@ -431,34 +495,94 @@ export class DispatchService {
   async rejectDraft(ctx: AuthContext, id: string): Promise<TransportChangeSetSummaryDto> {
     const row = await this.prisma.transportChangeSet.findFirst({ where: { id, companyId: ctx.companyId } });
     if (!row) throw notFound();
+    await this.assertDraftAccess(ctx, row);
     if (row.status !== 'DRAFT') throw conflict('INVALID_STATE', 'Only a draft can be discarded');
     const after = await this.prisma.transportChangeSet.update({ where: { id }, data: { status: 'REJECTED', draft: Prisma.DbNull, result: { discardedBy: ctx.userId, changeCount: draftChanges(row.draft).length } as Prisma.InputJsonValue } });
     await this.audit.record(ctx, { action: 'DELETE', entity: 'TransportChangeSet', entityId: id, details: { discarded: true } });
     return toChangeSetSummary(after);
   }
 
-  private async saveDraft(ctx: AuthContext, input: DispatchChangeSetInput, sourceTripId: string | null): Promise<ChangeSetResult> {
+  /** L6: drafts are capped per company and date and audited (they hold stop coordinates). */
+  private async saveDraft(ctx: AuthContext, input: DispatchChangeSetInput, sourceTripId: string | null, audit = true): Promise<ChangeSetResult> {
+    const open = await this.prisma.transportChangeSet.count({ where: { companyId: ctx.companyId, serviceDate: dateOnly(input.serviceDate), status: 'DRAFT' } });
+    if (open >= TRANSPORT_E3_LIMITS.draftsPerServiceDate) throw conflict('INVALID_STATE', `${input.serviceDate} already has ${open} drafts; publish or discard some first`);
     const row = await this.prisma.transportChangeSet.create({
       data: { companyId: ctx.companyId, status: 'DRAFT', serviceDate: dateOnly(input.serviceDate), direction: input.direction, draft: { ...input, sourceTripId } as unknown as Prisma.InputJsonValue, createdById: ctx.userId },
     });
+    // Coordinates are not copied into the audit: the draft row holds them (and is cleared on publish / discard / erasure).
+    if (audit) await this.audit.record(ctx, { action: 'CREATE', entity: 'TransportChangeSet', entityId: row.id, details: { draft: true, serviceDate: input.serviceDate, direction: input.direction, changes: input.changes.length, sourceTripId } });
     return { changeSetId: row.id, status: 'DRAFT', trips: [], bookings: [], warnings: [] };
+  }
+
+  /**
+   * M6 / L7: the change sets a caller may see. Whole-company roles: all of the company's. Branch-scoped dispatchers:
+   * their own, and those whose every vehicle, trip and passenger is in their scope (the change-set detail rule).
+   */
+  private async visibleDrafts<T extends { id: string; draft: Prisma.JsonValue | null; createdById: string | null }>(ctx: AuthContext, rows: T[], objectIds: string[] | null): Promise<T[]> {
+    if (ctx.dataScope === 'COMPANY' || objectIds === null || !rows.length) return rows;
+    const refs = new Map<string, { objects: string[]; bookings: string[]; trips: string[]; seats: string[] } | null>();
+    for (const r of rows) {
+      try {
+        const ops = parseChangeOps(draftChanges(r.draft));
+        refs.set(r.id, {
+          objects: ops.flatMap((o) => (o.op === 'CREATE_TRIP' || o.op === 'REASSIGN_VEHICLE' ? [o.objectId] : [])),
+          bookings: ops.flatMap((o) => (o.op === 'ADD_PASSENGER' || o.op === 'ADD_STOP' ? [o.bookingId] : [])),
+          trips: ops.flatMap((o) => ('tripId' in o && /^[0-9a-f-]{36}$/i.test(o.tripId) ? [o.tripId] : [])),
+          seats: ops.flatMap((o) => (o.op === 'REMOVE_PASSENGER' ? [o.passengerTripId] : [])),
+        });
+      } catch {
+        refs.set(r.id, null); // unreadable draft: only its creator sees it
+      }
+    }
+    const all = [...refs.values()].filter((x): x is NonNullable<typeof x> => !!x);
+    const bookingIds = [...new Set(all.flatMap((x) => x.bookings))];
+    const tripIds = [...new Set(all.flatMap((x) => x.trips))];
+    const seatIds = [...new Set(all.flatMap((x) => x.seats))];
+    const [bookings, trips, seats] = await Promise.all([
+      bookingIds.length ? this.prisma.transportBooking.findMany({ where: { id: { in: bookingIds }, customerCompanyId: ctx.companyId }, select: { id: true, profile: { select: { branchId: true } } } }) : [],
+      tripIds.length ? this.prisma.transportTrip.findMany({ where: { id: { in: tripIds }, providerCompanyId: ctx.companyId }, select: { id: true, plannedTrip: { select: { objectId: true } } } }) : [],
+      seatIds.length ? this.prisma.transportTripPassenger.findMany({ where: { id: { in: seatIds }, providerCompanyId: ctx.companyId }, select: { id: true, booking: { select: { profile: { select: { branchId: true } } } } } }) : [],
+    ]);
+    const okBooking = new Set(bookings.filter((b) => inProfileBranch(ctx, b.profile?.branchId)).map((b) => b.id));
+    const okTrip = new Set(trips.filter((t) => !!t.plannedTrip && objectIds.includes(t.plannedTrip.objectId)).map((t) => t.id));
+    const okSeat = new Set(seats.filter((s) => inProfileBranch(ctx, s.booking?.profile?.branchId)).map((s) => s.id));
+    return rows.filter((r) => {
+      if (r.createdById && r.createdById === ctx.userId) return true;
+      const x = refs.get(r.id);
+      if (!x) return false;
+      return x.objects.every((o) => objectIds.includes(o)) && x.bookings.every((b) => okBooking.has(b)) && x.trips.every((t) => okTrip.has(t)) && x.seats.every((s) => okSeat.has(s));
+    });
+  }
+
+  /** M6: 404 unless the caller may see this change set (visibleDrafts rule). */
+  private async assertDraftAccess(ctx: AuthContext, row: { id: string; draft: Prisma.JsonValue | null; createdById: string | null; status: string }): Promise<void> {
+    if (ctx.dataScope === 'COMPANY') return;
+    // A published / discarded row has no draft left to judge by: only its creator may act on it.
+    if (row.status !== 'DRAFT' || !row.draft) {
+      if (row.createdById !== ctx.userId) throw notFound();
+      return;
+    }
+    if (!(await this.visibleDrafts(ctx, [row], await this.scopedObjectIds(ctx))).length) throw notFound();
   }
 
   private async publishWithKey(ctx: AuthContext, input: DispatchChangeSetInput, key: string, draftId: string | null): Promise<Replayable<ChangeSetResult>> {
     const hash = requestHash({ ...input, draftId });
     const prior = await this.prisma.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key } });
     if (prior) {
-      if (prior.requestHash !== hash) throw idempotencyReused();
+      // L3: a key replays only for the user who used it (another user's key is a reuse, never their result).
+      if (prior.requestHash !== hash || (!draftId && prior.createdById !== ctx.userId)) throw idempotencyReused();
       if (prior.status === 'PUBLISHED' && prior.result) return { value: prior.result as unknown as ChangeSetResult, replay: true };
     }
     try {
-      const { result, plannedTripIds } = await this.apply(ctx, input, key, hash, draftId);
+      const { result, plannedTripIds, toRoute } = await this.apply(ctx, input, key, hash, draftId);
       await this.live.changed(ctx.companyId, plannedTripIds);
+      // QA B3 (02 §5.4): publish never waits for routing; road paths are added after the commit.
+      this.routeInBackground(ctx.companyId, toRoute);
       return { value: result, replay: false };
     } catch (e) {
       if (isUniqueViolation(e, 'idempotencyKey')) {
         const winner = await this.prisma.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key } });
-        if (winner?.requestHash === hash && winner.result) return { value: winner.result as unknown as ChangeSetResult, replay: true };
+        if (winner?.requestHash === hash && winner.result && (draftId || winner.createdById === ctx.userId)) return { value: winner.result as unknown as ChangeSetResult, replay: true };
         throw idempotencyReused();
       }
       throw mapDbError(e);
@@ -468,6 +592,9 @@ export class DispatchService {
   /** Prepare the CREATE_TRIP ops (route snapshot or ad-hoc stops + optional road path) before taking any lock. */
   private async prepareTrips(ctx: AuthContext, input: DispatchChangeSetInput): Promise<Map<string, PreparedTrip>> {
     const out = new Map<string, PreparedTrip>();
+    // Stops that claim a company place: the place must be the company's and the point at it (else it is a personal point).
+    const poiIds = [...new Set(input.changes.flatMap((o) => (o.op === 'CREATE_TRIP' && o.stops ? o.stops.flatMap((s) => (s.point.poiId ? [s.point.poiId] : [])) : [])))];
+    const places = new Map((poiIds.length ? await this.prisma.poi.findMany({ where: { id: { in: poiIds }, companyId: ctx.companyId }, select: { id: true, lat: true, lng: true } }) : []).map((p) => [p.id, p]));
     for (const op of input.changes) {
       if (op.op !== 'CREATE_TRIP') continue;
       const startMs = Date.parse(op.plannedStart);
@@ -482,16 +609,25 @@ export class DispatchService {
         const snap = buildTripSnapshot(route, startMs);
         p = { op, name: op.name ?? snap.routeName, routeId: route.id, corridorM: op.corridorM ?? snap.corridorM, path: snap.path, stops: snap.stops, plannedStart: snap.plannedStart, plannedEnd: snap.plannedEnd };
       } else {
-        const stops = adhocStops(op.stops as DispatchStopInput[]);
+        const given = op.stops as DispatchStopInput[];
+        const stops = adhocStops(given).map((s, i) => {
+          const poiId = given[i].point.poiId ?? null;
+          if (!poiId) return { ...s, poiId: null };
+          const place = places.get(poiId);
+          // Another tenant's (or an unknown) place is a 404 like any foreign id (05 §1); a place far from the point is a 400.
+          if (!place) throw notFound('Place not found');
+          if (metres(place, s) > PLACE_MATCH_M) throw invalid(`Stop ${s.seq + 1} is not at the company place it names`);
+          return { ...s, poiId };
+        });
         if (Math.abs(stops[0].plannedArrival.getTime() - startMs) > 60 * MIN) throw invalid('The first stop must be planned within an hour of the trip start');
         if (stops[stops.length - 1].plannedArrival.getTime() - startMs > 24 * 60 * MIN) throw invalid('A trip can last at most 24 hours');
-        const road = await this.routing.routeVia(stops.map((s) => ({ lat: s.lat, lng: s.lng }))).catch(() => null);
+        // The road path is computed after the commit (routeInBackground): publish never waits for routing (QA B3).
         p = {
           op,
           name: op.name ?? `Transport ${input.serviceDate} ${input.direction === 'IN' ? 'login' : 'logout'}`,
           routeId: null,
           corridorM: op.corridorM ?? ROUTE_LIMITS.corridorDefaultM,
-          path: road?.path ?? null,
+          path: null,
           stops,
           plannedStart: new Date(Math.min(startMs, stops[0].plannedArrival.getTime())),
           plannedEnd: stops[stops.length - 1].plannedArrival,
@@ -509,7 +645,7 @@ export class DispatchService {
    * trips FOR UPDATE + expectedVersion, then each change in order with its rule checks; finally versions, audit and the
    * TransportChangeSet ledger row. The DB constraints (partial uniques, capacity CHECK, ETMS EXCLUDE) back every check.
    */
-  private async apply(ctx: AuthContext, input: DispatchChangeSetInput, key: string, hash: string, draftId: string | null): Promise<{ result: ChangeSetResult; plannedTripIds: string[] }> {
+  private async apply(ctx: AuthContext, input: DispatchChangeSetInput, key: string, hash: string, draftId: string | null): Promise<{ result: ChangeSetResult; plannedTripIds: string[]; toRoute: string[] }> {
     const ops = input.changes;
     const prepared = await this.prepareTrips(ctx, input);
     const newObjectIds = ops.flatMap((o) => (o.op === 'CREATE_TRIP' || o.op === 'REASSIGN_VEHICLE' ? [o.objectId] : []));
@@ -529,6 +665,16 @@ export class DispatchService {
     const removeIds = ops.flatMap((o) => (o.op === 'REMOVE_PASSENGER' ? [o.passengerTripId] : []));
     const removedRows = removeIds.length ? await this.prisma.transportTripPassenger.findMany({ where: { id: { in: removeIds }, providerCompanyId: ctx.companyId } }) : [];
     if (removedRows.length !== new Set(removeIds).size) throw notFound('Passenger not found on a trip');
+    // QA B1 / M6: every booking the change set names (ADD_PASSENGER, ADD_STOP, and the seats REMOVE_PASSENGER frees)
+    // must be the caller's own company's and in the caller's branches — checked first, so an out-of-scope id is a 404
+    // before any other rule could answer about it (re-checked on the locked rows inside the transaction).
+    const namedBookingIds = [...new Set([...ops.flatMap((o) => (o.op === 'ADD_PASSENGER' || o.op === 'ADD_STOP' ? [o.bookingId] : [])), ...removedRows.map((r) => r.bookingId)])];
+    const named = namedBookingIds.length ? await this.prisma.transportBooking.findMany({ where: { id: { in: namedBookingIds } }, select: { id: true, customerCompanyId: true, providerCompanyId: true, profile: { select: { branchId: true } } } }) : [];
+    for (const id of namedBookingIds) {
+      const b = named.find((x) => x.id === id);
+      if (!b || b.customerCompanyId !== ctx.companyId) throw notFound('Booking not found');
+      assertBookingAccess(ctx, b, 'write');
+    }
     const existingTripIds = [
       ...new Set([
         ...ops.flatMap((o) => ('tripId' in o && !prepared.has(o.tripId) ? [o.tripId] : [])),
@@ -538,14 +684,13 @@ export class DispatchService {
     const objectIds = await this.scopedObjectIds(ctx);
     const visibleTrips = existingTripIds.length ? await this.prisma.transportTrip.findMany({ where: { AND: [tripReadWhere(ctx, objectIds), { id: { in: existingTripIds } }] }, include: { plannedTrip: { select: { objectId: true, driverId: true } } } }) : [];
     if (visibleTrips.length !== existingTripIds.length) throw notFound('Trip not found');
+    // The vehicle scope repeated in code (never only through a relation filter): a trip of another branch's van is a 404.
+    for (const t of visibleTrips) if (objectIds !== null && (!t.plannedTrip || !objectIds.includes(t.plannedTrip.objectId))) throw notFound('Trip not found');
     for (const t of visibleTrips) assertTripWrite(ctx, t);
     for (const id of existingTripIds) {
       if (input.expectedVersions?.[id] === undefined) throw invalid(`expectedVersions must give the version of trip ${id}`);
     }
     const bookingIds = ops.flatMap((o) => (o.op === 'ADD_PASSENGER' || o.op === 'ADD_STOP' ? [o.bookingId] : []));
-    const consents = await this.consents((await this.prisma.transportBooking.findMany({ where: { id: { in: bookingIds } }, select: { profileId: true } })).map((b) => b.profileId));
-    // ADD_STOP: the road path through the new stops, computed before any lock (null when routing does not answer).
-    const stopPaths = await this.pathsAfterInserts(ctx, ops);
     const now = new Date();
 
     return this.prisma.$transaction(
@@ -561,6 +706,8 @@ export class DispatchService {
         const bookings = new Map(
           (await tx.transportBooking.findMany({ where: { id: { in: [...bookingIds, ...removedRows.map((r) => r.bookingId)] } }, include: { profile: { select: { branchId: true } } } })).map((b) => [b.id, b]),
         );
+        // L9: consent read after the bookings are locked, inside the transaction: a withdrawal that commits first is seen.
+        const consents = await activeRoutingConsents(tx, [...bookings.values()].map((b) => b.profileId));
         const state = new Map<string, TripState>();
         for (const id of existingTripIds) {
           const t = await tx.transportTrip.findUniqueOrThrow({ where: { id }, include: { plannedTrip: { include: { stops: { orderBy: { seq: 'asc' } } } } } });
@@ -605,6 +752,7 @@ export class DispatchService {
               const v = vehicleById.get(op.objectId)!;
               const seats = v.transportProfile?.seats ?? null;
               if (seats === null) throw conflict('NO_SEATS_SET', `Change ${n}: set the vehicle's passenger seats first`);
+              const tripStops = op.routeId ? p.stops : this.linkPersonalStops(ctx, n, op.tempId, p.stops, ops, bookings, consents);
               await this.assertFree(tx, op.objectId, op.driverId ?? null, p.plannedStart, p.plannedEnd, null);
               const pt = await tx.plannedTrip.create({
                 data: {
@@ -621,7 +769,7 @@ export class DispatchService {
                   plannedEnd: p.plannedEnd,
                   nextStopSeq: 0,
                   createdById: ctx.userId,
-                  stops: { create: p.stops },
+                  stops: { create: tripStops },
                 },
                 include: { stops: true },
               });
@@ -665,7 +813,9 @@ export class DispatchService {
               const s = trip(op.tripId);
               editable(s);
               const b = bookings.get(op.bookingId);
+              // M6: own company and the caller's branches (a branch-B booking is a 404 for a branch-A dispatcher).
               if (!b || b.customerCompanyId !== ctx.companyId) throw notFound('Booking not found');
+              assertBookingAccess(ctx, b, 'write');
               if (b.status !== 'PENDING_ASSIGNMENT') throw conflict('INVALID_STATE', `Change ${n}: only a booking waiting for a seat can be assigned (it is ${b.status})`);
               if (dayKeyOf(b.serviceDate) !== input.serviceDate || b.direction !== input.direction) throw invalid(`Change ${n}: the booking is for another date or direction`);
               if (b.pickupLat === null || b.dropLat === null) throw conflict('NEEDS_LOCATION', `Change ${n}: the booking has no pickup or drop point`);
@@ -699,6 +849,7 @@ export class DispatchService {
               if (s.created) throw invalid(`Change ${n}: give a new trip's stops in its CREATE_TRIP`);
               const b = bookings.get(op.bookingId);
               if (!b || b.customerCompanyId !== ctx.companyId) throw notFound('Booking not found');
+              assertBookingAccess(ctx, b, 'write');
               if (b.status !== 'PENDING_ASSIGNMENT') throw conflict('INVALID_STATE', `Change ${n}: only a booking waiting for a seat gets a new stop (it is ${b.status})`);
               if (dayKeyOf(b.serviceDate) !== input.serviceDate || b.direction !== input.direction) throw invalid(`Change ${n}: the booking is for another date or direction`);
               const point = bookingEnd(b, op.end);
@@ -731,8 +882,22 @@ export class DispatchService {
               }
               await tx.transportTripPassenger.updateMany({ where: { tripId: s.id, dropSeq: { gt: op.afterSeq } }, data: { dropSeq: { increment: 1 } } });
               await tx.transportTripPassenger.updateMany({ where: { tripId: s.id, pickupSeq: { gt: op.afterSeq } }, data: { pickupSeq: { increment: 1 } } });
+              // A site end keeps the place's name; a personal end gets a neutral name and its owner (the v1.8 tracker, alerts
+              // and reports read the name; the passenger's own label is shown only in the consent-checked transport views).
+              const sitePoi = op.end === 'PICKUP' ? b.pickupPoiId : b.dropPoiId;
               const created = await tx.plannedTripStop.create({
-                data: { tripId: s.plannedTripId, seq: op.afterSeq + 1, name: (point.label ?? '').trim() || (op.end === 'PICKUP' ? 'Pickup' : 'Drop'), lat: point.lat, lng: point.lng, radiusM: ROUTE_LIMITS.radiusDefaultM, plannedArrival: arrival, plannedDeparture: departure },
+                data: {
+                  tripId: s.plannedTripId,
+                  seq: op.afterSeq + 1,
+                  name: sitePoi ? (point.label ?? '').trim() || 'Site' : PERSONAL_STOP_NAME[op.end],
+                  lat: point.lat,
+                  lng: point.lng,
+                  radiusM: ROUTE_LIMITS.radiusDefaultM,
+                  plannedArrival: arrival,
+                  plannedDeparture: departure,
+                  poiId: sitePoi ?? null,
+                  profileId: sitePoi ? null : b.profileId,
+                },
               });
               s.stops.splice(op.afterSeq + 1, 0, toStopState(created));
               s.stopIds = stopIdMap(s.stops);
@@ -746,6 +911,7 @@ export class DispatchService {
               const r = removedRows.find((x) => x.id === op.passengerTripId)!;
               const s = trip(r.tripId);
               editable(s);
+              assertBookingAccess(ctx, bookings.get(r.bookingId) ?? null, 'write');
               const done = await tx.transportTripPassenger.updateMany({ where: { id: r.id, status: 'PENDING' }, data: { status: 'CANCELLED', cancelReason: op.reason } });
               if (!done.count) throw conflict('INVALID_STATE', `Change ${n}: the passenger's outcome is recorded or they were removed already`);
               await tx.transportTrip.update({ where: { id: s.id }, data: { occupiedSeats: { decrement: r.seats } } });
@@ -790,12 +956,14 @@ export class DispatchService {
           }
         }
 
-        // ADD_STOP: the planned path now runs through the new stops (or none when routing did not answer: never a stale one).
+        // ADD_STOP: the old path no longer runs through every stop: cleared now (never a stale one), re-routed after commit.
         for (const s of state.values()) {
           if (!s.stopsAdded) continue;
-          const path = stopPaths.get(s.id) ?? null;
-          await tx.plannedTrip.update({ where: { id: s.plannedTripId }, data: { path: path ? (path as Prisma.InputJsonValue) : Prisma.DbNull } });
+          await tx.plannedTrip.update({ where: { id: s.plannedTripId }, data: { path: Prisma.DbNull } });
         }
+        // Trips that need a road path (new door-to-door trips, trips with new stops), within the routing budget (L4).
+        const wanted = [...state.values()].filter((s) => (s.created && prepared.get(s.tempId!)?.routeId === null) || s.stopsAdded).map((s) => s.plannedTripId);
+        const routed = this.routingBudget(wanted, warnings);
         // Versions: every existing trip touched + 1 (re-publish, 02 §5.4); new trips stay at 1.
         for (const id of touched) {
           const s = state.get(id)!;
@@ -818,39 +986,90 @@ export class DispatchService {
           : await tx.transportChangeSet.create({ data: { id: changeSetId, companyId: ctx.companyId, idempotencyKey: key, requestHash: hash, status: 'PUBLISHED', serviceDate: dateOnly(input.serviceDate), direction: input.direction, createdById: ctx.userId, publishedAt: now } });
         result.changeSetId = ledger.id;
         await tx.transportChangeSet.update({ where: { id: ledger.id }, data: { result: result as unknown as Prisma.InputJsonValue } });
-        return { result, plannedTripIds: [...state.values()].map((s) => s.plannedTripId) };
+        return { result, plannedTripIds: [...state.values()].map((s) => s.plannedTripId), toRoute: routed };
       },
       { timeout: 30_000, maxWait: 10_000 },
     );
   }
 
   /**
-   * ADD_STOP: the stop list each trip will have after its inserts (same order as the transaction applies them), routed
-   * through GraphHopper before any lock. Trips / bookings that do not resolve here are refused inside the transaction.
+   * L4: at most routingCallsPerChangeSet trips of one change set are road-routed; the others are saved without a path
+   * and a warning says so. Returns the planned-trip ids to route.
    */
-  private async pathsAfterInserts(ctx: AuthContext, ops: DispatchChangeOp[]): Promise<Map<string, unknown>> {
-    const out = new Map<string, unknown>();
-    const adds = ops.filter((o): o is Extract<DispatchChangeOp, { op: 'ADD_STOP' }> => o.op === 'ADD_STOP');
-    if (!adds.length) return out;
-    const trips = await this.prisma.transportTrip.findMany({ where: { id: { in: [...new Set(adds.map((a) => a.tripId))] }, providerCompanyId: ctx.companyId }, include: { plannedTrip: { include: { stops: { orderBy: { seq: 'asc' } } } } } });
-    const books = new Map((await this.prisma.transportBooking.findMany({ where: { id: { in: adds.map((a) => a.bookingId) }, customerCompanyId: ctx.companyId } })).map((b) => [b.id, b]));
-    for (const t of trips) {
-      const points = (t.plannedTrip?.stops ?? []).map((s) => ({ lat: s.lat, lng: s.lng }));
-      let ok = points.length > 0;
-      for (const a of adds.filter((x) => x.tripId === t.id)) {
-        const b = books.get(a.bookingId);
-        const p = b ? bookingEnd(b, a.end) : null;
-        if (!p || a.afterSeq + 1 > points.length) {
-          ok = false;
-          break;
+  private routingBudget(plannedTripIds: string[], warnings: string[]): string[] {
+    if (!this.routing.enabled) return [];
+    const max = TRANSPORT_E3_LIMITS.routingCallsPerChangeSet;
+    if (plannedTripIds.length > max) warnings.push(`${plannedTripIds.length - max} trip(s) saved without a road path (at most ${max} routed trips per change set)`);
+    return plannedTripIds.slice(0, max);
+  }
+
+  /**
+   * QA B3 (02 §5.4): road paths of just-published trips, after the commit (publish never waits for routing). Each trip
+   * is routed through its stops as they are now; the path is written only if the stops did not change meanwhile and
+   * the trip has not started. Best effort: a slow or failed engine leaves the path empty (never a stale one).
+   */
+  routeInBackground(companyId: string, plannedTripIds: string[]): Promise<void> {
+    if (!plannedTripIds.length || !this.routing.enabled) return Promise.resolve();
+    const sig = (stops: { id: string; seq: number; lat: number; lng: number }[]) => stops.map((s) => `${s.id}:${s.seq}:${s.lat},${s.lng}`).join('|');
+    return (async () => {
+      const done: string[] = [];
+      for (const id of plannedTripIds) {
+        try {
+          const pt = await this.prisma.plannedTrip.findFirst({ where: { id, companyId, status: 'SCHEDULED' }, include: { stops: { orderBy: { seq: 'asc' } } } });
+          if (!pt || pt.stops.length < 2) continue;
+          const stops = [...pt.stops].sort((a, b) => a.seq - b.seq);
+          const before = sig(stops);
+          const road = await this.routing.routeVia(stops.map((s) => ({ lat: s.lat, lng: s.lng }))).catch(() => null);
+          if (!road?.path) continue;
+          const now = await this.prisma.plannedTripStop.findMany({ where: { tripId: id }, orderBy: { seq: 'asc' } });
+          if (sig([...now].sort((a, b) => a.seq - b.seq)) !== before) continue; // changed meanwhile: its own publish re-routes
+          const w = await this.prisma.plannedTrip.updateMany({ where: { id, status: 'SCHEDULED' }, data: { path: road.path as unknown as Prisma.InputJsonValue } });
+          if (w.count) done.push(id);
+        } catch (error) {
+          this.logger.warn(`Road path of planned trip ${id} not computed: ${(error as Error).message}`);
         }
-        points.splice(a.afterSeq + 1, 0, { lat: p.lat, lng: p.lng });
       }
-      if (!ok) continue;
-      const road = await this.routing.routeVia(points).catch(() => null);
-      out.set(t.id, road?.path ?? null);
-    }
-    return out;
+      if (done.length) await this.live.changed(companyId, done);
+    })();
+  }
+
+  /**
+   * M2 (E3 security review): the stops of a new door-to-door trip that are not company places are personal points.
+   * Each must be the pickup / drop of a passenger seated by this change set (ADD_PASSENGER on this trip at that seq, or
+   * a booking end within personalStopMatchM of it) whose routing consent is active now; otherwise 403 CONSENT_REQUIRED
+   * (e.g. a repeat draft still carrying the home of someone who withdrew). The stop is stored with its owner and a
+   * neutral name.
+   */
+  private linkPersonalStops(
+    ctx: AuthContext,
+    n: number,
+    tempId: string,
+    stops: PreparedTrip['stops'],
+    ops: DispatchChangeOp[],
+    bookings: Map<string, { id: string; profileId: string; customerCompanyId: string; pickupLat: number | null; pickupLng: number | null; pickupPoiId: string | null; dropLat: number | null; dropLng: number | null; dropPoiId: string | null }>,
+    consents: Set<string>,
+  ): PreparedTrip['stops'] {
+    const adds = ops.filter((o): o is Extract<DispatchChangeOp, { op: 'ADD_PASSENGER' }> => o.op === 'ADD_PASSENGER' && o.tripId === tempId);
+    const ends = adds.flatMap((a) => {
+      const b = bookings.get(a.bookingId);
+      if (!b || b.customerCompanyId !== ctx.companyId || !consents.has(b.profileId)) return [];
+      const out: { seq: number; end: 'PICKUP' | 'DROP'; profileId: string; lat: number; lng: number }[] = [];
+      if (b.pickupLat !== null && b.pickupLng !== null && !b.pickupPoiId) out.push({ seq: a.pickupSeq, end: 'PICKUP', profileId: b.profileId, lat: b.pickupLat, lng: b.pickupLng });
+      if (b.dropLat !== null && b.dropLng !== null && !b.dropPoiId) out.push({ seq: a.dropSeq, end: 'DROP', profileId: b.profileId, lat: b.dropLat, lng: b.dropLng });
+      return out;
+    });
+    return stops.map((s) => {
+      if (s.poiId) return { ...s, profileId: null };
+      const near = ends.filter((e) => metres(e, s) <= TRANSPORT_E3_LIMITS.personalStopMatchM);
+      const match = near.find((e) => e.seq === s.seq) ?? near[0];
+      if (!match) {
+        // The passenger seated at this seq has no point here: the ADD_PASSENGER's own refusal is the clearer answer.
+        const seated = adds.map((a) => ({ a, b: bookings.get(a.bookingId) })).find(({ a, b }) => b && (a.pickupSeq === s.seq ? b.pickupLat === null : a.dropSeq === s.seq ? b.dropLat === null : false));
+        if (seated) throw conflict('NEEDS_LOCATION', `Change ${n}: the booking seated at stop ${s.seq + 1} has no pickup or drop point`);
+      }
+      if (!match) throw forbidden('CONSENT_REQUIRED', `Change ${n}: stop ${s.seq + 1} is not a company place and is not the pickup or drop of a consenting passenger added in this change set`);
+      return { ...s, name: PERSONAL_STOP_NAME[match.end], profileId: match.profileId, poiId: null };
+    });
   }
 
   /** No overlapping active planned trip (any origin) for the vehicle / driver in [start, end) (409 VEHICLE_BUSY / DRIVER_BUSY). */
@@ -877,7 +1096,7 @@ export class DispatchService {
     const objectIds = await this.scopedObjectIds(ctx);
     const t = await this.prisma.transportTrip.findFirst({
       where: { AND: [tripReadWhere(ctx, objectIds), { id: tripId }] },
-      include: { plannedTrip: { include: { stops: { orderBy: { seq: 'asc' } } } }, passengers: { where: { status: { not: 'CANCELLED' } }, include: { booking: { select: { profileId: true, timeZone: true } } } } },
+      include: { plannedTrip: { include: { stops: { orderBy: { seq: 'asc' } } } }, passengers: { where: { status: { not: 'CANCELLED' } }, include: { booking: { select: { profileId: true, timeZone: true, pickupPoiId: true, dropPoiId: true } } } } },
     });
     if (!t) throw notFound();
     assertTripWrite(ctx, t);
@@ -896,7 +1115,21 @@ export class DispatchService {
         where: { customerCompanyId: ctx.companyId, profileId: { in: t.passengers.map((p) => p.booking.profileId) }, serviceDate: dateOnly(d), direction: t.direction, status: 'PENDING_ASSIGNMENT' },
         select: { id: true, profileId: true },
       });
-      if (!found.length) {
+      // M2: only passengers whose routing consent is active now are carried over; a personal stop nobody carried over
+      // rides along is left out (never a home of someone who is not on the draft), and seqs are renumbered.
+      const consenting = await this.consents(found.map((b) => b.profileId));
+      const riders = found.filter((b) => consenting.has(b.profileId));
+      const routeTrip = !!pt.routeId;
+      const keep = pt.stops.filter((s) => {
+        const owner = stopOwner(s, t.passengers, routeTrip);
+        return owner === null || (owner !== 'UNKNOWN' && riders.some((b) => b.profileId === owner));
+      });
+      const newSeq = new Map(keep.map((s, i) => [s.seq, i] as const));
+      const carried = riders.filter((b) => {
+        const src = t.passengers.find((p) => p.booking.profileId === b.profileId)!;
+        return routeTrip || (newSeq.has(src.pickupSeq) && newSeq.has(src.dropSeq));
+      });
+      if (!carried.length || (!routeTrip && keep.length < ROUTE_LIMITS.minStops)) {
         result.skippedDates.push(d);
         continue;
       }
@@ -915,22 +1148,24 @@ export class DispatchService {
           ? { routeId: pt.routeId }
           : {
               routeId: null,
-              stops: pt.stops.map((s) => ({
-                seq: s.seq,
-                point: { lat: s.lat, lng: s.lng, label: s.name },
+              stops: keep.map((s) => ({
+                seq: newSeq.get(s.seq)!,
+                point: { lat: s.lat, lng: s.lng, label: s.name, poiId: s.poiId ?? null },
                 plannedArrival: move(s.plannedArrival.getTime()),
                 radiusM: s.radiusM,
                 waitMin: Math.max(0, Math.round((s.plannedDeparture.getTime() - s.plannedArrival.getTime()) / MIN)),
               })),
             }),
       };
-      const adds: DispatchChangeOp[] = found.map((b) => {
+      const adds: DispatchChangeOp[] = carried.map((b) => {
         const src = t.passengers.find((p) => p.booking.profileId === b.profileId)!;
-        return { op: 'ADD_PASSENGER', tripId: 'trip', bookingId: b.id, pickupSeq: src.pickupSeq, dropSeq: src.dropSeq };
+        return routeTrip
+          ? { op: 'ADD_PASSENGER', tripId: 'trip', bookingId: b.id, pickupSeq: src.pickupSeq, dropSeq: src.dropSeq }
+          : { op: 'ADD_PASSENGER', tripId: 'trip', bookingId: b.id, pickupSeq: newSeq.get(src.pickupSeq)!, dropSeq: newSeq.get(src.dropSeq)! };
       });
-      const draft = await this.saveDraft(ctx, { serviceDate: d, direction: t.direction, changes: [create, ...adds], expectedVersions: {}, reason: `Repeat of trip ${t.id}` }, t.id);
-      const have = new Set(found.map((b) => b.profileId));
-      result.drafts.push({ changeSetId: draft.changeSetId, serviceDate: d, passengers: found.length, missingBookings: t.passengers.map((p) => p.booking.profileId).filter((id) => !have.has(id)) });
+      const draft = await this.saveDraft(ctx, { serviceDate: d, direction: t.direction, changes: [create, ...adds], expectedVersions: {}, reason: `Repeat of trip ${t.id}` }, t.id, false);
+      const have = new Set(carried.map((b) => b.profileId));
+      result.drafts.push({ changeSetId: draft.changeSetId, serviceDate: d, passengers: carried.length, missingBookings: t.passengers.map((p) => p.booking.profileId).filter((id) => !have.has(id)) });
     }
     await this.audit.record(ctx, { action: 'CREATE', entity: 'TransportChangeSet', entityId: tripId, details: { repeat: { toDate: to, drafts: result.drafts.length, skippedDates: result.skippedDates.length } } });
     return result;

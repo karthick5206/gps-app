@@ -105,6 +105,7 @@ export interface Replayable<T> {
 @Injectable()
 export class BookingsService {
   private readonly limiter: FixedWindowLimiter;
+  private readonly bulkLimiter: FixedWindowLimiter;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -112,6 +113,8 @@ export class BookingsService {
     redis: RedisService,
   ) {
     this.limiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:booking-create', TRANSPORT_E3_LIMITS.bookingCreatesPerMinute, 60_000);
+    // L6: bulk approve runs up to maxBulk transactions per request.
+    this.bulkLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:booking-bulk', TRANSPORT_E3_LIMITS.bulkApprovesPerMinute, 60_000);
   }
 
   // ───────────────────────────── reads ─────────────────────────────
@@ -157,7 +160,9 @@ export class BookingsService {
     const hash = requestHash(dto);
     const prior = await this.prisma.transportBooking.findFirst({ where: { customerCompanyId: ctx.companyId, idempotencyKey: key }, include: BOOKING_INCLUDE });
     if (prior) {
-      if (prior.idempotencyHash !== hash) throw idempotencyReused();
+      // L3: a key replays only for the user who used it, and only after the same read check as GET /bookings/:id.
+      if (prior.idempotencyHash !== hash || prior.createdById !== ctx.userId) throw idempotencyReused();
+      assertBookingAccess(ctx, prior, 'read');
       return { value: await this.detail(ctx, prior), replay: true };
     }
     const rl = await this.limiter.hit(ctx.userId);
@@ -254,7 +259,7 @@ export class BookingsService {
       if (isUniqueViolation(e, 'idempotencyKey')) {
         // A concurrent request with the same key won the race: answer as its replay.
         const winner = await this.prisma.transportBooking.findFirst({ where: { customerCompanyId: ctx.companyId, idempotencyKey: key }, include: BOOKING_INCLUDE });
-        if (winner && winner.idempotencyHash === hash) return { value: await this.detail(ctx, winner), replay: true };
+        if (winner && winner.idempotencyHash === hash && winner.createdById === ctx.userId) return { value: await this.detail(ctx, winner), replay: true };
         throw idempotencyReused();
       }
       if (isUniqueViolation(e)) throw conflict('BOOKING_DUPLICATE', 'The passenger already has an active booking for this date and direction');
@@ -325,6 +330,8 @@ export class BookingsService {
   }
 
   async bulkApprove(ctx: AuthContext, ids: string[]): Promise<BulkApproveTransportBookingsResult> {
+    const rl = await this.bulkLimiter.hit(ctx.userId);
+    if (!rl.allowed) throw e3Error(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMITED', `Too many bulk approvals; try again in ${rl.retryAfterSec} s`, { retryAfterSec: rl.retryAfterSec });
     const approved: string[] = [];
     const skipped: { id: string; code: string }[] = [];
     for (const id of [...new Set(ids)]) {

@@ -4,11 +4,19 @@ import { RedisService } from '../redis/redis.service';
 import { decodePolyline, MAX_ESTIMATE_STRAIGHT_M, plausibleRoute } from './route-estimate';
 import { fillLegs, parseGraphHopperRoute, parseValhallaTrip, RouteViaLeg, RouteViaResult, ViaPoint } from './route-via';
 import { haversineMeters } from '../tracking/geo';
+import { MapServiceMonitor, mapServiceTargets } from '../monitoring/map-services';
 
 const CACHE_TTL_SEC = 30 * 86_400;
 const MISS_TTL_SEC = 86_400;
 /** Pairwise leg requests run this many at a time. */
 const LEG_CONCURRENCY = 6;
+/**
+ * routeVia calls running at once in this process, and how many may wait for a slot (E3 security review L4: a burst of
+ * change sets or route saves must not flood the self-hosted engine). A call beyond the queue answers null (no path),
+ * which every caller already handles as "routing unavailable".
+ */
+const VIA_CONCURRENCY = 4;
+const VIA_QUEUE = 32;
 
 /**
  * Likely roads through track gaps (History draws them dashed as "estimated"), from a self-hosted routing engine:
@@ -21,10 +29,43 @@ export class RoutingService {
   private readonly baseUrl = (process.env.ROUTER_URL ?? '').replace(/\/+$/, '');
   private readonly engine = (process.env.ROUTER_ENGINE ?? 'valhalla').toLowerCase();
 
+  /** GraphHopper /health probe (map-services: 2 s timeout, result reused 10 s), as System Health shows it. */
+  private readonly health = new MapServiceMonitor(mapServiceTargets().filter((t) => t.name === 'graphhopper'));
+  private viaActive = 0;
+  private readonly viaWaiting: (() => void)[] = [];
+
   constructor(private readonly redis: RedisService) {}
+
+  /** Runs `fn` under the routeVia concurrency cap; null when the queue is full. */
+  private async viaSlot<T>(fn: () => Promise<T | null>): Promise<T | null> {
+    if (this.viaActive >= VIA_CONCURRENCY) {
+      if (this.viaWaiting.length >= VIA_QUEUE) {
+        this.logger.warn('Route via refused: too many routing requests at once');
+        return null;
+      }
+      await new Promise<void>((resolve) => this.viaWaiting.push(resolve));
+    }
+    this.viaActive++;
+    try {
+      return await fn();
+    } finally {
+      this.viaActive--;
+      this.viaWaiting.shift()?.();
+    }
+  }
 
   get enabled(): boolean {
     return !!this.baseUrl;
+  }
+
+  /**
+   * Configured AND answering (ETMS QA B2): for GraphHopper, the map-services health probe must be OK; other engines
+   * have no probe and count as available when configured.
+   */
+  async available(): Promise<boolean> {
+    if (!this.enabled) return false;
+    const gh = (await this.health.collect().catch(() => this.health.snapshot()))[0];
+    return !gh || !gh.configured || gh.ok;
   }
 
   async estimateGaps(segments: GapEstimateSegment[]): Promise<GapEstimateResponse> {
@@ -70,6 +111,10 @@ export class RoutingService {
    */
   async routeVia(points: ViaPoint[]): Promise<RouteViaResult | null> {
     if (!this.enabled || points.length < 2) return null;
+    return this.viaSlot(() => this.routeViaNow(points));
+  }
+
+  private async routeViaNow(points: ViaPoint[]): Promise<RouteViaResult | null> {
     try {
       if (this.engine !== 'graphhopper') return await this.viaValhalla(points);
       const whole = await this.viaGraphHopper(points);

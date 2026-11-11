@@ -22,7 +22,8 @@ import { driverScopeWhere } from '../drivers/drivers.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CancelPlannedTripDto, CreatePlannedTripDto, ManualTripActionDto, PlannedTripListQuery, UpdatePlannedTripDto } from './planned-trips.dto';
 import { buildTripSnapshot, shiftTripTimes, SnapshotRoute } from './snapshot';
-import { lockTripResources } from './trip-locks';
+import { etmsStopLabel } from './etms-stop-label';
+import { assertNoEtmsOverlap, lockTripResources } from './trip-locks';
 import { canCancelTrip, canCompleteTrip, canEditTrip, canStartTrip } from './trip-rules';
 
 const ENTITY = 'planned_trip';
@@ -119,6 +120,12 @@ export class PlannedTripsService {
     return listResult(plan, await this.toSummaries(rows), total, CSV);
   }
 
+  /**
+   * Detail. An employee-transport trip (origin ETMS) is shown as labels only (E3 security review H1): no path, no stop
+   * coordinates, personal stops under a neutral name, no event positions. Its stops can be passengers' homes, and the
+   * v1.8 permission (plannedTrips:view) carries no consent, branch or add-on check. The full view is
+   * /api/transport/trips/:id (etms add-on, etms_dispatch:view, consent / branch / precision rules).
+   */
   async get(ctx: AuthContext, id: string): Promise<PlannedTripDto> {
     return this.toDetail(await this.find(ctx, id));
   }
@@ -161,12 +168,15 @@ export class PlannedTripsService {
   /**
    * Inserts a ROUTE trip with its stops (no audit, no invalidation: callers do that). Used by `create` and by the
    * generator; a duplicate generated trip fails with P2002 on (scheduleId, plannedStart). Takes the vehicle / driver
-   * advisory locks the ETMS publish transaction uses (15 §8.4), so the two paths serialise per vehicle.
+   * advisory locks the ETMS publish transaction uses (15 §8.4), so the two paths serialise per vehicle, and refuses
+   * (409 VEHICLE_BUSY / DRIVER_BUSY) a vehicle or driver an active ETMS run holds at that time (E3 security review M3;
+   * the generator logs and skips that occurrence).
    */
   async insertTrip(input: NewTripInput, db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<PlannedTrip> {
     if (db === this.prisma) return this.prisma.$transaction((tx) => this.insertTrip(input, tx));
     await lockTripResources(db as Prisma.TransactionClient, { objectIds: [input.objectId], driverIds: [input.driverId] });
     const snap = buildTripSnapshot(input.route, input.plannedStartMs);
+    await assertNoEtmsOverlap(db as Prisma.TransactionClient, { objectId: input.objectId, driverId: input.driverId, start: snap.plannedStart, end: snap.plannedEnd });
     return db.plannedTrip.create({
       data: {
         companyId: input.companyId,
@@ -213,6 +223,14 @@ export class PlannedTripsService {
     }
     const row = await this.prisma.$transaction(async (tx) => {
       await lockTripResources(tx, { objectIds: [before.objectId, data.objectId as string | undefined], driverIds: [before.driverId, data.driverId as string | null | undefined] });
+      // E3 security review M3: the edited trip (new vehicle / driver / times) must not overlap an active ETMS run.
+      await assertNoEtmsOverlap(tx, {
+        objectId: (data.objectId as string | undefined) ?? before.objectId,
+        driverId: data.driverId !== undefined ? (data.driverId as string | null) : before.driverId,
+        start: (data.plannedStart as Date | undefined) ?? before.plannedStart,
+        end: (data.plannedEnd as Date | undefined) ?? before.plannedEnd,
+        exceptId: id,
+      });
       const claimed = await tx.plannedTrip.updateMany({ where: { id, status: 'SCHEDULED' }, data });
       if (!claimed.count) throw new ConflictException('The trip has started meanwhile; reload it');
       if (shifted) {
@@ -244,7 +262,10 @@ export class PlannedTripsService {
    * Manual start (override): SCHEDULED → IN_PROGRESS now; the start stop counts as departed. Refused while the vehicle
    * has another active trip (a vehicle has at most one).
    */
-  async start(ctx: AuthContext, id: string, dto: ManualTripActionDto): Promise<PlannedTripDto> {
+  async start(ctx: AuthContext, id: string, dto: ManualTripActionDto, opts: { departFirstStop?: boolean } = {}): Promise<PlannedTripDto> {
+    // v1.8: the start stop counts as departed. ETMS (QA B5): the first pickup stays PENDING until the van is reported
+    // (GPS or dispatcher) there: starting a run is not having collected anyone.
+    const departFirst = opts.departFirstStop ?? true;
     const before = await this.find(ctx, id);
     if (!canStartTrip(before.status)) throw new ConflictException('Only a scheduled trip can be started');
     const active = await this.prisma.plannedTrip.findFirst({
@@ -257,10 +278,10 @@ export class PlannedTripsService {
     const row = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.plannedTrip.updateMany({
         where: { id, status: 'SCHEDULED' },
-        data: { status: 'IN_PROGRESS', actualStart: now, nextStopSeq: before.stops.length > 1 ? 1 : null },
+        data: { status: 'IN_PROGRESS', actualStart: now, nextStopSeq: departFirst ? (before.stops.length > 1 ? 1 : null) : first ? first.seq : null },
       });
       if (!claimed.count) throw new ConflictException('The trip changed meanwhile; reload it');
-      if (first) {
+      if (first && departFirst) {
         await tx.plannedTripStop.update({ where: { id: first.id }, data: { status: 'DEPARTED', actualDeparture: now } });
       }
       return tx.plannedTrip.findUniqueOrThrow({ where: { id } });
@@ -390,16 +411,17 @@ export class PlannedTripsService {
 
   private async toDetail(t: DetailRow): Promise<PlannedTripDto> {
     const n = await this.names([t]);
+    const etms = t.origin === 'ETMS';
     return {
       ...this.summary(t, t.stops.length, t.stops.filter((s) => s.status === 'SKIPPED').length, n),
-      path: Array.isArray(t.path) ? (t.path as unknown as RoutePath) : null,
+      path: !etms && Array.isArray(t.path) ? (t.path as unknown as RoutePath) : null,
       stops: t.stops.map(
         (s): PlannedTripStopDto => ({
           id: s.id,
           seq: s.seq,
-          name: s.name,
-          lat: s.lat,
-          lng: s.lng,
+          name: etms ? etmsStopLabel(s) : s.name,
+          lat: etms ? null : s.lat,
+          lng: etms ? null : s.lng,
           radiusM: s.radiusM,
           plannedArrival: iso(s.plannedArrival),
           plannedDeparture: iso(s.plannedDeparture),
@@ -415,8 +437,8 @@ export class PlannedTripsService {
           kind: e.kind as PlannedTripEventKind,
           startAt: iso(e.startAt),
           endAt: isoOrNull(e.endAt),
-          lat: e.lat,
-          lng: e.lng,
+          lat: etms ? null : e.lat,
+          lng: etms ? null : e.lng,
           data: e.data && typeof e.data === 'object' && !Array.isArray(e.data) ? (e.data as Record<string, unknown>) : null,
         }),
       ),

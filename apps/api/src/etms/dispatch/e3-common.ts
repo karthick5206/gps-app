@@ -120,11 +120,15 @@ export function assertBookingAccess(ctx: Ctx, row: { customerCompanyId: string; 
   if (mode === 'write') throw forbidden('FORBIDDEN_GRANT', 'Bookings of another company are read-only');
 }
 
-/** Trips the caller may read: those it operates or that carry its company's passengers (R1: both = own company). */
+/**
+ * Trips the caller may read: those it operates or that carry its company's passengers (R1: both = own company). A
+ * vehicle-scoped (branch) caller sees only trips of its vehicles; a detached trip (its vehicle was removed, no planned
+ * trip) is for whole-company roles only (E3 security review L7: it belongs to no branch any more).
+ */
 export function tripReadWhere(ctx: Ctx, objectIds: string[] | null): Prisma.TransportTripWhereInput {
   const own: Prisma.TransportTripWhereInput = { OR: [{ providerCompanyId: ctx.companyId }, { customerCompanyId: ctx.companyId }] };
   if (objectIds === null) return own;
-  return { AND: [own, { OR: [{ plannedTripId: null }, { plannedTrip: { objectId: { in: objectIds.length ? objectIds : ['00000000-0000-0000-0000-000000000000'] } } }] }] };
+  return { AND: [own, { plannedTrip: { objectId: { in: objectIds.length ? objectIds : ['00000000-0000-0000-0000-000000000000'] } } }] };
 }
 
 /** Single trip write (R1): operated by and for the caller's own company. */

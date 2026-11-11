@@ -164,8 +164,13 @@ export interface PlannedTripStopDto {
   id: string;
   seq: number;
   name: string;
-  lat: number;
-  lng: number;
+  /**
+   * Null for the stops of an employee-transport (origin ETMS) trip read through /api/planned-trips: those stops can be
+   * passengers' homes, so the v1.8 views show labels only (E3 security review H1). The full view, with the consent,
+   * branch and precision rules, is /api/transport/trips/:id.
+   */
+  lat: number | null;
+  lng: number | null;
   radiusM: number;
   plannedArrival: string;
   plannedDeparture: string;
@@ -181,8 +186,9 @@ export interface PlannedTripEventDto {
   kind: PlannedTripEventKind;
   startAt: string;
   endAt: string | null;
-  lat: number;
-  lng: number;
+  /** Null on an employee-transport (ETMS) trip read through /api/planned-trips (E3 security review H1). */
+  lat: number | null;
+  lng: number | null;
   /** DEVIATION: { maxM }, UNSCHEDULED_STOP: { durationSec } */
   data: Record<string, unknown> | null;
 }

@@ -26,6 +26,7 @@ import { SchedulesService } from './dispatch/schedules.service';
 import { TripLiveService } from './dispatch/trip-live';
 import { TripsService } from './dispatch/trips.service';
 import { assertNoOpenBookings, eraseTransportData } from './dispatch/erasure';
+import { applyRoutingConsentWithdrawal } from './dispatch/consent-withdrawal';
 import { dbDescribe } from '../test/scratch-db';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -453,18 +454,20 @@ d(`ETMS E3 services on ${dbName}`, () => {
       const g = await seedGraph(tx, partnerId, 'ER');
       await tx.$executeRawUnsafe(`UPDATE "TransportBooking" SET "pickupLat" = 13.061234, "pickupLng" = 80.241234, "pickupLabel" = '12 Anna Salai', note = 'ring twice', "statusReason" = 'moved', "dropPoiId" = '${g.office}' WHERE id = '${g.seated}'`);
       await tx.$executeRawUnsafe(`UPDATE "PlannedTripStop" SET lat = 13.061234, lng = 80.241234, name = '12 Anna Salai' WHERE id = '${g.stop0}'`);
+      // The HQ stop is a company place (as published since the E3 security fix): never matched by distance.
+      await tx.$executeRawUnsafe(`UPDATE "PlannedTripStop" SET "poiId" = '${g.office}' WHERE id = '${g.stop1}'`);
       await tx.$executeRawUnsafe(`INSERT INTO "TransportChangeSet" (id, "companyId", status, "serviceDate", direction, draft) VALUES (gen_random_uuid(), '${g.company}', 'DRAFT', '2026-12-08', 'IN', '{"changes":[{"op":"ADD_PASSENGER","bookingId":"${g.booking}"}]}')`);
       // The OUT booking (PENDING_ASSIGNMENT, window 1 Dec) is still open on 11 Nov.
       out.refused = await assertNoOpenBookings(tx, g.company, g.profile, new Date('2026-11-11T00:00:00Z')).then(() => 'allowed', (e: HttpException) => (e.getResponse() as { code: string }).code);
       out.afterWindow = await assertNoOpenBookings(tx, g.company, g.profile, new Date('2026-12-02T00:00:00Z')).then(() => 'allowed', (e: HttpException) => (e.getResponse() as { code: string }).code);
-      out.counts = await eraseTransportData(tx, g.company, g.profile, '[erased]').then(({ bookingIds: _ids, ...c }) => c);
+      out.counts = await eraseTransportData(tx, g.company, g.profile, '[erased]').then(({ bookingIds: _ids, scheduleIds: _s, ...c }) => c);
       out.seated = (await tx.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT "pickupLat", "pickupLng", "pickupLabel", note, "statusReason", status, "dropLat" FROM "TransportBooking" WHERE id = '${g.seated}'`))[0];
       out.stops = await tx.$queryRawUnsafe(`SELECT seq, name, lat, lng FROM "PlannedTripStop" WHERE "tripId" = '${g.plannedTrip}' ORDER BY seq`);
       out.drafts = await tx.$queryRawUnsafe(`SELECT status, draft FROM "TransportChangeSet" WHERE "companyId" = '${g.company}' AND "serviceDate" = '2026-12-08'`);
     });
     expect(out.refused).toBe('INVALID_STATE');
     expect(out.afterWindow).toBe('allowed');
-    expect(out.counts).toEqual({ bookings: 2, stops: 1, drafts: 1 });
+    expect(out.counts).toEqual({ bookings: 2, stops: 1, drafts: 1, paths: 1, exceptions: 0 });
     expect(out.seated).toEqual({ pickupLat: 13.06, pickupLng: 80.24, pickupLabel: null, note: null, statusReason: null, status: 'ASSIGNED', dropLat: 13.05 });
     expect(out.stops).toEqual([
       { seq: 0, name: '[erased]', lat: 13.06, lng: 80.24 },
@@ -473,11 +476,15 @@ d(`ETMS E3 services on ${dbName}`, () => {
     expect(out.drafts).toEqual([{ status: 'REJECTED', draft: null }]);
   });
 
-  const stops = (from: number) => [
-    { seq: 0, point: { lat: 13.06, lng: 80.24, label: 'Pickup' }, plannedArrival: new Date(from).toISOString() },
-    { seq: 1, point: { lat: 13.05, lng: 80.25, label: 'HQ' }, plannedArrival: new Date(from + H).toISOString() },
+  /**
+   * Home → HQ (the home stop needs the consenting passenger seated there in the same change set, E3 security review
+   * M2), or HQ gate → HQ (both company places) for a trip published without passengers.
+   */
+  const stops = (from: number, office: string, home: boolean) => [
+    home ? { seq: 0, point: { lat: 13.06, lng: 80.24, label: 'Pickup' }, plannedArrival: new Date(from).toISOString() } : { seq: 0, point: { lat: 13.05, lng: 80.25, label: 'HQ gate', poiId: office }, plannedArrival: new Date(from).toISOString() },
+    { seq: 1, point: { lat: 13.05, lng: 80.25, label: 'HQ', poiId: office }, plannedArrival: new Date(from + H).toISOString() },
   ];
-  const create = (objectId: string, from: number, driverId: string | null = null): DispatchChangeOp => ({ op: 'CREATE_TRIP', tempId: 't', objectId, driverId, plannedStart: new Date(from).toISOString(), stops: stops(from) });
+  const create = (objectId: string, from: number, office: string, home = true, driverId: string | null = null): DispatchChangeOp => ({ op: 'CREATE_TRIP', tempId: 't', objectId, driverId, plannedStart: new Date(from).toISOString(), stops: stops(from, office, home) });
 
   it('publish is atomic; capacity is never exceeded under concurrent change sets (409 VERSION_CONFLICT / CAPACITY_EXCEEDED)', async () => {
     const c = await company('capacity');
@@ -487,12 +494,12 @@ d(`ETMS E3 services on ${dbName}`, () => {
     const ps = await passengers(c.id, 9);
     const bs = await Promise.all(ps.map((p) => booking(c.id, p, day, t0)));
     // A refused change set leaves nothing behind (atomic publish).
-    const refused = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, t0), ...bs.slice(0, 4).map((b): DispatchChangeOp => ({ op: 'ADD_PASSENGER', tripId: 't', bookingId: b, pickupSeq: 0, dropSeq: 1 }))] }, randomUUID()).catch(httpCode);
+    const refused = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, t0, c.office), ...bs.slice(0, 4).map((b): DispatchChangeOp => ({ op: 'ADD_PASSENGER', tripId: 't', bookingId: b, pickupSeq: 0, dropSeq: 1 }))] }, randomUUID()).catch(httpCode);
     expect(refused).toBe('CAPACITY_EXCEEDED');
     expect(await prisma.plannedTrip.count({ where: { companyId: c.id } })).toBe(0);
     expect(await prisma.transportBooking.count({ where: { customerCompanyId: c.id, status: 'ASSIGNED' } })).toBe(0);
 
-    const r = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, t0)] }, randomUUID());
+    const r = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, t0, c.office, false)] }, randomUUID());
     const tripId = r.value.trips[0].id;
     // 8 parallel change sets on version 1: exactly one wins, the others get VERSION_CONFLICT.
     const burst = await Promise.all(bs.slice(0, 8).map((b) => dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [{ op: 'ADD_PASSENGER', tripId, bookingId: b, pickupSeq: 0, dropSeq: 1 }], expectedVersions: { [tripId]: 1 } }, randomUUID()).then(() => 'OK', httpCode)));
@@ -525,11 +532,67 @@ d(`ETMS E3 services on ${dbName}`, () => {
     const t0 = Date.parse(`${day}T02:00:00Z`);
     const [v1, v2] = [await vehicle(c.id, 4), await vehicle(c.id, 4)];
     const dr = await driver(c.id);
-    const sameVehicle = await Promise.all([0, 15].map((m) => dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v1, t0 + m * 60_000)] }, randomUUID()).then(() => 'OK', httpCode)));
+    const sameVehicle = await Promise.all([0, 15].map((m) => dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v1, t0 + m * 60_000, c.office, false)] }, randomUUID()).then(() => 'OK', httpCode)));
     expect(sameVehicle.sort()).toEqual(['OK', 'VEHICLE_BUSY']);
     const later = t0 + 6 * H;
-    const sameDriver = await Promise.all([v1, v2].map((v, i) => dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, later + i * 600_000, dr)] }, randomUUID()).then(() => 'OK', httpCode)));
+    const sameDriver = await Promise.all([v1, v2].map((v, i) => dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, later + i * 600_000, c.office, false, dr)] }, randomUUID()).then(() => 'OK', httpCode)));
     expect(sameDriver.sort()).toEqual(['DRIVER_BUSY', 'OK']);
+  });
+
+  it('M3: a v1.8 ROUTE trip (create / generator path, edit) cannot double-book a vehicle or driver an ETMS run holds (409), under the same advisory locks', async () => {
+    const c = await company('route-vs-etms');
+    const day = '2027-02-05';
+    const t0 = Date.parse(`${day}T02:00:00Z`);
+    const [v1, v2] = [await vehicle(c.id, 4), await vehicle(c.id, 4)];
+    const dr = await driver(c.id);
+    await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v1, t0, c.office, false, dr)] }, randomUUID());
+    const routeId = randomUUID();
+    await prisma.$executeRawUnsafe(`INSERT INTO "Route" (id, "companyId", name, "corridorM", "updatedAt") VALUES ('${routeId}', '${c.id}', 'Shuttle ${routeId.slice(0, 4)}', 200, now())`);
+    const route = { name: 'Shuttle', corridorM: 200, path: null, stops: [{ seq: 0, name: 'A', lat: 13, lng: 80, radiusM: 100, offsetMin: 0, waitMin: 0 }, { seq: 1, name: 'B', lat: 13.1, lng: 80, radiusM: 100, offsetMin: 30, waitMin: 0 }] };
+    const insert = (objectId: string, driverId: string | null, start: number) =>
+      plannedTrips.insertTrip({ companyId: c.id, routeId, route, objectId, branchId: null, driverId, scheduleId: null, plannedStartMs: start, createdById: null }).then(() => 'OK', httpCode);
+    expect(await insert(v1, null, t0 + 15 * 60_000)).toBe('VEHICLE_BUSY');
+    expect(await insert(v2, dr, t0 + 15 * 60_000)).toBe('DRIVER_BUSY');
+    expect(await insert(v2, null, t0 + 15 * 60_000)).toBe('OK');
+    expect(await insert(v1, null, t0 + 3 * H)).toBe('OK'); // after the ETMS run: free
+    // Edit: moving the free ROUTE trip of v2 onto v1 during the ETMS run is refused too.
+    const rt = await prisma.plannedTrip.findFirstOrThrow({ where: { companyId: c.id, origin: 'ROUTE', objectId: v2 } });
+    expect(await plannedTrips.update(c.ctx, rt.id, { objectId: v1 }).then(() => 'OK', httpCode)).toBe('VEHICLE_BUSY');
+    expect(await prisma.plannedTrip.count({ where: { companyId: c.id, origin: 'ROUTE', objectId: v1 } })).toBe(1);
+  });
+
+  it('M2: a routing-consent withdrawal on PostgreSQL removes the home stop of a 3-stop trip, renumbers stops and seats (CHECKs hold), cancels the booking, frees the seat', async () => {
+    const c = await company('withdrawal');
+    const day = '2027-02-06';
+    const t0 = Date.parse(`${day}T02:00:00Z`);
+    const v = await vehicle(c.id, 4);
+    const [pa, pb] = await passengers(c.id, 2);
+    const [ba, bb] = [await booking(c.id, pa, day, t0), await booking(c.id, pb, day, t0)];
+    await prisma.$executeRawUnsafe(`UPDATE "TransportBooking" SET "pickupLat" = 13.08, "pickupLng" = 80.27 WHERE id = '${bb}'`);
+    const three = [
+      { seq: 0, point: { lat: 13.06, lng: 80.24, label: 'A' }, plannedArrival: new Date(t0).toISOString() },
+      { seq: 1, point: { lat: 13.08, lng: 80.27, label: 'B' }, plannedArrival: new Date(t0 + 0.5 * H).toISOString() },
+      { seq: 2, point: { lat: 13.05, lng: 80.25, label: 'HQ', poiId: c.office }, plannedArrival: new Date(t0 + H).toISOString() },
+    ];
+    const r = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [{ op: 'CREATE_TRIP', tempId: 't', objectId: v, plannedStart: new Date(t0).toISOString(), stops: three }, { op: 'ADD_PASSENGER', tripId: 't', bookingId: ba, pickupSeq: 0, dropSeq: 2 }, { op: 'ADD_PASSENGER', tripId: 't', bookingId: bb, pickupSeq: 1, dropSeq: 2 }] }, randomUUID());
+    const tripId = r.value.trips[0].id;
+    const ptId = r.value.trips[0].plannedTripId!;
+    expect((await prisma.plannedTripStop.findMany({ where: { tripId: ptId }, orderBy: { seq: 'asc' } })).map((s) => s.profileId)).toEqual([pa, pb, null]);
+    await prisma.$executeRawUnsafe(`UPDATE "PlannedTrip" SET path = '[[80.24,13.06],[80.27,13.08],[80.25,13.05]]' WHERE id = '${ptId}'`);
+    const effects = await prisma.$transaction((tx) => applyRoutingConsentWithdrawal(tx, c.ctx, audit, { companyId: c.id, profileId: pa, userId: null, home: { lat: 13.06, lng: 80.24 } }));
+    expect(effects).toMatchObject({ bookingsCancelled: 1, seatsReleased: 1, stopsRemoved: 1, stopsAnonymised: 0, plannedTripIds: [ptId] });
+    const stopsAfter = await prisma.plannedTripStop.findMany({ where: { tripId: ptId }, orderBy: { seq: 'asc' }, select: { seq: true, lat: true, profileId: true } });
+    expect(stopsAfter).toEqual([
+      { seq: 0, lat: 13.08, profileId: pb },
+      { seq: 1, lat: 13.05, profileId: null },
+    ]);
+    const seatB = await prisma.transportTripPassenger.findFirstOrThrow({ where: { bookingId: bb } });
+    expect([seatB.pickupSeq, seatB.dropSeq, seatB.status]).toEqual([0, 1, 'PENDING']);
+    expect((await prisma.transportTripPassenger.findFirstOrThrow({ where: { bookingId: ba } })).status).toBe('CANCELLED');
+    expect(await prisma.transportBooking.findUniqueOrThrow({ where: { id: ba }, select: { status: true, pickupLat: true, statusReason: true } })).toMatchObject({ status: 'CANCELLED', pickupLat: null, statusReason: expect.stringContaining('CONSENT_WITHDRAWN') });
+    expect(await prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId }, select: { occupiedSeats: true, version: true } })).toEqual({ occupiedSeats: 1, version: 3 });
+    expect((await prisma.plannedTrip.findUniqueOrThrow({ where: { id: ptId } })).path).toBeNull();
+    expect(await prisma.transportPassengerNotice.count({ where: { profileId: pa, kind: 'TRANSPORT_STOPPED_CONSENT_WITHDRAWN' } })).toBe(1);
   });
 
   it('ADD_STOP on PostgreSQL: unique (trip, seq) and the seq CHECK hold while stops / seats shift; parallel inserts → one wins', async () => {
@@ -539,7 +602,7 @@ d(`ETMS E3 services on ${dbName}`, () => {
     const v = await vehicle(c.id, 4);
     const ps = await passengers(c.id, 4);
     const bs = await Promise.all(ps.map((p) => booking(c.id, p, day, t0)));
-    const r = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, t0), ...bs.slice(0, 2).map((b): DispatchChangeOp => ({ op: 'ADD_PASSENGER', tripId: 't', bookingId: b, pickupSeq: 0, dropSeq: 1 }))] }, randomUUID());
+    const r = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, t0, c.office), ...bs.slice(0, 2).map((b): DispatchChangeOp => ({ op: 'ADD_PASSENGER', tripId: 't', bookingId: b, pickupSeq: 0, dropSeq: 1 }))] }, randomUUID());
     const tripId = r.value.trips[0].id;
     const ptId = r.value.trips[0].plannedTripId!;
     await prisma.$executeRawUnsafe(`UPDATE "TransportBooking" SET "pickupLat" = 13.08, "pickupLng" = 80.27, "pickupLabel" = 'Lake Road' WHERE id IN ('${bs[2]}', '${bs[3]}')`);
@@ -547,9 +610,10 @@ d(`ETMS E3 services on ${dbName}`, () => {
     const both = await Promise.all([insert(bs[2]), insert(bs[3])]);
     expect(both.sort()).toEqual(['OK', 'VERSION_CONFLICT']);
     const stops = await prisma.plannedTripStop.findMany({ where: { tripId: ptId }, orderBy: { seq: 'asc' }, select: { seq: true, name: true, lat: true } });
+    // Personal points are stored under a neutral name (the label shows only in the consent-checked transport views).
     expect(stops).toEqual([
-      { seq: 0, name: 'Pickup', lat: 13.06 },
-      { seq: 1, name: 'Lake Road', lat: 13.08 },
+      { seq: 0, name: 'Passenger pickup', lat: 13.06 },
+      { seq: 1, name: 'Passenger pickup', lat: 13.08 },
       { seq: 2, name: 'HQ', lat: 13.05 },
     ]);
     const seats = await prisma.transportTripPassenger.findMany({ where: { tripId }, select: { bookingId: true, pickupSeq: true, dropSeq: true, pickupStopId: true } });
@@ -584,7 +648,7 @@ d(`ETMS E3 services on ${dbName}`, () => {
     const v = await vehicle(c.id, 4);
     const ps = await passengers(c.id, 2);
     const bs = await Promise.all(ps.map((p) => booking(c.id, p, day, t0)));
-    const r = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, t0), ...bs.map((b): DispatchChangeOp => ({ op: 'ADD_PASSENGER', tripId: 't', bookingId: b, pickupSeq: 0, dropSeq: 1 }))] }, randomUUID());
+    const r = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, t0, c.office), ...bs.map((b): DispatchChangeOp => ({ op: 'ADD_PASSENGER', tripId: 't', bookingId: b, pickupSeq: 0, dropSeq: 1 }))] }, randomUUID());
     const tripId = r.value.trips[0].id;
     const pt = await prisma.plannedTrip.findUniqueOrThrow({ where: { id: r.value.trips[0].plannedTripId! }, include: { stops: true } });
     expect(pt).toMatchObject({ origin: 'ETMS', routeId: null });

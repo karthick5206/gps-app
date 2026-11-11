@@ -117,8 +117,18 @@ export function TransportMap({ line, stops, vehicle, className, label }: { line:
   );
 }
 
-/** Planned line: the road path when present, else straight legs between the stops ([lng, lat]). */
-export function tripLine(path: [number, number][] | null | undefined, stops: { lat: number; lng: number; seq: number }[]): [number, number][] {
+/**
+ * Stops the caller may see on the map: a passenger's personal stop comes without coordinates when their routing consent
+ * is not active or they are outside the caller's branches (E3 security review M1); the list still shows the stop.
+ */
+export function locatedStops<T extends { lat: number | null; lng: number | null }>(stops: readonly T[]): (T & { lat: number; lng: number })[] {
+  return stops.filter((s): s is T & { lat: number; lng: number } => s.lat !== null && s.lng !== null);
+}
+
+/** Planned line: the road path when present, else straight legs between the stops it may show ([lng, lat]). */
+export function tripLine(path: [number, number][] | null | undefined, stops: { lat: number | null; lng: number | null; seq: number }[]): [number, number][] {
   if (path && path.length > 1) return path.map(([lng, lat]) => [lng, lat]);
-  return [...stops].sort((a, b) => a.seq - b.seq).map((s) => [s.lng, s.lat]);
+  return locatedStops(stops)
+    .sort((a, b) => a.seq - b.seq)
+    .map((s) => [s.lng, s.lat]);
 }

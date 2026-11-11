@@ -108,6 +108,11 @@ export class MemoryStore {
     const spec = shape && (isPlain(shape.include) ? shape.include : isPlain(shape.select) ? shape.select : undefined);
     if (!spec) return out;
     for (const [name, sub] of Object.entries(spec)) {
+      if (name === '_count' && isPlain(sub) && isPlain(sub.select)) {
+        // _count: { select: { stops: true } } on a to-many relation.
+        out._count = Object.fromEntries(Object.keys(sub.select).map((r) => { const m = RELATIONS[model]?.[r]; return [r, m?.many ? this.table(m.model).filter((x) => x[m.many!.by] === row.id).length : 0]; }));
+        continue;
+      }
       const rel = RELATIONS[model]?.[name];
       if (!rel || !sub) continue;
       const subShape = isPlain(sub) ? sub : undefined;
@@ -178,6 +183,13 @@ export class MemoryStore {
         return this.hydrate(model, r, shape);
       },
       count: async ({ where }: Obj = {}) => rows().filter((r) => matches(r, where as Obj)).length,
+      // groupBy on one column with _count._all (the v1.8 planned-trips list counts skipped stops per trip).
+      groupBy: async ({ by, where }: Obj) => {
+        const key = (by as string[])[0];
+        const groups = new Map<unknown, number>();
+        for (const r of rows().filter((x) => matches(x, where as Obj))) groups.set(r[key], (groups.get(r[key]) ?? 0) + 1);
+        return [...groups].map(([k, n]) => ({ [key]: k, _count: { _all: n } }));
+      },
       create: async (args: Obj) => create(args),
       createMany: async ({ data }: Obj) => {
         for (const d of data as Obj[]) this.insert(model, d);
