@@ -24,6 +24,10 @@ RestartSec=10
 CPUQuota=150%
 MemoryMax=3G
 MemorySwapMax=0
+# A solver worker killed by the OOM killer (MemoryMax, or the host under memory pressure) must only fail its own
+# request (HTTP 503, pool rebuilt). systemd's default OOMPolicy=stop would stop the whole service instead: the request
+# is dropped unanswered and every caller is refused until the restart (E4 E2E load test T3-1, measured on systemd 259).
+OOMPolicy=continue
 Nice=10
 # No database, no disk writes, no outbound network: loopback only.
 IPAddressDeny=any
