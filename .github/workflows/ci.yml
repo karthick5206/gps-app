@@ -49,3 +49,5 @@ jobs:
         working-directory: apps/web
       - run: npx vite build --outDir dist-ci
         working-directory: apps/web
+      # G8: no outside map style / tile / glyph host in the bundle or source (built without VITE_MAP_STYLE_*).
+      - run: node scripts/check-no-external-maps.mjs apps/web/dist-ci

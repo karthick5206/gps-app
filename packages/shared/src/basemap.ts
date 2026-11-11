@@ -1,32 +1,62 @@
 import type { BasemapType, MapsConfigDto } from './store-links';
 
-/** OpenFreeMap (free, no key, OpenMapTiles schema): the styles behind the map type switcher. */
-export const OPENFREEMAP = {
-  standard: 'https://tiles.openfreemap.org/styles/liberty',
-  light: 'https://tiles.openfreemap.org/styles/positron',
-  dark: 'https://tiles.openfreemap.org/styles/dark',
-  vector: 'https://tiles.openfreemap.org/planet',
-  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
-} as const;
+/**
+ * Road lines and names drawn over satellite imagery ("hybrid"): a glyph URL template and an OpenMapTiles-schema
+ * vector tile URL template, both from our own tile server.
+ */
+export interface BasemapOverlay {
+  glyphs: string;
+  tiles: string;
+}
 
+/**
+ * The style URLs behind the map type switcher. There is deliberately no built-in default: every app passes its own
+ * configured (self-hosted) URLs, so a build without settings never falls back to an outside map host (G8).
+ */
 export interface BasemapUrls {
   standard: string;
   light: string;
   dark: string;
+  /** Satellite overlay; derived from `standard` when it is a self-hosted style (see selfHostedSite). */
+  overlay?: BasemapOverlay;
+}
+
+/**
+ * The self-hosted map files under `<base>/tiles` (ops/deploy/linux/maps: Caddy serves styles, fonts and sprites,
+ * Martin the India vector tiles). `base` is a site origin such as `https://app.veetrax.com`, or '' for same-origin.
+ */
+export function selfHostedStyles(base: string): Required<BasemapUrls> {
+  const b = base.replace(/\/+$/, '');
+  return {
+    standard: `${b}/tiles/styles/liberty.json`,
+    light: `${b}/tiles/styles/positron.json`,
+    dark: `${b}/tiles/styles/dark.json`,
+    overlay: { glyphs: `${b}/tiles/fonts/{fontstack}/{range}.pbf`, tiles: `${b}/tiles/india/{z}/{x}/{y}` },
+  };
+}
+
+/** Site of a self-hosted style URL (`<site>/tiles/styles/<name>.json`), or null for any other URL. */
+export function selfHostedSite(styleUrl: string): string | null {
+  const m = /^(.*)\/tiles\/styles\/[^/?#]+$/.exec(styleUrl);
+  return m ? m[1] : null;
 }
 
 /**
  * Style for a map: a style URL, or (satellite) a style object of raster imagery with OSM road lines and names on
  * top, like a "hybrid" view. A dark UI theme uses the dark style except for satellite; satellite falls back to
- * standard when the server has no imagery configured.
+ * standard when the server has no imagery configured. The satellite overlay comes from `urls.overlay`, else from
+ * the self-hosted server behind `urls.standard`; with neither, satellite shows the imagery alone.
  */
 export function basemapStyle(
   type: BasemapType,
   theme: 'light' | 'dark',
   satellite: MapsConfigDto['satellite'],
-  urls: BasemapUrls = OPENFREEMAP,
+  urls: BasemapUrls,
 ): string | Record<string, unknown> {
-  if (type === 'satellite' && satellite) return satelliteStyle(satellite);
+  if (type === 'satellite' && satellite) {
+    const site = selfHostedSite(urls.standard);
+    return satelliteStyle(satellite, urls.overlay ?? (site === null ? undefined : selfHostedStyles(site).overlay));
+  }
   if (theme === 'dark') return urls.dark;
   return type === 'light' ? urls.light : urls.standard;
 }
@@ -34,13 +64,16 @@ export function basemapStyle(
 const NAME = ['coalesce', ['get', 'name:en'], ['get', 'name:latin'], ['get', 'name']];
 const LABEL_PAINT = { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 1.6 };
 
-function satelliteStyle(s: NonNullable<MapsConfigDto['satellite']>): Record<string, unknown> {
+/** Satellite imagery (tiles from the server's MapsConfigDto), with our own road overlay when one is known. */
+export function satelliteStyle(s: NonNullable<MapsConfigDto['satellite']>, overlay?: BasemapOverlay): Record<string, unknown> {
+  const imagery = { type: 'raster', tiles: s.tiles, tileSize: 256, maxzoom: s.maxZoom, attribution: s.attribution };
+  if (!overlay) return { version: 8, sources: { imagery }, layers: [{ id: 'sat-imagery', type: 'raster', source: 'imagery' }] };
   return {
     version: 8,
-    glyphs: OPENFREEMAP.glyphs,
+    glyphs: overlay.glyphs,
     sources: {
-      imagery: { type: 'raster', tiles: s.tiles, tileSize: 256, maxzoom: s.maxZoom, attribution: s.attribution },
-      omt: { type: 'vector', url: OPENFREEMAP.vector, attribution: '© OpenStreetMap contributors' },
+      imagery,
+      omt: { type: 'vector', tiles: [overlay.tiles], minzoom: 0, maxzoom: 14, attribution: '© OpenStreetMap contributors' },
     },
     layers: [
       { id: 'sat-imagery', type: 'raster', source: 'imagery' },
