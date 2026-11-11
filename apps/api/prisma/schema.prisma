@@ -1002,7 +1002,12 @@ model Alert {
   ackNote     String?
   /// Needs acknowledgement: resolved from Alert Settings when the alert is raised (later setting changes don't rewrite it).
   ackRequired Boolean       @default(false)
+  /// D6 G2: set by the notifier when the notification job finished (also with zero channels / recipients / all SKIPPED).
+  notifiedAt  DateTime?     @db.Timestamptz(3)
+  /// D6 G2: set when the job was declared DEAD (delivery budget used up); excludes the alert from the sweeper.
+  notifyError String?
 
+  /// D6 G2 sweeper: partial index "Alert_notify_pending_idx" (createdAt WHERE notifiedAt IS NULL AND notifyError IS NULL …) lives in the migration.
   @@index([companyId, occurredAt(sort: Desc)])
   @@index([objectId, occurredAt(sort: Desc)])
   /// Unread count / NEW filters: company + status + recent first.
@@ -1033,7 +1038,16 @@ model NotificationLog {
   error      String?
   provider   String?
   createdAt  DateTime           @default(now())
+  /// SENT = accepted by the provider (there are no delivery receipts).
   sentAt     DateTime?
+  /// D6 G2/G3: provider attempts (an interrupted run counts as one).
+  attempts          Int       @default(0)
+  /// D6 G2: lease of the worker sending a QUEUED row; another worker may take it over after this time.
+  nextAttemptAt     DateTime? @db.Timestamptz(3)
+  /// D6 G3: provider message / ticket / request id where the provider returns one.
+  providerMessageId String?
+  /// D6 G2: alertId:channel:recipient; unique when set (partial unique index "NotificationLog_dedupeKey_key" in the migration).
+  dedupeKey         String?
 
   @@index([alertId])
   @@index([companyId, createdAt(sort: Desc)])

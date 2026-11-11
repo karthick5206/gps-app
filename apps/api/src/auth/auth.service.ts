@@ -21,6 +21,7 @@ import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { SystemMessagesService } from '../templates/system-messages.service';
 import { MailerService } from './mailer.service';
+import { outcome, writesDevCopy } from '../notifier/delivery-outcome';
 import { MeService } from './me.service';
 import { ClientInfo, TokenService } from './token.service';
 
@@ -191,12 +192,15 @@ export class AuthService {
     const rendered = await this.messages.render(companyId, 'SYSTEM_OTP', 'SMS', vars);
     const text = rendered?.text ?? `${code} is your VeeTrax login code. It expires in ${vars.expires_min} minutes.`;
     let error: string | null = null;
+    let messageId: string | null = null;
     try {
-      await this.messages.sms.send({ to: mobile, text, dltTemplateId: rendered?.dltTemplateId, senderId: rendered?.senderId, variables: rendered?.dltValues });
+      // The console provider still writes the development copy (production: masked log line only).
+      messageId = (await this.messages.sms.send({ to: mobile, text, dltTemplateId: rendered?.dltTemplateId, senderId: rendered?.senderId, variables: rendered?.dltValues })).messageId;
     } catch (e) {
       error = (e as Error).message;
       this.logger.warn(`OTP SMS to ${mobile} failed: ${error}`);
     }
+    const result = outcome({ channel: 'SMS', configured: this.messages.sms.configured, error, messageId, devCopy: !this.messages.sms.configured && writesDevCopy() });
     await this.messages.log({
       companyId,
       channel: 'SMS',
@@ -204,9 +208,10 @@ export class AuthService {
       templateId: rendered?.templateId ?? null,
       subject: null,
       body: text,
-      status: error ? 'FAILED' : 'SENT',
-      error,
+      status: result.status,
+      error: result.error,
       provider: this.messages.sms.name,
+      providerMessageId: result.providerMessageId,
       secrets: [code],
     });
   }
@@ -217,8 +222,9 @@ export class AuthService {
     const subject = `${code} is your VeeTrax sign-in code`;
     const text = `Hi ${user.name},\n\nYour VeeTrax sign-in code is ${code}. It is valid for ${minutes} minutes. Do not share this code with anyone.`;
     const html = `<p>Hi ${escapeHtml(user.name)},</p><p>Your VeeTrax sign-in code is</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>It is valid for ${minutes} minutes. Do not share this code with anyone.</p>`;
-    await this.mailer.send({ to: email, subject, html, text });
-    await this.messages.log({ companyId: user.companyId, channel: 'EMAIL', recipient: email, templateId: null, subject, body: html, status: 'SENT', provider: 'mailer', secrets: [code] });
+    const sent = await this.mailer.sendWithResult({ to: email, subject, html, text });
+    const result = outcome({ channel: 'EMAIL', configured: !!sent.provider, messageId: sent.messageId, devCopy: !!sent.file });
+    await this.messages.log({ companyId: user.companyId, channel: 'EMAIL', recipient: email, templateId: null, subject, body: html, status: result.status, error: result.error, provider: sent.provider ?? 'mailer', providerMessageId: result.providerMessageId, secrets: [code] });
   }
 
   /** SYSTEM_PASSWORD_RESET e-mail (company override → system template). */
@@ -231,7 +237,8 @@ export class AuthService {
       rendered?.body ??
       `<p>Hi ${escapeHtml(user.name)},</p><p><a href="${escapeHtml(link)}">Reset your VeeTrax password</a> (valid for 30 minutes, single use).</p>`;
     const text = rendered?.text ?? `Hi ${user.name},\n\nReset your password within 30 minutes: ${link}`;
-    await this.mailer.send({ to: email, subject, html, text });
+    const sent = await this.mailer.sendWithResult({ to: email, subject, html, text });
+    const result = outcome({ channel: 'EMAIL', configured: !!sent.provider, messageId: sent.messageId, devCopy: !!sent.file });
     await this.messages.log({
       companyId: user.companyId,
       channel: 'EMAIL',
@@ -239,8 +246,10 @@ export class AuthService {
       templateId: rendered?.templateId ?? null,
       subject,
       body: html,
-      status: 'SENT',
-      provider: 'mailer',
+      status: result.status,
+      error: result.error,
+      provider: sent.provider ?? 'mailer',
+      providerMessageId: result.providerMessageId,
       secrets: [link, escapeHtml(link)],
     });
   }

@@ -7,6 +7,8 @@ import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { NotifierModule } from './notifier.module';
 import { NotifierService } from './notifier.service';
+import { NotifySweeper } from './notify-sweeper';
+import { PrismaService } from '../prisma/prisma.service';
 import { WebhookWorkerService } from '../webhooks/webhook-worker.service';
 import { DriverEventWorkerService } from '../driver-events/driver-event-worker.service';
 import { RelayWorkerService } from '../relay/relay-worker.service';
@@ -29,8 +31,12 @@ async function main(): Promise<void> {
   // HTTP_JSON data forwarding (consumer group `relay` on `vt:positions`) also runs here.
   const relay = app.get(RelayWorkerService);
   const heartbeat = startHeartbeat(redis.client, 'notifier', () => ({ ...notifier.metrics(), relay: relay.snapshot() }));
+  // D6 G2: re-queues alerts whose notification job was lost (XADD failed, crash, Valkey restart); one instance at a time.
+  const sweeper = new NotifySweeper(app.get(PrismaService), redis.client);
+  sweeper.start();
   const shutdown = () => {
     Logger.log('Stopping after the current jobs…', 'Notifier');
+    sweeper.stop();
     notifier.stop();
     webhooks.stop();
     driverEvents.stop();

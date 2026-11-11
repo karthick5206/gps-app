@@ -17,9 +17,9 @@ describe('ExpoPushProvider', () => {
   }
 
   it('sends one message per token and collects unregistered tokens', async () => {
-    const calls = mockFetch([{ status: 'ok' }, { status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } }]);
+    const calls = mockFetch([{ status: 'ok', id: 'TICKET-1' }, { status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } }]);
     const res = await new ExpoPushProvider('secret').send(['ExponentPushToken[a]', 'ExponentPushToken[b]'], { title: 'Overspeed', body: 'TN 01 at 92 km/h', data: { alertId: 'x' } });
-    expect(res).toEqual({ sent: 1, invalidTokens: ['ExponentPushToken[b]'], error: null });
+    expect(res).toEqual({ sent: 1, invalidTokens: ['ExponentPushToken[b]'], error: null, ticketIds: ['TICKET-1'] });
     expect(calls).toHaveLength(1);
     expect(calls[0].headers.Authorization).toBe('Bearer secret');
     expect(calls[0].body[0]).toMatchObject({ to: 'ExponentPushToken[a]', title: 'Overspeed', priority: 'high', channelId: 'alerts', data: { alertId: 'x' } });
@@ -27,7 +27,7 @@ describe('ExpoPushProvider', () => {
 
   it('reports other ticket errors and throws on HTTP failure', async () => {
     mockFetch([{ status: 'error', message: 'MessageRateExceeded', details: { error: 'MessageRateExceeded' } }]);
-    expect(await new ExpoPushProvider().send(['ExponentPushToken[a]'], { title: 't', body: 'b' })).toEqual({ sent: 0, invalidTokens: [], error: 'MessageRateExceeded' });
+    expect(await new ExpoPushProvider().send(['ExponentPushToken[a]'], { title: 't', body: 'b' })).toEqual({ sent: 0, invalidTokens: [], error: 'MessageRateExceeded', ticketIds: [] });
     mockFetch([], 503);
     await expect(new ExpoPushProvider().send(['ExponentPushToken[a]'], { title: 't', body: 'b' })).rejects.toThrow('Expo push HTTP 503');
   });

@@ -42,9 +42,12 @@ export class SystemMessagesService {
     templateId: string | null;
     subject: string | null;
     body: string;
-    status: 'SENT' | 'FAILED';
+    /** D6 G3: SENT only when a configured provider accepted it; SKIPPED when no provider is configured. */
+    status: 'SENT' | 'FAILED' | 'SKIPPED';
     error?: string | null;
     provider: string;
+    providerMessageId?: string | null;
+    attempts?: number;
     secrets?: string[];
   }): Promise<void> {
     let body = entry.body;
@@ -61,6 +64,8 @@ export class SystemMessagesService {
           status: entry.status,
           error: entry.error ?? null,
           provider: entry.provider,
+          providerMessageId: entry.providerMessageId ?? null,
+          attempts: entry.attempts ?? (entry.status === 'SKIPPED' ? 0 : 1),
           sentAt: entry.status === 'SENT' ? new Date() : null,
         },
       });

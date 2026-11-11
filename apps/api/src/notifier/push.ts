@@ -37,10 +37,13 @@ export interface PushResult {
   invalidTokens: string[];
   /** First error message for tokens that failed for another reason. */
   error: string | null;
+  /** D6 G3: Expo ticket ids of the accepted messages (stored as the provider message id). */
+  ticketIds?: string[];
 }
 
 interface ExpoTicket {
   status: 'ok' | 'error';
+  id?: string;
   message?: string;
   details?: { error?: string };
 }
@@ -58,7 +61,7 @@ export class ExpoPushProvider implements PushProvider {
   constructor(private readonly accessToken: string | undefined = process.env.EXPO_ACCESS_TOKEN || undefined) {}
 
   async send(tokens: string[], m: PushMessage): Promise<PushResult> {
-    const result: PushResult = { sent: 0, invalidTokens: [], error: null };
+    const result: PushResult = { sent: 0, invalidTokens: [], error: null, ticketIds: [] };
     for (let i = 0; i < tokens.length; i += BATCH) {
       const chunk = tokens.slice(i, i + BATCH);
       const res = await fetch(EXPO_PUSH_URL, {
@@ -76,7 +79,10 @@ export class ExpoPushProvider implements PushProvider {
       if (!res.ok) throw new Error(`Expo push HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const { data } = (await res.json()) as { data?: ExpoTicket[] };
       (data ?? []).forEach((ticket, j) => {
-        if (ticket.status === 'ok') result.sent++;
+        if (ticket.status === 'ok') {
+          result.sent++;
+          if (ticket.id) result.ticketIds!.push(ticket.id);
+        }
         else if (ticket.details?.error === 'DeviceNotRegistered') result.invalidTokens.push(chunk[j]);
         else result.error ??= ticket.message ?? ticket.details?.error ?? 'Push failed';
       });

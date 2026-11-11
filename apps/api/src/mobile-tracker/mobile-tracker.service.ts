@@ -6,7 +6,8 @@ import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 import { AuthContext } from '../access/auth-context';
 import { OfflineAlertService } from '../alerts/offline-alerts.service';
 import { AuditService } from '../audit/audit.service';
-import { MailerService } from '../auth/mailer.service';
+import { MailerService, MailResult } from '../auth/mailer.service';
+import { outcome } from '../notifier/delivery-outcome';
 import { deviceScopeWhere } from '../access/access-rules';
 import { PrismaService } from '../prisma/prisma.service';
 import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
@@ -237,8 +238,9 @@ export class MobileTrackerService {
     const sent: string[] = [];
     for (const addr of to) {
       let error: string | null = null;
+      let mail: MailResult | null = null;
       try {
-        await this.mailer.send({ to: addr, subject, text, html });
+        mail = await this.mailer.sendWithResult({ to: addr, subject, text, html });
         sent.push(addr);
       } catch (e) {
         error = (e as Error).message;
@@ -251,8 +253,10 @@ export class MobileTrackerService {
         templateId: null,
         subject,
         body: text,
-        status: error ? 'FAILED' : 'SENT',
-        error,
+        ...(() => {
+          const r = outcome({ channel: 'EMAIL', configured: !!this.mailer.provider, error, messageId: mail?.messageId ?? null, devCopy: !!mail?.file });
+          return { status: r.status, error: r.error, providerMessageId: r.providerMessageId };
+        })(),
         provider: this.mailer.provider ?? 'file',
         secrets: [code],
       });
@@ -275,13 +279,15 @@ export class MobileTrackerService {
     const text = rendered?.text ?? `${code} is your VeeTrax Tracker activation code. It expires in ${vars.expires_min} minutes.`;
     const to = `+${uniqueId}`;
     let error: string | null = null;
+    let messageId: string | null = null;
     try {
-      await this.messages.sms.send({ to, text, dltTemplateId: rendered?.dltTemplateId, senderId: rendered?.senderId, variables: rendered?.dltValues });
+      messageId = (await this.messages.sms.send({ to, text, dltTemplateId: rendered?.dltTemplateId, senderId: rendered?.senderId, variables: rendered?.dltValues })).messageId;
     } catch (e) {
       error = (e as Error).message;
       this.logger.warn(`Tracker code SMS to ${to} failed: ${error}`);
     }
-    if (companyId) await this.messages.log({ companyId, channel: 'SMS', recipient: to, templateId: rendered?.templateId ?? null, subject: null, body: text, status: error ? 'FAILED' : 'SENT', error, provider: this.messages.sms.name, secrets: [code] });
+    const result = outcome({ channel: 'SMS', configured: this.messages.sms.configured, error, messageId });
+    if (companyId) await this.messages.log({ companyId, channel: 'SMS', recipient: to, templateId: rendered?.templateId ?? null, subject: null, body: text, status: result.status, error: result.error, provider: this.messages.sms.name, providerMessageId: result.providerMessageId, secrets: [code] });
     return !error;
   }
 
