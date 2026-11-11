@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import { Platform } from 'react-native';
-import { api, ApiError, SERVER_URL, type VerifyResponse } from './api';
+import { api, ApiError, type VerifyResponse } from './api';
 import { APP_VERSION, deviceName, requestNotifications } from './device';
 import { getToken, sessionFrom, setToken, store } from './state';
 import { S } from './strings';
@@ -44,7 +44,7 @@ export async function saveActivation(r: VerifyResponse): Promise<void> {
   await Tracker.clear().catch(() => undefined);
   await setToken(r.token);
   // The native engine keeps its own copy so it can upload with the app closed.
-  await Tracker.setCredentials(r.token, SERVER_URL).catch(() => undefined);
+  await Tracker.setCredentials(r.token).catch(() => undefined);
   store.setNotice(null);
   store.setSession(sessionFrom(r));
   // Config is stored for the next start; a failure here must not keep the user on this screen.

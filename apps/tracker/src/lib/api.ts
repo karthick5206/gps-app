@@ -3,8 +3,33 @@
  * Position uploads are done by the native engine (modules/veetrax-tracker), not from JS.
  */
 
-export const SERVER_URL = (process.env.EXPO_PUBLIC_SERVER_URL || 'https://gps.mintplus.co.in').replace(/\/+$/, '');
-export const API_BASE = `${SERVER_URL}/api/tracker/v1`;
+import * as Tracker from '../../modules/veetrax-tracker';
+
+/** The build's address: only seeds a phone that has none stored yet (installs keep theirs; servers can move it). */
+export const BUILD_SERVER_URL = (process.env.EXPO_PUBLIC_SERVER_URL || 'https://app.veetrax.com').replace(/\/+$/, '');
+
+/**
+ * The address in use. The native engine owns it (it can move to a new server address the server names, app 1.5.0+);
+ * JS follows: once at start (syncServerUrl) and with every status read (noteServerUrl).
+ */
+let serverUrl = BUILD_SERVER_URL;
+let serverReady: Promise<void> | null = null;
+
+export function currentServerUrl(): string {
+  return serverUrl;
+}
+
+export function noteServerUrl(url: string | null | undefined): void {
+  if (url && /^https?:\/\//.test(url)) serverUrl = url.replace(/\/+$/, '');
+}
+
+/** Reads (and on a fresh install seeds) the native address; every request waits for it. */
+export function syncServerUrl(): Promise<void> {
+  serverReady ??= Tracker.initServerUrl(BUILD_SERVER_URL).then(noteServerUrl, () => undefined);
+  return serverReady;
+}
+
+const apiBase = () => `${serverUrl}/api/tracker/v1`;
 
 export interface TrackerConfig {
   intervalSec: number;
@@ -78,11 +103,12 @@ async function request<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: u
   const headers: Record<string, string> = { Accept: 'application/json', 'X-App-Version': APP_VERSION };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
+  await syncServerUrl();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: ctrl.signal });
+    res = await fetch(`${apiBase()}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: ctrl.signal });
   } catch (e) {
     throw new NetworkError(e instanceof Error ? e.message : String(e));
   } finally {
@@ -107,10 +133,11 @@ function parseResponse<T>(ok: boolean, status: number, text: string): T {
 }
 
 /** Sends a photo by file uri. Expo's fetch refuses that in FormData ("Unsupported FormDataPart implementation"); XMLHttpRequest takes it. */
-function uploadForm<T>(path: string, form: FormData, token: string): Promise<T> {
+async function uploadForm<T>(path: string, form: FormData, token: string): Promise<T> {
+  await syncServerUrl();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE}${path}`);
+    xhr.open('POST', `${apiBase()}${path}`);
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.timeout = UPLOAD_TIMEOUT_MS;

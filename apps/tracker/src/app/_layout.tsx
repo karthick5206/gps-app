@@ -3,7 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { api, SERVER_URL } from '@/lib/api';
+import { api, syncServerUrl } from '@/lib/api';
 import { installJsCrashHandler, reportCrashes } from '@/lib/crash';
 import { handleAuthError, restoreActivation, syncStopReason } from '@/lib/control';
 import { initLanguage } from '@/lib/language';
@@ -20,6 +20,8 @@ SplashScreen.preventAutoHideAsync().catch(() => undefined);
  * INVALID → sign out), resumes tracking if it is wanted but not running, and refreshes names / config.
  */
 async function startup(): Promise<void> {
+  // First: every request goes to the address the native engine keeps (it may have moved to a new server).
+  await syncServerUrl();
   // Works signed in or not: a crash during activation is the one we most need to see.
   reportCrashes().catch(() => undefined);
   const token = await getToken();
@@ -28,7 +30,7 @@ async function startup(): Promise<void> {
   await syncStopReason(st);
   if (!(await getToken())) return;
   // Make sure the native engine has the token (e.g. an install that activated before the native engine existed).
-  if (st && !st.hasToken && !st.stopReason) await Tracker.setCredentials(token, SERVER_URL).catch(() => undefined);
+  if (st && !st.hasToken && !st.stopReason) await Tracker.setCredentials(token).catch(() => undefined);
   await resumeIfWanted();
   try {
     const me = await api.me(token);

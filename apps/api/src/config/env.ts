@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { trackerServerUrl } from '../mobile-tracker/mobile-tracker.logic';
 
 /** Typed process configuration shared by the api, gateway, processor and tooling. */
 export interface AppEnv {
@@ -94,6 +95,7 @@ export function productionWarnings(raw: NodeJS.ProcessEnv): string[] {
   if (raw.MAIL_KEEP_COPIES === 'true') out.push('MAIL_KEEP_COPIES=true: full e-mail copies (reset links, invoices) are stored in var/mail');
   if (raw.WEBHOOK_ALLOW_PRIVATE === 'true') out.push('WEBHOOK_ALLOW_PRIVATE=true: webhooks may target private networks');
   if (raw.RELAY_ALLOW_PRIVATE === 'true') out.push('RELAY_ALLOW_PRIVATE=true: data forwarding may target private networks');
+  if (raw.TRACKER_SERVER_URL?.trim() && !trackerServerUrl(raw.TRACKER_SERVER_URL)) out.push('TRACKER_SERVER_URL is ignored: it must be a plain https address on veetrax.com or mintplus.co.in (e.g. https://app.veetrax.com)');
   return out;
 }
 

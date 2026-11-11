@@ -293,3 +293,31 @@ export function trackerOnOffChanges<E extends { kind: string; why: string }>(bef
   }
   return out;
 }
+
+/**
+ * Domains the Tracker app (1.5.0+) accepts a server move to: the same list is built into the app
+ * (ServerMove.kt), so a wrong or hijacked setting can never send phones to someone else's server.
+ */
+export const TRACKER_SERVER_DOMAINS = ['veetrax.com', 'mintplus.co.in'] as const;
+
+/**
+ * The address phones should use, from TRACKER_SERVER_URL (e.g. https://app.veetrax.com): sent to every phone with
+ * /me, uploads and activation. The phone checks that its login works there before it switches. Null when unset or
+ * not a plain https address on an allowed domain (a startup warning names the problem).
+ */
+export function trackerServerUrl(raw: string | undefined): string | null {
+  const value = raw?.trim().replace(/\/+$/, '');
+  if (!value) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return null;
+  if (url.port && url.port !== '443') return null;
+  if (url.pathname !== '/' && url.pathname !== '') return null;
+  const host = url.hostname.toLowerCase();
+  if (!TRACKER_SERVER_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`))) return null;
+  return `https://${host}`;
+}

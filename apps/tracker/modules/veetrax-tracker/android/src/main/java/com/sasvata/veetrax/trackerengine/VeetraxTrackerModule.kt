@@ -72,6 +72,16 @@ class VeetraxTrackerModule : Module() {
       true
     }
 
+    /**
+     * The server address in use. [buildUrl] (the app build's address) is stored only when the phone has none yet:
+     * a stored address (the build an install started with, or a server move) always wins. App 1.5.0+.
+     */
+    AsyncFunction("initServerUrl") { buildUrl: String? ->
+      val prefs = engine.prefs
+      if (!prefs.hasServerUrl && !buildUrl.isNullOrBlank()) prefs.serverUrl = buildUrl
+      prefs.serverUrl
+    }
+
     /** Stores the token (after activation) without starting tracking. */
     AsyncFunction("setCredentials") { token: String, serverUrl: String? ->
       engine.prefs.token = token
