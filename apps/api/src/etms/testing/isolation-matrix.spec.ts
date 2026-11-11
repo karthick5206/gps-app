@@ -821,6 +821,17 @@ describe('ETMS isolation matrix (E3 security review): v1.8 reads, trip detail, c
     expect(w.store.table('plannedTrip')).toHaveLength(trips);
     // ADD_STOP with that booking on the dispatcher's own trip → 404 too.
     expect(await codeOf(w.controllers.e3.dispatch.submit(disp, { serviceDate: w.world.tomorrow, direction: 'IN', expectedVersions: { [w.world.party.trip]: 1 }, changes: [{ op: 'ADD_STOP', tripId: w.world.party.trip, bookingId: xb, end: 'PICKUP', afterSeq: 0 }] } as never, `k-${randomUUID()}`))).toBe('NOT_FOUND');
+    // Security re-check N1: the same bodies saved as drafts by the dispatcher are scope-checked like a publish: 404 and
+    // no draft row (nor its audit entry) is stored. A draft naming only the dispatcher's own branch is still saved.
+    const sets = w.store.table('transportChangeSet').length;
+    const audits = w.store.table('auditLog').length;
+    const addStop = { serviceDate: w.world.later, direction: 'IN' as const, expectedVersions: { [w.world.party.trip]: 1 }, changes: [{ op: 'ADD_STOP', tripId: w.world.party.trip, bookingId: xb, end: 'PICKUP', afterSeq: 0 }] };
+    for (const b of [repro, addStop, { ...body, serviceDate: w.world.later }]) expect(await codeOf(w.controllers.e3.dispatch.submit(disp, { ...b, draft: true } as never, undefined))).toBe('NOT_FOUND');
+    expect(w.store.table('transportChangeSet')).toHaveLength(sets);
+    expect(w.store.table('auditLog')).toHaveLength(audits);
+    const own = await w.controllers.e3.dispatch.submit(disp, { ...repro, changes: [repro.changes[0]], draft: true } as never, undefined);
+    expect(own).toMatchObject({ status: 'DRAFT' });
+    expect(w.store.table('transportChangeSet')).toHaveLength(sets + 1);
     Object.assign(w.store.table('transportBooking').find((b) => b.id === xb)!, { serviceDate: seated.serviceDate });
     // The admin saves that change as a draft: invisible to the branch-A dispatcher, and not theirs to publish or discard.
     const saved = await w.controllers.e3.dispatch.submit(caller('customerAdmin', w), { ...body, draft: true } as never, undefined);

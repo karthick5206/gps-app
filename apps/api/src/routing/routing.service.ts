@@ -17,6 +17,15 @@ const LEG_CONCURRENCY = 6;
  */
 const VIA_CONCURRENCY = 4;
 const VIA_QUEUE = 32;
+/**
+ * route() answers that are not a route because the engine did not answer (timeout, connection error, 5xx): cached as
+ * this marker for a few seconds (as long as the health probe result is reused) so a hanging engine is not asked again
+ * on every poll, and reported as "unavailable" — never as a cached "no route" miss (ETMS QA R2).
+ */
+const ROUTE_UNAVAILABLE_MARK = '!unavailable';
+const ROUTE_UNAVAILABLE_TTL_SEC = 10;
+
+export type RoadRoute = { m: number; s: number; shape: [number, number][] };
 
 /**
  * Likely roads through track gaps (History draws them dashed as "estimated"), from a self-hosted routing engine:
@@ -93,14 +102,30 @@ export class RoutingService {
    * decodePolyline returns it); null without an engine or route. Cached 60 s on ~110 m rounded ends so a share page
    * polled every few seconds costs one engine call a minute.
    */
-  async route(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<{ m: number; s: number; shape: [number, number][] } | null> {
-    if (!this.enabled) return null;
+  async route(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<RoadRoute | null> {
+    const r = await this.routeStatus(from, to);
+    return typeof r === 'string' ? null : r;
+  }
+
+  /**
+   * route() with the reason when there is no route (ETMS QA R2): 'NO_ROUTE' only when the engine answered that there is
+   * none (cached 60 s like a route); 'UNAVAILABLE' when it is off, timed out, failed or answered an error. An
+   * unavailable answer is cached only as its own short-lived marker, never as a "no route" miss.
+   */
+  async routeStatus(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<RoadRoute | 'NO_ROUTE' | 'UNAVAILABLE'> {
+    if (!this.enabled) return 'UNAVAILABLE';
     const key = `route:eta:${from.lat.toFixed(3)},${from.lng.toFixed(3)}:${to.lat.toFixed(4)},${to.lng.toFixed(4)}`;
     const cached = await this.redis.client.get(key).catch(() => null);
-    if (cached !== null) return cached === '' ? null : (JSON.parse(cached) as { m: number; s: number; shape: [number, number][] });
-    const r = await this.fetchRoute({ fromLat: from.lat, fromLng: from.lng, toLat: to.lat, toLng: to.lng } as GapEstimateSegment).catch(() => null);
+    if (cached !== null) return cached === '' ? 'NO_ROUTE' : cached === ROUTE_UNAVAILABLE_MARK ? 'UNAVAILABLE' : (JSON.parse(cached) as RoadRoute);
+    let r: RoadRoute | null;
+    try {
+      r = await this.fetchRoute({ fromLat: from.lat, fromLng: from.lng, toLat: to.lat, toLng: to.lng } as GapEstimateSegment);
+    } catch {
+      await this.redis.client.set(key, ROUTE_UNAVAILABLE_MARK, 'EX', ROUTE_UNAVAILABLE_TTL_SEC).catch(() => undefined);
+      return 'UNAVAILABLE';
+    }
     await this.redis.client.set(key, r ? JSON.stringify(r) : '', 'EX', 60).catch(() => undefined);
-    return r;
+    return r ?? 'NO_ROUTE';
   }
 
   /**
@@ -176,8 +201,9 @@ export class RoutingService {
     const res = await fetch(`${this.baseUrl}/route?${q.toString()}`, { signal: AbortSignal.timeout(5000) });
     // 400 = no route / point not near a road; anything else is an engine problem worth logging.
     if (!res.ok) {
-      if (res.status !== 400) this.logger.warn(`Routing engine returned ${res.status}`);
-      return null;
+      if (res.status === 400) return null;
+      this.logger.warn(`Routing engine returned ${res.status}`);
+      throw new Error(`Routing engine returned ${res.status}`); // an engine problem, never a "no route" answer (QA R2)
     }
     const json = (await res.json()) as { paths?: { distance?: number; time?: number; points?: string; points_encoded_multiplier?: number }[] };
     const path = json.paths?.[0];
@@ -204,8 +230,9 @@ export class RoutingService {
     });
     // 400 = no route between the points (e.g. across water); anything else is an engine problem worth logging.
     if (!res.ok) {
-      if (res.status !== 400) this.logger.warn(`Routing engine returned ${res.status}`);
-      return null;
+      if (res.status === 400) return null;
+      this.logger.warn(`Routing engine returned ${res.status}`);
+      throw new Error(`Routing engine returned ${res.status}`); // an engine problem, never a "no route" answer (QA R2)
     }
     const json = (await res.json()) as { trip?: { summary?: { length?: number; time?: number }; legs?: { shape?: string }[] } };
     const shape = json.trip?.legs?.[0]?.shape;
