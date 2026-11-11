@@ -5,6 +5,7 @@
  */
 import type {
   PlannedTripLiveUpdate,
+  PlannedTripOrigin,
   PlannedTripStatus,
   PlannedTripStopDto,
   PlannedTripSummaryDto,
@@ -107,17 +108,33 @@ export function progressLabel(trip: Pick<PlannedTripSummaryDto, 'status' | 'next
 
 export type TripAction = 'edit' | 'start' | 'complete' | 'cancel';
 
-/** Row actions by status (mirrors the API's trip-rules: edit / start while SCHEDULED, complete while active). */
-export function tripActions(status: PlannedTripStatus): TripAction[] {
+/**
+ * Row actions by status (mirrors the API's trip-rules: edit / start while SCHEDULED, complete while active). Trips of
+ * origin ETMS are managed by employee transport: the planned-trips edit and cancel refuse them (409 MANAGED_BY_ETMS),
+ * so they are not offered; changes and cancel go through Transport → Dispatch.
+ */
+export function tripActions(status: PlannedTripStatus, origin: PlannedTripOrigin = 'ROUTE'): TripAction[] {
+  const etms = origin === 'ETMS';
   switch (status) {
     case 'SCHEDULED':
-      return ['edit', 'start', 'cancel'];
+      return etms ? ['start'] : ['edit', 'start', 'cancel'];
     case 'STARTED':
     case 'IN_PROGRESS':
-      return ['complete', 'cancel'];
+      return etms ? ['complete'] : ['complete', 'cancel'];
     default:
       return [];
   }
+}
+
+/** Employee-transport trip (origin ETMS); door-to-door ones have no Route (routeId null). */
+export function isEtmsTrip(trip: Pick<PlannedTripSummaryDto, 'origin'>): boolean {
+  return trip.origin === 'ETMS';
+}
+
+/** Where the stops come from: the Route name, or "Employee transport" for an ETMS trip (door to door when routeId is null). */
+export function tripSourceLabel(trip: Pick<PlannedTripSummaryDto, 'origin' | 'routeId' | 'routeName'>, t: Translate = english): string {
+  if (trip.origin !== 'ETMS') return trip.routeName;
+  return trip.routeId ? t('Employee transport · {{route}}', { route: trip.routeName }) : t('Employee transport · door to door');
 }
 
 // ───────────── stops ─────────────

@@ -20,7 +20,7 @@ import { getReportTimeZone, reportZoneLabel, todayInZone } from '@/features/repo
 import { downloadCsv, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { TripFormDialog, useTripActionDialogs } from './TripDialogs';
-import { chipOf, dayRange, formatClock, isActiveTrip, progressLabel, shiftDay, STATUS_CHIPS, STATUS_LABEL, statusCounts, type StatusChip, type TripAction } from './trip-format';
+import { chipOf, dayRange, formatClock, isActiveTrip, progressLabel, shiftDay, STATUS_CHIPS, STATUS_LABEL, statusCounts, tripSourceLabel, type StatusChip, type TripAction } from './trip-format';
 import { DelayText, TripActionsMenu, TripStatusBadge } from './trip-ui';
 import { useDriverOptions, usePlannedTripLive, useRouteOptions, useTripList, type TripListFilters } from './use-planned-trips';
 
@@ -73,7 +73,7 @@ function TripCard({ trip, day, onAction }: { trip: PlannedTripSummaryDto; day: s
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <Link to={`/planned-trips/${trip.id}`} className="block truncate font-medium hover:underline">
-            {trip.routeName}
+            {tripSourceLabel(trip, t)}
           </Link>
           <p className="truncate text-sm text-muted-foreground">
             {trip.objectName ?? '—'}
@@ -136,7 +136,7 @@ function TripTable({ trips, day, onAction }: { trips: PlannedTripSummaryDto[]; d
               <TableCell className="font-medium tabular-nums">{clock(trip.plannedStart)}</TableCell>
               <TableCell className="max-w-56 truncate">
                 <Link to={`/planned-trips/${trip.id}`} className="hover:underline" onClick={(e) => e.stopPropagation()}>
-                  {trip.routeName}
+                  {tripSourceLabel(trip, t)}
                 </Link>
               </TableCell>
               <TableCell className="max-w-44 truncate">{trip.objectName ?? '—'}</TableCell>
