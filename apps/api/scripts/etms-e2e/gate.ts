@@ -11,16 +11,22 @@
  *   3. the DB suites with CI=true DB_TEST_REQUIRED=1: `etms-e3-gate.db-test.ts` (this WP) and the E3 backend's
  *      `etms-bookings-trips.db-test.ts` (schema, constraints, purge);
  *   4. the regression unit specs behind criteria 7 and 10 (reports, planned trips, E3 rules, harness parts);
- *   5. drops the scratch database (unless --keep) and prints / writes the summary to apps/api/var/etms-e2e/<stamp>/.
+ *   5. with --http: the HTTP stage (http-stage.ts): nest build, the real dist/ API + processor on free ports against
+ *      the scratch database and a private Valkey index (--valkey-db, default 11, never 0, must be empty; flushed after),
+ *      GraphHopper stub; HTTP checks (guards, Idempotent-Replay, 429 + Retry-After, etms-off 404, auth on every route),
+ *      the bot cycle and sim-trip through the processor (criterion 3b); every process stopped, also on failure;
+ *   6. drops the scratch database (unless --keep) and prints / writes the summary to apps/api/var/etms-e2e/<stamp>/.
  *
  * Flags: --secfix (also run the `[pending secfix Bn]` tests: set once etms/e3-secfix is merged), --known-defects (the
- * `[known defect Hn]` tests: set once those are fixed), --keep, --skip-unit,
+ * `[known defect Hn]` tests: set once those are fixed), --http [--no-build] [--valkey-db 11] [--valkey-url redis://127.0.0.1:6379],
+ * --http-only (skip the jest stages; debugging), --keep, --skip-unit,
  * --out <dir>. Refuses any database name that is not `veetrax_e3h_*_test`, and the names veetracer / veetrax_assess.
  */
 import { PrismaClient } from '@prisma/client';
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { runHttpStage } from './http-stage';
 
 const argv = process.argv.slice(2);
 const flag = (n: string) => argv.includes(`--${n}`);
@@ -33,6 +39,7 @@ const STAMP = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
 const OUT = resolve(opt('out') ?? join(API_DIR, 'var', 'etms-e2e', STAMP));
 const SECFIX = flag('secfix');
 const KNOWN = flag('known-defects');
+const HTTP = flag('http');
 
 /** doc 12 §5 E3 exit criteria, in order. */
 const CRITERIA: Record<string, string> = {
@@ -49,6 +56,13 @@ const CRITERIA: Record<string, string> = {
   UNIT: 'E3 unit rules (dispatch, schedules, bookings, change ops)',
   ISO: 'Tenant / branch isolation of bookings and dispatch (doc 11 §3, supporting)',
   DB: 'E3 schema: tables, CHECKs, EXCLUDE, FK actions, purge (supporting)',
+  ...(HTTP
+    ? {
+        AC3b: 'v1.8 tracker follows the published ETMS trip under sim-trip (stop arrivals, ETA, auto-complete; GPS never boards) [--http]',
+        HTTP: 'Real API over HTTP: auth on every route, permission / feature guards, Idempotent-Replay, 429 + Retry-After, etms-off 404 [--http]',
+        BOT: 'Dispatcher + passenger bots: booking → dispatch → publish → start → outcomes → complete over HTTP [--http]',
+      }
+    : {}),
 };
 
 /** Criterion of a test: `[ACn]` / `[ISO]` tags; titles of the E3 backend DB suite and of the unit specs by keyword. */
@@ -129,6 +143,8 @@ async function main() {
     if (mig.code !== 0) throw new Error('migrate deploy failed (see migrate.log)');
     migrated = true;
     const dbJson = join(OUT, 'jest-db.json');
+    const files: string[] = [];
+    if (!flag('http-only')) {
     const db = await run(
       'DB suites (gate + E3 backend)',
       [jestBin, '--testRegex', '(etms-e3-gate|etms-bookings-trips)\\.db-test\\.ts$', '--runInBand', '--json', '--outputFile', dbJson],
@@ -137,8 +153,9 @@ async function main() {
     );
     const m = /E3-GATE-SUMMARY (\{.*\})/.exec(db.out);
     if (m) metrics = JSON.parse(m[1]) as Record<string, unknown>;
-    const files = [dbJson];
-    if (!flag('skip-unit')) {
+    files.push(dbJson);
+    }
+    if (!flag('skip-unit') && !flag('http-only')) {
       const unitJson = join(OUT, 'jest-unit.json');
       await run('regression unit specs', [jestBin, '--json', '--outputFile', unitJson, 'trip-performance', 'planned-trips', 'reports/', 'etms/dispatch/', 'etms/testing/', 'routes/'], {}, 'jest-unit.log');
       files.push(unitJson);
@@ -156,6 +173,12 @@ async function main() {
         if (!s.assertionResults.length && s.status === 'failed') results.push({ file: rel, title: 'suite failed to run', status: 'failed', criterion: criterionOf(rel, ''), ms: null, failure: s.message.slice(0, 400) });
         for (const a of s.assertionResults) results.push({ file: rel, title: a.fullName, status: a.status, criterion: criterionOf(rel, a.fullName), ms: a.duration ?? null, failure: a.failureMessages[0]?.slice(0, 400) });
       }
+    }
+    if (HTTP) {
+      console.log('  HTTP stage (real dist/ API + processor) …');
+      const http = await runHttpStage({ apiDir: API_DIR, databaseUrl: scratch, outDir: OUT, build: !flag('no-build'), valkeyBase: opt('valkey-url') ?? process.env.E3H_VALKEY_URL ?? 'redis://127.0.0.1:6379', valkeyDb: Number(opt('valkey-db') ?? 11), secfix: SECFIX, known: KNOWN, tag: `e3h-${STAMP}` });
+      writeFileSync(join(OUT, 'http.json'), redact(JSON.stringify(http, null, 2)));
+      for (const r of http) results.push({ file: 'http-stage', title: r.title, status: r.status, criterion: r.criterion, ms: null, failure: r.status === 'failed' ? JSON.stringify(r.detail ?? '').slice(0, 400) : undefined });
     }
   } finally {
     if (!flag('keep')) {
@@ -178,10 +201,10 @@ async function main() {
   const skippedOf = (re: RegExp) => results.filter((r) => r.status !== 'passed' && r.status !== 'failed' && re.test(r.title));
   const pendingTests = skippedOf(/pending secfix/);
   const knownTests = skippedOf(/known defect/);
-  const required = ['AC1', 'AC2', 'AC3', 'AC4', 'AC5', 'AC6', 'AC7', 'AC8', 'AC9', 'AC10', 'UNIT', 'ISO', 'DB'];
+  const required = ['AC1', 'AC2', 'AC3', 'AC4', 'AC5', 'AC6', 'AC7', 'AC8', 'AC9', 'AC10', 'UNIT', 'ISO', 'DB', ...(HTTP ? ['AC3b', 'HTTP', 'BOT'] : [])];
   const overall = migrated && !failedTests.length && required.every((id) => rows.find((r) => r.id === id)!.verdict.startsWith('PASS'));
   const lines = [
-    `ETMS E3 gate ${STAMP} (${Math.round((Date.now() - started) / 1000)} s) on ${name}${SECFIX ? ' [secfix tests ON]' : ''}${KNOWN ? ' [known-defect tests ON]' : ''}`,
+    `ETMS E3 gate ${STAMP} (${Math.round((Date.now() - started) / 1000)} s) on ${name}${HTTP ? ' [--http]' : ''}${SECFIX ? ' [secfix tests ON]' : ''}${KNOWN ? ' [known-defect tests ON]' : ''}`,
     '',
     '| Criterion | Passed | Failed | Pending | Verdict | |',
     '|---|---|---|---|---|---|',
@@ -193,14 +216,14 @@ async function main() {
     ...(pendingTests.length ? ['', 'Pending secfix (skipped):', ...pendingTests.map((p) => `- ${p.title}`)] : []),
     ...(knownTests.length ? ['', 'Known defects (skipped, see README):', ...knownTests.map((p) => `- ${p.title}`)] : []),
     '',
-    'Not automated here (doc 12 test gate, see README "Gaps"): v1.8 tracker under sim:route (criterion 3 second half), Playwright journeys, mobile.',
+    HTTP ? 'Not automated here (see README "Gaps"): Playwright journeys, mobile (Maestro).' : 'Not run: the --http stage (real API / processor, sim-trip, bots). Not automated at all: Playwright journeys, mobile.',
     '',
     `GATE: ${overall ? 'PASS' : 'FAIL'}${pendingTests.length || knownTests.length ? ` (automated part; ${pendingTests.length} pending secfix, ${knownTests.length} known defects skipped)` : ''}`,
   ];
   const text = lines.join('\n');
   console.log(`\n${text}`);
   writeFileSync(join(OUT, 'summary.md'), `${text}\n`);
-  writeFileSync(join(OUT, 'summary.json'), JSON.stringify({ stamp: STAMP, database: name, secfix: SECFIX, knownDefects: KNOWN, overall: overall ? 'PASS' : 'FAIL', criteria: rows, metrics, tests: results }, null, 2));
+  writeFileSync(join(OUT, 'summary.json'), JSON.stringify({ stamp: STAMP, database: name, secfix: SECFIX, knownDefects: KNOWN, http: HTTP, overall: overall ? 'PASS' : 'FAIL', criteria: rows, metrics, tests: results }, null, 2));
   console.log(`\nEvidence: ${OUT}`);
   process.exitCode = overall ? 0 : 1;
 }
