@@ -13,6 +13,8 @@ const DAY_MS = 86_400_000;
 
 /** Rows deleted per statement: small enough to keep locks short on a busy positions table. */
 const BATCH = 5_000;
+/** Route plans cascade to their stops / assignments / versions: smaller batches. */
+const ROUTING_BATCH = 200;
 /** One run stops after this long and continues next hour, so cleanup never competes with live traffic for long. */
 const RUN_BUDGET_MS = 4 * 60_000;
 
@@ -134,6 +136,12 @@ export class RetentionService {
             SELECT r."alertId", r."userId" FROM "AlertRead" r JOIN "Alert" a ON a.id = r."alertId"
             WHERE a."companyId" = ${c.id}::uuid AND a."occurredAt" < ${cutoff} LIMIT ${BATCH})`,
         ],
+        // ETMS E4 (doc 17 S-7): route plans by plan date (stops, assignments and versions cascade; published trips keep
+        // their TransportTrip / PlannedTrip, routePlanId SetNull). Never a plan an optimisation is still running on.
+        [
+          'routePlans',
+          () => this.prisma.$executeRaw`DELETE FROM "RoutePlan" WHERE id IN (SELECT id FROM "RoutePlan" WHERE "companyId" = ${c.id}::uuid AND "planDate" < ${cutoff} AND "status" <> 'OPTIMIZING' LIMIT ${ROUTING_BATCH})`,
+        ],
         ['alerts', () => this.prisma.$executeRaw`DELETE FROM "Alert" WHERE id IN (SELECT id FROM "Alert" WHERE "companyId" = ${c.id}::uuid AND "occurredAt" < ${cutoff} LIMIT ${BATCH})`],
       ];
       for (const [key, step] of steps) if (!(await drain(key, step))) complete = false;
@@ -183,6 +191,12 @@ export class RetentionService {
           'webhookDeliveries',
           () => this.prisma.$executeRaw`DELETE FROM "WebhookDelivery" WHERE id IN (SELECT id FROM "WebhookDelivery" WHERE "createdAt" < ${ago(LIMITS.webhookDeliveries)} LIMIT ${BATCH})`,
         ],
+        // ETMS E4: finished optimisation jobs (results hold stop ids and times only) and daily usage counters.
+        [
+          'routingJobs',
+          () => this.prisma.$executeRaw`DELETE FROM "RoutingJob" WHERE id IN (SELECT id FROM "RoutingJob" WHERE "finishedAt" < ${ago(LIMITS.routingJobs)} LIMIT ${BATCH})`,
+        ],
+        ['routingUsage', () => this.prisma.$executeRaw`DELETE FROM "RoutingUsage" WHERE ("companyId", "day") IN (SELECT "companyId", "day" FROM "RoutingUsage" WHERE "day" < ${ago(LIMITS.routingUsage)} LIMIT ${BATCH})`],
         ['otpCodes',() => this.prisma.$executeRaw`DELETE FROM "OtpCode" WHERE "expiresAt" < ${ago(1)}`],
         ['passwordResets', () => this.prisma.$executeRaw`DELETE FROM "PasswordReset" WHERE "expiresAt" < ${ago(LIMITS.expiredAuth)}`],
       ];

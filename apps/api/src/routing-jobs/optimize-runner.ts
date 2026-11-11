@@ -1,9 +1,9 @@
-import { ROUTING_AVAILABLE_PROFILES, ROUTING_LIMITS, RoutingJobInput, SolverProblem, SolverResult } from '@veetracer/shared';
+import { ROUTING_AVAILABLE_PROFILES, ROUTING_LIMITS, RoutingJobInput, SolverResult } from '@veetracer/shared';
 import type { JobRecord, StoreTx } from './job-store';
 import { PROGRESS, phaseProgress } from './job-state';
 import { JobError, JobRunner } from './job-worker';
 import { BuiltMatrix, matrixShapeProblem, MatrixPort } from './matrix-port';
-import { mapSolverResult, PlanInputs, planPoints, PlanWrite, snapExclusions, solverProblem } from './optimize-problem';
+import { mapSolverResult, PlanInputs, planPoints, PlanWrite, snapExclusions, SolverProblemV2, solverProblem } from './optimize-problem';
 import type { RoutingUsageHook } from './usage-hook';
 
 export type OptimizeJobInput = Extract<RoutingJobInput, { kind: 'optimize' }>;
@@ -21,7 +21,7 @@ export interface PlanGateway {
 }
 
 export interface SolverPort {
-  solve(problem: SolverProblem, signal?: AbortSignal): Promise<SolverResult>;
+  solve(problem: SolverProblemV2, signal?: AbortSignal): Promise<SolverResult>;
 }
 
 export function parseOptimizeInput(job: JobRecord): OptimizeJobInput {

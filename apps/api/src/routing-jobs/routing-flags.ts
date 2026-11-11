@@ -1,15 +1,9 @@
 import { CanActivate, HttpException, Injectable, NotFoundException } from '@nestjs/common';
-import { ETMS_ROUTING_ENV, RoutingErrorCode } from '@veetracer/shared';
+import { RoutingErrorCode } from '@veetracer/shared';
+import { etmsRoutingEnabled } from '../etms/transport-feature.guard';
 
-/**
- * ETMS planning / optimisation switch (shared `ETMS_ROUTING_ENV`): on only when `ETMS_ROUTING=on` exactly and the ETMS
- * kill switch is not `off`. Off by default: the job endpoints are 404, the routing worker exits at start, the
- * installer and release lines are inert and System Health reports routing as "disabled".
- */
-export function etmsRoutingEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  if ((env.ETMS ?? '').trim().toLowerCase() === 'off') return false;
-  return (env[ETMS_ROUTING_ENV] ?? '').trim().toLowerCase() === 'on';
-}
+/** ETMS planning / optimisation switch (off by default; E4-A owns it in transport-feature.guard). */
+export { etmsRoutingEnabled };
 
 /** Plain 404 on every job endpoint while ETMS routing is off (the route does not exist for clients). */
 @Injectable()

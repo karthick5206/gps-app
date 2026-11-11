@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { SolverProblem, SolverResult } from '@veetracer/shared';
+import type { SolverProblemV2 } from './optimize-problem';
 import { isLocalHost, redactUrl } from '../monitoring/map-services';
 import { JobError } from './job-worker';
 
@@ -86,7 +87,7 @@ export class OptimizerClient {
     }
   }
 
-  async solve(problem: SolverProblem, signal?: AbortSignal): Promise<SolverResult> {
+  async solve(problem: SolverProblem | SolverProblemV2, signal?: AbortSignal): Promise<SolverResult> {
     if (!this.configured) throw new JobError('OPTIMIZER_UNAVAILABLE', this.config.problem ? `Optimizer refused: ${this.config.problem}` : 'Optimizer is not configured (OPTIMIZER_URL)');
     const limitS = problem.options?.timeLimitS ?? 10;
     const timeout = AbortSignal.timeout((limitS + 20) * 1000); // solver time limit + serialisation slack

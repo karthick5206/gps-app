@@ -1,21 +1,23 @@
-import type { OptimizeResult, OptimizeUnassignedReason, RoutingProfile, SolverProblem, SolverResult, SolverStop, SolverVehicle } from '@veetracer/shared';
+import type { OptimizeResult, OptimizeUnassignedReason, RoutingProfile, SolverOptions, SolverResult, SolverStop } from '@veetracer/shared';
 import { uncalibratedEta } from '@veetracer/shared';
 import { JobError } from './job-worker';
 import type { BuiltMatrix, MatrixPoint } from './matrix-port';
 
 /**
- * Pure mapping between a route plan and the OR-Tools service (E4 WP 4.2; solver contract in
- * services/routing-optimizer/README.md and shared `SolverProblem`). No I/O, no logging.
+ * Pure mapping between a route plan and the OR-Tools service (E4 WP 4.2; `services/routing-optimizer`, contract v2 of
+ * WP 4.3 `trip` mode). No I/O, no logging.
  *
- * Model (doc 06 §3, ETMS login / logout):
- * - IN (to the site): every vehicle starts at the plan depot (a company place; the site when there is none) and ends
- *   at the site. Passenger PICKUP stops are solver stops; DROP stops at the site are not (they are the route end) and
- *   are put last on the route of their booking's pickup, with the route's arrival time.
- * - OUT (from the site): mirrored — vehicles start at the site, end at the depot (the site when there is none);
- *   PICKUP stops at the site go first on the route of their booking's drop.
- * - No direction (generic plan): start and end at the depot; every stop is a solver stop.
- * Seats = vehicle capacity, passengers = demand. Times are integer seconds after `planStartAt`.
- * Matrix cells are the engine's numbers or null (forbidden arc); nothing here estimates a time or a distance.
+ * Model (doc 06 §4.2, ETMS login / logout), when the plan has a direction and a site:
+ * - IN (login, homes → site): `trip: { direction: 'IN', siteIndex, siteWindow }`; every vehicle starts at the plan
+ *   depot (or anywhere — open start — when the plan has none) and ends at the site within the site window. Passenger
+ *   PICKUP stops are solver stops; DROP stops at the site are not (they are the route end) and go last on the route of
+ *   their booking's pickup, at the route's site arrival.
+ * - OUT (logout, site → homes): mirrored — vehicles leave the site within the window, end at the depot (open end when
+ *   none); PICKUP stops at the site go first on the route of their booking's drop, at the site departure.
+ * - Generic plan (no direction or no site): contract v1, start and end at the depot (or the site).
+ * Seats = vehicle capacity, passengers = demand, `RoutePlan.options.maxRideS` = max ride time per passenger. Times are
+ * integer seconds after `planStartAt`. Matrix cells are the engine's numbers or null (forbidden arc); nothing here
+ * estimates a time or a distance.
  */
 export interface PlanStopInput {
   id: string;
@@ -49,6 +51,8 @@ export interface PlanInputs {
   direction: 'IN' | 'OUT' | null;
   depot: MatrixPoint | null;
   site: MatrixPoint | null;
+  /** Max ride time per passenger (s), from the plan options; null = none. */
+  maxRideS: number | null;
   stops: PlanStopInput[];
   vehicles: PlanVehicleInput[];
   /** Stops left out before solving (consent withdrawn, booking no longer active …), with the reason. */
@@ -56,18 +60,16 @@ export interface PlanInputs {
 }
 
 export interface BuiltProblem {
-  /** Matrix points: [start depot, end depot (if different), …solver stops]. */
+  /** Matrix points: trip = [site, depot?, …stops]; generic = [start, end (if different), …stops]. */
   points: MatrixPoint[];
-  startIndex: number;
-  endIndex: number;
+  trip: { direction: 'IN' | 'OUT'; siteIndex: number } | null;
+  /** Vehicle start / end matrix index (null = open start / end, trip mode only). */
+  startIndex: number | null;
+  endIndex: number | null;
   /** Solver stops (location index i + firstStopIndex). */
   solverStops: PlanStopInput[];
   firstStopIndex: number;
   siteStops: PlanStopInput[];
-  /** Latest arrival at the site for IN plans (min of the site stops' window ends), else null. */
-  arriveBy: number | null;
-  /** Earliest departure from the site for OUT plans (max of the site stops' window starts), else null. */
-  departAfter: number | null;
 }
 
 export const DEFAULT_HORIZON_S = 86_400;
@@ -75,54 +77,58 @@ export const DEFAULT_HORIZON_S = 86_400;
 /** Points and roles of the problem; throws INVALID_INPUT when the plan cannot be solved at all. */
 export function planPoints(inp: PlanInputs): BuiltProblem {
   if (!inp.vehicles.length) throw new JobError('INVALID_INPUT', 'The plan has no vehicles: add at least one vehicle before optimising');
-  const useSite = inp.direction !== null && inp.site !== null;
-  const siteStops = useSite ? inp.stops.filter((s) => s.atSite) : [];
-  const solverStops = inp.stops.filter((s) => !useSite || !s.atSite);
-  let start: MatrixPoint | null;
-  let end: MatrixPoint | null;
-  if (inp.direction === 'IN' && inp.site) {
-    start = inp.depot ?? inp.site;
-    end = inp.site;
-  } else if (inp.direction === 'OUT' && inp.site) {
-    start = inp.site;
-    end = inp.depot ?? inp.site;
-  } else {
-    start = inp.depot ?? inp.site;
-    end = start;
+  if (inp.direction && inp.site) {
+    const siteStops = inp.stops.filter((s) => s.atSite);
+    const solverStops = inp.stops.filter((s) => !s.atSite);
+    const points: MatrixPoint[] = [inp.site];
+    const depotIndex = inp.depot ? points.push(inp.depot) - 1 : null;
+    const firstStopIndex = points.length;
+    for (const s of solverStops) points.push({ lat: s.lat, lng: s.lng });
+    return {
+      points,
+      trip: { direction: inp.direction, siteIndex: 0 },
+      // IN: the vehicle comes from the depot (open start without one) and the solver ends it at the site.
+      // OUT: the solver starts it at the site; it ends at the depot (open end without one).
+      startIndex: inp.direction === 'IN' ? depotIndex : depotIndex ?? 0,
+      endIndex: inp.direction === 'OUT' ? depotIndex : depotIndex ?? 0,
+      solverStops,
+      firstStopIndex,
+      siteStops,
+    };
   }
-  if (!start || !end) throw new JobError('INVALID_INPUT', 'The plan has no depot or site to start the routes from');
-  const same = start.lat === end.lat && start.lng === end.lng;
-  const points: MatrixPoint[] = same ? [start] : [start, end];
-  const firstStopIndex = points.length;
-  for (const s of solverStops) points.push({ lat: s.lat, lng: s.lng });
-  const ends = siteStops.flatMap((s) => (s.timeWindows ?? []).map((w) => w[1]));
-  const starts = siteStops.flatMap((s) => (s.timeWindows ?? []).map((w) => w[0]));
-  return {
-    points,
-    startIndex: 0,
-    endIndex: same ? 0 : 1,
-    solverStops,
-    firstStopIndex,
-    siteStops,
-    arriveBy: inp.direction === 'IN' && ends.length ? Math.min(...ends) : null,
-    departAfter: inp.direction === 'OUT' && starts.length ? Math.max(...starts) : null,
-  };
+  const start = inp.depot ?? inp.site;
+  if (!start) throw new JobError('INVALID_INPUT', 'The plan has no depot or site to start the routes from');
+  const points: MatrixPoint[] = [start];
+  for (const s of inp.stops) points.push({ lat: s.lat, lng: s.lng });
+  return { points, trip: null, startIndex: 0, endIndex: 0, solverStops: inp.stops, firstStopIndex: 1, siteStops: [] };
 }
 
 const int = (v: number | null) => (v === null ? null : Math.round(v));
 
-/** The `POST /optimize` body. */
-export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, opts: { timeLimitS: number; objective?: 'duration' | 'distance' }): SolverProblem {
+/** `POST /optimize` body (contract v2 when `trip` is set). */
+export interface SolverProblemV2 {
+  schemaVersion?: 1 | 2;
+  matrix: { durationsS: (number | null)[][]; distancesM?: (number | null)[][] | null };
+  vehicles: { id: string; startIndex: number | null; endIndex: number | null; capacity?: number | null; timeWindow?: [number, number] | null }[];
+  stops: SolverStop[];
+  horizonS: number;
+  trip?: { direction: 'IN' | 'OUT'; siteIndex: number; siteWindow: [number, number]; maxRideS?: number };
+  options: SolverOptions;
+}
+
+/** The site window: IN = when the vehicles may arrive, OUT = when they may leave (from the site stops' windows). */
+export function siteWindow(b: BuiltProblem, horizonS: number): [number, number] {
+  const ws = b.siteStops.flatMap((s) => s.timeWindows ?? []);
+  if (!ws.length) return [0, horizonS];
+  const lo = Math.max(0, Math.max(...ws.map((w) => w[0])));
+  const hi = Math.min(horizonS, Math.min(...ws.map((w) => w[1])));
+  // Several shifts' windows that do not overlap: fall back to the widest common span instead of an empty window.
+  return lo <= hi ? [Math.round(lo), Math.round(hi)] : [Math.round(Math.max(0, Math.min(...ws.map((w) => w[0])))), Math.round(Math.min(horizonS, Math.max(...ws.map((w) => w[1]))))];
+}
+
+export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, opts: { timeLimitS: number; objective?: 'duration' | 'distance' }): SolverProblemV2 {
   const windowEnds = [...b.solverStops, ...b.siteStops].flatMap((s) => (s.timeWindows ?? []).map((w) => w[1]));
-  const horizonS = Math.max(DEFAULT_HORIZON_S, ...windowEnds.map((e) => e + 3_600));
-  const shift: [number, number] = [b.departAfter ?? 0, b.arriveBy ?? horizonS];
-  const vehicles: SolverVehicle[] = inp.vehicles.map((v) => ({
-    id: v.assignmentId,
-    startIndex: b.startIndex,
-    endIndex: b.endIndex,
-    capacity: v.capacity,
-    timeWindow: shift,
-  }));
+  const horizonS = Math.max(DEFAULT_HORIZON_S, ...windowEnds.map((e) => Math.ceil(e) + 3_600));
   const stops: SolverStop[] = b.solverStops.map((s, i) => ({
     id: s.id,
     locationIndex: b.firstStopIndex + i,
@@ -132,10 +138,14 @@ export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, 
     priority: 1,
   }));
   return {
+    ...(b.trip ? { schemaVersion: 2 as const } : {}),
     matrix: { durationsS: m.durationsS.map((r) => r.map(int)), distancesM: m.distancesM.map((r) => r.map(int)) },
-    vehicles,
+    vehicles: inp.vehicles.map((v) => ({ id: v.assignmentId, startIndex: b.startIndex, endIndex: b.endIndex, capacity: v.capacity })),
     stops,
     horizonS,
+    ...(b.trip
+      ? { trip: { direction: b.trip.direction, siteIndex: b.trip.siteIndex, siteWindow: siteWindow(b, horizonS), ...(inp.maxRideS ? { maxRideS: Math.round(inp.maxRideS) } : {}) } }
+      : {}),
     // solver.py: "distance" uses distancesM (always sent here); anything else minimises time.
     options: { timeLimitS: opts.timeLimitS, objective: opts.objective ?? 'duration' },
   };
