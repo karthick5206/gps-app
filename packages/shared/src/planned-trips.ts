@@ -247,5 +247,23 @@ export interface PlannedTripUpdateEvent {
   trip: PlannedTripSummaryDto;
 }
 
+/** Socket.io event (company room, `/live` namespace) carrying a `PlannedTripLiveUpdate`. */
+export const PLANNED_TRIP_SOCKET_EVENT = 'plannedTrip.update';
+
+/** Live progress of a planned trip pushed by the processor (`plannedTrip.update`). */
+export interface PlannedTripLiveUpdate {
+  id: string;
+  status: PlannedTripStatus;
+  nextStopSeq: number | null;
+  etaNextStop: string | null;
+  delaySec: number | null;
+  actualStart: string | null;
+  actualEnd: string | null;
+  deviationCount: number;
+  maxDeviationM: number | null;
+  /** Stops that changed (by seq). */
+  stops?: { seq: number; status: PlannedStopStatus; actualArrival: string | null; actualDeparture: string | null; delaySec: number | null }[];
+}
+
 /** Reason sent with RedisKeys.rulesInvalidate after a write that changes trips. */
 export const PLANNED_TRIPS_INVALIDATE_REASON = 'planned-trips';

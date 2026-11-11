@@ -67,6 +67,9 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };
 
+/** Detail pages inside a menu (same permission as the menu). */
+const PlannedTripDetailPage = page(() => import('@/features/planned-trips/PlannedTripDetailPage'), 'PlannedTripDetailPage');
+
 function PageFallback() {
   return (
     <div className="space-y-4 p-6" aria-busy>
@@ -123,6 +126,16 @@ export const router = createBrowserRouter([
               ),
             };
           }),
+          {
+            path: '/planned-trips/:id',
+            element: (
+              <RequirePermission menu="plannedTrips">
+                <Suspense fallback={<PageFallback />}>
+                  <PlannedTripDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
           {
             path: '/claim',
             element: (
