@@ -186,18 +186,18 @@ def test_slot_is_taken_before_the_body_is_read():
 
 
 def test_handler_timeout_and_bounded_threads(monkeypatch):
-    monkeypatch.setattr(server, 'HANDLER_TIMEOUT_S', 1)
-    srv, url = start({'OPTIMIZER_TOKEN': TOKEN, 'OPTIMIZER_MAX_CONNECTIONS': '2'})
+    monkeypatch.setattr(server, 'HEADER_TIMEOUT_S', 1)
+    srv, url = start({'OPTIMIZER_TOKEN': TOKEN, 'OPTIMIZER_MAX_PENDING': '2'})
     host, port = url.removeprefix('http://').split(':')
     try:
-        # A silent client is dropped after the socket timeout (slow-loris).
+        # A silent client is dropped after the header timeout (slow-loris), before any auth.
         with socket.create_connection((host, int(port)), timeout=10) as s:
             s.sendall(b'POST /optimize HTTP/1.1\r\n')
             t0 = time.monotonic()
             assert s.recv(1024) == b''
             assert time.monotonic() - t0 < 8
         time.sleep(0.3)
-        # Two idle connections hold both handler threads: a third is closed at once; once they go, service is back.
+        # Two idle connections hold both handler threads (OPTIMIZER_MAX_PENDING=2): a third is closed at once; once they go, service is back.
         idle = [socket.create_connection((host, int(port)), timeout=10) for _ in range(2)]
         time.sleep(0.3)
         with socket.create_connection((host, int(port)), timeout=10) as s3:
@@ -207,6 +207,46 @@ def test_handler_timeout_and_bounded_threads(monkeypatch):
             s.close()
         time.sleep(1.5)
         assert call(url, '/health', TOKEN)[0] == 200
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_idle_unauthenticated_connections_cannot_block_the_service():
+    """Re-check R2: 20 idle, unauthenticated connections (more than OPTIMIZER_MAX_CONNECTIONS) leave room for the API."""
+    srv, url = start({'OPTIMIZER_TOKEN': TOKEN})
+    host, port = url.removeprefix('http://').split(':')
+    idle = []
+    try:
+        idle = [socket.create_connection((host, int(port)), timeout=10) for _ in range(20)]
+        time.sleep(0.5)
+        code, body = call(url, '/health', TOKEN)
+        assert code == 200 and body['ok'] is True
+        assert call(url, '/optimize', TOKEN, PROBLEM)[0] == 200
+        # unauthenticated requests never take an authenticated slot either
+        for _ in range(20):
+            assert call(url, '/health', 'wrong' * 8)[0] == 401
+        assert call(url, '/health', TOKEN)[0] == 200
+    finally:
+        for s in idle:
+            s.close()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_authenticated_requests_are_capped(monkeypatch):
+    """Only authenticated requests in flight count toward OPTIMIZER_MAX_CONNECTIONS; beyond it a JSON 503."""
+    srv = server.build_server('127.0.0.1', 0, {'OPTIMIZER_TOKEN': TOKEN, 'OPTIMIZER_CONCURRENCY': '2', 'OPTIMIZER_MAX_CONNECTIONS': '1'}, solve_fn=stall)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f'http://127.0.0.1:{srv.server_address[1]}'
+    try:
+        busy = threading.Thread(target=lambda: call(url, '/optimize', TOKEN, {'options': {'timeLimitS': 1}, 'sleepS': 3}))
+        busy.start()
+        time.sleep(1.5)
+        code, body = call(url, '/health', TOKEN)
+        assert code == 503 and body['error'] == 'optimizer connection limit reached'
+        busy.join()
+        assert call(url, '/health', TOKEN)[0] == 200  # the slot is given back when the request ends
     finally:
         srv.shutdown()
         srv.server_close()

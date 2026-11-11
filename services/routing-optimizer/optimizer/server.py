@@ -20,8 +20,13 @@ Robustness (E4 security review L5):
     answer by then is terminated, the pool rebuilt, and the request answered 503 (transient for the API).
   * Malformed input is always a JSON 400 (bad or missing Content-Length, invalid or too deeply nested JSON, wrong
     option types); any other failure is a JSON 500. A request is never answered by dropping the connection.
-  * The solver slot is taken before the body is read; handler threads are bounded (OPTIMIZER_MAX_CONNECTIONS, default
-    16; further connections are closed at once) and every connection has a 30 s socket timeout.
+  * The solver slot is taken before the body is read; every connection has a 30 s socket timeout.
+
+Connection limits (re-check R2): an unauthenticated client must not be able to block the service. A connection has
+HEADER_TIMEOUT_S (5 s) to send its request line and headers; handler threads are capped at OPTIMIZER_MAX_PENDING
+(default 64; further connections are closed at once), and only requests that passed the allow-list and the token
+count toward OPTIMIZER_MAX_CONNECTIONS (default 16; beyond it a JSON 503). Idle unauthenticated sockets therefore
+cost at most 5 s each and never take an authenticated slot.
 """
 from __future__ import annotations
 
@@ -48,6 +53,8 @@ MIN_TOKEN = 24
 MAX_JSON_DEPTH = 32
 #: Socket timeout of a connection (seconds): a client that sends nothing for this long is dropped.
 HANDLER_TIMEOUT_S = 30
+#: Time a connection has for its request line and headers (before auth), and while it idles between requests.
+HEADER_TIMEOUT_S = 5
 
 
 def parse_allow(raw: str | None) -> list[ipaddress._BaseNetwork]:
@@ -66,8 +73,11 @@ def allowed(addr: str, nets: list[ipaddress._BaseNetwork]) -> bool:
 
 
 class Config:
-    def __init__(self, token: str, allow: list, slots: int, solve_fn=solve, grace_s: float = 30.0):
+    def __init__(self, token: str, allow: list, slots: int, solve_fn=solve, grace_s: float = 30.0, max_authed: int = 16):
         self.token = token
+        #: Authenticated requests in flight (R2): taken after _guard succeeds, released when the request ends.
+        self.authed = threading.BoundedSemaphore(max(1, max_authed))
+        self.max_authed = max(1, max_authed)
         self.allow = allow
         self.slots = threading.BoundedSemaphore(slots)
         self.size = slots
@@ -142,8 +152,10 @@ class BadRequest(Exception):
 def make_handler(cfg: Config):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'veetrax-routing-optimizer/0.3'
-        # L5: socket timeout per connection (a slow or silent client is dropped).
-        timeout = HANDLER_TIMEOUT_S
+        # R2: until it has authenticated a client has HEADER_TIMEOUT_S for its request line and headers; an
+        # authenticated request gets HANDLER_TIMEOUT_S (L5) for its body.
+        timeout = HEADER_TIMEOUT_S
+        _authed = False
 
         def _send(self, code: int, body: dict) -> None:
             data = json.dumps(body).encode()
@@ -164,7 +176,23 @@ def make_handler(cfg: Config):
             if not hmac.compare_digest(got.encode(), f'Bearer {cfg.token}'.encode()):
                 self._send(401, {'error': 'unauthorised'})
                 return False
+            # R2: only authenticated requests count toward OPTIMIZER_MAX_CONNECTIONS.
+            if not cfg.authed.acquire(blocking=False):
+                self._send(503, {'status': 'ERROR', 'error': 'optimizer connection limit reached', 'limit': cfg.max_authed})
+                return False
+            self._authed = True
+            self.connection.settimeout(HANDLER_TIMEOUT_S)
             return True
+
+        def _done(self) -> None:
+            """End of a request: give back the authenticated slot; an idle keep-alive connection is on the header timeout."""
+            if self._authed:
+                self._authed = False
+                cfg.authed.release()
+            try:
+                self.connection.settimeout(HEADER_TIMEOUT_S)
+            except OSError:
+                pass
 
         def _internal(self) -> None:
             exc = sys.exc_info()[0]
@@ -184,6 +212,8 @@ def make_handler(cfg: Config):
                     self._send(404, {'error': 'not found'})
             except Exception:  # noqa: BLE001 - never drop the connection without an answer
                 self._internal()
+            finally:
+                self._done()
 
         def do_POST(self) -> None:  # noqa: N802
             try:
@@ -192,6 +222,8 @@ def make_handler(cfg: Config):
                 self._send(400, {'status': 'INVALID_INPUT', 'error': str(e)})
             except Exception:  # noqa: BLE001 - every other failure is a JSON 500
                 self._internal()
+            finally:
+                self._done()
 
         def _length(self) -> int:
             raw = (self.headers.get('Content-Length') or '').strip()
@@ -253,10 +285,11 @@ def make_handler(cfg: Config):
 
 
 class BoundedThreadingHTTPServer(ThreadingHTTPServer):
-    """ThreadingHTTPServer with at most `max_connections` handler threads (L5); further connections are closed at once."""
+    """ThreadingHTTPServer with at most `max_connections` handler threads (OPTIMIZER_MAX_PENDING); further connections are
+    closed at once. Pre-auth connections live at most HEADER_TIMEOUT_S while silent (R2)."""
 
     daemon_threads = True
-    max_connections = 16
+    max_connections = 64
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
@@ -284,7 +317,8 @@ def build_server(host: str, port: int, env: dict, solve_fn=solve) -> ThreadingHT
     if len(token) < MIN_TOKEN:
         raise SystemExit(f'OPTIMIZER_TOKEN must be set (>= {MIN_TOKEN} characters); refusing to start')
     cfg = Config(token, parse_allow(env.get('OPTIMIZER_ALLOW')), max(1, int(env.get('OPTIMIZER_CONCURRENCY', '2'))),
-                 solve_fn=solve_fn, grace_s=float(env.get('OPTIMIZER_RESULT_GRACE_S', '30')))
+                 solve_fn=solve_fn, grace_s=float(env.get('OPTIMIZER_RESULT_GRACE_S', '30')),
+                 max_authed=max(1, int(env.get('OPTIMIZER_MAX_CONNECTIONS', '16'))))
     family_v6 = ':' in host
 
     def server_close(self) -> None:
@@ -294,7 +328,7 @@ def build_server(host: str, port: int, env: dict, solve_fn=solve) -> ThreadingHT
     cls = type('Srv', (BoundedThreadingHTTPServer,), {
         'address_family': __import__('socket').AF_INET6 if family_v6 else __import__('socket').AF_INET,
         'server_close': server_close,
-        'max_connections': max(2, int(env.get('OPTIMIZER_MAX_CONNECTIONS', '16'))),
+        'max_connections': max(2, int(env.get('OPTIMIZER_MAX_PENDING', '64'))),
     })
     srv = cls((host, port), make_handler(cfg))
     srv.cfg = cfg

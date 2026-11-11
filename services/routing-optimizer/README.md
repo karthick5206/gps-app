@@ -48,7 +48,8 @@ outside the repository).
 | `OPTIMIZER_ALLOW` | `127.0.0.1/32,::1/128` | Source CIDR allow-list; others get 403 before the body is read. |
 | `OPTIMIZER_CONCURRENCY` | `2` | Solves at once; further requests get 429 (the caller retries later). The slot is taken before the body is read. |
 | `OPTIMIZER_RESULT_GRACE_S` | `30` | A solve that has not answered after `timeLimitS` + this is killed (workers terminated, pool rebuilt) and answered 503. |
-| `OPTIMIZER_MAX_CONNECTIONS` | `16` | Handler threads at most; further connections are closed at once. Every connection has a 30 s socket timeout. |
+| `OPTIMIZER_MAX_CONNECTIONS` | `16` | Authenticated requests in flight at most (counted only after the allow-list and the token pass); beyond it a JSON 503. |
+| `OPTIMIZER_MAX_PENDING` | `64` | Handler threads at most (any connection, before auth); further connections are closed at once. A connection has 5 s for its request line and headers (and while idle between requests), 30 s once authenticated. |
 
 Endpoints: `GET /health` → `{ok, ortools, limits, slots, busy}`; `POST /optimize` (body ≤ 8 MB) → the result below,
 HTTP 400 (JSON, `INVALID_INPUT`) for any malformed request (bad `Content-Length`, invalid or more than 32 levels deep
