@@ -18,6 +18,10 @@ Environment=OPTIMIZER_TOKEN_FILE=/etc/veetrax/optimizer.env
 # (or PrivatePIDs=yes, systemd >= 257). ProcSubset=pid is not set: it hides /proc/version, /proc/meminfo and
 # /proc/cpuinfo, which the API's System Health (os.cpus / loadavg) and the Prisma engine's platform probe read.
 ProtectProc=invisible
+# Scaling (T3 load test): more worker processes or ROUTING_WORKER_CONCURRENCY slots are safe for GraphHopper (matrix
+# requests in flight are capped across all processes by a Valkey semaphore, ETMS_MATRIX_GLOBAL_CONCURRENCY, failing
+# open to the per-process cap) and for jobs (an optimiser 429 waits without using an attempt), but they do not add
+# solver throughput beyond OPTIMIZER_CONCURRENCY; keep 1 x 1 on the shared host until C3 has measured R-5.
 ExecStart=/usr/bin/node --max-old-space-size=768 dist/routing-worker/main.js
 Restart=on-failure
 RestartSec=10

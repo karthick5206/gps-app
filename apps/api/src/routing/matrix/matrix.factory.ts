@@ -1,6 +1,7 @@
 import type Redis from 'ioredis';
 import { readRouterConfig, RouterConfig } from '../provider/router-config';
 import { GraphHopperMatrixEngine } from './gh-matrix-client';
+import { ValkeySemaphore } from './global-slots';
 import { MatrixBuilder, MatrixEngineSource } from './matrix-builder';
 import { MatrixCache, redisCacheClient } from './matrix-cache';
 import { MatrixConfig, readMatrixConfig } from './matrix-config';
@@ -12,7 +13,10 @@ export function matrixEngineSource(router: RouterConfig): MatrixEngineSource {
   return { engine: null, reason: router.state === 'disabled' ? 'ENGINE_DISABLED' : 'ENGINE_NOT_SUPPORTED', message: router.message };
 }
 
-/** Builder wired to Valkey (cache + stats). `redis` null = no cache, no published stats (tests, CLI). */
+/**
+ * Builder wired to Valkey (cache + stats + the cross-process GraphHopper in-flight cap, T3-D4). `redis` null = no
+ * cache, no published stats, per-process cap only (tests, CLI).
+ */
 export function createMatrixBuilder(
   redis: Redis | null,
   env: NodeJS.ProcessEnv = process.env,
@@ -22,5 +26,5 @@ export function createMatrixBuilder(
   const cache = new MatrixCache(redis ? redisCacheClient(redis) : null, config.cacheSecret, config.cacheTtlSec, config.cacheMaxCells);
   const metrics = new MatrixMetrics();
   if (redis) metrics.publish = (s) => redis.set(MATRIX_STATS_KEY, JSON.stringify(s), 'EX', MATRIX_STATS_TTL_SEC);
-  return new MatrixBuilder(config, matrixEngineSource(router), cache, metrics);
+  return new MatrixBuilder(config, matrixEngineSource(router), cache, metrics, redis ? new ValkeySemaphore(redis, config.globalConcurrency) : null);
 }

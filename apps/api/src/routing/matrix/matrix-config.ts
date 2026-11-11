@@ -12,6 +12,11 @@ export interface MatrixConfig {
   enabled: boolean;
   /** Max engine requests in flight for all matrix builds of this process (adaptive: lowered when the engine is slow). */
   concurrency: number;
+  /**
+   * T3-D4: max matrix requests in flight to GraphHopper across ALL processes (API + routing workers), through a Valkey
+   * semaphore with a TTL; fails open to `concurrency` per process when Valkey is down. Default = `concurrency`.
+   */
+  globalConcurrency: number;
   /** Matrix builds running at once in this process; more wait in a queue of `queue`, beyond that LIMIT_EXCEEDED. */
   maxBuilds: number;
   queue: number;
@@ -49,6 +54,7 @@ export function readMatrixConfig(env: NodeJS.ProcessEnv = process.env): MatrixCo
   return {
     enabled: etmsRoutingEnabled(env),
     concurrency: int(env.ETMS_MATRIX_CONCURRENCY, 3, 1, 8),
+    globalConcurrency: int(env.ETMS_MATRIX_GLOBAL_CONCURRENCY, int(env.ETMS_MATRIX_CONCURRENCY, 3, 1, 8), 1, 16),
     maxBuilds: int(env.ETMS_MATRIX_MAX_BUILDS, 2, 1, 4),
     queue: int(env.ETMS_MATRIX_QUEUE, 8, 0, 64),
     budgetMs: int(env.ETMS_MATRIX_BUDGET_MS, 120_000, 1000, 900_000),

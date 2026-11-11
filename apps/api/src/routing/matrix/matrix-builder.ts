@@ -28,6 +28,7 @@ import { AVAILABLE_PROFILES, DegradedReason, RoutingProfile } from '../provider/
 import { encodeCell, encodeSnap, MatrixCache, roundPoint, SnapCached } from './matrix-cache';
 import { MatrixConfig } from './matrix-config';
 import { EngineFailure, EngineInfo, MatrixEngine } from './gh-matrix-client';
+import type { GlobalSlots } from './global-slots';
 import { AdaptiveLimiter, BuildGate } from './limiter';
 import { MatrixMetrics } from './matrix-metrics';
 import type { CellOutcome, MatrixBuild, MatrixBuildOptions, MatrixPoint, MatrixStats, PointReport } from './matrix-types';
@@ -117,8 +118,9 @@ export class MatrixBuilder {
     private readonly source: MatrixEngineSource,
     readonly cache: MatrixCache,
     readonly metrics: MatrixMetrics = new MatrixMetrics(),
+    global: GlobalSlots | null = null,
   ) {
-    this.limiter = new AdaptiveLimiter(config.concurrency, config.slowLegMs, config.fastLegMs);
+    this.limiter = new AdaptiveLimiter(config.concurrency, config.slowLegMs, config.fastLegMs, 20, global);
     this.gate = new BuildGate(config.maxBuilds, config.queue);
   }
 
@@ -230,10 +232,16 @@ export class MatrixBuilder {
       }
     }
 
-    const release = await this.gate.enter();
-    if (!release) return empty('LIMIT_EXCEEDED', 'Too many matrix builds are running or queued; try again shortly.', 30);
+    // T3-D3: the wait for a build slot is bounded by the build's budget, and the budget starts once the build runs. A
+    // build that queued out is "busy" (LIMIT_EXCEEDED with retryAfterS → the job's MATRIX_BUSY), never ENGINE_TIMEOUT:
+    // the engine was not asked.
+    const budgetMs = opts.budgetMs ?? this.config.budgetMs;
+    const release = await this.gate.enterWithin(budgetMs, opts.signal);
+    if (release === 'full') return empty('LIMIT_EXCEEDED', 'Too many matrix builds are running or queued; try again shortly.', 30);
+    if (release === 'timeout') return empty('LIMIT_EXCEEDED', `Waited ${Math.round(budgetMs / 1000)} s for a free matrix build slot; try again shortly.`, 30);
+    if (release === 'aborted') return empty('LIMIT_EXCEEDED', 'The matrix build was cancelled.');
     try {
-      return await this.run(engine, input, profile, opts, stats, started, empty);
+      return await this.run(engine, input, profile, opts, stats, started, empty, Date.now());
     } finally {
       release();
     }
@@ -247,9 +255,10 @@ export class MatrixBuilder {
     stats: MatrixStats,
     started: number,
     empty: (reason: DegradedReason, message: string, retryAfterS?: number) => MatrixBuild,
+    budgetFrom: number = started,
   ): Promise<MatrixBuild> {
     const n = input.length;
-    const deadline = started + (opts.budgetMs ?? this.config.budgetMs);
+    const deadline = budgetFrom + (opts.budgetMs ?? this.config.budgetMs);
     const maxSnap = opts.maxSnapDistanceM ?? this.config.maxSnapDistanceM;
     const budget = new AbortController();
     const budgetTimer = setTimeout(() => budget.abort(new DOMException('budget', 'TimeoutError')), Math.max(0, deadline - Date.now()));
@@ -541,7 +550,7 @@ export class MatrixBuilder {
       const stopReason: { reason: DegradedReason; message: string } | null = opts.signal?.aborted
         ? { reason: 'LIMIT_EXCEEDED', message: 'The matrix build was cancelled.' }
         : budget.signal.aborted
-          ? { reason: 'ENGINE_TIMEOUT', message: `The matrix time budget (${Math.round((deadline - started) / 1000)} s) ran out before every cell was computed.` }
+          ? { reason: 'ENGINE_TIMEOUT', message: `The matrix time budget (${Math.round((deadline - budgetFrom) / 1000)} s) ran out before every cell was computed.` }
           : breaker && fail.last
             ? { reason: fail.last.reason, message: `Stopped after ${this.config.failLimit} routing-engine failures in a row: ${scrubCoordinates(fail.last.message)}` }
             : null;
