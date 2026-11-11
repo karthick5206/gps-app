@@ -57,6 +57,11 @@ export const RedisKeys = {
   fuelState: (objectId: string) => `vt:fuel:${objectId}`,
   /** AC / door detector state per object (debounce, open session). */
   ioState: (objectId: string) => `vt:io:${objectId}`,
+  // ── Planned trips (docs/routes-trips/SPEC.md §4.3) ──
+  /** Planned-trip tracker state per object (`ObjectTripState` JSON: trip progress, open events, cooldowns). */
+  plannedTripState: (objectId: string) => `vt:ptrip:${objectId}`,
+  /** Pub/sub: `{ companyId, objectId, update: PlannedTripLiveUpdate }` for the `plannedTrip.update` socket event. */
+  plannedTripUpdates: 'vt:plannedtrips:updates',
   // ── Customer API / webhooks ──
   /** Stream of webhook work (`event` fan-out or `deliveryId` send-now) consumed in the notifier process. */
   webhooksStream: 'vt:webhooks',

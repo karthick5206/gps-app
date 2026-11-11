@@ -70,6 +70,11 @@ const DETAIL: Record<AlertTypeCode, string> = {
   DOOR_OPEN: 'door was opened',
   DOOR_CLOSED: 'door was closed after {{duration}}',
   DOOR_OPEN_WHILE_MOVING: 'door is open while driving at {{speed}}',
+  ROUTE_DEVIATION: 'went off route {{route}} ({{distance}} from the planned path)',
+  TRIP_STOP_LATE: 'reached stop {{stop}} on route {{route}} {{delay}} late',
+  TRIP_STOP_SKIPPED: 'skipped stop {{stop}} on route {{route}}',
+  TRIP_NOT_STARTED: 'has not started trip {{route}} ({{delay}} after the planned start)',
+  TRIP_COMPLETED: 'completed trip {{route}} (delay {{delay}})',
 };
 
 /** Reminder alerts (documents, services) have no position or speed: their e-mail shows what is due instead. */
@@ -128,6 +133,9 @@ function alertEmail(code: AlertTypeCode, label: string): string {
   ];
   if (code === 'GEOFENCE_ENTER' || code === 'GEOFENCE_EXIT' || code === 'GEOFENCE_STAY' || code === 'GEOFENCE_OVERSPEED') {
     rows.splice(2, 0, ['Geofence', '{{geofence}}']);
+  }
+  if (code === 'ROUTE_DEVIATION' || code === 'TRIP_STOP_LATE' || code === 'TRIP_STOP_SKIPPED' || code === 'TRIP_NOT_STARTED' || code === 'TRIP_COMPLETED') {
+    rows.splice(2, 0, ['Route', '{{route}}']);
   }
   if (code === 'FUEL_DRAIN' || code === 'FUEL_REFILL') {
     rows.splice(rows.length - 1, 1, [code === 'FUEL_DRAIN' ? 'Fuel lost' : 'Fuel added', '{{litres}}'], ['Fuel level', '{{fuel_before}} → {{fuel_after}}']);

@@ -84,9 +84,9 @@ const str = (v: number | boolean | null) => (v === null ? null : String(v));
 export async function writeBatch(
   prisma: PrismaClient,
   batch: WriteBatch,
-  extra: Prisma.PrismaPromise<number>[] = [],
+  extra: Prisma.PrismaPromise<unknown>[] = [],
 ): Promise<void> {
-  const statements: Prisma.PrismaPromise<number>[] = [];
+  const statements: Prisma.PrismaPromise<unknown>[] = [];
   const { positions: p, rawPackets: r, unknownDevices: u, lastSeen: s } = batch;
 
   if (p.length) {
@@ -187,7 +187,7 @@ export async function writeBatch(
         "endTime" = EXCLUDED."endTime", "endLat" = EXCLUDED."endLat", "endLng" = EXCLUDED."endLng",
         "distanceKm" = EXCLUDED."distanceKm", "durationSec" = EXCLUDED."durationSec", "engineOffSec" = EXCLUDED."engineOffSec", "updatedAt" = now()`);
   }
-  // Extra statements (alert rows, geofence visits) commit atomically with the positions they came from.
+  // Extra statements (alert rows, geofence visits, planned-trip progress) commit atomically with the positions they came from.
   statements.push(...extra);
   if (statements.length) await prisma.$transaction(statements);
 }

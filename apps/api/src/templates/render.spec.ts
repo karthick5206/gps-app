@@ -124,6 +124,24 @@ describe('system templates', () => {
     expect(alertVars({ ...base, address: null, lat: null, lng: null, data: { noFix: true } }, c).location).toBe('Unknown (no GPS fix)');
     expect(alertVars({ ...base, lat: 13.06, lng: 80.25, data: {} }, c).location).toBe('Anna Salai, Chennai');
   });
+
+  it('renders planned-trip alerts with route, stop, delay and distance', () => {
+    const c = { objectName: 'Bus 4', plateNumber: 'TN-01', branchName: null, companyName: 'Demo', timezone: 'Asia/Kolkata' };
+    const base = { severity: 'WARNING', occurredAt: new Date('2026-11-10T08:35:00Z'), lat: 13.06, lng: 80.25, address: null, geofenceName: null };
+    const push = (code: string) => all.find((x) => x.purpose === code && x.channel === 'PUSH')!;
+    const render = (code: string, data: Record<string, unknown>) =>
+      renderTemplate({ id: 'x', channel: 'PUSH', subject: push(code).subject, body: push(code).body, dltTemplateId: null, senderId: null }, alertVars({ ...base, type: code, data }, c));
+
+    const late = render('TRIP_STOP_LATE', { tripId: 't1', routeName: 'Morning run', stopName: 'Gate 2', delayMin: 14 });
+    expect(late.body).toBe('Bus 4 reached stop Gate 2 on route Morning run 14 min late · 10 Nov 2026, 14:05');
+    expect(late.missing).toEqual([]);
+    expect(render('ROUTE_DEVIATION', { routeName: 'Morning run', distanceM: 1260 }).body).toContain('went off route Morning run (1.3 km from the planned path)');
+    expect(render('ROUTE_DEVIATION', { routeName: 'Morning run', distanceM: 340 }).body).toContain('(340 m from the planned path)');
+    expect(render('TRIP_STOP_SKIPPED', { routeName: 'Morning run', stopName: 'Gate 2' }).body).toContain('skipped stop Gate 2 on route Morning run');
+    expect(render('TRIP_NOT_STARTED', { routeName: 'Morning run', delayMin: 30 }).body).toContain('has not started trip Morning run (30 min after the planned start)');
+    expect(render('TRIP_COMPLETED', { routeName: 'Morning run', delayMin: -3 }).body).toContain('completed trip Morning run (delay -3 min)');
+    expect(render('TRIP_COMPLETED', { routeName: 'Morning run', delayMin: 2 }).subject).toBe('Trip completed: Bus 4');
+  });
 });
 
 describe('deliverableTemplates', () => {

@@ -13,6 +13,10 @@ import {
   CarFrontIcon,
   CigaretteIcon,
   ClockAlertIcon,
+  CalendarClockIcon,
+  FlagIcon,
+  MapPinXIcon,
+  RouteOffIcon,
   CloudAlertIcon,
   DropletOffIcon,
   EyeOffIcon,
@@ -111,6 +115,11 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   DOOR_OPEN: DoorOpenIcon,
   DOOR_CLOSED: DoorClosedIcon,
   DOOR_OPEN_WHILE_MOVING: DoorOpenIcon,
+  ROUTE_DEVIATION: RouteOffIcon,
+  TRIP_STOP_LATE: ClockAlertIcon,
+  TRIP_STOP_SKIPPED: MapPinXIcon,
+  TRIP_NOT_STARTED: CalendarClockIcon,
+  TRIP_COMPLETED: FlagIcon,
 };
 
 export const alertIcon = (type: string): LucideIcon => ALERT_ICON[type as AlertTypeCode] ?? BellIcon;
