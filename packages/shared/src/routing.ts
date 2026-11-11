@@ -250,16 +250,36 @@ export interface OptimizePlanRequest {
   objective?: 'duration' | 'distance';
 }
 
-export type OptimizeUnassignedReason =
-  | 'outside_coverage'
-  | 'not_on_road'
-  | 'invalid_time_window'
-  | 'demand_exceeds_vehicle_capacity'
-  | 'unreachable_location'
-  | 'time_window_unreachable'
-  | 'exceeds_max_route_duration'
-  | 'not_scheduled_capacity_or_time'
-  | 'no_solution_found';
+/**
+ * Why a stop was not put on a route. Solver reasons (services/routing-optimizer, contract v2) plus the ones the API /
+ * worker decide before the solve: no routing consent any more, booking no longer active, no point, and points the
+ * matrix builder excluded (far from the road, not checked, invalid).
+ */
+export const OPTIMIZE_UNASSIGNED_REASONS = [
+  // before the solve (API / routing worker)
+  'consent_withdrawn',
+  'booking_not_active',
+  'needs_location',
+  'outside_coverage',
+  'not_on_road',
+  'far_from_road',
+  'not_checked',
+  'invalid_location',
+  // solver (v1 + v2)
+  'invalid_time_window',
+  'no_vehicle_available',
+  'demand_exceeds_vehicle_capacity',
+  'no_compatible_vehicle',
+  'safety_rule',
+  'pinned_assignment_infeasible',
+  'unreachable_location',
+  'time_window_unreachable',
+  'max_ride_unachievable',
+  'exceeds_max_route_duration',
+  'not_scheduled_capacity_or_time',
+  'no_solution_found',
+] as const;
+export type OptimizeUnassignedReason = (typeof OPTIMIZE_UNASSIGNED_REASONS)[number];
 
 export interface OptimizeVisit {
   stopId: string;
@@ -289,7 +309,8 @@ export interface OptimizeResult {
   provenOptimal: boolean;
   solverStatus?: string;
   routes: OptimizeRoute[];
-  unassigned: { stopId: string; reason: OptimizeUnassignedReason }[];
+  /** `code`: the doc 06 §4.6 code the solver adds (e.g. CAPACITY_EXHAUSTED); absent for reasons decided before the solve. */
+  unassigned: { stopId: string; reason: OptimizeUnassignedReason; code?: string }[];
   stats?: { wallTimeMs: number; timeLimitS: number; stops?: number; vehicles?: number };
   note?: string;
 }
@@ -404,8 +425,26 @@ export type RoutingJobInput =
   | { kind: 'optimize'; planId: string; planVersion: number; profile: RoutingProfile; timeLimitS: number; objective?: 'duration' | 'distance' }
   | { kind: 'matrix'; profile: RoutingProfile; sources: LatLng[]; targets: LatLng[]; timeoutS?: number };
 
+/**
+ * Job error codes: engine degraded reasons, optimiser outages, and the worker's own: WORKER_LOST (lease expired too
+ * often), INTERNAL_ERROR (unexpected fault; details only in the worker log), MATRIX_INCOMPLETE (PARTIAL travel-time
+ * matrix, retried) and MATRIX_BUSY (matrix builder queue full, retried).
+ */
+export type RoutingJobErrorCode =
+  | RoutingDegradedReason
+  | 'OPTIMIZER_BUSY'
+  | 'OPTIMIZER_UNAVAILABLE'
+  | 'INVALID_INPUT'
+  | 'TIMEOUT'
+  | 'CANCELLED'
+  | 'PLAN_STALE'
+  | 'WORKER_LOST'
+  | 'INTERNAL_ERROR'
+  | 'MATRIX_INCOMPLETE'
+  | 'MATRIX_BUSY';
+
 export interface RoutingJobError {
-  code: RoutingDegradedReason | 'OPTIMIZER_BUSY' | 'OPTIMIZER_UNAVAILABLE' | 'INVALID_INPUT' | 'TIMEOUT' | 'CANCELLED' | 'PLAN_STALE';
+  code: RoutingJobErrorCode;
   message: string;
   /** Seconds until the worker retries (when it will). */
   retry?: number;

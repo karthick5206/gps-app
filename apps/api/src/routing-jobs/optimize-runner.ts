@@ -75,7 +75,7 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     const uncovered = inputs.stops.filter((s) => coverageIssue(s));
     if (uncovered.length) {
       const out = new Set(uncovered.map((s) => s.id));
-      inputs = { ...inputs, stops: inputs.stops.filter((s) => !out.has(s.id)), excluded: [...inputs.excluded, ...uncovered.map((s) => ({ stopId: s.id, reason: 'outside_coverage', bookingId: s.bookingId }))] };
+      inputs = { ...inputs, stops: inputs.stops.filter((s) => !out.has(s.id)), excluded: [...inputs.excluded, ...uncovered.map((s) => ({ stopId: s.id, reason: 'outside_coverage' as const, bookingId: s.bookingId }))] };
     }
     let built = planPoints(inputs);
     if (built.points.length > ROUTING_LIMITS.optimizeLocations) throw new JobError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeLocations} locations per optimisation`);

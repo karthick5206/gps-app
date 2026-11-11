@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { ACTIVE_BOOKING_STATUSES, ROUTE_PLAN_EDITABLE, ROUTING_LIMITS, RoutePlanStatus, RoutePlanVersionSnapshot, RoutingProfile, uncalibratedEta } from '@veetracer/shared';
+import { ACTIVE_BOOKING_STATUSES, routePlanLocks, type OptimizeUnassignedReason, ROUTE_PLAN_EDITABLE, ROUTING_LIMITS, RoutePlanStatus, RoutePlanVersionSnapshot, RoutingProfile, uncalibratedEta } from '@veetracer/shared';
 import type { AuthContext } from '../access/auth-context';
 import { activeRoutingConsents } from '../etms/people/people.service';
 import type { JobRecord, StoreTx } from './job-store';
@@ -15,7 +15,7 @@ type Db = PrismaClient;
 type Tx = Prisma.TransactionClient;
 
 /** Reasons a stop is left out before solving (stored in `RoutePlanStop.unassignedReason`). */
-export const EXCLUDED_REASONS = { consent: 'consent_withdrawn', booking: 'booking_not_active', location: 'needs_location' } as const;
+export const EXCLUDED_REASONS = { consent: 'consent_withdrawn', booking: 'booking_not_active', location: 'needs_location' } as const satisfies Record<string, OptimizeUnassignedReason>;
 
 function windowsOf(raw: Prisma.JsonValue | null): [number, number][] | null {
   if (!Array.isArray(raw)) return null;
@@ -39,16 +39,6 @@ export function weightsOf(raw: unknown): SolverWeights | undefined {
   if (!keys.every((k) => typeof w[k] === 'number' && Number.isFinite(w[k]) && (w[k] as number) >= 0)) return undefined;
   const out = Object.fromEntries(keys.map((k) => [k, w[k] as number])) as unknown as SolverWeights;
   return out.distance || out.time || out.routeDuration ? out : undefined;
-}
-
-/**
- * Lock / pin sets of `RoutePlan.options` (same keys and rules as shared `routePlanLocks` on etms/e4-plans; switch to
- * that helper when the plans branch is merged).
- */
-export function planLocks(options: unknown): { lockedAssignmentIds: Set<string>; pinnedStopIds: Set<string> } {
-  const o = (options && typeof options === 'object' ? options : {}) as Record<string, unknown>;
-  const ids = (v: unknown) => new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-  return { lockedAssignmentIds: ids(o.lockedAssignmentIds), pinnedStopIds: ids(o.pinnedStopIds) };
 }
 
 /** Plan visible to the caller: own company; branch-scoped users only their branches' plans (and branch-less ones). */
@@ -132,7 +122,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
 
     // Locks and pins (RoutePlan.options, written by the plans API): a locked route keeps its stops and order and is
     // not re-solved; a pinned stop stays on its current vehicle (solver pinnedVehicleId).
-    const locks = planLocks(plan.options);
+    const locks = routePlanLocks(plan.options);
     const stops: PlanStopInput[] = [];
     const excluded: PlanInputs['excluded'] = [];
     for (const s of plan.stops) {

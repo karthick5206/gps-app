@@ -4,7 +4,6 @@ import {
   ROUTING_JOB_STATE_OF,
   ROUTING_LIMITS,
   RoutingJobDto,
-  RoutingJobError,
   RoutingJobInput,
   RoutingJobKind,
   RoutingJobPhase,
@@ -89,7 +88,7 @@ export function toJobDto(row: JobRecord): RoutingJobDto {
     graphVersion: row.graphVersion,
     ...(row.status === 'SUCCEEDED' && row.result ? { result: row.result as RoutingJobDto['result'] } : {}),
     // A QUEUED job with an error is waiting for a retry: shown, so the dispatcher sees why (engine down …).
-    ...(err && (row.status === 'FAILED' || pending || row.status === 'QUEUED') ? { error: { code: err.code as RoutingJobError['code'], message: err.message, ...(err.retry !== undefined ? { retry: err.retry } : {}) } } : {}),
+    ...(err && (row.status === 'FAILED' || pending || row.status === 'QUEUED') ? { error: { code: err.code, message: err.message, ...(err.retry !== undefined ? { retry: err.retry } : {}) } } : {}),
     attribution: OSM_ATTRIBUTION,
   };
 }

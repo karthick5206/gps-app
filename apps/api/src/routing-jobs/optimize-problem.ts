@@ -80,7 +80,7 @@ export interface PlanInputs {
   stops: PlanStopInput[];
   vehicles: PlanVehicleInput[];
   /** Stops left out before solving (consent withdrawn, booking no longer active …), with the reason. */
-  excluded: { stopId: string; reason: string; bookingId?: string | null }[];
+  excluded: { stopId: string; reason: OptimizeUnassignedReason; bookingId?: string | null }[];
 }
 
 export interface BuiltProblem {
@@ -205,7 +205,7 @@ export interface AssignmentWrite {
 
 export interface PlanWrite {
   assignments: AssignmentWrite[];
-  unassigned: { stopId: string; reason: string; code?: string }[];
+  unassigned: { stopId: string; reason: OptimizeUnassignedReason; code?: string }[];
 }
 
 /**
@@ -274,7 +274,7 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
     if (bookingId) routeOfBooking.set(bookingId, a);
   }
   // Why the booking's other end is not routed (left out before the solve, or unassigned by the solver).
-  const reasonOfBooking = new Map<string, string>();
+  const reasonOfBooking = new Map<string, OptimizeUnassignedReason>();
   for (const e of inp.excluded) if (e.bookingId) reasonOfBooking.set(e.bookingId, e.reason);
   for (const u of unassigned) {
     const bk = stopById.get(u.stopId)?.bookingId;
@@ -320,7 +320,7 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
           eta,
         };
       }),
-    unassigned: unassigned.map((u) => ({ stopId: u.stopId, reason: u.reason as OptimizeUnassignedReason, ...(u.code ? { code: u.code } : {}) })),
+    unassigned: unassigned.map((u) => ({ stopId: u.stopId, reason: u.reason, ...(u.code ? { code: u.code } : {}) })),
     ...(r.stats ? { stats: r.stats } : {}),
     ...(r.note ? { note: r.note } : {}),
   };
@@ -328,8 +328,8 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
 }
 
 /** Points the engine could not use become unassigned stops (no number is ever guessed for them). */
-export function snapExclusions(b: BuiltProblem, m: BuiltMatrix): Map<string, string> {
-  const out = new Map<string, string>();
+export function snapExclusions(b: BuiltProblem, m: BuiltMatrix): Map<string, OptimizeUnassignedReason> {
+  const out = new Map<string, OptimizeUnassignedReason>();
   for (const inv of m.invalid) {
     const i = inv.index - b.firstStopIndex;
     if (i < 0) continue; // a depot / site problem fails the whole job (see the runner)

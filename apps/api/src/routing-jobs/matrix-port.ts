@@ -1,4 +1,4 @@
-import type { RoutingProfile } from '@veetracer/shared';
+import type { OptimizeUnassignedReason, RoutingProfile } from '@veetracer/shared';
 import type { MatrixBuilder } from '../routing/matrix/matrix-builder';
 import type { PointIssue } from '../routing/matrix/matrix-types';
 import { kNearestPairs } from '../routing/matrix/sparse';
@@ -25,7 +25,7 @@ export interface BuiltMatrix {
   /** Per point: distance to the road it snapped to (null when unknown); position when the engine reports it. */
   snapped: ({ snapDistanceM: number; lat?: number; lng?: number } | null)[];
   /** Points excluded from the matrix, with the reason (lower case: becomes the stop's unassigned reason). */
-  invalid: { index: number; reason: string }[];
+  invalid: { index: number; reason: OptimizeUnassignedReason }[];
   graphVersion: string | null;
   cells: { requested: number; computed: number; cached: number };
 }
@@ -53,7 +53,7 @@ export const SPARSE_ABOVE_POINTS = 60;
 export const SPARSE_K = 40;
 
 /** Unassigned reason of an excluded point (E4-B `PointIssue`). */
-export const POINT_ISSUE_REASON: Record<PointIssue, string> = {
+export const POINT_ISSUE_REASON: Record<PointIssue, OptimizeUnassignedReason> = {
   INVALID_INPUT: 'invalid_location',
   OUTSIDE_COVERAGE: 'outside_coverage',
   POINT_NOT_ON_ROAD: 'not_on_road',
@@ -95,7 +95,7 @@ export function builderMatrixPort(builder: Pick<MatrixBuilder, 'buildMatrix'>): 
   };
 }
 
-const DEGRADED_REASON: Partial<Record<DegradedReason, string>> = { OUTSIDE_COVERAGE: 'outside_coverage', POINT_NOT_ON_ROAD: 'not_on_road' };
+const DEGRADED_REASON: Partial<Record<DegradedReason, OptimizeUnassignedReason>> = { OUTSIDE_COVERAGE: 'outside_coverage', POINT_NOT_ON_ROAD: 'not_on_road' };
 
 /** Adapter over `RoutingProvider.matrix` (square, every pair; kept for providers without the builder). */
 export function providerMatrixPort(provider: RoutingProvider): MatrixPort {
@@ -104,7 +104,7 @@ export function providerMatrixPort(provider: RoutingProvider): MatrixPort {
       const r = await provider.matrix({ sources: points, targets: points, profile }, opts?.onProgress);
       if (!r.ok) return { ok: false, degraded: r.degraded, message: r.message };
       const v = r.value;
-      const invalid = new Map<number, string>();
+      const invalid = new Map<number, OptimizeUnassignedReason>();
       for (const i of v.invalid) if (!invalid.has(i.index)) invalid.set(i.index, DEGRADED_REASON[i.reason] ?? 'unreachable_location');
       return {
         ok: true,

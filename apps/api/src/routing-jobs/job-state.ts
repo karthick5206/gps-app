@@ -24,7 +24,8 @@ export type JobLogicalState = 'QUEUED' | 'MATRIX' | 'SOLVING' | 'DONE' | 'FAILED
 export const FINAL_STATES: readonly JobLogicalState[] = ['DONE', 'FAILED', 'CANCELLED'];
 
 /** Error codes of a job: the shared ones plus the two the worker itself produces. */
-export type JobErrorCode = RoutingJobError['code'] | 'WORKER_LOST' | 'INTERNAL_ERROR' | 'MATRIX_INCOMPLETE' | 'MATRIX_BUSY';
+/** Job error codes (shared RoutingJobErrorCode, incl. the worker's WORKER_LOST / INTERNAL_ERROR / MATRIX_INCOMPLETE / MATRIX_BUSY). */
+export type JobErrorCode = RoutingJobError['code'];
 
 export interface JobErrorBody {
   code: JobErrorCode;

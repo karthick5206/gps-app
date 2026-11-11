@@ -305,7 +305,7 @@ export function mergeViolations(a: readonly RoutePlanStopViolation[], b: readonl
   return [...m.values()];
 }
 
-export const UNASSIGNED_REASON_LABEL: Record<OptimizeUnassignedReason | 'not_optimised' | 'consent_withdrawn' | 'needs_location', string> = {
+export const UNASSIGNED_REASON_LABEL: Record<OptimizeUnassignedReason | 'not_optimised', string> = {
   outside_coverage: 'Point outside the routing area',
   not_on_road: 'Point not near a road',
   invalid_time_window: 'Time window ends before it starts',
@@ -318,6 +318,15 @@ export const UNASSIGNED_REASON_LABEL: Record<OptimizeUnassignedReason | 'not_opt
   not_optimised: 'Not optimised yet',
   consent_withdrawn: 'Passenger consent withdrawn',
   needs_location: 'Pickup or drop point missing',
+  booking_not_active: 'Booking no longer active',
+  far_from_road: 'Point too far from the road (check the pin)',
+  not_checked: 'Point could not be checked on the road map',
+  invalid_location: 'Invalid point',
+  no_vehicle_available: 'No vehicle available',
+  no_compatible_vehicle: 'No suitable vehicle (seats, type or wheelchair)',
+  safety_rule: 'Blocked by a safety rule (escort)',
+  pinned_assignment_infeasible: 'The pinned vehicle cannot serve it',
+  max_ride_unachievable: 'Ride would exceed the maximum ride time',
 };
 
 export function unassignedReason(code: string | null | undefined): string {
@@ -406,6 +415,11 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   NOT_IMPLEMENTED: 'Not available yet.',
   TIMEOUT: 'The optimisation ran out of time without a result.',
   CANCELLED: 'Cancelled.',
+  // Routing worker codes (shared RoutingJobErrorCode).
+  WORKER_LOST: 'The optimisation worker stopped repeatedly. Try again, or dispatch manually meanwhile.',
+  INTERNAL_ERROR: 'Unexpected error while optimising. Try again; if it repeats, tell your administrator.',
+  MATRIX_INCOMPLETE: 'Not all road distances could be computed yet. The optimisation is retried shortly.',
+  MATRIX_BUSY: 'Road distance calculation is busy. The optimisation is retried shortly.',
 };
 
 /** Error kind for presentation (E3 pattern): unavailable = engine / optimiser down; conflict = reload and redo. */
@@ -420,11 +434,14 @@ export function plannerErrorKind(code: string | null | undefined, status?: numbe
     case 'ENGINE_TIMEOUT':
     case 'GRAPH_REBUILDING':
     case 'ROUTING_DISABLED':
+    case 'WORKER_LOST':
+    case 'MATRIX_INCOMPLETE':
       return 'unavailable';
     case 'PLAN_STALE':
     case 'VERSION_CONFLICT':
       return 'conflict';
     case 'OPTIMIZER_BUSY':
+    case 'MATRIX_BUSY':
     case 'QUOTA_EXCEEDED':
     case 'RATE_LIMITED':
       return 'busy';
