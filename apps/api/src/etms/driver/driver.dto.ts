@@ -9,6 +9,7 @@ import {
   type DriverTripEventInput,
   type DriverTripListQuery,
   type DriverTripEventType,
+  type MeBookingCancelInput,
   type TransportNotificationKind,
   type TransportNotificationListQuery,
   type TransportNotificationPreferences,
@@ -59,6 +60,10 @@ export class DriverTripEventBatchDto implements DriverTripEventBatchInput {
 
 export class DriverSyncQuery {
   @IsOptional() @IsISO8601() since?: string;
+}
+
+export class MeBookingCancelDto implements MeBookingCancelInput {
+  @IsOptional() @IsString() @MaxLength(200) reason?: string;
 }
 
 export class NotificationListDto implements TransportNotificationListQuery {

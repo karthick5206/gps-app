@@ -1,4 +1,6 @@
 import {
+  PASSENGER_SELF_CONSENT_CHANNELS,
+  type PassengerSelfConsentChannel,
   CONSENT_EVIDENCE_REF_MAX,
   CONSENT_NOTE_MAX,
   CONSENT_NOTICE_BODY_MAX,
@@ -137,6 +139,8 @@ export class RecordConsentDto implements RecordConsentInput {
   /** The version the person was shown; the server records the current one and refuses a stale one. */
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(40) noticeVersion?: string;
   @IsOptional() @IsString() @MaxLength(20) locale?: string;
+  /** E5: the self-service channel (the mobile app sends PASSENGER_APP); nothing else is accepted here. */
+  @IsOptional() @IsIn(PASSENGER_SELF_CONSENT_CHANNELS) channel?: PassengerSelfConsentChannel;
 }
 
 /** Admin on the passenger's behalf (M2): withdraw, or a recorded offline grant with evidenceRef + note. */

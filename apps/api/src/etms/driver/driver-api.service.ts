@@ -2,6 +2,9 @@ import { ConflictException, HttpException, Injectable, NotFoundException } from 
 import { Prisma } from '@prisma/client';
 import {
   DRIVER_LIMITS as L,
+  DRIVER_MOTION,
+  transportSettingsOf,
+  type DriverVehicleMotionDto,
   deriveTripState,
   driverDisplayName,
   driverOutcomeAllowed,
@@ -88,7 +91,7 @@ export class DriverApiService {
   async me(ctx: AuthContext): Promise<DriverMeDto> {
     const me = await resolveDriver(this.prisma, ctx);
     const [company, duty, unread] = await Promise.all([
-      this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { id: true, name: true, timezone: true } }),
+      this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { id: true, name: true, timezone: true, settings: true } }),
       this.openDuty(me.id),
       this.notifications.unread(ctx, 'DRIVER'),
     ]);
@@ -100,6 +103,7 @@ export class DriverApiService {
       duty: duty ? toDuty(duty) : null,
       policy: { windowPastHours: L.windowPastHours, windowFutureHours: L.windowFutureHours, noShowMinWaitMin: L.noShowMinWaitMin, passengerContact: 'NONE_R1', checklistRequired: false, phoneLocation: 'NOT_USED' },
       unreadNotifications: unread,
+      dispatcherPhone: transportSettingsOf(company.settings).deskPhone ?? null,
       serverTime: new Date(now).toISOString(),
     };
   }
@@ -167,6 +171,15 @@ export class DriverApiService {
     const to = q.to ? Date.parse(q.to) : now + L.windowFutureHours * H;
     if (!(to >= from) || to - from > L.maxRangeDays * 24 * H) throw err(400, 'VALIDATION_FAILED', `Ask for at most ${L.maxRangeDays} days`);
     return this.summaries(ctx, await this.mine(ctx, me, { from: new Date(from), to: new Date(to) }));
+  }
+
+  /** Live speed of my trip's vehicle (in-motion lock, 09 §5.1). Only my own trip's vehicle, only while the trip is open. */
+  async motion(ctx: AuthContext, id: string): Promise<DriverVehicleMotionDto> {
+    const me = await resolveDriver(this.prisma, ctx);
+    const m = await this.one(ctx, me, id);
+    if (!m) throw notFound();
+    if (!OPEN.includes(m.pt.status as PlannedTripStatus) || m.tt.cancelledAt) return { speedKph: null, moving: null, fixAt: null, stale: true };
+    return this.liveMotion(m.pt.objectId);
   }
 
   async trip(ctx: AuthContext, id: string): Promise<DriverTripDetailDto> {
@@ -491,6 +504,20 @@ export class DriverApiService {
     return this.prisma.transportDriverDuty.findFirst({ where: { driverId, endedAt: null }, include: DUTY_INCLUDE });
   }
 
+  private async liveMotion(objectId: string): Promise<DriverVehicleMotionDto> {
+    const live = parseLive(await this.redis.client.get(RedisKeys.live(objectId)).catch(() => null));
+    const at = live && !live.licenceLocked ? Date.parse(live.fixTime ?? '') : NaN;
+    if (!live || !Number.isFinite(at)) return { speedKph: null, moving: null, fixAt: null, stale: true };
+    const speed = Number.isFinite(live.speedKph) ? Math.round(live.speedKph * 10) / 10 : null;
+    const stale = Date.now() - at > DRIVER_MOTION.freshMs;
+    return { speedKph: speed, moving: stale || speed === null ? null : speed > DRIVER_MOTION.movingKph, fixAt: new Date(at).toISOString(), stale };
+  }
+
+  private async deskPhone(companyId: string): Promise<string | null> {
+    const c = await this.prisma.company.findUnique({ where: { id: companyId }, select: { settings: true } });
+    return c ? (transportSettingsOf(c.settings).deskPhone ?? null) : null;
+  }
+
   private async fix(objectId: string): Promise<TripSnapshot['fix']> {
     const live = parseLive(await this.redis.client.get(RedisKeys.live(objectId)).catch(() => null));
     if (!live || live.lat === null || live.lng === null || live.licenceLocked) return null;
@@ -546,11 +573,13 @@ export class DriverApiService {
     const status = pt.status as PlannedTripStatus;
     const hidden = !OPEN.includes(status) || !!tt.cancelledAt;
     const active = tt.passengers.filter((p) => p.status !== 'CANCELLED').sort((a, b) => a.pickupSeq - b.pickupSeq || a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
-    const [vehicles, profiles, overlays, mySeqs] = await Promise.all([
+    const [vehicles, profiles, overlays, mySeqs, vehicleMotion, dispatcherPhone] = await Promise.all([
       this.vehicles(ctx, [pt.objectId]),
       hidden ? Promise.resolve(new Map<string, { displayName: string; accessibility: unknown }>()) : this.profiles(active.map((p) => p.bookingId), tt.customerCompanyId),
       this.overlays(tt.id),
       this.prisma.transportTripEvent.findMany({ where: { tripId: tt.id, actorDriverId: me.id, source: 'DRIVER_APP' }, select: { clientSeq: true } }),
+      hidden ? Promise.resolve(null) : this.liveMotion(pt.objectId),
+      this.deskPhone(tt.providerCompanyId),
     ]);
     const stops = [...pt.stops].sort((a, b) => a.seq - b.seq);
     const stopDtos: DriverStopDto[] = stops.map((s) => {
@@ -604,6 +633,8 @@ export class DriverApiService {
       counts: counts(tt.passengers),
       overlays,
       lastSeq: maxSeq(mySeqs.map((r) => r.clientSeq)),
+      vehicleMotion,
+      dispatcherPhone,
       serverTime: new Date().toISOString(),
     };
   }

@@ -9,6 +9,8 @@ import type {
   DriverTripEventBatchResult,
   DriverTripHistoryDto,
   DriverTripSummaryDto,
+  DriverVehicleMotionDto,
+  MeBookingDto,
   TransportNotificationDto,
   TransportNotificationPreferences,
 } from '@veetracer/shared';
@@ -19,8 +21,9 @@ import { PeopleService } from '../people/people.service';
 import { TransportFeatureGuard } from '../transport-feature.guard';
 import { cleanPreferences, preferencesOf, TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { DriverApiService } from './driver-api.service';
+import { MeBookingCancelService } from './me-booking-cancel.service';
 import { resolveDriver } from './driver-identity';
-import { DriverDutyEndDto, DriverDutyStartDto, DriverStartTripDto, DriverSyncQuery, DriverTripEventBatchDto, DriverTripListDto, NotificationListDto, NotificationPreferencesDto, NotificationReadDto } from './driver.dto';
+import { DriverDutyEndDto, DriverDutyStartDto, DriverStartTripDto, DriverSyncQuery, DriverTripEventBatchDto, DriverTripListDto, MeBookingCancelDto, NotificationListDto, NotificationPreferencesDto, NotificationReadDto } from './driver.dto';
 
 /**
  * /api/driver/v1 (doc 05 §2.9, 09). Menu `etms_driver` (view = reads, edit = commands) AND the caller's own active
@@ -68,6 +71,11 @@ export class DriverController {
   @Get('trips/:id') @RequirePermission('etms_driver', 'view')
   trip(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<DriverTripDetailDto> {
     return this.driver.trip(ctx, id);
+  }
+
+  @Get('trips/:id/motion') @RequirePermission('etms_driver', 'view')
+  motion(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<DriverVehicleMotionDto> {
+    return this.driver.motion(ctx, id);
   }
 
   @Post('trips/:id/start') @HttpCode(200) @RequirePermission('etms_driver', 'edit')
@@ -136,5 +144,20 @@ export class MyTransportNotificationsController {
     const base = me.preferences && typeof me.preferences === 'object' && !Array.isArray(me.preferences) ? (me.preferences as Record<string, unknown>) : {};
     await this.prisma.employeeTransportProfile.updateMany({ where: { id: me.id, companyId: ctx.companyId, userId: ctx.userId }, data: { preferences: { ...base, notifications: { ...prefs } } } });
     return prefs;
+  }
+}
+
+/**
+ * POST /api/me/transport/bookings/:id/cancel (05 §2.8, E5): the passenger cancels their own booking within the
+ * cut-off. etms_self + own active profile (403 NOT_A_PASSENGER), like the other self-service routes.
+ */
+@Controller('me/transport/bookings')
+@UseGuards(TransportFeatureGuard)
+export class MyTransportBookingsController {
+  constructor(private readonly cancels: MeBookingCancelService) {}
+
+  @Post(':id/cancel') @HttpCode(200) @RequirePermission('etms_self', 'view')
+  cancel(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: MeBookingCancelDto): Promise<MeBookingDto> {
+    return this.cancels.cancel(ctx, id, dto.reason);
   }
 }

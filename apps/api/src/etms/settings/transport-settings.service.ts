@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { transportSettingsOf, type TransportSettingsDto } from '@veetracer/shared';
-import { IsBoolean, IsOptional } from 'class-validator';
+import { IsBoolean, IsOptional, Matches, ValidateIf } from 'class-validator';
+import { TRANSPORT_DESK_PHONE_RE } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { setCompanySetting } from '../../common/company-settings';
@@ -8,6 +9,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export class UpdateTransportSettingsDto {
   @IsOptional() @IsBoolean() directoryListed?: boolean;
+  /** E5: transport desk phone shown to drivers and passengers; null clears it. */
+  @IsOptional() @ValidateIf((_o, v) => v !== null) @Matches(TRANSPORT_DESK_PHONE_RE, { message: 'deskPhone must be a phone number (digits, spaces, + ( ) -)' }) deskPhone?: string | null;
 }
 
 /** Key of `Company.settings` that holds the ETMS company settings (TransportSettingsDto). */
@@ -35,6 +38,10 @@ export class TransportSettingsService {
     }
     const before = await this.get(ctx);
     const after: TransportSettingsDto = { ...before, ...(dto.directoryListed !== undefined ? { directoryListed: dto.directoryListed } : {}) };
+    if (dto.deskPhone !== undefined) {
+      if (dto.deskPhone === null || !dto.deskPhone.trim()) delete after.deskPhone;
+      else after.deskPhone = dto.deskPhone.trim();
+    }
     await this.prisma.$transaction(async (tx) => {
       // F9: only the `etms` key is written (atomic jsonb_set).
       await setCompanySetting(tx, ctx.companyId, ETMS_SETTINGS_KEY, after);

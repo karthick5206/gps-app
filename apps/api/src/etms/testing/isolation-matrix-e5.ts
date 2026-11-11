@@ -11,17 +11,18 @@
  */
 import { randomUUID } from 'crypto';
 import type { AuthContext } from '../../access/auth-context';
-import type { DriverController, MyTransportNotificationsController } from '../driver/driver.controller';
+import type { DriverController, MyTransportBookingsController, MyTransportNotificationsController } from '../driver/driver.controller';
 import type { E3Ids, E3World } from './isolation-matrix-e3';
 import type { MatrixRole, RoleTable } from './isolation-matrix';
 import type { MemoryStore } from './memory-store';
 
-export type E5Resource = 'driverSelf' | 'driverTrip' | 'myNotifications';
-export const E5_RESOURCES: readonly E5Resource[] = ['driverSelf', 'driverTrip', 'myNotifications'];
+export type E5Resource = 'driverSelf' | 'driverTrip' | 'myNotifications' | 'myBookingCancel';
+export const E5_RESOURCES: readonly E5Resource[] = ['driverSelf', 'driverTrip', 'myNotifications', 'myBookingCancel'];
 
 export interface E5Controllers {
   driver: DriverController;
   myNotifications: MyTransportNotificationsController;
+  myBookings: MyTransportBookingsController;
 }
 
 export interface E5World {
@@ -166,6 +167,16 @@ export const E5_MATRIX: E5Entry[] = [
       if (d.passengers.length !== 1 || d.passengers[0].displayName !== (o === 'other' ? 'Passenger B.' : 'Passenger A.') || d.passengers[0].contact !== null) fail(`${role} manifest is not the minimum projection: ${JSON.stringify(d.passengers)}`);
     },
   },
+  {
+    route: 'GET driver/v1/trips/:id/motion',
+    resource: 'driverTrip',
+    invoke: (c, ctx, t) => c.driver.motion(ctx, t.trip),
+    expect: { party: DRV_TRIP_A, other: DRV_TRIP_B },
+    // No live fix in the matrix world: stale, never invented.
+    verify: (r, role) => {
+      if (JSON.stringify(r) !== JSON.stringify({ speedKph: null, moving: null, fixAt: null, stale: true })) fail(`${role} motion invents a state: ${JSON.stringify(r)}`);
+    },
+  },
   { route: 'POST driver/v1/trips/:id/start', resource: 'driverTrip', prepare: startable, invoke: (c, ctx, t) => c.driver.start(ctx, t.trip, { clientEventId: randomUUID(), occurredAt: now() }), expect: { party: DRV_TRIP_A, other: DRV_TRIP_B } },
   {
     route: 'POST driver/v1/trips/:id/events',
@@ -192,6 +203,17 @@ export const E5_MATRIX: E5Entry[] = [
   { route: 'GET me/transport/notifications', resource: 'myNotifications', invoke: (c, ctx) => c.myNotifications.list(ctx, {}), expect: { none: PAX_SELF }, verify: ownNotifications((r) => r) },
   { route: 'POST me/transport/notifications/read', resource: 'myNotifications', invoke: (c, ctx) => c.myNotifications.read(ctx, { all: true }), expect: { none: PAX_SELF } },
   { route: 'GET me/transport/notifications/preferences', resource: 'myNotifications', invoke: (c, ctx) => c.myNotifications.preferences(ctx), expect: { none: PAX_SELF } },
+  {
+    route: 'POST me/transport/bookings/:id/cancel',
+    resource: 'myBookingCancel',
+    invoke: (c, ctx, t) => c.myBookings.cancel(ctx, t.seatedBooking, { reason: 'On leave' }),
+    // Only the passenger, only their own booking (custB's booking: 404 for custA's passenger).
+    expect: { party: PAX_SELF, other: T({ customerPassenger: 404 }, PAX_SELF) },
+    verify: (r, role) => {
+      const b = r as { status: string; tripId: string | null };
+      if (b.status !== 'CANCELLED' || b.tripId !== null) fail(`${role} cancel did not free the seat: ${JSON.stringify(b)}`);
+    },
+  },
   { route: 'PUT me/transport/notifications/preferences', resource: 'myNotifications', invoke: (c, ctx) => c.myNotifications.setPreferences(ctx, { push: false, kinds: {} }), expect: { none: PAX_SELF } },
 ];
 

@@ -94,6 +94,24 @@ export type DriverErrorCode = (typeof DRIVER_ERROR_CODES)[number];
 
 // ───────────────────────────── Identity, duty ─────────────────────────────
 
+/**
+ * In-motion restrictions (09 §5.1): the bound vehicle's speed from the server's live state (the vehicle GPS; D4: never
+ * the phone). The app treats > movingKph as moving and releases the lock after stationaryHoldSec below stationaryKph;
+ * with no fresh fix (`stale`) it assumes stationary but shows the reduced UI.
+ */
+export const DRIVER_MOTION = { movingKph: 10, stationaryKph: 5, stationaryHoldSec: 10, freshMs: 120_000, pollSeconds: 10 } as const;
+
+/** GET /api/driver/v1/trips/:id/motion (and `vehicleMotion` in the trip detail): live speed of the trip's vehicle. */
+export interface DriverVehicleMotionDto {
+  /** Last reported speed; null without a fix. */
+  speedKph: number | null;
+  /** speedKph > movingKph on a fresh fix; null when stale / no fix (the app then decides by its own policy). */
+  moving: boolean | null;
+  fixAt: string | null;
+  /** No fix, or older than freshMs. */
+  stale: boolean;
+}
+
 export interface DriverPolicyDto {
   windowPastHours: number;
   windowFutureHours: number;
@@ -126,6 +144,8 @@ export interface DriverMeDto {
   policy: DriverPolicyDto;
   /** Unread in-app notifications. */
   unreadNotifications: number;
+  /** The transport desk phone (company setting `etms.deskPhone`) for "Call dispatcher"; null when not set. */
+  dispatcherPhone: string | null;
   serverTime: string;
 }
 
@@ -250,6 +270,10 @@ export interface DriverTripDetailDto extends DriverTripSummaryDto {
   overlays: DriverTripOverlayDto[];
   /** Highest client `seq` the server has stored for this trip from the caller (09 §6.2 gap detection). */
   lastSeq: number | null;
+  /** Live speed of the trip's vehicle while the trip is open (in-motion lock); null once closed. */
+  vehicleMotion: DriverVehicleMotionDto | null;
+  /** The operator's transport desk phone ("Call dispatcher"); null when not set. Never a passenger's number. */
+  dispatcherPhone: string | null;
   serverTime: string;
 }
 
@@ -514,3 +538,22 @@ export function driverTripActions(t: { plannedTripStatus: PlannedTripStatus | nu
 export const ETMS_E5_TEMPLATE_PERMISSIONS: Record<string, PermissionMap> = {
   'Transport driver': { etms_driver: ['view', 'edit'] },
 };
+
+// ───────────────────────────── Passenger self-service additions (E5) ─────────────────────────────
+
+/**
+ * POST /api/me/transport/bookings/:id/cancel — the passenger's own booking, before its cut-off (409 AFTER_CUTOFF), not
+ * on a trip that has started (409 INVALID_STATE). A seated booking frees its seat in the same transaction and under the
+ * same locks as dispatch (booking, then trip). Idempotent: an already cancelled booking answers 200 with its state.
+ * Audited; the trip's driver is told TRIP_CHANGED by the notification relay.
+ */
+export interface MeBookingCancelInput {
+  reason?: string;
+}
+
+/** Consent channels a passenger may record themselves (`channel` on POST /api/me/transport/consent; default WEB). */
+export const PASSENGER_SELF_CONSENT_CHANNELS = ['WEB', 'PASSENGER_APP'] as const;
+export type PassengerSelfConsentChannel = (typeof PASSENGER_SELF_CONSENT_CHANNELS)[number];
+
+/** Transport desk phone (Company.settings.etms.deskPhone): digits, spaces, + ( ) -, 5–20 characters. */
+export const TRANSPORT_DESK_PHONE_RE = /^\+?[0-9 ()-]{5,20}$/;

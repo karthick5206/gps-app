@@ -13,6 +13,14 @@ import { MemoryStore, type Obj } from '../testing/memory-store';
 import { makeNotifier, fakePrisma } from '../../notifier/notifier.spec-helpers';
 import type { PushMessage, PushProvider, PushResult } from '../../notifier/push';
 import { DriverApiService } from './driver-api.service';
+import { MeBookingCancelService } from './me-booking-cancel.service';
+import { MeTransportService } from '../dispatch/me-transport.service';
+import { PeopleService } from '../people/people.service';
+import { ConsentNoticeService } from '../people/consent-notice.service';
+import { MyTransportConsentController } from '../people/people.controller';
+import { RecordConsentDto } from '../people/people.dto';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 
 const MIN = 60_000;
 
@@ -367,5 +375,86 @@ describe('notifier: ETMS push payload is generic (D7 / L4)', () => {
     await svc.handleLogs(['log-1']);
     expect(push.messages).toHaveLength(1);
     expect(finished[1]).toMatchObject({ status: 'SKIPPED' });
+  });
+});
+
+describe('E5 additions: vehicle motion, desk phone, passenger self-cancel, consent channel', () => {
+  const people = (w: ReturnType<typeof world>) => {
+    const prisma = w.store.client();
+    const audit = new AuditService(prisma as never);
+    const redis = { invalidateCache: async () => undefined, client: { get: async () => null, set: async () => 'OK', publish: async () => 1, xadd: async () => '1-0' } };
+    const ppl = new PeopleService(prisma as never, audit, redis as never, { enabled: false, search: async () => [] } as never, new ConsentNoticeService(prisma as never, audit));
+    const live = new TripLiveService(prisma as never, redis as never, new PlannedTripsService(prisma as never, audit, { invalidate: async () => undefined } as never));
+    return { ppl, cancel: new MeBookingCancelService(prisma as never, audit, ppl, new MeTransportService(prisma as never, ppl, redis as never), live) };
+  };
+  const pax = (w: ReturnType<typeof world>): AuthContext => ({ ...w.ctx('u-pA'), permissions: { etms_self: ['view'] } });
+  const bookingOf = (w: ReturnType<typeof world>, paxId: string) => w.row('transportTripPassenger', paxId).bookingId as string;
+
+  it('motion: live speed of my trip’s vehicle, moving above 10 km/h; stale without a fresh fix; 404 for other drivers', async () => {
+    const w = world();
+    expect(await w.svc.motion(w.ctx('u-dA'), w.ids.tt)).toEqual({ speedKph: null, moving: null, fixAt: null, stale: true });
+    const liveJson = (speedKph: number, at: Date) => JSON.stringify({ lat: 13.06, lng: 80.24, speedKph, fixTime: at.toISOString(), licenceLocked: false });
+    // Drive the live cache through the service's redis stub.
+    const redis = (w.svc as unknown as { redis: { client: { get: () => Promise<string | null> } } }).redis;
+    redis.client.get = async () => liveJson(32, new Date());
+    expect(await w.svc.motion(w.ctx('u-dA'), w.ids.tt)).toMatchObject({ speedKph: 32, moving: true, stale: false });
+    redis.client.get = async () => liveJson(3, new Date());
+    expect(await w.svc.motion(w.ctx('u-dA'), w.ids.tt)).toMatchObject({ speedKph: 3, moving: false });
+    redis.client.get = async () => liveJson(40, new Date(Date.now() - 10 * MIN));
+    expect(await w.svc.motion(w.ctx('u-dA'), w.ids.tt)).toMatchObject({ moving: null, stale: true });
+    expect((await w.svc.trip(w.ctx('u-dA'), w.ids.tt)).vehicleMotion).toMatchObject({ stale: true });
+    expect(await codeOf(w.svc.motion(w.ctx('u-dA2'), w.ids.tt))).toBe('NOT_FOUND');
+  });
+
+  it('desk phone: from Company.settings.etms.deskPhone, to the assigned driver; null when not set', async () => {
+    const w = world();
+    expect((await w.svc.me(w.ctx('u-dA'))).dispatcherPhone).toBeNull();
+    w.row('company', 'custA').settings = { features: ['etms'], etms: { deskPhone: '+91 44 4000 1234' } };
+    expect((await w.svc.me(w.ctx('u-dA'))).dispatcherPhone).toBe('+91 44 4000 1234');
+    expect((await w.svc.trip(w.ctx('u-dA'), w.ids.tt)).dispatcherPhone).toBe('+91 44 4000 1234');
+  });
+
+  it('self-cancel: own booking only, frees the seat under the trip lock, idempotent, audited; the driver hears TRIP_CHANGED', async () => {
+    const w = world({ plannedStartInMin: 120 });
+    const { cancel } = people(w);
+    const b1 = bookingOf(w, w.ids.pax1);
+    const b2 = bookingOf(w, w.ids.pax2);
+    expect(await codeOf(cancel.cancel(pax(w), b2, undefined))).toBe('NOT_FOUND');
+    expect(await codeOf(cancel.cancel(w.ctx('u-dA'), b1, undefined))).toBe('NOT_A_PASSENGER');
+    const r = await cancel.cancel(pax(w), b1, 'On leave');
+    expect(r).toMatchObject({ status: 'CANCELLED', tripId: null });
+    expect(w.row('transportTripPassenger', w.ids.pax1)).toMatchObject({ status: 'CANCELLED' });
+    expect(w.row('transportTrip', w.ids.tt).occupiedSeats).toBe(1);
+    expect(w.store.table('transportTripEvent').find((e) => e.kind === 'PASSENGER_REMOVED')).toMatchObject({ actorType: 'PASSENGER', source: 'PASSENGER_APP', reasonCode: 'PASSENGER_CANCELLED' });
+    expect(w.store.table('auditLog').some((a) => a.entityId === b1)).toBe(true);
+    expect((await cancel.cancel(pax(w), b1, 'again')).status).toBe('CANCELLED');
+    expect(w.row('transportTrip', w.ids.tt).occupiedSeats).toBe(1);
+    await w.relay.run(Date.now());
+    expect((await w.notifications.list(w.ctx('u-dA'), 'DRIVER', {})).map((n) => n.kind)).toEqual(['TRIP_CHANGED']);
+  });
+
+  it('self-cancel: refused after the cut-off and once the trip has started', async () => {
+    const w = world({ plannedStartInMin: 120 });
+    const { cancel } = people(w);
+    const b1 = bookingOf(w, w.ids.pax1);
+    w.row('transportBooking', b1).cutoffAt = new Date(Date.now() - MIN);
+    expect(await codeOf(cancel.cancel(pax(w), b1, undefined))).toBe('AFTER_CUTOFF');
+    w.row('transportBooking', b1).cutoffAt = null;
+    w.row('plannedTrip', w.ids.pt).status = 'IN_PROGRESS';
+    expect(await codeOf(cancel.cancel(pax(w), b1, undefined))).toBe('INVALID_STATE');
+    expect(w.store.table('transportBooking').find((b) => b.id === b1)!.status).toBe('ASSIGNED');
+  });
+
+  it('consent from the mobile app is recorded with channel PASSENGER_APP; other channels are refused by validation', async () => {
+    const w = world();
+    const { ppl } = people(w);
+    w.store.insert('transportConsentNotice', { companyId: 'custA', purpose: 'TRANSPORT_PROFILE', seq: 1, version: 'v1', title: 't', body: 'b', locale: 'en', effectiveFrom: new Date(Date.now() - 86_400_000) });
+    const controller = new MyTransportConsentController(ppl);
+    await controller.record(pax(w), { purpose: 'TRANSPORT_PROFILE', granted: true, channel: 'PASSENGER_APP' } as never);
+    expect(w.store.table('employeeTransportConsent').at(-1)).toMatchObject({ channel: 'PASSENGER_APP', granted: true });
+    await controller.record(pax(w), { purpose: 'TRANSPORT_PROFILE', granted: false } as never);
+    expect(w.store.table('employeeTransportConsent').at(-1)).toMatchObject({ channel: 'WEB', granted: false });
+    const bad = await validate(plainToInstance(RecordConsentDto, { purpose: 'TRANSPORT_PROFILE', granted: true, channel: 'ADMIN_RECORDED_OFFLINE' }));
+    expect(bad.map((e) => e.property)).toEqual(['channel']);
   });
 });
