@@ -346,7 +346,7 @@ export function PlannedTripDetailPage() {
   }, [map, trip, idx]);
 
   const pickStop = (s: PlannedTripStopDto) => {
-    map?.flyTo(s.lng, s.lat);
+    if (s.lat !== null && s.lng !== null) map?.flyTo(s.lng, s.lat);
     const at = s.actualArrival ?? s.actualDeparture;
     if (engine && at) {
       engine.pause();
@@ -354,7 +354,7 @@ export function PlannedTripDetailPage() {
     }
   };
   const pickEvent = (e: PlannedTripEventDto) => {
-    map?.flyTo(e.lng, e.lat);
+    if (e.lat !== null && e.lng !== null) map?.flyTo(e.lng, e.lat);
     if (engine) {
       engine.pause();
       engine.seek(Date.parse(e.startAt));

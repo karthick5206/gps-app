@@ -309,9 +309,11 @@ export interface AdminRecordConsentInput extends RecordConsentInput {
 /**
  * Notification intents for a passenger about changes made by someone else (consent recorded / withdrawn by the admin,
  * login password set, reset issued, login disabled). E2 has no SMS / mail provider for these: each is an in-app notice
- * record (channel IN_APP), listed at GET /api/me/transport/notices.
+ * record (channel IN_APP), listed at GET /api/me/transport/notices. TRANSPORT_STOPPED_CONSENT_WITHDRAWN (E3 security
+ * review M2): routing consent was withdrawn, so upcoming transport that needed the passenger's location was cancelled
+ * (details: bookingsCancelled, seatsReleased; nothing personal).
  */
-export const PASSENGER_NOTICE_KINDS = ['CONSENT_RECORDED_OFFLINE', 'CONSENT_WITHDRAWN_BY_ADMIN', 'LOGIN_PASSWORD_SET', 'LOGIN_RESET_ISSUED', 'LOGIN_DISABLED'] as const;
+export const PASSENGER_NOTICE_KINDS = ['CONSENT_RECORDED_OFFLINE', 'CONSENT_WITHDRAWN_BY_ADMIN', 'LOGIN_PASSWORD_SET', 'LOGIN_RESET_ISSUED', 'LOGIN_DISABLED', 'TRANSPORT_STOPPED_CONSENT_WITHDRAWN'] as const;
 export type PassengerNoticeKind = (typeof PASSENGER_NOTICE_KINDS)[number];
 
 export interface PassengerNoticeDto {

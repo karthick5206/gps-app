@@ -16,8 +16,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { isValidTimezone } from '../../summarizer/tz';
 import { activeRoutingConsents } from '../people/people.service';
 import { BookingGeneratorService, overrideOf, SCHEDULE_ARCHIVED_REASON, SKIPPED_REASON, UNSEATED_STATUSES } from './booking-generator.service';
-import { conflict, dateOnly, dayKeyOf, inProfileBranch, invalid, isUniqueViolation, notFound, parseInstant, profileBranchWhere, serviceDate, versionConflict } from './e3-common';
-import { SHIFT_INCLUDE, toShiftDto } from './e3-mapping';
+import { conflict, dateOnly, dayKeyOf, forbidden, inProfileBranch, invalid, isUniqueViolation, notFound, parseInstant, profileBranchWhere, round, serviceDate, versionConflict } from './e3-common';
+import { preciseFor, SHIFT_INCLUDE, toShiftDto } from './e3-mapping';
 import { CreateExceptionDto, CreateSchedulesDto, CreateShiftDto, ScheduleListQuery, SchedulePreviewQuery, ShiftListQuery, UpdateScheduleDto, UpdateShiftDto } from './e3.dto';
 
 export const SHIFT_ENTITY = 'TransportShift';
@@ -277,9 +277,16 @@ export class SchedulesService {
   // ───────────────────────────── Exceptions ─────────────────────────────
 
   async listExceptions(ctx: AuthContext, id: string): Promise<TransportScheduleExceptionDto[]> {
-    await this.findSchedule(ctx, id);
+    const schedule = await this.findSchedule(ctx, id);
     const rows = await this.prisma.transportScheduleException.findMany({ where: { scheduleId: id }, orderBy: { date: 'asc' } });
-    return rows.map(toExceptionDto);
+    const show = await this.exceptionView(ctx, schedule);
+    return rows.map((r) => toExceptionDto(r, show));
+  }
+
+  /** M4: an override pickup is a personal point: shown only with the passenger's consent, 4 decimals unless whole-company. */
+  private async exceptionView(ctx: AuthContext, schedule: { companyId: string; profileId: string }): Promise<ExceptionView> {
+    const consent = (await activeRoutingConsents(this.prisma, [schedule.profileId])).has(schedule.profileId);
+    return { consent, precise: preciseFor(ctx, schedule.companyId) };
   }
 
   /**
@@ -291,6 +298,10 @@ export class SchedulesService {
     const date = serviceDate(dto.date, 'date');
     const override = dto.kind === 'OVERRIDE' ? overrideOf(dto.override as unknown as Prisma.JsonValue) : null;
     if (dto.kind === 'OVERRIDE' && (!override || (override.timeMin === undefined && !override.pickup))) throw invalid('An override needs a time or a pickup point');
+    // M4: a pickup override is a personal point (a temporary address): only while the passenger's routing consent is active.
+    if (override?.pickup && !(await activeRoutingConsents(this.prisma, [schedule.profileId])).has(schedule.profileId)) {
+      throw forbidden('CONSENT_REQUIRED', 'The passenger has not consented to the use of a pickup location; set a time only');
+    }
     const seated = await this.prisma.transportBooking.findFirst({ where: { scheduleId: id, serviceDate: dateOnly(date), status: { in: ['ASSIGNED', 'CONFIRMED'] } }, select: { id: true } });
     if (seated) throw conflict('INVALID_STATE', 'The passenger already has a seat that day; remove them from the trip first');
     const row = await this.prisma.$transaction(async (tx) => {
@@ -305,11 +316,13 @@ export class SchedulesService {
           data: { status: 'CANCELLED', statusReason: SKIPPED_REASON, version: { increment: 1 } },
         });
       }
-      await this.audit.record(ctx, { action: 'CREATE', entity: SCHEDULE_ENTITY, entityId: id, details: { exception: { date, kind: dto.kind, override: override as Prisma.InputJsonValue | null, reason: created.reason } } }, tx);
+      // M4: no coordinates or address label in the audit (the exception row holds them; erasure clears both).
+      const audited = override ? { ...(override.timeMin !== undefined ? { timeMin: override.timeMin } : {}), hasPickup: !!override.pickup, poiId: override.pickup?.poiId ?? null } : null;
+      await this.audit.record(ctx, { action: 'CREATE', entity: SCHEDULE_ENTITY, entityId: id, details: { exception: { date, kind: dto.kind, override: audited, reason: created.reason } } }, tx);
       return created;
     });
     if (dto.kind === 'OVERRIDE') await this.resyncSchedules([id]);
-    return toExceptionDto(row);
+    return toExceptionDto(row, await this.exceptionView(ctx, schedule));
   }
 
   async deleteException(ctx: AuthContext, id: string, date: string): Promise<{ deleted: true }> {
@@ -331,7 +344,8 @@ export class SchedulesService {
   async preview(ctx: AuthContext, q: SchedulePreviewQuery): Promise<TransportSchedulePreviewDto> {
     const from = q.from ? parseInstant(q.from, 'from') : Date.now();
     const to = q.to ? parseInstant(q.to, 'to') : from + TRANSPORT_E3_LIMITS.generatorHorizonHours * H;
-    if (to <= from || to - from > 31 * 24 * H) throw invalid('Preview at most 31 days ahead, with from before to');
+    // L5: each occurrence becomes a clause of one query: the range stays small.
+    if (to <= from || to - from > TRANSPORT_E3_LIMITS.previewMaxDays * 24 * H) throw invalid(`Preview at most ${TRANSPORT_E3_LIMITS.previewMaxDays} days, with from before to`);
     const schedules = await this.generator.loadSchedules(this.scheduleWhere(ctx));
     const { rows, skippedByException } = await this.generator.plan(schedules, from, to);
     const keys = rows.map((r) => ({ scheduleId: r.scheduleId as string, serviceDate: r.serviceDate as Date, direction: r.direction }));
@@ -414,8 +428,19 @@ export class SchedulesService {
   }
 }
 
-function toExceptionDto(r: Prisma.TransportScheduleExceptionGetPayload<object>): TransportScheduleExceptionDto {
-  return { id: r.id, scheduleId: r.scheduleId, date: dayKeyOf(r.date), kind: r.kind, override: r.kind === 'OVERRIDE' ? overrideOf(r.override) : null, reason: r.reason, createdAt: iso(r.createdAt) };
+interface ExceptionView {
+  consent: boolean;
+  precise: boolean;
+}
+
+function toExceptionDto(r: Prisma.TransportScheduleExceptionGetPayload<object>, show: ExceptionView): TransportScheduleExceptionDto {
+  const ov = r.kind === 'OVERRIDE' ? overrideOf(r.override) : null;
+  if (ov?.pickup) {
+    const d = show.precise ? 6 : 4;
+    if (!show.consent) delete ov.pickup;
+    else ov.pickup = { ...ov.pickup, lat: round(ov.pickup.lat, d), lng: round(ov.pickup.lng, d) };
+  }
+  return { id: r.id, scheduleId: r.scheduleId, date: dayKeyOf(r.date), kind: r.kind, override: ov, reason: r.reason, createdAt: iso(r.createdAt) };
 }
 
 function shiftSnapshot(r: { name: string; sitePoiId: string | null; startMin: number; endMin: number; overnight: boolean; days: number[]; timeZone: string; isActive: boolean }) {

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   ERASED_PASSENGER_NAME,
   ETMS_PASSENGER_ROLE_NAME,
+  PLANNED_TRIPS_INVALIDATE_REASON,
   ROUTING_CONSENT_PURPOSE,
   currentConsents,
   normaliseEmail,
@@ -31,7 +32,9 @@ import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query
 import { assertPrivateGeocoder, GeocodingService } from '../../geocoding/geocoding.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { applyRoutingConsentWithdrawal } from '../dispatch/consent-withdrawal';
 import { assertNoOpenBookings, eraseTransportData } from '../dispatch/erasure';
+import { RedisKeys } from '../../redis/keys';
 import { ConsentNoticeService } from './consent-notice.service';
 import {
   LOGIN_USER_INCLUDE,
@@ -77,7 +80,8 @@ export const ERASED_MARK = '[erased]';
 /** Lets the erasure transaction remove the identity from consent evidence (trigger "etms_evidence_guard"). */
 const ERASURE_EVIDENCE_WRITE = Prisma.sql`SET LOCAL veetrax.evidence_write = 'erasure'`;
 /** Audit keys whose values identify the passenger: replaced by ERASED_MARK in the passenger's audit trail on erasure. */
-const ERASE_AUDIT_KEYS = new Set(['displayName', 'name', 'mobile', 'email', 'employeeCode', 'homeAddress', 'homeLat', 'homeLng', 'accessibility', 'emergencyContacts', 'note', 'reason', 'statusReason']);
+// E3 security review M4 / M5: booking points / labels and schedule-exception pickups are personal too.
+const ERASE_AUDIT_KEYS = new Set(['displayName', 'name', 'mobile', 'email', 'employeeCode', 'homeAddress', 'homeLat', 'homeLng', 'accessibility', 'emergencyContacts', 'note', 'reason', 'statusReason', 'pickup', 'drop', 'pickupLat', 'pickupLng', 'pickupLabel', 'dropLat', 'dropLng', 'dropLabel', 'override']);
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Date);
 const eraseLeaves = (v: unknown): unknown => (v === null || v === undefined ? v : Array.isArray(v) ? v.map(eraseLeaves) : isPlainObject(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, eraseLeaves(x)])) : ERASED_MARK);
 /** An audit `changes` value with every identifying key's value erased (structure, other keys and nulls kept). */
@@ -555,6 +559,7 @@ export class PeopleService {
       if (!current?.active) return;
       noticeVersion = current.noticeVersion ?? dto.noticeVersion?.trim() ?? '-';
     }
+    let replanned: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       const created = await tx.employeeTransportConsent.create({
         data: {
@@ -578,7 +583,18 @@ export class PeopleService {
         tx,
       );
       if (notice) await this.notify(tx, ctx, row, notice, { purpose: dto.purpose, granted: dto.granted, noticeVersion: created.noticeVersion, consentId: created.id, ...(evidence ? { evidenceRef: evidence.evidenceRef } : {}) });
+      // E3 security review M2: withdrawing routing consent stops the use of the passenger's location in E3 in this same
+      // transaction (upcoming bookings cancelled, seats released, personal stops removed, drafts discarded, notice).
+      if (!dto.granted && dto.purpose === ROUTING_CONSENT_PURPOSE) {
+        const home = row.homeLat !== null && row.homeLng !== null ? { lat: row.homeLat, lng: row.homeLng } : null;
+        const effects = await applyRoutingConsentWithdrawal(tx, ctx, this.audit, { companyId: row.companyId, profileId: row.id, userId: row.userId, home });
+        replanned = effects.plannedTripIds;
+        const { plannedTripIds: _ids, ...counts } = effects;
+        if (Object.values(counts).some((v) => v > 0)) await this.audit.record(ctx, { action: 'UPDATE', entity: PROFILE_ENTITY, entityId: row.id, details: { what: 'routing-consent-withdrawn-transport', ...counts } }, tx);
+      }
     });
+    // Changed planned stops: the processor reloads the company's trips (best effort; the write is committed).
+    if (replanned.length) await this.redis.client.publish(RedisKeys.rulesInvalidate, JSON.stringify({ companyId: row.companyId, reason: PLANNED_TRIPS_INVALIDATE_REASON, at: Date.now() })).catch(() => undefined);
   }
 
   private async consentHistory(profileId: string): Promise<PassengerConsentsDto> {
@@ -628,7 +644,7 @@ export class PeopleService {
       await tx.employeeTransportConsent.updateMany({ where: { profileId: row.id, companyId: row.companyId, note: { not: null } }, data: { note: ERASED_MARK } });
       await tx.transportPassengerNotice.deleteMany({ where: { profileId: row.id, companyId: row.companyId } });
       // E3 copies of the home point (bookings, planned stops, server drafts): coarsened / removed (dispatch/erasure.ts).
-      const transport = await eraseTransportData(tx, row.companyId, row.id, ERASED_MARK);
+      const transport = await eraseTransportData(tx, row.companyId, row.id, ERASED_MARK, row.homeLat !== null && row.homeLng !== null ? { lat: row.homeLat, lng: row.homeLng } : null);
       await tx.employeeTransportProfile.update({
         where: { id: row.id },
         data: {
@@ -673,6 +689,7 @@ export class PeopleService {
             { entity: 'User', changes: { path: ['passengerId', 'to'], equals: row.id } },
             { entity: CONSENT_ENTITY, changes: { path: ['profileId', 'to'], equals: row.id } },
             ...(transport.bookingIds.length ? [{ entity: 'TransportBooking', entityId: { in: transport.bookingIds } }] : []),
+            ...(transport.scheduleIds.length ? [{ entity: 'TransportSchedule', entityId: { in: transport.scheduleIds } }] : []),
           ],
         },
         select: { id: true, changes: true },
@@ -686,7 +703,7 @@ export class PeopleService {
       }
       await this.audit.record(
         ctx,
-        { action: 'UPDATE', entity: PROFILE_ENTITY, entityId: row.id, details: { what: 'erased', policy: ERASURE_POLICY, consentRows: consentRows.count, auditEntriesScrubbed: scrubbed, transportBookings: transport.bookings, transportStops: transport.stops, transportDrafts: transport.drafts, ...(login ? { login: login.outcome, loginAnonymised: login.anonymised } : {}) } },
+        { action: 'UPDATE', entity: PROFILE_ENTITY, entityId: row.id, details: { what: 'erased', policy: ERASURE_POLICY, consentRows: consentRows.count, auditEntriesScrubbed: scrubbed, transportBookings: transport.bookings, transportStops: transport.stops, transportDrafts: transport.drafts, transportPaths: transport.paths, transportExceptions: transport.exceptions, ...(login ? { login: login.outcome, loginAnonymised: login.anonymised } : {}) } },
         tx,
       );
       if (userId) await this.audit.record(ctx, { action: 'UPDATE', entity: 'User', entityId: userId, details: { what: 'passenger-erased', outcome: login?.outcome ?? 'NONE', passengerId: row.id } }, tx);

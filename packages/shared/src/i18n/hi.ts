@@ -135,7 +135,7 @@ export const HI: Record<string, string> = {
   '{{n}} passenger-day(s) had no booking waiting and were left out.': '{{n}} यात्री-दिनों की कोई बुकिंग प्रतीक्षा में नहीं थी और वे छोड़े गए।',
   '{{n}} passenger(s) added to {{trip}} in the draft. Check the pickup stops before publishing.': 'ड्राफ़्ट में {{trip}} में {{n}} यात्री जोड़े गए। प्रकाशित करने से पहले पिकअप स्टॉप जाँचें।',
   '{{n}} passenger(s) added to the new trip in the draft.': 'ड्राफ़्ट में नई यात्रा में {{n}} यात्री जोड़े गए।',
-  '{{n}} passenger(s) have no outcome yet. Record boarded or no-show for each first; the server refuses to complete otherwise.': '{{n}} यात्रियों का अभी परिणाम नहीं है। पहले हर एक के लिए सवार या अनुपस्थित दर्ज करें; अन्यथा सर्वर पूरा करने से मना करेगा।',
+  '{{n}} passenger(s) have no outcome yet. You can still complete the trip; they stay marked "outcome not recorded" for review. Record boarded or no-show first if you know it.': '{{n}} यात्रियों का अभी परिणाम नहीं है। आप फिर भी यात्रा पूरी कर सकते हैं; समीक्षा के लिए वे "परिणाम दर्ज नहीं" के रूप में चिह्नित रहेंगे। यदि आपको पता है तो पहले सवार या अनुपस्थित दर्ज करें।',
   '{{n}} pending change(s) will be thrown away. Nothing was published.': '{{n}} लंबित बदलाव हटा दिए जाएँगे। कुछ भी प्रकाशित नहीं हुआ था।',
   '{{n}} pts': '{{n}} अंक',
   '{{n}} record': '{{n}} रिकॉर्ड',

@@ -38,6 +38,8 @@ export interface E3Ids {
   changeSet: string;
   vehicle: string;
   passenger: string;
+  /** A company place (Poi with a UUID id, as dispatch stops require) at the site. */
+  place: string;
 }
 
 export interface E3World {
@@ -55,6 +57,7 @@ function seedCompany(store: MemoryStore, companyId: string, site: string, passen
   store.insert('employeeTransportConsent', { companyId, profileId: passenger, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: true, channel: 'WEB', occurredAt: new Date(Date.now() - H) });
   store.insert('transportVehicleProfile', { objectId: vehicle, companyId, seats: 4, wheelchairSpaces: 0 });
   const poi = store.table('poi').find((p) => p.id === site)!;
+  const place = store.insert('poi', { companyId, name: `Gate ${companyId}`, category: 'OFFICE', lat: poi.lat, lng: poi.lng, isActive: true });
   const shift = store.insert('transportShift', { companyId, sitePoiId: site, name: `Day ${companyId}`, startMin: 540, endMin: 1080, overnight: false, days: [0, 1, 2, 3, 4, 5, 6], timeZone: 'Asia/Kolkata' });
   const schedule = store.insert('transportSchedule', { companyId, profileId: passenger, shiftId: shift.id, direction: 'IN', days: [1, 2, 3, 4, 5], pickupMode: 'HOME', validFrom: new Date(`${tomorrow}T00:00:00Z`) });
   store.insert('transportScheduleException', { companyId, scheduleId: schedule.id, date: new Date(`${later}T00:00:00Z`), kind: 'SKIP' });
@@ -95,16 +98,20 @@ function seedCompany(store: MemoryStore, companyId: string, site: string, passen
       serviceDate: later,
       direction: 'IN',
       expectedVersions: {},
-      changes: [{ op: 'CREATE_TRIP', tempId: 'trip', objectId: vehicle, plannedStart: new Date(laterStart - H).toISOString(), stops: stopList(laterStart, poi) }],
+      changes: [{ op: 'CREATE_TRIP', tempId: 'trip', objectId: vehicle, plannedStart: new Date(laterStart - H).toISOString(), stops: stopList(laterStart, place) }],
     },
   });
-  return { shift: shift.id as string, schedule: schedule.id as string, booking: open.id as string, seatedBooking: seated.id as string, trip: trip.id as string, plannedTrip: pt.id as string, passengerTrip: pax.id as string, changeSet: draft.id as string, vehicle, passenger };
+  return { shift: shift.id as string, schedule: schedule.id as string, booking: open.id as string, seatedBooking: seated.id as string, trip: trip.id as string, plannedTrip: pt.id as string, passengerTrip: pax.id as string, changeSet: draft.id as string, vehicle, passenger, place: place.id as string };
 }
 
-function stopList(arrive: number, site: Obj) {
+/**
+ * A draft trip between company places (E3 security review M2: a stop that is not a place must be the point of a
+ * consenting passenger seated in the same change set, so a draft without passengers carries places only).
+ */
+function stopList(arrive: number, place: Obj) {
   return [
-    { seq: 0, point: { lat: 13.06, lng: 80.24, label: 'Home' }, plannedArrival: new Date(arrive - H).toISOString() },
-    { seq: 1, point: { lat: site.lat as number, lng: site.lng as number, label: 'Office' }, plannedArrival: new Date(arrive).toISOString() },
+    { seq: 0, point: { lat: place.lat as number, lng: place.lng as number, label: 'Gate', poiId: place.id as string }, plannedArrival: new Date(arrive - H).toISOString() },
+    { seq: 1, point: { lat: place.lat as number, lng: place.lng as number, label: 'Office', poiId: place.id as string }, plannedArrival: new Date(arrive).toISOString() },
   ];
 }
 
@@ -125,7 +132,7 @@ export function e3Ids(w: E3World, own: 'party' | 'other' | 'none'): E3Ids {
   if (own === 'party') return w.party;
   if (own === 'other') return w.other;
   const r = () => randomUUID();
-  return { shift: r(), schedule: r(), booking: r(), seatedBooking: r(), trip: r(), plannedTrip: r(), passengerTrip: r(), changeSet: r(), vehicle: r(), passenger: r() };
+  return { shift: r(), schedule: r(), booking: r(), seatedBooking: r(), trip: r(), plannedTrip: r(), passengerTrip: r(), changeSet: r(), vehicle: r(), passenger: r(), place: r() };
 }
 
 // ───────────────────────────── Expected outcomes ─────────────────────────────
@@ -301,7 +308,8 @@ export const E3_MATRIX: E3Entry[] = [
       const at = Date.parse(`${w.later}T12:00:00Z`);
       return c.dispatch.submit(
         ctx,
-        { serviceDate: w.later, direction: 'OUT', changes: [{ op: 'CREATE_TRIP', tempId: 'x', objectId: w.party.vehicle, plannedStart: new Date(at).toISOString(), stops: [{ seq: 0, point: { lat: 13.05, lng: 80.25 }, plannedArrival: new Date(at).toISOString() }, { seq: 1, point: { lat: 13.06, lng: 80.24 }, plannedArrival: new Date(at + H).toISOString() }] }] },
+        // Between custA's company places (no passenger: no personal stop allowed); for anyone else the vehicle is a 404.
+        { serviceDate: w.later, direction: 'OUT', changes: [{ op: 'CREATE_TRIP', tempId: 'x', objectId: w.party.vehicle, plannedStart: new Date(at).toISOString(), stops: [{ seq: 0, point: { lat: 13.05, lng: 80.25, poiId: w.party.place }, plannedArrival: new Date(at).toISOString() }, { seq: 1, point: { lat: 13.05, lng: 80.25, poiId: w.party.place }, plannedArrival: new Date(at + H).toISOString() }] }] },
         key(),
       );
     },

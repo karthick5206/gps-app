@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 import { OUTCOME_ACTION_LABEL, TRIP_ACTION_LABEL, unresolvedCount } from './e3-format';
 import { DayPicker, DirectionBadge, e3ErrorMessage, OccupancyBar, PassengerOutcomeBadge, TripStateBadge } from './e3-ui';
 import { ReasonDialog } from './ReasonDialog';
-import { TransportMap, tripLine } from './TransportMap';
+import { locatedStops, TransportMap, tripLine } from './TransportMap';
 import { useRepeatTrip, useTransportTrip, useTransportTripLive, useTripCommand } from './use-e3';
 
 const EVENT_LABEL: Record<string, string> = {
@@ -344,7 +344,7 @@ export function TransportTripDetailPage() {
                   </Button>
                 )}
               </div>
-              <TransportMap line={tripLine(trip.path, trip.stops)} stops={trip.stops.map((s) => ({ seq: s.seq, lat: s.lat, lng: s.lng, label: s.name, done: s.status === 'ARRIVED' || s.status === 'DEPARTED' }))} className="h-72" label={t('Map of the trip stops')} />
+              <TransportMap line={tripLine(trip.path, trip.stops)} stops={locatedStops(trip.stops).map((s) => ({ seq: s.seq, lat: s.lat, lng: s.lng, label: s.name, done: s.status === 'ARRIVED' || s.status === 'DEPARTED' }))} className="h-72" label={t('Map of the trip stops')} />
             </Card>
           )}
           <Card className="min-w-0 gap-2 p-4">
@@ -383,7 +383,7 @@ export function TransportTripDetailPage() {
         description={
           confirm === 'complete'
             ? unresolved > 0
-              ? t('{{n}} passenger(s) have no outcome yet. Record boarded or no-show for each first; the server refuses to complete otherwise.', { n: unresolved })
+              ? t('{{n}} passenger(s) have no outcome yet. You can still complete the trip; they stay marked "outcome not recorded" for review. Record boarded or no-show first if you know it.', { n: unresolved })
               : t('All passengers have an outcome.')
             : confirm === 'start'
               ? t('Use this when the driver has set off (for example, after a call). Boarding is still recorded per passenger.')

@@ -123,6 +123,25 @@ export const TRANSPORT_E3_LIMITS = {
   meDefaultPastDays: 1,
   meDefaultFutureDays: 7,
   meMaxRangeDays: 31,
+  // ── E3 security review limits (L2, L4, L5, L6; M2 / M5 tolerances) ──
+  /** Passenger vehicle polls per user per trip per minute (the app polls every 15 s) before 429 RATE_LIMITED. */
+  meVehiclePerMinute: 6,
+  /** Road-routing (GraphHopper) calls one change set may make; beyond it a trip is saved without a path (warning). */
+  routingCallsPerChangeSet: 20,
+  /** Candidate searches per user per minute before 429 RATE_LIMITED. */
+  candidatesPerMinute: 30,
+  /** Change-set submissions (publish or draft) per user per minute before 429 RATE_LIMITED. */
+  changeSetsPerMinute: 20,
+  /** Open DRAFT change sets per company and service date. */
+  draftsPerServiceDate: 50,
+  /** Bulk-approve requests per user per minute. */
+  bulkApprovesPerMinute: 10,
+  /** Schedule preview range (days). */
+  previewMaxDays: 7,
+  /** A door-to-door stop that is not a company place must be within this distance of a consented booking end (m). */
+  personalStopMatchM: 30,
+  /** Erasure / consent withdrawal: stops and draft stops within this distance of the passenger's points are theirs (m). */
+  personalPointNearM: 50,
 } as const;
 
 /**
@@ -708,8 +727,17 @@ export interface TransportTripStopDto {
   id: string;
   seq: number;
   name: string;
-  lat: number;
-  lng: number;
+  /**
+   * Null when the stop is a passenger's personal point the caller may not see: the passenger's routing consent is not
+   * active, or the passenger is outside the caller's branches (E3 security review M1). Personal points are rounded to
+   * 4 decimals (about 11 m) for everyone but the customer's whole-company roles; company sites are always exact.
+   */
+  lat: number | null;
+  lng: number | null;
+  /** True when this stop is a passenger's personal point (home or an ad-hoc address), not a company site. */
+  personal: boolean;
+  /** Why lat / lng are withheld (null when shown). */
+  pointHidden: 'CONSENT_REQUIRED' | 'OUT_OF_SCOPE' | null;
   plannedArrival: string;
   plannedDeparture: string;
   actualArrival: string | null;

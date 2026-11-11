@@ -20,13 +20,32 @@
 -- forward migration if they misbehave (non-destructive). SET NOT NULL on routeId is only possible after every
 -- origin = 'ETMS' row is deleted (destructive, owner approval); once an ETMS trip exists, application code older than
 -- WP 3.1 must not run against the database (it assumes a non-null routeId).
+--
+-- E3 security fix (amended before shipping; security review M1 / M2 / M5, H1): PlannedTripStop.profileId (the passenger
+-- whose personal point the stop is) and PlannedTripStop.poiId (the company place of a site stop), both nullable UUIDs
+-- with no FK (the v1.8 table stays independent of ETMS; checked by the app). Adding nullable columns without a default
+-- is metadata only. The profileId index (consent withdrawal and erasure look stops up by passenger) is built over the
+-- existing rows (all NULL) under a SHARE lock on PlannedTripStop: writes to stops wait for the build (seconds at the
+-- production row count); deploy in the same quiet window as the PlannedTrip changes above.
+--
+-- Failure mode (E3 security review L10): a failed run (e.g. btree_gist missing) is rolled back as one implicit
+-- transaction, but Prisma records it as failed in _prisma_migrations and blocks later deploys until
+--   npx prisma migrate resolve --rolled-back 20261116090100_planned_trip_origin
+-- is run; then install btree_gist and deploy again.
 
 -- AlterTable
 ALTER TABLE "PlannedTrip" ADD COLUMN     "origin" TEXT NOT NULL DEFAULT 'ROUTE',
 ALTER COLUMN "routeId" DROP NOT NULL;
 
+-- AlterTable
+ALTER TABLE "PlannedTripStop" ADD COLUMN     "poiId" UUID,
+ADD COLUMN     "profileId" UUID;
+
 -- CreateIndex
 CREATE INDEX "PlannedTrip_driverId_plannedStart_idx" ON "PlannedTrip"("driverId", "plannedStart");
+
+-- CreateIndex
+CREATE INDEX "PlannedTripStop_profileId_idx" ON "PlannedTripStop"("profileId");
 
 -- ───────────────────────────── Raw SQL ─────────────────────────────
 

@@ -17,6 +17,7 @@ import { CompanyRules, RulesRepository } from '../../alerts/rules-data';
 import { canEmit, PendingAlert, RuleInput, RuleObject } from '../../processor/rules/evaluate';
 import { pendingToDto } from '../../processor/rules/rules-engine';
 import { RedisKeys } from '../../redis/keys';
+import { etmsStopLabel } from '../etms-stop-label';
 import {
   emptyObjectTripState,
   ObjectTripState,
@@ -61,7 +62,9 @@ export function toPreparedTrip(row: TripRow): PreparedTrip {
     distanceKm: row.distanceKm,
     stops: row.stops.map((s) => ({
       seq: s.seq,
-      name: s.name,
+      // E3 security review H1: alert messages / data (TRIP_STOP_LATE, TRIP_STOP_SKIPPED, …) never carry a passenger's
+      // address label; an ETMS stop that is not a company place is "Stop n".
+      name: row.origin === 'ETMS' ? etmsStopLabel(s) : s.name,
       lat: s.lat,
       lng: s.lng,
       radiusM: s.radiusM,

@@ -8,8 +8,9 @@ import { PlannedTripsService } from '../../planned-trips/planned-trips.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DispatchService, TRIP_ENTITY } from './dispatch.service';
 import { BOOKING_ENTITY } from './bookings.service';
-import { assertTripWrite, conflict, dateOnly, invalid, isUniqueViolation, notFound, parseInstant, serviceDate, tripReadWhere, versionConflict } from './e3-common';
-import { PASSENGER_DETAIL_INCLUDE, TRIP_INCLUDE, toTripDetail, toTripSummary, type TripRow } from './e3-mapping';
+import { activeRoutingConsents } from '../people/people.service';
+import { assertTripWrite, conflict, dateOnly, inProfileBranch, invalid, isUniqueViolation, notFound, parseInstant, serviceDate, tripReadWhere, versionConflict } from './e3-common';
+import { PASSENGER_DETAIL_INCLUDE, TRIP_INCLUDE, personalStopOwners, preciseFor, toTripDetail, toTripSummary, type TripRow } from './e3-mapping';
 import { PassengerOutcomeDto, TripArriveDto, TripCancelDto, TripCommandDto, TripListQuery } from './e3.dto';
 import { TripLiveService } from './trip-live';
 import { lockBookings, lockTrips, recordTripEvent, seenClientEvent } from './trip-ops';
@@ -100,6 +101,12 @@ export class TripsService {
     return listResult(plan, items, total, CSV);
   }
 
+  /**
+   * Trip detail (E3 security review M1): personal stop points only for passengers whose routing consent is active and
+   * who are in the caller's branches, 4 decimals unless the caller is a whole-company role of the customer; the path
+   * only when no stop is hidden; the manifest only with the caller's branches' passengers. A read that returned
+   * personal points is ACCESS-audited (L1).
+   */
   async get(ctx: AuthContext, id: string): Promise<TransportTripDto> {
     const t = await this.find(ctx, id);
     const [names, passengers, events] = await Promise.all([
@@ -109,7 +116,18 @@ export class TripsService {
     ]);
     // The manifest (names, outcomes) is a sensitive read for whoever is not the dispatching company itself (05 §1).
     const writable = t.providerCompanyId === ctx.companyId && (t.customerCompanyId === null || t.customerCompanyId === ctx.companyId);
-    return toTripDetail(t, names, passengers, events, writable);
+    const owners = personalStopOwners(t, passengers);
+    const profileIds = [...new Set([...owners, ...passengers.map((p) => p.booking.profileId)])];
+    const known = new Map(passengers.map((p) => [p.booking.profileId, p.booking.profile.branchId] as const));
+    const missing = owners.filter((o) => !known.has(o));
+    const extra = missing.length ? await this.prisma.employeeTransportProfile.findMany({ where: { id: { in: missing } }, select: { id: true, branchId: true } }) : [];
+    const ownerBranch = new Map<string, string | null>([...known, ...extra.map((p) => [p.id, p.branchId] as const)]);
+    const consents = await activeRoutingConsents(this.prisma, profileIds);
+    const precise = preciseFor(ctx, t.customerCompanyId);
+    const dto = toTripDetail(t, names, passengers, events, writable, { precise, consents, ownerBranch, inBranch: (b) => inProfileBranch(ctx, b) });
+    const shown = owners.filter((o) => consents.has(o) && inProfileBranch(ctx, ownerBranch.get(o)));
+    await this.dispatch.recordPersonalAccess(ctx, 'trip', shown, precise, { tripId: id });
+    return dto;
   }
 
   // ───────────────────────────── Progression ─────────────────────────────
@@ -117,11 +135,11 @@ export class TripsService {
   /** Start on the dispatcher's word (v1.8 manual start): SCHEDULED → IN_PROGRESS. Already started (GPS) = 200, no change. */
   async start(ctx: AuthContext, id: string, dto: TripCommandDto): Promise<TransportTripDto> {
     const t = await this.writable(ctx, id, dto);
-    if (await seenClientEvent(this.prisma, id, dto.clientEventId)) return this.get(ctx, id);
+    if (await seenClientEvent(this.prisma, id, dto.clientEventId, ctx.userId, 'STARTED')) return this.get(ctx, id);
     const pt = t.plannedTrip!;
     if (pt.status === 'STARTED' || pt.status === 'IN_PROGRESS') return this.get(ctx, id); // ALREADY_STARTED (GPS or a colleague)
     if (pt.status !== 'SCHEDULED') throw conflict('TRIP_CLOSED', 'This trip is closed');
-    await this.plannedTrips.start(ctx, pt.id, { note: dto.note });
+    await this.plannedTrips.start(ctx, pt.id, { note: dto.note }, { departFirstStop: false }); // QA B5: first pickup stays PENDING
     await this.event(ctx, t, 'STARTED', dto.clientEventId, {}, { note: dto.note ?? null });
     await this.live.changed(ctx.companyId, [pt.id]);
     return this.get(ctx, id);
@@ -133,7 +151,7 @@ export class TripsService {
    */
   async complete(ctx: AuthContext, id: string, dto: TripCommandDto): Promise<TransportTripDto> {
     const t = await this.writable(ctx, id, dto);
-    if (await seenClientEvent(this.prisma, id, dto.clientEventId)) return this.get(ctx, id);
+    if (await seenClientEvent(this.prisma, id, dto.clientEventId, ctx.userId, 'COMPLETED')) return this.get(ctx, id);
     const pt = t.plannedTrip!;
     if (pt.status === 'COMPLETED') return this.get(ctx, id);
     if (pt.status !== 'STARTED' && pt.status !== 'IN_PROGRESS') throw conflict('INVALID_STATE', 'Only a started trip can be completed');
@@ -151,7 +169,7 @@ export class TripsService {
    */
   async cancel(ctx: AuthContext, id: string, dto: TripCancelDto): Promise<TransportTripDto> {
     const t = await this.writable(ctx, id, dto);
-    if (await seenClientEvent(this.prisma, id, dto.clientEventId)) return this.get(ctx, id);
+    if (await seenClientEvent(this.prisma, id, dto.clientEventId, ctx.userId, 'CANCELLED')) return this.get(ctx, id);
     const pt = t.plannedTrip!;
     if (!['SCHEDULED', 'STARTED', 'IN_PROGRESS'].includes(pt.status)) throw conflict('TRIP_CLOSED', 'This trip is already closed');
     const reason = dto.reason.trim();
@@ -185,7 +203,7 @@ export class TripsService {
   /** Driver acknowledgement recorded by the dispatcher on the driver's behalf (R1, source WEB). */
   async acknowledge(ctx: AuthContext, id: string, dto: TripCommandDto): Promise<TransportTripDto> {
     const t = await this.writable(ctx, id, dto);
-    if (t.acknowledgedAt || (await seenClientEvent(this.prisma, id, dto.clientEventId))) return this.get(ctx, id);
+    if (t.acknowledgedAt || (await seenClientEvent(this.prisma, id, dto.clientEventId, ctx.userId, 'ACKNOWLEDGE'))) return this.get(ctx, id);
     if (!t.publishedAt || !['SCHEDULED', 'STARTED', 'IN_PROGRESS'].includes(t.plannedTrip!.status)) throw conflict('INVALID_STATE', 'Only a published, open trip can be acknowledged');
     await this.prisma.$transaction(async (tx) => {
       const done = await tx.transportTrip.updateMany({ where: { id, acknowledgedAt: null }, data: { acknowledgedAt: new Date(), acknowledgedByUserId: ctx.userId, acknowledgedSource: 'WEB' } });
@@ -203,7 +221,7 @@ export class TripsService {
    */
   async arrive(ctx: AuthContext, id: string, dto: TripArriveDto): Promise<TransportTripDto> {
     const t = await this.writable(ctx, id, dto);
-    if (await seenClientEvent(this.prisma, id, dto.clientEventId)) return this.get(ctx, id);
+    if (await seenClientEvent(this.prisma, id, dto.clientEventId, ctx.userId, 'ARRIVED')) return this.get(ctx, id);
     const pt = t.plannedTrip!;
     if (pt.status !== 'STARTED' && pt.status !== 'IN_PROGRESS') throw conflict('INVALID_STATE', 'Start the trip first');
     const stop = pt.stops.find((s) => s.seq === dto.stopSeq);
@@ -225,7 +243,7 @@ export class TripsService {
    */
   async outcome(ctx: AuthContext, id: string, passengerTripId: string, dto: PassengerOutcomeDto): Promise<TransportTripDto> {
     const t = await this.writable(ctx, id, {});
-    if (await seenClientEvent(this.prisma, id, dto.clientEventId)) return this.get(ctx, id);
+    if (await seenClientEvent(this.prisma, id, dto.clientEventId, ctx.userId, dto.outcome)) return this.get(ctx, id);
     const pt = t.plannedTrip!;
     if (pt.status === 'SCHEDULED') throw conflict('INVALID_STATE', 'Start the trip before recording boarding');
     if (pt.status === 'CANCELLED') throw conflict('TRIP_CLOSED', 'This trip was cancelled');
@@ -259,7 +277,8 @@ export class TripsService {
         await this.audit.record(ctx, { action: 'UPDATE', entity: TRIP_ENTITY, entityId: id, details: { passengerTripId: p.id, outcome: dto.outcome, from: p.status, source: 'WEB' } }, tx);
       });
     } catch (e) {
-      if (isUniqueViolation(e, 'clientEventId')) return this.get(ctx, id);
+      // L3: a concurrent retry of the same command by the same user; anyone else's id is a 422.
+      if (isUniqueViolation(e, 'clientEventId') && (await seenClientEvent(this.prisma, id, dto.clientEventId, ctx.userId, dto.outcome))) return this.get(ctx, id);
       throw e;
     }
     await this.live.changed(ctx.companyId, [pt.id]);

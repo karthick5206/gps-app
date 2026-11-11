@@ -3,13 +3,14 @@ jest.mock('@nestjs/mapped-types', () => ({ PartialType: (c: new () => object) =>
 
 import { HttpException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import type { DispatchChangeOp } from '@veetracer/shared';
+import { TRANSPORT_E3_LIMITS, type DispatchChangeOp } from '@veetracer/shared';
 import { AuditService } from '../../audit/audit.service';
 import { PlannedTripsService } from '../../planned-trips/planned-trips.service';
 import { MemoryStore, type Obj } from '../testing/memory-store';
 import { parseChangeOps } from './change-ops';
 import { DispatchService, insertedArrival } from './dispatch.service';
 import { TripLiveService } from './trip-live';
+import { TripsService } from './trips.service';
 
 /**
  * E3 backend gaps: ADD_STOP on an existing trip (capacity / overlap / consent, Idempotency-Key, expectedVersions, audit),
@@ -22,7 +23,7 @@ const MIN = 60_000;
 const DAY = '2026-12-01';
 const T0 = Date.parse(`${DAY}T02:00:00Z`);
 
-type Routing = { enabled: boolean; route: (a: unknown, b: unknown) => Promise<{ m: number; s: number; shape: [number, number][] } | null>; routeVia: (p: unknown[]) => Promise<{ path: unknown } | null> };
+type Routing = { enabled: boolean; available?: () => Promise<boolean>; route: (a: unknown, b: unknown) => Promise<{ m: number; s: number; shape: [number, number][] } | null>; routeVia: (p: unknown[]) => Promise<{ path: unknown } | null> };
 
 function world(opts: { seats?: number; routing?: Partial<Routing> } = {}) {
   const store = new MemoryStore();
@@ -64,7 +65,8 @@ function world(opts: { seats?: number; routing?: Partial<Routing> } = {}) {
   const live = new TripLiveService(prisma as never, redis as never, plannedTrips);
   const dispatch = new DispatchService(prisma as never, audit, routing as never, live, redis as never);
   const ctx = { userId: 'u1', companyId: 'c1', homeCompanyId: 'c1', isSuperAdmin: false, permissions: {}, dataScope: 'COMPANY', branchIds: [], objectIds: [], features: ['etms'], agreements: [], ip: null } as never;
-  return { store, ctx, dispatch, v1, v2, passenger, booking };
+  const trips = new TripsService(prisma as never, audit, plannedTrips, dispatch, live);
+  return { store, ctx, dispatch, trips, v1, v2, passenger, booking };
 }
 
 const stops = (from = T0) => [
@@ -98,11 +100,16 @@ describe('ADD_STOP: a new stop on an existing ETMS trip (E3 gap 3)', () => {
     const r = await w.dispatch.submit(w.ctx, body, key);
     expect(r.value).toMatchObject({ status: 'PUBLISHED', trips: [{ id: w.tripId, version: 2 }], bookings: [{ id: w.b, status: 'ASSIGNED' }] });
     const st = w.store.table('plannedTripStop').filter((s) => s.tripId === w.plannedTripId).sort((x, y) => (x.seq as number) - (y.seq as number));
+    // Personal points are stored under a neutral name with their owner (E3 security review H1 / M1: the v1.8 tracker,
+    // alerts and reports read the name); the passenger's own label shows only in the consent-checked transport views.
     expect(st.map((s) => [s.seq, s.name, s.lat, s.lng])).toEqual([
-      [0, 'Home', 13.06, 80.24],
-      [1, '7 Lake Road', 13.08, 80.27],
-      [2, 'Office', 13.05, 80.25],
+      [0, 'Passenger pickup', 13.06, 80.24],
+      [1, 'Passenger pickup', 13.08, 80.27],
+      [2, 'Passenger drop', 13.05, 80.25],
     ]);
+    const bProfile = w.store.table('transportBooking').find((x) => x.id === w.b)!.profileId;
+    expect(st[1]).toMatchObject({ profileId: bProfile, poiId: null });
+    expect((await w.trips.get(w.ctx, w.tripId)).stops.find((s) => s.seq === 1)).toMatchObject({ name: '7 Lake Road', personal: true, pointHidden: null, lat: 13.08 });
     // Planned between its neighbours (07:30 departure … 08:30 arrival → 08:00).
     expect((st[1].plannedArrival as Date).toISOString()).toBe(new Date(T0 + 0.5 * H).toISOString());
     const seats = w.store.table('transportTripPassenger');
@@ -156,6 +163,8 @@ describe('ADD_STOP: a new stop on an existing ETMS trip (E3 gap 3)', () => {
     expect(await code(w.dispatch.submit(w.ctx, late, randomUUID()))).toEqual([409, 'VEHICLE_BUSY']);
     const ok = await w.dispatch.submit(w.ctx, { ...late, changes: [addStop(w.tripId, w.b, 0)] }, randomUUID());
     expect(ok.value.trips[0].version).toBe(2);
+    // The path is re-planned after the commit (QA B3: publish never waits for routing).
+    await new Promise((res) => setTimeout(res, 20));
     expect(via.at(-1)).toEqual([
       { lat: 13.06, lng: 80.24 },
       { lat: 13.08, lng: 80.27 },
@@ -241,4 +250,57 @@ describe('saved change-set detail (E3 gap 2)', () => {
     const pub = w.store.table('transportChangeSet').find((x) => x.status === 'PUBLISHED')!;
     expect(await w.dispatch.changeSet(w.ctx, pub.id as string)).toMatchObject({ status: 'PUBLISHED', changes: [] });
   });
+});
+
+describe('routing budget per change set (E3 security review L4)', () => {
+  it('at most routingCallsPerChangeSet trips are road-routed; the rest are saved without a path and a warning says so', async () => {
+    const w = world({ routing: { enabled: true } });
+    const svc = w.dispatch as unknown as { routingBudget: (ids: string[], warnings: string[]) => string[] };
+    const ids = Array.from({ length: TRANSPORT_E3_LIMITS.routingCallsPerChangeSet + 3 }, (_, i) => `pt${i}`);
+    const warnings: string[] = [];
+    expect(svc.routingBudget(ids, warnings)).toHaveLength(TRANSPORT_E3_LIMITS.routingCallsPerChangeSet);
+    expect(warnings).toEqual([expect.stringContaining('3 trip(s) saved without a road path')]);
+  });
+
+  it('candidate searches are throttled per user (429 RATE_LIMITED)', async () => {
+    const w = world();
+    const b = w.booking(w.passenger('Z'));
+    const svc = w.dispatch;
+    // The user's window is used up (the limiter itself is FixedWindowLimiter, tested in company-directory.spec).
+    (svc as unknown as { candidateLimiter: { hit: () => Promise<{ allowed: boolean; retryAfterSec: number }> } }).candidateLimiter = { hit: async () => ({ allowed: false, retryAfterSec: 42 }) };
+    expect(await code(svc.candidates(w.ctx, { bookingIds: [b] }))).toEqual([429, 'RATE_LIMITED']);
+  });
+});
+
+describe('routing health and publish without waiting (QA B2 / B3)', () => {
+  it('B2: configured but unhealthy routing (GraphHopper /health down) shows "routing unavailable" on the board and in ETAs', async () => {
+    const w = world({ routing: { enabled: true, available: async () => false, route: async () => ({ m: 1000, s: 120, shape: [] }) } as Partial<Routing> });
+    const b = w.booking(w.passenger('H'));
+    expect((await w.dispatch.board(w.ctx, { serviceDate: DAY })).routingAvailable).toBe(false);
+    const c = await w.dispatch.candidates(w.ctx, { bookingIds: [b] });
+    expect(c).toMatchObject({ routingAvailable: false, degraded: 'ROUTING_UNAVAILABLE' });
+    expect(c.candidates.every((x) => x.eta.at === null && x.eta.degraded === 'ROUTING_UNAVAILABLE')).toBe(true);
+  });
+
+  it('B3: a hanging engine never delays publish; the road path is written after the commit; slow candidate ETAs degrade after about 2 s', async () => {
+    let release: (v: { path: [number, number][] }) => void = () => undefined;
+    const hanging = new Promise<{ path: [number, number][] }>((r) => (release = r));
+    const w = world({ routing: { enabled: true, available: async () => true, routeVia: () => hanging, route: () => new Promise(() => undefined) } as Partial<Routing> });
+    const b1 = w.booking(w.passenger('A'));
+    const t0 = Date.now();
+    const r = await w.dispatch.submit(w.ctx, { serviceDate: DAY, direction: 'IN', changes: [createTrip(w.v1), { op: 'ADD_PASSENGER', tripId: 't', bookingId: b1, pickupSeq: 0, dropSeq: 1 }] }, randomUUID());
+    expect(Date.now() - t0).toBeLessThan(1500);
+    const pt = w.store.table('plannedTrip').find((p) => p.id === r.value.trips[0].plannedTripId)!;
+    expect(Array.isArray(pt.path)).toBe(false);
+    release({ path: [[80.24, 13.06], [80.25, 13.05]] });
+    await new Promise((res) => setTimeout(res, 20));
+    expect(pt.path).toEqual([[80.24, 13.06], [80.25, 13.05]]);
+    // Candidates: the road ETA gives up after ~2 s with "routing unavailable" (the engine never answers here).
+    const b2 = w.booking(w.passenger('B'));
+    const s0 = Date.now();
+    const c = await w.dispatch.candidates(w.ctx, { bookingIds: [b2] });
+    expect(Date.now() - s0).toBeLessThan(5 * 2_500);
+    expect(c.candidates.filter((x) => x.feasible).every((x) => x.eta.at === null)).toBe(true);
+    expect(c.candidates.some((x) => x.eta.degraded === 'ROUTING_UNAVAILABLE')).toBe(true);
+  }, 20_000);
 });

@@ -33,11 +33,21 @@ export interface PlanFeatureProps {
   tone?: StopTone;
 }
 
+/**
+ * Stops with a position. An employee-transport (ETMS) trip read here has none: its stops can be passengers' homes, so
+ * the API sends labels only (E3 security review H1) and the map shows the vehicle track without stops.
+ */
+export function locatedStops<T extends { lat: number | null; lng: number | null }>(stops: readonly T[]): (T & { lat: number; lng: number })[] {
+  return stops.filter((s): s is T & { lat: number; lng: number } => s.lat !== null && s.lng !== null);
+}
+
 /** The planned line: the road path when it has at least two points, else straight legs between the stops. */
 export function plannedLine(trip: Pick<PlannedTripDto, 'path' | 'stops'>): LngLat[] {
   const path: RoutePath | null = trip.path;
   if (path && path.length > 1) return path.map(([lng, lat]) => [lng, lat]);
-  return [...trip.stops].sort((a, b) => a.seq - b.seq).map((s) => [s.lng, s.lat]);
+  return locatedStops(trip.stops)
+    .sort((a, b) => a.seq - b.seq)
+    .map((s) => [s.lng, s.lat]);
 }
 
 /** Closed ring approximating a circle of `radiusM` around a point. */
@@ -64,7 +74,7 @@ export function buildPlanFeatures(trip: Pick<PlannedTripDto, 'path' | 'stops' | 
   const features: PlanFeature[] = [];
   const line = plannedLine(trip);
   if (line.length > 1) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: line }, properties: { kind: 'plan' } });
-  const stops = [...trip.stops].sort((a, b) => a.seq - b.seq);
+  const stops = locatedStops(trip.stops).sort((a, b) => a.seq - b.seq);
   for (const s of stops) {
     const tone = stopTone(trip, s);
     features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [circleRing(s.lng, s.lat, s.radiusM)] }, properties: { kind: 'radius', seq: s.seq, tone } });
@@ -97,7 +107,7 @@ export function lineLatitude(line: readonly LngLat[]): number {
 /** Bounds of the planned line and stop circles: [[west, south], [east, north]], or null without stops. */
 export function planBounds(trip: Pick<PlannedTripDto, 'path' | 'stops'>): [[number, number], [number, number]] | null {
   const pts: LngLat[] = plannedLine(trip);
-  for (const s of trip.stops) {
+  for (const s of locatedStops(trip.stops)) {
     const dLat = (s.radiusM / EARTH_M) * (180 / Math.PI);
     pts.push([s.lng, s.lat + dLat], [s.lng, s.lat - dLat]);
   }

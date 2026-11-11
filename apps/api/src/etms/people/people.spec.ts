@@ -167,8 +167,15 @@ function world() {
       },
     },
     pushToken: { deleteMany: async () => ({ count: 0 }) },
-    // E3 tables (erasure touches them): this world has no bookings.
+    // E3 tables (erasure and consent withdrawal touch them): this world has no bookings, trips or drafts.
     transportBooking: { count: async () => 0, findMany: async () => [] },
+    transportTripPassenger: { findMany: async () => [] },
+    transportTrip: { findMany: async () => [] },
+    plannedTripStop: { findMany: async () => [] },
+    plannedTrip: { findMany: async () => [] },
+    transportChangeSet: { findMany: async () => [] },
+    transportSchedule: { findMany: async () => [] },
+    transportScheduleException: { findMany: async () => [] },
     $executeRaw: async () => 0,
     $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join('?');

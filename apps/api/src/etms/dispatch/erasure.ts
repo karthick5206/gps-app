@@ -1,13 +1,16 @@
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { ACTIVE_BOOKING_STATUSES } from '@veetracer/shared';
+import { ACTIVE_BOOKING_STATUSES, TRANSPORT_E3_LIMITS } from '@veetracer/shared';
+import { draftTouches } from './consent-withdrawal';
+import { nearAny } from './personal-points';
 
 type Tx = Prisma.TransactionClient;
 
 /** Erased personal points keep 2 decimals (≈ 1.1 km): statistics by area survive, the home does not (L5 default). */
 const ERASED_DECIMALS = 2;
 const round2 = (v: number) => Math.round(v * 10 ** ERASED_DECIMALS) / 10 ** ERASED_DECIMALS;
-const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+/** Free-text keys removed from the passenger's trip-event data (dispatcher notes, reasons). */
+const EVENT_TEXT_KEYS = ['note', 'reason'];
 
 /**
  * Before "Erase personal data" (E2 M5): the passenger must have no booking that can still be served (an active status
@@ -23,23 +26,41 @@ export interface TransportErasure {
   bookings: number;
   stops: number;
   drafts: number;
+  /** Planned trips whose road path was cleared (it ran through one of the passenger's points). */
+  paths: number;
+  exceptions: number;
   /** Booking ids: their audit trail is scrubbed with the passenger's. */
   bookingIds: string[];
+  /** The passenger's schedule ids: their audit trail (exceptions with pickup / reason) is scrubbed too. */
+  scheduleIds: string[];
 }
 
 /**
- * E3 part of the erasure (E2 M5, L5 default, pending owner confirmation of L5), inside the erasure transaction:
+ * E3 part of the erasure (E2 M5, L5 default, pending owner confirmation of L5; extended by the E3 security review M5),
+ * inside the erasure transaction:
  * - bookings keep status, dates, windows and sites (statistics); personal points (no poiId) are coarsened to 2 decimals
  *   (the ASSIGNED / CONFIRMED CHECK needs a point), their labels and the free-text note / status reason are removed;
- * - planned stops that were the passenger's personal pickup / drop lose their name and are coarsened the same way;
- * - server-held DRAFT change sets that seat one of the bookings are discarded (they carry stop coordinates).
+ * - planned stops that were the passenger's personal points lose their name and are coarsened the same way: stops they
+ *   own (profileId), stops their seats link to as a non-site pickup / drop, and ETMS stops within personalPointNearM of
+ *   any of their points or home (a 4-decimal board point never equals the exact one: distance, not equality);
+ * - the road path of every planned trip that had such a stop is cleared (it ran through the home);
+ * - seat cancel / no-show reasons and the note / reason of their trip events are removed;
+ * - schedule exceptions: pickup overrides removed (an override left empty is deleted), reasons cleared;
+ * - server-held DRAFT change sets naming one of the bookings or carrying a stop near one of the points are discarded.
+ * Inherent residue (owner decision L5): the vehicle's own position history shows where it stopped at the planned time.
  */
-export async function eraseTransportData(tx: Tx, companyId: string, profileId: string, mark: string): Promise<TransportErasure> {
+export async function eraseTransportData(tx: Tx, companyId: string, profileId: string, mark: string, home: { lat: number; lng: number } | null = null): Promise<TransportErasure> {
   const bookings = await tx.transportBooking.findMany({
     where: { customerCompanyId: companyId, profileId },
     select: { id: true, pickupLat: true, pickupLng: true, pickupPoiId: true, dropLat: true, dropLng: true, dropPoiId: true },
   });
   const personal = (lat: number | null, lng: number | null, poiId: string | null) => lat !== null && lng !== null && !poiId;
+  // The exact points, read before they are coarsened (stop / path / draft matching).
+  const points: { lat: number; lng: number }[] = home ? [home] : [];
+  for (const b of bookings) {
+    if (personal(b.pickupLat, b.pickupLng, b.pickupPoiId)) points.push({ lat: b.pickupLat!, lng: b.pickupLng! });
+    if (personal(b.dropLat, b.dropLng, b.dropPoiId)) points.push({ lat: b.dropLat!, lng: b.dropLng! });
+  }
   for (const b of bookings) {
     const data: Prisma.TransportBookingUncheckedUpdateInput = { note: null, statusReason: null };
     if (personal(b.pickupLat, b.pickupLng, b.pickupPoiId)) Object.assign(data, { pickupLat: round2(b.pickupLat!), pickupLng: round2(b.pickupLng!), pickupLabel: null });
@@ -47,31 +68,71 @@ export async function eraseTransportData(tx: Tx, companyId: string, profileId: s
     await tx.transportBooking.update({ where: { id: b.id }, data });
   }
   const ids = bookings.map((b) => b.id);
-  let stops = 0;
-  if (ids.length) {
-    const seats = await tx.transportTripPassenger.findMany({ where: { bookingId: { in: ids } }, select: { bookingId: true, pickupStopId: true, dropStopId: true } });
-    const stopIds = [...new Set(seats.flatMap((s) => [s.pickupStopId, s.dropStopId]).filter((x): x is string => !!x))];
-    const rows = stopIds.length ? await tx.plannedTripStop.findMany({ where: { id: { in: stopIds } }, select: { id: true, lat: true, lng: true } }) : [];
-    for (const st of rows) {
-      // Only a stop at one of the passenger's personal points (never a site stop shared with the trip).
-      const mine = seats.some((s) => {
-        const b = bookings.find((x) => x.id === s.bookingId)!;
-        return (s.pickupStopId === st.id && personal(b.pickupLat, b.pickupLng, b.pickupPoiId) && near(b.pickupLat!, st.lat) && near(b.pickupLng!, st.lng)) || (s.dropStopId === st.id && personal(b.dropLat, b.dropLng, b.dropPoiId) && near(b.dropLat!, st.lat) && near(b.dropLng!, st.lng));
-      });
-      if (!mine) continue;
-      await tx.plannedTripStop.update({ where: { id: st.id }, data: { name: mark, lat: round2(st.lat), lng: round2(st.lng) } });
-      stops++;
+  const seats = ids.length ? await tx.transportTripPassenger.findMany({ where: { bookingId: { in: ids } }, select: { id: true, bookingId: true, pickupStopId: true, dropStopId: true } }) : [];
+
+  // Stops: owned, linked as a non-site end of one of the seats, or an ETMS stop near one of the points.
+  const linked = new Set<string>();
+  for (const s of seats) {
+    const b = bookings.find((x) => x.id === s.bookingId)!;
+    if (s.pickupStopId && !b.pickupPoiId) linked.add(s.pickupStopId);
+    if (s.dropStopId && !b.dropPoiId) linked.add(s.dropStopId);
+  }
+  const R = TRANSPORT_E3_LIMITS.personalPointNearM;
+  const boxes = points.map((p) => {
+    const dLat = R / 111_000 + 1e-6;
+    const dLng = R / (111_000 * Math.max(0.1, Math.cos((p.lat * Math.PI) / 180))) + 1e-6;
+    return { lat: { gte: p.lat - dLat, lte: p.lat + dLat }, lng: { gte: p.lng - dLng, lte: p.lng + dLng } };
+  });
+  const candidates = await tx.plannedTripStop.findMany({
+    where: { OR: [{ profileId }, ...(linked.size ? [{ id: { in: [...linked] } }] : []), ...boxes] },
+    select: { id: true, tripId: true, lat: true, lng: true, profileId: true, poiId: true },
+  });
+  // Only this company's trips; proximity matches only on ETMS trips (a v1.8 route stop near a home is a company stop).
+  const trips = new Map((candidates.length ? await tx.plannedTrip.findMany({ where: { id: { in: [...new Set(candidates.map((c) => c.tripId))] }, companyId }, select: { id: true, origin: true } }) : []).map((t) => [t.id, t]));
+  const mine = candidates.filter((st) => {
+    const t = trips.get(st.tripId);
+    if (!t) return false;
+    if (st.profileId === profileId || linked.has(st.id)) return !st.poiId;
+    return t.origin === 'ETMS' && !st.poiId && (!st.profileId || st.profileId === profileId) && nearAny(st, points, R);
+  });
+  for (const st of mine) await tx.plannedTripStop.update({ where: { id: st.id }, data: { name: mark, lat: round2(st.lat), lng: round2(st.lng) } });
+  const pathTrips = [...new Set(mine.map((s) => s.tripId))];
+  if (pathTrips.length) await tx.plannedTrip.updateMany({ where: { id: { in: pathTrips } }, data: { path: Prisma.DbNull } });
+
+  // Free text on the seats and in their events.
+  if (seats.length) {
+    await tx.transportTripPassenger.updateMany({ where: { id: { in: seats.map((s) => s.id) } }, data: { cancelReason: null, noShowReason: null } });
+    const events = await tx.transportTripEvent.findMany({ where: { passengerTripId: { in: seats.map((s) => s.id) } }, select: { id: true, data: true } });
+    for (const e of events) {
+      const data = e.data && typeof e.data === 'object' && !Array.isArray(e.data) ? (e.data as Record<string, unknown>) : null;
+      if (!data || !EVENT_TEXT_KEYS.some((k) => data[k] !== undefined && data[k] !== null)) continue;
+      const next = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, EVENT_TEXT_KEYS.includes(k) && v !== null ? mark : v]));
+      await tx.transportTripEvent.update({ where: { id: e.id }, data: { data: next as Prisma.InputJsonValue } });
     }
   }
+
+  // Schedule exceptions (M4): pickup overrides and reasons.
+  const scheduleIds = (await tx.transportSchedule.findMany({ where: { companyId, profileId }, select: { id: true } })).map((s) => s.id);
+  let exceptions = 0;
+  if (scheduleIds.length) {
+    const rows = await tx.transportScheduleException.findMany({ where: { scheduleId: { in: scheduleIds } }, select: { id: true, kind: true, override: true, reason: true } });
+    for (const e of rows) {
+      const o = e.override && typeof e.override === 'object' && !Array.isArray(e.override) ? (e.override as Record<string, unknown>) : null;
+      const hasPickup = !!o?.pickup;
+      if (!hasPickup && e.reason === null) continue;
+      if (hasPickup && typeof o?.timeMin !== 'number') await tx.transportScheduleException.delete({ where: { id: e.id } });
+      else await tx.transportScheduleException.update({ where: { id: e.id }, data: { reason: null, ...(hasPickup ? { override: { timeMin: o!.timeMin } as Prisma.InputJsonValue } : {}) } });
+      exceptions++;
+    }
+  }
+
+  // Drafts naming one of the bookings or carrying a stop near one of the points.
   let drafts = 0;
-  if (ids.length) {
-    const open = await tx.transportChangeSet.findMany({ where: { companyId, status: 'DRAFT' }, select: { id: true, draft: true } });
-    for (const d of open) {
-      const text = JSON.stringify(d.draft ?? null);
-      if (!ids.some((id) => text.includes(id))) continue;
-      await tx.transportChangeSet.update({ where: { id: d.id }, data: { status: 'REJECTED', draft: Prisma.DbNull, result: { discardedBy: 'erasure' } as Prisma.InputJsonValue } });
-      drafts++;
-    }
+  const open = await tx.transportChangeSet.findMany({ where: { companyId, status: 'DRAFT' }, select: { id: true, draft: true } });
+  for (const d of open) {
+    if (!draftTouches(d.draft, ids, points)) continue;
+    await tx.transportChangeSet.update({ where: { id: d.id }, data: { status: 'REJECTED', draft: Prisma.DbNull, result: { discardedBy: 'erasure' } as Prisma.InputJsonValue } });
+    drafts++;
   }
-  return { bookings: bookings.length, stops, drafts, bookingIds: ids };
+  return { bookings: bookings.length, stops: mine.length, drafts, paths: pathTrips.length, exceptions, bookingIds: ids, scheduleIds };
 }
