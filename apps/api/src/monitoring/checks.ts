@@ -14,6 +14,7 @@ import {
 } from '@veetracer/shared';
 import { isFailing, relayStatsFromHeartbeats } from '../relay/stats';
 import { MapServiceState } from './map-services';
+import { matrixHealthIssues, MatrixStatsSnapshot } from '../routing/matrix/matrix-metrics';
 import { HealthThresholds } from './thresholds';
 
 /** Everything the checks look at (collected by SystemHealthService). */
@@ -47,6 +48,11 @@ export interface CheckInput {
    * (ETMS or the relay switched off); null: Valkey could not be asked. lastOkAt null = no pass recorded yet.
    */
   etmsRelay?: { lastOkAt: number | null; hwm: number | null; full: boolean } | null;
+  /**
+   * E4 WP 4.1b: the last travel-time matrix builds (Valkey `vt:etms:mx:stats`, written by whichever process built
+   * them). Undefined: ETMS_ROUTING off; null: nothing recorded or Valkey could not be asked.
+   */
+  etmsMatrix?: MatrixStatsSnapshot | null;
 }
 
 /** Alert types whose DEAD notification job is CRITICAL (D6 G2, owner decision: SOS / CRASH). */
@@ -439,6 +445,7 @@ export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] 
   notifyBacklogChecks(input, t, out);
   relayChecks(input, out);
   etmsRelayChecks(input, t, out);
+  if (input.etmsMatrix) out.push(...matrixHealthIssues(input.etmsMatrix, input.now));
   mapChecks(input, out);
   return out.sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.id.localeCompare(b.id));
 }

@@ -3,6 +3,8 @@ import type { InPoint } from '../../point-quality/analyze';
 import { distanceToRoad, lineLengthM, matchSegment, OFFROAD_M } from '../../point-quality/road-match';
 import { decodePolyline } from '../route-estimate';
 import { fillLegs, parseGraphHopperRoute, RouteViaLeg } from '../route-via';
+import type { MatrixBuilder } from '../matrix/matrix-builder';
+import { providerMatrix } from '../matrix/provider-matrix';
 import { readRouterConfig, RouterConfig } from './router-config';
 import {
   AVAILABLE_PROFILES,
@@ -52,6 +54,7 @@ interface GhInfo {
 export class GraphHopperProvider implements RoutingProvider {
   private readonly logger = new Logger(GraphHopperProvider.name);
   private info: { engineVersion: string | null; graphVersion: string | null; profiles: string[] } | null = null;
+  private matrixBuilder: MatrixBuilder | null = null;
 
   constructor(readonly config: RouterConfig = readRouterConfig()) {
     if (config.state === 'refused') this.logger.error(config.message);
@@ -59,6 +62,12 @@ export class GraphHopperProvider implements RoutingProvider {
 
   get enabled(): boolean {
     return this.config.state === 'graphhopper';
+  }
+
+  /** M1 matrix + locate (WP 4.1b), attached by RoutingModule. Without it, matrix / locate answer NOT_IMPLEMENTED. */
+  attachMatrix(builder: MatrixBuilder): this {
+    this.matrixBuilder = builder;
+    return this;
   }
 
   async capabilities(): Promise<Result<ProviderCapabilities>> {
@@ -72,7 +81,8 @@ export class GraphHopperProvider implements RoutingProvider {
       engineVersion: info.value.engineVersion,
       graphVersion: info.value.graphVersion,
       profiles,
-      matrix: { native: false, maxSyncCells: 0, maxAsyncCells: 0 },
+      // M1 from /route requests, no native matrix. Sync = the doc 17 §1.5 sync size (50 × 50); async = 600 × 600 (solver LIMITS).
+      matrix: { native: false, maxSyncCells: this.matrixBuilder?.enabled ? 2500 : 0, maxAsyncCells: this.matrixBuilder?.enabled ? 360_000 : 0 },
       mapMatching: true,
       isochrone: false,
       coverage: 'india',
@@ -142,11 +152,18 @@ export class GraphHopperProvider implements RoutingProvider {
     return this.ok({ ...whole, legs: fillLegs(points, legs, whole.distanceM, whole.durationSec), estimatedLegs });
   }
 
-  /** Not built yet: the M1 matrix from `/route` calls with a graph-versioned cache is doc 17 §7 P7 (WP 4.1b). */
-  async matrix(req: MatrixRequest): Promise<Result<MatrixResult>> {
+  /**
+   * M1 matrix from GraphHopper `/route` requests with a graph-versioned cache (matrix/matrix-builder.ts). Only a
+   * COMPLETE matrix is a success; otherwise the reason (engine down / slow / budget / limits) and no numbers. Gated by
+   * ETMS_ROUTING (off by default → ENGINE_DISABLED).
+   */
+  async matrix(req: MatrixRequest, onProgress?: (done: number, total: number) => Promise<void>): Promise<Result<MatrixResult>> {
     const off = this.off() ?? this.profileOff(req.profile);
     if (off) return off;
-    return unavailable('NOT_IMPLEMENTED', 'Routing matrix is not implemented yet (E4 WP 4.1b); no matrix numbers are available.');
+    if (!this.matrixBuilder) return unavailable('NOT_IMPLEMENTED', 'The routing matrix is not wired in this process; no matrix numbers are available.');
+    const r = await providerMatrix(this.matrixBuilder, req, onProgress);
+    if (!r.ok) return r;
+    return { ok: true, value: r.value, eta: { ...this.eta(), graphVersion: r.graphVersion ?? this.eta().graphVersion }, attribution: GRAPHHOPPER_ATTRIBUTION };
   }
 
   /**
@@ -175,11 +192,16 @@ export class GraphHopperProvider implements RoutingProvider {
     return this.ok({ path: road, matchedDistanceM: Math.round(lineLengthM(road)), offRoadIndexes });
   }
 
-  /** Not built yet: GraphHopper `/nearest` replaces Valhalla `/locate` in WP 4.1b. */
-  async locate(_points: Pt[], profile?: RoutingProfile): Promise<Result<{ onRoad: boolean; snapDistanceM: number }[]>> {
+  /**
+   * Road check per point: a zero-length GraphHopper route snaps it with the car profile and the configured snap
+   * preventions (GraphHopper `/nearest` ignores the profile). `snapDistanceM` is -1 when no road was found.
+   */
+  async locate(points: Pt[], profile?: RoutingProfile): Promise<Result<{ onRoad: boolean; snapDistanceM: number }[]>> {
     const off = this.off() ?? this.profileOff(profile);
     if (off) return off;
-    return unavailable('NOT_IMPLEMENTED', 'locate is not implemented yet (E4 WP 4.1b).');
+    if (!this.matrixBuilder) return unavailable('NOT_IMPLEMENTED', 'locate is not wired in this process.');
+    const r = await this.matrixBuilder.snapPoints(points, profile ?? 'car');
+    return r.ok ? this.ok(r.value) : unavailable(r.reason, r.message);
   }
 
   // ---- internals ----
