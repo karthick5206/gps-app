@@ -44,6 +44,8 @@ const SRC = {
   allPoints: 'h-allpts',
   clean: 'h-clean',
   compare: 'h-compare',
+  plan: 'h-plan',
+  planDeviation: 'h-plan-dev',
 } as const;
 const LYR = {
   estimate: 'h-estimate-line',
@@ -66,6 +68,13 @@ const LYR = {
   cursorHalo: 'h-cursor-halo',
   cursor: 'h-cursor-dot',
   cursorArrow: 'h-cursor-arrow',
+  planCorridor: 'h-plan-corridor',
+  planRadius: 'h-plan-radius',
+  planRadiusLine: 'h-plan-radius-line',
+  planLine: 'h-plan-line',
+  planDeviation: 'h-plan-dev-line',
+  planStops: 'h-plan-stops',
+  planStopsText: 'h-plan-stops-text',
 } as const;
 const OWN_PREFIX = 'h-';
 const PATH_FRAME_MS = 1000 / 15; // drawn-path updates capped at ~15 fps
@@ -92,6 +101,26 @@ export interface PointPick {
   /** False for a raw phone record (not a stored position). */
   stored: boolean;
 }
+
+/**
+ * Planned trips: the route drawn under the recorded track. `features` carry `kind` 'plan' (line), 'radius' (stop
+ * circle polygon) or 'stop' (numbered point with `label`, `tone`); `deviations` are lines drawn above the track;
+ * `corridorWidth` is the band's line-width expression.
+ */
+export interface PlanOverlay {
+  features: GeoJSON.FeatureCollection;
+  deviations: GeoJSON.FeatureCollection;
+  corridorWidth: ExpressionSpecification | null;
+}
+
+/** Stop colours of the plan overlay by tone (on time / late / early / skipped / pending; `next` uses --primary). */
+const PLAN_TONE_COLORS = {
+  ontime: STATUS_META.RUNNING,
+  late: STATUS_META.IDLE,
+  early: { light: '#0284c7', dark: '#38bdf8' },
+  skipped: STATUS_META.OFF,
+  pending: STATUS_META.OFFLINE,
+} as const;
 
 /** Hovering the track shows the nearest recorded point within this many pixels. */
 const HOVER_PX = 18;
@@ -158,6 +187,7 @@ export class HistoryMap {
   private allPoints: PointQualityResponse | null = null;
   private compare: GeoJSON.Feature[] = [];
   private primaryColor: string | null = null;
+  private plan: PlanOverlay | null = null;
   private pointText: PointText = { label: (l) => l, source: (s) => (s ? 'raw' : 'stored') };
   private tailPresent = false;
   private highlighted: [number | null, number | null] = [null, null];
@@ -313,6 +343,12 @@ export class HistoryMap {
     const solid: maplibregl.FilterSpecification = ['==', ['get', 'gap'], false];
     const gap: maplibregl.FilterSpecification = ['==', ['get', 'gap'], true];
     // Likely road through data gaps (routing engine), under the recorded track.
+    // Planned trips: corridor band, stop radius circles and the planned line, under everything recorded.
+    const planKind = (k: string): maplibregl.FilterSpecification => ['==', ['get', 'kind'], k];
+    map.addLayer({ id: LYR.planCorridor, type: 'line', source: SRC.plan, filter: planKind('plan'), layout: round, paint: { 'line-width': 0, 'line-opacity': 0.14 } });
+    map.addLayer({ id: LYR.planRadius, type: 'fill', source: SRC.plan, filter: planKind('radius'), paint: { 'fill-opacity': 0.12 } });
+    map.addLayer({ id: LYR.planRadiusLine, type: 'line', source: SRC.plan, filter: planKind('radius'), paint: { 'line-width': 1.5, 'line-opacity': 0.7 } });
+    map.addLayer({ id: LYR.planLine, type: 'line', source: SRC.plan, filter: planKind('plan'), layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 4], 'line-dasharray': [2, 1.5], 'line-opacity': 0.9 } });
     map.addLayer({ id: LYR.estimate, type: 'line', source: SRC.estimate, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 4.5], 'line-dasharray': [0.6, 1.6], 'line-opacity': 0.8 } });
     map.addLayer({ id: LYR.trackCasing, type: 'line', source: SRC.track, filter: solid, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 16, 9] } });
     map.addLayer({ id: LYR.track, type: 'line', source: SRC.track, filter: solid, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 5] } });
@@ -320,6 +356,8 @@ export class HistoryMap {
     map.addLayer({ id: LYR.trip, type: 'line', source: SRC.trip, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 8, 16, 16], 'line-opacity': 0.22 } });
     map.addLayer({ id: LYR.played, type: 'line', source: SRC.played, filter: solid, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3, 16, 6.5] } });
     map.addLayer({ id: LYR.playedGap, type: 'line', source: SRC.played, filter: gap, paint: { 'line-width': 2.5, 'line-dasharray': [2, 2] } });
+    // Planned trips: the recorded track outside the corridor.
+    map.addLayer({ id: LYR.planDeviation, type: 'line', source: SRC.planDeviation, layout: round, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 16, 8], 'line-opacity': 0.85 } });
     // History → compare: the other vehicles' paths, above the selected one so a shared road shows all of them.
     const compareWidth: ExpressionSpecification = ['interpolate', ['linear'], ['zoom'], 8, ['*', ['get', 'w'], 0.6], 16, ['get', 'w']];
     map.addLayer({ id: LYR.compareLine, type: 'line', source: SRC.compare, filter: solid, layout: round, paint: { 'line-color': ['get', 'color'], 'line-width': compareWidth } });
@@ -354,6 +392,8 @@ export class HistoryMap {
     map.addLayer({ id: LYR.alertsText, type: 'symbol', source: SRC.marks, filter: ['==', ['get', 'kind'], 'alert'], layout: { ...markText, 'text-size': 10, 'text-field': '!' }, paint: { 'text-color': '#ffffff' } });
     map.addLayer({ id: LYR.ends, type: 'circle', source: SRC.marks, filter: ['==', ['get', 'kind'], 'end'], paint: { 'circle-radius': 11, 'circle-stroke-width': 2.5 } });
     map.addLayer({ id: LYR.endsText, type: 'symbol', source: SRC.marks, filter: ['==', ['get', 'kind'], 'end'], layout: { ...markText, 'text-size': 12, 'text-field': ['get', 'label'] }, paint: { 'text-color': '#ffffff' } });
+    map.addLayer({ id: LYR.planStops, type: 'circle', source: SRC.plan, filter: planKind('stop'), paint: { 'circle-radius': 10, 'circle-stroke-width': 2 } });
+    map.addLayer({ id: LYR.planStopsText, type: 'symbol', source: SRC.plan, filter: planKind('stop'), layout: { ...markText, 'text-size': 11, 'text-field': ['get', 'label'] }, paint: { 'text-color': '#ffffff' } });
 
     map.addLayer({ id: LYR.cursorHalo, type: 'circle', source: SRC.cursor, paint: { 'circle-radius': 22 * displayStore.iconScale(), 'circle-opacity': 0.18 } });
     map.addLayer({ id: LYR.cursor, type: 'circle', source: SRC.cursor, paint: { 'circle-radius': 12 * displayStore.iconScale(), 'circle-stroke-width': 2.5 } });
@@ -430,6 +470,29 @@ export class HistoryMap {
     for (const l of [LYR.stops, LYR.alerts, LYR.ends, LYR.cursor]) map.setPaintProperty(l, 'circle-stroke-color', halo);
     map.setPaintProperty(LYR.cursor, 'circle-color', statusExpr(t));
     map.setPaintProperty(LYR.cursorHalo, 'circle-color', statusExpr(t));
+    // Planned trips overlay.
+    const primary = cssToken('--primary') || '#2563eb';
+    const tone = ['match', ['get', 'tone'], 'next', primary, ...Object.entries(PLAN_TONE_COLORS).flatMap(([k, c]) => [k, c[t]]), PLAN_TONE_COLORS.pending[t]] as unknown as ExpressionSpecification;
+    map.setPaintProperty(LYR.planCorridor, 'line-color', primary);
+    map.setPaintProperty(LYR.planCorridor, 'line-width', this.plan?.corridorWidth ?? 0);
+    map.setPaintProperty(LYR.planLine, 'line-color', primary);
+    map.setPaintProperty(LYR.planRadius, 'fill-color', tone);
+    map.setPaintProperty(LYR.planRadiusLine, 'line-color', tone);
+    map.setPaintProperty(LYR.planStops, 'circle-color', tone);
+    map.setPaintProperty(LYR.planStops, 'circle-stroke-color', halo);
+    map.setPaintProperty(LYR.planDeviation, 'line-color', STATUS_META.OFF[t]);
+  }
+
+  /** Planned trips: the route, corridor, stops and deviation stretches (null removes them). Kept across datasets. */
+  setPlan(plan: PlanOverlay | null) {
+    this.plan = plan;
+    this.pushPlan();
+    this.applyPaint();
+  }
+
+  private pushPlan() {
+    this.src(SRC.plan)?.setData(this.plan?.features ?? EMPTY);
+    this.src(SRC.planDeviation)?.setData(this.plan?.deviations ?? EMPTY);
   }
 
   setTheme(theme: ResolvedTheme) {
@@ -490,6 +553,7 @@ export class HistoryMap {
 
   private pushStatic() {
     this.src(SRC.compare)?.setData({ type: 'FeatureCollection', features: this.compare });
+    this.pushPlan();
     const idx = this.idx;
     const track = this.src(SRC.track);
     const marks = this.src(SRC.marks);
@@ -577,6 +641,8 @@ export class HistoryMap {
     for (const id of Object.values(SRC)) this.src(id)?.setData(EMPTY);
     // The selected vehicle has no data, but the ones compared with it may.
     this.src(SRC.compare)?.setData({ type: 'FeatureCollection', features: this.compare });
+    // A planned trip's route stays visible before the vehicle has any track.
+    this.pushPlan();
     this.tailPresent = false;
   }
 
