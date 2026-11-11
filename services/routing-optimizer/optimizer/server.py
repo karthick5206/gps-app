@@ -38,6 +38,7 @@ import multiprocessing
 import os
 import sys
 import threading
+import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from concurrent.futures.process import BrokenProcessPool
@@ -55,6 +56,12 @@ MAX_JSON_DEPTH = 32
 HANDLER_TIMEOUT_S = 30
 #: Time a connection has for its request line and headers (before auth), and while it idles between requests.
 HEADER_TIMEOUT_S = 5
+# T3-D6: after a 429 the unread body is read and thrown away (so the client, still uploading, sees the 429 instead of a
+# reset): at most DRAIN_MAX_S in all, giving up when the client sends nothing for DRAIN_IDLE_S.
+DRAIN_IDLE_S = 2
+DRAIN_MAX_S = 15
+# T3-D8: listen backlog (the default 5 made bursts of 16+ connections wait ~1 s for a SYN retransmit).
+LISTEN_BACKLOG = 64
 
 
 def parse_allow(raw: str | None) -> list[ipaddress._BaseNetwork]:
@@ -231,6 +238,21 @@ def make_handler(cfg: Config):
                 raise BadRequest('Content-Length must be a non-negative integer')
             return int(raw)
 
+        def _discard_body(self, length: int) -> None:
+            """Reads and drops up to `length` body bytes (64 KB at a time) within DRAIN_MAX_S; stops when the client goes
+            quiet for DRAIN_IDLE_S or closes. Errors are ignored: the answer was already sent."""
+            left, until = length, time.monotonic() + DRAIN_MAX_S
+            try:
+                self.connection.settimeout(DRAIN_IDLE_S)
+                while left > 0 and time.monotonic() < until:
+                    chunk = self.rfile.read1(min(65536, left)) if hasattr(self.rfile, 'read1') else self.rfile.read(min(65536, left))
+                    if not chunk:
+                        break
+                    left -= len(chunk)
+            except OSError:
+                pass
+            self.close_connection = True
+
         def _read_problem(self, length: int) -> dict:
             raw = self.rfile.read(length)
             if len(raw) != length:
@@ -254,9 +276,12 @@ def make_handler(cfg: Config):
             if not 0 < length <= MAX_BODY:
                 return self._send(413, {'error': f'body must be 1..{MAX_BODY} bytes'})
             # L5: the slot is taken before the body is read and parsed, so at most OPTIMIZER_CONCURRENCY bodies are in
-            # memory at once; a full service answers 429 without reading anything.
+            # memory at once; a full service answers 429 at once, without parsing anything. T3-D6: the body is then read
+            # and discarded in small chunks (never held), so a client still uploading a large body gets the 429 instead
+            # of a reset; the connection closes afterwards.
             if not cfg.slots.acquire(blocking=False):
-                return self._send(429, {'error': 'optimizer busy', 'slots': cfg.size})
+                self._send(429, {'error': 'optimizer busy', 'slots': cfg.size})
+                return self._discard_body(length)
             with cfg.lock:
                 cfg.busy += 1
             try:
@@ -329,6 +354,7 @@ def build_server(host: str, port: int, env: dict, solve_fn=solve) -> ThreadingHT
         'address_family': __import__('socket').AF_INET6 if family_v6 else __import__('socket').AF_INET,
         'server_close': server_close,
         'max_connections': max(2, int(env.get('OPTIMIZER_MAX_PENDING', '64'))),
+        'request_queue_size': max(LISTEN_BACKLOG, int(env.get('OPTIMIZER_MAX_PENDING', '64'))),
     })
     srv = cls((host, port), make_handler(cfg))
     srv.cfg = cfg

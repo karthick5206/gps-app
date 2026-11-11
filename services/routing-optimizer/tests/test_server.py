@@ -250,3 +250,52 @@ def test_authenticated_requests_are_capped(monkeypatch):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# T3 E2E (load test, 2026-11-11): D6 large bodies on a busy optimiser, D8 listen backlog
+# ------------------------------------------------------------------------------------------------------------------
+
+def test_busy_with_a_large_body_still_answers_429_t3_d6():
+    """A full service answered 429 without reading the body and closed: for bodies of about 0.9 MB or more the client
+    was still uploading, got a reset / broken pipe and never saw the 429 (the API's client hung until its timeout)."""
+    srv = server.build_server('127.0.0.1', 0, {'OPTIMIZER_TOKEN': TOKEN, 'OPTIMIZER_CONCURRENCY': '1'}, solve_fn=stall)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f'http://127.0.0.1:{srv.server_address[1]}'
+    try:
+        busy = threading.Thread(target=lambda: call(url, '/optimize', TOKEN, {'options': {'timeLimitS': 1}, 'sleepS': 6}))
+        busy.start()
+        time.sleep(1.5)
+        for size in (1_000_000, 2_000_000, 4_000_000):
+            big = {'options': {'timeLimitS': 1}, 'pad': 'x' * size}
+            t0 = time.monotonic()
+            try:
+                code, body = call(url, '/optimize', TOKEN, big)
+            except (ConnectionError, OSError) as e:  # BrokenPipe / ConnectionReset before the fix
+                pytest.fail(f'{size} B body: connection dropped without the 429 ({type(e).__name__})')
+            assert code == 429, size
+            assert body.get('error') == 'optimizer busy'
+            assert time.monotonic() - t0 < 5
+        busy.join()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_listen_backlog_is_large_enough_for_bursts_t3_d8():
+    """The default backlog of 5 made some answers in bursts of 16+ connections arrive about 1 s late (SYN retry)."""
+    srv = server.build_server('127.0.0.1', 0, {'OPTIMIZER_TOKEN': TOKEN})
+    try:
+        assert srv.request_queue_size >= 64
+        # 40 connections at once while nobody accepts: none waits for a SYN retransmit.
+        host, port = srv.server_address[:2]
+        socks, slow = [], 0
+        for _ in range(40):
+            t0 = time.monotonic()
+            socks.append(socket.create_connection((host, port), timeout=5))
+            slow += time.monotonic() - t0 > 0.5
+        for s in socks:
+            s.close()
+        assert slow == 0
+    finally:
+        srv.server_close()

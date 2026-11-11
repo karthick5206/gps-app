@@ -62,6 +62,8 @@ export const OPTIMIZER_DEFAULT_TIME_LIMIT_S = 10;
 /** Solver time limit plus slack for the matrix upload and serialisation. */
 export const OPTIMIZER_TIMEOUT_SLACK_S = 15;
 export const OPTIMIZER_HEALTH_TIMEOUT_MS = 2000;
+/** T3-D6: request bodies at least this large can still be uploading when a busy service closes the connection. */
+export const RESET_AS_BUSY_MIN_BYTES = 256 * 1024;
 
 /**
  * HTTP client for the OR-Tools service (`services/routing-optimizer`), ported from the routing branch's
@@ -101,14 +103,23 @@ export class OptimizerClient {
   async solve(problem: SolverProblem): Promise<SolverResult> {
     if (!this.configured) throw new RoutingError('OPTIMIZER_UNAVAILABLE', `Optimizer is not configured (${this.config.problem})`);
     let res: Response;
+    const payload = JSON.stringify(problem);
     try {
       res = await this.fetchImpl(`${this.config.baseUrl}/optimize`, {
         method: 'POST',
         headers: this.headers(true),
-        body: JSON.stringify(problem),
+        body: payload,
         signal: AbortSignal.timeout((Math.min(problem.options?.timeLimitS ?? OPTIMIZER_DEFAULT_TIME_LIMIT_S, SOLVER_LIMITS.timeLimitS) + OPTIMIZER_TIMEOUT_SLACK_S) * 1000),
       });
     } catch (e) {
+      // T3-D6: a large body cut off by a reset: a busy service closed the connection while the body was still being
+      // uploaded (older services did not read it after their 429) → busy, retried without using an attempt. A small
+      // body fits the socket buffers, so its reset means the service itself went away → unavailable, like a refused
+      // connection or a timeout.
+      if (resetDuringUpload(e) && Buffer.byteLength(payload) >= RESET_AS_BUSY_MIN_BYTES) {
+        this.logger.warn('optimizer closed the connection during the upload; treated as busy');
+        throw new RoutingError('OPTIMIZER_BUSY', 'Optimizer busy (connection closed during the upload); retried shortly');
+      }
       this.logger.warn(`optimizer unreachable: ${(e as Error).message}`);
       throw new RoutingError('OPTIMIZER_UNAVAILABLE', 'Optimizer unavailable');
     }
@@ -126,4 +137,14 @@ export class OptimizerClient {
     }
     return body as SolverResult;
   }
+}
+
+/** A connection reset / broken pipe / socket closed by the peer (not refused, not a timeout): see T3-D6. */
+export function resetDuringUpload(e: unknown): boolean {
+  const codes = new Set(['ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET']);
+  for (let x: unknown = e, i = 0; x && i < 4; x = (x as { cause?: unknown }).cause, i++) {
+    const code = (x as { code?: unknown }).code;
+    if (typeof code === 'string' && codes.has(code)) return true;
+  }
+  return false;
 }
