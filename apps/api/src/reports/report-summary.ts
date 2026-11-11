@@ -83,6 +83,9 @@ export function describeOptions(type: ReportData['type'], options: ReportOptions
       case 'inactiveAfterMin':
         out.push({ label: 'Inactive after', value: `${v} min without data` });
         break;
+      case 'groupBy':
+        out.push({ label: 'Grouped by', value: String(v).toLowerCase() });
+        break;
     }
   }
   return out;
@@ -360,6 +363,8 @@ function excelValue(v: number | null, f: ValueFormat): { value: number | null; n
       return { value: v, numFmt: '#,##0.0 "L"' };
     case 'kmpl':
       return { value: v, numFmt: '0.00 "km/L"' };
+    case 'min':
+      return { value: v, numFmt: '0.0 "min"' };
     default:
       return { value: v, numFmt: '#,##0' };
   }

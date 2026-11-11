@@ -54,10 +54,15 @@ export const headerKey = (h: string) => h.toLowerCase().replace(/[^a-z0-9]+/g, '
 function prepare(data: FileSection): Prepared {
   const omit = new Set((data.omitHeaders ?? []).map(headerKey));
   // The first column (the row's name) is always kept, as on the page.
-  const cols = columnsFor(data.type).filter((c, i) => i === 0 || !omit.has(headerKey(c.header)));
+  const cols = columnsFor(data.type, data.groupBy).filter((c, i) => i === 0 || !omit.has(headerKey(c.header)));
   const rows = data.rows.map((r) => cols.map((c) => c.value(r as never, data.tz)));
   const hasTotals = cols.some((c) => c.total);
-  const periodLabel = PERIOD_REPORT_TYPES.includes(data.type) && data.period ? ` · grouped by ${data.period.toLowerCase()}` : '';
+  const periodLabel =
+    PERIOD_REPORT_TYPES.includes(data.type) && data.period
+      ? ` · grouped by ${data.period.toLowerCase()}`
+      : data.type === 'TRIP_PERFORMANCE' && data.groupBy
+        ? ` · grouped by ${data.groupBy.toLowerCase()}`
+        : '';
   return {
     title: REPORT_TITLES[data.type],
     periodLine: `Period: ${data.from} to ${data.to} (${data.tz})${periodLabel}`,

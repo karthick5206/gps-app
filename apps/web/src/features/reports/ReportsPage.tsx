@@ -39,7 +39,7 @@ import { type TableView, viewExportBody } from './export-view';
 import { rowMatches, type InsightFilter } from './insights';
 import { PERIOD_OPTIONS } from './period-options';
 import { CatalogList, CatalogSheetButton, useCatalogPrefs } from './ReportCatalog';
-import { REPORT_DEF_MAP, REPORT_DEFS, type ReportTypeDef, type Row } from './report-columns';
+import { CATEGORY_PERMISSION, columnsForResult, REPORT_DEF_MAP, REPORT_DEFS, type ReportTypeDef, type Row } from './report-columns';
 import { daySpan, periodLabel } from './report-format';
 import { alertsReportLink, parseReportLink } from './report-link';
 import { getReportTimeZone, reportZoneLabel, todayInZone } from './report-time';
@@ -67,7 +67,11 @@ export function ReportsPage() {
   // A link may pre-fill the page (e.g. an Event summary cell → Alerts report for that vehicle and type).
   const [link] = useState(() => parseReportLink(window.location.search, REPORT_DEFS.map((d) => d.type)));
   const [type, setType] = useState<ReportType>(() => (link ? (link.type as ReportType) : 'SUMMARY'));
-  const [visible] = useState(() => (d: ReportTypeDef) => d.category !== 'Staff attendance' || can('attendance'));
+  // Attendance and planned-trip reports need their module's view permission as well.
+  const [visible] = useState(() => (d: ReportTypeDef) => {
+    const menu = CATEGORY_PERMISSION[d.category];
+    return !menu || can(menu);
+  });
   const prefs = useCatalogPrefs();
   // Report periods are company days, so "today" and the presets use the company's calendar (D-1).
   const today = todayInZone();
@@ -308,7 +312,7 @@ export function ReportsPage() {
                 <ReportTable
                   key={`${result.req.type}-${run.submittedAt}`}
                   type={result.req.type}
-                  columns={def.columns}
+                  columns={columnsForResult(def, result.res.groupBy)}
                   rows={result.res.rows}
                   totals={result.res.totals}
                   drill={def.drill}

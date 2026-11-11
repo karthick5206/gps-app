@@ -29,6 +29,7 @@ export class ReportsController {
       from: r.from,
       to: r.to,
       ...(r.period ? { period: r.period } : {}),
+      ...(r.groupBy ? { groupBy: r.groupBy } : {}),
       rows: r.rows,
       totals: r.totals,
       truncated: r.truncated,

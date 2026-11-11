@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   PERIOD_REPORT_TYPES,
+  PLANNED_TRIP_REPORT_TYPES,
   REPORT_OPTION_KEYS,
   REPORT_TYPES,
   SINGLE_OBJECT_REPORT_TYPES,
@@ -92,8 +93,10 @@ export interface SchedulePrefill {
 
 export function ScheduleForm({ record, open, onOpenChange, prefill }: MasterFormProps<ReportScheduleDto> & { prefill?: SchedulePrefill }) {
   const { t } = useTranslation();
-  const { me } = useAuth();
+  const { me, can } = useAuth();
   const schema = useMemo(() => makeSchema(t), [t]);
+  // Planned-trip reports need the planned trips permission (the API refuses them without it).
+  const typeOptions = useMemo(() => TYPE_OPTIONS.filter((o) => !PLANNED_TRIP_REPORT_TYPES.includes(o.value) || can('plannedTrips')), [can]);
   // Report options per type (D-2): kept outside the zod form; only the selected types' values are saved.
   const [options, setOptions] = useState<ScheduleReportOptions>(() => record?.options ?? prefill?.options ?? {});
   const form = useForm<Values>({
@@ -151,7 +154,7 @@ export function ScheduleForm({ record, open, onOpenChange, prefill }: MasterForm
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <TextField form={form} name="name" label={t('Name')} required className="sm:col-span-2" placeholder={t('e.g. Daily fleet summary')} />
-        <MultiSelectField form={form} name="reportTypes" label={t('Reports')} required options={TYPE_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))} placeholder={t('Choose reports…')} className="sm:col-span-2" />
+        <MultiSelectField form={form} name="reportTypes" label={t('Reports')} required options={typeOptions.map((o) => ({ ...o, label: t(o.label) }))} placeholder={t('Choose reports…')} className="sm:col-span-2" />
         <SelectField
           form={form}
           name="period"
