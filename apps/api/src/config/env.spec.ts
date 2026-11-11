@@ -38,4 +38,10 @@ describe('production environment checks', () => {
     expect(productionWarnings({ SMS_PROVIDER: 'smartping', SMTP_URL: 'smtps://example' })).toEqual([]);
     expect(productionWarnings({ SMS_PROVIDER: 'smartping', ZOHO_MAIL_KEY: 'k' })).toEqual([]);
   });
+
+  it('warns when TRACKER_SERVER_URL is set but unusable, not when it is valid', () => {
+    const ok = { SMS_PROVIDER: 'smartping', SMTP_URL: 'smtps://example' };
+    expect(productionWarnings({ ...ok, TRACKER_SERVER_URL: 'https://app.veetrax.com' })).toEqual([]);
+    expect(productionWarnings({ ...ok, TRACKER_SERVER_URL: 'http://app.veetrax.com' })).toEqual([expect.stringContaining('TRACKER_SERVER_URL is ignored')]);
+  });
 });

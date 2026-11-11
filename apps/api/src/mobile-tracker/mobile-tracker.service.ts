@@ -35,6 +35,7 @@ import {
   TrackerConfig,
   phoneReturn,
   phoneReturnMessage,
+  trackerServerUrl,
 } from './mobile-tracker.logic';
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -89,6 +90,15 @@ export class MobileTrackerService {
 
   config(): TrackerConfig {
     return DEFAULT_TRACKER_CONFIG;
+  }
+
+  /**
+   * TRACKER_SERVER_URL: the address phones should use. Tracker app 1.5.0+ checks that its login works there and then
+   * switches (older apps ignore it). Set it on the old server when moving to a new one, with the data copied first.
+   */
+  private server(): { server: { url: string } } | Record<string, never> {
+    const url = trackerServerUrl(process.env.TRACKER_SERVER_URL);
+    return url ? { server: { url } } : {};
   }
 
   /**
@@ -387,7 +397,7 @@ export class MobileTrackerService {
     } else if (object && device.companyId) {
       void this.alertPhoneReturn({ companyId: device.companyId, deviceId: device.id, object }, device.uniqueId, previous, next, now).catch((e: Error) => this.logger.error(`Tracker reactivated alert for ${device.id} failed: ${e.message}`));
     }
-    return { token, ...this.describe(device), config: this.config() };
+    return { token, ...this.describe(device), config: this.config(), ...this.server() };
   }
 
   /** The number set up again: on the same phone (reinstalled, signed out or stopped by an administrator) or on a different phone. */
@@ -490,11 +500,11 @@ export class MobileTrackerService {
         assignments: { where: { toTime: null }, select: { object: { select: { name: true } } } },
       },
     });
-    return { ...this.describe(device), config: this.config(), required: s.required };
+    return { ...this.describe(device), config: this.config(), required: s.required, ...this.server() };
   }
 
   /** Validates the points and adds them to the positions stream (the gateway's path into the processor). */
-  async upload(authorization: string | undefined, points: unknown[], health?: unknown): Promise<{ ok: true; accepted: number; config: TrackerConfig; required: boolean; revoked?: true }> {
+  async upload(authorization: string | undefined, points: unknown[], health?: unknown): Promise<{ ok: true; accepted: number; config: TrackerConfig; required: boolean; revoked?: true; server?: { url: string } }> {
     // App 1.3.4+ says it can deliver its queue after the number moved to another phone (older apps get the 401 and stop).
     const canDrain = (health as { drain?: unknown } | null | undefined)?.drain === true;
     const s = await this.session(authorization, canDrain);
@@ -531,7 +541,7 @@ export class MobileTrackerService {
       await this.prisma.mobileTrackerSession.update({ where: { id: s.sessionId }, data: { lastUsedAt: new Date(now) } }).catch(() => undefined);
     }
     const attention = await this.noticeFor(s.deviceId, now);
-    return { ok: true, accepted: parsed.length, config, required: s.required, ...(attention ? { attention } : {}) };
+    return { ok: true, accepted: parsed.length, config, required: s.required, ...(attention ? { attention } : {}), ...this.server() };
   }
 
   /** Never fails an upload: the phone has its points to deliver. */

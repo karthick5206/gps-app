@@ -98,6 +98,7 @@ class Engine private constructor(context: Context) {
     uploader.onConfig = { cfg -> applyConfig(TrackerConfig.merge(prefs.config, cfg)) }
     uploader.onRequired = { required -> applyRequired(required) }
     uploader.onRevoked = { startRevokedDrain() }
+    uploader.onServer = { url -> maybeMoveServer(url) }
     uploader.onAttention = { id, title, text ->
       if (prefs.lastAttentionId != id) {
         prefs.lastAttentionId = id
@@ -158,6 +159,27 @@ class Engine private constructor(context: Context) {
     if (prev.intervalSec != next.intervalSec || prev.distanceM != next.distanceM ||
       prev.stoppedIntervalSec != next.stoppedIntervalSec
     ) reconfigure()
+  }
+
+  /**
+   * The server asks this phone to use another address (ServerMove): switch only when this phone's login works
+   * there; else stay and try again after ServerMove.RETRY_MS. Engine thread (called from the uploader).
+   */
+  private fun maybeMoveServer(offered: String) {
+    val now = System.currentTimeMillis()
+    val current = prefs.serverUrl
+    val target = ServerMove.target(offered, current, prefs.serverMoveTarget, prefs.serverMoveTriedAt, now) ?: return
+    val token = prefs.token ?: return
+    prefs.serverMoveTarget = target
+    prefs.serverMoveTriedAt = now
+    if (uploader.loginWorksAt(target, token)) {
+      prefs.serverUrl = target
+      prefs.recordEvent("server", "moved to ${target.removePrefix("https://")} from ${current.removePrefix("https://")}")
+      Log.i(TAG, "server moved: $current -> $target")
+    } else {
+      prefs.recordEvent("server", "stayed: login not accepted at ${target.removePrefix("https://")}")
+      Log.w(TAG, "server move to $target refused (login not accepted there); staying on $current")
+    }
   }
 
   /** The server's answer: when tracking is required and off, it comes back on (not after REVOKED / INACTIVE). */

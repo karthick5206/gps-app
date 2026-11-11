@@ -41,10 +41,10 @@ export interface MobileTrackerStatusDto {
   events: TrackerEventDto[];
 }
 
-export const TRACKER_EVENT_KINDS = ['start', 'stop', 'refused', 'exit', 'boot', 'upload', 'discard'] as const;
+export const TRACKER_EVENT_KINDS = ['start', 'stop', 'refused', 'exit', 'boot', 'upload', 'discard', 'server'] as const;
 export type TrackerEventKind = (typeof TRACKER_EVENT_KINDS)[number];
 
-/** start / stop / refused restart of tracking, the reason Android gives for ending the app (exit), a phone restart (boot), uploads recovering after failures (upload), points the server refused (discard). */
+/** start / stop / refused restart of tracking, the reason Android gives for ending the app (exit), a phone restart (boot), uploads recovering after failures (upload), points the server refused (discard), a move to another server address or a refused move (server, app 1.5.0+). */
 export interface TrackerEventDto {
   kind: TrackerEventKind;
   at: string;

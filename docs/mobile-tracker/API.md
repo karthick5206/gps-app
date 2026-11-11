@@ -83,6 +83,27 @@ invalid fixes (not drawn as movement); mock locations are flagged and never move
 
 `GET /me` — Bearer token → `{ "uniqueId", "objectName", "companyName", "config" }` (used on app start).
 
+## 5. Moving phones to another server address (app 1.5.0+)
+
+When the server has `TRACKER_SERVER_URL` set (for example `https://app.veetrax.com`), the activation, `/me` and upload
+answers carry `"server": { "url": "https://app.veetrax.com" }`. A phone using a different address then:
+
+1. accepts only a plain `https://host` on a domain built into the app (`veetrax.com`, `mintplus.co.in` and their
+   subdomains; same list as `TRACKER_SERVER_DOMAINS` in the API), so a wrong or hijacked setting can't redirect phones;
+2. calls `GET <url>/api/tracker/v1/me` with its own token (redirects not followed);
+3. on a 2xx answer, uses that address for all later uploads and app requests (it survives restarts and sign-out);
+   otherwise it stays and tries the same address again after an hour.
+
+Both outcomes are in the phone's history (kind `server`, Devices → Tracker app). The batch that carried the answer was
+already accepted by the old server; only the next one goes to the new address.
+
+**A move only works when the phone's login exists on the new server**, so copy the data (sessions included) first,
+then set `TRACKER_SERVER_URL` on the **old** server and restart its API. Older apps ignore the field; for them, point
+the old domain at the new server instead. An invalid value is ignored with a startup warning.
+
+The app's build address (`EXPO_PUBLIC_SERVER_URL`, default `https://app.veetrax.com`) only seeds a fresh install:
+the native engine keeps the address, and the app's screens follow it.
+
 ## Attendance
 
 All with the Bearer token. `{ "enabled": false }` when attendance doesn't cover this phone today.

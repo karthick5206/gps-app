@@ -51,6 +51,7 @@ interface NativeModuleShape {
   getStatus(): Promise<TrackerStatus>;
   setConfig(config: Partial<NativeTrackerConfig>): Promise<boolean>;
   setCredentials(token: string, serverUrl: string | null): Promise<boolean>;
+  initServerUrl(buildUrl: string | null): Promise<string>;
   sendSos(): Promise<SosResult>;
   flush(): Promise<boolean>;
   resetStopReason(): Promise<boolean>;
@@ -79,8 +80,17 @@ export const isAvailable = Native != null;
 
 const unavailable = () => new Error('VeeTrax tracker engine is only available on Android');
 
-export function start(token: string, serverUrl: string, config?: Partial<NativeTrackerConfig>): Promise<StartResult> {
-  return Native ? Native.start(token, serverUrl, config ?? null) : Promise.reject(unavailable());
+/** The native engine keeps the server address itself (initServerUrl / server moves), so none is passed here. */
+export function start(token: string, config?: Partial<NativeTrackerConfig>): Promise<StartResult> {
+  return Native ? Native.start(token, null, config ?? null) : Promise.reject(unavailable());
+}
+
+/**
+ * The server address in use: the phone's stored one (the build an install started with, or where the server
+ * moved it), else [buildUrl], which is then stored. Without the native module: [buildUrl].
+ */
+export function initServerUrl(buildUrl: string): Promise<string> {
+  return Native ? Native.initServerUrl(buildUrl).catch(() => buildUrl) : Promise.resolve(buildUrl);
 }
 
 /** Delivers the queue now; resolves with how many points are still waiting. */
@@ -104,8 +114,8 @@ export function setConfig(config: Partial<NativeTrackerConfig>): Promise<boolean
   return Native ? Native.setConfig(config) : Promise.resolve(false);
 }
 
-export function setCredentials(token: string, serverUrl: string): Promise<boolean> {
-  return Native ? Native.setCredentials(token, serverUrl) : Promise.resolve(false);
+export function setCredentials(token: string): Promise<boolean> {
+  return Native ? Native.setCredentials(token, null) : Promise.resolve(false);
 }
 
 export function sendSos(): Promise<SosResult> {

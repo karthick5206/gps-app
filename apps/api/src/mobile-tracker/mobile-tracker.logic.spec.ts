@@ -1,5 +1,5 @@
 import { sanitizeTrackerEvents, sanitizeTrackerHealth, trackerHealthIssues } from '@veetracer/shared';
-import { trackerOnOffChanges, codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, phoneReturn, phoneReturnMessage, roughSpikes, toNormalized, type TrackerPoint } from './mobile-tracker.logic';
+import { trackerOnOffChanges, trackerServerUrl, codeRecipients, DEFAULT_TRACKER_CONFIG, formatMobile, maskEmail, normalizeMobile, parsePoint, phoneReturn, phoneReturnMessage, roughSpikes, toNormalized, type TrackerPoint } from './mobile-tracker.logic';
 
 const NOW = Date.parse('2026-10-21T06:00:00Z');
 
@@ -227,5 +227,30 @@ describe('roughSpikes', () => {
   it('a single odd GPS fix that the next one contradicts removes nothing', () => {
     const pts = [pt(0, 12.94701, 80.19561, 80), pt(4, 12.9619, 80.2153, 4), pt(8, 12.94705, 80.19565, 5)];
     expect(roughSpikes(pts).size).toBe(0);
+  });
+});
+
+describe('trackerServerUrl', () => {
+  it('accepts a plain https address on an allowed domain', () => {
+    expect(trackerServerUrl('https://app.veetrax.com')).toBe('https://app.veetrax.com');
+    expect(trackerServerUrl(' https://APP.veetrax.com/ ')).toBe('https://app.veetrax.com');
+    expect(trackerServerUrl('https://veetrax.com')).toBe('https://veetrax.com');
+    expect(trackerServerUrl('https://gps.mintplus.co.in:443')).toBe('https://gps.mintplus.co.in');
+  });
+
+  it('refuses anything a phone must not be sent to', () => {
+    for (const bad of [
+      undefined,
+      '',
+      'http://app.veetrax.com', // not https
+      'https://app.veetrax.com.evil.example', // look-alike
+      'https://evilveetrax.com', // suffix without a dot
+      'https://example.com',
+      'https://app.veetrax.com/api', // path
+      'https://app.veetrax.com:8443', // other port
+      'https://user:pw@app.veetrax.com',
+      'https://app.veetrax.com/?x=1',
+      'not a url',
+    ]) expect(trackerServerUrl(bad)).toBeNull();
   });
 });

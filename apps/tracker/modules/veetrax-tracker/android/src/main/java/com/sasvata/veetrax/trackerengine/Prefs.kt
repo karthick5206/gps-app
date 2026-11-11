@@ -6,7 +6,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
 
-const val DEFAULT_SERVER_URL = "https://gps.mintplus.co.in"
+/** Only for a phone that never stored an address; the app passes its build's address first (initServerUrl). */
+const val DEFAULT_SERVER_URL = "https://app.veetrax.com"
 
 /** Server-controlled tracking settings (API.md `config`). */
 data class TrackerConfig(
@@ -97,9 +98,21 @@ class Prefs(context: Context) {
     get() = str("token")
     set(v) { sp.edit().putString("token", v).commit() }
 
+  /** The one server address the engine and the app's screens use; it survives sign-out and moves (ServerMove). */
   var serverUrl: String
     get() = str("serverUrl")?.takeIf { it.isNotBlank() } ?: DEFAULT_SERVER_URL
     set(v) { sp.edit().putString("serverUrl", v.trim().trimEnd('/')).commit() }
+
+  /** False until an address is stored: the app then seeds it with its build's address (initServerUrl). */
+  val hasServerUrl: Boolean get() = !str("serverUrl").isNullOrBlank()
+
+  /** Last address the server asked this phone to move to, and when that was tried (ServerMove.RETRY_MS). */
+  var serverMoveTarget: String?
+    get() = str("serverMoveTarget")
+    set(v) { sp.edit().putString("serverMoveTarget", v).commit() }
+  var serverMoveTriedAt: Long
+    get() = long("serverMoveTriedAt")
+    set(v) { sp.edit().putLong("serverMoveTriedAt", v).commit() }
 
   /** The user wants tracking on. Only Stop in the app (or a server REVOKED / INVALID / INACTIVE) clears it. */
   var wanted: Boolean

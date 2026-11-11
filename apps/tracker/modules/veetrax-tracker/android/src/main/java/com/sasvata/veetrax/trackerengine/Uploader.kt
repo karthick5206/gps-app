@@ -49,6 +49,9 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
   /** Called with the server's answer to "must this phone track?" (app 1.3.4+ servers send it). */
   var onRequired: ((Boolean) -> Unit)? = null
 
+  /** The address the server wants this phone to use (`server.url`, app 1.5.0+); the Engine decides (ServerMove). */
+  var onServer: ((String) -> Unit)? = null
+
   /** Something the employee should act on (attendance); the id says when it is a new one. */
   var onAttention: ((id: String, title: String, text: String) -> Unit)? = null
 
@@ -70,6 +73,7 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
       }
       if (conn.responseCode !in 200..299) return null
       val json = JSONObject(conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+      serverOf(json)?.let { onServer?.invoke(it) }
       if (json.has("required")) json.optBoolean("required") else null
     } catch (_: Exception) {
       null
@@ -131,6 +135,8 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
           val id = a.optString("id")
           if (id.isNotEmpty()) onAttention?.invoke(id, a.optString("title"), a.optString("text"))
         }
+        // Last: this batch is confirmed by the current server; a move only changes where the next one goes.
+        json?.let { serverOf(it) }?.let { onServer?.invoke(it) }
         Outcome.Done
       }
       res.code == 401 -> Outcome.Stop(if (code == "REVOKED") "REVOKED" else "INVALID", clearToken = true)
@@ -138,6 +144,35 @@ class Uploader(context: Context, private val prefs: Prefs, private val queue: Po
       res.code == 408 || res.code == 429 || res.code >= 500 -> backoff("Server: $message")
       // Any other answer is kept and retried too: a proxy or a server bug must never cost points.
       else -> backoff("Rejected: $message")
+    }
+  }
+
+  private fun serverOf(o: JSONObject): String? = o.optJSONObject("server")?.optString("url")?.takeIf { it.isNotEmpty() }
+
+  /**
+   * True when this phone's login works at [baseUrl] (GET /api/tracker/v1/me answers 2xx): only then may the
+   * engine move there. Any error or other answer means stay. Blocking, engine thread.
+   */
+  fun loginWorksAt(baseUrl: String, token: String): Boolean {
+    wakeLock.acquire(WAKELOCK_MS)
+    var conn: HttpURLConnection? = null
+    return try {
+      conn = (URL("$baseUrl/api/tracker/v1/me").openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = TIMEOUT_MS
+        readTimeout = TIMEOUT_MS
+        useCaches = false
+        // A redirect could lead off the checked address; the check must be about this address only.
+        instanceFollowRedirects = false
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("Authorization", "Bearer $token")
+      }
+      conn.responseCode in 200..299
+    } catch (_: Exception) {
+      false
+    } finally {
+      conn?.disconnect()
+      if (wakeLock.isHeld) wakeLock.release()
     }
   }
 
