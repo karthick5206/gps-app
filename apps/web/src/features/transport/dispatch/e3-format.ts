@@ -177,6 +177,8 @@ export function etaView(eta: EtaValue | null | undefined): EtaView {
       return { at: null, note: 'No vehicle position: no ETA', degraded: true };
     case 'NO_ROUTE':
       return { at: null, note: 'No road route found: no ETA', degraded: true };
+    case 'NO_PICKUP':
+      return { at: null, note: 'No pickup point to route to: no ETA', degraded: true };
     default:
       return { at: null, note: 'No ETA', degraded: false };
   }

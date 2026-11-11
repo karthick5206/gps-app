@@ -8,7 +8,7 @@ import { RedisKeys } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import { addDays } from '../../summarizer/tz';
 import { parseLive } from '../../tracking/live-object';
-import { PeopleService } from '../people/people.service';
+import { PeopleService, activeRoutingConsents } from '../people/people.service';
 import { dateOnly, dayKeyOf, invalid, notFound, serviceDate } from './e3-common';
 import { derivedStateOf } from './e3-mapping';
 import { MeRangeQuery } from './e3.dto';
@@ -17,7 +17,7 @@ import { todayIn } from './service-dates';
 const MIN = 60_000;
 
 const SEAT_INCLUDE = {
-  booking: { select: { id: true, profileId: true, windowStart: true, windowEnd: true, timeZone: true, pickupLabel: true, dropLabel: true } },
+  booking: { select: { id: true, profileId: true, windowStart: true, windowEnd: true, timeZone: true, pickupLabel: true, dropLabel: true, pickupLat: true, pickupLng: true, dropLat: true, dropLng: true } },
   trip: {
     include: {
       plannedTrip: { include: { stops: { orderBy: { seq: 'asc' as const } } } },
@@ -68,12 +68,14 @@ export class MeTransportService {
     });
     const mine = seats.filter((s) => s.booking.profileId === me.id);
     const names = await this.names(mine);
-    return mine.map((s) => this.toMeTrip(s, names)).sort((a, b) => a.window.start.localeCompare(b.window.start));
+    const consent = (await activeRoutingConsents(this.prisma, [me.id])).has(me.id);
+    return mine.map((s) => this.toMeTrip(s, names, consent)).sort((a, b) => a.window.start.localeCompare(b.window.start));
   }
 
   async trip(ctx: AuthContext, tripId: string): Promise<MeTripDto> {
     const seat = await this.seat(ctx, tripId);
-    return this.toMeTrip(seat, await this.names([seat]));
+    const consent = (await activeRoutingConsents(this.prisma, [seat.booking.profileId])).has(seat.booking.profileId);
+    return this.toMeTrip(seat, await this.names([seat]), consent);
   }
 
   /** The trip's vehicle, only inside the window (`{ visible: false }` outside); own trip only. */
@@ -154,7 +156,13 @@ export class MeTransportService {
     return { at: null, model: null };
   }
 
-  private toMeTrip(s: SeatRow, n: Awaited<ReturnType<MeTransportService['names']>>): MeTripDto {
+  /**
+   * `consent`: the caller's own routing consent (E2 final model). Their own pickup / drop point is shown only with it
+   * (doc 02 §7, doc 10: a passenger may see their own location); the seat row is always the caller's own (seat()).
+   */
+  private toMeTrip(s: SeatRow, n: Awaited<ReturnType<MeTransportService['names']>>, consent: boolean): MeTripDto {
+    const own = (lat: number | null, lng: number | null) => (consent && lat !== null && lng !== null ? { lat, lng } : null);
+    const hasPoint = s.booking.pickupLat !== null || s.booking.dropLat !== null;
     const pt = s.trip.plannedTrip;
     const pick = pt?.stops.find((x) => x.seq === s.pickupSeq);
     const drop = pt?.stops.find((x) => x.seq === s.dropSeq);
@@ -175,6 +183,11 @@ export class MeTransportService {
       driverFirstName: driver ? driver.trim().split(/\s+/)[0] : null,
       myStop: pick ? { seq: pick.seq, label: s.booking.pickupLabel ?? pick.name, plannedAt: iso(pick.plannedArrival), status: pick.status as PlannedStopStatus, eta: this.myEta(s) } : null,
       myDrop: drop ? { seq: drop.seq, label: s.booking.dropLabel ?? drop.name, plannedAt: iso(drop.plannedArrival) } : null,
+      plannedStart: pt ? iso(pt.plannedStart) : null,
+      plannedEnd: pt ? iso(pt.plannedEnd) : null,
+      myPickupPoint: own(s.booking.pickupLat, s.booking.pickupLng),
+      myDropPoint: own(s.booking.dropLat, s.booking.dropLng),
+      pointsHidden: !consent && hasPoint ? 'CONSENT_REQUIRED' : null,
       coRiders: s.trip.passengers.filter((p) => p.id !== s.id && p.status !== 'CANCELLED').length,
       liveVisible: !!w && now >= w.start && now <= w.end,
     };

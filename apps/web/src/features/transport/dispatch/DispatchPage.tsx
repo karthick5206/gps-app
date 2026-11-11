@@ -1,6 +1,6 @@
 import type { DriverDto, TransportBookingDto, TransportDirection, TransportTripSummaryDto } from '@veetracer/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronLeftIcon, ChevronRightIcon, ClipboardListIcon, FileClockIcon, SendIcon, Trash2Icon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, ClipboardListIcon, EyeIcon, FileClockIcon, SendIcon, Trash2Icon } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -31,7 +31,7 @@ import {
   addToNewTrip,
   addToTrip,
   buildChangeSet,
-  defaultSeqs,
+  defaultPlacement,
   diffDraft,
   draftBookingIds,
   draftChangeCount,
@@ -43,6 +43,7 @@ import {
   type DraftBooking,
   type IdempotencySlot,
 } from './dispatch-draft';
+import { ChangeSetDetailDialog } from './ChangeSetDetailDialog';
 import { CandidatesPanel, DraftReview, DraftTray, QueuePanel, TripsPanel, type PanelCtx } from './dispatch-panels';
 import { DIRECTION_LABEL, isEditableTrip, newUuid } from './e3-format';
 import { ConnectionChip, e3ErrorMessage, RoutingChip, SimpleSelect } from './e3-ui';
@@ -95,6 +96,7 @@ export function DispatchPage() {
   const [shiftId, setShiftId] = useState<string>(ALL);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, DispatchDraft>>({});
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [tab, setTab] = useState('queue');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
@@ -140,7 +142,7 @@ export function DispatchPage() {
     if (!data) return [];
     const inDraft = draftBookingIds(draft);
     const chosen = data.queue.filter((b) => selected.has(b.id));
-    const ok = chosen.filter((b) => b.status === 'PENDING_ASSIGNMENT' && !b.needsLocation && !inDraft.has(b.id));
+    const ok = chosen.filter((b) => b.status === 'PENDING_ASSIGNMENT' && !b.needsLocation && !b.pointsHidden && !inDraft.has(b.id));
     if (ok.length < chosen.length) toast.warning(t('{{n}} booking(s) left out: they need approval or a pickup / drop point.', { n: chosen.length - ok.length }));
     return ok.map(toDraftBooking);
   };
@@ -157,13 +159,19 @@ export function DispatchPage() {
     setBusy(true);
     try {
       const detail = await fetchTransportTrip(qc, trip.id);
-      const seqs: Record<string, { pickupSeq: number; dropSeq: number }> = {};
+      const seqs: Record<string, NonNullable<ReturnType<typeof defaultPlacement>>> = {};
       for (const b of list) {
-        const s = defaultSeqs(detail.stops, b);
+        // A pickup far from every stop gets its own new stop (ADD_STOP on publish); otherwise the nearest stops.
+        const s = defaultPlacement(detail.stops, b, direction);
         if (s) seqs[b.id] = s;
       }
       setDraft((d) => addToTrip(d, { id: trip.id, version: trip.version }, list, seqs));
-      done(t('{{n}} passenger(s) added to {{trip}} in the draft. Check the pickup stops before publishing.', { n: Object.keys(seqs).length, trip: trip.vehicleName ?? trip.name }));
+      const added = Object.values(seqs).filter((s) => s.newStop).length;
+      done(
+        added
+          ? t('{{n}} passenger(s) added to {{trip}} in the draft, {{s}} with a new stop. Check the stops before publishing.', { n: Object.keys(seqs).length, trip: trip.vehicleName ?? trip.name, s: added })
+          : t('{{n}} passenger(s) added to {{trip}} in the draft. Check the pickup stops before publishing.', { n: Object.keys(seqs).length, trip: trip.vehicleName ?? trip.name }),
+      );
     } catch (e) {
       toast.error(e3ErrorMessage(e, t));
     } finally {
@@ -302,6 +310,9 @@ export function DispatchPage() {
                 </>
               )}
             </span>
+            <Button size="sm" variant="ghost" onClick={() => setDetailId(d.id)} aria-label={t('Details of the saved draft')}>
+              <EyeIcon /> {t('Details')}
+            </Button>
             {canPlan && (
               <>
                 <Button
@@ -338,11 +349,14 @@ export function DispatchPage() {
     </Card>
   );
 
+  const detailDialog = <ChangeSetDetailDialog id={detailId} tz={data?.timeZone} onOpenChange={(o) => !o && setDetailId(null)} />;
+
   const pane = 'flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto';
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col gap-3 p-4 sm:p-6">
       <PageHeader title={t('Dispatch')} description={t('Seat waiting passengers on trips, then publish the changes together.')} />
+      {detailDialog}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="flex items-center gap-1">

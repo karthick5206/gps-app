@@ -83,8 +83,25 @@ export function parseChangeOps(raw: unknown[]): DispatchChangeOp[] {
         return { op: 'REASSIGN_VEHICLE', tripId: ref(c.tripId, 'tripId'), objectId: uuid(c.objectId, 'objectId') };
       case 'REASSIGN_DRIVER':
         return { op: 'REASSIGN_DRIVER', tripId: ref(c.tripId, 'tripId'), driverId: c.driverId === null || c.driverId === undefined ? null : uuid(c.driverId, 'driverId') };
+      case 'ADD_STOP': {
+        // Existing trips only (a new trip's stops are given by its CREATE_TRIP); the point comes from the booking.
+        if (c.end !== 'PICKUP' && c.end !== 'DROP') throw invalid(`Change ${n}: end must be PICKUP or DROP`);
+        if (!int(c.afterSeq, -1, TRANSPORT_E3_LIMITS.maxStops)) throw invalid(`Change ${n}: afterSeq must be a stop seq (or -1 for before the first stop)`);
+        if (c.plannedArrival !== undefined && !Number.isFinite(isoMs(c.plannedArrival))) throw invalid(`Change ${n}: plannedArrival must be a date and time`);
+        if (c.waitMin !== undefined && !int(c.waitMin, 0, ROUTE_LIMITS.maxWaitMin)) throw invalid(`Change ${n}: wait out of range`);
+        if ('point' in c || 'lat' in c) throw invalid(`Change ${n}: ADD_STOP takes the point from the booking, not from the request`);
+        return {
+          op: 'ADD_STOP',
+          tripId: uuid(c.tripId, 'tripId (an existing trip)'),
+          bookingId: uuid(c.bookingId, 'bookingId'),
+          end: c.end,
+          afterSeq: c.afterSeq as number,
+          ...(c.plannedArrival !== undefined ? { plannedArrival: new Date(isoMs(c.plannedArrival)).toISOString() } : {}),
+          ...(c.waitMin !== undefined ? { waitMin: c.waitMin as number } : {}),
+        };
+      }
       default:
-        throw invalid(`Change ${n}: unknown op ${String(c.op)} (R1: CREATE_TRIP, ADD_PASSENGER, REMOVE_PASSENGER, REASSIGN_VEHICLE, REASSIGN_DRIVER)`);
+        throw invalid(`Change ${n}: unknown op ${String(c.op)} (R1: CREATE_TRIP, ADD_PASSENGER, ADD_STOP, REMOVE_PASSENGER, REASSIGN_VEHICLE, REASSIGN_DRIVER)`);
     }
   });
 }

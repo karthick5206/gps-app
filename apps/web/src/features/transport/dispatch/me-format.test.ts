@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { MeTripDto } from '@veetracer/shared';
-import { hiddenVehicleText, ME_POLL_MS, shouldPollVehicle, sortMyTrips } from './me-format.ts';
+import { hiddenVehicleText, ME_POLL_MS, myMapStops, shouldPollVehicle, sortMyTrips, vehicleWindowOf } from './me-format.ts';
 
 function trip(over: Partial<MeTripDto> = {}): MeTripDto {
   return {
@@ -17,6 +17,11 @@ function trip(over: Partial<MeTripDto> = {}): MeTripDto {
     driverFirstName: 'Ravi',
     myStop: { seq: 0, label: 'Home', plannedAt: '2026-11-10T02:40:00.000Z', status: 'PENDING', eta: { at: null, model: null } },
     myDrop: { seq: 2, label: 'Office', plannedAt: '2026-11-10T03:20:00.000Z' },
+    plannedStart: null,
+    plannedEnd: null,
+    myPickupPoint: null,
+    myDropPoint: null,
+    pointsHidden: null,
     coRiders: 3,
     liveVisible: false,
     ...over,
@@ -45,6 +50,26 @@ test('vehicle window: never for cancelled / detached trips or a no-show / remove
   assert.equal(shouldPollVehicle(trip({ myStatus: 'DROPPED' }), inside), false);
   assert.equal(shouldPollVehicle(trip({ derivedState: 'COMPLETED', liveVisible: true }), inside), true);
   assert.equal(shouldPollVehicle(trip({ myStop: null, window: { start: 'bad', end: 'bad' } }), inside), false);
+});
+
+test('vehicle window from the trip’s planned start / end (server rule: start − 30 min … end + 10 min)', () => {
+  const t = trip({ plannedStart: '2026-11-10T02:10:00.000Z', plannedEnd: '2026-11-10T03:20:00.000Z' });
+  assert.deepEqual(vehicleWindowOf(t), { open: at('2026-11-10T01:40:00Z'), close: at('2026-11-10T03:30:00Z') });
+  // Earlier than the booking window would allow, later than the trip allows: the trip times decide.
+  assert.equal(shouldPollVehicle(t, at('2026-11-10T01:39:00Z')), false);
+  assert.equal(shouldPollVehicle(t, at('2026-11-10T01:41:00Z')), true);
+  assert.equal(shouldPollVehicle(t, at('2026-11-10T03:31:00Z')), false);
+  // Without trip times: the old pickup / booking-window rule.
+  assert.deepEqual(vehicleWindowOf(trip()), { open: at('2026-11-10T01:30:00Z'), close: at('2026-11-10T03:40:00Z') });
+});
+
+test('my map shows only my own points, and only when the server sent them (my consent)', () => {
+  assert.deepEqual(myMapStops(trip()), []);
+  const mine = myMapStops(trip({ myPickupPoint: { lat: 13.06, lng: 80.24 }, myDropPoint: { lat: 13.05, lng: 80.25 } }));
+  assert.deepEqual(mine, [
+    { seq: 0, lat: 13.06, lng: 80.24, label: 'Home', mine: true },
+    { seq: 2, lat: 13.05, lng: 80.25, label: 'Office' },
+  ]);
 });
 
 test('hidden vehicle text and trip order', () => {

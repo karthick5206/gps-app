@@ -11,6 +11,7 @@ import type {
   MeVehicleDto,
   RepeatTransportTripResult,
   TransportBookingDto,
+  TransportChangeSetDetailDto,
   TransportChangeSetSummaryDto,
   TransportScheduleDto,
   TransportScheduleExceptionDto,
@@ -208,6 +209,12 @@ export class DispatchController {
   @Get('change-sets') @RequirePermission('etms_dispatch', 'view')
   changeSets(@Auth() ctx: AuthContext, @Query() q: ChangeSetListQuery): Promise<TransportChangeSetSummaryDto[]> {
     return this.dispatch.listChangeSets(ctx, q);
+  }
+
+  /** A saved change set with its changes (draft details; dispatcher-scoped). */
+  @Get('change-sets/:id') @RequirePermission('etms_dispatch', 'view')
+  changeSet(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<TransportChangeSetDetailDto> {
+    return this.dispatch.changeSet(ctx, id);
   }
 
   /** Publish (or save as DRAFT with `draft: true`) a change set atomically. */

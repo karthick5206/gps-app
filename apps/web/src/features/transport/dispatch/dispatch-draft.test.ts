@@ -8,15 +8,21 @@ import {
   addToTrip,
   buildChangeSet,
   defaultNewTripStart,
+  defaultPlacement,
   defaultSeqs,
   diffDraft,
   draftBookingIds,
   draftChangeCount,
   emptyDraft,
+  existingTripOps,
   idempotencyFor,
   isDraftEmpty,
+  metresBetween,
+  NEW_STOP_DISTANCE_M,
   newTripStops,
   rebaseDraft,
+  setAddNewPickupStop,
+  setAddSeqs,
   stableStringify,
   undoRemove,
   withoutBookings,
@@ -162,4 +168,53 @@ test('idempotency key: same body retried → same key; any change → new key', 
   const changed = idempotencyFor(first, { ...body, expectedVersions: { t: 2 } }, gen);
   assert.equal(changed.key, 'key-2');
   assert.equal(stableStringify({ b: [1, { d: 1, c: 2 }], a: null }), '{"a":null,"b":[1,{"c":2,"d":1}]}');
+});
+
+test('new stops on an existing trip (ADD_STOP): afterSeq in the numbering of the moment, seats in the final numbering', () => {
+  // Trip stops 0 Home, 1 Gate, 2 Office. Three adds: x new pickup after 0, y existing 1 → 2, z new pickup after 0 (after x's).
+  const ops = existingTripOps([
+    { tripId: 't', bookingId: 'x', pickupSeq: 0, dropSeq: 2, newStop: { end: 'PICKUP', afterSeq: 0 } },
+    { tripId: 't', bookingId: 'y', pickupSeq: 1, dropSeq: 2 },
+    { tripId: 't', bookingId: 'z', pickupSeq: 0, dropSeq: 2, newStop: { end: 'PICKUP', afterSeq: 0 } },
+  ]);
+  assert.deepEqual(ops, [
+    { op: 'ADD_STOP', tripId: 't', bookingId: 'x', end: 'PICKUP', afterSeq: 0 },
+    { op: 'ADD_STOP', tripId: 't', bookingId: 'z', end: 'PICKUP', afterSeq: 1 },
+    // Final: 0 Home, 1 x, 2 z, 3 Gate, 4 Office.
+    { op: 'ADD_PASSENGER', tripId: 't', bookingId: 'x', pickupSeq: 1, dropSeq: 4 },
+    { op: 'ADD_PASSENGER', tripId: 't', bookingId: 'y', pickupSeq: 3, dropSeq: 4 },
+    { op: 'ADD_PASSENGER', tripId: 't', bookingId: 'z', pickupSeq: 2, dropSeq: 4 },
+  ]);
+  // Before the first stop, and a new drop (OUT) after the last one.
+  assert.deepEqual(existingTripOps([{ tripId: 't', bookingId: 'f', pickupSeq: 0, dropSeq: 1, newStop: { end: 'PICKUP', afterSeq: -1 } }]), [
+    { op: 'ADD_STOP', tripId: 't', bookingId: 'f', end: 'PICKUP', afterSeq: -1 },
+    { op: 'ADD_PASSENGER', tripId: 't', bookingId: 'f', pickupSeq: 0, dropSeq: 2 },
+  ]);
+  assert.deepEqual(existingTripOps([{ tripId: 't', bookingId: 'o', pickupSeq: 0, dropSeq: 1, newStop: { end: 'DROP', afterSeq: 1 } }]), [
+    { op: 'ADD_STOP', tripId: 't', bookingId: 'o', end: 'DROP', afterSeq: 1 },
+    { op: 'ADD_PASSENGER', tripId: 't', bookingId: 'o', pickupSeq: 0, dropSeq: 2 },
+  ]);
+});
+
+test('default placement: nearest stops when close, a new stop at the cheapest insertion point when far; change set carries it', () => {
+  const stops = [
+    { seq: 0, lat: 13.11, lng: 80.25 },
+    { seq: 1, lat: 13.05, lng: 80.25 },
+    { seq: 2, lat: 13.0, lng: 80.2 },
+  ];
+  assert.deepEqual(defaultPlacement(stops, { pickup: { lat: 13.1101, lng: 80.2501 }, drop: SITE }, 'IN'), { pickupSeq: 0, dropSeq: 2, newStop: null });
+  // 13.08 / 80.25 lies between stop 0 and stop 1 (≈ 3 km from both): a new stop after 0.
+  assert.deepEqual(defaultPlacement(stops, { pickup: { lat: 13.08, lng: 80.25 }, drop: SITE }, 'IN'), { pickupSeq: 0, dropSeq: 2, newStop: { end: 'PICKUP', afterSeq: 0 } });
+  assert.ok(metresBetween({ lat: 13.08, lng: 80.25 }, stops[0]) > NEW_STOP_DISTANCE_M);
+  let d = emptyDraft('2026-11-10', 'IN');
+  d = addToTrip(d, TRIP, [A], { a: { pickupSeq: 0, dropSeq: 2, newStop: { end: 'PICKUP', afterSeq: 0 } } });
+  assert.deepEqual(buildChangeSet(d).changes, [
+    { op: 'ADD_STOP', tripId: TRIP.id, bookingId: 'a', end: 'PICKUP', afterSeq: 0 },
+    { op: 'ADD_PASSENGER', tripId: TRIP.id, bookingId: 'a', pickupSeq: 1, dropSeq: 3 },
+  ]);
+  // Choosing an existing stop again drops the new stop.
+  d = setAddSeqs(d, 'a', 1, 2);
+  assert.deepEqual(buildChangeSet(d).changes, [{ op: 'ADD_PASSENGER', tripId: TRIP.id, bookingId: 'a', pickupSeq: 1, dropSeq: 2 }]);
+  d = setAddNewPickupStop(d, 'a', -1);
+  assert.deepEqual(d.adds[0].newStop, { end: 'PICKUP', afterSeq: -1 });
 });

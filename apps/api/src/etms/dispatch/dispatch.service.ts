@@ -17,6 +17,7 @@ import {
   type PlannedTripStatus,
   type RepeatTransportTripResult,
   type TransportBookingStatus,
+  type TransportChangeSetDetailDto,
   type TransportChangeSetSummaryDto,
 } from '@veetracer/shared';
 import { objectScopeWhere } from '../../access/access-rules';
@@ -36,6 +37,7 @@ import { activeRoutingConsents } from '../people/people.service';
 import { UNSEATED_STATUSES } from './booking-generator.service';
 import { BOOKING_ENTITY, type Replayable } from './bookings.service';
 import { adhocStops, parseChangeOps } from './change-ops';
+import { changeSetDetail } from './change-set-detail';
 import {
   assertTripWrite,
   bookingReadWhere,
@@ -78,6 +80,40 @@ interface PreparedTrip {
   plannedEnd: Date;
 }
 
+/** The planned stop a TRIP candidate's road ETA starts from. */
+interface FromStop {
+  seq: number;
+  lat: number;
+  lng: number;
+  departure: Date;
+  d: number;
+}
+
+interface StopState {
+  id: string;
+  seq: number;
+  lat: number;
+  lng: number;
+  plannedArrival: Date;
+  plannedDeparture: Date;
+}
+
+const stopIdMap = (stops: StopState[]) => new Map(stops.map((s) => [s.seq, { id: s.id, plannedArrival: s.plannedArrival }]));
+const toStopState = (s: { id: string; seq: number; lat: number; lng: number; plannedArrival: Date; plannedDeparture: Date }): StopState => ({ id: s.id, seq: s.seq, lat: s.lat, lng: s.lng, plannedArrival: s.plannedArrival, plannedDeparture: s.plannedDeparture });
+
+/** Default planned arrival of an inserted stop: between its neighbours; 10 min before the first / after the last. */
+export function insertedArrival(prev: Pick<StopState, 'plannedDeparture'> | undefined, next: Pick<StopState, 'plannedArrival'> | undefined): Date {
+  if (prev && next) return new Date(Math.round((prev.plannedDeparture.getTime() + next.plannedArrival.getTime()) / 2 / 1000) * 1000);
+  if (prev) return new Date(prev.plannedDeparture.getTime() + 10 * MIN);
+  return new Date(next!.plannedArrival.getTime() - 10 * MIN);
+}
+
+/** The booking's point for one end of an ADD_STOP (null when it has none). */
+function bookingEnd(b: { pickupLat: number | null; pickupLng: number | null; pickupLabel: string | null; dropLat: number | null; dropLng: number | null; dropLabel: string | null }, end: 'PICKUP' | 'DROP') {
+  const [lat, lng, label] = end === 'PICKUP' ? [b.pickupLat, b.pickupLng, b.pickupLabel] : [b.dropLat, b.dropLng, b.dropLabel];
+  return lat === null || lng === null ? null : { lat, lng, label };
+}
+
 /** In-transaction state of one trip touched by the change set. */
 interface TripState {
   id: string;
@@ -90,6 +126,10 @@ interface TripState {
   seatCapacity: number;
   occupied: number;
   stopIds: Map<number, { id: string; plannedArrival: Date }>;
+  /** Planned stops in seq order (ADD_STOP inserts here and rebuilds stopIds). */
+  stops: StopState[];
+  /** ADD_STOP ran on this trip: its path is replaced after the loop. */
+  stopsAdded: number;
   version: number;
   created: boolean;
   tempId?: string;
@@ -222,7 +262,8 @@ export class DispatchService {
       if (!consents.has(b.profileId)) bookingReasons.add('CONSENT_REQUIRED');
     }
     const seatsNeeded = bookings.reduce((s, b) => s + b.passengerCount, 0);
-    const first = bookings.filter((b) => b.pickupLat !== null).sort((a, b) => a.windowStart.getTime() - b.windowStart.getTime())[0];
+    // A personal pickup is used for distances / routing only with consent (D8; E2 M3); a site pickup always.
+    const first = bookings.filter((b) => b.pickupLat !== null && (b.pickupPoiId || consents.has(b.profileId))).sort((a, b) => a.windowStart.getTime() - b.windowStart.getTime())[0];
     const pickup = first ? { lat: first.pickupLat as number, lng: first.pickupLng as number } : null;
     const winStart = dto.at ? parseInstant(dto.at, 'at') : Math.min(...bookings.map((b) => b.windowStart.getTime()));
     const winEnd = Math.max(winStart + MIN, ...bookings.map((b) => b.windowEnd.getTime()));
@@ -245,7 +286,7 @@ export class DispatchService {
     const busyIds = new Set(busy.map((b) => b.objectId));
     const fixes = await this.fixes(objects.map((o) => o.id));
     const objById = new Map(objects.map((o) => [o.id, o]));
-    const out: (DispatchCandidateDto & { fix: { lat: number; lng: number } | null })[] = [];
+    const out: (DispatchCandidateDto & { fix: { lat: number; lng: number } | null; fromStop: FromStop | null })[] = [];
 
     for (const t of trips) {
       const pt = t.plannedTrip;
@@ -255,10 +296,17 @@ export class DispatchService {
       const reasons = [...bookingReasons];
       if (free < seatsNeeded) reasons.push('CAPACITY');
       let nearest: DispatchCandidateDto['nearestStop'] = null;
+      let fromStop: FromStop | null = null;
       if (pickup) {
         for (const s of pt.stops) {
           const d = Math.round(haversineMeters(pickup.lat, pickup.lng, s.lat, s.lng));
           if (!nearest || d < nearest.straightM) nearest = { seq: s.seq, label: s.name, straightM: d };
+        }
+        // Road ETA start: the closest stop the vehicle passes before the pickup would be inserted (never the last one).
+        const before = pt.stops.length > 1 ? pt.stops.slice(0, -1) : pt.stops;
+        for (const s of before) {
+          const d = haversineMeters(pickup.lat, pickup.lng, s.lat, s.lng);
+          if (!fromStop || d < fromStop.d) fromStop = { seq: s.seq, lat: s.lat, lng: s.lng, departure: s.plannedDeparture, d };
         }
       }
       out.push({
@@ -275,6 +323,7 @@ export class DispatchService {
         eta: { at: null, model: null },
         reasons,
         fix: fixes.get(pt.objectId) ?? null,
+        fromStop,
       });
     }
     for (const o of objects) {
@@ -298,6 +347,7 @@ export class DispatchService {
         eta: { at: null, model: null },
         reasons,
         fix,
+        fromStop: null,
       });
     }
     out.sort((a, b) => Number(b.feasible) - Number(a.feasible) || (a.straightM ?? Infinity) - (b.straightM ?? Infinity) || b.freeSeats - a.freeSeats);
@@ -305,25 +355,41 @@ export class DispatchService {
     const routingAvailable = this.routing.enabled;
     let etaBudget = 5;
     for (const c of out) {
-      c.eta = await this.etaTo(c.fix, pickup, routingAvailable, c.feasible && etaBudget-- > 0);
+      const compute = c.feasible && etaBudget-- > 0;
+      c.eta = c.kind === 'TRIP' ? await this.etaFromStop(c.fromStop, pickup, routingAvailable, compute) : await this.etaTo(c.fix, pickup, routingAvailable, compute);
     }
     return {
       bookingIds: ids,
       seatsNeeded,
-      candidates: out.slice(0, 50).map(({ fix: _fix, ...c }) => c),
+      candidates: out.slice(0, 50).map(({ fix: _fix, fromStop: _from, ...c }) => c),
       routingAvailable,
       degraded: routingAvailable ? null : 'ROUTING_UNAVAILABLE',
     };
   }
 
-  /** Road ETA from the vehicle's fix to the pickup, or null with the reason (never a straight-line guess). */
+  /** Road ETA from the idle vehicle's fix to the pickup, from now, or null with the reason (never a straight-line guess). */
   private async etaTo(fix: { lat: number; lng: number } | null, pickup: { lat: number; lng: number } | null, routingAvailable: boolean, compute: boolean): Promise<EtaValue> {
     if (!routingAvailable) return { at: null, model: null, degraded: 'ROUTING_UNAVAILABLE' };
-    if (!fix || !pickup) return { at: null, model: null, degraded: 'NO_FIX' };
+    if (!pickup) return { at: null, model: null, degraded: 'NO_PICKUP' };
+    if (!fix) return { at: null, model: null, degraded: 'NO_FIX' };
     if (!compute) return { at: null, model: null };
     const r = await this.routing.route(fix, pickup).catch(() => null);
     if (!r) return { at: null, model: null, degraded: 'NO_ROUTE' };
-    return { at: new Date(Date.now() + r.s * 1000).toISOString(), model: 'ROAD', durationSec: Math.round(r.s) };
+    return { at: new Date(Date.now() + r.s * 1000).toISOString(), model: 'ROAD', durationSec: Math.round(r.s), from: 'VEHICLE_FIX' };
+  }
+
+  /**
+   * TRIP candidates (E3 gap 4): road time from the trip's planned stop before the insertion point to the pickup, added
+   * to that stop's planned departure (the trip has not started, so the vehicle's live position says nothing). A road
+   * estimate without live traffic (RoutingService / GraphHopper); null with the reason when routing does not answer.
+   */
+  private async etaFromStop(from: FromStop | null, pickup: { lat: number; lng: number } | null, routingAvailable: boolean, compute: boolean): Promise<EtaValue> {
+    if (!routingAvailable) return { at: null, model: null, degraded: 'ROUTING_UNAVAILABLE' };
+    if (!pickup || !from) return { at: null, model: null, degraded: 'NO_PICKUP' };
+    if (!compute) return { at: null, model: null };
+    const r = await this.routing.route({ lat: from.lat, lng: from.lng }, pickup).catch(() => null);
+    if (!r) return { at: null, model: null, degraded: 'NO_ROUTE' };
+    return { at: new Date(from.departure.getTime() + r.s * 1000).toISOString(), model: 'ROAD', durationSec: Math.round(r.s), from: 'TRIP_STOP', fromStopSeq: from.seq };
   }
 
   // ───────────────────────────── Change sets ─────────────────────────────
@@ -342,6 +408,11 @@ export class DispatchService {
       take: 200,
     });
     return rows.map(toChangeSetSummary);
+  }
+
+  /** One saved change set with its changes and names (E3 gap 2; dispatcher-scoped, see change-set-detail.ts). */
+  async changeSet(ctx: AuthContext, id: string): Promise<TransportChangeSetDetailDto> {
+    return changeSetDetail(this.prisma, ctx, id, toChangeSetSummary, await this.scopedObjectIds(ctx));
   }
 
   /** Publish a server-held DRAFT (repeat-to-date): validated again exactly like a fresh change set. */
@@ -471,8 +542,10 @@ export class DispatchService {
     for (const id of existingTripIds) {
       if (input.expectedVersions?.[id] === undefined) throw invalid(`expectedVersions must give the version of trip ${id}`);
     }
-    const bookingIds = ops.flatMap((o) => (o.op === 'ADD_PASSENGER' ? [o.bookingId] : []));
+    const bookingIds = ops.flatMap((o) => (o.op === 'ADD_PASSENGER' || o.op === 'ADD_STOP' ? [o.bookingId] : []));
     const consents = await this.consents((await this.prisma.transportBooking.findMany({ where: { id: { in: bookingIds } }, select: { profileId: true } })).map((b) => b.profileId));
+    // ADD_STOP: the road path through the new stops, computed before any lock (null when routing does not answer).
+    const stopPaths = await this.pathsAfterInserts(ctx, ops);
     const now = new Date();
 
     return this.prisma.$transaction(
@@ -504,6 +577,8 @@ export class DispatchService {
             seatCapacity: t.seatCapacity,
             occupied: t.occupiedSeats,
             stopIds: new Map(t.plannedTrip.stops.map((s) => [s.seq, { id: s.id, plannedArrival: s.plannedArrival }])),
+            stops: t.plannedTrip.stops.map(toStopState),
+            stopsAdded: 0,
             version: t.version,
             created: false,
             providerCompanyId: t.providerCompanyId,
@@ -575,6 +650,8 @@ export class DispatchService {
                 seatCapacity: seats,
                 occupied: 0,
                 stopIds: new Map(pt.stops.map((s) => [s.seq, { id: s.id, plannedArrival: s.plannedArrival }])),
+                stops: [...pt.stops].sort((a, b) => a.seq - b.seq).map(toStopState),
+                stopsAdded: 0,
                 version: 1,
                 created: true,
                 tempId: op.tempId,
@@ -613,6 +690,55 @@ export class DispatchService {
                 warnings.push(`Booking ${b.id}: the planned ${input.direction === 'IN' ? 'arrival' : 'pickup'} is outside its window`);
               }
               await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'PASSENGER_ADDED', passengerTripId: row.id, stopSeq: op.pickupSeq, data: { bookingId: b.id, seats: b.passengerCount } });
+              touched.add(s.id);
+              break;
+            }
+            case 'ADD_STOP': {
+              const s = trip(op.tripId);
+              editable(s);
+              if (s.created) throw invalid(`Change ${n}: give a new trip's stops in its CREATE_TRIP`);
+              const b = bookings.get(op.bookingId);
+              if (!b || b.customerCompanyId !== ctx.companyId) throw notFound('Booking not found');
+              if (b.status !== 'PENDING_ASSIGNMENT') throw conflict('INVALID_STATE', `Change ${n}: only a booking waiting for a seat gets a new stop (it is ${b.status})`);
+              if (dayKeyOf(b.serviceDate) !== input.serviceDate || b.direction !== input.direction) throw invalid(`Change ${n}: the booking is for another date or direction`);
+              const point = bookingEnd(b, op.end);
+              if (!point) throw conflict('NEEDS_LOCATION', `Change ${n}: the booking has no ${op.end === 'PICKUP' ? 'pickup' : 'drop'} point`);
+              // No pickup without consent (D8, 10 §4.2; E2 final consent model).
+              if (!consents.has(b.profileId)) throw forbidden('CONSENT_REQUIRED', `Change ${n}: the passenger has not consented to transport data use`);
+              // Capacity: a stop is only worth adding when the booking still fits (the ADD_PASSENGER after it takes the seat).
+              if (s.occupied + b.passengerCount > s.seatCapacity) throw conflict('CAPACITY_EXCEEDED', `Change ${n}: not enough free seats (${s.seatCapacity - s.occupied} left)`);
+              if (s.stops.length >= TRANSPORT_E3_LIMITS.maxStops) throw conflict('INVALID_STATE', `Change ${n}: the trip has the maximum of ${TRANSPORT_E3_LIMITS.maxStops} stops`);
+              const last = s.stops.length - 1;
+              if (op.afterSeq > last) throw invalid(`Change ${n}: afterSeq must be -1..${last}`);
+              const prev = op.afterSeq >= 0 ? s.stops[op.afterSeq] : undefined;
+              const next = s.stops[op.afterSeq + 1];
+              const arrival = op.plannedArrival ? new Date(op.plannedArrival) : insertedArrival(prev, next);
+              const departure = new Date(arrival.getTime() + (op.waitMin ?? 0) * MIN);
+              if ((prev && arrival < prev.plannedArrival) || (next && departure > next.plannedArrival)) throw invalid(`Change ${n}: the new stop must be planned between its neighbouring stops`);
+              // Overlap: a trip that now starts earlier / ends later must still be free for its vehicle and driver.
+              const start = new Date(Math.min(s.plannedStart.getTime(), arrival.getTime()));
+              const end = new Date(Math.max(s.plannedEnd.getTime(), arrival.getTime()));
+              if (start < s.plannedStart || end > s.plannedEnd) {
+                await this.assertFree(tx, s.objectId, s.driverId, start, end, s.plannedTripId);
+                await tx.plannedTrip.update({ where: { id: s.plannedTripId }, data: { plannedStart: start, plannedEnd: end } });
+                s.plannedStart = start;
+                s.plannedEnd = end;
+              }
+              // Make room: later stops (highest first: unique tripId + seq), then seated passengers (drop before pickup: dropSeq > pickupSeq CHECK).
+              for (const st of [...s.stops].filter((x) => x.seq > op.afterSeq).sort((a, b2) => b2.seq - a.seq)) {
+                await tx.plannedTripStop.update({ where: { id: st.id }, data: { seq: st.seq + 1 } });
+                st.seq += 1;
+              }
+              await tx.transportTripPassenger.updateMany({ where: { tripId: s.id, dropSeq: { gt: op.afterSeq } }, data: { dropSeq: { increment: 1 } } });
+              await tx.transportTripPassenger.updateMany({ where: { tripId: s.id, pickupSeq: { gt: op.afterSeq } }, data: { pickupSeq: { increment: 1 } } });
+              const created = await tx.plannedTripStop.create({
+                data: { tripId: s.plannedTripId, seq: op.afterSeq + 1, name: (point.label ?? '').trim() || (op.end === 'PICKUP' ? 'Pickup' : 'Drop'), lat: point.lat, lng: point.lng, radiusM: ROUTE_LIMITS.radiusDefaultM, plannedArrival: arrival, plannedDeparture: departure },
+              });
+              s.stops.splice(op.afterSeq + 1, 0, toStopState(created));
+              s.stopIds = stopIdMap(s.stops);
+              s.stopsAdded += 1;
+              // No coordinates in the event (personal point): the stop row holds them.
+              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'STOP_ADDED', stopSeq: op.afterSeq + 1, data: { bookingId: b.id, end: op.end, plannedArrival: arrival.toISOString() } });
               touched.add(s.id);
               break;
             }
@@ -664,6 +790,12 @@ export class DispatchService {
           }
         }
 
+        // ADD_STOP: the planned path now runs through the new stops (or none when routing did not answer: never a stale one).
+        for (const s of state.values()) {
+          if (!s.stopsAdded) continue;
+          const path = stopPaths.get(s.id) ?? null;
+          await tx.plannedTrip.update({ where: { id: s.plannedTripId }, data: { path: path ? (path as Prisma.InputJsonValue) : Prisma.DbNull } });
+        }
         // Versions: every existing trip touched + 1 (re-publish, 02 §5.4); new trips stay at 1.
         for (const id of touched) {
           const s = state.get(id)!;
@@ -673,7 +805,7 @@ export class DispatchService {
         }
         for (const s of state.values()) {
           if (s.created) await this.audit.record(ctx, { action: 'CREATE', entity: TRIP_ENTITY, entityId: s.id, after: { plannedTripId: s.plannedTripId, objectId: s.objectId, driverId: s.driverId, seatCapacity: s.seatCapacity, occupiedSeats: s.occupied, serviceDate: input.serviceDate, direction: input.direction } }, tx);
-          else if (touched.has(s.id)) await this.audit.record(ctx, { action: 'UPDATE', entity: TRIP_ENTITY, entityId: s.id, after: { objectId: s.objectId, driverId: s.driverId, seatCapacity: s.seatCapacity, occupiedSeats: s.occupied, version: s.version } }, tx);
+          else if (touched.has(s.id)) await this.audit.record(ctx, { action: 'UPDATE', entity: TRIP_ENTITY, entityId: s.id, after: { objectId: s.objectId, driverId: s.driverId, seatCapacity: s.seatCapacity, occupiedSeats: s.occupied, version: s.version, ...(s.stopsAdded ? { stops: s.stops.length, stopsAdded: s.stopsAdded, plannedStart: s.plannedStart.toISOString(), plannedEnd: s.plannedEnd.toISOString() } : {}) } }, tx);
         }
         for (const b of bookingOut.values()) {
           await this.audit.record(ctx, { action: 'UPDATE', entity: BOOKING_ENTITY, entityId: b.id, details: { dispatch: true, status: b.status, version: b.version } }, tx);
@@ -690,6 +822,35 @@ export class DispatchService {
       },
       { timeout: 30_000, maxWait: 10_000 },
     );
+  }
+
+  /**
+   * ADD_STOP: the stop list each trip will have after its inserts (same order as the transaction applies them), routed
+   * through GraphHopper before any lock. Trips / bookings that do not resolve here are refused inside the transaction.
+   */
+  private async pathsAfterInserts(ctx: AuthContext, ops: DispatchChangeOp[]): Promise<Map<string, unknown>> {
+    const out = new Map<string, unknown>();
+    const adds = ops.filter((o): o is Extract<DispatchChangeOp, { op: 'ADD_STOP' }> => o.op === 'ADD_STOP');
+    if (!adds.length) return out;
+    const trips = await this.prisma.transportTrip.findMany({ where: { id: { in: [...new Set(adds.map((a) => a.tripId))] }, providerCompanyId: ctx.companyId }, include: { plannedTrip: { include: { stops: { orderBy: { seq: 'asc' } } } } } });
+    const books = new Map((await this.prisma.transportBooking.findMany({ where: { id: { in: adds.map((a) => a.bookingId) }, customerCompanyId: ctx.companyId } })).map((b) => [b.id, b]));
+    for (const t of trips) {
+      const points = (t.plannedTrip?.stops ?? []).map((s) => ({ lat: s.lat, lng: s.lng }));
+      let ok = points.length > 0;
+      for (const a of adds.filter((x) => x.tripId === t.id)) {
+        const b = books.get(a.bookingId);
+        const p = b ? bookingEnd(b, a.end) : null;
+        if (!p || a.afterSeq + 1 > points.length) {
+          ok = false;
+          break;
+        }
+        points.splice(a.afterSeq + 1, 0, { lat: p.lat, lng: p.lng });
+      }
+      if (!ok) continue;
+      const road = await this.routing.routeVia(points).catch(() => null);
+      out.set(t.id, road?.path ?? null);
+    }
+    return out;
   }
 
   /** No overlapping active planned trip (any origin) for the vehicle / driver in [start, end) (409 VEHICLE_BUSY / DRIVER_BUSY). */

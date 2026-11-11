@@ -281,6 +281,20 @@ export const E3_MATRIX: E3Entry[] = [
   { route: 'POST transport/dispatch/candidates', resource: 'trip', invoke: (c, ctx, _t, w) => c.dispatch.candidates(ctx, { bookingIds: [w.party.booking] }), expect: { none: CREATE_FOR_A } },
   { route: 'GET transport/dispatch/change-sets', resource: 'changeSet', invoke: (c, ctx) => c.dispatch.changeSets(ctx, {}), expect: { none: LIST }, verify: noOther('id') },
   {
+    route: 'GET transport/dispatch/change-sets/:id',
+    resource: 'changeSet',
+    invoke: (c, ctx, t) => c.dispatch.changeSet(ctx, t.changeSet),
+    expect: { party: OWN_ROW, other: OTHER_ROW },
+    // Draft details (E3 gap 2): the caller's own draft only; personal stop points rounded for branch scope (M3).
+    verify: (r, role, _own, ids) => {
+      const d = r as { id: string; changes: { op: string; objectId?: string; stops?: { point: { lat: number; poiId?: string | null } | null }[] }[] };
+      if (d.id !== ids.changeSet || d.changes[0]?.objectId !== ids.vehicle) fail(`${role} draft detail shows the wrong change set`);
+      for (const s of d.changes.flatMap((c) => c.stops ?? [])) {
+        if (s.point && !s.point.poiId && role === 'customerDispatcher' && (String(s.point.lat).split('.')[1]?.length ?? 0) > 4) fail(`${role} gets an exact personal stop point`);
+      }
+    },
+  },
+  {
     route: 'POST transport/dispatch/change-sets',
     resource: 'changeSet',
     invoke: (c, ctx, _t, w) => {

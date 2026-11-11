@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatClock, fromZonedWall, toZonedWall } from '@/features/planned-trips/trip-format';
 import { cn } from '@/lib/utils';
-import { diffDraft, draftBookingIds, setAddSeqs, setNewTripTiming, undoReassign, undoRemove, withoutBookings, type DispatchDraft, type DraftDiffRow } from './dispatch-draft';
+import { diffDraft, draftBookingIds, setAddNewDropStop, setAddNewPickupStop, setAddSeqs, setNewTripTiming, undoReassign, undoRemove, withoutBookings, type DispatchDraft, type DraftDiffRow } from './dispatch-draft';
 import { candidateReason, isEditableTrip, straightLineLabel } from './e3-format';
 import { BookingStatusBadge, e3ErrorMessage, EtaText, OccupancyBar, PassengerOutcomeBadge, TripStateBadge } from './e3-ui';
 import { transportTripPath, useCandidates, useTransportTrip } from './use-e3';
@@ -486,30 +486,70 @@ function AddStops({ tripId, bookingId, ctx }: { tripId: string; bookingId: strin
   if (!add || !detail.data) return null;
   const stops = [...detail.data.stops].sort((a, b) => a.seq - b.seq);
   const sel = 'h-8 min-w-0 rounded-md border border-input bg-card px-2 text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none';
+  // "new:<afterSeq>" = a new stop at the passenger's own point (server ADD_STOP), placed after that stop.
+  const pickValue = add.newStop?.end === 'PICKUP' ? `new:${add.newStop.afterSeq}` : String(add.pickupSeq);
+  const dropValue = add.newStop?.end === 'DROP' ? `new:${add.newStop.afterSeq}` : String(add.dropSeq);
+  const pickupAfter = add.newStop?.end === 'PICKUP' ? add.newStop.afterSeq : add.pickupSeq;
   return (
     <div className="mt-1 grid grid-cols-2 gap-2">
       <label className="grid gap-0.5 text-xs">
         <span className="text-muted-foreground">{t('Pickup stop')}</span>
-        <select className={sel} value={add.pickupSeq} onChange={(e) => ctx.setDraft((d) => setAddSeqs(d, bookingId, Number(e.target.value), Math.max(add.dropSeq, Number(e.target.value) + 1)))}>
+        <select
+          className={sel}
+          value={pickValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v.startsWith('new:')) ctx.setDraft((d) => setAddNewPickupStop(d, bookingId, Number(v.slice(4))));
+            else ctx.setDraft((d) => setAddSeqs(d, bookingId, Number(v), Math.max(add.dropSeq, Number(v) + 1)));
+          }}
+        >
           {stops.slice(0, -1).map((s) => (
             <option key={s.seq} value={s.seq}>
               {s.seq + 1}. {s.name}
             </option>
           ))}
+          <optgroup label={t('New stop at the passenger’s pickup')}>
+            <option value="new:-1">{t('New stop before {{n}}. {{name}}', { n: 1, name: stops[0]?.name ?? '' })}</option>
+            {stops.slice(0, -1).map((s) => (
+              <option key={`new-${s.seq}`} value={`new:${s.seq}`}>
+                {t('New stop after {{n}}. {{name}}', { n: s.seq + 1, name: s.name })}
+              </option>
+            ))}
+          </optgroup>
         </select>
       </label>
       <label className="grid gap-0.5 text-xs">
         <span className="text-muted-foreground">{t('Drop stop')}</span>
-        <select className={sel} value={add.dropSeq} onChange={(e) => ctx.setDraft((d) => setAddSeqs(d, bookingId, add.pickupSeq, Number(e.target.value)))}>
+        <select
+          className={sel}
+          value={dropValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v.startsWith('new:')) ctx.setDraft((d) => setAddNewDropStop(d, bookingId, Number(v.slice(4))));
+            else ctx.setDraft((d) => (add.newStop?.end === 'PICKUP' ? { ...d, adds: d.adds.map((a) => (a.bookingId === bookingId ? { ...a, dropSeq: Number(v) } : a)) } : setAddSeqs(d, bookingId, add.pickupSeq, Number(v))));
+          }}
+        >
           {stops
-            .filter((s) => s.seq > add.pickupSeq)
+            .filter((s) => s.seq > pickupAfter)
             .map((s) => (
               <option key={s.seq} value={s.seq}>
                 {s.seq + 1}. {s.name}
               </option>
             ))}
+          {add.newStop?.end !== 'PICKUP' && (
+            <optgroup label={t('New stop at the passenger’s drop')}>
+              {stops
+                .filter((s) => s.seq >= add.pickupSeq)
+                .map((s) => (
+                  <option key={`new-${s.seq}`} value={`new:${s.seq}`}>
+                    {t('New stop after {{n}}. {{name}}', { n: s.seq + 1, name: s.name })}
+                  </option>
+                ))}
+            </optgroup>
+          )}
         </select>
       </label>
+      {add.newStop && <p className="col-span-2 text-xs text-muted-foreground">{t('A new stop is added at the passenger’s own point when you publish (checked for seats, overlap and consent).')}</p>}
     </div>
   );
 }

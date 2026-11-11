@@ -382,8 +382,8 @@ const byRoute = new Map(ISOLATION_MATRIX.map((e) => [e.route, e]));
 
 describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
   it('discovers the ETMS routes from Nest metadata', () => {
-    // E1a: 16 routes; E2 (EtmsPeopleModule, imported): 29 (25 + security review: app-access reset, erase, notices, driver login reset); E3 (EtmsDispatchModule, imported): 41.
-    expect(ROUTES.length).toBeGreaterThanOrEqual(86);
+    // E1a: 16 routes; E2 (EtmsPeopleModule, imported): 29 (25 + security review: app-access reset, erase, notices, driver login reset); E3 (EtmsDispatchModule, imported): 42 (41 + change-set detail).
+    expect(ROUTES.length).toBeGreaterThanOrEqual(87);
     for (const c of [ShiftsController, SchedulesController, BookingsController, DispatchController, TransportTripsController, MyTransportTripsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     for (const c of [PassengersController, MyTransportConsentController, ConsentNoticesController, TransportVehiclesController, DriverLoginController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
@@ -624,6 +624,23 @@ describe('ETMS isolation matrix (E3): bookings export, consent gating, self view
     expect(JSON.stringify(trips)).not.toContain(w.world.party.passenger);
     const mine = await w.controllers.e3.meTrips.bookings(b, {});
     expect(mine.every((x) => x.id === w.world.other.booking || x.id === w.world.other.seatedBooking)).toBe(true);
+  });
+
+  it('my trips (E3 gap 1): my own pickup / drop point and the trip window; only with my consent; never another passenger’s', async () => {
+    const w = await e3World();
+    const me = caller('customerPassenger', w);
+    const pt = w.store.table('plannedTrip').find((p) => p.id === w.world.party.plannedTrip)!;
+    const [mine] = await w.controllers.e3.meTrips.trips(me, {});
+    expect(mine).toMatchObject({ id: w.world.party.trip, myPickupPoint: { lat: 13.06, lng: 80.24 }, myDropPoint: { lat: 13.05, lng: 80.25 }, pointsHidden: null, plannedStart: (pt.plannedStart as Date).toISOString(), plannedEnd: (pt.plannedEnd as Date).toISOString() });
+    // Another passenger on the same trip: their seat never shows up in my view, nor their point.
+    const other = w.store.insert('employeeTransportProfile', { companyId: 'custA', employeeCode: 'A9', displayName: 'Passenger A9', branchId: 'brA1', homeLat: 13.099999, homeLng: 80.299999 }).id as string;
+    const ob = w.store.insert('transportBooking', { ...w.store.table('transportBooking').find((b) => b.id === w.world.party.seatedBooking)!, id: randomUUID(), profileId: other, pickupLat: 13.099999, pickupLng: 80.299999 }).id as string;
+    w.store.insert('transportTripPassenger', { tripId: w.world.party.trip, bookingId: ob, customerCompanyId: 'custA', providerCompanyId: 'custA', pickupSeq: 0, dropSeq: 1, seats: 1 });
+    const text = JSON.stringify(await w.controllers.e3.meTrips.trips(me, {}));
+    for (const leak of ['13.099999', 'Passenger A9', other, ob]) expect(text).not.toContain(leak);
+    // Consent withdrawn: the points disappear, the reason is given; the trip itself stays.
+    w.consent(false, 'WEB');
+    expect(await w.controllers.e3.meTrips.trip(me, w.world.party.trip)).toMatchObject({ myPickupPoint: null, myDropPoint: null, pointsHidden: 'CONSENT_REQUIRED', plannedStart: expect.any(String) });
   });
 
   it('vehicle (10 §4.3): visible only inside the trip window, from the live cache; never outside it', async () => {

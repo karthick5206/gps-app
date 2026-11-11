@@ -95,7 +95,9 @@ export class MemoryStore {
 
   insert(model: string, row: Obj): Obj {
     const now = new Date();
-    const r: Obj = { id: randomUUID(), createdAt: now, updatedAt: now, ...(DEFAULTS[model]?.() ?? {}), ...row };
+    // Prisma ignores undefined fields (e.g. `id: undefined` keeps the generated id).
+    const given = Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined));
+    const r: Obj = { id: randomUUID(), createdAt: now, updatedAt: now, ...(DEFAULTS[model]?.() ?? {}), ...given };
     this.table(model).push(r);
     return r;
   }

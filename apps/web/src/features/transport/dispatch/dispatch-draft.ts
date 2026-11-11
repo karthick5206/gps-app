@@ -31,11 +31,20 @@ export interface DraftNewTrip {
   shiftId: string | null;
 }
 
+/** A new stop at the booking's own point (server ADD_STOP), inserted after the trip's stop `afterSeq` (-1 = first). */
+export interface DraftNewStop {
+  end: 'PICKUP' | 'DROP';
+  afterSeq: number;
+}
+
 export interface DraftAdd {
   tripId: string;
   bookingId: string;
+  /** Seqs of the trip as published (the change set renumbers them around new stops). */
   pickupSeq: number;
   dropSeq: number;
+  /** The pickup (or drop) is not an existing stop: a new one is added for it. */
+  newStop?: DraftNewStop | null;
 }
 
 export interface DraftRemove {
@@ -188,6 +197,47 @@ function nearest(stops: StopRef[], p: { lat: number; lng: number } | null, fallb
   return stops.reduce((best, s) => (dist2(s, p) < dist2(best, p) ? s : best), stops[0]).seq;
 }
 
+/** Metres between two points (equirectangular; enough to compare stop distances). */
+export function metresBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  return Math.sqrt(dist2(a, b)) * 111_320;
+}
+
+/** Beyond this distance from every stop, the booking gets its own new stop by default (the dispatcher can change it). */
+export const NEW_STOP_DISTANCE_M = 300;
+
+/**
+ * Where a booking goes on an existing trip: the nearest stops, or — when the passenger's end (IN: pickup, OUT: drop) is
+ * farther than NEW_STOP_DISTANCE_M from every stop — a new stop at the cheapest insertion point (least added straight
+ * distance). Returns null for a trip with fewer than 2 stops.
+ */
+export function defaultPlacement(stops: StopRef[], booking: Pick<DraftBooking, 'pickup' | 'drop'>, direction: TransportDirection): Pick<DraftAdd, 'pickupSeq' | 'dropSeq' | 'newStop'> | null {
+  const sorted = [...stops].sort((a, b) => a.seq - b.seq);
+  const base = defaultSeqs(sorted, booking);
+  if (!base) return null;
+  const end = direction === 'IN' ? 'PICKUP' : 'DROP';
+  const p = end === 'PICKUP' ? booking.pickup : booking.drop;
+  if (!p || Math.min(...sorted.map((s) => metresBetween(s, p))) <= NEW_STOP_DISTANCE_M) return { ...base, newStop: null };
+  const detour = (i: number) => {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    if (!a) return metresBetween(p, b);
+    if (!b) return metresBetween(a, p);
+    return metresBetween(a, p) + metresBetween(p, b) - metresBetween(a, b);
+  };
+  const last = sorted.length - 1;
+  if (end === 'PICKUP') {
+    // Before the last stop (the site of a login trip), after -1 … last − 1.
+    let best = -1;
+    for (let i = -1; i < last; i++) if (detour(i) < detour(best)) best = i;
+    const dropSeq = sorted.filter((s) => s.seq > best).reduce((x, s) => (booking.drop && metresBetween(s, booking.drop) < metresBetween(x, booking.drop) ? s : x), sorted[last]).seq;
+    return { pickupSeq: Math.max(0, best), dropSeq: Math.max(dropSeq, best + 1), newStop: { end, afterSeq: best } };
+  }
+  // DROP: after the pickup stop, anywhere up to the end.
+  let best = base.pickupSeq;
+  for (let i = base.pickupSeq; i <= last; i++) if (detour(i) < detour(best)) best = i;
+  return { pickupSeq: base.pickupSeq, dropSeq: Math.min(last, best + 1), newStop: { end, afterSeq: best } };
+}
+
 /** Default pickup / drop stops of a booking on an existing trip: nearest stop to each point, pickup before drop. */
 export function defaultSeqs(stops: StopRef[], booking: Pick<DraftBooking, 'pickup' | 'drop'>): { pickupSeq: number; dropSeq: number } | null {
   const sorted = [...stops].sort((a, b) => a.seq - b.seq);
@@ -231,16 +281,53 @@ export function addToNewTrip(d: DispatchDraft, tempId: string, bookings: DraftBo
   };
 }
 
-/** Seat bookings on an existing (published, not started) trip; `seqs` gives each booking's pickup / drop stop. */
-export function addToTrip(d: DispatchDraft, trip: { id: string; version: number }, bookings: DraftBooking[], seqs: Record<string, { pickupSeq: number; dropSeq: number }>): DispatchDraft {
+/** Seat bookings on an existing (published, not started) trip; `seqs` gives each booking's pickup / drop stop (or new stop). */
+export function addToTrip(d: DispatchDraft, trip: { id: string; version: number }, bookings: DraftBooking[], seqs: Record<string, Pick<DraftAdd, 'pickupSeq' | 'dropSeq' | 'newStop'>>): DispatchDraft {
   const clean = withoutBookings(d, bookings.map((b) => b.id));
   const adds = bookings.filter((b) => seqs[b.id]).map((b) => ({ tripId: trip.id, bookingId: b.id, ...seqs[b.id] }));
   return { ...clean, bookings: withBookings(clean, bookings), adds: [...clean.adds, ...adds], versions: { [trip.id]: clean.versions[trip.id] ?? trip.version, ...clean.versions } };
 }
 
-/** Change the stops of one pending add. */
+/** Change the stops of one pending add (to existing stops: any new stop is dropped). */
 export function setAddSeqs(d: DispatchDraft, bookingId: string, pickupSeq: number, dropSeq: number): DispatchDraft {
-  return { ...d, adds: d.adds.map((a) => (a.bookingId === bookingId ? { ...a, pickupSeq, dropSeq } : a)) };
+  return { ...d, adds: d.adds.map((a) => (a.bookingId === bookingId ? { ...a, pickupSeq, dropSeq, newStop: null } : a)) };
+}
+
+/** Give one pending add a new stop for its pickup (after `afterSeq`; the drop stays an existing stop after it). */
+export function setAddNewPickupStop(d: DispatchDraft, bookingId: string, afterSeq: number): DispatchDraft {
+  return { ...d, adds: d.adds.map((a) => (a.bookingId === bookingId ? { ...a, pickupSeq: Math.max(0, afterSeq), dropSeq: Math.max(a.dropSeq, afterSeq + 1), newStop: { end: 'PICKUP', afterSeq } } : a)) };
+}
+
+/** Give one pending add a new stop for its drop (after `afterSeq` ≥ its pickup stop). */
+export function setAddNewDropStop(d: DispatchDraft, bookingId: string, afterSeq: number): DispatchDraft {
+  return { ...d, adds: d.adds.map((a) => (a.bookingId === bookingId ? { ...a, pickupSeq: Math.min(a.pickupSeq, afterSeq), newStop: { end: 'DROP', afterSeq } } : a)) };
+}
+
+/**
+ * ADD_STOP + ADD_PASSENGER ops of one existing trip's adds. The server applies the ADD_STOPs in order, each renumbering
+ * the stops after it, so every afterSeq is given in the numbering at that moment, and the passengers' seqs in the final
+ * numbering. Two new stops after the same stop keep the order of the adds.
+ */
+export function existingTripOps(adds: DraftAdd[]): DispatchChangeOp[] {
+  const inserts = adds.filter((a) => a.newStop);
+  const before = (a: number, k: number) => inserts.filter((x, j) => j !== k && x.newStop!.afterSeq < a).length;
+  const finalOf = (seq: number) => seq + inserts.filter((x) => x.newStop!.afterSeq < seq).length;
+  const ops: DispatchChangeOp[] = [];
+  const newSeq = new Map<string, number>();
+  inserts.forEach((x, k) => {
+    const a = x.newStop!.afterSeq;
+    const earlierLower = inserts.slice(0, k).filter((y) => y.newStop!.afterSeq < a).length;
+    const earlierSame = inserts.slice(0, k).filter((y) => y.newStop!.afterSeq === a).length;
+    ops.push({ op: 'ADD_STOP', tripId: x.tripId, bookingId: x.bookingId, end: x.newStop!.end, afterSeq: a + earlierLower + earlierSame });
+    newSeq.set(x.bookingId, a + 1 + before(a, k) + earlierSame);
+  });
+  for (const a of adds) {
+    const s = newSeq.get(a.bookingId);
+    const pickupSeq = a.newStop?.end === 'PICKUP' ? s! : finalOf(a.pickupSeq);
+    const dropSeq = a.newStop?.end === 'DROP' ? s! : finalOf(a.dropSeq);
+    ops.push({ op: 'ADD_PASSENGER', tripId: a.tripId, bookingId: a.bookingId, pickupSeq, dropSeq });
+  }
+  return ops;
 }
 
 /** Undo the seating of bookings (from new trips and adds); a new trip left without bookings is dropped. */
@@ -321,7 +408,8 @@ export function buildChangeSet(d: DispatchDraft, reason?: string): DispatchChang
     changes.push({ op: 'CREATE_TRIP', tempId: n.tempId, objectId: n.objectId, plannedStart: new Date(n.startMs).toISOString(), stops, ...(n.shiftId ? { shiftId: n.shiftId } : {}) });
     for (const id of n.bookingIds) if (seqs[id]) changes.push({ op: 'ADD_PASSENGER', tripId: n.tempId, bookingId: id, ...seqs[id] });
   }
-  for (const a of d.adds) changes.push({ op: 'ADD_PASSENGER', tripId: a.tripId, bookingId: a.bookingId, pickupSeq: a.pickupSeq, dropSeq: a.dropSeq });
+  // Passengers added to existing trips, per trip: new stops first (ADD_STOP), then the seats with the final seqs.
+  for (const tripId of [...new Set(d.adds.map((a) => a.tripId))]) changes.push(...existingTripOps(d.adds.filter((a) => a.tripId === tripId)));
   const expectedVersions: Record<string, number> = {};
   for (const id of touchedTripIds(d)) expectedVersions[id] = d.versions[id];
   return { serviceDate: d.serviceDate, direction: d.direction, changes, expectedVersions, ...(reason?.trim() ? { reason: reason.trim() } : {}) };

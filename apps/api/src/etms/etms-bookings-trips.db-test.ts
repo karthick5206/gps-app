@@ -532,6 +532,37 @@ d(`ETMS E3 services on ${dbName}`, () => {
     expect(sameDriver.sort()).toEqual(['DRIVER_BUSY', 'OK']);
   });
 
+  it('ADD_STOP on PostgreSQL: unique (trip, seq) and the seq CHECK hold while stops / seats shift; parallel inserts → one wins', async () => {
+    const c = await company('add-stop');
+    const day = '2027-02-04';
+    const t0 = Date.parse(`${day}T02:00:00Z`);
+    const v = await vehicle(c.id, 4);
+    const ps = await passengers(c.id, 4);
+    const bs = await Promise.all(ps.map((p) => booking(c.id, p, day, t0)));
+    const r = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v, t0), ...bs.slice(0, 2).map((b): DispatchChangeOp => ({ op: 'ADD_PASSENGER', tripId: 't', bookingId: b, pickupSeq: 0, dropSeq: 1 }))] }, randomUUID());
+    const tripId = r.value.trips[0].id;
+    const ptId = r.value.trips[0].plannedTripId!;
+    await prisma.$executeRawUnsafe(`UPDATE "TransportBooking" SET "pickupLat" = 13.08, "pickupLng" = 80.27, "pickupLabel" = 'Lake Road' WHERE id IN ('${bs[2]}', '${bs[3]}')`);
+    const insert = (b: string) => dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', expectedVersions: { [tripId]: 1 }, changes: [{ op: 'ADD_STOP', tripId, bookingId: b, end: 'PICKUP', afterSeq: 0 }, { op: 'ADD_PASSENGER', tripId, bookingId: b, pickupSeq: 1, dropSeq: 2 }] }, randomUUID()).then(() => 'OK', httpCode);
+    const both = await Promise.all([insert(bs[2]), insert(bs[3])]);
+    expect(both.sort()).toEqual(['OK', 'VERSION_CONFLICT']);
+    const stops = await prisma.plannedTripStop.findMany({ where: { tripId: ptId }, orderBy: { seq: 'asc' }, select: { seq: true, name: true, lat: true } });
+    expect(stops).toEqual([
+      { seq: 0, name: 'Pickup', lat: 13.06 },
+      { seq: 1, name: 'Lake Road', lat: 13.08 },
+      { seq: 2, name: 'HQ', lat: 13.05 },
+    ]);
+    const seats = await prisma.transportTripPassenger.findMany({ where: { tripId }, select: { bookingId: true, pickupSeq: true, dropSeq: true, pickupStopId: true } });
+    expect(seats.map((s) => [s.pickupSeq, s.dropSeq]).sort()).toEqual([
+      [0, 2],
+      [0, 2],
+      [1, 2],
+    ]);
+    const trip = await prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId } });
+    expect(trip).toMatchObject({ version: 2, occupiedSeats: 3 });
+    expect(await prisma.transportTripEvent.count({ where: { tripId, kind: 'STOP_ADDED' } })).toBe(1);
+  });
+
   it('double submit of a booking = one booking; a second key for the same passenger / day = 409 BOOKING_DUPLICATE', async () => {
     const c = await company('bookings');
     const [p] = await passengers(c.id, 1);

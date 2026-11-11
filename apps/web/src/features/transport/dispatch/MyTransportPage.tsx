@@ -15,7 +15,7 @@ import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { DIRECTION_LABEL, PASSENGER_STATUS_META } from './e3-format';
 import { BookingStatusBadge, DirectionBadge, e3ErrorMessage, EtaText, TripStateBadge } from './e3-ui';
-import { hiddenVehicleText, shouldPollVehicle, sortMyTrips } from './me-format';
+import { hiddenVehicleText, myMapStops, shouldPollVehicle, sortMyTrips } from './me-format';
 import { TransportMap } from './TransportMap';
 import { useMyBookings, useMyTrips, useMyVehicle } from './use-e3';
 
@@ -37,6 +37,8 @@ function TripCard({ trip, now, expanded, onToggle }: { trip: MeTripDto; now: num
   const vehicle = useMyVehicle(trip.id, poll);
   const v = vehicle.data;
   const visible = poll && v?.visible ? v : null;
+  // My own pickup / drop (sent only with my routing consent) stay on the map; the vehicle joins inside its window.
+  const mine = myMapStops(trip);
   return (
     <Card className="gap-3 p-4">
       <div className="flex flex-wrap items-start gap-2">
@@ -81,9 +83,10 @@ function TripCard({ trip, now, expanded, onToggle }: { trip: MeTripDto; now: num
       </div>
       {expanded && (
         <div className="grid gap-2">
+          {(visible || mine.length > 0) && <TransportMap line={[]} stops={mine.map((s) => ({ ...s, label: t(s.label) }))} vehicle={visible ? { lat: visible.lat, lng: visible.lng, heading: visible.heading } : null} className="h-64" label={visible ? t('Map with your vehicle') : t('Map with your pickup and drop')} />}
+          {trip.pointsHidden === 'CONSENT_REQUIRED' && <p className="text-xs text-muted-foreground">{t('Your pickup point is not shown: you have not given (or have withdrawn) your transport consent.')}</p>}
           {visible ? (
             <>
-              <TransportMap line={[]} stops={[]} vehicle={{ lat: visible.lat, lng: visible.lng, heading: visible.heading }} className="h-64" label={t('Map with your vehicle')} />
               <p className="text-xs text-muted-foreground">
                 {t('Position at {{time}}', { time: clock(visible.fixAt) })}
                 {visible.speedKph !== null && ` · ${Math.round(visible.speedKph)} km/h`}

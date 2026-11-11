@@ -67,6 +67,7 @@ export const TRANSPORT_TRIP_EVENT_KINDS = [
   'PASSENGER_REMOVED',
   'VEHICLE_CHANGED',
   'DRIVER_CHANGED',
+  'STOP_ADDED',
   'ACKNOWLEDGE',
   'STARTED',
   'ARRIVED',
@@ -156,7 +157,15 @@ export interface EtaValue {
   at: string | null;
   model: 'ROAD' | 'TRACKER' | null;
   durationSec?: number | null;
-  degraded?: 'ROUTING_UNAVAILABLE' | 'NO_FIX' | 'NO_ROUTE' | null;
+  /** NO_PICKUP: the booking has no pickup point the caller may route to (none stored, or withheld without consent). */
+  degraded?: 'ROUTING_UNAVAILABLE' | 'NO_FIX' | 'NO_ROUTE' | 'NO_PICKUP' | null;
+  /**
+   * ROAD only: where the estimate starts. VEHICLE_FIX = the idle vehicle's last fix → pickup, from now. TRIP_STOP = the
+   * trip's planned stop `fromStopSeq` → pickup, from that stop's planned departure (the trip has not started). Always
+   * a road estimate without live traffic (GraphHopper), never a straight-line guess.
+   */
+  from?: 'VEHICLE_FIX' | 'TRIP_STOP' | null;
+  fromStopSeq?: number | null;
 }
 
 // ───────────────────────────── Shifts ─────────────────────────────
@@ -539,7 +548,27 @@ export type DispatchChangeOp =
   | { op: 'ADD_PASSENGER'; tripId: string; bookingId: string; pickupSeq: number; dropSeq: number }
   | { op: 'REMOVE_PASSENGER'; passengerTripId: string; reason: string }
   | { op: 'REASSIGN_VEHICLE'; tripId: string; objectId: string }
-  | { op: 'REASSIGN_DRIVER'; tripId: string; driverId: string | null };
+  | { op: 'REASSIGN_DRIVER'; tripId: string; driverId: string | null }
+  | AddStopOp;
+
+/**
+ * ADD_STOP (E3 gap 3): insert a stop into an EXISTING, not-started ETMS trip for a booking whose pickup (or drop) is not
+ * one of its stops. The point is never sent by the client: the server takes it from the booking (`end`), which must be
+ * waiting for a seat, of the change set's date / direction, with an active routing consent (D8). The stop goes after
+ * `afterSeq` (-1 = before the first stop); later stops and seated passengers move one seq up. `plannedArrival`
+ * defaults to the middle between its neighbours (10 min before the first / after the last stop); a trip that grows
+ * longer is checked again for vehicle / driver overlap. Seats are taken by the ADD_PASSENGER that follows, so capacity,
+ * idempotency (Idempotency-Key), expectedVersions and the audit are those of the change set.
+ */
+export interface AddStopOp {
+  op: 'ADD_STOP';
+  tripId: string;
+  bookingId: string;
+  end: 'PICKUP' | 'DROP';
+  afterSeq: number;
+  plannedArrival?: string;
+  waitMin?: number;
+}
 
 export type DispatchChangeOpKind = DispatchChangeOp['op'];
 
@@ -578,6 +607,36 @@ export interface TransportChangeSetSummaryDto {
   sourceTripId: string | null;
   createdAt: string;
   publishedAt: string | null;
+}
+
+/** One stop of a CREATE_TRIP in a change-set detail; `point` null when it is a personal point the caller may not see. */
+export interface ChangeSetStopView {
+  seq: number;
+  label: string | null;
+  point: GeoPoint | null;
+  plannedArrival: string;
+}
+
+/** A change of a saved change set, with the names the dispatcher needs (E3 gap 2). */
+export type ChangeSetChangeView =
+  | { op: 'CREATE_TRIP'; tempId: string; objectId: string; vehicleName: string | null; driverId: string | null; driverName: string | null; plannedStart: string; routeId: string | null; name: string | null; stops: ChangeSetStopView[] }
+  | { op: 'ADD_PASSENGER'; tripId: string; tripLabel: string; bookingId: string; passenger: TransportPassengerRef | null; bookingStatus: TransportBookingStatus | null; pickupSeq: number; dropSeq: number }
+  | { op: 'ADD_STOP'; tripId: string; tripLabel: string; bookingId: string; passenger: TransportPassengerRef | null; end: 'PICKUP' | 'DROP'; afterSeq: number; plannedArrival: string | null }
+  | { op: 'REMOVE_PASSENGER'; passengerTripId: string; tripId: string | null; tripLabel: string; passenger: TransportPassengerRef | null; reason: string }
+  | { op: 'REASSIGN_VEHICLE'; tripId: string; tripLabel: string; objectId: string; vehicleName: string | null }
+  | { op: 'REASSIGN_DRIVER'; tripId: string; tripLabel: string; driverId: string | null; driverName: string | null };
+
+/**
+ * GET /api/transport/dispatch/change-sets/:id (etms_dispatch view; own company; branch-scoped dispatchers only for
+ * change sets whose vehicles, trips and passengers are all in their scope, else 404). A DRAFT shows its changes; a
+ * published / discarded one keeps none (`changes` empty) and shows its result counts in the summary.
+ */
+export interface TransportChangeSetDetailDto extends TransportChangeSetSummaryDto {
+  reason: string | null;
+  expectedVersions: Record<string, number>;
+  changes: ChangeSetChangeView[];
+  /** DRAFT: why publishing would be refused as things stand (booking no longer waiting, trip changed / started). */
+  issues: string[];
 }
 
 /** POST /api/transport/trips/:id/repeat — copy the assignment to later dates as DRAFT change sets. */
@@ -780,6 +839,16 @@ export interface MeTripDto {
   driverFirstName: string | null;
   myStop: { seq: number; label: string; plannedAt: string; status: PlannedStopStatus | null; eta: EtaValue } | null;
   myDrop: { seq: number; label: string; plannedAt: string } | null;
+  /** The trip's planned start / end (the vehicle window runs from start − 30 min to end + 10 min, 05 §2.8). */
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  /**
+   * The caller's OWN pickup / drop point (their booking; doc 02 §7, doc 10: a passenger may see their own location) —
+   * only while their routing consent is active, else null with `pointsHidden` CONSENT_REQUIRED. Never anyone else's.
+   */
+  myPickupPoint: { lat: number; lng: number } | null;
+  myDropPoint: { lat: number; lng: number } | null;
+  pointsHidden: 'CONSENT_REQUIRED' | null;
   /** Other active passengers on the trip (count only). */
   coRiders: number;
   /** Inside the vehicle-visibility window right now (poll /vehicle). */

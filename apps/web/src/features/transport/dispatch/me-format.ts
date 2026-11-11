@@ -11,22 +11,39 @@ const MIN = 60_000;
 const NEVER: readonly string[] = ['CANCELLED', 'DETACHED'];
 
 /**
- * Whether to poll the vehicle of one of my trips now. Never for a cancelled / detached trip or when I am a no-show or
- * removed. Yes while the server says the trip is live-visible; otherwise, near my pickup (from planned pickup − 30 min,
- * or the booking window start − 30 min, until the window end + 10 min) so polling starts on its own when the window
- * opens without a reload. Outside that, no request at all.
+ * The vehicle window of a trip as the server computes it (05 §2.8): the trip's planned start − 30 min until its planned
+ * end + 10 min. Older payloads without the trip times fall back to my pickup / booking window. Null when unknown.
  */
-export function shouldPollVehicle(trip: Pick<MeTripDto, 'derivedState' | 'myStatus' | 'liveVisible' | 'window' | 'myStop'>, nowMs: number): boolean {
+export function vehicleWindowOf(trip: Pick<MeTripDto, 'window' | 'myStop'> & Partial<Pick<MeTripDto, 'plannedStart' | 'plannedEnd'>>): { open: number; close: number } | null {
+  const ps = trip.plannedStart ? Date.parse(trip.plannedStart) : Number.NaN;
+  const pe = trip.plannedEnd ? Date.parse(trip.plannedEnd) : Number.NaN;
+  if (Number.isFinite(ps) && Number.isFinite(pe)) return { open: ps - ME_VEHICLE_WINDOW.beforeStartMin * MIN, close: pe + ME_VEHICLE_WINDOW.afterEndMin * MIN };
+  const starts = [Date.parse(trip.window.start), trip.myStop ? Date.parse(trip.myStop.plannedAt) : Number.NaN].filter(Number.isFinite);
+  const end = Date.parse(trip.window.end);
+  if (!starts.length || !Number.isFinite(end)) return null;
+  return { open: Math.min(...starts) - ME_VEHICLE_WINDOW.beforeStartMin * MIN, close: Math.max(end, ...starts) + ME_VEHICLE_WINDOW.afterEndMin * MIN };
+}
+
+/**
+ * Whether to poll the vehicle of one of my trips now. Never for a cancelled / detached trip or when I am a no-show or
+ * removed. Yes while the server says the trip is live-visible; otherwise inside the trip's vehicle window
+ * (vehicleWindowOf), so polling starts on its own when the window opens without a reload. Outside that, no request.
+ */
+export function shouldPollVehicle(trip: Pick<MeTripDto, 'derivedState' | 'myStatus' | 'liveVisible' | 'window' | 'myStop'> & Partial<Pick<MeTripDto, 'plannedStart' | 'plannedEnd'>>, nowMs: number): boolean {
   if (NEVER.includes(trip.derivedState)) return false;
   if (trip.myStatus === 'NO_SHOW' || trip.myStatus === 'CANCELLED') return false;
   if (trip.liveVisible) return true;
   if (trip.myStatus === 'DROPPED' || trip.derivedState === 'COMPLETED' || trip.derivedState === 'INCOMPLETE') return false;
-  const starts = [Date.parse(trip.window.start), trip.myStop ? Date.parse(trip.myStop.plannedAt) : Number.NaN].filter(Number.isFinite);
-  const end = Date.parse(trip.window.end);
-  if (!starts.length || !Number.isFinite(end)) return false;
-  const open = Math.min(...starts) - ME_VEHICLE_WINDOW.beforeStartMin * MIN;
-  const close = Math.max(end, ...starts) + ME_VEHICLE_WINDOW.afterEndMin * MIN;
-  return nowMs >= open && nowMs <= close;
+  const w = vehicleWindowOf(trip);
+  return !!w && nowMs >= w.open && nowMs <= w.close;
+}
+
+/** My own pickup / drop markers for the map (only what the server sent: my points, with my consent). */
+export function myMapStops(trip: Pick<MeTripDto, 'myPickupPoint' | 'myDropPoint' | 'myStop' | 'myDrop'>): { seq: number; lat: number; lng: number; label: string; mine?: boolean }[] {
+  const out: { seq: number; lat: number; lng: number; label: string; mine?: boolean }[] = [];
+  if (trip.myPickupPoint) out.push({ seq: trip.myStop?.seq ?? 0, ...trip.myPickupPoint, label: trip.myStop?.label ?? 'My pickup', mine: true });
+  if (trip.myDropPoint) out.push({ seq: trip.myDrop?.seq ?? 1, ...trip.myDropPoint, label: trip.myDrop?.label ?? 'My drop' });
+  return out;
 }
 
 export const ME_POLL_MS = ME_VEHICLE_WINDOW.pollSeconds * 1000;

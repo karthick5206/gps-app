@@ -16,6 +16,7 @@ import {
   type RepeatTransportTripResult,
   type TransportBookingDto,
   type TransportBookingListQuery,
+  type TransportChangeSetDetailDto,
   type TransportChangeSetSummaryDto,
   type TransportPassengerOutcomeInput,
   type TransportScheduleExceptionDto,
@@ -149,6 +150,16 @@ export function useCandidates(bookingIds: string[]) {
     enabled: key.length > 0 && key.length <= 50,
     staleTime: 30_000,
     retry: false,
+  });
+}
+
+/** A saved change set with its changes (server draft details). */
+export function useChangeSet(id: string | null) {
+  return useQuery({
+    queryKey: ['transport-change-set', id],
+    queryFn: ({ signal }) => api.get<TransportChangeSetDetailDto>(`${DISPATCH_ENDPOINT}/change-sets/${id}`, undefined, signal),
+    enabled: !!id,
+    staleTime: 10_000,
   });
 }
 
