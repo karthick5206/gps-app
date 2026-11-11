@@ -11,12 +11,13 @@ evidence in the phase log below.
 
 | Phase | Backend | Web | Mobile | QA | Security | Deployment |
 |---|---|---|---|---|---|---|
-| v1.8.1 / D6 (G1, G6, G8 web, G4 script) | In progress (final fixes QA-1..4, Sec-M1/L4) | In progress | Not started (G8 mobile on hold) | Passed with issues (fixing) | Passed with conditions | Not started |
-| D6 rest (G5, G2+G3, G7-A, G8 mobile, G4 prod) | Not started | Not started | Not started | Not started | Not started | Not started |
-| E1a | In progress | Not started | Not started | Not started | Not started | Not started |
+| v1.8.1 / D6 (G1, G6, G8 web, G4 script) | Deployed | Deployed | Not started (G8 mobile on hold) | Passed | Passed | Deployed (2026-11-11 08:12 UTC, a393a2c) |
+| D6 v1.8.2 (G5) + v1.8.3 (G2+G3) | In review | Not started | Not started | In progress | In progress | Not started |
+| D6 v1.8.4 (G7-A), G8 mobile, G4 prod AOF | In progress (G7-A) | Not started | Not started | Not started | Not started | Blocked (owner public key; AOF window) |
+| E1a | Passed (merged 20a718d) | In progress | Not started | Not started | Not started | Not started |
 | E2 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E3 | Not started | Not started | Not started | Not started | Not started | Not started |
-| E4 | Not started (compatibility research only) | Not started | Not started | Not started | Not started | Not started |
+| E4 | In progress (review doc 17 done; optimiser + RoutingProvider on etms/e4-optimizer) | Not started | Not started | Not started | Not started | Not started |
 | E5 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E6 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E7 | Not started | Not started | Not started | Not started | Not started | Not started |
@@ -55,3 +56,17 @@ procedure (release branch → tag → main).
   - Evidence: 0 external requests in 908 (v1.8.0: 350 to OpenFreeMap); gate PASS / FAIL demo.
   - Security review: PASS with conditions. Independent QA is in progress. Deployment is pending.
 - **2026-11-11 · E1a:** integration branch created (2173669 = origin/main + docs). Backend groundwork started.
+- **2026-11-11 08:12 UTC · v1.8.1 deployed to production (a393a2c, tag v1.8.1).**
+  - Before deploy: backup 08:08 UTC, plus a restore test into a scratch DB (17/17 tables match, 0 errors). `MARTIN_URL` added; `.env` saved to `/root/api.env.before-v1.8.1`.
+  - Release: the new `release.sh` build check reported OK with style base `app.veetrax.com`. The health gate passed 11/11 checks (5 units, API, gateway, tracking, GraphHopper, Photon, Martin).
+  - Post-deploy:
+    - Built bundle: 0 outside map hosts.
+    - System Health: map services all OK; returns 401 without a token.
+    - Production browser capture across 8 pages: 729 requests, all to app.veetrax.com.
+    - No service restarts.
+  - `main` fast-forwarded to a393a2c.
+  - Open: share-page capture on production waits for the test device to reconnect.
+  - Open: WARN `valkey.aof`, expected while G4 production AOF is held.
+- **2026-11-11 · E1a backend merged** (20a718d): agreements, `TransportServiceAgreement` migration, authorisation scope, module switch, role templates. API 1,308 / web 193 tests pass. The E1a web agent is running.
+- **2026-11-11 · E4:** compatibility review (doc 17) done. Optimiser service ported without Valhalla (pytest 18/18). RoutingProvider wrapper done (API 1,292), no behaviour change.
+- **2026-11-11 · D6:** v1.8.2 G5 (2ea2bda) and v1.8.3 G2+G3 (b798831) built, then merged on top of v1.8.1 (v1.8.3 includes v1.8.2). Tests: API 1,322 / 1,381. Independent QA and security reviews are running. G7-A is being built.
