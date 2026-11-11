@@ -1,0 +1,28 @@
+[Unit]
+Description=VeeTrax ETMS routing worker (optimisation jobs; inert unless ETMS_ROUTING=on)
+After=network-online.target postgresql.service valkey-server.service veetrax-optimizer.service
+Wants=network-online.target
+
+[Service]
+User=veetrax
+WorkingDirectory=/opt/veetrax/app/apps/api
+EnvironmentFile=/opt/veetrax/app/apps/api/.env
+# Exits 0 at once when ETMS_ROUTING is not "on"; Restart=on-failure leaves it stopped then.
+ExecStart=/usr/bin/node --max-old-space-size=768 dist/routing-worker/main.js
+Restart=on-failure
+RestartSec=10
+# SIGTERM: stops claiming and waits ROUTING_WORKER_GRACE_MS (30 s) for running jobs; a killed job is re-queued by
+# the lease sweeper of the next worker start.
+TimeoutStopSec=45
+# Shared 6 vCPU / 27 GB host (PostgreSQL 8 GB, GraphHopper, Photon 3 GB, the API stack): the worker mostly waits on
+# GraphHopper and the optimiser, so one core and 1 GiB are ample; lower priority than tracking.
+CPUQuota=100%
+MemoryMax=1G
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+# Logs (ids, counts and error codes only, never coordinates): journalctl -u veetrax-routing-worker -f
+
+[Install]
+WantedBy=multi-user.target

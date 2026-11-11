@@ -22,6 +22,12 @@
 #                         warn = opt-in, operator's own choice: a 503 (tracking CRITICAL) at the deadline is only a WARN
 #                         (no answer or any other code still fails); re-check later with release.sh --health-only.
 #                         0 = skipped (a first install with no devices yet).
+#   ETMS_ROUTING (+ ETMS), OPTIMIZER_URL, HEALTH_GATE_ROUTING: ETMS route planning (E4). Off (ETMS_ROUTING not "on",
+#                         the default): one "SKIP routing disabled" line, nothing probed. On: release.sh adds
+#                         veetrax-routing-worker + veetrax-optimizer to SERVICES (systemd check) and the optimiser's
+#                         GET /health must answer 200 (FAIL otherwise). The token is read from OPTIMIZER_TOKEN_FILE
+#                         (default /etc/veetrax/optimizer.env) into a private header file, never onto a command line.
+#                         HEALTH_GATE_ROUTING=0 skips the probe.
 #   ROUTER_URL + ROUTER_ENGINE=graphhopper, GEOCODER=photon + GEOCODER_URL, MARTIN_URL: map services, probed once
 #                         and reported as WARN only (release.sh does not deploy them, so they never fail the gate).
 #                         Only loopback / private hosts are probed; a public host is reported (WARN) and not fetched
@@ -46,6 +52,8 @@ HEALTH_GATE_SYSTEMD="${HEALTH_GATE_SYSTEMD:-auto}"
 HEALTH_GATE_GATEWAY="${HEALTH_GATE_GATEWAY:-1}"
 HEALTH_GATE_TRACKING="${HEALTH_GATE_TRACKING:-1}"
 HEALTH_GATE_MAPS="${HEALTH_GATE_MAPS:-1}"
+HEALTH_GATE_ROUTING="${HEALTH_GATE_ROUTING:-1}"
+OPTIMIZER_TOKEN_FILE="${OPTIMIZER_TOKEN_FILE:-/etc/veetrax/optimizer.env}"
 
 for n in HEALTH_TIMEOUT_SEC HEALTH_POLL_SEC; do
   if ! [[ "${!n}" =~ ^[0-9]+$ ]] || (( ${!n} < 1 )); then
@@ -216,6 +224,66 @@ check_maps() {
   done
 }
 
+routing_on() {
+  local r e
+  r="$(echo "${ETMS_ROUTING:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+  e="$(echo "${ETMS:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+  [[ "$r" == on && "$e" != off ]]
+}
+
+# ETMS route planning (E4): "disabled" while ETMS_ROUTING is off; on → the optimiser /health must answer 200 within
+# the deadline (the routing worker itself is a systemd unit in SERVICES and has no HTTP port).
+check_routing() {
+  if ! routing_on; then
+    line SKIP routing "disabled (ETMS_ROUTING is not on): routing worker and optimiser not checked"
+    return 0
+  fi
+  if [[ "$HEALTH_GATE_ROUTING" == 0 ]]; then
+    line SKIP routing "HEALTH_GATE_ROUTING=0"
+    return 0
+  fi
+  local url="${OPTIMIZER_URL:-http://127.0.0.1:8090}" host token hdr code left max
+  url="${url%/}/health"
+  host="$(url_host "$url")"
+  if ! is_local_host "$host"; then
+    line FAIL routing "optimiser $(safe_url "$url") not probed: '$host' is not a loopback or private host"
+    FAILED+=("routing")
+    return 1
+  fi
+  token="$(sed -n 's/^[[:space:]]*OPTIMIZER_TOKEN=//p' "$OPTIMIZER_TOKEN_FILE" 2>/dev/null | tail -1 | tr -d '\r"'"'"'')"
+  if [[ -z "$token" ]]; then
+    line FAIL routing "optimiser token not readable from $OPTIMIZER_TOKEN_FILE (install-ubuntu.sh with ETMS_ROUTING=on creates it)"
+    FAILED+=("routing")
+    add_unit veetrax-optimizer
+    return 1
+  fi
+  hdr="$(mktemp)"
+  chmod 600 "$hdr"
+  printf 'Authorization: Bearer %s\n' "$token" >"$hdr"
+  token=""
+  while :; do
+    left="$(remaining)"
+    max=$(( left < 5 ? (left < 1 ? 1 : left) : 5 ))
+    code="$(curl -q -s --proto '=http,https' -H @"$hdr" -o "$BODY" -w '%{http_code}' --connect-timeout "$max" --max-time "$max" -- "$url" 2>/dev/null)" || true
+    code="${code:-000}"
+    if [[ "$code" == 200 ]]; then
+      rm -f "$hdr"
+      line PASS routing "optimiser $(safe_url "$url") HTTP 200 after ${SECONDS} s"
+      return 0
+    fi
+    if (( $(remaining) <= 0 )); then
+      rm -f "$hdr"
+      local hint=""
+      [[ "$code" == 401 ]] && hint=" (token refused: OPTIMIZER_TOKEN in apps/api/.env and $OPTIMIZER_TOKEN_FILE must match)"
+      line FAIL routing "optimiser $(safe_url "$url") last answer: $(describe "$code")$hint after ${SECONDS} s"
+      FAILED+=("routing")
+      add_unit veetrax-optimizer
+      return 1
+    fi
+    sleep $(( HEALTH_POLL_SEC < left ? HEALTH_POLL_SEC : left ))
+  done
+}
+
 # Journal tail of one unit, best effort. The 'veetrax' user that runs release.sh is not in systemd-journal / adm, so:
 #   1. journalctl -q (works as root or for a member of those groups); used only when it exits 0 AND prints real entries;
 #   2. sudo -n journalctl -u <unit> -n 50 --no-pager, only when sudoers allows exactly this command (install-ubuntu.sh
@@ -260,6 +328,7 @@ case "$HEALTH_GATE_TRACKING" in
   *) line SKIP tracking "HEALTH_GATE_TRACKING=0" ;;
 esac
 if [[ "$HEALTH_GATE_MAPS" == 1 ]]; then check_maps; else line SKIP maps "HEALTH_GATE_MAPS=0"; fi
+check_routing
 
 if (( ${#FAILED[@]} )); then
   if [[ "$HEALTH_GATE_SYSTEMD" == 1 ]] && command -v journalctl >/dev/null; then

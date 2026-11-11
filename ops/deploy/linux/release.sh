@@ -19,7 +19,11 @@ set -euo pipefail
 main() {
   APP_DIR="${APP_DIR:-/opt/veetrax/app}"
   BRANCH="${BRANCH:-main}"
+  # Set by the caller: used as given (no routing units added).
+  if [[ -n "${SERVICES:-}" ]]; then SERVICES_EXPLICIT=1; else SERVICES_EXPLICIT=0; fi
   SERVICES="${SERVICES:-veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer}"
+  # ETMS E4 route planning: with ETMS_ROUTING=on in apps/api/.env the routing worker and the optimiser are part of the
+  # release (venv refresh, restart, gate). Off (default): nothing below touches them.
   # Remembers the release before the last one, for the rollback hint of --health-only.
   STATE_DIR="${STATE_DIR:-/var/lib/veetrax}"
   local mode="${1:-}"
@@ -28,6 +32,7 @@ main() {
   GATE="$APP_DIR/ops/deploy/linux/health-gate.sh"
   if [[ "$mode" == "--health-only" ]]; then
     load_env $GATE_ENV_KEYS
+    if routing_on && [[ "$SERVICES_EXPLICIT" != 1 ]]; then SERVICES="$SERVICES veetrax-routing-worker veetrax-optimizer"; fi
     health_gate "$(cat "$STATE_DIR/release-prev" 2>/dev/null || echo '<previous tag>')"
     return
   fi
@@ -68,11 +73,26 @@ main() {
     return
   fi
 
+  load_env ETMS_ROUTING
+  if routing_on && [[ "$SERVICES_EXPLICIT" != 1 ]]; then
+    SERVICES="$SERVICES veetrax-routing-worker veetrax-optimizer"
+  fi
+
   echo "== build"
   npm ci --no-audit --no-fund
   npm run build:shared
   build_web || web_build_failed "$prev" "nothing was migrated or restarted" full
   (cd apps/api && npx prisma generate && npm run build)
+
+  if routing_on; then
+    echo "== route optimiser (ETMS_ROUTING=on): venv from the hashed lock"
+    optimizer_venv || {
+      echo
+      echo "OPTIMISER VENV FAILED (see above): nothing was migrated or restarted. Python 3.14 is required (doc 17 R-9)."
+      echo "  Fix it, or set ETMS_ROUTING=off in apps/api/.env, and run the release again."
+      exit 1
+    }
+  fi
 
   echo "== database"
   # Every apps/api/.env setting is exported (read literally, see load_env) so migrate and the seed see the same
@@ -97,8 +117,28 @@ main() {
 
 # The apps/api/.env settings the health gate reads (ports, map-service URLs) plus the gate's own settings.
 GATE_ENV_KEYS="API_PORT GATEWAY_HEALTH_PORT ROUTER_URL ROUTER_ENGINE GEOCODER GEOCODER_URL MARTIN_URL MAP_PROBE_ALLOW_PUBLIC
+  ETMS ETMS_ROUTING OPTIMIZER_URL HEALTH_GATE_ROUTING
   API_HEALTH_URL GATEWAY_HEALTH_URL TRACKING_HEALTH_URL HEALTH_TIMEOUT_SEC HEALTH_POLL_SEC
   HEALTH_GATE_SYSTEMD HEALTH_GATE_GATEWAY HEALTH_GATE_TRACKING HEALTH_GATE_MAPS"
+
+# True when ETMS route planning is switched on (ETMS_ROUTING=on and ETMS not off), as the API reads it.
+routing_on() {
+  local r e
+  r="$(echo "${ETMS_ROUTING:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+  e="$(echo "${ETMS:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+  [[ "$r" == on && "$e" != off ]]
+}
+
+# Builds / refreshes the optimiser venv (veetrax-optimizer.service) from services/routing-optimizer/requirements.lock:
+# hashes required, wheels only, no dependency resolution. Returns non-zero on any failure.
+optimizer_venv() {
+  local venv="${OPTIMIZER_VENV:-/opt/veetrax/venvs/routing-optimizer}" py="${OPTIMIZER_PYTHON:-python3.14}"
+  local lock="$APP_DIR/services/routing-optimizer/requirements.lock"
+  [[ -f "$lock" ]] || { echo "no $lock in this release" >&2; return 1; }
+  command -v "$py" >/dev/null || { echo "$py not found" >&2; return 1; }
+  if [[ ! -x "$venv/bin/python" ]]; then "$py" -m venv "$venv" || return 1; fi
+  "$venv/bin/pip" install -q --disable-pip-version-check --require-hashes --no-deps --only-binary=:all: -r "$lock"
+}
 
 # load_env [KEY...]: exports settings from apps/api/.env (all of them, or only the named keys) WITHOUT running the
 # file as bash (Sec-L5): the file has systemd EnvironmentFile syntax, so `&`, `;`, `$`, backticks or `$(...)` in a

@@ -294,6 +294,26 @@ for mode in denied userfiles noisy; do
 done
 
 echo
+# ETMS E4 route planning: "disabled" while ETMS_ROUTING is off; on → the optimiser /health with the token file.
+TOKEN_DIR="$(mktemp -d)"
+printf 'OPTIMIZER_TOKEN=%s\n' "test-token-0123456789-abcdef" >"$TOKEN_DIR/optimizer.env"
+healthy=(API_HEALTH_URL="$ok/api/health/ready" GATEWAY_HEALTH_URL="$ok/health" TRACKING_HEALTH_URL="$ok/api/health/tracking")
+run_case "routing off (default): SKIP disabled, nothing probed" 0 "${healthy[@]}" ETMS_ROUTING= OPTIMIZER_URL="http://127.0.0.1:$DEAD_PORT"
+expect_out "disabled line" 'SKIP  routing +disabled \(ETMS_ROUTING is not on\)'
+run_case "routing on, ETMS off: still disabled" 0 "${healthy[@]}" ETMS_ROUTING=on ETMS=off OPTIMIZER_URL="http://127.0.0.1:$DEAD_PORT"
+expect_out "disabled line" 'SKIP  routing +disabled'
+run_case "routing on, optimiser healthy: PASS" 0 "${healthy[@]}" ETMS_ROUTING=on OPTIMIZER_URL="$ok" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env"
+expect_out "PASS line" 'PASS  routing +optimiser http://127.0.0.1:[0-9]+/health HTTP 200'
+expect_no_out "token never printed" 'test-token-0123456789'
+run_case "routing on, optimiser 503 until the deadline: FAIL" 1 HEALTH_TIMEOUT_SEC=3 "${healthy[@]}" ETMS_ROUTING=on OPTIMIZER_URL="http://127.0.0.1:$BAD_PORT" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env"
+expect_out "FAIL line" 'FAIL  routing.*HTTP 503' 'HEALTH GATE: FAIL \(routing\)'
+run_case "routing on, token file missing: FAIL" 1 "${healthy[@]}" ETMS_ROUTING=on OPTIMIZER_URL="$ok" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/missing.env"
+expect_out "FAIL line" 'FAIL  routing +optimiser token not readable'
+run_case "routing on, public optimiser host: FAIL, not fetched" 1 "${healthy[@]}" ETMS_ROUTING=on OPTIMIZER_URL="https://optimizer.example.com" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env"
+expect_out "FAIL line" 'FAIL  routing.*not a loopback or private host'
+run_case "routing on, HEALTH_GATE_ROUTING=0: SKIP" 0 "${healthy[@]}" ETMS_ROUTING=on HEALTH_GATE_ROUTING=0
+rm -rf "$TOKEN_DIR"
+
 echo "### release.sh --health-only (APP_DIR=$REPO, expect exit 1 and the rollback text)"
 STATE="$(mktemp -d)"
 echo "v1.8.0" >"$STATE/release-prev"

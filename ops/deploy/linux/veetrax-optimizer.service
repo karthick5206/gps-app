@@ -1,0 +1,41 @@
+[Unit]
+Description=VeeTrax ETMS route optimiser (OR-Tools, loopback only; inert unless ETMS_ROUTING=on)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=veetrax
+WorkingDirectory=/opt/veetrax/app/services/routing-optimizer
+# OPTIMIZER_TOKEN (>= 24 chars, the same value as OPTIMIZER_TOKEN in apps/api/.env), created by install-ubuntu.sh;
+# root:veetrax 0640. The API's .env (database secrets) is NOT given to this service.
+EnvironmentFile=/etc/veetrax/optimizer.env
+Environment=OPTIMIZER_HOST=127.0.0.1
+Environment=OPTIMIZER_PORT=8090
+Environment=OPTIMIZER_ALLOW=127.0.0.1/32,::1/128
+# One solve at a time on the shared host (each solve runs in its own worker process; 503 if one dies, e.g. MemoryMax).
+Environment=OPTIMIZER_CONCURRENCY=1
+Environment=PYTHONUNBUFFERED=1
+# Venv built by release.sh with the hashed lock (requirements.lock, Python 3.14).
+ExecStart=/opt/veetrax/venvs/routing-optimizer/bin/python -m optimizer.server
+Restart=on-failure
+RestartSec=10
+# Caps for the shared 6 vCPU / 27 GB host (doc 06 §7, README "Resource notes"): 1.5 cores, 3 GiB for the HTTP process
+# plus OPTIMIZER_CONCURRENCY solver processes (raise MemoryMax with the concurrency), below tracking in priority.
+CPUQuota=150%
+MemoryMax=3G
+MemorySwapMax=0
+Nice=10
+# No database, no disk writes, no outbound network: loopback only.
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+# Logs (one line per request, never bodies): journalctl -u veetrax-optimizer -f
+
+[Install]
+WantedBy=multi-user.target
