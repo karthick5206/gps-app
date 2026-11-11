@@ -76,7 +76,7 @@ export function JobProgress({ jobId, planId, label, canCancel }: { jobId: string
   const meta = JOB_STATE_META[j.state];
   const active = j.state === 'queued' || j.state === 'running';
   return (
-    <div className="grid gap-2" data-testid="job-progress">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" data-testid="job-progress">
       <div className="flex flex-wrap items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
         <Badge variant={meta.tone}>{t(meta.label)}</Badge>
