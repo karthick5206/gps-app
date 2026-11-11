@@ -13,7 +13,8 @@
  * Kept free of Vite-only and DOM-only imports at module level so it runs under `node --test`.
  */
 
-export const UI_FLAGS = ['uiRefresh'] as const;
+/** uiRefresh: visual refresh. etmsRouting: ETMS route planner (E4 WP 4.5; also needs the API's ETMS_ROUTING=on). */
+export const UI_FLAGS = ['uiRefresh', 'etmsRouting'] as const;
 export type UiFlag = (typeof UI_FLAGS)[number];
 export type UiFlags = Record<UiFlag, boolean>;
 

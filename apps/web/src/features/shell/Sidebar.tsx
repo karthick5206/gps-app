@@ -7,6 +7,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useMe } from '@/features/auth/auth-context';
 import { cn } from '@/lib/utils';
 import { buildNav, MENU_ICONS } from './nav';
+import { usePlannerMenuHidden } from '@/features/transport/planning/planner-client';
 
 /**
  * Left menu (Enterprise layout): a light panel under the app header. Every menu the user may view, in the shared
@@ -30,7 +31,9 @@ export function Sidebar({
   const me = useMe();
   const personal = me.company.accountType !== 'BUSINESS';
   const reseller = !!me.partner;
-  const groups = useMemo(() => buildNav(me.permissions, personal, reseller), [me.permissions, personal, reseller]);
+  // E4 route planner: hidden unless the web flag is on and the API reports routing enabled.
+  const plannerHidden = usePlannerMenuHidden();
+  const groups = useMemo(() => buildNav(me.permissions, personal, reseller, plannerHidden ? new Set(['etms_planning'] as const) : undefined), [me.permissions, personal, reseller, plannerHidden]);
 
   return (
     <nav aria-label={t('Main navigation')} className={cn('flex h-full flex-col border-e bg-card text-foreground', className)}>

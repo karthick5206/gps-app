@@ -72,6 +72,8 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   etms_schedules: page(() => import('@/features/transport/dispatch/ShiftsSchedulesPage'), 'ShiftsSchedulesPage'),
   etms_bookings: page(() => import('@/features/transport/dispatch/BookingsPage'), 'BookingsPage'),
   etms_dispatch: page(() => import('@/features/transport/dispatch/DispatchPage'), 'DispatchPage'),
+  // E4 WP 4.5: route planner (web flag etmsRouting + API ETMS_ROUTING; the page checks both).
+  etms_planning: page(() => import('@/features/transport/planning/PlanningPage'), 'PlanningPage'),
   etms_settings: page(() => import('@/features/transport/TransportSettingsPage'), 'TransportSettingsPage'),
   // E3 WP 3.6: the passenger's own bookings and trips (vehicle only inside the trip window).
   etms_self: page(() => import('@/features/transport/dispatch/MyTransportPage'), 'MyTransportPage'),
@@ -83,6 +85,7 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
 /** Detail pages inside a menu (same permission as the menu). */
 const PlannedTripDetailPage = page(() => import('@/features/planned-trips/PlannedTripDetailPage'), 'PlannedTripDetailPage');
 const TransportTripDetailPage = page(() => import('@/features/transport/dispatch/TransportTripDetailPage'), 'TransportTripDetailPage');
+const PlanReviewPage = page(() => import('@/features/transport/planning/PlanReviewPage'), 'PlanReviewPage');
 const AgreementDetailPage = page(() => import('@/features/transport/AgreementDetailPage'), 'AgreementDetailPage');
 /** E2 vehicle seats: a fleet screen of the transport module (permission objects; the page checks the etms add-on). */
 const VehicleSeatsPage = page(() => import('@/features/transport/VehicleSeatsPage'), 'VehicleSeatsPage');
@@ -169,6 +172,16 @@ export const router = createBrowserRouter([
               <RequirePermission menu="etms_dispatch">
                 <Suspense fallback={<PageFallback />}>
                   <TransportTripDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/transport/planning/:id',
+            element: (
+              <RequirePermission menu="etms_planning">
+                <Suspense fallback={<PageFallback />}>
+                  <PlanReviewPage />
                 </Suspense>
               </RequirePermission>
             ),
