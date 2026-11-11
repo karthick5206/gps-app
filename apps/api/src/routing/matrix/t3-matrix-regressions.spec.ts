@@ -86,6 +86,17 @@ describe('T3-D5 adaptive limiter', () => {
     expect(l.limit).toBe(3);
   });
 
+  it('model regression (30 ms per leg): skewed single-leg snaps first (median 24 ms), then normal 50-leg walks: no halving', () => {
+    const l = new AdaptiveLimiter(3, 60, 20);
+    feed(l, 150, 1, (i) => [16, 20, 22, 24, 24, 26, 36, 44, 52][i % 9]); // lognormal-like: median 24 ms, mean ~29 ms
+    let min = l.limit;
+    for (let k = 0; k < 10; k++) {
+      feed(l, 20, 50, jitter(30 * 50, 0.05));
+      min = Math.min(min, l.limit);
+    }
+    expect(min).toBe(3); // never halved (a dip throttled 30 ms builds into PARTIAL in the T3 model)
+  });
+
   it('sustained saturation of single-leg requests keeps the limit at 1 (no probing into a slow engine)', () => {
     const l = new AdaptiveLimiter(3, 60, 20);
     feed(l, 20, 1, jitter(12));
