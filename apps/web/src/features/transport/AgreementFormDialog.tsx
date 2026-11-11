@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
 import { Combobox, MultiSelect, type Option } from '@/components/ui/multi-select';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/features/auth/auth-context';
@@ -25,6 +25,7 @@ import {
   isWriteGrant,
   lastDayToValidTo,
   orderedGrants,
+  reasonError,
   validateAgreementDraft,
   type AgreementDraft,
   type DraftErrors,
@@ -124,6 +125,9 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
   const [partnerQ, setPartnerQ] = useState('');
   const [siteQ, setSiteQ] = useState('');
   const [tried, setTried] = useState(false);
+  // F7: VeeTrax support (Super Admin) gives a reason for every change; shown in the history and the customer's audit log.
+  const support = !!me?.user.isSuperAdmin;
+  const [supportReason, setSupportReason] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -134,6 +138,7 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
     setPartnerPick(null);
     setPartnerQ('');
     setSiteQ('');
+    setSupportReason('');
     setOurSide('CUSTOMER');
     setDraft(record ? draftFromAgreement(record, tz) : emptyDraft(todayInZone(tz)));
     // Reset only when the dialog opens.
@@ -151,7 +156,7 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
       ? t('Too many searches. Wait a minute, or paste the company ID instead.')
       : lookupQuery(partnerQ) === null
         ? t('Type at least {{n}} letters of the company name.', { n: TRANSPORT_COMPANY_LOOKUP_MIN_CHARS })
-        : t('No company found. Only companies with employee transport switched on are listed.');
+        : t('No company found. Only companies that chose to be listed in the partner directory appear here. Ask the other company for its company ID and paste it instead.');
 
   // Sites are the customer's places: the customer company picks them (no Places permission needed); the Super Admin too.
   const customerId = record ? record.customerCompanyId : platformPicker ? draft.customerCompanyId : ourSide === 'CUSTOMER' ? companyId : '';
@@ -166,6 +171,8 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
     : { ...draft, providerCompanyId: ourSide === 'PROVIDER' ? companyId : partnerValue, customerCompanyId: ourSide === 'CUSTOMER' ? companyId : partnerValue };
   const errors: DraftErrors = validateAgreementDraft(parties, { create: !record, companyId, isSuperAdmin: !!me?.user.isSuperAdmin });
   const shown = (k: keyof DraftErrors) => (tried && errors[k] ? t(errors[k]!) : undefined);
+  const reasonErr = support ? reasonError(supportReason) : null;
+  const reasonInput = support ? { reason: supportReason.trim() } : {};
   // In the tenant flow the partner field carries the party errors.
   const partnerError = shown(ourSide === 'CUSTOMER' ? 'providerCompanyId' : 'customerCompanyId') ?? shown('customerCompanyId');
 
@@ -173,7 +180,7 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
 
   const submit = () => {
     setTried(true);
-    if (Object.keys(errors).length) return;
+    if (Object.keys(errors).length || reasonErr) return;
     const validFrom = dayStartIso(draft.validFrom, tz)!;
     const validTo = draft.lastDay ? lastDayToValidTo(draft.lastDay, tz) : null;
     if (record) {
@@ -181,7 +188,7 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
         {
           kind: 'update',
           id: record.id,
-          input: { validFrom, validTo, grants: draft.grants, dataProfile: draft.dataProfile, ...(canPickSites ? { siteIds: draft.siteIds } : {}), expectedVersion: record.version },
+          input: { validFrom, validTo, grants: draft.grants, dataProfile: draft.dataProfile, ...(canPickSites ? { siteIds: draft.siteIds } : {}), expectedVersion: record.version, ...reasonInput },
         },
         {
           onSuccess: () => {
@@ -202,6 +209,7 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
             grants: draft.grants,
             dataProfile: draft.dataProfile,
             ...(canPickSites ? { siteIds: draft.siteIds } : {}),
+            ...reasonInput,
           },
         },
         {
@@ -382,10 +390,22 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
               options={TRANSPORT_DATA_PROFILES.map((p) => ({ value: p, label: DATA_PROFILE_META[p].label, description: DATA_PROFILE_META[p].description }))}
             />
 
+            {support && (
+              <Field
+                label={t('Reason (VeeTrax support)')}
+                htmlFor="agr-support-reason"
+                required
+                error={tried && reasonErr ? t(reasonErr) : undefined}
+                hint={t('Both companies see it in the agreement history; the customer also sees it in its audit log.')}
+              >
+                <Textarea id="agr-support-reason" rows={2} maxLength={550} value={supportReason} onChange={(e) => setSupportReason(e.target.value)} aria-invalid={(tried && !!reasonErr) || undefined} />
+              </Field>
+            )}
+
             {duplicate ? (
               <AgreementError error={new Error(t('These two companies already have an open agreement. Open it from the list, or end it before creating a new one.'))} />
             ) : notFound ? (
-              <AgreementError error={new Error(t('No business company with that ID was found. Check the ID with the other company.'))} />
+              <AgreementError error={new Error(t('No business company with that ID uses employee transport. Check the ID with the other company.'))} />
             ) : (
               <AgreementError
                 error={mutation.error}

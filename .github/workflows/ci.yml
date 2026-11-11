@@ -32,6 +32,62 @@ jobs:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
       - run: npx tsc -p tsconfig.build.json --outDir dist-ci
         working-directory: apps/api
+  api-db:
+    # E1a exit criterion (doc 12 §3, doc 16 §5.1 C-2): the DB-backed tests (*.db-test.ts) on a migrated, empty scratch
+    # database. PostgreSQL 18 + TimescaleDB 2.31.0 (production's versions) and Valkey 7.2 as service containers.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: timescale/timescaledb:2.31.0-pg18
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: veetrax_ci_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci -d veetrax_ci_test" --health-interval 5s --health-timeout 5s --health-retries 30
+      valkey:
+        image: valkey/valkey:7.2
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      CI: 'true'
+      # A missing or refused database fails the run instead of skipping the suites (apps/api/src/test/scratch-db.ts).
+      DB_TEST_REQUIRED: '1'
+      TEST_DATABASE_URL: postgresql://ci:ci@localhost:5432/veetrax_ci_test
+      TEST_REDIS_URL: redis://localhost:6379/1
+      ETMS_DB_TEST_URL: postgresql://ci:ci@localhost:5432/veetrax_ci_test
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/veetrax_ci_test
+      JWT_SECRET: ci-only-not-a-secret-ci-only-not-a-secret-0123456789
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # doc 16 C-4: never anything but a *_test database (never veetracer, never veetrax_assess).
+      - name: Refuse a non-test database
+        run: |
+          for url in "$DATABASE_URL" "$ETMS_DB_TEST_URL" "$TEST_DATABASE_URL"; do
+            name="${url##*/}"; name="${name%%\?*}"
+            case "$name" in
+              *_test) echo "ok: $name" ;;
+              *) echo "::error::refusing database '$name': only *_test databases are allowed in CI"; exit 1 ;;
+            esac
+          done
+      - run: npm ci
+      - run: npm run build:shared
+      - run: npx prisma generate
+        working-directory: apps/api
+      - run: npx prisma migrate deploy
+        working-directory: apps/api
+      - name: TimescaleDB present
+        run: test -n "$(PGPASSWORD=ci psql -h localhost -U ci -d veetrax_ci_test -tAc "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'")"
+      # ETMS and shared-settings DB tests. stock.db-test.ts needs its own throw-away database and is not in this job yet.
+      - run: npx jest --ci --runInBand --testRegex 'src/(etms|common)/.*\.db-test\.ts$'
+        working-directory: apps/api
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 20

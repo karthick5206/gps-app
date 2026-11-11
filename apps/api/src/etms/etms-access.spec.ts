@@ -74,10 +74,11 @@ describe('ETMS module gating (MenuDef.requires)', () => {
 
 describe('AuthContextService: features, module menus and ctx.agreements', () => {
   const role = { dataScope: 'COMPANY', permissions: [{ menu: 'etms_partners', actions: ['view'] }, { menu: 'live_map', actions: ['view'] }] };
-  const agreementRow = { id: 'a1', customerCompanyId: 'cust', grants: ['VIEW_BOOKINGS'], siteIds: [], dataProfile: 'MINIMAL', validFrom: new Date(1000), validTo: null };
+  const customerOn = { status: 'ACTIVE', isPlatform: false, settings: { features: ['etms'] } };
+  const agreementRow = { id: 'a1', customerCompanyId: 'cust', grants: ['VIEW_BOOKINGS'], siteIds: [], dataProfile: 'MINIMAL', validFrom: new Date(1000), validTo: null, customer: customerOn };
 
-  function service(settings: unknown, opts: { superAdmin?: boolean; selected?: unknown } = {}) {
-    const findMany = jest.fn(async () => [agreementRow]);
+  function service(settings: unknown, opts: { superAdmin?: boolean; selected?: unknown; customer?: unknown; roles?: unknown[] } = {}) {
+    const findMany = jest.fn(async () => [{ ...agreementRow, customer: opts.customer ?? customerOn }]);
     const prisma = {
       user: {
         findUnique: async () => ({
@@ -86,7 +87,7 @@ describe('AuthContextService: features, module menus and ctx.agreements', () => 
           isActive: true,
           isSuperAdmin: !!opts.superAdmin,
           company: { status: 'ACTIVE', settings, isPlatform: false },
-          roles: [{ role }],
+          roles: opts.roles ?? [{ role }],
           branches: [],
           objects: [],
         }),
@@ -114,7 +115,32 @@ describe('AuthContextService: features, module menus and ctx.agreements', () => 
     expect(ctx.companyId).toBe('prov');
     expect(ctx.agreements).toEqual([{ id: 'a1', customerCompanyId: 'cust', grants: ['VIEW_BOOKINGS'], siteIds: [], dataProfile: 'MINIMAL', validFrom: 1000, validTo: null }]);
     const where = (findMany.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where;
-    expect(where).toMatchObject({ providerCompanyId: 'prov', customerCompanyId: { not: 'prov' }, status: 'ACTIVE', customer: { status: 'ACTIVE' } });
+    expect(where).toMatchObject({
+      providerCompanyId: 'prov',
+      customerCompanyId: { not: 'prov' },
+      status: 'ACTIVE',
+      customer: { status: 'ACTIVE', isPlatform: false, settings: { path: ['features'], array_contains: ['etms'] } },
+    });
+  });
+
+  it('F3: customer module off → the provider loses the grants (query filter and code check); back on → restored', async () => {
+    const off = service({ features: ['etms'] }, { customer: { ...customerOn, settings: { features: ['attendance'] } } });
+    expect((await off.svc.forUser('u1', undefined, null)).agreements).toEqual([]);
+    const none = service({ features: ['etms'] }, { customer: { ...customerOn, settings: {} } });
+    expect((await none.svc.forUser('u1', undefined, null)).agreements).toEqual([]);
+    const suspended = service({ features: ['etms'] }, { customer: { ...customerOn, status: 'SUSPENDED' } });
+    expect((await suspended.svc.forUser('u1', undefined, null)).agreements).toEqual([]);
+    const on = service({ features: ['etms'] });
+    expect((await on.svc.forUser('u1', undefined, null)).agreements?.map((a) => a.id)).toEqual(['a1']);
+  });
+
+  it('R-12: isCompanyAdmin only for holders of the own company’s built-in Admin role (and the Super Admin)', async () => {
+    const admin = { isSystem: true, name: 'Admin', companyId: 'prov', dataScope: 'COMPANY', permissions: [] };
+    expect((await service({}, { roles: [{ role: admin }] }).svc.forUser('u1', undefined, null)).isCompanyAdmin).toBe(true);
+    expect((await service({}, { roles: [{ role: { ...admin, isSystem: false } }] }).svc.forUser('u1', undefined, null)).isCompanyAdmin).toBe(false);
+    expect((await service({}, { roles: [{ role: { ...admin, companyId: 'other' } }] }).svc.forUser('u1', undefined, null)).isCompanyAdmin).toBe(false);
+    expect((await service({}).svc.forUser('u1', undefined, null)).isCompanyAdmin).toBe(false);
+    expect((await service({}, { superAdmin: true }).svc.forUser('u1', undefined, null)).isCompanyAdmin).toBe(true);
   });
 
   it('Super Admin switched into a company without the add-on sees no ETMS menus', async () => {

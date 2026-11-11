@@ -119,6 +119,58 @@ export function assertCanManageUserAccess(
   }
 }
 
+// ───────────────────────────── Role-grant ceiling (R-12 / AZ-1, WP 0.5-9) ─────────────────────────────
+
+/** Name of the built-in company administrator role (SYSTEM_ROLES). */
+export const ADMIN_ROLE = 'Admin';
+
+type CeilingCtx = Pick<AuthContext, 'isSuperAdmin' | 'isCompanyAdmin' | 'dataScope' | 'permissions'>;
+
+/**
+ * Callers the ceiling does not apply to: the Super Admin and holders of the company's built-in Admin role. Admins hold
+ * every grantable menu of the company; module menus (ETMS) are not in the global Admin role but come from the module's
+ * role templates, and the Admin must still be able to hand those out.
+ */
+export function aboveCeiling(ctx: Pick<AuthContext, 'isSuperAdmin' | 'isCompanyAdmin'>): boolean {
+  return ctx.isSuperAdmin || !!ctx.isCompanyAdmin;
+}
+
+/**
+ * What `role` grants beyond the caller's own rights: company-wide data scope the caller lacks, and menu actions the
+ * caller does not hold (compared with the caller's effective permissions, so a module that is off grants nothing).
+ * Empty = within the ceiling. Labels only (no ids), for the 403 message.
+ */
+export function ceilingExcess(ctx: CeilingCtx, role: RoleGrant): string[] {
+  if (aboveCeiling(ctx)) return [];
+  const out: string[] = [];
+  if (role.dataScope === 'COMPANY' && ctx.dataScope !== 'COMPANY') out.push('whole-company data scope');
+  for (const perm of role.permissions) {
+    const mine = new Set<string>(ctx.permissions[perm.menu as MenuKey] ?? []);
+    const extra = perm.actions.filter((a) => !mine.has(a));
+    if (extra.length) out.push(`${MENU_BY_KEY.get(perm.menu)?.label ?? perm.menu}: ${extra.join(', ')}`);
+  }
+  return out;
+}
+
+function ceilingError(message: string, excess: string[]): ForbiddenException {
+  const shown = excess.slice(0, 5).join('; ') + (excess.length > 5 ? `; and ${excess.length - 5} more` : '');
+  return new ForbiddenException({ message: `${message} (${shown})`, code: 'PERMISSION_CEILING' });
+}
+
+/** Creating or editing a role: the role (before and after an edit) must not grant more than the caller holds. */
+export function assertRoleWithinCeiling(ctx: CeilingCtx, role: RoleGrant, message = 'You cannot give a role rights you do not have yourself'): void {
+  const excess = ceilingExcess(ctx, role);
+  if (excess.length) throw ceilingError(message, excess);
+}
+
+/** Assigning roles to a user (or managing a user who holds them): each role must be within the caller's ceiling. */
+export function assertRolesWithinCeiling(ctx: CeilingCtx, roles: (RoleGrant & { name: string })[], message: (name: string) => string): void {
+  for (const role of roles) {
+    const excess = ceilingExcess(ctx, role);
+    if (excess.length) throw ceilingError(message(role.name), excess);
+  }
+}
+
 /** Read scope of the live map and the vehicle / device / driver lists: nothing when the Super Admin views all companies. */
 export function allCompaniesOr<T>(ctx: Pick<AuthContext, 'allCompanies'>, scoped: T): T | Record<string, never> {
   return ctx.allCompanies ? {} : scoped;

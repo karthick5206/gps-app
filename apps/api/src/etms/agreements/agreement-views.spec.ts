@@ -4,6 +4,7 @@ import type { AuthContext } from '../../access/auth-context';
 import { agreementSiteScope } from '../../access/transport-scope';
 import { AuditService } from '../../audit/audit.service';
 import { CompanyDirectoryController } from '../directory/company-directory.controller';
+import { TransportSettingsController } from '../settings/transport-settings.controller';
 import { TransportFeatureGuard } from '../transport-feature.guard';
 import { AgreementViewsService, classifyAgreementAudit } from './agreement-views.service';
 import { AgreementsController } from './agreements.controller';
@@ -32,12 +33,13 @@ function matches(row: Obj, where: Obj | undefined): boolean {
   });
 }
 
+const ON = { status: 'ACTIVE', settings: { features: ['etms'] } };
 const COMPANIES: Obj[] = [
-  { id: 'platform', name: 'VeeTrax', isPlatform: true, accountType: 'BUSINESS' },
-  { id: 'prov', name: 'Provider Co', isPlatform: false, accountType: 'BUSINESS' },
-  { id: 'prov2', name: 'Other Provider', isPlatform: false, accountType: 'BUSINESS' },
-  { id: 'custA', name: 'Customer A', isPlatform: false, accountType: 'BUSINESS' },
-  { id: 'custB', name: 'Customer B', isPlatform: false, accountType: 'BUSINESS' },
+  { id: 'platform', name: 'VeeTrax', isPlatform: true, accountType: 'BUSINESS', ...ON },
+  { id: 'prov', name: 'Provider Co', isPlatform: false, accountType: 'BUSINESS', ...ON },
+  { id: 'prov2', name: 'Other Provider', isPlatform: false, accountType: 'BUSINESS', ...ON },
+  { id: 'custA', name: 'Customer A', isPlatform: false, accountType: 'BUSINESS', ...ON },
+  { id: 'custB', name: 'Customer B', isPlatform: false, accountType: 'BUSINESS', ...ON },
 ];
 const POIS: Obj[] = [
   { id: 'a-hq', companyId: 'custA', name: 'A Head office', isActive: true, branchId: null },
@@ -48,9 +50,9 @@ const POIS: Obj[] = [
 ];
 const BRANCHES: Record<string, string> = { 'br-north': 'North', 'br-south': 'South' };
 const USERS: Obj[] = [
-  { id: 'user-prov', name: 'Priya Provider' },
-  { id: 'user-custA', name: 'Chandra Customer' },
-  { id: 'user-platform', name: 'Sam Superadmin' },
+  { id: 'user-prov', name: 'Priya Provider', isSuperAdmin: false },
+  { id: 'user-custA', name: 'Chandra Customer', isSuperAdmin: false },
+  { id: 'user-platform', name: 'Sam Superadmin', isSuperAdmin: true },
 ];
 
 function store() {
@@ -102,7 +104,7 @@ function store() {
 const ALL = { etms_partners: ['view', 'create', 'edit'] };
 const ctx = (companyId: string, opts: { superAdmin?: boolean; permissions?: Obj; dataScope?: string; branchIds?: string[] } = {}): AuthContext =>
   ({
-    userId: `user-${companyId}`,
+    userId: opts.superAdmin ? 'user-platform' : `user-${companyId}`,
     homeCompanyId: opts.superAdmin ? 'platform' : companyId,
     companyId,
     isSuperAdmin: !!opts.superAdmin,
@@ -114,6 +116,8 @@ const ctx = (companyId: string, opts: { superAdmin?: boolean; permissions?: Obj;
   }) as AuthContext;
 const SA = ctx('platform', { superAdmin: true });
 const draft = { providerCompanyId: 'prov', customerCompanyId: 'custA', validFrom: '2026-11-01T00:00:00Z', grants: ['VIEW_BOOKINGS' as const] };
+const saDraft = { ...draft, reason: 'drafted for the customer (ticket 42)' };
+const ver = (rows: Obj[], id: string) => rows.find((r) => r.id === id)!.version as number;
 const status = async (p: Promise<unknown>) => p.then(() => 'ok', (e: { getStatus(): number; getResponse(): { code?: string } }) => `${e.getStatus()} ${e.getResponse().code ?? ''}`.trim());
 
 describe('GET /transport/agreements/:id/sites', () => {
@@ -190,8 +194,8 @@ describe('GET /transport/agreements/:id/history', () => {
     const a = await s.svc.create(ctx('prov'), draft);
     await s.svc.update(ctx('custA'), a.id, { grants: ['VIEW_BOOKINGS', 'VIEW_REPORTS'], siteIds: ['a-hq'] });
     await s.svc.propose(ctx('custA'), a.id);
-    await s.svc.approve(ctx('custA'), a.id);
-    await s.svc.approve(ctx('prov'), a.id);
+    await s.svc.approve(ctx('custA'), a.id, ver(s.rows, a.id));
+    await s.svc.approve(ctx('prov'), a.id, ver(s.rows, a.id));
     await s.svc.suspend(SA, a.id, 'platform hold');
     await s.svc.resume(ctx('custA'), a.id);
     await s.svc.end(ctx('prov'), a.id, 'contract over');
@@ -232,6 +236,37 @@ describe('GET /transport/agreements/:id/history', () => {
     expect(JSON.stringify(h)).not.toMatch(/Priya|Sam Superadmin/);
   });
 
+  it('F2/F7: VeeTrax support switched into the customer company shows as "VeeTrax support" with its reason, never as a colleague', async () => {
+    const s = store();
+    const switched = { ...SA, companyId: 'custA' } as AuthContext;
+    const a = await s.svc.create(switched, saDraft);
+    await s.svc.update(switched, a.id, { grants: ['VIEW_REPORTS'], reason: 'customer asked by phone' });
+    await s.svc.propose(switched, a.id, undefined, 'customer asked by phone');
+    for (const viewer of [ctx('custA'), ctx('prov')]) {
+      const h = await s.views.history(viewer, a.id);
+      expect(h.map((e) => [e.kind, e.actorSide, e.actorName])).toEqual([
+        ['CREATED', 'PLATFORM', null],
+        ['EDITED', 'PLATFORM', null],
+        ['PROPOSED', 'PLATFORM', null],
+      ]);
+      expect(h.map((e) => e.reason)).toEqual(['drafted for the customer (ticket 42)', 'customer asked by phone', 'customer asked by phone']);
+      expect(JSON.stringify(h)).not.toContain('Sam Superadmin');
+    }
+    expect((await s.views.history(SA, a.id))[0].actorName).toBe('Sam Superadmin');
+    // F7: the rows are in the customer's own audit log (companyId = customer), whichever company the Super Admin acted in.
+    expect(s.logs.map((l) => l.companyId)).toEqual(['custA', 'custA', 'custA']);
+    const fromPlatform = await s.svc.create(SA, { ...saDraft, providerCompanyId: 'prov2' });
+    expect(s.logs.filter((l) => l.entityId === fromPlatform.id).map((l) => l.companyId)).toEqual(['custA']);
+  });
+
+  it('F2: old audit rows of a switched Super Admin (written as the customer, no reason) still show as VeeTrax support', async () => {
+    const s = store();
+    const a = await s.svc.create(ctx('custA'), draft);
+    s.logs.push({ id: randomUUID(), createdAt: new Date(Date.now() + 1000), companyId: 'custA', userId: 'user-platform', action: 'UPDATE', entity: 'TransportServiceAgreement', entityId: a.id, changes: { status: { from: 'DRAFT', to: 'PROPOSED' } } });
+    const h = await s.views.history(ctx('custA'), a.id);
+    expect(h[1]).toMatchObject({ kind: 'PROPOSED', actorSide: 'PLATFORM', actorName: null });
+  });
+
   it('cross-company: non-parties get 404', async () => {
     const { views, a } = await flow();
     expect(await status(views.history(ctx('prov2'), a.id))).toBe('404 NOT_FOUND');
@@ -248,13 +283,13 @@ describe('GET /transport/agreements/:id/history', () => {
 
 describe('GET /transport/agreements/summary', () => {
   it('counts per status over the caller’s agreements and the proposals awaiting its side', async () => {
-    const { svc, views } = store();
-    const a = await svc.create(SA, draft);
-    await svc.propose(SA, a.id);
-    await svc.create(SA, { ...draft, providerCompanyId: 'prov2' });
-    const c = await svc.create(SA, { ...draft, customerCompanyId: 'custB' });
-    await svc.propose(SA, c.id);
-    await svc.approve(ctx('custB'), c.id);
+    const { svc, views, rows } = store();
+    const a = await svc.create(SA, saDraft);
+    await svc.propose(SA, a.id, undefined, 'r');
+    await svc.create(SA, { ...saDraft, providerCompanyId: 'prov2' });
+    const c = await svc.create(SA, { ...saDraft, customerCompanyId: 'custB' });
+    await svc.propose(SA, c.id, undefined, 'r');
+    await svc.approve(ctx('custB'), c.id, ver(rows, c.id));
 
     const prov = await views.summary(ctx('prov'));
     expect(prov.byStatus).toEqual({ DRAFT: 0, PROPOSED: 2, ACTIVE: 0, SUSPENDED: 0, ENDED: 0 });
@@ -269,19 +304,21 @@ describe('GET /transport/agreements/summary', () => {
     expect(custB).toMatchObject({ total: 1, awaitingMyApproval: 0, awaiting: [] }); // already approved its side
   });
 
-  it('no edit permission → nothing awaiting; Super Admin on the platform counts all and approves none', async () => {
+  it('no edit permission or branch scope → nothing awaiting; Super Admin (also switched into a party) approves none', async () => {
     const { svc, views } = store();
-    const a = await svc.create(SA, draft);
-    await svc.propose(SA, a.id);
+    const a = await svc.create(SA, saDraft);
+    await svc.propose(SA, a.id, undefined, 'r');
     expect(await views.summary(ctx('custA', { permissions: { etms_partners: ['view'] } }))).toMatchObject({ total: 1, awaitingMyApproval: 0, awaiting: [] });
-    await svc.create(SA, { ...draft, customerCompanyId: 'custB' });
+    expect(await views.summary(ctx('custA', { dataScope: 'ASSIGNED' }))).toMatchObject({ total: 1, awaitingMyApproval: 0, awaiting: [] });
+    expect(await views.summary({ ...SA, companyId: 'custA' } as AuthContext)).toMatchObject({ total: 1, awaitingMyApproval: 0 });
+    await svc.create(SA, { ...saDraft, customerCompanyId: 'custB' });
     expect(await views.summary(SA)).toMatchObject({ total: 2, awaitingMyApproval: 0 });
     expect((await views.summary(ctx('prov2'))).total).toBe(0);
   });
 });
 
 describe('ETMS route completeness (doc 05 §1: every route has a permission and the feature gate)', () => {
-  const controllers = [AgreementsController, CompanyDirectoryController];
+  const controllers = [AgreementsController, CompanyDirectoryController, TransportSettingsController];
   it.each(controllers.map((c) => [c.name, c] as const))('%s', (_name, controller) => {
     const guards = Reflect.getMetadata('__guards__', controller) as unknown[];
     expect(guards).toContain(TransportFeatureGuard);
@@ -298,5 +335,7 @@ describe('ETMS route completeness (doc 05 §1: every route has a permission and 
     expect(perm(AgreementsController, 'history')).toEqual([['etms_partners', 'view']]);
     expect(perm(AgreementsController, 'summary')).toEqual([['etms_partners', 'view']]);
     expect(perm(AgreementsController, 'siteOptions')).toEqual([['etms_partners', 'edit'], ['etms_partners', 'create']]);
+    expect(perm(TransportSettingsController, 'get')).toEqual([['etms_settings', 'view']]);
+    expect(perm(TransportSettingsController, 'update')).toEqual([['etms_settings', 'edit']]);
   });
 });

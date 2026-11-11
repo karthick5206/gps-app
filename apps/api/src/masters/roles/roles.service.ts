@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Action, MenuKey, RoleDto } from '@veetracer/shared';
-import { validateRolePermissions } from '../../access/access-rules';
+import { assertRoleWithinCeiling, RoleGrant, validateRolePermissions } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
@@ -52,6 +52,8 @@ function snapshot(r: Row) {
   return { ...scalars, permissions: Object.fromEntries(permissions.map((p) => [p.menu, p.actions])) };
 }
 
+const grantOf = (r: Row): RoleGrant => ({ dataScope: r.dataScope, permissions: r.permissions.map((p) => ({ menu: p.menu, actions: p.actions })) });
+
 function checkedPermissions(perms: RolePermissionDto[]): { menu: string; actions: string[] }[] {
   const nonEmpty = perms.filter((p) => p.actions.length > 0).map((p) => ({ menu: p.menu, actions: [...new Set(p.actions)] }));
   const error = validateRolePermissions(nonEmpty);
@@ -85,6 +87,8 @@ export class RolesService {
 
   async create(ctx: AuthContext, dto: CreateRoleDto): Promise<RoleDto> {
     const permissions = checkedPermissions(dto.permissions);
+    // R-12: nobody builds a role with more than they hold themselves (Super Admin and company Admins excepted).
+    assertRoleWithinCeiling(ctx, { dataScope: dto.dataScope, permissions });
     const row = await this.prisma.role.create({
       data: {
         companyId: ctx.companyId,
@@ -108,6 +112,9 @@ export class RolesService {
       throw new ForbiddenException('The data scope of a system role cannot be changed');
     }
     const permissions = dto.permissions ? checkedPermissions(dto.permissions) : undefined;
+    // R-12: a role above the caller can't be touched at all (not even narrowed), and the result must stay within.
+    assertRoleWithinCeiling(ctx, grantOf(before), 'You cannot change a role that has rights you do not have yourself');
+    assertRoleWithinCeiling(ctx, { dataScope: dto.dataScope ?? before.dataScope, permissions: permissions ?? grantOf(before).permissions });
     const row = await this.prisma.$transaction(async (tx) => {
       if (permissions) await tx.rolePermission.deleteMany({ where: { roleId: id } });
       return tx.role.update({
@@ -129,6 +136,7 @@ export class RolesService {
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(ctx, id);
     if (before.isSystem) throw new ForbiddenException('System roles cannot be deleted');
+    assertRoleWithinCeiling(ctx, grantOf(before), 'You cannot delete a role that has rights you do not have yourself');
     await this.prisma.role.delete({ where: { id } });
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: snapshot(before) });
   }

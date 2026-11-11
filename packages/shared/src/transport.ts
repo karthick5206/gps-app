@@ -59,8 +59,10 @@ export interface TransportAgreementDto {
   siteIds: string[];
   dataProfile: TransportDataProfile;
   approvedByCustomerAt: string | null;
+  /** Minimum data (doc 10 §2.3): only for the customer side itself and VeeTrax support; null for the provider. */
   approvedByCustomerUserId: string | null;
   approvedByProviderAt: string | null;
+  /** Only for the provider side itself and VeeTrax support; null for the customer. */
   approvedByProviderUserId: string | null;
   suspendedAt: string | null;
   endedAt: string | null;
@@ -70,6 +72,7 @@ export interface TransportAgreementDto {
   /** The caller's side; null for the Super Admin acting on the platform. */
   side: TransportAgreementSide | null;
   allowedActions: TransportAgreementAction[];
+  /** Only for VeeTrax support (the creator may belong to either party); null for the parties. */
   createdById: string | null;
   createdAt: string;
   updatedAt: string;
@@ -84,6 +87,8 @@ export interface CreateTransportAgreementInput {
   grants: TransportGrant[];
   siteIds?: string[];
   dataProfile?: TransportDataProfile;
+  /** Required when VeeTrax support (Super Admin) drafts; shown in the history and the customer's audit log. */
+  reason?: string;
 }
 
 /** PATCH /api/transport/agreements/:id — DRAFT only. */
@@ -94,11 +99,19 @@ export interface UpdateTransportAgreementInput {
   siteIds?: string[];
   dataProfile?: TransportDataProfile;
   expectedVersion?: number;
+  /** Required for VeeTrax support (Super Admin). */
+  reason?: string;
 }
 
-/** Body of propose / approve / resume. */
+/** Body of propose / resume. `reason` is required when VeeTrax support proposes. */
 export interface TransportAgreementCommandInput {
   expectedVersion?: number;
+  reason?: string;
+}
+
+/** Body of approve: the version the approver saw is required, so nobody approves terms they never read. */
+export interface TransportAgreementApproveInput {
+  expectedVersion: number;
 }
 
 /** Body of suspend / end: reason required. */
@@ -126,10 +139,32 @@ export interface TransportAgreementListQuery {
 export const TRANSPORT_COMPANY_LOOKUP_MIN_CHARS = 3;
 /** Lookups per user per minute before 429 RATE_LIMITED. */
 export const TRANSPORT_COMPANY_LOOKUP_PER_MINUTE = 30;
+/** Lookups per company (all its users together) per minute before 429 RATE_LIMITED. */
+export const TRANSPORT_COMPANY_LOOKUP_PER_COMPANY_PER_MINUTE = 60;
+
+/**
+ * Company-level ETMS settings (menu `etms_settings`), stored in `Company.settings.etms`; GET / PATCH
+ * /api/transport/settings. `directoryListed`: the company appears in other companies' partner lookup (opt-in, default
+ * off). Unlisted companies can still be reached by pasting their company ID.
+ */
+export interface TransportSettingsDto {
+  directoryListed: boolean;
+}
+
+export interface UpdateTransportSettingsInput {
+  directoryListed?: boolean;
+}
+
+/** Reads `Company.settings.etms` (anything missing or malformed = defaults). */
+export function transportSettingsOf(settings: unknown): TransportSettingsDto {
+  const s = typeof settings === 'object' && settings !== null && !Array.isArray(settings) ? (settings as Record<string, unknown>).etms : undefined;
+  const etms = typeof s === 'object' && s !== null && !Array.isArray(s) ? (s as Record<string, unknown>) : {};
+  return { directoryListed: etms.directoryListed === true };
+}
 
 /**
  * One entry of the partner-company directory (privacy-safe): only active business companies with the `etms` add-on
- * switched on, and only these fields. Never contacts, users, vehicles or settings. `city` comes from the billing
+ * switched on that opted in (`TransportSettingsDto.directoryListed`), and only these fields. Never contacts, users, vehicles or settings. `city` comes from the billing
  * profile when it has one (there is no country column; billing is India-only today).
  */
 export interface TransportCompanyLookupDto {
@@ -185,7 +220,7 @@ export interface TransportAgreementHistoryEntryDto {
   toStatus: TransportAgreementStatus | null;
   /** EDITED: the terms that changed. */
   changedFields: TransportAgreementTermField[];
-  /** SUSPENDED / ENDED: the reason given. */
+  /** SUSPENDED / ENDED: the reason given; any entry by VeeTrax support: the support reason. */
   reason: string | null;
 }
 
@@ -211,6 +246,7 @@ export interface TransportAgreementSummaryDto {
 export type TransportErrorCode =
   | 'VALIDATION_FAILED'
   | 'FORBIDDEN_GRANT'
+  | 'SCOPE_REQUIRED'
   | 'NOT_FOUND'
   | 'ETMS_DISABLED'
   | 'VERSION_CONFLICT'
@@ -239,14 +275,16 @@ const BY_STATUS: Record<TransportAgreementStatus, readonly TransportAgreementAct
 /**
  * Who may run a command (P1 / doc 05 §6): both parties draft, edit and propose; only the parties approve, each for its
  * own side (the Super Admin may draft but never approves); the customer suspends and resumes unilaterally; either party
- * ends. The Super Admin (PLAT, audited) may also suspend, resume and end.
+ * ends. The Super Admin (PLAT, audited, with a reason) may also suspend and end, but never resume: resuming re-activates
+ * the grants, which is the customer's call. The Super Admin always acts as PLATFORM, also after switching into a party
+ * company (X-Company-Id).
  */
 const BY_ACTOR: Record<TransportAgreementAction, readonly ('PROVIDER' | 'CUSTOMER' | 'PLATFORM')[]> = {
   edit: ['PROVIDER', 'CUSTOMER', 'PLATFORM'],
   propose: ['PROVIDER', 'CUSTOMER', 'PLATFORM'],
   approve: ['PROVIDER', 'CUSTOMER'],
   suspend: ['CUSTOMER', 'PLATFORM'],
-  resume: ['CUSTOMER', 'PLATFORM'],
+  resume: ['CUSTOMER'],
   end: ['PROVIDER', 'CUSTOMER', 'PLATFORM'],
 };
 

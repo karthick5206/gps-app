@@ -109,6 +109,7 @@ export function AgreementError({ error, onReload }: { error: unknown; onReload?:
 /** Confirm dialog of one command (propose / approve / suspend / resume / end), with a reason when required. */
 function ActionDialog({ pending, onClose }: { pending: { action: Exclude<TransportAgreementAction, 'edit'>; agreement: TransportAgreementDto } | null; onClose: () => void }) {
   const { t } = useTranslation();
+  const { me } = useAuth();
   const mutation = useAgreementMutation();
   const invalidate = useInvalidateAgreements();
   const [reason, setReason] = useState('');
@@ -128,7 +129,9 @@ function ActionDialog({ pending, onClose }: { pending: { action: Exclude<Transpo
   }, [pending?.agreement.id, pending?.action]);
 
   if (!shown) return null;
-  const meta = ACTION_META[shown.action];
+  const baseMeta = ACTION_META[shown.action];
+  // F7: VeeTrax support also gives a reason when it proposes (server: required for the Super Admin).
+  const meta = { ...baseMeta, needsReason: baseMeta.needsReason || (!!me?.user.isSuperAdmin && shown.action === 'propose') };
   const blockers = shown.action === 'propose' ? proposeBlockers(shown.agreement) : [];
   const reasonErr = meta.needsReason ? reasonError(reason) : null;
 

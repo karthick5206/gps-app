@@ -19,6 +19,27 @@ export const V1_ERROR_CODES: Record<number, string> = {
 
 export const isV1Path = (url: string | undefined): boolean => !!url && /^\/api\/v1(\/|$|\?)/.test(url);
 
+/** ETMS routes (doc 05 §1 "Errors": ETMS always sets `code`). */
+export const isTransportPath = (url: string | undefined): boolean => !!url && /^\/api\/transport(\/|$|\?)/.test(url);
+
+/**
+ * Default ETMS `code` per HTTP status for errors raised without one (ParseUUIDPipe, the ValidationPipe, the JWT guard,
+ * Prisma mapping, …), so every ETMS error response carries a stable code (doc 05 §4).
+ */
+export const TRANSPORT_DEFAULT_CODES: Record<number, string> = {
+  400: 'VALIDATION_FAILED',
+  401: 'UNAUTHENTICATED',
+  403: 'FORBIDDEN_GRANT',
+  404: 'NOT_FOUND',
+  409: 'CONFLICT',
+  413: 'VALIDATION_FAILED',
+  422: 'VALIDATION_FAILED',
+  429: 'RATE_LIMITED',
+  500: 'INTERNAL_ERROR',
+  503: 'STORE_UNAVAILABLE',
+};
+const transportDefaultCode = (status: number): string => TRANSPORT_DEFAULT_CODES[status] ?? (status >= 500 ? 'INTERNAL_ERROR' : 'VALIDATION_FAILED');
+
 /**
  * Every HTTP error leaves the API as `{ statusCode, message }`; on the public API (/api/v1) as
  * `{ error: { status, code, message } }`.
@@ -32,11 +53,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const res = host.switchToHttp().getResponse<Response>();
     const req = host.switchToHttp().getRequest<Request>();
     const v1 = isV1Path(req?.originalUrl ?? req?.url);
+    const transport = isTransportPath(req?.originalUrl ?? req?.url);
     const http = exception instanceof HttpException ? exception : httpErrorFromPrisma(exception);
     if (!http) {
       this.logger.error(exception instanceof Error ? (exception.stack ?? exception.message) : String(exception));
       if (v1) res.status(500).json({ error: { status: 500, code: 'internal_error', message: 'Internal server error' } });
-      else res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ statusCode: 500, message: 'Internal server error' });
+      else res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ statusCode: 500, message: 'Internal server error', ...(transport ? { code: 'INTERNAL_ERROR' } : {}) });
       return;
     }
     const statusCode = http.getStatus();
@@ -59,7 +81,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
       const b = body as Record<string, unknown>;
       if (typeof b.code === 'string') extra.code = b.code;
       if (typeof b.licenceType === 'string') extra.licenceType = b.licenceType;
+      // ETMS details clients act on (doc 05 §4): the current version on VERSION_CONFLICT, the wait on RATE_LIMITED.
+      if (transport && typeof b.currentVersion === 'number') extra.currentVersion = b.currentVersion;
+      if (transport && typeof b.retryAfterSec === 'number') {
+        extra.retryAfterSec = b.retryAfterSec;
+        res.setHeader?.('Retry-After', String(b.retryAfterSec));
+      }
     }
+    if (transport && typeof extra.code !== 'string') extra.code = transportDefaultCode(statusCode);
     res.status(statusCode).json({ statusCode, message, ...extra });
   }
 }

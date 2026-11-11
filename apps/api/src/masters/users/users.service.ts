@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { UserDto } from '@veetracer/shared';
-import { assertCanManageUserAccess, objectScopeWhere, userScopeWhere } from '../../access/access-rules';
+import { assertCanManageUserAccess, assertRolesWithinCeiling, objectScopeWhere, userScopeWhere } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
@@ -15,7 +15,7 @@ import { CreateUserDto, UpdateUserDto, UserListQuery } from './users.dto';
 const ENTITY = 'user';
 const INCLUDE = {
   manager: { select: { name: true } },
-  roles: { include: { role: { select: { id: true, name: true, dataScope: true } } } },
+  roles: { include: { role: { select: { id: true, name: true, dataScope: true, permissions: { select: { menu: true, actions: true } } } } } },
   branches: { include: { branch: { select: { id: true, name: true } } } },
   objects: { include: { object: { select: { id: true, name: true } } } },
 } satisfies Prisma.UserInclude;
@@ -70,6 +70,8 @@ function snapshot(u: Row) {
   };
 }
 
+const ROLE_GRANT = { id: true, name: true, dataScope: true, permissions: { select: { menu: true, actions: true } } } satisfies Prisma.RoleSelect;
+
 const normaliseEmail = (email: string | null | undefined) => (email ? email.trim().toLowerCase() : null);
 
 @Injectable()
@@ -103,7 +105,7 @@ export class UsersService {
     const roleIds = dto.roleIds ?? [];
     const branchIds = dto.branchIds ?? [];
     const objectIds = dto.objectIds ?? [];
-    await this.validateAccess(ctx, roleIds, branchIds, objectIds, dto.managerId);
+    await this.validateAccess(ctx, roleIds, branchIds, objectIds, dto.managerId, []);
     const row = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
       data: {
@@ -139,7 +141,7 @@ export class UsersService {
     const roleIds = dto.roleIds ?? before.roles.map((r) => r.roleId);
     const branchIds = dto.branchIds ?? before.branches.map((b) => b.branchId);
     const objectIds = dto.objectIds ?? before.objects.map((o) => o.objectId);
-    await this.validateAccess(ctx, roleIds, branchIds, dto.objectIds ?? [], dto.managerId);
+    await this.validateAccess(ctx, roleIds, branchIds, dto.objectIds ?? [], dto.managerId, before.roles.map((r) => r.roleId));
 
     const row = await this.prisma.$transaction(async (tx) => {
       // Re-activating a user who has no licence seat takes one from the pool.
@@ -196,10 +198,21 @@ export class UsersService {
     return row;
   }
 
-  /** A user the caller may edit: never the Super Admin; in ASSIGNED scope only users wholly inside own branches. */
+  /**
+   * A user the caller may edit: never the Super Admin; in ASSIGNED scope only users wholly inside own branches; and
+   * (R-12) never someone holding a role above the caller's own rights, since editing them (e.g. their password) would
+   * hand the caller those rights. Callers may always edit themselves.
+   */
   private async findManageable(ctx: AuthContext, id: string): Promise<Row> {
     const row = await this.find(ctx, id);
     if (row.isSuperAdmin && row.id !== ctx.userId) throw new ForbiddenException('The Super Admin cannot be modified');
+    if (row.id !== ctx.userId) {
+      assertRolesWithinCeiling(
+        ctx,
+        row.roles.map((r) => r.role),
+        (name) => `You cannot manage a user who holds the role "${name}": it has rights you do not have yourself`,
+      );
+    }
     if (ctx.dataScope === 'ASSIGNED' && row.id !== ctx.userId) {
       assertCanManageUserAccess(
         ctx,
@@ -216,9 +229,11 @@ export class UsersService {
     branchIds: string[],
     newObjectIds: string[],
     managerId: string | null | undefined,
+    /** Roles the user already holds (not re-checked against the ceiling: removing or keeping them is allowed). */
+    heldRoleIds: string[],
   ): Promise<void> {
     const [roles, branchCount, objectCount, manager] = await Promise.all([
-      this.prisma.role.findMany({ where: { id: { in: roleIds }, companyId: ctx.companyId }, select: { dataScope: true } }),
+      this.prisma.role.findMany({ where: { id: { in: roleIds }, companyId: ctx.companyId }, select: ROLE_GRANT }),
       this.prisma.branch.count({ where: { id: { in: branchIds }, companyId: ctx.companyId } }),
       this.prisma.trackedObject.count({ where: { AND: [objectScopeWhere(ctx), { id: { in: newObjectIds } }] } }),
       managerId ? this.prisma.user.count({ where: { id: managerId, companyId: ctx.companyId } }) : Promise.resolve(1),
@@ -228,5 +243,12 @@ export class UsersService {
     if (objectCount !== new Set(newObjectIds).size) throw new BadRequestException('Unknown object');
     if (!manager) throw new BadRequestException('Unknown manager');
     assertCanManageUserAccess(ctx, branchIds, roles);
+    // R-12: a newly given role must not grant more than the caller holds (Super Admin and company Admins excepted).
+    const held = new Set(heldRoleIds);
+    assertRolesWithinCeiling(
+      ctx,
+      roles.filter((r) => !held.has(r.id)),
+      (name) => `You cannot assign the role "${name}": it has rights you do not have yourself`,
+    );
   }
 }

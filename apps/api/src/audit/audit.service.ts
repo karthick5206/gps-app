@@ -49,6 +49,14 @@ export class AuditService {
     await this.write({ companyId: ctx.companyId, userId: ctx.userId, ip: ctx.ip }, entry, db);
   }
 
+  /**
+   * Record a change into another company's audit log than the effective one. Only for the Super Admin acting on a
+   * company's records from the platform (e.g. ETMS agreements, F7): the data owner sees what VeeTrax support changed.
+   */
+  async recordFor(ctx: AuthContext, companyId: string, entry: AuditEntry, db: Prisma.TransactionClient = this.prisma): Promise<void> {
+    await this.write({ companyId, userId: ctx.userId, ip: ctx.ip }, entry, db);
+  }
+
   /** Record an event outside an authenticated request (login attempts, password resets). */
   async recordSystem(
     actor: { companyId: string | null; userId: string | null; ip: string | null },

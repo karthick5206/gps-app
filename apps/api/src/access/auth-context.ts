@@ -40,6 +40,11 @@ export interface AuthContext {
    */
   allCompanies?: boolean;
   isSuperAdmin: boolean;
+  /**
+   * Holds the built-in "Admin" role of the company it acts in (R-12): exempt from the role-grant ceiling, like the
+   * Super Admin. The Admin role cannot be renamed or re-scoped, and only callers above the ceiling may edit it.
+   */
+  isCompanyAdmin?: boolean;
   permissions: PermissionMap;
   dataScope: DataScope;
   branchIds: string[];

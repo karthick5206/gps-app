@@ -7,8 +7,10 @@ import type {
   TransportAgreementSitesDto,
   TransportAgreementSummaryDto,
   TransportCompanyLookupDto,
+  TransportSettingsDto,
   TransportSiteOptionDto,
   UpdateTransportAgreementInput,
+  UpdateTransportSettingsInput,
 } from '@veetracer/shared';
 import { useDeferredValue } from 'react';
 import { api } from '@/lib/api';
@@ -48,7 +50,8 @@ export function useAgreementMutation() {
     mutationFn: (cmd: AgreementCommand): Promise<TransportAgreementDto> => {
       if (cmd.kind === 'create') return api.post<TransportAgreementDto>(AGREEMENTS_ENDPOINT, cmd.input);
       if (cmd.kind === 'update') return api.patch<TransportAgreementDto>(`${AGREEMENTS_ENDPOINT}/${cmd.id}`, cmd.input);
-      const body = cmd.kind === 'suspend' || cmd.kind === 'end' ? { reason: cmd.reason ?? '', expectedVersion: cmd.version } : { expectedVersion: cmd.version };
+      // Suspend / end always carry a reason; propose carries one when VeeTrax support proposes (F7).
+      const body = cmd.kind === 'suspend' || cmd.kind === 'end' || (cmd.kind === 'propose' && cmd.reason !== undefined) ? { reason: cmd.reason ?? '', expectedVersion: cmd.version } : { expectedVersion: cmd.version };
       return api.post<TransportAgreementDto>(`${AGREEMENTS_ENDPOINT}/${cmd.id}/${cmd.kind}`, body);
     },
     onSuccess: (row) => {
@@ -106,5 +109,22 @@ export function useCompanyLookup(enabled: boolean, raw: string) {
     queryFn: ({ signal }) => api.get<TransportCompanyLookupDto[]>('/transport/companies/lookup', { q: q! }, signal),
     staleTime: 60_000,
     retry: false,
+  });
+}
+
+/** F4: company ETMS settings (partner-directory opt-in). GET needs etms_settings:view, PATCH etms_settings:edit. */
+export function useTransportSettings(enabled: boolean) {
+  return useQuery({
+    queryKey: ['transport-settings'],
+    enabled,
+    queryFn: ({ signal }) => api.get<TransportSettingsDto>('/transport/settings', undefined, signal),
+  });
+}
+
+export function useUpdateTransportSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateTransportSettingsInput) => api.patch<TransportSettingsDto>('/transport/settings', input),
+    onSuccess: (row) => qc.setQueryData(['transport-settings'], row),
   });
 }

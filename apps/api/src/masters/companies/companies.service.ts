@@ -6,6 +6,7 @@ import { ensureSystemRoles } from '../../access/system-roles';
 import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
 import { companyFeatures, withFeatures } from '../../common/company-features';
+import { setCompanySetting } from '../../common/company-settings';
 import { ensureEtmsRoleTemplates } from '../../etms/etms-role-templates';
 import { toCompanySummary } from '../../common/company-summary';
 import { iso } from '../../common/dto';
@@ -127,9 +128,12 @@ export class CompaniesService {
     // (menus are hidden and refused while off, nothing is deleted).
     const etmsOn = !!features?.includes('etms') && !companyFeatures(before).includes('etms');
     const { row, templates } = await this.prisma.$transaction(async (tx) => {
+      // F9: the add-on list is written as its own key (atomic jsonb_set), so a concurrent settings save by the company
+      // can't undo the switch (e.g. turn ETMS back on after a rollback), and this can't undo theirs.
+      if (features) await setCompanySetting(tx, id, 'features', withFeatures({}, features).features);
       const updated = await tx.company.update({
         where: { id },
-        data: { ...fields, name: dto.name?.trim(), ...(features ? { settings: withFeatures(before.settings, features) as Prisma.InputJsonValue } : {}) },
+        data: { ...fields, name: dto.name?.trim() },
         include: INCLUDE,
       });
       return { row: updated, templates: etmsOn ? await ensureEtmsRoleTemplates(tx, id) : [] };
