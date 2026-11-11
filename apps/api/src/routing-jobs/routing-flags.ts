@@ -1,6 +1,7 @@
 import { CanActivate, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { RoutingErrorCode } from '@veetracer/shared';
 import { etmsRoutingEnabled } from '../etms/transport-feature.guard';
+import { ROUTING_ERROR_STATUS } from '../routing/routing.errors';
 
 /** ETMS planning / optimisation switch (off by default; E4-A owns it in transport-feature.guard). */
 export { etmsRoutingEnabled };
@@ -14,22 +15,9 @@ export class EtmsRoutingEnabledGuard implements CanActivate {
   }
 }
 
-const STATUS: Record<RoutingErrorCode, number> = {
-  ROUTING_DISABLED: 404,
-  ROUTING_UNAVAILABLE: 503,
-  NO_ROUTE: 404,
-  OUTSIDE_COVERAGE: 422,
-  LIMIT_EXCEEDED: 422,
-  QUOTA_EXCEEDED: 429,
-  OPTIMIZER_UNAVAILABLE: 503,
-  OPTIMIZER_BUSY: 503,
-  JOB_NOT_FOUND: 404,
-  PLAN_NOT_EDITABLE: 409,
-  PLAN_STALE: 409,
-  IDEMPOTENCY_KEY_REUSED: 422,
-};
+const STATUS: Record<RoutingErrorCode, number> = ROUTING_ERROR_STATUS;
 
-/** HTTP error with a machine `code` (passed through by HttpExceptionFilter as `{ statusCode, message, code }`). */
+/** RoutingError (routing/routing.errors.ts) plus extra body fields (e.g. currentVersion); HTTP error with a machine `code` (passed through by HttpExceptionFilter as `{ statusCode, message, code }`). */
 export class RoutingHttpError extends HttpException {
   constructor(
     readonly code: RoutingErrorCode,

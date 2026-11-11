@@ -5,6 +5,7 @@ import { loadEnv } from '../config/env';
 import { etmsRoutingEnabled } from '../etms/transport-feature.guard';
 import { startHeartbeat } from '../monitoring/heartbeat';
 import { RedisService } from '../redis/redis.service';
+import { optimizerHealth } from '../routing-jobs/optimizer-port';
 import { RoutingWorkerHost, RoutingWorkerModule } from './routing-worker.module';
 
 /**
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
   const { worker, optimizer } = host;
   let optimizerOk: boolean | null = null;
   const probe = async () => {
-    optimizerOk = (await optimizer.health()).ok;
+    optimizerOk = (await optimizerHealth(optimizer)).ok;
   };
   void probe();
   const probeTimer = setInterval(() => void probe(), 30_000);

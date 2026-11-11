@@ -1,4 +1,4 @@
-import { DatabaseDto, HostDto, PortDto, ProcessInstanceDto, ProcessRole, QueueDto, ValkeyDto } from '@veetracer/shared';
+import { DatabaseDto, HostDto, PortDto, ProcessInstanceDto, ProcessRole, QueueDto, RoutingHealthDto, ValkeyDto } from '@veetracer/shared';
 import { bufferSecondsLeft, CheckInput, evaluateChecks, MAP_FAILS_BEFORE_ISSUE, NotifyBacklog, statusOf } from './checks';
 import { MapServiceState } from './map-services';
 import { loadMonitorConfig, loadThresholds } from './thresholds';
@@ -97,6 +97,28 @@ const ids = (input: CheckInput) => evaluateChecks(input, t).map((i) => `${i.id}:
 describe('evaluateChecks', () => {
   it('healthy system → no issues', () => {
     expect(ids(healthy())).toEqual([]);
+  });
+
+  it('E4 routing: disabled → nothing; enabled → worker CRITICAL, engine CRITICAL (R5), optimiser WARN, queue WARN', () => {
+    const gh = (ok: boolean, configured = true) => ({ name: 'graphhopper' as const, label: 'Routing (GraphHopper)', configured, probeUrl: 'http://127.0.0.1:8989/health', misconfigured: null, ok, latencyMs: 3, error: ok ? null : 'not reachable', consecutiveFailures: ok ? 0 : 2, checkedAt: NOW });
+    const routing = (over: Partial<RoutingHealthDto> = {}): RoutingHealthDto => ({
+      enabled: true,
+      status: 'OK',
+      workers: 1,
+      optimizer: { configured: true, ok: true, probeUrl: 'http://127.0.0.1:8090/health', latencyMs: 2, error: null, checkedAt: iso(0) },
+      jobs: { queued: 0, running: 0, failed24h: 0, oldestQueuedAgeSec: null },
+      ...over,
+    });
+    const at = (r: RoutingHealthDto | undefined, ok = true, grace = false) => ids({ ...healthy(), routing: r, maps: [gh(ok)], startupGrace: grace });
+    expect(at(undefined)).toEqual([]);
+    expect(at({ ...routing(), enabled: false, status: 'DISABLED', workers: 0 }, false)).toEqual(['maps.graphhopper:WARN']);
+    expect(at(routing())).toEqual([]);
+    expect(at(routing({ workers: 0 }))).toEqual(['routing.worker:CRITICAL']);
+    expect(at(routing({ workers: 0 }), true, true)).toEqual([]);
+    expect(at(routing(), false)).toEqual(['routing.engine:CRITICAL', 'maps.graphhopper:WARN']);
+    expect(ids({ ...healthy(), routing: routing(), maps: [gh(true, false)] })).toEqual(['routing.engine:CRITICAL']);
+    expect(at(routing({ optimizer: { configured: true, ok: false, probeUrl: null, latencyMs: null, error: 'down', checkedAt: null } }))).toEqual(['routing.optimizer:WARN']);
+    expect(at(routing({ jobs: { queued: 3, running: 0, failed24h: 0, oldestQueuedAgeSec: 600 } }))).toEqual(['routing.queue:WARN']);
   });
 
   it('E5 L3: transport notification relay lag → WARN after 5 min, CRITICAL after 30 min; backlog → WARN; off → nothing', () => {

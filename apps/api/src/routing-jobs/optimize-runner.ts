@@ -5,6 +5,7 @@ import { JobError, JobRunner } from './job-worker';
 import { BuiltMatrix, matrixShapeProblem, MatrixPort } from './matrix-port';
 import { mapSolverResult, PlanInputs, planPoints, PlanWrite, snapExclusions, SolverProblemV2, solverProblem } from './optimize-problem';
 import type { RoutingUsageHook } from './usage-hook';
+import { coverageIssue } from '../routing/service-area/coverage';
 
 export type OptimizeJobInput = Extract<RoutingJobInput, { kind: 'optimize' }>;
 
@@ -61,6 +62,14 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     }
     if (inputs.stops.length > ROUTING_LIMITS.optimizeStops) throw new JobError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeStops} stops per optimisation (plan has ${inputs.stops.length})`);
     if (inputs.vehicles.length > ROUTING_LIMITS.optimizeVehicles) throw new JobError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeVehicles} vehicles per optimisation`);
+    // Coverage first (India polygon / graph bbox, routing/service-area): an uncovered stop is unassigned
+    // (outside_coverage) and never reaches the engine; an uncovered depot or site fails the job.
+    for (const p of [inputs.depot, inputs.site]) if (p && coverageIssue(p)) throw new JobError('OUTSIDE_COVERAGE', 'The plan depot or site is outside the routing coverage');
+    const uncovered = inputs.stops.filter((s) => coverageIssue(s));
+    if (uncovered.length) {
+      const out = new Set(uncovered.map((s) => s.id));
+      inputs = { ...inputs, stops: inputs.stops.filter((s) => !out.has(s.id)), excluded: [...inputs.excluded, ...uncovered.map((s) => ({ stopId: s.id, reason: 'outside_coverage', bookingId: s.bookingId }))] };
+    }
     let built = planPoints(inputs);
     if (built.points.length > ROUTING_LIMITS.optimizeLocations) throw new JobError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeLocations} locations per optimisation`);
 
@@ -92,7 +101,7 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     if (bad.size) {
       const keepStops = inputs.stops.filter((s) => !bad.has(s.id));
       const keepIdx = [...Array(built.firstStopIndex).keys(), ...built.solverStops.map((s, i) => (bad.has(s.id) ? -1 : built.firstStopIndex + i)).filter((i) => i >= 0)];
-      inputs = { ...inputs, stops: keepStops, excluded: [...inputs.excluded, ...[...bad].map(([stopId, reason]) => ({ stopId, reason }))] };
+      inputs = { ...inputs, stops: keepStops, excluded: [...inputs.excluded, ...[...bad].map(([stopId, reason]) => ({ stopId, reason, bookingId: inputs.stops.find((s) => s.id === stopId)?.bookingId ?? null }))] };
       matrix = subMatrix(matrix, keepIdx);
       built = planPoints(inputs);
     }

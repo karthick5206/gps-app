@@ -76,7 +76,7 @@ export interface PlanInputs {
   stops: PlanStopInput[];
   vehicles: PlanVehicleInput[];
   /** Stops left out before solving (consent withdrawn, booking no longer active …), with the reason. */
-  excluded: { stopId: string; reason: string }[];
+  excluded: { stopId: string; reason: string; bookingId?: string | null }[];
 }
 
 export interface BuiltProblem {
@@ -247,7 +247,7 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
     }
     assignments.push({ assignmentId: route.vehicleId, visits, startS: int(route.startS), endS: int(route.endS), durationS: int(route.durationS), distanceM: int(route.distanceM) });
   }
-  const unassigned: PlanWrite['unassigned'] = [...inp.excluded];
+  const unassigned: PlanWrite['unassigned'] = inp.excluded.map((e) => ({ stopId: e.stopId, reason: e.reason }));
   for (const u of r.unassigned as (SolverResult['unassigned'][number] & { code?: string })[]) {
     if (!stopIds.has(u.stopId) || seen.has(u.stopId)) throw new JobError('INVALID_INPUT', 'Optimizer answered with an unknown or repeated unassigned stop');
     unassigned.push({ stopId: u.stopId, reason: u.reason, ...(u.code ? { code: u.code } : {}) });
@@ -265,12 +265,18 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
     const bookingId = stopById.get(v.stopId)?.bookingId;
     if (bookingId) routeOfBooking.set(bookingId, a);
   }
-  const reasonOf = new Map(unassigned.map((u) => [u.stopId, u.reason]));
-  for (const s of b.siteStops) {
+  // Why the booking's other end is not routed (left out before the solve, or unassigned by the solver).
+  const reasonOfBooking = new Map<string, string>();
+  for (const e of inp.excluded) if (e.bookingId) reasonOfBooking.set(e.bookingId, e.reason);
+  for (const u of unassigned) {
+    const bk = stopById.get(u.stopId)?.bookingId;
+    if (bk && !reasonOfBooking.has(bk)) reasonOfBooking.set(bk, u.reason);
+  }
+  // OUT prepends: walk the site stops backwards so they keep their order.
+  for (const s of inp.direction === 'OUT' ? [...b.siteStops].reverse() : b.siteStops) {
     const a = s.bookingId ? routeOfBooking.get(s.bookingId) : undefined;
     if (!a) {
-      const other = inp.stops.find((o) => o.bookingId && o.bookingId === s.bookingId && o.id !== s.id);
-      unassigned.push({ stopId: s.id, reason: (other && reasonOf.get(other.id)) ?? 'not_scheduled_capacity_or_time' });
+      unassigned.push({ stopId: s.id, reason: (s.bookingId && reasonOfBooking.get(s.bookingId)) || 'not_scheduled_capacity_or_time' });
       continue;
     }
     if (inp.direction === 'OUT') a.visits.unshift({ stopId: s.id, sequence: 0, etaS: a.startS });

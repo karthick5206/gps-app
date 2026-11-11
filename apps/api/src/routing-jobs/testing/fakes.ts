@@ -85,7 +85,8 @@ export class FakeMatrix implements MatrixPort {
 export function greedySolve(p: SolverProblemV2): SolverResult {
   const v = p.vehicles[0];
   const window = p.trip?.siteWindow ?? [0, p.horizonS];
-  let t = Math.max(0, window[1] - 300 * (p.stops.length + 1));
+  // IN: arrive at the site at the window end; OUT / generic: leave at the window start.
+  let t = p.trip?.direction === 'IN' ? Math.max(0, window[1] - 300 * (p.stops.length + 1)) : window[0];
   const stops = p.stops.map((s, i) => {
     t += 300;
     return { stopId: s.id, locationIndex: s.locationIndex, arrivalS: t, serviceStartS: t, waitS: 0, departureS: t + (s.serviceS ?? 0), load: i + 1 };
@@ -119,7 +120,7 @@ export class FakePlans implements PlanGateway {
   plan: PlanInputs & { status: 'DRAFT' | 'OPTIMIZING' | 'PLANNED' } = { ...syntheticPlan(), status: 'OPTIMIZING' };
   writes: { jobId: string; version: number; write: PlanWrite }[] = [];
   loads = 0;
-  async load(job: JobRecord, input: OptimizeJobInput): Promise<PlanInputs> {
+  async load(_job: JobRecord, input: OptimizeJobInput): Promise<PlanInputs> {
     this.loads++;
     if (this.plan.version !== input.planVersion || this.plan.status !== 'OPTIMIZING') throw new JobError('PLAN_STALE', 'The plan changed');
     const { status: _s, ...inputs } = this.plan;

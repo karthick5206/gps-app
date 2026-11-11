@@ -33,7 +33,7 @@ describe('routing worker lifecycle', () => {
   });
   const runners = () => new Map<string, JobRunner>([['optimize', optimizeRunner({ plans, matrix, solver, usage })]]);
   const worker = (id: string, over: Partial<WorkerOptions> = {}, r = runners()) => {
-    const w = new RoutingJobWorker(store, queue, r, opts(over), (job) => plans.release(job as never), Date.now, id);
+    const w = new RoutingJobWorker(store, queue, r, opts(over), () => plans.release(), Date.now, id);
     workers.push(w);
     return w;
   };
@@ -123,8 +123,8 @@ describe('routing worker lifecycle', () => {
     expect(await w2.sweep()).toMatchObject({ requeued: 1 });
     solver.mode = 'ok';
     expect(await w2.process(j.id)).toBe('succeeded');
-    // w1 is still waiting on its solver call; it is aborted by nothing here, so stop it via a cancel-free path:
-    (w1 as unknown as { killed: boolean }).killed = true;
+    // w1 is still waiting on its solver call: end it like a dead process (it writes nothing more).
+    w1.kill();
     await w1.stop(50);
     void run;
     expect(plans.writes).toHaveLength(1);
@@ -134,6 +134,7 @@ describe('routing worker lifecycle', () => {
   it('R4: a job whose worker keeps dying is FAILED with WORKER_LOST after maxAttempts (no endless loop)', async () => {
     matrix.mode = 'hang';
     const j = await newJob({ maxAttempts: 2 });
+    const sweeper = worker('sweeper');
     for (const id of ['w1', 'w2']) {
       const w = worker(id);
       await queue.publish(j.id);
@@ -142,7 +143,7 @@ describe('routing worker lifecycle', () => {
       w.kill();
       void run;
       await sleep(350);
-      await worker(`sweeper-${id}`).sweep();
+      await sweeper.sweep();
     }
     const row = (await store.get(j.id))!;
     expect(row).toMatchObject({ status: 'FAILED', error: { code: 'WORKER_LOST' } });
@@ -258,6 +259,24 @@ describe('routing worker lifecycle', () => {
     await until(async () => (await store.get(j.id))?.status === 'RUNNING');
     await w.stop(5_000);
     expect((await store.get(j.id))!.status).toBe('SUCCEEDED');
+  });
+
+  it('a stop outside the coverage is unassigned (outside_coverage) and never sent to the engine', async () => {
+    plans.plan.stops[0] = { ...plans.plan.stops[0], lat: 51.5, lng: -0.12 }; // synthetic point outside India
+    const j = await newJob();
+    expect(await worker('w1').process(j.id)).toBe('succeeded');
+    expect(matrix.lastPoints).not.toContainEqual({ lat: 51.5, lng: -0.12 });
+    expect(plans.writes[0].write.unassigned).toContainEqual({ stopId: 'pick-1', reason: 'outside_coverage' });
+    expect(plans.writes[0].write.unassigned).toContainEqual({ stopId: 'drop-1', reason: 'outside_coverage' });
+  });
+
+  it('every passenger without consent left out: no engine or solver call, an empty DRAFT is stored', async () => {
+    plans.plan.excluded = plans.plan.stops.filter((s) => !s.atSite).map((s) => ({ stopId: s.id, reason: 'consent_withdrawn' }));
+    plans.plan.stops = plans.plan.stops.filter((s) => s.atSite);
+    const j = await newJob();
+    expect(await worker('w1').process(j.id)).toBe('succeeded');
+    expect(matrix.calls + solver.calls).toBe(0);
+    expect(plans.writes[0].write.unassigned.map((u) => u.reason)).toEqual(expect.arrayContaining(['consent_withdrawn']));
   });
 
   it('JobError codes surface unchanged (typed degraded reasons, never a number)', async () => {

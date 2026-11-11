@@ -8,11 +8,13 @@ import type { RoutingJobStore } from '../routing-jobs/job-store';
 import { defaultWorkerOptions, RoutingJobWorker } from '../routing-jobs/job-worker';
 import { MATRIX_PORT, MatrixPort, providerMatrixPort } from '../routing-jobs/matrix-port';
 import { optimizeRunner } from '../routing-jobs/optimize-runner';
-import { OptimizerClient } from '../routing-jobs/optimizer.client';
+import { solverPort } from '../routing-jobs/optimizer-port';
+import { OptimizerClient } from '../routing/optimizer/optimizer.client';
+import { RoutingUsageService } from '../routing/usage/routing-usage.service';
 import { PrismaPlanGateway } from '../routing-jobs/prisma-plan-gateway';
 import { routingJobProviders } from '../routing-jobs/routing-jobs.module';
 import { ROUTING_JOB_QUEUE, ROUTING_JOB_STORE } from '../routing-jobs/routing-jobs.service';
-import { InMemoryUsageHook, ROUTING_USAGE_HOOK, RoutingUsageHook, safeUsage } from '../routing-jobs/usage-hook';
+import { ROUTING_USAGE_HOOK, RoutingUsageHook, safeUsage } from '../routing-jobs/usage-hook';
 import { ROUTING_PROVIDER, RoutingProvider } from '../routing/provider/routing-provider';
 import { RoutingModule } from '../routing/routing.module';
 
@@ -31,7 +33,7 @@ export class RoutingWorkerHost {
     redis: RedisService,
   ) {
     const sweepLock = async (owner: string, ttlMs: number) => (await redis.client.set(ROUTING_SWEEP_LOCK, owner, 'PX', ttlMs, 'NX').catch(() => null)) === 'OK';
-    const runners = new Map([['optimize', optimizeRunner({ plans, matrix, solver: optimizer, usage: safeUsage(usage) })]]);
+    const runners = new Map([['optimize', optimizeRunner({ plans, matrix, solver: solverPort(optimizer), usage: safeUsage(usage) })]]);
     this.worker = new RoutingJobWorker(store, queue, runners, defaultWorkerOptions(sweepLock), (job) => plans.release(job));
   }
 }
@@ -46,8 +48,8 @@ export class RoutingWorkerHost {
   providers: [
     ...routingJobProviders,
     { provide: MATRIX_PORT, useFactory: (p: RoutingProvider) => providerMatrixPort(p), inject: [ROUTING_PROVIDER] },
-    { provide: OptimizerClient, useFactory: () => new OptimizerClient() },
-    { provide: ROUTING_USAGE_HOOK, useClass: InMemoryUsageHook },
+    // RoutingUsage upsert-increment (E4-D salvage); OptimizerClient comes from RoutingModule.
+    { provide: ROUTING_USAGE_HOOK, useExisting: RoutingUsageService },
     RoutingWorkerHost,
   ],
 })

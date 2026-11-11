@@ -5,7 +5,7 @@ import type { RoutingJobError, RoutingJobPhase, RoutingJobStatus } from '@veetra
  *
  * The lifecycle the dispatcher sees:
  *
- *     QUEUED ──claim──▶ MATRIX ──▶ SOLVING ──▶ DONE
+ *     QUEUED ──claim──▶ MATRIX ──▶ SOLVING ──▶ DONE      (MATRIX ──▶ DONE when there is nothing to solve)
  *        │                │           │
  *        │                └─────┬─────┘
  *        │                      ├── transient error, attempts left ──▶ QUEUED (notBefore = back-off)
@@ -71,7 +71,8 @@ export function storedState(state: JobLogicalState): { status: RoutingJobStatus;
 /** Allowed transitions. Anything else is a bug (asserted in the runner and the stores). */
 const NEXT: Record<JobLogicalState, readonly JobLogicalState[]> = {
   QUEUED: ['MATRIX', 'CANCELLED', 'FAILED'],
-  MATRIX: ['SOLVING', 'QUEUED', 'FAILED', 'CANCELLED'],
+  // MATRIX → DONE: nothing left to solve (e.g. every passenger withdrew consent), or a job kind without a solve step.
+  MATRIX: ['SOLVING', 'DONE', 'QUEUED', 'FAILED', 'CANCELLED'],
   SOLVING: ['DONE', 'QUEUED', 'FAILED', 'CANCELLED'],
   DONE: [],
   FAILED: [],

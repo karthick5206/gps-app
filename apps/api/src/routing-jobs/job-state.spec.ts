@@ -25,6 +25,7 @@ describe('optimisation job state machine (WP 4.2)', () => {
       'QUEUED>CANCELLED',
       'QUEUED>FAILED',
       'MATRIX>SOLVING',
+      'MATRIX>DONE',
       'MATRIX>QUEUED',
       'MATRIX>FAILED',
       'MATRIX>CANCELLED',
@@ -40,7 +41,7 @@ describe('optimisation job state machine (WP 4.2)', () => {
     for (const f of ['DONE', 'FAILED', 'CANCELLED'] as const) for (const to of ALL) expect(() => assertTransition(f, to)).toThrow(IllegalTransition);
     expect(() => assertTransition('QUEUED', 'SOLVING')).toThrow(IllegalTransition);
     expect(() => assertTransition('QUEUED', 'DONE')).toThrow(IllegalTransition);
-    expect(() => assertTransition('MATRIX', 'DONE')).toThrow(IllegalTransition);
+    expect(() => assertTransition('CANCELLED', 'QUEUED')).toThrow(IllegalTransition);
   });
 
   it('retries transient failures with exponential back-off until the attempt cap, then fails with the reason', () => {

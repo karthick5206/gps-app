@@ -164,6 +164,8 @@ export class RoutingJobWorker {
     for (const t of this.timers) clearInterval(t);
     this.timers.clear();
     this.killed = true;
+    // The process is gone: its in-flight runs stop (nothing more is written; see the killed checks in process()).
+    for (const ac of this.aborters) if (!ac.signal.aborted) ac.abort(new LeaseLost('worker killed'));
   }
   private killed = false;
 

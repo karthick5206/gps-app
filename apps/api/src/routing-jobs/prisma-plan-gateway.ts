@@ -122,15 +122,15 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
       const owner = ownerOf(s);
       const booking = s.bookingId ? bookings.get(s.bookingId) : undefined;
       if (owner && !consenting.has(owner)) {
-        excluded.push({ stopId: s.id, reason: EXCLUDED_REASONS.consent }); // coordinates never leave this function
+        excluded.push({ stopId: s.id, reason: EXCLUDED_REASONS.consent, bookingId: s.bookingId }); // coordinates never leave this function
         continue;
       }
       if (s.bookingId && (!booking || !(ACTIVE_BOOKING_STATUSES as readonly string[]).includes(booking.status))) {
-        excluded.push({ stopId: s.id, reason: EXCLUDED_REASONS.booking });
+        excluded.push({ stopId: s.id, reason: EXCLUDED_REASONS.booking, bookingId: s.bookingId });
         continue;
       }
       if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng)) {
-        excluded.push({ stopId: s.id, reason: EXCLUDED_REASONS.location });
+        excluded.push({ stopId: s.id, reason: EXCLUDED_REASONS.location, bookingId: s.bookingId });
         continue;
       }
       const atSite = !!plan.sitePoiId && s.poiId === plan.sitePoiId;
