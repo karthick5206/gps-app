@@ -70,6 +70,55 @@ describe('probeMapService (local stub server)', () => {
     }
     expect(await probeMapService(url, 1000)).toMatchObject({ ok: false, error: 'ECONNREFUSED' });
   });
+
+  it('a 3xx redirect is never followed and counts as down (QA-1: the Location target is not contacted)', async () => {
+    let targetHits = 0;
+    const target = createServer((_req, res) => {
+      targetHits++;
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('OK');
+    });
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', () => resolve()));
+    const code = { value: 302 };
+    const redirector = createServer((_req, res) => {
+      res.writeHead(code.value, { location: `http://127.0.0.1:${portOf(target)}/pwn` });
+      res.end();
+    });
+    await new Promise<void>((resolve) => redirector.listen(0, '127.0.0.1', () => resolve()));
+    try {
+      const url = `http://127.0.0.1:${portOf(redirector)}/health`;
+      for (const c of [301, 302, 303, 307, 308]) {
+        code.value = c;
+        expect(await probeMapService(url, 1000)).toMatchObject({ ok: false, error: `HTTP ${c} (redirect not followed)` });
+      }
+      expect(targetHits).toBe(0);
+      // A redirect to a public host name: no DNS lookup or connection (it would otherwise fail with ENOTFOUND).
+      code.value = 302;
+      const publicRedirect = createServer((_req, res) => {
+        res.writeHead(302, { location: 'http://example.invalid/x' });
+        res.end();
+      });
+      await new Promise<void>((resolve) => publicRedirect.listen(0, '127.0.0.1', () => resolve()));
+      try {
+        expect(await probeMapService(`http://127.0.0.1:${portOf(publicRedirect)}/health`, 1000)).toMatchObject({ ok: false, error: 'HTTP 302 (redirect not followed)' });
+      } finally {
+        await close(publicRedirect);
+      }
+    } finally {
+      await close(redirector);
+      await close(target);
+    }
+  });
+
+  it('passes redirect: manual to fetch', async () => {
+    const seen: RequestInit[] = [];
+    const fake = (async (_u: string, init: RequestInit) => {
+      seen.push(init);
+      return new Response(null, { status: 307, headers: { location: 'https://public.example/' } });
+    }) as unknown as typeof fetch;
+    expect(await probeMapService('http://127.0.0.1:1/health', 1000, fake)).toMatchObject({ ok: false, error: 'HTTP 307 (redirect not followed)' });
+    expect(seen[0].redirect).toBe('manual');
+  });
 });
 
 describe('MapServiceMonitor', () => {

@@ -12,7 +12,9 @@
 #   GATEWAY_HEALTH_URL    default http://127.0.0.1:${GATEWAY_HEALTH_PORT:-4121}/health (GATEWAY_HEALTH_PORT=0: skipped)
 #   TRACKING_HEALTH_URL   default http://127.0.0.1:${API_PORT:-4000}/api/health/tracking (200 = OK or WARN, 503 = CRITICAL)
 #                         API_PORT / GATEWAY_HEALTH_PORT are the API's own settings (release.sh loads apps/api/.env).
-#   HEALTH_TIMEOUT_SEC    whole gate deadline, default 90; HEALTH_POLL_SEC retry interval, default 3
+#   HEALTH_TIMEOUT_SEC    whole gate deadline, default 90; HEALTH_POLL_SEC retry interval, default 3. Every check is
+#                         capped by the time left; a check reached after the deadline still gets one 1 s attempt, so
+#                         the gate ends within HEALTH_TIMEOUT_SEC + about 3 s (plus the journal tail on failure).
 #   HEALTH_GATE_SYSTEMD   auto (default: only where systemctl exists) | 1 | 0
 #   HEALTH_GATE_GATEWAY / HEALTH_GATE_MAPS  1 (default) | 0 to skip that part
 #   HEALTH_GATE_TRACKING  1 (default, spec G6): tracking is retried until the deadline (processor lag right after a
@@ -75,9 +77,11 @@ line() { printf '%-5s %-9s %s\n' "$1" "$2" "$3"; }
 add_unit() { local u; for u in "$@"; do [[ " ${FAILED_UNITS[*]-} " == *" $u "* ]] || FAILED_UNITS+=("$u"); done; }
 
 # One GET; prints the HTTP code (000 = no answer) and leaves the body in $BODY.
+# -q (must come first): ignore ~/.curlrc; --proto: http / https only (no file:// etc.); `--`: a URL that starts with
+# '-' is never read as an option. No -L: redirects are not followed (a 3xx is not 200 / 2xx, so not healthy).
 http_code() {
   local url="$1" max="$2" code
-  code="$(curl -s -o "$BODY" -w '%{http_code}' --connect-timeout "$max" --max-time "$max" "$url" 2>/dev/null)" || true
+  code="$(curl -q -s --proto '=http,https' -o "$BODY" -w '%{http_code}' --connect-timeout "$max" --max-time "$max" -- "$url" 2>/dev/null)" || true
   echo "${code:-000}"
 }
 
@@ -175,9 +179,10 @@ check_units() {
   done
 }
 
-# Map services: one probe each, WARN only.
+# Map services: one probe each, WARN only. They run inside the gate deadline: each probe's curl --max-time is the
+# remaining time (at most 3 s), and once the deadline has passed the rest are reported as not probed (QA-3).
 check_maps() {
-  local name url impact code host
+  local name url impact code host left max
   local engine geocoder
   engine="$(echo "${ROUTER_ENGINE:-valhalla}" | tr '[:upper:]' '[:lower:]')"
   geocoder="$(echo "${GEOCODER:-none}" | tr '[:upper:]' '[:lower:]')"
@@ -196,7 +201,13 @@ check_maps() {
       line WARN maps "$name $(safe_url "$url") not probed: '$host' is not a loopback or private host (misconfiguration? MAP_PROBE_ALLOW_PUBLIC=1 allows it)"
       continue
     fi
-    code="$(http_code "$url" 3)"
+    left="$(remaining)"
+    if (( left <= 0 )); then
+      line WARN maps "$name $(safe_url "$url") not probed: the gate deadline (${HEALTH_TIMEOUT_SEC} s) was reached (does not fail the gate)"
+      continue
+    fi
+    max=$(( left < 3 ? left : 3 ))
+    code="$(http_code "$url" "$max")"
     if [[ "$code" =~ ^2 ]]; then
       line PASS maps "$name $(safe_url "$url") HTTP $code"
     else

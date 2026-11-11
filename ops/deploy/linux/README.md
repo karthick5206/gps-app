@@ -31,11 +31,17 @@ After `systemctl restart`, `release.sh` runs `health-gate.sh`:
 5. map services (`ROUTER_URL`, `GEOCODER_URL`, `MARTIN_URL` from `apps/api/.env`) are probed once and only **warned**
    about, because `release.sh` does not deploy them. Only loopback / private / single-label hosts are probed; a public
    host is reported as a WARN ("not probed … misconfiguration?") and never fetched, unless `MAP_PROBE_ALLOW_PUBLIC=1`.
-   Printed URLs never carry userinfo or a query string. The API's System Health uses the same rule.
+   Printed URLs never carry userinfo or a query string. The API's System Health uses the same rule. Redirects are
+   never followed (curl without `-L`; the API probe uses `redirect: 'manual'`): a 3xx counts as down / WARN.
 
-`API_PORT` / `GATEWAY_HEALTH_PORT` are the API's own settings; `release.sh` loads `apps/api/.env`, so `--health-only`
-on the test instance (`API_PORT=4100`) needs no URL overrides. Steps 2–4 retry every `HEALTH_POLL_SEC` (3 s) until
-`HEALTH_TIMEOUT_SEC` (90 s) for the whole gate. Each check prints `PASS` / `FAIL` / `WARN` / `SKIP`, then
+`API_PORT` / `GATEWAY_HEALTH_PORT` are the API's own settings; `release.sh` reads them (and the map-service URLs and
+the gate's own `HEALTH_*` settings) from `apps/api/.env`, so `--health-only` on the test instance (`API_PORT=4100`)
+needs no URL overrides. Steps 2–4 retry every `HEALTH_POLL_SEC` (3 s) until `HEALTH_TIMEOUT_SEC` (90 s) for the whole
+gate. **The deadline is kept** (QA-3): every curl is capped by the time left, a check reached after the deadline gets
+one 1 s attempt, and the map probes get the time left (at most 3 s each) and are reported "not probed: the gate
+deadline was reached" once it is gone. The gate therefore ends within `HEALTH_TIMEOUT_SEC` + about 3 s (plus the
+journal tail on a failure). curl always runs as `curl -q --proto =http,https … -- <url>` (no `~/.curlrc`, http(s)
+only, a URL can never be read as an option). Each check prints `PASS` / `FAIL` / `WARN` / `SKIP`, then
 `== HEALTH GATE: PASS` (exit 0) or `== HEALTH GATE: FAIL (<checks>)` (exit 1), with `journalctl -u <unit> -n 50` for
 the failed units. Exit 2 means the gate could not run (bad setting, no curl); `release.sh` then says so and exits 2
 without the rollback text.
@@ -51,6 +57,46 @@ as root: sudo journalctl -u <unit> -n 50 --no-pager". `install-ubuntu.sh` grants
 (deleting the journal) or `--file`. **Existing production server** (the installer is not re-run there): until the owner
 approves adding the same line by hand (`sudo visudo -f /etc/sudoers.d/veetrax`, the `journalctl` line from
 `install-ubuntu.sh`), a failed gate prints the hint and the journal must be read as root.
+
+**Restart permission (Sec-M1).** `install-ubuntu.sh` no longer writes `systemctl restart veetrax-*`: in sudoers that
+`*` also matches spaces, so it allowed `sudo systemctl restart veetrax-api postgresql@18-main ssh valkey-server` (any
+unit, a denial-of-service path for anyone holding the `veetrax` account). It now grants exact commands only:
+
+```
+veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer
+veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-api, /usr/bin/systemctl restart veetrax-gateway, /usr/bin/systemctl restart veetrax-processor, /usr/bin/systemctl restart veetrax-notifier, /usr/bin/systemctl restart veetrax-summarizer
+veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl reload caddy
+```
+
+The first line is exactly what `release.sh` runs (`sudo systemctl restart $SERVICES` with the default `SERVICES`, all
+five in that order). A custom `SERVICES` (another order or subset of several units) does **not** match and needs root.
+`bash ops/deploy/linux/test/install-valkey-aof-test.sh` checks the lines (no wildcard, the release.sh form matches,
+other units are denied) and runs `visudo -cf` where `visudo` exists (it passes on Ubuntu / WSL).
+
+> **Manual production step, needs owner approval (not done by v1.8.1).** The existing production server keeps the
+> sudoers file written by the v1.8.0 installer (with the `veetrax-*` wildcard); deploying v1.8.1 does not change it,
+> and `release.sh` keeps working with it. To apply Sec-M1 there, after the owner approves a sudoers change, as root:
+> 1. `sudo cp -a /etc/sudoers.d/veetrax /root/sudoers.veetrax.bak`
+> 2. `sudo visudo -f /etc/sudoers.d/veetrax` and replace the `systemctl restart veetrax-*, /usr/bin/systemctl reload
+>    caddy` line with the three lines above (optionally also add the `journalctl` line from `install-ubuntu.sh`);
+>    visudo refuses to save a file with a syntax error.
+> 3. Check as `veetrax`: `sudo -n -l /usr/bin/systemctl restart veetrax-api veetrax-gateway veetrax-processor
+>    veetrax-notifier veetrax-summarizer` prints the command, and `sudo -n -l /usr/bin/systemctl restart postgresql`
+>    is refused.
+> Undo: `sudo cp -a /root/sudoers.veetrax.bak /etc/sudoers.d/veetrax`.
+
+**`apps/api/.env` is read, not run (Sec-L5).** `release.sh` used to `source` the file as bash; it has systemd
+`EnvironmentFile` syntax, so `&`, `;`, `$`, backticks or `$(...)` in a value (a password, a `DATABASE_URL` query) were
+executed or expanded. It now parses `KEY=VALUE` lines literally (optional `export `, one pair of surrounding quotes
+removed, comments and other lines skipped; `PATH`, `IFS`, `BASH_ENV`, `LD_*` and the like are never taken from it):
+- migrate and the seed still get **every** setting exported, as in v1.8.0, but only inside their own subshell;
+- the gate gets only the keys it reads (`API_PORT`, `GATEWAY_HEALTH_PORT`, the map-service settings, `HEALTH_*` /
+  `*_HEALTH_URL`), so database secrets no longer reach it or its curl calls.
+- Behaviour change only for values that relied on bash: a value is now taken exactly as systemd gives it to the
+  services (no `$VAR` expansion, no `\` escapes, no inline `# comment` stripping). Production's `.env` uses plain
+  values, so nothing changes there.
+- The re-check command printed after a rollback to a tag without a gate still loads `.env` with `.`; it is a command
+  for the operator to read and run by hand.
 
 **On failure nothing is rolled back automatically** (owner decision O17). `release.sh` prints:
 
@@ -106,11 +152,28 @@ If the second rename fails, `dist.prev` is moved back to `dist` before that mess
 - **Quick manual restore** of the previous web build (as `veetrax`, no restart needed; Caddy serves it at once):
   `cd /opt/veetrax/app/apps/web && mv dist dist.bad && mv dist.prev dist`.
 
-- The check flags known outside map hosts (OpenFreeMap, OSM tiles, Mapbox, MapTiler, Google, Esri, CARTO, Stadia,
-  Thunderforest, HERE, TomTom, Bing, Ola Maps, Mappls / MapmyIndia, Protomaps, VersaTiles, Geoapify, …), Google
-  `output=embed` / `maps/embed`, and, as a second layer, **any** absolute URL to a map resource (`{z}`,
-  `{fontstack}`, `.pbf`, `.mvt`, `.pmtiles`, `style.json`, `styles/*.json`, `sprite`) on a host other than
-  `*.veetrax.com` / localhost. Attribution links and the O9 Google Maps hand-off links stay allowed.
+- The check has three layers (QA-2 / Sec-L6 hardened it):
+  1. **The build env.** Each `VITE_MAP_STYLE_*` (read like `vite build` does: process env, then `apps/web/.env*`) must
+     be unset, a same-origin `/tiles/...` path, or an `http(s)` URL without userinfo on `*.veetrax.com` / localhost /
+     127.x / `[::1]`. A protocol-relative `//host/...`, `https://app.veetrax.com@evil...` or any other host fails the
+     build, whatever the path looks like (a style URL without `.json` is caught too).
+  2. **The style base in the bundle.** The inlined `resolveStyleUrls({standard, light, dark}, location.origin)` call is
+     found in the built JS; each value must be unset (and the same-origin `/tiles/styles/<file>.json` fallback must be
+     present) or exactly the build-env value. If the call cannot be found, the check fails rather than pass blind.
+  3. **Text scan.** Known outside map hosts (OpenFreeMap, OSM tiles, Mapbox incl. directions / geocoding, MapTiler,
+     Google tiles and geocode / directions / routes APIs, Esri, CARTO, Stadia, Thunderforest, HERE, TomTom, Bing, Ola
+     Maps, Mappls / MapmyIndia, Protomaps, VersaTiles, Geoapify), routing and geocoding hosts (Nominatim, Photon /
+     komoot, OSRM `router.project-osrm.org`, GraphHopper cloud, openrouteservice, FOSSGIS Valhalla, LocationIQ),
+     Google `output=embed` / `maps/embed`, and **any** absolute or protocol-relative URL in a map context (`{z}`/`{x}`/
+     `{y}`, `{quadkey}`, `{bbox-…}`, `{fontstack}`, `.pbf`, `.mvt`, `.pmtiles`, `/style(s)/`, `/tiles/`, `/basemap`,
+     `/glyphs/`, `sprite`, `?style=`) whose origin is not allowed. In the bundle the only allowed origins are those of
+     the `VITE_MAP_STYLE_*` values (exactly, port included); in source, `*.veetrax.com` / localhost. Userinfo in such
+     a URL always fails. Attribution links and the O9 Google Maps hand-off links stay allowed, but only in their exact
+     form (the exemptions are anchored: `https://openmaptiles.org/fonts/{fontstack}/…` or `google.com/maps?q=…/vt/…`
+     are flagged).
+  - Still out of reach of a text check (by design): URLs built by string concatenation or encoded at run time.
+  - A LAN IP or another own domain (e.g. a Mintplus host) as `VITE_MAP_STYLE_*` is rejected; leave the variables
+    unset so the app uses `/tiles` on its own origin.
 - Deliberate deviation from spec G8 web item 5: the release does **not** fail when `VITE_MAP_STYLE_STANDARD` is unset,
   because unset now means the same-origin self-hosted `/tiles/styles/…` (no outside default exists any more).
 - Runtime configuration the build check cannot see: ESRI satellite imagery (`ESRI_BASEMAP_KEY`, API
@@ -143,7 +206,11 @@ no-appendfsync-on-rewrite no
   **empty** (running: 0 keys in **all** databases, the sum of `keys=` over every `dbN` line of `INFO keyspace`, so a
   shared Valkey with keys only in db1+ is not "empty"; stopped: no dump file under the unquoted `dir` / `dbfilename` and no
   `appendonlydir`) or **AOF is already on** (`CONFIG GET appendonly` = `yes`, or `appendonly yes` in a stopped
-  server's file). On a server with data and AOF off it prints a WARNING and leaves the file alone.
+  server's file with a non-empty AOF directory, or nothing on disk). On a server with data and AOF off it prints a
+  WARNING and leaves the file alone.
+- **Stopped, `appendonly yes`, a `dump.rdb` but no AOF** (QA-4; e.g. the file was hand-edited earlier): started like
+  this Valkey would ignore the dump and boot empty. The installer treats it as "has data": WARNING with the manual fix,
+  file unchanged, and Valkey is **not started**.
 - **Password.** `valkey-cli` gets the password from `REDISCLI_AUTH` or, if unset, from `requirepass` in the conf file
   (through the environment, never the command line). If Valkey does not answer `PONG` / a well-formed `INFO keyspace` section with it
   (`NOAUTH`, `WRONGPASS`, `LOADING`, …) the state is **unknown** and treated as "has data": WARNING, file unchanged,
