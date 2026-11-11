@@ -47,3 +47,12 @@ export function transportPushTarget(data: TransportPushData | null | undefined, 
   }
   return null;
 }
+
+/**
+ * A trip / booking id taken from a route (deep link `veetrax://duty/trip/<id>` or a typed URL), or null when it is not a
+ * UUID (security review I1): only a validated id is ever put into an API path. Expo Router may hand over an array.
+ */
+export function routeUuid(raw: unknown): string | null {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return typeof v === 'string' && UUID.test(v) ? v.toLowerCase() : null;
+}

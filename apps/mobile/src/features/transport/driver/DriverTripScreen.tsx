@@ -1,6 +1,7 @@
 import type { DriverPassengerDto, DriverStopDto, DriverTripDetailDto, DriverVehicleMotionDto } from '@veetracer/shared';
 import { DRIVER_NO_SHOW_REASONS } from '@veetracer/shared';
 import { router, Stack } from 'expo-router';
+import { usePreventScreenCapture } from 'expo-screen-capture';
 import { AccessibilityIcon, AlertTriangleIcon, CheckIcon, FlagIcon, LogOutIcon, MapPinIcon, NavigationIcon, PhoneIcon, PlayIcon, UserCheckIcon, UserXIcon } from 'lucide-react-native';
 import { useAppActive } from '@/lib/motion';
 import { useNow } from '../passenger-api';
@@ -21,6 +22,10 @@ import { clockIn } from '../trip-window';
 import { BigAction, StatusChip, SyncBadge, TransportEmpty } from '../ui';
 import { SyncBanner } from './SyncBanner';
 import { useVehicleMotion } from './useVehicleMotion';
+import { manifestScreenGuard } from './screen-guard';
+
+/** Doc 09 §7.1 / 10 §6: no screenshots or recordings of the manifest (FLAG_SECURE on Android). */
+const useManifestScreenGuard = manifestScreenGuard(usePreventScreenCapture);
 
 type QueueFn = (input: Parameters<typeof queueDriverEvent>[0]) => Promise<void>;
 
@@ -202,6 +207,7 @@ function StopCard({ stop, trip, current, moving, queue, tz, now }: { stop: Drive
  * While the vehicle moves only Navigate and the next-stop card stay (doc 09 §5.1).
  */
 export function DriverTripScreen({ id }: { id: string }) {
+  useManifestScreenGuard();
   const { t } = useTranslation();
   const c = useColors();
   const query = useDriverTrip(id);
