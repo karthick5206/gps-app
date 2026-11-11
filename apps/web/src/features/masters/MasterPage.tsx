@@ -393,7 +393,7 @@ export function MasterPage<T>({
           <>
             {headerActions}
             {allow.export && (
-              <Button variant="outline" onClick={exportCsv} disabled={exporting}>
+              <Button variant="outline" onClick={exportCsv} disabled={exporting} aria-label={t('Export CSV')}>
                 {exporting ? <Spinner /> : <DownloadIcon />}
                 <span className="hidden sm:inline">{t('Export CSV')}</span>
               </Button>

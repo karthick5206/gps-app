@@ -1,5 +1,30 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { isLocalHost } from '../monitoring/map-services';
 import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * Personal addresses (ETMS passenger homes, security review L11) may only go to a self-hosted geocoder: GEOCODER_URL
+ * must name a loopback, private-network or internal host, the same policy as the G6 map-service probe (isLocalHost; no
+ * DNS lookup, so a public name always counts as public). Otherwise 503 GEOCODER_NOT_PRIVATE and nothing is sent.
+ * No geocoder configured (GEOCODER=none or no URL) passes: search then returns [] without a request.
+ */
+export function privateGeocoderProblem(env: NodeJS.ProcessEnv = process.env): string | null {
+  const provider = (env.GEOCODER ?? 'none').toLowerCase();
+  const url = env.GEOCODER_URL ?? '';
+  if (provider === 'none' || !url) return null;
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return 'GEOCODER_URL is not a valid URL';
+  }
+  return isLocalHost(host) ? null : `GEOCODER_URL host ${host} is not a loopback or private host: addresses are only sent to a self-hosted geocoder`;
+}
+
+export function assertPrivateGeocoder(env: NodeJS.ProcessEnv = process.env): void {
+  const problem = privateGeocoderProblem(env);
+  if (problem) throw new ServiceUnavailableException({ message: `Address search is switched off: ${problem}. Ask your administrator to point it at the self-hosted geocoder.`, code: 'GEOCODER_NOT_PRIVATE' });
+}
 
 /**
  * Reverse geocoding (coordinates → address) with a database cache keyed by coordinates rounded to ~11 m.
@@ -65,7 +90,10 @@ export class GeocodingService {
   private queue: Promise<unknown> = Promise.resolve();
   private lastCall = 0;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {
+    const problem = privateGeocoderProblem();
+    if (problem) this.logger.warn(`${problem}. ETMS address search and passenger geocoding refuse requests (GEOCODER_NOT_PRIVATE).`);
+  }
 
   get enabled(): boolean {
     return this.provider !== 'none' && !!this.baseUrl;

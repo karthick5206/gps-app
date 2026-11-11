@@ -1,11 +1,13 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { GEOCODE_LOW_CONFIDENCE_BELOW, phoneCountryForTimezone, validHomePoint, type PassengerImportResult } from '@veetracer/shared';
+import { ETMS_PASSENGER_ROLE_NAME, GEOCODE_LOW_CONFIDENCE_BELOW, phoneCountryForTimezone, validHomePoint, type PassengerImportResult } from '@veetracer/shared';
 import { randomUUID } from 'crypto';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService, diffSnapshots } from '../../audit/audit.service';
-import { GeocodingService } from '../../geocoding/geocoding.service';
+import { assertPrivateGeocoder, GeocodingService } from '../../geocoding/geocoding.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
+import { disableLogin, publishLoginRevocation } from './identity-link';
 import { accessibilityOf } from './people-access';
 import { PROFILE_ENTITY, profileSnapshot } from './people.service';
 import {
@@ -39,6 +41,7 @@ const EXISTING_SELECT = {
   branchId: true,
   accessibility: true,
   isActive: true,
+  userId: true,
 } satisfies Prisma.EmployeeTransportProfileSelect;
 
 const formatError = (message: string) => new BadRequestException({ message, code: 'IMPORT_FORMAT' });
@@ -62,6 +65,7 @@ export class PassengerImportService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly geocoding: GeocodingService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   async run(ctx: AuthContext, file: { buffer: Buffer } | undefined, opts: { commit: boolean; geocode: boolean; rows?: string }): Promise<PassengerImportResult> {
@@ -82,6 +86,8 @@ export class PassengerImportService {
     const validated = validateImportRows(parsed.rows, lookups);
 
     if (opts.geocode && this.geocoding.enabled) {
+      // L11: home addresses only ever go to a self-hosted geocoder.
+      assertPrivateGeocoder();
       const need = validated.filter((v) => v.patch && v.patch.homeAddress && v.patch.homeLat === undefined && (!v.existing || v.existing.homeAddress !== v.patch.homeAddress || v.existing.homeLat === null));
       await pool(need, GEOCODE_CONCURRENCY, async (v) => {
         const patch = v.patch!;
@@ -185,10 +191,20 @@ export class PassengerImportService {
       });
     }
     const updates = plans.filter((p) => p.v.existing && p.target);
+    const revoked: string[] = [];
     for (let i = 0; i < updates.length; i += CHUNK) {
       const chunk = updates.slice(i, i + CHUNK);
       await this.prisma.$transaction(async (tx) => {
         for (const p of chunk) await tx.employeeTransportProfile.update({ where: { id: p.v.existing!.id }, data: columns(p.target!) });
+        // L3: a row that archives an active passenger disables the passenger's login too (sessions revoked), as DELETE does.
+        for (const p of chunk) {
+          const ex = p.v.existing!;
+          if (p.target!.isActive === false && ex.isActive && ex.userId) {
+            const outcome = await disableLogin(tx, ctx.companyId, ex.userId, ETMS_PASSENGER_ROLE_NAME);
+            await tx.auditLog.create({ data: { companyId: ctx.companyId, userId: ctx.userId, ip: ctx.ip, action: 'UPDATE', entity: 'User', entityId: ex.userId, changes: { what: 'passenger-archived', outcome, passengerId: ex.id, source: 'import' } } });
+            revoked.push(ex.userId);
+          }
+        }
         await tx.auditLog.createMany({
           data: chunk.map((p) => ({
             companyId: ctx.companyId,
@@ -202,7 +218,9 @@ export class PassengerImportService {
         });
       });
     }
-    await this.audit.record(ctx, { action: 'CREATE', entity: `${PROFILE_ENTITY}Import`, details: { created, updated: updates.length, rows: plans.length } });
+    for (const userId of revoked) await publishLoginRevocation(this.redis, userId);
+    if (revoked.length) await this.redis?.invalidateCache('user').catch(() => undefined);
+    await this.audit.record(ctx, { action: 'CREATE', entity: `${PROFILE_ENTITY}Import`, details: { created, updated: updates.length, rows: plans.length, loginsDisabled: revoked.length } });
     return created;
   }
 }

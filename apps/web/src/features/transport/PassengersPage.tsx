@@ -154,13 +154,13 @@ export function PassengersPage() {
           <>
             {can('objects') && me?.company.features.includes('etms') && (
               <Button variant="outline" asChild>
-                <Link to={VEHICLE_SEATS_PATH}>
+                <Link to={VEHICLE_SEATS_PATH} aria-label={t('Vehicle seats')}>
                   <BusIcon /> <span className="hidden sm:inline">{t('Vehicle seats')}</span>
                 </Link>
               </Button>
             )}
             {canImport && (
-              <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Button variant="outline" onClick={() => setImportOpen(true)} aria-label={t('Import')}>
                 <UploadIcon /> <span className="hidden sm:inline">{t('Import')}</span>
               </Button>
             )}

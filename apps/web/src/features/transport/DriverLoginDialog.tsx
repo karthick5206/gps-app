@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/features/auth/auth-context';
 import { errorMessage } from '@/lib/api';
 import { AppLoginPanel } from './AppLoginPanel';
-import { useDriverLogin, useDriverLoginMutation } from './use-people';
+import { useDriverLogin, useDriverLoginMutation, useDriverLoginReset } from './use-people';
 
 /**
  * "App login" of a driver (doc 05 §2.3, D5): create, link or disable the driver's VeeTrax login (Transport driver role)
@@ -17,6 +17,7 @@ export function DriverLoginDialog({ driver, onClose }: { driver: Pick<DriverDto,
   const { can } = useAuth();
   const login = useDriverLogin(driver?.id ?? null);
   const mutation = useDriverLoginMutation(driver?.id ?? '');
+  const reset = useDriverLoginReset(driver?.id ?? '');
   const current = login.data?.userId ? { active: login.data.active, email: login.data.email, mobile: login.data.mobile } : null;
   return (
     <Dialog
@@ -24,6 +25,7 @@ export function DriverLoginDialog({ driver, onClose }: { driver: Pick<DriverDto,
       onOpenChange={(o) => {
         if (!o && !mutation.isPending) {
           mutation.reset();
+          reset.reset();
           onClose();
         }
       }}
@@ -48,10 +50,13 @@ export function DriverLoginDialog({ driver, onClose }: { driver: Pick<DriverDto,
               canEdit={can('drivers', 'edit')}
               disabledReason={driver?.isActive ? null : 'Reactivate the driver first.'}
               pending={mutation.isPending}
-              error={mutation.error}
+              error={mutation.error ?? reset.error}
               outcome={mutation.data?.outcome ?? null}
               onGrant={(input) => mutation.mutate({ kind: 'grant', input })}
               onRevoke={(mode) => mutation.mutate({ kind: 'revoke', mode })}
+              onReset={() => reset.mutate()}
+              reset={reset.data ?? null}
+              resetPending={reset.isPending}
             />
           )}
         </DialogBody>

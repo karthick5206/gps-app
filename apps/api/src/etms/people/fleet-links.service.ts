@@ -7,6 +7,7 @@ import {
   phoneCountryForTimezone,
   type DriverLoginDto as DriverLoginResult,
   type LoginRemovalMode,
+  type LoginResetDto,
   type Paginated,
   type TransportVehicleProfileDto,
   type TransportVehicleProfileResponse,
@@ -20,7 +21,18 @@ import { AuditService } from '../../audit/audit.service';
 import { driverScopeWhere } from '../../drivers/drivers.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
-import { createOrLinkLogin, disableLogin } from './identity-link';
+import {
+  LOGIN_USER_INCLUDE,
+  assertCanSetPassword,
+  assertIdentityProbeBudget,
+  createOrLinkLogin,
+  disableLogin,
+  isIdentityInUse,
+  issueLoginReset,
+  noteIdentityRefusal,
+  publishLoginRevocation,
+  templateRoleId,
+} from './identity-link';
 import { DriverLoginDto, TransportVehicleListQuery, VehicleProfileDto } from './people.dto';
 
 export const VEHICLE_PROFILE_ENTITY = 'TransportVehicleProfile';
@@ -146,6 +158,7 @@ export class FleetLinksService {
     const rawMobile = dto.mobile === undefined ? d.mobile : dto.mobile;
     const mobile = rawMobile ? normalisePhone(rawMobile, country) : null;
     if (dto.mobile && !mobile) throw new BadRequestException({ message: 'Invalid mobile number', code: 'VALIDATION_FAILED' });
+    await assertIdentityProbeBudget(this.redis, ctx.userId);
     const link = await this.prisma.$transaction(async (tx) => {
       const res = await createOrLinkLogin(tx, {
         companyId: d.companyId,
@@ -155,14 +168,20 @@ export class FleetLinksService {
         password: dto.password,
         roleName: ETMS_DRIVER_ROLE_NAME,
         currentUserId: d.userId,
+        requested: { ...(dto.email !== undefined ? { email } : {}), ...(dto.mobile !== undefined ? { mobile } : {}) },
         linkedElsewhere: async (userId) => (await tx.driver.count({ where: { userId, NOT: { id: d.id } } })) > 0,
         actor: ctx,
       });
       if (d.userId !== res.userId) await tx.driver.update({ where: { id: d.id }, data: { userId: res.userId } });
-      await this.audit.record(ctx, { action: res.outcome === 'CREATED' ? 'CREATE' : 'UPDATE', entity: 'User', entityId: res.userId, details: { what: 'driver-login', outcome: res.outcome, driverId: d.id, passwordChanged: !!dto.password } }, tx);
+      await this.audit.record(ctx, { action: res.outcome === 'CREATED' ? 'CREATE' : 'UPDATE', entity: 'User', entityId: res.userId, details: { what: 'driver-login', outcome: res.outcome, driverId: d.id, passwordChanged: res.passwordChanged, sessionsRevoked: res.sessionsRevoked } }, tx);
       await this.audit.record(ctx, { action: 'UPDATE', entity: 'Driver', entityId: d.id, before: { userId: d.userId }, after: { userId: res.userId } }, tx);
       return res;
+    }).catch(async (e: unknown) => {
+      // L1: refusals are audited (contacts masked) and rate-limited per caller; the answer stays generic.
+      if (isIdentityInUse(e)) await noteIdentityRefusal(this.redis, this.audit, ctx, { entity: 'Driver', entityId: d.id, what: 'driver-login-refused', email, mobile });
+      throw e;
     });
+    if (link.sessionsRevoked) await publishLoginRevocation(this.redis, link.userId);
     await this.redis.invalidateCache('user').catch(() => undefined);
     return { ...(await this.driverLoginDto(d.id, link.userId)), outcome: link.outcome };
   }
@@ -180,8 +199,31 @@ export class FleetLinksService {
         await this.audit.record(ctx, { action: 'UPDATE', entity: 'Driver', entityId: d.id, before: { userId }, after: { userId: null } }, tx);
       }
     });
+    await publishLoginRevocation(this.redis, userId);
     await this.redis.invalidateCache('user').catch(() => undefined);
     return this.driverLoginDto(d.id, mode === 'unlink' ? null : userId);
+  }
+
+  /**
+   * M1: a one-time reset token for the driver's existing login; the driver chooses their own password with it (an
+   * admin-chosen password is possible only before the login's first sign-in). R-12 as for setting a password; audited.
+   */
+  async issueDriverLoginReset(ctx: AuthContext, driverId: string): Promise<LoginResetDto> {
+    const d = await this.driver(ctx, driverId);
+    if (!d.isActive) throw new ConflictException({ message: 'Reactivate the driver first', code: 'INVALID_STATE' });
+    if (!d.userId) throw new ConflictException({ message: 'This driver has no login', code: 'INVALID_STATE' });
+    const userId = d.userId;
+    return this.prisma.$transaction(async (tx) => {
+      const u = await tx.user.findUnique({ where: { id: userId }, include: LOGIN_USER_INCLUDE });
+      const roleId = await templateRoleId(tx, d.companyId, ETMS_DRIVER_ROLE_NAME);
+      if (!u || u.companyId !== d.companyId || u.isSuperAdmin || !u.isActive || !u.roles.some((r) => r.roleId === roleId)) {
+        throw new ConflictException({ message: 'Enable the driver login first', code: 'INVALID_STATE' });
+      }
+      assertCanSetPassword(ctx, u, roleId);
+      const reset = await issueLoginReset(tx, u.id);
+      await this.audit.record(ctx, { action: 'UPDATE', entity: 'User', entityId: u.id, details: { what: 'driver-login-reset-issued', driverId: d.id, expiresAt: reset.expiresAt } }, tx);
+      return reset;
+    });
   }
 
   private async driver(ctx: AuthContext, id: string) {

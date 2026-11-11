@@ -148,6 +148,15 @@ export function pickupOf(row: Pick<PassengerRow, 'homeLat' | 'homeLng' | 'defaul
 /**
  * The DTO for a projection. `detail` = single-passenger read (contacts in clear for FULL / STANDARD, emergency contacts
  * for FULL); list rows always mask contacts. `consents` = the passenger's consent rows (latest per purpose suffices).
+ *
+ * Location (security review M3, doc 05 §6 "home address masked"):
+ * - list rows (every projection) carry no coordinates at all: no home point and no pickup; they come with the detail
+ *   read, which is ACCESS-audited;
+ * - STANDARD (dispatcher) never gets home coordinates or the address, only `pickup` while the routing consent is active
+ *   (4 decimals for a home pickup);
+ * - FULL (corporate admin) gets the home point (6 decimals) and the address on the detail read only.
+ * Consent records (L4): FULL only; STANDARD sees just `routingConsent`. Login identifiers (L5): masked in list rows and
+ * for STANDARD.
  */
 export function toPassengerDto(row: PassengerRow, view: PassengerView, consents: ConsentRowLike[], detail: boolean): PassengerDto {
   const p = view.projection;
@@ -169,6 +178,8 @@ export function toPassengerDto(row: PassengerRow, view: PassengerView, consents:
   }
 
   const roles = row.user?.roles.map((r) => r.role.name) ?? [];
+  const fullDetail = p === 'FULL' && detail;
+  const clearLogin = fullDetail;
   return {
     id: row.id,
     projection: p,
@@ -186,15 +197,15 @@ export function toPassengerDto(row: PassengerRow, view: PassengerView, consents:
     home: minimal
       ? null
       : {
-          address: p === 'FULL' && detail ? row.homeAddress : null,
-          lat: hasHome ? roundCoord(row.homeLat as number, p === 'FULL' ? 6 : 4) : null,
-          lng: hasHome ? roundCoord(row.homeLng as number, p === 'FULL' ? 6 : 4) : null,
+          address: fullDetail ? row.homeAddress : null,
+          lat: fullDetail && hasHome ? roundCoord(row.homeLat as number, 6) : null,
+          lng: fullDetail && hasHome ? roundCoord(row.homeLng as number, 6) : null,
           source: (row.homeGeocodeSource as HomeLocationSource | null) ?? null,
           confidence: row.homeGeocodeConfidence,
         },
     hasHomeLocation: hasHome,
     needsLocation: row.isActive && !hasHome && !row.defaultStopPoiId,
-    pickup: pickupOf(row, routingConsent, p),
+    pickup: detail ? pickupOf(row, routingConsent, p) : null,
     routingConsent,
     accessibilityNeeds: !!accessibility.wheelchair || !!accessibility.notes,
     accessibility: minimal ? null : accessibility,
@@ -205,12 +216,13 @@ export function toPassengerDto(row: PassengerRow, view: PassengerView, consents:
         : {
             userId: row.user.id,
             active: row.user.isActive && roles.includes(ETMS_PASSENGER_ROLE_NAME),
-            email: row.user.email,
-            mobile: row.user.mobile,
+            email: clearLogin ? row.user.email : maskEmail(row.user.email),
+            mobile: clearLogin ? row.user.mobile : maskPhone(row.user.mobile),
             lastLoginAt: iso(row.user.lastLoginAt),
             otherRoles: roles.some((n) => n !== ETMS_PASSENGER_ROLE_NAME),
           },
-    consents: minimal ? null : states,
+    consents: p === 'FULL' ? states : null,
+    erasedAt: minimal ? null : iso(row.anonymisedAt),
     createdAt: minimal ? null : iso(row.createdAt),
     updatedAt: minimal ? null : iso(row.updatedAt),
   };

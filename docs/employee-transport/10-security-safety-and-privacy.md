@@ -304,6 +304,17 @@ ip/device`. Notice texts are versioned templates per country and language (reuse
 The tracker's existing local disclosure becomes server-recorded. Withdrawal is as easy as granting and takes effect
 on the next upload.
 
+> **E2 security review (2026-11-11), DPDP notes:** consent comes from the data principal. A corporate admin may only
+> withdraw on the passenger's behalf, or record a consent given offline with an evidence reference and a note (channel
+> `ADMIN_RECORDED_OFFLINE`, distinct from the passenger's own `WEB` / `PASSENGER_APP`); the passenger gets an in-app
+> notice (no SMS / mail provider in E2). Consent and notice rows are immutable in the database except for erasure /
+> purge. Dispatchers see no home coordinates (pickup only, with routing consent) and no consent records; list rows carry
+> no coordinates; admin detail reads of the home point are `ACCESS`-audited; provider reads are audited in the
+> customer's log and providers cannot export passengers. An admin chooses only the initial password of an unused login;
+> afterwards a one-time reset link, and every credential change / disable / unlink revokes the sessions (G5). Erasure
+> on request ("Erase personal data", archived passengers) follows the L5 default, pending owner confirmation of L5.
+> Addresses are geocoded only by a loopback / private-host Photon (`GEOCODER_URL`, refused otherwise).
+
 > **Resolved in E0.5 (2026-11-11):** Lead names apply (`02` §3.1; condition C2). `ConsentRecord` is modelled as **`EmployeeTransportConsent`** (Agent 1's table with these purposes; `02` §3.1, §7.3). Likewise `SafetyPolicy*` → `TransportPolicy*`, `Incident` / `IncidentEvent` / `EscalationStep` → `TransportIncident` / `TransportIncidentEvent` / `TransportEscalationStep`, and `IncidentDelivery` → delivery states on the extended `NotificationLog`.
 
 ### 4.3 Time-window limits (enforced server-side, not only in the app)

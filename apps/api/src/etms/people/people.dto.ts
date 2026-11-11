@@ -1,14 +1,18 @@
 import {
+  CONSENT_EVIDENCE_REF_MAX,
+  CONSENT_NOTE_MAX,
   CONSENT_NOTICE_BODY_MAX,
   CONSENT_NOTICE_TITLE_MAX,
   CONSENT_PURPOSES,
   LOGIN_REMOVAL_MODES,
   HOME_LOCATION_SOURCES,
   TRANSPORT_VEHICLE_CATEGORIES,
+  type AdminRecordConsentInput,
   type ConsentPurpose,
   type CreatePassengerInput,
   type DriverLoginInput,
   type EmergencyContact,
+  type ErasePassengerInput,
   type HomeLocationSource,
   type LoginRemovalMode,
   type PassengerAccessibility,
@@ -133,6 +137,17 @@ export class RecordConsentDto implements RecordConsentInput {
   /** The version the person was shown; the server records the current one and refuses a stale one. */
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(40) noticeVersion?: string;
   @IsOptional() @IsString() @MaxLength(20) locale?: string;
+}
+
+/** Admin on the passenger's behalf (M2): withdraw, or a recorded offline grant with evidenceRef + note. */
+export class AdminRecordConsentDto extends RecordConsentDto implements AdminRecordConsentInput {
+  @IsOptional() @IsString() @MaxLength(CONSENT_EVIDENCE_REF_MAX) evidenceRef?: string;
+  @IsOptional() @IsString() @MaxLength(CONSENT_NOTE_MAX) note?: string;
+}
+
+/** Erasure confirmation (M5): the employee code, typed. */
+export class ErasePassengerDto implements ErasePassengerInput {
+  @IsString() @IsNotEmpty() @MaxLength(CODE_MAX) confirm!: string;
 }
 
 export class VehicleProfileDto implements TransportVehicleProfileInput {

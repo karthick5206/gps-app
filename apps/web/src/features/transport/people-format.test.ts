@@ -113,7 +113,9 @@ const base: Pick<PassengerDto, 'projection' | 'needsLocation' | 'hasHomeLocation
 
 test('locationStatus follows the server view model and never fakes precision', () => {
   assert.equal(locationStatus(base).kind, 'HOME');
-  assert.equal(locationStatus({ ...base, projection: 'STANDARD', home: { ...base.home!, address: null, lat: 13.0604, lng: 80.2497 } }).kind, 'HOME_APPROX');
+  // M3: a dispatcher never gets the home point; a FULL list row has no coordinates but the admin knows a pin is set.
+  assert.equal(locationStatus({ ...base, projection: 'STANDARD', home: { ...base.home!, address: null, lat: null, lng: null } }).kind, 'HOME_HIDDEN');
+  assert.equal(locationStatus({ ...base, home: { ...base.home!, address: null, lat: null, lng: null } }).kind, 'HOME');
   assert.equal(locationStatus({ ...base, projection: 'MINIMAL', home: null }).kind, 'HOME_HIDDEN');
   assert.equal(locationStatus({ ...base, needsLocation: true, hasHomeLocation: false, home: null }).label, 'Needs location');
   assert.equal(locationStatus({ ...base, defaultStop: { id: 's', name: 'Metro gate', lat: 1, lng: 1 } }).kind, 'STOP');
@@ -144,7 +146,7 @@ test('consentRows lists every purpose in order; timeline is newest first', () =>
   assert.deepEqual(rows.map((r) => r.purpose), [...CONSENT_PURPOSES]);
   assert.equal(rows.find((r) => r.purpose === 'SOS_LOCATION')?.state?.noticeVersion, 'v2');
   assert.equal(rows.find((r) => r.purpose === 'TRANSPORT_PROFILE')?.state, null);
-  const h = (id: string, at: string, v = 'v1'): ConsentRecordDto => ({ id, purpose: 'TRANSPORT_PROFILE', granted: true, noticeVersion: v, locale: null, channel: 'WEB', subjectUserId: null, actorUserId: null, occurredAt: at });
+  const h = (id: string, at: string, v = 'v1'): ConsentRecordDto => ({ id, purpose: 'TRANSPORT_PROFILE', granted: true, noticeVersion: v, locale: null, channel: 'WEB', evidenceRef: null, note: null, subjectUserId: null, actorUserId: null, occurredAt: at });
   const tl = consentTimeline([h('a', '2026-01-01T00:00:00Z'), h('b', '2026-03-01T00:00:00Z', 'v3'), h('c', '2026-02-01T00:00:00Z')]);
   assert.deepEqual(tl.map((r) => r.id), ['b', 'c', 'a']);
 });

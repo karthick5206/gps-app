@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { DriverAssignmentDto, DriverAssignmentSource, DriverDto, normalizeRfidTag } from '@veetracer/shared';
+import { DriverAssignmentDto, DriverAssignmentSource, DriverDto, ETMS_DRIVER_ROLE_NAME, normalizeRfidTag } from '@veetracer/shared';
 import { allCompaniesOr, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
@@ -9,6 +9,7 @@ import { iso, isoOrNull } from '../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../common/list-query';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { disableLogin, publishLoginRevocation } from '../etms/people/identity-link';
 import { switchDriver } from './driver-sessions';
 import { AssignDriverDto, AssignmentQuery, CreateDriverDto, DriverListQuery, UpdateDriverDto } from './drivers.dto';
 
@@ -110,6 +111,7 @@ export class DriversService {
     // New licence expiry: licence reminders start over.
     if (dto.licenseExpiry !== undefined && (dto.licenseExpiry?.slice(0, 10) ?? null) !== ymd(before.licenseExpiry)) data.licenseNotifiedState = null;
     const row = await this.prisma.driver.update({ where: { id }, data, include: INCLUDE });
+    if (dto.isActive === false && before.isActive) await this.disableTransportLogin(ctx, before, 'driver-deactivated');
     // A deactivated driver leaves the vehicle.
     if (dto.isActive === false && before.assignments[0]) await this.assign(ctx, { objectId: before.assignments[0].objectId, driverId: null });
     await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before, after: row });
@@ -119,9 +121,25 @@ export class DriversService {
 
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(ctx, id);
+    await this.disableTransportLogin(ctx, before, 'driver-removed');
     await this.prisma.driver.delete({ where: { id } });
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before });
     if (before.assignments[0]) await this.redis.invalidateCache('driver:delete');
+  }
+
+  /**
+   * ETMS (security review L3): a deactivated or deleted driver's login (Driver.userId, "Transport driver" role) stops
+   * working: the role is removed or the transport-only User deactivated, every session revoked (G5 published). Audited.
+   */
+  private async disableTransportLogin(ctx: AuthContext, driver: { id: string; companyId: string; userId: string | null }, what: 'driver-deactivated' | 'driver-removed'): Promise<void> {
+    const userId = driver.userId;
+    if (!userId) return;
+    await this.prisma.$transaction(async (tx) => {
+      const outcome = await disableLogin(tx, driver.companyId, userId, ETMS_DRIVER_ROLE_NAME);
+      await this.audit.record(ctx, { action: 'UPDATE', entity: 'User', entityId: userId, details: { what, outcome, driverId: driver.id } }, tx);
+    });
+    await publishLoginRevocation(this.redis, userId);
+    await this.redis.invalidateCache('user').catch(() => undefined);
   }
 
   bulk(ctx: AuthContext, dto: BulkActionDto) {

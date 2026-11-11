@@ -18,7 +18,8 @@ export type HomeLocationSource = (typeof HOME_LOCATION_SOURCES)[number];
 /**
  * Which passenger fields the caller sees; chosen by the server, never by the client (doc 02 §4.2 passengerProjection):
  * FULL = corporate admin of the passenger's own company (whole-company role), home address and contacts revealed (audited);
- * STANDARD = corporate dispatcher (branch / site scoped role): home address hidden, home point rounded to 4 decimals;
+ * STANDARD = corporate dispatcher (branch / site scoped role): no home address and no home coordinates, only the pickup
+ * point (detail view, while the routing consent is active), no consent records;
  * MINIMAL = transport provider under an agreement granting VIEW_PASSENGER_MINIMAL (doc 10 §2): short name, office,
  * pickup point only (and only while the passenger's routing consent is active); contacts only with VIEW_PASSENGER_CONTACT.
  */
@@ -45,9 +46,12 @@ export interface EmergencyContact {
 }
 
 export interface PassengerHomeDto {
-  /** Original text; null for STANDARD (masked) or when none was given. */
+  /** Original text; FULL detail only (null for STANDARD, in list rows, or when none was given). */
   address: string | null;
-  /** FULL: 6 decimals as stored; STANDARD: rounded to 4 decimals (≈ 11 m). null when the passenger has no point yet. */
+  /**
+   * FULL detail only (6 decimals as stored; the read is ACCESS-audited). Always null in list rows (every projection) and
+   * for STANDARD (dispatchers get no home coordinates at all, only `pickup` while the routing consent is active).
+   */
   lat: number | null;
   lng: number | null;
   source: HomeLocationSource | null;
@@ -57,8 +61,8 @@ export interface PassengerHomeDto {
 
 /**
  * The point routing may use for this passenger: the default stop when one is set, else the home point. Always null
- * while the passenger has no active TRANSPORT_PROFILE consent (doc 02 §7.3 purpose limitation). Home points are rounded
- * to 4 decimals except in the FULL projection.
+ * while the passenger has no active TRANSPORT_PROFILE consent (doc 02 §7.3 purpose limitation), and in list rows (detail
+ * view only). Home points are rounded to 4 decimals except in the FULL projection.
  */
 export interface PassengerPickupDto {
   kind: 'STOP' | 'HOME';
@@ -73,8 +77,13 @@ export interface PassengerAppAccessDto {
   userId: string;
   /** Login enabled (User active and still holding the Passenger role). */
   active: boolean;
+  /** The login's identifiers: masked in list rows and for STANDARD; in clear in the FULL detail only. */
   email: string | null;
   mobile: string | null;
+  /**
+   * First successful sign-in. While null an admin / dispatcher may still set the initial password; afterwards only a
+   * one-time reset token (POST …/app-access/reset) is possible, never an admin-chosen password (M1).
+   */
   lastLoginAt: string | null;
   /** The User also holds other (fleet) roles: P3 dual-role, fleet shell + "My commute". */
   otherRoles: boolean;
@@ -112,8 +121,10 @@ export interface PassengerDto {
   emergencyContacts: EmergencyContact[] | null;
   /** FULL / STANDARD only. */
   appAccess: PassengerAppAccessDto | null;
-  /** FULL / STANDARD only: current consent per purpose. */
+  /** FULL only: current consent per purpose (dispatchers see `routingConsent` only, doc 05 §6 "Consent records: —"). */
   consents: PassengerConsentStateDto[] | null;
+  /** Personal data erased (data-subject erasure, L5 default): the row only keeps statistics. null in MINIMAL. */
+  erasedAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -178,15 +189,37 @@ export interface PassengerAppAccessInput {
   /** Defaults to the profile's email / mobile; at least one of the two is needed. */
   email?: string | null;
   mobile?: string | null;
-  /** Initial password (same rules as Users); omitted = no password yet (password reset / manual invite). */
+  /**
+   * Initial password (same rules as Users); omitted = no password yet. Accepted only while the login has never been
+   * used (lastLoginAt null); afterwards 409 PASSWORD_RESET_REQUIRED: issue a reset token instead (M1).
+   */
   password?: string;
 }
+
+/**
+ * POST /api/transport/passengers/:id/app-access/reset and POST /api/drivers/:id/login/reset: a one-time reset token the
+ * admin hands to the person, who then chooses their own password at `path` (the existing /reset-password page). Earlier
+ * unused tokens of the login are cancelled; redeeming signs out every session of the login. Audited, and recorded as an
+ * in-app notice for a passenger.
+ */
+export interface LoginResetDto {
+  token: string;
+  /** Relative web path that redeems the token: `/reset-password?token=…`. */
+  path: string;
+  expiresAt: string;
+}
+
+/** Validity of an admin-issued reset token. */
+export const LOGIN_RESET_TTL_HOURS = 72;
 
 export interface PassengerAppAccessResult {
   passenger: PassengerDto;
   /** CREATED = new User; LINKED = an existing User of the same company got the Passenger role; REACTIVATED. */
   outcome: 'CREATED' | 'LINKED' | 'REACTIVATED';
-  /** E2 has no SMS / mail activation (owner approval pending): the admin shares the login; MANUAL always. */
+  /**
+   * E2 has no SMS / mail activation (owner approval pending): the admin shares the login; MANUAL always. passwordSet:
+   * this call set the login's initial password (never true for a login that was only linked, QA B2).
+   */
   invite: { channel: 'MANUAL'; passwordSet: boolean };
 }
 
@@ -201,8 +234,16 @@ export const CONSENT_PURPOSES = ['TRANSPORT_PROFILE', 'PICKUP_LOCATION_SHARE', '
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 export const ROUTING_CONSENT_PURPOSE: ConsentPurpose = 'TRANSPORT_PROFILE';
 
-export const CONSENT_CHANNELS = ['WEB', 'PASSENGER_APP', 'ADMIN_ON_BEHALF'] as const;
+/**
+ * WEB / PASSENGER_APP = the passenger's own session. ADMIN_ON_BEHALF = a withdrawal recorded by the corporate admin
+ * (admins may withdraw, never grant, on someone's behalf: M2). ADMIN_RECORDED_OFFLINE = a grant the passenger gave
+ * outside the system (signed paper form…), recorded by the corporate admin with an evidence reference and a note.
+ * The database CHECKs both rules.
+ */
+export const CONSENT_CHANNELS = ['WEB', 'PASSENGER_APP', 'ADMIN_ON_BEHALF', 'ADMIN_RECORDED_OFFLINE'] as const;
 export type ConsentChannel = (typeof CONSENT_CHANNELS)[number];
+export const CONSENT_EVIDENCE_REF_MAX = 80;
+export const CONSENT_NOTE_MAX = 500;
 
 export interface ConsentRecordDto {
   id: string;
@@ -211,6 +252,10 @@ export interface ConsentRecordDto {
   noticeVersion: string;
   locale: string | null;
   channel: string;
+  /** ADMIN_RECORDED_OFFLINE: the paper form id (or similar) the admin recorded; else null. */
+  evidenceRef: string | null;
+  /** ADMIN_RECORDED_OFFLINE: the admin's note; else null. */
+  note: string | null;
   subjectUserId: string | null;
   actorUserId: string | null;
   occurredAt: string;
@@ -247,6 +292,51 @@ export interface RecordConsentInput {
   noticeVersion?: string;
   locale?: string;
 }
+
+/**
+ * POST /api/transport/passengers/:id/consents (corporate admin). `granted: false` withdraws (channel ADMIN_ON_BEHALF).
+ * `granted: true` is only a "recorded offline consent": `evidenceRef` (paper form id or similar) and `note` are required,
+ * the row gets channel ADMIN_RECORDED_OFFLINE, and the passenger gets an in-app notice. Without them 403
+ * CONSENT_SELF_ONLY: a grant otherwise comes from the passenger's own session (/api/me/transport/consent).
+ */
+export interface AdminRecordConsentInput extends RecordConsentInput {
+  evidenceRef?: string;
+  note?: string;
+}
+
+// ───────────────────────────── Passenger notices (in-app) ─────────────────────────────
+
+/**
+ * Notification intents for a passenger about changes made by someone else (consent recorded / withdrawn by the admin,
+ * login password set, reset issued, login disabled). E2 has no SMS / mail provider for these: each is an in-app notice
+ * record (channel IN_APP), listed at GET /api/me/transport/notices.
+ */
+export const PASSENGER_NOTICE_KINDS = ['CONSENT_RECORDED_OFFLINE', 'CONSENT_WITHDRAWN_BY_ADMIN', 'LOGIN_PASSWORD_SET', 'LOGIN_RESET_ISSUED', 'LOGIN_DISABLED'] as const;
+export type PassengerNoticeKind = (typeof PASSENGER_NOTICE_KINDS)[number];
+
+export interface PassengerNoticeDto {
+  id: string;
+  kind: PassengerNoticeKind;
+  channel: 'IN_APP';
+  /** purpose / noticeVersion / evidenceRef for consent notices; nothing personal. */
+  details: Record<string, unknown>;
+  createdAt: string;
+}
+
+// ───────────────────────────── Erasure (L5 default, pending owner confirmation) ─────────────────────────────
+
+/**
+ * POST /api/transport/passengers/:id/erase (corporate admin, `etms_passengers:delete`, archived passengers only).
+ * Irreversible: `confirm` must be the passenger's employee code, typed. Follows the documented default of owner decision
+ * L5 (pending owner confirmation of L5): name, contacts, home and pickup, emergency contacts and accessibility notes are
+ * anonymised in place; statistics and the consent history (identity removed) are kept; the login is disabled and unlinked.
+ */
+export interface ErasePassengerInput {
+  confirm: string;
+}
+
+/** Display name of an erased passenger. */
+export const ERASED_PASSENGER_NAME = 'Erased passenger';
 
 // ───────────────────────────── Consent notice (doc 10 §4.2) ─────────────────────────────
 
@@ -508,7 +598,13 @@ export type TransportPeopleErrorCode =
   | 'CONSENT_NOTICE_MISSING'
   | 'CONSENT_NOTICE_OUTDATED'
   | 'GEOCODER_UNAVAILABLE'
-  | 'IMPORT_FORMAT';
+  | 'GEOCODER_NOT_PRIVATE'
+  | 'IMPORT_FORMAT'
+  | 'PASSWORD_RESET_REQUIRED'
+  | 'LOGIN_ALREADY_LINKED'
+  | 'CONSENT_SELF_ONLY'
+  | 'IDENTITY_RATE_LIMITED'
+  | 'ERASE_CONFIRM_MISMATCH';
 
 // ───────────────────────────── Pure helpers (shared by API, web and mobile) ─────────────────────────────
 
@@ -619,6 +715,10 @@ export function consentActive(rows: Parameters<typeof currentConsents>[0], purpo
  * Menus E2 adds to the ETMS role templates (ETMS_ROLE_TEMPLATES in transport.ts, keyed by template name). Merged in when
  * the templates are seeded, i.e. for companies that switch `etms` on from now; existing roles are never changed.
  * Corporate admin: passengers V/C/E/D/X (doc 05 §6); dispatcher: V/E (site-scoped, home address masked).
+ * "Transport admin" is also the provider's template: its `export` only ever covers the caller's OWN company's
+ * passengers (the service never exports another company's rows, M4; doc 05 §6 gives providers V only).
+ * Vehicle seats and driver logins deliberately stay on the fleet grants (objects / drivers edit), not on these
+ * templates: a provider operator needs a fleet role for them (L13, owner decision pending; doc 12 E2 notes).
  */
 export const ETMS_E2_TEMPLATE_PERMISSIONS: Record<string, PermissionMap> = {
   'Transport admin': { etms_passengers: ['view', 'create', 'edit', 'delete', 'export'] },

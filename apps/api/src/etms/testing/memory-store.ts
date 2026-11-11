@@ -110,7 +110,10 @@ export class MemoryStore {
 
   private apply(model: string, row: Obj, data: Obj): void {
     const { scalars, userRoles } = this.split(model, data);
-    for (const [k, v] of Object.entries(scalars)) row[k] = isPlain(v) && '__inc' in v ? (row[k] as number) + (v.__inc as number) : v;
+    for (const [k, v] of Object.entries(scalars)) {
+      if (v === undefined) continue; // Prisma ignores undefined fields
+      row[k] = isPlain(v) && '__inc' in v ? (row[k] as number) + (v.__inc as number) : v;
+    }
     row.updatedAt = new Date();
     for (const ur of userRoles) this.table('userRole').push({ userId: row.id, ...ur });
   }
@@ -158,6 +161,12 @@ export class MemoryStore {
         if (!r) return create({ data: c, ...shape });
         this.apply(model, r, u as Obj);
         return this.hydrate(model, r, shape);
+      },
+      delete: async ({ where }: Obj) => {
+        const r = rows().find((x) => matches(x, this.unique(where as Obj)));
+        if (!r) throw new Error(`${model} not found`);
+        this.tables[model] = rows().filter((x) => x !== r);
+        return r;
       },
       deleteMany: async ({ where }: Obj = {}) => {
         const keep = rows().filter((x) => !matches(x, where as Obj));

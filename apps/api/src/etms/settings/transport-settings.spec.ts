@@ -82,4 +82,11 @@ describe('ETMS error responses always carry a code (doc 05 §4, QA BUG-6)', () =
     expect(limited.body).toMatchObject({ code: 'RATE_LIMITED', retryAfterSec: 12 });
     expect(limited.headers['Retry-After']).toBe('12');
   });
+
+  it('QA B4: CONSENT_NOTICE_OUTDATED keeps the notice version (a string), also on /api/me/transport; never outside ETMS', () => {
+    const outdated = () => new ConflictException({ message: 'changed', code: 'CONSENT_NOTICE_OUTDATED', currentVersion: 'v2' });
+    expect(run('/api/transport/passengers/x/consents', outdated()).body).toMatchObject({ code: 'CONSENT_NOTICE_OUTDATED', currentVersion: 'v2' });
+    expect(run('/api/me/transport/consent', outdated()).body).toMatchObject({ code: 'CONSENT_NOTICE_OUTDATED', currentVersion: 'v2' });
+    expect(run('/api/vehicles', outdated()).body.currentVersion).toBeUndefined();
+  });
 });

@@ -7,7 +7,10 @@ import type {
   DriverLoginDto,
   DriverLoginInput,
   GeocodeCandidate,
+  AdminRecordConsentInput,
+  ErasePassengerInput,
   LoginRemovalMode,
+  LoginResetDto,
   Paginated,
   PassengerAppAccessInput,
   PassengerAppAccessResult,
@@ -15,7 +18,6 @@ import type {
   PassengerDto,
   PassengerImportResult,
   PublishConsentNoticeInput,
-  RecordConsentInput,
   TransportVehicleListQuery,
   TransportVehicleProfileDto,
   TransportVehicleProfileInput,
@@ -125,7 +127,7 @@ export function useRecordConsent(id: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidatePassengers();
   return useMutation({
-    mutationFn: (input: RecordConsentInput) => api.post<PassengerConsentsDto>(`${PASSENGERS_ENDPOINT}/${id}/consents`, input),
+    mutationFn: (input: AdminRecordConsentInput) => api.post<PassengerConsentsDto>(`${PASSENGERS_ENDPOINT}/${id}/consents`, input),
     onSuccess: (dto) => {
       qc.setQueryData(['transport-passenger-consents', id], dto);
       invalidate();
@@ -143,6 +145,28 @@ export function useAppAccess(id: string) {
         : api.delete<PassengerDto>(`${PASSENGERS_ENDPOINT}/${id}/app-access?mode=${cmd.mode}`).then((passenger) => ({ passenger, outcome: null, invite: null })),
     onSuccess: (res) => {
       qc.setQueryData(['transport-passenger', id], res.passenger);
+      invalidate();
+    },
+  });
+}
+
+/** One-time reset link for the passenger's login (M1); the admin hands it over, the person sets their own password. */
+export function usePassengerLoginReset(id: string) {
+  const invalidate = useInvalidatePassengers();
+  return useMutation({
+    mutationFn: () => api.post<LoginResetDto>(`${PASSENGERS_ENDPOINT}/${id}/app-access/reset`, {}),
+    onSuccess: invalidate,
+  });
+}
+
+/** Erase personal data of an archived passenger (M5; L5 default, pending owner confirmation). Irreversible. */
+export function useErasePassenger() {
+  const invalidate = useInvalidatePassengers();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ErasePassengerInput }) => api.post<PassengerDto>(`${PASSENGERS_ENDPOINT}/${id}/erase`, input),
+    onSuccess: (row) => {
+      qc.setQueryData(['transport-passenger', row.id], row);
       invalidate();
     },
   });
@@ -201,6 +225,11 @@ export function useDriverLogin(driverId: string | null) {
     enabled: !!driverId,
     retry: false,
   });
+}
+
+/** One-time reset link for the driver's login (M1). */
+export function useDriverLoginReset(driverId: string) {
+  return useMutation({ mutationFn: () => api.post<LoginResetDto>(`/drivers/${driverId}/login/reset`, {}) });
 }
 
 export function useDriverLoginMutation(driverId: string) {

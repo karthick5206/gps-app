@@ -11,6 +11,8 @@ import { Catalog, countSql, FkEdge, planPurge, PlanStep, PURGE_TABLE, PurgeKind,
 const CATALOG_TTL_MS = 10 * 60_000;
 /** A whole company can be millions of rows: give the transaction time. */
 const TX_TIMEOUT_MS = 30 * 60_000;
+/** Lets this transaction delete ETMS append-only evidence rows (trigger "etms_evidence_guard", migration etms_people). */
+export const PURGE_EVIDENCE_WRITE = `SET LOCAL veetrax.evidence_write = 'purge'`;
 
 interface Target {
   label: string;
@@ -95,6 +97,8 @@ export class PurgeService {
       async (tx) => {
         // Backstop for a payment that lands between the check and the purge (the RESTRICT keys would also stop it).
         if (kind === 'company' && financialTotal(await countFinancialRecords(tx, id))) throw new ConflictException('This company now has financial records, so it cannot be deleted. Nothing was deleted.');
+        // The controlled path through the ETMS evidence trigger (consent / consent-notice rows): this transaction only.
+        await tx.$executeRawUnsafe(PURGE_EVIDENCE_WRITE);
         for (const sql of [...extra, ...steps.map(stepSql)]) deletedRows += await tx.$executeRawUnsafe(sql);
       },
       { timeout: TX_TIMEOUT_MS, maxWait: 10_000 },

@@ -7,7 +7,9 @@ import {
   type ConsentNoticesDto,
   type DriverLoginDto as DriverLoginResult,
   type GeocodeCandidate,
+  type LoginResetDto,
   type PassengerAppAccessResult,
+  type PassengerNoticeDto,
   type PassengerConsentsDto,
   type PassengerDto,
   type PassengerImportResult,
@@ -23,8 +25,10 @@ import { ConsentNoticeService } from './consent-notice.service';
 import { FleetLinksService } from './fleet-links.service';
 import { PassengerImportService } from './passenger-import.service';
 import {
+  AdminRecordConsentDto,
   CreatePassengerDto,
   DriverLoginDto,
+  ErasePassengerDto,
   GeocodeQuery,
   LoginRemovalQuery,
   PassengerAppAccessDto,
@@ -109,6 +113,24 @@ export class PassengersController {
     return this.people.grantAppAccess(ctx, id, dto);
   }
 
+  /**
+   * One-time reset token for the passenger's existing login (M1): the person sets their own password with it. The only
+   * way to change the password of a login that has signed in; audited, the passenger gets an in-app notice.
+   */
+  @Post(':id/app-access/reset') @HttpCode(200) @RequirePermission('etms_passengers', 'edit')
+  resetAppAccess(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<LoginResetDto> {
+    return this.people.issueLoginReset(ctx, id);
+  }
+
+  /**
+   * Erase personal data of an archived passenger (M5; L5 default, pending owner confirmation of L5). Irreversible:
+   * body { confirm: <employee code> }; corporate admin only; audited.
+   */
+  @Post(':id/erase') @HttpCode(200) @RequirePermission('etms_passengers', 'delete')
+  erase(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ErasePassengerDto): Promise<PassengerDto> {
+    return this.people.erase(ctx, id, dto);
+  }
+
   /** ?mode=disable (default: login stops working, link kept) | unlink (also clears the link). Never deletes the User. */
   @Delete(':id/app-access') @RequirePermission('etms_passengers', 'edit')
   revokeAppAccess(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query() query: LoginRemovalQuery): Promise<PassengerDto> {
@@ -120,9 +142,12 @@ export class PassengersController {
     return this.people.consents(ctx, id, { reason });
   }
 
-  /** Grant / withdraw on the passenger's behalf (channel ADMIN_ON_BEHALF); corporate admin only. */
+  /**
+   * Corporate admin only (M2): withdraw on the passenger's behalf (channel ADMIN_ON_BEHALF), or record a consent the
+   * passenger gave offline with evidenceRef + note (ADMIN_RECORDED_OFFLINE). Other grants: 403 CONSENT_SELF_ONLY.
+   */
   @Post(':id/consents') @HttpCode(200) @RequirePermission('etms_passengers', 'edit')
-  recordConsent(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RecordConsentDto): Promise<PassengerConsentsDto> {
+  recordConsent(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AdminRecordConsentDto): Promise<PassengerConsentsDto> {
     return this.people.recordConsentOnBehalf(ctx, id, dto);
   }
 }
@@ -155,6 +180,12 @@ export class MyTransportConsentController {
   @Post('consent') @HttpCode(200) @RequirePermission('etms_self', 'view')
   record(@Auth() ctx: AuthContext, @Body() dto: RecordConsentDto): Promise<PassengerConsentsDto> {
     return this.people.recordMyConsent(ctx, dto, 'WEB');
+  }
+
+  /** In-app notices about changes someone else made (consent recorded / withdrawn by the admin, login changes). */
+  @Get('notices') @RequirePermission('etms_self', 'view')
+  inbox(@Auth() ctx: AuthContext): Promise<PassengerNoticeDto[]> {
+    return this.people.myInbox(ctx);
   }
 }
 
@@ -216,6 +247,12 @@ export class DriverLoginController {
   @Post(':id/login') @HttpCode(200) @RequirePermission('drivers', 'edit')
   grant(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DriverLoginDto): Promise<DriverLoginResult> {
     return this.fleet.grantDriverLogin(ctx, id, dto);
+  }
+
+  /** One-time reset token for the driver's existing login (M1): the driver sets their own password with it. */
+  @Post(':id/login/reset') @HttpCode(200) @RequirePermission('drivers', 'edit')
+  reset(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<LoginResetDto> {
+    return this.fleet.issueDriverLoginReset(ctx, id);
   }
 
   /** ?mode=disable (default) | unlink, as for passengers. */

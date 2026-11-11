@@ -7,7 +7,9 @@ import type { PassengerView } from './people-access';
  * - Home, health and emergency-contact values are never returned, only the marker "changed" (the writes already store
  *   a salted hash, profileSnapshot in people.service.ts; the hash is a fingerprint, so it is dropped here too).
  * - FULL (corporate admin): every field, contacts in clear, sensitive reads (ACCESS) included, actor and IP shown.
- * - STANDARD (dispatcher): no home-location fields at all (no addresses), no emergency contacts, no ACCESS rows, no IP.
+ * - STANDARD (dispatcher): only profile entries (no consent records, login changes or notices: doc 05 §6 gives the
+ *   dispatcher "—" on consent records, security review L4), no home-location fields at all, no emergency contacts, no
+ *   ACCESS rows, no IP.
  * - MINIMAL (provider under VIEW_PASSENGER_MINIMAL): only the fields of the MINIMAL projection (employee code, short
  *   name, office, status, default stop while routing consent is active), contacts per the agreement (none / masked /
  *   clear), only profile entries, no actor identity and no IP. A provider without the grant never reaches this (404).
@@ -70,7 +72,7 @@ function fieldValue(key: string, value: unknown, h: HistoryContext): unknown {
 export function redactHistoryEntry(entry: AuditLogDto, h: HistoryContext): AuditLogDto | null {
   const p = h.view.projection;
   if (entry.action === 'ACCESS' && p !== 'FULL') return null;
-  if (p === 'MINIMAL' && entry.entity !== h.profileEntity) return null;
+  if (p !== 'FULL' && entry.entity !== h.profileEntity) return null;
   const actor = p === 'MINIMAL' ? { userId: null, userName: null } : { userId: entry.userId, userName: entry.userName };
   const ip = p === 'FULL' ? entry.ip : null;
 

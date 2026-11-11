@@ -37,7 +37,8 @@ import { HomePinMap } from './HomePinMap';
 import { PassengerHistorySheet } from './PassengerHistorySheet';
 import { AppAccessBadge, LocationBadge, RoutingConsentBadge, ToneBadge } from './passenger-ui';
 import { formatCoords, geocodeMatchBadge, HOME_SOURCE_LABEL, isApproximate, MAX_EMERGENCY_CONTACTS, parseLatLng, validateEmergencyContacts } from './people-format';
-import { useAppAccess, useGeocode, usePassenger, useSavePassenger } from './use-people';
+import { ErasePassengerDialog } from './ErasePassengerDialog';
+import { useAppAccess, useGeocode, usePassenger, usePassengerLoginReset, useSavePassenger } from './use-people';
 
 const schema = z.object({
   employeeCode: requiredText(40),
@@ -135,6 +136,7 @@ export function PassengerEditor({ record, open, onOpenChange }: MasterFormProps<
 
   const [tab, setTab] = useState('details');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [eraseOpen, setEraseOpen] = useState(false);
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: valuesOf(record) });
   const baseline = useRef<Values>(valuesOf(record));
   const [home, setHome] = useState<HomeDraft>(homeOf(null));
@@ -231,7 +233,10 @@ export function PassengerEditor({ record, open, onOpenChange }: MasterFormProps<
   const title = passengerId ? (p?.displayName ?? record?.displayName ?? t('Passenger')) : t('Add passenger');
   const showConsent = !!passengerId && projection === 'FULL';
   const showAccess = !!passengerId && projection !== 'MINIMAL';
-  const position = home.lat !== null && home.lng !== null ? { lat: home.lat, lng: home.lng } : null;
+  // M3: a dispatcher's map shows the pickup point only (the server sends no home point), and only with routing consent.
+  const pickup = projection === 'STANDARD' ? (p?.pickup ?? null) : null;
+  const position = projection === 'STANDARD' ? (pickup?.kind === 'HOME' ? { lat: pickup.lat, lng: pickup.lng } : null) : home.lat !== null && home.lng !== null ? { lat: home.lat, lng: home.lng } : null;
+  const mapStop = projection === 'STANDARD' ? (pickup?.kind === 'STOP' ? { lat: pickup.lat, lng: pickup.lng, name: pickup.label ?? '' } : null) : p?.defaultStop ? { lat: p.defaultStop.lat, lng: p.defaultStop.lng, name: p.defaultStop.name } : null;
   const approximate = isApproximate(projection);
 
   return (
@@ -249,7 +254,8 @@ export function PassengerEditor({ record, open, onOpenChange }: MasterFormProps<
                       <LockIcon /> {t('Read only')}
                     </Badge>
                   )}
-                  {p && !p.isActive && <Badge variant="neutral">{t('Archived')}</Badge>}
+                  {p && !p.isActive && !p.erasedAt && <Badge variant="neutral">{t('Archived')}</Badge>}
+                  {p?.erasedAt && <Badge variant="neutral">{t('Personal data erased')}</Badge>}
                 </DialogTitle>
                 <DialogDescription className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
                   {p ? (
@@ -285,6 +291,11 @@ export function PassengerEditor({ record, open, onOpenChange }: MasterFormProps<
                 )}
               </TabsList>
               <div className="flex gap-2">
+                {p && !p.isActive && !p.erasedAt && projection === 'FULL' && can('etms_passengers', 'delete') && (
+                  <Button type="button" variant="ghost" className="text-destructive" onClick={() => setEraseOpen(true)} aria-label={t('Erase personal data')}>
+                    <Trash2Icon /> <span className="hidden lg:inline">{t('Erase personal data')}</span>
+                  </Button>
+                )}
                 {passengerId && p && (
                   <Button type="button" variant="ghost" onClick={() => setHistoryOpen(true)} aria-label={t('History')}>
                     <HistoryIcon /> <span className="hidden lg:inline">{t('History')}</span>
@@ -366,7 +377,7 @@ export function PassengerEditor({ record, open, onOpenChange }: MasterFormProps<
                     position={position}
                     approximate={approximate && !homeDirty}
                     readOnly={!canEditHome}
-                    stop={p?.defaultStop ? { lat: p.defaultStop.lat, lng: p.defaultStop.lng, name: p.defaultStop.name } : null}
+                    stop={mapStop}
                     onChange={(pt) => setPoint(pt.lat, pt.lng, 'PIN')}
                     className="h-[45vh] shrink-0 rounded-none border-0 md:h-auto md:flex-1"
                   />
@@ -463,6 +474,7 @@ export function PassengerEditor({ record, open, onOpenChange }: MasterFormProps<
           </Tabs>
         </form>
         {passengerId && p && <PassengerHistorySheet target={historyOpen ? { id: passengerId, label: p.displayName } : null} onClose={() => setHistoryOpen(false)} />}
+        {p && !p.erasedAt && <ErasePassengerDialog passenger={p} open={eraseOpen} onOpenChange={setEraseOpen} />}
       </DialogContent>
     </Dialog>
   );
@@ -531,15 +543,8 @@ function HomeFields({
           <p className="flex items-center gap-2 text-muted-foreground">
             <EyeOffIcon className="size-4 shrink-0" aria-hidden /> {t('Address hidden for your role')}
           </p>
-          {coords ? (
-            <p>
-              <span className="text-muted-foreground">{t('Approximate point')}: </span>
-              <span className="font-mono tabular-nums">{coords}</span>
-              <span className="block text-xs text-muted-foreground">{t('Rounded to about 11 m. Only the corporate admin sees and changes the exact point.')}</span>
-            </p>
-          ) : (
-            <p className="text-muted-foreground">{hasHome ? t('A home point is set.') : t('No home point yet.')}</p>
-          )}
+          <p className="text-muted-foreground">{hasHome ? t('A home point is set.') : t('No home point yet.')}</p>
+          <p className="text-xs text-muted-foreground">{t('The home point is not shown to your role. The map shows the pickup point only, once the passenger has consented to transport planning. Only the corporate admin sees and changes the home location.')}</p>
         </div>
       ) : (
         <>
@@ -656,7 +661,7 @@ function HomeFields({
   );
 }
 
-/** Where routing would pick the passenger up, straight from the server (null without routing consent). */
+/** Where routing would pick the passenger up, straight from the server (null without routing consent; detail view only). */
 function PickupSummary({ passenger }: { passenger: PassengerDto }) {
   const { t } = useTranslation();
   const pk = passenger.pickup;
@@ -727,6 +732,7 @@ function ContactsEditor({
 
 function PassengerAccess({ passenger, canEdit }: { passenger: PassengerDto; canEdit: boolean }) {
   const access = useAppAccess(passenger.id);
+  const reset = usePassengerLoginReset(passenger.id);
   const outcome = access.data?.outcome ?? null;
   const current = useMemo(
     () => (passenger.appAccess ? { active: passenger.appAccess.active, email: passenger.appAccess.email, mobile: passenger.appAccess.mobile, lastLoginAt: passenger.appAccess.lastLoginAt, otherRoles: passenger.appAccess.otherRoles } : null),
@@ -740,10 +746,13 @@ function PassengerAccess({ passenger, canEdit }: { passenger: PassengerDto; canE
       canEdit={canEdit}
       disabledReason={passenger.isActive ? null : 'Reactivate the passenger first.'}
       pending={access.isPending}
-      error={access.error}
+      error={access.error ?? reset.error}
       outcome={outcome}
       onGrant={(input) => access.mutate({ kind: 'grant', input })}
       onRevoke={(mode) => access.mutate({ kind: 'revoke', mode })}
+      onReset={() => reset.mutate()}
+      reset={reset.data ?? null}
+      resetPending={reset.isPending}
     />
   );
 }

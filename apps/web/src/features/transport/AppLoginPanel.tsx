@@ -1,5 +1,6 @@
-import type { LoginRemovalMode } from '@veetracer/shared';
-import { KeyRoundIcon, PowerIcon, PowerOffIcon, UnlinkIcon } from 'lucide-react';
+import type { LoginRemovalMode, LoginResetDto } from '@veetracer/shared';
+import { CopyIcon, KeyRoundIcon, LinkIcon, PowerIcon, PowerOffIcon, UnlinkIcon } from 'lucide-react';
+import { toast } from 'sonner';
 import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -31,7 +32,8 @@ export interface LoginInput {
  * decides whether the email / mobile creates a new login, links an existing login of the same company, or is refused
  * with IDENTITY_IN_USE. E2 sends no invitation: the admin shares the login details. Removal (API `?mode=`): Disable keeps
  * the link so the login can be enabled again; Unlink also removes the link so another login can be set up. Neither
- * deletes the login.
+ * deletes the login. Security review M1: an admin chooses only the initial password of a login that was never used;
+ * afterwards "Create reset link" gives a one-time link the admin hands over, and the person sets their own password.
  */
 export function AppLoginPanel({
   who,
@@ -44,6 +46,9 @@ export function AppLoginPanel({
   outcome,
   onGrant,
   onRevoke,
+  onReset,
+  reset,
+  resetPending = false,
 }: {
   /** "passenger" / "driver" (wording only). */
   who: 'passenger' | 'driver';
@@ -57,6 +62,11 @@ export function AppLoginPanel({
   outcome: 'CREATED' | 'LINKED' | 'REACTIVATED' | null;
   onGrant: (input: LoginInput) => void;
   onRevoke: (mode: LoginRemovalMode) => void;
+  /** Issue a one-time reset link for the existing, active login. */
+  onReset?: () => void;
+  /** The link just issued (shown once). */
+  reset?: LoginResetDto | null;
+  resetPending?: boolean;
 }) {
   const { t } = useTranslation();
   const id = useId();
@@ -131,8 +141,19 @@ export function AppLoginPanel({
               <Button variant="ghost" onClick={() => setConfirmRevoke('unlink')} disabled={pending}>
                 <UnlinkIcon /> {t(LOGIN_REMOVAL_TEXT.unlink.action)}
               </Button>
+              {current.active && onReset && (
+                <Button variant="outline" onClick={onReset} disabled={pending || resetPending}>
+                  {resetPending ? <Spinner /> : <LinkIcon />} {t('Create reset link')}
+                </Button>
+              )}
             </div>
           )}
+          {current.active && onReset && canEdit && !disabledReason && (
+            <p className="text-xs text-muted-foreground">
+              {t('You cannot choose the password of a login that has a password or was used. A reset link lets the person set their own; all their sessions are signed out when they use it.')}
+            </p>
+          )}
+          {reset && <ResetLink reset={reset} />}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
@@ -157,7 +178,7 @@ export function AppLoginPanel({
             <Field label={t('Mobile')} htmlFor={`${id}-mobile`}>
               <Input id={`${id}-mobile`} type="tel" autoComplete="off" placeholder="+919876543210" value={mobile} onChange={(e) => setMobile(e.target.value)} />
             </Field>
-            <Field label={t('Initial password')} htmlFor={`${id}-pw`} hint={t('Optional. At least 8 characters with a letter and a digit. Leave empty to set it later with “Forgot password”.')} className="sm:col-span-2">
+            <Field label={t('Initial password')} htmlFor={`${id}-pw`} hint={t('Optional. At least 8 characters with a letter and a digit. Leave empty and create a reset link later: once the login has a password, only the person changes it.')} className="sm:col-span-2">
               <Input id={`${id}-pw`} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </Field>
           </div>
@@ -185,6 +206,30 @@ export function AppLoginPanel({
           setConfirmRevoke(null);
         }}
       />
+    </div>
+  );
+}
+
+/** The one-time reset link, shown once after it was issued: the admin copies it and hands it to the person. */
+function ResetLink({ reset }: { reset: LoginResetDto }) {
+  const { t } = useTranslation();
+  const id = useId();
+  const url = `${window.location.origin}${reset.path}`;
+  const copy = () =>
+    navigator.clipboard
+      .writeText(url)
+      .then(() => toast.success(t('Link copied')))
+      .catch(() => toast.error(t('Could not copy: select the link and copy it')));
+  return (
+    <div role="status" className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
+      <p className="font-medium">{t('Reset link (shown once)')}</p>
+      <div className="flex gap-2">
+        <Input id={`${id}-reset`} readOnly value={url} aria-label={t('Reset link')} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+        <Button type="button" variant="outline" onClick={copy} aria-label={t('Copy link')}>
+          <CopyIcon />
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{t('Give it only to the person, for example in person or through your HR channel. It works once and expires {{date}}. Earlier links stop working.', { date: formatDateTime(reset.expiresAt) })}</p>
     </div>
   );
 }
