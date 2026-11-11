@@ -32,6 +32,22 @@ jobs:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
       - run: npx tsc -p tsconfig.build.json --outDir dist-ci
         working-directory: apps/api
+  optimizer:
+    # services/routing-optimizer (OR-Tools). Locked, hashed wheels from PyPI only; the tests use no network.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/routing-optimizer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.4'
+      - run: python -m pip install --require-hashes --no-deps --only-binary=:all: -r requirements.lock
+      - run: python -m pytest
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 20

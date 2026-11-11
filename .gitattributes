@@ -5,6 +5,7 @@ ops/deploy/docker/Dockerfile text eol=lf
 ops/deploy/docker/Caddyfile text eol=lf
 ops/deploy/docker/docker-compose.yml text eol=lf
 ops/valkey/** text eol=lf
+services/routing-optimizer/** text eol=lf
 
 # Web fonts are binary
 *.woff2 binary
