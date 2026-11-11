@@ -5,13 +5,22 @@
  * Docs: docs/employee-transport/05 §2.2–2.3, 02 §7 (original vs rounded coordinates), 10 §4 (consent), 07 §6.1.
  */
 import {
+  CONSENT_NOTICE_BODY_MAX,
+  CONSENT_NOTICE_TITLE_MAX,
   CONSENT_PURPOSES,
+  GEOCODE_LOW_CONFIDENCE_BELOW,
+  PASSENGER_HISTORY_REDACTED,
   PASSENGER_IMPORT_COLUMNS,
   PASSENGER_IMPORT_MAX_BYTES,
   PASSENGER_IMPORT_MAX_ROWS,
   normalisePhone,
+  type AuditLogDto,
+  type ConsentNoticeDto,
+  type ConsentNoticesDto,
   type ConsentRecordDto,
   type EmergencyContact,
+  type GeocodeCandidate,
+  type LoginRemovalMode,
   type HomeLocationSource,
   type PassengerConsentStateDto,
   type PassengerDto,
@@ -244,18 +253,156 @@ export function consentTimeline(history: ConsentRecordDto[] | null | undefined):
   return [...(history ?? [])].sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
 }
 
-/** Notice version suggested when recording consent: the one already on record for the purpose, else the first version. */
-export const DEFAULT_NOTICE_VERSION = 'v1';
-export function suggestedNoticeVersion(state: Pick<PassengerConsentStateDto, 'noticeVersion'> | null | undefined, history?: ConsentRecordDto[] | null): string {
-  return state?.noticeVersion ?? consentTimeline(history)[0]?.noticeVersion ?? DEFAULT_NOTICE_VERSION;
+// ───────────────────────────── Consent notice (company-level, versioned) ─────────────────────────────
+
+/** The notice in force and a scheduled one for a purpose, from GET /transport/consent-notices. */
+export function noticeFor(notices: Pick<ConsentNoticesDto, 'current'> | null | undefined, purpose: string): { notice: ConsentNoticeDto | null; scheduled: ConsentNoticeDto | null } {
+  const row = notices?.current.find((c) => c.purpose === purpose);
+  return { notice: row?.notice ?? null, scheduled: row?.scheduled ?? null };
+}
+
+/** Versions of one purpose, newest first. */
+export function noticeVersions(notices: Pick<ConsentNoticesDto, 'history'> | null | undefined, purpose: string): ConsentNoticeDto[] {
+  return (notices?.history ?? []).filter((n) => n.purpose === purpose).sort((a, b) => Number(b.version.slice(1)) - Number(a.version.slice(1)));
+}
+
+export interface NoticeDraft {
+  title: string;
+  body: string;
+  /** `datetime-local` value ("2026-11-20T09:00") or '' for "now". */
+  effectiveFrom: string;
+}
+
+/**
+ * Client-side check of a notice before publishing (the server re-checks): title and text required within the limits,
+ * effective date not in the past, and something must differ from the notice in force. Returns the request body.
+ */
+export function validateNoticeDraft(
+  draft: NoticeDraft,
+  current: Pick<ConsentNoticeDto, 'title' | 'body'> | null,
+  now: number = Date.now(),
+): { errors: { field: keyof NoticeDraft; message: string }[]; input: { title: string; body: string; effectiveFrom?: string } | null } {
+  const errors: { field: keyof NoticeDraft; message: string }[] = [];
+  const title = draft.title.replace(/\s+/g, ' ').trim();
+  const body = draft.body.replace(/\r\n?/g, '\n').trim();
+  if (!title) errors.push({ field: 'title', message: 'Required' });
+  else if (title.length > CONSENT_NOTICE_TITLE_MAX) errors.push({ field: 'title', message: `At most ${CONSENT_NOTICE_TITLE_MAX} characters` });
+  if (!body) errors.push({ field: 'body', message: 'Required' });
+  else if (body.length > CONSENT_NOTICE_BODY_MAX) errors.push({ field: 'body', message: `At most ${CONSENT_NOTICE_BODY_MAX} characters` });
+  let effectiveFrom: string | undefined;
+  if (draft.effectiveFrom.trim()) {
+    const at = new Date(draft.effectiveFrom);
+    if (Number.isNaN(at.getTime())) errors.push({ field: 'effectiveFrom', message: 'Invalid date' });
+    else if (at.getTime() < now - 60_000) errors.push({ field: 'effectiveFrom', message: 'Cannot be in the past' });
+    else effectiveFrom = at.toISOString();
+  }
+  if (!errors.length && current && current.title === title && current.body.replace(/\r\n?/g, '\n').trim() === body) {
+    errors.push({ field: 'body', message: 'Nothing changed: edit the text to publish a new version' });
+  }
+  return { errors, input: errors.length ? null : { title, body, ...(effectiveFrom ? { effectiveFrom } : {}) } };
+}
+
+/** Whether the consent dialog may record a grant: only with a notice in force (the server refuses otherwise). */
+export function canGrantWithNotice(notice: ConsentNoticeDto | null | undefined): boolean {
+  return !!notice;
+}
+
+// ───────────────────────────── Geocode match quality ─────────────────────────────
+
+/** Badge for a Photon candidate's confidence (from its match type); null when Photon gave no signal. */
+export function geocodeMatchBadge(c: Pick<GeocodeCandidate, 'confidence'>): { label: string; tone: Tone } | null {
+  if (c.confidence === null || c.confidence === undefined) return null;
+  if (c.confidence >= 0.8) return { label: 'Exact address', tone: 'success' };
+  if (c.confidence >= GEOCODE_LOW_CONFIDENCE_BELOW) return { label: 'Street', tone: 'info' };
+  return { label: 'Area only: check the pin', tone: 'warning' };
+}
+
+// ───────────────────────────── Passenger history (audit) ─────────────────────────────
+
+export const HISTORY_FIELD_LABEL: Record<string, string> = {
+  employeeCode: 'Employee code',
+  displayName: 'Name',
+  mobile: 'Mobile',
+  email: 'Email',
+  branchId: 'Branch',
+  officePoiId: 'Office / site',
+  defaultStopPoiId: 'Pickup stop',
+  homeAddress: 'Home address',
+  homeLat: 'Home latitude',
+  homeLng: 'Home longitude',
+  homeGeocodeSource: 'Location source',
+  homeGeocodeConfidence: 'Location confidence',
+  accessibility: 'Accessibility',
+  emergencyContacts: 'Emergency contacts',
+  isActive: 'Active',
+  userId: 'Login',
+  purpose: 'Purpose',
+  granted: 'Given',
+  noticeVersion: 'Notice version',
+  channel: 'Channel',
+};
+
+/**
+ * Title, optional detail and tone of one history entry (entity + action + what changed). Titles and details are fixed
+ * English strings (translation keys), never composed text.
+ */
+export function historyEntrySummary(e: Pick<AuditLogDto, 'entity' | 'action' | 'changes'>): { title: string; detail?: string; tone: Tone } {
+  const c = (e.changes && typeof e.changes === 'object' ? e.changes : {}) as Record<string, unknown>;
+  const after = (c.after && typeof c.after === 'object' ? c.after : {}) as Record<string, unknown>;
+  if (e.action === 'ACCESS') {
+    const what = typeof c.what === 'string' ? c.what : '';
+    const title = what === 'detail' ? 'Details viewed' : what === 'history' ? 'History viewed' : what === 'consent-history' ? 'Consent records viewed' : what === 'csv-export' ? 'Exported' : 'Viewed';
+    return { title, ...(c.agreementId ? { detail: 'By a transport provider' } : {}), tone: 'muted' };
+  }
+  if (e.entity === 'EmployeeTransportConsent') {
+    const detail = consentPurposeLabel(String(after.purpose ?? ''));
+    return after.granted === false ? { title: 'Consent withdrawn', detail, tone: 'destructive' } : { title: 'Consent given', detail, tone: 'success' };
+  }
+  if (e.entity === 'User') {
+    const what = typeof c.what === 'string' ? c.what : '';
+    if (e.action === 'CREATE') return { title: 'App login created', tone: 'success' };
+    if (what.endsWith('-unlinked')) return { title: 'App login unlinked', tone: 'warning' };
+    if (what.endsWith('-disabled')) return { title: 'App login disabled', tone: 'warning' };
+    return { title: 'App login linked or enabled', tone: 'info' };
+  }
+  if (e.action === 'CREATE') return { title: 'Passenger added', tone: 'success' };
+  if ('isActive' in after && Object.keys(after).length === 1) return after.isActive ? { title: 'Passenger restored', tone: 'success' } : { title: 'Passenger archived', tone: 'neutral' };
+  if ('userId' in after && Object.keys(after).length === 1) return after.userId ? { title: 'App login linked', tone: 'info' } : { title: 'App login unlinked', tone: 'warning' };
+  return { title: 'Profile changed', tone: 'info' };
+}
+
+/** Field rows of a `{ before, after }` history entry with readable labels; hidden PD H values say so. */
+export function historyFieldRows(changes: unknown): { field: string; label: string; before: string; after: string }[] {
+  if (!changes || typeof changes !== 'object') return [];
+  const c = changes as { before?: Record<string, unknown>; after?: Record<string, unknown> };
+  if (!c.after || typeof c.after !== 'object') return [];
+  const show = (v: unknown): string => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (v === PASSENGER_HISTORY_REDACTED) return 'Changed (value hidden)';
+    if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+    if (typeof v === 'string' || typeof v === 'number') return String(v);
+    return JSON.stringify(v);
+  };
+  return Object.keys(c.after).map((field) => ({ field, label: HISTORY_FIELD_LABEL[field] ?? field, before: show(c.before?.[field]), after: show(c.after?.[field]) }));
+}
+
+/** Plain (non-diff) details worth showing, e.g. `{ outcome: 'DEACTIVATED' }`; internal keys dropped. */
+export function historyDetails(changes: unknown): { key: string; value: string }[] {
+  if (!changes || typeof changes !== 'object' || 'after' in (changes as object)) return [];
+  return Object.entries(changes as Record<string, unknown>)
+    .filter(([k]) => !['what', 'passengerId', 'driverId', 'actingCompanyId', 'agreementId', 'projection'].includes(k))
+    .map(([key, v]) => ({ key, value: typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : JSON.stringify(v) }));
 }
 
 // ───────────────────────────── App access / identity errors ─────────────────────────────
 
-export type PeopleErrorKind = 'identity' | 'state' | 'duplicate' | 'forbidden' | 'geocoder' | 'format' | 'validation' | 'other';
+export type PeopleErrorKind = 'identity' | 'state' | 'duplicate' | 'forbidden' | 'geocoder' | 'format' | 'validation' | 'notice' | 'other';
 
 export function peopleErrorKind(code: string | null | undefined): PeopleErrorKind {
   switch (code) {
+    case 'CONSENT_NOTICE_MISSING':
+    case 'CONSENT_NOTICE_OUTDATED':
+      return 'notice';
     case 'IDENTITY_IN_USE':
       return 'identity';
     case 'INVALID_STATE':
@@ -278,6 +425,21 @@ export function peopleErrorKind(code: string | null | undefined): PeopleErrorKin
 /** What IDENTITY_IN_USE means and what to do about it (shown under the server's message). */
 export const IDENTITY_IN_USE_HELP =
   'Each person has one VeeTrax login, and an email or mobile number can belong to one login only. This one is already used by a login in another company, by a VeeTrax administrator, or by another passenger or driver. Use a different email or mobile number for this login, or ask the owner of the existing login to change theirs.';
+
+/** What each login-removal mode does (API `?mode=`; the User itself is never deleted). */
+export const LOGIN_REMOVAL_TEXT: Record<LoginRemovalMode, { action: string; title: string; description: string }> = {
+  disable: {
+    action: 'Disable login',
+    title: 'Disable this login?',
+    description: 'The person can no longer sign in to employee transport. The login stays linked, so you can enable it again later.',
+  },
+  unlink: {
+    action: 'Unlink login',
+    title: 'Unlink this login?',
+    description:
+      'The login is disabled for employee transport and no longer linked to this person, so you can create or link a different login. The login itself is not deleted; a login with fleet roles keeps them.',
+  },
+};
 
 export const LOGIN_OUTCOME_TEXT: Record<'CREATED' | 'LINKED' | 'REACTIVATED', string> = {
   CREATED: 'A new login was created.',

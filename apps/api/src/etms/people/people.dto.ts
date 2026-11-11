@@ -1,5 +1,8 @@
 import {
+  CONSENT_NOTICE_BODY_MAX,
+  CONSENT_NOTICE_TITLE_MAX,
   CONSENT_PURPOSES,
+  LOGIN_REMOVAL_MODES,
   HOME_LOCATION_SOURCES,
   TRANSPORT_VEHICLE_CATEGORIES,
   type ConsentPurpose,
@@ -7,13 +10,16 @@ import {
   type DriverLoginInput,
   type EmergencyContact,
   type HomeLocationSource,
+  type LoginRemovalMode,
   type PassengerAccessibility,
   type PassengerAppAccessInput,
   type PassengerHomeInput,
   type PassengerImportOptions,
   type PassengerListQuery as PassengerListQueryShape,
+  type PublishConsentNoticeInput,
   type RecordConsentInput,
   type TransportVehicleCategory,
+  type TransportVehicleListQuery as TransportVehicleListQueryShape,
   type TransportVehicleProfileInput,
   type UpdatePassengerInput,
 } from '@veetracer/shared';
@@ -24,6 +30,7 @@ import {
   IsBoolean,
   IsEmail,
   IsIn,
+  IsISO8601,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -123,7 +130,8 @@ export class DriverLoginDto implements DriverLoginInput {
 export class RecordConsentDto implements RecordConsentInput {
   @IsIn(CONSENT_PURPOSES) purpose!: ConsentPurpose;
   @IsBoolean() granted!: boolean;
-  @IsString() @IsNotEmpty() @MaxLength(40) noticeVersion!: string;
+  /** The version the person was shown; the server records the current one and refuses a stale one. */
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(40) noticeVersion?: string;
   @IsOptional() @IsString() @MaxLength(20) locale?: string;
 }
 
@@ -133,4 +141,22 @@ export class VehicleProfileDto implements TransportVehicleProfileInput {
   @IsOptional() @ValidateIf(nullable) @IsBoolean() hasAc?: boolean | null;
   @IsOptional() @ValidateIf(nullable) @IsIn(TRANSPORT_VEHICLE_CATEGORIES) category?: TransportVehicleCategory | null;
   @IsOptional() @ValidateIf(nullable) @IsString() @MaxLength(500) notes?: string | null;
+}
+
+export class PublishConsentNoticeDto implements PublishConsentNoticeInput {
+  @IsIn(CONSENT_PURPOSES) purpose!: ConsentPurpose;
+  @IsString() @IsNotEmpty() @MaxLength(CONSENT_NOTICE_TITLE_MAX) title!: string;
+  @IsString() @IsNotEmpty() @MaxLength(CONSENT_NOTICE_BODY_MAX) body!: string;
+  @IsOptional() @IsString() @MaxLength(20) locale?: string;
+  @IsOptional() @IsISO8601() effectiveFrom?: string;
+}
+
+
+export class LoginRemovalQuery {
+  @IsOptional() @IsIn(LOGIN_REMOVAL_MODES) mode?: LoginRemovalMode;
+}
+
+export class TransportVehicleListQuery extends ListQueryDto implements TransportVehicleListQueryShape {
+  @IsOptional() @IsIn(['set', 'unset']) seats?: 'set' | 'unset';
+  declare sort?: TransportVehicleListQueryShape['sort'];
 }

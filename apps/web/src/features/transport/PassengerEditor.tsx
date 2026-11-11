@@ -10,7 +10,7 @@ import {
   type PoiDto,
   type UpdatePassengerInput,
 } from '@veetracer/shared';
-import { EyeOffIcon, InfoIcon, LockIcon, MapPinIcon, PlusIcon, SearchIcon, Trash2Icon, XIcon } from 'lucide-react';
+import { EyeOffIcon, HistoryIcon, InfoIcon, LockIcon, MapPinIcon, PlusIcon, SearchIcon, Trash2Icon, XIcon } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -34,8 +34,9 @@ import { errorMessage } from '@/lib/api';
 import { AppLoginPanel } from './AppLoginPanel';
 import { ConsentPanel } from './ConsentPanel';
 import { HomePinMap } from './HomePinMap';
-import { AppAccessBadge, LocationBadge, RoutingConsentBadge } from './passenger-ui';
-import { formatCoords, HOME_SOURCE_LABEL, isApproximate, MAX_EMERGENCY_CONTACTS, parseLatLng, validateEmergencyContacts } from './people-format';
+import { PassengerHistorySheet } from './PassengerHistorySheet';
+import { AppAccessBadge, LocationBadge, RoutingConsentBadge, ToneBadge } from './passenger-ui';
+import { formatCoords, geocodeMatchBadge, HOME_SOURCE_LABEL, isApproximate, MAX_EMERGENCY_CONTACTS, parseLatLng, validateEmergencyContacts } from './people-format';
 import { useAppAccess, useGeocode, usePassenger, useSavePassenger } from './use-people';
 
 const schema = z.object({
@@ -133,6 +134,7 @@ export function PassengerEditor({ record, open, onOpenChange }: MasterFormProps<
   const country = phoneCountryForTimezone(me?.company.timezone);
 
   const [tab, setTab] = useState('details');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: valuesOf(record) });
   const baseline = useRef<Values>(valuesOf(record));
   const [home, setHome] = useState<HomeDraft>(homeOf(null));
@@ -283,6 +285,11 @@ export function PassengerEditor({ record, open, onOpenChange }: MasterFormProps<
                 )}
               </TabsList>
               <div className="flex gap-2">
+                {passengerId && p && (
+                  <Button type="button" variant="ghost" onClick={() => setHistoryOpen(true)} aria-label={t('History')}>
+                    <HistoryIcon /> <span className="hidden lg:inline">{t('History')}</span>
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => onOpenChange(false)} disabled={save.isPending}>
                   {readOnly ? t('Close') : t('Cancel')}
                 </Button>
@@ -455,6 +462,7 @@ export function PassengerEditor({ record, open, onOpenChange }: MasterFormProps<
             )}
           </Tabs>
         </form>
+        {passengerId && p && <PassengerHistorySheet target={historyOpen ? { id: passengerId, label: p.displayName } : null} onClose={() => setHistoryOpen(false)} />}
       </DialogContent>
     </Dialog>
   );
@@ -575,21 +583,25 @@ function HomeFields({
                 <FormError message={errorMessage(geocode.error)} />
               ) : geocode.data?.length ? (
                 <ul className="divide-y rounded-lg border">
-                  {geocode.data.slice(0, 6).map((c, i) => (
-                    <li key={`${c.lat},${c.lng},${i}`}>
-                      <button
-                        type="button"
-                        className="flex min-h-11 w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-                        onClick={() => {
-                          onPoint(Number(c.lat.toFixed(6)), Number(c.lng.toFixed(6)), 'PHOTON', null);
-                          setQuery(null);
-                        }}
-                      >
-                        <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-                        <span className="min-w-0 break-words">{c.label}</span>
-                      </button>
-                    </li>
-                  ))}
+                  {geocode.data.slice(0, 6).map((c, i) => {
+                    const match = geocodeMatchBadge(c);
+                    return (
+                      <li key={`${c.lat},${c.lng},${i}`}>
+                        <button
+                          type="button"
+                          className="flex min-h-11 w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                          onClick={() => {
+                            onPoint(Number(c.lat.toFixed(6)), Number(c.lng.toFixed(6)), 'PHOTON', c.confidence ?? null);
+                            setQuery(null);
+                          }}
+                        >
+                          <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+                          <span className="min-w-0 flex-1 break-words">{c.label}</span>
+                          {match && <ToneBadge tone={match.tone}>{t(match.label)}</ToneBadge>}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
                 <p className="text-sm text-muted-foreground">{t('No match found. Place the pin on the map or type the coordinates instead.')}</p>
@@ -731,7 +743,7 @@ function PassengerAccess({ passenger, canEdit }: { passenger: PassengerDto; canE
       error={access.error}
       outcome={outcome}
       onGrant={(input) => access.mutate({ kind: 'grant', input })}
-      onRevoke={() => access.mutate({ kind: 'revoke' })}
+      onRevoke={(mode) => access.mutate({ kind: 'revoke', mode })}
     />
   );
 }

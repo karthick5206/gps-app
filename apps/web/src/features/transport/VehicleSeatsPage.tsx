@@ -1,7 +1,6 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { TRANSPORT_VEHICLE_CATEGORIES, type Paginated, type TrackedObjectDto, type TransportVehicleCategory, type TransportVehicleProfileDto } from '@veetracer/shared';
+import { TRANSPORT_VEHICLE_CATEGORIES, type TransportVehicleCategory, type TransportVehicleProfileDto, type TransportVehicleRowDto } from '@veetracer/shared';
 import { BusIcon, ChevronLeftIcon, ChevronRightIcon, SaveIcon, SearchIcon } from 'lucide-react';
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { FormError } from '@/components/form-error';
@@ -16,19 +15,20 @@ import { Spinner } from '@/components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAuth } from '@/features/auth/auth-context';
 import { ForbiddenPage } from '@/features/errors/ErrorPages';
-import { api, errorMessage } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
 import { humanize } from '@/lib/format';
 import { ToneBadge } from './passenger-ui';
 import { parseSeats, SEATS_MAX, SEATS_MIN } from './people-format';
-import { useSaveVehicleProfile, useVehicleProfiles } from './use-people';
+import { useSaveVehicleProfile, useTransportVehicles } from './use-people';
 
 const PAGE_SIZE = 50;
 const NONE = '__none';
+const ALL = '__all';
 
 /**
  * Vehicle seats (doc 05 §2.3, 15 §4.3): the company's own vehicles with their passenger seat capacity (1–100, driver
- * excluded), wheelchair spaces and category, edited in place. Vehicles come from /objects (type VEHICLE), seats from
- * /transport/vehicles (only vehicles whose seats were set); a vehicle without a profile shows "Not set".
+ * excluded), wheelchair spaces and category, edited in place. One source: GET /transport/vehicles lists every own
+ * vehicle in the caller's branch scope with its seat profile, or null ("Seats not set").
  */
 export function VehicleSeatsPage() {
   const { t } = useTranslation();
@@ -37,17 +37,14 @@ export function VehicleSeatsPage() {
   const canEdit = can('objects', 'edit');
   const [search, setSearch] = useState('');
   const q = useDeferredValue(search.trim());
+  const [seatsFilter, setSeatsFilter] = useState<string>(ALL);
   const [page, setPage] = useState(1);
-  useEffect(() => setPage(1), [q]);
+  useEffect(() => setPage(1), [q, seatsFilter]);
 
-  const vehicles = useQuery({
-    queryKey: ['transport-seat-vehicles', q, page],
-    queryFn: ({ signal }) => api.get<Paginated<TrackedObjectDto>>('/objects', { type: 'VEHICLE', q, page, pageSize: PAGE_SIZE, sort: 'name', order: 'asc' }, signal),
-    placeholderData: keepPreviousData,
+  const vehicles = useTransportVehicles(
+    { q: q || undefined, page, pageSize: PAGE_SIZE, sort: 'name', order: 'asc', ...(seatsFilter === ALL ? {} : { seats: seatsFilter as 'set' | 'unset' }) },
     enabled,
-  });
-  const profiles = useVehicleProfiles(enabled);
-  const byObject = useMemo(() => new Map((profiles.data ?? []).map((p) => [p.objectId, p])), [profiles.data]);
+  );
 
   if (!enabled) return <ForbiddenPage />;
   const total = vehicles.data?.total ?? 0;
@@ -63,12 +60,22 @@ export function VehicleSeatsPage() {
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Search vehicles…')} aria-label={t('Search')} className="h-9 pl-8" />
           </div>
+          <Select value={seatsFilter} onValueChange={setSeatsFilter}>
+            <SelectTrigger className="h-9 w-40" aria-label={t('Seats')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>{t('All vehicles')}</SelectItem>
+              <SelectItem value="unset">{t('Seats not set')}</SelectItem>
+              <SelectItem value="set">{t('Seats set')}</SelectItem>
+            </SelectContent>
+          </Select>
           <span className="flex-1" />
           <span className="text-sm text-muted-foreground tabular-nums">{vehicles.isFetching ? <Spinner className="inline" /> : t('{{n}} vehicles', { n: total.toLocaleString() })}</span>
         </div>
-        {(vehicles.isError || profiles.isError) && (
+        {vehicles.isError && (
           <div className="p-4">
-            <FormError message={errorMessage(vehicles.error ?? profiles.error)} />
+            <FormError message={errorMessage(vehicles.error)} />
           </div>
         )}
         <Table>
@@ -84,7 +91,7 @@ export function VehicleSeatsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(vehicles.isPending || profiles.isPending) &&
+            {vehicles.isPending &&
               Array.from({ length: 5 }, (_, i) => (
                 <TableRow key={i} className="hover:bg-transparent">
                   <TableCell colSpan={5}>
@@ -93,8 +100,7 @@ export function VehicleSeatsPage() {
                 </TableRow>
               ))}
             {!vehicles.isPending &&
-              !profiles.isPending &&
-              rows.map((v) => <SeatRow key={v.id} vehicle={v} profile={byObject.get(v.id) ?? null} canEdit={canEdit} />)}
+              rows.map((v) => <SeatRow key={v.objectId} vehicle={v} profile={v.profile} canEdit={canEdit} />)}
             {vehicles.isSuccess && rows.length === 0 && (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={5}>
@@ -120,7 +126,7 @@ export function VehicleSeatsPage() {
   );
 }
 
-function SeatRow({ vehicle, profile, canEdit }: { vehicle: TrackedObjectDto; profile: TransportVehicleProfileDto | null; canEdit: boolean }) {
+function SeatRow({ vehicle, profile, canEdit }: { vehicle: TransportVehicleRowDto; profile: TransportVehicleProfileDto | null; canEdit: boolean }) {
   const { t } = useTranslation();
   const save = useSaveVehicleProfile();
   const initial = { seats: profile ? String(profile.seats) : '', wheelchair: String(profile?.wheelchairSpaces ?? 0), category: profile?.category ?? NONE };
@@ -138,13 +144,13 @@ function SeatRow({ vehicle, profile, canEdit }: { vehicle: TrackedObjectDto; pro
   const wheelValid = Number.isInteger(wheelN) && wheelN >= 0 && wheelN <= 20 && (seatsN === null || wheelN <= seatsN);
   const dirty = seats !== initial.seats || wheelchair !== initial.wheelchair || category !== initial.category;
   const seatsError = seats !== '' && seatsN === null;
-  const idBase = `seat-${vehicle.id}`;
+  const idBase = `seat-${vehicle.objectId}`;
 
   const submit = () => {
     if (seatsN === null || !wheelValid) return;
     save.mutate(
       {
-        objectId: vehicle.id,
+        objectId: vehicle.objectId,
         input: {
           seats: seatsN,
           wheelchairSpaces: wheelN,
@@ -154,7 +160,7 @@ function SeatRow({ vehicle, profile, canEdit }: { vehicle: TrackedObjectDto; pro
         },
       },
       {
-        onSuccess: () => toast.success(t('Seats saved for {{name}}', { name: vehicle.name })),
+        onSuccess: () => toast.success(t('Seats saved for {{name}}', { name: vehicle.objectName })),
         onError: (e) => toast.error(errorMessage(e)),
       },
     );
@@ -163,19 +169,19 @@ function SeatRow({ vehicle, profile, canEdit }: { vehicle: TrackedObjectDto; pro
   return (
     <TableRow>
       <TableCell>
-        <span className="block font-medium">{vehicle.name}</span>
+        <span className="block font-medium">{vehicle.objectName}</span>
         <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {vehicle.plateNumber && <span className="font-mono">{vehicle.plateNumber}</span>}
           {!profile && <ToneBadge tone="warning">{t('Seats not set')}</ToneBadge>}
           {!vehicle.isActive && <ToneBadge tone="neutral">{t('Inactive')}</ToneBadge>}
         </span>
         <div className="mt-1.5 md:hidden">
-          <CategorySelect value={category} onChange={setCategory} disabled={!canEdit} label={t('Category for {{name}}', { name: vehicle.name })} />
+          <CategorySelect value={category} onChange={setCategory} disabled={!canEdit} label={t('Category for {{name}}', { name: vehicle.objectName })} />
         </div>
       </TableCell>
       <TableCell>
         <label htmlFor={`${idBase}-s`} className="sr-only">
-          {t('Seats for {{name}}', { name: vehicle.name })}
+          {t('Seats for {{name}}', { name: vehicle.objectName })}
         </label>
         <Input
           id={`${idBase}-s`}
@@ -199,7 +205,7 @@ function SeatRow({ vehicle, profile, canEdit }: { vehicle: TrackedObjectDto; pro
       </TableCell>
       <TableCell>
         <label htmlFor={`${idBase}-w`} className="sr-only">
-          {t('Wheelchair spaces for {{name}}', { name: vehicle.name })}
+          {t('Wheelchair spaces for {{name}}', { name: vehicle.objectName })}
         </label>
         <Input
           id={`${idBase}-w`}
@@ -215,11 +221,11 @@ function SeatRow({ vehicle, profile, canEdit }: { vehicle: TrackedObjectDto; pro
         />
       </TableCell>
       <TableCell className="hidden md:table-cell">
-        <CategorySelect value={category} onChange={setCategory} disabled={!canEdit} label={t('Category for {{name}}', { name: vehicle.name })} />
+        <CategorySelect value={category} onChange={setCategory} disabled={!canEdit} label={t('Category for {{name}}', { name: vehicle.objectName })} />
       </TableCell>
       <TableCell>
         {canEdit && (
-          <Button size="sm" variant={dirty ? 'default' : 'outline'} onClick={submit} disabled={!dirty || seatsN === null || !wheelValid || save.isPending} aria-label={t('Save seats for {{name}}', { name: vehicle.name })}>
+          <Button size="sm" variant={dirty ? 'default' : 'outline'} onClick={submit} disabled={!dirty || seatsN === null || !wheelValid || save.isPending} aria-label={t('Save seats for {{name}}', { name: vehicle.objectName })}>
             {save.isPending ? <Spinner /> : <SaveIcon />}
             <span className="hidden sm:inline">{t('Save')}</span>
           </Button>

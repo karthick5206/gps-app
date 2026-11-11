@@ -57,6 +57,9 @@ async function seedGraph(tx: Tx, partnerId: string, tag: string) {
      (gen_random_uuid(), '${ids.company}', '${ids.profile}', 'TRANSPORT_PROFILE', 'v1', false, 'WEB')`,
   );
   await tx.$executeRawUnsafe(`INSERT INTO "TransportVehicleProfile" ("objectId", "companyId", seats, "updatedAt") VALUES ('${ids.object}', '${ids.company}', 12, now())`);
+  await tx.$executeRawUnsafe(
+    `INSERT INTO "TransportConsentNotice" (id, "companyId", purpose, seq, version, title, body, "effectiveFrom") VALUES (gen_random_uuid(), '${ids.company}', 'TRANSPORT_PROFILE', 1, 'v1', 'Transport', 'We use your home location to plan pickups.', now())`,
+  );
   return ids;
 }
 
@@ -65,6 +68,7 @@ async function counts(tx: Tx, company: string) {
     (SELECT count(*) FROM "EmployeeTransportProfile" WHERE "companyId" = '${company}') AS profiles,
     (SELECT count(*) FROM "EmployeeTransportConsent" WHERE "companyId" = '${company}') AS consents,
     (SELECT count(*) FROM "TransportVehicleProfile" WHERE "companyId" = '${company}') AS vehicles,
+    (SELECT count(*) FROM "TransportConsentNotice" WHERE "companyId" = '${company}') AS notices,
     (SELECT count(*) FROM "Company" WHERE id = '${company}') AS company`);
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
 }
@@ -95,7 +99,7 @@ d(`etms_people on ${dbName}`, () => {
   });
 
   it('creates the documented tables, indexes, CHECKs and FK actions (doc 15 §4, §7.2)', async () => {
-    const idx = await prisma.$queryRaw<{ indexname: string }[]>`SELECT indexname FROM pg_indexes WHERE tablename IN ('EmployeeTransportProfile', 'EmployeeTransportConsent', 'TransportVehicleProfile', 'Driver')`;
+    const idx = await prisma.$queryRaw<{ indexname: string }[]>`SELECT indexname FROM pg_indexes WHERE tablename IN ('EmployeeTransportProfile', 'EmployeeTransportConsent', 'TransportVehicleProfile', 'TransportConsentNotice', 'Driver')`;
     expect(idx.map((i) => i.indexname)).toEqual(
       expect.arrayContaining([
         'EmployeeTransportProfile_companyId_employeeCode_key',
@@ -105,15 +109,16 @@ d(`etms_people on ${dbName}`, () => {
         'EmployeeTransportProfile_companyId_officePoiId_idx',
         'EmployeeTransportConsent_profileId_purpose_occurredAt_idx',
         'TransportVehicleProfile_companyId_idx',
+        'TransportConsentNotice_companyId_purpose_seq_key',
         'Driver_userId_key',
       ]),
     );
     const cons = await prisma.$queryRaw<{ conname: string; contype: string; confdeltype: string; cols: string[] }[]>`
       SELECT con.conname, con.contype, con.confdeltype,
              ARRAY(SELECT a.attname::text FROM unnest(con.conkey) WITH ORDINALITY k(n, o) JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.n ORDER BY k.o) AS cols
-      FROM pg_constraint con WHERE con.conrelid IN ('"EmployeeTransportProfile"'::regclass, '"EmployeeTransportConsent"'::regclass, '"TransportVehicleProfile"'::regclass, '"Driver"'::regclass)`;
+      FROM pg_constraint con WHERE con.conrelid IN ('"EmployeeTransportProfile"'::regclass, '"EmployeeTransportConsent"'::regclass, '"TransportVehicleProfile"'::regclass, '"TransportConsentNotice"'::regclass, '"Driver"'::regclass)`;
     const by = Object.fromEntries(cons.map((c) => [c.conname, c]));
-    for (const n of ['EmployeeTransportProfile_home_pair_check', 'EmployeeTransportProfile_home_range_check', 'EmployeeTransportProfile_emergency_contacts_check', 'TransportVehicleProfile_seats_check', 'TransportVehicleProfile_wheelchair_check']) {
+    for (const n of ['EmployeeTransportProfile_home_pair_check', 'EmployeeTransportProfile_home_range_check', 'EmployeeTransportProfile_emergency_contacts_check', 'TransportVehicleProfile_seats_check', 'TransportVehicleProfile_wheelchair_check', 'TransportConsentNotice_version_check']) {
       expect(by[n]?.contype).toBe('c');
     }
     const fk = (n: string) => by[n]?.confdeltype;
@@ -126,9 +131,10 @@ d(`etms_people on ${dbName}`, () => {
     expect(by.EmployeeTransportConsent_profileId_companyId_fkey.cols).toEqual(['profileId', 'companyId']); // row id first (doc 15 §1.2)
     expect(fk('TransportVehicleProfile_objectId_fkey')).toBe('c');
     expect(fk('Driver_userId_fkey')).toBe('n');
+    expect(fk('TransportConsentNotice_companyId_fkey')).toBe('r');
     // No FK on consent / vehicle-profile companyId: the purge planner's logical key reaches them (doc 15 §1.2).
     const companyFks = cons.filter((c) => c.contype === 'f' && c.cols[0] === 'companyId' && !c.conname.startsWith('Driver_')).map((c) => c.conname);
-    expect(companyFks).toEqual(['EmployeeTransportProfile_companyId_fkey']);
+    expect(companyFks.sort()).toEqual(['EmployeeTransportProfile_companyId_fkey', 'TransportConsentNotice_companyId_fkey']);
   });
 
   it('constraints reject bad rows (savepoints; whole transaction rolled back)', async () => {
@@ -144,7 +150,7 @@ d(`etms_people on ${dbName}`, () => {
           await tx.$executeRawUnsafe('RELEASE SAVEPOINT s');
         } catch (e) {
           const text = String(e);
-          const named = /(EmployeeTransport|TransportVehicle|Driver)[A-Za-z]*_[A-Za-z_]+_(?:check|key|fkey)/.exec(text)?.[0] ?? /Code: `\d+`/.exec(text)?.[0];
+          const named = /(EmployeeTransport|TransportVehicle|TransportConsent|Driver)[A-Za-z]*_[A-Za-z_]+_(?:check|key|fkey)/.exec(text)?.[0] ?? /Code: `\d+`/.exec(text)?.[0];
           outcomes[name] = `rejected ${named ?? text.slice(0, 160)}`;
           await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT s');
         }
@@ -169,6 +175,13 @@ d(`etms_people on ${dbName}`, () => {
       await attempt('seats 101', `UPDATE "TransportVehicleProfile" SET seats = 101 WHERE "objectId" = '${a.object}'`);
       await attempt('negative wheelchair spaces', `UPDATE "TransportVehicleProfile" SET "wheelchairSpaces" = -1 WHERE "objectId" = '${a.object}'`);
       await attempt('driver login twice', `UPDATE "Driver" SET "userId" = '${a.user}' WHERE id IN ('${a.driver}', '${b.driver}')`);
+      const notice = (seq: number, version: string, body = 'Text') =>
+        `INSERT INTO "TransportConsentNotice" (id, "companyId", purpose, seq, version, title, body, "effectiveFrom") VALUES (gen_random_uuid(), '${a.company}', 'TRANSPORT_PROFILE', ${seq}, '${version}', 'T', '${body}', now())`;
+      await attempt('notice version not v+seq', notice(2, 'v3'));
+      await attempt('notice seq 0', notice(0, 'v0'));
+      await attempt('notice blank body', notice(2, 'v2', '   '));
+      await attempt('notice duplicate seq', notice(1, 'v1'));
+      await attempt('notice next version', notice(2, 'v2'));
       await attempt('app hard-delete of a profile with consent evidence', `DELETE FROM "EmployeeTransportProfile" WHERE id = '${a.profile}'`);
       await attempt('app delete of the customer company', `DELETE FROM "Company" WHERE id = '${a.company}'`);
       await attempt('delete a place used as office (SET NULL)', `DELETE FROM "Poi" WHERE id = '${a.office}'`);
@@ -191,6 +204,11 @@ d(`etms_people on ${dbName}`, () => {
     expect(outcomes['seats 101']).toMatch(/TransportVehicleProfile_seats_check/);
     expect(outcomes['negative wheelchair spaces']).toMatch(/TransportVehicleProfile_wheelchair_check/);
     expect(outcomes['driver login twice']).toMatch(/Driver_userId_key|23505/);
+    expect(outcomes['notice version not v+seq']).toMatch(/TransportConsentNotice_version_check/);
+    expect(outcomes['notice seq 0']).toMatch(/TransportConsentNotice_version_check/);
+    expect(outcomes['notice blank body']).toMatch(/TransportConsentNotice_version_check/);
+    expect(outcomes['notice duplicate seq']).toMatch(/TransportConsentNotice_companyId_purpose_seq_key|23505/);
+    expect(outcomes['notice next version']).toBe('accepted');
     expect(outcomes['app hard-delete of a profile with consent evidence']).toMatch(/rejected/);
     expect(outcomes['app delete of the customer company']).toMatch(/rejected/);
     expect(outcomes['delete a place used as office (SET NULL)']).toBe('accepted');
@@ -204,7 +222,7 @@ d(`etms_people on ${dbName}`, () => {
       // §9.6 item 1: the composite consent FK is seen as profileId → id; reachability of every E2 table from a company.
       expect(cat.fks).toEqual(expect.arrayContaining([expect.objectContaining({ child: 'EmployeeTransportConsent', col: 'profileId', parent: 'EmployeeTransportProfile', refCol: 'id', del: 'r' })]));
       const companyPlan = planPurge(cat, 'Company', rootCondition(randomUUID()));
-      for (const t of ['EmployeeTransportProfile', 'EmployeeTransportConsent', 'TransportVehicleProfile']) expect(companyPlan.some((s) => s.table === t && !s.nullCol)).toBe(true);
+      for (const t of ['EmployeeTransportProfile', 'EmployeeTransportConsent', 'TransportVehicleProfile', 'TransportConsentNotice']) expect(companyPlan.some((s) => s.table === t && !s.nullCol)).toBe(true);
 
       const a = await seedGraph(tx, partnerId, 'PA');
       const b = await seedGraph(tx, partnerId, 'PB');
@@ -226,9 +244,9 @@ d(`etms_people on ${dbName}`, () => {
     });
     console.log(JSON.stringify(results, null, 2));
     expect(results.userPurge).toEqual({ profileUserId: null, driverUserId: null, profiles: 1, consents: 2 });
-    expect(results.vehiclePurge).toEqual({ profiles: 1, consents: 2, vehicles: 0, company: 1 });
-    expect(results.companyA).toEqual({ profiles: 0, consents: 0, vehicles: 0, company: 0 });
-    expect(results.companyB).toEqual({ profiles: 1, consents: 2, vehicles: 0, company: 1 });
+    expect(results.vehiclePurge).toEqual({ profiles: 1, consents: 2, vehicles: 0, notices: 1, company: 1 });
+    expect(results.companyA).toEqual({ profiles: 0, consents: 0, vehicles: 0, notices: 0, company: 0 });
+    expect(results.companyB).toEqual({ profiles: 1, consents: 2, vehicles: 0, notices: 1, company: 1 });
   });
 });
 

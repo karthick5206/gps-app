@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/features/auth/auth-context';
 import { Panel } from '@/features/dashboard/refresh/kit';
+import { ConsentNoticesPanel } from './ConsentNoticeSettings';
 
 const ACTION_LABEL: Record<Action, string> = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', export: 'Export', command: 'Command' };
 const menuLabel = (key: string) => MENUS.find((m) => m.key === key)?.label ?? key;
@@ -87,6 +88,8 @@ export function TransportSettingsPage() {
           )}
         </Panel>
       </div>
+
+      {!platformHome && <ConsentNoticesPanel />}
 
       <Panel
         title={t('Transport roles')}

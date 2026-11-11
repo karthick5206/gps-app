@@ -1,55 +1,65 @@
 import type { ConsentPurpose, PassengerConsentStateDto } from '@veetracer/shared';
-import { CheckCircle2Icon, CircleAlertIcon, HistoryIcon, ShieldCheckIcon, XCircleIcon } from 'lucide-react';
+import { CheckCircle2Icon, CircleAlertIcon, ExternalLinkIcon, FileTextIcon, HistoryIcon, ShieldCheckIcon, XCircleIcon } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { FormError } from '@/components/form-error';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Field } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
-import { errorMessage } from '@/lib/api';
+import { useAuth } from '@/features/auth/auth-context';
+import { ApiError, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { currentLocale } from '@/lib/i18n';
 import { ToneBadge } from './passenger-ui';
-import { CONSENT_PURPOSE_META, consentChannelLabel, consentPurposeLabel, consentRows, consentStatus, consentTimeline, suggestedNoticeVersion } from './people-format';
-import { usePassengerConsents, useRecordConsent } from './use-people';
+import { canGrantWithNotice, CONSENT_PURPOSE_META, consentChannelLabel, consentPurposeLabel, consentRows, consentStatus, consentTimeline, noticeFor, peopleErrorKind } from './people-format';
+import { useConsentNotices, usePassengerConsents, useRecordConsent } from './use-people';
 
 type Pending = { purpose: ConsentPurpose; granted: boolean; state: PassengerConsentStateDto | null };
 
+/** Where the notices are edited (Transport settings, consent notice section). */
+export const CONSENT_NOTICE_SETTINGS_PATH = '/transport/settings#consent-notices';
+
 /**
  * Consent per purpose (doc 10 §4.2): current state, grant / withdraw on the passenger's behalf (corporate admin only,
- * recorded as channel ADMIN_ON_BEHALF after a confirmation) and the full evidence history. History is append-only.
+ * recorded as channel ADMIN_ON_BEHALF after a confirmation) and the full evidence history. A grant first shows the
+ * company's current notice text; the server records that notice's version. Without a published notice no grant is possible.
  */
 export function ConsentPanel({ passengerId, canRecord }: { passengerId: string; canRecord: boolean }) {
   const { t } = useTranslation();
+  const { can } = useAuth();
   const uid = useId();
   const consents = usePassengerConsents(passengerId, true);
+  const notices = useConsentNotices();
   const record = useRecordConsent(passengerId);
   const [pending, setPending] = useState<Pending | null>(null);
-  const [version, setVersion] = useState('');
 
-  if (consents.isPending) return <Skeleton className="h-64" />;
+  if (consents.isPending || notices.isPending) return <Skeleton className="h-64" />;
   if (consents.isError) return <FormError message={errorMessage(consents.error)} />;
 
   const rows = consentRows(consents.data.current);
   const history = consentTimeline(consents.data.history);
+  const pendingNotice = pending ? noticeFor(notices.data, pending.purpose).notice : null;
+  const noticeError = record.error instanceof ApiError && peopleErrorKind(record.error.code) === 'notice';
 
   const open = (p: Pending) => {
     record.reset();
-    setVersion(suggestedNoticeVersion(p.state, history));
     setPending(p);
   };
   const confirm = () => {
-    if (!pending || !version.trim()) return;
+    if (!pending || (pending.granted && !pendingNotice)) return;
     record.mutate(
-      { purpose: pending.purpose, granted: pending.granted, noticeVersion: version.trim(), locale: currentLocale() },
+      { purpose: pending.purpose, granted: pending.granted, ...(pending.granted && pendingNotice ? { noticeVersion: pendingNotice.version } : {}), locale: currentLocale() },
       {
         onSuccess: () => {
           toast.success(pending.granted ? t('Consent recorded') : t('Consent withdrawn'));
           setPending(null);
+        },
+        // The notice changed since it was loaded: reload it so the admin sees the new text before confirming again.
+        onError: (e) => {
+          if (e instanceof ApiError && peopleErrorKind(e.code) === 'notice') void notices.refetch();
         },
       },
     );
@@ -67,10 +77,12 @@ export function ConsentPanel({ passengerId, canRecord }: { passengerId: string; 
         <p className="text-xs text-muted-foreground">
           {t('Employees normally give or withdraw consent themselves in the app. Record it here only when the employee has agreed in another way, for example on a signed form.')}
         </p>
+        {notices.isError && <FormError message={errorMessage(notices.error)} />}
         <ul className="divide-y rounded-lg border">
           {rows.map(({ purpose, state }) => {
             const s = consentStatus(state);
             const meta = CONSENT_PURPOSE_META[purpose];
+            const { notice } = noticeFor(notices.data, purpose);
             return (
               <li key={purpose} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-start">
                 <div className="min-w-0 flex-1 space-y-1">
@@ -79,6 +91,7 @@ export function ConsentPanel({ passengerId, canRecord }: { passengerId: string; 
                     <ToneBadge tone={s.tone} icon={state?.active ? CheckCircle2Icon : state?.revokedAt ? XCircleIcon : CircleAlertIcon}>
                       {t(s.label)}
                     </ToneBadge>
+                    {state?.active && notice && state.noticeVersion !== notice.version && <ToneBadge tone="info">{t('Older notice version')}</ToneBadge>}
                   </div>
                   <p className="text-xs text-muted-foreground">{t(meta.description)}</p>
                   {state && (
@@ -88,6 +101,7 @@ export function ConsentPanel({ passengerId, canRecord }: { passengerId: string; 
                         : t('Withdrawn {{date}} · {{channel}}', { date: formatDateTime(state.revokedAt), channel: t(consentChannelLabel(state.channel)) })}
                     </p>
                   )}
+                  {!notice && !state?.active && <p className="text-xs text-muted-foreground">{t('No notice published for this purpose yet, so consent cannot be recorded.')}</p>}
                 </div>
                 {canRecord && (
                   <div className="flex shrink-0 gap-2">
@@ -96,7 +110,7 @@ export function ConsentPanel({ passengerId, canRecord }: { passengerId: string; 
                         {t('Withdraw')}
                       </Button>
                     ) : (
-                      <Button size="sm" onClick={() => open({ purpose, granted: true, state })}>
+                      <Button size="sm" onClick={() => open({ purpose, granted: true, state })} disabled={!canGrantWithNotice(notice)}>
                         {t('Record consent')}
                       </Button>
                     )}
@@ -106,6 +120,13 @@ export function ConsentPanel({ passengerId, canRecord }: { passengerId: string; 
             );
           })}
         </ul>
+        {canRecord && can('etms_settings', 'edit') && (
+          <Button variant="link" size="sm" asChild className="h-auto px-0">
+            <Link to={CONSENT_NOTICE_SETTINGS_PATH}>
+              <ExternalLinkIcon /> {t('Edit the consent notices in Transport settings')}
+            </Link>
+          </Button>
+        )}
       </section>
 
       <section aria-labelledby={`${uid}-history`} className="space-y-3">
@@ -136,14 +157,14 @@ export function ConsentPanel({ passengerId, canRecord }: { passengerId: string; 
       </section>
 
       <Dialog open={!!pending} onOpenChange={(o) => !record.isPending && !o && setPending(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{pending?.granted ? t('Record consent on the employee’s behalf?') : t('Withdraw consent?')}</DialogTitle>
             <DialogDescription>
               {pending && t(consentPurposeLabel(pending.purpose))}
               {' — '}
               {pending?.granted
-                ? t('Confirm that the employee has agreed. Your name and the time are kept as evidence.')
+                ? t('The employee must have read this notice and agreed to it. Your name, the time and the notice version are kept as evidence.')
                 : pending?.purpose === 'TRANSPORT_PROFILE'
                   ? t('From the next planning run, no location of this employee is used for routing.')
                   : t('The change applies from the next request. It is kept in the history.')}
@@ -151,19 +172,37 @@ export function ConsentPanel({ passengerId, canRecord }: { passengerId: string; 
           </DialogHeader>
           <DialogBody className="space-y-3">
             <FormError message={record.error ? errorMessage(record.error) : null} />
-            {pending?.granted && (
-              <Field label={t('Notice version')} htmlFor={`${uid}-ver`} hint={t('The version of the privacy notice the employee agreed to.')} required>
-                <Input id={`${uid}-ver`} value={version} maxLength={40} onChange={(e) => setVersion(e.target.value)} />
-              </Field>
-            )}
+            {noticeError && pendingNotice && <p className="text-xs text-muted-foreground">{t('The notice below is the current one. Check it with the employee before confirming.')}</p>}
+            {pending?.granted &&
+              (pendingNotice ? (
+                <section aria-labelledby={`${uid}-notice`} className="space-y-2 rounded-lg border bg-muted/40 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <FileTextIcon className="size-4 text-muted-foreground" aria-hidden />
+                    <h4 id={`${uid}-notice`} className="text-sm font-semibold">
+                      {pendingNotice.title}
+                    </h4>
+                    <ToneBadge tone="neutral">{t('Version {{version}}', { version: pendingNotice.version })}</ToneBadge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t('In force since {{date}}', { date: formatDateTime(pendingNotice.effectiveFrom) })}</p>
+                  <div
+                    tabIndex={0}
+                    aria-label={t('Notice text')}
+                    className="max-h-60 overflow-y-auto rounded-md bg-card p-3 text-sm whitespace-pre-wrap focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
+                  >
+                    {pendingNotice.body}
+                  </div>
+                </section>
+              ) : (
+                <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">{t('No notice published for this purpose yet, so consent cannot be recorded.')}</p>
+              ))}
           </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPending(null)} disabled={record.isPending}>
               {t('Cancel')}
             </Button>
-            <Button variant={pending?.granted ? 'default' : 'destructive'} onClick={confirm} disabled={record.isPending || !version.trim()}>
+            <Button variant={pending?.granted ? 'default' : 'destructive'} onClick={confirm} disabled={record.isPending || (!!pending?.granted && !pendingNotice)}>
               {record.isPending && <Spinner />}
-              {pending?.granted ? t('Record consent') : t('Withdraw')}
+              {pending?.granted ? t('Employee agreed: record consent') : t('Withdraw')}
             </Button>
           </DialogFooter>
         </DialogContent>

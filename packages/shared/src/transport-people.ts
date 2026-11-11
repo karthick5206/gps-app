@@ -234,13 +234,70 @@ export interface PassengerConsentsDto {
   history: ConsentRecordDto[];
 }
 
-/** POST /api/transport/passengers/:id/consents (admin on behalf) and POST /api/me/transport/consent (own). */
+/**
+ * POST /api/transport/passengers/:id/consents (admin on behalf) and POST /api/me/transport/consent (own).
+ * A grant always records the company's CURRENT notice version for the purpose (server-side); `noticeVersion` is the
+ * version the person was shown, and a grant whose version is not the current one is refused (409
+ * CONSENT_NOTICE_OUTDATED) so the evidence never points at text nobody saw. Without a published notice, grants are
+ * refused (409 CONSENT_NOTICE_MISSING). A withdrawal records the version of the grant it withdraws.
+ */
 export interface RecordConsentInput {
   purpose: ConsentPurpose;
   granted: boolean;
-  noticeVersion: string;
+  noticeVersion?: string;
   locale?: string;
 }
+
+// ───────────────────────────── Consent notice (doc 10 §4.2) ─────────────────────────────
+
+/**
+ * Company-level, versioned notice shown before a consent grant (doc 10 §4.2 "notice texts are versioned templates").
+ * One immutable row per (company, purpose, version); editing publishes a new version. The current notice of a purpose
+ * is the latest version whose `effectiveFrom` has passed.
+ */
+export interface ConsentNoticeDto {
+  id: string;
+  purpose: string;
+  /** Server-assigned, "v1", "v2"… per purpose. */
+  version: string;
+  title: string;
+  /** Plain text (line breaks kept), what the person reads before agreeing. */
+  body: string;
+  locale: string;
+  effectiveFrom: string;
+  createdAt: string;
+  createdByName: string | null;
+}
+
+/** GET /api/transport/consent-notices: the current notice per purpose (null = none in force yet), a scheduled one, and every version. */
+export interface ConsentNoticesDto {
+  current: { purpose: ConsentPurpose; notice: ConsentNoticeDto | null; scheduled: ConsentNoticeDto | null }[];
+  history: ConsentNoticeDto[];
+}
+
+/** POST /api/transport/consent-notices: publish a new version (whole-company role with Transport settings edit). */
+export interface PublishConsentNoticeInput {
+  purpose: ConsentPurpose;
+  title: string;
+  body: string;
+  locale?: string;
+  /** ISO time; default now. Not in the past. */
+  effectiveFrom?: string;
+}
+
+export const CONSENT_NOTICE_TITLE_MAX = 120;
+export const CONSENT_NOTICE_BODY_MAX = 8000;
+
+// ───────────────────────────── Passenger history (audit) ─────────────────────────────
+
+/**
+ * GET /api/transport/passengers/:id/history: the passenger's audit trail (profile changes, consent records, login
+ * changes and, for the corporate admin, sensitive reads), newest first, shaped as AuditLogDto. Home, health and
+ * emergency-contact values are never shown (only that they changed); a dispatcher (STANDARD) gets no home-location
+ * fields; a provider (MINIMAL) gets only the fields of its projection, contacts per its agreement, and no actor
+ * identity or IP; read events (ACCESS) are listed for the corporate admin only.
+ */
+export const PASSENGER_HISTORY_REDACTED = 'changed';
 
 // ───────────────────────────── Bulk import (doc 05 §2.2) ─────────────────────────────
 
@@ -356,6 +413,31 @@ export interface TransportVehicleProfileDto {
   updatedAt: string;
 }
 
+/**
+ * GET /api/transport/vehicles (ListQuery: q, page, pageSize, sort name | plateNumber, status, `seats=set|unset`):
+ * every vehicle (type VEHICLE) the company owns inside the caller's branch scope, with its seat profile, or null while
+ * seats were never set. Vehicles shared with the company are excluded (capacity belongs to the owner).
+ */
+export interface TransportVehicleRowDto {
+  objectId: string;
+  objectName: string;
+  plateNumber: string | null;
+  isActive: boolean;
+  branchId: string | null;
+  /** null = seats never set (route planning cannot use the vehicle yet). */
+  profile: TransportVehicleProfileDto | null;
+}
+
+export interface TransportVehicleListQuery {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: 'name' | 'plateNumber';
+  order?: 'asc' | 'desc';
+  status?: 'ACTIVE' | 'INACTIVE';
+  seats?: 'set' | 'unset';
+}
+
 /** GET /api/transport/vehicles/:objectId/profile — profile null while seats were never set. */
 export interface TransportVehicleProfileResponse {
   objectId: string;
@@ -367,7 +449,18 @@ export interface GeocodeCandidate {
   label: string;
   lat: number;
   lng: number;
+  /**
+   * 0..1 from Photon's match type (house 0.9 … country 0.05; see photonConfidence in the API). Photon's HTTP API does
+   * not return its internal importance score, so the granularity of the match is the only usable signal; null when
+   * Photon gave no type.
+   */
+  confidence: number | null;
+  /** Photon `type`: house, street, locality, district, city, county, state, country, other. */
+  matchType: string | null;
 }
+
+/** Below this, a Photon result is locality-level or coarser: the import warns GEOCODE_LOW_CONFIDENCE (pin needs checking). */
+export const GEOCODE_LOW_CONFIDENCE_BELOW = 0.6;
 
 /** PUT /api/transport/vehicles/:objectId/profile */
 export interface TransportVehicleProfileInput {
@@ -397,8 +490,25 @@ export interface DriverLoginDto {
   outcome?: 'CREATED' | 'LINKED' | 'REACTIVATED';
 }
 
+/**
+ * DELETE /api/transport/passengers/:id/app-access and DELETE /api/drivers/:id/login `?mode=`:
+ * disable (default) = the login stops working for transport (a User with other roles only loses the transport role,
+ * otherwise it is deactivated and its sessions revoked); the link is kept, so "Enable login again" restores it.
+ * unlink = the same, then the link itself is removed (profile / driver `userId` cleared) so a different login can be
+ * created or linked. Neither deletes the User.
+ */
+export const LOGIN_REMOVAL_MODES = ['disable', 'unlink'] as const;
+export type LoginRemovalMode = (typeof LOGIN_REMOVAL_MODES)[number];
+
 /** Error `code` values added in E2 (doc 05 §4). */
-export type TransportPeopleErrorCode = 'IDENTITY_IN_USE' | 'PASSENGER_DUPLICATE' | 'CONSENT_REQUIRED' | 'GEOCODER_UNAVAILABLE' | 'IMPORT_FORMAT';
+export type TransportPeopleErrorCode =
+  | 'IDENTITY_IN_USE'
+  | 'PASSENGER_DUPLICATE'
+  | 'CONSENT_REQUIRED'
+  | 'CONSENT_NOTICE_MISSING'
+  | 'CONSENT_NOTICE_OUTDATED'
+  | 'GEOCODER_UNAVAILABLE'
+  | 'IMPORT_FORMAT';
 
 // ───────────────────────────── Pure helpers (shared by API, web and mobile) ─────────────────────────────
 

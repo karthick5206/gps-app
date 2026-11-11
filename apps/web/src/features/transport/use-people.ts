@@ -1,17 +1,25 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  AuditLogDto,
+  ConsentNoticeDto,
+  ConsentNoticesDto,
   CreatePassengerInput,
   DriverLoginDto,
   DriverLoginInput,
   GeocodeCandidate,
+  LoginRemovalMode,
+  Paginated,
   PassengerAppAccessInput,
   PassengerAppAccessResult,
   PassengerConsentsDto,
   PassengerDto,
   PassengerImportResult,
+  PublishConsentNoticeInput,
   RecordConsentInput,
+  TransportVehicleListQuery,
   TransportVehicleProfileDto,
   TransportVehicleProfileInput,
+  TransportVehicleRowDto,
   UpdatePassengerInput,
 } from '@veetracer/shared';
 import { api } from '@/lib/api';
@@ -19,6 +27,36 @@ import { api } from '@/lib/api';
 export const PASSENGERS_ENDPOINT = '/transport/passengers';
 export const TRANSPORT_VEHICLES_ENDPOINT = '/transport/vehicles';
 export const VEHICLE_SEATS_PATH = '/transport/vehicles';
+export const CONSENT_NOTICES_ENDPOINT = '/transport/consent-notices';
+
+// ───────────────────────────── Consent notices ─────────────────────────────
+
+/** The company's notices: current / scheduled per purpose and every version. */
+export function useConsentNotices(enabled = true) {
+  return useQuery({
+    queryKey: ['transport-consent-notices'],
+    queryFn: ({ signal }) => api.get<ConsentNoticesDto>(CONSENT_NOTICES_ENDPOINT, undefined, signal),
+    enabled,
+  });
+}
+
+/** Publish the next version of a purpose's notice (immutable; the old version stays on record). */
+export function usePublishNotice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PublishConsentNoticeInput) => api.post<ConsentNoticeDto>(CONSENT_NOTICES_ENDPOINT, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['transport-consent-notices'] }),
+  });
+}
+
+/** Audit history of a passenger, redacted by the server per view level (audited as a read). */
+export function usePassengerHistory(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ['transport-passenger-history', id],
+    queryFn: ({ signal }) => api.get<AuditLogDto[]>(`${PASSENGERS_ENDPOINT}/${id}/history`, undefined, signal),
+    enabled: !!id,
+  });
+}
 
 /** Every cache that shows passengers: the MasterPage list (and its options) and the detail / consent queries. */
 export function useInvalidatePassengers() {
@@ -27,6 +65,7 @@ export function useInvalidatePassengers() {
     qc.invalidateQueries({ queryKey: ['master', PASSENGERS_ENDPOINT] });
     qc.invalidateQueries({ queryKey: ['transport-passenger'] });
     qc.invalidateQueries({ queryKey: ['transport-passenger-consents'] });
+    qc.invalidateQueries({ queryKey: ['transport-passenger-history'] });
   };
 }
 
@@ -98,10 +137,10 @@ export function useAppAccess(id: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidatePassengers();
   return useMutation({
-    mutationFn: (cmd: { kind: 'grant'; input: PassengerAppAccessInput } | { kind: 'revoke' }): Promise<{ passenger: PassengerDto; outcome: PassengerAppAccessResult['outcome'] | null; invite: PassengerAppAccessResult['invite'] | null }> =>
+    mutationFn: (cmd: { kind: 'grant'; input: PassengerAppAccessInput } | { kind: 'revoke'; mode: LoginRemovalMode }): Promise<{ passenger: PassengerDto; outcome: PassengerAppAccessResult['outcome'] | null; invite: PassengerAppAccessResult['invite'] | null }> =>
       cmd.kind === 'grant'
         ? api.post<PassengerAppAccessResult>(`${PASSENGERS_ENDPOINT}/${id}/app-access`, cmd.input)
-        : api.delete<PassengerDto>(`${PASSENGERS_ENDPOINT}/${id}/app-access`).then((passenger) => ({ passenger, outcome: null, invite: null })),
+        : api.delete<PassengerDto>(`${PASSENGERS_ENDPOINT}/${id}/app-access?mode=${cmd.mode}`).then((passenger) => ({ passenger, outcome: null, invite: null })),
     onSuccess: (res) => {
       qc.setQueryData(['transport-passenger', id], res.passenger);
       invalidate();
@@ -128,10 +167,12 @@ export function usePassengerImport() {
 
 // ───────────────────────────── Vehicles (seats) ─────────────────────────────
 
-export function useVehicleProfiles(enabled: boolean) {
+/** Every own vehicle in scope with its seat profile (null = not set), paged and searched on the server. */
+export function useTransportVehicles(query: TransportVehicleListQuery, enabled: boolean) {
   return useQuery({
-    queryKey: ['transport-vehicle-profiles'],
-    queryFn: ({ signal }) => api.get<TransportVehicleProfileDto[]>(TRANSPORT_VEHICLES_ENDPOINT, undefined, signal),
+    queryKey: ['transport-vehicles', query],
+    queryFn: ({ signal }) => api.get<Paginated<TransportVehicleRowDto>>(TRANSPORT_VEHICLES_ENDPOINT, { ...query }, signal),
+    placeholderData: keepPreviousData,
     enabled,
   });
 }
@@ -141,12 +182,12 @@ export function useSaveVehicleProfile() {
   return useMutation({
     mutationFn: ({ objectId, input }: { objectId: string; input: TransportVehicleProfileInput }) =>
       api.put<TransportVehicleProfileDto>(`${TRANSPORT_VEHICLES_ENDPOINT}/${objectId}/profile`, input),
-    onSuccess: (row) => {
-      qc.setQueryData<TransportVehicleProfileDto[]>(['transport-vehicle-profiles'], (old) => {
-        if (!old) return old;
-        const rest = old.filter((p) => p.objectId !== row.objectId);
-        return [...rest, row];
-      });
+    onSuccess: (profile) => {
+      // Patch the row in every cached page, then refetch (a "seats not set" filter may now exclude it).
+      qc.setQueriesData<Paginated<TransportVehicleRowDto>>({ queryKey: ['transport-vehicles'] }, (old) =>
+        old ? { ...old, items: old.items.map((v) => (v.objectId === profile.objectId ? { ...v, profile } : v)) } : old,
+      );
+      qc.invalidateQueries({ queryKey: ['transport-vehicles'] });
     },
   });
 }
@@ -165,8 +206,8 @@ export function useDriverLogin(driverId: string | null) {
 export function useDriverLoginMutation(driverId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (cmd: { kind: 'grant'; input: DriverLoginInput } | { kind: 'revoke' }) =>
-      cmd.kind === 'grant' ? api.post<DriverLoginDto>(`/drivers/${driverId}/login`, cmd.input) : api.delete<DriverLoginDto>(`/drivers/${driverId}/login`),
+    mutationFn: (cmd: { kind: 'grant'; input: DriverLoginInput } | { kind: 'revoke'; mode: LoginRemovalMode }) =>
+      cmd.kind === 'grant' ? api.post<DriverLoginDto>(`/drivers/${driverId}/login`, cmd.input) : api.delete<DriverLoginDto>(`/drivers/${driverId}/login?mode=${cmd.mode}`),
     onSuccess: (row) => {
       qc.setQueryData(['driver-login', driverId], row);
     },

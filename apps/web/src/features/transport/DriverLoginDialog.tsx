@@ -51,7 +51,7 @@ export function DriverLoginDialog({ driver, onClose }: { driver: Pick<DriverDto,
               error={mutation.error}
               outcome={mutation.data?.outcome ?? null}
               onGrant={(input) => mutation.mutate({ kind: 'grant', input })}
-              onRevoke={() => mutation.mutate({ kind: 'revoke' })}
+              onRevoke={(mode) => mutation.mutate({ kind: 'revoke', mode })}
             />
           )}
         </DialogBody>

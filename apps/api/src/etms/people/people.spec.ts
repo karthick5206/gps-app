@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { PassengerDto } from '@veetracer/shared';
 import type { AuthContext, TransportAgreementScope } from '../../access/auth-context';
+import { diffSnapshots } from '../../audit/audit.service';
+import { ConsentNoticeService } from './consent-notice.service';
 import { PeopleService } from './people.service';
 
 /**
@@ -43,6 +45,8 @@ function world() {
   const users: Obj[] = [];
   const roles: Obj[] = [];
   const userRoles: Obj[] = [];
+  const notices: Obj[] = [];
+  const auditRows: Obj[] = [];
   const pois: Obj[] = [
     { id: SITE1, companyId: A, name: 'HQ', lat: 13.01, lng: 80.2, isActive: true },
     { id: SITE2, companyId: A, name: 'Annex', lat: 13.02, lng: 80.21, isActive: true },
@@ -134,6 +138,31 @@ function world() {
       const [companies, purpose] = values as [string[], string];
       return latest(consents.filter((c) => companies.includes(c.companyId as string) && c.purpose === purpose), (r) => r.profileId as string).filter((r) => r.granted);
     },
+    transportConsentNotice: {
+      findMany: async ({ where }: { where: Obj }) => notices.filter((n) => matches(n, where)),
+      findFirst: async ({ where }: { where: Obj }) => notices.filter((n) => matches(n, where)).sort((a, b) => (b.seq as number) - (a.seq as number))[0] ?? null,
+      create: async ({ data }: { data: Obj }) => {
+        const r = { id: randomUUID(), createdAt: new Date(), ...data };
+        notices.push(r);
+        return r;
+      },
+    },
+    // Interprets the where of PeopleService.history: companyId, action.not, OR of { entity, entityId | entityId.in | changes.path }.
+    auditLog: {
+      findMany: async ({ where }: { where: { companyId: string; action?: { not: string }; OR: Obj[] } }) =>
+        auditRows
+          .filter((r) => r.companyId === where.companyId && (!where.action || r.action !== where.action.not))
+          .filter((r) =>
+            where.OR.some((o) => {
+              if (o.entity !== r.entity) return false;
+              if (typeof o.entityId === 'string') return r.entityId === o.entityId;
+              if (o.entityId) return ((o.entityId as Obj).in as string[]).includes(r.entityId as string);
+              const { path, equals } = o.changes as { path: string[]; equals: string };
+              return path.reduce<unknown>((v, k) => (v && typeof v === 'object' ? (v as Obj)[k] : undefined), r.changes) === equals;
+            }),
+          )
+          .reverse(),
+    },
     company: { findUnique: async () => ({ timezone: 'Asia/Kolkata' }) },
     branch: { count: async ({ where }: { where: Obj }) => branches.filter((b) => matches(b, where)).length },
     poi: { count: async ({ where }: { where: Obj }) => pois.filter((p) => matches(p, where)).length },
@@ -178,13 +207,28 @@ function world() {
   };
   prisma.$transaction = async (arg: unknown) => (typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as Promise<unknown>[]));
   const audits: Obj[] = [];
-  const auditSvc = {
-    record: async (c: AuthContext, e: Obj) => audits.push({ ...e, companyId: c.companyId }),
-    recordSystem: async (actor: Obj, e: Obj) => audits.push({ ...e, companyId: actor.companyId, system: true }),
+  const row = (actor: { companyId: unknown; userId: unknown; ip: unknown }, e: Obj) => {
+    const hasDiff = e.before !== undefined || e.after !== undefined;
+    auditRows.push({ id: randomUUID(), companyId: actor.companyId, userId: actor.userId, ip: actor.ip, action: e.action, entity: e.entity, entityId: e.entityId ?? null, changes: hasDiff ? diffSnapshots((e.before ?? null) as Obj | null, (e.after ?? null) as Obj | null) : (e.details ?? null), createdAt: new Date() });
   };
-  const geocoding = { enabled: true, search: async (q: string) => (q.includes('Unknown') ? [] : [{ label: 'Found', lat: 13.1, lng: 80.3 }]) };
-  const svc = new PeopleService(prisma as never, auditSvc as never, { invalidateCache: async () => undefined } as never, geocoding as never);
-  return { svc, profiles, consents, users, roles, userRoles, audits, add };
+  const auditSvc = {
+    record: async (c: AuthContext, e: Obj) => {
+      audits.push({ ...e, companyId: c.companyId });
+      row(c, e);
+    },
+    recordSystem: async (actor: { companyId: unknown; userId: unknown; ip: unknown }, e: Obj) => {
+      audits.push({ ...e, companyId: actor.companyId, system: true });
+      row(actor, e);
+    },
+    toDtos: async (rows: Obj[]) => rows.map((r) => ({ ...r, userName: r.userId ? 'Name of ' + String(r.userId) : null, createdAt: (r.createdAt as Date).toISOString() })),
+  };
+  const geocoding = { enabled: true, search: async (q: string) => (q.includes('Unknown') ? [] : [{ label: 'Found', lat: 13.1, lng: 80.3, confidence: 0.6, matchType: 'street' }]) };
+  const noticeSvc = new ConsentNoticeService(prisma as never, auditSvc as never);
+  const svc = new PeopleService(prisma as never, auditSvc as never, { invalidateCache: async () => undefined } as never, geocoding as never, noticeSvc);
+  /** Publish the next notice version of a purpose for company A (effective now). */
+  const publish = (purpose: 'TRANSPORT_PROFILE' | 'NOTIFICATIONS_SMS' | 'SOS_LOCATION' | 'PICKUP_LOCATION_SHARE' = 'TRANSPORT_PROFILE') =>
+    noticeSvc.publish(ctx(A), { purpose, title: 'Transport profile', body: 'We use your home location to plan your pickup.' });
+  return { svc, noticeSvc, publish, profiles, consents, users, roles, userRoles, audits, auditRows, notices, add };
 }
 
 const agreement = (grants: TransportAgreementScope['grants'], over: Partial<TransportAgreementScope> = {}): TransportAgreementScope => ({
@@ -291,6 +335,7 @@ describe('passengers: provider access under an agreement (D1, doc 10 §2 minimum
   it('pickup point only after the passenger consented; home rounded to 4 decimals, never the address', async () => {
     const w = world();
     const p = w.add({});
+    await w.publish();
     await w.svc.recordConsentOnBehalf(adminA, p.id as string, { purpose: 'TRANSPORT_PROFILE', granted: true, noticeVersion: 'v1' });
     const c = ctx(PROV, { agreements: [agreement(['VIEW_PASSENGER_MINIMAL'])] });
     expect((await w.svc.get(c, p.id as string)).pickup).toEqual({ kind: 'HOME', lat: 13.0604, lng: 80.2497, label: null, poiId: null });
@@ -383,7 +428,7 @@ describe('passengers: create / update validation', () => {
   it('server geocoding uses the Photon search; no result keeps the address and lands in "Needs location"', async () => {
     const w = world();
     const found = await w.svc.create(adminA, { employeeCode: 'G1', displayName: 'G', home: { address: '1 Known Road', geocode: true } });
-    expect(found.home).toMatchObject({ lat: 13.1, lng: 80.3, source: 'PHOTON' });
+    expect(found.home).toMatchObject({ lat: 13.1, lng: 80.3, source: 'PHOTON', confidence: 0.6 }); // Photon match type → confidence
     const none = await w.svc.create(adminA, { employeeCode: 'G2', displayName: 'G', home: { address: 'Unknown place', geocode: true } });
     expect(none).toMatchObject({ hasHomeLocation: false, needsLocation: true, home: { lat: null, source: null } });
     expect((await list(w.svc, adminA, { needsLocation: 'true' })).items.map((i) => i.employeeCode)).toEqual(['G2']);
@@ -400,19 +445,21 @@ describe('passengers: create / update validation', () => {
   });
 });
 
-describe('consent (doc 10 §4.2): explicit, append-only, revocable', () => {
+describe('consent (doc 10 §4.2): explicit, append-only, revocable, against the current notice', () => {
   it('grant, idempotent repeat, re-grant on a new notice version, revoke; history kept', async () => {
     const w = world();
     const p = w.add({});
-    const grant = { purpose: 'TRANSPORT_PROFILE' as const, granted: true, noticeVersion: 'v1' };
-    await w.svc.recordConsentOnBehalf(adminA, p.id as string, grant);
+    await w.publish();
+    const grant = { purpose: 'TRANSPORT_PROFILE' as const, granted: true };
+    await w.svc.recordConsentOnBehalf(adminA, p.id as string, { ...grant, noticeVersion: 'v1' });
     await w.svc.recordConsentOnBehalf(adminA, p.id as string, grant);
     expect(w.consents).toHaveLength(1);
+    await w.publish();
     await w.svc.recordConsentOnBehalf(adminA, p.id as string, { ...grant, noticeVersion: 'v2' });
     const revoked = await w.svc.recordConsentOnBehalf(adminA, p.id as string, { ...grant, granted: false });
     expect(revoked.current).toEqual([expect.objectContaining({ purpose: 'TRANSPORT_PROFILE', active: false })]);
     expect(revoked.history.map((h) => [h.granted, h.noticeVersion, h.channel])).toEqual([
-      [false, 'v1', 'ADMIN_ON_BEHALF'],
+      [false, 'v2', 'ADMIN_ON_BEHALF'],
       [true, 'v2', 'ADMIN_ON_BEHALF'],
       [true, 'v1', 'ADMIN_ON_BEHALF'],
     ]);
@@ -421,30 +468,92 @@ describe('consent (doc 10 §4.2): explicit, append-only, revocable', () => {
     expect(w.consents).toHaveLength(3); // withdrawing a withdrawn consent writes nothing
   });
 
+  it('no notice → 409 CONSENT_NOTICE_MISSING; a stale version → 409 CONSENT_NOTICE_OUTDATED; the version is never taken from the client', async () => {
+    const w = world();
+    const p = w.add({});
+    await expect(w.svc.recordConsentOnBehalf(adminA, p.id as string, { purpose: 'TRANSPORT_PROFILE', granted: true })).rejects.toMatchObject({ response: { code: 'CONSENT_NOTICE_MISSING' } });
+    await w.publish();
+    await w.publish();
+    await expect(w.svc.recordConsentOnBehalf(adminA, p.id as string, { purpose: 'TRANSPORT_PROFILE', granted: true, noticeVersion: 'v1' })).rejects.toMatchObject({
+      response: { code: 'CONSENT_NOTICE_OUTDATED', currentVersion: 'v2' },
+    });
+    await expect(w.svc.recordConsentOnBehalf(adminA, p.id as string, { purpose: 'TRANSPORT_PROFILE', granted: true, noticeVersion: 'made-up' })).rejects.toMatchObject({ response: { code: 'CONSENT_NOTICE_OUTDATED' } });
+    // The notice of one purpose does not cover another.
+    await expect(w.svc.recordConsentOnBehalf(adminA, p.id as string, { purpose: 'SOS_LOCATION', granted: true })).rejects.toMatchObject({ response: { code: 'CONSENT_NOTICE_MISSING' } });
+    const res = await w.svc.recordConsentOnBehalf(adminA, p.id as string, { purpose: 'TRANSPORT_PROFILE', granted: true });
+    expect(res.current[0]).toMatchObject({ active: true, noticeVersion: 'v2' });
+    expect(w.consents).toHaveLength(1);
+  });
+
+  it('a notice scheduled for later is not current yet; another company’s notice never applies', async () => {
+    const w = world();
+    const p = w.add({});
+    await w.noticeSvc.publish(ctx(B), { purpose: 'TRANSPORT_PROFILE', title: 'B', body: 'Company B text' });
+    await expect(w.svc.recordConsentOnBehalf(adminA, p.id as string, { purpose: 'TRANSPORT_PROFILE', granted: true })).rejects.toMatchObject({ response: { code: 'CONSENT_NOTICE_MISSING' } });
+    await w.noticeSvc.publish(adminA, { purpose: 'TRANSPORT_PROFILE', title: 'Later', body: 'Next week', effectiveFrom: new Date(Date.now() + 7 * 86_400_000).toISOString() });
+    await expect(w.svc.recordConsentOnBehalf(adminA, p.id as string, { purpose: 'TRANSPORT_PROFILE', granted: true })).rejects.toMatchObject({ response: { code: 'CONSENT_NOTICE_MISSING' } });
+    const listed = await w.noticeSvc.list(adminA);
+    expect(listed.current.find((c) => c.purpose === 'TRANSPORT_PROFILE')).toMatchObject({ notice: null, scheduled: expect.objectContaining({ version: 'v1', title: 'Later' }) });
+  });
+
   it('no location is used for routing without an active consent', async () => {
     const w = world();
     const p1 = w.add({});
     const p2 = w.add({ email: 'b@corp.test' });
-    await w.svc.recordConsentOnBehalf(adminA, p1.id as string, { purpose: 'TRANSPORT_PROFILE', granted: true, noticeVersion: 'v1' });
-    await w.svc.recordConsentOnBehalf(adminA, p2.id as string, { purpose: 'NOTIFICATIONS_SMS', granted: true, noticeVersion: 'v1' });
+    await w.publish('TRANSPORT_PROFILE');
+    await w.publish('NOTIFICATIONS_SMS');
+    await w.svc.recordConsentOnBehalf(adminA, p1.id as string, { purpose: 'TRANSPORT_PROFILE', granted: true });
+    await w.svc.recordConsentOnBehalf(adminA, p2.id as string, { purpose: 'NOTIFICATIONS_SMS', granted: true });
     const pickups = await w.svc.routingPickups(A, [p1.id as string, p2.id as string]);
     expect([...pickups.keys()]).toEqual([p1.id]);
     expect(pickups.get(p1.id as string)).toEqual({ kind: 'HOME', lat: 13.060412, lng: 80.249679, label: null, poiId: null });
     expect((await list(w.svc, adminA, { routingConsent: 'false' })).items.map((i) => i.id)).toEqual([p2.id]);
-    await w.svc.recordConsentOnBehalf(adminA, p1.id as string, { purpose: 'TRANSPORT_PROFILE', granted: false, noticeVersion: 'v1' });
+    await w.svc.recordConsentOnBehalf(adminA, p1.id as string, { purpose: 'TRANSPORT_PROFILE', granted: false });
     expect((await w.svc.routingPickups(A, [p1.id as string])).size).toBe(0);
     expect((await w.svc.routingPickups(B, [p1.id as string])).size).toBe(0); // another company's id
   });
 
-  it('the passenger records its own consent (channel WEB); non-passengers get 403 NOT_A_PASSENGER', async () => {
+  it('the passenger reads the current notices and records its own consent (channel WEB); non-passengers get 403 NOT_A_PASSENGER', async () => {
     const w = world();
     const p = w.add({ email: 'asha@corp.test' });
     await w.svc.grantAppAccess(adminA, p.id as string, {});
+    await w.publish();
+    await w.publish();
+    await w.publish();
     const me = ctx(A, { userId: w.users[0].id as string, dataScope: 'ASSIGNED' });
+    const notices = await w.svc.myNotices(me);
+    expect(notices.find((n) => n.purpose === 'TRANSPORT_PROFILE')?.notice).toMatchObject({ version: 'v3', body: 'We use your home location to plan your pickup.' });
+    expect(notices.find((n) => n.purpose === 'SOS_LOCATION')?.notice).toBeNull();
     const res = await w.svc.recordMyConsent(me, { purpose: 'TRANSPORT_PROFILE', granted: true, noticeVersion: 'v3' });
     expect(res.current[0]).toMatchObject({ active: true, channel: 'WEB', noticeVersion: 'v3' });
     expect(w.consents[0]).toMatchObject({ subjectUserId: w.users[0].id, actorUserId: w.users[0].id });
     await expect(w.svc.myConsents(ctx(A, { userId: 'stranger' }))).rejects.toMatchObject({ response: { code: 'NOT_A_PASSENGER' } });
+    await expect(w.svc.myNotices(ctx(A, { userId: 'stranger' }))).rejects.toMatchObject({ response: { code: 'NOT_A_PASSENGER' } });
+  });
+});
+
+describe('consent notice (doc 10 §4.2): company-level, versioned, immutable', () => {
+  it('publishing assigns v1, v2… per purpose, keeps every version and audits the change', async () => {
+    const w = world();
+    const n1 = await w.noticeSvc.publish(adminA, { purpose: 'TRANSPORT_PROFILE', title: '  Your  transport ', body: 'Line one   \r\n\r\n\r\n\r\nLine two  ' });
+    expect(n1).toMatchObject({ version: 'v1', title: 'Your transport', body: 'Line one\n\nLine two', locale: 'en' });
+    const n2 = await w.noticeSvc.publish(adminA, { purpose: 'TRANSPORT_PROFILE', title: 'Second', body: 'Text 2' });
+    const s1 = await w.noticeSvc.publish(adminA, { purpose: 'SOS_LOCATION', title: 'SOS', body: 'SOS text' });
+    expect([n2.version, s1.version]).toEqual(['v2', 'v1']);
+    const listed = await w.noticeSvc.list(adminA);
+    expect(listed.current.find((c) => c.purpose === 'TRANSPORT_PROFILE')?.notice?.version).toBe('v2');
+    expect(listed.history).toHaveLength(3);
+    expect(w.notices.find((n) => n.version === 'v1' && n.purpose === 'TRANSPORT_PROFILE')).toMatchObject({ title: 'Your transport' }); // never rewritten
+    expect(w.audits.filter((a) => a.entity === 'TransportConsentNotice')).toHaveLength(3);
+    expect((await w.noticeSvc.list(adminB)).history).toHaveLength(0); // company isolation
+  });
+
+  it('only whole-company roles publish; no past effective date; blank text refused', async () => {
+    const w = world();
+    await expect(w.noticeSvc.publish(dispatcherA, { purpose: 'TRANSPORT_PROFILE', title: 'x', body: 'y' })).rejects.toMatchObject({ response: { code: 'FORBIDDEN_GRANT' } });
+    await expect(w.noticeSvc.publish(adminA, { purpose: 'TRANSPORT_PROFILE', title: 'x', body: 'y', effectiveFrom: '2020-01-01T00:00:00Z' })).rejects.toThrow(BadRequestException);
+    await expect(w.noticeSvc.publish(adminA, { purpose: 'TRANSPORT_PROFILE', title: 'x', body: '   \n  ' })).rejects.toThrow(BadRequestException);
+    expect(w.notices).toHaveLength(0);
   });
 });
 
@@ -498,5 +607,114 @@ describe('passenger app access (D5, P3 one login per person)', () => {
     await w.svc.grantAppAccess(adminA, p1.id as string, {});
     const p2 = w.add({ email: 'other@corp.test' });
     await expect(w.svc.grantAppAccess(adminA, p2.id as string, { email: 'shared@corp.test' })).rejects.toMatchObject({ response: { code: 'IDENTITY_IN_USE' } });
+  });
+});
+
+describe('passenger history (audit log, redacted per view level)', () => {
+  /** A passenger created and changed by the admin, with consent, a login and a provider read. */
+  async function seeded() {
+    const w = world();
+    const created = await w.svc.create(adminA, {
+      employeeCode: 'H1',
+      displayName: 'Asha Krishnan',
+      mobile: '9876500011',
+      email: 'asha.h@corp.test',
+      officePoiId: SITE1,
+      home: { address: '5 Secret Lane', lat: 13.2, lng: 80.2 },
+      accessibility: { notes: 'diabetic' },
+      emergencyContacts: [{ name: 'Ravi', phone: '9800000002' }],
+    });
+    await w.svc.update(adminA, created.id, { home: { address: '7 Hidden Road', lat: 13.3, lng: 80.3 }, mobile: '9876500012', defaultStopPoiId: 'stop-1' });
+    await w.publish();
+    await w.svc.recordConsentOnBehalf(adminA, created.id, { purpose: 'TRANSPORT_PROFILE', granted: true });
+    await w.svc.grantAppAccess(adminA, created.id, {});
+    const prov = ctx(PROV, { agreements: [agreement(['VIEW_PASSENGER_MINIMAL'])] });
+    await w.svc.get(prov, created.id);
+    return { w, id: created.id, prov };
+  }
+  const text = (x: unknown) => JSON.stringify(x);
+
+  it('admin (FULL): profile, consent, login and read events; home / health / emergency values only as "changed"', async () => {
+    const { w, id } = await seeded();
+    const h = await w.svc.history(adminA, id);
+    const entities = h.map((e) => `${e.entity}:${e.action}`);
+    expect(entities).toEqual(expect.arrayContaining(['EmployeeTransportProfile:CREATE', 'EmployeeTransportProfile:UPDATE', 'EmployeeTransportConsent:CREATE', 'User:CREATE', 'EmployeeTransportProfile:ACCESS']));
+    const update = h.find((e) => e.entity === 'EmployeeTransportProfile' && e.action === 'UPDATE' && text(e.changes).includes('mobile'))!;
+    expect(update.changes).toMatchObject({ before: { mobile: '+919876500011', homeAddress: 'changed', homeLat: 'changed' }, after: { mobile: '+919876500012', homeAddress: 'changed', defaultStopPoiId: 'stop-1' } });
+    expect(update).toMatchObject({ userId: adminA.userId, ip: '10.0.0.1' });
+    const all = text(h);
+    for (const secret of ['Secret Lane', 'Hidden Road', 'diabetic', '13.2', '13.3', '+919800000002', 'changed:']) expect(all).not.toContain(secret);
+    // The history read itself is audited.
+    expect(w.audits.at(-1)).toMatchObject({ action: 'ACCESS', entityId: id, details: expect.objectContaining({ what: 'history', projection: 'FULL' }) });
+  });
+
+  it('dispatcher (STANDARD): no home-location or emergency-contact fields at all, no read events, no IP', async () => {
+    const { w, id } = await seeded();
+    const h = await w.svc.history(dispatcherA, id);
+    expect(h.length).toBeGreaterThan(0);
+    expect(h.some((e) => e.action === 'ACCESS')).toBe(false);
+    const all = text(h);
+    for (const key of ['homeAddress', 'homeLat', 'homeLng', 'homeGeocodeSource', 'emergencyContacts']) expect(all).not.toContain(key);
+    expect(all).toContain('+919876500012'); // contacts are visible to the dispatcher in the detail view too
+    expect(h.every((e) => e.ip === null)).toBe(true);
+  });
+
+  it('provider (MINIMAL): only its projection fields, no contacts without the grant, no actor; consent / login entries hidden', async () => {
+    const { w, id, prov } = await seeded();
+    const h = await w.svc.history(prov, id);
+    expect(h.length).toBeGreaterThan(0);
+    expect(h.every((e) => e.entity === 'EmployeeTransportProfile' && e.userId === null && e.userName === null && e.ip === null)).toBe(true);
+    const keys = new Set(h.flatMap((e) => Object.keys(((e.changes as { after?: object })?.after ?? {}) as object)));
+    expect([...keys].every((k) => ['employeeCode', 'displayName', 'officePoiId', 'isActive', 'defaultStopPoiId'].includes(k))).toBe(true);
+    const all = text(h);
+    expect(all).not.toContain('98765');
+    expect(all).not.toContain('Krishnan'); // short name only
+    expect(all).toContain('Asha K.');
+    // The read is logged under the customer company, as for detail reads.
+    expect(w.audits.at(-1)).toMatchObject({ action: 'ACCESS', companyId: A, system: true, details: expect.objectContaining({ what: 'history', projection: 'MINIMAL' }) });
+  });
+
+  it('provider with VIEW_PASSENGER_CONTACT sees masked contacts; no grant or another company → 404', async () => {
+    const { w, id } = await seeded();
+    const masked = await w.svc.history(ctx(PROV, { agreements: [agreement(['VIEW_PASSENGER_MINIMAL', 'VIEW_PASSENGER_CONTACT'])] }), id);
+    const all = text(masked);
+    expect(all).toContain('+91•••••00012');
+    expect(all).not.toContain('+919876500012');
+    await expect(w.svc.history(ctx(PROV), id)).rejects.toThrow(NotFoundException);
+    await expect(w.svc.history(ctx(PROV, { agreements: [agreement(['VIEW_BOOKINGS'])] }), id)).rejects.toThrow(NotFoundException);
+    await expect(w.svc.history(adminB, id)).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('passenger login removal: disable vs unlink (LoginRemovalMode)', () => {
+  it('disable keeps the link (enable again restores it); unlink clears it so another login can be linked; the User is never deleted', async () => {
+    const w = world();
+    const p = w.add({ email: 'asha@corp.test' });
+    await w.svc.grantAppAccess(adminA, p.id as string, {});
+    const userId = w.users[0].id;
+    const disabled = await w.svc.revokeAppAccess(adminA, p.id as string, 'disable');
+    expect(disabled.appAccess).toMatchObject({ userId, active: false });
+    expect(w.profiles[0].userId).toBe(userId);
+    const again = await w.svc.grantAppAccess(adminA, p.id as string, {});
+    expect(again.outcome).toBe('REACTIVATED');
+
+    const unlinked = await w.svc.revokeAppAccess(adminA, p.id as string, 'unlink');
+    expect(unlinked.appAccess).toBeNull();
+    expect(w.profiles[0].userId).toBeNull();
+    expect(w.users).toHaveLength(1);
+    expect(w.users[0].isActive).toBe(false);
+    expect(w.audits.filter((a) => (a.details as Obj | undefined)?.what === 'passenger-login-unlinked')).toHaveLength(1);
+    expect(w.audits.some((a) => a.entity === 'EmployeeTransportProfile' && (a.after as Obj | undefined)?.userId === null)).toBe(true);
+
+    // Linking the same contact again finds the old, disabled transport-only login and re-enables it.
+    const relinked = await w.svc.grantAppAccess(adminA, p.id as string, {});
+    expect(relinked.outcome).toBe('REACTIVATED');
+    expect(w.users[0].isActive).toBe(true);
+    await w.svc.revokeAppAccess(adminA, p.id as string, 'unlink');
+    // A different contact creates a new login.
+    const fresh = await w.svc.grantAppAccess(adminA, p.id as string, { email: 'asha.new@corp.test', mobile: null });
+    expect(fresh.outcome).toBe('CREATED');
+    expect(w.users).toHaveLength(2);
+    await expect(w.svc.revokeAppAccess(dispatcherA, w.add({ companyId: B, email: 'x@b.test' }).id as string, 'unlink')).rejects.toThrow(NotFoundException);
   });
 });

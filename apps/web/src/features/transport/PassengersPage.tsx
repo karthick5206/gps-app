@@ -1,5 +1,5 @@
 import type { BranchDto, PassengerDto, PoiDto } from '@veetracer/shared';
-import { ArchiveIcon, ArchiveRestoreIcon, BusIcon, PencilIcon, UploadIcon, UsersRoundIcon } from 'lucide-react';
+import { ArchiveIcon, ArchiveRestoreIcon, BusIcon, HistoryIcon, PencilIcon, UploadIcon, UsersRoundIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -17,6 +17,7 @@ import { errorMessage } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
 import { AppAccessBadge, LocationBadge, RoutingConsentBadge, ToneBadge } from './passenger-ui';
 import { PassengerEditor } from './PassengerEditor';
+import { PassengerHistorySheet } from './PassengerHistorySheet';
 import { PassengerImportDialog } from './PassengerImportDialog';
 import { PASSENGERS_ENDPOINT, useArchivePassenger, VEHICLE_SEATS_PATH } from './use-people';
 
@@ -42,6 +43,7 @@ export function PassengersPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [archiveRow, setArchiveRow] = useState<PassengerDto | null>(null);
   const [editRow, setEditRow] = useState<PassengerDto | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<{ id: string; label: string } | null>(null);
   const archive = useArchivePassenger();
   const branches = useEntityOptions<BranchDto>('/branches', named, { enabled: can('branches') });
   const sites = useEntityOptions<PoiDto>('/pois', poiOption, { enabled: can('pois') });
@@ -94,22 +96,38 @@ export function PassengersPage() {
 
   const rowActions = useCallback(
     (r: PassengerDto) => {
+      // History for everyone who sees the row; the server redacts it per role (providers: minimal fields only).
+      const history = (
+        <DropdownMenuItem onSelect={() => setHistoryTarget({ id: r.id, label: r.displayName })}>
+          <HistoryIcon /> {t('History')}
+        </DropdownMenuItem>
+      );
       if (!can('etms_passengers', 'delete') || r.projection === 'MINIMAL') {
         // Providers (MINIMAL) and roles without edit still open the editor read-only from here.
-        return can('etms_passengers', 'edit') ? null : (
-          <DropdownMenuItem onSelect={() => setEditRow(r)}>
-            <PencilIcon /> {t('Open')}
-          </DropdownMenuItem>
+        return (
+          <>
+            {!can('etms_passengers', 'edit') && (
+              <DropdownMenuItem onSelect={() => setEditRow(r)}>
+                <PencilIcon /> {t('Open')}
+              </DropdownMenuItem>
+            )}
+            {history}
+          </>
         );
       }
-      return r.isActive ? (
-        <DropdownMenuItem variant="destructive" onSelect={() => setArchiveRow(r)}>
-          <ArchiveIcon /> {t('Archive')}
-        </DropdownMenuItem>
-      ) : (
-        <DropdownMenuItem onSelect={() => archive.mutate({ id: r.id, restore: true }, { onSuccess: () => toast.success(t('Passenger restored')), onError: (e) => toast.error(errorMessage(e)) })}>
-          <ArchiveRestoreIcon /> {t('Restore')}
-        </DropdownMenuItem>
+      return (
+        <>
+          {history}
+          {r.isActive ? (
+            <DropdownMenuItem variant="destructive" onSelect={() => setArchiveRow(r)}>
+              <ArchiveIcon /> {t('Archive')}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={() => archive.mutate({ id: r.id, restore: true }, { onSuccess: () => toast.success(t('Passenger restored')), onError: (e) => toast.error(errorMessage(e)) })}>
+              <ArchiveRestoreIcon /> {t('Restore')}
+            </DropdownMenuItem>
+          )}
+        </>
       );
     },
     [can, t, archive],
@@ -151,6 +169,7 @@ export function PassengersPage() {
       />
       {importOpen && <PassengerImportDialog open onOpenChange={setImportOpen} />}
       {editRow && <PassengerEditor record={editRow} open onOpenChange={(o) => !o && setEditRow(null)} />}
+      <PassengerHistorySheet target={historyTarget} onClose={() => setHistoryTarget(null)} />
       <ConfirmDialog
         open={!!archiveRow}
         onOpenChange={(o) => !o && setArchiveRow(null)}

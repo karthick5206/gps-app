@@ -2,28 +2,37 @@ import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseUUIDPipe,
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   PASSENGER_IMPORT_MAX_BYTES,
+  type AuditLogDto,
+  type ConsentNoticeDto,
+  type ConsentNoticesDto,
   type DriverLoginDto as DriverLoginResult,
   type GeocodeCandidate,
   type PassengerAppAccessResult,
   type PassengerConsentsDto,
   type PassengerDto,
   type PassengerImportResult,
+  type Paginated,
   type TransportVehicleProfileDto,
   type TransportVehicleProfileResponse,
+  type TransportVehicleRowDto,
 } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequireAnyPermission, RequirePermission } from '../../access/decorators';
 import { TransportFeatureGuard } from '../transport-feature.guard';
+import { ConsentNoticeService } from './consent-notice.service';
 import { FleetLinksService } from './fleet-links.service';
 import { PassengerImportService } from './passenger-import.service';
 import {
   CreatePassengerDto,
   DriverLoginDto,
   GeocodeQuery,
+  LoginRemovalQuery,
   PassengerAppAccessDto,
   PassengerImportOptionsDto,
   PassengerListQuery,
+  PublishConsentNoticeDto,
   RecordConsentDto,
+  TransportVehicleListQuery,
   UpdatePassengerDto,
   VehicleProfileDto,
 } from './people.dto';
@@ -68,6 +77,12 @@ export class PassengersController {
     return this.importer.run(ctx, file, { commit: true, geocode: opts.geocode === 'true', rows: opts.rows });
   }
 
+  /** Audit trail of the passenger, redacted per view level (passenger-history.ts); audited as a read. */
+  @Get(':id/history') @RequirePermission('etms_passengers', 'view')
+  history(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Headers('x-access-reason') reason?: string): Promise<AuditLogDto[]> {
+    return this.people.history(ctx, id, { reason });
+  }
+
   @Get(':id') @RequirePermission('etms_passengers', 'view')
   get(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Headers('x-access-reason') reason?: string): Promise<PassengerDto> {
     return this.people.get(ctx, id, { reason });
@@ -94,9 +109,10 @@ export class PassengersController {
     return this.people.grantAppAccess(ctx, id, dto);
   }
 
+  /** ?mode=disable (default: login stops working, link kept) | unlink (also clears the link). Never deletes the User. */
   @Delete(':id/app-access') @RequirePermission('etms_passengers', 'edit')
-  revokeAppAccess(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<PassengerDto> {
-    return this.people.revokeAppAccess(ctx, id);
+  revokeAppAccess(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query() query: LoginRemovalQuery): Promise<PassengerDto> {
+    return this.people.revokeAppAccess(ctx, id, query.mode ?? 'disable');
   }
 
   @Get(':id/consents') @RequirePermission('etms_passengers', 'view')
@@ -125,6 +141,12 @@ export class MyTransportConsentController {
     return (await this.people.myConsents(ctx)).current;
   }
 
+  /** The notice text per purpose the passenger reads before granting (current version). */
+  @Get('consent/notices') @RequirePermission('etms_self', 'view')
+  notices(@Auth() ctx: AuthContext): Promise<{ purpose: string; notice: ConsentNoticeDto | null }[]> {
+    return this.people.myNotices(ctx);
+  }
+
   @Get('consent/history') @RequirePermission('etms_self', 'view')
   history(@Auth() ctx: AuthContext): Promise<PassengerConsentsDto> {
     return this.people.myConsents(ctx);
@@ -136,15 +158,37 @@ export class MyTransportConsentController {
   }
 }
 
+/**
+ * /api/transport/consent-notices (doc 10 §4.2): the company's versioned consent notices. Read by roles that see
+ * passengers or Transport settings (the consent panel shows the text before a grant); published by a whole-company role
+ * with Transport settings edit. Always the caller's own company.
+ */
+@Controller('transport/consent-notices')
+@UseGuards(TransportFeatureGuard)
+export class ConsentNoticesController {
+  constructor(private readonly notices: ConsentNoticeService) {}
+
+  @Get() @RequireAnyPermission(['etms_settings', 'view'], ['etms_passengers', 'view'])
+  list(@Auth() ctx: AuthContext): Promise<ConsentNoticesDto> {
+    return this.notices.list(ctx);
+  }
+
+  @Post() @RequirePermission('etms_settings', 'edit')
+  publish(@Auth() ctx: AuthContext, @Body() dto: PublishConsentNoticeDto): Promise<ConsentNoticeDto> {
+    return this.notices.publish(ctx, dto);
+  }
+}
+
 /** /api/transport/vehicles (doc 05 §2.3): seat capacity of the company's own vehicles. */
 @Controller('transport/vehicles')
 @UseGuards(TransportFeatureGuard)
 export class TransportVehiclesController {
   constructor(private readonly fleet: FleetLinksService) {}
 
+  /** Every own vehicle in scope with its seat profile (null = not set); ListQuery + seats=set|unset. */
   @Get() @RequirePermission('objects', 'view')
-  list(@Auth() ctx: AuthContext): Promise<TransportVehicleProfileDto[]> {
-    return this.fleet.listVehicleProfiles(ctx);
+  list(@Auth() ctx: AuthContext, @Query() query: TransportVehicleListQuery): Promise<Paginated<TransportVehicleRowDto>> {
+    return this.fleet.listVehicles(ctx, query);
   }
 
   @Get(':objectId/profile') @RequirePermission('objects', 'view')
@@ -174,8 +218,9 @@ export class DriverLoginController {
     return this.fleet.grantDriverLogin(ctx, id, dto);
   }
 
+  /** ?mode=disable (default) | unlink, as for passengers. */
   @Delete(':id/login') @RequirePermission('drivers', 'edit')
-  revoke(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<DriverLoginResult> {
-    return this.fleet.revokeDriverLogin(ctx, id);
+  revoke(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query() query: LoginRemovalQuery): Promise<DriverLoginResult> {
+    return this.fleet.revokeDriverLogin(ctx, id, query.mode ?? 'disable');
   }
 }

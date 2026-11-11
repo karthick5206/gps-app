@@ -75,11 +75,16 @@ export async function createOrLinkLogin(tx: Tx, req: LinkRequest): Promise<LinkR
     if (u.companyId !== req.companyId || u.isSuperAdmin) throw identityInUse();
     if (await req.linkedElsewhere(u.id)) throw identityInUse('This login already belongs to another person');
     const hasRole = u.roles.some((r) => r.roleId === roleId);
+    // A disabled login (e.g. one unlinked earlier): re-enable it only when it is a transport-only login; a fleet login
+    // disabled in Users stays the Users admin's decision.
+    if (!u.isActive && u.roles.some((r) => r.roleId !== roleId)) {
+      throw new ConflictException({ message: 'This login was disabled in Users; enable it there first', code: 'INVALID_STATE' });
+    }
     await tx.user.update({
       where: { id: u.id },
-      data: { ...(hasRole ? {} : { roles: { create: [{ roleId }] } }), ...(passwordHash && !u.passwordHash ? { passwordHash } : {}) },
+      data: { ...(u.isActive ? {} : { isActive: true }), ...(hasRole ? {} : { roles: { create: [{ roleId }] } }), ...(passwordHash && !u.passwordHash ? { passwordHash } : {}) },
     });
-    return { userId: u.id, outcome: 'LINKED', passwordSet: !!(u.passwordHash ?? passwordHash), before: null };
+    return { userId: u.id, outcome: u.isActive ? 'LINKED' : 'REACTIVATED', passwordSet: !!(u.passwordHash ?? passwordHash), before: u.isActive ? null : { isActive: false, roleIds: u.roles.map((r) => r.roleId) } };
   }
 
   try {

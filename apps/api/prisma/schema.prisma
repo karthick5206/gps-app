@@ -117,6 +117,8 @@ model Company {
   transportAgreementsAsCustomer TransportServiceAgreement[] @relation("TransportAgreementCustomer")
   /// ETMS E2: passengers (employees) of this company as the corporate customer.
   employeeTransportProfiles     EmployeeTransportProfile[]
+  /// ETMS E2: versioned consent notices this company shows its passengers.
+  transportConsentNotices       TransportConsentNotice[]
 }
 
 model Branch {
@@ -2969,6 +2971,29 @@ model EmployeeTransportConsent {
   profile EmployeeTransportProfile @relation(fields: [profileId, companyId], references: [id, companyId], onDelete: Restrict)
 
   @@index([profileId, purpose, occurredAt(sort: Desc)])
+}
+
+/// Company-level, versioned consent notice (doc 10 §4.2 "notice texts are versioned templates"): the text a passenger
+/// reads before granting a purpose. Immutable rows, one per (company, purpose, seq); a change publishes the next version
+/// (version = "v" + seq). Current notice = highest seq whose effectiveFrom has passed. Consent rows store the version
+/// string (EmployeeTransportConsent.noticeVersion). FK companyId → Company Restrict (a company purge walks it). PD class L.
+model TransportConsentNotice {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @db.Uuid
+  /// TRANSPORT_PROFILE | PICKUP_LOCATION_SHARE | SOS_LOCATION | NOTIFICATIONS_SMS (same set as consent purposes).
+  purpose       String
+  seq           Int
+  version       String
+  title         String
+  body          String
+  locale        String   @default("en")
+  effectiveFrom DateTime @db.Timestamptz(3)
+  createdById   String?  @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, purpose, seq])
 }
 
 /// Passenger capacity of an operator's vehicle (side table, doc 15 §4.3 / §7.3; FuelConfig pattern): FK Cascade on the

@@ -55,15 +55,18 @@ Phase column = first phase that ships the route (`12`). "Perm" = `menu:action`.
 | `POST /api/transport/passengers/import/preview` | `etms_passengers:create` | Upload CSV / XLSX → row results (phone per country, duplicates, unknown site, geocode confidence via Photon) | E2 |
 | `POST /api/transport/passengers/import/commit` | `etms_passengers:create` | Commit selected rows; idempotent on `(companyId, employeeCode)` | E2 |
 | `POST /api/transport/passengers/:id/app-access` | `etms_passengers:edit` | Create / link `User` with Passenger role and send invite; 409 `IDENTITY_IN_USE` when mobile / email belongs to another User (D5) | E2 |
-| `DELETE /api/transport/passengers/:id/app-access` | `etms_passengers:edit` | Deactivate login (`User.isActive=false`) | E2 |
+| `DELETE /api/transport/passengers/:id/app-access?mode=disable\|unlink` | `etms_passengers:edit` | `disable` (default): transport role removed, or `User.isActive=false` when it has no other role; link kept. `unlink`: the same, then `profile.userId` cleared. The User is never deleted | E2 |
 | `GET /api/transport/passengers/:id/consents` | `etms_passengers:view` | Consent history (read-only) | E2 |
+| `GET /api/transport/passengers/:id/history` | `etms_passengers:view` | Audit trail redacted per projection (home / health / emergency values never shown; STANDARD without home fields; MINIMAL fields only for providers); audited read | E2 |
+| `GET /api/transport/consent-notices` · `POST` | `etms_settings:view` or `etms_passengers:view` / `etms_settings:edit` (whole company) | Company-level versioned consent notice per purpose (`10` §4.2); grants record the current version (409 `CONSENT_NOTICE_MISSING` / `CONSENT_NOTICE_OUTDATED`) | E2 |
 
 ### 2.3 Fleet, drivers, stops
 
 | Method + path | Perm | Purpose | Phase |
 |---|---|---|---|
+| `GET /api/transport/vehicles` | `objects:view` | Every own vehicle in `objectScopeWhere` with its seat profile or `null` (list query + `seats=set\|unset`) | E2 |
 | `GET/PUT /api/transport/vehicles/:objectId/profile` | `objects:view` / `objects:edit` | `TransportVehicleProfile` (seats, wheelchair spaces, AC, category); object must be in `objectScopeWhere` | E2 |
-| `POST /api/drivers/:id/login` · `DELETE /api/drivers/:id/login` | `drivers:edit` | Create / link `User` (Driver role) to `Driver.userId` | E2 |
+| `POST /api/drivers/:id/login` · `DELETE /api/drivers/:id/login?mode=disable\|unlink` | `drivers:edit` | Create / link `User` (Driver role) to `Driver.userId`; removal modes as for passengers | E2 |
 | Offices and shuttle stops | `pois:*` (existing) | Existing `Poi` endpoints with categories `OFFICE`, `SHUTTLE_STOP` | E2 |
 | `GET/PUT /api/transport/stops/:poiId/profile` | `etms_stops:view/edit` | Accessible flag, boarding capacity, max walk (E4 routing input) | E4 |
 

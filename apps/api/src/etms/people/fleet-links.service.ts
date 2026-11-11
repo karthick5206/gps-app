@@ -6,9 +6,13 @@ import {
   normalisePhone,
   phoneCountryForTimezone,
   type DriverLoginDto as DriverLoginResult,
+  type LoginRemovalMode,
+  type Paginated,
   type TransportVehicleProfileDto,
   type TransportVehicleProfileResponse,
+  type TransportVehicleRowDto,
 } from '@veetracer/shared';
+import { ListSpec, planList } from '../../common/list-query';
 import { objectScopeWhere } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { transportNotFound } from '../../access/transport-scope';
@@ -17,7 +21,7 @@ import { driverScopeWhere } from '../../drivers/drivers.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { createOrLinkLogin, disableLogin } from './identity-link';
-import { DriverLoginDto, VehicleProfileDto } from './people.dto';
+import { DriverLoginDto, TransportVehicleListQuery, VehicleProfileDto } from './people.dto';
 
 export const VEHICLE_PROFILE_ENTITY = 'TransportVehicleProfile';
 
@@ -52,14 +56,40 @@ export class FleetLinksService {
     private readonly redis: RedisService,
   ) {}
 
-  /** Seat profiles of the caller's vehicles (objects in scope). */
-  async listVehicleProfiles(ctx: AuthContext): Promise<TransportVehicleProfileDto[]> {
-    const rows = await this.prisma.transportVehicleProfile.findMany({
-      where: { companyId: ctx.companyId, object: objectScopeWhere(ctx) },
-      include: { object: { select: { name: true, plateNumber: true } } },
-      orderBy: { object: { name: 'asc' } },
-    });
-    return rows.map(toVehicleDto);
+  /**
+   * Every vehicle (type VEHICLE) the company owns inside the caller's scope (objectScopeWhere: whole company, or own
+   * branches + assigned objects), with its seat profile or null while seats were never set. Shared vehicles are
+   * excluded (objectScopeWhere never includes shares). Paged / searched like the master lists.
+   */
+  async listVehicles(ctx: AuthContext, query: TransportVehicleListQuery): Promise<Paginated<TransportVehicleRowDto>> {
+    const plan = planList<Prisma.TrackedObjectWhereInput, Prisma.TrackedObjectOrderByWithRelationInput>(query, {
+      search: ['name', 'plateNumber'],
+      sort: { name: 'name', plateNumber: 'plateNumber' },
+      defaultSort: 'name',
+    } satisfies ListSpec);
+    const filters: Prisma.TrackedObjectWhereInput[] = [objectScopeWhere(ctx), { type: 'VEHICLE' }, plan.where];
+    if (query.seats === 'set') filters.push({ transportProfile: { isNot: null } });
+    if (query.seats === 'unset') filters.push({ transportProfile: { is: null } });
+    const where: Prisma.TrackedObjectWhereInput = { AND: filters };
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.trackedObject.findMany({
+        where,
+        orderBy: plan.orderBy,
+        skip: plan.skip,
+        take: plan.take,
+        select: { id: true, name: true, plateNumber: true, isActive: true, branchId: true, transportProfile: true },
+      }),
+      this.prisma.trackedObject.count({ where }),
+    ]);
+    const items = rows.map((o) => ({
+      objectId: o.id,
+      objectName: o.name,
+      plateNumber: o.plateNumber,
+      isActive: o.isActive,
+      branchId: o.branchId,
+      profile: o.transportProfile ? toVehicleDto({ ...o.transportProfile, object: { name: o.name, plateNumber: o.plateNumber } }) : null,
+    }));
+    return { items, total, page: plan.page, pageSize: plan.pageSize };
   }
 
   async getVehicleProfile(ctx: AuthContext, objectId: string): Promise<TransportVehicleProfileResponse> {
@@ -136,16 +166,21 @@ export class FleetLinksService {
     return { ...(await this.driverLoginDto(d.id, link.userId)), outcome: link.outcome };
   }
 
-  async revokeDriverLogin(ctx: AuthContext, driverId: string): Promise<DriverLoginResult> {
+  /** LoginRemovalMode: `disable` (default) keeps Driver.userId so the login can be enabled again; `unlink` clears it. */
+  async revokeDriverLogin(ctx: AuthContext, driverId: string, mode: LoginRemovalMode = 'disable'): Promise<DriverLoginResult> {
     const d = await this.driver(ctx, driverId);
     if (!d.userId) throw new ConflictException({ message: 'This driver has no login', code: 'INVALID_STATE' });
     const userId = d.userId;
     await this.prisma.$transaction(async (tx) => {
       const outcome = await disableLogin(tx, d.companyId, userId, ETMS_DRIVER_ROLE_NAME);
-      await this.audit.record(ctx, { action: 'UPDATE', entity: 'User', entityId: userId, details: { what: 'driver-login-disabled', outcome, driverId: d.id } }, tx);
+      await this.audit.record(ctx, { action: 'UPDATE', entity: 'User', entityId: userId, details: { what: mode === 'unlink' ? 'driver-login-unlinked' : 'driver-login-disabled', outcome, driverId: d.id } }, tx);
+      if (mode === 'unlink') {
+        await tx.driver.update({ where: { id: d.id }, data: { userId: null } });
+        await this.audit.record(ctx, { action: 'UPDATE', entity: 'Driver', entityId: d.id, before: { userId }, after: { userId: null } }, tx);
+      }
     });
     await this.redis.invalidateCache('user').catch(() => undefined);
-    return this.driverLoginDto(d.id, userId);
+    return this.driverLoginDto(d.id, mode === 'unlink' ? null : userId);
   }
 
   private async driver(ctx: AuthContext, id: string) {

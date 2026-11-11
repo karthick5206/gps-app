@@ -4,10 +4,10 @@ import type { AuthContext } from '../../access/auth-context';
 import { REQUIRED_PERMISSIONS } from '../../access/decorators';
 import { TransportFeatureGuard } from '../transport-feature.guard';
 import { PassengerImportService } from './passenger-import.service';
-import { DriverLoginController, MyTransportConsentController, PassengersController, TransportVehiclesController } from './people.controller';
+import { ConsentNoticesController, DriverLoginController, MyTransportConsentController, PassengersController, TransportVehiclesController } from './people.controller';
 
 describe('E2 routes: every handler has a menu grant and the ETMS feature guard (doc 05 §1, 11 §3.1)', () => {
-  for (const C of [PassengersController, MyTransportConsentController, TransportVehiclesController, DriverLoginController]) {
+  for (const C of [PassengersController, MyTransportConsentController, ConsentNoticesController, TransportVehiclesController, DriverLoginController]) {
     it(C.name, () => {
       expect(Reflect.getMetadata(GUARDS_METADATA, C)).toContain(TransportFeatureGuard);
       const handlers = Object.getOwnPropertyNames(C.prototype).filter((n) => n !== 'constructor');
@@ -85,5 +85,18 @@ describe('PassengerImportService', () => {
     await expect(s.svc.run({ ...admin, dataScope: 'ASSIGNED' } as AuthContext, file(csv), { commit: false, geocode: false })).rejects.toMatchObject({ response: { code: 'FORBIDDEN_GRANT' } });
     await expect(s.svc.run(admin, file('a,b\n1,2'), { commit: false, geocode: false })).rejects.toMatchObject({ response: { code: 'IMPORT_FORMAT' } });
     await expect(s.svc.run(admin, undefined, { commit: false, geocode: false })).rejects.toMatchObject({ response: { code: 'IMPORT_FORMAT' } });
+  });
+});
+
+describe('E2 gap routes: the grant each new handler requires', () => {
+  const grants = (C: { prototype: object }, h: string) => Reflect.getMetadata(REQUIRED_PERMISSIONS, (C.prototype as Record<string, unknown>)[h] as object);
+  it('history = passengers view; notices read = settings or passengers view, publish = settings edit; vehicles list = objects view', () => {
+    expect(grants(PassengersController, 'history')).toEqual([['etms_passengers', 'view']]);
+    expect(grants(ConsentNoticesController, 'list')).toEqual([['etms_settings', 'view'], ['etms_passengers', 'view']]);
+    expect(grants(ConsentNoticesController, 'publish')).toEqual([['etms_settings', 'edit']]);
+    expect(grants(MyTransportConsentController, 'notices')).toEqual([['etms_self', 'view']]);
+    expect(grants(TransportVehiclesController, 'list')).toEqual([['objects', 'view']]);
+    expect(grants(PassengersController, 'revokeAppAccess')).toEqual([['etms_passengers', 'edit']]);
+    expect(grants(DriverLoginController, 'revoke')).toEqual([['drivers', 'edit']]);
   });
 });

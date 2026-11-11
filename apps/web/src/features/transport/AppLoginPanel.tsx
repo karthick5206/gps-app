@@ -1,4 +1,5 @@
-import { KeyRoundIcon, PowerIcon, PowerOffIcon } from 'lucide-react';
+import type { LoginRemovalMode } from '@veetracer/shared';
+import { KeyRoundIcon, PowerIcon, PowerOffIcon, UnlinkIcon } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -8,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { passwordRule } from '@/features/auth/password-rules';
 import { formatDateTime } from '@/lib/format';
-import { LOGIN_OUTCOME_TEXT } from './people-format';
+import { LOGIN_OUTCOME_TEXT, LOGIN_REMOVAL_TEXT } from './people-format';
 import { LoginError, ToneBadge } from './passenger-ui';
 
 export interface LoginState {
@@ -26,9 +27,11 @@ export interface LoginInput {
 }
 
 /**
- * Create / link / disable the VeeTrax login of a passenger or a driver (D5: one login per person). The server decides
- * whether the email / mobile creates a new login, links an existing login of the same company, or is refused with
- * IDENTITY_IN_USE. E2 sends no invitation: the admin shares the login details.
+ * Create / link / disable / unlink the VeeTrax login of a passenger or a driver (D5: one login per person). The server
+ * decides whether the email / mobile creates a new login, links an existing login of the same company, or is refused
+ * with IDENTITY_IN_USE. E2 sends no invitation: the admin shares the login details. Removal (API `?mode=`): Disable keeps
+ * the link so the login can be enabled again; Unlink also removes the link so another login can be set up. Neither
+ * deletes the login.
  */
 export function AppLoginPanel({
   who,
@@ -53,7 +56,7 @@ export function AppLoginPanel({
   error: unknown;
   outcome: 'CREATED' | 'LINKED' | 'REACTIVATED' | null;
   onGrant: (input: LoginInput) => void;
-  onRevoke: () => void;
+  onRevoke: (mode: LoginRemovalMode) => void;
 }) {
   const { t } = useTranslation();
   const id = useId();
@@ -61,7 +64,7 @@ export function AppLoginPanel({
   const [mobile, setMobile] = useState(defaults.mobile ?? '');
   const [password, setPassword] = useState('');
   const [issue, setIssue] = useState<string | null>(null);
-  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState<LoginRemovalMode | null>(null);
 
   useEffect(() => {
     setEmail(defaults.email ?? '');
@@ -117,14 +120,17 @@ export function AppLoginPanel({
           {canEdit && !disabledReason && (
             <div className="flex flex-wrap gap-2">
               {current.active ? (
-                <Button variant="outline" onClick={() => setConfirmRevoke(true)} disabled={pending}>
-                  <PowerOffIcon /> {t('Disable login')}
+                <Button variant="outline" onClick={() => setConfirmRevoke('disable')} disabled={pending}>
+                  <PowerOffIcon /> {t(LOGIN_REMOVAL_TEXT.disable.action)}
                 </Button>
               ) : (
                 <Button onClick={() => onGrant({})} disabled={pending}>
                   {pending ? <Spinner /> : <PowerIcon />} {t('Enable login again')}
                 </Button>
               )}
+              <Button variant="ghost" onClick={() => setConfirmRevoke('unlink')} disabled={pending}>
+                <UnlinkIcon /> {t(LOGIN_REMOVAL_TEXT.unlink.action)}
+              </Button>
             </div>
           )}
         </div>
@@ -167,16 +173,16 @@ export function AppLoginPanel({
       )}
 
       <ConfirmDialog
-        open={confirmRevoke}
-        onOpenChange={setConfirmRevoke}
-        title={t('Disable this login?')}
-        description={t('The person can no longer sign in to employee transport. You can enable the login again later.')}
-        confirmLabel={t('Disable login')}
+        open={!!confirmRevoke}
+        onOpenChange={(o) => !o && setConfirmRevoke(null)}
+        title={t(LOGIN_REMOVAL_TEXT[confirmRevoke ?? 'disable'].title)}
+        description={t(LOGIN_REMOVAL_TEXT[confirmRevoke ?? 'disable'].description)}
+        confirmLabel={t(LOGIN_REMOVAL_TEXT[confirmRevoke ?? 'disable'].action)}
         destructive
         pending={pending}
         onConfirm={() => {
-          onRevoke();
-          setConfirmRevoke(false);
+          if (confirmRevoke) onRevoke(confirmRevoke);
+          setConfirmRevoke(null);
         }}
       />
     </div>

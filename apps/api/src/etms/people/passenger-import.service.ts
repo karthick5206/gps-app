@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { phoneCountryForTimezone, validHomePoint, type PassengerImportResult } from '@veetracer/shared';
+import { GEOCODE_LOW_CONFIDENCE_BELOW, phoneCountryForTimezone, validHomePoint, type PassengerImportResult } from '@veetracer/shared';
 import { randomUUID } from 'crypto';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService, diffSnapshots } from '../../audit/audit.service';
@@ -90,8 +90,11 @@ export class PassengerImportService {
           patch.homeLat = Number(hit.lat.toFixed(6));
           patch.homeLng = Number(hit.lng.toFixed(6));
           patch.homeSource = 'PHOTON';
-          patch.homeConfidence = null;
-          v.result.geocode = { lat: patch.homeLat, lng: patch.homeLng, label: hit.label, confidence: null };
+          patch.homeConfidence = hit.confidence;
+          v.result.geocode = { lat: patch.homeLat, lng: patch.homeLng, label: hit.label, confidence: hit.confidence };
+          if (hit.confidence !== null && hit.confidence < GEOCODE_LOW_CONFIDENCE_BELOW) {
+            v.result.warnings.push({ column: 'home_address', code: 'GEOCODE_LOW_CONFIDENCE', message: `Only a ${hit.matchType ?? 'rough'}-level match was found: check the pin` });
+          }
         } else {
           v.result.warnings.push({ column: 'home_address', code: 'GEOCODE_NO_RESULT', message: 'Address not found by the map search: confirm the pin later' });
         }

@@ -1,4 +1,6 @@
 import { consentActive, currentConsents, maskEmail, maskPhone, normaliseEmail, normalisePhone, phoneCountryForTimezone, shortName, validHomePoint } from '@veetracer/shared';
+import { cleanNoticeBody, noticeVersionOf, pickCurrentNotice, pickScheduledNotice } from './consent-notice.service';
+import { isDiff, redactHistoryEntry } from './passenger-history';
 
 /** Pure helpers of packages/shared/src/transport-people.ts (validation, masking, consent state). */
 describe('transport-people helpers', () => {
@@ -56,5 +58,65 @@ describe('transport-people helpers', () => {
     expect(consentActive(rows, 'TRANSPORT_PROFILE')).toBe(false);
     expect(consentActive(rows.slice(0, 1), 'TRANSPORT_PROFILE')).toBe(true);
     expect(consentActive([], 'TRANSPORT_PROFILE')).toBe(false);
+  });
+});
+
+describe('consent notice helpers', () => {
+  const n = (purpose: string, seq: number, at: string) => ({ purpose, seq, effectiveFrom: new Date(at) });
+  const now = Date.parse('2026-11-11T12:00:00Z');
+  const rows = [n('TRANSPORT_PROFILE', 1, '2026-11-01T00:00:00Z'), n('TRANSPORT_PROFILE', 2, '2026-11-10T00:00:00Z'), n('TRANSPORT_PROFILE', 3, '2026-12-01T00:00:00Z'), n('SOS_LOCATION', 1, '2026-11-01T00:00:00Z')];
+  it('current = highest seq already in force; scheduled = a later one; per purpose', () => {
+    expect(pickCurrentNotice(rows, 'TRANSPORT_PROFILE', now)?.seq).toBe(2);
+    expect(pickScheduledNotice(rows, 'TRANSPORT_PROFILE', now)?.seq).toBe(3);
+    expect(pickCurrentNotice(rows, 'SOS_LOCATION', now)?.seq).toBe(1);
+    expect(pickCurrentNotice(rows, 'NOTIFICATIONS_SMS', now)).toBeNull();
+    expect(pickCurrentNotice(rows, 'TRANSPORT_PROFILE', Date.parse('2026-10-01T00:00:00Z'))).toBeNull();
+  });
+  it('versions and body cleaning', () => {
+    expect(noticeVersionOf(12)).toBe('v12');
+    expect(cleanNoticeBody('  A  \r\nB\r\n\r\n\r\n\r\nC  ')).toBe('A\nB\n\nC');
+  });
+});
+
+describe('passenger history redaction', () => {
+  const entry = (changes: unknown, over: Record<string, unknown> = {}) => ({ id: 'a1', userId: 'u1', userName: 'Admin', action: 'UPDATE', entity: 'EmployeeTransportProfile', entityId: 'p1', changes, ip: '10.0.0.9', createdAt: '2026-11-11T00:00:00.000Z', ...over });
+  const diff = {
+    homeAddress: { from: 'changed:abc', to: 'changed:def' },
+    homeGeocodeSource: { from: 'PIN', to: 'PHOTON' },
+    accessibility: { from: null, to: 'changed:123' },
+    emergencyContacts: { from: 'changed:1', to: 'changed:2' },
+    mobile: { from: '+919876500011', to: '+919876500012' },
+    displayName: { from: 'Asha Krishnan', to: 'Asha Krishnan Iyer' },
+    defaultStopPoiId: { from: null, to: 'stop-1' },
+    branchId: { from: null, to: 'b1' },
+  };
+  const view = (projection: 'FULL' | 'STANDARD' | 'MINIMAL', contact: 'NONE' | 'MASKED' | 'CLEAR' = 'CLEAR') => ({ view: { projection, contact, agreementId: null }, routingConsent: false, profileEntity: 'EmployeeTransportProfile' });
+  it('recognises AuditService diffs', () => {
+    expect(isDiff(diff)).toBe(true);
+    expect(isDiff({ what: 'detail' })).toBe(false);
+    expect(isDiff({})).toBe(false);
+  });
+  it('FULL: everything, PD H values only as "changed"; diffs become { before, after }', () => {
+    const r = redactHistoryEntry(entry(diff), view('FULL'))!;
+    expect(r.changes).toEqual({
+      before: { homeAddress: 'changed', homeGeocodeSource: 'PIN', accessibility: null, emergencyContacts: 'changed', mobile: '+919876500011', displayName: 'Asha Krishnan', defaultStopPoiId: null, branchId: null },
+      after: { homeAddress: 'changed', homeGeocodeSource: 'PHOTON', accessibility: 'changed', emergencyContacts: 'changed', mobile: '+919876500012', displayName: 'Asha Krishnan Iyer', defaultStopPoiId: 'stop-1', branchId: 'b1' },
+    });
+    expect(r).toMatchObject({ userName: 'Admin', ip: '10.0.0.9' });
+  });
+  it('STANDARD: no home or emergency-contact keys, no IP, no ACCESS rows', () => {
+    const r = redactHistoryEntry(entry(diff), view('STANDARD'))!;
+    expect(Object.keys((r.changes as { after: object }).after).sort()).toEqual(['accessibility', 'branchId', 'defaultStopPoiId', 'displayName', 'mobile']);
+    expect(r.ip).toBeNull();
+    expect(redactHistoryEntry(entry({ what: 'detail' }, { action: 'ACCESS' }), view('STANDARD'))).toBeNull();
+  });
+  it('MINIMAL: projection fields only, short name, contacts per agreement, default stop only with routing consent, anonymous actor', () => {
+    const none = redactHistoryEntry(entry(diff), view('MINIMAL', 'NONE'))!;
+    expect(none.changes).toEqual({ before: { displayName: 'Asha K.' }, after: { displayName: 'Asha I.' } });
+    expect(none).toMatchObject({ userId: null, userName: null, ip: null });
+    const masked = redactHistoryEntry(entry(diff), { ...view('MINIMAL', 'MASKED'), routingConsent: true })!;
+    expect((masked.changes as { after: Record<string, unknown> }).after).toEqual({ displayName: 'Asha I.', mobile: '+91•••••00012', defaultStopPoiId: 'stop-1' });
+    expect(redactHistoryEntry(entry({ homeAddress: { from: null, to: 'changed:1' } }), view('MINIMAL'))).toBeNull();
+    expect(redactHistoryEntry(entry(diff, { entity: 'EmployeeTransportConsent' }), view('MINIMAL'))).toBeNull();
   });
 });

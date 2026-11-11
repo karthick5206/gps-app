@@ -282,6 +282,32 @@ Name per `02` §3.1 (Agent 1's table, Agent 6's purposes).
 - **Purge:** vehicle purge → FK Cascade (walked) → deleted. Company purge → `companyId` logical key → deleted.
 - **PD:** L. **Retention:** master. Why a side table and not a `TrackedObject` column: §7.3.
 
+### 4.3a `TransportConsentNotice` (customer-owned, immutable versions; added 2026-11-11, E2 gap 2)
+
+`10` §4.2 asks for versioned notice texts. A small table, not `Company.settings`: every version must stay readable as
+evidence for the consents given against it, and JSON settings are overwritten in place. Added to `etms_people` before
+that migration shipped.
+
+| Column | Prisma type | Null | Notes |
+|---|---|---|---|
+| `id` | `String @id @default(uuid()) @db.Uuid` | no | |
+| `companyId` | `String @db.Uuid` | no | customer; FK `Company` **Restrict** |
+| `purpose` | `String` | no | same set as consent purposes |
+| `seq` | `Int` | no | 1, 2, … per (company, purpose) |
+| `version` | `String` | no | `"v" + seq`; stored in `EmployeeTransportConsent.noticeVersion` |
+| `title`, `body` | `String` | no | plain text shown before a grant |
+| `locale` | `String @default("en")` | no | one locale per version in E2 |
+| `effectiveFrom` | `DateTime @db.Timestamptz(3)` | no | current = highest `seq` with `effectiveFrom ≤ now` |
+| `createdById` | `String? @db.Uuid` | yes | no FK |
+| `createdAt` | `DateTime @db.Timestamptz(3)` | no | |
+
+- **Indexes:** `@@unique([companyId, purpose, seq])`. **CHECK:** `seq ≥ 1 AND version = 'v' || seq AND` non-blank
+  `title` / `body`.
+- **Rules (service):** rows are never updated; publishing creates the next `seq`; `effectiveFrom` not in the past; a
+  grant records the current version (409 `CONSENT_NOTICE_MISSING` / `CONSENT_NOTICE_OUTDATED`).
+- **Purge:** company purge → `companyId` FK (Restrict, walked) → deleted. **PD:** L. **Retention:** life of the
+  consents that cite it (L3).
+
 ### 4.4 Existing-table change in E2
 
 `Driver.userId` (§7.2). `Poi` categories `OFFICE` / `SHUTTLE_STOP` need **no migration**: `Poi.category` is a

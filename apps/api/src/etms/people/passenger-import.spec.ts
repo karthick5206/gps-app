@@ -187,3 +187,32 @@ describe('parseRowSelection', () => {
     expect(() => parseRowSelection('5-2')).toThrow(ImportFormatError);
   });
 });
+
+describe('import geocoding confidence (Photon match type)', () => {
+  it('stores the confidence of the hit and warns GEOCODE_LOW_CONFIDENCE for a locality-level or coarser match', async () => {
+    const { PassengerImportService } = await import('./passenger-import.service');
+    const prisma = {
+      company: { findUnique: async () => ({ timezone: 'Asia/Kolkata' }) },
+      poi: { findMany: async () => [] },
+      branch: { findMany: async () => [] },
+      employeeTransportProfile: { findMany: async () => [] },
+    };
+    const hits: Record<string, { label: string; lat: number; lng: number; confidence: number | null; matchType: string | null }> = {
+      '12 MG Road Bengaluru': { label: '12 MG Road', lat: 12.975, lng: 77.606, confidence: 0.9, matchType: 'house' },
+      Bengaluru: { label: 'Bengaluru', lat: 12.97, lng: 77.59, confidence: 0.25, matchType: 'city' },
+      'Old Airport Road': { label: 'Old Airport Road', lat: 12.96, lng: 77.64, confidence: null, matchType: null },
+    };
+    const geocoding = { enabled: true, search: async (q: string) => (hits[q] ? [hits[q]] : []) };
+    const svc = new PassengerImportService(prisma as never, {} as never, geocoding as never);
+    const ctx = { companyId: 'c1', userId: 'u1', dataScope: 'COMPANY', branchIds: [], ip: null } as never;
+    const csv = buf('employee_code,name,home_address\nE1,Asha,12 MG Road Bengaluru\nE2,Ravi,Bengaluru\nE3,Mei,Old Airport Road\n');
+    const res = await svc.run(ctx, { buffer: csv }, { commit: false, geocode: true });
+    const [r1, r2, r3] = res.rows;
+    expect(r1.geocode?.confidence).toBe(0.9);
+    expect(r1.warnings.map((w) => w.code)).not.toContain('GEOCODE_LOW_CONFIDENCE');
+    expect(r2.geocode?.confidence).toBe(0.25);
+    expect(r2.warnings).toEqual([expect.objectContaining({ column: 'home_address', code: 'GEOCODE_LOW_CONFIDENCE' })]);
+    expect(r3.geocode?.confidence).toBeNull(); // no match type → null, no warning
+    expect(r3.warnings.map((w) => w.code)).not.toContain('GEOCODE_LOW_CONFIDENCE');
+  });
+});

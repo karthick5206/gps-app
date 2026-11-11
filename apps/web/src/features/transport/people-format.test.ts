@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CONSENT_PURPOSES, PASSENGER_IMPORT_COLUMNS, PASSENGER_IMPORT_MAX_BYTES, type ConsentRecordDto, type PassengerDto } from '@veetracer/shared';
+import { CONSENT_PURPOSES, PASSENGER_IMPORT_COLUMNS, PASSENGER_IMPORT_MAX_BYTES, type AuditLogDto, type ConsentNoticeDto, type ConsentRecordDto, type PassengerDto } from '@veetracer/shared';
 import {
+  canGrantWithNotice,
   committableRows,
   consentPurposeLabel,
   consentRows,
@@ -11,9 +12,16 @@ import {
   csvCell,
   formatCoords,
   formatRowSelection,
+  geocodeMatchBadge,
+  historyDetails,
+  historyEntrySummary,
+  historyFieldRows,
   importFileProblem,
   isApproximate,
   locationStatus,
+  LOGIN_REMOVAL_TEXT,
+  noticeFor,
+  noticeVersions,
   parseLatLng,
   parseRowSelection,
   parseSeats,
@@ -21,8 +29,8 @@ import {
   PASSENGER_IMPORT_EXAMPLE,
   peopleErrorKind,
   routingConsentBadge,
-  suggestedNoticeVersion,
   validateEmergencyContacts,
+  validateNoticeDraft,
 } from './people-format.ts';
 
 test('CSV template carries exactly the server columns, in order, with a BOM and CRLF', () => {
@@ -139,9 +147,6 @@ test('consentRows lists every purpose in order; timeline is newest first', () =>
   const h = (id: string, at: string, v = 'v1'): ConsentRecordDto => ({ id, purpose: 'TRANSPORT_PROFILE', granted: true, noticeVersion: v, locale: null, channel: 'WEB', subjectUserId: null, actorUserId: null, occurredAt: at });
   const tl = consentTimeline([h('a', '2026-01-01T00:00:00Z'), h('b', '2026-03-01T00:00:00Z', 'v3'), h('c', '2026-02-01T00:00:00Z')]);
   assert.deepEqual(tl.map((r) => r.id), ['b', 'c', 'a']);
-  assert.equal(suggestedNoticeVersion(null, tl), 'v3');
-  assert.equal(suggestedNoticeVersion({ noticeVersion: 'v9' }, tl), 'v9');
-  assert.equal(suggestedNoticeVersion(null, []), 'v1');
 });
 
 test('peopleErrorKind maps the E2 error codes', () => {
@@ -149,6 +154,8 @@ test('peopleErrorKind maps the E2 error codes', () => {
   assert.equal(peopleErrorKind('INVALID_STATE'), 'state');
   assert.equal(peopleErrorKind('PASSENGER_DUPLICATE'), 'duplicate');
   assert.equal(peopleErrorKind('IMPORT_FORMAT'), 'format');
+  assert.equal(peopleErrorKind('CONSENT_NOTICE_MISSING'), 'notice');
+  assert.equal(peopleErrorKind('CONSENT_NOTICE_OUTDATED'), 'notice');
   assert.equal(peopleErrorKind(null), 'other');
 });
 
@@ -172,4 +179,92 @@ test('parseLatLng and parseSeats', () => {
   assert.equal(parseSeats('0'), null);
   assert.equal(parseSeats('101'), null);
   assert.equal(parseSeats('4.5'), null);
+});
+
+const notice = (purpose: string, version: string, over: Partial<ConsentNoticeDto> = {}): ConsentNoticeDto => ({
+  id: `${purpose}-${version}`,
+  purpose,
+  version,
+  title: 'Transport planning',
+  body: 'We use your home location to plan your pickup.',
+  locale: 'en',
+  effectiveFrom: '2026-11-01T00:00:00.000Z',
+  createdAt: '2026-11-01T00:00:00.000Z',
+  createdByName: 'Admin',
+  ...over,
+});
+
+test('noticeFor / noticeVersions pick a purpose; grants need a notice in force', () => {
+  const dto = {
+    current: [
+      { purpose: 'TRANSPORT_PROFILE' as const, notice: notice('TRANSPORT_PROFILE', 'v2'), scheduled: notice('TRANSPORT_PROFILE', 'v10') },
+      { purpose: 'SOS_LOCATION' as const, notice: null, scheduled: null },
+    ],
+    history: [notice('TRANSPORT_PROFILE', 'v2'), notice('TRANSPORT_PROFILE', 'v10'), notice('SOS_LOCATION', 'v1'), notice('TRANSPORT_PROFILE', 'v1')],
+  };
+  assert.equal(noticeFor(dto, 'TRANSPORT_PROFILE').notice?.version, 'v2');
+  assert.equal(noticeFor(dto, 'TRANSPORT_PROFILE').scheduled?.version, 'v10');
+  assert.deepEqual(noticeFor(dto, 'NOTIFICATIONS_SMS'), { notice: null, scheduled: null });
+  assert.deepEqual(noticeFor(undefined, 'SOS_LOCATION'), { notice: null, scheduled: null });
+  assert.deepEqual(
+    noticeVersions(dto, 'TRANSPORT_PROFILE').map((n) => n.version),
+    ['v10', 'v2', 'v1'],
+  ); // numeric, not text order
+  assert.equal(canGrantWithNotice(noticeFor(dto, 'TRANSPORT_PROFILE').notice), true);
+  assert.equal(canGrantWithNotice(noticeFor(dto, 'SOS_LOCATION').notice), false);
+});
+
+test('validateNoticeDraft: required, limits, no past date, must differ from the notice in force', () => {
+  const now = Date.parse('2026-11-11T10:00:00Z');
+  const ok = validateNoticeDraft({ title: '  Transport   planning ', body: 'Text\r\nmore', effectiveFrom: '' }, null, now);
+  assert.deepEqual(ok, { errors: [], input: { title: 'Transport planning', body: 'Text\nmore' } });
+  assert.deepEqual(
+    validateNoticeDraft({ title: '', body: ' ', effectiveFrom: '' }, null, now).errors.map((e) => e.field),
+    ['title', 'body'],
+  );
+  assert.equal(validateNoticeDraft({ title: 'x'.repeat(121), body: 'b', effectiveFrom: '' }, null, now).errors[0].field, 'title');
+  assert.equal(validateNoticeDraft({ title: 't', body: 'b', effectiveFrom: '2026-11-01T09:00:00Z' }, null, now).errors[0].message, 'Cannot be in the past');
+  const future = validateNoticeDraft({ title: 't', body: 'b', effectiveFrom: '2026-12-01T09:00:00Z' }, null, now);
+  assert.equal(future.input?.effectiveFrom, '2026-12-01T09:00:00.000Z');
+  const same = validateNoticeDraft({ title: 'Transport planning', body: 'We use your home location to plan your pickup.', effectiveFrom: '' }, notice('TRANSPORT_PROFILE', 'v1'), now);
+  assert.equal(same.input, null);
+  assert.match(same.errors[0].message, /Nothing changed/);
+});
+
+test('geocodeMatchBadge maps Photon confidence; null confidence shows nothing', () => {
+  assert.equal(geocodeMatchBadge({ confidence: 0.9 })?.label, 'Exact address');
+  assert.equal(geocodeMatchBadge({ confidence: 0.6 })?.label, 'Street');
+  assert.equal(geocodeMatchBadge({ confidence: 0.25 })?.tone, 'warning');
+  assert.equal(geocodeMatchBadge({ confidence: null }), null);
+});
+
+test('history entries: titles per entity / action, readable field rows, hidden values say so', () => {
+  const e = (entity: string, action: string, changes: unknown): Pick<AuditLogDto, 'entity' | 'action' | 'changes'> => ({ entity, action, changes });
+  assert.equal(historyEntrySummary(e('EmployeeTransportProfile', 'CREATE', { before: {}, after: { employeeCode: 'E1' } })).title, 'Passenger added');
+  assert.equal(historyEntrySummary(e('EmployeeTransportProfile', 'UPDATE', { before: { isActive: true }, after: { isActive: false } })).title, 'Passenger archived');
+  assert.equal(historyEntrySummary(e('EmployeeTransportProfile', 'UPDATE', { before: { userId: 'u' }, after: { userId: null } })).title, 'App login unlinked');
+  assert.equal(historyEntrySummary(e('EmployeeTransportProfile', 'UPDATE', { before: { mobile: 'a' }, after: { mobile: 'b' } })).title, 'Profile changed');
+  assert.deepEqual(historyEntrySummary(e('EmployeeTransportConsent', 'CREATE', { before: {}, after: { purpose: 'TRANSPORT_PROFILE', granted: true } })), { title: 'Consent given', detail: 'Transport planning', tone: 'success' });
+  assert.equal(historyEntrySummary(e('EmployeeTransportConsent', 'CREATE', { before: {}, after: { purpose: 'SOS_LOCATION', granted: false } })).tone, 'destructive');
+  assert.equal(historyEntrySummary(e('User', 'UPDATE', { what: 'passenger-login-disabled', outcome: 'DEACTIVATED' })).title, 'App login disabled');
+  assert.equal(historyEntrySummary(e('User', 'UPDATE', { what: 'passenger-login-unlinked' })).title, 'App login unlinked');
+  assert.deepEqual(historyEntrySummary(e('EmployeeTransportProfile', 'ACCESS', { what: 'detail', agreementId: 'a' })), { title: 'Details viewed', detail: 'By a transport provider', tone: 'muted' });
+  assert.deepEqual(
+    historyFieldRows({ before: { homeAddress: 'changed', isActive: true, officePoiId: null }, after: { homeAddress: 'changed', isActive: false, officePoiId: 's1' } }),
+    [
+      { field: 'homeAddress', label: 'Home address', before: 'Changed (value hidden)', after: 'Changed (value hidden)' },
+      { field: 'isActive', label: 'Active', before: 'Yes', after: 'No' },
+      { field: 'officePoiId', label: 'Office / site', before: '—', after: 's1' },
+    ],
+  );
+  assert.deepEqual(historyFieldRows({ what: 'detail' }), []);
+  assert.deepEqual(historyDetails({ what: 'passenger-login-disabled', outcome: 'DEACTIVATED', passengerId: 'p' }), [{ key: 'outcome', value: 'DEACTIVATED' }]);
+  assert.deepEqual(historyDetails({ before: {}, after: {} }), []);
+});
+
+test('login removal wording distinguishes disable (link kept) from unlink (link removed)', () => {
+  assert.equal(LOGIN_REMOVAL_TEXT.disable.action, 'Disable login');
+  assert.match(LOGIN_REMOVAL_TEXT.disable.description, /enable it again/);
+  assert.equal(LOGIN_REMOVAL_TEXT.unlink.action, 'Unlink login');
+  assert.match(LOGIN_REMOVAL_TEXT.unlink.description, /not deleted/);
 });

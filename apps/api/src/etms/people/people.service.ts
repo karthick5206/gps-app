@@ -8,7 +8,9 @@ import {
   normalisePhone,
   phoneCountryForTimezone,
   validHomePoint,
+  type AuditLogDto,
   type ConsentChannel,
+  type LoginRemovalMode,
   type ConsentRecordDto,
   type GeocodeCandidate,
   type PassengerAppAccessResult,
@@ -24,7 +26,9 @@ import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query
 import { GeocodingService } from '../../geocoding/geocoding.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { ConsentNoticeService } from './consent-notice.service';
 import { createOrLinkLogin, disableLogin } from './identity-link';
+import { redactHistoryEntry } from './passenger-history';
 import {
   PASSENGER_INCLUDE,
   accessibilityOf,
@@ -128,6 +132,7 @@ export class PeopleService {
     private readonly audit: AuditService,
     private readonly redis: RedisService,
     private readonly geocoding: GeocodingService,
+    private readonly notices: ConsentNoticeService,
   ) {}
 
   // ───────────────────────────── reads ─────────────────────────────
@@ -195,6 +200,36 @@ export class PeopleService {
     const dto = await this.consentHistory(row.id);
     await this.auditAccess(ctx, row, view, 'consent-history', access);
     return dto;
+  }
+
+  /**
+   * The passenger's history from the audit log (profile changes, consent records, login changes; sensitive reads for
+   * the corporate admin), redacted per view level by passenger-history.ts. Audited as a read.
+   */
+  async history(ctx: AuthContext, id: string, access: AccessReason = {}): Promise<AuditLogDto[]> {
+    const { row, view } = await this.findVisible(ctx, id);
+    const or: Prisma.AuditLogWhereInput[] = [{ entity: PROFILE_ENTITY, entityId: row.id }];
+    if (view.projection !== 'MINIMAL') {
+      const consentIds = (await this.prisma.employeeTransportConsent.findMany({ where: { profileId: row.id }, select: { id: true } })).map((c) => c.id);
+      if (consentIds.length) or.push({ entity: CONSENT_ENTITY, entityId: { in: consentIds } });
+      // Login changes are audited on the User with the passenger id in the details (or the CREATE diff).
+      or.push({ entity: 'User', changes: { path: ['passengerId'], equals: row.id } });
+      or.push({ entity: 'User', changes: { path: ['passengerId', 'to'], equals: row.id } });
+    }
+    const rows = await this.prisma.auditLog.findMany({
+      where: { companyId: row.companyId, OR: or, ...(view.projection === 'FULL' ? {} : { action: { not: 'ACCESS' } }) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 300,
+    });
+    const consents = await latestConsents(this.prisma, [row.id]);
+    const routingConsent = currentConsents(consents.get(row.id) ?? []).find((c) => c.purpose === ROUTING_CONSENT_PURPOSE)?.active ?? false;
+    const h = { view, routingConsent, profileEntity: PROFILE_ENTITY };
+    const out = (await this.audit.toDtos(rows)).flatMap((e) => {
+      const r = redactHistoryEntry(e, h);
+      return r ? [r] : [];
+    });
+    await this.auditAccess(ctx, row, view, 'history', access);
+    return out;
   }
 
   /** Photon candidates for an address (self-hosted only; [] when no geocoder is configured). */
@@ -301,13 +336,21 @@ export class PeopleService {
     return { passenger: toPassengerDto(fresh, view, consents.get(row.id) ?? [], true), outcome: result.outcome, invite: { channel: 'MANUAL', passwordSet: result.passwordSet } };
   }
 
-  async revokeAppAccess(ctx: AuthContext, id: string): Promise<PassengerDto> {
+  /**
+   * Remove the passenger's login (LoginRemovalMode): `disable` (default) keeps the link so the login can be enabled
+   * again; `unlink` also clears profile.userId so another login can be created or linked. The User is never deleted.
+   */
+  async revokeAppAccess(ctx: AuthContext, id: string, mode: LoginRemovalMode = 'disable'): Promise<PassengerDto> {
     const { row, view } = await this.findWritable(ctx, id);
     if (!row.userId) throw new ConflictException(err('INVALID_STATE', 'This passenger has no login'));
     const userId = row.userId;
     await this.prisma.$transaction(async (tx) => {
       const outcome = await disableLogin(tx, row.companyId, userId, ETMS_PASSENGER_ROLE_NAME);
-      await this.audit.record(ctx, { action: 'UPDATE', entity: 'User', entityId: userId, details: { what: 'passenger-login-disabled', outcome, passengerId: row.id } }, tx);
+      await this.audit.record(ctx, { action: 'UPDATE', entity: 'User', entityId: userId, details: { what: mode === 'unlink' ? 'passenger-login-unlinked' : 'passenger-login-disabled', outcome, passengerId: row.id } }, tx);
+      if (mode === 'unlink') {
+        await tx.employeeTransportProfile.update({ where: { id: row.id }, data: { userId: null } });
+        await this.audit.record(ctx, { action: 'UPDATE', entity: PROFILE_ENTITY, entityId: row.id, before: { userId }, after: { userId: null } }, tx);
+      }
     });
     await this.redis.invalidateCache('user').catch(() => undefined);
     const fresh = await this.prisma.employeeTransportProfile.findUniqueOrThrow({ where: { id: row.id }, include: PASSENGER_INCLUDE });
@@ -337,6 +380,12 @@ export class PeopleService {
     return this.consentHistory(row.id);
   }
 
+  /** The notices the signed-in passenger is asked to agree to (current version per purpose). */
+  async myNotices(ctx: AuthContext) {
+    const row = await this.myProfileRow(ctx);
+    return this.notices.currentAll(row.companyId);
+  }
+
   async recordMyConsent(ctx: AuthContext, dto: RecordConsentDto, channel: ConsentChannel = 'WEB'): Promise<PassengerConsentsDto> {
     const row = await this.myProfileRow(ctx);
     await this.recordConsent(ctx, row, dto, channel);
@@ -344,13 +393,26 @@ export class PeopleService {
   }
 
   /**
-   * Append one evidence row. A grant that repeats the current grant with the same notice version, or a withdrawal of a
-   * consent that is not active, writes nothing (idempotent); anything else appends (history is never rewritten).
+   * Append one evidence row. A grant records the company's CURRENT notice version for the purpose (doc 10 §4.2): no
+   * notice → 409 CONSENT_NOTICE_MISSING; the client showed another version → 409 CONSENT_NOTICE_OUTDATED. A withdrawal
+   * records the version of the grant it withdraws. A grant that repeats the current grant on the same version, or a
+   * withdrawal of a consent that is not active, writes nothing (idempotent); history is never rewritten.
    */
   private async recordConsent(ctx: AuthContext, row: PassengerRow, dto: RecordConsentDto, channel: ConsentChannel): Promise<void> {
     const current = currentConsents((await latestConsents(this.prisma, [row.id])).get(row.id) ?? []).find((c) => c.purpose === dto.purpose);
-    if (dto.granted && current?.active && current.noticeVersion === dto.noticeVersion) return;
-    if (!dto.granted && !current?.active) return;
+    let noticeVersion: string;
+    if (dto.granted) {
+      const notice = await this.notices.current(row.companyId, dto.purpose);
+      if (!notice) throw new ConflictException(err('CONSENT_NOTICE_MISSING', 'Publish the consent notice for this purpose in Transport settings first'));
+      if (dto.noticeVersion && dto.noticeVersion.trim() !== notice.version) {
+        throw new ConflictException({ ...err('CONSENT_NOTICE_OUTDATED', 'The notice has changed since it was shown. Read the current notice and try again.'), currentVersion: notice.version });
+      }
+      noticeVersion = notice.version;
+      if (current?.active && current.noticeVersion === noticeVersion) return;
+    } else {
+      if (!current?.active) return;
+      noticeVersion = current.noticeVersion ?? dto.noticeVersion?.trim() ?? '-';
+    }
     await this.prisma.$transaction(async (tx) => {
       const created = await tx.employeeTransportConsent.create({
         data: {
@@ -359,7 +421,7 @@ export class PeopleService {
           subjectUserId: row.userId,
           actorUserId: ctx.userId,
           purpose: dto.purpose,
-          noticeVersion: dto.noticeVersion.trim(),
+          noticeVersion,
           locale: dto.locale ?? null,
           granted: dto.granted,
           channel,
@@ -513,7 +575,7 @@ export class PeopleService {
     if (home.geocode && address) {
       const [hit] = await this.geocoding.search(address);
       if (hit && validHomePoint(hit.lat, hit.lng)) {
-        return { homeAddress: address, homeLat: Number(hit.lat.toFixed(6)), homeLng: Number(hit.lng.toFixed(6)), homeGeocodeSource: 'PHOTON', homeGeocodeConfidence: null };
+        return { homeAddress: address, homeLat: Number(hit.lat.toFixed(6)), homeLng: Number(hit.lng.toFixed(6)), homeGeocodeSource: 'PHOTON', homeGeocodeConfidence: hit.confidence };
       }
     }
     // Address only: a new address makes the old pin stale ("Needs location"); the same address keeps it.

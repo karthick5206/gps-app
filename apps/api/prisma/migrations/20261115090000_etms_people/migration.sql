@@ -1,20 +1,22 @@
 -- ETMS E2: people, capacity, driver login (docs/employee-transport/15 §4, §7.2, §7.3; 12 WP 2.0). Additive only.
 -- * EmployeeTransportProfile (customer-owned passenger, PD H), EmployeeTransportConsent (append-only evidence, PD M),
---   TransportVehicleProfile (operator-owned seat-capacity side table, PD L), Driver.userId (nullable, unique, SET NULL).
+--   TransportVehicleProfile (operator-owned seat-capacity side table, PD L), Driver.userId (nullable, unique, SET NULL),
+--   TransportConsentNotice (company-level versioned consent notice text, doc 10 §4.2, PD L; added 2026-11-11 before
+--   the migration shipped, E2 gap 2).
 -- * Poi categories OFFICE / SHUTTLE_STOP need no DDL (Poi.category is a string).
 -- * No data: no backfill, no RolePermission rows (role templates are seeded by code when `etms` is switched on).
--- * Locks: Driver gets a nullable column (metadata only) and a unique index on a small table; the three new tables are
+-- * Locks: Driver gets a nullable column (metadata only) and a unique index on a small table; the four new tables are
 --   empty, so their FKs take only a brief SHARE ROW EXCLUSIVE on Company / Branch / User / Poi / TrackedObject.
 --
 -- Rollback (forward-only repo, doc 15 §9.4): switch off (ETMS=off or company add-on `etms` off) — profiles, consents and
 -- vehicle profiles are then unread and Driver.userId is ignored by fleet code. A defect is fixed by a new forward
 -- migration (relax a CHECK, add a column). A full revert needs owner authorisation (destructive once rows exist):
 --   DROP TABLE "EmployeeTransportConsent"; DROP TABLE "EmployeeTransportProfile"; DROP TABLE "TransportVehicleProfile";
---   ALTER TABLE "Driver" DROP COLUMN "userId";
+--   DROP TABLE "TransportConsentNotice"; ALTER TABLE "Driver" DROP COLUMN "userId";
 --
 -- Purge (doc 15 §6): company purge → profile via its companyId FK (RESTRICT, walked) and consents via the composite
 -- profile FK (row id first, so the planner sees profileId → id) and the companyId logical key (no FK on that column);
--- vehicle profiles via the companyId logical key. Vehicle purge → TransportVehicleProfile CASCADE. User purge →
+-- vehicle profiles via the companyId logical key; consent notices via their companyId FK (RESTRICT, walked). Vehicle purge → TransportVehicleProfile CASCADE. User purge →
 -- EmployeeTransportProfile.userId and Driver.userId SET NULL (rows and their personal data survive: erasure routine,
 -- WP 2.6 / L5). No CHECK involves a column that a purge sets to NULL (doc 15 §1.3).
 
@@ -84,6 +86,23 @@ CREATE TABLE "TransportVehicleProfile" (
     CONSTRAINT "TransportVehicleProfile_pkey" PRIMARY KEY ("objectId")
 );
 
+-- CreateTable
+CREATE TABLE "TransportConsentNotice" (
+    "id" UUID NOT NULL,
+    "companyId" UUID NOT NULL,
+    "purpose" TEXT NOT NULL,
+    "seq" INTEGER NOT NULL,
+    "version" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "body" TEXT NOT NULL,
+    "locale" TEXT NOT NULL DEFAULT 'en',
+    "effectiveFrom" TIMESTAMPTZ(3) NOT NULL,
+    "createdById" UUID,
+    "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "TransportConsentNotice_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "EmployeeTransportProfile_userId_key" ON "EmployeeTransportProfile"("userId");
 
@@ -104,6 +123,9 @@ CREATE INDEX "EmployeeTransportConsent_profileId_purpose_occurredAt_idx" ON "Emp
 
 -- CreateIndex
 CREATE INDEX "TransportVehicleProfile_companyId_idx" ON "TransportVehicleProfile"("companyId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TransportConsentNotice_companyId_purpose_seq_key" ON "TransportConsentNotice"("companyId", "purpose", "seq");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Driver_userId_key" ON "Driver"("userId");
@@ -132,6 +154,9 @@ ALTER TABLE "EmployeeTransportConsent" ADD CONSTRAINT "EmployeeTransportConsent_
 -- AddForeignKey
 ALTER TABLE "TransportVehicleProfile" ADD CONSTRAINT "TransportVehicleProfile_objectId_fkey" FOREIGN KEY ("objectId") REFERENCES "TrackedObject"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE "TransportConsentNotice" ADD CONSTRAINT "TransportConsentNotice_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
 
 
 -- Raw SQL (Prisma cannot express these; documented on the models).
@@ -146,3 +171,6 @@ ALTER TABLE "EmployeeTransportProfile" ADD CONSTRAINT "EmployeeTransportProfile_
 -- Passenger seats exclude the driver; wheelchair spaces never negative.
 ALTER TABLE "TransportVehicleProfile" ADD CONSTRAINT "TransportVehicleProfile_seats_check" CHECK ("seats" BETWEEN 1 AND 100);
 ALTER TABLE "TransportVehicleProfile" ADD CONSTRAINT "TransportVehicleProfile_wheelchair_check" CHECK ("wheelchairSpaces" >= 0);
+-- Notice versions are "v1", "v2"… derived from seq; a notice always has text.
+ALTER TABLE "TransportConsentNotice" ADD CONSTRAINT "TransportConsentNotice_version_check"
+  CHECK ("seq" >= 1 AND "version" = 'v' || "seq"::text AND length(btrim("body")) > 0 AND length(btrim("title")) > 0);
