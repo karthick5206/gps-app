@@ -194,6 +194,8 @@ function world() {
     transportChangeSet: { findMany: async () => [] },
     transportSchedule: { findMany: async () => [] },
     transportScheduleException: { findMany: async () => [] },
+    // E4 routing plans (erasure and consent withdrawal scrub plan stops): this world has no plans.
+    routePlanStop: { findMany: async () => [] },
     $executeRaw: async () => 0,
     $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join('?');

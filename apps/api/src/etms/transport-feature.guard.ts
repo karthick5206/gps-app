@@ -5,6 +5,13 @@ import { AuthContext, AuthedRequest } from '../access/auth-context';
 export const etmsServerEnabled = (): boolean => (process.env.ETMS ?? '').trim().toLowerCase() !== 'off';
 
 /**
+ * ETMS E4 planning / optimisation / routing worker switch (doc 17 §7): off unless ETMS_ROUTING is exactly `on`, and only
+ * while ETMS itself is on. Company add-on `etms` still applies per request (TransportFeatureGuard).
+ */
+export const etmsRoutingEnabled = (env: NodeJS.ProcessEnv = process.env): boolean =>
+  (env.ETMS ?? '').trim().toLowerCase() !== 'off' && (env.ETMS_ROUTING ?? '').trim().toLowerCase() === 'on';
+
+/**
  * On every ETMS controller (doc 05 §1 "Feature gate"): plain 404 when ETMS is switched off on the server or the acting
  * company's add-on `etms` is off. Complements the menu gating in PermissionGuard for routes guarded by relationship
  * guards rather than menus (E3+).
