@@ -41,8 +41,11 @@ d(`etms_accounts on ${dbName}`, () => {
     const outcomes: Record<string, string> = {};
     await prisma
       .$transaction(async (tx) => {
-        const [partner] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Partner" LIMIT 1`;
-        if (!partner) throw new Error('no Partner row: run the seed first');
+        // A migrated, empty database (CI job api-db) has no Partner: create one inside this rolled-back transaction.
+        const [existing] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Partner" LIMIT 1`;
+        const [partner] = existing
+          ? [existing]
+          : await tx.$queryRaw<{ id: string }[]>`INSERT INTO "Partner" (id, name, slug, "updatedAt") VALUES (gen_random_uuid(), 'etms-db-test partner', 'etms-db-test-' || gen_random_uuid(), now()) RETURNING id`;
         const [p] = await tx.$queryRaw<{ id: string }[]>`INSERT INTO "Company" (id, "partnerId", name, "updatedAt") VALUES (gen_random_uuid(), ${partner.id}::uuid, 'etms-db-test provider', now()) RETURNING id`;
         const [c] = await tx.$queryRaw<{ id: string }[]>`INSERT INTO "Company" (id, "partnerId", name, "updatedAt") VALUES (gen_random_uuid(), ${partner.id}::uuid, 'etms-db-test customer', now()) RETURNING id`;
         const insert = (cols: string) =>

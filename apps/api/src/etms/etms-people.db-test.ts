@@ -73,13 +73,19 @@ async function counts(tx: Tx, company: string) {
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
 }
 
+/** A throw-away Partner for an unseeded database (Company.partnerId is required). */
+async function scratchPartner(db: Pick<Tx, '$queryRaw'>): Promise<string> {
+  const [p] = await db.$queryRaw<{ id: string }[]>`INSERT INTO "Partner" (id, name, slug, "updatedAt") VALUES (gen_random_uuid(), 'etms-people-db-test partner', 'etms-people-db-test-' || gen_random_uuid(), now()) RETURNING id`;
+  return p.id;
+}
+
 async function inRollback(prisma: PrismaClient, fn: (tx: Tx, partnerId: string) => Promise<void>): Promise<void> {
   await prisma
     .$transaction(
       async (tx) => {
+        // A migrated, empty database (CI job api-db) has no Partner: create one inside the rolled-back transaction.
         const [partner] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Partner" LIMIT 1`;
-        if (!partner) throw new Error('no Partner row: run the seed first');
-        await fn(tx, partner.id);
+        await fn(tx, partner?.id ?? (await scratchPartner(tx)));
         throw new Rollback();
       },
       { timeout: 120_000, maxWait: 10_000 },
@@ -258,19 +264,23 @@ d(`etms_people import performance on ${dbName}`, () => {
   jest.setTimeout(300_000);
   const prisma = new PrismaClient({ datasourceUrl: URL_ });
   const companyId = randomUUID();
+  /** A Partner this suite created (empty, unseeded database): removed again in afterAll. */
+  let ownPartnerId: string | null = null;
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM "AuditLog" WHERE "companyId" = '${companyId}'`);
     await prisma.$executeRawUnsafe(`DELETE FROM "EmployeeTransportProfile" WHERE "companyId" = '${companyId}'`);
     await prisma.$executeRawUnsafe(`DELETE FROM "Poi" WHERE "companyId" = '${companyId}'`);
     await prisma.$executeRawUnsafe(`DELETE FROM "Company" WHERE id = '${companyId}'`);
+    if (ownPartnerId) await prisma.$executeRawUnsafe(`DELETE FROM "Partner" WHERE id = '${ownPartnerId}'`);
     await prisma.$disconnect();
   });
 
   it('10,000 rows: commit ≤ 60 s, second commit creates 0 rows', async () => {
     const { PassengerImportService } = await import('./people/passenger-import.service');
     const { AuditService } = await import('../audit/audit.service');
-    const [partner] = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "Partner" LIMIT 1`;
-    await prisma.$executeRawUnsafe(`INSERT INTO "Company" (id, "partnerId", name, "updatedAt") VALUES ('${companyId}', '${partner.id}', 'etms-people-db-test import', now())`);
+    const [existing] = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "Partner" LIMIT 1`;
+    const partnerId = existing?.id ?? (ownPartnerId = await scratchPartner(prisma));
+    await prisma.$executeRawUnsafe(`INSERT INTO "Company" (id, "partnerId", name, "updatedAt") VALUES ('${companyId}', '${partnerId}', 'etms-people-db-test import', now())`);
     await prisma.$executeRawUnsafe(`INSERT INTO "Poi" (id, "companyId", name, category, lat, lng, "updatedAt") VALUES (gen_random_uuid(), '${companyId}', 'HQ', 'OFFICE', 13.0, 80.2, now())`);
     const lines = ['employee_code,name,mobile,email,home_lat,home_lng,office'];
     for (let i = 0; i < 10_000; i++) {
