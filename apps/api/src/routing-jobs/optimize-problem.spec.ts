@@ -24,6 +24,26 @@ describe('optimise problem mapping (solver contract v2)', () => {
     expect(JSON.stringify(p)).not.toMatch(/booking-|"ref"|"lat"|"lng"|P1/);
   });
 
+  it('passengerIds and a wheelchair need go to the solver (data the model holds); no gender, no escort field', () => {
+    const inp = syntheticPlan();
+    inp.stops[0].passengerIds = ['profile-1'];
+    inp.stops[0].wheelchair = 1;
+    inp.vehicles[1].wheelchairSpaces = 1;
+    const p = solverProblem(inp, planPoints(inp), testMatrix(5), { timeLimitS: 5 });
+    expect(p.stops[0]).toMatchObject({ passengerIds: ['profile-1'], wheelchair: 1 });
+    expect(p.stops[1]).not.toHaveProperty('wheelchair');
+    expect(p.vehicles[1]).toMatchObject({ wheelchairSpaces: 1 });
+    expect(JSON.stringify(p)).not.toMatch(/gender|escort/i);
+  });
+
+  it('a route carrying more wheelchairs than the vehicle has spaces is rejected', () => {
+    const inp = syntheticPlan();
+    inp.stops[0].wheelchair = 1;
+    const b = planPoints(inp);
+    const r = greedySolve(solverProblem(inp, b, testMatrix(5), { timeLimitS: 5 }));
+    expect(() => mapSolverResult(inp, b, r, null)).toThrow(/wheelchair/);
+  });
+
   it('IN without a depot: open start (startIndex null, sent explicitly)', () => {
     const b = planPoints(syntheticPlan({ depot: null }));
     expect(b.startIndex).toBeNull();

@@ -29,6 +29,9 @@ function pointOf(raw: Prisma.JsonValue | null): { lat: number; lng: number } | n
   return typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
 }
 
+/** 1 when the profile records a wheelchair need ({ wheelchair: true }), else 0. */
+const wheelchairOf = (raw: unknown): number => (raw && typeof raw === 'object' && (raw as { wheelchair?: unknown }).wheelchair === true ? 1 : 0);
+
 const optionsOf = (raw: unknown): Record<string, unknown> => (raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {});
 
 /** RoutePlan.options.weights when complete and valid (all four finite, ≥ 0, one of distance / time / routeDuration > 0). */
@@ -104,7 +107,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     const bookingIds = [...new Set(plan.stops.map((s) => s.bookingId).filter((b): b is string => !!b))];
     const bookings = new Map(
       (bookingIds.length
-        ? await this.db.transportBooking.findMany({ where: { id: { in: bookingIds } }, select: { id: true, profileId: true, status: true, passengerCount: true, windowStart: true, windowEnd: true } })
+        ? await this.db.transportBooking.findMany({ where: { id: { in: bookingIds } }, select: { id: true, profileId: true, status: true, passengerCount: true, windowStart: true, windowEnd: true, profile: { select: { accessibility: true } } } })
         : []
       ).map((b) => [b.id, b]),
     );
@@ -157,6 +160,10 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
         personal: !!owner,
         atSite,
         customerId: s.customerCompanyId,
+        // Solver inputs the data model holds (WP 4.3): the passenger (pseudonymous profile id, for per-passenger reasons)
+        // and a wheelchair need (EmployeeTransportProfile.accessibility.wheelchair) on the passenger's own stop. Escort
+        // requirements have no field yet (deferred); gender is never sent.
+        ...(booking && !atSite ? { passengerIds: [booking.profileId], wheelchair: wheelchairOf(booking.profile?.accessibility) } : {}),
         pinnedAssignmentId: locks.pinnedStopIds.has(s.id) && s.assignmentId ? s.assignmentId : null,
       });
     }

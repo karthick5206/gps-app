@@ -37,6 +37,10 @@ export interface PlanStopInput {
   customerId: string | null;
   /** Pinned stop: stays on this assignment (solver pinnedVehicleId). */
   pinnedAssignmentId?: string | null;
+  /** Passenger profile ids at this stop (pseudonymous; the solver echoes them in per-passenger reasons). */
+  passengerIds?: string[];
+  /** Wheelchair spaces needed (EmployeeTransportProfile.accessibility.wheelchair). */
+  wheelchair?: number;
 }
 
 export interface PlanVehicleInput {
@@ -136,7 +140,7 @@ export interface SolverProblemV2 {
   schemaVersion?: 1 | 2;
   matrix: { durationsS: (number | null)[][]; distancesM?: (number | null)[][] | null };
   vehicles: { id: string; startIndex: number | null; endIndex: number | null; capacity?: number | null; timeWindow?: [number, number] | null; type?: string; wheelchairSpaces?: number }[];
-  stops: (SolverStop & { customerId?: string; pinnedVehicleId?: string })[];
+  stops: (SolverStop & { customerId?: string; pinnedVehicleId?: string; passengerIds?: string[]; wheelchair?: number })[];
   horizonS: number;
   trip?: { direction: 'IN' | 'OUT'; siteIndex: number; siteWindow: [number, number]; maxRideS?: number };
   options: SolverOptions & { weights: SolverWeights; deterministic?: boolean; allowMixedCustomers?: boolean };
@@ -165,6 +169,8 @@ export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, 
     priority: 1,
     ...(s.customerId ? { customerId: s.customerId } : {}),
     ...(s.pinnedAssignmentId && vehicleIds.has(s.pinnedAssignmentId) ? { pinnedVehicleId: s.pinnedAssignmentId } : {}),
+    ...(s.passengerIds?.length ? { passengerIds: s.passengerIds } : {}),
+    ...(s.wheelchair ? { wheelchair: s.wheelchair } : {}),
   }));
   return {
     schemaVersion: 2,
@@ -224,6 +230,8 @@ export function verifyRoutes(inp: PlanInputs, b: BuiltProblem, r: SolverResult):
     const cap = vehicle.get(route.vehicleId)?.capacity ?? null;
     const seats = route.stops.reduce((n, v) => n + Math.max(0, Math.round(stop.get(v.stopId)?.demand ?? 0)), 0);
     if (cap !== null && seats > cap) bad(`vehicle over capacity (${seats} > ${cap})`);
+    const chairs = route.stops.reduce((n, v) => n + (stop.get(v.stopId)?.wheelchair ?? 0), 0);
+    if (chairs > (vehicle.get(route.vehicleId)?.wheelchairSpaces ?? 0)) bad(`more wheelchairs than wheelchair spaces (${chairs})`);
     for (const v of route.stops) {
       const tw = stop.get(v.stopId)?.timeWindows;
       if (tw?.length && !tw.some(([a, z]) => v.serviceStartS >= a - 1 && v.serviceStartS <= z + 1)) bad('a visit outside its time window');
