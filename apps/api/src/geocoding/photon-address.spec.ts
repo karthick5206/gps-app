@@ -1,4 +1,4 @@
-import { photonAddress } from './geocoding.service';
+import { photonAddress, photonConfidence } from './geocoding.service';
 
 describe('photonAddress', () => {
   it('builds a short Indian address and drops repeated parts', () => {
@@ -15,5 +15,22 @@ describe('photonAddress', () => {
 
   it('returns null when nothing is usable', () => {
     expect(photonAddress({})).toBeNull();
+  });
+});
+
+describe('photonConfidence', () => {
+  it('maps the Photon match type to a confidence, house numbers highest', () => {
+    expect(photonConfidence({ type: 'house', housenumber: '12', street: 'MG Road' })).toBe(0.9);
+    expect(photonConfidence({ type: 'house', name: 'Tidel Park' })).toBe(0.8);
+    expect(photonConfidence({ type: 'street' })).toBe(0.6);
+    expect(photonConfidence({ type: 'locality' })).toBe(0.4);
+    expect(photonConfidence({ type: 'city' })).toBe(0.25);
+    expect(photonConfidence({ type: 'COUNTRY' })).toBe(0.05);
+  });
+
+  it('is null without a usable type (no importance in the Photon API output)', () => {
+    expect(photonConfidence(undefined)).toBeNull();
+    expect(photonConfidence({ importance: '0.7' })).toBeNull();
+    expect(photonConfidence({ type: 'planet' })).toBeNull();
   });
 });

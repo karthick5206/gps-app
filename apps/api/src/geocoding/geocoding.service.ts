@@ -20,6 +20,39 @@ export function photonAddress(p: Record<string, string | undefined>): string | n
   return parts.join(', ');
 }
 
+/**
+ * Confidence (0..1) of a Photon search hit from its match type. Photon's HTTP API exposes no score: `importance` is used
+ * only for its internal ranking and is not part of the GeoJSON properties, so the only usable signal is `type` (the
+ * granularity of the matched object) plus whether a house number matched. null when Photon sent no type.
+ */
+const PHOTON_TYPE_CONFIDENCE: Record<string, number> = {
+  house: 0.8,
+  street: 0.6,
+  other: 0.5,
+  locality: 0.4,
+  district: 0.35,
+  city: 0.25,
+  county: 0.15,
+  state: 0.1,
+  country: 0.05,
+};
+export function photonConfidence(p: Record<string, string | undefined> | undefined): number | null {
+  const type = p?.type?.toLowerCase();
+  if (!type) return null;
+  if (type === 'house' && p?.housenumber?.trim()) return 0.9;
+  return PHOTON_TYPE_CONFIDENCE[type] ?? null;
+}
+
+export interface GeocodeHit {
+  label: string;
+  lat: number;
+  lng: number;
+  /** photonConfidence of the hit (null when Photon gave no match type). */
+  confidence: number | null;
+  /** Photon `type` (house, street, city…), or null. */
+  matchType: string | null;
+}
+
 /** AddressCache key: coordinates rounded to 4 decimals (~11 m). */
 export const addressKey = (lat: number, lng: number): string => `${lat.toFixed(4)},${lng.toFixed(4)}`;
 
@@ -51,7 +84,7 @@ export class GeocodingService {
   }
 
   /** Address / place search for picking a destination (Photon only; up to 6 results near India). */
-  async search(q: string, near?: { lat: number; lng: number }): Promise<{ label: string; lat: number; lng: number }[]> {
+  async search(q: string, near?: { lat: number; lng: number }): Promise<GeocodeHit[]> {
     if (!this.enabled || this.provider !== 'photon' || q.trim().length < 3) return [];
     try {
       const p = new URLSearchParams({ q: q.trim(), limit: '6', lang: 'en', bbox: '68,6,98,37' });
@@ -65,7 +98,7 @@ export class GeocodingService {
       return (body.features ?? []).flatMap((f) => {
         const c = f.geometry?.coordinates;
         const label = f.properties ? photonAddress(f.properties) : null;
-        return c && label ? [{ label, lat: c[1], lng: c[0] }] : [];
+        return c && label ? [{ label, lat: c[1], lng: c[0], confidence: photonConfidence(f.properties), matchType: f.properties?.type ?? null }] : [];
       });
     } catch (error) {
       this.logger.warn(`Address search failed: ${(error as Error).message}`);

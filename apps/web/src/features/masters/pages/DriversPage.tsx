@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery } from '@tanstack/react-query';
 import { LICENSE_WARN_DAYS, type BranchDto, type DriverAssignmentDto, type DriverDto } from '@veetracer/shared';
-import { FileCheck2Icon, IdCardIcon, ListIcon } from 'lucide-react';
+import { FileCheck2Icon, IdCardIcon, KeyRoundIcon, ListIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/features/auth/auth-context';
 import { ComplianceSheet, type ComplianceTarget } from '@/features/documents/CompliancePanel';
+import { DriverLoginDialog } from '@/features/transport/DriverLoginDialog';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, formatDuration } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
@@ -182,7 +183,10 @@ export function DriverSessionsSheet({ target, onClose }: { target: { driverId?: 
 
 export function DriversPage() {
   const { t } = useTranslation();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
+  // Driver app logins exist with employee transport only (the API answers 404 while the add-on is off).
+  const etms = !!me?.company.features.includes('etms');
+  const [loginFor, setLoginFor] = useState<DriverDto | null>(null);
   const [sessions, setSessions] = useState<{ driverId: string; label: string } | null>(null);
   const [compliance, setCompliance] = useState<ComplianceTarget | null>(null);
   const transfer = useTransferAction('driver');
@@ -225,12 +229,18 @@ export function DriversPage() {
                 <FileCheck2Icon /> {t('Documents')}
               </DropdownMenuItem>
             )}
+            {etms && (
+              <DropdownMenuItem onSelect={() => setLoginFor(r)}>
+                <KeyRoundIcon /> {t('App login')}
+              </DropdownMenuItem>
+            )}
             {transfer.item({ id: r.id, name: r.name, companyId: r.companyId })}
           </>
         )}
       />
       <DriverSessionsSheet target={sessions} onClose={() => setSessions(null)} />
       <ComplianceSheet target={compliance} onClose={() => setCompliance(null)} />
+      {etms && <DriverLoginDialog driver={loginFor} onClose={() => setLoginFor(null)} />}
       {transfer.dialog}
     </>
   );

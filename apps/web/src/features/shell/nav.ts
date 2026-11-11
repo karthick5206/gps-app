@@ -35,6 +35,7 @@ import {
   TrophyIcon,
   TruckIcon,
   UsersIcon,
+  UsersRoundIcon,
   VideoIcon,
   ScanEyeIcon,
   ScanFaceIcon,
@@ -92,6 +93,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   // Employee transport (doc 07 §2.2; self / driver are the mobile-first passenger and driver entries).
   etms_dashboard: LayoutDashboardIcon,
   etms_partners: HandshakeIcon,
+  etms_passengers: UsersRoundIcon,
   etms_settings: Settings2Icon,
   etms_self: BusIcon,
   etms_driver: CarFrontIcon,

@@ -41,3 +41,4 @@ export * from './report-insights';
 export * from './messaging';
 export * from './planned-trips';
 export * from './transport';
+export * from './transport-people';

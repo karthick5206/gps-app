@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/features/auth/auth-context';
 import { Panel } from '@/features/dashboard/refresh/kit';
 import { errorMessage } from '@/lib/api';
+import { ConsentNoticesPanel } from './ConsentNoticeSettings';
 import { useTransportSettings, useUpdateTransportSettings } from './use-agreements';
 
 const ACTION_LABEL: Record<Action, string> = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', export: 'Export', command: 'Command' };
@@ -105,7 +106,7 @@ export function TransportSettingsPage() {
         <Panel title={t('Module')} id="etms-module" action={<Badge variant="success">{t('On')}</Badge>}>
           <div className="space-y-3 text-sm">
             <p>{t('Employee transport is switched on for {{company}}.', { company: me.company.name })}</p>
-            <p className="text-muted-foreground">{t('This version covers transport agreements between companies and the transport roles. Employees, bookings and trips follow in the next updates.')}</p>
+            <p className="text-muted-foreground">{t('This version covers transport agreements, the transport roles, passengers (profiles, home pickup points, consent, app logins, import), vehicle seats and driver app logins. Bookings and trips follow in the next updates.')}</p>
             {can('sa_companies') ? (
               <div className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 sm:flex-row sm:items-center">
                 <Building2Icon className="hidden size-4 shrink-0 text-muted-foreground sm:block" aria-hidden />
@@ -135,6 +136,8 @@ export function TransportSettingsPage() {
 
         {!platformHome && <DirectoryListing />}
       </div>
+
+      {!platformHome && <ConsentNoticesPanel />}
 
       <Panel
         title={t('Transport roles')}

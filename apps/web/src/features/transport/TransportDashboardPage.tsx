@@ -1,5 +1,5 @@
 import type { TransportAgreementStatus } from '@veetracer/shared';
-import { CalendarRangeIcon, ChevronRightIcon, HandshakeIcon, InboxIcon, TicketIcon, UsersRoundIcon } from 'lucide-react';
+import { BusIcon, CalendarRangeIcon, ChevronRightIcon, HandshakeIcon, InboxIcon, TicketIcon, UsersRoundIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { FormError } from '@/components/form-error';
@@ -18,9 +18,14 @@ const TILES: TransportAgreementStatus[] = ['ACTIVE', 'PROPOSED', 'DRAFT', 'SUSPE
 
 /** Later phases that fill this dashboard (doc 12, D8). Text only, no numbers until the data exists. */
 const NEXT: { icon: typeof UsersRoundIcon; title: string; text: string }[] = [
-  { icon: UsersRoundIcon, title: 'Employees and vehicles', text: 'Employee transport profiles, home pickup points, offices and shuttle stops, and seats per vehicle.' },
   { icon: TicketIcon, title: 'Bookings and trips', text: 'Shifts, recurring and one-off bookings, cut-off times and the daily trip list with passengers.' },
   { icon: CalendarRangeIcon, title: 'Dispatch and live status', text: 'Assigning vehicles and drivers, and live trip progress on this dashboard.' },
+];
+
+/** Parts available now (E2), linked when the caller may open them. */
+const AVAILABLE: { icon: typeof UsersRoundIcon; title: string; text: string; to: string; menu: 'etms_passengers' | 'objects' }[] = [
+  { icon: UsersRoundIcon, title: 'Passengers', text: 'Employee transport profiles, home pickup points, consent and app logins. Import from a CSV file.', to: '/transport/passengers', menu: 'etms_passengers' },
+  { icon: BusIcon, title: 'Vehicle seats', text: 'Passenger seats and wheelchair spaces per vehicle.', to: '/transport/vehicles', menu: 'objects' },
 ];
 
 /**
@@ -113,7 +118,28 @@ export function TransportDashboardPage() {
           </Panel>
         )}
 
-        <Panel title={t("What's next")} subtitle={t('Coming in the next updates of employee transport')} id="etms-next" className={seesAgreements && can('etms_partners', 'edit') ? undefined : 'lg:col-span-2'}>
+        {AVAILABLE.some((a) => can(a.menu)) && (
+          <Panel title={t('Available now')} subtitle={t('Set up your passengers and vehicles')} id="etms-available">
+            <ul className="-mx-2 divide-y">
+              {AVAILABLE.filter((a) => can(a.menu)).map((a) => (
+                <li key={a.to}>
+                  <Link to={a.to} className="flex min-h-11 items-start gap-3 rounded-md px-2 py-2 text-sm hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-primary" aria-hidden>
+                      <a.icon className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="font-medium">{t(a.title)}</span>
+                      <span className="block text-xs text-muted-foreground">{t(a.text)}</span>
+                    </span>
+                    <ChevronRightIcon className="mt-2 size-4 text-muted-foreground" aria-hidden />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        )}
+
+        <Panel title={t("What's next")} subtitle={t('Coming in the next updates of employee transport')} id="etms-next" className={(seesAgreements && can('etms_partners', 'edit')) === AVAILABLE.some((a) => can(a.menu)) ? 'lg:col-span-2' : undefined}>
           <ul className="grid gap-3">
             {NEXT.map((n) => (
               <li key={n.title} className="flex items-start gap-3">

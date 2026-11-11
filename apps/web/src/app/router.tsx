@@ -66,6 +66,8 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   // Employee transport (ETMS, E1a): menus exist only while the company add-on etms is on (permissions are stripped server-side).
   etms_dashboard: page(() => import('@/features/transport/TransportDashboardPage'), 'TransportDashboardPage'),
   etms_partners: page(() => import('@/features/transport/PartnersPage'), 'PartnersPage'),
+  // E2: passengers (list, editor, import, consent, app access).
+  etms_passengers: page(() => import('@/features/transport/PassengersPage'), 'PassengersPage'),
   etms_settings: page(() => import('@/features/transport/TransportSettingsPage'), 'TransportSettingsPage'),
   etms_self: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyCommutePage'),
   etms_driver: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyTransportDutyPage'),
@@ -76,6 +78,8 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
 /** Detail pages inside a menu (same permission as the menu). */
 const PlannedTripDetailPage = page(() => import('@/features/planned-trips/PlannedTripDetailPage'), 'PlannedTripDetailPage');
 const AgreementDetailPage = page(() => import('@/features/transport/AgreementDetailPage'), 'AgreementDetailPage');
+/** E2 vehicle seats: a fleet screen of the transport module (permission objects; the page checks the etms add-on). */
+const VehicleSeatsPage = page(() => import('@/features/transport/VehicleSeatsPage'), 'VehicleSeatsPage');
 
 function PageFallback() {
   return (
@@ -149,6 +153,16 @@ export const router = createBrowserRouter([
               <RequirePermission menu="etms_partners">
                 <Suspense fallback={<PageFallback />}>
                   <AgreementDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/transport/vehicles',
+            element: (
+              <RequirePermission menu="objects">
+                <Suspense fallback={<PageFallback />}>
+                  <VehicleSeatsPage />
                 </Suspense>
               </RequirePermission>
             ),

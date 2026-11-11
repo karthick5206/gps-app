@@ -91,30 +91,34 @@ model Company {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  partner        Partner           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
-  branches       Branch[]
-  sharedVehicles VehicleShare[]
-  users          User[]
-  roles          Role[]
-  devices        Device[]
-  objects        TrackedObject[]
-  vehicleGroups  VehicleGroup[]
-  drivers        Driver[]
-  documents      Document[]
-  pois           Poi[]
-  lookups        Lookup[]
-  auditLogs      AuditLog[]
-  apiKeys        ApiKey[]
-  webhooks       WebhookEndpoint[]
-  billingProfile BillingProfile?
-  licenceSeats   LicenceSeat[]
-  licenceOrders  LicenceOrder[]
-  invoices       Invoice[]
-  creditNotes    CreditNote[]
-  stockMovements StockMovement[]
+  partner                       Partner                     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  branches                      Branch[]
+  sharedVehicles                VehicleShare[]
+  users                         User[]
+  roles                         Role[]
+  devices                       Device[]
+  objects                       TrackedObject[]
+  vehicleGroups                 VehicleGroup[]
+  drivers                       Driver[]
+  documents                     Document[]
+  pois                          Poi[]
+  lookups                       Lookup[]
+  auditLogs                     AuditLog[]
+  apiKeys                       ApiKey[]
+  webhooks                      WebhookEndpoint[]
+  billingProfile                BillingProfile?
+  licenceSeats                  LicenceSeat[]
+  licenceOrders                 LicenceOrder[]
+  invoices                      Invoice[]
+  creditNotes                   CreditNote[]
+  stockMovements                StockMovement[]
   /// ETMS (D1): agreements where this company is the transport provider / the corporate customer.
   transportAgreementsAsProvider TransportServiceAgreement[] @relation("TransportAgreementProvider")
   transportAgreementsAsCustomer TransportServiceAgreement[] @relation("TransportAgreementCustomer")
+  /// ETMS E2: passengers (employees) of this company as the corporate customer.
+  employeeTransportProfiles     EmployeeTransportProfile[]
+  /// ETMS E2: versioned consent notices this company shows its passengers.
+  transportConsentNotices       TransportConsentNotice[]
 }
 
 model Branch {
@@ -127,11 +131,13 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  objects TrackedObject[]
-  users   UserBranch[]
-  drivers Driver[]
-  pois    Poi[]
+  company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  objects                   TrackedObject[]
+  users                     UserBranch[]
+  drivers                   Driver[]
+  pois                      Poi[]
+  /// ETMS E2 (SetNull): an archived branch leaves the passenger company-wide.
+  employeeTransportProfiles EmployeeTransportProfile[]
 
   @@unique([companyId, name])
 }
@@ -153,16 +159,19 @@ model User {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  manager        User?           @relation("UserManager", fields: [managerId], references: [id], onDelete: Restrict)
-  reports        User[]          @relation("UserManager")
-  roles          UserRole[]
-  branches       UserBranch[]
-  objects        UserObject[]
-  sessions       Session[]
-  passwordResets PasswordReset[]
-  pushTokens     PushToken[]
-  licenceSeat    LicenceSeat?
+  company                  Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  manager                  User?                     @relation("UserManager", fields: [managerId], references: [id], onDelete: Restrict)
+  reports                  User[]                    @relation("UserManager")
+  roles                    UserRole[]
+  branches                 UserBranch[]
+  objects                  UserObject[]
+  sessions                 Session[]
+  passwordResets           PasswordReset[]
+  pushTokens               PushToken[]
+  licenceSeat              LicenceSeat?
+  /// ETMS E2 (D5): the passenger profile / driver this login belongs to (both SetNull on a user purge).
+  employeeTransportProfile EmployeeTransportProfile?
+  driver                   Driver?
 
   @@index([companyId])
 }
@@ -323,29 +332,31 @@ model TrackedObject {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  company         Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch          Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  assignments     DeviceAssignment[]
-  groups          VehicleGroupMember[]
-  users           UserObject[]
-  remarks         ObjectRemark[]
-  commands        DeviceCommand[]
-  drivers         DriverAssignment[]
-  documents       Document[]
-  services        ServiceReminder[]
-  serviceLog      ServiceRecord[]
-  fuelConfig      FuelConfig?
-  parkingSchedule ParkingSchedule?
-  liveShares      LiveShare[]
-  expenses        Expense[]
-  fuelEvents      FuelEvent[]
-  ioSessions      IoSession[]
-  driverEvents    DriverEvent[]
+  company           Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch            Branch?                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  assignments       DeviceAssignment[]
+  groups            VehicleGroupMember[]
+  users             UserObject[]
+  remarks           ObjectRemark[]
+  commands          DeviceCommand[]
+  drivers           DriverAssignment[]
+  documents         Document[]
+  services          ServiceReminder[]
+  serviceLog        ServiceRecord[]
+  fuelConfig        FuelConfig?
+  parkingSchedule   ParkingSchedule?
+  liveShares        LiveShare[]
+  expenses          Expense[]
+  fuelEvents        FuelEvent[]
+  ioSessions        IoSession[]
+  driverEvents      DriverEvent[]
   attendanceDays    AttendanceDay[]
   sharedWith        VehicleShare[]
   attendanceOutings AttendanceOuting[]
   attendanceSelfies AttendanceSelfie[]
   stockMovements    StockMovement[]
+  /// ETMS E2: seats / wheelchair spaces (side table, doc 15 §7.3).
+  transportProfile  TransportVehicleProfile?
 
   @@index([companyId, branchId])
 }
@@ -395,11 +406,14 @@ model Driver {
   isActive             Boolean   @default(true)
   /// Last licence-expiry reminder raised (EXPIRING | EXPIRED) for licenseExpiry; reset when the expiry changes.
   licenseNotifiedState String?
+  /// ETMS E2 (D5, doc 15 §7.2): the driver's login (Driver role). Same company enforced in the service; SetNull on user purge.
+  userId               String?   @unique @db.Uuid
   createdAt            DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
 
   company      Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   branch       Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user         User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   assignments  DriverAssignment[]
   documents    Document[]
   driverEvents DriverEvent[]
@@ -897,8 +911,11 @@ model Poi {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch  Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  company            Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch             Branch?                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  /// ETMS E2 (SetNull): passengers whose office site / default pickup stop is this place.
+  transportOfficeFor EmployeeTransportProfile[] @relation("TransportProfileOffice")
+  transportStopFor   EmployeeTransportProfile[] @relation("TransportProfileStop")
 
   @@index([companyId, isActive])
   @@index([companyId, lat, lng])
@@ -1185,16 +1202,16 @@ model LiveShare {
 
 /// Field staff attendance settings per company (see packages/shared/src/attendance.ts).
 model AttendanceSettings {
-  companyId   String   @id @db.Uuid
-  enabled     Boolean  @default(false)
+  companyId          String   @id @db.Uuid
+  enabled            Boolean  @default(false)
   /// Work-site geofence ids.
-  geofenceIds String[] @default([])
+  geofenceIds        String[] @default([])
   /// Staff covered; empty = every PERSON object.
-  objectIds   String[] @default([])
-  days        Int[]    @default([1, 2, 3, 4, 5, 6])
-  startMin    Int      @default(570)
-  endMin      Int      @default(1110)
-  graceMin    Int      @default(15)
+  objectIds          String[] @default([])
+  days               Int[]    @default([1, 2, 3, 4, 5, 6])
+  startMin           Int      @default(570)
+  endMin             Int      @default(1110)
+  graceMin           Int      @default(15)
   /// Shifts for particular branches or people (AttendanceShiftDto[]); everyone else is on the default hours above.
   shifts             Json     @default("[]")
   shortExitMin       Int      @default(5)
@@ -1218,8 +1235,8 @@ model AttendanceSettings {
   overtimeOn         Boolean  @default(true)
   /// Less than this past the shift end is not overtime.
   overtimeMinMin     Int      @default(15)
-  updatedById String?  @db.Uuid
-  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  updatedById        String?  @db.Uuid
+  updatedAt          DateTime @updatedAt @db.Timestamptz(3)
 }
 
 /// A vehicle of one company shown, view only, to another. The owner keeps the vehicle, its device and its licence.
@@ -1267,11 +1284,11 @@ model AttendanceDay {
 
 /// The selfie an employee took when checking in; the file is removed after ATTENDANCE_SELFIE_KEEP_DAYS.
 model AttendanceSelfie {
-  companyId String   @db.Uuid
-  objectId  String   @db.Uuid
+  companyId String    @db.Uuid
+  objectId  String    @db.Uuid
   /// Local day, YYYY-MM-DD.
   day       String
-  takenAt   DateTime @db.Timestamptz(3)
+  takenAt   DateTime  @db.Timestamptz(3)
   path      String
   type      String
   /// The phone's last position when the selfie was taken (null before 2026-11-06).
@@ -1292,19 +1309,19 @@ model AttendanceSelfie {
 
 /// An admin's decision about time outside the work site; leftAt is the exit it belongs to.
 model AttendanceOuting {
-  companyId   String   @db.Uuid
-  objectId    String   @db.Uuid
-  leftAt      DateTime @db.Timestamptz(3)
+  companyId    String    @db.Uuid
+  objectId     String    @db.Uuid
+  leftAt       DateTime  @db.Timestamptz(3)
   /// OFFICIAL / PERSONAL / UNEXPLAINED, as it counts now (no row = unexplained). An admin's decision wins over the employee's answer.
-  kind        String
-  note        String?
+  kind         String
+  note         String?
   /// Set when an admin decided; the employee can then no longer change it.
-  decidedById String?  @db.Uuid
+  decidedById  String?   @db.Uuid
   /// What the employee answered in the Tracker app.
   employeeKind String?
   employeeNote String?
   employeeAt   DateTime? @db.Timestamptz(3)
-  decidedAt   DateTime @updatedAt @db.Timestamptz(3)
+  decidedAt    DateTime  @updatedAt @db.Timestamptz(3)
 
   object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
 
@@ -1578,46 +1595,46 @@ enum LicenceType {
 
 /// Platform-wide licence pricing and invoicing (supplier) details; one row, id = "default". Edited by the Super Admin.
 model PlatformBillingSettings {
-  id               String   @id @default("default")
+  id                    String   @id @default("default")
   /// GST-inclusive yearly price per licence type, in paise: { USER, GPS_DEVICE, DASHCAM, FUEL_SENSOR }.
-  pricesPaise      Json     @default("{}")
-  gstRatePct       Float    @default(18)
-  graceDays        Int      @default(15)
-  overrideDays     Int      @default(30)
-  legalName        String   @default("")
-  addressLines     String[] @default([])
-  city             String   @default("")
-  stateCode        String   @default("33")
-  pin              String   @default("")
-  gstin            String   @default("")
-  pan              String   @default("")
-  phone            String   @default("")
-  email            String   @default("")
-  website          String   @default("")
-  accountsEmail    String   @default("")
+  pricesPaise           Json     @default("{}")
+  gstRatePct            Float    @default(18)
+  graceDays             Int      @default(15)
+  overrideDays          Int      @default(30)
+  legalName             String   @default("")
+  addressLines          String[] @default([])
+  city                  String   @default("")
+  stateCode             String   @default("33")
+  pin                   String   @default("")
+  gstin                 String   @default("")
+  pan                   String   @default("")
+  phone                 String   @default("")
+  email                 String   @default("")
+  website               String   @default("")
+  accountsEmail         String   @default("")
   /// Logo file name under var/billing/ (PNG / JPG / SVG).
-  logoFile         String?
+  logoFile              String?
   /// Uploaded UPI QR image (e.g. a GPay QR) shown on the Buy screen and in the welcome email.
-  upiQrFile        String?
-  sacCode          String   @default("998314")
-  invoicePrefix    String   @default("VTX")
+  upiQrFile             String?
+  sacCode               String   @default("998314")
+  invoicePrefix         String   @default("VTX")
   /// Credit notes have their own gap-free series: VTX/CN/2026-27/0001.
-  creditNotePrefix String   @default("VTX/CN")
+  creditNotePrefix      String   @default("VTX/CN")
   /// Stock (device / SIM / accessory) sales invoices and their credit notes: own series.
-  stockInvoicePrefix    String @default("VTX/S")
-  stockCreditNotePrefix String @default("VTX/SCN")
+  stockInvoicePrefix    String   @default("VTX/S")
+  stockCreditNotePrefix String   @default("VTX/SCN")
   /// Developer API plans: { BASIC | STANDARD | ENTERPRISE: { pricePaise, maxVehicles (null = unlimited), ratePerMinute,
   /// ratePerDay, maxWebhooks } }; missing keys fall back to DEFAULT_API_PLANS (shared).
-  apiPlans         Json     @default("{}")
-  bankName         String   @default("")
-  bankAccountName  String   @default("")
-  bankAccountNo    String   @default("")
-  bankIfsc         String   @default("")
-  bankBranch       String   @default("")
-  upiId            String   @default("")
-  terms            String   @default("")
-  footerNote       String   @default("")
-  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+  apiPlans              Json     @default("{}")
+  bankName              String   @default("")
+  bankAccountName       String   @default("")
+  bankAccountNo         String   @default("")
+  bankIfsc              String   @default("")
+  bankBranch            String   @default("")
+  upiId                 String   @default("")
+  terms                 String   @default("")
+  footerNote            String   @default("")
+  updatedAt             DateTime @updatedAt @db.Timestamptz(3)
 }
 
 /// Billing details of a customer company or a partner (reseller); required before the first purchase.
@@ -2083,8 +2100,8 @@ model Supplier {
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
 
-  ownerPartner Partner?       @relation(fields: [ownerPartnerId], references: [id], onDelete: Restrict)
-  receipts     StockReceipt[]
+  ownerPartner   Partner?        @relation(fields: [ownerPartnerId], references: [id], onDelete: Restrict)
+  receipts       StockReceipt[]
   salesSuppliers StockSupplier[]
 
   /// + partial unique index on (name) WHERE ownerPartnerId IS NULL (raw SQL in the migration).
@@ -2354,7 +2371,7 @@ model StockItem {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  deviceModel DeviceModel?    @relation(fields: [deviceModelId], references: [id], onDelete: SetNull)
+  deviceModel DeviceModel?   @relation(fields: [deviceModelId], references: [id], onDelete: SetNull)
   prices      StockPrice[]
   lines       StockDocLine[]
   serials     StockSerial[]
@@ -2376,55 +2393,55 @@ model StockPrice {
 }
 
 model StockSupplier {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @unique
-  gstin       String?
-  stateCode   String   @default("")
-  address     String   @default("")
-  city        String   @default("")
-  pin         String   @default("")
-  contactName String   @default("")
-  phone       String   @default("")
-  email       String   @default("")
-  notes       String   @default("")
+  id                  String   @id @default(uuid()) @db.Uuid
+  name                String   @unique
+  gstin               String?
+  stateCode           String   @default("")
+  address             String   @default("")
+  city                String   @default("")
+  pin                 String   @default("")
+  contactName         String   @default("")
+  phone               String   @default("")
+  email               String   @default("")
+  notes               String   @default("")
   /// Days from order to delivery (expected arrival of a PO = PO date + this).
-  leadTimeDays Int     @default(7)
+  leadTimeDays        Int      @default(7)
   /// Days after the supplier's invoice date the bill is due (overdue after that).
-  paymentTermsDays Int @default(30)
-  isActive    Boolean  @default(true)
+  paymentTermsDays    Int      @default(30)
+  isActive            Boolean  @default(true)
   /// The same supplier in Stock & movements (filled on first use; receipts are recorded there too).
-  inventorySupplierId String? @db.Uuid
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  inventorySupplierId String?  @db.Uuid
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   docs              StockDoc[]
   payments          StockSupplierPayment[]
-  inventorySupplier Supplier? @relation(fields: [inventorySupplierId], references: [id], onDelete: SetNull)
+  inventorySupplier Supplier?              @relation(fields: [inventorySupplierId], references: [id], onDelete: SetNull)
 }
 
 /// Stock & sales stores (main store, damaged shelf, one per reseller). Separate from the inventory module's StockLocation.
 model StockStore {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique
+  id                  String   @id @default(uuid()) @db.Uuid
+  name                String   @unique
   /// STORE | DAMAGED | PARTNER
-  kind      String
+  kind                String
   /// The reseller this store belongs to (PARTNER).
-  partnerId String?  @unique @db.Uuid
-  isActive  Boolean  @default(true)
+  partnerId           String?  @unique @db.Uuid
+  isActive            Boolean  @default(true)
   /// The same place in Stock & movements (filled on first use): trackers here are kept there at this location.
-  inventoryLocationId String? @db.Uuid
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  inventoryLocationId String?  @db.Uuid
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   inventoryLocation StockLocation? @relation(fields: [inventoryLocationId], references: [id], onDelete: SetNull)
 }
 
 /// One stock document: PO, RECEIPT, PURCHASE_RETURN, ORDER, SALE, SALES_RETURN or ADJUSTMENT.
 model StockDoc {
-  id                         String    @id @default(uuid()) @db.Uuid
+  id                         String   @id @default(uuid()) @db.Uuid
   kind                       String
   /// "PO/26-27/0001"; per kind and financial year.
-  number                     String    @unique
+  number                     String   @unique
   fy                         String
   seq                        Int
   /// DRAFT | OPEN | PARTIAL | DONE | CANCELLED (stock moves only for DONE / PARTIAL receipts and DONE others).
@@ -2432,47 +2449,47 @@ model StockDoc {
   /// YYYY-MM-DD (India).
   docDate                    String
   /// Owner: the reseller that raised it; null = the platform.
-  partnerId                  String?   @db.Uuid
-  supplierId                 String?   @db.Uuid
+  partnerId                  String?  @db.Uuid
+  supplierId                 String?  @db.Uuid
   /// PO raised by a reseller to the platform (supplierId null): it shows in the platform's orders.
-  toPlatform                 Boolean   @default(false)
+  toPlatform                 Boolean  @default(false)
   /// SALE: CUSTOMER | PARTNER | OWN.
   saleTo                     String?
-  customerCompanyId          String?   @db.Uuid
+  customerCompanyId          String?  @db.Uuid
   /// Reseller a SALE / ORDER is for (stock moves into its store).
-  customerPartnerId          String?   @db.Uuid
-  customerName               String    @default("")
-  customerPhone              String    @default("")
-  customerEmail              String    @default("")
+  customerPartnerId          String?  @db.Uuid
+  customerName               String   @default("")
+  customerPhone              String   @default("")
+  customerEmail              String   @default("")
   customerGstin              String?
-  customerStateCode          String    @default("")
-  customerAddress            String    @default("")
+  customerStateCode          String   @default("")
+  customerAddress            String   @default("")
   /// Store the goods leave from / arrive at.
-  locationId                 String?   @db.Uuid
+  locationId                 String?  @db.Uuid
   /// The document this one follows: receipt → PO, sale → order, returns → receipt / sale.
-  sourceId                   String?   @db.Uuid
+  sourceId                   String?  @db.Uuid
   /// How the order came in: CALL | WHATSAPP | EMAIL | VISIT | PORTAL.
   channel                    String?
-  supplierInvoiceNo          String    @default("")
+  supplierInvoiceNo          String   @default("")
   supplierInvoiceDate        String?
   supplierInvoiceAmountPaise Int?
-  reason                     String    @default("")
-  notes                      String    @default("")
-  totalPaise                 Int       @default(0)
-  createdById                String?   @db.Uuid
-  updatedById                String?   @db.Uuid
-  createdAt                  DateTime  @default(now())
-  updatedAt                  DateTime  @updatedAt
+  reason                     String   @default("")
+  notes                      String   @default("")
+  totalPaise                 Int      @default(0)
+  createdById                String?  @db.Uuid
+  updatedById                String?  @db.Uuid
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
 
   /// RECEIPT with trackers: the matching receipt in Stock & movements.
-  inventoryReceiptId         String?   @unique @db.Uuid
+  inventoryReceiptId String? @unique @db.Uuid
 
-  supplier         StockSupplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  inventoryReceipt StockReceipt?  @relation(fields: [inventoryReceiptId], references: [id], onDelete: SetNull)
-  lines    StockDocLine[]
+  supplier         StockSupplier?         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  inventoryReceipt StockReceipt?          @relation(fields: [inventoryReceiptId], references: [id], onDelete: SetNull)
+  lines            StockDocLine[]
   supplierPayments StockSupplierPayment[]
-  files    StockFile[]
-  moves    StockMove[]
+  files            StockFile[]
+  moves            StockMove[]
 
   @@index([kind, docDate(sort: Desc)])
   @@index([partnerId])
@@ -2620,29 +2637,29 @@ model StockCounter {
 /// WhatsApp switches, and the Arattai Business set-up. Customers only see switched-on channels in their alert settings
 /// (WhatsApp stays hidden from customers for now). One row (id "default"). Arattai secrets are write-only.
 model MessagingSettings {
-  id                    String    @id @default("default")
-  smsEnabled            Boolean   @default(true)
-  emailEnabled          Boolean   @default(true)
-  whatsappEnabled       Boolean   @default(false)
-  arattaiEnabled        Boolean   @default(false)
+  id                      String    @id @default("default")
+  smsEnabled              Boolean   @default(true)
+  emailEnabled            Boolean   @default(true)
+  whatsappEnabled         Boolean   @default(false)
+  arattaiEnabled          Boolean   @default(false)
   /// Arattai-CompanyId and Arattai-BusinessNumberId headers.
-  arattaiCompanyId      String    @default("")
-  arattaiBusinessNumberId String  @default("")
+  arattaiCompanyId        String    @default("")
+  arattaiBusinessNumberId String    @default("")
   /// Approved authentication template with {{otp}} and {{validity_minutes}}.
-  arattaiOtpTemplateId  String    @default("")
+  arattaiOtpTemplateId    String    @default("")
   /// Approved transactional template for alerts with {{alert}}, {{vehicle}}, {{time}} and {{details}}.
-  arattaiAlertTemplateId String   @default("")
-  arattaiLanguage       String    @default("en")
-  arattaiClientId       String    @default("")
-  arattaiClientSecret   String    @default("")
+  arattaiAlertTemplateId  String    @default("")
+  arattaiLanguage         String    @default("en")
+  arattaiClientId         String    @default("")
+  arattaiClientSecret     String    @default("")
   /// From the one-time "Connect Arattai" approval (access_type=offline).
-  arattaiRefreshToken   String    @default("")
+  arattaiRefreshToken     String    @default("")
   /// Random value of a pending Connect, checked when Arattai redirects back.
-  arattaiOauthState     String?
-  arattaiConnectedAt    DateTime? @db.Timestamptz(3)
-  arattaiLastSentAt     DateTime? @db.Timestamptz(3)
-  arattaiLastError      String?
-  updatedAt             DateTime  @updatedAt
+  arattaiOauthState       String?
+  arattaiConnectedAt      DateTime? @db.Timestamptz(3)
+  arattaiLastSentAt       DateTime? @db.Timestamptz(3)
+  arattaiLastError        String?
+  updatedAt               DateTime  @updatedAt
 }
 
 // ───────────── Routes & planned trips (module RTE, docs/routes-trips/SPEC.md) ─────────────
@@ -2818,7 +2835,6 @@ model PlannedTripEvent {
   @@index([tripId, startAt])
 }
 
-
 // ---------------------------------------------------------------------------------------------------------------------
 // Employee transport (ETMS). Migration etms_accounts (E1a, docs/employee-transport/15 §3). Raw SQL in the migration
 // (Prisma cannot express it): partial unique "TransportServiceAgreement_live_pair_key" and the CHECKs
@@ -2886,4 +2902,130 @@ model TransportServiceAgreement {
 
   @@index([providerCompanyId, status])
   @@index([customerCompanyId, status])
+}
+
+// ───────────────────────────── ETMS E2: people and capacity (migration etms_people, doc 15 §4) ─────────────────────────────
+
+/// A passenger (employee) of a corporate customer (D5). Customer-owned: companyId = customer, FK Restrict, so a company
+/// purge walks it and deletes it with its consents. userId (passenger login) is SetNull: a user purge keeps the profile
+/// with its personal data (erasure routine WP 2.6, owner decision L5). homeLat / homeLng are the ORIGINAL point (Photon
+/// result, confirmed pin or import), never a road-snapped one (E4 adds snapped columns, doc 02 §7.2). PD class H.
+/// Raw SQL in the migration: CHECK home pair both-or-neither, range and not (0,0); CHECK emergencyContacts array ≤ 3.
+model EmployeeTransportProfile {
+  id                    String    @id @default(uuid()) @db.Uuid
+  companyId             String    @db.Uuid
+  branchId              String?   @db.Uuid
+  userId                String?   @unique @db.Uuid
+  employeeCode          String
+  /// Name snapshot (a User may not exist yet).
+  displayName           String
+  /// Invite / import contact; not unique (D5 uniqueness lives on User).
+  mobile                String?
+  email                 String?
+  /// Original address text as typed or imported.
+  homeAddress           String?
+  homeLat               Float?
+  homeLng               Float?
+  /// PIN | PHOTON | IMPORT | TYPED (open set, validated in the service).
+  homeGeocodeSource     String?
+  homeGeocodeConfidence Float?
+  /// Office / site (Poi, category OFFICE); same company checked in the service.
+  officePoiId           String?   @db.Uuid
+  /// Default pickup stop (Poi, category SHUTTLE_STOP); same company checked in the service.
+  defaultStopPoiId      String?   @db.Uuid
+  /// { wheelchair?: boolean, notes?: string } (PD H, health).
+  accessibility         Json      @default("{}")
+  preferences           Json      @default("{}")
+  /// At most 3 { name, phone, relation? } (PD H).
+  emergencyContacts     Json      @default("[]")
+  isActive              Boolean   @default(true)
+  /// Erasure routine marker (WP 2.6, L5).
+  anonymisedAt          DateTime? @db.Timestamptz(3)
+  createdById           String?   @db.Uuid
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+
+  company     Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch      Branch?                    @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user        User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  officePoi   Poi?                       @relation("TransportProfileOffice", fields: [officePoiId], references: [id], onDelete: SetNull)
+  defaultStop Poi?                       @relation("TransportProfileStop", fields: [defaultStopPoiId], references: [id], onDelete: SetNull)
+  consents    EmployeeTransportConsent[]
+
+  @@unique([companyId, employeeCode])
+  @@unique([id, companyId])
+  @@index([companyId, isActive])
+  @@index([companyId, officePoiId])
+}
+
+/// Append-only consent evidence (doc 10 §4.2, 02 §7.3): one row per grant or withdrawal (granted = false); the current
+/// consent per purpose is the latest row. Composite FK (profileId, companyId) → profile (id, companyId), Restrict, row id
+/// first (doc 15 §1.2): an application never hard-deletes consent evidence, a company purge still deletes it. No FK on
+/// companyId (logical key) and none to User (a user purge leaves the evidence). PD class M.
+model EmployeeTransportConsent {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @db.Uuid
+  profileId     String   @db.Uuid
+  /// The passenger's User, when the passenger has a login (no FK).
+  subjectUserId String?  @db.Uuid
+  /// Who recorded the row: the passenger, or the admin acting on their behalf (no FK). E2 addition to doc 15 §4.2.
+  actorUserId   String?  @db.Uuid
+  /// TRANSPORT_PROFILE | PICKUP_LOCATION_SHARE | SOS_LOCATION | NOTIFICATIONS_SMS … (open set).
+  purpose       String
+  noticeVersion String
+  locale        String?
+  /// false = withdrawal row.
+  granted       Boolean
+  /// WEB | PASSENGER_APP | ADMIN_ON_BEHALF.
+  channel       String
+  appVersion    String?
+  ip            String?
+  occurredAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  profile EmployeeTransportProfile @relation(fields: [profileId, companyId], references: [id, companyId], onDelete: Restrict)
+
+  @@index([profileId, purpose, occurredAt(sort: Desc)])
+}
+
+/// Company-level, versioned consent notice (doc 10 §4.2 "notice texts are versioned templates"): the text a passenger
+/// reads before granting a purpose. Immutable rows, one per (company, purpose, seq); a change publishes the next version
+/// (version = "v" + seq). Current notice = highest seq whose effectiveFrom has passed. Consent rows store the version
+/// string (EmployeeTransportConsent.noticeVersion). FK companyId → Company Restrict (a company purge walks it). PD class L.
+model TransportConsentNotice {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @db.Uuid
+  /// TRANSPORT_PROFILE | PICKUP_LOCATION_SHARE | SOS_LOCATION | NOTIFICATIONS_SMS (same set as consent purposes).
+  purpose       String
+  seq           Int
+  version       String
+  title         String
+  body          String
+  locale        String   @default("en")
+  effectiveFrom DateTime @db.Timestamptz(3)
+  createdById   String?  @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, purpose, seq])
+}
+
+/// Passenger capacity of an operator's vehicle (side table, doc 15 §4.3 / §7.3; FuelConfig pattern): FK Cascade on the
+/// vehicle, companyId (operator) without FK, set from the vehicle. Raw SQL: CHECK seats 1..100, wheelchairSpaces ≥ 0.
+model TransportVehicleProfile {
+  objectId         String   @id @db.Uuid
+  companyId        String   @db.Uuid
+  /// Passenger seats, driver excluded.
+  seats            Int
+  wheelchairSpaces Int      @default(0)
+  hasAc            Boolean?
+  /// SEDAN | SUV | VAN | TEMPO_TRAVELLER | BUS … (open set).
+  category         String?
+  notes            String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
 }
