@@ -13,7 +13,11 @@ export const MANIFEST_CAPTURE_KEY = 'veetrax-driver-manifest';
 
 export type PreventCaptureHook = (key?: string) => void;
 
-/** The hook the manifest screen calls on every render: blocks capture while it is mounted (one key per screen). */
-export function manifestScreenGuard(prevent: PreventCaptureHook): () => void {
+/**
+ * The hook the manifest screen calls on every render: blocks capture while it is mounted (one key per screen). On web
+ * (Expo web / QA builds) the native module is absent and its cleanup would throw, so the guard is a no-op there.
+ */
+export function manifestScreenGuard(prevent: PreventCaptureHook, platform: string): () => void {
+  if (platform === 'web') return () => undefined;
   return () => prevent(MANIFEST_CAPTURE_KEY);
 }

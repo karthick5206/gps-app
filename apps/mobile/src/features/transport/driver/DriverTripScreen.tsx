@@ -25,7 +25,7 @@ import { useVehicleMotion } from './useVehicleMotion';
 import { manifestScreenGuard } from './screen-guard';
 
 /** Doc 09 §7.1 / 10 §6: no screenshots or recordings of the manifest (FLAG_SECURE on Android). */
-const useManifestScreenGuard = manifestScreenGuard(usePreventScreenCapture);
+const useManifestScreenGuard = manifestScreenGuard(usePreventScreenCapture, Platform.OS);
 
 type QueueFn = (input: Parameters<typeof queueDriverEvent>[0]) => Promise<void>;
 

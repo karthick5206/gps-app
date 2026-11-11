@@ -7,10 +7,14 @@ import { routeUuid } from '../push-target.ts';
 // expo-screen-capture is a native module: the tests use a recording stand-in for usePreventScreenCapture.
 test('M3: the manifest screen guard calls usePreventScreenCapture with its own key on every render', () => {
   const calls: (string | undefined)[] = [];
-  const useGuard = manifestScreenGuard((key) => void calls.push(key));
+  const useGuard = manifestScreenGuard((key) => void calls.push(key), 'android');
   useGuard();
   useGuard();
   assert.deepEqual(calls, [MANIFEST_CAPTURE_KEY, MANIFEST_CAPTURE_KEY]);
+  // Expo web: never touches the native module (its cleanup would throw).
+  const web: (string | undefined)[] = [];
+  manifestScreenGuard((key) => void web.push(key), 'web')();
+  assert.deepEqual(web, []);
 });
 
 test('I1: route ids are used only when they are UUIDs', () => {

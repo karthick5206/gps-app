@@ -12,7 +12,8 @@ const KEY = 'vt.theme';
 
 function apply(theme: ThemePreference): void {
   themeState.set(theme);
-  Appearance.setColorScheme(themeScheme(theme));
+  // react-native-web has no Appearance.setColorScheme (QA I4: Expo web crashed on load); native only.
+  if (typeof Appearance.setColorScheme === 'function') Appearance.setColorScheme(themeScheme(theme));
 }
 
 export function applyThemePreference(pref: ThemePreference): void {
