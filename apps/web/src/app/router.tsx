@@ -63,18 +63,19 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   pois: page(() => import('@/features/pois/PoisPage'), 'PoisPage'),
   routes: page(() => import('@/features/routes/RoutesPage'), 'RoutesPage'),
   plannedTrips: page(() => import('@/features/planned-trips/PlannedTripsPage'), 'PlannedTripsPage'),
-  // ETMS placeholders (E1a backend): menus are hidden unless the company add-on etms is on; the Web agent adds the pages.
-  etms_dashboard: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
-  etms_partners: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
-  etms_settings: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
-  etms_self: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
-  etms_driver: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
+  // Employee transport (ETMS, E1a): menus exist only while the company add-on etms is on (permissions are stripped server-side).
+  etms_dashboard: page(() => import('@/features/transport/TransportDashboardPage'), 'TransportDashboardPage'),
+  etms_partners: page(() => import('@/features/transport/PartnersPage'), 'PartnersPage'),
+  etms_settings: page(() => import('@/features/transport/TransportSettingsPage'), 'TransportSettingsPage'),
+  etms_self: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyCommutePage'),
+  etms_driver: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyTransportDutyPage'),
   alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
   message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };
 
 /** Detail pages inside a menu (same permission as the menu). */
 const PlannedTripDetailPage = page(() => import('@/features/planned-trips/PlannedTripDetailPage'), 'PlannedTripDetailPage');
+const AgreementDetailPage = page(() => import('@/features/transport/AgreementDetailPage'), 'AgreementDetailPage');
 
 function PageFallback() {
   return (
@@ -138,6 +139,16 @@ export const router = createBrowserRouter([
               <RequirePermission menu="plannedTrips">
                 <Suspense fallback={<PageFallback />}>
                   <PlannedTripDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/transport/partners/:id',
+            element: (
+              <RequirePermission menu="etms_partners">
+                <Suspense fallback={<PageFallback />}>
+                  <AgreementDetailPage />
                 </Suspense>
               </RequirePermission>
             ),

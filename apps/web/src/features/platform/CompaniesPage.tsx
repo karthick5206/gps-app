@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { RETENTION_OPTIONS, type CompanyDto } from '@veetracer/shared';
+import { RETENTION_OPTIONS, type CompanyDto, type CompanyFeature } from '@veetracer/shared';
 import { Building2Icon, LogInIcon } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
@@ -46,6 +46,7 @@ function schemaFor(isCreate: boolean) {
       status: z.enum(['ACTIVE', 'SUSPENDED']),
       retentionDays: z.string().min(1, 'Required'),
       insightsPlus: z.boolean(),
+      etms: z.boolean(),
       admin: z.object({ name: z.string().trim().max(100), email, mobile, password: z.string() }),
     })
     .superRefine((v, ctx) => {
@@ -57,6 +58,14 @@ function schemaFor(isCreate: boolean) {
     });
 }
 type Values = z.infer<ReturnType<typeof schemaFor>>;
+
+/** Add-on switches → COMPANY_FEATURES. Every add-on needs a switch here: the PATCH replaces the whole list. */
+function featureList(v: Pick<Values, 'insightsPlus' | 'etms'>): CompanyFeature[] {
+  const out: CompanyFeature[] = [];
+  if (v.insightsPlus) out.push('attendanceInsightsPlus');
+  if (v.etms) out.push('etms');
+  return out;
+}
 
 function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>) {
   const { t } = useTranslation();
@@ -72,6 +81,7 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
       status: record?.status ?? 'ACTIVE',
       retentionDays: String(record?.retentionDays ?? 90),
       insightsPlus: record?.features.includes('attendanceInsightsPlus') ?? false,
+      etms: record?.features.includes('etms') ?? false,
       admin: { name: '', email: '', mobile: '', password: '' },
     },
   });
@@ -79,13 +89,13 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
   const submit = form.handleSubmit((v) =>
     save.mutate(
       record
-        ? { name: v.name, accountType: v.accountType, timezone: v.timezone, status: v.status, retentionDays: Number(v.retentionDays), features: v.insightsPlus ? ['attendanceInsightsPlus'] : [] }
+        ? { name: v.name, accountType: v.accountType, timezone: v.timezone, status: v.status, retentionDays: Number(v.retentionDays), features: featureList(v) }
         : {
             name: v.name,
             accountType: v.accountType,
             timezone: v.timezone,
             retentionDays: Number(v.retentionDays),
-            features: v.insightsPlus ? ['attendanceInsightsPlus'] : [],
+            features: featureList(v),
             admin: { name: v.admin.name, email: nullIfBlank(v.admin.email), mobile: nullIfBlank(v.admin.mobile), password: v.admin.password },
           },
     ),
@@ -108,6 +118,7 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
         <ComboboxField form={form} name="timezone" label="Time zone" required options={tzOptions} />
         <SelectField form={form} name="retentionDays" label="History kept" required options={retentionSelect} hint="Positions, trips, stops and alerts older than this are deleted automatically. Daily summaries are kept." />
         {/* Add-ons (Company.settings.features): the basic Employee insights are always on. */}
+        <SwitchField form={form} name="etms" label="Employee transport" hint="Adds the Employee transport menus (agreements, transport settings). Switching it on also creates the Transport admin, dispatcher, passenger and driver roles once. Switching it off hides the menus; data is kept." className="sm:col-span-2" />
         <SwitchField form={form} name="insightsPlus" label="Advanced attendance insights" hint="Adds comparisons with the previous period and the team, pattern charts, the 12-month trend, periods up to 6 months and PNG / PDF download to Staff attendance → Employee." className="sm:col-span-2" />
         {record && <SelectField form={form} name="status" label="Status" required options={STATUS_OPTIONS} hint="Suspended companies can't sign in and their data is not processed." />}
       </div>
@@ -131,7 +142,19 @@ const columns: MasterColumn<CompanyDto>[] = [
   { id: 'accountType', header: 'Type', sortable: true, cell: (r) => i18n.t(humanize(r.accountType)) },
   { id: 'status', header: 'Status', sortable: true, cell: (r) => <Badge variant={r.status === 'ACTIVE' ? 'success' : 'destructive'}>{i18n.t(humanize(r.status))}</Badge> },
   { id: 'timezone', header: 'Time zone', defaultHidden: true, cell: (r) => r.timezone },
-  { id: 'features', header: 'Add-ons', cell: (r) => (r.features.includes('attendanceInsightsPlus') ? <Badge variant="secondary">{i18n.t('Advanced insights')}</Badge> : <span className="text-muted-foreground">—</span>) },
+  {
+    id: 'features',
+    header: 'Add-ons',
+    cell: (r) =>
+      r.features.length ? (
+        <span className="inline-flex flex-wrap gap-1">
+          {r.features.includes('etms') && <Badge variant="secondary">{i18n.t('Employee transport')}</Badge>}
+          {r.features.includes('attendanceInsightsPlus') && <Badge variant="secondary">{i18n.t('Advanced insights')}</Badge>}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
+  },
   { id: 'retentionDays', header: 'History kept', cell: (r) => i18n.t('{{n}} days', { n: r.retentionDays }) },
   { id: 'branchCount', header: 'Branches', cell: (r) => <span className="tabular-nums">{r.branchCount}</span> },
   { id: 'userCount', header: 'Users', cell: (r) => <span className="tabular-nums">{r.userCount}</span> },
