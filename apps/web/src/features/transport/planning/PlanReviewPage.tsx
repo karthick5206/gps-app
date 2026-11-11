@@ -1,0 +1,741 @@
+import type { PublishRoutePlanResult, RoutePlanStopViolation } from '@veetracer/shared';
+import {
+  ArrowDownIcon,
+  ArrowLeftIcon,
+  ArrowRightLeftIcon,
+  ArrowUpIcon,
+  CarFrontIcon,
+  CircleAlertIcon,
+  CrosshairIcon,
+  ExternalLinkIcon,
+  HistoryIcon,
+  LockIcon,
+  LockOpenIcon,
+  PinIcon,
+  PinOffIcon,
+  RefreshCwIcon,
+  SendIcon,
+  Trash2Icon,
+} from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Link, useNavigate, useParams } from 'react-router';
+import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { FormError } from '@/components/form-error';
+import { PageHeader } from '@/components/page-header';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Field } from '@/components/ui/field';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
+import { useAuth } from '@/features/auth/auth-context';
+import { NotFoundPage } from '@/features/errors/ErrorPages';
+import { getReportTimeZone } from '@/features/reports/report-time';
+import { cn } from '@/lib/utils';
+import { DIRECTION_LABEL, e3ErrorText } from '../dispatch/e3-format';
+import { SimpleSelect } from '../dispatch/e3-ui';
+import { transportTripPath } from '../dispatch/use-e3';
+import { PlanMap } from './PlanMap';
+import {
+  capabilityView,
+  completeWeights,
+  emptyWeights,
+  engineEta,
+  formatDuration,
+  formatKm,
+  isEditablePlan,
+  mapPoints,
+  mergeViolations,
+  movePassenger,
+  changedRoutes,
+  planMetrics,
+  routeLines,
+  routeLoad,
+  routesOf,
+  routeStops,
+  shiftStop,
+  stopEta,
+  stopLabel,
+  unassignedStops,
+  vehicleColor,
+  VIOLATION_LABEL,
+  plannerErrorText,
+  type PlannerPlan,
+  type PlannerStop,
+  type WeightDraft,
+} from './planner-format';
+import { CapabilityChip, EtaFootnote, EtaQualityBadge, JobProgress, MetricsGrid, PlanStatusBadge, UnassignedReasonText, ViolationList, WeightsEditor } from './planner-ui';
+import {
+  newKey,
+  PLANNING_MENU,
+  PLANNING_PATH,
+  plannerErrorMessage,
+  plannerErrorOf,
+  publishRouteErrors,
+  plannerFlagOn,
+  useCapabilities,
+  useDiscardPlan,
+  usePlan,
+  usePlanEdit,
+  usePlanHistory,
+  usePlannerVehicles,
+  usePublishPlan,
+  useReoptimise,
+  type PlanEdit,
+} from './use-planner';
+
+const CHANGE_LABEL: Record<string, string> = {
+  CREATED: 'Created',
+  EDITED: 'Edited',
+  OPTIMIZED: 'Optimised',
+  RESEQUENCED: 'Stops re-ordered',
+  RECALCULATED: 'Recalculated',
+  PUBLISHED: 'Published',
+  CANCELLED: 'Discarded',
+  ERASED: 'Passenger data erased',
+};
+
+/**
+ * One plan (E4 WP 4.5): metrics, routes with their stops, unassigned passengers with reasons, the map (consent-allowed
+ * points only), explicit edits (move passenger, up / down, change vehicle, pin) with re-validation and version-conflict
+ * handling, re-optimise, publish with confirmation (→ links to the E3 trips) and discard.
+ */
+export function PlanReviewPage() {
+  const { id = '' } = useParams();
+  const { t } = useTranslation();
+  const { can } = useAuth();
+  const navigate = useNavigate();
+  const tz = getReportTimeZone();
+  const flag = plannerFlagOn();
+  const caps = useCapabilities(flag);
+  const q = usePlan(flag ? id : null);
+  const plan = q.data;
+  const edit = usePlanEdit(plan);
+  const publish = usePublishPlan(plan);
+  const discard = useDiscardPlan();
+  const reopt = useReoptimise(plan);
+  const history = useState(false);
+  const [showHistory, setShowHistory] = history;
+  const hist = usePlanHistory(plan?.id ?? null, showHistory);
+  const [focus, setFocus] = useState<number | null>(null);
+  const [lastCheck, setLastCheck] = useState<RoutePlanStopViolation[] | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const [moveReq, setMoveReq] = useState<PlannerStop | null>(null);
+  const [vehicleReq, setVehicleReq] = useState<string | null>(null);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [ackWarnings, setAckWarnings] = useState(false);
+  const [published, setPublished] = useState<PublishRoutePlanResult | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [reoptOpen, setReoptOpen] = useState(false);
+  const [reoptWeights, setReoptWeights] = useState<WeightDraft | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const publishKey = useRef<{ version: number; key: string } | null>(null);
+  const reoptKey = useRef<{ version: number; key: string } | null>(null);
+  const [degraded, setDegraded] = useState<string | null>(null);
+
+  const metrics = useMemo(() => (plan ? planMetrics(plan, lastCheck ?? undefined) : null), [plan, lastCheck]);
+  const access = caps.data?.access;
+  const support = !!access?.support;
+  const editable = !!plan && isEditablePlan(plan.status) && plan.editable !== false;
+  const canEdit = editable && can(PLANNING_MENU, 'edit') && (access?.canEdit ?? false) && !support;
+  const canPublish = !!plan && plan.status === 'PLANNED' && can(PLANNING_MENU, 'command') && (access?.canPublish ?? false) && !support;
+  const canDiscard = editable && can(PLANNING_MENU, 'delete') && (access?.canDelete ?? false) && !support;
+  const canReopt = editable && can(PLANNING_MENU, 'create') && (access?.canPlan ?? false) && !support && capabilityView(caps.data).canOptimise;
+  const health = capabilityView(caps.data);
+
+  if (!flag) return <NotFoundPage />;
+  if (q.isPending) return <div className="p-4 sm:p-6"><Skeleton className="h-96 w-full rounded-xl" /></div>;
+  if (q.isError || !plan || !metrics) {
+    return (
+      <div className="grid gap-3 p-4 sm:p-6">
+        <Button asChild variant="ghost" size="sm" className="justify-self-start">
+          <Link to={PLANNING_PATH}>
+            <ArrowLeftIcon /> {t('Route planning')}
+          </Link>
+        </Button>
+        <FormError message={plannerErrorMessage(q.error, t)} />
+      </div>
+    );
+  }
+
+  const announce = (msg: string) => {
+    setAnnouncement('');
+    requestAnimationFrame(() => setAnnouncement(msg));
+  };
+  const violations = mergeViolations(plan.violations ?? [], lastCheck ?? []);
+  const violationsOf = (stopId: string) => violations.filter((v) => v.stopId === stopId);
+  const stopById = new Map(plan.stops.map((s) => [s.id, s]));
+  const labelOf = (stopId: string, ref: string) => {
+    const s = stopById.get(stopId);
+    return s ? stopLabel(s, t) : ref;
+  };
+  const { points, hidden } = mapPoints(plan, plan.precise);
+  const lines = routeLines(plan);
+  const nonEngine = plan.assignments.some((a) => a.eta && !engineEta(a.eta));
+  const unassigned = unassignedStops(plan.stops);
+  const routes = routesOf(plan);
+  const busy = edit.isPending || plan.status === 'OPTIMIZING';
+  const activeJob = jobId ?? (plan.status === 'OPTIMIZING' ? (plan.lastJobId ?? null) : null);
+
+  const runEdit = (e: PlanEdit, ok: string) => {
+    setEditError(null);
+    edit.mutate(e, {
+      onSuccess: (r) => {
+        setConflict(false);
+        setLastCheck(r.violations);
+        setDegraded(r.degraded ?? null);
+        const msg = r.violations.length ? t('{{ok}} Re-checked: {{n}} warning(s).', { ok, n: r.violations.length }) : t('{{ok}} Re-checked: no warnings.', { ok });
+        announce(msg);
+        if (r.violations.length) toast.warning(msg);
+        else toast.success(msg);
+      },
+      onError: (err) => {
+        const k = plannerErrorOf(err).kind;
+        if (k === 'conflict') setConflict(true);
+        setEditError(plannerErrorMessage(err, t));
+        announce(plannerErrorMessage(err, t));
+      },
+    });
+  };
+  const reorder = (stop: PlannerStop, delta: -1 | 1) => {
+    const next = changedRoutes(routes, shiftStop(routes, stop.id, delta));
+    if (!next.length) return;
+    runEdit({ kind: 'sequence', assignments: next }, delta < 0 ? t('{{name}} moved up.', { name: stopLabel(stop, t) }) : t('{{name}} moved down.', { name: stopLabel(stop, t) }));
+  };
+  const moveTo = (stop: PlannerStop, assignmentId: string) => {
+    setMoveReq(null);
+    const idx = plan.assignments.findIndex((a) => a.id === assignmentId);
+    const ok = t('{{name}} moved to route {{n}}.', { name: stopLabel(stop, t), n: idx + 1 });
+    // A booking moves with both ends (POST move-passenger); a generic stop through the sequence.
+    if (stop.bookingId) return runEdit({ kind: 'move', bookingId: stop.bookingId, toAssignmentId: assignmentId }, ok);
+    const next = changedRoutes(routes, movePassenger(routes, plan.stops, stop.id, assignmentId));
+    if (next.length) runEdit({ kind: 'sequence', assignments: next }, ok);
+  };
+  const doPublish = () => {
+    // Same key for retries of the same version (a lost answer replays); a refused publish (4xx) frees it.
+    if (!publishKey.current || publishKey.current.version !== plan.version) publishKey.current = { version: plan.version, key: newKey() };
+    publish.mutate(publishKey.current.key, {
+      onSuccess: (r) => {
+        publishKey.current = null;
+        setPublished(r);
+        setPublishOpen(false);
+        const msg = t('Published: {{n}} trip(s) created in dispatch.', { n: r.trips.length });
+        announce(msg);
+        toast.success(msg);
+      },
+      onError: (err) => {
+        const e = err as { status?: number };
+        if (typeof e.status === 'number' && e.status < 500) publishKey.current = null;
+        if (plannerErrorOf(err).kind === 'conflict') setConflict(true);
+      },
+    });
+  };
+  const weightsForReopt = reoptWeights ?? (plan.weights ? { ...plan.weights } : emptyWeights());
+
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-3 p-4 sm:p-6">
+      <Button asChild variant="ghost" size="sm" className="justify-self-start self-start">
+        <Link to={PLANNING_PATH}>
+          <ArrowLeftIcon /> {t('Route planning')}
+        </Link>
+      </Button>
+      <PageHeader
+        breadcrumb={false}
+        title={plan.name}
+        description={
+          <span className="flex flex-wrap items-center gap-1.5">
+            <PlanStatusBadge status={plan.status} />
+            {plan.direction && <Badge variant="outline">{t(DIRECTION_LABEL[plan.direction])}</Badge>}
+            <Badge variant="outline">{t('Version {{v}}', { v: plan.version })}</Badge>
+            <EtaQualityBadge quality={metrics.etaQuality} />
+            <CapabilityChip caps={caps.data} />
+          </span>
+        }
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {canReopt && (
+              <Button variant="outline" size="sm" disabled={busy || reopt.isPending} onClick={() => setReoptOpen(true)}>
+                <RefreshCwIcon /> {t('Re-optimise')}
+              </Button>
+            )}
+            {canDiscard && (
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => setDiscardOpen(true)}>
+                <Trash2Icon /> {t('Discard')}
+              </Button>
+            )}
+            {canPublish && (
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  publish.reset();
+                  setAckWarnings(false);
+                  setPublishOpen(true);
+                }}
+              >
+                <SendIcon /> {t('Publish…')}
+              </Button>
+            )}
+          </div>
+        }
+      />
+
+      {!health.canOptimise && health.detail && (
+        <p role="status" className="rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning-fg">
+          {t(health.detail)} {lines.length > 0 && t('Times below are from the last engine run.')}
+        </p>
+      )}
+      {nonEngine && (
+        <p role="status" className="rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning-fg">
+          {t('Some routes have times that did not come from the routing engine. They are hidden; re-optimise when routing is back.')}
+        </p>
+      )}
+      {conflict && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive-soft p-3 text-sm text-destructive-fg">
+          <CircleAlertIcon className="size-4 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">{t('Someone changed this plan meanwhile. The latest version (v{{v}}) is shown; check it and redo your change.', { v: plan.version })}</span>
+          <Button size="sm" variant="outline" onClick={() => setConflict(false)}>
+            {t('OK')}
+          </Button>
+        </div>
+      )}
+      {editError && !conflict && <FormError message={editError} />}
+      {degraded && (
+        <p role="status" className="rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning-fg">
+          {t('Routing unavailable: the changed routes could not be re-timed, so they show no times. Nothing was estimated.')}
+        </p>
+      )}
+
+      {activeJob && (
+        <Card className="p-3">
+          <JobProgress jobId={activeJob} planId={null} label={t('Optimising this plan')} canCancel={canReopt || can(PLANNING_MENU, 'create')} />
+        </Card>
+      )}
+
+      {published && (
+        <Card className="gap-2 border-success/40 p-3" role="status">
+          <h2 className="text-sm font-semibold">{t('Published to dispatch')}</h2>
+          <ul className="grid gap-1 text-sm">
+            {published.trips.map((tr) => {
+              const idx = plan.assignments.findIndex((a) => a.id === tr.assignmentId);
+              const a = plan.assignments[idx];
+              return (
+                <li key={tr.transportTripId}>
+                  <Link to={transportTripPath(tr.transportTripId)} className="inline-flex items-center gap-1 text-primary hover:underline">
+                    <ExternalLinkIcon className="size-3.5" aria-hidden /> {t('Route {{n}} · {{vehicle}}', { n: idx + 1, vehicle: a?.vehicleLabel ?? '' })}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <Button asChild size="sm" variant="outline" className="justify-self-start">
+            <Link to="/transport/dispatch">{t('Open the dispatch board')}</Link>
+          </Button>
+        </Card>
+      )}
+
+      <MetricsGrid m={metrics} />
+      <EtaFootnote />
+
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid min-w-0 content-start gap-3">
+          {plan.assignments.map((a, i) => {
+            const stops = routeStops(plan.stops, a.id);
+            const load = routeLoad(stops, plan.direction);
+            const over = a.capacity !== null && load > a.capacity;
+            const vehicle = a.vehicleName ? `${a.vehicleName}${a.plateNumber ? ` · ${a.plateNumber}` : ''}` : a.vehicleLabel;
+            return (
+              <Card key={a.id} className="min-w-0 gap-2 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="size-3 shrink-0 rounded-full" style={{ background: vehicleColor(i) }} aria-hidden />
+                  <h2 className="min-w-0 flex-1 text-sm font-semibold break-words">{t('Route {{n}} · {{vehicle}}', { n: i + 1, vehicle })}</h2>
+                  {a.locked && (
+                    <Badge variant="info">
+                      <LockIcon aria-hidden /> {t('Locked')}
+                    </Badge>
+                  )}
+                  <Badge variant={over ? 'destructive' : 'outline'}>{a.capacity === null ? t('{{n}} seats used · seats not set', { n: load }) : t('{{used}} / {{capacity}} seats', { used: load, capacity: a.capacity })}</Badge>
+                </div>
+                {a.driverName && <p className="text-xs text-muted-foreground">{t('Driver: {{name}}', { name: a.driverName })}</p>}
+                <p className="text-xs text-muted-foreground">
+                  {engineEta(a.eta) ? t('{{km}} · {{time}} drive', { km: formatKm(a.distanceM), time: formatDuration(a.adjustedDurationS ?? a.durationS, t) }) : stops.length ? t('No engine distance or time yet') : t('No stops on this route')}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button size="sm" variant="ghost" aria-pressed={focus === i} onClick={() => setFocus(focus === i ? null : i)}>
+                    <CrosshairIcon /> {focus === i ? t('Show all routes') : t('Show on map')}
+                  </Button>
+                  {canEdit && (
+                    <>
+                      <Button size="sm" variant="ghost" disabled={busy || a.locked} onClick={() => setVehicleReq(a.id)}>
+                        <CarFrontIcon /> {t('Change vehicle')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-pressed={a.locked}
+                        disabled={busy}
+                        onClick={() => runEdit({ kind: 'lock', assignmentId: a.id, locked: !a.locked }, a.locked ? t('Route {{n}} unlocked.', { n: i + 1 }) : t('Route {{n}} locked: re-optimising keeps its stops and order.', { n: i + 1 }))}
+                      >
+                        {a.locked ? <LockOpenIcon /> : <LockIcon />} {a.locked ? t('Unlock route') : t('Lock route')}
+                      </Button>
+                    </>
+                  )}
+                  {a.transportTripId && (
+                    <Button asChild size="sm" variant="outline">
+                      <Link to={transportTripPath(a.transportTripId)}>
+                        <ExternalLinkIcon /> {t('Open trip')}
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+                {stops.length > 0 && (
+                  <ol className="divide-y rounded-md border" aria-label={t('Stops of route {{n}}', { n: i + 1 })}>
+                    {stops.map((s, k) => {
+                      const eta = stopEta(s, a, plan.planStartAt, tz);
+                      const warn = violationsOf(s.id);
+                      return (
+                        <li key={s.id} className="grid gap-1 p-2">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white" style={{ background: vehicleColor(i) }} aria-hidden>
+                              {k + 1}
+                            </span>
+                            <span className="min-w-0 flex-1 text-sm break-words">
+                              <span className="sr-only">{t('Stop {{n}}:', { n: k + 1 })} </span>
+                              {stopLabel(s, t)}
+                            </span>
+                            {s.pinned && (
+                              <Badge variant="info">
+                                <PinIcon aria-hidden /> {t('Pinned')}
+                              </Badge>
+                            )}
+                            <span className="basis-full ps-8 text-xs">
+                              {eta.at ? (
+                                <>
+                                  <span className="font-medium tabular-nums">{eta.at}</span> <span className="text-muted-foreground">· {t(eta.note)}</span>
+                                </>
+                              ) : (
+                                <span className="text-muted-foreground">{t(eta.note)}</span>
+                              )}
+                            </span>
+                          </div>
+                          {warn.length > 0 && (
+                            <p className="flex items-start gap-1 text-xs text-warning-fg">
+                              <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                              {warn.map((v) => t(VIOLATION_LABEL[v.kind] ?? v.kind)).join(' · ')}
+                            </p>
+                          )}
+                          {canEdit && (
+                            <div className="flex flex-wrap gap-1">
+                              <Button size="icon-sm" variant="outline" disabled={busy || k === 0 || s.pinned || a.locked} onClick={() => reorder(s, -1)} aria-label={t('Move {{name}} up', { name: stopLabel(s, t) })}>
+                                <ArrowUpIcon />
+                              </Button>
+                              <Button size="icon-sm" variant="outline" disabled={busy || k === stops.length - 1 || s.pinned || a.locked} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
+                                <ArrowDownIcon />
+                              </Button>
+                              <Button size="sm" variant="outline" disabled={busy || s.pinned || a.locked || plan.assignments.length < 2} onClick={() => setMoveReq(s)}>
+                                <ArrowRightLeftIcon /> {t('Move to…')}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-pressed={!!s.pinned}
+                                disabled={busy}
+                                onClick={() => runEdit({ kind: 'pin', stopId: s.id, pinned: !s.pinned }, s.pinned ? t('{{name}} unpinned.', { name: stopLabel(s, t) }) : t('{{name}} pinned to this route and position.', { name: stopLabel(s, t) }))}
+                              >
+                                {s.pinned ? <PinOffIcon /> : <PinIcon />} {s.pinned ? t('Unpin') : t('Pin')}
+                              </Button>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+              </Card>
+            );
+          })}
+
+          <Card className="min-w-0 gap-2 p-3">
+            <h2 className="text-sm font-semibold">
+              {t('Unassigned passengers')} <span className="tabular-nums text-muted-foreground">({unassigned.length})</span>
+            </h2>
+            {unassigned.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('Every passenger has a seat on a route.')}</p>
+            ) : (
+              <ul className="divide-y rounded-md border">
+                {unassigned.map((s) => (
+                  <li key={s.id} className="flex flex-wrap items-center gap-2 p-2">
+                    <div className="grid min-w-0 flex-1 gap-0.5">
+                      <span className="text-sm break-words">{stopLabel(s, t)}</span>
+                      <span className="text-xs text-warning-fg">
+                        <UnassignedReasonText code={s.unassignedReason} />
+                      </span>
+                    </div>
+                    {canEdit && plan.assignments.length > 0 && (
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => setMoveReq(s)}>
+                        <ArrowRightLeftIcon /> {t('Add to route…')}
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card className="min-w-0 gap-2 p-3">
+            <h2 className="text-sm font-semibold">{lastCheck ? t('Re-check after your last change') : t('Warnings')}</h2>
+            <ViolationList violations={violations} labelOf={labelOf} />
+          </Card>
+        </div>
+
+        <div className="grid min-w-0 content-start gap-2 lg:sticky lg:top-4 lg:self-start">
+          <PlanMap lines={lines} points={points} depot={plan.depot} focus={focus} className="h-[320px] sm:h-[420px] lg:h-[560px]" label={t('Map of the routes of {{name}}', { name: plan.name })} />
+          <p className="text-xs text-muted-foreground">
+            {hidden > 0 ? t('{{n}} passenger point(s) are not on the map (no transport consent or outside your branches); the lists still show them.', { n: hidden }) : t('Only points you may see are drawn; routes follow the engine’s road geometry.')}
+            {!plan.precise ? ` ${t('Points are approximate (about 11 m) for your role.')}` : ''}
+          </p>
+          <Button size="sm" variant="ghost" className="justify-self-start" aria-expanded={showHistory} onClick={() => setShowHistory((v) => !v)}>
+            <HistoryIcon /> {showHistory ? t('Hide history') : t('Show history')}
+          </Button>
+          {showHistory && (
+            <Card className="min-w-0 gap-1 p-3">
+              {hist.isPending ? (
+                <Spinner />
+              ) : (
+                <ol className="grid gap-1 text-sm">
+                  {(hist.data ?? []).map((v) => (
+                    <li key={v.version} className="flex flex-wrap gap-2">
+                      <span className="tabular-nums text-muted-foreground">v{v.version}</span>
+                      <span className="min-w-0 flex-1">{t(CHANGE_LABEL[v.changeType] ?? v.changeType)}</span>
+                      <time className="text-xs text-muted-foreground" dateTime={v.createdAt}>
+                        {new Date(v.createdAt).toLocaleString()}
+                      </time>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </Card>
+          )}
+        </div>
+      </div>
+
+      <div aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
+
+      {/* Move a passenger to another route (pickup and drop move together). */}
+      <MoveDialog
+        stop={moveReq}
+        plan={plan}
+        onClose={() => setMoveReq(null)}
+        onPick={(aid) => moveReq && moveTo(moveReq, aid)}
+      />
+
+      {vehicleReq && (
+        <VehicleDialog
+          plan={plan}
+          assignmentId={vehicleReq}
+          onClose={() => setVehicleReq(null)}
+          onPick={(v) => {
+            const idx = plan.assignments.findIndex((a) => a.id === vehicleReq);
+            runEdit({ kind: 'vehicle', assignmentId: vehicleReq, objectId: v.objectId }, t('Route {{n}} now uses {{vehicle}}.', { n: idx + 1, vehicle: v.name }));
+            setVehicleReq(null);
+          }}
+        />
+      )}
+
+      {/* Publish → confirmation. */}
+      <Dialog open={publishOpen} onOpenChange={(o) => !publish.isPending && setPublishOpen(o)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('Publish this plan?')}</DialogTitle>
+            <DialogDescription>{t('Each route with passengers becomes a trip on the dispatch board, with its vehicle and seats. The plan then becomes read-only.')}</DialogDescription>
+          </DialogHeader>
+          <DialogBody className="grid gap-3 text-sm">
+            <ul className="grid gap-1">
+              <li>{t('{{n}} trip(s) will be created.', { n: metrics.vehiclesUsed })}</li>
+              <li>{t('{{n}} passenger(s) seated.', { n: metrics.passengers - metrics.unassigned })}</li>
+              {metrics.unassigned > 0 && <li className="text-warning-fg">{t('{{n}} unassigned passenger(s) stay in the dispatch queue.', { n: metrics.unassigned })}</li>}
+            </ul>
+            {metrics.violations > 0 && (
+              <label className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft p-2 text-warning-fg">
+                <Checkbox checked={ackWarnings} onCheckedChange={(v) => setAckWarnings(v === true)} className="mt-0.5" />
+                <span>{t('Publish with {{n}} warning(s) (late arrivals, seats or ride time).', { n: metrics.violations })}</span>
+              </label>
+            )}
+            <EtaFootnote />
+            {publish.isError && <FormError message={plannerErrorMessage(publish.error, t)} />}
+            {publishRouteErrors(publish.error).length > 0 && (
+              <ul className="grid gap-1 text-sm text-destructive-fg" aria-label={t('Routes that cannot be published')}>
+                {publishRouteErrors(publish.error).map((r) => {
+                  const idx = plan.assignments.findIndex((a) => a.id === r.assignmentId);
+                  return (
+                    <li key={r.assignmentId + r.code}>
+                      <span className="font-medium">{t('Route {{n}} · {{vehicle}}', { n: idx + 1, vehicle: r.vehicleLabel })}</span>: {plannerErrorText(r.code) ? t(plannerErrorText(r.code) as string) : e3ErrorText(r.code) ? t(e3ErrorText(r.code) as string) : r.message}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPublishOpen(false)} disabled={publish.isPending}>
+              {t('Back')}
+            </Button>
+            <Button onClick={doPublish} disabled={publish.isPending || (metrics.violations > 0 && !ackWarnings) || metrics.vehiclesUsed === 0}>
+              {publish.isPending ? <Spinner /> : <SendIcon />} {t('Publish')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        title={t('Discard this plan?')}
+        description={t('The plan is marked discarded and can no longer change. Its history is kept; nothing is published.')}
+        confirmLabel={t('Discard')}
+        destructive
+        pending={discard.isPending}
+        onConfirm={() =>
+          discard.mutate(
+            { id: plan.id, version: plan.version },
+            {
+              onSuccess: () => {
+                setDiscardOpen(false);
+                toast.success(t('Plan discarded.'));
+                void navigate(PLANNING_PATH);
+              },
+              onError: (err) => {
+                setDiscardOpen(false);
+                if (plannerErrorOf(err).kind === 'conflict') setConflict(true);
+                toast.error(plannerErrorMessage(err, t));
+              },
+            },
+          )
+        }
+      />
+
+      <Dialog open={reoptOpen} onOpenChange={(o) => !reopt.isPending && setReoptOpen(o)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('Re-optimise this plan')}</DialogTitle>
+            <DialogDescription>{t('Pinned stops keep their route and position; everything else may change. A new version is saved.')}</DialogDescription>
+          </DialogHeader>
+          <DialogBody className="grid gap-3">
+            <WeightsEditor idPrefix="re-w" value={weightsForReopt} onChange={setReoptWeights} />
+            {reopt.isError && <FormError message={plannerErrorMessage(reopt.error, t)} />}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReoptOpen(false)} disabled={reopt.isPending}>
+              {t('Back')}
+            </Button>
+            <Button
+              disabled={reopt.isPending || !completeWeights(weightsForReopt)}
+              onClick={() => {
+                const w = completeWeights(weightsForReopt);
+                if (!w) return;
+                if (!reoptKey.current || reoptKey.current.version !== plan.version) reoptKey.current = { version: plan.version, key: newKey() };
+                reopt.mutate(
+                  { weights: w, timeLimitS: 30, key: reoptKey.current.key },
+                  {
+                    onSuccess: (job) => {
+                      setJobId(job.jobId);
+                      setReoptOpen(false);
+                      setLastCheck(null);
+                    },
+                    onError: (err) => plannerErrorOf(err).kind === 'conflict' && setConflict(true),
+                  },
+                );
+              }}
+            >
+              {reopt.isPending ? <Spinner /> : <RefreshCwIcon />} {t('Start')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function MoveDialog({ stop, plan, onClose, onPick }: { stop: PlannerStop | null; plan: PlannerPlan; onClose: () => void; onPick: (assignmentId: string) => void }) {
+  const { t } = useTranslation();
+  const [target, setTarget] = useState<string>('');
+  const options = plan.assignments.filter((a) => a.id !== stop?.assignmentId).map((a) => {
+    const i = plan.assignments.indexOf(a);
+    const load = routeLoad(routeStops(plan.stops, a.id), plan.direction);
+    return { value: a.id, label: `${t('Route {{n}} · {{vehicle}}', { n: i + 1, vehicle: a.vehicleLabel })} — ${a.capacity === null ? t('seats not set') : t('{{used}} / {{capacity}} seats', { used: load, capacity: a.capacity })}` };
+  });
+  const chosen = target && options.some((o) => o.value === target) ? target : (options[0]?.value ?? '');
+  return (
+    <Dialog open={!!stop} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('Move passenger')}</DialogTitle>
+          <DialogDescription>{stop ? t('{{name}}: pickup and drop move together. The plan is re-checked after the move.', { name: stopLabel(stop, t) }) : ''}</DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <Field label={t('To route')}>
+            <SimpleSelect value={chosen} onChange={setTarget} options={options} label={t('To route')} />
+          </Field>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t('Back')}
+          </Button>
+          <Button disabled={!chosen} onClick={() => onPick(chosen)}>
+            {t('Move')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VehicleDialog({ plan, assignmentId, onClose, onPick }: { plan: PlannerPlan; assignmentId: string; onClose: () => void; onPick: (v: { objectId: string; name: string; seats: number | null }) => void }) {
+  const { t } = useTranslation();
+  const fleet = usePlannerVehicles(plan.planDate, plan.direction ?? 'IN');
+  const [value, setValue] = useState('');
+  const a = plan.assignments.find((x) => x.id === assignmentId);
+  const load = routeLoad(routeStops(plan.stops, assignmentId), plan.direction);
+  const inPlan = new Set(plan.assignments.map((x) => x.objectId));
+  const list = (fleet.data?.vehicles ?? []).filter((v) => v.seats !== null && !inPlan.has(v.objectId));
+  const chosen = list.find((v) => v.objectId === value);
+  const tooSmall = !!chosen && (chosen.seats ?? 0) < load;
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('Change vehicle')}</DialogTitle>
+          <DialogDescription>{a ? t('{{vehicle}} carries {{n}} passenger(s) on this route.', { vehicle: a.vehicleLabel, n: load }) : ''}</DialogDescription>
+        </DialogHeader>
+        <DialogBody className="grid gap-2">
+          {fleet.isPending ? (
+            <Spinner />
+          ) : list.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('No other vehicle with seats is free for this plan.')}</p>
+          ) : (
+            <Field label={t('Vehicle')} error={tooSmall ? t('This vehicle has fewer seats than the passengers on the route.') : undefined}>
+              <SimpleSelect value={value} onChange={setValue} label={t('Vehicle')} options={[{ value: '', label: t('Choose a vehicle') }, ...list.map((v) => ({ value: v.objectId, label: `${v.name}${v.plateNumber ? ` · ${v.plateNumber}` : ''} — ${t('{{n}} seats', { n: v.seats ?? 0 })}` }))]} />
+            </Field>
+          )}
+          {fleet.isError && <FormError message={plannerErrorMessage(fleet.error, t)} />}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t('Back')}
+          </Button>
+          <Button disabled={!chosen || tooSmall} className={cn(tooSmall && 'opacity-60')} onClick={() => chosen && onPick({ objectId: chosen.objectId, name: chosen.name, seats: chosen.seats })}>
+            {t('Change vehicle')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

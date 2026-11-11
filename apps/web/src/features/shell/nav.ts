@@ -127,14 +127,14 @@ export interface NavGroup {
   items: MenuDef[];
 }
 
-/** Menus the user may view, grouped in display order. */
-export function buildNav(perms: PermissionMap, personal = false, reseller = false): NavGroup[] {
+/** Menus the user may view, grouped in display order. `hidden`: menus switched off by a client-side gate (the planner flag). */
+export function buildNav(perms: PermissionMap, personal = false, reseller = false, hidden: ReadonlySet<MenuKey> = new Set()): NavGroup[] {
   // Partner-only menus (Stock): the platform (it holds Super Admin menus) and resellers.
   const stockSide = reseller || !!perms.sa_companies;
   return GROUP_ORDER.map((group) => ({
     group,
     label: GROUP_LABELS[group],
-    items: MENUS.filter((m) => m.group === group && perms[m.key]?.includes('view') && !(personal && PERSONAL_HIDDEN_MENUS.includes(m.key)) && !(m.partnerOnly && !stockSide)),
+    items: MENUS.filter((m) => m.group === group && perms[m.key]?.includes('view') && !hidden.has(m.key) && !(personal && PERSONAL_HIDDEN_MENUS.includes(m.key)) && !(m.partnerOnly && !stockSide)),
   })).filter((g) => g.items.length > 0);
 }
 

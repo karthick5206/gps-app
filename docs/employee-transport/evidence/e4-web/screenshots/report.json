@@ -1,0 +1,172 @@
+[
+ {
+  "name": "390-01-optimise-empty",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-02-optimise-validation",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-03-job-progress",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-04-job-done",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-05-plans",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-06-compare-weighted",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-07-review",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-08-review-after-move-down",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-09-move-dialog",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-10-after-move-recheck",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-11-publish-confirm",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-12-published-links",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-13-engine-down",
+  "sideways": false,
+  "sw": 390,
+  "cw": 390
+ },
+ {
+  "name": "390-errors",
+  "errors": [
+   "console: Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "console: pt: AJAXError: Not Found (404): http://127.0.0.1:5181/tiles/styles/liberty.json\n    at http://127.0.0.1:5181/node_modules/.vite/deps/maplibre-gl.js?v=8679503e:498:16\n    at Generator.next (<anonymous>)\n    at o (http://127.0.0.1:5181/node_modules/.vite/deps/maplibre-gl.js?v=8679503e:30:12)"
+  ]
+ },
+ {
+  "name": "1280-01-optimise-empty",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-02-optimise-validation",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-03-job-progress",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-04-job-done",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-05-plans",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-06-compare-weighted",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-07-review",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-08-review-after-move-down",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-09-move-dialog",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-10-after-move-recheck",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-11-publish-confirm",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-12-published-links",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-13-engine-down",
+  "sideways": false,
+  "sw": 1280,
+  "cw": 1280
+ },
+ {
+  "name": "1280-errors",
+  "errors": [
+   "console: Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "console: pt: AJAXError: Not Found (404): http://127.0.0.1:5181/tiles/styles/liberty.json\n    at http://127.0.0.1:5181/node_modules/.vite/deps/maplibre-gl.js?v=8679503e:498:16\n    at Generator.next (<anonymous>)\n    at o (http://127.0.0.1:5181/node_modules/.vite/deps/maplibre-gl.js?v=8679503e:30:12)"
+  ]
+ }
+]

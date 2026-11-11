@@ -9,13 +9,16 @@ export class ApiError extends Error {
   /** Machine-readable app error code (e.g. LICENCE_REQUIRED, LICENCE_EXPIRED, USER_LICENCE_EXPIRED). */
   readonly code: string | null;
   readonly licenceType: LicenceType | null;
+  /** The parsed JSON error body (extra fields such as routes[] of a refused route-plan publish). */
+  readonly body: unknown;
 
-  constructor(status: number, messages: string[], code: string | null = null, licenceType: LicenceType | null = null) {
+  constructor(status: number, messages: string[], code: string | null = null, licenceType: LicenceType | null = null, body: unknown = null) {
     super(messages.join('\n') || `Request failed (${status})`);
     this.status = status;
     this.messages = messages;
     this.code = code;
     this.licenceType = licenceType;
+    this.body = body;
   }
 }
 
@@ -68,8 +71,10 @@ async function toApiError(res: Response): Promise<ApiError> {
   let messages: string[] = [];
   let code: string | null = null;
   let licenceType: LicenceType | null = null;
+  let body: unknown = null;
   try {
     const data: unknown = await res.json();
+    body = data;
     if (data && typeof data === 'object') {
       const d = data as { code?: unknown; licenceType?: unknown };
       if (typeof d.code === 'string') code = d.code;
@@ -84,7 +89,7 @@ async function toApiError(res: Response): Promise<ApiError> {
     /* non-JSON body */
   }
   if (!messages.length) messages = [res.status === 429 ? 'Too many attempts. Please wait and try again.' : res.statusText || `Request failed (${res.status})`];
-  return new ApiError(res.status, messages, code, licenceType);
+  return new ApiError(res.status, messages, code, licenceType, body);
 }
 
 function headers(opts: RequestOptions): Headers {
