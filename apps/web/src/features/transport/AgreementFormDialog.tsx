@@ -1,5 +1,5 @@
-import type { CompanyDto, PoiDto, TransportAgreementDto, TransportAgreementSide, TransportDataProfile, TransportGrant } from '@veetracer/shared';
-import { TRANSPORT_DATA_PROFILES } from '@veetracer/shared';
+import type { CompanyDto, TransportAgreementDto, TransportAgreementSide, TransportDataProfile, TransportGrant, TransportSiteOptionDto } from '@veetracer/shared';
+import { TRANSPORT_COMPANY_LOOKUP_MIN_CHARS, TRANSPORT_DATA_PROFILES } from '@veetracer/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
@@ -30,10 +30,11 @@ import {
   type DraftErrors,
 } from './agreement-format';
 import { AgreementError } from './agreement-ui';
-import { agreementPath, useAgreementMutation, useInvalidateAgreements } from './use-agreements';
+import { lookupOption, lookupQuery, pastedCompanyId } from './agreement-views-format';
+import { agreementPath, useAgreementMutation, useCompanyLookup, useInvalidateAgreements, useSiteOptions } from './use-agreements';
 
 const businessCompany = (c: CompanyDto): Option => ({ value: c.id, label: c.name });
-const poiOption = (p: PoiDto): Option => ({ value: p.id, label: p.name, description: p.branchName ?? undefined });
+const siteOption = (p: TransportSiteOptionDto): Option => ({ value: p.id, label: p.name, description: p.branchName ?? undefined });
 
 /** Grant checkboxes, view grants and change grants in two labelled groups. */
 function GrantPicker({ value, onChange, invalid }: { value: TransportGrant[]; onChange: (v: TransportGrant[]) => void; invalid?: boolean }) {
@@ -100,8 +101,9 @@ function RadioCards<V extends string>({ name, value, onChange, options, legend }
  * Create a DRAFT agreement, or edit one (DRAFT only; the server refuses other statuses). Validation mirrors the server
  * (`validateAgreementDraft`); edits send `expectedVersion`, so a concurrent change shows the reload message.
  *
- * Parties: the Super Admin picks both business companies; a company user picks its own side and enters the partner's
- * company ID (E1a has no company directory for tenants — the partner finds its ID under Transport settings).
+ * Parties: the Super Admin picks both business companies; a company user picks its own side and searches the partner
+ * in the ETMS company directory (GET /transport/companies/lookup: name and city only), or pastes its company ID.
+ * Sites come from GET /transport/agreements/site-options (the customer's own places, no Places permission needed).
  */
 export function AgreementFormDialog({ record, open, onOpenChange }: { record: TransportAgreementDto | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation();
@@ -117,6 +119,10 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
   const [draft, setDraft] = useState<AgreementDraft>(() => emptyDraft(todayInZone(tz)));
   const [ourSide, setOurSide] = useState<TransportAgreementSide>('CUSTOMER');
   const [partnerId, setPartnerId] = useState('');
+  const [partnerMode, setPartnerMode] = useState<'search' | 'id'>('search');
+  const [partnerPick, setPartnerPick] = useState<Option | null>(null);
+  const [partnerQ, setPartnerQ] = useState('');
+  const [siteQ, setSiteQ] = useState('');
   const [tried, setTried] = useState(false);
 
   useEffect(() => {
@@ -124,6 +130,10 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
     mutation.reset();
     setTried(false);
     setPartnerId('');
+    setPartnerMode('search');
+    setPartnerPick(null);
+    setPartnerQ('');
+    setSiteQ('');
     setOurSide('CUSTOMER');
     setDraft(record ? draftFromAgreement(record, tz) : emptyDraft(todayInZone(tz)));
     // Reset only when the dialog opens.
@@ -133,15 +143,27 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
   const companies = useEntityOptions<CompanyDto>('/admin/companies', businessCompany, { enabled: open && !record && platformPicker, params: { status: undefined, sort: 'name', order: 'asc' } });
   const companyOptions = useMemo(() => companies.rows.filter((c) => c.accountType === 'BUSINESS' && c.status === 'ACTIVE').map(businessCompany), [companies.rows]);
 
-  // Sites are the customer's places: only the customer company (with Places access) can list them.
+  // Partner directory (tenant flow): only ETMS companies, name + city; at least 3 characters.
+  const lookup = useCompanyLookup(open && !record && !platformPicker && partnerMode === 'search', partnerQ);
+  const lookupOptions = useMemo(() => (lookup.data ?? []).map(lookupOption), [lookup.data]);
+  const lookupHint =
+    lookup.error instanceof ApiError && lookup.error.status === 429
+      ? t('Too many searches. Wait a minute, or paste the company ID instead.')
+      : lookupQuery(partnerQ) === null
+        ? t('Type at least {{n}} letters of the company name.', { n: TRANSPORT_COMPANY_LOOKUP_MIN_CHARS })
+        : t('No company found. Only companies with employee transport switched on are listed.');
+
+  // Sites are the customer's places: the customer company picks them (no Places permission needed); the Super Admin too.
   const customerId = record ? record.customerCompanyId : platformPicker ? draft.customerCompanyId : ourSide === 'CUSTOMER' ? companyId : '';
-  const canPickSites = !!customerId && customerId === companyId && can('pois');
-  const pois = useEntityOptions<PoiDto>('/pois', poiOption, { enabled: open && canPickSites });
+  const canPickSites = !!customerId && (customerId === companyId || platformPicker);
+  const siteQuery = useSiteOptions(open && canPickSites, siteQ, platformPicker && customerId !== companyId ? customerId : undefined);
+  const siteOptions = useMemo(() => (siteQuery.data ?? []).map(siteOption), [siteQuery.data]);
+  const partnerValue = partnerMode === 'search' ? (partnerPick?.value ?? '') : (pastedCompanyId(partnerId) ?? partnerId.trim());
 
   // Effective parties for validation.
   const parties: AgreementDraft = platformPicker || record
     ? draft
-    : { ...draft, providerCompanyId: ourSide === 'PROVIDER' ? companyId : partnerId.trim(), customerCompanyId: ourSide === 'CUSTOMER' ? companyId : partnerId.trim() };
+    : { ...draft, providerCompanyId: ourSide === 'PROVIDER' ? companyId : partnerValue, customerCompanyId: ourSide === 'CUSTOMER' ? companyId : partnerValue };
   const errors: DraftErrors = validateAgreementDraft(parties, { create: !record, companyId, isSuperAdmin: !!me?.user.isSuperAdmin });
   const shown = (k: keyof DraftErrors) => (tried && errors[k] ? t(errors[k]!) : undefined);
   // In the tenant flow the partner field carries the party errors.
@@ -262,15 +284,44 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
                     { value: 'PROVIDER', label: 'Provider', description: 'You run vehicles and drivers for this customer.' },
                   ]}
                 />
-                <Field
-                  label={ourSide === 'CUSTOMER' ? t('Provider company ID') : t('Customer company ID')}
-                  htmlFor="agr-partner"
-                  required
-                  error={partnerError}
-                  hint={t('Ask the other company for it: they find it under Employee transport → Transport settings.')}
-                >
-                  <Input id="agr-partner" value={partnerId} onChange={(e) => setPartnerId(e.target.value)} autoComplete="off" spellCheck={false} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" className="font-mono text-xs sm:text-sm" aria-invalid={!!partnerError || undefined} />
-                </Field>
+                {partnerMode === 'search' ? (
+                  <Field
+                    label={ourSide === 'CUSTOMER' ? t('Provider company') : t('Customer company')}
+                    htmlFor="agr-partner"
+                    required
+                    error={partnerError}
+                    hint={t('Search by company name. Only companies with employee transport switched on are listed.')}
+                  >
+                    <Combobox
+                      id="agr-partner"
+                      value={partnerPick?.value ?? null}
+                      selectedOption={partnerPick}
+                      onChange={(v) => setPartnerPick(v ? (lookupOptions.find((o) => o.value === v) ?? partnerPick) : null)}
+                      onSearch={setPartnerQ}
+                      options={lookupOptions}
+                      loading={lookup.isFetching}
+                      placeholder={t('Search companies…')}
+                      searchPlaceholder={t('Company name…')}
+                      emptyText={lookupHint}
+                      invalid={!!partnerError}
+                    />
+                  </Field>
+                ) : (
+                  <Field
+                    label={ourSide === 'CUSTOMER' ? t('Provider company ID') : t('Customer company ID')}
+                    htmlFor="agr-partner-id"
+                    required
+                    error={partnerError}
+                    hint={t('Ask the other company for it: they find it under Employee transport → Transport settings.')}
+                  >
+                    <Input id="agr-partner-id" value={partnerId} onChange={(e) => setPartnerId(e.target.value)} autoComplete="off" spellCheck={false} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" className="font-mono text-xs sm:text-sm" aria-invalid={!!partnerError || undefined} />
+                  </Field>
+                )}
+                <div>
+                  <Button type="button" variant="link" size="sm" className="h-auto px-0" onClick={() => setPartnerMode((m) => (m === 'search' ? 'id' : 'search'))}>
+                    {partnerMode === 'search' ? t('Not listed? Paste the company ID instead') : t('Search by company name instead')}
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -300,10 +351,10 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
               error={shown('siteIds')}
               hint={
                 canPickSites
-                  ? t('Your offices or sites the agreement covers. Leave empty for all of them.')
-                  : customerId === companyId && !can('pois')
-                    ? t('You need access to Places to choose sites. Without a choice the agreement covers all sites.')
-                    : t('Only the customer company can choose its sites. Empty means all customer sites.')
+                  ? customerId === companyId
+                    ? t('Your offices or sites the agreement covers. Leave empty for all of them.')
+                    : t('The customer’s offices or sites the agreement covers. Leave empty for all of them.')
+                  : t('Only the customer company can choose its sites. Empty means all customer sites.')
               }
             >
               {canPickSites ? (
@@ -311,8 +362,9 @@ export function AgreementFormDialog({ record, open, onOpenChange }: { record: Tr
                   id="agr-sites"
                   value={draft.siteIds}
                   onChange={(v) => set('siteIds', v)}
-                  options={pois.options}
-                  loading={pois.loading}
+                  options={siteOptions}
+                  loading={siteQuery.isFetching}
+                  onSearch={setSiteQ}
                   placeholder={t('All sites')}
                   searchPlaceholder={t('Search places…')}
                   emptyText={t('No places found')}

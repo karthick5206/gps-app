@@ -284,8 +284,8 @@ export interface TimelineEvent {
 }
 
 /**
- * Status timeline from the fields the agreement carries (created, approvals, suspended, ended), oldest first. The API
- * has no per-agreement event history in E1a, so earlier suspend / resume cycles are not shown (only the latest).
+ * Status timeline from the fields the agreement carries (created, approvals, suspended, ended), oldest first. Only the
+ * fallback while the full history (GET /agreements/:id/history) loads or when it fails: it shows the latest cycle only.
  */
 export function agreementTimeline(a: TransportAgreementDto): TimelineEvent[] {
   const ev: TimelineEvent[] = [{ key: 'created', label: 'Draft created', at: a.createdAt }];

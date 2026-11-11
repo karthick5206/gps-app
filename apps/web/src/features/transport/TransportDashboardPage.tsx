@@ -9,9 +9,10 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { useAuth } from '@/features/auth/auth-context';
 import { EmptyHint, KpiCard, Panel } from '@/features/dashboard/refresh/kit';
 import { errorMessage } from '@/lib/api';
-import { AGREEMENT_STATUS_HINT, AGREEMENT_STATUS_LABEL, counterpartyName } from './agreement-format';
+import { AGREEMENT_STATUS_HINT, AGREEMENT_STATUS_LABEL } from './agreement-format';
 import { STATUS_ICON } from './agreement-ui';
-import { agreementPath, useAgreementCounts, useAgreementsAwaitingMe } from './use-agreements';
+import { summaryCount } from './agreement-views-format';
+import { agreementPath, useAgreementSummary } from './use-agreements';
 
 const TILES: TransportAgreementStatus[] = ['ACTIVE', 'PROPOSED', 'DRAFT', 'SUSPENDED', 'ENDED'];
 
@@ -30,9 +31,9 @@ export function TransportDashboardPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const seesAgreements = can('etms_partners');
-  const counts = useAgreementCounts(seesAgreements);
-  const awaiting = useAgreementsAwaitingMe(seesAgreements && can('etms_partners', 'edit'));
-  const total = counts.data ? Object.values(counts.data).reduce((s, n) => s + n, 0) : undefined;
+  // One request for the tiles and the approval list (GET /transport/agreements/summary).
+  const summary = useAgreementSummary(seesAgreements);
+  const total = summary.data?.total;
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4 p-4 sm:p-6">
@@ -50,7 +51,7 @@ export function TransportDashboardPage() {
         }
       />
 
-      {seesAgreements && counts.isError && <FormError message={errorMessage(counts.error)} />}
+      {seesAgreements && summary.isError && <FormError message={errorMessage(summary.error)} />}
 
       {seesAgreements && (
         <section aria-labelledby="agr-kpis" className="grid min-w-0 gap-3">
@@ -59,7 +60,7 @@ export function TransportDashboardPage() {
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
             {TILES.map((s) => (
-              <KpiCard key={s} label={t(AGREEMENT_STATUS_LABEL[s])} value={counts.data?.[s]} icon={STATUS_ICON[s]} definition={t(AGREEMENT_STATUS_HINT[s])} to="/transport/partners" />
+              <KpiCard key={s} label={t(AGREEMENT_STATUS_LABEL[s])} value={summaryCount(summary.data, s)} icon={STATUS_ICON[s]} definition={t(AGREEMENT_STATUS_HINT[s])} to="/transport/partners" />
             ))}
           </div>
         </section>
@@ -85,19 +86,26 @@ export function TransportDashboardPage() {
       <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         {seesAgreements && can('etms_partners', 'edit') && (
           <Panel title={t('Waiting for your approval')} subtitle={t('Proposed agreements your company has not approved yet')} id="agr-awaiting">
-            {awaiting.isPending ? (
+            {summary.isPending ? (
               <p className="py-4 text-sm text-muted-foreground">{t('Loading…')}</p>
-            ) : awaiting.data?.length ? (
+            ) : summary.data?.awaiting.length ? (
               <ul className="-mx-2 divide-y">
-                {awaiting.data.map((a) => (
+                {summary.data.awaiting.map((a) => (
                   <li key={a.id}>
                     <Link to={agreementPath(a.id)} className="flex min-h-11 items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                      <span className="min-w-0 flex-1 truncate font-medium">{counterpartyName(a)}</span>
+                      <span className="min-w-0 flex-1 truncate font-medium">{a.counterpartyName}</span>
                       <span className="text-xs text-muted-foreground">{t('Review')}</span>
                       <ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden />
                     </Link>
                   </li>
                 ))}
+                {summary.data.awaitingMyApproval > summary.data.awaiting.length && (
+                  <li className="px-2 py-2 text-xs text-muted-foreground">
+                    <Link to="/transport/partners" className="underline-offset-2 hover:underline">
+                      {t('{{n}} more waiting: see all agreements', { n: summary.data.awaitingMyApproval - summary.data.awaiting.length })}
+                    </Link>
+                  </li>
+                )}
               </ul>
             ) : (
               <EmptyHint icon={InboxIcon} text={t('Nothing to approve right now.')} />

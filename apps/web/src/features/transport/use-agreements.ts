@@ -1,25 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   CreateTransportAgreementInput,
-  Paginated,
   TransportAgreementAction,
   TransportAgreementDto,
-  TransportAgreementStatus,
+  TransportAgreementHistoryEntryDto,
+  TransportAgreementSitesDto,
+  TransportAgreementSummaryDto,
+  TransportCompanyLookupDto,
+  TransportSiteOptionDto,
   UpdateTransportAgreementInput,
 } from '@veetracer/shared';
+import { useDeferredValue } from 'react';
 import { api } from '@/lib/api';
+import { lookupQuery } from './agreement-views-format';
 
 export const AGREEMENTS_ENDPOINT = '/transport/agreements';
 export const agreementPath = (id: string) => `/transport/partners/${id}`;
 
-/** Every cache that shows agreements: the MasterPage list, the detail, and the dashboard counts. */
+/** Every cache that shows agreements: the MasterPage list, the detail (with its sites and history), and the dashboard summary. */
 export function useInvalidateAgreements() {
   const qc = useQueryClient();
   return () => {
     qc.invalidateQueries({ queryKey: ['master', AGREEMENTS_ENDPOINT] });
     qc.invalidateQueries({ queryKey: ['transport-agreement'] });
-    qc.invalidateQueries({ queryKey: ['transport-agreement-counts'] });
-    qc.invalidateQueries({ queryKey: ['transport-agreement-approvals'] });
+    qc.invalidateQueries({ queryKey: ['transport-agreement-summary'] });
   };
 }
 
@@ -54,27 +58,53 @@ export function useAgreementMutation() {
   });
 }
 
-/** Totals per lifecycle status (one small request each: the list `total` with pageSize 1). Real data only. */
-export function useAgreementCounts(enabled: boolean) {
+/** Counts per status + proposals awaiting the caller's side, in one request (GET /transport/agreements/summary). */
+export function useAgreementSummary(enabled: boolean) {
   return useQuery({
-    queryKey: ['transport-agreement-counts'],
+    queryKey: ['transport-agreement-summary'],
     enabled,
-    queryFn: async ({ signal }) => {
-      const statuses: TransportAgreementStatus[] = ['DRAFT', 'PROPOSED', 'ACTIVE', 'SUSPENDED', 'ENDED'];
-      const totals = await Promise.all(statuses.map((s) => api.get<Paginated<TransportAgreementDto>>(AGREEMENTS_ENDPOINT, { agreementStatus: s, pageSize: 1 }, signal).then((r) => r.total)));
-      return Object.fromEntries(statuses.map((s, i) => [s, totals[i]])) as Record<TransportAgreementStatus, number>;
-    },
+    queryFn: ({ signal }) => api.get<TransportAgreementSummaryDto>(`${AGREEMENTS_ENDPOINT}/summary`, undefined, signal),
   });
 }
 
-/** Proposed agreements the caller's side still has to approve (server `allowedActions` contains approve). */
-export function useAgreementsAwaitingMe(enabled: boolean) {
+/** Names of the customer sites the agreement is limited to (both parties; id + name only). */
+export function useAgreementSites(id: string | undefined, enabled: boolean) {
   return useQuery({
-    queryKey: ['transport-agreement-approvals'],
+    queryKey: ['transport-agreement', id, 'sites'],
+    enabled: !!id && enabled,
+    queryFn: ({ signal }) => api.get<TransportAgreementSitesDto>(`${AGREEMENTS_ENDPOINT}/${id}/sites`, undefined, signal),
+    staleTime: 60_000,
+  });
+}
+
+/** Full agreement history from the audit log, oldest first. */
+export function useAgreementHistory(id: string | undefined, version: number | undefined) {
+  return useQuery({
+    queryKey: ['transport-agreement', id, 'history', version],
+    enabled: !!id,
+    queryFn: ({ signal }) => api.get<TransportAgreementHistoryEntryDto[]>(`${AGREEMENTS_ENDPOINT}/${id}/history`, undefined, signal),
+  });
+}
+
+/** The acting company's own places for the site picker (no Places permission needed). */
+export function useSiteOptions(enabled: boolean, q: string, customerCompanyId?: string) {
+  const search = useDeferredValue(q.trim());
+  return useQuery({
+    queryKey: ['transport-site-options', search, customerCompanyId ?? null],
     enabled,
-    queryFn: async ({ signal }) => {
-      const res = await api.get<Paginated<TransportAgreementDto>>(AGREEMENTS_ENDPOINT, { agreementStatus: 'PROPOSED', pageSize: 100, sort: 'updatedAt', order: 'desc' }, signal);
-      return res.items.filter((a) => a.allowedActions.includes('approve'));
-    },
+    queryFn: ({ signal }) => api.get<TransportSiteOptionDto[]>(`${AGREEMENTS_ENDPOINT}/site-options`, { q: search || undefined, customerCompanyId }, signal),
+    staleTime: 60_000,
+  });
+}
+
+/** Partner directory search (ETMS companies only; at least 3 characters, rate-limited on the server). */
+export function useCompanyLookup(enabled: boolean, raw: string) {
+  const q = lookupQuery(useDeferredValue(raw));
+  return useQuery({
+    queryKey: ['transport-company-lookup', q],
+    enabled: enabled && q !== null,
+    queryFn: ({ signal }) => api.get<TransportCompanyLookupDto[]>('/transport/companies/lookup', { q: q! }, signal),
+    staleTime: 60_000,
+    retry: false,
   });
 }
