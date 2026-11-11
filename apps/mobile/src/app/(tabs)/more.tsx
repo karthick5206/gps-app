@@ -2,7 +2,7 @@ import { Children, type ReactNode } from 'react';
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon, FuelIcon } from 'lucide-react-native';
+import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon, FuelIcon, BusIcon, CarFrontIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View, Switch } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
@@ -11,6 +11,7 @@ import { PushTestButton } from '@/components/PushTestButton';
 import { ThemePicker } from '@/components/ThemePicker';
 import { Button, Card, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
+import { transportRoles } from '@/features/transport/roles';
 import { useRealtimeStatus } from '@/features/live/use-live';
 import { pushStatus } from '@/features/notifications/push';
 import { LanguageChips } from '@/components/LanguageChips';
@@ -50,6 +51,7 @@ export default function MoreScreen() {
   const { t } = useTranslation();
   const { me, signOut, can, companyId } = useAuth();
   const connection = useRealtimeStatus();
+  const transport = transportRoles(me);
   const confirmSignOut = () =>
     Alert.alert(t('Sign out?'), t('You will need to sign in again to see your vehicles.'), [
       { text: t('Cancel'), style: 'cancel' },
@@ -97,6 +99,12 @@ export default function MoreScreen() {
           </View>
         </Card>
       )}
+
+      {/* Employee transport self-service for dual-role users (P3): their own commute / driver duty. */}
+      <MenuGroup title={t('Employee transport')}>
+        {transport.passenger && <MenuItem icon={BusIcon} label={t('My commute')} href="/commute" />}
+        {transport.driver && <MenuItem icon={CarFrontIcon} label={t('My transport duty')} href="/duty" />}
+      </MenuGroup>
 
       <MenuGroup title={t('Tracking')}>
         {can('parking_mode') && <MenuItem icon={ShieldAlertIcon} label={t('Parking mode')} href="/parking" />}

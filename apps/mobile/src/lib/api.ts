@@ -8,11 +8,14 @@ import { session } from './session';
 export class ApiError extends Error {
   readonly status: number;
   readonly messages: string[];
+  /** Machine-readable code when the API sends one (ETMS routes always do: NOT_A_PASSENGER, CONSENT_NOTICE_OUTDATED…). */
+  readonly code: string | null;
 
-  constructor(status: number, messages: string[]) {
+  constructor(status: number, messages: string[], code: string | null = null) {
     super(messages.join('\n') || i18n.t('Request failed ({{status}})', { status }));
     this.status = status;
     this.messages = messages;
+    this.code = code;
   }
 }
 
@@ -52,8 +55,10 @@ export function buildQuery(query?: QueryParams): string {
 /** Normalises Nest-style errors: `message` may be a string or a string[]. */
 async function toApiError(res: Response): Promise<ApiError> {
   let messages: string[] = [];
+  let code: string | null = null;
   try {
     const data: unknown = await res.json();
+    if (data && typeof data === 'object' && typeof (data as { code?: unknown }).code === 'string') code = (data as { code: string }).code;
     if (data && typeof data === 'object' && 'message' in data) {
       const m = (data as { message: unknown }).message;
       if (Array.isArray(m)) messages = m.map(String);
@@ -63,7 +68,7 @@ async function toApiError(res: Response): Promise<ApiError> {
     /* non-JSON body */
   }
   if (!messages.length) messages = [res.status === 429 ? i18n.t('Too many attempts. Please wait and try again.') : i18n.t('Request failed ({{status}})', { status: res.status })];
-  return new ApiError(res.status, messages);
+  return new ApiError(res.status, messages, code);
 }
 
 function headers(opts: RequestOptions): Record<string, string> {
