@@ -6,6 +6,7 @@ import { AppState } from 'react-native';
 import { ApiError } from '@/lib/api';
 import { DRIVER_KEY, driverEventTransport, fetchDriverSync } from './driver-api';
 import { EventQueue, type KeyValueStore, type QueuedEventInput, type QueueTransport } from './event-queue';
+import { loadSyncCursor, saveSyncCursor } from './sync-cursor';
 
 /**
  * The app's driver event queue: event-queue.ts on SecureStore (device keystore; one small row per event, ids and codes
@@ -71,7 +72,8 @@ export function useTransportQueueLifecycle(userId: string | null) {
     });
 
     // GET /sync?since=: revoked trips are wiped, changed ones refetched, and outcomes of events whose send answer was
-    // lost settle the queue (doc 09 §6.4.5). The cursor lives in memory: a fresh start asks without one.
+    // lost settle the queue (doc 09 §6.4.5). The cursor is kept per user in SecureStore (sync-cursor.ts), so a restart
+    // continues from it; a missing / implausible one means a full-window sync.
     let cursor: string | null = null;
     let syncing = false;
     let stopped = false;
@@ -82,11 +84,14 @@ export function useTransportQueueLifecycle(userId: string | null) {
         const res = await fetchDriverSync(cursor);
         for (const t of res.trips) {
           if (t.change === 'REVOKED') wipeTrip(t.id);
-          else void qc.invalidateQueries({ queryKey: [...DRIVER_KEY, 'trip', t.id] });
+          // Changed (e.g. a passenger withdrew consent and a stop lost its point): refetch every cached copy, also one
+          // no screen shows right now, so no stale stop point stays in the offline cache.
+          else void qc.invalidateQueries({ queryKey: [...DRIVER_KEY, 'trip', t.id], refetchType: 'all' });
         }
         if (res.trips.length) void qc.invalidateQueries({ queryKey: [...DRIVER_KEY, 'duty'] });
         for (const e of res.events) await driverQueue.applyServerOutcome(e.clientEventId, e.outcome, e.code);
         cursor = res.cursor;
+        await saveSyncCursor(secureStore, userId, res.cursor);
       } catch (err) {
         // Not a driver (an admin holding the menu): stop asking. Network errors: try again on the next tick.
         if (err instanceof ApiError && err.status === 403) stopped = true;
@@ -98,7 +103,8 @@ export function useTransportQueueLifecycle(userId: string | null) {
     let cancelled = false;
     driverQueue
       .load(userId)
-      .then(() => {
+      .then(async () => {
+        cursor = await loadSyncCursor(secureStore, userId);
         if (cancelled) return;
         drain();
         void runSync();

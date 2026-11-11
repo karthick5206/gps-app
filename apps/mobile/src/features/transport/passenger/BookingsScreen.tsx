@@ -1,4 +1,4 @@
-import type { MeBookingDto } from '@veetracer/shared';
+import { ACTIVE_BOOKING_STATUSES, type MeBookingDto } from '@veetracer/shared';
 import { router } from 'expo-router';
 import { TicketIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
@@ -7,8 +7,8 @@ import { Button, Card, ErrorBanner, Text } from '@/components/ui';
 import { currentLocale } from '@/lib/i18n';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
 import { BOOKING_STATUS_META, DIRECTION_LABEL } from '../labels';
-import { cancellable, isNotPassenger, transportErrorText, useCancelBooking, useMyBookings } from '../passenger-api';
-import { clockIn } from '../trip-window';
+import { cancellable, isNotPassenger, transportErrorText, useCancelBooking, useMyBookings, useNow } from '../passenger-api';
+import { clockIn, cutoffState, cutoffText } from '../trip-window';
 import { StatusChip, TOUCH, TransportEmpty } from '../ui';
 
 function BookingRow({ b }: { b: MeBookingDto }) {
@@ -18,6 +18,17 @@ function BookingRow({ b }: { b: MeBookingDto }) {
   const meta = BOOKING_STATUS_META[b.status];
   const window = `${clockIn(b.windowStart, b.timeZone, locale)}–${clockIn(b.windowEnd, b.timeZone, locale)}`;
   const route = [b.pickupLabel, b.dropLabel].filter(Boolean).join(' → ') || '—';
+  const now = useNow();
+  const active = (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(b.status);
+  // The cut-off is computed by the server (MeBookingDto.cutoffAt); shown in the booking's own zone.
+  const cut = active ? cutoffState(b.cutoffAt, now) : 'NONE';
+  const cutoff = cutoffText(b.cutoffAt, b.timeZone, locale);
+  const cutoffLine =
+    cut === 'OPEN'
+      ? t('Cancel by {{time}}', { time: cutoff })
+      : cut === 'PASSED'
+        ? t('Cancellation cut-off passed ({{time}}). To change this booking, call your transport desk.', { time: cutoff })
+        : null;
   const body = (
     <>
       <Text weight="700">
@@ -26,16 +37,27 @@ function BookingRow({ b }: { b: MeBookingDto }) {
       <Text size="sm" tone="muted">
         {t(DIRECTION_LABEL[b.direction])} · {route}
       </Text>
+      {cutoffLine && (
+        <Text size="sm" tone="muted">
+          {cutoffLine}
+        </Text>
+      )}
       <StatusChip label={t(meta.label)} tone={meta.tone} />
     </>
   );
   const style = { minHeight: TOUCH, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, borderRadius: RADIUS.md, padding: SPACE.md, gap: SPACE.xs };
-  const label = `${b.serviceDate}, ${window}, ${t(DIRECTION_LABEL[b.direction])}, ${route}, ${t(meta.label)}`;
+  const label = `${b.serviceDate}, ${window}, ${t(DIRECTION_LABEL[b.direction])}, ${route}, ${t(meta.label)}${cutoffLine ? `, ${cutoffLine}` : ''}`;
   const cancel = useCancelBooking();
   const confirmCancel = () =>
     Alert.alert(
       t('Cancel this booking?'),
-      `${b.serviceDate} · ${window}\n${t('This is possible only before the booking cut-off and before the trip starts. Your seat is given up.')}`,
+      [
+        `${b.serviceDate} · ${window}`,
+        cut === 'OPEN' ? t('You can cancel until {{time}}.', { time: cutoff }) : null,
+        t('This is possible only before the booking cut-off and before the trip starts. Your seat is given up.'),
+      ]
+        .filter(Boolean)
+        .join('\n'),
       [
         { text: t('Keep booking'), style: 'cancel' },
         { text: t('Cancel booking'), style: 'destructive', onPress: () => cancel.mutate(b.id) },
@@ -50,7 +72,7 @@ function BookingRow({ b }: { b: MeBookingDto }) {
       {body}
     </Pressable>
   );
-  if (!cancellable(b)) return row;
+  if (!cancellable(b, now)) return row;
   return (
     <View style={{ gap: SPACE.xs }}>
       {row}

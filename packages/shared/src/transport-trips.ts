@@ -901,6 +901,12 @@ export interface MeBookingDto {
   pickupLabel: string | null;
   dropLabel: string | null;
   tripId: string | null;
+  /**
+   * E5: the passenger's self-cancel cut-off (ISO), computed by the server when the booking is made (window start minus
+   * the company's booking cut-off). Null only for a booking without a cut-off (a cancel is then allowed until the trip
+   * starts). The server re-checks it on cancel (409 AFTER_CUTOFF).
+   */
+  cutoffAt: string | null;
 }
 
 export interface MeTransportRangeQuery {

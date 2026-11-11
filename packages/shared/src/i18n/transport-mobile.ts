@@ -166,6 +166,11 @@ export const TRANSPORT_MOBILE_HI: Record<string, string> = {
   'Your transport desk withdrew a consent on your behalf.': 'आपके ट्रांसपोर्ट डेस्क ने आपकी ओर से एक सहमति वापस ली।',
   'You withdrew consent to use your location, so your upcoming bookings that needed it were cancelled.':
     'आपने अपने स्थान के उपयोग की सहमति वापस ली, इसलिए जिन आगामी बुकिंग को इसकी ज़रूरत थी वे रद्द कर दी गईं।',
+  'Cancel by {{time}}': '{{time}} तक रद्द करें',
+  'You can cancel until {{time}}.': 'आप {{time}} तक रद्द कर सकते हैं।',
+  'Cancellation cut-off passed ({{time}}). To change this booking, call your transport desk.':
+    'रद्द करने की समय-सीमा ({{time}}) निकल चुकी है। यह बुकिंग बदलने के लिए अपने ट्रांसपोर्ट डेस्क को कॉल करें।',
+  'The location of this stop is not shared. Call your dispatcher for directions.': 'इस स्टॉप का स्थान साझा नहीं किया गया है। रास्ते के लिए अपने डिस्पैचर को कॉल करें।',
   'Your trip starts soon': 'आपकी ट्रिप जल्द शुरू होगी',
   'about {{km}} km from your pickup (straight line)': 'आपके पिकअप से लगभग {{km}} km (सीधी दूरी)',
   'estimated arrival {{time}}': 'अनुमानित आगमन {{time}}',
@@ -361,6 +366,11 @@ export const TRANSPORT_MOBILE_TA: Record<string, string> = {
   'Your transport desk withdrew a consent on your behalf.': 'உங்கள் சார்பாக உங்கள் போக்குவரத்து மேசை ஒரு ஒப்புதலைத் திரும்பப் பெற்றது.',
   'You withdrew consent to use your location, so your upcoming bookings that needed it were cancelled.':
     'உங்கள் இருப்பிடத்தைப் பயன்படுத்துவதற்கான ஒப்புதலைத் திரும்பப் பெற்றதால், அது தேவைப்பட்ட உங்கள் வரவிருக்கும் முன்பதிவுகள் ரத்து செய்யப்பட்டன.',
+  'Cancel by {{time}}': '{{time}} வரை ரத்து செய்யலாம்',
+  'You can cancel until {{time}}.': '{{time}} வரை நீங்கள் ரத்து செய்யலாம்.',
+  'Cancellation cut-off passed ({{time}}). To change this booking, call your transport desk.':
+    'ரத்து செய்வதற்கான கடைசி நேரம் ({{time}}) கடந்துவிட்டது. இந்த முன்பதிவை மாற்ற உங்கள் போக்குவரத்து மேசையை அழைக்கவும்.',
+  'The location of this stop is not shared. Call your dispatcher for directions.': 'இந்த நிறுத்தத்தின் இருப்பிடம் பகிரப்படவில்லை. வழிக்கு உங்கள் டிஸ்பாட்சரை அழைக்கவும்.',
   'Your trip starts soon': 'உங்கள் பயணம் விரைவில் தொடங்கும்',
   'about {{km}} km from your pickup (straight line)': 'உங்கள் பிக்அப்பிலிருந்து சுமார் {{km}} km (நேர்க்கோடு)',
   'estimated arrival {{time}}': 'மதிப்பிடப்பட்ட வருகை {{time}}',

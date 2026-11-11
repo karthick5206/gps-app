@@ -211,3 +211,16 @@ test('distance for the text equivalent of the map', async () => {
   assert.ok(Math.abs(distanceKm({ lat: 12.9716, lng: 77.5946 }, { lat: 13.0827, lng: 80.2707 }) - 290) < 5);
   assert.equal(distanceKm({ lat: 1, lng: 1 }, { lat: 1, lng: 1 }), 0);
 });
+
+test('booking cut-off: NONE / OPEN / PASSED and a day + time text in the booking zone', async () => {
+  const { cutoffState, cutoffText } = await import('./trip-window.ts');
+  const at = '2026-11-12T16:30:00.000Z'; // 22:00 IST
+  assert.equal(cutoffState(null, Date.parse(at)), 'NONE');
+  assert.equal(cutoffState('garbage', Date.parse(at)), 'NONE');
+  assert.equal(cutoffState(at, Date.parse(at) - 1), 'OPEN');
+  assert.equal(cutoffState(at, Date.parse(at)), 'PASSED');
+  const text = cutoffText(at, 'Asia/Kolkata', 'en-IN');
+  assert.match(text, /12/);
+  assert.match(text, /22:00/);
+  assert.equal(cutoffText(null, 'Asia/Kolkata'), '—');
+});

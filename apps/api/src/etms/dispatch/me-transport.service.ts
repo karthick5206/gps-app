@@ -226,5 +226,6 @@ function toMeBooking(r: Prisma.TransportBookingGetPayload<{ include: { passenger
     pickupLabel: r.pickupLabel,
     dropLabel: r.dropLabel,
     tripId: r.passengers.find((p) => p.status !== 'CANCELLED')?.tripId ?? null,
+    cutoffAt: r.cutoffAt ? iso(r.cutoffAt) : null,
   };
 }

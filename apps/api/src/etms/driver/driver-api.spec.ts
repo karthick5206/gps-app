@@ -499,6 +499,18 @@ describe('E5 additions: vehicle motion, desk phone, passenger self-cancel, conse
     expect(w.store.table('transportBooking').find((b) => b.id === b1)!.status).toBe('ASSIGNED');
   });
 
+  it('my bookings carry the server-computed cut-off (cutoffAt, ISO), null when the booking has none', async () => {
+    const w = world({ plannedStartInMin: 120 });
+    const me = new MeTransportService(w.store.client() as never, people(w).ppl, { client: { get: async () => null } } as never);
+    const b1 = bookingOf(w, w.ids.pax1);
+    const at = new Date(Date.now() + 30 * MIN);
+    w.row('transportBooking', b1).cutoffAt = at;
+    expect((await me.booking(pax(w), b1)).cutoffAt).toBe(at.toISOString());
+    expect((await me.bookings(pax(w), {})).find((b) => b.id === b1)?.cutoffAt).toBe(at.toISOString());
+    w.row('transportBooking', b1).cutoffAt = null;
+    expect((await me.booking(pax(w), b1)).cutoffAt).toBeNull();
+  });
+
   it('consent from the mobile app is recorded with channel PASSENGER_APP; other channels are refused by validation', async () => {
     const w = world();
     const { ppl } = people(w);

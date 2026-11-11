@@ -132,3 +132,26 @@ export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; ln
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
+
+/**
+ * Self-cancel cut-off of a booking (`MeBookingDto.cutoffAt`, computed by the server). NONE: the booking has no cut-off
+ * (a cancel is allowed until the trip starts); OPEN: before it; PASSED: from it on (the server answers AFTER_CUTOFF).
+ */
+export function cutoffState(cutoffAt: string | null | undefined, nowMs: number): 'NONE' | 'OPEN' | 'PASSED' {
+  if (!cutoffAt) return 'NONE';
+  const t = Date.parse(cutoffAt);
+  if (!Number.isFinite(t)) return 'NONE';
+  return nowMs < t ? 'OPEN' : 'PASSED';
+}
+
+/** Day and time of a cut-off in the booking's zone ("10 Nov, 22:00"); "—" when missing or invalid. */
+export function cutoffText(iso: string | null | undefined, timeZone: string, locale = 'en-IN'): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  try {
+    return new Intl.DateTimeFormat(locale, { timeZone, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 16).replace('T', ' ');
+  }
+}

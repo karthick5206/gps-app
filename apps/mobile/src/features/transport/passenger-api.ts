@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 import { ApiError, api, errorMessage } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
 import { ERROR_TEXT } from './labels';
-import { ME_POLL_MS } from './trip-window';
+import { cutoffState, ME_POLL_MS } from './trip-window';
 
 /**
  * Passenger API (`/api/me/transport/*`, doc 05 §2.8): the signed-in passenger's own data only. The server answers
@@ -115,9 +115,12 @@ export function useRecordConsent() {
   });
 }
 
-/** Bookings the passenger may try to cancel (the server enforces the cut-off and the trip state). */
-export function cancellable(b: Pick<MeBookingDto, 'status'>): boolean {
-  return (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(b.status);
+/**
+ * Bookings the passenger may try to cancel: active and not past the server-computed cut-off (`cutoffAt`). The server
+ * still enforces the cut-off and the trip state (409 AFTER_CUTOFF / INVALID_STATE).
+ */
+export function cancellable(b: Pick<MeBookingDto, 'status' | 'cutoffAt'>, nowMs: number = Date.now()): boolean {
+  return (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(b.status) && cutoffState(b.cutoffAt, nowMs) !== 'PASSED';
 }
 
 /**
