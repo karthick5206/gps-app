@@ -36,6 +36,19 @@ export function MyCommutePage() {
   return <MobileAppOnly title="My commute" text="Your pickups, trips and the vehicle on its way will be shown in the mobile app, with the same account. This part of employee transport is still being rolled out." />;
 }
 
+/** E2 placeholder for `etms_passengers`; the E2 web work package replaces it with the passengers screen. */
+export function PassengersComingSoonPage() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-4 p-4 sm:p-6">
+      <PageHeader title={t('Passengers')} />
+      <Card className="py-0">
+        <EmptyState icon={SmartphoneIcon} title={t('Coming soon')} description={t('The passengers screen is being rolled out with employee transport phase E2.')} />
+      </Card>
+    </div>
+  );
+}
+
 export function MyTransportDutyPage() {
   return <MobileAppOnly title="My transport duty" text="Your assigned transport trips and passenger lists will be shown in the mobile app, with the same account. This part of employee transport is still being rolled out." />;
 }

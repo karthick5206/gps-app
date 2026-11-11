@@ -66,6 +66,8 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   // Employee transport (ETMS, E1a): menus exist only while the company add-on etms is on (permissions are stripped server-side).
   etms_dashboard: page(() => import('@/features/transport/TransportDashboardPage'), 'TransportDashboardPage'),
   etms_partners: page(() => import('@/features/transport/PartnersPage'), 'PartnersPage'),
+  // E2: placeholder until the E2 web passengers screen replaces it (every menu needs a route).
+  etms_passengers: page(() => import('@/features/transport/MobileAppOnlyPage'), 'PassengersComingSoonPage'),
   etms_settings: page(() => import('@/features/transport/TransportSettingsPage'), 'TransportSettingsPage'),
   etms_self: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyCommutePage'),
   etms_driver: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyTransportDutyPage'),
