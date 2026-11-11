@@ -88,8 +88,12 @@ interface PreparedTrip {
 /** Candidates wait at most this long for one road ETA (QA B3): a slow engine degrades to "routing unavailable". */
 const CANDIDATE_ETA_TIMEOUT_MS = 2_000;
 
-/** A company place an ad-hoc stop may claim must be within this distance of the place's own point (m). */
-const PLACE_MATCH_M = 200;
+/**
+ * A company place an ad-hoc stop may claim must be within this distance of the place's own point (m), and the place
+ * must exist before the change set (security re-check N5): a place created to cover a home cannot be claimed by a draft
+ * saved earlier, and the point must essentially be the place (the web sends the place's own coordinates).
+ */
+const PLACE_MATCH_M = 25;
 
 /** The planned stop a TRIP candidate's road ETA starts from. */
 interface FromStop {
@@ -488,7 +492,7 @@ export class DispatchService {
     if (row.status !== 'DRAFT' || !row.draft) throw conflict('INVALID_STATE', 'Only a draft can be published');
     const draft = row.draft as unknown as DispatchChangeSetInput;
     const input: DispatchChangeSetInput = { serviceDate: serviceDate(draft.serviceDate), direction: draft.direction, changes: parseChangeOps(draft.changes as unknown[]), expectedVersions: draft.expectedVersions ?? {}, reason: draft.reason };
-    return this.publishWithKey(ctx, input, key, row.id);
+    return this.publishWithKey(ctx, input, key, row.id, row.createdAt);
   }
 
   /** Discard a draft (kept in the ledger as REJECTED, its pickup points cleared). */
@@ -548,6 +552,8 @@ export class DispatchService {
     const okSeat = new Set(seats.filter((s) => inProfileBranch(ctx, s.booking?.profile?.branchId)).map((s) => s.id));
     return rows.filter((r) => {
       if (r.createdById && r.createdById === ctx.userId) return true;
+      // Security re-check N3: a published / discarded row keeps no changes to judge by: its creator only.
+      if (!r.draft) return false;
       const x = refs.get(r.id);
       if (!x) return false;
       return x.objects.every((o) => objectIds.includes(o)) && x.bookings.every((b) => okBooking.has(b)) && x.trips.every((t) => okTrip.has(t)) && x.seats.every((s) => okSeat.has(s));
@@ -565,7 +571,7 @@ export class DispatchService {
     if (!(await this.visibleDrafts(ctx, [row], await this.scopedObjectIds(ctx))).length) throw notFound();
   }
 
-  private async publishWithKey(ctx: AuthContext, input: DispatchChangeSetInput, key: string, draftId: string | null): Promise<Replayable<ChangeSetResult>> {
+  private async publishWithKey(ctx: AuthContext, input: DispatchChangeSetInput, key: string, draftId: string | null, draftCreatedAt: Date | null = null): Promise<Replayable<ChangeSetResult>> {
     const hash = requestHash({ ...input, draftId });
     const prior = await this.prisma.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key } });
     if (prior) {
@@ -574,13 +580,13 @@ export class DispatchService {
       if (prior.status === 'PUBLISHED' && prior.result) return { value: prior.result as unknown as ChangeSetResult, replay: true };
     }
     try {
-      const { result, plannedTripIds, toRoute } = await this.apply(ctx, input, key, hash, draftId);
+      const { result, plannedTripIds, toRoute } = await this.apply(ctx, input, key, hash, draftId, draftCreatedAt);
       await this.live.changed(ctx.companyId, plannedTripIds);
       // QA B3 (02 §5.4): publish never waits for routing; road paths are added after the commit.
       this.routeInBackground(ctx.companyId, toRoute);
       return { value: result, replay: false };
     } catch (e) {
-      if (isUniqueViolation(e, 'idempotencyKey')) {
+      if (e instanceof KeyCommitted || isUniqueViolation(e, 'idempotencyKey')) {
         const winner = await this.prisma.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key } });
         if (winner?.requestHash === hash && winner.result && (draftId || winner.createdById === ctx.userId)) return { value: winner.result as unknown as ChangeSetResult, replay: true };
         throw idempotencyReused();
@@ -590,11 +596,11 @@ export class DispatchService {
   }
 
   /** Prepare the CREATE_TRIP ops (route snapshot or ad-hoc stops + optional road path) before taking any lock. */
-  private async prepareTrips(ctx: AuthContext, input: DispatchChangeSetInput): Promise<Map<string, PreparedTrip>> {
+  private async prepareTrips(ctx: AuthContext, input: DispatchChangeSetInput, asOf: Date | null = null): Promise<Map<string, PreparedTrip>> {
     const out = new Map<string, PreparedTrip>();
     // Stops that claim a company place: the place must be the company's and the point at it (else it is a personal point).
     const poiIds = [...new Set(input.changes.flatMap((o) => (o.op === 'CREATE_TRIP' && o.stops ? o.stops.flatMap((s) => (s.point.poiId ? [s.point.poiId] : [])) : [])))];
-    const places = new Map((poiIds.length ? await this.prisma.poi.findMany({ where: { id: { in: poiIds }, companyId: ctx.companyId }, select: { id: true, lat: true, lng: true } }) : []).map((p) => [p.id, p]));
+    const places = new Map((poiIds.length ? await this.prisma.poi.findMany({ where: { id: { in: poiIds }, companyId: ctx.companyId }, select: { id: true, lat: true, lng: true, createdAt: true } }) : []).map((p) => [p.id, p]));
     for (const op of input.changes) {
       if (op.op !== 'CREATE_TRIP') continue;
       const startMs = Date.parse(op.plannedStart);
@@ -616,6 +622,7 @@ export class DispatchService {
           const place = places.get(poiId);
           // Another tenant's (or an unknown) place is a 404 like any foreign id (05 §1); a place far from the point is a 400.
           if (!place) throw notFound('Place not found');
+          if (asOf && place.createdAt && place.createdAt.getTime() > asOf.getTime()) throw invalid(`Stop ${s.seq + 1} names a place created after this change set was saved`);
           if (metres(place, s) > PLACE_MATCH_M) throw invalid(`Stop ${s.seq + 1} is not at the company place it names`);
           return { ...s, poiId };
         });
@@ -645,9 +652,9 @@ export class DispatchService {
    * trips FOR UPDATE + expectedVersion, then each change in order with its rule checks; finally versions, audit and the
    * TransportChangeSet ledger row. The DB constraints (partial uniques, capacity CHECK, ETMS EXCLUDE) back every check.
    */
-  private async apply(ctx: AuthContext, input: DispatchChangeSetInput, key: string, hash: string, draftId: string | null): Promise<{ result: ChangeSetResult; plannedTripIds: string[]; toRoute: string[] }> {
+  private async apply(ctx: AuthContext, input: DispatchChangeSetInput, key: string, hash: string, draftId: string | null, draftCreatedAt: Date | null = null): Promise<{ result: ChangeSetResult; plannedTripIds: string[]; toRoute: string[] }> {
     const ops = input.changes;
-    const prepared = await this.prepareTrips(ctx, input);
+    const prepared = await this.prepareTrips(ctx, input, draftCreatedAt);
     const newObjectIds = ops.flatMap((o) => (o.op === 'CREATE_TRIP' || o.op === 'REASSIGN_VEHICLE' ? [o.objectId] : []));
     const newDriverIds = ops.flatMap((o) => ((o.op === 'CREATE_TRIP' || o.op === 'REASSIGN_DRIVER') && o.driverId ? [o.driverId] : []));
     const vehicles = await this.prisma.trackedObject.findMany({
@@ -700,6 +707,10 @@ export class DispatchService {
           objectIds: [...newObjectIds, ...visibleTrips.map((t) => t.plannedTrip?.objectId)],
           driverIds: [...newDriverIds, ...visibleTrips.map((t) => t.plannedTrip?.driverId)],
         });
+        // Harness HD2: a parallel request with the same Idempotency-Key that committed while this one waited for the locks
+        // is replayed (publishWithKey), never answered with the 409 its own trips now cause.
+        const committed = await tx.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key }, select: { id: true } });
+        if (committed) throw new KeyCommitted();
         // 2. Bookings (added or freed), then 3. trips — FOR UPDATE, sorted.
         await lockBookings(tx, [...bookingIds, ...removedRows.map((r) => r.bookingId)]);
         await lockTrips(tx, existingTripIds);
@@ -1021,10 +1032,20 @@ export class DispatchService {
           const before = sig(stops);
           const road = await this.routing.routeVia(stops.map((s) => ({ lat: s.lat, lng: s.lng }))).catch(() => null);
           if (!road?.path) continue;
-          const now = await this.prisma.plannedTripStop.findMany({ where: { tripId: id }, orderBy: { seq: 'asc' } });
-          if (sig([...now].sort((a, b) => a.seq - b.seq)) !== before) continue; // changed meanwhile: its own publish re-routes
-          const w = await this.prisma.plannedTrip.updateMany({ where: { id, status: 'SCHEDULED' }, data: { path: road.path as unknown as Prisma.InputJsonValue } });
-          if (w.count) done.push(id);
+          // Re-check and write in ONE transaction under the trip locks (security re-check N1): the header FOR UPDATE (as a
+          // publish / consent withdrawal takes it) and the PlannedTrip row FOR UPDATE (as erasure's path clear takes it).
+          // A withdrawal or erasure still open makes this wait; afterwards the stops differ and the path is not written,
+          // so a path through a withdrawn / erased home can never come back.
+          const written = await this.prisma.$transaction(async (tx) => {
+            const header = await tx.transportTrip.findFirst({ where: { plannedTripId: id }, select: { id: true } });
+            if (header) await lockTrips(tx, [header.id]);
+            await tx.$queryRaw`SELECT id FROM "PlannedTrip" WHERE id = ${id}::uuid FOR UPDATE`;
+            const now = await tx.plannedTripStop.findMany({ where: { tripId: id }, orderBy: { seq: 'asc' } });
+            if (sig([...now].sort((a, b) => a.seq - b.seq)) !== before) return false; // changed meanwhile: its own change re-routes
+            const w = await tx.plannedTrip.updateMany({ where: { id, status: 'SCHEDULED' }, data: { path: road.path as unknown as Prisma.InputJsonValue } });
+            return w.count > 0;
+          });
+          if (written) done.push(id);
         } catch (error) {
           this.logger.warn(`Road path of planned trip ${id} not computed: ${(error as Error).message}`);
         }
@@ -1206,6 +1227,9 @@ export class DispatchService {
     return p.id;
   }
 }
+
+/** Thrown inside the publish transaction when the same Idempotency-Key committed meanwhile (HD2): replayed by the caller. */
+class KeyCommitted extends Error {}
 
 function draftChanges(json: Prisma.JsonValue | null): unknown[] {
   const c = (json as { changes?: unknown } | null)?.changes;

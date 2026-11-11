@@ -212,23 +212,27 @@ export class PlannedTripsService {
     }
     if (dto.driverId !== undefined) data.driverId = dto.driverId ? await this.checkDriver(ctx, dto.driverId) : null;
     if (dto.notes !== undefined) data.notes = dto.notes?.trim() || null;
-    let shifted: ReturnType<typeof shiftTripTimes<PlannedTripStop>> | null = null;
-    if (dto.plannedStart !== undefined) {
-      const start = this.parseStart(dto.plannedStart);
-      if (start !== before.plannedStart.getTime()) {
-        shifted = shiftTripTimes(before, before.stops, start);
+    const start = dto.plannedStart !== undefined ? this.parseStart(dto.plannedStart) : null;
+    const row = await this.prisma.$transaction(async (tx) => {
+      await lockTripResources(tx, { objectIds: [before.objectId, data.objectId as string | undefined], driverIds: [before.driverId, data.driverId as string | null | undefined] });
+      // Security re-check N2: everything below is built from the row as it is NOW (re-read under the locks), never from
+      // `before`: a concurrent edit (one moves the time, the other sets the driver) is seen, so both cannot pass M3.
+      const fresh = await tx.plannedTrip.findUniqueOrThrow({ where: { id }, include: { stops: { orderBy: { seq: 'asc' } } } });
+      if (fresh.status !== 'SCHEDULED') throw new ConflictException('The trip has started meanwhile; reload it');
+      // A concurrent edit moved it to another vehicle / driver: lock those too (advisory locks are re-entrant).
+      if (fresh.objectId !== before.objectId || fresh.driverId !== before.driverId) await lockTripResources(tx, { objectIds: [fresh.objectId], driverIds: [fresh.driverId] });
+      let shifted: ReturnType<typeof shiftTripTimes<PlannedTripStop>> | null = null;
+      if (start !== null && start !== fresh.plannedStart.getTime()) {
+        shifted = shiftTripTimes(fresh, [...fresh.stops].sort((a, b) => a.seq - b.seq), start);
         data.plannedStart = shifted.plannedStart;
         data.plannedEnd = shifted.plannedEnd;
       }
-    }
-    const row = await this.prisma.$transaction(async (tx) => {
-      await lockTripResources(tx, { objectIds: [before.objectId, data.objectId as string | undefined], driverIds: [before.driverId, data.driverId as string | null | undefined] });
       // E3 security review M3: the edited trip (new vehicle / driver / times) must not overlap an active ETMS run.
       await assertNoEtmsOverlap(tx, {
-        objectId: (data.objectId as string | undefined) ?? before.objectId,
-        driverId: data.driverId !== undefined ? (data.driverId as string | null) : before.driverId,
-        start: (data.plannedStart as Date | undefined) ?? before.plannedStart,
-        end: (data.plannedEnd as Date | undefined) ?? before.plannedEnd,
+        objectId: (data.objectId as string | undefined) ?? fresh.objectId,
+        driverId: data.driverId !== undefined ? (data.driverId as string | null) : fresh.driverId,
+        start: (data.plannedStart as Date | undefined) ?? fresh.plannedStart,
+        end: (data.plannedEnd as Date | undefined) ?? fresh.plannedEnd,
         exceptId: id,
       });
       const claimed = await tx.plannedTrip.updateMany({ where: { id, status: 'SCHEDULED' }, data });

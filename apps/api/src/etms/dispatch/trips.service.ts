@@ -247,8 +247,9 @@ export class TripsService {
     const pt = t.plannedTrip!;
     if (pt.status === 'SCHEDULED') throw conflict('INVALID_STATE', 'Start the trip before recording boarding');
     if (pt.status === 'CANCELLED') throw conflict('TRIP_CLOSED', 'This trip was cancelled');
-    const p = await this.prisma.transportTripPassenger.findFirst({ where: { id: passengerTripId, tripId: id } });
-    if (!p) throw notFound('Passenger not found on this trip');
+    const p = await this.prisma.transportTripPassenger.findFirst({ where: { id: passengerTripId, tripId: id }, include: { booking: { select: { profile: { select: { branchId: true } } } } } });
+    // Security re-check N4: a passenger outside the caller's branches is not on "their" manifest: 404 like any unknown seat.
+    if (!p || !inProfileBranch(ctx, p.booking?.profile?.branchId)) throw notFound('Passenger not found on this trip');
     if (!passengerOutcomeAllowed(p.status, dto.outcome)) throw conflict('INVALID_STATE', `A ${p.status.toLowerCase().replace('_', '-')} passenger cannot be marked ${dto.outcome.toLowerCase().replace('_', '-')}`);
     const at = this.occurredAt(dto.occurredAt);
     const data: Prisma.TransportTripPassengerUpdateManyMutationInput = { status: dto.outcome, outcomeSource: 'WEB', outcomeByUserId: ctx.userId, outcomeAt: new Date() };

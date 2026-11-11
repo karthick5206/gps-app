@@ -36,6 +36,7 @@ const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
 
 class Rollback extends Error {}
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 type Tx = Prisma.TransactionClient;
 const H = 3_600_000;
 
@@ -625,6 +626,101 @@ d(`ETMS E3 services on ${dbName}`, () => {
     const trip = await prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId } });
     expect(trip).toMatchObject({ version: 2, occupiedSeats: 3 });
     expect(await prisma.transportTripEvent.count({ where: { tripId, kind: 'STOP_ADDED' } })).toBe(1);
+  });
+
+  it('re-check N1: a road path finished while a consent withdrawal is open never brings back a path through the withdrawn home', async () => {
+    const c = await company('n1-path-race');
+    const day = '2027-02-07';
+    const t0 = Date.parse(`${day}T02:00:00Z`);
+    const v = await vehicle(c.id, 4);
+    const [pa, pb] = await passengers(c.id, 2);
+    const [ba, bb] = [await booking(c.id, pa, day, t0), await booking(c.id, pb, day, t0)];
+    await prisma.$executeRawUnsafe(`UPDATE "TransportBooking" SET "pickupLat" = 13.08, "pickupLng" = 80.27 WHERE id = '${bb}'`);
+    const three = [
+      { seq: 0, point: { lat: 13.06, lng: 80.24, label: 'A' }, plannedArrival: new Date(t0).toISOString() },
+      { seq: 1, point: { lat: 13.08, lng: 80.27, label: 'B' }, plannedArrival: new Date(t0 + 0.5 * H).toISOString() },
+      { seq: 2, point: { lat: 13.05, lng: 80.25, label: 'HQ', poiId: c.office }, plannedArrival: new Date(t0 + H).toISOString() },
+    ];
+    const r = await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [{ op: 'CREATE_TRIP', tempId: 't', objectId: v, plannedStart: new Date(t0).toISOString(), stops: three }, { op: 'ADD_PASSENGER', tripId: 't', bookingId: ba, pickupSeq: 0, dropSeq: 2 }, { op: 'ADD_PASSENGER', tripId: 't', bookingId: bb, pickupSeq: 1, dropSeq: 2 }] }, randomUUID());
+    const ptId = r.value.trips[0].plannedTripId!;
+    // The report's repro: routing answers after 600 ms; the withdrawal opens at +150 ms and stays open 1,500 ms.
+    const slow = { enabled: true, route: async () => null, routeVia: (pts: { lat: number; lng: number }[]) => new Promise((res) => setTimeout(() => res({ path: pts.map((p) => [p.lng, p.lat]) }), 600)) };
+    const routed = new DispatchService(prisma as never, audit, slow as never, live, redis as never);
+    const bg = routed.routeInBackground(c.id, [ptId]);
+    await sleep(150);
+    const wd = prisma.$transaction(
+      async (tx) => {
+        await applyRoutingConsentWithdrawal(tx, c.ctx, audit, { companyId: c.id, profileId: pa, userId: null, home: { lat: 13.06, lng: 80.24 } });
+        await sleep(1_500);
+      },
+      { timeout: 10_000 },
+    );
+    await Promise.all([bg, wd]);
+    const pt = await prisma.plannedTrip.findUniqueOrThrow({ where: { id: ptId }, include: { stops: { orderBy: { seq: 'asc' } } } });
+    expect(pt.stops.map((s) => s.lat)).toEqual([13.08, 13.05]);
+    const path = (pt.path ?? []) as [number, number][];
+    expect(path.some(([lng, lat]) => Math.abs(lat - 13.06) < 1e-6 && Math.abs(lng - 80.24) < 1e-6)).toBe(false);
+    // Without a concurrent change the background path is written (the lock does not stop normal routing).
+    await routed.routeInBackground(c.id, [ptId]);
+    expect((await prisma.plannedTrip.findUniqueOrThrow({ where: { id: ptId } })).path).toEqual([
+      [80.27, 13.08],
+      [80.25, 13.05],
+    ]);
+  });
+
+  it('re-check N2: two concurrent edits of one ROUTE trip (one moves it into an ETMS run, one sets that run’s driver) never both pass', async () => {
+    const c = await company('n2-route-edits');
+    const day = '2027-02-08';
+    const t0 = Date.parse(`${day}T02:00:00Z`);
+    const [v1, v2] = [await vehicle(c.id, 4), await vehicle(c.id, 4)];
+    const dr = await driver(c.id);
+    await dispatch.submit(c.ctx, { serviceDate: day, direction: 'IN', changes: [create(v1, t0, c.office, false, dr)] }, randomUUID());
+    const routeId = randomUUID();
+    await prisma.$executeRawUnsafe(`INSERT INTO "Route" (id, "companyId", name, "corridorM", "updatedAt") VALUES ('${routeId}', '${c.id}', 'Shuttle ${routeId.slice(0, 4)}', 200, now())`);
+    const route = { name: 'Shuttle', corridorM: 200, path: null, stops: [{ seq: 0, name: 'A', lat: 13, lng: 80, radiusM: 100, offsetMin: 0, waitMin: 0 }, { seq: 1, name: 'B', lat: 13.1, lng: 80, radiusM: 100, offsetMin: 30, waitMin: 0 }] };
+    for (let round = 0; round < 5; round++) {
+      const rt = await plannedTrips.insertTrip({ companyId: c.id, routeId, route, objectId: v2, branchId: null, driverId: null, scheduleId: null, plannedStartMs: t0 + (6 + round) * H, createdById: null });
+      const both = await Promise.all([
+        plannedTrips.update(c.ctx, rt.id, { plannedStart: new Date(t0 + 15 * 60_000).toISOString() }).then(() => 'OK', httpCode),
+        plannedTrips.update(c.ctx, rt.id, { driverId: dr }).then(() => 'OK', httpCode),
+      ]);
+      expect([round, both.sort()]).toEqual([round, ['DRIVER_BUSY', 'OK']]);
+      // Move it out of the way for the next round (and out of the ETMS window).
+      await prisma.plannedTrip.update({ where: { id: rt.id }, data: { status: 'CANCELLED' } });
+    }
+  });
+
+  it('harness HD1: the same booking Idempotency-Key in parallel = one booking, every request a replay of it (never 409 BOOKING_DUPLICATE)', async () => {
+    const c = await company('hd1');
+    const [p] = await passengers(c.id, 1);
+    const day = new Date(Date.now() + 6 * 24 * H).toISOString().slice(0, 10);
+    for (let round = 0; round < 3; round++) {
+      const body = { passengerId: p, serviceDate: day, direction: (round % 2 ? 'OUT' : 'IN') as 'IN' | 'OUT', windowStart: `${day}T0${2 + round}:00:00.000Z`, windowEnd: `${day}T0${3 + round}:30:00.000Z`, pickup: { lat: 13.06, lng: 80.24 }, drop: { lat: 13.05, lng: 80.25 } };
+      if (round === 2) await prisma.transportBooking.updateMany({ where: { customerCompanyId: c.id }, data: { status: 'CANCELLED' } });
+      const key = randomUUID();
+      const all = await Promise.all(Array.from({ length: 10 }, () => bookings.create(c.ctx, body, key).then((r) => r, httpCode)));
+      expect([round, all.filter((x) => typeof x === 'string')]).toEqual([round, []]);
+      const ok = all as { value: { id: string }; replay: boolean }[];
+      expect(new Set(ok.map((r) => r.value.id)).size).toBe(1);
+      expect(ok.filter((r) => !r.replay)).toHaveLength(1);
+    }
+  });
+
+  it('harness HD2: the same change-set Idempotency-Key in parallel = one publish, the others replay it (never 409 VEHICLE_BUSY)', async () => {
+    const c = await company('hd2');
+    const day = '2027-02-09';
+    const t0 = Date.parse(`${day}T02:00:00Z`);
+    for (let round = 0; round < 3; round++) {
+      const v = await vehicle(c.id, 4);
+      const key = randomUUID();
+      const body = { serviceDate: day, direction: 'IN' as const, changes: [create(v, t0 + round * H, c.office, false)] };
+      const all = await Promise.all(Array.from({ length: 6 }, () => dispatch.submit(c.ctx, structuredClone(body), key).then((r) => r, httpCode)));
+      expect([round, all.filter((x) => typeof x === 'string')]).toEqual([round, []]);
+      const ok = all as { value: { changeSetId: string }; replay: boolean }[];
+      expect(new Set(ok.map((r) => r.value.changeSetId)).size).toBe(1);
+      expect(ok.filter((r) => !r.replay)).toHaveLength(1);
+      expect(await prisma.plannedTrip.count({ where: { companyId: c.id, objectId: v } })).toBe(1);
+    }
   });
 
   it('double submit of a booking = one booking; a second key for the same passenger / day = 409 BOOKING_DUPLICATE', async () => {

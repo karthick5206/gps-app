@@ -441,3 +441,27 @@ describe('dispatcher start of an ETMS trip (QA B5)', () => {
     expect(t.nextStopSeq).toBe(0);
   });
 });
+
+describe('place claims (E3 security re-check N5)', () => {
+  it('a stop naming a place must be within 25 m of it, and the place must pre-date the saved draft', async () => {
+    const w = world();
+    // Within 200 m (the old tolerance) but 50 m off: refused now.
+    const off = [{ ...siteStops()[0], point: { lat: 13.07045, lng: 80.23, label: 'Depot', poiId: DEPOT } }, siteStops()[1]];
+    expect(await code(w.dispatch.submit(w.ctx, { serviceDate: DAY, direction: 'IN', changes: [createTrip(w.v1, { stops: off })] }, randomUUID()))).toEqual([400, 'VALIDATION_FAILED']);
+    // A draft saved before a place existed cannot claim that place (e.g. a place created later at a home).
+    for (const p of w.store.table('poi')) p.createdAt = new Date(Date.now() - 2 * 86_400_000);
+    const LATE = '00000000-0000-4000-8000-0000000000cc';
+    w.store.insert('poi', { id: LATE, companyId: 'c1', name: 'New place', lat: 13.06, lng: 80.24, isActive: true });
+    const draft = w.store.insert('transportChangeSet', {
+      companyId: 'c1',
+      status: 'DRAFT',
+      createdById: 'u1',
+      createdAt: new Date(Date.now() - 86_400_000),
+      serviceDate: new Date(`${DAY}T00:00:00Z`),
+      direction: 'IN',
+      draft: { serviceDate: DAY, direction: 'IN', expectedVersions: {}, changes: [createTrip(w.v1, { stops: [{ seq: 0, point: { lat: 13.06, lng: 80.24, label: 'Home', poiId: LATE }, plannedArrival: new Date(T0).toISOString() }, siteStops()[1]] })] },
+    });
+    expect(await code(w.dispatch.publishDraft(w.ctx, draft.id as string, randomUUID()))).toEqual([400, 'VALIDATION_FAILED']);
+    expect(w.store.table('plannedTrip')).toHaveLength(0);
+  });
+});

@@ -218,7 +218,12 @@ export class BookingsService {
       where: { profileId: profile.id, serviceDate: dateOnly(day), direction: dto.direction, status: { in: ['REQUESTED', 'PENDING_ASSIGNMENT', 'ASSIGNED', 'CONFIRMED', 'WAITLISTED'] } },
       select: { id: true },
     });
-    if (duplicate) throw conflict('BOOKING_DUPLICATE', 'The passenger already has an active booking for this date and direction', { bookingId: duplicate.id });
+    if (duplicate) {
+      // Harness HD1: the "duplicate" may be this very request's twin (same Idempotency-Key, sent in parallel): replay it.
+      const twin = await this.replayOf(ctx, key, hash);
+      if (twin) return twin;
+      throw conflict('BOOKING_DUPLICATE', 'The passenger already has an active booking for this date and direction', { bookingId: duplicate.id });
+    }
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
@@ -262,9 +267,22 @@ export class BookingsService {
         if (winner && winner.idempotencyHash === hash && winner.createdById === ctx.userId) return { value: await this.detail(ctx, winner), replay: true };
         throw idempotencyReused();
       }
-      if (isUniqueViolation(e)) throw conflict('BOOKING_DUPLICATE', 'The passenger already has an active booking for this date and direction');
+      if (isUniqueViolation(e)) {
+        const twin = await this.replayOf(ctx, key, hash); // HD1: the active-booking index fired for the key's own twin
+        if (twin) return twin;
+        throw conflict('BOOKING_DUPLICATE', 'The passenger already has an active booking for this date and direction');
+      }
       throw e;
     }
+  }
+
+  /** The committed booking of this Idempotency-Key, replayed when the body and the user match (HD1), else null. */
+  private async replayOf(ctx: AuthContext, key: string, hash: string): Promise<Replayable<TransportBookingDto> | null> {
+    const prior = await this.prisma.transportBooking.findFirst({ where: { customerCompanyId: ctx.companyId, idempotencyKey: key }, include: BOOKING_INCLUDE });
+    if (!prior) return null;
+    if (prior.idempotencyHash !== hash || prior.createdById !== ctx.userId) throw idempotencyReused();
+    assertBookingAccess(ctx, prior, 'read');
+    return { value: await this.detail(ctx, prior), replay: true };
   }
 
   // ───────────────────────────── change ─────────────────────────────
