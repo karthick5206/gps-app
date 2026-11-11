@@ -10,12 +10,13 @@ import { AuthContext } from '../../access/auth-context';
 import { Auth, RequireAnyPermission, RequirePermission } from '../../access/decorators';
 import { TransportFeatureGuard } from '../transport-feature.guard';
 import { AgreementViewsService } from './agreement-views.service';
-import { AgreementCommandDto, AgreementListQuery, AgreementReasonDto, AgreementSiteOptionsQuery, CreateAgreementDto, UpdateAgreementDto } from './agreements.dto';
+import { AgreementApproveDto, AgreementCommandDto, AgreementListQuery, AgreementReasonDto, AgreementSiteOptionsQuery, CreateAgreementDto, UpdateAgreementDto } from './agreements.dto';
 import { AgreementsService } from './agreements.service';
 
 /**
  * /api/transport/agreements (doc 05 §2.1). Menu `etms_partners` + company add-on `etms` (404 when off). Row scope:
- * the acting company must be a party (Super Admin in the platform company: all, PLAT); other ids are 404.
+ * the acting company must be a party (Super Admin in the platform company: all, PLAT); other ids are 404. Commands also
+ * need whole-company data scope (403 SCOPE_REQUIRED, R-12), checked in the service.
  */
 @Controller('transport/agreements')
 @UseGuards(TransportFeatureGuard)
@@ -71,12 +72,12 @@ export class AgreementsController {
 
   @Post(':id/propose') @RequirePermission('etms_partners', 'edit')
   propose(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AgreementCommandDto): Promise<TransportAgreementDto> {
-    return this.service.propose(ctx, id, dto.expectedVersion);
+    return this.service.propose(ctx, id, dto.expectedVersion, dto.reason);
   }
 
-  /** Approves the caller's own side; ACTIVE once both sides approved. */
+  /** Approves the caller's own side; ACTIVE once both sides approved. Never the Super Admin (P1). */
   @Post(':id/approve') @RequirePermission('etms_partners', 'edit')
-  approve(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AgreementCommandDto): Promise<TransportAgreementDto> {
+  approve(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AgreementApproveDto): Promise<TransportAgreementDto> {
     return this.service.approve(ctx, id, dto.expectedVersion);
   }
 

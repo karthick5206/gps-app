@@ -7,8 +7,11 @@ import { toast } from 'sonner';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/features/auth/auth-context';
 import { Panel } from '@/features/dashboard/refresh/kit';
+import { errorMessage } from '@/lib/api';
+import { useTransportSettings, useUpdateTransportSettings } from './use-agreements';
 
 const ACTION_LABEL: Record<Action, string> = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', export: 'Export', command: 'Command' };
 const menuLabel = (key: string) => MENUS.find((m) => m.key === key)?.label ?? key;
@@ -38,6 +41,49 @@ function CopyId({ id }: { id: string }) {
         {copied ? t('Copied') : ''}
       </span>
     </div>
+  );
+}
+
+/**
+ * F4: whether other ETMS companies find this company by name in the partner lookup. Off by default; Transport admins
+ * (etms_settings:edit, whole-company scope) switch it. Unlisted companies are still reachable by their company ID.
+ */
+function DirectoryListing() {
+  const { t } = useTranslation();
+  const { can, me } = useAuth();
+  const settings = useTransportSettings(true);
+  const update = useUpdateTransportSettings();
+  const editable = can('etms_settings', 'edit') && me?.dataScope === 'COMPANY';
+  const listed = settings.data?.directoryListed ?? false;
+  return (
+    <Panel title={t('Partner directory')} subtitle={t('Whether other companies using employee transport can find you by name')} id="etms-directory">
+      <div className="flex items-start gap-3 text-sm">
+        <Switch
+          id="etms-directory-listed"
+          checked={listed}
+          disabled={!editable || settings.isLoading || update.isPending}
+          onCheckedChange={(v) =>
+            update.mutate(
+              { directoryListed: v },
+              {
+                onSuccess: (row) => toast.success(row.directoryListed ? t('Your company is now listed in the partner directory') : t('Your company is no longer listed in the partner directory')),
+                onError: (e) => toast.error(errorMessage(e)),
+              },
+            )
+          }
+          aria-describedby="etms-directory-help"
+        />
+        <div className="min-w-0 space-y-1">
+          <label htmlFor="etms-directory-listed" className="font-medium">
+            {t('List my company in the partner directory')}
+          </label>
+          <p id="etms-directory-help" className="text-xs text-muted-foreground">
+            {t('Off by default. When on, other companies see your company name and billing city when they search for a partner. When off, a partner can still start an agreement with your company ID.')}
+          </p>
+          {!editable && <p className="text-xs text-muted-foreground">{t('Only a Transport admin with whole-company access can change this.')}</p>}
+        </div>
+      </div>
+    </Panel>
   );
 }
 
@@ -86,6 +132,8 @@ export function TransportSettingsPage() {
             <CopyId id={me.company.id} />
           )}
         </Panel>
+
+        {!platformHome && <DirectoryListing />}
       </div>
 
       <Panel

@@ -3,6 +3,7 @@ import {
   TRANSPORT_DATA_PROFILES,
   TRANSPORT_GRANTS,
   type CreateTransportAgreementInput,
+  type TransportAgreementApproveInput,
   type TransportAgreementCommandInput,
   type TransportAgreementReasonInput,
   type TransportAgreementSide,
@@ -28,6 +29,8 @@ export class CreateAgreementDto implements CreateTransportAgreementInput {
   @IsArray() @ArrayUnique() @ArrayMaxSize(TRANSPORT_GRANTS.length) @IsIn(TRANSPORT_GRANTS, { each: true }) grants!: TransportGrant[];
   @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(500) @IsUUID('all', { each: true }) siteIds?: string[];
   @IsOptional() @IsIn(TRANSPORT_DATA_PROFILES) dataProfile?: TransportDataProfile;
+  /** Required for VeeTrax support (checked in the service). */
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 export class UpdateAgreementDto implements UpdateTransportAgreementInput {
@@ -37,10 +40,18 @@ export class UpdateAgreementDto implements UpdateTransportAgreementInput {
   @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(500) @IsUUID('all', { each: true }) siteIds?: string[];
   @IsOptional() @IsIn(TRANSPORT_DATA_PROFILES) dataProfile?: TransportDataProfile;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) expectedVersion?: number;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 export class AgreementCommandDto implements TransportAgreementCommandInput {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) expectedVersion?: number;
+  /** Propose by VeeTrax support: required (checked in the service). */
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+/** F6: approving needs the version the approver saw. */
+export class AgreementApproveDto implements TransportAgreementApproveInput {
+  @Type(() => Number) @IsInt() @Min(1) expectedVersion!: number;
 }
 
 export class AgreementReasonDto implements TransportAgreementReasonInput {

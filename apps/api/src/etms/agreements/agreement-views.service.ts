@@ -17,7 +17,7 @@ import { AuthContext } from '../../access/auth-context';
 import { agreementSiteScope, transportNotFound } from '../../access/transport-scope';
 import { PrismaService } from '../../prisma/prisma.service';
 import { poiScopeWhere } from '../../pois/pois.service';
-import { AGREEMENT_ENTITY, agreementVisibilityWhere } from './agreements.service';
+import { AGREEMENT_ENTITY, agreementVisibilityWhere, canWriteAgreements } from './agreements.service';
 
 const AWAITING_LIST = 10;
 const HISTORY_MAX = 500;
@@ -35,7 +35,9 @@ const asStatus = (v: unknown): TransportAgreementStatus | null => (typeof v === 
 export function classifyAgreementAudit(action: string, changes: unknown): Omit<TransportAgreementHistoryEntryDto, 'id' | 'at' | 'actorSide' | 'actorName'> | null {
   const c: Changes = changes && typeof changes === 'object' && !Array.isArray(changes) ? (changes as Changes) : {};
   const reasonOf = () => (typeof c.statusReason?.to === 'string' ? (c.statusReason.to as string) : null);
-  if (action === 'CREATE') return { kind: 'CREATED', fromStatus: null, toStatus: asStatus(c.status?.to) ?? 'DRAFT', changedFields: [], reason: null };
+  // F7: the reason VeeTrax support gave (AgreementsService writes it as `supportReason` into its audit rows).
+  const support = typeof c.supportReason?.to === 'string' ? (c.supportReason.to as string) : null;
+  if (action === 'CREATE') return { kind: 'CREATED', fromStatus: null, toStatus: asStatus(c.status?.to) ?? 'DRAFT', changedFields: [], reason: support };
   if (action !== 'UPDATE') return null;
   const from = asStatus(c.status?.from);
   const to = asStatus(c.status?.to);
@@ -48,7 +50,7 @@ export function classifyAgreementAudit(action: string, changes: unknown): Omit<T
     kind = 'EDITED';
   }
   const changedFields: TransportAgreementTermField[] = kind === 'EDITED' ? TRANSPORT_AGREEMENT_TERM_FIELDS.filter((f) => f in c) : [];
-  return { kind, fromStatus: from, toStatus: to, changedFields, reason: kind === 'SUSPENDED' || kind === 'ENDED' ? reasonOf() : null };
+  return { kind, fromStatus: from, toStatus: to, changedFields, reason: (kind === 'SUSPENDED' || kind === 'ENDED' ? reasonOf() : null) ?? support };
 }
 
 /**
@@ -106,7 +108,9 @@ export class AgreementViewsService {
   /**
    * Full history from the audit log, oldest first. Minimum data: a person's name only when the audit row was written
    * for the viewer's company (or the viewer is the Super Admin on the platform); the other party and the platform appear
-   * by side only. No IPs, user ids or raw diffs leave the service.
+   * by side only. Anything a Super Admin did is "VeeTrax support" (PLATFORM, no name) for the parties, whichever company
+   * the row was written in (also rows from before F2, when a switched Super Admin acted as a side). No IPs, user ids or
+   * raw diffs leave the service.
    */
   async history(ctx: AuthContext, id: string): Promise<TransportAgreementHistoryEntryDto[]> {
     const row = await this.visible(ctx, id);
@@ -118,15 +122,17 @@ export class AgreementViewsService {
     });
     const platformViewer = ctx.isSuperAdmin && ctx.companyId === ctx.homeCompanyId;
     const named = (companyId: string | null) => platformViewer || (!!companyId && companyId === ctx.companyId);
-    const userIds = [...new Set(logs.filter((l) => l.userId && named(l.companyId)).map((l) => l.userId!))];
-    const users = userIds.length ? await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [];
-    const names = new Map(users.map((u) => [u.id, u.name]));
+    const userIds = [...new Set(logs.filter((l) => l.userId).map((l) => l.userId!))];
+    const users = userIds.length ? await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, isSuperAdmin: true } }) : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
     const out: TransportAgreementHistoryEntryDto[] = [];
     for (const l of logs) {
       const entry = classifyAgreementAudit(l.action, l.changes);
       if (!entry) continue;
-      const actorSide = l.companyId === row.customerCompanyId ? 'CUSTOMER' : l.companyId === row.providerCompanyId ? 'PROVIDER' : l.companyId ? 'PLATFORM' : null;
-      const actorName = l.userId && named(l.companyId) ? (names.get(l.userId) ?? null) : null;
+      const actor = l.userId ? byId.get(l.userId) : undefined;
+      const support = !!actor?.isSuperAdmin;
+      const actorSide = support ? 'PLATFORM' : l.companyId === row.customerCompanyId ? 'CUSTOMER' : l.companyId === row.providerCompanyId ? 'PROVIDER' : l.companyId ? 'PLATFORM' : null;
+      const actorName = actor && (platformViewer || (!support && named(l.companyId))) ? actor.name : null;
       out.push({ id: l.id, at: l.createdAt.toISOString(), actorSide, actorName, ...entry });
     }
     return out;
@@ -135,7 +141,9 @@ export class AgreementViewsService {
   /** Counts per status over the visible agreements, plus the proposed ones awaiting the caller's side. */
   async summary(ctx: AuthContext): Promise<TransportAgreementSummaryDto> {
     const visible = agreementVisibilityWhere(ctx);
-    const canApprove = hasPermission(ctx, 'etms_partners', 'edit');
+    // Only callers who can approve see "awaiting my approval": a party user with the grant and whole-company scope (R-12),
+    // never VeeTrax support (P1).
+    const canApprove = hasPermission(ctx, 'etms_partners', 'edit') && canWriteAgreements(ctx) && !ctx.isSuperAdmin;
     const awaitingWhere: Prisma.TransportServiceAgreementWhereInput = {
       AND: [
         visible,

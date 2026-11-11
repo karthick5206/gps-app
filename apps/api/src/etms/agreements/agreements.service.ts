@@ -9,8 +9,10 @@ import {
   type TransportAgreementSide,
 } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
+import { hasPermission } from '../../access/access-rules';
 import { transportNotFound } from '../../access/transport-scope';
-import { AuditService } from '../../audit/audit.service';
+import { AuditEntry, AuditService } from '../../audit/audit.service';
+import { companyFeatures } from '../../common/company-features';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
@@ -46,11 +48,28 @@ const CSV: CsvSpec<TransportAgreementDto> = {
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
-/** Which party the caller acts for, PLATFORM for the Super Admin when not a party, null when it may not see the row. */
+/**
+ * Which party the caller acts for, null when it may not see the row. The Super Admin is always PLATFORM (VeeTrax
+ * support), also after switching into a party company with X-Company-Id (P1: it may draft but never approves for a side).
+ */
 export function agreementActor(ctx: Pick<AuthContext, 'companyId' | 'isSuperAdmin'>, row: { providerCompanyId: string; customerCompanyId: string }): AgreementActor | null {
+  if (ctx.isSuperAdmin) return 'PLATFORM';
   if (row.customerCompanyId === ctx.companyId) return 'CUSTOMER';
   if (row.providerCompanyId === ctx.companyId) return 'PROVIDER';
-  return ctx.isSuperAdmin ? 'PLATFORM' : null;
+  return null;
+}
+
+/** R-12 / doc 10 §2.3: agreement commands bind the whole company, so they need COMPANY data scope (the matrix "COMPANY"). */
+export function canWriteAgreements(ctx: Pick<AuthContext, 'dataScope'>): boolean {
+  return ctx.dataScope === 'COMPANY';
+}
+
+/**
+ * Whether the caller is offered agreement commands at all (`allowedActions`): the command routes' menu grant
+ * (`etms_partners:edit`) and whole-company scope. The state machine then decides which commands, per side.
+ */
+export function canCommandAgreements(ctx: Pick<AuthContext, 'dataScope' | 'permissions'>): boolean {
+  return canWriteAgreements(ctx) && hasPermission(ctx, 'etms_partners', 'edit');
 }
 
 /**
@@ -62,7 +81,12 @@ export function agreementVisibilityWhere(ctx: Pick<AuthContext, 'companyId' | 'h
   return { OR: [{ providerCompanyId: ctx.companyId }, { customerCompanyId: ctx.companyId }] };
 }
 
-export function toAgreementDto(r: Row, actor: AgreementActor | null, now: Date = new Date()): TransportAgreementDto {
+/**
+ * DTO for one viewer. Minimum data (F5): the approver ids only to their own side and to VeeTrax support, the creator id
+ * only to VeeTrax support. `canWrite` false (no `etms_partners:edit`, or branch-scoped caller) = no commands offered.
+ */
+export function toAgreementDto(r: Row, actor: AgreementActor | null, now: Date = new Date(), canWrite = false): TransportAgreementDto {
+  const platform = actor === 'PLATFORM';
   return {
     id: r.id,
     version: r.version,
@@ -77,16 +101,16 @@ export function toAgreementDto(r: Row, actor: AgreementActor | null, now: Date =
     siteIds: [...r.siteIds],
     dataProfile: r.dataProfile,
     approvedByCustomerAt: iso(r.approvedByCustomerAt),
-    approvedByCustomerUserId: r.approvedByCustomerUserId,
+    approvedByCustomerUserId: platform || actor === 'CUSTOMER' ? r.approvedByCustomerUserId : null,
     approvedByProviderAt: iso(r.approvedByProviderAt),
-    approvedByProviderUserId: r.approvedByProviderUserId,
+    approvedByProviderUserId: platform || actor === 'PROVIDER' ? r.approvedByProviderUserId : null,
     suspendedAt: iso(r.suspendedAt),
     endedAt: iso(r.endedAt),
     statusReason: r.statusReason,
     inForce: agreementInForce(r, now),
     side: actor === 'PLATFORM' ? null : actor,
-    allowedActions: actor ? agreementActions(r, actor) : [],
-    createdById: r.createdById,
+    allowedActions: actor && canWrite ? agreementActions(r, actor) : [],
+    createdById: platform ? r.createdById : null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
@@ -96,6 +120,21 @@ const err = (code: string, message: string) => ({ message, code });
 const invalidState = (message: string) => new ConflictException(err('INVALID_STATE', message));
 const invalid = (message: string) => new BadRequestException(err('VALIDATION_FAILED', message));
 const ACTORS: AgreementActor[] = ['PROVIDER', 'CUSTOMER', 'PLATFORM'];
+
+/** 403 SCOPE_REQUIRED for branch-scoped callers (R-12): agreement commands need whole-company access. */
+function assertCanWrite(ctx: AuthContext): void {
+  if (!canWriteAgreements(ctx)) {
+    throw new ForbiddenException(err('SCOPE_REQUIRED', 'Only users with whole-company access can create or change transport agreements'));
+  }
+}
+
+/** F7: VeeTrax support (Super Admin) gives a reason for every change; it is shown in the history and the customer's audit log. */
+function supportReason(ctx: AuthContext, reason: string | undefined): string | null {
+  if (!ctx.isSuperAdmin) return null;
+  const r = reason?.trim();
+  if (!r) throw invalid('VeeTrax support must give a reason for this change');
+  return r;
+}
 
 /**
  * ETMS service agreements (D1, P1; docs 05 §2.1, 10 §2.2, 15 §3.1). Create = DRAFT; PATCH while DRAFT; propose freezes
@@ -123,15 +162,18 @@ export class AgreementsService {
       this.prisma.transportServiceAgreement.count({ where }),
     ]);
     const now = new Date();
-    return listResult(plan, rows.map((r) => toAgreementDto(r, agreementActor(ctx, r), now)), total, CSV);
+    const canWrite = canCommandAgreements(ctx);
+    return listResult(plan, rows.map((r) => toAgreementDto(r, agreementActor(ctx, r), now, canWrite)), total, CSV);
   }
 
   async get(ctx: AuthContext, id: string): Promise<TransportAgreementDto> {
     const row = await this.find(ctx, id);
-    return toAgreementDto(row, agreementActor(ctx, row));
+    return toAgreementDto(row, agreementActor(ctx, row), new Date(), canCommandAgreements(ctx));
   }
 
   async create(ctx: AuthContext, dto: CreateAgreementDto): Promise<TransportAgreementDto> {
+    assertCanWrite(ctx);
+    const reason = supportReason(ctx, dto.reason);
     if (dto.providerCompanyId === dto.customerCompanyId) throw invalid('Provider and customer must be different companies (a company that runs its own transport needs no agreement)');
     if (!ctx.isSuperAdmin && ctx.companyId !== dto.providerCompanyId && ctx.companyId !== dto.customerCompanyId) {
       throw new ForbiddenException(err('FORBIDDEN_GRANT', 'You can only create agreements your company is a party to'));
@@ -158,15 +200,16 @@ export class AgreementsService {
         .catch((e: unknown) => {
           throw this.duplicateOr(e);
         });
-      await this.audit.record(ctx, { action: 'CREATE', entity: AGREEMENT_ENTITY, entityId: created.id, after: snapshot(created) }, tx);
+      await this.record(ctx, created, { action: 'CREATE', entity: AGREEMENT_ENTITY, entityId: created.id, after: snapshot(created) }, reason, tx);
       return created;
     });
-    return toAgreementDto(row, agreementActor(ctx, row));
+    return toAgreementDto(row, agreementActor(ctx, row), new Date(), canCommandAgreements(ctx));
   }
 
   async update(ctx: AuthContext, id: string, dto: UpdateAgreementDto): Promise<TransportAgreementDto> {
     const before = await this.find(ctx, id);
     this.authorise(ctx, before, 'edit', dto.expectedVersion);
+    const reason = supportReason(ctx, dto.reason);
     const { validFrom, validTo } = this.validity(dto.validFrom ?? before.validFrom.toISOString(), dto.validTo === undefined ? (before.validTo?.toISOString() ?? null) : dto.validTo);
     const siteIds = dto.siteIds ? await this.checkSites(before.customerCompanyId, dto.siteIds) : undefined;
     return this.write(ctx, before, {
@@ -175,42 +218,47 @@ export class AgreementsService {
       ...(dto.grants ? { grants: dto.grants } : {}),
       ...(siteIds ? { siteIds } : {}),
       ...(dto.dataProfile ? { dataProfile: dto.dataProfile } : {}),
-    }, false);
+    }, false, reason);
   }
 
-  async propose(ctx: AuthContext, id: string, expectedVersion?: number): Promise<TransportAgreementDto> {
+  async propose(ctx: AuthContext, id: string, expectedVersion?: number, reasonRaw?: string): Promise<TransportAgreementDto> {
     const before = await this.find(ctx, id);
     const actor = this.authorise(ctx, before, 'propose', expectedVersion);
+    const reason = supportReason(ctx, reasonRaw);
     if (!before.grants.length) throw invalid('Choose at least one grant before proposing the agreement');
     if (before.validTo && before.validTo <= new Date()) throw invalid('The agreement would already be over: change "valid to" first');
-    return this.write(ctx, before, { status: nextAgreementStatus(before, 'propose', actor) }, true);
+    return this.write(ctx, before, { status: nextAgreementStatus(before, 'propose', actor) }, true, reason);
   }
 
-  async approve(ctx: AuthContext, id: string, expectedVersion?: number): Promise<TransportAgreementDto> {
+  /** `expectedVersion` is required (F6): an approval is tied to the frozen terms the approver actually saw. */
+  async approve(ctx: AuthContext, id: string, expectedVersion: number): Promise<TransportAgreementDto> {
     const before = await this.find(ctx, id);
+    if (!Number.isInteger(expectedVersion)) throw invalid('expectedVersion is required to approve');
     const actor = this.authorise(ctx, before, 'approve', expectedVersion);
     const now = new Date();
     const status = nextAgreementStatus(before, 'approve', actor);
     const side = actor === 'CUSTOMER' ? { approvedByCustomerAt: now, approvedByCustomerUserId: ctx.userId } : { approvedByProviderAt: now, approvedByProviderUserId: ctx.userId };
-    return this.write(ctx, before, { status, ...side }, status !== before.status);
+    return this.write(ctx, before, { status, ...side }, status !== before.status, null);
   }
 
   async suspend(ctx: AuthContext, id: string, reason: string, expectedVersion?: number): Promise<TransportAgreementDto> {
     const before = await this.find(ctx, id);
     const actor = this.authorise(ctx, before, 'suspend', expectedVersion);
-    return this.write(ctx, before, { status: nextAgreementStatus(before, 'suspend', actor), suspendedAt: new Date(), statusReason: reason.trim() }, true);
+    const why = reason.trim();
+    return this.write(ctx, before, { status: nextAgreementStatus(before, 'suspend', actor), suspendedAt: new Date(), statusReason: why }, true, ctx.isSuperAdmin ? why : null);
   }
 
   async resume(ctx: AuthContext, id: string, expectedVersion?: number): Promise<TransportAgreementDto> {
     const before = await this.find(ctx, id);
     const actor = this.authorise(ctx, before, 'resume', expectedVersion);
-    return this.write(ctx, before, { status: nextAgreementStatus(before, 'resume', actor), suspendedAt: null, statusReason: null }, true);
+    return this.write(ctx, before, { status: nextAgreementStatus(before, 'resume', actor), suspendedAt: null, statusReason: null }, true, null);
   }
 
   async end(ctx: AuthContext, id: string, reason: string, expectedVersion?: number): Promise<TransportAgreementDto> {
     const before = await this.find(ctx, id);
     const actor = this.authorise(ctx, before, 'end', expectedVersion);
-    return this.write(ctx, before, { status: nextAgreementStatus(before, 'end', actor), endedAt: new Date(), statusReason: reason.trim() }, true);
+    const why = reason.trim();
+    return this.write(ctx, before, { status: nextAgreementStatus(before, 'end', actor), endedAt: new Date(), statusReason: why }, true, ctx.isSuperAdmin ? why : null);
   }
 
   // ───────────────────────────── internals ─────────────────────────────
@@ -227,11 +275,16 @@ export class AgreementsService {
    * caller's side already approved), 403 FORBIDDEN_GRANT when the status allows it but not for the caller's side.
    */
   private authorise(ctx: AuthContext, row: Row, cmd: TransportAgreementAction, expectedVersion?: number): AgreementActor {
+    assertCanWrite(ctx);
     if (expectedVersion !== undefined && expectedVersion !== row.version) {
       throw new ConflictException({ message: 'The agreement was changed by someone else; reload it', code: 'VERSION_CONFLICT', currentVersion: row.version });
     }
     const actor = agreementActor(ctx, row);
     if (!actor) throw transportNotFound('Agreement not found');
+    // P1 (F2): VeeTrax support never approves for a side, nor re-activates grants, whichever company it switched into.
+    if (ctx.isSuperAdmin && (cmd === 'approve' || cmd === 'resume')) {
+      throw new ForbiddenException(err('FORBIDDEN_GRANT', cmd === 'approve' ? 'Only the two companies approve an agreement; VeeTrax support may draft but never approves' : 'Only the customer can resume an agreement'));
+    }
     if (agreementActions(row, actor).includes(cmd)) return actor;
     if (cmd === 'approve' && row.status === 'PROPOSED' && actor !== 'PLATFORM') throw invalidState('Your side has already approved this agreement');
     if (ACTORS.some((a) => agreementActions(row, a).includes(cmd))) {
@@ -241,21 +294,40 @@ export class AgreementsService {
     throw invalidState(`Cannot ${cmd} an agreement that is ${row.status.toLowerCase()}`);
   }
 
+  /**
+   * Audit row of an agreement change. VeeTrax support (F7): written into the customer company (the data owner), so the
+   * customer's own audit log shows it, with the support reason in the diff (`supportReason`); the history shows it as
+   * "VeeTrax support" because the actor is a Super Admin (AgreementViewsService.history).
+   */
+  private async record(ctx: AuthContext, row: Row, entry: AuditEntry, reason: string | null, tx: Prisma.TransactionClient): Promise<void> {
+    if (!ctx.isSuperAdmin) return this.audit.record(ctx, entry, tx);
+    return this.audit.recordFor(ctx, row.customerCompanyId, { ...entry, after: { ...(entry.after ?? {}), supportReason: reason } }, tx);
+  }
+
   /** Compare-and-set on (id, version, status) + audit in one transaction. */
-  private async write(ctx: AuthContext, before: Row, data: Prisma.TransportServiceAgreementUncheckedUpdateManyInput, statusChanged: boolean): Promise<TransportAgreementDto> {
+  private async write(
+    ctx: AuthContext,
+    before: Row,
+    data: Prisma.TransportServiceAgreementUncheckedUpdateManyInput,
+    statusChanged: boolean,
+    reason: string | null,
+  ): Promise<TransportAgreementDto> {
     const row = await this.prisma.$transaction(async (tx) => {
       const res = await tx.transportServiceAgreement
         .updateMany({ where: { id: before.id, version: before.version, status: before.status }, data: { ...data, version: { increment: 1 } } })
         .catch((e: unknown) => {
           throw this.duplicateOr(e);
         });
-      if (res.count !== 1) throw new ConflictException({ message: 'The agreement was changed by someone else; reload it', code: 'VERSION_CONFLICT' });
+      if (res.count !== 1) {
+        const current = await tx.transportServiceAgreement.findUnique({ where: { id: before.id }, select: { version: true } });
+        throw new ConflictException({ message: 'The agreement was changed by someone else; reload it', code: 'VERSION_CONFLICT', currentVersion: current?.version ?? before.version });
+      }
       const after = await tx.transportServiceAgreement.findUniqueOrThrow({ where: { id: before.id }, include: INCLUDE });
-      await this.audit.record(ctx, { action: 'UPDATE', entity: AGREEMENT_ENTITY, entityId: before.id, before: snapshot(before), after: snapshot(after) }, tx);
+      await this.record(ctx, after, { action: 'UPDATE', entity: AGREEMENT_ENTITY, entityId: before.id, before: snapshot(before), after: snapshot(after) }, reason, tx);
       return after;
     });
     if (statusChanged) await this.redis.invalidateCache('transport-agreement').catch(() => undefined);
-    return toAgreementDto(row, agreementActor(ctx, row));
+    return toAgreementDto(row, agreementActor(ctx, row), new Date(), canCommandAgreements(ctx));
   }
 
   private validity(fromRaw: string, toRaw: string | null): { validFrom: Date; validTo: Date | null } {
@@ -266,13 +338,21 @@ export class AgreementsService {
     return { validFrom, validTo };
   }
 
-  /** Both parties are existing business companies (never the platform company, never personal accounts). */
+  /**
+   * Both parties are existing, ACTIVE business companies with the `etms` add-on on (never the platform company, never
+   * personal accounts). F8: no draft against a company that can't see it (and so couldn't end it); such a company answers
+   * like an unknown id, so the check reveals nothing about companies outside ETMS.
+   */
   private async assertParties(providerId: string, customerId: string): Promise<void> {
-    const rows = await this.prisma.company.findMany({ where: { id: { in: [providerId, customerId] } }, select: { id: true, isPlatform: true, accountType: true } });
+    const rows = await this.prisma.company.findMany({
+      where: { id: { in: [providerId, customerId] } },
+      select: { id: true, isPlatform: true, accountType: true, status: true, settings: true },
+    });
     for (const id of [providerId, customerId]) {
       const c = rows.find((r) => r.id === id);
       if (!c) throw transportNotFound('Company not found');
       if (c.isPlatform || c.accountType !== 'BUSINESS') throw invalid('Agreements are only between business companies');
+      if (c.status !== 'ACTIVE' || !companyFeatures(c).includes('etms')) throw transportNotFound('Company not found');
     }
   }
 

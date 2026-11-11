@@ -5,6 +5,7 @@ import { AppEnv } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolvePermissions } from './access-rules';
 import { ALL_COMPANIES, withoutUnavailableMenus } from '@veetracer/shared';
+import { ADMIN_ROLE } from './access-rules';
 import { companyFeatures } from '../common/company-features';
 import { AccessTokenPayload, AuthContext, SharedVehicle, TransportAgreementScope } from './auth-context';
 
@@ -73,6 +74,8 @@ export class AuthContextService {
       user.isSuperAdmin,
     );
     const dataScope = resolved.dataScope;
+    // R-12 ceiling exemption: the built-in Admin role of the user's own company (only the Super Admin switches company).
+    const isCompanyAdmin = user.isSuperAdmin || user.roles.some((ur) => ur.role.isSystem && ur.role.name === ADMIN_ROLE && ur.role.companyId === user.companyId);
     // Module menus (e.g. ETMS) are hidden and refused while the acting company's add-on is off (MenuDef.requires).
     const permissions = withoutUnavailableMenus(resolved.permissions, features);
     return {
@@ -81,6 +84,7 @@ export class AuthContextService {
       companyId,
       ...(allCompanies ? { allCompanies: true } : {}),
       isSuperAdmin: user.isSuperAdmin,
+      isCompanyAdmin,
       permissions,
       dataScope,
       branchIds: user.branches.map((b) => b.branchId),
@@ -93,9 +97,11 @@ export class AuthContextService {
   }
 
   /**
-   * ETMS (D1): ACTIVE agreements in force now where this company is the provider and the customer is active. Read per
-   * request (like shares), so suspending or ending an agreement takes effect on the next request; sockets pick it up on
-   * their refresh (forUser again).
+   * ETMS (D1): ACTIVE agreements in force now where this company is the provider and the customer is active AND has the
+   * `etms` add-on on (F3: switching the customer's module off, e.g. the doc 15 §9.4 rollback, removes the provider's
+   * grants at once; switching it back on restores them, and the customer can then see and suspend the agreement). The
+   * provider's own add-on is checked by the caller. Read per request (like shares), so suspending or ending an agreement
+   * takes effect on the next request; sockets pick it up on their refresh (forUser again).
    */
   private async agreementsOf(companyId: string): Promise<TransportAgreementScope[]> {
     const now = new Date();
@@ -106,11 +112,21 @@ export class AuthContextService {
         status: 'ACTIVE',
         validFrom: { lte: now },
         OR: [{ validTo: null }, { validTo: { gt: now } }],
-        customer: { status: 'ACTIVE' },
+        customer: { status: 'ACTIVE', isPlatform: false, settings: { path: ['features'], array_contains: ['etms'] } },
       },
-      select: { id: true, customerCompanyId: true, grants: true, siteIds: true, dataProfile: true, validFrom: true, validTo: true },
+      select: {
+        id: true,
+        customerCompanyId: true,
+        grants: true,
+        siteIds: true,
+        dataProfile: true,
+        validFrom: true,
+        validTo: true,
+        customer: { select: { status: true, settings: true, isPlatform: true } },
+      },
     });
-    return rows.map((r) => ({
+    // Same rule again in code (the JSON filter is easy to get wrong; companyFeatures is the single reading of add-ons).
+    return rows.filter((r) => r.customer.status === 'ACTIVE' && !r.customer.isPlatform && companyFeatures(r.customer).includes('etms')).map((r) => ({
       id: r.id,
       customerCompanyId: r.customerCompanyId,
       grants: [...r.grants],

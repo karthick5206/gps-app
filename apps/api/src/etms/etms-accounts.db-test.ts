@@ -3,15 +3,14 @@
  * "Constraint behaviour"). Not part of the normal run (testRegex is *.spec.ts):
  *   ETMS_DB_TEST_URL=postgresql://user:pass@127.0.0.1:5432/veetrax_assess \
  *     npx jest --testRegex 'etms-accounts\.db-test\.ts$' --runInBand
- * Allowed databases: veetrax_assess or any *_test database; never veetracer. Everything runs inside ONE transaction
+ * Allowed databases (test/scratch-db.ts): any *_test database; locally also veetrax_assess; never veetracer. CI: job api-db. Everything runs inside ONE transaction
  * that is always rolled back (savepoints around each rejected row), so no row is left behind.
  */
 import { PrismaClient } from '@prisma/client';
+import { dbDescribe } from '../test/scratch-db';
 
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
-const dbName = /\/([a-z0-9_]+)(\?|$)/i.exec(URL_)?.[1] ?? '';
-const allowed = dbName === 'veetrax_assess' || /_test$/i.test(dbName);
-const d = URL_ && allowed ? describe : describe.skip;
+const { d, dbName } = dbDescribe(URL_);
 
 class Rollback extends Error {}
 

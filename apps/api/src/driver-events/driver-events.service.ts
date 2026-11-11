@@ -19,6 +19,7 @@ import { objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { CsvColumn, toCsv } from '../common/csv';
+import { setCompanySetting } from '../common/company-settings';
 import { asRecord } from '../common/dto';
 import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
@@ -222,7 +223,11 @@ export class DriverEventsService {
     const before = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId } });
     const all = asRecord(before.settings);
     const next = driverEventSettings({ ...driverEventSettings(all.driverEvents), ...dto });
-    const after = await this.prisma.company.update({ where: { id: ctx.companyId }, data: { settings: { ...all, driverEvents: next } as unknown as Prisma.InputJsonValue } });
+    // F9: only the `driverEvents` key is written (atomic jsonb_set), never the whole settings object.
+    const after = await this.prisma.$transaction(async (tx) => {
+      await setCompanySetting(tx, ctx.companyId, 'driverEvents', next);
+      return tx.company.findUniqueOrThrow({ where: { id: ctx.companyId } });
+    });
     await this.audit.record(ctx, { action: 'UPDATE', entity: 'company', entityId: ctx.companyId, before, after });
     return this.settings(ctx);
   }
