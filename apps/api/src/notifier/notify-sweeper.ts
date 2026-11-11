@@ -161,10 +161,17 @@ export class NotifySweeper {
     return due.length;
   }
 
+  /**
+   * Pre-rendered QUEUED messages: rows without a dedupeKey (test messages, reminders) and, since ETMS E5 (QA B3), rows
+   * that belong to no alert whatever their dedupeKey (ETMS pushes `etms:<id>:PUSH`). Alert recipient rows with a G2
+   * dedupeKey stay excluded: their alert is re-queued by sweepAlerts and the alert path (claim / takeover / DEAD after
+   * MAX_DELIVERIES) owns them, so they are never also sent as a pre-rendered job. A re-queued row is still claimed with
+   * a lease (claimQueued) before sending, so a duplicate job never sends it twice.
+   */
   private async sweepLogs(tx: Tx): Promise<number> {
     const rows = await tx.$queryRaw<{ id: string; companyId: string }[]>`
       SELECT "id", "companyId" FROM "NotificationLog"
-       WHERE "status" = 'QUEUED' AND "dedupeKey" IS NULL
+       WHERE "status" = 'QUEUED' AND ("dedupeKey" IS NULL OR "alertId" IS NULL)
          AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" < now())
          AND "createdAt" < (now() AT TIME ZONE 'UTC') - (${this.opts.logMinAgeMs}::int * interval '1 millisecond')
          AND "createdAt" > (now() AT TIME ZONE 'UTC') - (${this.opts.windowMs}::bigint * interval '1 millisecond')

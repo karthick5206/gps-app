@@ -49,7 +49,19 @@ export class MeBookingCancelService {
       }
       const claimed = await tx.transportBooking.updateMany({ where: { id, status: before.status, version: before.version }, data: { status: 'CANCELLED', statusReason: reason, version: { increment: 1 } } });
       if (!claimed.count) throw new ConflictException({ message: 'The booking changed meanwhile; reload it', code: 'VERSION_CONFLICT' });
-      await this.audit.record(ctx, { action: 'UPDATE', entity: BOOKING_ENTITY, entityId: id, before: { status: before.status, version: before.version }, after: { status: 'CANCELLED', version: before.version + 1 }, details: { command: 'cancel', by: 'PASSENGER', seatReleased: !!seat } }, tx);
+      // QA I3: audit.record keeps only the before / after diff when they are given, so the facts go into the snapshot
+      // (the booking id is entityId; statusReason is the stored reason, scrubbed by erasure like other booking audits).
+      await this.audit.record(
+        ctx,
+        {
+          action: 'UPDATE',
+          entity: BOOKING_ENTITY,
+          entityId: id,
+          before: { status: before.status, version: before.version, statusReason: before.statusReason ?? null },
+          after: { status: 'CANCELLED', version: before.version + 1, statusReason: reason, command: 'cancel', by: 'PASSENGER', seatReleased: !!seat },
+        },
+        tx,
+      );
     });
     if (plannedTripId) await this.live.changed(ctx.companyId, [plannedTripId]);
     return this.me.booking(ctx, id);

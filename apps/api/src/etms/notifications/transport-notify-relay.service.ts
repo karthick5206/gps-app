@@ -38,6 +38,12 @@ export const RELAY_OVERLAP_MS = 5 * MIN;
 export const RELAY_EVENTS_PER_PASS = 2000;
 const OPEN = ['SCHEDULED', 'STARTED', 'IN_PROGRESS'] as const;
 
+/** The change set an event belongs to (data.changeSetId since QA B1), else its receipt time in ms (older rows). */
+function changeGroup(e: { data: unknown; receivedAt: Date }): string {
+  const id = (e.data as { changeSetId?: unknown } | null)?.changeSetId;
+  return typeof id === 'string' && id ? `cs:${id}` : String(e.receivedAt.getTime());
+}
+
 const TRIP_INCLUDE = {
   plannedTrip: { select: { id: true, companyId: true, driverId: true, status: true, nextStopSeq: true, etaNextStop: true, delaySec: true, plannedStart: true, stops: { select: { seq: true, plannedArrival: true } } } },
   passengers: {
@@ -152,14 +158,18 @@ export class TransportNotifyRelayService {
       for (const v of [d.from, d.to, d.driverId]) if (typeof v === 'string') driverIds.add(v);
     }
     const drivers = await this.drivers([...driverIds]);
-    // When the trip's CURRENT driver got it (published / reassigned to them). Changes up to then are covered by their
-    // TRIP_ASSIGNED: events of one change set share receivedAt (transaction time), and an older change is never
-    // reported to a driver who got the trip later.
+    // When the trip's CURRENT driver got it (published / reassigned to them), and in which change set. Changes of that
+    // change set and older ones are covered by their TRIP_ASSIGNED (QA B1: rows of one change set carry its id in
+    // data.changeSetId; their receivedAt differs by a few ms, so receivedAt is only the fallback for older rows).
     const assignedAt = new Map<string, number>();
+    const assignedIn = new Set<string>();
     for (const e of events) {
       const cur = trips.get(e.tripId)?.plannedTrip?.driverId;
       const d = (e.data ?? {}) as { to?: unknown; driverId?: unknown };
-      if (cur && ((e.kind === 'PUBLISHED' && d.driverId === cur) || (e.kind === 'DRIVER_CHANGED' && d.to === cur))) assignedAt.set(e.tripId, Math.max(assignedAt.get(e.tripId) ?? 0, e.receivedAt.getTime()));
+      if (cur && ((e.kind === 'PUBLISHED' && d.driverId === cur) || (e.kind === 'DRIVER_CHANGED' && d.to === cur))) {
+        assignedAt.set(e.tripId, Math.max(assignedAt.get(e.tripId) ?? 0, e.receivedAt.getTime()));
+        assignedIn.add(`${e.tripId}|${changeGroup(e)}`);
+      }
     }
     const out: NotifyItem[] = [];
     for (const e of events) {
@@ -201,8 +211,9 @@ export class TransportNotifyRelayService {
           break;
         }
         default:
-          if (CHANGE_KINDS.has(e.kind) && open && current && e.receivedAt.getTime() > (assignedAt.get(e.tripId) ?? 0)) {
-            out.push(...this.driverItem(t, current, 'TRIP_CHANGED', `chg:${e.tripId}:${e.receivedAt.getTime()}`));
+          // One TRIP_CHANGED per trip and change set; none for the change set that assigned the trip to this driver.
+          if (CHANGE_KINDS.has(e.kind) && open && current && e.receivedAt.getTime() > (assignedAt.get(e.tripId) ?? 0) && !assignedIn.has(`${e.tripId}|${changeGroup(e)}`)) {
+            out.push(...this.driverItem(t, current, 'TRIP_CHANGED', `chg:${e.tripId}:${changeGroup(e)}`));
           }
       }
     }
@@ -213,16 +224,17 @@ export class TransportNotifyRelayService {
 
   async fromLiveState(now: number): Promise<NotifyItem[]> {
     const out: NotifyItem[] = [];
-    // TRIP_STARTING_SOON: the passenger's pickup stop is planned within the next 30 minutes.
+    // TRIP_STARTING_SOON: the passenger's pickup stop is planned within the next 30 minutes, and the trip has not started
+    // yet (QA B8: once under way the passenger gets VEHICLE_APPROACHING instead; closed trips get nothing).
     const soon = await this.prisma.plannedTripStop.findMany({
-      where: { plannedArrival: { gte: new Date(now), lte: new Date(now + T.startingSoonMin * MIN) }, trip: { origin: 'ETMS', status: { in: [...OPEN] } } },
+      where: { plannedArrival: { gte: new Date(now), lte: new Date(now + T.startingSoonMin * MIN) }, trip: { origin: 'ETMS', status: 'SCHEDULED' } },
       select: { tripId: true, seq: true },
       take: 2000,
     });
     if (soon.length) {
       const trips = await this.trips({ plannedTripId: { in: [...new Set(soon.map((s) => s.tripId))] } });
       for (const t of trips.values()) {
-        if (!t.plannedTrip || !t.publishedAt || t.cancelledAt || !(OPEN as readonly string[]).includes(t.plannedTrip.status)) continue;
+        if (!t.plannedTrip || !t.publishedAt || t.cancelledAt || t.plannedTrip.status !== 'SCHEDULED') continue;
         const seqs = new Set(soon.filter((s) => s.tripId === t.plannedTrip!.id).map((s) => s.seq));
         for (const p of t.passengers) if (p.status === 'PENDING' && seqs.has(p.pickupSeq)) out.push(...this.paxItem(p, t, 'TRIP_STARTING_SOON', `soon:${p.id}`));
       }

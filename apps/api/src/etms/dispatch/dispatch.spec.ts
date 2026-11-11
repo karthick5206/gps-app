@@ -107,6 +107,9 @@ describe('dispatch change sets (02 §5.4, 15 §8.1)', () => {
     expect(w.store.table('transportTripPassenger')[0]).toMatchObject({ bookingId: b1, status: 'PENDING', pickupSeq: 0, dropSeq: 1 });
     expect(w.store.table('transportChangeSet')[0]).toMatchObject({ status: 'PUBLISHED' });
     expect(w.store.table('transportTripEvent').map((e) => e.kind)).toEqual(['PUBLISHED', 'PASSENGER_ADDED']);
+    // QA B1: every event of the change set carries its id (the notification relay groups on it).
+    expect(w.store.table('transportTripEvent').map((e) => (e.data as { changeSetId?: string }).changeSetId)).toEqual([r.value.changeSetId, r.value.changeSetId]);
+    expect(w.store.table('transportChangeSet')[0].id).toBe(r.value.changeSetId);
     // The existing plannedTrip.update push tells dispatcher screens (no passenger data on the socket).
     expect(JSON.parse(w.published[0])).toMatchObject({ companyId: 'c1', objectId: w.v1, update: { id: pt.id, status: 'SCHEDULED' } });
     expect(w.published[0]).not.toContain('P A');

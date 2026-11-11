@@ -57,7 +57,8 @@ describe('NotifySweeper (D6 G2)', () => {
     expect(q.sql).toMatch(/"createdAt" > \(now\(\) AT TIME ZONE 'UTC'\) - /);
     expect(q.values).toEqual([60_000, 86_400_000, 500]);
     const l = queries.find((s) => s.sql.includes('FROM "NotificationLog"'))!;
-    expect(l.sql).toContain(`"status" = 'QUEUED' AND "dedupeKey" IS NULL`);
+    // QA B3: pre-rendered rows with or without a dedupeKey (ETMS pushes), never G2 alert-recipient rows (alertId + dedupeKey).
+    expect(l.sql).toContain(`"status" = 'QUEUED' AND ("dedupeKey" IS NULL OR "alertId" IS NULL)`);
     expect(l.values).toEqual([300_000, 86_400_000, 500]);
   });
 

@@ -17,6 +17,7 @@
  * is not assigned to the caller's driver (another driver's, another company's, unpublished, outside the window, or a
  * random id) → 404 `NOT_FOUND`, never 403.
  */
+import { TRANSLATIONS } from './i18n';
 import type { PermissionMap } from './permissions';
 import type { PlannedStopStatus, PlannedTripStatus } from './planned-trips';
 import type { TransportDirection, TransportPassengerStatus, TransportTripDerivedState } from './transport-trips';
@@ -475,6 +476,17 @@ export const TRANSPORT_NOTIFICATION_TEXT: Record<TransportNotificationKind, { ti
   VEHICLE_APPROACHING: { title: 'Your cab is arriving', body: 'Your cab is approaching your pickup point.' },
   TRIP_DELAYED: { title: 'Trip delayed', body: 'Your cab is running late. Open the app for the latest time.' },
 };
+
+/**
+ * The generic title / body of a notification in the recipient's language (QA B7; doc 12 E5 "templates en / hi / ta"):
+ * the English text is the key into the shared hi / ta tables, English when a text or the language is missing. The push
+ * data stays `{ kind, tripId, notificationId }` whatever the language.
+ */
+export function transportNotificationText(kind: TransportNotificationKind, language: string | null | undefined): { title: string; body: string } {
+  const en = TRANSPORT_NOTIFICATION_TEXT[kind];
+  const table = language === 'hi' || language === 'ta' ? TRANSLATIONS[language] : null;
+  return { title: table?.[en.title] ?? en.title, body: table?.[en.body] ?? en.body };
+}
 
 /** Android notification channel of ETMS pushes (lock-screen visibility PRIVATE, 02 §8.3); created by the app. */
 export const TRANSPORT_PUSH_CHANNEL = 'trip';

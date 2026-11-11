@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
   ACTIVE_TRIP_STATUSES_FOR_OVERLAP,
@@ -692,6 +693,9 @@ export class DispatchService {
     }
     const bookingIds = ops.flatMap((o) => (o.op === 'ADD_PASSENGER' || o.op === 'ADD_STOP' ? [o.bookingId] : []));
     const now = new Date();
+    // QA B1: the change set's id, known up front, on every trip event of this publish so the notification relay can
+    // group one change set (receivedAt differs per row by a few ms).
+    const changeSetId = draftId ?? randomUUID();
 
     return this.prisma.$transaction(
       async (tx) => {
@@ -806,7 +810,7 @@ export class DispatchService {
                 providerCompanyId: ctx.companyId,
                 customerCompanyId: ctx.companyId,
               });
-              await recordTripEvent(tx, ctx, { tripId: header.id, providerCompanyId: ctx.companyId, customerCompanyId: ctx.companyId, kind: 'PUBLISHED', data: { objectId: op.objectId, driverId: op.driverId ?? null, routeId: p.routeId, stops: p.stops.length } });
+              await recordTripEvent(tx, ctx, { tripId: header.id, providerCompanyId: ctx.companyId, customerCompanyId: ctx.companyId, kind: 'PUBLISHED', data: { changeSetId, objectId: op.objectId, driverId: op.driverId ?? null, routeId: p.routeId, stops: p.stops.length } });
               break;
             }
             case 'ADD_PASSENGER': {
@@ -839,7 +843,7 @@ export class DispatchService {
               if (input.direction === 'IN' ? drop.plannedArrival.getTime() > b.windowEnd.getTime() : at < b.windowStart.getTime()) {
                 warnings.push(`Booking ${b.id}: the planned ${input.direction === 'IN' ? 'arrival' : 'pickup'} is outside its window`);
               }
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'PASSENGER_ADDED', passengerTripId: row.id, stopSeq: op.pickupSeq, data: { bookingId: b.id, seats: b.passengerCount } });
+              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'PASSENGER_ADDED', passengerTripId: row.id, stopSeq: op.pickupSeq, data: { changeSetId, bookingId: b.id, seats: b.passengerCount } });
               touched.add(s.id);
               break;
             }
@@ -903,7 +907,7 @@ export class DispatchService {
               s.stopIds = stopIdMap(s.stops);
               s.stopsAdded += 1;
               // No coordinates in the event (personal point): the stop row holds them.
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'STOP_ADDED', stopSeq: op.afterSeq + 1, data: { bookingId: b.id, end: op.end, plannedArrival: arrival.toISOString() } });
+              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'STOP_ADDED', stopSeq: op.afterSeq + 1, data: { changeSetId, bookingId: b.id, end: op.end, plannedArrival: arrival.toISOString() } });
               touched.add(s.id);
               break;
             }
@@ -923,7 +927,7 @@ export class DispatchService {
                 b.version += 1;
                 bookingOut.set(b.id, { id: b.id, status: 'PENDING_ASSIGNMENT', version: b.version });
               }
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'PASSENGER_REMOVED', passengerTripId: r.id, reasonCode: 'DISPATCH', data: { bookingId: b.id, reason: op.reason } });
+              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'PASSENGER_REMOVED', passengerTripId: r.id, reasonCode: 'DISPATCH', data: { changeSetId, bookingId: b.id, reason: op.reason } });
               touched.add(s.id);
               break;
             }
@@ -937,7 +941,7 @@ export class DispatchService {
               await this.assertFree(tx, op.objectId, null, s.plannedStart, s.plannedEnd, s.plannedTripId);
               await tx.plannedTrip.update({ where: { id: s.plannedTripId }, data: { objectId: op.objectId, branchId: v.branchId } });
               await tx.transportTrip.update({ where: { id: s.id }, data: { seatCapacity: seats } });
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'VEHICLE_CHANGED', data: { from: s.objectId, to: op.objectId, seats } });
+              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'VEHICLE_CHANGED', data: { changeSetId, from: s.objectId, to: op.objectId, seats } });
               s.objectId = op.objectId;
               s.seatCapacity = seats;
               touched.add(s.id);
@@ -948,7 +952,7 @@ export class DispatchService {
               editable(s);
               if (op.driverId) await this.assertFree(tx, null, op.driverId, s.plannedStart, s.plannedEnd, s.plannedTripId);
               await tx.plannedTrip.update({ where: { id: s.plannedTripId }, data: { driverId: op.driverId } });
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'DRIVER_CHANGED', data: { from: s.driverId, to: op.driverId } });
+              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'DRIVER_CHANGED', data: { changeSetId, from: s.driverId, to: op.driverId } });
               s.driverId = op.driverId;
               touched.add(s.id);
               break;
@@ -979,7 +983,6 @@ export class DispatchService {
           await this.audit.record(ctx, { action: 'UPDATE', entity: BOOKING_ENTITY, entityId: b.id, details: { dispatch: true, status: b.status, version: b.version } }, tx);
         }
         const trips = [...state.values()].filter((s) => s.created || touched.has(s.id)).map((s) => ({ id: s.id, plannedTripId: s.plannedTripId, version: s.version, ...(s.tempId ? { tempId: s.tempId } : {}) }));
-        const changeSetId = draftId ?? undefined;
         const result: ChangeSetResult = { changeSetId: '', status: 'PUBLISHED', trips, bookings: [...bookingOut.values()], warnings };
         const ledger = draftId
           ? await tx.transportChangeSet.update({ where: { id: draftId }, data: { status: 'PUBLISHED', idempotencyKey: key, requestHash: hash, draft: Prisma.DbNull, publishedAt: now } })

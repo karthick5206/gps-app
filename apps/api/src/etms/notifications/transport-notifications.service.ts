@@ -3,8 +3,8 @@ import { Prisma } from '@prisma/client';
 import {
   DRIVER_LIMITS,
   TRANSPORT_NOTIFICATION_KINDS,
-  TRANSPORT_NOTIFICATION_TEXT,
   passengerPushAllowed,
+  transportNotificationText,
   type TransportNotificationAudience,
   type TransportNotificationDto,
   type TransportNotificationKind,
@@ -60,20 +60,28 @@ export class TransportNotificationsService {
   async notify(items: NotifyItem[]): Promise<string[]> {
     const uniq = [...new Map(items.map((i) => [i.dedupeKey, i])).values()];
     if (!uniq.length) return [];
-    const db: Db = this.prisma;
-    const existing = new Set((await db.transportNotification.findMany({ where: { dedupeKey: { in: uniq.map((i) => i.dedupeKey) } }, select: { dedupeKey: true } })).map((r) => r.dedupeKey));
+    const existing = new Set((await this.prisma.transportNotification.findMany({ where: { dedupeKey: { in: uniq.map((i) => i.dedupeKey) } }, select: { dedupeKey: true } })).map((r) => r.dedupeKey));
     const fresh = uniq.filter((i) => !existing.has(i.dedupeKey)).map((i) => ({ ...i, id: randomUUID() }));
     if (!fresh.length) return [];
-    await db.transportNotification.createMany({
-      data: fresh.map((i) => ({ id: i.id, companyId: i.companyId, userId: i.userId, audience: i.audience, kind: i.kind, tripId: i.tripId, title: TRANSPORT_NOTIFICATION_TEXT[i.kind].title, body: TRANSPORT_NOTIFICATION_TEXT[i.kind].body, dedupeKey: i.dedupeKey })),
-      skipDuplicates: true,
-    });
-    // Only the rows this call inserted (a concurrent run may have won a dedupeKey).
-    const inserted = new Set((await db.transportNotification.findMany({ where: { id: { in: fresh.map((i) => i.id) } }, select: { id: true } })).map((r) => r.id));
-    const mine = fresh.filter((i) => inserted.has(i.id));
-    const wantPush = mine.filter((i) => i.push);
-    if (wantPush.length) {
-      const now = new Date();
+    // QA B7: title / body in the recipient's language (profile preference; English otherwise).
+    const users = await this.prisma.user.findMany({ where: { id: { in: [...new Set(fresh.map((i) => i.userId))] } }, select: { id: true, preferences: true } });
+    const language = new Map(users.map((u) => [u.id, (u.preferences as { language?: unknown } | null)?.language]));
+    const text = (i: NotifyItem) => transportNotificationText(i.kind, typeof language.get(i.userId) === 'string' ? (language.get(i.userId) as string) : null);
+    const now = new Date();
+    // QA B6: the inbox rows, their PUSH log rows and pushQueued in ONE transaction: a crash can no longer leave an inbox
+    // row whose push was never logged (a re-run skips the existing dedupeKey). The job is added after the commit; a
+    // lost job is re-queued by the notifier's sweeper from the QUEUED row.
+    const { mine, push } = await this.prisma.$transaction(async (tx) => {
+      const db: Db = tx as unknown as Db;
+      await db.transportNotification.createMany({
+        data: fresh.map((i) => ({ id: i.id, companyId: i.companyId, userId: i.userId, audience: i.audience, kind: i.kind, tripId: i.tripId, title: text(i).title, body: text(i).body, dedupeKey: i.dedupeKey })),
+        skipDuplicates: true,
+      });
+      // Only the rows this call inserted (a concurrent run may have won a dedupeKey).
+      const inserted = new Set((await db.transportNotification.findMany({ where: { id: { in: fresh.map((i) => i.id) } }, select: { id: true } })).map((r) => r.id));
+      const mine = fresh.filter((i) => inserted.has(i.id));
+      const wantPush = mine.filter((i) => i.push);
+      if (!wantPush.length) return { mine, push: [] };
       const tokens = await db.pushToken.findMany({ where: { userId: { in: [...new Set(wantPush.map((i) => i.userId))] }, OR: [{ sessionId: null }, { session: { revokedAt: null, expiresAt: { gt: now } } }] }, select: { userId: true } });
       const signedIn = new Set(tokens.map((t) => t.userId));
       const push = wantPush.filter((i) => signedIn.has(i.userId)).map((i) => ({ ...i, logId: randomUUID() }));
@@ -84,8 +92,8 @@ export class TransportNotificationsService {
             companyId: i.companyId,
             channel: 'PUSH' as const,
             recipient: `user:${i.userId}`,
-            subject: TRANSPORT_NOTIFICATION_TEXT[i.kind].title,
-            body: TRANSPORT_NOTIFICATION_TEXT[i.kind].body,
+            subject: text(i).title,
+            body: text(i).body,
             status: 'QUEUED' as const,
             refType: TRANSPORT_NOTIFICATION_REF,
             refId: i.id,
@@ -94,9 +102,10 @@ export class TransportNotificationsService {
           skipDuplicates: true,
         });
         await db.transportNotification.updateMany({ where: { id: { in: push.map((i) => i.id) } }, data: { pushQueued: true } });
-        await this.enqueue(push.map((i) => ({ companyId: i.companyId, logId: i.logId })));
       }
-    }
+      return { mine, push };
+    });
+    if (push.length) await this.enqueue(push.map((i) => ({ companyId: i.companyId, logId: i.logId })));
     return mine.map((i) => i.id);
   }
 

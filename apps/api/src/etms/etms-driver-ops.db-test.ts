@@ -11,6 +11,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { dbDescribe } from '../test/scratch-db';
+import { NotifySweeper } from '../notifier/notify-sweeper';
 
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
@@ -112,5 +113,38 @@ d(`ETMS E5 etms_driver_ops on ${dbName || '(no scratch DB)'}`, () => {
       'unknown audience': 'rejected TransportNotification_audience_check',
       backfill: 'view,edit',
     });
+  });
+
+  it('QA B3: the sweeper re-queues a stale QUEUED ETMS push (dedupeKey etms:…:PUSH), never a G2 alert-recipient row', async () => {
+    const out: { jobs: string[][]; ids: Record<string, string> } = { jobs: [], ids: {} };
+    await inRollback(prisma, async (tx) => {
+      const [partner] = await tx.$queryRaw<{ id: string }[]>`INSERT INTO "Partner" (id, name, slug, "updatedAt") VALUES (gen_random_uuid(), 'etms-e5-db-test', 'etms-e5-db-test-' || gen_random_uuid(), now()) RETURNING id`;
+      const company = randomUUID();
+      await tx.$executeRawUnsafe(`INSERT INTO "Company" (id, "partnerId", name, settings, "updatedAt") VALUES ('${company}', '${partner.id}', 'etms-e5-db-test', '{"features":["etms"]}', now())`);
+      const old = new Date(Date.now() - 10 * 60_000);
+      const row = async (name: string, data: Partial<Prisma.NotificationLogUncheckedCreateInput>) => {
+        const r = await tx.notificationLog.create({ data: { companyId: company, channel: 'PUSH', recipient: 'user:x', body: 'b', status: 'QUEUED', createdAt: old, ...data } });
+        out.ids[r.id] = name;
+      };
+      const etmsId = randomUUID();
+      await row('etms', { refType: 'TRANSPORT_NOTIFICATION', refId: etmsId, dedupeKey: `etms:${etmsId}:PUSH` });
+      await row('plain', {});
+      await row('alertG2', { alertId: randomUUID(), dedupeKey: `${randomUUID()}:PUSH:hash` });
+      await row('alertLegacy', { alertId: randomUUID() });
+      await row('etmsSent', { refType: 'TRANSPORT_NOTIFICATION', refId: randomUUID(), dedupeKey: `etms:${randomUUID()}:PUSH`, status: 'SENT' });
+      await row('etmsLeased', { refType: 'TRANSPORT_NOTIFICATION', refId: randomUUID(), dedupeKey: `etms:${randomUUID()}:PUSH`, nextAttemptAt: new Date(Date.now() + 60_000) });
+      const redis = {
+        xinfo: async () => [],
+        pipeline: () => {
+          const batch: unknown[][] = [];
+          return { xadd: (...a: unknown[]) => batch.push(a), exec: async () => (out.jobs.push(...batch.map((b) => (b[5] === 'logIds' ? (JSON.parse(String(b[6])) as string[]) : []))), batch.map(() => [null, '1-0'])) };
+        },
+      };
+      // The sweeper's own transaction runs inside the rolled-back one (same rows, same session).
+      const sweeper = new NotifySweeper({ $transaction: (fn: (t: Tx) => unknown) => fn(tx) } as never, redis as never);
+      await sweeper.tick();
+    });
+    const swept = out.jobs.flat().map((id) => out.ids[id]).filter(Boolean).sort();
+    expect(swept).toEqual(['alertLegacy', 'etms', 'plain']);
   });
 });

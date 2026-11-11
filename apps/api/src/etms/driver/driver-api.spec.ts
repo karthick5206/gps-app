@@ -2,7 +2,7 @@ jest.mock('@nestjs/mapped-types', () => ({ PartialType: (c: new () => object) =>
 
 import { HttpException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { TRANSPORT_NOTIFICATION_TEXT, type DriverTripEventInput } from '@veetracer/shared';
+import { TRANSPORT_NOTIFICATION_TEXT, transportNotificationText, type DriverTripEventInput } from '@veetracer/shared';
 import type { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { PlannedTripsService } from '../../planned-trips/planned-trips.service';
@@ -483,7 +483,8 @@ describe('E5 additions: vehicle motion, desk phone, passenger self-cancel, conse
     expect(w.row('transportTripPassenger', w.ids.pax1)).toMatchObject({ status: 'CANCELLED' });
     expect(w.row('transportTrip', w.ids.tt).occupiedSeats).toBe(1);
     expect(w.store.table('transportTripEvent').find((e) => e.kind === 'PASSENGER_REMOVED')).toMatchObject({ actorType: 'PASSENGER', source: 'PASSENGER_APP', reasonCode: 'PASSENGER_CANCELLED' });
-    expect(w.store.table('auditLog').some((a) => a.entityId === b1)).toBe(true);
+    // QA I3: the audit keeps who cancelled, the reason and whether a seat was released (booking id = entityId).
+    expect(w.store.table('auditLog').find((a) => a.entityId === b1)?.changes).toMatchObject({ status: { to: 'CANCELLED' }, statusReason: { to: 'Cancelled by passenger: On leave' }, by: { to: 'PASSENGER' }, seatReleased: { to: true } });
     expect((await cancel.cancel(pax(w), b1, 'again')).status).toBe('CANCELLED');
     expect(w.row('transportTrip', w.ids.tt).occupiedSeats).toBe(1);
     await w.relay.run(Date.now());
@@ -759,5 +760,81 @@ describe('E5 security review L3: relay high-water mark', () => {
     expect(await relay.run(Date.now())).toBe(0);
     cancelled(0);
     expect(await relay.run(Date.now())).toBe(2);
+  });
+});
+
+describe('E5 QA fixes: relay grouping (B1), atomic notify (B6), language (B7), starting soon (B8)', () => {
+  const event = (w: ReturnType<typeof world>, kind: string, at: number, data: Record<string, unknown>) =>
+    w.store.insert('transportTripEvent', { tripId: w.ids.tt, providerCompanyId: 'custA', customerCompanyId: 'custA', kind, actorType: 'DISPATCHER', source: 'WEB', occurredAt: new Date(at), receivedAt: new Date(at), data });
+
+  it('B1: CREATE_TRIP + 4 ADD_PASSENGER (rows a few ms apart) → exactly one driver notice; a later change set → one TRIP_CHANGED', async () => {
+    const w = world({ plannedStartInMin: 120 });
+    const cs1 = randomUUID();
+    const t = Date.now();
+    event(w, 'PUBLISHED', t, { changeSetId: cs1, driverId: w.ids.dA });
+    for (const ms of [10, 16, 23, 30]) event(w, 'PASSENGER_ADDED', t + ms, { changeSetId: cs1 });
+    expect(await w.relay.run(Date.now())).toBe(1);
+    expect((await w.notifications.list(w.ctx('u-dA'), 'DRIVER', {})).map((n) => n.kind)).toEqual(['TRIP_ASSIGNED']);
+    const cs2 = randomUUID();
+    for (const [kind, ms] of [['PASSENGER_ADDED', 1000], ['STOP_ADDED', 1007], ['PASSENGER_ADDED', 1013]] as const) event(w, kind, t + ms, { changeSetId: cs2 });
+    expect(await w.relay.run(Date.now())).toBe(1);
+    expect(await w.relay.run(Date.now())).toBe(0);
+    expect((await w.notifications.list(w.ctx('u-dA'), 'DRIVER', {})).map((n) => n.kind).sort()).toEqual(['TRIP_ASSIGNED', 'TRIP_CHANGED']);
+  });
+
+  it('B1: a reassignment change set that also adds passengers → TRIP_ASSIGNED for the new driver only, no TRIP_CHANGED', async () => {
+    const w = world({ plannedStartInMin: 120 });
+    w.row('plannedTrip', w.ids.pt).driverId = w.ids.dA2;
+    const cs = randomUUID();
+    const t = Date.now();
+    event(w, 'DRIVER_CHANGED', t, { changeSetId: cs, from: w.ids.dA, to: w.ids.dA2 });
+    event(w, 'PASSENGER_ADDED', t + 9, { changeSetId: cs });
+    await w.relay.run(Date.now());
+    expect((await w.notifications.list(w.ctx('u-dA2'), 'DRIVER', {})).map((n) => n.kind)).toEqual(['TRIP_ASSIGNED']);
+    expect((await w.notifications.list(w.ctx('u-dA'), 'DRIVER', {})).map((n) => n.kind)).toEqual(['TRIP_UNASSIGNED']);
+  });
+
+  it('B6: the inbox row and its push log are written together: a failure leaves neither, the next run writes both', async () => {
+    const w = world();
+    w.store.insert('pushToken', { userId: 'u-dA', sessionId: null, token: 'ExponentPushToken[a]', platform: 'android' });
+    const redis = { client: { xadd: async () => '1-0' } };
+    const failing = new TransportNotificationsService(w.store.client({ notificationLog: { createMany: async () => Promise.reject(new Error('connection lost')) } }) as never, redis as never);
+    const item = { companyId: 'custA', userId: 'u-dA', audience: 'DRIVER' as const, kind: 'TRIP_ASSIGNED' as const, tripId: w.ids.tt, dedupeKey: 'asg:x:u-dA', push: true };
+    await expect(failing.notify([item])).rejects.toThrow('connection lost');
+    expect(w.store.table('transportNotification')).toHaveLength(0);
+    expect(await w.notifications.notify([item])).toHaveLength(1);
+    expect(w.store.table('transportNotification')).toEqual([expect.objectContaining({ dedupeKey: 'asg:x:u-dA', pushQueued: true })]);
+    expect(w.store.table('notificationLog')).toEqual([expect.objectContaining({ status: 'QUEUED', dedupeKey: `etms:${w.store.table('transportNotification')[0].id}:PUSH` })]);
+  });
+
+  it('B7: title / body in the recipient’s language (hi / ta), English otherwise; nothing else changes', async () => {
+    const w = world();
+    for (const u of ['u-dA', 'u-dA2']) w.store.insert('pushToken', { userId: u, sessionId: null, token: `ExponentPushToken[${u}]`, platform: 'android' });
+    Object.assign(w.store.table('user').find((u) => u.id === 'u-dA')!, { preferences: { theme: 'system', language: 'ta' } });
+    const item = (userId: string) => ({ companyId: 'custA', userId, audience: 'DRIVER' as const, kind: 'TRIP_ASSIGNED' as const, tripId: w.ids.tt, dedupeKey: `asg:y:${userId}`, push: true });
+    await w.notifications.notify([item('u-dA'), item('u-dA2')]);
+    const ta = transportNotificationText('TRIP_ASSIGNED', 'ta');
+    expect(ta.title).not.toBe(TRANSPORT_NOTIFICATION_TEXT.TRIP_ASSIGNED.title);
+    const byUser = (u: string) => w.store.table('transportNotification').find((n) => n.userId === u)!;
+    expect(byUser('u-dA')).toMatchObject({ title: ta.title, body: ta.body });
+    expect(byUser('u-dA2')).toMatchObject(TRANSPORT_NOTIFICATION_TEXT.TRIP_ASSIGNED);
+    expect(w.store.table('notificationLog').map((l) => l.subject).sort()).toEqual([TRANSPORT_NOTIFICATION_TEXT.TRIP_ASSIGNED.title, ta.title].sort());
+    for (const kind of Object.keys(TRANSPORT_NOTIFICATION_TEXT) as (keyof typeof TRANSPORT_NOTIFICATION_TEXT)[]) {
+      for (const lang of ['hi', 'ta']) {
+        const t = transportNotificationText(kind, lang);
+        expect([kind, lang, t.title === TRANSPORT_NOTIFICATION_TEXT[kind].title, t.body === TRANSPORT_NOTIFICATION_TEXT[kind].body]).toEqual([kind, lang, false, false]);
+      }
+    }
+  });
+
+  it('B8: no TRIP_STARTING_SOON once the trip has started or is closed', async () => {
+    const w = world({ plannedStartInMin: 20 });
+    await started(w);
+    expect(await w.relay.run(Date.now())).toBe(0);
+    const c = world({ plannedStartInMin: 20 });
+    Object.assign(c.row('plannedTrip', c.ids.pt), { status: 'COMPLETED' });
+    expect(await c.relay.run(Date.now())).toBe(0);
+    const s = world({ plannedStartInMin: 20 });
+    expect(await s.relay.run(Date.now())).toBe(1); // still SCHEDULED: Asha is reminded
   });
 });
