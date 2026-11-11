@@ -55,6 +55,8 @@ describe('RoutingError', () => {
     expect(e.getStatus()).toBe(503);
     expect(e.retryAfterSec).toBe(5);
     expect(routingErrorFrom(unavailable('OUTSIDE_COVERAGE', 'x')).getStatus()).toBe(422);
+    expect(routingErrorFrom(unavailable('INVALID_INPUT', 'x'))).toMatchObject({ code: 'VALIDATION_FAILED' });
     expect(routingErrorFrom(unavailable('INVALID_INPUT', 'x')).getStatus()).toBe(400);
+    expect(new RoutingError('PLAN_STALE', 'moved on').getStatus()).toBe(409);
   });
 });

@@ -1,11 +1,11 @@
 import { RoutingError } from '../routing.errors';
 import { OptimizerClient, readOptimizerConfig } from './optimizer.client';
-import { OptimizerProblem } from './optimizer.types';
+import { SolverProblem } from '@veetracer/shared';
 
 const TOKEN = 'x'.repeat(32);
 const ON = { ETMS_ROUTING: 'on', OPTIMIZER_URL: 'http://127.0.0.1:8090/', OPTIMIZER_TOKEN: TOKEN };
 
-const problem: OptimizerProblem = {
+const problem: SolverProblem = {
   matrix: { durationsS: [[0, 60], [60, 0]], distancesM: [[0, 900], [900, 0]] },
   vehicles: [{ id: 'v1', startIndex: 0, endIndex: 0, capacity: 4 }],
   stops: [{ id: 's1', locationIndex: 1, demand: 1 }],

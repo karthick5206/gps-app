@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import type { RoutingUsageDay } from '@veetracer/shared';
 import { PrismaService } from '../../prisma/prisma.service';
-import { etmsRoutingEnabled } from '../etms-routing-flag';
+import { etmsRoutingEnabled } from '../../etms/transport-feature.guard';
 
 /** What one routing call costs (all counters optional, default 0). */
 export interface UsageDelta {
@@ -13,11 +13,7 @@ export interface UsageDelta {
 
 export type UsageCounters = Required<UsageDelta>;
 
-/** One day of a company's routing usage (API shape; moves to the shared contracts with P4). */
-export interface RoutingUsageDay extends UsageCounters {
-  /** YYYY-MM-DD (UTC). */
-  day: string;
-}
+export type { RoutingUsageDay };
 
 /** Most days `list` returns (the branch's retention keeps 400 days of rows). */
 export const USAGE_MAX_DAYS = 400;
@@ -31,39 +27,31 @@ export function normaliseDelta(d: UsageDelta): UsageCounters {
   return { routes: n(d.routes), matrixCells: n(d.matrixCells), optimizeJobs: n(d.optimizeJobs), cacheHits: n(d.cacheHits) };
 }
 
-/**
- * Storage of the per-company daily counters. The `RoutingUsage` table (PK `(companyId, day)`, doc 17 §1.3) comes with
- * the E4 routing migration (P6, schema agent); until then nothing calls the store, because metering is off unless
- * `ETMS_ROUTING=on`.
- */
+/** Storage of the per-company daily counters (`RoutingUsage`, PK (companyId, day), migration routing_engine_v2, P6). */
 export interface RoutingUsageStore {
   increment(companyId: string, day: Date, inc: UsageCounters): Promise<void>;
   list(companyId: string, fromDay: Date): Promise<RoutingUsageDay[]>;
 }
 
-/**
- * PostgreSQL store: one atomic upsert-increment per call (the branch's Prisma `upsert` with `increment`, written as
- * SQL so it compiles before the model exists; switch to `prisma.routingUsage` once P6 lands).
- */
+/** PostgreSQL store: one atomic upsert-increment per call, as on the branch. */
 export class PrismaRoutingUsageStore implements RoutingUsageStore {
-  constructor(private readonly prisma: Pick<PrismaService, '$executeRaw' | '$queryRaw'>) {}
+  constructor(private readonly prisma: Pick<PrismaService, 'routingUsage'>) {}
 
   async increment(companyId: string, day: Date, inc: UsageCounters): Promise<void> {
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO "RoutingUsage" ("companyId", "day", "routes", "matrixCells", "optimizeJobs", "cacheHits", "updatedAt")
-      VALUES (${companyId}::uuid, ${day}::date, ${inc.routes}, ${inc.matrixCells}, ${inc.optimizeJobs}, ${inc.cacheHits}, now())
-      ON CONFLICT ("companyId", "day") DO UPDATE SET
-        "routes" = "RoutingUsage"."routes" + EXCLUDED."routes",
-        "matrixCells" = "RoutingUsage"."matrixCells" + EXCLUDED."matrixCells",
-        "optimizeJobs" = "RoutingUsage"."optimizeJobs" + EXCLUDED."optimizeJobs",
-        "cacheHits" = "RoutingUsage"."cacheHits" + EXCLUDED."cacheHits",
-        "updatedAt" = now()`);
+    await this.prisma.routingUsage.upsert({
+      where: { companyId_day: { companyId, day } },
+      create: { companyId, day, ...inc },
+      update: {
+        routes: { increment: inc.routes },
+        matrixCells: { increment: inc.matrixCells },
+        optimizeJobs: { increment: inc.optimizeJobs },
+        cacheHits: { increment: inc.cacheHits },
+      },
+    });
   }
 
   async list(companyId: string, fromDay: Date): Promise<RoutingUsageDay[]> {
-    const rows = await this.prisma.$queryRaw<{ day: Date; routes: number; matrixCells: number; optimizeJobs: number; cacheHits: number }[]>(Prisma.sql`
-      SELECT "day", "routes", "matrixCells", "optimizeJobs", "cacheHits" FROM "RoutingUsage"
-      WHERE "companyId" = ${companyId}::uuid AND "day" >= ${fromDay}::date ORDER BY "day" DESC`);
+    const rows = await this.prisma.routingUsage.findMany({ where: { companyId, day: { gte: fromDay } }, orderBy: { day: 'desc' } });
     return rows.map((r) => ({ day: r.day.toISOString().slice(0, 10), routes: r.routes, matrixCells: r.matrixCells, optimizeJobs: r.optimizeJobs, cacheHits: r.cacheHits }));
   }
 }

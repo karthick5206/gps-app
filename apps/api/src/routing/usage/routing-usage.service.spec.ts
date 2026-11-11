@@ -88,35 +88,23 @@ describe('RoutingUsageService', () => {
 });
 
 describe('PrismaRoutingUsageStore', () => {
-  it('one atomic upsert-increment per call, company and day as parameters', async () => {
-    const sqls: { text: string; values: unknown[] }[] = [];
-    const db = {
-      $executeRaw: async (q: { sql: string; values: unknown[] }) => {
-        sqls.push({ text: q.sql, values: q.values });
-        return 1;
-      },
-      $queryRaw: async () => [],
-    };
-    await new PrismaRoutingUsageStore(db as never).increment(CO, new Date('2026-11-11T00:00:00Z'), { routes: 1, matrixCells: 4, optimizeJobs: 0, cacheHits: 2 });
-    expect(sqls).toHaveLength(1);
-    expect(sqls[0].text).toMatch(/INSERT INTO "RoutingUsage"/);
-    expect(sqls[0].text).toMatch(/ON CONFLICT \("companyId", "day"\) DO UPDATE/);
-    expect(sqls[0].text).toMatch(/"routes" = "RoutingUsage"\."routes" \+ EXCLUDED\."routes"/);
-    expect(sqls[0].text).not.toContain(CO);
-    expect(sqls[0].values).toEqual([CO, new Date('2026-11-11T00:00:00Z'), 1, 4, 0, 2]);
+  const DAY = new Date('2026-11-11T00:00:00Z');
+
+  it('one atomic upsert-increment per call on (companyId, day)', async () => {
+    const upsert = jest.fn(async () => ({}));
+    await new PrismaRoutingUsageStore({ routingUsage: { upsert } } as never).increment(CO, DAY, { routes: 1, matrixCells: 4, optimizeJobs: 0, cacheHits: 2 });
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert).toHaveBeenCalledWith({
+      where: { companyId_day: { companyId: CO, day: DAY } },
+      create: { companyId: CO, day: DAY, routes: 1, matrixCells: 4, optimizeJobs: 0, cacheHits: 2 },
+      update: { routes: { increment: 1 }, matrixCells: { increment: 4 }, optimizeJobs: { increment: 0 }, cacheHits: { increment: 2 } },
+    });
   });
 
-  it('lists one company from a day, mapping DATE to YYYY-MM-DD', async () => {
-    const seen: unknown[][] = [];
-    const db = {
-      $executeRaw: async () => 0,
-      $queryRaw: async (q: { sql: string; values: unknown[] }) => {
-        seen.push(q.values);
-        return [{ day: new Date('2026-11-11T00:00:00Z'), routes: 3, matrixCells: 0, optimizeJobs: 1, cacheHits: 0 }];
-      },
-    };
-    const rows = await new PrismaRoutingUsageStore(db as never).list(CO, new Date('2026-11-05T00:00:00Z'));
+  it('lists one company from a day, newest first, DATE as YYYY-MM-DD', async () => {
+    const findMany = jest.fn(async () => [{ companyId: CO, day: DAY, routes: 3, matrixCells: 0, optimizeJobs: 1, cacheHits: 0, updatedAt: DAY }]);
+    const rows = await new PrismaRoutingUsageStore({ routingUsage: { findMany } } as never).list(CO, new Date('2026-11-05T00:00:00Z'));
     expect(rows).toEqual([{ day: '2026-11-11', routes: 3, matrixCells: 0, optimizeJobs: 1, cacheHits: 0 }]);
-    expect(seen[0]).toEqual([CO, new Date('2026-11-05T00:00:00Z')]);
+    expect(findMany).toHaveBeenCalledWith({ where: { companyId: CO, day: { gte: new Date('2026-11-05T00:00:00Z') } }, orderBy: { day: 'desc' } });
   });
 });

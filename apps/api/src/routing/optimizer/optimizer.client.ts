@@ -1,9 +1,10 @@
 import { Logger } from '@nestjs/common';
-import { etmsRoutingEnabled } from '../etms-routing-flag';
+import { SOLVER_LIMITS, SolverProblem, SolverResult } from '@veetracer/shared';
+import { etmsRoutingEnabled } from '../../etms/transport-feature.guard';
 import { defaultFetch, FetchLike } from '../fetch-like';
 import { privateServiceUrlProblem } from '../private-url';
 import { RoutingError } from '../routing.errors';
-import { OptimizeResult, OptimizerProblem } from './optimizer.types';
+
 
 export interface OptimizerClientConfig {
   baseUrl: string;
@@ -27,13 +28,16 @@ export function readOptimizerConfig(env: NodeJS.ProcessEnv = process.env): Optim
   return { baseUrl, token, problem: null };
 }
 
+/** Default solver time limit of the service when the problem names none (solver.py). */
+export const OPTIMIZER_DEFAULT_TIME_LIMIT_S = 10;
 /** Solver time limit plus slack for the matrix upload and serialisation. */
 export const OPTIMIZER_TIMEOUT_SLACK_S = 15;
 export const OPTIMIZER_HEALTH_TIMEOUT_MS = 2000;
 
 /**
  * HTTP client for the OR-Tools service (`services/routing-optimizer`), ported from the routing branch's
- * `OptimizerAdapter` (doc 17 §5.1, engine-neutral). Bearer token on every call; a full service (HTTP 429) is
+ * `OptimizerAdapter` (doc 17 §5.1, engine-neutral), speaking the shared solver wire format (`SolverProblem` /
+ * `SolverResult`, P4). Bearer token on every call; a full service (HTTP 429) is
  * `OPTIMIZER_BUSY` (the job is retried with back-off), a rejected problem (HTTP 400) is `LIMIT_EXCEEDED`, anything
  * else unexpected is `OPTIMIZER_UNAVAILABLE`. The optimiser never sees an engine: the API builds the matrix.
  */
@@ -65,7 +69,7 @@ export class OptimizerClient {
     }
   }
 
-  async solve(problem: OptimizerProblem): Promise<OptimizeResult> {
+  async solve(problem: SolverProblem): Promise<SolverResult> {
     if (!this.configured) throw new RoutingError('OPTIMIZER_UNAVAILABLE', `Optimizer is not configured (${this.config.problem})`);
     let res: Response;
     try {
@@ -73,7 +77,7 @@ export class OptimizerClient {
         method: 'POST',
         headers: this.headers(true),
         body: JSON.stringify(problem),
-        signal: AbortSignal.timeout((problem.options.timeLimitS + OPTIMIZER_TIMEOUT_SLACK_S) * 1000),
+        signal: AbortSignal.timeout((Math.min(problem.options?.timeLimitS ?? OPTIMIZER_DEFAULT_TIME_LIMIT_S, SOLVER_LIMITS.timeLimitS) + OPTIMIZER_TIMEOUT_SLACK_S) * 1000),
       });
     } catch (e) {
       this.logger.warn(`optimizer unreachable: ${(e as Error).message}`);
@@ -81,12 +85,12 @@ export class OptimizerClient {
     }
     // Every solver slot busy: transient, the caller retries with back-off instead of failing.
     if (res.status === 429) throw new RoutingError('OPTIMIZER_BUSY', 'Optimizer busy; retried shortly');
-    const body = (await res.json().catch(() => ({}))) as Partial<OptimizeResult>;
+    const body = (await res.json().catch(() => ({}))) as Partial<SolverResult>;
     if (res.status === 400) throw new RoutingError('LIMIT_EXCEEDED', body.error ?? 'Optimizer rejected the problem');
     if (!res.ok) throw new RoutingError('OPTIMIZER_UNAVAILABLE', `Optimizer error (HTTP ${res.status})`);
     if (!Array.isArray(body.routes) || !Array.isArray(body.unassigned) || typeof body.status !== 'string') {
       throw new RoutingError('OPTIMIZER_UNAVAILABLE', 'Optimizer answer is not a result');
     }
-    return body as OptimizeResult;
+    return body as SolverResult;
   }
 }
