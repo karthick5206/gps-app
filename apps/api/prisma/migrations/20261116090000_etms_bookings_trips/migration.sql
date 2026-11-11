@@ -416,17 +416,17 @@ ALTER TABLE "TransportChangeSet" ADD CONSTRAINT "TransportChangeSet_companyId_fk
 
 -- ───────────────────────────── Raw SQL (doc 15 §5, §8.1) ─────────────────────────────
 
--- TransportShift (§5.1)
+-- TransportShift (§5.1). Prisma creates scalar lists (days) as nullable columns: the days CHECKs refuse NULL explicitly.
 ALTER TABLE "TransportShift" ADD CONSTRAINT "TransportShift_minutes_check"
   CHECK ("startMin" BETWEEN 0 AND 1439 AND "endMin" BETWEEN 0 AND 1439 AND "startMin" <> "endMin");
 ALTER TABLE "TransportShift" ADD CONSTRAINT "TransportShift_overnight_check" CHECK ("overnight" = ("endMin" < "startMin"));
 ALTER TABLE "TransportShift" ADD CONSTRAINT "TransportShift_days_check"
-  CHECK (cardinality("days") > 0 AND "days" <@ ARRAY[0,1,2,3,4,5,6]);
+  CHECK ("days" IS NOT NULL AND cardinality("days") > 0 AND "days" <@ ARRAY[0,1,2,3,4,5,6]);
 
 -- TransportSchedule (§5.2). STOP ⇒ stopPoiId is a service rule, not a CHECK (SetNull FK, §1.3).
 ALTER TABLE "TransportSchedule" ADD CONSTRAINT "TransportSchedule_validity_check" CHECK ("validTo" IS NULL OR "validTo" >= "validFrom");
 ALTER TABLE "TransportSchedule" ADD CONSTRAINT "TransportSchedule_days_check"
-  CHECK (cardinality("days") > 0 AND "days" <@ ARRAY[0,1,2,3,4,5,6]);
+  CHECK ("days" IS NOT NULL AND cardinality("days") > 0 AND "days" <@ ARRAY[0,1,2,3,4,5,6]);
 ALTER TABLE "TransportSchedule" ADD CONSTRAINT "TransportSchedule_version_check" CHECK ("version" >= 1);
 
 -- TransportScheduleException (§5.3)
@@ -460,8 +460,10 @@ ALTER TABLE "TransportTripPassenger" ADD CONSTRAINT "TransportTripPassenger_drop
 ALTER TABLE "TransportTripPassenger" ADD CONSTRAINT "TransportTripPassenger_no_show_check" CHECK ("status" <> 'NO_SHOW' OR "noShowAt" IS NOT NULL);
 -- Vehicle GPS is never proof of boarding (02 §5.3, condition A): only the dispatcher (WEB) or the driver app (E5) may
 -- record an outcome. The processor has no write path to this table; this CHECK makes a GPS / SYSTEM outcome impossible.
+-- COALESCE: doc 15 §5.6 writes `"outcomeSource" IN (…)`, which a NULL source would pass (a CHECK accepts NULL); an
+-- outcome without a source must be refused too (found by the E3 DB test).
 ALTER TABLE "TransportTripPassenger" ADD CONSTRAINT "TransportTripPassenger_outcome_source_check"
-  CHECK ("status" NOT IN ('BOARDED','DROPPED','NO_SHOW') OR "outcomeSource" IN ('WEB','DRIVER_APP'));
+  CHECK ("status" NOT IN ('BOARDED','DROPPED','NO_SHOW') OR COALESCE("outcomeSource", '') IN ('WEB','DRIVER_APP'));
 -- One active seat per booking (moving a passenger = cancel the old row + insert a new one in one transaction).
 CREATE UNIQUE INDEX "TransportTripPassenger_active_booking_key" ON "TransportTripPassenger" ("bookingId") WHERE "status" <> 'CANCELLED';
 
