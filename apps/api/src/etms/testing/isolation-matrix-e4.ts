@@ -237,6 +237,13 @@ export const E4_MATRIX: E4Entry[] = [
     invoke: (c, ctx, _t, w) => c.jobs.optimize(ctx, { planId: w.party.plan, expectedVersion: 1, weights: W }, key()),
     expect: { none: OWN_PLAN },
   },
+  // doc 05 §2 alias of routing/jobs/optimize: the path names the plan (party / other company).
+  {
+    route: 'POST transport/route-plans/:id/optimize',
+    resource: 'routePlan',
+    invoke: (c, ctx, t) => c.create.optimize(ctx, t.plan, { expectedVersion: 1, weights: W }, key()),
+    expect: { party: OWN_PLAN, other: OTHER_PLAN },
+  },
   { route: 'GET routing/jobs', resource: 'routePlan', invoke: (c, ctx) => c.jobs.list(ctx, {}), expect: { none: LIST }, verify: noOtherJobs },
   { route: 'GET routing/jobs/:id', resource: 'routePlan', invoke: (c, ctx, t) => c.jobs.get(ctx, t.job), expect: { party: OWN_PLAN, other: OTHER_PLAN } },
   { route: 'POST routing/jobs/:id/cancel', resource: 'routePlan', invoke: (c, ctx, t) => c.jobs.cancel(ctx, t.job), expect: { party: OWN_PLAN, other: OTHER_PLAN } },

@@ -1,6 +1,8 @@
-import { Body, Controller, Headers, HttpCode, Injectable, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Injectable, Param, ParseUUIDPipe, Post, Res, UseGuards } from '@nestjs/common';
+import { OptimizeOptionsDto } from '../../routing-jobs/routing-jobs.controller';
+import { RoutingJobsService } from '../../routing-jobs/routing-jobs.service';
 import { Prisma } from '@prisma/client';
-import { ETMS_PLANNING_MENU, ROUTING_LIMITS, ROUTING_PROFILES, type RoutePlanDetailDto, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
+import { ETMS_PLANNING_MENU, ROUTING_LIMITS, ROUTING_PROFILES, type RoutingJobDto, type RoutePlanDetailDto, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsISO8601, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf, ValidateNested } from 'class-validator';
 import { objectScopeWhere } from '../../access/access-rules';
@@ -191,11 +193,34 @@ export class RoutePlanCreateService {
   }
 }
 
-/** POST /api/transport/route-plans (etms_planning:create; Idempotency-Key). Same gates as the other plan routes. */
+/**
+ * POST /api/transport/route-plans (etms_planning:create; Idempotency-Key) and the doc 05 §2 optimise alias
+ * POST /api/transport/route-plans/:id/optimize (same permission, idempotency, limits and 202 job as
+ * POST /api/routing/jobs/optimize). Same gates as the other plan routes.
+ */
 @Controller('transport/route-plans')
 @UseGuards(TransportFeatureGuard, PlanningFeatureGuard)
 export class RoutePlanCreateController {
-  constructor(private readonly creator: RoutePlanCreateService) {}
+  constructor(
+    private readonly creator: RoutePlanCreateService,
+    private readonly jobs: RoutingJobsService,
+  ) {}
+
+  @Post(':id/optimize') @HttpCode(202) @RequirePermission(ETMS_PLANNING_MENU, 'create')
+  async optimize(
+    @Auth() ctx: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OptimizeOptionsDto,
+    @Headers('idempotency-key') key: string | undefined,
+    @Res({ passthrough: true }) res?: { setHeader?: (n: string, v: string) => unknown; status?: (c: number) => unknown },
+  ): Promise<RoutingJobDto> {
+    const r = await this.jobs.enqueueOptimize(ctx, { ...dto, planId: id }, key);
+    if (r.replay) {
+      res?.setHeader?.('Idempotent-Replay', 'true');
+      res?.status?.(200);
+    }
+    return r.job;
+  }
 
   @Post() @HttpCode(201) @RequirePermission(ETMS_PLANNING_MENU, 'create')
   async create(@Auth() ctx: AuthContext, @Body() dto: CreateRoutePlanDto, @Headers('idempotency-key') key: string | undefined, @Res({ passthrough: true }) res?: { setHeader?: (n: string, v: string) => unknown; status?: (c: number) => unknown }): Promise<CreatedRoutePlanDto> {

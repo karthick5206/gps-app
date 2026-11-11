@@ -233,7 +233,7 @@ function e4Controllers(prisma: Obj, audit: AuditService, redis: object) {
   );
   return {
     plans: new RoutePlansController(plans),
-    create: new RoutePlanCreateController(new RoutePlanCreateService(prisma as never, audit, plans)),
+    create: new RoutePlanCreateController(new RoutePlanCreateService(prisma as never, audit, plans), jobs),
     jobs: new RoutingJobsController(jobs),
     caps: new RoutingCapabilitiesController(caps),
   };

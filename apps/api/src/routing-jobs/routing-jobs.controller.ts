@@ -16,13 +16,17 @@ export class SolverWeightsDto {
   @IsNumber() @Min(0) @Max(1e4) routeDuration!: number;
 }
 
-export class OptimizeJobDto {
-  @IsUUID() planId!: string;
+/** The optimise options (also the body of POST /transport/route-plans/:id/optimize, where the path names the plan). */
+export class OptimizeOptionsDto {
   @Type(() => Number) @IsInt() @Min(1) expectedVersion!: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(ROUTING_LIMITS.optimizeTimeLimitS) timeLimitS?: number;
   @IsOptional() @IsIn(['duration', 'distance']) objective?: 'duration' | 'distance';
   /** Required (P6): stored on the plan (options.weights) for compare and sent as options.weights. */
   @IsDefined() @ValidateNested() @Type(() => SolverWeightsDto) weights!: SolverWeightsDto;
+}
+
+export class OptimizeJobDto extends OptimizeOptionsDto {
+  @IsUUID() planId!: string;
 }
 
 export class JobListQueryDto {
