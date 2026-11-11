@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 // Overridable so several dev servers can run side by side (e.g. API_TARGET=http://localhost:4100 WEB_PORT=5174).
-const API_TARGET = process.env.API_TARGET ?? 'http://localhost:4000';
+// 127.0.0.1, not localhost: in production the API binds loopback IPv4 only (API_HOST), and vite preview proxies too.
+const API_TARGET = process.env.API_TARGET ?? 'http://127.0.0.1:4000';
 const WEB_PORT = Number(process.env.WEB_PORT ?? 5173);
 
 export default defineConfig({

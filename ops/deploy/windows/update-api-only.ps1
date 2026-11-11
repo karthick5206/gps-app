@@ -34,7 +34,7 @@ Invoke-Command -Session $s -ScriptBlock {
   $up = $false
   for ($i = 0; $i -lt 40 -and -not $up; $i++) {
     Start-Sleep 4
-    try { Invoke-WebRequest http://localhost:4100/api/health -UseBasicParsing -TimeoutSec 5 | Out-Null; $up = $true } catch {}
+    try { Invoke-WebRequest http://127.0.0.1:4100/api/health -UseBasicParsing -TimeoutSec 5 | Out-Null; $up = $true } catch {}
   }
   "api health: $(if ($up) { 'OK' } else { 'not responding (check C:\apps\veetracer\logs)' })"
   Get-Service veetracer-* | ForEach-Object { "$($_.Name): $($_.Status)" }

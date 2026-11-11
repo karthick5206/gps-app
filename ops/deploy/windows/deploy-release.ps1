@@ -87,11 +87,11 @@ Invoke-Command -Session $s -ArgumentList $Rollback.IsPresent, $Branch -ScriptBlo
   $why = 'no answer'
   for ($i = 0; $i -lt 36 -and -not $up; $i++) {
     Start-Sleep 5
-    try { Invoke-WebRequest http://localhost:4100/api/health -UseBasicParsing -TimeoutSec 5 | Out-Null; $up = $true }
+    try { Invoke-WebRequest http://127.0.0.1:4100/api/health -UseBasicParsing -TimeoutSec 5 | Out-Null; $up = $true }
     catch { if ($_.Exception.Response) { $why = "HTTP $([int]$_.Exception.Response.StatusCode) (database or cache not ready)" } }
   }
   "api health: $(if ($up) { 'OK (database and cache ready)' } else { "not ready after 3 min: $why (check C:\apps\veetracer\logs)" })"
-  try { $t = Invoke-WebRequest http://localhost:4100/api/health/tracking -UseBasicParsing -TimeoutSec 10; "tracking: $(($t.Content | ConvertFrom-Json).status)" }
+  try { $t = Invoke-WebRequest http://127.0.0.1:4100/api/health/tracking -UseBasicParsing -TimeoutSec 10; "tracking: $(($t.Content | ConvertFrom-Json).status)" }
   catch { "tracking: not OK yet (HTTP $(if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { '-' })); devices reconnect within minutes, check /api/health/tracking again" }
   Remove-Item $flag -ErrorAction SilentlyContinue
 }

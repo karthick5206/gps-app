@@ -10,6 +10,24 @@
 | `maps/` | Self-hosted GraphHopper, Photon and Martin ([maps/README.md](maps/README.md)) |
 | `test/` | Local tests of the scripts with stubs (no root, no real services) |
 
+## API network binding (`API_HOST`, E4 salvage)
+
+From the release that carries it, the API listens on **127.0.0.1** when `NODE_ENV=production` and `API_HOST` is unset
+(`apps/api/src/config/api-host.ts`). Development and tests keep Node's default (every interface). Explicit values:
+`loopback`, a private or WireGuard address, `0.0.0.0` / `::` (Docker Compose sets `0.0.0.0`). Host names are refused.
+
+Compatibility with the files in this folder (checked, nothing here changes):
+
+| Consumer | Target | Result |
+|---|---|---|
+| `Caddyfile` `/api/*`, `/socket.io/*` | `reverse_proxy 127.0.0.1:4000` | works: same address |
+| `health-gate.sh` / `release.sh` | `http://127.0.0.1:${API_PORT:-4000}/api/health/ready` and `/tracking` | works |
+| `veetrax-api.service` | `EnvironmentFile=apps/api/.env`, no `NODE_ENV` in the unit | the binding follows `.env`: with `NODE_ENV=production` there it becomes loopback, otherwise it stays as before |
+| `ufw` (`install-ubuntu.sh`) | 4000 is not opened | loopback adds a second layer; nothing outside relied on :4000 |
+
+If anything on another host must reach the API directly, set `API_HOST` to that interface's private address (never a
+public one) in `apps/api/.env`. To restore the old behaviour for one release: `API_HOST=0.0.0.0`.
+
 ## Release health gate (v1.8.1)
 
 After `systemctl restart`, `release.sh` runs `health-gate.sh`:

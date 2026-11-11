@@ -53,3 +53,5 @@ pm2 save
 
 ## Tunnel
 `tunnel` is currently **stopped** at the owner's request (`pm2 stop tunnel`, saved). Start it only on instruction: `pm2 start tunnel && pm2 save`.
+
+With `NODE_ENV=production` the API listens on 127.0.0.1 only (`API_HOST` unset, see `apps/api/.env.example`). The tunnel (`service: http://localhost:4000`), `vite preview` (proxy default `http://127.0.0.1:4000`) and the watchdog / deploy health checks (`http://127.0.0.1:…`) all run on this machine, so they still reach it; cloudflared tries `::1` first and falls back to 127.0.0.1. If a client on the LAN needs the API directly, set `API_HOST=0.0.0.0` in `apps/api/.env`.

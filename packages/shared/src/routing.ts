@@ -296,7 +296,7 @@ export interface OptimizeResult {
 
 // ───────────────────────────── solver wire format (API / worker ↔ services/routing-optimizer) ─────────────────────────────
 
-/** POST {OPTIMIZER_URL}/solve body. Mirrors `optimizer/solver.py` `validate()`; all times are seconds after plan start. */
+/** POST {OPTIMIZER_URL}/optimize body. Mirrors `optimizer/solver.py` `validate()`; all times are seconds after plan start. */
 export interface SolverProblem {
   /** n × n; null = no road route (forbidden arc). Built from GraphHopper by the API / worker, never estimated. */
   matrix: { durationsS: (number | null)[][]; distancesM?: (number | null)[][] | null };
