@@ -59,9 +59,13 @@ describe('resolvePermissions', () => {
     expect(permissions).toEqual({ dashboard: ['view'] });
   });
 
-  it('Admin system role holds every non-platform menu', () => {
+  it('Admin system role holds every non-platform menu except module menus (those come from module role templates)', () => {
     const { permissions } = resolvePermissions([toGrant('Admin')], false);
-    expect(Object.keys(permissions).sort()).toEqual(MENUS.filter((m) => !m.superAdminOnly).map((m) => m.key).sort());
+    expect(Object.keys(permissions).sort()).toEqual(MENUS.filter((m) => !m.superAdminOnly && !m.requires).map((m) => m.key).sort());
+  });
+
+  it('no built-in system role grants an ETMS menu (P6: templates seeded on enable, no global SYSTEM_ROLES change)', () => {
+    for (const role of SYSTEM_ROLES) expect(Object.keys(role.permissions).filter((k) => k.startsWith('etms_'))).toEqual([]);
   });
 });
 

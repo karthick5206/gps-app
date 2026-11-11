@@ -63,6 +63,12 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   pois: page(() => import('@/features/pois/PoisPage'), 'PoisPage'),
   routes: page(() => import('@/features/routes/RoutesPage'), 'RoutesPage'),
   plannedTrips: page(() => import('@/features/planned-trips/PlannedTripsPage'), 'PlannedTripsPage'),
+  // ETMS placeholders (E1a backend): menus are hidden unless the company add-on etms is on; the Web agent adds the pages.
+  etms_dashboard: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
+  etms_partners: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
+  etms_settings: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
+  etms_self: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
+  etms_driver: page(() => import('@/features/errors/ErrorPages'), 'NotFoundPage'),
   alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
   message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };

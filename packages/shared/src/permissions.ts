@@ -2,10 +2,18 @@
  * Menu catalogue and permission actions. Roles grant actions per menu (menu-role mapping);
  * web and mobile build their navigation from this list filtered by the user's permissions.
  */
+import type { CompanyFeature } from './api';
+
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'command'] as const;
 export type Action = (typeof ACTIONS)[number];
 
-export type MenuGroup = 'main' | 'people' | 'costs' | 'masters' | 'alerting' | 'stock' | 'admin' | 'platform';
+export type MenuGroup = 'main' | 'transport' | 'people' | 'costs' | 'masters' | 'alerting' | 'stock' | 'admin' | 'platform';
+
+/** What a menu needs besides a role grant. */
+export interface MenuRequires {
+  /** Company add-on (COMPANY_FEATURES) that must be on in the acting company; otherwise the menu is hidden and refused. */
+  companyFeature?: CompanyFeature;
+}
 
 export interface MenuDef {
   key: MenuKey;
@@ -17,6 +25,8 @@ export interface MenuDef {
   superAdminOnly?: boolean;
   /** Shown only to the platform and to resellers (partners); other companies never see it, whatever their role says. */
   partnerOnly?: boolean;
+  /** Module gating: without it the menu is stripped from the caller's permissions (hidden in nav, refused by the API). */
+  requires?: MenuRequires;
 }
 
 export const MENU_KEYS = [
@@ -29,6 +39,11 @@ export const MENU_KEYS = [
   'alerts',
   'parking_mode',
   'plannedTrips',
+  'etms_dashboard',
+  'etms_partners',
+  'etms_settings',
+  'etms_self',
+  'etms_driver',
   'driver_scores',
   'attendance',
   'expenses',
@@ -67,6 +82,7 @@ export const MENU_KEYS = [
 export type MenuKey = (typeof MENU_KEYS)[number];
 
 const CRUD: readonly Action[] = ['view', 'create', 'edit', 'delete', 'export'];
+const ETMS: MenuRequires = { companyFeature: 'etms' };
 
 export const MENUS: readonly MenuDef[] = [
   // Tracking: where vehicles are and what is happening now.
@@ -77,6 +93,13 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'parking_mode', label: 'Parking mode', group: 'main', path: '/parking-mode', actions: ['view', 'edit'] },
   { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },
   { key: 'plannedTrips', label: 'Planned trips', group: 'main', path: '/planned-trips', actions: CRUD },
+  // Employee transport (ETMS, doc 07 §2.2): only when the company add-on `etms` is on. E1a ships these keys; later phases
+  // add etms_dispatch, etms_bookings, etms_passengers, etms_schedules, etms_stops, etms_incidents, etms_policies, … .
+  { key: 'etms_dashboard', label: 'Transport dashboard', group: 'transport', path: '/transport', actions: ['view', 'export'], requires: ETMS },
+  { key: 'etms_partners', label: 'Customers / Providers & agreements', group: 'transport', path: '/transport/partners', actions: CRUD, requires: ETMS },
+  { key: 'etms_settings', label: 'Transport settings', group: 'transport', path: '/transport/settings', actions: ['view', 'edit'], requires: ETMS },
+  { key: 'etms_self', label: 'My commute', group: 'transport', path: '/transport/me', actions: ['view', 'create', 'edit'], requires: ETMS },
+  { key: 'etms_driver', label: 'My transport duty', group: 'transport', path: '/transport/driver', actions: ['view', 'edit'], requires: ETMS },
   // Drivers & staff: behaviour, safety and attendance.
   { key: 'dms', label: 'DMS dashboard', group: 'people', path: '/dms', actions: ['view', 'export'] },
   { key: 'driver_events', label: 'Driver events', group: 'people', path: '/driver-events', actions: ['view', 'edit', 'export'] },
@@ -130,6 +153,27 @@ export function can(perms: PermissionMap, menu: MenuKey, action: Action = 'view'
   return perms[menu]?.includes(action) ?? false;
 }
 
+/** Whether a menu's module requirements are met by the acting company's add-ons. */
+export function menuAvailable(menu: Pick<MenuDef, 'requires'>, features: readonly CompanyFeature[]): boolean {
+  const need = menu.requires?.companyFeature;
+  return !need || features.includes(need);
+}
+
+/** Menus of a module (e.g. 'etms'): hidden and refused while the company add-on is off. */
+export function moduleMenuKeys(feature: CompanyFeature): MenuKey[] {
+  return MENUS.filter((m) => m.requires?.companyFeature === feature).map((m) => m.key);
+}
+
+/** Drop grants of menus whose module is off in the acting company (navigation hides them, the API refuses them). */
+export function withoutUnavailableMenus(perms: PermissionMap, features: readonly CompanyFeature[]): PermissionMap {
+  const out: PermissionMap = {};
+  for (const m of MENUS) {
+    const actions = perms[m.key];
+    if (actions && menuAvailable(m, features)) out[m.key] = actions;
+  }
+  return out;
+}
+
 /** Built-in roles created for every new company. */
 export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataScope; permissions: PermissionMap }[] = [
   {
@@ -137,7 +181,9 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     description: 'Full access to the whole company',
     dataScope: 'COMPANY',
     permissions: Object.fromEntries(
-      MENUS.filter((m) => !m.superAdminOnly).map((m) => [m.key, [...m.actions]]),
+      // Module menus (requires) are never part of the global built-in roles: they come from the module's role templates
+      // (ETMS: ETMS_ROLE_TEMPLATES, seeded when the add-on is switched on; P6).
+      MENUS.filter((m) => !m.superAdminOnly && !m.requires).map((m) => [m.key, [...m.actions]]),
     ) as PermissionMap,
   },
   {

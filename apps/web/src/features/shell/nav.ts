@@ -84,6 +84,12 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   pois: MapPinIcon,
   routes: RouteIcon,
   plannedTrips: CalendarClockIcon,
+  // ETMS placeholders (E1a backend); the Web agent sets the final icons (doc 07 §2.2).
+  etms_dashboard: GaugeIcon,
+  etms_partners: Building2Icon,
+  etms_settings: SettingsIcon,
+  etms_self: RouteIcon,
+  etms_driver: TruckIcon,
   alert_settings: BellRingIcon,
   message_templates: MailIcon,
   report_schedules: CalendarClockIcon,
@@ -91,6 +97,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
 
 export const GROUP_LABELS: Record<MenuGroup, string> = {
   main: 'Tracking',
+  transport: 'Employee transport',
   people: 'Drivers & Staff',
   costs: 'Costs & Reports',
   masters: 'Masters',
@@ -100,7 +107,7 @@ export const GROUP_LABELS: Record<MenuGroup, string> = {
   platform: 'Platform',
 };
 
-const GROUP_ORDER: MenuGroup[] = ['main', 'people', 'costs', 'masters', 'alerting', 'stock', 'admin', 'platform'];
+const GROUP_ORDER: MenuGroup[] = ['main', 'transport', 'people', 'costs', 'masters', 'alerting', 'stock', 'admin', 'platform'];
 
 export interface NavGroup {
   group: MenuGroup;
