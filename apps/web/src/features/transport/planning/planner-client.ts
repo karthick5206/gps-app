@@ -46,6 +46,7 @@ export const plannerKeys = {
   plan: (id: string) => ['route-plan', id] as const,
   history: (id: string) => ['route-plan-history', id] as const,
   job: (id: string) => ['routing-job', id] as const,
+  compare: ['route-plans-compare'] as const,
 };
 
 // ───────────────────────────── gate (web flag + API capabilities) ─────────────────────────────

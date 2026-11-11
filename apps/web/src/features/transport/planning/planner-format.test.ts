@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { EtaModel, RoutePlanAssignmentDto } from '@veetracer/shared';
+import type { EtaModel } from '@veetracer/shared';
 import {
   bestOf,
   capabilityView,
@@ -30,6 +30,8 @@ import {
   unassignedReason,
   weightedScores,
   zonedIso,
+  type PlannerAssignment,
+  metricsFromCompare,
   type PlannerPlan,
   type PlannerStop,
 } from './planner-format.ts';
@@ -41,16 +43,18 @@ function stop(id: string, over: Partial<PlannerStop> = {}): PlannerStop {
   return {
     id, ref: id.toUpperCase(), name: null, lat: 12.912345678, lng: 80.198765432, snappedLat: null, snappedLng: null, snapDistanceM: null,
     demand: 1, serviceS: 60, timeWindows: null, assignmentId: null, sequence: null, etaS: null, unassignedReason: null,
-    stopKind: 'PICKUP', bookingId: `b-${id}`, profileId: 'p', poiId: null, customerCompanyId: null, personal: true, ...over,
+    stopKind: 'PICKUP', bookingId: `b-${id}`, profileId: 'p', poiId: null, customerCompanyId: null, personal: true,
+    pointHidden: null, pinned: false, plannedArrival: null, seats: 1, ...over,
   };
 }
-function asg(id: string, over: Partial<RoutePlanAssignmentDto> = {}): RoutePlanAssignmentDto {
-  return { id, seq: 0, vehicleLabel: id, objectId: `o-${id}`, driverId: null, capacity: 4, distanceM: 10_000, durationS: 1800, adjustedDurationS: 1800, startS: 0, endS: 2400, geometry: { type: 'LineString', coordinates: [[80.1, 12.9], [80.2, 12.95]] }, eta: ENGINE, transportTripId: null, ...over };
+function asg(id: string, over: Partial<PlannerAssignment> = {}): PlannerAssignment {
+  return { id, seq: 0, vehicleLabel: id, objectId: `o-${id}`, driverId: null, capacity: 4, distanceM: 10_000, durationS: 1800, adjustedDurationS: 1800, startS: 0, endS: 2400, geometry: { type: 'LineString', coordinates: [[80.1, 12.9], [80.2, 12.95]] }, eta: ENGINE, transportTripId: null,
+    locked: false, vehicleName: id, plateNumber: null, driverName: null, passengers: 0, seats: 0, violations: [], plannedTripId: null, ...over };
 }
 function plan(over: Partial<PlannerPlan> = {}): PlannerPlan {
   return {
     id: 'pl', name: 'P', planDate: '2026-11-12', planStartAt: '2026-11-12T01:30:00.000Z', status: 'PLANNED', profile: 'car', branchId: null, graphVersion: 'gh', depot: { lat: 12.9, lng: 80.2 },
-    direction: 'IN', shiftId: 's', sitePoiId: 'site', version: 3, publishedAt: null, createdAt: '', updatedAt: '',
+    direction: 'IN', shiftId: 's', sitePoiId: 'site', version: 3, publishedAt: null, createdAt: '', updatedAt: '', precise: true, editable: true, violations: [], unassigned: 1,
     assignments: [asg('a1'), asg('a2', { distanceM: 5000, durationS: 900, adjustedDurationS: 900, endS: 1500 })],
     stops: [
       stop('s1', { assignmentId: 'a1', sequence: 0, etaS: 300 }),
@@ -109,13 +113,13 @@ test('etaQuality is the worst case of the routes', () => {
 });
 
 test('mapPoints: only points the API sent, 4 decimals for branch scope', () => {
-  const p = plan({ stops: [stop('s1', { assignmentId: 'a1', sequence: 0 }), stop('s2', { pointHidden: true }), stop('s3', { lat: Number.NaN, lng: Number.NaN })] });
-  const company = mapPoints(p, 'COMPANY');
+  const p = plan({ stops: [stop('s1', { assignmentId: 'a1', sequence: 0 }), stop('s2', { pointHidden: 'CONSENT_REQUIRED', lat: null, lng: null }), stop('s3', { pointHidden: 'OUT_OF_SCOPE', lat: null, lng: null })] });
+  const company = mapPoints(p, true);
   assert.equal(company.points.length, 1);
   assert.equal(company.hidden, 2);
   assert.equal(company.points[0].lat, 12.912345678);
   assert.equal(company.points[0].position, 1);
-  const branch = mapPoints(p, 'ASSIGNED');
+  const branch = mapPoints(p, false);
   assert.equal(branch.points[0].lat, 12.9123);
   assert.equal(branch.points[0].lng, 80.1988);
   assert.equal(branch.points[0].label, 'Passenger pickup', 'no address / name on the map for a personal point');
@@ -223,4 +227,17 @@ test('response shapes: edit result and lists', () => {
   assert.deepEqual(toList([2]), [2]);
   assert.deepEqual(toList(null), []);
   assert.equal(mergeViolations([{ stopId: 'a', ref: 'A', kind: 'late', etaS: 1, window: null }], [{ stopId: 'a', ref: 'A', kind: 'late', etaS: 2, window: null }])[0].etaS, 2);
+});
+
+test('compare DTO metrics (server) with ride times from the detail of the same version', () => {
+  const own = planMetrics(plan());
+  const m = metricsFromCompare({ planId: 'pl', name: 'P', planDate: '2026-11-12', status: 'PLANNED', version: 3, routes: 3, activeRoutes: 2, stops: 4, passengers: 4, seats: 3, unassigned: 1, distanceM: 15000, durationS: 2700, seatUtilisation: 0.375, violations: 0, graphVersion: 'gh' }, own);
+  assert.equal(m.vehiclesUsed, 2);
+  assert.equal(m.vehiclesTotal, 3);
+  assert.equal(m.seats, 8);
+  assert.equal(m.maxRideS, own.maxRideS);
+  const bare = metricsFromCompare({ planId: 'x', name: 'X', planDate: '2026-11-12', status: 'PLANNED', version: 1, routes: 1, activeRoutes: 1, stops: 1, passengers: 1, seats: 1, unassigned: 0, distanceM: null, durationS: null, seatUtilisation: null, violations: 0, graphVersion: null });
+  assert.equal(bare.maxRideS, null);
+  assert.equal(bare.seats, null);
+  assert.equal(bare.etaQuality, 'none', 'no engine numbers → no ETA quality claimed');
 });

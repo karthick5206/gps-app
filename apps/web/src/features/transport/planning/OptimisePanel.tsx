@@ -68,7 +68,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
     setTouched(true);
     if (!ready || !weights) return;
     start.mutate(
-      { planDate: state.day, direction: state.direction, seeds, vehicles: chosenVehicles.map((v) => ({ objectId: v.objectId, label: v.name, seats: v.seats })), weights, timeLimitS: state.timeLimitS },
+      { planDate: state.day, direction: state.direction, seeds, objectIds: chosenVehicles.map((v) => v.objectId), weights, timeLimitS: state.timeLimitS },
       { onSuccess: (r) => setStarted(r) },
     );
   };

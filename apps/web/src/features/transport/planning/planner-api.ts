@@ -1,26 +1,32 @@
 /**
- * Typed client of the routing / plans API the planner uses (E4-E jobs, E4-F plans + publish). The endpoint shapes
- * follow `packages/shared/src/routing.ts`; the few fields the contracts do not have yet are the optional web-side
- * extensions in `planner-format.ts` (pinned stops, weights, violations), listed in the WP 4.5 evidence as integration
- * points. Kept free of React so a mock implementation (`planner-mock.ts`) can stand in until the endpoints exist.
+ * Typed client of the APIs the planner uses:
+ * - plans (E4-F, `packages/shared/src/routing-plans.ts`): `/api/transport/route-plans` list / detail / history /
+ *   compare / move-passenger / sequence / assignments / stops / discard / publish;
+ * - optimise jobs (E4-E): `/api/routing/jobs/optimize`, `/api/routing/jobs/:id`, `/:id/cancel`.
+ * Not on the server yet (integration points, see the WP 4.5 evidence): plan creation from the day's bookings
+ * (`POST /transport/route-plans`) and a capabilities endpoint (`GET /routing/capabilities`); the HTTP client derives
+ * the capabilities meanwhile. Kept free of React so the synthetic stand-in (`planner-mock.ts`) can implement it too.
  */
 import type {
   CreateRoutePlanRequest,
-  OptimizePlanRequest,
-  PublishRoutePlanRequest,
-  PublishRoutePlanResult,
+  RoutePlanCompareDto,
+  RoutePlanMovePassengerRequest,
+  RoutePlanAssignmentUpdateRequest,
+  RoutePlanPublishResult,
+  RoutePlanResequenceRequest,
   RoutePlanStatus,
+  RoutePlanStopUpdateRequest,
   RoutePlanSummaryDto,
   RoutePlanVersionDto,
   RoutingCapabilities,
   RoutingJobDto,
   TransportDirection,
 } from '@veetracer/shared';
-import type { PlanEditResult, PlannerPlan, PlannerWeights } from './planner-format';
+import type { PlanEditResult, PlannerPlan } from './planner-format';
 
-export const CAPABILITIES_ENDPOINT = '/routing/capabilities';
+export const PLANS_ENDPOINT = '/transport/route-plans';
 export const JOBS_ENDPOINT = '/routing/jobs';
-export const PLANS_ENDPOINT = '/route-plans';
+export const CAPABILITIES_ENDPOINT = '/routing/capabilities';
 
 export interface PlanListQuery {
   planDate?: string;
@@ -28,34 +34,31 @@ export interface PlanListQuery {
   status?: RoutePlanStatus | null;
 }
 
-/** POST /route-plans/:id/assignments: one vehicle slot of the plan. */
-export interface AddAssignmentRequest {
-  expectedVersion: number;
-  vehicleLabel: string;
-  objectId: string;
-  capacity: number | null;
-}
+/** Proposed body of `POST /transport/route-plans` (not on the server yet): the plan and its vehicles in one call. */
+export type CreatePlanRequest = CreateRoutePlanRequest & { objectIds: string[] };
 
-/** POST /route-plans/:id/optimize with the explicit objective weights (P6). */
-export type OptimizeWithWeights = OptimizePlanRequest & { weights: PlannerWeights };
+/** `POST /routing/jobs/optimize` (E4-E OptimizeJobDto). The objective weights stay in the browser (P6). */
+export interface OptimizeJobRequest {
+  planId: string;
+  expectedVersion: number;
+  timeLimitS?: number;
+  objective?: 'duration' | 'distance';
+}
 
 export interface PlannerClient {
   capabilities(signal?: AbortSignal): Promise<RoutingCapabilities>;
   listPlans(q: PlanListQuery, signal?: AbortSignal): Promise<RoutePlanSummaryDto[]>;
   getPlan(id: string, signal?: AbortSignal): Promise<PlannerPlan>;
   history(id: string, signal?: AbortSignal): Promise<RoutePlanVersionDto[]>;
-  createPlan(body: CreateRoutePlanRequest): Promise<PlannerPlan>;
-  addAssignment(planId: string, body: AddAssignmentRequest): Promise<PlannerPlan>;
-  optimize(planId: string, body: OptimizeWithWeights): Promise<RoutingJobDto>;
+  compare(ids: readonly string[], signal?: AbortSignal): Promise<RoutePlanCompareDto>;
+  createPlan(body: CreatePlanRequest): Promise<PlannerPlan>;
+  optimize(body: OptimizeJobRequest, idempotencyKey: string): Promise<RoutingJobDto>;
   getJob(id: string, signal?: AbortSignal): Promise<RoutingJobDto>;
   cancelJob(id: string): Promise<RoutingJobDto>;
-  /** PUT /route-plans/:id/sequence (move a passenger, reorder). */
-  resequence(planId: string, body: { expectedVersion: number; assignments: { assignmentId: string; stopIds: string[] }[] }): Promise<PlanEditResult>;
-  /** PATCH /route-plans/:id/assignments/:assignmentId (change vehicle). */
-  changeVehicle(planId: string, assignmentId: string, body: { expectedVersion: number; objectId: string; vehicleLabel: string; capacity: number | null }): Promise<PlanEditResult>;
-  /** PATCH /route-plans/:id/stops/:stopId (pin / unpin). */
-  pinStop(planId: string, stopId: string, body: { expectedVersion: number; pinned: boolean }): Promise<PlanEditResult>;
-  publish(planId: string, body: PublishRoutePlanRequest): Promise<PublishRoutePlanResult>;
-  /** POST /route-plans/:id/cancel: discard (status CANCELLED; history kept). */
-  discard(planId: string, body: { expectedVersion: number }): Promise<PlannerPlan>;
+  movePassenger(planId: string, body: RoutePlanMovePassengerRequest): Promise<PlanEditResult>;
+  resequence(planId: string, body: RoutePlanResequenceRequest): Promise<PlanEditResult>;
+  updateAssignment(planId: string, assignmentId: string, body: RoutePlanAssignmentUpdateRequest): Promise<PlanEditResult>;
+  updateStop(planId: string, stopId: string, body: RoutePlanStopUpdateRequest): Promise<PlanEditResult>;
+  publish(planId: string, body: { expectedVersion: number }, idempotencyKey: string): Promise<RoutePlanPublishResult>;
+  discard(planId: string, body: { expectedVersion: number; reason?: string }): Promise<PlannerPlan>;
 }

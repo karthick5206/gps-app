@@ -16,9 +16,13 @@ import type {
   EtaModel,
   OptimizeUnassignedReason,
   RoutePlanAssignmentDto,
-  RoutePlanDto,
+  RoutePlanAssignmentViewDto,
+  RoutePlanDetailDto,
+  RoutePlanEditResult,
+  RoutePlanMetricsDto,
   RoutePlanStatus,
   RoutePlanStopDto,
+  RoutePlanStopViewDto,
   RoutePlanStopViolation,
   RoutingAccess,
   RoutingCapabilities,
@@ -31,43 +35,32 @@ export type Tone = 'success' | 'warning' | 'destructive' | 'info' | 'neutral' | 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 const english: Translate = (key, vars) => key.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(vars?.[name] ?? ''));
 
-// ───────────────────────────── web-side contract extensions (to be confirmed by E4-F) ─────────────────────────────
+// ───────────────────────────── plans API views (E4-F routing-plans.ts) ─────────────────────────────
 
-/**
- * Optional fields the planner reads when the plans API sends them. Not in `routing.ts` yet; every one is optional so the
- * screens work with the shared DTOs as they are.
- */
-export interface PlannerStopExtras {
-  /** Locked to its route and position: a re-optimisation keeps it. */
-  pinned?: boolean;
-  /** The API withheld the point (consent not active / outside the caller's branches). */
-  pointHidden?: boolean;
-  /** Passenger display name (branch-scoped views may omit it). */
+/** A stop as the caller may see it (consent-gated point: lat / lng null when withheld). */
+export type PlannerStop = RoutePlanStopViewDto & {
+  /** Passenger display name, when the API sends one (never an address). */
   passengerName?: string | null;
-}
-export type PlannerStop = RoutePlanStopDto & PlannerStopExtras;
+};
+export type PlannerAssignment = RoutePlanAssignmentViewDto;
 
-export interface PlannerPlanExtras {
-  /** Re-validation of the current version (time windows, capacity, max ride time). */
-  violations?: RoutePlanStopViolation[];
-  /** The objective weights the plan was optimised with. */
+/** The plan detail (GET /transport/route-plans/:id) plus what the web keeps for its own screens. */
+export type PlannerPlan = Omit<RoutePlanDetailDto, 'stops'> & {
+  stops: PlannerStop[];
+  /** Weights the user set when this plan was optimised from this browser (web-side; the jobs API takes only the objective). */
   weights?: PlannerWeights | null;
-  /** The last optimise job of the plan. */
+  /** The last optimise job started for the plan (web-side). */
   lastJobId?: string | null;
-}
-export type PlannerPlan = Omit<RoutePlanDto, 'stops'> & PlannerPlanExtras & { stops: PlannerStop[] };
+};
 
-/** Result of an edit (resequence, vehicle change, pin): the new version and its re-validation. */
-export interface PlanEditResult {
-  plan: PlannerPlan;
-  violations: RoutePlanStopViolation[];
-}
+/** Result of an edit: the new version, its re-validation, and `degraded` when routes could not be re-timed. */
+export type PlanEditResult = Omit<RoutePlanEditResult, 'plan'> & { plan: PlannerPlan };
 
-/** Accepts `{ plan, violations }` or a bare plan (the routing branch returned the plan). */
+/** Accepts `{ plan, violations, degraded }` or a bare plan. */
 export function toEditResult(raw: unknown): PlanEditResult {
-  const r = raw as { plan?: PlannerPlan; violations?: RoutePlanStopViolation[] } & PlannerPlan;
-  if (r && typeof r === 'object' && r.plan && typeof r.plan === 'object') return { plan: r.plan, violations: r.violations ?? r.plan.violations ?? [] };
-  return { plan: r, violations: r?.violations ?? [] };
+  const r = raw as Partial<PlanEditResult> & PlannerPlan;
+  if (r && typeof r === 'object' && r.plan && typeof r.plan === 'object') return { plan: r.plan, violations: r.violations ?? r.plan.violations ?? [], degraded: r.degraded ?? null };
+  return { plan: r, violations: r?.violations ?? [], degraded: null };
 }
 
 /** Lists may come as an array or `Paginated`. */
@@ -199,8 +192,8 @@ export function unassignedStops<S extends Pick<RoutePlanStopDto, 'assignmentId'>
 }
 
 /** Seats a route uses: each passenger counted once (at the stop that stands for them, see passengerEnd). */
-export function routeLoad(stops: readonly Pick<RoutePlanStopDto, 'demand' | 'stopKind'>[], direction: TransportDirection | null): number {
-  return stops.filter((s) => passengerEnd(s, direction)).reduce((n, s) => n + Math.max(0, s.demand || 0), 0);
+export function routeLoad(stops: readonly (Pick<RoutePlanStopDto, 'demand' | 'stopKind'> & { seats?: number })[], direction: TransportDirection | null): number {
+  return stops.filter((s) => passengerEnd(s, direction)).reduce((n, s) => n + Math.max(0, (s.seats ?? s.demand) || 0), 0);
 }
 
 /**
@@ -278,6 +271,30 @@ export function planMetrics(plan: Pick<PlannerPlan, 'stops' | 'assignments' | 'd
     violations: violations.length,
     violationsByKind,
     etaQuality: etaQuality(used),
+  };
+}
+
+/**
+ * Metrics of GET /transport/route-plans/compare (metrics only, no stops). Ride times and ETA quality are not in that
+ * DTO: they come from the plan detail when it is at hand (same version), else stay unknown.
+ */
+export function metricsFromCompare(d: RoutePlanMetricsDto, detail?: PlanMetrics | null): PlanMetrics {
+  const vehicleSeats = d.seatUtilisation && d.seatUtilisation > 0 ? Math.round(d.seats / d.seatUtilisation) : null;
+  return {
+    vehiclesUsed: d.activeRoutes,
+    vehiclesTotal: d.routes,
+    distanceM: d.distanceM,
+    driveS: d.durationS,
+    maxRideS: detail?.maxRideS ?? null,
+    avgRideS: detail?.avgRideS ?? null,
+    seatsUsed: d.seats,
+    seats: vehicleSeats,
+    passengers: d.passengers,
+    unassigned: d.unassigned,
+    unassignedByReason: detail?.unassignedByReason ?? {},
+    violations: d.violations,
+    violationsByKind: detail?.violationsByKind ?? {},
+    etaQuality: detail?.etaQuality ?? (d.durationS === null ? 'none' : 'uncalibrated'),
   };
 }
 
@@ -373,6 +390,10 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   PLAN_STALE: 'Someone changed this plan meanwhile. The latest version was loaded; check it and try again.',
   VERSION_CONFLICT: 'Someone changed this plan meanwhile. The latest version was loaded; check it and try again.',
   IDEMPOTENCY_KEY_REUSED: 'This request was already sent with other content. Review and try again.',
+  PLAN_NOT_PUBLISHABLE: 'This plan cannot be published yet: some routes need attention (see below).',
+  ROUTE_LOCKED: 'That route is locked. Unlock it first.',
+  STOP_PINNED: 'That stop is pinned. Unpin it first.',
+  PLAN_CREATE_UNAVAILABLE: 'Creating plans from the day’s bookings is not available on this server yet.',
   // Job error codes (RoutingJobError.code / RoutingDegradedReason).
   ENGINE_DISABLED: 'Routing unavailable: the road engine is switched off.',
   ENGINE_NOT_SUPPORTED: 'Routing unavailable: this engine is not supported.',
@@ -408,6 +429,9 @@ export function plannerErrorKind(code: string | null | undefined, status?: numbe
     case 'RATE_LIMITED':
       return 'busy';
     case 'PLAN_NOT_EDITABLE':
+    case 'PLAN_NOT_PUBLISHABLE':
+    case 'ROUTE_LOCKED':
+    case 'STOP_PINNED':
     case 'LIMIT_EXCEEDED':
     case 'INVALID_INPUT':
     case 'OUTSIDE_COVERAGE':
@@ -468,14 +492,14 @@ export interface MapPoint {
 
 /**
  * Points the map may draw: only stops the API sent coordinates for (consent / branch gate at the source) and not
- * flagged hidden; branch-scoped viewers get 4 decimals even if the API sent more.
+ * flagged hidden; a personal point is rounded to 4 decimals unless the API says the view is precise (whole-company
+ * role), even if the API sent more. Company places stay exact.
  */
-export function mapPoints(plan: Pick<PlannerPlan, 'stops' | 'assignments'>, scope: RoutingAccess['scope'] | null | undefined): { points: MapPoint[]; hidden: number } {
-  const exact = scope === 'COMPANY';
+export function mapPoints(plan: Pick<PlannerPlan, 'stops' | 'assignments'>, precise: boolean): { points: MapPoint[]; hidden: number } {
   const points: MapPoint[] = [];
   let hidden = 0;
   for (const s of plan.stops) {
-    if (s.pointHidden || !Number.isFinite(s.lat as number) || !Number.isFinite(s.lng as number) || (s.lat === 0 && s.lng === 0)) {
+    if (s.pointHidden || s.lat === null || s.lng === null || !Number.isFinite(s.lat) || !Number.isFinite(s.lng) || (s.lat === 0 && s.lng === 0)) {
       hidden++;
       continue;
     }
@@ -483,8 +507,8 @@ export function mapPoints(plan: Pick<PlannerPlan, 'stops' | 'assignments'>, scop
     const position = route >= 0 ? routeStops(plan.stops, s.assignmentId as string).findIndex((x) => x.id === s.id) + 1 : null;
     points.push({
       id: s.id,
-      lat: exact ? s.lat : round4(s.lat),
-      lng: exact ? s.lng : round4(s.lng),
+      lat: precise || !s.personal ? s.lat : round4(s.lat),
+      lng: precise || !s.personal ? s.lng : round4(s.lng),
       route,
       position,
       label: s.personal ? (s.stopKind === 'DROP' ? 'Passenger drop' : 'Passenger pickup') : (s.name ?? s.ref),
@@ -522,7 +546,7 @@ export interface SeqRoute {
   stopIds: string[];
 }
 
-export function routesOf(plan: Pick<RoutePlanDto, 'assignments' | 'stops'>): SeqRoute[] {
+export function routesOf(plan: { assignments: readonly { id: string }[]; stops: readonly Pick<RoutePlanStopDto, 'id' | 'assignmentId' | 'sequence'>[] }): SeqRoute[] {
   return plan.assignments.map((a) => ({ assignmentId: a.id, stopIds: routeStops(plan.stops, a.id).map((s) => s.id) }));
 }
 

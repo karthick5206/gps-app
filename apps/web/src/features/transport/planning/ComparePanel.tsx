@@ -11,11 +11,11 @@ import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { SimpleSelect } from '../dispatch/e3-ui';
-import { bestOf, COMPARE_ROWS, completeWeights, deltaPercent, isEditablePlan, metricText, metricValue, planMetrics, weightedScores, WEIGHT_LABEL, type WeightDraft } from './planner-format';
+import { bestOf, COMPARE_ROWS, completeWeights, deltaPercent, isEditablePlan, metricsFromCompare, metricText, metricValue, planMetrics, weightedScores, WEIGHT_LABEL, type WeightDraft } from './planner-format';
 import { EtaFootnote, PlanStatusBadge, WeightsEditor } from './planner-ui';
-import { planPath, plannerErrorMessage, useDiscardPlan, usePlansDetail } from './use-planner';
+import { planPath, plannerErrorMessage, useCompare, useDiscardPlan, usePlansDetail } from './use-planner';
 
-export const COMPARE_MAX = 4;
+export const COMPARE_MAX = 4; // ROUTE_PLAN_COMPARE_MAX is 5; four columns still fit a laptop screen
 
 /**
  * Compare plans on metrics only (07 §5): rows = metrics, columns = plans (cards on a phone, no sideways scroll). A
@@ -23,19 +23,29 @@ export const COMPARE_MAX = 4;
  */
 export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, onClear }: { ids: string[]; summaries: RoutePlanSummaryDto[]; weights: WeightDraft; setWeights: (w: WeightDraft) => void; canDelete: boolean; onClear: () => void }) {
   const { t } = useTranslation();
+  // Metrics from GET /compare (metrics only); ride times and ETA quality from the plan details of the same version.
   const results = usePlansDetail(ids);
+  const cmp = useCompare(ids);
   const discard = useDiscardPlan();
   const [baseline, setBaseline] = useState<string>(ids[0] ?? '');
   const [discardOthers, setDiscardOthers] = useState<string | null>(null);
   const plans = results.map((r) => r.data).filter((p): p is NonNullable<typeof p> => !!p);
-  const metrics = useMemo(() => plans.map((p) => planMetrics(p)), [plans]);
+  const metrics = useMemo(
+    () =>
+      plans.map((p) => {
+        const own = planMetrics(p);
+        const dto = cmp.data?.plans.find((m) => m.planId === p.id && m.version === p.version);
+        return dto ? metricsFromCompare(dto, own) : own;
+      }),
+    [plans, cmp.data],
+  );
   const w = completeWeights(weights);
   const scored = weightedScores(metrics, w);
   const baseIdx = Math.max(0, plans.findIndex((p) => p.id === baseline));
 
   if (ids.length < 2) return <p className="text-sm text-muted-foreground">{t('Tick two to four plans under Plans to compare them here.')}</p>;
-  if (results.some((r) => r.isPending)) return <Skeleton className="h-72 w-full rounded-xl" />;
-  const failed = results.find((r) => r.isError);
+  if (results.some((r) => r.isPending) || cmp.isPending) return <Skeleton className="h-72 w-full rounded-xl" />;
+  const failed = results.find((r) => r.isError) ?? (cmp.isError ? cmp : undefined);
 
   const name = (id: string) => summaries.find((s) => s.id === id)?.name ?? plans.find((p) => p.id === id)?.name ?? id;
   const others = (keep: string) => plans.filter((p) => p.id !== keep && isEditablePlan(p.status));
@@ -59,7 +69,7 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
     const v = metricValue(m, key);
     const d = i !== baseIdx ? deltaPercent(v, metricValue(metrics[baseIdx], key)) : null;
     return (
-      <span className="inline-flex flex-wrap items-center gap-1">
+      <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-1 md:justify-start">
         <span className="tabular-nums">{metricText(m, key, t)}</span>
         {d && <span className="text-xs text-muted-foreground tabular-nums">({d})</span>}
         {best.includes(i) && (
@@ -72,14 +82,14 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
   };
 
   return (
-    <div className="grid min-w-0 gap-4">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
       {failed && <p role="alert" className="text-sm text-destructive-fg">{plannerErrorMessage(failed.error, t)}</p>}
       <div className="flex flex-wrap items-end gap-2">
-        <div className="grid min-w-0 flex-1 gap-1 sm:max-w-xs">
+        <div className="grid w-full min-w-0 gap-1 sm:w-auto sm:max-w-xs sm:flex-1">
           <span className="text-xs text-muted-foreground" id="cmp-base">
             {t('Baseline')}
           </span>
-          <SimpleSelect value={plans[baseIdx]?.id ?? ''} onChange={setBaseline} label={t('Baseline')} options={plans.map((p) => ({ value: p.id, label: p.name }))} />
+          <SimpleSelect value={plans[baseIdx]?.id ?? ''} onChange={setBaseline} label={t('Baseline')} className="min-w-0 [&>span]:min-w-0 [&>span]:truncate" options={plans.map((p) => ({ value: p.id, label: p.name }))} />
         </div>
         <Button variant="ghost" size="sm" onClick={onClear}>
           {t('Clear selection')}
@@ -145,19 +155,19 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
         {plans.map((p, i) => (
           <Card key={p.id} className="min-w-0 gap-2 p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Link to={planPath(p.id)} className="min-w-0 flex-1 break-words font-medium text-primary hover:underline">
+              <Link to={planPath(p.id)} className="min-w-0 basis-full break-words font-medium text-primary hover:underline">
                 {p.name}
               </Link>
               <PlanStatusBadge status={p.status} />
               {i === baseIdx && <Badge variant="outline">{t('Baseline')}</Badge>}
             </div>
-            <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 text-sm">
+            <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
               {COMPARE_ROWS.map((row) => {
                 const best = bestOf(metrics.map((m) => metricValue(m, row.key)), row.best);
                 return (
                   <div key={row.key} className="contents">
                     <dt className="text-muted-foreground">{t(row.label)}</dt>
-                    <dd className="text-right">{cell(i, row.key, best)}</dd>
+                    <dd className="flex min-w-0 justify-end text-right">{cell(i, row.key, best)}</dd>
                   </div>
                 );
               })}
@@ -186,14 +196,14 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
 
       <div className="flex flex-wrap gap-2">
         {plans.map((p) => (
-          <div key={p.id} className="flex flex-wrap gap-2">
-            <Button asChild size="sm" variant="outline">
+          <div key={p.id} className="flex min-w-0 flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline" className="h-auto min-h-8 max-w-full py-1 text-left whitespace-normal">
               <Link to={planPath(p.id)}>
                 <ExternalLinkIcon /> {t('Review & publish {{name}}', { name: p.name })}
               </Link>
             </Button>
             {canDelete && others(p.id).length > 0 && (
-              <Button size="sm" variant="ghost" onClick={() => setDiscardOthers(p.id)}>
+              <Button size="sm" variant="ghost" className="h-auto min-h-8 max-w-full py-1 text-left whitespace-normal" onClick={() => setDiscardOthers(p.id)}>
                 <Trash2Icon /> {t('Keep this, discard the others')}
               </Button>
             )}

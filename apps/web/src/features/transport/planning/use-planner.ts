@@ -1,6 +1,7 @@
-import type { CreateRoutePlanRequest, DispatchBoardDto, Paginated, RoutingJobDto, TransportShiftDto } from '@veetracer/shared';
+import type { DispatchBoardDto, Paginated, RoutePlanRouteError, RoutingJobDto, TransportShiftDto } from '@veetracer/shared';
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { api, ApiError, errorMessage } from '@/lib/api';
+import { e3ErrorText } from '../dispatch/e3-format';
 import { DISPATCH_ENDPOINT, invalidateDispatch, SHIFTS_ENDPOINT } from '../dispatch/use-e3';
 import type { PlanListQuery } from './planner-api';
 import { call, plannerClient, plannerKeys } from './planner-client';
@@ -19,6 +20,7 @@ import {
 
 export function invalidatePlans(qc: QueryClient, id?: string) {
   void qc.invalidateQueries({ queryKey: plannerKeys.plans });
+  void qc.invalidateQueries({ queryKey: plannerKeys.compare });
   if (id) {
     void qc.invalidateQueries({ queryKey: plannerKeys.plan(id) });
     void qc.invalidateQueries({ queryKey: plannerKeys.history(id) });
@@ -27,10 +29,10 @@ export function invalidatePlans(qc: QueryClient, id?: string) {
 
 // ───────────────────────────── errors (E3 pattern: code → friendly text + kind) ─────────────────────────────
 
-function errorCode(err: unknown): { code: string | null; status: number | undefined } {
-  if (err instanceof ApiError) return { code: err.code, status: err.status };
-  const e = err as { code?: unknown; status?: unknown } | null;
-  return { code: typeof e?.code === 'string' ? e.code : null, status: typeof e?.status === 'number' ? e.status : undefined };
+function errorCode(err: unknown): { code: string | null; status: number | undefined; body: unknown } {
+  if (err instanceof ApiError) return { code: err.code, status: err.status, body: err.body };
+  const e = err as { code?: unknown; status?: unknown; body?: unknown } | null;
+  return { code: typeof e?.code === 'string' ? e.code : null, status: typeof e?.status === 'number' ? e.status : undefined, body: e?.body ?? null };
 }
 
 export function plannerErrorOf(err: unknown): { kind: PlannerErrorKind; code: string | null } {
@@ -38,15 +40,21 @@ export function plannerErrorOf(err: unknown): { kind: PlannerErrorKind; code: st
   return { kind: plannerErrorKind(code, status), code };
 }
 
-/** Friendly text for an API / job error code, plus the server's detail when it adds something. */
+/** Per-route refusals of a publish (409 PLAN_NOT_PUBLISHABLE or the E3 error of the failing route). */
+export function publishRouteErrors(err: unknown): RoutePlanRouteError[] {
+  const body = errorCode(err).body as { routes?: unknown } | null;
+  return Array.isArray(body?.routes) ? (body.routes as RoutePlanRouteError[]).filter((r) => r && typeof r.assignmentId === 'string') : [];
+}
+
+/** Friendly text for an API / job error code (planner codes, then the E3 ones), plus the server's detail. */
 export function plannerErrorMessage(err: unknown, t: (k: string) => string): string {
   const { code } = errorCode(err);
-  const friendly = plannerErrorText(code);
+  const friendly = plannerErrorText(code) ?? e3ErrorText(code);
   if (friendly) {
     const detail = err instanceof Error ? err.message : '';
     return detail && code !== 'PLAN_STALE' && code !== 'VERSION_CONFLICT' && !detail.startsWith('Request failed') ? `${t(friendly)} (${detail})` : t(friendly);
   }
-  return err instanceof ApiError || !(err instanceof Error) ? errorMessage(err) : err.message;
+  return errorMessage(err);
 }
 
 // ───────────────────────────── inputs from E3 (shifts, vehicles) ─────────────────────────────
@@ -90,10 +98,20 @@ export function usePlan(id: string | null | undefined) {
   });
 }
 
-/** Several plans at once (compare). */
+/** Several plan details at once (ride times / ETA quality for compare). */
 export function usePlansDetail(ids: readonly string[]) {
   return useQueries({
     queries: ids.map((id) => ({ queryKey: plannerKeys.plan(id), queryFn: ({ signal }: { signal: AbortSignal }) => call((c) => c.getPlan(id, signal)) })),
+  });
+}
+
+/** GET /transport/route-plans/compare (metrics only). */
+export function useCompare(ids: readonly string[]) {
+  const key = [...ids].sort();
+  return useQuery({
+    queryKey: [...plannerKeys.compare, key],
+    queryFn: ({ signal }) => call((c) => c.compare(key, signal)),
+    enabled: key.length >= 2,
   });
 }
 
@@ -107,11 +125,16 @@ export function usePlanHistory(id: string | null, enabled: boolean) {
 
 // ───────────────────────────── jobs ─────────────────────────────
 
-/** Polls a job until it finishes; refreshes its plan when it succeeds. */
+/** Polls a job until it finishes; refreshes plans when it does. */
 export function useJob(id: string | null) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: plannerKeys.job(id ?? ''),
-    queryFn: ({ signal }) => call((c) => c.getJob(id as string, signal)),
+    queryFn: async ({ signal }) => {
+      const job = await call((c) => c.getJob(id as string, signal));
+      if (job.state === 'succeeded' || job.state === 'failed' || job.state === 'cancelled') invalidatePlans(qc, job.planId ?? undefined);
+      return job;
+    },
     enabled: !!id,
     refetchInterval: (q) => jobPollMs(q.state.data),
     refetchIntervalInBackground: false,
@@ -138,13 +161,13 @@ export interface OptimiseInput {
   planDate: string;
   direction: 'IN' | 'OUT';
   seeds: PlanSeed[];
-  vehicles: { objectId: string; label: string; seats: number | null }[];
+  objectIds: string[];
   weights: PlannerWeights;
   timeLimitS: number;
 }
 
 /**
- * Creates one plan per seed (shift), adds the chosen vehicles and starts its optimisation. Each seed reports on its
+ * Creates one plan per seed (shift) with the chosen vehicles and starts its optimisation job. Each seed reports on its
  * own; one failing does not stop the others (07 §5: never block the rest).
  */
 export function useStartOptimise() {
@@ -156,11 +179,9 @@ export function useStartOptimise() {
       for (const seed of input.seeds) {
         let planId: string | null = null;
         try {
-          const body: CreateRoutePlanRequest = { name: seed.name, planDate: input.planDate, direction: input.direction, shiftId: seed.shiftId, sitePoiId: seed.sitePoiId, ...(seed.planStartAt ? { planStartAt: seed.planStartAt } : {}) };
-          let plan = await c.createPlan(body);
+          const plan = await c.createPlan({ name: seed.name, planDate: input.planDate, direction: input.direction, shiftId: seed.shiftId, sitePoiId: seed.sitePoiId, objectIds: input.objectIds, ...(seed.planStartAt ? { planStartAt: seed.planStartAt } : {}) });
           planId = plan.id;
-          for (const v of input.vehicles) plan = await c.addAssignment(plan.id, { expectedVersion: plan.version, vehicleLabel: v.label, objectId: v.objectId, capacity: v.seats });
-          const job = await c.optimize(plan.id, { expectedVersion: plan.version, timeLimitS: input.timeLimitS, objective: solverObjective(input.weights), weights: input.weights });
+          const job = await c.optimize({ planId: plan.id, expectedVersion: plan.version, timeLimitS: input.timeLimitS, objective: solverObjective(input.weights) }, newKey());
           qc.setQueryData(plannerKeys.job(job.jobId), job);
           out.push({ seed, planId, job, error: null });
         } catch (error) {
@@ -173,12 +194,12 @@ export function useStartOptimise() {
   });
 }
 
-/** Re-optimise a saved plan (pinned stops stay where they are). */
+/** Re-optimise a saved plan (pinned stops and locked routes stay as they are). */
 export function useReoptimise(plan: PlannerPlan | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { weights: PlannerWeights; timeLimitS: number }) =>
-      call((c) => c.optimize((plan as PlannerPlan).id, { expectedVersion: (plan as PlannerPlan).version, timeLimitS: input.timeLimitS, objective: solverObjective(input.weights), weights: input.weights })),
+    mutationFn: (input: { weights: PlannerWeights; timeLimitS: number; key: string }) =>
+      call((c) => c.optimize({ planId: (plan as PlannerPlan).id, expectedVersion: (plan as PlannerPlan).version, timeLimitS: input.timeLimitS, objective: solverObjective(input.weights) }, input.key)),
     onSuccess: (job) => qc.setQueryData(plannerKeys.job(job.jobId), job),
     onSettled: () => plan && invalidatePlans(qc, plan.id),
   });
@@ -187,8 +208,10 @@ export function useReoptimise(plan: PlannerPlan | undefined) {
 // ───────────────────────────── edits ─────────────────────────────
 
 export type PlanEdit =
+  | { kind: 'move'; bookingId: string; toAssignmentId: string | null }
   | { kind: 'sequence'; assignments: { assignmentId: string; stopIds: string[] }[] }
-  | { kind: 'vehicle'; assignmentId: string; objectId: string; vehicleLabel: string; capacity: number | null }
+  | { kind: 'vehicle'; assignmentId: string; objectId: string }
+  | { kind: 'lock'; assignmentId: string; locked: boolean }
   | { kind: 'pin'; stopId: string; pinned: boolean };
 
 /** One explicit edit with the version the user saw; 409 PLAN_STALE reloads the plan (the caller tells the user). */
@@ -200,17 +223,22 @@ export function usePlanEdit(plan: PlannerPlan | undefined) {
         const p = plan as PlannerPlan;
         const expectedVersion = p.version;
         switch (e.kind) {
+          case 'move':
+            return c.movePassenger(p.id, { expectedVersion, bookingId: e.bookingId, toAssignmentId: e.toAssignmentId });
           case 'sequence':
             return c.resequence(p.id, { expectedVersion, assignments: e.assignments });
           case 'vehicle':
-            return c.changeVehicle(p.id, e.assignmentId, { expectedVersion, objectId: e.objectId, vehicleLabel: e.vehicleLabel, capacity: e.capacity });
+            return c.updateAssignment(p.id, e.assignmentId, { expectedVersion, objectId: e.objectId });
+          case 'lock':
+            return c.updateAssignment(p.id, e.assignmentId, { expectedVersion, locked: e.locked });
           case 'pin':
-            return c.pinStop(p.id, e.stopId, { expectedVersion, pinned: e.pinned });
+            return c.updateStop(p.id, e.stopId, { expectedVersion, pinned: e.pinned });
         }
       }),
     onSuccess: (r) => {
-      qc.setQueryData(plannerKeys.plan(r.plan.id), r.plan);
+      qc.setQueryData(plannerKeys.plan(r.plan.id), (old: PlannerPlan | undefined) => ({ ...r.plan, weights: old?.weights, lastJobId: old?.lastJobId }));
       void qc.invalidateQueries({ queryKey: plannerKeys.plans });
+      void qc.invalidateQueries({ queryKey: plannerKeys.compare });
       void qc.invalidateQueries({ queryKey: plannerKeys.history(r.plan.id) });
     },
     onError: (err) => {
@@ -219,11 +247,11 @@ export function usePlanEdit(plan: PlannerPlan | undefined) {
   });
 }
 
-/** Publish with a stable Idempotency-Key per (plan, version) attempt; a refused publish (4xx) frees the key. */
+/** Publish with a stable Idempotency-Key per (plan, version) attempt; the caller keeps the key for retries. */
 export function usePublishPlan(plan: PlannerPlan | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (key: string) => call((c) => c.publish((plan as PlannerPlan).id, { expectedVersion: (plan as PlannerPlan).version, idempotencyKey: key })),
+    mutationFn: (key: string) => call((c) => c.publish((plan as PlannerPlan).id, { expectedVersion: (plan as PlannerPlan).version }, key)),
     onSettled: () => {
       if (plan) invalidatePlans(qc, plan.id);
       invalidateDispatch(qc);

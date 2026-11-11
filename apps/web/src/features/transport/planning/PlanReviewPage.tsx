@@ -9,6 +9,8 @@ import {
   CrosshairIcon,
   ExternalLinkIcon,
   HistoryIcon,
+  LockIcon,
+  LockOpenIcon,
   PinIcon,
   PinOffIcon,
   RefreshCwIcon,
@@ -34,7 +36,7 @@ import { useAuth } from '@/features/auth/auth-context';
 import { NotFoundPage } from '@/features/errors/ErrorPages';
 import { getReportTimeZone } from '@/features/reports/report-time';
 import { cn } from '@/lib/utils';
-import { DIRECTION_LABEL } from '../dispatch/e3-format';
+import { DIRECTION_LABEL, e3ErrorText } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
 import { transportTripPath } from '../dispatch/use-e3';
 import { PlanMap } from './PlanMap';
@@ -61,6 +63,7 @@ import {
   unassignedStops,
   vehicleColor,
   VIOLATION_LABEL,
+  plannerErrorText,
   type PlannerPlan,
   type PlannerStop,
   type WeightDraft,
@@ -72,6 +75,7 @@ import {
   PLANNING_PATH,
   plannerErrorMessage,
   plannerErrorOf,
+  publishRouteErrors,
   plannerFlagOn,
   useCapabilities,
   useDiscardPlan,
@@ -132,11 +136,13 @@ export function PlanReviewPage() {
   const [reoptWeights, setReoptWeights] = useState<WeightDraft | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const publishKey = useRef<{ version: number; key: string } | null>(null);
+  const reoptKey = useRef<{ version: number; key: string } | null>(null);
+  const [degraded, setDegraded] = useState<string | null>(null);
 
   const metrics = useMemo(() => (plan ? planMetrics(plan, lastCheck ?? undefined) : null), [plan, lastCheck]);
   const access = caps.data?.access;
   const support = !!access?.support;
-  const editable = !!plan && isEditablePlan(plan.status);
+  const editable = !!plan && isEditablePlan(plan.status) && plan.editable !== false;
   const canEdit = editable && can(PLANNING_MENU, 'edit') && (access?.canEdit ?? false) && !support;
   const canPublish = !!plan && plan.status === 'PLANNED' && can(PLANNING_MENU, 'command') && (access?.canPublish ?? false) && !support;
   const canDiscard = editable && can(PLANNING_MENU, 'delete') && (access?.canDelete ?? false) && !support;
@@ -169,8 +175,7 @@ export function PlanReviewPage() {
     const s = stopById.get(stopId);
     return s ? stopLabel(s, t) : ref;
   };
-  const scope = access?.scope ?? null;
-  const { points, hidden } = mapPoints(plan, scope);
+  const { points, hidden } = mapPoints(plan, plan.precise);
   const lines = routeLines(plan);
   const nonEngine = plan.assignments.some((a) => a.eta && !engineEta(a.eta));
   const unassigned = unassignedStops(plan.stops);
@@ -184,6 +189,7 @@ export function PlanReviewPage() {
       onSuccess: (r) => {
         setConflict(false);
         setLastCheck(r.violations);
+        setDegraded(r.degraded ?? null);
         const msg = r.violations.length ? t('{{ok}} Re-checked: {{n}} warning(s).', { ok, n: r.violations.length }) : t('{{ok}} Re-checked: no warnings.', { ok });
         announce(msg);
         if (r.violations.length) toast.warning(msg);
@@ -203,13 +209,16 @@ export function PlanReviewPage() {
     runEdit({ kind: 'sequence', assignments: next }, delta < 0 ? t('{{name}} moved up.', { name: stopLabel(stop, t) }) : t('{{name}} moved down.', { name: stopLabel(stop, t) }));
   };
   const moveTo = (stop: PlannerStop, assignmentId: string) => {
-    const next = changedRoutes(routes, movePassenger(routes, plan.stops, stop.id, assignmentId));
     setMoveReq(null);
-    if (!next.length) return;
     const idx = plan.assignments.findIndex((a) => a.id === assignmentId);
-    runEdit({ kind: 'sequence', assignments: next }, t('{{name}} moved to route {{n}}.', { name: stopLabel(stop, t), n: idx + 1 }));
+    const ok = t('{{name}} moved to route {{n}}.', { name: stopLabel(stop, t), n: idx + 1 });
+    // A booking moves with both ends (POST move-passenger); a generic stop through the sequence.
+    if (stop.bookingId) return runEdit({ kind: 'move', bookingId: stop.bookingId, toAssignmentId: assignmentId }, ok);
+    const next = changedRoutes(routes, movePassenger(routes, plan.stops, stop.id, assignmentId));
+    if (next.length) runEdit({ kind: 'sequence', assignments: next }, ok);
   };
   const doPublish = () => {
+    // Same key for retries of the same version (a lost answer replays); a refused publish (4xx) frees it.
     if (!publishKey.current || publishKey.current.version !== plan.version) publishKey.current = { version: plan.version, key: newKey() };
     publish.mutate(publishKey.current.key, {
       onSuccess: (r) => {
@@ -297,6 +306,11 @@ export function PlanReviewPage() {
         </div>
       )}
       {editError && !conflict && <FormError message={editError} />}
+      {degraded && (
+        <p role="status" className="rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning-fg">
+          {t('Routing unavailable: the changed routes could not be re-timed, so they show no times. Nothing was estimated.')}
+        </p>
+      )}
 
       {activeJob && (
         <Card className="p-3">
@@ -335,13 +349,20 @@ export function PlanReviewPage() {
             const stops = routeStops(plan.stops, a.id);
             const load = routeLoad(stops, plan.direction);
             const over = a.capacity !== null && load > a.capacity;
+            const vehicle = a.vehicleName ? `${a.vehicleName}${a.plateNumber ? ` · ${a.plateNumber}` : ''}` : a.vehicleLabel;
             return (
               <Card key={a.id} className="min-w-0 gap-2 p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="size-3 shrink-0 rounded-full" style={{ background: vehicleColor(i) }} aria-hidden />
-                  <h2 className="min-w-0 flex-1 text-sm font-semibold break-words">{t('Route {{n}} · {{vehicle}}', { n: i + 1, vehicle: a.vehicleLabel })}</h2>
+                  <h2 className="min-w-0 flex-1 text-sm font-semibold break-words">{t('Route {{n}} · {{vehicle}}', { n: i + 1, vehicle })}</h2>
+                  {a.locked && (
+                    <Badge variant="info">
+                      <LockIcon aria-hidden /> {t('Locked')}
+                    </Badge>
+                  )}
                   <Badge variant={over ? 'destructive' : 'outline'}>{a.capacity === null ? t('{{n}} seats used · seats not set', { n: load }) : t('{{used}} / {{capacity}} seats', { used: load, capacity: a.capacity })}</Badge>
                 </div>
+                {a.driverName && <p className="text-xs text-muted-foreground">{t('Driver: {{name}}', { name: a.driverName })}</p>}
                 <p className="text-xs text-muted-foreground">
                   {engineEta(a.eta) ? t('{{km}} · {{time}} drive', { km: formatKm(a.distanceM), time: formatDuration(a.adjustedDurationS ?? a.durationS, t) }) : stops.length ? t('No engine distance or time yet') : t('No stops on this route')}
                 </p>
@@ -350,9 +371,20 @@ export function PlanReviewPage() {
                     <CrosshairIcon /> {focus === i ? t('Show all routes') : t('Show on map')}
                   </Button>
                   {canEdit && (
-                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => setVehicleReq(a.id)}>
-                      <CarFrontIcon /> {t('Change vehicle')}
-                    </Button>
+                    <>
+                      <Button size="sm" variant="ghost" disabled={busy || a.locked} onClick={() => setVehicleReq(a.id)}>
+                        <CarFrontIcon /> {t('Change vehicle')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-pressed={a.locked}
+                        disabled={busy}
+                        onClick={() => runEdit({ kind: 'lock', assignmentId: a.id, locked: !a.locked }, a.locked ? t('Route {{n}} unlocked.', { n: i + 1 }) : t('Route {{n}} locked: re-optimising keeps its stops and order.', { n: i + 1 }))}
+                      >
+                        {a.locked ? <LockOpenIcon /> : <LockIcon />} {a.locked ? t('Unlock route') : t('Lock route')}
+                      </Button>
+                    </>
                   )}
                   {a.transportTripId && (
                     <Button asChild size="sm" variant="outline">
@@ -382,7 +414,7 @@ export function PlanReviewPage() {
                                 <PinIcon aria-hidden /> {t('Pinned')}
                               </Badge>
                             )}
-                            <span className="text-xs">
+                            <span className="basis-full ps-8 text-xs">
                               {eta.at ? (
                                 <>
                                   <span className="font-medium tabular-nums">{eta.at}</span> <span className="text-muted-foreground">· {t(eta.note)}</span>
@@ -400,13 +432,13 @@ export function PlanReviewPage() {
                           )}
                           {canEdit && (
                             <div className="flex flex-wrap gap-1">
-                              <Button size="icon-sm" variant="outline" disabled={busy || k === 0 || !!s.pinned} onClick={() => reorder(s, -1)} aria-label={t('Move {{name}} up', { name: stopLabel(s, t) })}>
+                              <Button size="icon-sm" variant="outline" disabled={busy || k === 0 || s.pinned || a.locked} onClick={() => reorder(s, -1)} aria-label={t('Move {{name}} up', { name: stopLabel(s, t) })}>
                                 <ArrowUpIcon />
                               </Button>
-                              <Button size="icon-sm" variant="outline" disabled={busy || k === stops.length - 1 || !!s.pinned} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
+                              <Button size="icon-sm" variant="outline" disabled={busy || k === stops.length - 1 || s.pinned || a.locked} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
                                 <ArrowDownIcon />
                               </Button>
-                              <Button size="sm" variant="outline" disabled={busy || !!s.pinned || plan.assignments.length < 2} onClick={() => setMoveReq(s)}>
+                              <Button size="sm" variant="outline" disabled={busy || s.pinned || a.locked || plan.assignments.length < 2} onClick={() => setMoveReq(s)}>
                                 <ArrowRightLeftIcon /> {t('Move to…')}
                               </Button>
                               <Button
@@ -446,7 +478,7 @@ export function PlanReviewPage() {
                       </span>
                     </div>
                     {canEdit && plan.assignments.length > 0 && (
-                      <Button size="sm" variant="outline" disabled={busy || !!s.pointHidden} onClick={() => setMoveReq(s)}>
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => setMoveReq(s)}>
                         <ArrowRightLeftIcon /> {t('Add to route…')}
                       </Button>
                     )}
@@ -466,7 +498,7 @@ export function PlanReviewPage() {
           <PlanMap lines={lines} points={points} depot={plan.depot} focus={focus} className="h-[320px] sm:h-[420px] lg:h-[560px]" label={t('Map of the routes of {{name}}', { name: plan.name })} />
           <p className="text-xs text-muted-foreground">
             {hidden > 0 ? t('{{n}} passenger point(s) are not on the map (no transport consent or outside your branches); the lists still show them.', { n: hidden }) : t('Only points you may see are drawn; routes follow the engine’s road geometry.')}
-            {scope && scope !== 'COMPANY' ? ` ${t('Points are approximate (about 11 m) for your role.')}` : ''}
+            {!plan.precise ? ` ${t('Points are approximate (about 11 m) for your role.')}` : ''}
           </p>
           <Button size="sm" variant="ghost" className="justify-self-start" aria-expanded={showHistory} onClick={() => setShowHistory((v) => !v)}>
             <HistoryIcon /> {showHistory ? t('Hide history') : t('Show history')}
@@ -512,7 +544,7 @@ export function PlanReviewPage() {
           onClose={() => setVehicleReq(null)}
           onPick={(v) => {
             const idx = plan.assignments.findIndex((a) => a.id === vehicleReq);
-            runEdit({ kind: 'vehicle', assignmentId: vehicleReq, objectId: v.objectId, vehicleLabel: v.name, capacity: v.seats }, t('Route {{n}} now uses {{vehicle}}.', { n: idx + 1, vehicle: v.name }));
+            runEdit({ kind: 'vehicle', assignmentId: vehicleReq, objectId: v.objectId }, t('Route {{n}} now uses {{vehicle}}.', { n: idx + 1, vehicle: v.name }));
             setVehicleReq(null);
           }}
         />
@@ -539,6 +571,18 @@ export function PlanReviewPage() {
             )}
             <EtaFootnote />
             {publish.isError && <FormError message={plannerErrorMessage(publish.error, t)} />}
+            {publishRouteErrors(publish.error).length > 0 && (
+              <ul className="grid gap-1 text-sm text-destructive-fg" aria-label={t('Routes that cannot be published')}>
+                {publishRouteErrors(publish.error).map((r) => {
+                  const idx = plan.assignments.findIndex((a) => a.id === r.assignmentId);
+                  return (
+                    <li key={r.assignmentId + r.code}>
+                      <span className="font-medium">{t('Route {{n}} · {{vehicle}}', { n: idx + 1, vehicle: r.vehicleLabel })}</span>: {plannerErrorText(r.code) ? t(plannerErrorText(r.code) as string) : e3ErrorText(r.code) ? t(e3ErrorText(r.code) as string) : r.message}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPublishOpen(false)} disabled={publish.isPending}>
@@ -597,8 +641,9 @@ export function PlanReviewPage() {
               onClick={() => {
                 const w = completeWeights(weightsForReopt);
                 if (!w) return;
+                if (!reoptKey.current || reoptKey.current.version !== plan.version) reoptKey.current = { version: plan.version, key: newKey() };
                 reopt.mutate(
-                  { weights: w, timeLimitS: 30 },
+                  { weights: w, timeLimitS: 30, key: reoptKey.current.key },
                   {
                     onSuccess: (job) => {
                       setJobId(job.jobId);
