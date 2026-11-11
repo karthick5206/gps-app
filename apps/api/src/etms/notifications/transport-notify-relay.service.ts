@@ -4,21 +4,42 @@ import { Prisma } from '@prisma/client';
 import { TRANSPORT_NOTIFY_TIMING as T, passengerPushAllowed, type TransportNotificationKind } from '@veetracer/shared';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisKeys } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import { etmsServerEnabled } from '../transport-feature.guard';
 import { TransportNotificationsService, type NotifyItem } from './transport-notifications.service';
 
 export const TRANSPORT_NOTIFY_LOCK_KEY = 'vt:etms:notify:lock';
+/**
+ * Security review L3: persisted high-water mark (epoch ms of TransportTripEvent.receivedAt) up to which trip events are
+ * processed, and the state of the last completed pass ({ at, hwm, full }) read by System Health (relay lag).
+ */
+export const TRANSPORT_NOTIFY_HWM_KEY = RedisKeys.etmsNotifyHwm;
+export const TRANSPORT_NOTIFY_STATE_KEY = RedisKeys.etmsNotifyState;
+export interface RelayState {
+  /** Epoch ms of the last completed pass. */
+  at: number;
+  /** High-water mark after it (epoch ms). */
+  hwm: number;
+  /** The pass hit the per-pass event limit (a backlog remains). */
+  full: boolean;
+}
 const RELEASE_LOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 const MIN = 60_000;
-/** Trip events the relay turns into notifications, and how far back it looks (dedupe keys make re-runs harmless). */
+/**
+ * Trip events the relay turns into notifications, and how far back it looks at most (security review L3: from the
+ * persisted high-water mark, never further back than 24 h; dedupe keys make re-reading harmless).
+ */
 export const RELAY_KINDS = ['PUBLISHED', 'DRIVER_CHANGED', 'PASSENGER_ADDED', 'PASSENGER_REMOVED', 'VEHICLE_CHANGED', 'STOP_ADDED', 'CANCELLED', 'REPORT_DELAY'] as const;
 const CHANGE_KINDS = new Set(['PASSENGER_ADDED', 'PASSENGER_REMOVED', 'VEHICLE_CHANGED', 'STOP_ADDED']);
-export const RELAY_LOOKBACK_MS = 30 * MIN;
+export const RELAY_LOOKBACK_MS = 24 * 60 * MIN;
+/** A transaction may commit after a later one: events up to this much older than the mark are read again. */
+export const RELAY_OVERLAP_MS = 5 * MIN;
+export const RELAY_EVENTS_PER_PASS = 2000;
 const OPEN = ['SCHEDULED', 'STARTED', 'IN_PROGRESS'] as const;
 
 const TRIP_INCLUDE = {
-  plannedTrip: { select: { id: true, companyId: true, driverId: true, status: true, nextStopSeq: true, etaNextStop: true, delaySec: true } },
+  plannedTrip: { select: { id: true, companyId: true, driverId: true, status: true, nextStopSeq: true, etaNextStop: true, delaySec: true, plannedStart: true, stops: { select: { seq: true, plannedArrival: true } } } },
   passengers: {
     select: {
       id: true,
@@ -39,10 +60,12 @@ type DriverRow = { id: string; userId: string | null; isActive: boolean; company
  * instance at a time (Valkey SET NX lock). Sources are rows already committed in PostgreSQL, so nothing is lost when a
  * process dies between a write and its notification; every notification has a unique dedupeKey, so re-runs never
  * duplicate:
- *  - trip events of the last 30 min (dispatch change sets, cancellations, driver delay reports):
+ *  - trip events since the persisted high-water mark (at most 24 h back): dispatch change sets, cancellations, driver
+ *    delay reports;
  *    driver ← TRIP_ASSIGNED (published to / reassigned to them), TRIP_UNASSIGNED (reassigned away), TRIP_CHANGED
  *    (passengers / stops / vehicle changed by a later change set), TRIP_CANCELLED; passengers ← TRIP_CANCELLED (their
- *    seat was cancelled with the trip), TRIP_DELAYED (driver REPORT_DELAY, still waiting for pickup);
+ *    seat was cancelled with the trip), TRIP_DELAYED (driver REPORT_DELAY, still waiting for pickup, trip under way or
+ *    pickup within 60 min; at most one per trip, passenger and 15 min);
  *  - live trip state: TRIP_STARTING_SOON (pickup planned in ≤ 30 min), VEHICLE_APPROACHING (tracker ETA to the
  *    passenger's stop ≤ 5 min, it being the next stop), TRIP_DELAYED (tracker delay ≥ 10 min, once per trip).
  * Kill switches: ETMS=off, ETMS_NOTIFY_JOB=off.
@@ -52,6 +75,8 @@ export class TransportNotifyRelayService {
   private readonly logger = new Logger('EtmsNotifyRelay');
   private readonly instance = randomUUID();
   private running = false;
+  /** High-water mark computed by the last fromEvents, stored once its notifications are written. */
+  private nextHwm: { hwm: number; full: boolean } | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -83,19 +108,41 @@ export class TransportNotifyRelayService {
 
   /** One pass (also called by tests). Returns the number of notifications created. */
   async run(now: number): Promise<number> {
+    this.nextHwm = null;
     const items = [...(await this.fromEvents(now)), ...(await this.fromLiveState(now))];
-    return (await this.notifications.notify(items)).length;
+    const created = (await this.notifications.notify(items)).length;
+    // L3: only after the notifications are committed: a failed pass is read again next time.
+    const next = this.nextHwm as { hwm: number; full: boolean } | null;
+    if (next) {
+      const state: RelayState = { at: now, hwm: next.hwm, full: next.full };
+      await this.redis.client.set(TRANSPORT_NOTIFY_HWM_KEY, String(next.hwm)).catch(() => undefined);
+      await this.redis.client.set(TRANSPORT_NOTIFY_STATE_KEY, JSON.stringify(state)).catch(() => undefined);
+    }
+    return created;
+  }
+
+  /** The stored high-water mark, or null (none yet, Valkey flushed or unreachable: the 24 h look-back applies). */
+  private async storedHwm(): Promise<number | null> {
+    const raw = await this.redis.client.get(TRANSPORT_NOTIFY_HWM_KEY).catch(() => null);
+    const n = raw === null || raw === undefined ? NaN : Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
   }
 
   // ───────────────────────────── Trip events ─────────────────────────────
 
   async fromEvents(now: number): Promise<NotifyItem[]> {
+    const hwm = await this.storedHwm();
+    const from = Math.max(now - RELAY_LOOKBACK_MS, hwm ?? 0);
     const events = await this.prisma.transportTripEvent.findMany({
-      where: { receivedAt: { gte: new Date(now - RELAY_LOOKBACK_MS) }, outcome: 'ACCEPTED', kind: { in: [...RELAY_KINDS] } },
+      where: { receivedAt: { gte: new Date(from) }, outcome: 'ACCEPTED', kind: { in: [...RELAY_KINDS] } },
       orderBy: { receivedAt: 'asc' },
-      take: 2000,
+      take: RELAY_EVENTS_PER_PASS,
       select: { id: true, tripId: true, kind: true, source: true, data: true, receivedAt: true },
     });
+    // A full page continues from its last event next time; otherwise everything up to now was read (minus the overlap
+    // for transactions still committing).
+    const full = events.length >= RELAY_EVENTS_PER_PASS;
+    this.nextHwm = { hwm: full ? events[events.length - 1]!.receivedAt.getTime() : Math.max(from, now - RELAY_OVERLAP_MS), full };
     if (!events.length) return [];
     const trips = await this.trips({ id: { in: [...new Set(events.map((e) => e.tripId))] } });
     const driverIds = new Set<string>();
@@ -140,8 +187,17 @@ export class TransportNotifyRelayService {
           break;
         }
         case 'REPORT_DELAY': {
+          // Security review M2: only while the trip is under way or the pickup is near, and at most one per trip,
+          // passenger and delayBucketMin window (bucket of the report's receipt, so a re-read never re-notifies).
           if (!open || e.source !== 'DRIVER_APP') break;
-          for (const p of t.passengers) if (p.status === 'PENDING') out.push(...this.paxItem(p, t, 'TRIP_DELAYED', `delay:${e.id}`));
+          const underWay = pt.status === 'STARTED' || pt.status === 'IN_PROGRESS';
+          const bucket = Math.floor(e.receivedAt.getTime() / (T.delayBucketMin * MIN));
+          for (const p of t.passengers) {
+            if (p.status !== 'PENDING') continue;
+            const pickupAt = (pt.stops.find((s) => s.seq === p.pickupSeq)?.plannedArrival ?? pt.plannedStart).getTime();
+            if (!underWay && pickupAt - e.receivedAt.getTime() > T.delayReportPrePickupMin * MIN) continue;
+            out.push(...this.paxItem(p, t, 'TRIP_DELAYED', `delay:${t.id}:${bucket}`));
+          }
           break;
         }
         default:

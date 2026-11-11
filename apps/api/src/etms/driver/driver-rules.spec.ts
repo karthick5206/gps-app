@@ -1,5 +1,5 @@
 import { driverDisplayName, driverOutcomeAllowed, driverTripActions, passengerPushAllowed } from '@veetracer/shared';
-import { applyToSnapshot, clockOk, correctedTime, decide, licenceValid, onlineCommandFresh, verifyArrival, withinStartWindow, type EventIn, type TripSnapshot } from './driver-rules';
+import { applyToSnapshot, clockOk, correctedTime, decide, effectiveTime, licenceValid, onlineCommandFresh, verifyArrival, withinStartWindow, type EventIn, type TripSnapshot } from './driver-rules';
 
 const MIN = 60_000;
 const NOW = Date.parse('2026-11-12T03:00:00Z');
@@ -201,5 +201,67 @@ describe('shared driver rules (contract)', () => {
     expect(passengerPushAllowed({ notifications: { push: false } }, 'TRIP_DELAYED')).toBe(false);
     expect(passengerPushAllowed({ notifications: { push: true, kinds: { TRIP_STARTING_SOON: false } } }, 'TRIP_STARTING_SOON')).toBe(false);
     expect(passengerPushAllowed({ notifications: { push: true, kinds: { TRIP_STARTING_SOON: false } } }, 'VEHICLE_APPROACHING')).toBe(true);
+  });
+});
+
+describe('E5 security review: rules (M1, M2, L1, L2)', () => {
+  /** As the service: decide, apply with the receipt time and the GPS check, advance seq when stored. */
+  function runAt(s: TripSnapshot, events: EventIn[], now = NOW) {
+    return events.map((e) => {
+      const d = decide(s, e, now);
+      if (d.outcome === 'ACCEPTED') applyToSnapshot(s, d.effect, effectiveTime(s, e.type, e.occurredAt), { now, verified: d.verified ?? null });
+      if (d.outcome !== 'RETRY') s.lastSeq = Math.max(s.lastSeq ?? 0, e.seq);
+      return d.outcome === 'ACCEPTED' ? (d.review ? `ACCEPTED:${d.review}` : 'ACCEPTED') : `${d.outcome}:${d.code}`;
+    });
+  }
+
+  it('M1: stop / passenger events are clamped to the actual start; reports and acknowledgements are not', () => {
+    const s = snap({ actualStart: new Date(NOW - 5 * MIN) });
+    expect(effectiveTime(s, 'ARRIVED', new Date(NOW - 60 * MIN)).getTime()).toBe(NOW - 5 * MIN);
+    expect(effectiveTime(s, 'NO_SHOW', new Date(NOW - 1 * MIN)).getTime()).toBe(NOW - 1 * MIN);
+    expect(effectiveTime(s, 'REPORT_DELAY', new Date(NOW - 60 * MIN)).getTime()).toBe(NOW - 60 * MIN);
+    expect(effectiveTime(snap(), 'ARRIVED', new Date(NOW - 60 * MIN)).getTime()).toBe(NOW - 60 * MIN);
+  });
+
+  it('M1: ARRIVED is verified against any track fix near occurredAt (stored track or live)', () => {
+    const stop = snap().stops[0];
+    const at = new Date(NOW - 10 * MIN);
+    const near = { lat: 13.0601, lng: 80.2401, at: new Date(NOW - 10 * MIN + 30_000) };
+    const far = { lat: 14.4, lng: 80.5, at: new Date(NOW - 10 * MIN) };
+    expect(verifyArrival(stop, [far, near], at)).toBe('gps');
+    expect(verifyArrival(stop, [far], at)).toBe('far');
+    expect(verifyArrival(stop, [{ ...near, at: new Date(NOW) }], at)).toBe('unverified_location');
+    expect(verifyArrival(stop, [], at)).toBe('unverified_location');
+  });
+
+  it('M1: after an unverified arrival NO_SHOW waits from the receipt (RETRY), then is accepted with a review flag', () => {
+    const s = snap({ actualStart: new Date(NOW - 30 * MIN) });
+    expect(runAt(s, [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: new Date(NOW - 10 * MIN) }), ev('NO_SHOW', 2, { passengerTripId: 'p1' })])).toEqual(['ACCEPTED', 'RETRY:WAIT_NOT_ELAPSED']);
+    expect(s.stops[0]).toMatchObject({ arrivalUnverified: true, arrivalReceivedAt: new Date(NOW) });
+    expect(runAt(s, [ev('NO_SHOW', 2, { passengerTripId: 'p1', occurredAt: new Date(NOW + 6 * MIN) })], NOW + 6 * MIN)).toEqual(['ACCEPTED:NO_SHOW_UNVERIFIED_ARRIVAL']);
+    // A GPS-verified arrival keeps the plain rule (wait from the arrival time, no review).
+    const g = snap({ actualStart: new Date(NOW - 30 * MIN), track: [{ lat: 13.0601, lng: 80.2401, at: new Date(NOW - 10 * MIN) }] });
+    expect(runAt(g, [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: new Date(NOW - 10 * MIN) }), ev('NO_SHOW', 2, { passengerTripId: 'p1' })])).toEqual(['ACCEPTED', 'ACCEPTED']);
+  });
+
+  it('M2: one REPORT_DELAY per trip and 15 min (DUPLICATE TOO_FREQUENT); breakdown reports are not limited', () => {
+    const s = snap();
+    expect(runAt(s, [ev('REPORT_DELAY', 1), ev('REPORT_DELAY', 2), ev('REPORT_BREAKDOWN', 3), ev('REPORT_BREAKDOWN', 4)])).toEqual(['ACCEPTED', 'DUPLICATE:TOO_FREQUENT', 'ACCEPTED', 'ACCEPTED']);
+    expect(runAt(s, [ev('REPORT_DELAY', 5, { occurredAt: new Date(NOW + 16 * MIN) })], NOW + 16 * MIN)).toEqual(['ACCEPTED']);
+  });
+
+  it('L1: reason codes come from the closed list of the event type', () => {
+    expect(runAt(snap(), [ev('REPORT_DELAY', 1, { reasonCode: 'TRAFFIC' }), ev('REPORT_BREAKDOWN', 2, { reasonCode: 'TRAFFIC' }), ev('ACKNOWLEDGE', 3, { reasonCode: 'OTHER' })])).toEqual(['ACCEPTED', 'REJECTED:VALIDATION_FAILED', 'REJECTED:VALIDATION_FAILED']);
+    const s = snap();
+    s.stops[0].status = 'ARRIVED';
+    s.passengers[0].status = 'BOARDED';
+    expect(runAt(s, [ev('DROPPED', 1, { passengerTripId: 'p1', stopSeq: 0, reasonCode: 'Asha felt sick' }), ev('DROPPED', 2, { passengerTripId: 'p1', stopSeq: 0, reasonCode: 'PASSENGER_REQUEST' })])).toEqual(['REJECTED:VALIDATION_FAILED', 'ACCEPTED']);
+  });
+
+  it('L2: ARRIVED at a hidden stop is never checked against the GPS', () => {
+    const s = snap({ fix: { lat: 14.4, lng: 80.5, at: new Date(NOW) } });
+    s.stops[0].hidden = true;
+    const d = decide(s, ev('ARRIVED', 1, { stopSeq: 0 }), NOW);
+    expect(d).toMatchObject({ outcome: 'ACCEPTED', verified: 'unverified_location' });
   });
 });

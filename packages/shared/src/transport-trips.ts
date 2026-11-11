@@ -76,6 +76,8 @@ export const TRANSPORT_TRIP_EVENT_KINDS = [
   'DROPPED',
   'COMPLETED',
   'CANCELLED',
+  /** SYSTEM, security review M1: a NO_SHOW followed an arrival the vehicle GPS could not confirm; dispatcher to check. */
+  'NO_SHOW_REVIEW',
 ] as const;
 export type TransportTripEventKind = (typeof TRANSPORT_TRIP_EVENT_KINDS)[number];
 export type TransportTripActorType = 'DISPATCHER' | 'DRIVER' | 'PASSENGER' | 'SYSTEM';

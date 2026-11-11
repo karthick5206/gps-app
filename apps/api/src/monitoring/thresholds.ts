@@ -25,6 +25,8 @@ export interface HealthThresholds {
   persistStaleWarnSec: number;
   persistStaleCritSec: number;
   spoolStuckMin: number;
+  etmsRelayWarnMin: number;
+  etmsRelayCritMin: number;
 }
 
 interface Def {
@@ -59,6 +61,8 @@ export const THRESHOLD_DEFS: readonly Def[] = [
   { key: 'persistStaleWarnSec', env: 'HEALTH_PERSIST_STALE_WARN_SEC', label: 'No positions persisted while devices are connected — warning', unit: 's', value: 180 },
   { key: 'persistStaleCritSec', env: 'HEALTH_PERSIST_STALE_CRIT_SEC', label: 'No positions persisted while devices are connected — critical', unit: 's', value: 600 },
   { key: 'spoolStuckMin', env: 'HEALTH_SPOOL_STUCK_MIN', label: 'Gateway spool not draining although the cache is up', unit: 'min', value: 15 },
+  { key: 'etmsRelayWarnMin', env: 'HEALTH_ETMS_RELAY_WARN_MIN', label: 'Transport notification relay without a completed pass — warning after', unit: 'min', value: 5 },
+  { key: 'etmsRelayCritMin', env: 'HEALTH_ETMS_RELAY_CRIT_MIN', label: 'Transport notification relay without a completed pass — critical after', unit: 'min', value: 30 },
 ];
 
 function num(raw: string | undefined, fallback: number): number {

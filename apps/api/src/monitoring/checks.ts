@@ -42,6 +42,11 @@ export interface CheckInput {
    * null: the database could not be asked (the database.* issues report that).
    */
   notify?: NotifyBacklog | null;
+  /**
+   * E5 security review L3: the ETMS transport notification relay (API process, every 30 s). Undefined: not collected
+   * (ETMS or the relay switched off); null: Valkey could not be asked. lastOkAt null = no pass recorded yet.
+   */
+  etmsRelay?: { lastOkAt: number | null; hwm: number | null; full: boolean } | null;
 }
 
 /** Alert types whose DEAD notification job is CRITICAL (D6 G2, owner decision: SOS / CRASH). */
@@ -276,6 +281,39 @@ function notifyBacklogChecks(input: CheckInput, t: HealthThresholds, out: Issue[
   }
 }
 
+/**
+ * E5 security review L3: the transport notification relay has not completed a pass for etmsRelayWarnMin (WARN) /
+ * etmsRelayCritMin (CRITICAL), or its last pass left a backlog. Driver / passenger trip notifications are late meanwhile
+ * (the relay catches up from its high-water mark, at most 24 h back).
+ */
+function etmsRelayChecks(input: CheckInput, t: HealthThresholds, out: Issue[]): void {
+  const r = input.etmsRelay;
+  if (r === undefined || r === null || input.startupGrace) return;
+  const lagSec = r.lastOkAt === null ? null : Math.max(0, (input.now - r.lastOkAt) / 1000);
+  if (lagSec === null || lagSec > t.etmsRelayWarnMin * 60) {
+    const crit = lagSec !== null && lagSec > t.etmsRelayCritMin * 60;
+    out.push({
+      id: 'pipeline.etms-notify-relay',
+      check: 'transport notification relay',
+      section: 'pipeline',
+      severity: crit ? 'CRITICAL' : 'WARN',
+      message:
+        (lagSec === null ? 'The transport notification relay has not completed a pass yet. ' : `The transport notification relay last completed a pass ${minutes(lagSec)} ago. `) +
+        'Trip assignment, cancellation and delay notifications are not being created: check the API process, Valkey (relay lock) and ETMS_NOTIFY_JOB.',
+    });
+    return;
+  }
+  if (r.full) {
+    out.push({
+      id: 'pipeline.etms-notify-relay-backlog',
+      check: 'transport notification relay',
+      section: 'pipeline',
+      severity: 'WARN',
+      message: `The transport notification relay is behind: its last pass hit the per-pass limit${r.hwm !== null ? ` and has processed trip events up to ${minutes(Math.max(0, (input.now - r.hwm) / 1000))} ago` : ''}.`,
+    });
+  }
+}
+
 /** Data forwarding targets (from gateway / notifier heartbeats) failing for more than 5 minutes. */
 function relayChecks(input: CheckInput, out: Issue[]): void {
   const instances = input.processes.flatMap((p) => p.instances);
@@ -400,6 +438,7 @@ export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] 
   notifierChecks(input, t, out);
   notifyBacklogChecks(input, t, out);
   relayChecks(input, out);
+  etmsRelayChecks(input, t, out);
   mapChecks(input, out);
   return out.sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.id.localeCompare(b.id));
 }

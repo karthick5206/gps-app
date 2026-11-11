@@ -128,5 +128,7 @@ export const DRIVER_CODE_TEXT: Record<string, string> = {
   DUTY_OPEN: 'A duty is already open.',
   NO_OPEN_DUTY: 'No duty is open.',
   ALREADY_RECORDED: 'Already recorded.',
+  TOO_FREQUENT: 'A delay was reported a few minutes ago. Call the dispatcher if it changes.',
+  RATE_LIMITED: 'Too many updates at once. They will be sent again shortly.',
   LATE: 'Received after the trip closed: no effect.',
 };

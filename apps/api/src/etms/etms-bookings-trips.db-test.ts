@@ -476,6 +476,41 @@ d(`ETMS E3 services on ${dbName}`, () => {
     expect(out.drafts).toEqual([{ status: 'REJECTED', draft: null }]);
   });
 
+  it('E5 security fixes on PostgreSQL: stored-track window (M1), NO_SHOW_REVIEW row (M1), DRIVER_CHANGED path filter (L5), erasure of report notes / free reason codes (L1)', async () => {
+    const out: Record<string, unknown> = {};
+    await inRollback(prisma, async (tx, partnerId) => {
+      const g = await seedGraph(tx, partnerId, 'E5SF');
+      const t0 = Date.now() - 10 * 60_000;
+      const fix = (offsetMs: number, lat: number) => tx.position.create({ data: { objectId: g.object, deviceId: randomUUID(), fixTime: new Date(t0 + offsetMs), serverTime: new Date(), lat, lng: 80.24, speedKph: 0, course: 0, valid: true } });
+      await fix(30_000, 13.0601);
+      await fix(5 * 60_000, 14.4); // outside the ± 2 min window
+      // The driver API's track query (driver-api.service.ts track()).
+      const rows = await tx.position.findMany({ where: { objectId: g.object, valid: true, fixTime: { gte: new Date(t0 - 120_000), lte: new Date(t0 + 120_000) } }, select: { objectId: true, lat: true, lng: true, fixTime: true }, orderBy: { fixTime: 'asc' }, take: 50 });
+      out.track = rows.map((r) => r.lat);
+      const ev = (data: Prisma.TransportTripEventUncheckedCreateInput) => tx.transportTripEvent.create({ data });
+      const base = { tripId: g.trip, providerCompanyId: g.company, customerCompanyId: g.company, occurredAt: new Date() };
+      const me = randomUUID();
+      await ev({ ...base, kind: 'DRIVER_CHANGED', actorType: 'DISPATCHER', source: 'WEB', data: { from: me, to: randomUUID() } });
+      await ev({ ...base, kind: 'DRIVER_CHANGED', actorType: 'DISPATCHER', source: 'WEB', data: { from: randomUUID(), to: me } });
+      const moved = await tx.transportTripEvent.findMany({ where: { providerCompanyId: g.company, kind: 'DRIVER_CHANGED', receivedAt: { gt: new Date(Date.now() - 3_600_000) }, data: { path: ['from'], equals: me } }, select: { data: true }, orderBy: { receivedAt: 'desc' }, take: 500 });
+      out.moved = moved.map((m) => (m.data as { from: string }).from === me);
+      await ev({ ...base, kind: 'NO_SHOW_REVIEW', actorType: 'SYSTEM', source: 'SYSTEM', outcome: 'ACCEPTED', passengerTripId: g.passenger, stopSeq: 0, data: { code: 'NO_SHOW_UNVERIFIED_ARRIVAL' } });
+      await ev({ ...base, kind: 'REPORT_DELAY', actorType: 'DRIVER', source: 'DRIVER_APP', reasonCode: 'TRAFFIC', data: { note: 'Asha not at the gate', etaMin: 10 } });
+      await ev({ ...base, kind: 'NO_SHOW', actorType: 'DRIVER', source: 'DRIVER_APP', passengerTripId: g.passenger, reasonCode: 'called Asha twice', data: {} });
+      await ev({ ...base, kind: 'NO_SHOW', actorType: 'DRIVER', source: 'DRIVER_APP', passengerTripId: g.passenger, reasonCode: 'UNREACHABLE', data: {} });
+      await eraseTransportData(tx, g.company, g.profile, '[erased]');
+      out.after = await tx.$queryRawUnsafe(`SELECT kind, "reasonCode", data->>'note' AS note FROM "TransportTripEvent" WHERE "tripId" = '${g.trip}' AND kind IN ('REPORT_DELAY', 'NO_SHOW', 'NO_SHOW_REVIEW') ORDER BY kind, "reasonCode" NULLS FIRST`);
+    });
+    expect(out.track).toEqual([13.0601]);
+    expect(out.moved).toEqual([true]);
+    expect(out.after).toEqual([
+      { kind: 'NO_SHOW', reasonCode: null, note: null },
+      { kind: 'NO_SHOW', reasonCode: 'UNREACHABLE', note: null },
+      { kind: 'NO_SHOW_REVIEW', reasonCode: null, note: null },
+      { kind: 'REPORT_DELAY', reasonCode: 'TRAFFIC', note: '[erased]' },
+    ]);
+  });
+
   /**
    * Home → HQ (the home stop needs the consenting passenger seated there in the same change set, E3 security review
    * M2), or HQ gate → HQ (both company places) for a trip published without passengers.

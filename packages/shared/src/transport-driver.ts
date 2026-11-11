@@ -49,8 +49,14 @@ export const DRIVER_LIMITS = {
   noShowMinWaitMin: 5,
   /** ARRIVED: vehicle fix within k × stop radius → verified; clearly farther (fresh fix) → NOT_AT_STOP (Q8 default k = 3). */
   arrivalRadiusFactor: 3,
-  /** ARRIVED: the vehicle fix counts only if it is at most this far from occurredAt. */
+  /** ARRIVED: a vehicle fix (stored track or live) counts only if it is at most this far from occurredAt. */
   arrivalFixMaxSkewMs: 2 * 60_000,
+  /** Security review M2: at most one accepted REPORT_DELAY per trip per this many minutes (more are DUPLICATE TOO_FREQUENT). */
+  delayReportMinIntervalMin: 15,
+  /** Security review M2: `POST /trips/:id/events` batches per driver login per minute before 429 RATE_LIMITED. */
+  eventBatchesPerMinute: 30,
+  /** Security review L5: `GET /sync` events returned per call (and reassignments scanned). */
+  syncMaxEvents: 500,
   /** Telemetry older than this at trip start → warning `TELEMETRY_STALE` (Q10 default: warn, not block). */
   telemetryFreshMs: 5 * 60_000,
   reasonCodeMax: 40,
@@ -89,6 +95,10 @@ export const DRIVER_ERROR_CODES = [
   'DUTY_OPEN',
   'NO_OPEN_DUTY',
   'IDEMPOTENCY_KEY_REUSED',
+  /** Security review M2: a REPORT_DELAY within delayReportMinIntervalMin of the last accepted one (outcome DUPLICATE). */
+  'TOO_FREQUENT',
+  /** Security review M2: too many event batches per minute (HTTP 429; the queue keeps the events and retries). */
+  'RATE_LIMITED',
 ] as const;
 export type DriverErrorCode = (typeof DRIVER_ERROR_CODES)[number];
 
@@ -218,9 +228,13 @@ export interface DriverStopDto {
    */
   lat: number | null;
   lng: number | null;
-  /** Why lat / lng are null: CONSENT_REQUIRED (personal point without active consent) or TRIP_CLOSED; null = shown. */
-  pointHidden: 'CONSENT_REQUIRED' | 'TRIP_CLOSED' | null;
-  radiusM: number;
+  /**
+   * Why lat / lng are null: CONSENT_REQUIRED (personal point without active consent), PASSENGER_CANCELLED (a personal
+   * point whose only linked seats are cancelled; security review L7) or TRIP_CLOSED; null = shown.
+   */
+  pointHidden: 'CONSENT_REQUIRED' | 'PASSENGER_CANCELLED' | 'TRIP_CLOSED' | null;
+  /** Geofence radius; null whenever the point is hidden (security review L2: no hint about a hidden point). */
+  radiusM: number | null;
   plannedArrival: string;
   actualArrival: string | null;
   actualDeparture: string | null;
@@ -333,10 +347,28 @@ export interface DriverStartTripResult {
 export const DRIVER_TRIP_EVENT_TYPES = ['ACKNOWLEDGE', 'ARRIVED', 'BOARDED', 'NO_SHOW', 'DROPPED', 'DEPARTED', 'REPORT_DELAY', 'REPORT_BREAKDOWN', 'COMPLETE_TRIP'] as const;
 export type DriverTripEventType = (typeof DRIVER_TRIP_EVENT_TYPES)[number];
 
-/** Reason codes the app offers (open set server-side: any short code is stored; these are the localized ones). */
+/**
+ * Reason codes (closed sets; security review L1): the server accepts a `reasonCode` only from the list of the event's
+ * type, anything else is a per-event REJECTED VALIDATION_FAILED. Types without a list take no reasonCode.
+ */
 export const DRIVER_DELAY_REASONS = ['TRAFFIC', 'ROAD_BLOCKED', 'WEATHER', 'VEHICLE_ISSUE', 'PASSENGER_LATE', 'OTHER'] as const;
 export const DRIVER_BREAKDOWN_REASONS = ['ENGINE', 'TYRE', 'ACCIDENT', 'FUEL', 'OTHER'] as const;
 export const DRIVER_NO_SHOW_REASONS = ['NOT_AT_PICKUP', 'UNREACHABLE', 'CANCELLED_AT_DOOR', 'OTHER'] as const;
+/** DROPPED at a stop other than the passenger's drop stop (early drop) needs one of these. */
+export const DRIVER_EARLY_DROP_REASONS = ['PASSENGER_REQUEST', 'ROAD_BLOCKED', 'OTHER'] as const;
+export const DRIVER_REASONS_BY_TYPE: Partial<Record<DriverTripEventType, readonly string[]>> = {
+  REPORT_DELAY: DRIVER_DELAY_REASONS,
+  REPORT_BREAKDOWN: DRIVER_BREAKDOWN_REASONS,
+  NO_SHOW: DRIVER_NO_SHOW_REASONS,
+  DROPPED: DRIVER_EARLY_DROP_REASONS,
+};
+/** Every closed reason code (erasure keeps these, anything else in an event's reasonCode is free text). */
+export const DRIVER_REASON_CODES: readonly string[] = [...new Set(Object.values(DRIVER_REASONS_BY_TYPE).flat())] as string[];
+/** True when `reasonCode` is absent or belongs to the closed list of the event type. */
+export function driverReasonAllowed(type: string, reasonCode: string | null | undefined): boolean {
+  if (reasonCode === undefined || reasonCode === null) return true;
+  return (DRIVER_REASONS_BY_TYPE[type as DriverTripEventType] ?? []).includes(reasonCode);
+}
 
 /**
  * One queued event. `clientEventId` = UUID (v7 recommended) generated when the driver taps, BEFORE any network call;
@@ -460,8 +492,15 @@ export const TRANSPORT_NOTIFY_TIMING = {
   startingSoonMin: 30,
   /** VEHICLE_APPROACHING: when the tracker ETA to the passenger's pickup (next stop) is at most this many minutes. */
   approachingMin: 5,
-  /** TRIP_DELAYED (from the tracker): when the live delay reaches this many minutes (a driver REPORT_DELAY always counts). */
+  /** TRIP_DELAYED (from the tracker): when the live delay reaches this many minutes. */
   delayedMin: 10,
+  /**
+   * TRIP_DELAYED from a driver REPORT_DELAY (security review M2): only while the trip is under way, or when the
+   * passenger's pickup is planned at most this many minutes after the report; at most one per trip, passenger and
+   * delayBucketMin window.
+   */
+  delayReportPrePickupMin: 60,
+  delayBucketMin: 15,
   /** Scheduler tick. */
   tickSeconds: 60,
 } as const;

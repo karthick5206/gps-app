@@ -1,6 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { ACTIVE_BOOKING_STATUSES, TRANSPORT_E3_LIMITS } from '@veetracer/shared';
+import { ACTIVE_BOOKING_STATUSES, DRIVER_REASON_CODES, TRANSPORT_E3_LIMITS } from '@veetracer/shared';
 import { draftTouches } from './consent-withdrawal';
 import { nearAny } from './personal-points';
 
@@ -11,6 +11,8 @@ const ERASED_DECIMALS = 2;
 const round2 = (v: number) => Math.round(v * 10 ** ERASED_DECIMALS) / 10 ** ERASED_DECIMALS;
 /** Free-text keys removed from the passenger's trip-event data (dispatcher notes, reasons). */
 const EVENT_TEXT_KEYS = ['note', 'reason'];
+/** Driver reports stored per trip (no seat link) whose `data.note` is free text (E5 security review L1). */
+const DRIVER_REPORT_KINDS = ['REPORT_DELAY', 'REPORT_BREAKDOWN'];
 
 /**
  * Before "Erase personal data" (E2 M5): the passenger must have no booking that can still be served (an active status
@@ -44,7 +46,9 @@ export interface TransportErasure {
  *   own (profileId), stops their seats link to as a non-site pickup / drop, and ETMS stops within personalPointNearM of
  *   any of their points or home (a 4-decimal board point never equals the exact one: distance, not equality);
  * - the road path of every planned trip that had such a stop is cleared (it ran through the home);
- * - seat cancel / no-show reasons and the note / reason of their trip events are removed;
+ * - seat cancel / no-show reasons and the note / reason of their trip events are removed, a reasonCode outside the
+ *   closed driver lists on those events is cleared, and the driver's note on REPORT_DELAY / REPORT_BREAKDOWN of every
+ *   trip the passenger rode is replaced by the erasure mark (E5 security review L1);
  * - schedule exceptions: pickup overrides removed (an override left empty is deleted), reasons cleared;
  * - server-held DRAFT change sets naming one of the bookings or carrying a stop near one of the points are discarded.
  * Inherent residue (owner decision L5): the vehicle's own position history shows where it stopped at the planned time.
@@ -68,7 +72,7 @@ export async function eraseTransportData(tx: Tx, companyId: string, profileId: s
     await tx.transportBooking.update({ where: { id: b.id }, data });
   }
   const ids = bookings.map((b) => b.id);
-  const seats = ids.length ? await tx.transportTripPassenger.findMany({ where: { bookingId: { in: ids } }, select: { id: true, bookingId: true, pickupStopId: true, dropStopId: true } }) : [];
+  const seats = ids.length ? await tx.transportTripPassenger.findMany({ where: { bookingId: { in: ids } }, select: { id: true, tripId: true, bookingId: true, pickupStopId: true, dropStopId: true } }) : [];
 
   // Stops: owned, linked as a non-site end of one of the seats, or an ETMS stop near one of the points.
   const linked = new Set<string>();
@@ -108,6 +112,17 @@ export async function eraseTransportData(tx: Tx, companyId: string, profileId: s
       if (!data || !EVENT_TEXT_KEYS.some((k) => data[k] !== undefined && data[k] !== null)) continue;
       const next = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, EVENT_TEXT_KEYS.includes(k) && v !== null ? mark : v]));
       await tx.transportTripEvent.update({ where: { id: e.id }, data: { data: next as Prisma.InputJsonValue } });
+    }
+    // E5 security review L1: a reasonCode outside the closed driver lists on the seats' events is free text: removed.
+    await tx.transportTripEvent.updateMany({ where: { passengerTripId: { in: seats.map((s) => s.id) }, reasonCode: { notIn: [...DRIVER_REASON_CODES] } }, data: { reasonCode: null } });
+    // E5 security review L1: the driver's free-text note on REPORT_DELAY / REPORT_BREAKDOWN of every trip the passenger
+    // rode (stored without a seat link: "Asha not at …" must not survive the erasure).
+    const tripIds = [...new Set(seats.map((s) => s.tripId))];
+    const reports = await tx.transportTripEvent.findMany({ where: { tripId: { in: tripIds }, kind: { in: [...DRIVER_REPORT_KINDS] } }, select: { id: true, data: true } });
+    for (const e of reports) {
+      const data = e.data && typeof e.data === 'object' && !Array.isArray(e.data) ? (e.data as Record<string, unknown>) : null;
+      if (!data || data.note === undefined || data.note === null || data.note === mark) continue;
+      await tx.transportTripEvent.update({ where: { id: e.id }, data: { data: { ...data, note: mark } as Prisma.InputJsonValue } });
     }
   }
 

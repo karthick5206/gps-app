@@ -110,7 +110,7 @@ export class SystemHealthService {
   // ── report ────────────────────────────────────────────────────────────────
 
   async collect(now = Date.now()): Promise<Collected> {
-    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt, maps, notify] = await Promise.all([
+    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt, maps, notify, etmsRelay] = await Promise.all([
       this.valkeyInfo(),
       this.heartbeats().catch(() => [] as ProcessHeartbeat[]),
       this.series().catch(() => [] as SeriesSample[]),
@@ -120,6 +120,7 @@ export class SystemHealthService {
       this.lastPersistedAt(),
       this.mapServices.collect(now).catch(() => this.mapServices.snapshot()),
       this.notifyBacklog(),
+      this.etmsRelay(),
     ]);
     const processes = this.processes(heartbeats, now);
     const ports = this.ports(heartbeats);
@@ -140,6 +141,7 @@ export class SystemHealthService {
       lastPersistedAt,
       maps,
       notify,
+      etmsRelay,
     };
     const issues = evaluateChecks(input, this.thresholds);
     applyStatuses(input, issues);
@@ -395,6 +397,23 @@ export class SystemHealthService {
    * constant floor and 24 h window as the sweeper). "createdAt" holds UTC and the bounds are now() AT TIME ZONE 'UTC',
    * so the counts do not depend on the session TimeZone. Null when the database cannot be asked.
    */
+  /**
+   * E5 security review L3: the transport notification relay's last completed pass (Valkey, written by the relay in the
+   * API process). Undefined when ETMS or the relay job is switched off; null when Valkey cannot be asked.
+   */
+  async etmsRelay(): Promise<CheckInput['etmsRelay']> {
+    const env = process.env;
+    if ((env.ETMS ?? '').trim().toLowerCase() === 'off' || (env.ETMS_NOTIFY_JOB ?? 'on').toLowerCase() === 'off') return undefined;
+    try {
+      const raw = await withTimeout(this.valkey.get(RedisKeys.etmsNotifyState), TIMEOUT_MS, 'Valkey GET');
+      if (!raw) return { lastOkAt: null, hwm: null, full: false };
+      const s = JSON.parse(raw) as { at?: unknown; hwm?: unknown; full?: unknown };
+      return { lastOkAt: typeof s.at === 'number' ? s.at : null, hwm: typeof s.hwm === 'number' ? s.hwm : null, full: s.full === true };
+    } catch {
+      return null;
+    }
+  }
+
   async notifyBacklog(): Promise<NotifyBacklog | null> {
     const t = this.thresholds;
     try {

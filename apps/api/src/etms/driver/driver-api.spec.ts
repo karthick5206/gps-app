@@ -79,12 +79,14 @@ function world(opts: { plannedStartInMin?: number } = {}) {
   });
   const setLive = (lat: number, lng: number, at = new Date()) => (liveJson = JSON.stringify({ lat, lng, fixTime: at.toISOString(), licenceLocked: false }));
   const row = (model: string, id: string) => store.table(model).find((r) => r.id === id)!;
-  return { store, svc, relay, notifications, ctx, setLive, row, xadds, ids: { dA, dA2, dB, vehicle, pt: pt.id as string, tt: tt.id as string, s0: s0.id as string, s1: s1.id as string, pax1, pax2, pAsha, pBala } };
+  return { store, svc, relay, notifications, ctx, setLive, row, xadds, redis, audit, ids: { dA, dA2, dB, vehicle, pt: pt.id as string, tt: tt.id as string, s0: s0.id as string, s1: s1.id as string, pax1, pax2, pAsha, pBala } };
 }
 
 const codeOf = async (p: Promise<unknown>) => p.then(() => 'OK', (e: HttpException) => (e.getResponse() as { code?: string }).code ?? String(e.getStatus()));
 const ev = (type: string, seq: number, extra: Partial<DriverTripEventInput> = {}) => ({ clientEventId: randomUUID(), seq, type, occurredAt: new Date().toISOString(), ...extra }) as DriverTripEventInput;
 const outcomes = (r: { results: { outcome: string; code: string | null }[] }) => r.results.map((x) => (x.outcome === 'ACCEPTED' ? 'ACCEPTED' : `${x.outcome}:${x.code}`));
+const consent = (w: ReturnType<typeof world>, profileId: string, granted = true, agoMin = 60) =>
+  w.store.insert('employeeTransportConsent', { companyId: 'custA', profileId, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted, channel: granted ? 'WEB' : 'SELF_WITHDRAWN', occurredAt: new Date(Date.now() - agoMin * MIN) });
 const started = (w: ReturnType<typeof world>) => w.svc.startTrip(w.ctx('u-dA'), w.ids.tt, { clientEventId: randomUUID(), occurredAt: new Date().toISOString() });
 
 describe('driver API: relationship authorisation (D5)', () => {
@@ -299,6 +301,7 @@ describe('driver API: offline event sync (09 §6)', () => {
 
   it('ARRIVED is checked against the vehicle GPS fix: far away → NOT_AT_STOP; near → verified gps', async () => {
     const w = world();
+    consent(w, w.ids.pAsha); // the stop is Asha's point: shown (and GPS-checked) only with her consent (L2)
     await started(w);
     w.setLive(13.3, 80.5);
     expect(outcomes(await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0 })] }))).toEqual(['REJECTED:NOT_AT_STOP']);
@@ -522,5 +525,239 @@ describe('E5 additions: vehicle motion, desk phone, passenger self-cancel, conse
     expect(w.store.table('employeeTransportConsent').at(-1)).toMatchObject({ channel: 'WEB', granted: false });
     const bad = await validate(plainToInstance(RecordConsentDto, { purpose: 'TRANSPORT_PROFILE', granted: true, channel: 'ADMIN_RECORDED_OFFLINE' }));
     expect(bad.map((e) => e.property)).toEqual(['channel']);
+  });
+});
+
+describe('E5 security review fixes (M1, M2, L1, L2, L4, L5, L6, L7)', () => {
+  const ago = (min: number) => new Date(Date.now() - min * MIN).toISOString();
+  const position = (w: ReturnType<typeof world>, lat: number, lng: number, minAgo: number) =>
+    w.store.insert('position', { objectId: w.ids.vehicle, deviceId: randomUUID(), fixTime: new Date(Date.now() - minAgo * MIN), serverTime: new Date(), lat, lng, speedKph: 0, course: 0, valid: true });
+  const startedEarlier = async (w: ReturnType<typeof world>, minAgo: number) => {
+    await started(w);
+    w.row('plannedTrip', w.ids.pt).actualStart = new Date(Date.now() - minAgo * MIN);
+  };
+
+  it('M1 repro (P1): a backdated ARRIVED far from the vehicle is clamped to the trip start and does not unlock NO_SHOW', async () => {
+    const w = world();
+    consent(w, w.ids.pAsha);
+    await started(w);
+    w.setLive(14.4, 80.5); // about 150 km from stop 0
+    expect(outcomes(await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0 })] }))).toEqual(['REJECTED:NOT_AT_STOP']);
+    // The report's batch: ARRIVED backdated 10 min, then NO_SHOW for both. Clamped to the trip start (seconds ago), the
+    // ARRIVED meets the live fix 150 km away: NOT_AT_STOP; the no-shows have no arrival to wait from.
+    const repro = await w.svc.events(w.ctx('u-dA'), w.ids.tt, {
+      events: [ev('ARRIVED', 2, { stopSeq: 0, occurredAt: ago(10) }), ev('NO_SHOW', 3, { passengerTripId: w.ids.pax1, reasonCode: 'NOT_AT_PICKUP' }), ev('NO_SHOW', 4, { passengerTripId: w.ids.pax2 })],
+    });
+    expect(outcomes(repro)).toEqual(['REJECTED:NOT_AT_STOP', 'REJECTED:STOP_NOT_ARRIVED', 'REJECTED:STOP_NOT_ARRIVED']);
+    for (const p of [w.ids.pax1, w.ids.pax2]) expect(w.row('transportTripPassenger', p).status).toBe('PENDING');
+
+    // Without any fix (telemetry gap): accepted as unverified, stored at the trip start, and still no immediate no-show.
+    const v = world();
+    consent(v, v.ids.pAsha);
+    await started(v);
+    const startAt = v.row('plannedTrip', v.ids.pt).actualStart as Date;
+    const r = await v.svc.events(v.ctx('u-dA'), v.ids.tt, {
+      events: [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: ago(10) }), ev('NO_SHOW', 2, { passengerTripId: v.ids.pax1, reasonCode: 'NOT_AT_PICKUP' }), ev('NO_SHOW', 3, { passengerTripId: v.ids.pax2 })],
+    });
+    expect(r.results[0]).toMatchObject({ outcome: 'ACCEPTED', verified: 'unverified_location' });
+    expect(outcomes(r).slice(1).every((o) => o.endsWith(':WAIT_NOT_ELAPSED'))).toBe(true);
+    for (const p of [v.ids.pax1, v.ids.pax2]) expect(v.row('transportTripPassenger', p).status).toBe('PENDING');
+    const arrived = v.store.table('transportTripEvent').find((e) => e.kind === 'ARRIVED' && e.outcome === 'ACCEPTED')!;
+    expect((arrived.occurredAt as Date).getTime()).toBe(startAt.getTime());
+    expect(arrived.data).toMatchObject({ verified: 'unverified_location', setArrival: true, clampedToStart: true });
+    expect((v.row('plannedTripStop', v.ids.s0).actualArrival as Date).getTime()).toBe(startAt.getTime());
+  });
+
+  it('M1: after an unverified arrival the 5-min wait runs from its receipt (RETRY, kept in the queue); the no-show then raises a dispatcher review', async () => {
+    const w = world();
+    consent(w, w.ids.pAsha);
+    await startedEarlier(w, 30);
+    w.setLive(14.4, 80.5);
+    const noShow = ev('NO_SHOW', 2, { passengerTripId: w.ids.pax1, reasonCode: 'UNREACHABLE' });
+    const r = await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: ago(10) }), noShow] });
+    expect(outcomes(r)).toEqual(['ACCEPTED', 'RETRY:WAIT_NOT_ELAPSED']);
+    expect(w.store.table('transportTripEvent').some((e) => e.clientEventId === noShow.clientEventId)).toBe(false);
+    // A later batch, still within 5 min of the server's receipt of the ARRIVED: RETRY again.
+    expect(outcomes(await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [noShow] }))).toEqual(['RETRY:WAIT_NOT_ELAPSED']);
+    // 6 minutes after the receipt: accepted, flagged, and a SYSTEM review event on the dispatcher's timeline.
+    w.store.table('transportTripEvent').find((e) => e.kind === 'ARRIVED' && e.outcome === 'ACCEPTED')!.receivedAt = new Date(Date.now() - 6 * MIN);
+    expect(outcomes(await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [noShow] }))).toEqual(['ACCEPTED']);
+    expect(w.row('transportTripPassenger', w.ids.pax1).status).toBe('NO_SHOW');
+    expect(w.store.table('transportTripEvent').find((e) => e.clientEventId === noShow.clientEventId)!.data).toMatchObject({ review: 'NO_SHOW_UNVERIFIED_ARRIVAL' });
+    const review = w.store.table('transportTripEvent').filter((e) => e.kind === 'NO_SHOW_REVIEW');
+    expect(review).toEqual([expect.objectContaining({ actorType: 'SYSTEM', source: 'SYSTEM', passengerTripId: w.ids.pax1, stopSeq: 0, data: { code: 'NO_SHOW_UNVERIFIED_ARRIVAL', noShowClientEventId: noShow.clientEventId } })]);
+    expect(w.store.table('auditLog').some((a) => JSON.stringify(a.changes ?? {}).includes('noShowReview'))).toBe(true);
+    // The driver never sees the review (sync lists only their own app events).
+    expect((await w.svc.sync(w.ctx('u-dA'), {})).events.some((e) => e.code === 'NO_SHOW_UNVERIFIED_ARRIVAL')).toBe(false);
+  });
+
+  it('M1: a backdated ARRIVED is checked against the stored track near occurredAt (near: gps, no review; far: NOT_AT_STOP)', async () => {
+    const near = world();
+    consent(near, near.ids.pAsha);
+    await startedEarlier(near, 30);
+    near.setLive(14.4, 80.5); // the live fix is elsewhere now; the track at the time was at the stop
+    position(near, 13.0601, 80.2401, 10);
+    const r = await near.svc.events(near.ctx('u-dA'), near.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: ago(10) }), ev('NO_SHOW', 2, { passengerTripId: near.ids.pax1, reasonCode: 'NOT_AT_PICKUP' })] });
+    expect(r.results.map((x) => [x.outcome, x.verified])).toEqual([
+      ['ACCEPTED', 'gps'],
+      ['ACCEPTED', null],
+    ]);
+    expect(near.store.table('transportTripEvent').some((e) => e.kind === 'NO_SHOW_REVIEW')).toBe(false);
+
+    const far = world();
+    consent(far, far.ids.pAsha);
+    await startedEarlier(far, 30);
+    position(far, 14.4, 80.5, 10);
+    expect(outcomes(await far.svc.events(far.ctx('u-dA'), far.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0, occurredAt: ago(10) })] }))).toEqual(['REJECTED:NOT_AT_STOP']);
+  });
+
+  it('M2 repro (P2): 50 REPORT_DELAY in one batch: one accepted, the rest DUPLICATE TOO_FREQUENT, one TRIP_DELAYED per passenger', async () => {
+    const w = world({ plannedStartInMin: 20 });
+    await started(w);
+    const r = await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: Array.from({ length: 50 }, (_, i) => ev('REPORT_DELAY', i + 1, { etaMin: 10, reasonCode: 'TRAFFIC' })) });
+    expect(outcomes(r)[0]).toBe('ACCEPTED');
+    expect([...new Set(outcomes(r).slice(1))]).toEqual(['DUPLICATE:TOO_FREQUENT']);
+    await w.relay.run(Date.now());
+    await w.relay.run(Date.now());
+    expect(w.store.table('transportNotification').filter((n) => n.kind === 'TRIP_DELAYED').map((n) => n.userId)).toEqual(['u-pA']);
+    expect(outcomes(await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [ev('REPORT_DELAY', 51, { etaMin: 20 })] }))).toEqual(['DUPLICATE:TOO_FREQUENT']);
+  });
+
+  it('M2: relay dedupes TRIP_DELAYED per trip, passenger and 15-min bucket; no passenger notice for a trip far from pickup', async () => {
+    const w = world({ plannedStartInMin: 20 });
+    await started(w);
+    const bucket = Math.floor(Date.now() / (15 * MIN)) * 15 * MIN;
+    for (const off of [1000, 2000]) w.store.insert('transportTripEvent', { tripId: w.ids.tt, providerCompanyId: 'custA', customerCompanyId: 'custA', kind: 'REPORT_DELAY', actorType: 'DRIVER', source: 'DRIVER_APP', outcome: 'ACCEPTED', occurredAt: new Date(bucket + off), receivedAt: new Date(bucket + off), data: {} });
+    await w.relay.run(Date.now());
+    expect(w.store.table('transportNotification').filter((n) => n.kind === 'TRIP_DELAYED')).toHaveLength(1);
+
+    const later = world({ plannedStartInMin: 120 }); // SCHEDULED, pickup in 2 h
+    expect(outcomes(await later.svc.events(later.ctx('u-dA'), later.ids.tt, { events: [ev('REPORT_DELAY', 1, { etaMin: 10 })] }))).toEqual(['ACCEPTED']);
+    expect(await later.relay.run(Date.now())).toBe(0);
+  });
+
+  it('M2: event batches are throttled per driver login (429 RATE_LIMITED; the queue retries)', async () => {
+    const w = world();
+    w.redis.client.eval = async () => 31; // the 31st batch in this minute
+    expect(await codeOf(w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [ev('ACKNOWLEDGE', 1)] }))).toBe('RATE_LIMITED');
+  });
+
+  it('L1: reasonCode only from the closed list of the event type (per-event VALIDATION_FAILED)', async () => {
+    const w = world();
+    await started(w);
+    const r = await w.svc.events(w.ctx('u-dA'), w.ids.tt, {
+      events: [ev('REPORT_DELAY', 1, { reasonCode: 'Asha not home' }), ev('REPORT_BREAKDOWN', 2, { reasonCode: 'TRAFFIC' }), ev('ARRIVED', 3, { stopSeq: 0, reasonCode: 'OTHER' }), ev('REPORT_BREAKDOWN', 4, { reasonCode: 'TYRE' })],
+    });
+    expect(outcomes(r)).toEqual(['REJECTED:VALIDATION_FAILED', 'REJECTED:VALIDATION_FAILED', 'REJECTED:VALIDATION_FAILED', 'ACCEPTED']);
+  });
+
+  it('L1: erasure scrubs the driver notes on REPORT_* of the trips the passenger rode and free-text reason codes on their events', async () => {
+    const { eraseTransportData } = await import('../dispatch/erasure');
+    const w = world();
+    await started(w);
+    await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [ev('REPORT_DELAY', 1, { etaMin: 10, reasonCode: 'TRAFFIC', note: 'Asha not at 12 Anna Salai, unreachable' }), ev('REPORT_BREAKDOWN', 2, { reasonCode: 'TYRE', note: 'Asha asked to wait' })] });
+    const base = { tripId: w.ids.tt, providerCompanyId: 'custA', customerCompanyId: 'custA', actorType: 'DISPATCHER', source: 'WEB', occurredAt: new Date(), data: {} };
+    const legacy = w.store.insert('transportTripEvent', { ...base, kind: 'NO_SHOW', passengerTripId: w.ids.pax1, reasonCode: 'called Asha twice' });
+    const coded = w.store.insert('transportTripEvent', { ...base, kind: 'NO_SHOW', passengerTripId: w.ids.pax1, reasonCode: 'NOT_AT_PICKUP' });
+    await eraseTransportData(w.store.client() as never, 'custA', w.ids.pAsha, '[erased]');
+    const reports = w.store.table('transportTripEvent').filter((e) => e.kind === 'REPORT_DELAY' || e.kind === 'REPORT_BREAKDOWN');
+    expect(reports.map((e) => (e.data as { note?: string }).note)).toEqual(['[erased]', '[erased]']);
+    expect(reports.map((e) => e.reasonCode)).toEqual(['TRAFFIC', 'TYRE']);
+    expect(w.row('transportTripEvent', legacy.id as string).reasonCode).toBeNull();
+    expect(w.row('transportTripEvent', coded.id as string).reasonCode).toBe('NOT_AT_PICKUP');
+    expect(JSON.stringify(w.store.table('transportTripEvent'))).not.toMatch(/Anna Salai|Asha/);
+  });
+
+  it('L2: a consent-hidden stop is never NOT_AT_STOP (no GPS oracle) and carries no radius', async () => {
+    const w = world();
+    await started(w);
+    w.setLive(14.4, 80.5);
+    const far = await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0 })] });
+    expect(far.results[0]).toMatchObject({ outcome: 'ACCEPTED', verified: 'unverified_location' });
+    expect(far.trip!.stops[0]).toMatchObject({ pointHidden: 'CONSENT_REQUIRED', lat: null, lng: null, radiusM: null });
+    const near = world();
+    await started(near);
+    near.setLive(13.0601, 80.2401);
+    expect((await near.svc.events(near.ctx('u-dA'), near.ids.tt, { events: [ev('ARRIVED', 1, { stopSeq: 0 })] })).results[0].verified).toBe('unverified_location');
+  });
+
+  it('L4: manifest ACCESS audit also from start / events, and written when Valkey is down (no dedupe)', async () => {
+    const w = world();
+    consent(w, w.ids.pAsha);
+    const access = () => w.store.table('auditLog').filter((a) => a.action === 'ACCESS' && (a.changes as { what?: string } | undefined)?.what === 'driver-manifest');
+    await started(w);
+    expect(access()).toHaveLength(1);
+    expect(access()[0].changes).toMatchObject({ passengers: 2, exactPoints: 2 });
+    await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [ev('ACKNOWLEDGE', 1)] });
+    expect(access()).toHaveLength(2);
+    w.redis.client.set = async () => {
+      throw new Error('valkey down');
+    };
+    await w.svc.trip(w.ctx('u-dA'), w.ids.tt);
+    await w.svc.trip(w.ctx('u-dA'), w.ids.tt);
+    expect(access()).toHaveLength(4);
+  });
+
+  it('L5: sync clamps an ancient cursor (full trip list, events within 48 h) and only lists reassignments away from me', async () => {
+    const w = world();
+    w.store.insert('transportTripEvent', { tripId: w.ids.tt, providerCompanyId: 'custA', customerCompanyId: 'custA', kind: 'DRIVER_CHANGED', actorType: 'DISPATCHER', source: 'WEB', occurredAt: new Date(), data: { from: w.ids.dA2, to: w.ids.dA } });
+    const s = await w.svc.sync(w.ctx('u-dA'), { since: '1970-01-01T00:00:00.000Z' });
+    expect(s.trips).toEqual([expect.objectContaining({ id: w.ids.tt, change: 'UPSERT' })]);
+    // The reassignment was away from dA2: only dA2 is told REVOKED.
+    expect((await w.svc.sync(w.ctx('u-dA2'), { since: '1970-01-01T00:00:00.000Z' })).trips).toEqual([{ id: w.ids.tt, version: 0, change: 'REVOKED', plannedTripStatus: null }]);
+    expect(await w.svc.sync(w.ctx('u-dB', 'custB'), { since: '1970-01-01T00:00:00.000Z' })).toMatchObject({ trips: [] });
+  });
+
+  it('L6: a duplicate clientEventId in one batch is a 400 at the DTO; the service evaluates it once if it gets through', async () => {
+    const { DriverTripEventBatchDto } = await import('./driver.dto');
+    const e = ev('ACKNOWLEDGE', 1);
+    const errors = await validate(plainToInstance(DriverTripEventBatchDto, { events: [e, { ...e }] }));
+    expect(errors.map((x) => x.property)).toEqual(['events']);
+    expect(await validate(plainToInstance(DriverTripEventBatchDto, { events: [e, ev('REPORT_DELAY', 2)] }))).toEqual([]);
+    const w = world();
+    const r = await w.svc.events(w.ctx('u-dA'), w.ids.tt, { events: [e, { ...e }] });
+    expect(outcomes(r)).toEqual(['ACCEPTED', 'ACCEPTED']);
+    expect(w.store.table('transportTripEvent').filter((x) => x.clientEventId === e.clientEventId)).toHaveLength(1);
+  });
+
+  it('L7: a personal stop whose only linked seats are cancelled is hidden (PASSENGER_CANCELLED), even with consent', async () => {
+    const w = world();
+    consent(w, w.ids.pAsha);
+    w.row('transportTripPassenger', w.ids.pax1).status = 'CANCELLED';
+    expect((await w.svc.trip(w.ctx('u-dA'), w.ids.tt)).stops[0]).toMatchObject({ pointHidden: null, lat: 13.06 }); // Bala is still picked up there
+    w.row('transportTripPassenger', w.ids.pax2).status = 'CANCELLED';
+    const d = await w.svc.trip(w.ctx('u-dA'), w.ids.tt);
+    expect(d.stops.map((s) => [s.seq, s.pointHidden, s.lat, s.radiusM, s.label])).toEqual([
+      [0, 'PASSENGER_CANCELLED', null, null, null],
+      [1, 'PASSENGER_CANCELLED', null, null, null],
+    ]);
+  });
+});
+
+describe('E5 security review L3: relay high-water mark', () => {
+  it('reads from the persisted mark (at most 24 h back) and records each pass for System Health', async () => {
+    const w = world({ plannedStartInMin: 120 });
+    const kv = new Map<string, string>();
+    const redis = { client: { get: async (k: string) => kv.get(k) ?? null, set: async (k: string, v: string) => (kv.set(k, v), 'OK'), eval: async () => 1, xadd: async () => '1-0', publish: async () => 1 } };
+    const notifications = new TransportNotificationsService(w.store.client() as never, redis as never);
+    const relay = new TransportNotifyRelayService(w.store.client() as never, redis as never, notifications);
+    Object.assign(w.row('transportTrip', w.ids.tt), { cancelledAt: new Date() });
+    Object.assign(w.row('plannedTrip', w.ids.pt), { status: 'CANCELLED' });
+    for (const p of [w.ids.pax1, w.ids.pax2]) Object.assign(w.row('transportTripPassenger', p), { status: 'CANCELLED', cancelReason: 'Trip cancelled: vehicle' });
+    const cancelled = (hoursAgo: number) => {
+      const at = new Date(Date.now() - hoursAgo * 3_600_000);
+      w.store.insert('transportTripEvent', { tripId: w.ids.tt, providerCompanyId: 'custA', customerCompanyId: 'custA', kind: 'CANCELLED', actorType: 'DISPATCHER', source: 'WEB', occurredAt: at, receivedAt: at, data: {} });
+    };
+    cancelled(25); // beyond the 24 h look-back: never read
+    cancelled(3); // the relay was stalled for 3 h (the old 30-min look-back lost this one)
+    const now = Date.now();
+    expect(await relay.run(now)).toBe(2); // the driver and Asha
+    const state = JSON.parse(kv.get('vt:etms:notify:state')!) as { at: number; hwm: number; full: boolean };
+    expect(state).toEqual({ at: now, hwm: now - 5 * MIN, full: false });
+    expect(Number(kv.get('vt:etms:notify:hwm'))).toBe(now - 5 * MIN);
+    cancelled(1); // older than the mark (already covered): not read again
+    expect(await relay.run(Date.now())).toBe(0);
+    cancelled(0);
+    expect(await relay.run(Date.now())).toBe(2);
   });
 });

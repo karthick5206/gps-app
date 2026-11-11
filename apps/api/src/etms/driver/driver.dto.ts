@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import {
   DRIVER_LIMITS as L,
   type DriverDutyEndInput,
@@ -49,13 +49,21 @@ export class DriverTripEventDto implements Omit<DriverTripEventInput, 'type'> {
   @IsOptional() @IsNumber() @Min(-86_400_000) @Max(86_400_000) clockOffsetMs?: number;
   @IsOptional() @IsInt() @Min(0) stopSeq?: number;
   @IsOptional() @IsUUID() passengerTripId?: string;
+  /** Checked per event against the type's closed list (driverReasonAllowed): REJECTED VALIDATION_FAILED, not a 400. */
   @IsOptional() @IsString() @MaxLength(L.reasonCodeMax) reasonCode?: string;
   @IsOptional() @IsInt() @Min(0) @Max(L.etaMaxMin) etaMin?: number;
   @IsOptional() @IsString() @MaxLength(L.noteMax) note?: string;
 }
 
 export class DriverTripEventBatchDto implements DriverTripEventBatchInput {
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(L.maxBatch) @ValidateNested({ each: true }) @Type(() => DriverTripEventDto) events!: DriverTripEventDto[];
+  /** L6: a clientEventId appears at most once per batch (400 otherwise; the unique index would abort the whole batch). */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(L.maxBatch)
+  @ArrayUnique((e: DriverTripEventDto) => e?.clientEventId, { message: 'events: each clientEventId may appear only once per batch' })
+  @ValidateNested({ each: true })
+  @Type(() => DriverTripEventDto)
+  events!: DriverTripEventDto[];
 }
 
 export class DriverSyncQuery {

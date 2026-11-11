@@ -1,4 +1,4 @@
-import { ConflictException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   DRIVER_LIMITS as L,
@@ -44,7 +44,8 @@ import { activeRoutingConsents } from '../people/people.service';
 import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { DRIVER_SELECT, resolveDriver, type MeDriver } from './driver-identity';
 import { DriverDutyEndDto, DriverDutyStartDto, DriverStartTripDto, DriverSyncQuery, DriverTripEventBatchDto, DriverTripListDto } from './driver.dto';
-import { applyToSnapshot, correctedTime, decide, isDriverEventType, licenceValid, onlineCommandFresh, storedKind, withinStartWindow, type Decision, type TripSnapshot } from './driver-rules';
+import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
+import { applyToSnapshot, correctedTime, decide, effectiveTime, isDriverEventType, licenceValid, onlineCommandFresh, storedKind, withinStartWindow, type Decision, type Fix, type TripSnapshot } from './driver-rules';
 
 type Db = Prisma.TransactionClient;
 const H = 3_600_000;
@@ -80,13 +81,18 @@ type DutyRow = Prisma.TransportDriverDutyGetPayload<{ include: { object: { selec
  */
 @Injectable()
 export class DriverApiService {
+  /** Security review M2: event batches per driver login per minute (Valkey window; in-process fallback). */
+  private readonly eventLimiter: FixedWindowLimiter;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly redis: RedisService,
     private readonly live: TripLiveService,
     private readonly notifications: TransportNotificationsService,
-  ) {}
+  ) {
+    this.eventLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:driver:events', L.eventBatchesPerMinute, 60_000);
+  }
 
   // ───────────────────────────── Identity and duty ─────────────────────────────
 
@@ -229,7 +235,7 @@ export class DriverApiService {
     const seen = await this.prisma.transportTripEvent.findFirst({ where: { tripId: id, clientEventId: dto.clientEventId }, select: { kind: true, outcome: true, tripId: true } });
     if (seen && seen.tripId === id) {
       if (seen.kind !== 'STARTED') throw err(422, 'IDEMPOTENCY_KEY_REUSED', 'This clientEventId was already used for another event');
-      return { outcome: seen.outcome === 'ACCEPTED' ? 'STARTED' : 'ALREADY_STARTED', warnings: [], trip: await this.detail(ctx, me, (await this.one(ctx, me, id)) ?? m, false) };
+      return { outcome: seen.outcome === 'ACCEPTED' ? 'STARTED' : 'ALREADY_STARTED', warnings: [], trip: await this.detail(ctx, me, (await this.one(ctx, me, id)) ?? m, true) };
     }
     if (!onlineCommandFresh(dto.occurredAt, now)) throw conflict('STALE_COMMAND', 'Starting a trip needs a live connection; it is never sent later from the offline queue');
     if (!licenceValid(me.licenseExpiry, now)) throw conflict('DRIVER_DOCUMENTS_EXPIRED', 'Your driving licence has expired; contact your dispatcher');
@@ -260,7 +266,8 @@ export class DriverApiService {
     const warnings: string[] = [];
     const fix = await this.fix(m.pt.objectId);
     if (!fix || now - fix.at.getTime() > L.telemetryFreshMs) warnings.push('TELEMETRY_STALE');
-    return { outcome: 'STARTED', warnings, trip: await this.detail(ctx, me, (await this.one(ctx, me, id))!, false) };
+    // L4: the manifest returned with the start is a manifest read like GET /trips/:id (audited, deduplicated per hour).
+    return { outcome: 'STARTED', warnings, trip: await this.detail(ctx, me, (await this.one(ctx, me, id))!, true) };
   }
 
   /** GPS or the dispatcher started it already: 200 ALREADY_STARTED, recorded once for the clientEventId (idempotent). */
@@ -270,7 +277,7 @@ export class DriverApiService {
     } catch (e) {
       if (!isUniqueViolation(e)) throw e;
     }
-    return { outcome: 'ALREADY_STARTED', warnings: [], trip: await this.detail(ctx, me, m, false) };
+    return { outcome: 'ALREADY_STARTED', warnings: [], trip: await this.detail(ctx, me, m, true) };
   }
 
   // ───────────────────────────── Events (offline-queueable) ─────────────────────────────
@@ -278,6 +285,9 @@ export class DriverApiService {
   async events(ctx: AuthContext, id: string, dto: DriverTripEventBatchDto): Promise<DriverTripEventBatchResult> {
     const now = Date.now();
     const me = await resolveDriver(this.prisma, ctx);
+    // M2: a bounded number of batches per driver login (the queue treats 429 as "try again later").
+    const rate = await this.eventLimiter.hit(ctx.userId, now);
+    if (!rate.allowed) throw new HttpException({ message: `Too many event batches; try again in ${rate.retryAfterSec} s`, code: 'RATE_LIMITED', retryAfterSec: rate.retryAfterSec }, HttpStatus.TOO_MANY_REQUESTS);
     let m = await this.one(ctx, me, id, true);
     let assigned = true;
     if (!m) {
@@ -300,20 +310,50 @@ export class DriverApiService {
       const prior = await tx.transportTripEvent.findMany({ where: { tripId: id, clientEventId: { in: events.map((e) => e.clientEventId) } }, select: { clientEventId: true, kind: true, outcome: true, data: true, clientSeq: true, receivedAt: true } });
       const seenIds = new Map(prior.map((p) => [p.clientEventId!, p]));
       const mySeqs = await tx.transportTripEvent.findMany({ where: { tripId: id, actorDriverId: me.id, source: 'DRIVER_APP' }, select: { clientSeq: true } });
+      // M1 / M2: earlier accepted driver arrivals (was the GPS able to confirm them?) and delay reports of this trip.
+      const history = await tx.transportTripEvent.findMany({
+        where: { tripId: id, source: 'DRIVER_APP', outcome: 'ACCEPTED', kind: { in: ['ARRIVED', 'REPORT_DELAY'] } },
+        select: { tripId: true, kind: true, stopSeq: true, data: true, occurredAt: true, receivedAt: true },
+      });
+      const points = assigned ? await this.stopPoints(tt, pt) : new Map<string, StopPoint>();
+      const actualStart = pt.actualStart ?? null;
       const snap: TripSnapshot = {
         plannedTripStatus: (tt.cancelledAt ? 'CANCELLED' : pt.status) as PlannedTripStatus,
         publishedAt: tt.publishedAt,
         acknowledgedAt: tt.acknowledgedAt,
         assigned: assigned && pt.driverId === me.id,
         plannedStart: pt.plannedStart,
-        stops: pt.stops.map((s) => ({ id: s.id, seq: s.seq, status: s.status as PlannedStopStatus, plannedArrival: s.plannedArrival, actualArrival: s.actualArrival, lat: s.lat, lng: s.lng, radiusM: s.radiusM })),
+        actualStart,
+        stops: pt.stops.map((s) => ({
+          id: s.id,
+          seq: s.seq,
+          status: s.status as PlannedStopStatus,
+          plannedArrival: s.plannedArrival,
+          actualArrival: s.actualArrival,
+          lat: s.lat,
+          lng: s.lng,
+          radiusM: s.radiusM,
+          hidden: pointHiddenOf(points.get(s.id)) !== null,
+          ...arrivalCheck(s, history.filter((h) => h.tripId === id)),
+        })),
         passengers: tt.passengers.map((p) => ({ id: p.id, status: p.status as TransportPassengerStatus, pickupSeq: p.pickupSeq, dropSeq: p.dropSeq })),
         lastSeq: maxSeq(mySeqs.map((r) => r.clientSeq)),
         fix,
+        track: assigned ? await this.track(tx, pt.objectId, events, actualStart, now) : [],
+        lastDelayAt: latest(history.filter((h) => h.tripId === id && h.kind === 'REPORT_DELAY').map((h) => h.receivedAt)),
       };
       const accepted: string[] = [];
+      const reviews: string[] = [];
+      const inBatch = new Map<string, string>();
       for (const e of events) {
         const base = { clientEventId: e.clientEventId, seq: e.seq };
+        // L6: the same clientEventId twice in one batch (the DTO refuses it; kept as a guard) is evaluated once.
+        const twin = inBatch.get(e.clientEventId);
+        if (twin !== undefined) {
+          if (twin !== kindOf(e.type)) results.set(e.clientEventId, { ...base, outcome: 'REJECTED', code: 'IDEMPOTENCY_KEY_REUSED', receivedAt: null });
+          continue;
+        }
+        inBatch.set(e.clientEventId, kindOf(e.type));
         const prev = seenIds.get(e.clientEventId);
         if (prev) {
           const reused = prev.kind !== kindOf(e.type);
@@ -328,18 +368,22 @@ export class DriverApiService {
           results.set(e.clientEventId, { ...base, outcome: 'RETRY', code: d.code as DriverErrorCode, receivedAt: null });
           continue;
         }
-        const at = t?.at ?? new Date(now);
+        // M1: stop / passenger events are stored at a time no earlier than the trip's actual start.
+        const at = t ? effectiveTime(snap, e.type, t.at) : new Date(now);
+        const setsArrival = d.outcome === 'ACCEPTED' && d.effect.kind === 'ARRIVE' && !d.effect.confirmOnly;
         if (d.outcome === 'ACCEPTED') {
           const ok = await this.apply(tx, ctx, tt, pt, d, at, now);
           if (ok === 'DUPLICATE') d = { outcome: 'DUPLICATE', code: 'ALREADY_RECORDED' };
           else if (ok !== true) d = { outcome: 'REJECTED', code: ok };
           else {
-            applyToSnapshot(snap, d.effect, at);
+            applyToSnapshot(snap, d.effect, at, { now, verified: d.verified ?? null });
             accepted.push(`${e.seq}:${e.type}`);
             if (d.effect.kind !== 'OVERLAY' || d.effect.overlay === 'BREAKDOWN') changed = true;
           }
         }
         const p = e.passengerTripId ? snap.passengers.find((x) => x.id === e.passengerTripId) : undefined;
+        const stopSeq = e.stopSeq ?? (p && d.effect?.kind === 'OUTCOME' ? (d.effect.to === 'DROPPED' ? p.dropSeq : p.pickupSeq) : null);
+        const review = d.outcome === 'ACCEPTED' ? d.review : undefined;
         const row = await this.store(tx, ctx, me, tt, {
           kind: kindOf(e.type),
           outcome: d.outcome as Exclude<DriverTripEventOutcome, 'RETRY'>,
@@ -347,31 +391,83 @@ export class DriverApiService {
           seq: e.seq,
           occurredAt: at,
           passengerTripId: p ? p.id : null,
-          stopSeq: e.stopSeq ?? (p && d.effect?.kind === 'OUTCOME' ? (d.effect.to === 'DROPPED' ? p.dropSeq : p.pickupSeq) : null),
+          stopSeq,
           reasonCode: e.reasonCode ?? null,
           data: {
             ...(d.outcome === 'ACCEPTED' ? {} : { code: d.code }),
             deviceOccurredAt: e.occurredAt,
             clockOffsetMs: t?.offset ?? null,
+            ...(t && at.getTime() !== t.at.getTime() ? { clampedToStart: true } : {}),
             ...(e.etaMin !== undefined ? { etaMin: e.etaMin } : {}),
             ...(e.note && (e.type === 'REPORT_DELAY' || e.type === 'REPORT_BREAKDOWN') ? { note: e.note } : {}),
             ...(d.verified ? { verified: d.verified } : {}),
+            ...(setsArrival && d.outcome === 'ACCEPTED' ? { setArrival: true } : {}),
+            ...(review ? { review } : {}),
             ...(d.effect?.kind === 'OUTCOME' && d.effect.earlyDrop ? { earlyDrop: true } : {}),
             ...(e.passengerTripId && !p ? { unknownPassengerTripId: e.passengerTripId } : {}),
           },
         });
+        if (review && p) {
+          // M1 (d): a no-show after an arrival the vehicle GPS did not confirm goes to the dispatcher's trip timeline.
+          await tx.transportTripEvent.create({
+            data: {
+              tripId: tt.id,
+              providerCompanyId: tt.providerCompanyId,
+              customerCompanyId: tt.customerCompanyId,
+              passengerTripId: p.id,
+              kind: 'NO_SHOW_REVIEW',
+              actorType: 'SYSTEM',
+              actorUserId: null,
+              actorDriverId: me.id,
+              source: 'SYSTEM',
+              outcome: 'ACCEPTED',
+              stopSeq,
+              occurredAt: new Date(now),
+              data: { code: review, noShowClientEventId: e.clientEventId } as Prisma.InputJsonValue,
+            },
+          });
+          reviews.push(p.id);
+        }
         snap.lastSeq = Math.max(snap.lastSeq ?? 0, e.seq);
         results.set(e.clientEventId, { ...base, outcome: d.outcome, code: (d.code ?? null) as DriverTripEventResult['code'], verified: d.verified ?? null, receivedAt: row.receivedAt.toISOString() });
       }
-      if (accepted.length) await this.audit.record(ctx, { action: 'UPDATE', entity: TRIP_ENTITY, entityId: id, details: { driverEvents: accepted, source: 'DRIVER_APP' } }, tx);
+      if (accepted.length) await this.audit.record(ctx, { action: 'UPDATE', entity: TRIP_ENTITY, entityId: id, details: { driverEvents: accepted, source: 'DRIVER_APP', ...(reviews.length ? { noShowReview: reviews } : {}) } }, tx);
     });
     if (changed) await this.live.changed(ctx.companyId, [m.pt.id]);
     const after = assigned ? await this.one(ctx, me, id, true) : null;
     return {
       results: dto.events.map((e) => results.get(e.clientEventId)!),
-      trip: after ? await this.detail(ctx, me, after, false) : null,
+      // L4: the manifest returned with the batch is audited like GET /trips/:id.
+      trip: after ? await this.detail(ctx, me, after, true) : null,
       serverTime: new Date().toISOString(),
     };
+  }
+
+  /**
+   * M1: the vehicle's stored track (Position rows, valid fixes) within arrivalFixMaxSkewMs of each ARRIVED of the batch,
+   * at most 50 fixes per arrival. Never before the trip's start nor in the future.
+   */
+  private async track(db: Pick<Db, 'position'>, objectId: string, events: DriverTripEventBatchDto['events'], actualStart: Date | null, now: number): Promise<Fix[]> {
+    const times = [
+      ...new Set(
+        events
+          .filter((e) => e.type === 'ARRIVED')
+          .map((e) => correctedTime(e.occurredAt, e.clockOffsetMs)?.at.getTime())
+          .filter((t): t is number => typeof t === 'number' && Number.isFinite(t))
+          .map((t) => Math.max(t, actualStart?.getTime() ?? t)),
+      ),
+    ].slice(0, 10);
+    const out: Fix[] = [];
+    for (const t of times) {
+      const rows = await db.position.findMany({
+        where: { objectId, valid: true, fixTime: { gte: new Date(t - L.arrivalFixMaxSkewMs), lte: new Date(Math.min(now, t + L.arrivalFixMaxSkewMs)) } },
+        select: { objectId: true, lat: true, lng: true, fixTime: true },
+        orderBy: { fixTime: 'asc' },
+        take: 50,
+      });
+      for (const r of rows) if (r.objectId === objectId) out.push({ lat: r.lat, lng: r.lng, at: r.fixTime });
+    }
+    return out;
   }
 
   /** Apply an accepted effect (compare-and-set; a lost race turns into DUPLICATE or a rejection code). */
@@ -418,17 +514,27 @@ export class DriverApiService {
   async sync(ctx: AuthContext, q: DriverSyncQuery): Promise<DriverSyncDto> {
     const me = await resolveDriver(this.prisma, ctx);
     const now = Date.now();
-    const since = q.since ? new Date(q.since) : null;
+    // L5: the cursor reaches back at most maxPastHours (an older or bogus cursor reads like a first sync of 48 h).
+    const parsed = q.since ? Date.parse(q.since) : NaN;
+    const since = Number.isFinite(parsed) ? new Date(Math.max(parsed, now - L.maxPastHours * H)) : null;
+    // Trips (at most 200, window-bounded) with a clamped cursor: all of them, as on a first sync.
+    const tripsSince = since && since.getTime() === parsed ? since : null;
     const mine = await this.mine(ctx, me, this.window(now), true);
     const trips: DriverSyncDto['trips'] = [];
     for (const { tt, pt } of mine) {
       const stamp = Math.max(tt.updatedAt.getTime(), pt.updatedAt.getTime(), ...tt.passengers.map((p) => p.updatedAt.getTime()));
-      if (since && stamp <= since.getTime()) continue;
+      if (tripsSince && stamp <= tripsSince.getTime()) continue;
       const cancelled = !!tt.cancelledAt || pt.status === 'CANCELLED';
       trips.push({ id: tt.id, version: tt.version, change: cancelled ? 'REVOKED' : 'UPSERT', plannedTripStatus: pt.status as PlannedTripStatus });
     }
     // Reassigned away from me since the cursor: REVOKED (the app wipes the cached manifest).
-    const moved = await this.prisma.transportTripEvent.findMany({ where: { providerCompanyId: ctx.companyId, kind: 'DRIVER_CHANGED', receivedAt: { gt: since ?? new Date(now - L.windowFutureHours * H) } }, select: { tripId: true, data: true, providerCompanyId: true } });
+    // L5: only reassignments away from me (filtered in SQL on data->>'from'), bounded.
+    const moved = await this.prisma.transportTripEvent.findMany({
+      where: { providerCompanyId: ctx.companyId, kind: 'DRIVER_CHANGED', receivedAt: { gt: since ?? new Date(now - L.windowFutureHours * H) }, data: { path: ['from'], equals: me.id } },
+      select: { tripId: true, data: true, providerCompanyId: true },
+      orderBy: { receivedAt: 'desc' },
+      take: L.syncMaxEvents,
+    });
     const current = new Set(mine.map((m) => m.tt.id));
     for (const ev of moved) {
       if (ev.providerCompanyId !== ctx.companyId || (ev.data as { from?: unknown } | null)?.from !== me.id || current.has(ev.tripId) || trips.some((t) => t.id === ev.tripId)) continue;
@@ -437,7 +543,7 @@ export class DriverApiService {
     const evs = await this.prisma.transportTripEvent.findMany({
       where: { providerCompanyId: ctx.companyId, actorDriverId: me.id, source: 'DRIVER_APP', receivedAt: { gt: since ?? new Date(now - L.maxPastHours * H) } },
       select: { tripId: true, clientEventId: true, clientSeq: true, outcome: true, data: true, receivedAt: true, actorDriverId: true },
-      take: 500,
+      take: L.syncMaxEvents,
     });
     return {
       // Overlap of 10 s: an event committed just after this read is sent again next time (the client is idempotent).
@@ -591,14 +697,15 @@ export class DriverApiService {
       // E3 M1 for the driver: a passenger's personal point only while its owner's routing consent is active, exact (the
       // driver navigates to it), with a neutral label; a company site as stored.
       const pv = points.get(s.id);
-      const pointHidden: DriverStopDto['pointHidden'] = hidden ? 'TRIP_CLOSED' : pv && !pv.visible ? 'CONSENT_REQUIRED' : null;
+      const pointHidden: DriverStopDto['pointHidden'] = hidden ? 'TRIP_CLOSED' : pointHiddenOf(pv);
       return {
         seq: s.seq,
         label: pointHidden ? null : pv ? (down.length && !up.length ? PERSONAL_STOP_NAME.DROP : PERSONAL_STOP_NAME.PICKUP) : s.name,
         lat: pointHidden ? null : s.lat,
         lng: pointHidden ? null : s.lng,
         pointHidden,
-        radiusM: s.radiusM,
+        // L2: no radius for a hidden point.
+        radiusM: pointHidden ? null : s.radiusM,
         plannedArrival: s.plannedArrival.toISOString(),
         actualArrival: s.actualArrival?.toISOString() ?? null,
         actualDeparture: s.actualDeparture?.toISOString() ?? null,
@@ -632,7 +739,7 @@ export class DriverApiService {
             allowedEvents: allowed,
           };
         });
-    if (auditRead && !hidden && passengers.length) await this.auditManifestRead(ctx, tt.id, passengers.length);
+    if (auditRead && !hidden && passengers.length) await this.auditManifestRead(ctx, tt.id, passengers.length, stops.filter((s) => points.has(s.id) && !pointHiddenOf(points.get(s.id))).length);
     return {
       ...summary(m, vehicles.get(pt.objectId) ?? null),
       stops: stopDtos,
@@ -666,7 +773,13 @@ export class DriverApiService {
     const owners = new Map(pt.stops.map((s) => [s.id, stopOwner(s, seats, !!pt.routeId)]));
     const known = [...new Set([...owners.values()].filter((o): o is string => !!o && o !== 'UNKNOWN'))];
     const consents = known.length ? await activeRoutingConsents(this.prisma, known) : new Set<string>();
-    for (const [stopId, owner] of owners) if (owner) out.set(stopId, { owner, visible: owner !== 'UNKNOWN' && consents.has(owner) });
+    for (const [stopId, owner] of owners) {
+      if (!owner) continue;
+      // L7: the seats linking this stop (and the owner's seats on this trip); all of them cancelled → the point is hidden.
+      const relevant = tt.passengers.filter((p) => p.pickupStopId === stopId || p.dropStopId === stopId || (owner !== 'UNKNOWN' && byId.get(p.bookingId)?.profileId === owner));
+      const cancelled = relevant.length > 0 && relevant.every((p) => p.status === 'CANCELLED');
+      out.set(stopId, { owner, visible: owner !== 'UNKNOWN' && consents.has(owner), cancelled });
+    }
     return out;
   }
 
@@ -690,13 +803,23 @@ export class DriverApiService {
     return [...latest.values()];
   }
 
-  /** "Audit sensitive access" (plan §10, 05 §6.1): a driver's manifest read, at most once per trip and hour. */
-  private async auditManifestRead(ctx: AuthContext, tripId: string, passengers: number): Promise<void> {
+  /**
+   * "Audit sensitive access" (plan §10, 05 §6.1): a driver's manifest read (GET /trips/:id, and the manifest returned by
+   * start / events), at most once per trip and hour. L4: when Valkey cannot deduplicate, the entry is written anyway
+   * (every read rather than none, like E3's recordPersonalAccess). `exactPoints` = personal points shown exactly.
+   */
+  private async auditManifestRead(ctx: AuthContext, tripId: string, passengers: number, exactPoints: number): Promise<void> {
+    let first = true;
     try {
-      const first = (await this.redis.client.set(`vt:etms:driver:manifest:${ctx.userId}:${tripId}`, '1', 'EX', 3600, 'NX')) === 'OK';
-      if (first) await this.audit.record(ctx, { action: 'ACCESS', entity: TRIP_ENTITY, entityId: tripId, details: { what: 'driver-manifest', passengers } });
+      first = (await this.redis.client.set(`vt:etms:driver:manifest:${ctx.userId}:${tripId}`, '1', 'EX', 3600, 'NX')) === 'OK';
     } catch {
-      /* best effort: never fail the read */
+      first = true; // Valkey down: no dedupe
+    }
+    if (!first) return;
+    try {
+      await this.audit.record(ctx, { action: 'ACCESS', entity: TRIP_ENTITY, entityId: tripId, details: { what: 'driver-manifest', passengers, exactPoints } });
+    } catch {
+      /* the audit store failing never fails the read */
     }
   }
 }
@@ -704,6 +827,36 @@ export class DriverApiService {
 interface StopPoint {
   owner: string;
   visible: boolean;
+  /** L7: every seat linking the stop is cancelled. */
+  cancelled: boolean;
+}
+
+/** Why a personal stop's point is hidden from the driver (null = shown; company sites are not personal stops). */
+function pointHiddenOf(pv: StopPoint | undefined): 'PASSENGER_CANCELLED' | 'CONSENT_REQUIRED' | null {
+  if (!pv) return null;
+  if (!pv.visible) return 'CONSENT_REQUIRED'; // the consent rule first (E3 M1); then L7
+  return pv.cancelled ? 'PASSENGER_CANCELLED' : null;
+}
+
+type ArrivalEvent = { kind: string; stopSeq: number | null; data: Prisma.JsonValue; occurredAt: Date; receivedAt: Date };
+
+/**
+ * M1: whether a reached stop's arrival came from a driver ARRIVED the vehicle GPS could not confirm (and when the server
+ * received it). The arrival-setting event is marked `setArrival`; rows stored before that are matched on the arrival time.
+ */
+function arrivalCheck(s: { seq: number; actualArrival: Date | null }, history: ArrivalEvent[]): { arrivalUnverified: boolean; arrivalReceivedAt: Date | null } {
+  if (!s.actualArrival) return { arrivalUnverified: false, arrivalReceivedAt: null };
+  const setter = history.find((h) => {
+    if (h.kind !== 'ARRIVED' || h.stopSeq !== s.seq) return false;
+    const d = (h.data ?? {}) as { setArrival?: unknown };
+    return d.setArrival === true || (d.setArrival === undefined && h.occurredAt.getTime() === s.actualArrival!.getTime());
+  });
+  const unverified = !!setter && (setter.data as { verified?: unknown } | null)?.verified === 'unverified_location';
+  return { arrivalUnverified: unverified, arrivalReceivedAt: unverified ? setter!.receivedAt : null };
+}
+
+function latest(ds: Date[]): Date | null {
+  return ds.length ? new Date(Math.max(...ds.map((d) => d.getTime()))) : null;
 }
 
 const DUTY_INCLUDE = { object: { select: { id: true, name: true, plateNumber: true } } } satisfies Prisma.TransportDriverDutyInclude;

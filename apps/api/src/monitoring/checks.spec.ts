@@ -99,6 +99,18 @@ describe('evaluateChecks', () => {
     expect(ids(healthy())).toEqual([]);
   });
 
+  it('E5 L3: transport notification relay lag → WARN after 5 min, CRITICAL after 30 min; backlog → WARN; off → nothing', () => {
+    const at = (relay: CheckInput['etmsRelay'], grace = false) => ids({ ...healthy(), etmsRelay: relay, startupGrace: grace });
+    expect(at(undefined)).toEqual([]);
+    expect(at(null)).toEqual([]); // Valkey unknown: the valkey.* checks report that
+    expect(at({ lastOkAt: NOW - 30_000, hwm: NOW - 5 * 60_000, full: false })).toEqual([]);
+    expect(at({ lastOkAt: NOW - 6 * 60_000, hwm: null, full: false })).toEqual(['pipeline.etms-notify-relay:WARN']);
+    expect(at({ lastOkAt: NOW - 31 * 60_000, hwm: null, full: false })).toEqual(['pipeline.etms-notify-relay:CRITICAL']);
+    expect(at({ lastOkAt: null, hwm: null, full: false })).toEqual(['pipeline.etms-notify-relay:WARN']);
+    expect(at({ lastOkAt: null, hwm: null, full: false }, true)).toEqual([]);
+    expect(at({ lastOkAt: NOW - 30_000, hwm: NOW - 3_600_000, full: true })).toEqual(['pipeline.etms-notify-relay-backlog:WARN']);
+  });
+
   it('data forwarding target failing for more than 5 minutes → WARN', () => {
     const relay = (failingMsAgo: number | null) => ({
       id: 't1', name: 'State backend', type: 'RAW_TCP', connected: 0, sessions: 3, bytes: 0, frames: 0, queued: 900, dropped: 4,

@@ -97,6 +97,11 @@ export const RedisKeys = {
   healthSuperAdminEmail: 'vt:health:sa-email',
   /** Pub/sub: `SystemHealthSummary` after each evaluation that changed something. */
   healthUpdates: 'vt:health:updates',
+  // ── ETMS notification relay (E5 security review L3) ──
+  /** Epoch ms of TransportTripEvent.receivedAt up to which the relay has created notifications. */
+  etmsNotifyHwm: 'vt:etms:notify:hwm',
+  /** JSON { at, hwm, full } of the relay's last completed pass (System Health: relay lag). */
+  etmsNotifyState: 'vt:etms:notify:state',
 } as const;
 
 export const DEFAULT_POSITIONS_STREAM_MAXLEN = 2_000_000;
