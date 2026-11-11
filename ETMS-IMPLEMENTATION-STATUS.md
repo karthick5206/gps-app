@@ -12,7 +12,8 @@ evidence in the phase log below.
 | Phase | Backend | Web | Mobile | QA | Security | Deployment |
 |---|---|---|---|---|---|---|
 | v1.8.1 / D6 (G1, G6, G8 web, G4 script) | Deployed | Deployed | Not started (G8 mobile on hold) | Passed | Passed | Deployed (2026-11-11 08:12 UTC, a393a2c) |
-| D6 v1.8.2 (G5) + v1.8.3 (G2+G3) | In review | Not started | Not started | In progress | In progress | Not started |
+| D6 v1.8.2 (G5) | Deployed | — | — | Passed | Passed | Deployed (2026-11-11 09:31 UTC, a92fa45) |
+| D6 v1.8.3 (G2+G3) | In review (fixes f42d076) | — | — | Passed with issues → re-check running | Passed with conditions (fixed) | Not started |
 | D6 v1.8.4 (G7-A), G8 mobile, G4 prod AOF | In progress (G7-A) | Not started | Not started | Not started | Not started | Blocked (owner public key; AOF window) |
 | E1a | Passed (merged 20a718d) | In progress | Not started | Not started | Not started | Not started |
 | E2 | Not started | Not started | Not started | Not started | Not started | Not started |
@@ -70,3 +71,13 @@ procedure (release branch → tag → main).
 - **2026-11-11 · E1a backend merged** (20a718d): agreements, `TransportServiceAgreement` migration, authorisation scope, module switch, role templates. API 1,308 / web 193 tests pass. The E1a web agent is running.
 - **2026-11-11 · E4:** compatibility review (doc 17) done. Optimiser service ported without Valhalla (pytest 18/18). RoutingProvider wrapper done (API 1,292), no behaviour change.
 - **2026-11-11 · D6:** v1.8.2 G5 (2ea2bda) and v1.8.3 G2+G3 (b798831) built, then merged on top of v1.8.1 (v1.8.3 includes v1.8.2). Tests: API 1,322 / 1,381. Independent QA and security reviews are running. G7-A is being built.
+- **2026-11-11 09:31 UTC · v1.8.2 deployed (a92fa45, tag v1.8.2).**
+  - Backup taken at 09:27 UTC.
+  - Health gate PASS 11/11; build check OK; no migrations.
+  - `vt:sessions:revoked` has 1 subscriber; no service restarts.
+  - Production smoke test: logout closes the live socket in 465 ms, and reconnecting with the revoked token is refused ("Session ended").
+  - QA: 100/100 revocation runs, isolation 20/21 (1 SKIP for missing test data). Security: PASS.
+  - `main` fast-forwarded to a92fa45.
+- **2026-11-11 · E1a:** QA FAIL (BUG-1 = Sec F2, BUG-2 = F8, two exit criteria missing) and Security PASS WITH CONDITIONS (F1 High, R-12). A fix branch `etms/e1a-secfix` is running; it also covers the isolation-matrix generator and the CI DB job. E1a won't deploy until a re-check passes.
+- **2026-11-11 · E2:** backend done (`20261115090000_etms_people`; 10k-row import in 4.0 s; 1,384 API tests) and web done (239 web tests). A gap round is running on `etms/e2-gaps`. QA and security follow once E1a's final version is merged.
+- **2026-11-11 · v1.8.4 (G7-A):** built (c7258fa): GPG to the public key only, uploads included, restore drill, systemd timer, freshness check. 83/83 drill tests. **Blocked: the owner's public key and fingerprint.**
