@@ -119,6 +119,17 @@ model Company {
   employeeTransportProfiles     EmployeeTransportProfile[]
   /// ETMS E2: versioned consent notices this company shows its passengers.
   transportConsentNotices       TransportConsentNotice[]
+  /// ETMS E3 (doc 15 §5): shifts, bookings, trips, passengers, events and dispatch change sets.
+  transportShifts               TransportShift[]
+  transportBookingsAsCustomer   TransportBooking[]          @relation("TransportBookingCustomer")
+  transportBookingsAsProvider   TransportBooking[]          @relation("TransportBookingProvider")
+  transportTripsAsProvider      TransportTrip[]             @relation("TransportTripProvider")
+  transportTripsAsCustomer      TransportTrip[]             @relation("TransportTripCustomer")
+  transportPassengersAsCustomer TransportTripPassenger[]    @relation("TransportPassengerCustomer")
+  transportPassengersAsProvider TransportTripPassenger[]    @relation("TransportPassengerProvider")
+  transportTripEventsAsProvider TransportTripEvent[]        @relation("TransportTripEventProvider")
+  transportTripEventsAsCustomer TransportTripEvent[]        @relation("TransportTripEventCustomer")
+  transportChangeSets           TransportChangeSet[]
 }
 
 model Branch {
@@ -911,11 +922,17 @@ model Poi {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company            Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch             Branch?                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch                    Branch?                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
   /// ETMS E2 (SetNull): passengers whose office site / default pickup stop is this place.
-  transportOfficeFor EmployeeTransportProfile[] @relation("TransportProfileOffice")
-  transportStopFor   EmployeeTransportProfile[] @relation("TransportProfileStop")
+  transportOfficeFor        EmployeeTransportProfile[] @relation("TransportProfileOffice")
+  transportStopFor          EmployeeTransportProfile[] @relation("TransportProfileStop")
+  /// ETMS E3 (SetNull): shift site, schedule stop, booking pickup / drop place, trip site.
+  transportShiftSiteFor     TransportShift[]           @relation("TransportShiftSite")
+  transportScheduleStopFor  TransportSchedule[]        @relation("TransportScheduleStop")
+  transportBookingPickupFor TransportBooking[]         @relation("TransportBookingPickup")
+  transportBookingDropFor   TransportBooking[]         @relation("TransportBookingDrop")
+  transportTripSiteFor      TransportTrip[]            @relation("TransportTripSite")
 
   @@index([companyId, isActive])
   @@index([companyId, lat, lng])
@@ -2752,11 +2769,18 @@ model RouteSchedule {
 }
 
 /// Driver + vehicle + route + planned start; holds a snapshot of the route so editing the route never alters it.
+/// ETMS (D2, migration planned_trip_origin): origin ROUTE (v1.8, routeId required) or ETMS (employee-transport run
+/// published by dispatch, routeId NULL, managed only through /api/transport/*). Raw SQL: CHECK origin ∈ (ROUTE, ETMS),
+/// CHECK origin = ETMS OR routeId IS NOT NULL, and the ETMS-scoped EXCLUDE constraints (btree_gist) against vehicle /
+/// driver double assignment among active ETMS trips.
 model PlannedTrip {
   id             String             @id @default(uuid()) @db.Uuid
   companyId      String             @db.Uuid
   branchId       String?            @db.Uuid
-  routeId        String             @db.Uuid
+  /// Null only for origin ETMS.
+  routeId        String?            @db.Uuid
+  /// ROUTE | ETMS.
+  origin         String             @default("ROUTE")
   scheduleId     String?            @db.Uuid
   objectId       String             @db.Uuid
   driverId       String?            @db.Uuid
@@ -2791,29 +2815,35 @@ model PlannedTrip {
   updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
   stops          PlannedTripStop[]
   events         PlannedTripEvent[]
+  /// ETMS E3 (D2): the business header of an employee-transport run (1:1; SetNull on the header side).
+  transportTrip  TransportTrip?
 
   @@unique([scheduleId, plannedStart])
   @@index([companyId, plannedStart])
   @@index([objectId, status])
   @@index([routeId, plannedStart])
+  @@index([driverId, plannedStart])
 }
 
 model PlannedTripStop {
-  id               String            @id @default(uuid()) @db.Uuid
-  tripId           String            @db.Uuid
-  trip             PlannedTrip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  id               String                   @id @default(uuid()) @db.Uuid
+  tripId           String                   @db.Uuid
+  trip             PlannedTrip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
   seq              Int
   name             String
   lat              Float
   lng              Float
   radiusM          Int
-  plannedArrival   DateTime          @db.Timestamptz(3)
-  plannedDeparture DateTime          @db.Timestamptz(3)
-  actualArrival    DateTime?         @db.Timestamptz(3)
-  actualDeparture  DateTime?         @db.Timestamptz(3)
-  status           PlannedStopStatus @default(PENDING)
+  plannedArrival   DateTime                 @db.Timestamptz(3)
+  plannedDeparture DateTime                 @db.Timestamptz(3)
+  actualArrival    DateTime?                @db.Timestamptz(3)
+  actualDeparture  DateTime?                @db.Timestamptz(3)
+  status           PlannedStopStatus        @default(PENDING)
   /// actualArrival − plannedArrival (s).
   delaySec         Int?
+  /// ETMS E3 (SetNull): passengers picked up / dropped at this stop (the seq snapshot survives a vehicle purge).
+  transportPickups TransportTripPassenger[] @relation("TransportPassengerPickupStop")
+  transportDrops   TransportTripPassenger[] @relation("TransportPassengerDropStop")
 
   @@unique([tripId, seq])
 }
@@ -2897,8 +2927,11 @@ model TransportServiceAgreement {
   createdAt                DateTime                 @default(now()) @db.Timestamptz(3)
   updatedAt                DateTime                 @updatedAt @db.Timestamptz(3)
 
-  provider Company @relation("TransportAgreementProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
-  customer Company @relation("TransportAgreementCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
+  provider Company            @relation("TransportAgreementProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
+  customer Company            @relation("TransportAgreementCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
+  /// ETMS E3 (SetNull): bookings / trips made under this agreement.
+  bookings TransportBooking[]
+  trips    TransportTrip[]
 
   @@index([providerCompanyId, status])
   @@index([customerCompanyId, status])
@@ -2951,6 +2984,9 @@ model EmployeeTransportProfile {
   officePoi   Poi?                       @relation("TransportProfileOffice", fields: [officePoiId], references: [id], onDelete: SetNull)
   defaultStop Poi?                       @relation("TransportProfileStop", fields: [defaultStopPoiId], references: [id], onDelete: SetNull)
   consents    EmployeeTransportConsent[]
+  /// ETMS E3: recurring commutes (composite FK, Cascade) and bookings (composite FK, Restrict: history kept).
+  schedules   TransportSchedule[]
+  bookings    TransportBooking[]
 
   @@unique([companyId, employeeCode])
   @@unique([id, companyId])
@@ -3028,4 +3064,357 @@ model TransportVehicleProfile {
   object TrackedObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
+}
+
+// ───────────────────────────── ETMS E3: schedules, bookings, trips (migration etms_bookings_trips, doc 15 §5) ─────────────────────────────
+// Raw SQL in the migration (Prisma cannot express it): CHECKs on every table below, the partial unique indexes
+// "TransportBooking_active_passenger_day_key" (no double booking) and "TransportTripPassenger_active_booking_key"
+// (one active seat per booking), and the GPS-is-never-proof-of-boarding CHECK on TransportTripPassenger.outcomeSource.
+
+/// IN = to the site (login), OUT = from the site (logout).
+enum TransportDirection {
+  IN
+  OUT
+}
+
+enum TransportPickupMode {
+  HOME
+  STOP
+}
+
+enum TransportExceptionKind {
+  SKIP
+  OVERRIDE
+}
+
+enum TransportBookingSource {
+  ADHOC
+  SCHEDULE
+}
+
+/// Booking lifecycle (doc 05 §3, 02 §5.2); VALIDATING is transient and never stored.
+enum TransportBookingStatus {
+  REQUESTED
+  PENDING_ASSIGNMENT
+  ASSIGNED
+  CONFIRMED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  WAITLISTED
+  FAILED
+}
+
+/// Per-passenger outcome on a trip (D2). Only the dispatcher (WEB) or the driver app (E5) sets BOARDED / NO_SHOW / DROPPED.
+enum TransportPassengerStatus {
+  PENDING
+  BOARDED
+  NO_SHOW
+  DROPPED
+  CANCELLED
+}
+
+enum TransportChangeSetStatus {
+  DRAFT
+  PUBLISHED
+  REJECTED
+}
+
+/// A login / logout shift of a corporate customer (customer-owned). companyId FK Restrict: a company purge walks it
+/// (schedules first: they reference it with Restrict). Raw SQL: CHECK minutes range / start <> end, overnight = (end <
+/// start), days within 0..6 and not empty.
+model TransportShift {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  /// Office site (Poi, OFFICE); same company checked in the service.
+  sitePoiId   String?  @db.Uuid
+  name        String
+  /// Local minutes after midnight (login).
+  startMin    Int
+  /// Local minutes after midnight (logout).
+  endMin      Int
+  overnight   Boolean
+  /// 0 = Sunday … 6 = Saturday (RouteSchedule.days convention).
+  days        Int[]
+  /// IANA zone; Company.timezone at creation (site time zone in E8).
+  timeZone    String
+  isActive    Boolean  @default(true)
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  company   Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sitePoi   Poi?                @relation("TransportShiftSite", fields: [sitePoiId], references: [id], onDelete: SetNull)
+  schedules TransportSchedule[]
+  bookings  TransportBooking[]
+  trips     TransportTrip[]
+
+  @@unique([companyId, name])
+  @@unique([id, companyId])
+  @@index([companyId, isActive])
+}
+
+/// Recurring commute of one passenger (customer-owned). companyId has no FK (logical key + composite FKs, row id
+/// first): profile Cascade, shift Restrict (archive shifts, never delete). Raw SQL: CHECK validity order, days within 0..6.
+model TransportSchedule {
+  id          String              @id @default(uuid()) @db.Uuid
+  companyId   String              @db.Uuid
+  profileId   String              @db.Uuid
+  shiftId     String              @db.Uuid
+  direction   TransportDirection
+  /// Subset of the shift's days (0 = Sunday … 6).
+  days        Int[]
+  pickupMode  TransportPickupMode
+  /// Required for STOP by the service (not a CHECK: the SetNull FK would break it during a purge, doc 15 §1.3).
+  stopPoiId   String?             @db.Uuid
+  validFrom   DateTime            @db.Date
+  validTo     DateTime?           @db.Date
+  isActive    Boolean             @default(true)
+  version     Int                 @default(1)
+  createdById String?             @db.Uuid
+  createdAt   DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @db.Timestamptz(3)
+
+  profile    EmployeeTransportProfile     @relation(fields: [profileId, companyId], references: [id, companyId], onDelete: Cascade)
+  shift      TransportShift               @relation(fields: [shiftId, companyId], references: [id, companyId], onDelete: Restrict)
+  stopPoi    Poi?                         @relation("TransportScheduleStop", fields: [stopPoiId], references: [id], onDelete: SetNull)
+  exceptions TransportScheduleException[]
+  bookings   TransportBooking[]
+
+  @@unique([id, companyId])
+  @@index([companyId, isActive])
+  @@index([profileId])
+  @@index([shiftId])
+}
+
+/// Skip / override of one service date of a schedule (customer-owned). Raw SQL: CHECK override present iff OVERRIDE.
+model TransportScheduleException {
+  id          String                 @id @default(uuid()) @db.Uuid
+  companyId   String                 @db.Uuid
+  scheduleId  String                 @db.Uuid
+  /// Service date in the shift's time zone.
+  date        DateTime               @db.Date
+  kind        TransportExceptionKind
+  /// OVERRIDE: { timeMin?: number, pickup?: { lat, lng, label? } }.
+  override    Json?
+  reason      String?
+  createdById String?                @db.Uuid
+  createdAt   DateTime               @default(now()) @db.Timestamptz(3)
+
+  schedule TransportSchedule @relation(fields: [scheduleId, companyId], references: [id, companyId], onDelete: Cascade)
+
+  @@unique([scheduleId, date])
+}
+
+/// One passenger leg on one service date (dual-keyed; the customer owns the data). providerCompanyId / agreementId are
+/// SetNull (a provider purge keeps the booking). Raw SQL: CHECK window order, passengerCount >= 1, version >= 1, point
+/// pairs, ASSIGNED / CONFIRMED need both points, SCHEDULE-only scheduleId; partial unique (profileId, serviceDate,
+/// direction) over active statuses (no double booking).
+model TransportBooking {
+  id                String                 @id @default(uuid()) @db.Uuid
+  customerCompanyId String                 @db.Uuid
+  /// Null until assignment; = customer in R1 (corporate-managed).
+  providerCompanyId String?                @db.Uuid
+  agreementId       String?                @db.Uuid
+  profileId         String                 @db.Uuid
+  scheduleId        String?                @db.Uuid
+  shiftId           String?                @db.Uuid
+  source            TransportBookingSource
+  serviceDate       DateTime               @db.Date
+  direction         TransportDirection
+  /// Snapshot of the shift / company zone.
+  timeZone          String
+  pickupLabel       String?
+  dropLabel         String?
+  /// Original points (never road-snapped); null = needs a location.
+  pickupLat         Float?
+  pickupLng         Float?
+  dropLat           Float?
+  dropLng           Float?
+  pickupPoiId       String?                @db.Uuid
+  dropPoiId         String?                @db.Uuid
+  windowStart       DateTime               @db.Timestamptz(3)
+  windowEnd         DateTime               @db.Timestamptz(3)
+  passengerCount    Int                    @default(1)
+  status            TransportBookingStatus @default(REQUESTED)
+  statusReason      String?
+  cutoffAt          DateTime?              @db.Timestamptz(3)
+  version           Int                    @default(1)
+  idempotencyKey    String?
+  idempotencyHash   String?
+  note              String?
+  createdById       String?                @db.Uuid
+  createdAt         DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime               @updatedAt @db.Timestamptz(3)
+
+  customer   Company                    @relation("TransportBookingCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
+  provider   Company?                   @relation("TransportBookingProvider", fields: [providerCompanyId], references: [id], onDelete: SetNull)
+  agreement  TransportServiceAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  profile    EmployeeTransportProfile   @relation(fields: [profileId, customerCompanyId], references: [id, companyId], onDelete: Restrict)
+  schedule   TransportSchedule?         @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  shift      TransportShift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  pickupPoi  Poi?                       @relation("TransportBookingPickup", fields: [pickupPoiId], references: [id], onDelete: SetNull)
+  dropPoi    Poi?                       @relation("TransportBookingDrop", fields: [dropPoiId], references: [id], onDelete: SetNull)
+  passengers TransportTripPassenger[]
+
+  @@unique([customerCompanyId, idempotencyKey])
+  @@unique([scheduleId, serviceDate, direction])
+  @@unique([id, customerCompanyId])
+  @@index([customerCompanyId, serviceDate, status])
+  @@index([providerCompanyId, serviceDate])
+  @@index([profileId, serviceDate])
+  @@index([agreementId])
+}
+
+/// Business header of an ETMS run, 1:1 on a PlannedTrip (D2): no status enum (PlannedTrip.status stays the only
+/// telematics state), milestones as timestamps, no objectId / driverId (read from PlannedTrip; doc 15 §1.2). Raw SQL:
+/// CHECK seatCapacity >= 1, 0 <= occupiedSeats <= seatCapacity (capacity backstop), version >= 1, acknowledged => published.
+model TransportTrip {
+  id                   String             @id @default(uuid()) @db.Uuid
+  plannedTripId        String?            @unique @db.Uuid
+  /// Operator (= PlannedTrip.companyId).
+  providerCompanyId    String             @db.Uuid
+  /// Always set on write; null only after a customer purge (L5 default).
+  customerCompanyId    String?            @db.Uuid
+  agreementId          String?            @db.Uuid
+  serviceDate          DateTime           @db.Date
+  direction            TransportDirection
+  shiftId              String?            @db.Uuid
+  sitePoiId            String?            @db.Uuid
+  /// Snapshot of TransportVehicleProfile.seats at publish / vehicle change.
+  seatCapacity         Int
+  /// Sum of the active passengers' seats (changed only under SELECT … FOR UPDATE on this row).
+  occupiedSeats        Int                @default(0)
+  version              Int                @default(1)
+  publishedAt          DateTime?          @db.Timestamptz(3)
+  acknowledgedAt       DateTime?          @db.Timestamptz(3)
+  acknowledgedByUserId String?            @db.Uuid
+  /// WEB | DRIVER_APP.
+  acknowledgedSource   String?
+  interruptedAt        DateTime?          @db.Timestamptz(3)
+  interruptReason      String?
+  cancelledAt          DateTime?          @db.Timestamptz(3)
+  cancelReason         String?
+  createdById          String?            @db.Uuid
+  createdAt            DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime           @updatedAt @db.Timestamptz(3)
+
+  plannedTrip PlannedTrip?               @relation(fields: [plannedTripId], references: [id], onDelete: SetNull)
+  provider    Company                    @relation("TransportTripProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
+  customer    Company?                   @relation("TransportTripCustomer", fields: [customerCompanyId], references: [id], onDelete: SetNull)
+  agreement   TransportServiceAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  shift       TransportShift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  sitePoi     Poi?                       @relation("TransportTripSite", fields: [sitePoiId], references: [id], onDelete: SetNull)
+  passengers  TransportTripPassenger[]
+  events      TransportTripEvent[]
+
+  @@unique([id, providerCompanyId])
+  @@index([providerCompanyId, serviceDate])
+  @@index([customerCompanyId, serviceDate])
+  @@index([agreementId])
+}
+
+/// One booking on one trip (dual-keyed; customer data on an operator trip). Composite FKs, row id first: trip Cascade,
+/// booking Restrict. Raw SQL: CHECK seats >= 1, pickupSeq < dropSeq, timestamps per outcome, and outcomeSource in (WEB,
+/// DRIVER_APP) for BOARDED / DROPPED / NO_SHOW (vehicle GPS is never proof of boarding); partial unique bookingId over
+/// non-cancelled rows (one active seat per booking).
+model TransportTripPassenger {
+  id                String                   @id @default(uuid()) @db.Uuid
+  tripId            String                   @db.Uuid
+  bookingId         String                   @db.Uuid
+  customerCompanyId String                   @db.Uuid
+  providerCompanyId String                   @db.Uuid
+  pickupStopId      String?                  @db.Uuid
+  dropStopId        String?                  @db.Uuid
+  pickupSeq         Int
+  dropSeq           Int
+  seats             Int                      @default(1)
+  status            TransportPassengerStatus @default(PENDING)
+  boardedAt         DateTime?                @db.Timestamptz(3)
+  droppedAt         DateTime?                @db.Timestamptz(3)
+  noShowAt          DateTime?                @db.Timestamptz(3)
+  noShowReason      String?
+  cancelReason      String?
+  /// WEB (dispatcher) | DRIVER_APP (E5). Never GPS / SYSTEM.
+  outcomeSource     String?
+  outcomeByUserId   String?                  @db.Uuid
+  outcomeAt         DateTime?                @db.Timestamptz(3)
+  createdAt         DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime                 @updatedAt @db.Timestamptz(3)
+
+  trip       TransportTrip        @relation(fields: [tripId, providerCompanyId], references: [id, providerCompanyId], onDelete: Cascade)
+  booking    TransportBooking     @relation(fields: [bookingId, customerCompanyId], references: [id, customerCompanyId], onDelete: Restrict)
+  customer   Company              @relation("TransportPassengerCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
+  provider   Company              @relation("TransportPassengerProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
+  pickupStop PlannedTripStop?     @relation("TransportPassengerPickupStop", fields: [pickupStopId], references: [id], onDelete: SetNull)
+  dropStop   PlannedTripStop?     @relation("TransportPassengerDropStop", fields: [dropStopId], references: [id], onDelete: SetNull)
+  events     TransportTripEvent[]
+
+  @@index([tripId, status])
+  @@index([bookingId])
+  @@index([customerCompanyId, createdAt])
+}
+
+/// Append-only human / app events of a trip (no update / delete path in the code). Trip-level events survive a customer
+/// purge with customerCompanyId NULL; passenger events go with the passenger row (Cascade). Raw SQL: CHECK source,
+/// outcome, lat/lng pair.
+model TransportTripEvent {
+  id                String   @id @default(uuid()) @db.Uuid
+  tripId            String   @db.Uuid
+  providerCompanyId String   @db.Uuid
+  customerCompanyId String?  @db.Uuid
+  passengerTripId   String?  @db.Uuid
+  /// PUBLISHED | CHANGED | CANCELLED | INTERRUPTED | STARTED | COMPLETED | ACKNOWLEDGE | ARRIVED | BOARDED | NO_SHOW |
+  /// DROPPED | PASSENGER_ADDED | PASSENGER_REMOVED … (open set, doc 05 §3.8).
+  kind              String
+  /// DISPATCHER | DRIVER | PASSENGER | SYSTEM.
+  actorType         String
+  actorUserId       String?  @db.Uuid
+  actorDriverId     String?  @db.Uuid
+  /// WEB | DRIVER_APP | PASSENGER_APP | SYSTEM.
+  source            String
+  /// ACCEPTED | DUPLICATE | REJECTED | LATE.
+  outcome           String   @default("ACCEPTED")
+  clientEventId     String?  @db.Uuid
+  clientSeq         Int?
+  stopSeq           Int?
+  reasonCode        String?
+  occurredAt        DateTime @db.Timestamptz(3)
+  receivedAt        DateTime @default(now()) @db.Timestamptz(3)
+  lat               Float?
+  lng               Float?
+  data              Json     @default("{}")
+
+  trip      TransportTrip           @relation(fields: [tripId, providerCompanyId], references: [id, providerCompanyId], onDelete: Cascade)
+  provider  Company                 @relation("TransportTripEventProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
+  customer  Company?                @relation("TransportTripEventCustomer", fields: [customerCompanyId], references: [id], onDelete: SetNull)
+  passenger TransportTripPassenger? @relation(fields: [passengerTripId], references: [id], onDelete: Cascade)
+
+  @@unique([tripId, clientEventId])
+  @@index([tripId, occurredAt])
+  @@index([providerCompanyId, receivedAt])
+}
+
+/// Dispatch change-set ledger (operator-owned): idempotency of publish (unique company + key, request hash) and
+/// server-held repeat-to-date drafts. Raw SQL: CHECK PUBLISHED => key and publishedAt.
+model TransportChangeSet {
+  id             String                   @id @default(uuid()) @db.Uuid
+  companyId      String                   @db.Uuid
+  idempotencyKey String?
+  requestHash    String?
+  status         TransportChangeSetStatus
+  serviceDate    DateTime                 @db.Date
+  direction      TransportDirection
+  /// DRAFT only (contains pickup points, PD H); cleared on publish.
+  draft          Json?
+  /// ChangeSetResult (ids and versions only) for replay.
+  result         Json?
+  createdById    String?                  @db.Uuid
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(3)
+  publishedAt    DateTime?                @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, serviceDate, status])
 }
