@@ -7,6 +7,8 @@ Wants=network-online.target
 User=veetrax
 WorkingDirectory=/opt/veetrax/app/apps/api
 EnvironmentFile=/opt/veetrax/app/apps/api/.env
+# E4 security review L9: the optimiser token is for veetrax-api and veetrax-routing-worker only.
+InaccessiblePaths=-/etc/veetrax/optimizer.env
 ExecStart=/usr/bin/node --max-old-space-size=512 dist/gateway/main.js
 Restart=always
 RestartSec=5

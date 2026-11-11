@@ -21,6 +21,9 @@ import type { PlanInputs } from './optimize-problem';
 
 const URL_ = process.env.ROUTING_OPTIMIZER_TEST_URL ?? '';
 const TOKEN = process.env.ROUTING_OPTIMIZER_TEST_TOKEN ?? '';
+if (process.env.OPTIMIZER_INT_REQUIRED === '1' && !(URL_ && TOKEN)) {
+  throw new Error('OPTIMIZER_INT_REQUIRED=1 but ROUTING_OPTIMIZER_TEST_URL / ROUTING_OPTIMIZER_TEST_TOKEN are not set');
+}
 const d = URL_ && TOKEN ? describe : describe.skip;
 
 const client = (url = URL_) => new OptimizerClient(readOptimizerConfig({ ETMS_ROUTING: 'on', OPTIMIZER_URL: url, OPTIMIZER_TOKEN: TOKEN }));
