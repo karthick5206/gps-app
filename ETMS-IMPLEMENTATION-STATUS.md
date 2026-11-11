@@ -18,7 +18,7 @@ evidence in the phase log below.
 | E1a | Deployed | Deployed | Not started | Passed | Passed | Deployed (2026-11-11 10:10 UTC, v1.9.0) |
 | E2 | Deployed | Deployed | Not started | Passed | Passed (conditions: L5 + reset residual before real data) | Deployed (2026-11-11 11:57 UTC, v1.10.0, ETMS off) |
 | E3 | Deployed | Deployed | Moved to E5 (WP 3.6/3.7 delivered with E5) | Passed (re-check + WP 3.8 gate 1,606/0) | Passed (conditions: owner L5 / L7 / withdrawal policy before real data) | Deployed (2026-11-11 15:23 UTC, v1.11.0, ETMS off) |
-| E4 | In progress (review doc 17 done; optimiser + RoutingProvider on etms/e4-optimizer) | Not started | Not started | Not started | Not started | Not started |
+| E4 | Deployed, switched off (`ETMS_ROUTING`): contracts, schema, matrix, solver v2 + corpus 36/36, worker/jobs, plans + publish via E3 | Deployed (route planner, behind flag) | — | Passed (re-check e83eb68: web optimise → review → publish at 390/1280 px) | Passed (re-check + deltas; condition: GraphHopper staging load test R-5 before enabling) | Deployed (2026-11-11 19:46 UTC, v1.13.0, off). **Enabling needs C3 benchmarks B1–B6 + R-5 load test + Python 3.14 on the host** |
 | E5 | Deployed (driver API, notifications, relay) | Deployed (dispatcher review events) | Passed in source; **needs a native build** (EAS/O12 approval) + device/Maestro tests | Passed (re-check) | Passed (re-check + delta 2589b58) | Deployed (2026-11-11 16:08 UTC, v1.12.0, ETMS off). Not in scope yet: SOS WP 5.4, self-booking WP 5.3, sim/Maestro WP 5.5 |
 | E6 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E7 | Not started | Not started | Not started | Not started | Not started | Not started |
@@ -113,3 +113,27 @@ procedure (release branch → tag → main).
   - Post-deploy: 0 pending migrations; no errors in API / notifier logs; driver, passenger and transport routes 401 without a token; relay running (`vt:etms:notify:hwm` advancing, lag 5 min as designed).
   - `main` fast-forwarded to 2589b58.
   - Open: mobile native build (screenshot blocking, passenger/driver shells) needs owner approval for EAS + the O12 `eas.json` URL change; device / Maestro tests; Expo web route/session gaps (web only); I1 stray test PDF; I2 bookings stay ASSIGNED after trip completion (blocks erasure until the window ends).
+- **2026-11-11 19:46 UTC · v1.13.0 = E4 deployed, route optimisation OFF (d848537, tag v1.13.0).**
+  - Built by 7 parallel agents: E4-A contracts + schema (P4/P6), E4-B matrix (P7), E4-C solver v2 + corpus (WP 4.3/4.4), E4-D P1 evidence + P2 + salvage, E4-E worker/jobs (P8), E4-F plans + publish via E3 (P9), E4-G web planner (P10). P0: bundle of the old routing branches at `D:\Vibhav\routing-branch-bundle\` (owner to copy off-disk).
+  - Reviews:
+    - Security PASS WITH CONDITIONS (M1 deadlock, L1–L9) → fixes → re-check (R1–R4) → fixes → delta PASS; D1 fixed by the Lead with a failing-first DB test.
+    - QA FAIL on the web planner (B1–B3, mock hid request mismatches) → fixes + DTO contract tests → re-check PASS WITH ISSUES → closed.
+  - Final checks on d848537 / 48200ee:
+    - API 4,390, DB suites under the CI regex 83/83, `migrate diff` empty.
+    - E3 gate `--http` 2,648 / 0 failed.
+    - Web 312, mobile 52, optimiser 103 + corpus 36/36.
+    - Real-process E2E 100/102 (remaining 2 closed), web Playwright against the real API optimise → review → publish at 390/1280 px.
+  - Before deploy: backup 19:43 UTC (ok); `.env` saved to `/root/api.env.before-v1.13.0`; TransportTrip had 0 rows.
+  - Release: migrations `routing_engine_v2`, `etms_planning_links`, `e4_security_hardening` applied; health gate PASS 11/11.
+  - Post-deploy:
+    - 0 pending migrations; 3 E4 triggers present.
+    - API now binds 127.0.0.1:4000 only (unreachable from outside; Caddy unaffected).
+    - Plan / job / capabilities routes 401 without a token; routing worker inactive.
+    - Gateway restarted clean, 0 spooled positions, tracker reconnected. The "cache connection lost" line came from the old process during shutdown.
+  - `main` fast-forwarded to d848537.
+  - **Before enabling `ETMS_ROUTING` in production:**
+    - C3 staging benchmarks B1–B6 and the GraphHopper load test with tracking traffic (R-5).
+    - Python 3.14 + the optimiser venv on the host (R-9).
+    - Installer run to add the two hardened units.
+    - Owner review of the R2 schema decisions.
+    - An escort field in the data model if escort rules are wanted.
