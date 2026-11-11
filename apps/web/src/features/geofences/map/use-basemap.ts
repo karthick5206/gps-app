@@ -8,7 +8,7 @@ import { themeStore } from '@/features/theme/theme-store';
 export const DEFAULT_CENTER: [number, number] = [80.24, 13.07];
 
 /**
- * Creates a MapLibre map with the themed basemap (same OpenFreeMap styles as the live map) once per mount,
+ * Creates a MapLibre map with the themed basemap (same self-hosted styles as the live map) once per mount,
  * swaps the style when the theme changes (callers re-add their layers on `style.load`), and keeps it sized.
  * Returns null until created; `unsupported` when WebGL is unavailable.
  */

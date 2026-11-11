@@ -78,6 +78,9 @@ export interface PublicLiveShareDto {
   trail: [number, number, number][];
   /** Today's distance (km), when known. */
   todayKm: number | null;
-  /** Delivery ETA link: destination, remaining road distance / time and route, or the arrival time. */
+  /**
+   * Delivery ETA link: destination, remaining road distance / time and route, or the arrival time.
+   * `route`: [lng, lat] pairs (GeoJSON order), as RoutingService.route returns them; draw them without swapping.
+   */
   eta: { destination: LiveShareDestination; distanceKm: number | null; minutes: number | null; route: [number, number][]; arrivedAt: string | null; byRoad: boolean } | null;
 }

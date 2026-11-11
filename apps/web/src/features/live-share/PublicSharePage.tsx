@@ -1,4 +1,4 @@
-import { BRAND_FOOTER, LIVE_SHARE_POLL_SEC, OPENFREEMAP, STATUS_META, type PublicLiveShareDto } from '@veetracer/shared';
+import { BRAND_FOOTER, LIVE_SHARE_POLL_SEC, STATUS_META, type PublicLiveShareDto } from '@veetracer/shared';
 import type { GeoJSONSource, Map as MlMap, Marker } from 'maplibre-gl';
 import { BatteryIcon, ZapIcon, ClockIcon, GaugeIcon, KeyRoundIcon, LocateFixedIcon, MapPinIcon, NavigationIcon, RouteIcon, SatelliteIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
@@ -7,6 +7,8 @@ import { useParams } from 'react-router';
 import { Logo } from '@/components/logo';
 import { formatDuration } from '@/lib/format';
 import { statusColor } from '@/lib/status-tokens';
+import { shareStyleUrl } from '@/features/live/map/map-style';
+import { etaRouteFeatures } from './share-eta';
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const dayClock = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -101,7 +103,7 @@ export function PublicSharePage() {
     void loadMapLibre().then((maplibregl) => {
       if (cancelled || !mapEl.current) return;
       lib.current = maplibregl;
-      const m = new maplibregl.Map({ container: mapEl.current, style: OPENFREEMAP.standard, center: [78.9, 20.6], zoom: 4, attributionControl: { compact: true } });
+      const m = new maplibregl.Map({ container: mapEl.current, style: shareStyleUrl(), center: [78.9, 20.6], zoom: 4, attributionControl: { compact: true } });
       m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
       m.on('load', () => {
         m.addSource('trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -136,7 +138,7 @@ export function PublicSharePage() {
       const src = m.getSource('trail') as GeoJSONSource | undefined;
       src?.setData({ type: 'FeatureCollection', features: data.trail.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: data.trail.map(([, la, ln]) => [ln, la]) } }] : [] });
       const eta = data.eta;
-      (m.getSource('route') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: eta && eta.route.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: eta.route.map(([la, ln]) => [ln, la]) } }] : [] });
+      (m.getSource('route') as GeoJSONSource | undefined)?.setData(etaRouteFeatures(eta?.route));
       if (eta && !destMarker.current) destMarker.current = new maplibregl.Marker({ color: '#f59e0b' }).setLngLat([eta.destination.lng, eta.destination.lat]).addTo(m);
       if (lat === null || lng === null) return;
       if (!marker.current) marker.current = new maplibregl.Marker({ element: markerElement(), rotationAlignment: 'map' }).setLngLat([lng, lat]).addTo(m);
