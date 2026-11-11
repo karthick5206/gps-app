@@ -100,6 +100,21 @@ export const CANDIDATE_ETA_BUDGET_MS = 2_500;
  */
 const PLACE_MATCH_M = 25;
 
+/**
+ * E4 (doc 17 §7 P9, R-7): another ETMS module (the route planner) publishing a change set it built through THIS path:
+ * the same parse, scope checks, locks, consent checks, capacity / overlap rules, ledger and idempotency as a dispatcher's
+ * change set. The source never writes PlannedTrip / TransportTrip itself; it only records its own links and state in
+ * `inTransaction`, which runs inside the publish transaction after every change (a throw rolls back everything).
+ */
+export interface PublishSource {
+  /** Bound into the idempotency request hash (the same key for another plan / version is IDEMPOTENCY_KEY_REUSED). */
+  ref: Record<string, unknown>;
+  /** Inside the publish transaction, after every change and the ledger row: the source's links / state. */
+  inTransaction(tx: Prisma.TransactionClient, result: ChangeSetResult): Promise<void>;
+  /** Set by the publish: 1-based number of the change being prepared / applied when it failed (0 = none of them). */
+  failedAt?: number;
+}
+
 /** The planned stop a TRIP candidate's road ETA starts from. */
 interface FromStop {
   seq: number;
@@ -182,7 +197,7 @@ export class DispatchService {
   }
 
   /** L1: ACCESS-audit a read that returned passengers' personal points (de-duplicated per user, view and day). */
-  recordPersonalAccess(ctx: AuthContext, view: 'board' | 'trip' | 'candidates', profileIds: string[], precise: boolean, extra: Record<string, unknown> = {}): Promise<void> {
+  recordPersonalAccess(ctx: AuthContext, view: 'board' | 'trip' | 'candidates' | 'plan', profileIds: string[], precise: boolean, extra: Record<string, unknown> = {}): Promise<void> {
     return recordPersonalAccess(this.audit, this.redis, ctx, view, profileIds, precise, extra);
   }
 
@@ -494,6 +509,17 @@ export class DispatchService {
     return changeSetDetail(this.prisma, ctx, id, toChangeSetSummary, await this.scopedObjectIds(ctx));
   }
 
+  /**
+   * E4 (doc 17 P9): publish a change set built by the route planner exactly like a dispatcher's (parse, throttle,
+   * Idempotency-Key, scope, locks, consent, capacity, ledger). `source.inTransaction` links the result to the plan.
+   */
+  async publishPrepared(ctx: AuthContext, input: DispatchChangeSetInput, rawKey: string | undefined, source: PublishSource): Promise<Replayable<ChangeSetResult>> {
+    const key = idempotencyKey(rawKey);
+    const parsed: DispatchChangeSetInput = { serviceDate: serviceDate(input.serviceDate), direction: input.direction, changes: parseChangeOps(input.changes as unknown[]), expectedVersions: input.expectedVersions ?? {}, reason: input.reason };
+    await this.throttle(this.changeSetLimiter, ctx, 'change sets');
+    return this.publishWithKey(ctx, parsed, key, null, null, source);
+  }
+
   /** Publish a server-held DRAFT (repeat-to-date): validated again exactly like a fresh change set. */
   async publishDraft(ctx: AuthContext, id: string, rawKey: string | undefined): Promise<Replayable<ChangeSetResult>> {
     const key = idempotencyKey(rawKey);
@@ -586,8 +612,8 @@ export class DispatchService {
     if (!(await this.visibleDrafts(ctx, [row], await this.scopedObjectIds(ctx))).length) throw notFound();
   }
 
-  private async publishWithKey(ctx: AuthContext, input: DispatchChangeSetInput, key: string, draftId: string | null, draftCreatedAt: Date | null = null): Promise<Replayable<ChangeSetResult>> {
-    const hash = requestHash({ ...input, draftId });
+  private async publishWithKey(ctx: AuthContext, input: DispatchChangeSetInput, key: string, draftId: string | null, draftCreatedAt: Date | null = null, source?: PublishSource): Promise<Replayable<ChangeSetResult>> {
+    const hash = requestHash({ ...input, draftId, ...(source ? { source: source.ref } : {}) });
     const prior = await this.prisma.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key } });
     if (prior) {
       // L3: a key replays only for the user who used it (another user's key is a reuse, never their result).
@@ -595,7 +621,7 @@ export class DispatchService {
       if (prior.status === 'PUBLISHED' && prior.result) return { value: prior.result as unknown as ChangeSetResult, replay: true };
     }
     try {
-      const { result, plannedTripIds, toRoute } = await this.apply(ctx, input, key, hash, draftId, draftCreatedAt);
+      const { result, plannedTripIds, toRoute } = await this.apply(ctx, input, key, hash, draftId, draftCreatedAt, source);
       await this.live.changed(ctx.companyId, plannedTripIds);
       // QA B3 (02 §5.4): publish never waits for routing; road paths are added after the commit.
       this.routeInBackground(ctx.companyId, toRoute);
@@ -611,13 +637,14 @@ export class DispatchService {
   }
 
   /** Prepare the CREATE_TRIP ops (route snapshot or ad-hoc stops + optional road path) before taking any lock. */
-  private async prepareTrips(ctx: AuthContext, input: DispatchChangeSetInput, asOf: Date | null = null): Promise<Map<string, PreparedTrip>> {
+  private async prepareTrips(ctx: AuthContext, input: DispatchChangeSetInput, asOf: Date | null = null, source?: PublishSource): Promise<Map<string, PreparedTrip>> {
     const out = new Map<string, PreparedTrip>();
     // Stops that claim a company place: the place must be the company's and the point at it (else it is a personal point).
     const poiIds = [...new Set(input.changes.flatMap((o) => (o.op === 'CREATE_TRIP' && o.stops ? o.stops.flatMap((s) => (s.point.poiId ? [s.point.poiId] : [])) : [])))];
     const places = new Map((poiIds.length ? await this.prisma.poi.findMany({ where: { id: { in: poiIds }, companyId: ctx.companyId }, select: { id: true, lat: true, lng: true, createdAt: true } }) : []).map((p) => [p.id, p]));
-    for (const op of input.changes) {
+    for (const [i, op] of input.changes.entries()) {
       if (op.op !== 'CREATE_TRIP') continue;
+      if (source) source.failedAt = i + 1;
       const startMs = Date.parse(op.plannedStart);
       let p: PreparedTrip;
       if (op.routeId) {
@@ -659,6 +686,7 @@ export class DispatchService {
       if (p.plannedStart.getTime() < day - 36 * 60 * MIN || p.plannedStart.getTime() > day + 60 * 60 * MIN) throw invalid('The trip start must be on (or next to) the service date');
       out.set(op.tempId, p);
     }
+    if (source) source.failedAt = 0;
     return out;
   }
 
@@ -725,9 +753,9 @@ export class DispatchService {
    * trips FOR UPDATE + expectedVersion, then each change in order with its rule checks; finally versions, audit and the
    * TransportChangeSet ledger row. The DB constraints (partial uniques, capacity CHECK, ETMS EXCLUDE) back every check.
    */
-  private async apply(ctx: AuthContext, input: DispatchChangeSetInput, key: string, hash: string, draftId: string | null, draftCreatedAt: Date | null = null): Promise<{ result: ChangeSetResult; plannedTripIds: string[]; toRoute: string[] }> {
+  private async apply(ctx: AuthContext, input: DispatchChangeSetInput, key: string, hash: string, draftId: string | null, draftCreatedAt: Date | null = null, source?: PublishSource): Promise<{ result: ChangeSetResult; plannedTripIds: string[]; toRoute: string[] }> {
     const ops = input.changes;
-    const prepared = await this.prepareTrips(ctx, input, draftCreatedAt);
+    const prepared = await this.prepareTrips(ctx, input, draftCreatedAt, source);
     const { newObjectIds, newDriverIds, vehicleById, removedRows, existingTripIds, visibleTrips } = await this.assertChangeSetScope(ctx, ops);
     for (const id of existingTripIds) {
       if (input.expectedVersions?.[id] === undefined) throw invalid(`expectedVersions must give the version of trip ${id}`);
@@ -795,6 +823,7 @@ export class DispatchService {
 
         for (const [i, op] of ops.entries()) {
           const n = i + 1;
+          if (source) source.failedAt = n;
           switch (op.op) {
             case 'CREATE_TRIP': {
               const p = prepared.get(op.tempId)!;
@@ -1004,6 +1033,7 @@ export class DispatchService {
             }
           }
         }
+        if (source) source.failedAt = 0;
 
         // ADD_STOP: the old path no longer runs through every stop: cleared now (never a stale one), re-routed after commit.
         for (const s of state.values()) {
@@ -1034,6 +1064,8 @@ export class DispatchService {
           : await tx.transportChangeSet.create({ data: { id: changeSetId, companyId: ctx.companyId, idempotencyKey: key, requestHash: hash, status: 'PUBLISHED', serviceDate: dateOnly(input.serviceDate), direction: input.direction, createdById: ctx.userId, publishedAt: now } });
         result.changeSetId = ledger.id;
         await tx.transportChangeSet.update({ where: { id: ledger.id }, data: { result: result as unknown as Prisma.InputJsonValue } });
+        // E4: the source (a route plan) records its links / state in the same transaction (R-7: it never writes trips).
+        if (source) await source.inTransaction(tx, result);
         return { result, plannedTripIds: [...state.values()].map((s) => s.plannedTripId), toRoute: routed };
       },
       { timeout: 30_000, maxWait: 10_000 },

@@ -63,7 +63,7 @@ export async function recordPersonalAccess(
   audit: Pick<AuditService, 'record'>,
   redis: Pick<RedisService, 'client'> | null | undefined,
   ctx: AuthContext,
-  view: 'board' | 'trip' | 'candidates',
+  view: 'board' | 'trip' | 'candidates' | 'plan',
   profileIds: string[],
   precise: boolean,
   extra: Record<string, unknown> = {},

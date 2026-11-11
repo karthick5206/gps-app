@@ -45,6 +45,12 @@ import { MeBookingCancelService } from '../driver/me-booking-cancel.service';
 import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Target } from './isolation-matrix';
 import { MemoryStore } from './memory-store';
+import { RoutePlansController } from '../planning/plans.controller';
+import { RoutePlansService } from '../planning/plans.service';
+import { E4_RESOURCES, e4Ids, seedE4 } from './isolation-matrix-e4';
+
+// E4 route plans are hidden (404) unless ETMS_ROUTING=on; the matrix runs them switched on (the off case: isolation-matrix-e4.spec.ts).
+process.env.ETMS_ROUTING = 'on';
 
 // ───────────────────────────── Route discovery (generic completeness guard) ─────────────────────────────
 
@@ -198,8 +204,18 @@ function controllersFor(prisma: Obj): Controllers {
     vehicles: new TransportVehiclesController(fleet),
     driverLogin: new DriverLoginController(fleet),
     e3: e3Controllers(prisma, audit, redis, people),
+    e4: e4Controllers(prisma, audit, redis),
     e5: e5Controllers(prisma, audit, redis, people),
   };
+}
+
+/** E4 controllers on the same store: the E3 publish path (routing off), the road engine unavailable. */
+function e4Controllers(prisma: Obj, audit: AuditService, redis: object) {
+  const plannedTrips = new PlannedTripsService(prisma as never, audit, { invalidate: async () => undefined } as never);
+  const routing = { enabled: false, route: async () => null, routeVia: async () => null };
+  const dispatch = new DispatchService(prisma as never, audit, routing as never, new TripLiveService(prisma as never, redis as never, plannedTrips), redis as never);
+  const provider = { routeVia: async () => ({ ok: false, degraded: 'ENGINE_DISABLED', message: 'off' }) };
+  return { plans: new RoutePlansController(new RoutePlansService(prisma as never, audit, dispatch, provider as never)) };
 }
 
 /** E5 controllers on the same store (no live cache, no stream: Redis a no-op). */
@@ -454,6 +470,18 @@ describe('ETMS isolation matrix: route × role × ownership', () => {
       const e5 = seedE5(w.store, world, { party: w.party.driver, other: w.other.driver }, w.roleId);
       const ids = e5Ids(e5, own);
       const target: Target = { id: ids.trip, version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA', ids: w.ids, e5: { ids, world: e5 } };
+      entry.prepare?.(w.store, target);
+      const res = await run(route, entry, caller(role, w), target, w.controllers);
+      expect(res.status).toBe(expected);
+      if (res.status === 200) entry.verify?.(res.result, role, own, target);
+      return;
+    }
+    if (entry.resource && (E4_RESOURCES as readonly string[]).includes(entry.resource)) {
+      const w = await buildE2App();
+      const e3 = seedE3(w.store, { party: { passenger: w.party.passenger, vehicle: w.party.vehicle, driver: w.party.driver }, other: { passenger: w.other.passenger, vehicle: w.other.vehicle, driver: w.other.driver } });
+      const e4 = seedE4(w.store, e3);
+      const ids = e4Ids(e4, own);
+      const target: Target = { id: ids.plan, version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA', ids: w.ids, e4: { ids, world: e4 } };
       entry.prepare?.(w.store, target);
       const res = await run(route, entry, caller(role, w), target, w.controllers);
       expect(res.status).toBe(expected);
@@ -1048,5 +1076,176 @@ describe('ETMS isolation matrix (E3 security re-check N3 / N4 / N5)', () => {
       expect((detail.changes[0] as { stops: unknown[] }).stops[0]).toMatchObject({ point: null, label: null });
       expect(JSON.stringify(detail)).not.toContain('Secret Lane');
     }
+  });
+});
+
+// ───────────────────────────── E4 route plans: leaks, consent, branch scope, publish (doc 17 P9) ─────────────────────────────
+
+async function e4World() {
+  const w = await e3World();
+  const plans = seedE4(w.store, w.world);
+  return { ...w, plans };
+}
+const errorOf = async (p: Promise<unknown>) => p.then(() => null, (e: HttpException) => ({ status: e.getStatus(), body: e.getResponse() as { code?: string; routes?: { assignmentId: string; code: string }[] } }));
+
+describe('ETMS isolation matrix (E4): route plans leak checks', () => {
+  it('ETMS_ROUTING off (the default): every plan route is a 404, also for the admin', async () => {
+    const w = await e4World();
+    process.env.ETMS_ROUTING = 'off';
+    try {
+      for (const r of ROUTES.filter((x) => x.key.includes('transport/route-plans'))) {
+        const entry = byRoute.get(r.key)!;
+        const target: Target = { id: w.plans.party.plan, version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA', e4: { ids: w.plans.party, world: w.plans } };
+        for (const role of ['customerAdmin', 'customerDispatcher', 'fleetUser'] as const) expect([r.key, role, (await run(r, entry, caller(role, w), target, w.controllers)).status]).toEqual([r.key, role, 404]);
+      }
+    } finally {
+      process.env.ETMS_ROUTING = 'on';
+    }
+  });
+
+  it('detail: points exact for the admin, 4 decimals for the branch dispatcher; ACCESS-audited; compare carries no points', async () => {
+    const w = await e4World();
+    const admin = await w.controllers.e4.plans.get(caller('customerAdmin', w), w.plans.party.plan);
+    expect(admin.stops.find((s) => s.stopKind === 'PICKUP')).toMatchObject({ lat: 13.061234, lng: 80.241234, pointHidden: null, name: 'Home' });
+    const disp = await w.controllers.e4.plans.get(caller('customerDispatcher', w), w.plans.party.plan);
+    expect(disp.stops.find((s) => s.stopKind === 'PICKUP')).toMatchObject({ lat: 13.0612, lng: 80.2412 });
+    expect(disp.assignments[0].geometry!.coordinates[0]).toEqual([80.2412, 13.0612]);
+    expect(w.store.table('auditLog').some((a) => a.action === 'ACCESS' && (a.changes as { view?: string }).view === 'plan')).toBe(true);
+    const cmp = await w.controllers.e4.plans.compare(caller('customerAdmin', w), { ids: `${w.plans.party.plan},${w.plans.party.plan2}` });
+    expect(cmp.plans.map((p) => p.passengers)).toEqual([1, 1]);
+    expect(JSON.stringify(cmp)).not.toMatch(/13\.06|80\.24|Home/);
+    // Cross-company: another company's plan in the compare set is a 404 (never its metrics).
+    expect(await codeOf(w.controllers.e4.plans.compare(caller('customerAdmin', w), { ids: `${w.plans.party.plan},${w.plans.other.plan}` }))).toBe('NOT_FOUND');
+  });
+
+  it('consent withdrawn: the home stop loses its point and the route its geometry; publish is refused per route and writes nothing', async () => {
+    const w = await e4World();
+    w.consent(false, 'WEB');
+    const plan = await w.controllers.e4.plans.get(caller('customerAdmin', w), w.plans.party.plan);
+    expect(plan.stops.find((s) => s.stopKind === 'PICKUP')).toMatchObject({ lat: null, lng: null, snappedLat: null, pointHidden: 'CONSENT_REQUIRED', name: 'Passenger pickup' });
+    expect(plan.assignments[0].geometry).toBeNull();
+    expect(JSON.stringify(plan)).not.toMatch(/13\.0612|80\.2412|Home/);
+    const trips = w.store.table('transportTrip').length;
+    const err = await errorOf(w.controllers.e4.plans.publish(caller('customerAdmin', w), w.plans.party.plan, { expectedVersion: 1 }, `k-${randomUUID()}`));
+    expect(err).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE', routes: [{ assignmentId: w.plans.party.assignment, code: 'CONSENT_REQUIRED' }] } });
+    expect(w.store.table('transportTrip').length).toBe(trips);
+    expect(w.store.table('routePlan').find((p) => p.id === w.plans.party.plan)).toMatchObject({ status: 'DRAFT', version: 1 });
+  });
+
+  it('branch scope: another branch passenger on the dispatcher plan is anonymous, cannot be moved and blocks publish', async () => {
+    const w = await e4World();
+    const x = w.store.insert('employeeTransportProfile', { companyId: 'custA', employeeCode: 'X7', displayName: 'Passenger X7', branchId: 'brA9' }).id as string;
+    w.store.insert('employeeTransportConsent', { companyId: 'custA', profileId: x, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: true, channel: 'WEB', occurredAt: new Date() });
+    const base = w.store.table('transportBooking').find((b) => b.id === w.plans.party.booking)!;
+    const xb = w.store.insert('transportBooking', { ...base, id: undefined, profileId: x, pickupLat: 13.0701, pickupLng: 80.2301 }).id as string;
+    const pickup = w.store.table('routePlanStop').find((s) => s.id === w.plans.party.pickupStop)!;
+    w.store.insert('routePlanStop', { ...pickup, id: undefined, ref: 'x7-p', bookingId: xb, profileId: x, lat: 13.0701, lng: 80.2301, sequence: 1, etaS: 900 });
+    const drop = w.store.table('routePlanStop').find((s) => s.id === w.plans.party.dropStop)!;
+    Object.assign(drop, { sequence: 3 });
+    w.store.insert('routePlanStop', { ...drop, id: undefined, ref: 'x7-d', bookingId: xb, sequence: 2 });
+    const disp = caller('customerDispatcher', w);
+    const plan = await w.controllers.e4.plans.get(disp, w.plans.party.plan);
+    const foreign = plan.stops.find((s) => s.pointHidden === 'OUT_OF_SCOPE')!;
+    expect(foreign).toMatchObject({ lat: null, bookingId: null, profileId: null });
+    expect(JSON.stringify(plan)).not.toMatch(new RegExp(`${xb}|${x}|13\\.0701|x7-p`));
+    expect(plan.assignments[0].geometry).toBeNull();
+    expect(await codeOf(w.controllers.e4.plans.movePassenger(disp, w.plans.party.plan, { expectedVersion: 1, bookingId: xb, toAssignmentId: null }))).toBe('NOT_FOUND');
+    const err = await errorOf(w.controllers.e4.plans.publish(disp, w.plans.party.plan, { expectedVersion: 1 }, `k-${randomUUID()}`));
+    expect(err).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE', routes: [{ code: 'NOT_FOUND' }] } });
+    // The whole-company admin sees every point.
+    const adminPlan = await w.controllers.e4.plans.get(caller('customerAdmin', w), w.plans.party.plan);
+    expect(adminPlan.stops.filter((s) => s.pointHidden)).toEqual([]);
+  });
+
+  it('publish: ordinary E3 trip linked to the plan, plan read-only afterwards, same key replays, another key is refused', async () => {
+    const w = await e4World();
+    const admin = caller('customerAdmin', w);
+    const k = `k-${randomUUID()}`;
+    const r = await w.controllers.e4.plans.publish(admin, w.plans.party.plan, { expectedVersion: 1 }, k);
+    expect(r).toMatchObject({ planId: w.plans.party.plan, version: 2, trips: [{ assignmentId: w.plans.party.assignment }] });
+    const trip = w.store.table('transportTrip').find((t) => t.id === r.trips[0].transportTripId)!;
+    expect(trip).toMatchObject({ routePlanId: w.plans.party.plan, routeAssignmentId: w.plans.party.assignment, occupiedSeats: 1, customerCompanyId: 'custA' });
+    expect(w.store.table('plannedTrip').find((p) => p.id === trip.plannedTripId)).toMatchObject({ origin: 'ETMS', objectId: w.plans.party.vehicle });
+    expect(w.store.table('transportBooking').find((b) => b.id === w.plans.party.booking)).toMatchObject({ status: 'ASSIGNED' });
+    expect(w.store.table('transportChangeSet').find((c) => c.id === r.changeSetId)).toMatchObject({ status: 'PUBLISHED', idempotencyKey: k });
+    // The E3 trip detail sees it like any dispatcher trip.
+    expect((await w.controllers.e3.trips.get(admin, trip.id as string)).passengers).toHaveLength(1);
+    // Read-only now; a replay answers the same trips; another key is refused.
+    const detail = await w.controllers.e4.plans.get(admin, w.plans.party.plan);
+    expect(detail).toMatchObject({ status: 'PUBLISHED', editable: false });
+    expect(detail.assignments[0]).toMatchObject({ transportTripId: trip.id, plannedTripId: trip.plannedTripId });
+    expect(await codeOf(w.controllers.e4.plans.updateStop(admin, w.plans.party.plan, w.plans.party.pickupStop, { expectedVersion: 2, pinned: true }))).toBe('PLAN_NOT_EDITABLE');
+    const replay = await w.controllers.e4.plans.publish(admin, w.plans.party.plan, { expectedVersion: 1 }, k);
+    expect(replay.trips).toEqual(r.trips);
+    expect(w.store.table('transportTrip').filter((t) => t.routePlanId === w.plans.party.plan)).toHaveLength(1);
+    expect(await codeOf(w.controllers.e4.plans.publish(admin, w.plans.party.plan, { expectedVersion: 2 }, `k-${randomUUID()}`))).toBe('PLAN_NOT_EDITABLE');
+    // The second plan over the same (now seated) booking cannot publish it again.
+    const again = await errorOf(w.controllers.e4.plans.publish(admin, w.plans.party.plan2, { expectedVersion: 1 }, `k-${randomUUID()}`));
+    expect(again).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE', routes: [{ code: 'INVALID_STATE' }] } });
+    // Audit: CHANGE entry for the plan and the E3 trip entries.
+    expect(w.store.table('auditLog').some((a) => a.entity === 'RoutePlan' && (a.changes as { published?: boolean }).published)).toBe(true);
+    expect(w.store.table('auditLog').some((a) => a.entity === 'TransportTrip' && a.action === 'CREATE')).toBe(true);
+  });
+
+  it('partial failure: when one route cannot be published nothing is, and the error names that route', async () => {
+    const w = await e4World();
+    const admin = caller('customerAdmin', w);
+    // Second route on a vehicle that is already busy at that time.
+    const busy = w.store.insert('trackedObject', { companyId: 'custA', branchId: 'brA1', type: 'VEHICLE', name: 'Busy van', plateNumber: null, isActive: true }).id as string;
+    w.store.insert('transportVehicleProfile', { objectId: busy, companyId: 'custA', seats: 4, wheelchairSpaces: 0 });
+    const start = Date.parse(`${w.plans.later}T02:00:00Z`);
+    w.store.insert('plannedTrip', { companyId: 'custA', branchId: 'brA1', routeId: null, origin: 'ROUTE', objectId: busy, routeName: 'School run', corridorM: 200, plannedStart: new Date(start - 3_600_000), plannedEnd: new Date(start + 3 * 3_600_000), status: 'SCHEDULED' });
+    const x = w.store.insert('employeeTransportProfile', { companyId: 'custA', employeeCode: 'Y1', displayName: 'Passenger Y1', branchId: 'brA1' }).id as string;
+    w.store.insert('employeeTransportConsent', { companyId: 'custA', profileId: x, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: true, channel: 'WEB', occurredAt: new Date() });
+    const base = w.store.table('transportBooking').find((b) => b.id === w.plans.party.booking)!;
+    const yb = w.store.insert('transportBooking', { ...base, id: undefined, profileId: x, pickupLat: 13.08, pickupLng: 80.22 }).id as string;
+    const a2 = w.store.insert('routeAssignment', { planId: w.plans.party.plan, companyId: 'custA', objectId: busy, driverId: null, vehicleLabel: 'Busy van', seq: 1, capacity: 4, startS: 0, endS: 1800, geometry: null, etaModel: null }).id as string;
+    const tpl = w.store.table('routePlanStop').find((s) => s.id === w.plans.party.pickupStop)!;
+    w.store.insert('routePlanStop', { ...tpl, id: undefined, ref: 'y1-p', assignmentId: a2, bookingId: yb, profileId: x, lat: 13.08, lng: 80.22, sequence: 0, etaS: 300 });
+    const dtpl = w.store.table('routePlanStop').find((s) => s.id === w.plans.party.dropStop)!;
+    w.store.insert('routePlanStop', { ...dtpl, id: undefined, ref: 'y1-d', assignmentId: a2, bookingId: yb, sequence: 1, etaS: 1500 });
+    const before = { trips: w.store.table('transportTrip').length, planned: w.store.table('plannedTrip').length };
+    const err = await errorOf(w.controllers.e4.plans.publish(admin, w.plans.party.plan, { expectedVersion: 1 }, `k-${randomUUID()}`));
+    expect(err).toMatchObject({ status: 409, body: { code: 'VEHICLE_BUSY', routes: [{ assignmentId: a2, code: 'VEHICLE_BUSY' }] } });
+    expect({ trips: w.store.table('transportTrip').length, planned: w.store.table('plannedTrip').length }).toEqual(before);
+    expect(w.store.table('transportBooking').find((b) => b.id === w.plans.party.booking)).toMatchObject({ status: 'PENDING_ASSIGNMENT' });
+    expect(w.store.table('routePlan').find((p) => p.id === w.plans.party.plan)).toMatchObject({ status: 'DRAFT', version: 1 });
+  });
+
+  it('manual edits: versioned, re-validated, locks and pins honoured, history without coordinates', async () => {
+    const w = await e4World();
+    const disp = caller('customerDispatcher', w);
+    const id = w.plans.party.plan;
+    const moved = await w.controllers.e4.plans.movePassenger(disp, id, { expectedVersion: 1, bookingId: w.plans.party.booking, toAssignmentId: null });
+    expect(moved.plan.version).toBe(2);
+    expect(moved.plan.unassigned).toBe(2);
+    expect(await codeOf(w.controllers.e4.plans.movePassenger(disp, id, { expectedVersion: 1, bookingId: w.plans.party.booking, toAssignmentId: w.plans.party.assignment }))).toBe('PLAN_STALE');
+    // Engine unavailable in the matrix: the re-ordered route loses its ETAs (null, never estimated) and says why.
+    const back = await w.controllers.e4.plans.movePassenger(disp, id, { expectedVersion: 2, bookingId: w.plans.party.booking, toAssignmentId: w.plans.party.assignment });
+    expect(back.degraded).toBe('ENGINE_DISABLED');
+    expect(back.plan.stops.filter((s) => s.assignmentId).map((s) => [s.stopKind, s.sequence, s.etaS])).toEqual([['PICKUP', 0, null], ['DROP', 1, null]]);
+    // Drop before pickup is refused.
+    expect(await codeOf(w.controllers.e4.plans.resequence(disp, id, { expectedVersion: 3, assignments: [{ assignmentId: w.plans.party.assignment, stopIds: [w.plans.party.dropStop, w.plans.party.pickupStop] }] }))).toBe('VALIDATION_FAILED');
+    // Pin, then the pinned stop cannot move; lock, then the route cannot change.
+    await w.controllers.e4.plans.updateStop(disp, id, w.plans.party.pickupStop, { expectedVersion: 3, pinned: true });
+    expect(await codeOf(w.controllers.e4.plans.movePassenger(disp, id, { expectedVersion: 4, bookingId: w.plans.party.booking, toAssignmentId: null }))).toBe('STOP_PINNED');
+    await w.controllers.e4.plans.updateStop(disp, id, w.plans.party.pickupStop, { expectedVersion: 4, pinned: false });
+    const locked = await w.controllers.e4.plans.updateAssignment(disp, id, w.plans.party.assignment, { expectedVersion: 5, locked: true });
+    expect(locked.plan.assignments[0].locked).toBe(true);
+    expect(await codeOf(w.controllers.e4.plans.movePassenger(disp, id, { expectedVersion: 6, bookingId: w.plans.party.booking, toAssignmentId: null }))).toBe('ROUTE_LOCKED');
+    // Vehicle change: only a vehicle of the caller's scope (another company's is a 404); capacity re-checked.
+    expect(await codeOf(w.controllers.e4.plans.updateAssignment(disp, id, w.plans.party.assignment, { expectedVersion: 6, locked: false, objectId: w.other.vehicle }))).toBe('NOT_FOUND');
+    const small = w.store.insert('trackedObject', { companyId: 'custA', branchId: 'brA1', type: 'VEHICLE', name: 'Tiny', plateNumber: null, isActive: true }).id as string;
+    w.store.insert('transportVehicleProfile', { objectId: small, companyId: 'custA', seats: 0, wheelchairSpaces: 0 });
+    const changed = await w.controllers.e4.plans.updateAssignment(disp, id, w.plans.party.assignment, { expectedVersion: 6, locked: false, objectId: small });
+    expect(changed.violations.map((v) => v.kind)).toEqual(['over_capacity']);
+    expect(changed.plan.assignments[0]).toMatchObject({ objectId: small, capacity: 0, locked: false });
+    // History: one row per version, no coordinates; discard keeps the plan as CANCELLED history.
+    const history = await w.controllers.e4.plans.history(disp, id);
+    expect(history.map((h) => h.version)).toEqual([7, 6, 5, 4, 3, 2]);
+    expect(JSON.stringify(history)).not.toMatch(/13\.06|80\.24/);
+    const discarded = await w.controllers.e4.plans.discard(caller('customerAdmin', w), id, { expectedVersion: 7 });
+    expect(discarded).toMatchObject({ status: 'CANCELLED', editable: false, version: 8 });
+    expect(w.store.table('auditLog').filter((a) => a.entity === 'RoutePlan').length).toBeGreaterThanOrEqual(7);
   });
 });
