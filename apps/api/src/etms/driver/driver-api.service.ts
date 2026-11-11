@@ -38,7 +38,9 @@ import { TRIP_ENTITY } from '../dispatch/dispatch.service';
 import { dayKeyOf, isUniqueViolation } from '../dispatch/e3-common';
 import { todayIn } from '../dispatch/service-dates';
 import { TripLiveService } from '../dispatch/trip-live';
+import { PERSONAL_STOP_NAME, stopOwner, type SeatLink } from '../dispatch/personal-points';
 import { lockTrips } from '../dispatch/trip-ops';
+import { activeRoutingConsents } from '../people/people.service';
 import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { DRIVER_SELECT, resolveDriver, type MeDriver } from './driver-identity';
 import { DriverDutyEndDto, DriverDutyStartDto, DriverStartTripDto, DriverSyncQuery, DriverTripEventBatchDto, DriverTripListDto } from './driver.dto';
@@ -573,23 +575,29 @@ export class DriverApiService {
     const status = pt.status as PlannedTripStatus;
     const hidden = !OPEN.includes(status) || !!tt.cancelledAt;
     const active = tt.passengers.filter((p) => p.status !== 'CANCELLED').sort((a, b) => a.pickupSeq - b.pickupSeq || a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
-    const [vehicles, profiles, overlays, mySeqs, vehicleMotion, dispatcherPhone] = await Promise.all([
+    const [vehicles, profiles, overlays, mySeqs, vehicleMotion, dispatcherPhone, points] = await Promise.all([
       this.vehicles(ctx, [pt.objectId]),
       hidden ? Promise.resolve(new Map<string, { displayName: string; accessibility: unknown }>()) : this.profiles(active.map((p) => p.bookingId), tt.customerCompanyId),
       this.overlays(tt.id),
       this.prisma.transportTripEvent.findMany({ where: { tripId: tt.id, actorDriverId: me.id, source: 'DRIVER_APP' }, select: { clientSeq: true } }),
       hidden ? Promise.resolve(null) : this.liveMotion(pt.objectId),
       this.deskPhone(tt.providerCompanyId),
+      hidden ? Promise.resolve(new Map<string, StopPoint>()) : this.stopPoints(tt, pt),
     ]);
     const stops = [...pt.stops].sort((a, b) => a.seq - b.seq);
     const stopDtos: DriverStopDto[] = stops.map((s) => {
       const up = active.filter((p) => p.pickupSeq === s.seq);
       const down = active.filter((p) => p.dropSeq === s.seq);
+      // E3 M1 for the driver: a passenger's personal point only while its owner's routing consent is active, exact (the
+      // driver navigates to it), with a neutral label; a company site as stored.
+      const pv = points.get(s.id);
+      const pointHidden: DriverStopDto['pointHidden'] = hidden ? 'TRIP_CLOSED' : pv && !pv.visible ? 'CONSENT_REQUIRED' : null;
       return {
         seq: s.seq,
-        label: hidden ? null : s.name,
-        lat: hidden ? null : s.lat,
-        lng: hidden ? null : s.lng,
+        label: pointHidden ? null : pv ? (down.length && !up.length ? PERSONAL_STOP_NAME.DROP : PERSONAL_STOP_NAME.PICKUP) : s.name,
+        lat: pointHidden ? null : s.lat,
+        lng: pointHidden ? null : s.lng,
+        pointHidden,
         radiusM: s.radiusM,
         plannedArrival: s.plannedArrival.toISOString(),
         actualArrival: s.actualArrival?.toISOString() ?? null,
@@ -639,6 +647,29 @@ export class DriverApiService {
     };
   }
 
+  /**
+   * The personal stops of a trip (owner = PlannedTripStop.profileId, or a seat linking the stop as a non-site end; an
+   * unlinked ad-hoc stop counts as personal with an unknown owner) and whether the driver may see each point: only when
+   * the owner's routing consent is active now. Company sites / route stops are not in the map.
+   */
+  private async stopPoints(tt: TtRow, pt: PtRow): Promise<Map<string, StopPoint>> {
+    const out = new Map<string, StopPoint>();
+    const bookingIds = [...new Set(tt.passengers.map((p) => p.bookingId))];
+    const bookings = bookingIds.length && tt.customerCompanyId
+      ? await this.prisma.transportBooking.findMany({ where: { id: { in: bookingIds }, customerCompanyId: tt.customerCompanyId }, select: { id: true, customerCompanyId: true, profileId: true, pickupPoiId: true, dropPoiId: true } })
+      : [];
+    const byId = new Map(bookings.filter((b) => b.customerCompanyId === tt.customerCompanyId).map((b) => [b.id, b]));
+    const seats: SeatLink[] = tt.passengers.flatMap((p) => {
+      const b = byId.get(p.bookingId);
+      return b ? [{ pickupStopId: p.pickupStopId, dropStopId: p.dropStopId, booking: { profileId: b.profileId, pickupPoiId: b.pickupPoiId, dropPoiId: b.dropPoiId } }] : [];
+    });
+    const owners = new Map(pt.stops.map((s) => [s.id, stopOwner(s, seats, !!pt.routeId)]));
+    const known = [...new Set([...owners.values()].filter((o): o is string => !!o && o !== 'UNKNOWN'))];
+    const consents = known.length ? await activeRoutingConsents(this.prisma, known) : new Set<string>();
+    for (const [stopId, owner] of owners) if (owner) out.set(stopId, { owner, visible: owner !== 'UNKNOWN' && consents.has(owner) });
+    return out;
+  }
+
   /** Display name + wheelchair flag of the passengers, by booking (the customer's rows only). */
   private async profiles(bookingIds: string[], customerCompanyId: string | null) {
     const out = new Map<string, { displayName: string; accessibility: unknown }>();
@@ -668,6 +699,11 @@ export class DriverApiService {
       /* best effort: never fail the read */
     }
   }
+}
+
+interface StopPoint {
+  owner: string;
+  visible: boolean;
 }
 
 const DUTY_INCLUDE = { object: { select: { id: true, name: true, plateNumber: true } } } satisfies Prisma.TransportDriverDutyInclude;

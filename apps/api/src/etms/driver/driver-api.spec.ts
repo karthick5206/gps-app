@@ -128,7 +128,8 @@ describe('driver API: minimum manifest and hiding after completion (09 Â§3.4 / Â
       [1, 'Asha R.', true, null, 'NONE_R1'],
       [2, 'Bala S.', false, null, 'NONE_R1'],
     ]);
-    expect(d.stops[0]).toMatchObject({ seq: 0, label: 'Pickup 1', lat: 13.06, pickups: 2, pending: 2 });
+    // The shared door stop is Asha's personal point (seat link, no place): hidden without her routing consent.
+    expect(d.stops[0]).toMatchObject({ seq: 0, label: null, lat: null, lng: null, pointHidden: 'CONSENT_REQUIRED', pickups: 2, pending: 2 });
     const text = JSON.stringify(d);
     for (const leak of ['EMP7', 'EMP8', '+91', '@corp.test', 'Secret Lane', '13.061234', 'knee', 'Asha Kumari', 'Rao', 'Subramanian']) expect([leak, text.includes(leak)]).toEqual([leak, false]);
     // Manifest reads are ACCESS-audited (throttled per trip / hour by the cache).
@@ -149,6 +150,59 @@ describe('driver API: minimum manifest and hiding after completion (09 Â§3.4 / Â
     const history = await w.svc.history(w.ctx('u-dA'), { from: new Date(Date.now() - 86_400_000).toISOString(), to: new Date(Date.now() + 86_400_000).toISOString() });
     expect(history).toHaveLength(1);
     expect(JSON.stringify(history)).not.toMatch(/Asha|Bala|13\.06/);
+  });
+});
+
+describe('driver API: personal stop points follow the ownerâ€™s routing consent (E3 M1 / M2 for the driver)', () => {
+  const grant = (w: ReturnType<typeof world>, profileId: string, granted = true, agoMin = 60) =>
+    w.store.insert('employeeTransportConsent', { companyId: 'custA', profileId, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted, channel: granted ? 'WEB' : 'SELF_WITHDRAWN', occurredAt: new Date(Date.now() - agoMin * MIN) });
+
+  it('exact point + neutral label with consent; hidden for a profileId-owned stop without consent and for an unlinked ad-hoc stop; sites as stored', async () => {
+    const w = world();
+    grant(w, w.ids.pAsha);
+    // Office is a company place (poiId); add an ad-hoc stop nobody is linked to, and a stop owned (profileId) by Bala.
+    Object.assign(w.row('plannedTripStop', w.ids.s1), { poiId: randomUUID() });
+    const pt = w.row('plannedTrip', w.ids.pt);
+    w.store.insert('plannedTripStop', { tripId: pt.id, seq: 2, name: '14 Hidden Road', lat: 13.07, lng: 80.26, radiusM: 100, plannedArrival: new Date(Date.now() + 80 * MIN), plannedDeparture: new Date(Date.now() + 80 * MIN) });
+    w.store.insert('plannedTripStop', { tripId: pt.id, seq: 3, name: 'Passenger drop', lat: 13.08, lng: 80.27, radiusM: 100, profileId: w.ids.pBala, plannedArrival: new Date(Date.now() + 90 * MIN), plannedDeparture: new Date(Date.now() + 90 * MIN) });
+    const d = await w.svc.trip(w.ctx('u-dA'), w.ids.tt);
+    expect(d.stops.map((s) => [s.seq, s.label, s.lat, s.pointHidden])).toEqual([
+      [0, 'Passenger pickup', 13.06, null],
+      [1, 'Office', 13.05, null],
+      [2, null, null, 'CONSENT_REQUIRED'],
+      [3, null, null, 'CONSENT_REQUIRED'],
+    ]);
+    expect(JSON.stringify(d)).not.toMatch(/Hidden Road|13\.07|13\.08/);
+  });
+
+  it('withdrawal: the trip is bumped (also once under way), sync reports it after the cursor, and the refetched trip has no point', async () => {
+    const { applyRoutingConsentWithdrawal } = await import('../dispatch/consent-withdrawal');
+    for (const underWay of [false, true]) {
+      const w = world();
+      grant(w, w.ids.pAsha);
+      if (underWay) await started(w);
+      const before = await w.svc.trip(w.ctx('u-dA'), w.ids.tt);
+      expect(before.stops[0].lat).toBe(13.06);
+      const first = await w.svc.sync(w.ctx('u-dA'), {});
+      const v0 = w.row('transportTrip', w.ids.tt).version as number;
+      // The cursor of the first sync; the withdrawal happens after it.
+      const cursor = new Date(Date.now() - 1).toISOString();
+      expect(first.trips.map((t) => t.id)).toContain(w.ids.tt);
+      await new Promise((r) => setTimeout(r, 5));
+      grant(w, w.ids.pAsha, false, 0);
+      const prisma = w.store.client();
+      const fx = await (prisma as unknown as { $transaction: <T>(fn: (tx: unknown) => Promise<T>) => Promise<T> }).$transaction((tx) =>
+        applyRoutingConsentWithdrawal(tx as never, w.ctx('u-pA'), { record: async () => undefined }, { companyId: 'custA', profileId: w.ids.pAsha, userId: 'u-pA', home: { lat: 13.061234, lng: 80.241234 } }),
+      );
+      expect(w.row('transportTrip', w.ids.tt).version as number).toBeGreaterThan(v0);
+      if (underWay) expect(fx.tripsUnderWayChanged).toBe(1);
+      const next = await w.svc.sync(w.ctx('u-dA'), { since: cursor });
+      expect(next.trips).toEqual([expect.objectContaining({ id: w.ids.tt, change: 'UPSERT', version: w.row('transportTrip', w.ids.tt).version })]);
+      const after = await w.svc.trip(w.ctx('u-dA'), w.ids.tt);
+      // The stop is kept (Bala is picked up there too / the run is under way) and stays Asha's point: hidden now.
+      expect(after.stops[0]).toMatchObject({ lat: null, lng: null, pointHidden: 'CONSENT_REQUIRED' });
+      expect(JSON.stringify(after)).not.toContain('13.06,');
+    }
   });
 });
 

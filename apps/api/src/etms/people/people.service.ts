@@ -643,6 +643,15 @@ export class PeopleService {
       const consentRows = await tx.employeeTransportConsent.updateMany({ where: { profileId: row.id, companyId: row.companyId }, data: { subjectUserId: null, actorUserId: null, ip: null, appVersion: null } });
       await tx.employeeTransportConsent.updateMany({ where: { profileId: row.id, companyId: row.companyId, note: { not: null } }, data: { note: ERASED_MARK } });
       await tx.transportPassengerNotice.deleteMany({ where: { profileId: row.id, companyId: row.companyId } });
+      // E5: the passenger's transport inbox (which trips they rode) goes; its push log rows keep the generic text for the
+      // notifier's statistics but lose the recipient and the link to the deleted row.
+      if (userId) {
+        const inbox = await tx.transportNotification.findMany({ where: { userId, companyId: row.companyId, audience: 'PASSENGER' }, select: { id: true } });
+        if (inbox.length) {
+          await tx.notificationLog.updateMany({ where: { companyId: row.companyId, refType: 'TRANSPORT_NOTIFICATION', refId: { in: inbox.map((n) => n.id) } }, data: { recipient: ERASED_MARK, refId: null } });
+          await tx.transportNotification.deleteMany({ where: { id: { in: inbox.map((n) => n.id) } } });
+        }
+      }
       // E3 copies of the home point (bookings, planned stops, server drafts): coarsened / removed (dispatch/erasure.ts).
       const transport = await eraseTransportData(tx, row.companyId, row.id, ERASED_MARK, row.homeLat !== null && row.homeLng !== null ? { lat: row.homeLat, lng: row.homeLng } : null);
       await tx.employeeTransportProfile.update({

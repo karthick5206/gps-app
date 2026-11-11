@@ -144,6 +144,11 @@ function StopCard({ stop, trip, current, moving, queue, tz, now }: { stop: Drive
         <Text size="sm" tone="muted">
           {clockIn(stop.plannedArrival, tz, currentLocale())} · {counts}
         </Text>
+        {stop.pointHidden === 'CONSENT_REQUIRED' && (
+          <Text size="sm" tone="muted">
+            {t('The location of this stop is not shared. Call your dispatcher for directions.')}
+          </Text>
+        )}
       </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
         {arrived.display !== 'NONE' && (

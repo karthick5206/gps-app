@@ -207,11 +207,19 @@ export type DriverTripAction = 'acknowledge' | 'start' | 'complete' | 'report';
 
 export interface DriverStopDto {
   seq: number;
-  /** Stop / pickup point label (a site name or the pickup point label; never a passenger name). Null when hidden. */
+  /**
+   * Stop label: a company site's name, or a neutral "Passenger pickup" / "Passenger drop" for a passenger's personal
+   * point (never an address or a passenger name). Null when the point is hidden.
+   */
   label: string | null;
-  /** Coordinates for the navigation hand-off; null once the manifest is hidden (trip closed). */
+  /**
+   * Coordinates for the navigation hand-off to this trip's own stop. Null once the trip is closed, and for a passenger's
+   * personal point (home / ad-hoc address) whose owner's routing consent is not active (E3 M1 rule; `pointHidden`).
+   */
   lat: number | null;
   lng: number | null;
+  /** Why lat / lng are null: CONSENT_REQUIRED (personal point without active consent) or TRIP_CLOSED; null = shown. */
+  pointHidden: 'CONSENT_REQUIRED' | 'TRIP_CLOSED' | null;
   radiusM: number;
   plannedArrival: string;
   actualArrival: string | null;

@@ -964,3 +964,38 @@ describe('ETMS isolation matrix (E3 security review): exceptions, erasure, vehic
     await expect(w.controllers.e3.schedules.preview(caller('customerAdmin', w), { from: new Date(from).toISOString(), to: new Date(from + 7 * 86_400_000).toISOString() } as never)).resolves.toBeDefined();
   });
 });
+
+describe('ETMS isolation matrix (E5 integration): driver stop points follow consent; withdrawal reaches the driver sync', () => {
+  for (const underWay of [false, true]) {
+    it(`driver sees the home stop point only with the passenger’s consent; a withdrawal (${underWay ? 'trip under way' : 'trip not started'}) bumps the trip in /driver/v1/sync and the refetched trip has no point`, async () => {
+      const w = await e3World();
+      const pt = realisticTrip(w);
+      if (underWay) Object.assign(pt, { status: 'IN_PROGRESS', actualStart: new Date() });
+      const drv = caller('assignedDriver', w);
+      const before = await w.controllers.e5.driver.trip(drv, w.world.party.trip);
+      expect(before.stops.find((s) => s.seq === 0)).toMatchObject({ lat: 13.061234, lng: 80.241234, label: 'Passenger pickup', pointHidden: null });
+      expect(JSON.stringify(before)).not.toContain('5 Secret Lane');
+      // Other drivers (a second custA driver, custB's driver) never get the trip at all.
+      seedE5(w.store, w.world, { party: w.party.driver, other: w.other.driver }, w.roleId);
+      expect(await codeOf(w.controllers.e5.driver.trip(caller('foreignDriver', w), w.world.party.trip))).toBe('NOT_FOUND');
+      expect(await codeOf(w.controllers.e5.driver.trip(caller('otherDriver', w), w.world.party.trip))).toBe('NOT_FOUND');
+      const cursor = new Date(Date.now() - 1).toISOString();
+      const v0 = w.store.table('transportTrip').find((t) => t.id === w.world.party.trip)!.version as number;
+      await new Promise((r) => setTimeout(r, 5));
+      await w.controllers.myConsent.record(caller('customerPassenger', w), { purpose: 'TRANSPORT_PROFILE', granted: false });
+      const header = w.store.table('transportTrip').find((t) => t.id === w.world.party.trip)!;
+      expect(header.version as number).toBeGreaterThan(v0);
+      const sync = await w.controllers.e5.driver.sync(drv, { since: cursor });
+      expect(sync.trips).toEqual([expect.objectContaining({ id: w.world.party.trip, change: 'UPSERT', version: header.version })]);
+      const after = await w.controllers.e5.driver.trip(drv, w.world.party.trip);
+      expect(after.stops.find((s) => s.seq === 0)).toMatchObject({ lat: null, lng: null, label: null, pointHidden: 'CONSENT_REQUIRED' });
+      for (const leak of ['13.0612', '80.2412', '5 Secret Lane']) expect(JSON.stringify(after)).not.toContain(leak);
+      if (underWay) {
+        // The run keeps its seat and stop (in progress), only the point is withheld; the change is a coordinate-free event.
+        expect(w.store.table('transportTripPassenger').find((p) => p.id === w.world.party.passengerTrip)).toMatchObject({ status: 'PENDING' });
+        const ev = w.store.table('transportTripEvent').find((e) => e.tripId === w.world.party.trip && e.kind === 'CHANGED' && e.reasonCode === 'CONSENT_WITHDRAWN')!;
+        expect(JSON.stringify(ev.data)).not.toMatch(/13\.|80\./);
+      }
+    });
+  }
+});

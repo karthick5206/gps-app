@@ -28,6 +28,8 @@ export interface ConsentWithdrawalEffects {
   draftsDiscarded: number;
   exceptionsCleared: number;
   /** Bookings seated on a trip already under way: left as they are (the run is in progress). */
+  /** E5: open trips not otherwise changed (under way, or a stop kept for another passenger) bumped so the driver sync drops the hidden points. */
+  tripsUnderWayChanged: number;
   inProgress: number;
   /** PlannedTrip ids whose stops / path changed (processor cache + live push after commit). */
   plannedTripIds: string[];
@@ -59,7 +61,7 @@ export async function applyRoutingConsentWithdrawal(
   p: { companyId: string; profileId: string; userId: string | null; home: Point | null },
   now: Date = new Date(),
 ): Promise<ConsentWithdrawalEffects> {
-  const out: ConsentWithdrawalEffects = { bookingsCancelled: 0, seatsReleased: 0, stopsRemoved: 0, stopsAnonymised: 0, draftsDiscarded: 0, exceptionsCleared: 0, inProgress: 0, plannedTripIds: [] };
+  const out: ConsentWithdrawalEffects = { bookingsCancelled: 0, seatsReleased: 0, stopsRemoved: 0, stopsAnonymised: 0, draftsDiscarded: 0, exceptionsCleared: 0, inProgress: 0, tripsUnderWayChanged: 0, plannedTripIds: [] };
   const candidates = await tx.transportBooking.findMany({
     where: { customerCompanyId: p.companyId, profileId: p.profileId, status: { in: [...ACTIVE_BOOKING_STATUSES] }, windowEnd: { gt: now } },
     select: { id: true },
@@ -153,6 +155,19 @@ export async function applyRoutingConsentWithdrawal(
     await tx.transportTrip.update({ where: { id: t.tripId }, data: { version: { increment: 1 } } });
     await recordTripEvent(tx, ctx, { tripId: t.tripId, providerCompanyId: t.providerCompanyId, customerCompanyId: t.customerCompanyId, kind: 'CHANGED', reasonCode: 'CONSENT_WITHDRAWN', actorType: 'SYSTEM', source: 'SYSTEM', data: { personalStopsChanged: true, pathCleared: true } });
     await audit.record(ctx, { action: 'UPDATE', entity: 'TransportTrip', entityId: t.tripId, details: { consentWithdrawn: true, pathCleared: true } }, tx);
+  }
+  // E5: trips already under way (or a stop kept for another passenger) keep their stops, but the driver API now hides this passenger's
+  // personal points (no active consent). Bump them so GET /api/driver/v1/sync reports the change and the driver app
+  // refetches the trip, replacing any cached copy of the point. Event without coordinates; no push (sync is the channel).
+  const underWayIds = [...new Set([...seatsOf.map((s) => s.tripId), ...ownHeaders.map((h) => h.id)])].filter((id) => !touchedTrips.has(id));
+  const underWay = underWayIds.length
+    ? await tx.transportTrip.findMany({ where: { id: { in: underWayIds } }, select: { id: true, providerCompanyId: true, customerCompanyId: true, plannedTripId: true, plannedTrip: { select: { status: true, origin: true } } } })
+    : [];
+  for (const t of underWay) {
+    if (!t.plannedTripId || t.customerCompanyId !== p.companyId || t.plannedTrip?.origin !== 'ETMS' || !['SCHEDULED', 'STARTED', 'IN_PROGRESS'].includes(t.plannedTrip.status)) continue;
+    await tx.transportTrip.update({ where: { id: t.id }, data: { version: { increment: 1 } } });
+    await recordTripEvent(tx, ctx, { tripId: t.id, providerCompanyId: t.providerCompanyId, customerCompanyId: t.customerCompanyId, kind: 'CHANGED', reasonCode: 'CONSENT_WITHDRAWN', actorType: 'SYSTEM', source: 'SYSTEM', data: { personalPointsHidden: true } });
+    out.tripsUnderWayChanged++;
   }
   out.plannedTripIds = [...new Set([...touchedTrips.values()].map((t) => t.plannedTripId))];
 

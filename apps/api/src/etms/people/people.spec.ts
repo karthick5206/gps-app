@@ -48,6 +48,9 @@ function world() {
   const notices: Obj[] = [];
   const auditRows: Obj[] = [];
   const passengerNotices: Obj[] = [];
+  // E5: the transport inbox and its push log rows (erasure removes / unlinks them).
+  const transportNotifications: Obj[] = [];
+  const notificationLogs: Obj[] = [];
   const resets: Obj[] = [];
   const sessionRevocations: string[] = [];
   const published: Obj[] = [];
@@ -133,6 +136,21 @@ function world() {
       updateMany: async ({ where, data }: { where: Obj; data: Obj }) => {
         const hit = consents.filter((c) => matches(c, where) && (!(where.note as Obj | undefined) || c.note !== null));
         for (const c of hit) Object.assign(c, data);
+        return { count: hit.length };
+      },
+    },
+    transportNotification: {
+      findMany: async ({ where }: { where: Obj }) => transportNotifications.filter((n) => matches(n, where)),
+      deleteMany: async ({ where }: { where: { id: { in: string[] } } }) => {
+        const hit = transportNotifications.filter((n) => where.id.in.includes(n.id as string));
+        for (const h of hit) transportNotifications.splice(transportNotifications.indexOf(h), 1);
+        return { count: hit.length };
+      },
+    },
+    notificationLog: {
+      updateMany: async ({ where, data }: { where: { companyId: string; refType: string; refId: { in: string[] } }; data: Obj }) => {
+        const hit = notificationLogs.filter((l) => l.companyId === where.companyId && l.refType === where.refType && where.refId.in.includes(l.refId as string));
+        for (const h of hit) Object.assign(h, data);
         return { count: hit.length };
       },
     },
@@ -302,7 +320,7 @@ function world() {
   /** Publish the next notice version of a purpose for company A (effective now). */
   const publish = (purpose: 'TRANSPORT_PROFILE' | 'NOTIFICATIONS_SMS' | 'SOS_LOCATION' | 'PICKUP_LOCATION_SHARE' = 'TRANSPORT_PROFILE') =>
     noticeSvc.publish(ctx(A), { purpose, title: 'Transport profile', body: 'We use your home location to plan your pickup.' });
-  return { svc, noticeSvc, publish, profiles, consents, users, roles, userRoles, audits, auditRows, notices, add, passengerNotices, resets, sessionRevocations, published };
+  return { svc, noticeSvc, publish, profiles, consents, users, roles, userRoles, audits, auditRows, notices, add, passengerNotices, transportNotifications, notificationLogs, resets, sessionRevocations, published };
 }
 
 const agreement = (grants: TransportAgreementScope['grants'], over: Partial<TransportAgreementScope> = {}): TransportAgreementScope => ({
@@ -1050,6 +1068,9 @@ describe('M5: erase personal data (L5 default, pending owner confirmation of L5)
     const { w, id, code: employeeCode, userId } = await archivedWithHistory();
     await w.svc.archive(adminA, id);
     w.published.length = 0;
+    // E5: the passenger's transport inbox (with a push log row) and a driver's row of the same company.
+    w.transportNotifications.push({ id: 'n-pax', companyId: A, userId, audience: 'PASSENGER', kind: 'TRIP_CHANGED', tripId: 't1' }, { id: 'n-drv', companyId: A, userId: 'u-driver', audience: 'DRIVER', kind: 'TRIP_CHANGED', tripId: 't1' });
+    w.notificationLogs.push({ id: 'l-pax', companyId: A, recipient: `user:${userId}`, refType: 'TRANSPORT_NOTIFICATION', refId: 'n-pax', body: 'generic' });
     const dto = await w.svc.erase(adminA, id, { confirm: ` ${employeeCode} ` });
     const row = w.profiles[0];
     expect(row).toMatchObject({
@@ -1081,6 +1102,9 @@ describe('M5: erase personal data (L5 default, pending owner confirmation of L5)
     expect(w.sessionRevocations).toContain(userId);
     expect(w.published).toContainEqual(expect.objectContaining({ userId }));
     expect(w.passengerNotices).toHaveLength(0);
+    // E5: the inbox goes; the push log keeps its generic text without the recipient or the link; others' rows stay.
+    expect(w.transportNotifications.map((n) => n.id)).toEqual(['n-drv']);
+    expect(w.notificationLogs[0]).toMatchObject({ recipient: '[erased]', refId: null, body: 'generic' });
     // The trail keeps its entries, without the identifying values.
     const trail = JSON.stringify(w.auditRows);
     for (const secret of ['Asha Krishnan', '+919876543210', '+919876500055', 'asha@corp.test', 'Signed by Asha', '12 Anna Salai']) expect(trail).not.toContain(secret);
