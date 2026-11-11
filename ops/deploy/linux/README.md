@@ -46,3 +46,29 @@ and exits 1. The previous release is the tag (or commit) that was checked out be
   `bash release.sh --health-only` by hand after it. Every later release is gated.
 - `release.sh` runs inside a `main` function that bash reads completely first, so the checkout changing the script
   while it runs cannot mix old and new lines.
+
+## Valkey AOF on fresh installs (v1.8.1, spec G4, script only)
+
+`install-ubuntu.sh` now writes these lines to `/etc/valkey/valkey.conf` (uncommented lines are replaced, missing ones
+appended; the RDB `save` lines stay):
+
+```
+appendonly yes
+appendfsync everysec
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-use-rdb-preamble yes
+aof-load-truncated yes
+no-appendfsync-on-rewrite no
+```
+
+- **Fresh installs only.** With `appendonly yes` in the file and no AOF on disk, a restarted Valkey starts **empty**
+  and ignores `dump.rdb`. So the script writes the lines only when Valkey holds no data (no keys; or, when stopped,
+  no non-empty `dump.rdb`) or when AOF is already on (`CONFIG GET appendonly` = `yes`). On a server with data and AOF
+  off it prints a WARNING and leaves the file alone.
+- The production server is **not** changed by this. Turning AOF on there is a separate, owner-approved online
+  procedure (`CONFIG SET appendonly yes`, wait for the rewrite, then persist the file; no restart), see the release-gate
+  spec G4.
+- No `maxmemory` is set (separate decision; Valkey keeps `maxmemory-policy noeviction`).
+- Local test (fake `valkey-cli`, temp config, no root): `bash ops/deploy/linux/test/install-valkey-aof-test.sh`.
+- Rollback for a fresh install: `valkey-cli CONFIG SET appendonly no` and set `appendonly no` in the file (no restart).
