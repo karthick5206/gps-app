@@ -69,7 +69,11 @@ vk_cli() {
   if [[ -n "$pw" ]]; then REDISCLI_AUTH="$pw" valkey-cli "$@" 2>/dev/null || true; else valkey-cli "$@" 2>/dev/null || true; fi
 }
 # State of this Valkey, decided before the file is touched:
-#   aof-on   running (authenticated) with appendonly yes, or stopped with 'appendonly yes' in the file
+#   aof-on   running (authenticated) with appendonly yes, or stopped with 'appendonly yes' in the file and a
+#            non-empty AOF directory (or no data on disk at all)
+#   aof-missing  stopped with 'appendonly yes' in the file, a non-empty dump file and NO AOF: started like this it
+#            would load nothing (Valkey ignores dump.rdb when AOF is on) and boot EMPTY. Treated as has data: the
+#            file is not touched and Valkey is NOT started (QA-4)
 #   empty    running with 0 keys in ALL databases (INFO keyspace), or stopped with no dump file and no AOF directory
 #   data     running with keys in any database, or stopped with a non-empty dump file / AOF directory
 #   unknown  running but no PONG with the password (NOAUTH, WRONGPASS, LOADING, ...) or an INFO keyspace answer that
@@ -85,7 +89,7 @@ vk_total_keys() {
     END { if (hdr && !bad) print n + 0 }'
 }
 vk_state() {
-  local pong dir dump aofdir
+  local pong dir dump aofdir has_dump=0 has_aof=0
   pong="$(vk_cli ping)"
   if [[ "$pong" == PONG ]]; then
     if [[ "$(vk_cli CONFIG GET appendonly | sed -n 2p)" == yes ]]; then echo aof-on; return; fi
@@ -97,12 +101,17 @@ vk_state() {
   elif [[ -n "$pong" ]]; then
     echo unknown
   else
-    if [[ "$(vk_conf appendonly)" == yes ]]; then echo aof-on; return; fi
     dir="$(vk_conf dir)"
     dump="$(vk_conf dbfilename)"
     aofdir="$(vk_conf appenddirname)"
     dir="${dir:-/var/lib/valkey}"
-    if [[ -s "$dir/${dump:-dump.rdb}" || -n "$(ls -A "$dir/${aofdir:-appendonlydir}" 2>/dev/null)" ]]; then
+    [[ -s "$dir/${dump:-dump.rdb}" ]] && has_dump=1
+    [[ -n "$(ls -A "$dir/${aofdir:-appendonlydir}" 2>/dev/null)" ]] && has_aof=1
+    if [[ "$(vk_conf appendonly)" == yes ]]; then
+      if (( has_aof == 0 && has_dump == 1 )); then echo aof-missing; else echo aof-on; fi
+      return
+    fi
+    if (( has_dump || has_aof )); then
       echo data
     else
       echo empty
@@ -129,6 +138,12 @@ case "$VK_STATE" in
     echo "WARNING: Valkey already holds data with appendonly off; AOF settings NOT written (a restart would start it empty)."
     echo "         Turn AOF on online first (valkey-cli CONFIG SET appendonly yes, wait for aof_rewrite_in_progress:0), then re-run."
     ;;
+  aof-missing)
+    echo "WARNING: Valkey is stopped, its config says 'appendonly yes', and its data dir has a dump file but NO AOF."
+    echo "         Started like this it would ignore the dump file and boot EMPTY. Config NOT changed, Valkey NOT started."
+    echo "         Fix by hand: set 'appendonly no', start Valkey (it loads the dump), then CONFIG SET appendonly yes online"
+    echo "         (wait for aof_rewrite_in_progress:0), and re-run this installer."
+    ;;
   *)
     echo "WARNING: could not ask Valkey whether it holds data (no PONG / readable INFO keyspace with the configured password; REDISCLI_AUTH?)."
     echo "         Treated as holding data: AOF settings NOT written, Valkey NOT restarted."
@@ -137,6 +152,8 @@ esac
 systemctl enable valkey-server
 if [[ "$VK_STATE" == empty ]]; then
   systemctl restart valkey-server
+elif [[ "$VK_STATE" == aof-missing ]]; then
+  echo "NOTE: Valkey was NOT started (aof-missing, see the warning above)."
 else
   # Starts a stopped Valkey with its unchanged data; a running one is left alone.
   systemctl start valkey-server
@@ -161,14 +178,19 @@ echo "== service user and folder"
 id veetrax >/dev/null 2>&1 || useradd -r -m -d /opt/veetrax -s /bin/bash veetrax
 install -d -o veetrax -g veetrax "$APP_DIR" /opt/veetrax/maps /var/lib/veetrax
 # release.sh restarts the services as 'veetrax'
-# and (health-gate.sh, on a failed gate) reads the journal tail of exactly these units. Each journalctl line is a full
-# command with fixed arguments and no wildcard: a sudoers '*' also matches spaces and further options (e.g.
-# --vacuum-time, --file, other units), so 'journalctl -u veetrax-* -n *' would grant far more than a read of 50 lines.
+# and (health-gate.sh, on a failed gate) reads the journal tail of exactly these units. Every line is a full command
+# with fixed arguments and no wildcard: a sudoers '*' also matches spaces and further arguments, so
+# 'systemctl restart veetrax-*' would also allow 'systemctl restart veetrax-api postgresql ssh valkey-server' (Sec-M1)
+# and 'journalctl -u veetrax-* -n *' far more than a read of 50 lines (--vacuum-time, --file, other units).
+# The restart line with all five units is exactly what release.sh runs (sudo systemctl restart $SERVICES, the default
+# SERVICES order); each unit alone is allowed too, for a manual restart of one service.
 # Written to a temp file and checked with visudo first, so a mistake can never leave a broken sudoers.d file.
 SUDOERS_TMP="$(mktemp)"
 trap 'rm -f "$SUDOERS_TMP"' EXIT # also when visudo rejects it and set -e ends the installer
 cat > "$SUDOERS_TMP" <<'EOF'
-veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-*, /usr/bin/systemctl reload caddy
+veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer
+veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-api, /usr/bin/systemctl restart veetrax-gateway, /usr/bin/systemctl restart veetrax-processor, /usr/bin/systemctl restart veetrax-notifier, /usr/bin/systemctl restart veetrax-summarizer
+veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl reload caddy
 veetrax ALL=(root) NOPASSWD: /usr/bin/journalctl -u veetrax-api -n 50 --no-pager, /usr/bin/journalctl -u veetrax-gateway -n 50 --no-pager, /usr/bin/journalctl -u veetrax-processor -n 50 --no-pager, /usr/bin/journalctl -u veetrax-notifier -n 50 --no-pager, /usr/bin/journalctl -u veetrax-summarizer -n 50 --no-pager
 EOF
 visudo -cf "$SUDOERS_TMP"

@@ -148,6 +148,62 @@ run_case "MAP_PROBE_ALLOW_PUBLIC=1: a non-local host is probed" 0 MAP_PROBE_ALLO
   MARTIN_URL="http://203.0.113.9:9" # TEST-NET-3: never routed, so the probe just times out
 expect_out "probed" "WARN  maps .*martin http://203.0.113.9:9/health no answer"
 
+# QA-3: the whole gate, map probes included, ends within HEALTH_TIMEOUT_SEC + a small fixed margin (4 s here) even
+# when nothing answers and the map services are unroutable (10.255.255.1 is private, so it is probed, and times out).
+DEADLINE=6
+MARGIN=4
+t0="$(date +%s%N)"
+run_case "QA-3: nothing answers, map services unroutable: ends within HEALTH_TIMEOUT_SEC + ${MARGIN} s" 1 HEALTH_TIMEOUT_SEC=$DEADLINE \
+  API_HEALTH_URL="http://127.0.0.1:$DEAD_PORT/api/health/ready" GATEWAY_HEALTH_URL="http://127.0.0.1:$DEAD_PORT/health" TRACKING_HEALTH_URL="http://127.0.0.1:$DEAD_PORT/api/health/tracking" \
+  MARTIN_URL="http://10.255.255.1:3000" ROUTER_ENGINE=graphhopper ROUTER_URL="http://10.255.255.1:8989" GEOCODER=photon GEOCODER_URL="http://10.255.255.1:2322"
+wall_ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+echo "--> wall time ${wall_ms} ms (limit $(( (DEADLINE + MARGIN) * 1000 )) ms)"
+if (( wall_ms > (DEADLINE + MARGIN) * 1000 )); then
+  echo "!!! QA-3: the gate took ${wall_ms} ms, more than HEALTH_TIMEOUT_SEC=$DEADLINE + ${MARGIN} s"
+  FAILURES=$((FAILURES + 1))
+fi
+expect_out "deadline respected" 'HEALTH GATE: FAIL \(api gateway tracking\)' 'WARN  maps .*not probed: the gate deadline \(6 s\) was reached'
+
+# Same with a healthy stack: the map probes themselves are capped by the time left (3 unroutable probes x 3 s would
+# be 9 s; with a 3 s deadline the first probe gets what is left and the rest are not probed).
+DEADLINE=3
+t0="$(date +%s%N)"
+run_case "QA-3: healthy stack, map services unroutable, 3 s deadline: probes capped by the time left" 0 HEALTH_TIMEOUT_SEC=$DEADLINE \
+  API_HEALTH_URL="$ok/api/health/ready" GATEWAY_HEALTH_URL="$ok/health" TRACKING_HEALTH_URL="$ok/api/health/tracking" \
+  MARTIN_URL="http://10.255.255.1:3000" ROUTER_ENGINE=graphhopper ROUTER_URL="http://10.255.255.1:8989" GEOCODER=photon GEOCODER_URL="http://10.255.255.1:2322"
+wall_ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+echo "--> wall time ${wall_ms} ms (limit $(( (DEADLINE + MARGIN) * 1000 )) ms)"
+if (( wall_ms > (DEADLINE + MARGIN) * 1000 )); then
+  echo "!!! QA-3: the gate took ${wall_ms} ms, more than HEALTH_TIMEOUT_SEC=$DEADLINE + ${MARGIN} s"
+  FAILURES=$((FAILURES + 1))
+fi
+expect_out "later probes skipped" 'not probed: the gate deadline \(3 s\) was reached' 'HEALTH GATE: PASS'
+
+# Sec-L4: curl ignores ~/.curlrc (-q first), only speaks http/https, and the URL always follows `--`. A fake curl on
+# PATH records its arguments; a URL that starts with '-' must arrive as the URL, not as an option.
+CURLBIN="$(mktemp -d)"
+cat >"$CURLBIN/curl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$CURL_ARGS_LOG"
+printf '200'
+EOF
+chmod +x "$CURLBIN/curl"
+CURL_ARGS_LOG="$(mktemp)"
+run_case "Sec-L4: curl hardening flags" 0 PATH="$CURLBIN:$PATH" CURL_ARGS_LOG="$CURL_ARGS_LOG" \
+  API_HEALTH_URL="--output=/tmp/pwn" GATEWAY_HEALTH_URL="$ok/health" TRACKING_HEALTH_URL="$ok/api/health/tracking"
+cat "$CURL_ARGS_LOG"
+while IFS= read -r args; do
+  if [[ "$args" != "-q "* || "$args" != *" --proto =http,https "* || "$args" != *" -- "* ]]; then
+    echo "!!! Sec-L4: curl called without -q first / --proto =http,https / --: $args"
+    FAILURES=$((FAILURES + 1))
+  fi
+done <"$CURL_ARGS_LOG"
+if ! grep -q -- ' -- --output=/tmp/pwn$' "$CURL_ARGS_LOG"; then
+  echo "!!! Sec-L4: the '-'-leading URL did not follow '--'"
+  FAILURES=$((FAILURES + 1))
+fi
+rm -rf "$CURLBIN" "$CURL_ARGS_LOG"
+
 run_case "default URLs follow API_PORT; GATEWAY_HEALTH_PORT=0 skips the gateway" 0 API_PORT="$OK_PORT" GATEWAY_HEALTH_PORT=0
 expect_out "port and skip" "PASS  api .*127.0.0.1:$OK_PORT/api/health/ready" "PASS  tracking .*127.0.0.1:$OK_PORT/api/health/tracking" "SKIP  gateway"
 
@@ -318,9 +374,18 @@ if [[ "$*" == "run build -w @veetracer/web" ]]; then
 fi
 exit 0
 EOF
-printf '#!/usr/bin/env bash\nexit 0\n' >"$FAKEBIN/npx"
+# Fake npx: with FAKE_ENV_LOG set, records what migrate / the seed would see from apps/api/.env.
+cat >"$FAKEBIN/npx" <<'EOF'
+#!/usr/bin/env bash
+if [[ -n "${FAKE_ENV_LOG:-}" ]]; then
+  { printf 'npx %s\n' "$*"; printf 'DATABASE_URL=%s\n' "${DATABASE_URL-<unset>}"; printf 'SUPER_ADMIN_PASSWORD=%s\n' "${SUPER_ADMIN_PASSWORD-<unset>}"; printf 'PATH_OK=%s\n' "$([[ "$PATH" != /nonexistent ]] && echo yes)"; } >>"$FAKE_ENV_LOG"
+fi
+exit 0
+EOF
+# Fake sudo: only "systemctl restart ..." succeeds; with FAKE_SUDO_LOG set, the exact arguments are recorded.
 cat >"$FAKEBIN/sudo" <<'EOF'
 #!/usr/bin/env bash
+[[ -n "${FAKE_SUDO_LOG:-}" ]] && printf '%s\n' "$*" >>"$FAKE_SUDO_LOG"
 [[ "$1 $2" == "systemctl restart" ]] && exit 0
 exit 1
 EOF
@@ -424,6 +489,32 @@ check "WEB BUILD FAILED" out_has 'WEB BUILD FAILED'
 check "says nothing was restarted" out_has 'nothing was restarted'
 check "no node_modules claim" out_lacks 'node_modules'
 check "live dist untouched" test "$(web dist)" == built-new
+
+echo "## 10. Sec-L5 / Sec-M1: apps/api/.env is read literally, never run; the restart is the exact sudoers form"
+cat >"$SANDBOX/app/apps/api/.env" <<'EOF'
+# systemd EnvironmentFile syntax: none of this may be executed or expanded by release.sh
+DATABASE_URL=postgresql://vt:p&ss;w$(touch PWNED1)rd@127.0.0.1:5432/vt?schema=public&connection_limit=5
+SUPER_ADMIN_PASSWORD="se cret`touch PWNED2`$HOME"
+export HEALTH_GATE_MAPS=0
+PATH=/nonexistent
+not a setting; touch PWNED3
+EOF
+ENV_LOG="$SANDBOX/env.log"
+SUDO_LOG="$SANDBOX/sudo.log"
+release 0 REF=v-new FAKE_ENV_LOG="$ENV_LOG" FAKE_SUDO_LOG="$SUDO_LOG" bash "$RELEASE"
+cat "$ENV_LOG" "$SUDO_LOG" | sed 's/^/    | /'
+check "release exits 0, healthy" out_has 'Release is healthy'
+check "nothing from .env was executed (no PWNED files)" test -z "$(find "$SANDBOX" -name 'PWNED*' -print -quit)"
+check "migrate saw DATABASE_URL literally" grep -qxF 'DATABASE_URL=postgresql://vt:p&ss;w$(touch PWNED1)rd@127.0.0.1:5432/vt?schema=public&connection_limit=5' "$ENV_LOG"
+check "quoted value: quotes removed, rest literal" grep -qxF 'SUPER_ADMIN_PASSWORD=se cret`touch PWNED2`$HOME' "$ENV_LOG"
+check "PATH is never taken from .env" grep -qx 'PATH_OK=yes' "$ENV_LOG"
+check "the gate got its own keys from .env (HEALTH_GATE_MAPS=0)" out_has 'SKIP  maps +HEALTH_GATE_MAPS=0'
+check "restart = exactly the sudoers command" grep -qx 'systemctl restart veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer' "$SUDO_LOG"
+rm -f "$ENV_LOG" "$SUDO_LOG"
+release 0 FAKE_ENV_LOG="$ENV_LOG" bash "$RELEASE" --health-only
+check "--health-only reads the gate keys from .env" out_has 'SKIP  maps +HEALTH_GATE_MAPS=0'
+check "--health-only runs nothing from .env" test -z "$(find "$SANDBOX" -name 'PWNED*' -print -quit)"
+rm -f "$SANDBOX/app/apps/api/.env"
 rm -rf "$SANDBOX" "$FAKEBIN"
 
 echo
