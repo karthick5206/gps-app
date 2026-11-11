@@ -99,7 +99,7 @@ Invoke-Command -Session $s -ScriptBlock {
   $ok = $false
   for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
     Start-Sleep 5
-    try { Invoke-WebRequest http://localhost:4100/api/health -UseBasicParsing -TimeoutSec 5 | Out-Null; $ok = $true } catch {}
+    try { Invoke-WebRequest http://127.0.0.1:4100/api/health -UseBasicParsing -TimeoutSec 5 | Out-Null; $ok = $true } catch {}
   }
   "api health: $(if ($ok) { 'OK' } else { 'not responding yet (check C:\apps\veetracer\logs)' })"
 }
