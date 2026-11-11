@@ -5,6 +5,7 @@ import {
   HealthEvent,
   HealthIssue,
   HostDto,
+  MapServiceDto,
   NotifierMetrics,
   PortDto,
   ProcessHeartbeat,
@@ -28,6 +29,7 @@ import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { bufferSecondsLeft, CheckInput, evaluateChecks, Issue, statusOf, worst } from './checks';
 import { HEARTBEAT_TTL_SEC } from './heartbeat';
+import { MapServiceMonitor, MapServiceState } from './map-services';
 import { HealthThresholds, loadMonitorConfig, loadThresholds, MonitorConfig } from './thresholds';
 import { pairs, parseInfo, shortError, streamIdTime, toNumber, withTimeout } from './util';
 
@@ -83,6 +85,8 @@ export class SystemHealthService {
   readonly thresholds: HealthThresholds = loadThresholds();
   readonly config: MonitorConfig = loadMonitorConfig();
   private readonly startedAt = Date.now();
+  /** GraphHopper / Photon / Martin probes (only the configured ones; results reused for 10 s). */
+  readonly mapServices = new MapServiceMonitor();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -104,7 +108,7 @@ export class SystemHealthService {
   // ── report ────────────────────────────────────────────────────────────────
 
   async collect(now = Date.now()): Promise<Collected> {
-    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt] = await Promise.all([
+    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt, maps] = await Promise.all([
       this.valkeyInfo(),
       this.heartbeats().catch(() => [] as ProcessHeartbeat[]),
       this.series().catch(() => [] as SeriesSample[]),
@@ -112,6 +116,7 @@ export class SystemHealthService {
       this.database(),
       this.host(),
       this.lastPersistedAt(),
+      this.mapServices.collect(now).catch(() => this.mapServices.snapshot()),
     ]);
     const processes = this.processes(heartbeats, now);
     const ports = this.ports(heartbeats);
@@ -130,6 +135,7 @@ export class SystemHealthService {
       notifications: this.notificationWindow(series),
       startupGrace: now - this.startedAt < STARTUP_GRACE_MS,
       lastPersistedAt,
+      maps,
     };
     const issues = evaluateChecks(input, this.thresholds);
     applyStatuses(input, issues);
@@ -155,6 +161,7 @@ export class SystemHealthService {
       database: c.input.database,
       valkey: c.input.valkey,
       host: c.input.host,
+      maps: mapServiceDtos(c.input.maps ?? [], c.issues),
       throughput: c.throughput,
     };
   }
@@ -518,6 +525,22 @@ function insertsPerMin(series: SeriesSample[]): number | null {
   const base = [...series].reverse().find((s) => s.pgInserts !== null && last.t - s.t >= 55_000);
   if (!base || base.pgInserts === null || last.pgInserts < base.pgInserts) return null;
   return Math.round(((last.pgInserts - base.pgInserts) * 60_000) / (last.t - base.t));
+}
+
+/** Map-service rows for the page: status from the `maps.<name>` issue (OK while failing fewer than 2 times in a row). */
+export function mapServiceDtos(maps: MapServiceState[], issues: Issue[]): MapServiceDto[] {
+  return maps.map((m) => ({
+    name: m.name,
+    label: m.label,
+    status: statusOf(issues, `maps.${m.name}`),
+    configured: m.configured,
+    probeUrl: m.probeUrl,
+    ok: m.ok,
+    latencyMs: m.latencyMs,
+    error: m.error,
+    consecutiveFailures: m.consecutiveFailures,
+    checkedAt: m.checkedAt === null ? null : new Date(m.checkedAt).toISOString(),
+  }));
 }
 
 /** Writes each item's status from the issues that concern it. */

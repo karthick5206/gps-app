@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { PointQualitySettingsDto, DatabaseDto, HealthEvent, HealthIssue, HostDto, PortDto, ProcessInstanceDto, ProcessRoleDto, QueueDto, SystemHealthDto, ThroughputPoint, ValkeyDto } from '@veetracer/shared';
-import { ActivityIcon, AlertTriangleIcon, CheckCircle2Icon, CircleDotIcon, DatabaseIcon, HardDriveIcon, MailIcon, OctagonAlertIcon, RefreshCwIcon, SendIcon, ServerIcon, ZapIcon } from 'lucide-react';
+import type { PointQualitySettingsDto, DatabaseDto, HealthEvent, HealthIssue, HostDto, MapServiceDto, PortDto, ProcessInstanceDto, ProcessRoleDto, QueueDto, SystemHealthDto, ThroughputPoint, ValkeyDto } from '@veetracer/shared';
+import { ActivityIcon, AlertTriangleIcon, CheckCircle2Icon, CircleDotIcon, DatabaseIcon, HardDriveIcon, MailIcon, MapIcon, OctagonAlertIcon, RefreshCwIcon, SendIcon, ServerIcon, ZapIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -502,6 +502,35 @@ function HostCard({ h }: { h: HostDto }) {
   );
 }
 
+/** Self-hosted GraphHopper / Photon / Martin; a service without its URL setting is shown as not monitored. */
+function MapServicesCard({ maps }: { maps: MapServiceDto[] }) {
+  const { t } = useTranslation();
+  const status = (['CRITICAL', 'WARN'] as const).find((s) => maps.some((m) => m.status === s)) ?? 'OK';
+  return (
+    <Section title="Map services" icon={MapIcon} status={status}>
+      {maps.map((m) => (
+        <Row key={m.name} label={m.label} hint={m.probeUrl ?? undefined}>
+          {!m.configured ? (
+            <span className="text-muted-foreground">{t('Not monitored (no URL set)')}</span>
+          ) : m.ok ? (
+            <span className="inline-flex items-center gap-2">
+              <StatusBadge status="OK" label="Up" />
+              <span className="tabular-nums text-muted-foreground">{m.latencyMs === null ? '—' : `${m.latencyMs} ms`}</span>
+            </span>
+          ) : (
+            <Tooltip content={m.error ?? ''}>
+              <span>
+                <StatusBadge status={m.status === 'OK' ? 'WARN' : m.status} label={m.status === 'OK' ? t('Retrying') : t('Down')} />
+              </span>
+            </Tooltip>
+          )}
+        </Row>
+      ))}
+      <p className="mt-1 text-xs text-muted-foreground">{t('Checked about every 15 s; reported after 2 failed checks in a row. Settings: ROUTER_URL, GEOCODER_URL, MARTIN_URL.')}</p>
+    </Section>
+  );
+}
+
 // ── settings ─────────────────────────────────────────────────────────────────
 
 function SettingsPanel() {
@@ -648,6 +677,7 @@ export function SystemHealthPage() {
             <DatabaseCard db={data.database} />
             <ValkeyCard v={data.valkey} />
             <HostCard h={data.host} />
+            <MapServicesCard maps={data.maps ?? []} />
           </div>
           {can('sa_system_health', 'edit') && <SettingsPanel />}
           {can('sa_system_health', 'edit') && <FeaturesPanel />}

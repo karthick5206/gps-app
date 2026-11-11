@@ -13,6 +13,7 @@ import {
   ValkeyDto,
 } from '@veetracer/shared';
 import { isFailing, relayStatsFromHeartbeats } from '../relay/stats';
+import { MapServiceState } from './map-services';
 import { HealthThresholds } from './thresholds';
 
 /** Everything the checks look at (collected by SystemHealthService). */
@@ -34,6 +35,8 @@ export interface CheckInput {
    * transaction as the positions); null when unknown or there is none. Undefined: not collected.
    */
   lastPersistedAt?: number | null;
+  /** Map-service probes (map-services.ts). Undefined: not collected. */
+  maps?: MapServiceState[];
 }
 
 export type Issue = Omit<HealthIssue, 'since'>;
@@ -285,6 +288,40 @@ function trackingChecks(input: CheckInput, t: HealthThresholds, out: Issue[]): v
   }
 }
 
+/** A map service is reported only after this many failed probes in a row (~30 s at the 15 s evaluation). */
+export const MAP_FAILS_BEFORE_ISSUE = 2;
+
+/**
+ * Severity and impact per map service (release-gate spec G6, owner decision O17): blank maps for every user are
+ * CRITICAL; missing routing or addresses degrade features and are WARN. GraphHopper becomes CRITICAL once ETMS ETAs
+ * depend on it.
+ */
+const MAP_IMPACT: Record<MapServiceState['name'], { severity: Issue['severity']; impact: string }> = {
+  graphhopper: { severity: 'WARN', impact: 'routing, ETAs and road snapping are skipped' },
+  photon: { severity: 'WARN', impact: 'addresses and place search unavailable' },
+  martin: { severity: 'CRITICAL', impact: 'map tiles unavailable: web and mobile maps are blank' },
+};
+
+/** Self-hosted GraphHopper / Photon / Martin; services that are not configured are not checked. */
+function mapChecks(input: CheckInput, out: Issue[]): void {
+  for (const m of input.maps ?? []) {
+    if (m.configured && m.misconfigured) {
+      // A public host in the setting: never probed (map-services.ts isLocalHost), reported as a configuration WARN.
+      out.push({ id: `maps.${m.name}`, check: m.label, section: 'maps', severity: 'WARN', message: `${m.label} at ${m.probeUrl}: ${m.misconfigured}.` });
+      continue;
+    }
+    if (!m.configured || m.ok || m.consecutiveFailures < MAP_FAILS_BEFORE_ISSUE) continue;
+    const { severity, impact } = MAP_IMPACT[m.name];
+    out.push({
+      id: `maps.${m.name}`,
+      check: m.label,
+      section: 'maps',
+      severity,
+      message: `${m.label} is not answering at ${m.probeUrl} (${m.error ?? 'failed'}; ${m.consecutiveFailures} checks in a row): ${impact}.`,
+    });
+  }
+}
+
 /** All checks; returns the issues that are currently WARN or CRITICAL. Pure (unit-tested). */
 export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] {
   const out: Issue[] = [];
@@ -299,6 +336,7 @@ export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] 
   storeChecks(input, t, out);
   notifierChecks(input, t, out);
   relayChecks(input, out);
+  mapChecks(input, out);
   return out.sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.id.localeCompare(b.id));
 }
 

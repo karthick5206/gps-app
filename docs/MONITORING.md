@@ -48,6 +48,7 @@ The numbers come from the counters the processes already keep for their periodic
 | valkey | PING latency, INFO: memory / maxmemory, AOF, last RDB save, clients, evicted keys |
 | throughput | last 60 min of 10-second samples: received (`entries-added` delta) vs processed (`entries-read − pending` delta), lag/backlog |
 | host | API host: free disk for `HEALTH_DATA_DIR` (default `apps/api/var`, `fs.statfs`), load average, memory |
+| maps | self-hosted map services, one GET each (2 s timeout, results reused for 10 s): GraphHopper `<ROUTER_URL>/health` (only with `ROUTER_ENGINE=graphhopper`), Photon `<GEOCODER_URL>/status` (only with `GEOCODER=photon`), Martin `<MARTIN_URL>/health`. A service without its URL is **not monitored** (shown as such, never an issue). Any 2xx answer with its full body within the timeout counts as up. Only loopback / private / single-label hosts are probed: a public host is a `maps.<name>` WARN ("not probed", misconfiguration) and is never fetched unless `MAP_PROBE_ALLOW_PUBLIC=1`. URLs on the page, in issues and e-mails carry no userinfo or query string |
 | issues / events | current checks with since-times; last 50 transitions |
 
 Also: `GET …/status` (cheap summary for the top-bar banner), `GET …/settings` (recipients + thresholds in effect),
@@ -82,6 +83,12 @@ the page's settings panel).
 | Last RDB save failed | WARN | — | — |
 | Disk free | WARN / CRITICAL | < 15 / < 5 % | `HEALTH_DISK_WARN_PCT` / `_CRIT_PCT` |
 | Notification failure ratio | WARN | > 20 % over 15 min, ≥ 5 sends | `HEALTH_NOTIFY_FAIL_WARN_PCT`, `_WINDOW_MIN`, `_MIN_ATTEMPTS` |
+| Map tiles down (`maps.martin`): web and mobile maps are blank | CRITICAL | 2 failed checks in a row (~30 s) | `MARTIN_URL` (unset = not monitored) |
+| Routing down (`maps.graphhopper`): ETAs and road snapping skipped | WARN | 2 failed checks in a row | `ROUTER_URL` + `ROUTER_ENGINE=graphhopper` |
+| Geocoder down (`maps.photon`): addresses and place search unavailable | WARN | 2 failed checks in a row | `GEOCODER=photon` + `GEOCODER_URL` |
+
+Map-service issues clear on the next successful check. GraphHopper becomes CRITICAL once ETMS ETAs depend on it
+(release-gate spec G6). They are not part of `/api/health/tracking`, so they never fail the release gate.
 
 **Buffer time left** = (stream cap − backlog) / net fill rate, where backlog = lag + pending and net fill rate =
 input − processed rate (averaged over ~30 s). Processed entries stay in a stream until MAXLEN trims them, so the
@@ -153,6 +160,14 @@ cap. When the processor is stopped the net rate equals the input rate.
   - `/api/health/live` is liveness. `/api/health/tracking` covers the end-to-end GPS pipeline.
   - The gateway answers on `http://127.0.0.1:4121/health`, including while the cache is down.
   - Details, plus the Windows watchdog: [reliability/ingestion-reliability.md](reliability/ingestion-reliability.md).
+- **Release health gate** (Ubuntu): `ops/deploy/linux/release.sh` runs `ops/deploy/linux/health-gate.sh` after the
+  restart: every `veetrax-*` unit active (30 s), then `/api/health/ready`, the gateway `/health` and
+  `/api/health/tracking` must answer 200 within `HEALTH_TIMEOUT_SEC` (default 90); a tracking 503 at the deadline
+  fails the gate (spec G6). `HEALTH_GATE_TRACKING=warn` is an explicit operator opt-in that turns only that 503 into a
+  WARN; `HEALTH_GATE_TRACKING=0` skips tracking (first install). Map services are probed once and only warned about.
+  On failure it prints the journal tail and `REF=<previous> bash release.sh`, and exits 1; it never
+  rolls back by itself. `bash release.sh --health-only` runs the gate alone. Settings are listed in the script header;
+  `bash ops/deploy/linux/test/health-gate-test.sh` exercises it against local stubs.
 
 ## 8. Measured on the development Mac (19 Oct 2026)
 
