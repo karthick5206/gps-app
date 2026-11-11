@@ -24,6 +24,7 @@ function summary(over: Partial<PlannedTripSummaryDto> = {}): PlannedTripSummaryD
   return {
     id: 't1',
     routeId: 'r1',
+    origin: 'ROUTE',
     scheduleId: null,
     routeName: 'Route A',
     objectId: 'o1',

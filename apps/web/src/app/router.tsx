@@ -68,6 +68,10 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   etms_partners: page(() => import('@/features/transport/PartnersPage'), 'PartnersPage'),
   // E2: passengers (list, editor, import, consent, app access).
   etms_passengers: page(() => import('@/features/transport/PassengersPage'), 'PassengersPage'),
+  // E3: placeholders until the WP 3.5 screens land.
+  etms_schedules: page(() => import('@/features/transport/E3PlaceholderPages'), 'SchedulesPlaceholderPage'),
+  etms_bookings: page(() => import('@/features/transport/E3PlaceholderPages'), 'BookingsPlaceholderPage'),
+  etms_dispatch: page(() => import('@/features/transport/E3PlaceholderPages'), 'DispatchPlaceholderPage'),
   etms_settings: page(() => import('@/features/transport/TransportSettingsPage'), 'TransportSettingsPage'),
   etms_self: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyCommutePage'),
   etms_driver: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyTransportDutyPage'),

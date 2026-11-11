@@ -337,7 +337,8 @@ export interface TripPerformanceReportRow {
 /** PLANNED_TRIPS: one row per planned trip. */
 export interface PlannedTripReportRow {
   tripId: string;
-  routeId: string; routeName: string;
+  /** Null for ETMS door-to-door trips. */
+  routeId: string | null; routeName: string;
   objectId: string; objectName: string; plateNumber: string | null;
   driverId: string | null; driverName: string | null;
   status: string;
