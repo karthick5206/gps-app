@@ -217,7 +217,12 @@ d(`ETMS E4 routing_engine_v2 + etms_planning_links on ${dbName || '(no scratch D
       await attempt('unknown job kind', job(`'isochrone', 'QUEUED', 0, NULL, NULL`));
       await attempt('progress over 100', job(`'matrix', 'RUNNING', 101, NULL, NULL`));
       await attempt('failed without finishedAt', job(`'matrix', 'FAILED', 10, NULL, NULL`));
-      await attempt('second trip for one assignment', `UPDATE "TransportTrip" SET "routeAssignmentId" = '${a.assignment}' WHERE id = '${b.trip}'`);
+      // A second trip of the SAME operator on one assignment: the unique index (23505). Another operator's trip on it is
+      // refused first by the E4 security-hardening link trigger (23503).
+      const pt2 = randomUUID();
+      await tx.$executeRawUnsafe(`INSERT INTO "PlannedTrip" (id, "companyId", "routeId", origin, "objectId", "routeName", "corridorM", "plannedStart", "plannedEnd", "updatedAt") VALUES ('${pt2}', '${a.company}', NULL, 'ETMS', '${a.object}', 'Second', 200, '2026-12-01T04:30:00Z', '2026-12-01T05:30:00Z', now())`);
+      await attempt('second trip for one assignment', `INSERT INTO "TransportTrip" (id, "plannedTripId", "providerCompanyId", "customerCompanyId", "serviceDate", direction, "seatCapacity", "routePlanId", "routeAssignmentId", "updatedAt") VALUES (gen_random_uuid(), '${pt2}', '${a.company}', '${a.company}', '2026-12-01', 'IN', 4, '${a.plan}', '${a.assignment}', now())`);
+      await attempt('trip on another operator assignment', `UPDATE "TransportTrip" SET "routeAssignmentId" = '${a.assignment}' WHERE id = '${b.trip}'`);
       await attempt('negative usage', `UPDATE "RoutingUsage" SET routes = -1 WHERE "companyId" = '${a.company}'`);
       await attempt('duplicate plan version', `INSERT INTO "RoutePlanVersion" (id, "planId", "companyId", version, "changeType", snapshot) VALUES (gen_random_uuid(), '${a.plan}', '${a.company}', 1, 'EDITED', '{}')`);
     });
@@ -244,6 +249,7 @@ d(`ETMS E4 routing_engine_v2 + etms_planning_links on ${dbName || '(no scratch D
       'progress over 100': 'rejected RoutingJob_counters_check',
       'failed without finishedAt': 'rejected RoutingJob_finished_check',
       'second trip for one assignment': 'rejected 23505', // unique violation of TransportTrip_routeAssignmentId_key
+      'trip on another operator assignment': 'rejected 23503', // etms_trip_route_link_check (E4 security review L8)
       'negative usage': 'rejected RoutingUsage_counters_check',
       'duplicate plan version': 'rejected 23505', // unique violation of RoutePlanVersion_planId_version_key
     });

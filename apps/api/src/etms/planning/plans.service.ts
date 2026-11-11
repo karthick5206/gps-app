@@ -328,7 +328,13 @@ export class RoutePlansService {
     const stops = plan.stops.map(toRuleStop).map((s) => (e.placements.has(s.id) ? { ...s, ...e.placements.get(s.id)! } : s));
     const problem = pairProblem(stops);
     if (problem) throw invalid(problem);
-    const capacity = new Map(plan.assignments.map((a) => [a.id, (e.assignments?.get(a.id)?.capacity as number | null | undefined) ?? a.capacity]));
+    // The edit's value whenever it sets the key, including null (a vehicle without seats): `?? old` kept the previous
+    // route's capacity and hid VEHICLE_NO_SEATS and the capacity checks (E4 re-check R1 / QA B4).
+    const edited = (id: string, key: 'capacity' | 'objectId', old: unknown): unknown => {
+      const d = e.assignments?.get(id) as Record<string, unknown> | undefined;
+      return d && Object.prototype.hasOwnProperty.call(d, key) ? d[key] : old;
+    };
+    const capacity = new Map(plan.assignments.map((a) => [a.id, (edited(a.id, 'capacity', a.capacity) as number | null | undefined) ?? null]));
     const seats = seatsLookup(view.bookings);
 
     // Re-time routes whose order changed (engine outside the transaction).
@@ -352,7 +358,7 @@ export class RoutePlansService {
     const routeViolationsOut: RoutePlanRouteViolation[] = [];
     for (const aid of e.checked) {
       const a = plan.assignments.find((x) => x.id === aid);
-      const objectId = (e.assignments?.get(aid)?.objectId as string | null | undefined) ?? a?.objectId ?? null;
+      const objectId = (edited(aid, 'objectId', a?.objectId ?? null) as string | null | undefined) ?? null;
       if (objectId && (capacity.get(aid) ?? null) === null) {
         routeViolationsOut.push({ assignmentId: aid, code: 'VEHICLE_NO_SEATS', message: 'The vehicle has no passenger seats set; set its seats before publishing' });
       }
