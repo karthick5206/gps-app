@@ -1,0 +1,49 @@
+{
+  "run": "a9658555",
+  "date": "2026-11-11T08:12:52.369Z",
+  "xaddFailRecovery": {
+    "alerts": 100,
+    "recipients": 300,
+    "lost": 0,
+    "duplicateDbRecords": 0,
+    "recoveryMs": 1286
+  },
+  "killMidSend": {
+    "iterations": 100,
+    "keys": 100,
+    "acceptedMessages": 200,
+    "duplicateExternalMessages": 100,
+    "maxExtraPerKey": 1,
+    "bound": 3,
+    "duplicateDbRecords": 0,
+    "window": "provider accepted, process died before the status UPDATE (lease takeover)"
+  },
+  "slowSendTakeoverChain": {
+    "sends": 4,
+    "extraMessages": 3,
+    "bound": 3,
+    "finalStatus": "FAILED"
+  },
+  "idempotencyKeys": {
+    "smtp": "supported (receiver-side): stable Message-ID <sha256(dedupeKey)@veetrax.notify> on every retry / takeover",
+    "zoho": "not verifiable (the v1.1 email API call used here has no idempotency field); request_id stored",
+    "smartping": "not verifiable (no documented client-reference parameter); transactionId stored",
+    "expo": "not supported (push API has no idempotency key); ticket ids stored",
+    "arattai": "not verifiable; no id returned",
+    "measuredStableMessageId": true
+  },
+  "g3NoProviders": [
+    {
+      "channel": "EMAIL",
+      "status": "SKIPPED",
+      "error": "E-mail provider not configured",
+      "provider": "mailer"
+    },
+    {
+      "channel": "SMS",
+      "status": "SKIPPED",
+      "error": "SMS provider not configured",
+      "provider": "console"
+    }
+  ]
+}
