@@ -205,6 +205,8 @@ export interface PlannedTripSummaryDto {
   etaNextStop: string | null;
   delaySec: number | null;
   stopCount: number;
+  /** Stops marked SKIPPED (passed, or closed by hand / timeout / cancel before they were reached). */
+  skippedStops: number;
   createdAt: string;
   updatedAt: string;
 }

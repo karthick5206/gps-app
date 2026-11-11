@@ -47,6 +47,7 @@ function summary(over: Partial<PlannedTripSummaryDto> = {}): PlannedTripSummaryD
     etaNextStop: null,
     delaySec: null,
     stopCount: 5,
+    skippedStops: 0,
     createdAt: '2026-11-09T00:00:00.000Z',
     updatedAt: '2026-11-09T00:00:00.000Z',
     ...over,
@@ -99,6 +100,9 @@ test('progress: next stop while active, count otherwise', () => {
   assert.equal(progressLabel(summary({ status: 'IN_PROGRESS', nextStopSeq: null })), '5 stops');
   assert.equal(progressLabel(summary({ status: 'SCHEDULED' })), '5 stops');
   assert.equal(progressLabel(summary({ status: 'COMPLETED', nextStopSeq: null })), 'All 5 stops');
+  // Completed with skipped stops (passed by, or closed by hand): never "All".
+  assert.equal(progressLabel(summary({ status: 'COMPLETED', nextStopSeq: null, skippedStops: 1 })), '4 of 5 stops');
+  assert.equal(progressLabel(summary({ status: 'COMPLETED', nextStopSeq: null, skippedStops: 4 })), '1 of 5 stops');
   assert.equal(
     progressLabel(summary({ status: 'IN_PROGRESS', nextStopSeq: 1 }), (k, v) => `${k}|${v?.n}|${v?.total}`),
     'Stop {{n}} of {{total}}|2|5',
@@ -155,6 +159,8 @@ test('applyLiveUpdate patches the matching trip and its stops', () => {
   assert.equal(next.stops[1].status, 'DEPARTED');
   assert.equal(next.stops[1].delaySec, 120);
   assert.equal(next.stops[0], detail.stops[0]);
+  assert.equal(next.skippedStops, 0);
+  assert.equal(applyLiveUpdate(detail, { ...u, stops: [{ ...u.stops[0], status: 'SKIPPED' as const }] }).skippedStops, 1);
   assert.equal(next.routeName, 'Route A');
   // A list row (no stops) only gets the trip fields; another trip is untouched.
   const row = applyLiveUpdate(summary(), u);

@@ -93,10 +93,12 @@ export function tripProgress(trip: Pick<PlannedTripSummaryDto, 'status' | 'nextS
   return { next, total };
 }
 
-/** "Stop 3 of 5" while active, "5 stops" otherwise ("All 5 stops" once completed). */
-export function progressLabel(trip: Pick<PlannedTripSummaryDto, 'status' | 'nextStopSeq' | 'stopCount'>, t: Translate = english): string {
+/** "Stop 3 of 5" while active, "5 stops" otherwise; once completed "All 5 stops", or "4 of 5 stops" when some were skipped. */
+export function progressLabel(trip: Pick<PlannedTripSummaryDto, 'status' | 'nextStopSeq' | 'stopCount'> & { skippedStops?: number }, t: Translate = english): string {
   const p = tripProgress(trip);
   if (p.next !== null) return t('Stop {{n}} of {{total}}', { n: p.next, total: p.total });
+  const skipped = trip.skippedStops ?? 0;
+  if (trip.status === 'COMPLETED' && skipped > 0) return t('{{done}} of {{total}} stops', { done: Math.max(0, p.total - skipped), total: p.total });
   if (trip.status === 'COMPLETED') return t('All {{count}} stops', { count: p.total });
   return t('{{count}} stops', { count: p.total });
 }
@@ -161,6 +163,7 @@ export function applyLiveUpdate<T extends PlannedTripSummaryDto & { stops?: Plan
     deviationCount: u.deviationCount,
     maxDeviationM: u.maxDeviationM,
   };
+  if (u.stops?.length) next.skippedStops = u.stops.filter((s) => s.status === 'SKIPPED').length;
   if (trip.stops && u.stops?.length) {
     const bySeq = new Map(u.stops.map((s) => [s.seq, s]));
     next.stops = trip.stops.map((s) => {

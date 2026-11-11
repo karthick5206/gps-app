@@ -328,7 +328,7 @@ export class PlannedTripsService {
     return { objects: new Map(objects.map((o) => [o.id, o.name])), drivers: new Map(drivers.map((d) => [d.id, d.name])) };
   }
 
-  private summary(t: PlannedTrip, stopCount: number, n: Awaited<ReturnType<PlannedTripsService['names']>>): PlannedTripSummaryDto {
+  private summary(t: PlannedTrip, stopCount: number, skippedStops: number, n: Awaited<ReturnType<PlannedTripsService['names']>>): PlannedTripSummaryDto {
     return {
       id: t.id,
       routeId: t.routeId,
@@ -355,20 +355,27 @@ export class PlannedTripsService {
       etaNextStop: isoOrNull(t.etaNextStop),
       delaySec: t.delaySec,
       stopCount,
+      skippedStops,
       createdAt: iso(t.createdAt),
       updatedAt: iso(t.updatedAt),
     };
   }
 
   private async toSummaries(rows: SummaryRow[]): Promise<PlannedTripSummaryDto[]> {
-    const n = await this.names(rows);
-    return rows.map((r) => this.summary(r, r._count.stops, n));
+    const [n, skipped] = await Promise.all([
+      this.names(rows),
+      rows.length
+        ? this.prisma.plannedTripStop.groupBy({ by: ['tripId'], where: { tripId: { in: rows.map((r) => r.id) }, status: 'SKIPPED' }, _count: { _all: true } })
+        : [],
+    ]);
+    const skippedBy = new Map(skipped.map((g) => [g.tripId, g._count._all]));
+    return rows.map((r) => this.summary(r, r._count.stops, skippedBy.get(r.id) ?? 0, n));
   }
 
   private async toDetail(t: DetailRow): Promise<PlannedTripDto> {
     const n = await this.names([t]);
     return {
-      ...this.summary(t, t.stops.length, n),
+      ...this.summary(t, t.stops.length, t.stops.filter((s) => s.status === 'SKIPPED').length, n),
       path: Array.isArray(t.path) ? (t.path as unknown as RoutePath) : null,
       stops: t.stops.map(
         (s): PlannedTripStopDto => ({
