@@ -3,6 +3,7 @@ import { ACTIVE_BOOKING_STATUSES, TRANSPORT_E3_LIMITS } from '@veetracer/shared'
 import type { AuthContext } from '../../access/auth-context';
 import type { AuditService } from '../../audit/audit.service';
 import { nearAny } from './personal-points';
+import { withdrawRoutingPlanPoints } from './routing-plan-privacy';
 import { lockBookings, lockTrips, recordTripEvent, releaseSeat } from './trip-ops';
 
 type Tx = Prisma.TransactionClient;
@@ -31,6 +32,9 @@ export interface ConsentWithdrawalEffects {
   /** E5: open trips not otherwise changed (under way, or a stop kept for another passenger) bumped so the driver sync drops the hidden points. */
   tripsUnderWayChanged: number;
   inProgress: number;
+  /** E4: the passenger's personal stops removed from open routing plans / coarsened in published or cancelled ones. */
+  planStopsRemoved: number;
+  planStopsAnonymised: number;
   /** PlannedTrip ids whose stops / path changed (processor cache + live push after commit). */
   plannedTripIds: string[];
 }
@@ -61,7 +65,7 @@ export async function applyRoutingConsentWithdrawal(
   p: { companyId: string; profileId: string; userId: string | null; home: Point | null },
   now: Date = new Date(),
 ): Promise<ConsentWithdrawalEffects> {
-  const out: ConsentWithdrawalEffects = { bookingsCancelled: 0, seatsReleased: 0, stopsRemoved: 0, stopsAnonymised: 0, draftsDiscarded: 0, exceptionsCleared: 0, inProgress: 0, tripsUnderWayChanged: 0, plannedTripIds: [] };
+  const out: ConsentWithdrawalEffects = { bookingsCancelled: 0, seatsReleased: 0, stopsRemoved: 0, stopsAnonymised: 0, draftsDiscarded: 0, exceptionsCleared: 0, inProgress: 0, tripsUnderWayChanged: 0, planStopsRemoved: 0, planStopsAnonymised: 0, plannedTripIds: [] };
   const candidates = await tx.transportBooking.findMany({
     where: { customerCompanyId: p.companyId, profileId: p.profileId, status: { in: [...ACTIVE_BOOKING_STATUSES] }, windowEnd: { gt: now } },
     select: { id: true },
@@ -193,6 +197,11 @@ export async function applyRoutingConsentWithdrawal(
     await audit.record(ctx, { action: 'UPDATE', entity: 'TransportSchedule', entityId: e.scheduleId, details: { exception: { pickupRemoved: true }, reason: 'CONSENT_WITHDRAWN' } }, tx);
     out.exceptionsCleared++;
   }
+
+  // E4: routing plans (proposals) lose the passenger's personal stops too.
+  const plans = await withdrawRoutingPlanPoints(tx, p.companyId, p.profileId);
+  out.planStopsRemoved = plans.removed;
+  out.planStopsAnonymised = plans.anonymised;
 
   if (out.bookingsCancelled || out.seatsReleased) {
     await tx.transportPassengerNotice.create({
