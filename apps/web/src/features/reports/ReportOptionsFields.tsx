@@ -1,14 +1,22 @@
-import { ALERT_TYPES, type ReportOptions, type ReportType } from '@veetracer/shared';
+import { ALERT_TYPES, type ReportOptions, type ReportType, type TripPerformanceGroupBy } from '@veetracer/shared';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { MultiSelect } from '@/components/ui/multi-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const ALERT_OPTIONS = ALERT_TYPES.map((t) => ({ value: t.code, label: t.label, description: t.category }));
 
+/** Trip performance rows: one per route, driver or vehicle. */
+export const GROUP_BY_OPTIONS: { value: TripPerformanceGroupBy; label: string }[] = [
+  { value: 'ROUTE', label: 'Per route' },
+  { value: 'DRIVER', label: 'Per driver' },
+  { value: 'VEHICLE', label: 'Per vehicle' },
+];
+
 /** Defaults shown in the inputs; the API applies the same values when an option is omitted. */
-export const OPTION_DEFAULTS = { haltMin: 30, drivingMin: 240, breakMin: 15, minOverspeedSec: 10, inactiveAfterMin: 1440 } as const;
+export const OPTION_DEFAULTS = { haltMin: 30, drivingMin: 240, breakMin: 15, minOverspeedSec: 10, inactiveAfterMin: 1440, groupBy: 'ROUTE' } as const;
 
 /** Options relevant to a report type (others are dropped from the request). */
 export function optionsFor(type: ReportType, o: ReportOptions): ReportOptions | undefined {
@@ -27,6 +35,8 @@ export function optionsFor(type: ReportType, o: ReportOptions): ReportOptions | 
       return { minOverspeedSec: o.minOverspeedSec ?? OPTION_DEFAULTS.minOverspeedSec };
     case 'DEVICE_STATUS':
       return { inactiveAfterMin: o.inactiveAfterMin ?? OPTION_DEFAULTS.inactiveAfterMin };
+    case 'TRIP_PERFORMANCE':
+      return { groupBy: o.groupBy ?? OPTION_DEFAULTS.groupBy };
     default:
       return undefined;
   }
@@ -131,6 +141,23 @@ export function ReportOptionsFields({ type, value, onChange, idPrefix = 'r' }: {
           max={43_200}
           onChange={(inactiveAfterMin) => set({ inactiveAfterMin })}
         />
+      );
+    case 'TRIP_PERFORMANCE':
+      return (
+        <Field label={t('Group by')} htmlFor={`${idPrefix}-group-by`} className="sm:w-48">
+          <Select value={value.groupBy ?? OPTION_DEFAULTS.groupBy} onValueChange={(v) => set({ groupBy: v as TripPerformanceGroupBy })}>
+            <SelectTrigger id={`${idPrefix}-group-by`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GROUP_BY_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {t(o.label)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
       );
     default:
       return null;

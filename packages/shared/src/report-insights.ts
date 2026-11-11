@@ -9,7 +9,8 @@
  */
 
 export type InsightRow = Record<string, unknown>;
-export type ValueFormat = 'int' | 'km' | 'hm' | 'pct' | 'kph' | 'sec' | 'hours' | 'litres' | 'kmpl';
+/** `min`: signed minutes with one decimal (a delay: + late, − early). */
+export type ValueFormat = 'int' | 'km' | 'hm' | 'pct' | 'kph' | 'sec' | 'hours' | 'litres' | 'kmpl' | 'min';
 
 export interface Kpi {
   id: string;
@@ -136,6 +137,8 @@ export const INSIGHT_TYPES = [
   'FUEL',
   'FUEL_EVENTS',
   'DRIVERS',
+  'TRIP_PERFORMANCE',
+  'PLANNED_TRIPS',
 ] as const;
 
 const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -187,6 +190,7 @@ export const DAY_FIELD: Record<string, string> = {
   ALERTS: 'occurredAt',
   GEOFENCE_VISITS: 'enterTime',
   FUEL: 'day',
+  PLANNED_TRIPS: 'plannedStart',
 };
 
 function rowDay(type: string, row: InsightRow, tz: string | undefined): string {
@@ -740,6 +744,73 @@ export function buildInsight(input: InsightInput): Insight | null {
       };
     }
 
+    case 'TRIP_PERFORMANCE': {
+      // Totals: groups, trips, completed, incomplete, cancelled, ratedStops, onTimeStops, onTimePct, skippedStops,
+      // avgStartDelayMin, avgStopDelayMin, plannedKm, actualKm, deviations (averages left out when nothing to average).
+      const by = s(rows[0]?.groupBy) || 'ROUTE';
+      const noun = by === 'DRIVER' ? 'driver' : by === 'VEHICLE' ? 'vehicle' : 'route';
+      const group = (r: InsightRow) => ({ key: s(r.groupName), label: s(r.groupName) });
+      const select = { field: 'groupName', prefix: noun === 'driver' ? 'Driver' : noun === 'vehicle' ? 'Vehicle' : 'Route' };
+      const onTime = rankBy(rows, group, (r) => n(r.onTimePct));
+      const skipped = rankBy(rows, group, (r) => n(r.skippedStops));
+      const skippedAll = tot(totals, 'skippedStops') ?? 0;
+      const deviations = tot(totals, 'deviations') ?? 0;
+      const charts: InsightChart[] = [{ kind: 'ranked', title: `On-time % by ${noun}`, items: onTime.items, total: onTime.total, format: 'pct', select }];
+      if (skipped.items.length) charts.push({ kind: 'ranked', title: `Skipped stops by ${noun}`, items: skipped.items, total: skipped.total, format: 'int', select });
+      return {
+        kpis: [
+          { id: 'trips', label: 'Trips', value: tot(totals, 'trips'), format: 'int', hint: { text: '{{n}} completed', vars: { n: tot(totals, 'completed') ?? 0 } } },
+          { id: 'onTime', label: 'On time', value: tot(totals, 'onTimePct'), format: 'pct', hint: { text: '{{n}} of {{m}} stops', vars: { n: tot(totals, 'onTimeStops') ?? 0, m: tot(totals, 'ratedStops') ?? 0 } } },
+          { id: 'startDelay', label: 'Average start delay', value: tot(totals, 'avgStartDelayMin'), format: 'min' },
+          { id: 'stopDelay', label: 'Average stop delay', value: tot(totals, 'avgStopDelayMin'), format: 'min' },
+          { id: 'skipped', label: 'Skipped stops', value: skippedAll, format: 'int', tone: skippedAll > 0 ? 'warning' : 'default' },
+          { id: 'deviations', label: 'Deviations', value: deviations, format: 'int', tone: deviations > 0 ? 'danger' : 'default', hint: { text: 'Planned {{p}} km, actual {{a}} km', vars: { p: tot(totals, 'plannedKm') ?? 0, a: tot(totals, 'actualKm') ?? 0 } } },
+        ],
+        charts,
+        chartsFromRows: true,
+      };
+    }
+
+    case 'PLANNED_TRIPS': {
+      // Totals: count, completed, incomplete, cancelled, stopsDone, stopCount, skippedStops, onTimeStops, deviationCount, plannedKm, distanceKm.
+      const keys = ['COMPLETED', 'INCOMPLETE', 'CANCELLED', 'OTHER'];
+      const days = perDay(type, rows, from, to, tz, (r) => {
+        const st = s(r.status);
+        return { [keys.includes(st) ? st : 'OTHER']: 1 };
+      }, keys);
+      const route = rankBy(rows, (r) => ({ key: s(r.routeName), label: s(r.routeName) }), () => 1);
+      const incomplete = tot(totals, 'incomplete') ?? 0;
+      const skipped = tot(totals, 'skippedStops') ?? 0;
+      const deviations = tot(totals, 'deviationCount') ?? 0;
+      return {
+        kpis: [
+          { id: 'trips', label: 'Trips', value: tot(totals, 'count'), format: 'int' },
+          { id: 'completed', label: 'Completed', value: tot(totals, 'completed'), format: 'int' },
+          { id: 'incomplete', label: 'Incomplete', value: incomplete, format: 'int', tone: incomplete > 0 ? 'warning' : 'default' },
+          { id: 'cancelled', label: 'Cancelled', value: tot(totals, 'cancelled'), format: 'int' },
+          { id: 'skipped', label: 'Skipped stops', value: skipped, format: 'int', tone: skipped > 0 ? 'warning' : 'default', hint: { text: '{{n}} of {{m}} stops done', vars: { n: tot(totals, 'stopsDone') ?? 0, m: tot(totals, 'stopCount') ?? 0 } } },
+          { id: 'deviations', label: 'Deviations', value: deviations, format: 'int', tone: deviations > 0 ? 'danger' : 'default' },
+        ],
+        charts: [
+          {
+            kind: 'bars',
+            title: 'Planned trips per day',
+            segments: [
+              { key: 'COMPLETED', label: 'Completed', tone: 'running' },
+              { key: 'INCOMPLETE', label: 'Incomplete', tone: 'warning' },
+              { key: 'CANCELLED', label: 'Cancelled', tone: 'muted' },
+              { key: 'OTHER', label: 'Scheduled / running', tone: 'info' },
+            ],
+            data: [...days.entries()].map(([key, values]) => ({ key, values })),
+            format: 'int',
+            select: 'day',
+          },
+          { kind: 'ranked', title: 'Trips by route', items: route.items, total: route.total, format: 'int', select: { field: 'routeName', prefix: 'Route' } },
+        ],
+        chartsFromRows: true,
+      };
+    }
+
     default:
       return null;
   }
@@ -822,6 +893,8 @@ export function formatInsightValue(v: number | null | undefined, f: ValueFormat,
       return `${v.toLocaleString(locale, { maximumFractionDigits: 1 })} L`;
     case 'kmpl':
       return `${fixed(2)} km/L`;
+    case 'min':
+      return `${fixed(1)} min`;
     default:
       return Math.round(v).toLocaleString(locale);
   }

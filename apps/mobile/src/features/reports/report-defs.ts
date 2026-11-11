@@ -6,6 +6,7 @@ import {
   type StopDto,
   type SummaryReportRow,
   type TripDto,
+  type TripPerformanceGroupBy,
 } from '@veetracer/shared';
 import type { LucideIcon } from 'lucide-react-native';
 import {
@@ -13,6 +14,7 @@ import {
   FileCheck2Icon,
   BellIcon,
   CalendarCheckIcon,
+  CalendarClockIcon,
   CirclePauseIcon,
   ClockIcon,
   CoffeeIcon,
@@ -575,8 +577,68 @@ const ATTENDANCE_CORRECTIONS: ReportColumn[] = [
   { id: 'correctedAt', header: 'Corrected at', value: time('correctedAt'), kind: 'time' },
 ];
 
-export type ReportCategory = 'Staff attendance' | 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Fuel log (manual)' | 'Sensors' | 'Devices' | 'Compliance';
-export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Events', 'Geofences', 'Fuel', 'Fuel log (manual)', 'Sensors', 'Devices', 'Compliance', 'Staff attendance'];
+const pct1 = (v: number) => `${Number.isInteger(v) ? v : v.toFixed(1)}%`;
+const min1 = (v: number) => v.toFixed(1);
+/** "done / total" shown; sorts and totals by the first number. */
+const ofCol = (id: string, totalId: string, header: string): ReportColumn => ({
+  id,
+  header,
+  value: num(id),
+  display: (r) => `${int(Number(r[id] ?? 0))} / ${int(Number(r[totalId] ?? 0))}`,
+  numeric: true,
+  total: 'sum',
+  format: int,
+});
+
+/** First column header per grouping of the trip performance report. */
+export const TRIP_PERFORMANCE_GROUP_HEADER: Record<TripPerformanceGroupBy, string> = { ROUTE: 'Route', DRIVER: 'Driver', VEHICLE: 'Vehicle' };
+
+const TRIP_PERFORMANCE: ReportColumn[] = [
+  { id: 'groupName', header: 'Route', value: str('groupName') },
+  count('trips', 'Trips'),
+  count('completed', 'Completed'),
+  count('incomplete', 'Incomplete'),
+  count('cancelled', 'Cancelled'),
+  { id: 'onTimePct', header: 'On time %', value: num('onTimePct'), numeric: true, format: pct1 },
+  ofCol('onTimeStops', 'ratedStops', 'Stops on time'),
+  { id: 'avgStartDelayMin', header: 'Avg start delay (min)', value: num('avgStartDelayMin'), numeric: true, format: min1 },
+  { id: 'avgStopDelayMin', header: 'Avg stop delay (min)', value: num('avgStopDelayMin'), numeric: true, format: min1 },
+  count('skippedStops', 'Skipped stops'),
+  { id: 'plannedKm', header: 'Planned km', value: num('plannedKm'), numeric: true, total: 'sum', format: km },
+  { id: 'actualKm', header: 'Actual km', value: num('actualKm'), numeric: true, total: 'sum', format: km },
+  count('deviations', 'Deviations'),
+];
+
+const PLANNED_TRIPS: ReportColumn[] = [
+  { id: 'routeName', header: 'Route', value: str('routeName') },
+  vehicle,
+  plate,
+  { id: 'driverName', header: 'Driver', value: str('driverName') },
+  { id: 'status', header: 'Status', value: words('status') },
+  { id: 'plannedStart', header: 'Planned start', value: time('plannedStart'), kind: 'time' },
+  { id: 'actualStart', header: 'Actual start', value: time('actualStart'), kind: 'time' },
+  { id: 'plannedEnd', header: 'Planned end', value: time('plannedEnd'), kind: 'time' },
+  { id: 'actualEnd', header: 'Actual end', value: time('actualEnd'), kind: 'time' },
+  { id: 'startDelayMin', header: 'Start delay (min)', value: num('startDelayMin'), numeric: true, format: min1 },
+  { id: 'delayMin', header: 'Delay (min)', value: num('delayMin'), numeric: true, format: min1 },
+  ofCol('stopsDone', 'stopCount', 'Stops done'),
+  count('skippedStops', 'Skipped'),
+  count('deviationCount', 'Deviations'),
+  { id: 'plannedKm', header: 'Planned km', value: num('plannedKm'), numeric: true, total: 'sum', format: km },
+  kmCol('distanceKm'),
+];
+
+/** Columns for a report result: the trip performance report names its first column after the grouping. */
+export function columnsForResult(def: ReportTypeDef, groupBy?: TripPerformanceGroupBy): ReportColumn[] {
+  if (def.type !== 'TRIP_PERFORMANCE' || !groupBy) return def.columns;
+  return def.columns.map((c, i) => (i === 0 ? { ...c, header: TRIP_PERFORMANCE_GROUP_HEADER[groupBy] } : c));
+}
+
+export type ReportCategory = 'Staff attendance' | 'Routes & trips' | 'Activity' | 'Driving' | 'Events' | 'Geofences' | 'Fuel' | 'Fuel log (manual)' | 'Sensors' | 'Devices' | 'Compliance';
+export const REPORT_CATEGORIES: ReportCategory[] = ['Activity', 'Driving', 'Routes & trips', 'Events', 'Geofences', 'Fuel', 'Fuel log (manual)', 'Sensors', 'Devices', 'Compliance', 'Staff attendance'];
+
+/** Categories shown only with a module permission (the API refuses those reports without it too). */
+export const CATEGORY_PERMISSION: Partial<Record<ReportCategory, 'attendance' | 'plannedTrips'>> = { 'Staff attendance': 'attendance', 'Routes & trips': 'plannedTrips' };
 
 export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'SUMMARY', category: 'Activity', label: 'Summary', description: 'Distance, running/idle/stop time and trips per vehicle by day, week or month.', icon: SigmaIcon, columns: SUMMARY },
@@ -610,6 +672,8 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'ATTENDANCE_PAYROLL', category: 'Staff attendance', label: 'Payroll', description: 'For salary processing: payable days, loss-of-pay days, late and early leave, worked and overtime hours per person. Also on the Developer API for payroll software.', icon: CalendarCheckIcon, columns: ATTENDANCE_PAYROLL },
   { type: 'ATTENDANCE_OUTINGS', category: 'Staff attendance', label: 'Time outside', description: 'Every time someone left the site during a shift: how long, official or personal, what they said and who decided.', icon: CalendarCheckIcon, columns: ATTENDANCE_OUTINGS },
   { type: 'ATTENDANCE_CORRECTIONS', category: 'Staff attendance', label: 'Attendance corrections', description: 'Days changed by hand: what was calculated, what it became, who changed it and why.', icon: CalendarCheckIcon, columns: ATTENDANCE_CORRECTIONS },
+  { type: 'TRIP_PERFORMANCE', category: 'Routes & trips', label: 'Trip performance', description: 'Planned trips per route, driver or vehicle: completed, incomplete and cancelled trips, on-time stops (within 5 min), start and stop delays, skipped stops, planned vs actual km and deviations.', icon: CalendarClockIcon, columns: TRIP_PERFORMANCE },
+  { type: 'PLANNED_TRIPS', category: 'Routes & trips', label: 'Planned trips', description: 'Every planned trip with route, vehicle, driver, status, planned and actual start and end, delay, stops done, skipped stops, deviations and distance.', icon: RouteIcon, columns: PLANNED_TRIPS },
 ];
 
 export const REPORT_DEF_MAP = Object.fromEntries(REPORT_DEFS.map((d) => [d.type, d])) as Record<ReportType, ReportTypeDef>;

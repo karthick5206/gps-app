@@ -47,6 +47,7 @@ import { fuelEventsReport, fuelReport } from './fuel-report';
 import { GEOFENCE_DISTANCE_MAX_DAYS, geofenceDistanceReport } from './geofence-distance-report';
 import { mileageReport } from './mileage-report';
 import { ioDailyReport, ioSessionsReport } from './io-report';
+import { plannedTripsReport, tripPerformanceReport } from './planned-trips-report';
 import { AddressEnricher } from './address-enricher';
 
 export const REPORT_JSON_MAX_ROWS = 10_000;
@@ -288,6 +289,19 @@ export class ReportDataService {
                 ? attendanceSummaryReport(await this.attendance.reportRows(full, req.from, req.to, new Set(ids)), objects, maxRows)
                 : attendanceDailyReport(await this.attendance.reportRows(full, req.from, req.to, new Set(ids)), objects, maxRows);
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'TRIP_PERFORMANCE':
+      case 'PLANNED_TRIPS': {
+        // Like attendance: the reports permission alone is not enough, the caller must see planned trips.
+        if (!(ctx.isSuperAdmin || ctx.permissions?.plannedTrips?.includes('view'))) throw new ForbiddenException('You do not have access to planned trips');
+        if (req.type === 'PLANNED_TRIPS') {
+          const r = await plannedTripsReport(this.prisma, ctx.companyId, objects, range, maxRows);
+          return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+        }
+        const groupBy = req.options?.groupBy ?? 'ROUTE';
+        const r = await tripPerformanceReport(this.prisma, ctx.companyId, objects, range, groupBy, maxRows);
+        return { ...base, groupBy, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 
       case 'POI_VISITS': {

@@ -126,8 +126,19 @@ export const REPORT_TYPES = [
   'ATTENDANCE_PAYROLL',
   'ATTENDANCE_OUTINGS',
   'ATTENDANCE_CORRECTIONS',
+  'TRIP_PERFORMANCE',
+  'PLANNED_TRIPS',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
+
+/** Routes & planned trips reports: shown and run only with the `plannedTrips` view permission. */
+export const PLANNED_TRIP_REPORT_TYPES: readonly ReportType[] = ['TRIP_PERFORMANCE', 'PLANNED_TRIPS'];
+
+/** TRIP_PERFORMANCE: one row per route, per driver or per vehicle. */
+export const TRIP_PERFORMANCE_GROUP_BY = ['ROUTE', 'DRIVER', 'VEHICLE'] as const;
+export type TripPerformanceGroupBy = (typeof TRIP_PERFORMANCE_GROUP_BY)[number];
+/** A stop counts as on time when its arrival is within this many seconds of the plan (early or late). */
+export const ON_TIME_TOLERANCE_SEC = 300;
 
 /** Report types that use `period` (rows grouped by day / ISO week / month). */
 export const PERIOD_REPORT_TYPES: readonly ReportType[] = ['SUMMARY', 'DISTANCE', 'ENGINE_HOURS'];
@@ -150,6 +161,8 @@ export interface ReportOptions {
   minOverspeedSec?: number;
   /** DEVICE_STATUS: no data for this long = inactive (default 1440 min = 24 h). */
   inactiveAfterMin?: number;
+  /** TRIP_PERFORMANCE: one row per route, driver or vehicle (default ROUTE). */
+  groupBy?: TripPerformanceGroupBy;
 }
 /** The options each report type accepts (the API ignores the rest). */
 export const REPORT_OPTION_KEYS: Partial<Record<ReportType, readonly (keyof ReportOptions)[]>> = {
@@ -161,6 +174,7 @@ export const REPORT_OPTION_KEYS: Partial<Record<ReportType, readonly (keyof Repo
   CONTINUOUS_DRIVING: ['drivingMin', 'breakMin'],
   OVERSPEED: ['minOverspeedSec'],
   DEVICE_STATUS: ['inactiveAfterMin'],
+  TRIP_PERFORMANCE: ['groupBy'],
 };
 /** Report options saved with a schedule, per report type. {} = the API defaults. */
 export type ScheduleReportOptions = Partial<Record<ReportType, ReportOptions>>;
@@ -296,8 +310,57 @@ export interface GeofenceDistanceReportRow {
   travelSec: number; distanceKm: number;
 }
 
+/**
+ * TRIP_PERFORMANCE: planned trips (by planned start, company days) of one route / driver / vehicle. Stop figures count
+ * stops with a recorded arrival; skipped stops are counted apart and left out of the on-time share. Planned vs actual
+ * km cover finished trips (completed + incomplete) only.
+ */
+export interface TripPerformanceReportRow {
+  groupBy: TripPerformanceGroupBy;
+  /** Route / driver / vehicle id; null = trips without a driver. */
+  groupId: string | null;
+  groupName: string;
+  trips: number; completed: number; incomplete: number; cancelled: number;
+  /** Stops with a recorded arrival (not skipped): the on-time denominator. */
+  ratedStops: number; onTimeStops: number;
+  /** onTimeStops / ratedStops, percent with one decimal; null when no stop was reached. */
+  onTimePct: number | null;
+  skippedStops: number;
+  /** Mean of actualStart − plannedStart over started trips (minutes, one decimal, + late / − early). */
+  avgStartDelayMin: number | null;
+  /** Mean arrival delay over rated stops (minutes, one decimal, + late / − early). */
+  avgStopDelayMin: number | null;
+  plannedKm: number; actualKm: number;
+  deviations: number;
+}
+
+/** PLANNED_TRIPS: one row per planned trip. */
+export interface PlannedTripReportRow {
+  tripId: string;
+  routeId: string; routeName: string;
+  objectId: string; objectName: string; plateNumber: string | null;
+  driverId: string | null; driverName: string | null;
+  status: string;
+  /** AUTO | MANUAL | TIMEOUT once closed. */
+  closedBy: string | null;
+  plannedStart: string; plannedEnd: string;
+  actualStart: string | null; actualEnd: string | null;
+  /** actualStart − plannedStart (minutes, one decimal); null before the start. */
+  startDelayMin: number | null;
+  /** Latest known delay vs plan (minutes, one decimal, + late / − early). */
+  delayMin: number | null;
+  stopsDone: number; stopCount: number; skippedStops: number; onTimeStops: number;
+  deviationCount: number;
+  /** Route snapshot path length, else straight legs between the stops. */
+  plannedKm: number;
+  /** Actual distance start → end (null until measured). */
+  distanceKm: number | null;
+}
+
 export interface ReportResponse<T = unknown> {
   type: ReportType; from: string; to: string; period?: ReportPeriod;
+  /** TRIP_PERFORMANCE: the grouping the rows use. */
+  groupBy?: TripPerformanceGroupBy;
   rows: T[];
   totals?: Record<string, number>;
 }

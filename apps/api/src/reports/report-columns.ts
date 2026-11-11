@@ -22,10 +22,13 @@ import {
   IoDailyReportRow,
   IoSessionReportRow,
   PositionReportRow,
+  PlannedTripReportRow,
   ReportType,
   StopDto,
   SummaryReportRow,
   TripDto,
+  TripPerformanceGroupBy,
+  TripPerformanceReportRow,
   utilisationPct,
 } from '@veetracer/shared';
 import type { AttendanceCorrectionRow, AttendanceDailyRow, AttendanceOutingRow, AttendanceSummaryRow, AttendancePayrollRow } from './attendance-reports';
@@ -74,6 +77,8 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   ATTENDANCE_PAYROLL: 'Attendance payroll report',
   ATTENDANCE_OUTINGS: 'Time outside report',
   ATTENDANCE_CORRECTIONS: 'Attendance corrections report',
+  TRIP_PERFORMANCE: 'Trip performance report',
+  PLANNED_TRIPS: 'Planned trips report',
 };
 
 const col = <T>(c: Omit<ReportColumn, 'value'> & { value: (row: T, tz: string) => Cell }): ReportColumn => c as ReportColumn;
@@ -533,8 +538,56 @@ const DOCUMENTS: ReportColumn[] = [
   col<DocumentsReportRow>({ header: 'Status', width: 13, value: (r) => DOCUMENT_STATUS_LABELS[r.status] }),
 ];
 
-export function columnsFor(type: ReportType): ReportColumn[] {
+/** Blank (not 0) when there is nothing to average or no value yet. */
+const opt = (v: number | null | undefined): Cell => (v === null || v === undefined ? '' : v);
+const pct = (v: number | null | undefined): Cell => (v === null || v === undefined ? '' : `${v}%`);
+const GROUP_HEADER: Record<TripPerformanceGroupBy, string> = { ROUTE: 'Route', DRIVER: 'Driver', VEHICLE: 'Vehicle' };
+const GROUP_PLURAL: Record<TripPerformanceGroupBy, string> = { ROUTE: 'routes', DRIVER: 'drivers', VEHICLE: 'vehicles' };
+
+function tripPerformanceColumns(groupBy: TripPerformanceGroupBy): ReportColumn[] {
+  return [
+    col<TripPerformanceReportRow>({ header: GROUP_HEADER[groupBy], width: 24, value: (r) => r.groupName, total: (t) => `Total (${t.groups ?? 0} ${GROUP_PLURAL[groupBy]})` }),
+    col<TripPerformanceReportRow>({ header: 'Trips', width: 7, numeric: true, value: (r) => r.trips, total: (t) => t.trips ?? 0 }),
+    col<TripPerformanceReportRow>({ header: 'Completed', width: 9, numeric: true, value: (r) => r.completed, total: (t) => t.completed ?? 0 }),
+    col<TripPerformanceReportRow>({ header: 'Incomplete', width: 9, numeric: true, value: (r) => r.incomplete, total: (t) => t.incomplete ?? 0 }),
+    col<TripPerformanceReportRow>({ header: 'Cancelled', width: 9, numeric: true, value: (r) => r.cancelled, total: (t) => t.cancelled ?? 0 }),
+    col<TripPerformanceReportRow>({ header: 'On time %', width: 9, numeric: true, value: (r) => pct(r.onTimePct), total: (t) => pct(t.onTimePct) }),
+    col<TripPerformanceReportRow>({ header: 'Stops on time', width: 9, numeric: true, value: (r) => `${r.onTimeStops} / ${r.ratedStops}`, total: (t) => `${t.onTimeStops ?? 0} / ${t.ratedStops ?? 0}` }),
+    col<TripPerformanceReportRow>({ header: 'Avg start delay (min)', width: 11, numeric: true, value: (r) => opt(r.avgStartDelayMin), total: (t) => opt(t.avgStartDelayMin) }),
+    col<TripPerformanceReportRow>({ header: 'Avg stop delay (min)', width: 11, numeric: true, value: (r) => opt(r.avgStopDelayMin), total: (t) => opt(t.avgStopDelayMin) }),
+    col<TripPerformanceReportRow>({ header: 'Skipped stops', width: 9, numeric: true, value: (r) => r.skippedStops, total: (t) => t.skippedStops ?? 0 }),
+    col<TripPerformanceReportRow>({ header: 'Planned km', width: 10, numeric: true, value: (r) => r.plannedKm, total: (t) => t.plannedKm ?? 0 }),
+    col<TripPerformanceReportRow>({ header: 'Actual km', width: 10, numeric: true, value: (r) => r.actualKm, total: (t) => t.actualKm ?? 0 }),
+    col<TripPerformanceReportRow>({ header: 'Deviations', width: 9, numeric: true, value: (r) => r.deviations, total: (t) => t.deviations ?? 0 }),
+  ];
+}
+
+const PLANNED_TRIPS: ReportColumn[] = [
+  col<PlannedTripReportRow>({ header: 'Route', width: 22, value: (r) => r.routeName, total: (t) => `Total (${t.count ?? 0} trips)` }),
+  col<PlannedTripReportRow>({ header: 'Vehicle', width: 20, value: (r) => r.objectName }),
+  col<PlannedTripReportRow>({ header: 'Plate', width: 13, value: (r) => r.plateNumber ?? '' }),
+  col<PlannedTripReportRow>({ header: 'Driver', width: 18, value: (r) => r.driverName ?? '' }),
+  col<PlannedTripReportRow>({ header: 'Status', width: 11, value: (r) => words(r.status), total: (t) => `${t.completed ?? 0} completed` }),
+  col<PlannedTripReportRow>({ header: 'Planned start', width: 19, value: (r, tz) => localTime(r.plannedStart, tz) }),
+  col<PlannedTripReportRow>({ header: 'Actual start', width: 19, value: (r, tz) => localTime(r.actualStart, tz) }),
+  col<PlannedTripReportRow>({ header: 'Planned end', width: 19, value: (r, tz) => localTime(r.plannedEnd, tz) }),
+  col<PlannedTripReportRow>({ header: 'Actual end', width: 19, value: (r, tz) => localTime(r.actualEnd, tz) }),
+  col<PlannedTripReportRow>({ header: 'Start delay (min)', width: 10, numeric: true, value: (r) => opt(r.startDelayMin) }),
+  col<PlannedTripReportRow>({ header: 'Delay (min)', width: 9, numeric: true, value: (r) => opt(r.delayMin) }),
+  col<PlannedTripReportRow>({ header: 'Stops done', width: 9, numeric: true, value: (r) => `${r.stopsDone} / ${r.stopCount}`, total: (t) => `${t.stopsDone ?? 0} / ${t.stopCount ?? 0}` }),
+  col<PlannedTripReportRow>({ header: 'Skipped', width: 8, numeric: true, value: (r) => r.skippedStops, total: (t) => t.skippedStops ?? 0 }),
+  col<PlannedTripReportRow>({ header: 'Deviations', width: 9, numeric: true, value: (r) => r.deviationCount, total: (t) => t.deviationCount ?? 0 }),
+  col<PlannedTripReportRow>({ header: 'Planned km', width: 10, numeric: true, value: (r) => r.plannedKm, total: (t) => t.plannedKm ?? 0 }),
+  col<PlannedTripReportRow>({ header: 'Distance (km)', width: 11, numeric: true, value: (r) => (r.distanceKm === null ? '' : num(r.distanceKm, 2)), total: (t) => num(t.distanceKm ?? 0, 2) }),
+];
+
+/** Columns of a report type; TRIP_PERFORMANCE names its first column after the grouping (default route). */
+export function columnsFor(type: ReportType, groupBy?: TripPerformanceGroupBy): ReportColumn[] {
   switch (type) {
+    case 'TRIP_PERFORMANCE':
+      return tripPerformanceColumns(groupBy ?? 'ROUTE');
+    case 'PLANNED_TRIPS':
+      return PLANNED_TRIPS;
     case 'SUMMARY':
       return SUMMARY;
     case 'CONSOLIDATED':
