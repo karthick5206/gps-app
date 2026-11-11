@@ -1,4 +1,4 @@
-import { createSmsProvider, SmartpingSmsProvider } from './sms';
+import { createSmsProvider, Msg91SmsProvider, SmartpingSmsProvider } from './sms';
 
 const env = { SMARTPING_USERNAME: 'acct.trans', SMARTPING_PASSWORD: 'pw', SMARTPING_ENTITY_ID: '1701159267852525735', SMARTPING_SENDER: 'VIBHAV' };
 const reply = (status: number, body: unknown) => jest.fn().mockResolvedValue({ ok: status < 400, status, text: async () => JSON.stringify(body) });
@@ -39,5 +39,16 @@ describe('SmartpingSmsProvider', () => {
   it('is selected with SMS_PROVIDER=smartping', () => {
     expect(createSmsProvider('smartping').name).toBe('smartping');
     expect(createSmsProvider('console').name).toBe('console');
+  });
+});
+
+describe('SmsProvider.configured (D6 G3)', () => {
+  it('console is never configured; Smartping only with complete credentials; MSG91 with its key', () => {
+    expect(createSmsProvider('console').configured).toBe(false);
+    expect(new SmartpingSmsProvider(env).configured).toBe(true);
+    expect(new SmartpingSmsProvider({ ...env, SMARTPING_PASSWORD: '' }).configured).toBe(false);
+    expect(new SmartpingSmsProvider({}).configured).toBe(false);
+    expect(new Msg91SmsProvider('').configured).toBe(false);
+    expect(new Msg91SmsProvider('k').configured).toBe(true);
   });
 });

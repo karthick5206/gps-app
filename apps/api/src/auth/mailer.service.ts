@@ -20,6 +20,21 @@ export interface MailMessage {
   html: string;
   text: string;
   attachments?: MailAttachment[];
+  /**
+   * D6 G2: stable Message-ID (e.g. "<hash@veetrax.notify>") so a resend of the same notification carries the same id
+   * and receiving systems that deduplicate by Message-ID can drop it. SMTP only; Zoho has no equivalent field.
+   */
+  messageId?: string;
+}
+
+/** What happened to one mail (D6 G3). */
+export interface MailResult {
+  /** Real delivery channel used ('zoho' | 'smtp'), or null when the mail was only written to var/mail / withheld. */
+  provider: string | null;
+  /** Provider id: SMTP Message-ID or Zoho request_id. */
+  messageId: string | null;
+  /** Development / opt-in copy written to var/mail, or '' when none. */
+  file: string;
 }
 
 /**
@@ -29,6 +44,15 @@ export interface MailMessage {
  */
 export function keepMailCopies(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NODE_ENV !== 'production' || env.MAIL_KEEP_COPIES === 'true';
+}
+
+/**
+ * Subject for log lines: every run of 4+ digits is masked, so sign-in / activation / reset codes (e.g. "483920 is your
+ * VeeTrax sign-in code") and phone numbers in subjects never reach journald; a link (a company template could put
+ * {{reset_link}} in the subject) is replaced by [link].
+ */
+export function logSubject(subject: string): string {
+  return subject.replace(/https?:\/\/\S+/gi, '[link]').replace(/\d{4,}/g, '******');
 }
 
 /** M1 mailer: renders through nodemailer's stream transport and writes the HTML body to var/mail/ (dev / opt-in). */
@@ -50,15 +74,20 @@ export class MailerService {
   }
 
   async send(message: MailMessage): Promise<string> {
+    return (await this.sendWithResult(message)).file;
+  }
+
+  /** Like send(), but reports the provider and its message id (notifier status, D6 G3). */
+  async sendWithResult(message: MailMessage): Promise<MailResult> {
     if (!keepMailCopies()) {
       // Production: deliver through the real channel only; never store content on disk.
-      if (this.zoho) await sendZohoMail(this.zoho, { from: this.from, replyTo: this.replyTo, ...message });
-      else if (this.smtp) await this.smtp.sendMail({ from: this.from, replyTo: this.replyTo, ...message });
-      else this.logger.warn(`Mail "${message.subject}" to ${message.to} NOT DELIVERED: no mail provider configured (content withheld in production)`);
-      if (this.provider) this.logger.log(`Mail "${message.subject}" to ${message.to} sent via ${this.provider}`);
-      return '';
+      const messageId = await this.deliver(message);
+      if (!this.provider) this.logger.warn(`Mail "${logSubject(message.subject)}" to ${message.to} NOT DELIVERED: no mail provider configured (content withheld in production)`);
+      else this.logger.log(`Mail "${logSubject(message.subject)}" to ${message.to} sent via ${this.provider}`);
+      return { provider: this.provider, messageId, file: '' };
     }
-    const info = (await this.transport.sendMail({ from: this.from, replyTo: this.replyTo, ...message })) as { message?: Buffer };
+    const { messageId: _stable, ...copy } = message;
+    const info = (await this.transport.sendMail({ from: this.from, replyTo: this.replyTo, ...copy })) as { message?: Buffer };
     await mkdir(this.outDir, { recursive: true });
     // Random suffix: concurrent sends (notifier) within the same millisecond must not overwrite each other.
     const stem = join(this.outDir, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`);
@@ -73,10 +102,20 @@ export class MailerService {
         else if (a.content !== undefined) await writeFile(target, a.content);
       }
     }
-    if (this.zoho) await sendZohoMail(this.zoho, { from: this.from, replyTo: this.replyTo, ...message });
-    else if (this.smtp) await this.smtp.sendMail({ from: this.from, replyTo: this.replyTo, ...message });
+    const messageId = await this.deliver(message);
     const extra = message.attachments?.length ? ` (+${message.attachments.length} attachment(s), ${stem}.eml)` : '';
-    this.logger.log(`Mail "${message.subject}" to ${message.to} written to ${file}${extra}`);
-    return file;
+    this.logger.log(`Mail "${logSubject(message.subject)}" to ${message.to} written to ${file}${extra}`);
+    return { provider: this.provider, messageId, file };
+  }
+
+  /** Real delivery (Zoho first, then SMTP); returns the provider id, or null when no provider is configured. */
+  private async deliver(message: MailMessage): Promise<string | null> {
+    const { messageId, ...rest } = message;
+    if (this.zoho) return sendZohoMail(this.zoho, { from: this.from, replyTo: this.replyTo, ...rest });
+    if (this.smtp) {
+      const info = (await this.smtp.sendMail({ from: this.from, replyTo: this.replyTo, ...rest, ...(messageId ? { messageId } : {}) })) as { messageId?: string };
+      return info?.messageId ?? messageId ?? null;
+    }
+    return null;
   }
 }

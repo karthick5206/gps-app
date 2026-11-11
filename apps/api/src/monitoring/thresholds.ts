@@ -19,6 +19,9 @@ export interface HealthThresholds {
   notifyFailWarnPct: number;
   notifyFailWindowMin: number;
   notifyFailMinAttempts: number;
+  notifyUnqueuedWarnMin: number;
+  notifyUnqueuedCritMin: number;
+  notifyDeadWindowHours: number;
   persistStaleWarnSec: number;
   persistStaleCritSec: number;
   spoolStuckMin: number;
@@ -50,6 +53,9 @@ export const THRESHOLD_DEFS: readonly Def[] = [
   { key: 'notifyFailWarnPct', env: 'HEALTH_NOTIFY_FAIL_WARN_PCT', label: 'Notification failures — warning', unit: '%', value: 20 },
   { key: 'notifyFailWindowMin', env: 'HEALTH_NOTIFY_FAIL_WINDOW_MIN', label: 'Notification failure window', unit: 'min', value: 15 },
   { key: 'notifyFailMinAttempts', env: 'HEALTH_NOTIFY_FAIL_MIN_ATTEMPTS', label: 'Notification failure check needs at least', unit: 'sends', value: 5 },
+  { key: 'notifyUnqueuedWarnMin', env: 'HEALTH_NOTIFY_UNQUEUED_WARN_MIN', label: 'Alert without a finished notification job — warning after', unit: 'min', value: 5 },
+  { key: 'notifyUnqueuedCritMin', env: 'HEALTH_NOTIFY_UNQUEUED_CRIT_MIN', label: 'Alert without a finished notification job — critical after', unit: 'min', value: 30 },
+  { key: 'notifyDeadWindowHours', env: 'HEALTH_NOTIFY_DEAD_WINDOW_HOURS', label: 'DEAD alert notification jobs are reported for', unit: 'h', value: 24 },
   { key: 'persistStaleWarnSec', env: 'HEALTH_PERSIST_STALE_WARN_SEC', label: 'No positions persisted while devices are connected — warning', unit: 's', value: 180 },
   { key: 'persistStaleCritSec', env: 'HEALTH_PERSIST_STALE_CRIT_SEC', label: 'No positions persisted while devices are connected — critical', unit: 's', value: 600 },
   { key: 'spoolStuckMin', env: 'HEALTH_SPOOL_STUCK_MIN', label: 'Gateway spool not draining although the cache is up', unit: 'min', value: 15 },

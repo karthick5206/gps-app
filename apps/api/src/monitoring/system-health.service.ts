@@ -27,7 +27,9 @@ import { APP_ROOT, AppEnv } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
-import { bufferSecondsLeft, CheckInput, evaluateChecks, Issue, statusOf, worst } from './checks';
+import { Prisma } from '@prisma/client';
+import { NOTIFY_SWEEP_FLOOR } from '../notifier/notify-sweeper';
+import { bufferSecondsLeft, CheckInput, evaluateChecks, Issue, NotifyBacklog, statusOf, worst } from './checks';
 import { HEARTBEAT_TTL_SEC } from './heartbeat';
 import { MapServiceMonitor, MapServiceState } from './map-services';
 import { HealthThresholds, loadMonitorConfig, loadThresholds, MonitorConfig } from './thresholds';
@@ -108,7 +110,7 @@ export class SystemHealthService {
   // ── report ────────────────────────────────────────────────────────────────
 
   async collect(now = Date.now()): Promise<Collected> {
-    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt, maps] = await Promise.all([
+    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt, maps, notify] = await Promise.all([
       this.valkeyInfo(),
       this.heartbeats().catch(() => [] as ProcessHeartbeat[]),
       this.series().catch(() => [] as SeriesSample[]),
@@ -117,6 +119,7 @@ export class SystemHealthService {
       this.host(),
       this.lastPersistedAt(),
       this.mapServices.collect(now).catch(() => this.mapServices.snapshot()),
+      this.notifyBacklog(),
     ]);
     const processes = this.processes(heartbeats, now);
     const ports = this.ports(heartbeats);
@@ -136,6 +139,7 @@ export class SystemHealthService {
       startupGrace: now - this.startedAt < STARTUP_GRACE_MS,
       lastPersistedAt,
       maps,
+      notify,
     };
     const issues = evaluateChecks(input, this.thresholds);
     applyStatuses(input, issues);
@@ -382,6 +386,55 @@ export class SystemHealthService {
       return rows[0]?.at ? rows[0].at.getTime() : null;
     } catch {
       return undefined;
+    }
+  }
+
+  /**
+   * D6 G2: DEAD alert notification jobs (per type, last notifyDeadWindowHours; partial index "Alert_notify_dead_idx")
+   * and alerts without a finished job older than notifyUnqueuedWarnMin (partial index "Alert_notify_pending_idx", same
+   * constant floor and 24 h window as the sweeper). "createdAt" holds UTC and the bounds are now() AT TIME ZONE 'UTC',
+   * so the counts do not depend on the session TimeZone. Null when the database cannot be asked.
+   */
+  async notifyBacklog(): Promise<NotifyBacklog | null> {
+    const t = this.thresholds;
+    try {
+      const [dead, pending] = await Promise.all([
+        withTimeout(
+          this.prisma.$queryRaw<{ type: string; count: number; latestId: string; latestError: string }[]>`
+            SELECT "type", count(*)::int AS "count",
+                   (array_agg("id"::text ORDER BY "createdAt" DESC))[1] AS "latestId",
+                   (array_agg("notifyError" ORDER BY "createdAt" DESC))[1] AS "latestError"
+              FROM "Alert"
+             WHERE "notifyError" IS NOT NULL
+               AND "createdAt" > (now() AT TIME ZONE 'UTC') - (${t.notifyDeadWindowHours}::float8 * interval '1 hour')
+             GROUP BY "type"
+             ORDER BY count(*) DESC, "type"`,
+          TIMEOUT_MS,
+          'PostgreSQL',
+        ),
+        withTimeout(
+          this.prisma.$queryRaw<{ unqueued: number; crit: number; oldest: number | null }[]>`
+            SELECT count(*)::int AS "unqueued",
+                   (count(*) FILTER (WHERE "createdAt" < (now() AT TIME ZONE 'UTC') - (${t.notifyUnqueuedCritMin}::float8 * interval '1 minute')))::int AS "crit",
+                   EXTRACT(EPOCH FROM (now() AT TIME ZONE 'UTC') - min("createdAt"))::float8 AS "oldest"
+              FROM "Alert"
+             WHERE "notifiedAt" IS NULL AND "notifyError" IS NULL
+               AND "createdAt" >= TIMESTAMP ${Prisma.raw(`'${NOTIFY_SWEEP_FLOOR}'`)}
+               AND "createdAt" > (now() AT TIME ZONE 'UTC') - interval '24 hours'
+               AND "createdAt" < (now() AT TIME ZONE 'UTC') - (${t.notifyUnqueuedWarnMin}::float8 * interval '1 minute')`,
+          TIMEOUT_MS,
+          'PostgreSQL',
+        ),
+      ]);
+      const p = pending[0];
+      return {
+        dead: dead.map((d) => ({ type: d.type, count: Number(d.count), latestId: d.latestId, latestError: d.latestError ?? '' })),
+        unqueued: Number(p?.unqueued ?? 0),
+        unqueuedCrit: Number(p?.crit ?? 0),
+        oldestUnqueuedSec: p?.oldest === null || p?.oldest === undefined ? null : Number(p.oldest),
+      };
+    } catch {
+      return null;
     }
   }
 

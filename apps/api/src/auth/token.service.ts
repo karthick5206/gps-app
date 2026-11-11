@@ -6,6 +6,8 @@ import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
 import { randomToken, sha256 } from '../common/secrets';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
+import { publishSessionsRevoked } from './session-revocation';
 
 const ACCESS_TTL_SEC = 15 * 60;
 const REFRESH_TTL_MS = 30 * 24 * 3600 * 1000;
@@ -22,6 +24,7 @@ export class TokenService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     @Inject(APP_ENV) private readonly env: AppEnv,
+    private readonly redis: RedisService,
   ) {}
 
   private accessToken(user: { id: string; companyId: string; isSuperAdmin: boolean }, sessionId: string): string {
@@ -68,6 +71,7 @@ export class TokenService {
     const session = await this.prisma.session.findUnique({ where: { refreshTokenHash: sha256(refreshToken) } });
     if (!session || session.revokedAt) return null;
     await this.prisma.session.update({ where: { id: session.id }, data: { revokedAt: new Date() } });
+    await publishSessionsRevoked(this.redis, { sessionIds: [session.id] });
     return session.userId;
   }
 
@@ -84,6 +88,7 @@ export class TokenService {
   /** Sign out one of the user's own sessions. */
   async revokeOwn(userId: string, sessionId: string): Promise<boolean> {
     const { count } = await this.prisma.session.updateMany({ where: { id: sessionId, userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    if (count > 0) await publishSessionsRevoked(this.redis, { sessionIds: [sessionId] });
     return count > 0;
   }
 
@@ -93,10 +98,12 @@ export class TokenService {
       where: { userId, revokedAt: null, ...(currentId ? { id: { not: currentId } } : {}) },
       data: { revokedAt: new Date() },
     });
+    if (count > 0) await publishSessionsRevoked(this.redis, { userId, ...(currentId ? { allExcept: currentId } : {}) });
     return count;
   }
 
   async revokeAll(userId: string): Promise<void> {
-    await this.prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    const { count } = await this.prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    if (count > 0) await publishSessionsRevoked(this.redis, { userId });
   }
 }

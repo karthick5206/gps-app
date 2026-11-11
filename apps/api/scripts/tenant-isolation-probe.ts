@@ -3,7 +3,7 @@
  *
  * Re-runnable black-box probe. Exercises the isolation boundaries that were NOT already
  * covered by docs/modernization/02-role-permission-matrix.md §4:
- *   1. Socket.IO /live realtime fan-out (cross-tenant subscribe, Viewer scope, post-logout AZ-3)
+ *   1. Socket.IO /live realtime fan-out (cross-tenant subscribe, Viewer scope, F-1 / R-14: socket closed on logout)
  *   2. File-serving endpoints (documents, expense photos, attendance selfies, driver-event media,
  *      report-run files, invoice/credit-note PDFs, /downloads + path traversal)
  *   3. Partner (reseller) boundaries
@@ -73,9 +73,13 @@ async function http(method: string, path: string, token?: string, body?: any, is
   return { status: res.status, json, text, headers: res.headers };
 }
 async function login(c: { email: string; pass: string }): Promise<string> {
+  return (await loginPair(c)).accessToken;
+}
+/** Login returning both tokens (a separate session, so logging it out leaves the other probes' tokens valid). */
+async function loginPair(c: { email: string; pass: string }): Promise<{ accessToken: string; refreshToken: string }> {
   const r = await http('POST', '/auth/login', undefined, { email: c.email, password: c.pass });
   if (r.status !== 200 || !r.json?.accessToken) throw new Error(`login failed for ${c.email}: ${r.status} ${r.text.slice(0, 120)}`);
-  return r.json.accessToken as string;
+  return { accessToken: r.json.accessToken as string, refreshToken: r.json.refreshToken as string };
 }
 /** Raw fetch that does not parse the body — used to confirm a file actually streams. */
 async function fetchRaw(path: string, token?: string): Promise<{ status: number; bytes: number; ctype: string | null }> {
@@ -148,18 +152,28 @@ async function probeSockets(tokens: { a: string; b: string; viewer: string }, vi
   }
   V.socket.close();
 
-  // 1d. AZ-3: socket behaviour after logout. Known issue: expected to keep streaming until next scope refresh.
-  const A2 = openSocket(tokens.a);
-  await Promise.race([A2.connected, A2.connErr, sleep(8000)]);
-  await http('POST', '/auth/logout', tokens.a, {});
-  const before = A2.cap.batches.length;
-  await sleep(10000);
-  const after = A2.cap.batches.length;
-  const stillConnected = A2.socket.connected;
-  rec(G, 'AZ-3: socket after user logout', 'KNOWN ISSUE — still streams until scope refresh (~60s)',
-    `after logout: connected=${stillConnected}, batches ${before}→${after} (${after > before ? 'STILL STREAMING' : (aStreaming ? 'stopped' : 'no data flowing to judge')})`,
-    'INFO');
+  // 1d. F-1 / R-14 (AZ-3), fixed in v1.8.2 G5: logout closes the session's live socket on the server.
+  //     PASS = disconnected with 'io server disconnect' within 5 s, no live:batch / alert after 5 s, and the same
+  //     access token is refused when it reconnects.
+  const pair = await loginPair(CRED.a);
+  const A2 = openSocket(pair.accessToken);
+  const a2Conn = await Promise.race([A2.connected.then(() => 'ok' as const), A2.connErr.then((e) => e), sleep(8000).then(() => 'timeout' as const)]);
+  const a2Disc = new Promise<string>((res) => A2.socket.on('disconnect', (reason) => res(reason)));
+  await sleep(1500);
+  const t0 = Date.now();
+  const lo = await http('POST', '/auth/logout', undefined, { refreshToken: pair.refreshToken });
+  const reason = await Promise.race([a2Disc, sleep(5000).then(() => 'still connected after 5s')]);
+  const discMs = Date.now() - t0;
+  const atFive = A2.cap.batches.length + A2.cap.alerts.length;
+  await sleep(5000);
+  const late = A2.cap.batches.length + A2.cap.alerts.length - atFive;
   A2.socket.close();
+  const A3 = openSocket(pair.accessToken);
+  const reconnect = await Promise.race([A3.connected.then(() => 'connected' as const), A3.connErr.then((e) => `refused (${e.message})`), sleep(8000).then(() => 'timeout' as const)]);
+  A3.socket.close();
+  expect(G, 'F-1 (AZ-3): socket after user logout', "'io server disconnect' ≤5 s, 0 events after 5 s, reconnect refused",
+    a2Conn === 'ok' && lo.status === 200 && reason === 'io server disconnect' && late === 0 && reconnect.startsWith('refused'),
+    `connect=${String(a2Conn)} logout=${lo.status} disconnect=${reason} in ${discMs}ms, events after 5s=${late}${aStreaming ? '' : ' (no data flowing)'}, reconnect=${reconnect}`);
 }
 
 // =====================================================================

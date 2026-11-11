@@ -4,6 +4,7 @@ import { UserDto } from '@veetracer/shared';
 import { assertCanManageUserAccess, assertRolesWithinCeiling, objectScopeWhere, userScopeWhere } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
+import { publishSessionsRevoked } from '../../auth/session-revocation';
 import { BulkActionDto, runBulk } from '../../common/bulk';
 import { iso, isoOrNull } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
@@ -166,6 +167,8 @@ export class UsersService {
     });
     if (dto.password || dto.isActive === false) {
       await this.prisma.session.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+      // Close the user's live sockets on every API instance now (R-14), not at the next scope refresh.
+      await publishSessionsRevoked(this.redis, { userId: id });
     }
     await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before: snapshot(before), after: snapshot(row) });
     await this.redis.invalidateCache('user');
@@ -176,6 +179,7 @@ export class UsersService {
     if (id === ctx.userId) throw new BadRequestException('You cannot delete yourself');
     const before = await this.findManageable(ctx, id);
     await this.prisma.user.delete({ where: { id } });
+    await publishSessionsRevoked(this.redis, { userId: id });
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: snapshot(before) });
     await this.redis.invalidateCache('user');
   }

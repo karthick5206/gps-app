@@ -19,6 +19,11 @@ export interface SmsResult {
 
 export interface SmsProvider {
   readonly name: string;
+  /**
+   * D6 G3: true only when messages can actually reach a phone. The console provider is never configured, so its
+   * messages are recorded SKIPPED ("SMS provider not configured"), not SENT.
+   */
+  readonly configured: boolean;
   send(message: SmsMessage): Promise<SmsResult>;
 }
 
@@ -37,6 +42,7 @@ export function consoleSmsLine(m: SmsMessage, production = process.env.NODE_ENV 
 /** Development provider: logs the message and appends it to var/sms/sms.log (content withheld in production). */
 export class ConsoleSmsProvider implements SmsProvider {
   readonly name = 'console';
+  readonly configured = false;
   private readonly logger = new Logger('SMS');
   private readonly file = join(APP_ROOT, 'var', 'sms', 'sms.log');
 
@@ -58,6 +64,10 @@ export class Msg91SmsProvider implements SmsProvider {
   readonly name = 'msg91';
   constructor(private readonly authKey = process.env.MSG91_AUTH_KEY ?? '') {}
 
+  get configured(): boolean {
+    return !!this.authKey;
+  }
+
   async send(_m: SmsMessage): Promise<SmsResult> {
     if (!this.authKey) throw new Error('MSG91_AUTH_KEY is not configured');
     // POST https://control.msg91.com/api/v5/flow/ with { template_id, sender, recipients: [{ mobiles, var1.. }] }
@@ -78,6 +88,11 @@ export class SmartpingSmsProvider implements SmsProvider {
     private readonly env: NodeJS.ProcessEnv = process.env,
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
+
+  /** All required credentials are set (the sender may also come from the template). */
+  get configured(): boolean {
+    return !!(this.env.SMARTPING_USERNAME && this.env.SMARTPING_PASSWORD && this.env.SMARTPING_ENTITY_ID);
+  }
 
   async send(m: SmsMessage): Promise<SmsResult> {
     const { SMARTPING_USERNAME: username, SMARTPING_PASSWORD: password, SMARTPING_ENTITY_ID: entityId } = this.env;

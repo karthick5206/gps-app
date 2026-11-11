@@ -6,6 +6,7 @@ import { hasPermission, objectScopeWhere, shareOf } from '../access/access-rules
 import { asSharedLive } from './shared-live';
 import { AuthContext } from '../access/auth-context';
 import { AuthContextService } from '../access/auth-context.service';
+import { SessionsRevokedMessage, parseSessionsRevoked, revocationMatches } from '../auth/session-revocation';
 import type { AlertStateMessage } from '../alerts/alerts/alert-sync.service';
 import { loadEnv } from '../config/env';
 import { LicencePolicyService } from '../licences/licence-policy.service';
@@ -17,10 +18,14 @@ import { RedisService } from '../redis/redis.service';
 const FLUSH_MS = 1000;
 const SCOPE_REFRESH_MS = 60_000;
 const INVALIDATE_DEBOUNCE_MS = 1000;
+/** How long a received revocation is kept to catch sockets still in the handshake when it arrived. */
+const RECENT_REVOCATION_MS = 60_000;
 
 interface Client {
   socket: Socket;
   ctx: AuthContext;
+  /** Session that opened the socket (access token `sid`); null for legacy tokens without one. R-14. */
+  sessionId: string | null;
   /** Allowed object ids; null = every object of the company (COMPANY scope). */
   allowed: Set<string> | null;
   /** Vehicles locked by an expired licence: no live updates. */
@@ -51,6 +56,8 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   private readonly byShared = new Map<string, Set<Client>>();
   private timers: NodeJS.Timeout[] = [];
   private invalidateTimer: NodeJS.Timeout | null = null;
+  /** Revocations received in the last RECENT_REVOCATION_MS, with the local receive time. */
+  private recentRevocations: { msg: SessionsRevokedMessage; receivedAt: number }[] = [];
 
   constructor(
     private readonly contexts: AuthContextService,
@@ -64,6 +71,8 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       const auth = socket.handshake.auth as { token?: unknown; companyId?: unknown };
       if (typeof auth.token !== 'string') return next(new Error('Missing access token'));
       const companyId = typeof auth.companyId === 'string' ? auth.companyId : undefined;
+      // A revocation received after this instant may have raced the session check below (see handleConnection).
+      socket.data.authStartedAt = Date.now();
       this.contexts
         .fromToken(auth.token, companyId, socket.handshake.address)
         .then((ctx) => {
@@ -76,9 +85,18 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         .catch((error: Error) => next(new Error(error.message || 'Unauthorized')));
     });
 
-    const channels = [RedisKeys.liveUpdates, RedisKeys.cacheInvalidate, RedisKeys.alertsChannel, RedisKeys.alertsState, RedisKeys.healthUpdates, RedisKeys.plannedTripUpdates];
+    const channels = [
+      RedisKeys.liveUpdates,
+      RedisKeys.cacheInvalidate,
+      RedisKeys.alertsChannel,
+      RedisKeys.alertsState,
+      RedisKeys.healthUpdates,
+      RedisKeys.plannedTripUpdates,
+      RedisKeys.sessionsRevoked,
+    ];
     this.redis.subscribe(channels, (channel, message) => {
       if (channel === RedisKeys.liveUpdates) this.onUpdate(message);
+      else if (channel === RedisKeys.sessionsRevoked) this.onSessionsRevoked(message);
       else if (channel === RedisKeys.alertsChannel) this.onAlert(message);
       else if (channel === RedisKeys.plannedTripUpdates) this.onPlannedTrip(message);
       else if (channel === RedisKeys.alertsState) this.onAlertState(message);
@@ -93,12 +111,18 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   async handleConnection(socket: Socket): Promise<void> {
     const ctx = socket.data.ctx as AuthContext;
-    const client: Client = { socket, ctx, allowed: await this.allowedObjects(ctx), locked: await this.lockedObjects(ctx), pending: new Map() };
+    const client: Client = { socket, ctx, sessionId: ctx.sessionId ?? null, allowed: await this.allowedObjects(ctx), locked: await this.lockedObjects(ctx), pending: new Map() };
     if (!socket.connected) return;
     this.clients.set(socket.id, client);
     this.index(client);
     this.indexShares(client);
     apiMetrics.sockets = this.clients.size;
+    // Revoked while this socket was between the session check and registration: drop it now.
+    const since = typeof socket.data.authStartedAt === 'number' ? socket.data.authStartedAt : 0;
+    if (this.recentRevocations.some((r) => r.receivedAt >= since && revocationMatches(r.msg, { userId: ctx.userId, sessionId: client.sessionId }))) {
+      this.logger.log(`Disconnecting socket ${socket.id}: session revoked during handshake`);
+      this.drop(client);
+    }
   }
 
   handleDisconnect(socket: Socket): void {
@@ -240,6 +264,42 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     }
   }
 
+  /**
+   * Sessions signed out on any API instance (R-14): disconnect the matching sockets right away. The client sees
+   * `io server disconnect`, tries a token refresh, which fails for a revoked session, and signs the user out.
+   */
+  private onSessionsRevoked(message: string): void {
+    const msg = parseSessionsRevoked(message);
+    if (!msg) return;
+    const now = Date.now();
+    this.recentRevocations = this.recentRevocations.filter((r) => now - r.receivedAt < RECENT_REVOCATION_MS);
+    this.recentRevocations.push({ msg, receivedAt: now });
+    for (const client of [...this.clients.values()]) {
+      if (!revocationMatches(msg, { userId: client.ctx.userId, sessionId: client.sessionId })) continue;
+      this.logger.log(`Disconnecting socket ${client.socket.id}: session revoked`);
+      this.drop(client);
+    }
+  }
+
+  /** Disconnect and forget a socket at once, so no event is queued for it even before `handleDisconnect` runs. */
+  private drop(client: Client): void {
+    client.pending.clear();
+    this.handleDisconnect(client.socket);
+    client.socket.disconnect(true);
+  }
+
+  /**
+   * Session ids (of the given ones) that are missing, revoked or expired. One indexed query per refresh tick; this is
+   * the fallback when a `sessionsRevoked` message was lost (Valkey down), bounding the exposure to SCOPE_REFRESH_MS.
+   */
+  private async endedSessions(ids: string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
+    const rows = await this.prisma.session.findMany({ where: { id: { in: ids } }, select: { id: true, revokedAt: true, expiresAt: true } });
+    const now = Date.now();
+    const live = new Set(rows.filter((r) => !r.revokedAt && r.expiresAt.getTime() > now).map((r) => r.id));
+    return new Set(ids.filter((id) => !live.has(id)));
+  }
+
   private flush(): void {
     for (const client of this.clients.values()) {
       if (!client.pending.size) continue;
@@ -270,14 +330,30 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   /** Re-resolve each socket's permissions and scope; disconnect sockets that lost access. */
   private async refreshAll(): Promise<void> {
-    for (const client of [...this.clients.values()]) {
+    const clients = [...this.clients.values()];
+    let ended = new Set<string>();
+    try {
+      ended = await this.endedSessions([...new Set(clients.map((c) => c.sessionId).filter((id): id is string => !!id))]);
+    } catch (error) {
+      this.logger.warn(`Session re-check failed: ${(error as Error).message}`);
+    }
+    for (const client of clients) {
+      if (!this.clients.has(client.socket.id)) continue;
+      if (client.sessionId && ended.has(client.sessionId)) {
+        this.logger.log(`Disconnecting socket ${client.socket.id}: session ended`);
+        this.drop(client);
+        continue;
+      }
       try {
         const { ctx } = client;
         const requested = ctx.allCompanies ? ALL_COMPANIES : ctx.companyId !== ctx.homeCompanyId ? ctx.companyId : undefined;
         const next = await this.contexts.forUser(ctx.userId, requested, ctx.ip);
         if (!hasPermission(next, 'live_map', 'view') && !hasPermission(next, 'alerts', 'view')) throw new Error('Permission denied');
+        // Dropped meanwhile (revoked / disconnected): do not re-index it.
+        if (!this.clients.has(client.socket.id)) continue;
         this.unindexShares(client);
-        client.ctx = next;
+        // Keep the session binding: forUser() resolves by user id only.
+        client.ctx = { ...next, sessionId: client.sessionId };
         this.indexShares(client);
         client.allowed = await this.allowedObjects(next);
         client.locked = await this.lockedObjects(next);
