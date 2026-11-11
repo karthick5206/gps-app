@@ -2,8 +2,9 @@
 
 Repeatable E3 test gate (doc 12 §5 E3 exit criteria). It automates the checks the independent QA run of 2026-11-11
 did by hand: the 200-passenger week (IST and US DST), double submit, 8-way parallel capacity, the booking burst, and
-GraphHopper stopped or hanging. Synthetic data only. Nothing shared is touched: no `veetracer`, no `veetrax_assess`,
-no Valkey, no PM2, and no outside map host.
+GraphHopper stopped or hanging. With `--http` it also runs the real API and processor, drives a published trip through
+the v1.8 tracker and runs dispatcher / passenger bots over HTTP. Synthetic data only. Nothing shared is touched: no
+`veetracer`, no `veetrax_assess`, no Valkey db 0, no PM2, and no outside map host.
 
 ## Run the gate
 
@@ -13,6 +14,7 @@ export E3H_PG_URL='postgresql://<user>:<password>@127.0.0.1:5432/postgres'
 npm run etms:gate -w @veetracer/api                    # takes about 2 minutes
 npm run etms:gate -w @veetracer/api -- --secfix        # after etms/e3-secfix is merged
 npm run etms:gate -w @veetracer/api -- --known-defects # once H1 / H2 below are fixed
+npm run etms:gate -w @veetracer/api -- --http          # plus the HTTP stage, about 4-5 minutes
 ```
 
 What the gate does:
@@ -24,8 +26,9 @@ What the gate does:
    - `src/etms/etms-e3-gate.db-test.ts`: this work package.
    - `src/etms/etms-bookings-trips.db-test.ts`: E3 schema, constraints and purge.
 4. Runs the regression unit specs: reports, planned trips, routes, E3 dispatch rules and the harness parts.
-5. Drops the database. Pass `--keep` to keep it.
-6. Prints one row per criterion with PASS, PASS\*, FAIL, PENDING or NO TEST, then `GATE: PASS|FAIL`.
+5. With `--http`, runs the HTTP stage (next section).
+6. Drops the database. Pass `--keep` to keep it.
+7. Prints one row per criterion with PASS, PASS\*, FAIL, PENDING or NO TEST, then `GATE: PASS|FAIL`.
 
 The summary, the raw jest JSON and the logs (passwords redacted) go to `apps/api/var/etms-e2e/<stamp>/`, which git
 ignores. Copy `summary.md` into an evidence note if you need one.
@@ -33,6 +36,9 @@ ignores. Copy `summary.md` into an evidence note if you need one.
 Other flags:
 
 - `--skip-unit`: skip step 4.
+- `--http-only`: skip steps 3 and 4 (for debugging the HTTP stage).
+- `--no-build`: use the existing `dist/` instead of running `nest build`.
+- `--valkey-db <1-15>` (default 11) and `--valkey-url` (default `redis://127.0.0.1:6379`, or `E3H_VALKEY_URL`).
 - `--out <dir>`: write the results somewhere else.
 - `--name veetrax_e3h_x_test`: use a fixed database name.
 
@@ -45,6 +51,46 @@ CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_e3h_x_test \
   npx jest --testRegex 'etms-e3-gate\.db-test\.ts$' --runInBand
 ```
 
+## HTTP stage (`--http`)
+
+The chaos-run pattern: real processes, a scratch database, a private Valkey index.
+
+1. `nest build`, then the GraphHopper stub on a free port.
+2. **Synthetic accounts** (`http-seed.ts`), written into the scratch database:
+   - an IST customer with branches North and South, a control tenant and an etms-off tenant
+   - roles from the real ETMS templates (`ensureEtmsRoleTemplates`)
+   - users: Transport admin, North-only dispatcher, a fleet user without ETMS menus, passenger logins, admins for the other tenants
+   - GT06 devices in the simulator IMEI range, fitted to the vans
+3. **Processes** (`stack.ts`): `dist/main.js` and `dist/processor/main.js` on a free port, with `ROUTER_URL` set to the stub.
+   - Valkey: `redis://…/<db>`. The index must be 1–15, never 0, and empty at start; it is `FLUSHDB`ed at the end.
+4. **HTTP checks** (`http-checks.ts`, criterion `HTTP`):
+   - no token or a malformed token gives 401 on a sample of 14 ETMS routes
+   - permission guard: a fleet user and a passenger get 403 on dispatcher routes; `/me/transport` without `etms_self` gives 403
+   - branch scope: a South booking is 404 and absent from the board for the North dispatcher
+   - an etms-off tenant gets 404 on bookings, shifts, schedules, board, trips and create, even with the Transport admin template
+   - another tenant gets 404
+   - `Idempotent-Replay: true` on a booking replay and a change-set replay (absent on the first call), 422 for another body, 400 without a key
+   - the 61st create in a minute gives 429 `RATE_LIMITED`, with `Retry-After` equal to the body's `retryAfterSec`
+5. **Bot cycle** (`bots.ts`, criteria `BOT` and `AC3b`):
+   - The dispatcher bot books 3 passengers for today (pickups 1.2 / 0.8 / 0.4 km from the office), asks for candidates, publishes CREATE_TRIP + 3 × ADD_PASSENGER, acknowledges on the driver's behalf and starts.
+   - `sim-trip.ts` drives the van along the trip's stops. The bot records outcomes at each arrive event: BOARDED, BOARDED, NO_SHOW, then DROPPED × 2 at the office. Before each outcome it checks that GPS left the passenger PENDING.
+   - Finally it completes the trip.
+   - The passenger bot checks that it sees only its own trip (co-riders as a count), sees the vehicle while the trip runs, and sees its own outcome. A no-show passenger loses the vehicle.
+6. **Clean-up:** every process is stopped (SIGTERM, then `taskkill /T /F`; also from an exit hook), the stub is stopped and the Valkey index is flushed, whatever failed.
+
+**`sim-trip.ts` is `sim:route --trip <id>`** (16 §4.2), also usable on its own:
+`npm run etms:sim-trip -w @veetracer/api -- --trip <transportTripId>` with `ETMS_SIM_DATABASE_URL` (a `*_test`
+database) and `ETMS_SIM_REDIS_URL` (not db 0).
+- It reads the trip's planned stops and the van's IMEI.
+- It XADDs NormalizedPositions to `vt:positions` exactly as the gateway does: the processor's input, so nothing is written to the database directly.
+- Fixes are 20 m apart, one per second of wall clock, at 72 km/h, with 3 standing fixes in each stop.
+- After each stop it waits until the processor group has acknowledged every fix, then reports the trip, stop and passenger state.
+- `src/simulator/route-sim.ts` (GT06 over TCP through the gateway) is unchanged.
+
+**Caveats:**
+- Valkey pub/sub channels are server-wide. The stack's cache-invalidate and live-update messages, which name synthetic ids only, also reach any other stack on the same Valkey server. QA's db-1 stack had the same property. For full isolation, point `--valkey-url` at a private `valkey-server`.
+- The API binds its port on every interface: `app.listen(port)` is production code and was left as it is.
+
 ## Parts
 
 | File | What it is |
@@ -55,6 +101,9 @@ CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_e3h_x_test \
 | `src/etms/etms-e3-gate.db-test.ts` | The acceptance suite. Each test name carries its criterion (`[AC1]`…`[AC9]`, `[ISO]`). The suite logs one `E3-GATE-SUMMARY {…}` line with the measured counts and timings. |
 | `src/etms/testing/e3-harness.spec.ts` | Unit tests for the generator and the stub. They run in the normal jest suite. |
 | `scripts/etms-e2e/gate.ts` | The runner described above. |
+| `scripts/etms-e2e/stack.ts`, `http-stage.ts` | Real-process stack (API, processor, private Valkey index) and the `--http` stage around it. |
+| `scripts/etms-e2e/http-seed.ts`, `http-client.ts`, `http-checks.ts` | HTTP accounts, a fetch client with a check recorder, and the HTTP checks. |
+| `scripts/etms-e2e/bots.ts`, `sim-trip.ts` | Dispatcher and passenger bots, and `sim:route --trip` through the processor. |
 
 ## Criteria map
 
@@ -62,6 +111,8 @@ CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_e3h_x_test \
 |---|---|
 | AC1: 200-passenger recurring week | **IST:** 400 schedules give a preview of 2,000 legs, and the generator walks the week to 2,000 (a re-run adds 0). Then dropping Fridays for 50 passengers cancels 50, archiving 50 OUT schedules cancels 250 and 10 Wednesday SKIPs cancel 10, leaving 1,690. A stale PATCH returns `VERSION_CONFLICT`. Every leg is at 09:00 / 18:00 IST. **US (America/Chicago):** a spring fortnight (DST starts 14 Mar 2027) and a fall fortnight (DST ends 7 Nov 2027), 4,800 legs each. Local times stay fixed and the UTC times move by 1 h on the right dates, including the overnight shift on the night of the change. PostgreSQL's own time-zone rules check the times. |
 | AC2: double submit | 5 parallel and 50 retried creates with one key give exactly 1 booking. A different body gives 422, no key gives 400 and a second key gives 409. A change set replayed with the same key gives the same result, a different body gives 422, and parallel submits with one key publish exactly once. |
+| AC3b: tracker under the simulator (`--http`) | sim-trip fixes become Position rows and the live cache, and the passenger sees the van. GPS marks pickups 2 and 3 ARRIVED → DEPARTED with arrival times and the office ARRIVED. The trip auto-completes (`closedBy AUTO`). `nextStopSeq` and `etaNextStop` advance while driving. Passengers stay PENDING until the dispatcher bot records outcomes, and every outcome event is `WEB`. |
+| HTTP / BOT (`--http`) | See "HTTP stage". |
 | AC3: atomic publish | PlannedTrip (`origin=ETMS`, `routeId=null`), header, passengers and events are written together. A refused change set (capacity, or a seated booking given to a second trip) leaves no row behind. |
 | AC4: capacity | 8 parallel change sets give 1 OK and 7 `VERSION_CONFLICT`. Workers that retry seat exactly the capacity of 3, and `occupiedSeats` equals the sum of active seats. Same vehicle or same driver in parallel gives exactly one winner. |
 | AC5: passenger view | The passenger sees only their own trip. Co-riders are a count, and no other name or home point appears. Another passenger's trip gives 404. Outside the window the vehicle is `OUTSIDE_WINDOW`. A non-passenger gets `NOT_A_PASSENGER`. |
@@ -82,6 +133,7 @@ Each of these tests fails on `etms/e3` today. This was checked: all five fail wi
 | `[AC9][pending secfix B2]` GraphHopper stopped: board / candidates say routing unavailable | B2 |
 | `[AC9][pending secfix B3]` GraphHopper hanging: publish under 3 s | B3 |
 | `[AC3][pending secfix B5]` dispatcher start does not mark the first pickup stop DEPARTED | B5 |
+| `[AC3b][pending secfix B5]` (HTTP stage) the same over HTTP, with the real processor | B5 |
 
 If secfix changes the `RoutingService` constructor, adjust `routingFor()` in the gate suite. It is the only place
 that builds one.
@@ -96,14 +148,12 @@ that builds one.
 ## Gaps compared with the WP 3.8 definition
 
 Doc 12 WP 3.8 asks for a `scripts/etms-e2e/` harness on the chaos-run pattern, `sim:route --trip`, passenger and
-dispatcher bots, and a Playwright suite. This delivery covers the backend gate on services against a real database.
-These parts are **not** built yet:
+dispatcher bots, and a Playwright suite. The first three are built: `--http`, `sim-trip.ts` and `bots.ts`. Still open:
 
-- **Real `dist/` processes:** the chaos-run pattern starts api, gateway and processor on a private Valkey and drives
-  them over HTTP. The gate calls the services in-process instead. HTTP-only behaviour therefore stays covered only by
-  unit specs and QA: guards, the `Idempotent-Replay` header, the etms-off 404 guard, 429 headers.
-- **`sim:route --trip <id>`, and criterion 3's second half:** "the v1.8 tracker follows the trip under sim:route (stop
-  arrivals, ETA, alerts)". AC6 imitates the tracker's write instead.
-- **Passenger and dispatcher bots, Playwright journeys, mobile.**
+- **Playwright web journeys and mobile (Maestro):** not built in this round, by decision of the Lead.
+- **Gateway TCP leg:** sim-trip feeds the processor's input stream. GT06 framing through the gateway is covered by
+  `route-sim` and the chaos harness, not by this gate.
+- **Alerts:** the bot run is on time and on route, so no late or deviation alert is provoked. `TRIP_STOP_LATE` and
+  deviation alerts are not asserted.
 - **Test gate wording:** doc 12 says "full run on `veetrax_assess`". The gate uses a fresh `veetrax_e3h_*_test`
   database instead, as the brief and doc 16 I1 require for destructive runs.
