@@ -32,9 +32,9 @@ import type { PermissionMap } from './permissions';
 // ───────────────────────────── Routes ─────────────────────────────
 
 export const SOS_ROUTES = {
-  /** Passenger (menu `etms_self`, own identity). POST create (Idempotency-Key); GET `${passenger}/:id` = own receipt. */
+  /** Passenger (menu `etms_self:view` + own passenger profile, any state). POST create (Idempotency-Key); GET `${passenger}/:id` = own receipt. */
   passenger: '/api/me/transport/sos',
-  /** Driver (menu `etms_driver` + linked active Driver row). POST create (Idempotency-Key); GET `${driver}/:id`. */
+  /** Driver (menu `etms_driver:view` + the login's own Driver row, also when archived). POST create (Idempotency-Key); GET `${driver}/:id`. */
   driver: '/api/driver/v1/sos',
   /** Dispatcher (menu `etms_incidents`). GET list (`?open=1` polled every 15 s while the socket is down), GET `/:id`,
    *  POST `/:id/ack` (AckIncidentRequest), POST `/:id/resolve` (ResolveIncidentRequest). */
