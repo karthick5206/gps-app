@@ -1,10 +1,14 @@
 import { MENUS } from '@veetracer/shared';
 import { ChevronRightIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router';
 import { GROUP_LABELS } from '@/features/shell/nav';
+import { showsCustomerPicker } from '@/lib/transport-context';
 import { cn } from '@/lib/utils';
+
+/** ETMS E1b customer picker (07 §2.5), loaded only on the transport pages that show it. */
+const CustomerPicker = lazy(() => import('@/features/transport/CustomerPicker').then((m) => ({ default: m.CustomerPicker })));
 
 /** The menu a path belongs to: the longest menu path that is the path itself or a parent of it. */
 function menuFor(pathname: string) {
@@ -49,6 +53,12 @@ export function Breadcrumb({ title, className }: { title?: string; className?: s
 }
 
 export function PageHeader({ title, description, actions, className, breadcrumb = true }: { title: string; description?: ReactNode; actions?: ReactNode; className?: string; breadcrumb?: boolean }) {
+  const { pathname } = useLocation();
+  const picker = showsCustomerPicker(pathname) ? (
+    <Suspense fallback={null}>
+      <CustomerPicker />
+    </Suspense>
+  ) : null;
   return (
     <div className={cn('flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between', className)}>
       <div className="min-w-0 space-y-1">
@@ -56,7 +66,12 @@ export function PageHeader({ title, description, actions, className, breadcrumb 
         <h1 className="text-xl font-bold tracking-tight sm:text-[26px] sm:leading-8">{title}</h1>
         {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {(actions || picker) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {picker}
+          {actions}
+        </div>
+      )}
     </div>
   );
 }

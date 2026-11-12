@@ -87,6 +87,8 @@ const PlannedTripDetailPage = page(() => import('@/features/planned-trips/Planne
 const TransportTripDetailPage = page(() => import('@/features/transport/dispatch/TransportTripDetailPage'), 'TransportTripDetailPage');
 const PlanReviewPage = page(() => import('@/features/transport/planning/PlanReviewPage'), 'PlanReviewPage');
 const AgreementDetailPage = page(() => import('@/features/transport/AgreementDetailPage'), 'AgreementDetailPage');
+/** E1b: the customer's sensitive-access log (static path, ranked above /transport/partners/:id). */
+const AccessLogPage = page(() => import('@/features/transport/AccessLogPage'), 'AccessLogPage');
 /** E2 vehicle seats: a fleet screen of the transport module (permission objects; the page checks the etms add-on). */
 const VehicleSeatsPage = page(() => import('@/features/transport/VehicleSeatsPage'), 'VehicleSeatsPage');
 
@@ -152,6 +154,16 @@ export const router = createBrowserRouter([
               <RequirePermission menu="plannedTrips">
                 <Suspense fallback={<PageFallback />}>
                   <PlannedTripDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/transport/partners/access-log',
+            element: (
+              <RequirePermission menu="etms_partners">
+                <Suspense fallback={<PageFallback />}>
+                  <AccessLogPage />
                 </Suspense>
               </RequirePermission>
             ),

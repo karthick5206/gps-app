@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useAuth } from '@/features/auth/auth-context';
 import { LicenceBanner, LicenceRequiredDialog } from '@/features/billing/LicenceNotices';
 import { realtime } from '@/features/live/realtime';
+import { AccessReasonDialog } from '@/features/transport/AccessReasonDialog';
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { Sidebar } from './Sidebar';
@@ -66,6 +67,7 @@ export function AppShell() {
         </div>
       </div>
       <LicenceRequiredDialog />
+      <AccessReasonDialog />
     </div>
   );
 }

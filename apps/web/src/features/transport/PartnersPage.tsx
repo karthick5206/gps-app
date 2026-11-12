@@ -1,10 +1,11 @@
 import type { TransportAgreementDto, TransportAgreementStatus } from '@veetracer/shared';
 import { ALL_COMPANIES, TRANSPORT_AGREEMENT_STATUSES } from '@veetracer/shared';
-import { ExternalLinkIcon, HandshakeIcon } from 'lucide-react';
+import { BuildingIcon, ExternalLinkIcon, HandshakeIcon, ShieldAlertIcon } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/features/auth/auth-context';
 import { DateCell } from '@/features/masters/cells';
@@ -13,6 +14,7 @@ import type { MasterColumn, MasterFilter, MasterFormProps } from '@/features/mas
 import { i18n } from '@/lib/i18n';
 import { AGREEMENT_STATUS_LABEL, counterpartyName, GRANT_META, orderedGrants, SIDE_LABEL } from './agreement-format';
 import { AgreementStatusBadge, validityText } from './agreement-ui';
+import { ACCESS_LOG_PATH } from './AccessLogPage';
 import { AgreementFormDialog } from './AgreementFormDialog';
 import { AGREEMENTS_ENDPOINT, agreementPath } from './use-agreements';
 
@@ -41,7 +43,7 @@ const SIDE_FILTER: MasterFilter = {
 export function PartnersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { me, companyId } = useAuth();
+  const { me, companyId, can } = useAuth();
   // The Super Admin in its own (platform) company sees every agreement and is a party to none: "our role" means nothing.
   const platformView = !!me?.user.isSuperAdmin && (!companyId || companyId === ALL_COMPANIES);
 
@@ -117,6 +119,25 @@ export function PartnersPage() {
       canDeleteRow={() => false}
       rowActions={rowActions}
       emptyIcon={HandshakeIcon}
+      headerActions={
+        <>
+          {/* P1: VeeTrax support creates customer companies (Platform → Companies, add-on Employee transport). */}
+          {platformView && can('sa_companies', 'create') && (
+            <Button variant="outline" asChild>
+              <Link to="/platform/companies">
+                <BuildingIcon /> <span className="hidden sm:inline">{t('New customer company')}</span>
+              </Link>
+            </Button>
+          )}
+          {!platformView && (
+            <Button variant="outline" asChild>
+              <Link to={ACCESS_LOG_PATH} aria-label={t('Sensitive-access log')}>
+                <ShieldAlertIcon /> <span className="hidden sm:inline">{t('Sensitive-access log')}</span>
+              </Link>
+            </Button>
+          )}
+        </>
+      }
     />
   );
 }
