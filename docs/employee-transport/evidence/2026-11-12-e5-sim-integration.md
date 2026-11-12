@@ -48,3 +48,23 @@ no SMS; I2: the finished trip no longer blocks erasure.
 
 - **I2:** `assertNoOpenBookings` ignores bookings whose seats are settled (DROPPED / NO_SHOW / CANCELLED) or whose trip is
   COMPLETED / INCOMPLETE / CANCELLED (DB test + scenario check). No migration; booking status itself still stays ASSIGNED.
+
+## Update after the D1 / D1b fix (Lead decision, same day)
+
+Commits d5f1407 (server), b509bfa (mobile banner), 38d9d68 (harness). Re-run 20261112125054 with :
+**80 passed, 0 failed, 0 pending** (etms-on-time 18, etms-no-show 19, etms-offline-driver 18, R6 6, NOTIFY 19). The three
+D1 checks now pass: the driver's office DROPPED taps are ACCEPTED with  and every rider ends DROPPED (or
+NO_SHOW); the trip stays COMPLETED (closedBy AUTO).
+
+- **Server:** for  (6 h) after a trip is COMPLETED, DROPPED, NO_SHOW and a BOARDED dated
+  before the close go through the normal rules and R6 ordering, stored with  and audited
+  ( in the audit details). ARRIVED / DEPARTED / reports and anything after the grace stay LATE TRIP_CLOSED,
+  a definitive per-item answer. Dispatcher path unchanged.
+- **DB tests** (): inside the grace accepted; outside refused with a stored LATE (a resend is
+  DUPLICATE of LATE); offline driver reconnecting after the auto-complete with a shuffled + duplicated queue: 0 lost.
+- **Mobile:** LATE items were already kept with their code; the sync banner now says "N not applied: trip closed" instead
+  of "All actions synced".
+- **Remaining gap (for the Lead):** once a trip is closed the driver detail hides the manifest (, L4), so an app that refetches the trip after the auto-complete no longer shows Dropped buttons; taps
+  already queued, or made from the still-open screen, are applied. Showing unsettled seats during the grace would relax
+  the closed-trip manifest rule and was not changed.
+- D1b is no longer open; D2 goes to the owner (Lead).
