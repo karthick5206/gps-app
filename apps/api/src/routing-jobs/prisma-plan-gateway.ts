@@ -131,15 +131,19 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     const bookingIds = [...new Set(plan.stops.map((s) => s.bookingId).filter((b): b is string => !!b))];
     const bookings = new Map(
       (bookingIds.length
-        ? await this.db.transportBooking.findMany({ where: { id: { in: bookingIds } }, select: { id: true, profileId: true, status: true, passengerCount: true, windowStart: true, windowEnd: true, profile: { select: { accessibility: true } } } })
+        ? // E4 gates security L3: only the job's own company's bookings (defence in depth; no DB trigger ties a plan stop's
+          // booking to the plan's company). Another company's booking reads as missing: its stops are left out.
+          await this.db.transportBooking.findMany({ where: { id: { in: bookingIds }, customerCompanyId: job.companyId }, select: { id: true, profileId: true, status: true, passengerCount: true, windowStart: true, windowEnd: true, profile: { select: { accessibility: true } } } })
         : []
       ).map((b) => [b.id, b]),
     );
+    if (bookings.size < bookingIds.length) this.logger.warn(`job ${job.id}: ${bookingIds.length - bookings.size} booking(s) of plan ${plan.id} not found in company ${job.companyId}; their stops are left out`);
     const ownerOf = (s: (typeof plan.stops)[number]) => s.profileId ?? (s.bookingId && !s.poiId ? (bookings.get(s.bookingId)?.profileId ?? null) : null);
     const owners = [...new Set(plan.stops.map(ownerOf).filter((p): p is string => !!p))];
     const consenting = owners.length ? await activeRoutingConsents(this.db, owners) : new Set<string>();
     const seats = new Map(
-      (await this.db.transportVehicleProfile.findMany({ where: { objectId: { in: plan.assignments.map((a) => a.objectId).filter((o): o is string => !!o) } }, select: { objectId: true, seats: true, wheelchairSpaces: true, category: true } })).map((v) => [
+      // E4 gates security L3: vehicle profiles of the job's company only.
+      (await this.db.transportVehicleProfile.findMany({ where: { objectId: { in: plan.assignments.map((a) => a.objectId).filter((o): o is string => !!o) }, companyId: job.companyId }, select: { objectId: true, seats: true, wheelchairSpaces: true, category: true } })).map((v) => [
         v.objectId,
         v,
       ]),

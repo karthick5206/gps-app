@@ -183,6 +183,23 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     expect(await prisma.routePlanVersion.count({ where: { planId: g.plan } })).toBe(0);
   });
 
+  it('E4 gates security L3: a plan stop pointing at another company\'s booking is left out; its window never reaches the solver', async () => {
+    const g = await seed('l3-own');
+    const other = await seed('l3-other');
+    // A writer bug (simulated): plan A's first pickup now names company B's booking. Nothing in the schema refuses it.
+    const linked = await prisma.routePlanStop
+      .update({ where: { id: g.pickups[0] }, data: { bookingId: other.bookings[0] } })
+      .then(() => true)
+      .catch(() => false);
+    if (!linked) return; // a same-company constraint on the link exists: the database already refuses it
+    const job = await enqueue(g);
+    const { w, solver } = makeWorker('db-l3');
+    expect(await w.process(job.jobId)).toBe('succeeded');
+    expect(solver.lastProblem!.stops.map((s) => s.id)).not.toContain(g.pickups[0]);
+    const stop = await prisma.routePlanStop.findUniqueOrThrow({ where: { id: g.pickups[0] } });
+    expect(stop).toMatchObject({ assignmentId: null, unassignedReason: 'booking_not_active' });
+  });
+
   it('a locked route keeps its stops; a pinned stop is sent to the solver with its vehicle', async () => {
     const g = await seed('locks');
     await prisma.routePlanStop.updateMany({ where: { id: { in: [g.pickups[2], g.drops[2]] } }, data: { assignmentId: g.vans[1], sequence: 1 } });
