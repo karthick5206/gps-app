@@ -1,10 +1,14 @@
 import {
+  publishWarningsFingerprint,
   ROUTE_LIMITS,
+  ROUTE_PLAN_HARD_KINDS,
+  ROUTE_PLAN_OVERRIDABLE_KINDS,
   TRANSPORT_E3_LIMITS,
   type DispatchChangeOp,
   type DispatchChangeSetInput,
   type DispatchStopInput,
   type RoutePlanMetricsDto,
+  type RoutePlanPublishIssue,
   type RoutePlanRouteError,
   type RoutePlanStatus,
   type RoutePlanStopViolation,
@@ -454,4 +458,35 @@ export function buildPlanChangeSet(
     errors,
     warnings,
   };
+}
+
+// ───────────────────────────── publish gate (owner decision 5) ─────────────────────────────
+
+const HARD_KINDS = new Set<string>(ROUTE_PLAN_HARD_KINDS);
+const OVERRIDABLE_KINDS = new Set<string>(ROUTE_PLAN_OVERRIDABLE_KINDS);
+
+/**
+ * Publish classification of a plan, recomputed from the stored stops (never from the client): per route with stops,
+ * the route checks with a null ETA reported as `unreachable` (no engine time = the window cannot be proven: hard).
+ * HARD: `late` (IN: site arrival after the booking's arrival window; OUT: the site pickup — departure, site stops have
+ * no service time — after the departure window; a pickup that carries a window likewise), `unreachable`,
+ * `over_capacity`. SOFT: everything else (`early_wait`, `max_ride_exceeded`). Only `late` is overridable.
+ */
+export function publishIssues(
+  routes: { id: string; vehicleLabel: string; capacity: number | null }[],
+  stops: RuleStop[],
+  passengerCount: (bookingId: string) => number | undefined,
+): { hard: RoutePlanPublishIssue[]; soft: RoutePlanPublishIssue[]; fingerprint: string | null } {
+  const hard: RoutePlanPublishIssue[] = [];
+  const soft: RoutePlanPublishIssue[] = [];
+  for (const r of routes) {
+    const list = routeStops(stops, r.id);
+    if (!list.length) continue;
+    for (const v of routeViolations(list, r.capacity, passengerCount, true)) {
+      const issue: RoutePlanPublishIssue = { assignmentId: r.id, vehicleLabel: r.vehicleLabel, stopId: v.stopId, ref: v.ref, kind: v.kind, etaS: v.etaS, window: v.window };
+      if (HARD_KINDS.has(v.kind)) hard.push({ ...issue, overridable: OVERRIDABLE_KINDS.has(v.kind) });
+      else soft.push(issue);
+    }
+  }
+  return { hard, soft, fingerprint: publishWarningsFingerprint(soft) };
 }

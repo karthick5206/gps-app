@@ -4,6 +4,7 @@ import {
   can,
   ROUTE_PLAN_COMPARE_MAX,
   ROUTE_PLAN_EDITABLE,
+  ROUTE_PLAN_OVERRIDE_REASON_MIN,
   routePlanLocks,
   uncalibratedEta,
   type ChangeSetResult,
@@ -12,6 +13,8 @@ import {
   type RoutePlanCompareDto,
   type RoutePlanDetailDto,
   type RoutePlanEditResult,
+  type RoutePlanPublishCheck,
+  type RoutePlanPublishDecision,
   type RoutePlanPublishResult,
   type RoutePlanRouteError,
   type RoutePlanStatus,
@@ -30,11 +33,11 @@ import { driverScopeWhere } from '../../drivers/drivers.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROUTING_PROVIDER, type RoutingProvider } from '../../routing/provider/routing-provider';
 import { DispatchService, type PublishSource } from '../dispatch/dispatch.service';
-import { idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound } from '../dispatch/e3-common';
+import { idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound, requestHash } from '../dispatch/e3-common';
 import { preciseFor } from '../dispatch/e3-mapping';
 import type { Replayable } from '../dispatch/bookings.service';
 import { activeRoutingConsents } from '../people/people.service';
-import { buildPlanChangeSet, pairProblem, planMetrics, retime, routeStops, routeViolations, type PublishBooking, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
+import { buildPlanChangeSet, pairProblem, planMetrics, publishIssues, retime, routeStops, routeViolations, type PublishBooking, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
 import { PLAN_INCLUDE, outOfScope, personalOwners, planSnapshot, seatsLookup, toPlanDetail, toPlanSummary, toRuleStop, type PlanPointView, type PlanRow, type ViewBooking } from './plan-view';
 import type { AssignmentUpdateDto, DiscardDto, MovePassengerDto, PlanListQuery, PublishDto, ResequenceDto, StopUpdateDto } from './plans.dto';
 
@@ -102,7 +105,11 @@ export class RoutePlansService {
 
   async get(ctx: AuthContext, id: string): Promise<RoutePlanDetailDto> {
     const plan = await this.find(ctx, id);
-    const { dto, shown, named } = toPlanDetail(plan, await this.view(ctx, plan));
+    const view = await this.view(ctx, plan);
+    const { dto, shown, named } = toPlanDetail(plan, view);
+    // Decision 5: the server's publish classification (as publish recomputes it) and what a publish accepted.
+    dto.publishCheck = dto.editable ? publishCheckFor(ctx, plan, dto, seatsLookup(view.bookings)) : null;
+    dto.publishDecision = publishDecisionOf(plan.options);
     // L1: a read that returned personal points or passenger names is ACCESS-audited (de-duplicated per user, view and day).
     await this.dispatch.recordPersonalAccess(ctx, 'plan', [...new Set([...shown, ...named])], dto.precise, { planId: id, ...(named.length ? { passengerNames: named.length } : {}) });
     return dto;
@@ -458,9 +465,17 @@ export class RoutePlansService {
     if (!can(ctx.permissions, 'etms_dispatch', 'command')) throw new ForbiddenException({ message: 'Publishing a plan needs Dispatch: command', code: 'FORBIDDEN_GRANT' });
     const key = idempotencyKey(headerKey ?? dto.idempotencyKey);
     const plan = await this.find(ctx, id);
-    if (plan.status === 'PUBLISHED') return this.replayPublished(ctx, plan, key);
+    // Decision 5: the acknowledgement / override fields are part of the request (bound into the idempotency hash).
+    const overrideReason = dto.override ? normaliseReason(dto.override.reason) : null;
+    const acknowledged = dto.acknowledgedWarnings ?? null;
+    const decisionHash = requestHash({ acknowledgedWarnings: acknowledged, override: overrideReason });
+    if (plan.status === 'PUBLISHED') return this.replayPublished(ctx, plan, key, decisionHash);
     if (!EDITABLE.includes(plan.status)) throw notEditable(plan.status);
     if (plan.version !== dto.expectedVersion) throw stale(plan.version);
+    if (overrideReason !== null) {
+      if (!canOverridePublish(ctx)) throw new ForbiddenException({ message: 'Overriding the publish checks needs a whole-company role with Dispatch: command and Route planning: command', code: 'PUBLISH_OVERRIDE_FORBIDDEN' });
+      if (!meaningfulReason(overrideReason)) throw planError(HttpStatus.BAD_REQUEST, 'PUBLISH_OVERRIDE_REASON_REQUIRED', `Give a reason of at least ${ROUTE_PLAN_OVERRIDE_REASON_MIN} characters (two words or more) for the override`);
+    }
 
     const stops = plan.stops.map(toRuleStop);
     const bookingIds = [...new Set(stops.flatMap((s) => (s.bookingId ? [s.bookingId] : [])))];
@@ -497,15 +512,36 @@ export class RoutePlansService {
     const errors = [...scopeErrors, ...cs.errors];
     if (errors.length) throw planError(HttpStatus.CONFLICT, 'PLAN_NOT_PUBLISHABLE', `The plan cannot be published: ${errors[0].message}${errors.length > 1 ? ` (and ${errors.length - 1} more)` : ''}`, { routes: errors });
 
+    // Decision 5, recomputed from the stored plan with the vehicles' current seats: hard issues block (only arrival
+    // windows may be overridden, by an authorised caller with a reason); soft warnings need this exact set acknowledged.
+    const issues = publishIssues(routes.map((r) => ({ id: r.id, vehicleLabel: r.vehicleLabel, capacity: r.seats })), stops, (b) => bookings.get(b)?.passengerCount);
+    const blocking = issues.hard.filter((i) => !i.overridable);
+    if (blocking.length || (issues.hard.length && overrideReason === null)) {
+      const overridable = !blocking.length;
+      throw planError(HttpStatus.CONFLICT, 'PLAN_HAS_HARD_VIOLATIONS', `The plan has ${issues.hard.length} hard violation(s) (${[...new Set(issues.hard.map((i) => i.kind))].join(', ')}); edit or re-optimise it${overridable ? ', or publish with an authorised override' : ''}`, {
+        violations: issues.hard,
+        overridable,
+        canOverride: canOverridePublish(ctx),
+      });
+    }
+    if (issues.soft.length && acknowledged !== issues.fingerprint) {
+      throw planError(HttpStatus.CONFLICT, 'PLAN_WARNINGS_NOT_ACKNOWLEDGED', `Acknowledge the plan's ${issues.soft.length} warning(s) to publish${acknowledged ? ' (the warnings changed since you acknowledged them)' : ''}`, { warnings: issues.soft, fingerprint: issues.fingerprint });
+    }
+
     const now = new Date();
     const next = plan.version + 1;
+    const decision: RoutePlanPublishDecision = {
+      acknowledged: issues.soft.length ? { fingerprint: issues.fingerprint!, count: issues.soft.length } : null,
+      override: issues.hard.length && overrideReason !== null ? { reason: overrideReason, byUserId: ctx.userId, at: now.toISOString(), violations: issues.hard } : null,
+    };
+    const options = { ...((plan.options as Record<string, unknown> | null) ?? {}), publishDecision: { ...decision, requestHash: decisionHash } } as unknown as Prisma.InputJsonValue;
     const source: PublishSource = {
-      ref: { routePlanId: plan.id, expectedVersion: dto.expectedVersion },
+      ref: { routePlanId: plan.id, expectedVersion: dto.expectedVersion, ...(acknowledged !== null || overrideReason !== null ? { decision: decisionHash } : {}) },
       inTransaction: async (tx, result) => {
         await tx.$queryRaw`SELECT id FROM "RoutePlan" WHERE id = ${plan.id}::uuid FOR UPDATE`;
         const n = await tx.routePlan.updateMany({
           where: { id: plan.id, companyId: ctx.companyId, version: dto.expectedVersion, status: { in: [...EDITABLE] as RoutePlanStatus[] } },
-          data: { status: 'PUBLISHED', publishedAt: now, version: { increment: 1 } },
+          data: { status: 'PUBLISHED', publishedAt: now, version: { increment: 1 }, options },
         });
         if (!n.count) throw stale(plan.version);
         for (const [assignmentId, tempId] of cs.tempIds) {
@@ -514,7 +550,12 @@ export class RoutePlansService {
           await tx.transportTrip.update({ where: { id: trip.id }, data: { routePlanId: plan.id, routeAssignmentId: assignmentId } });
         }
         await this.recordVersion(tx, ctx, plan, next, 'PUBLISHED', 'PUBLISHED', stops);
-        await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: plan.id, details: { published: true, changeSetId: result.changeSetId, trips: cs.tempIds.size, version: next } }, tx);
+        const ack = decision.acknowledged ? { acknowledgedWarnings: { ...decision.acknowledged, kinds: [...new Set(issues.soft.map((i) => i.kind))] } } : {};
+        await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: plan.id, details: { published: true, changeSetId: result.changeSetId, trips: cs.tempIds.size, version: next, ...ack, ...(decision.override ? { override: true } : {}) } as Prisma.InputJsonValue }, tx);
+        // The override's own audit row: the plan, the violations overridden and the reason (the actor is the row's user).
+        if (decision.override) {
+          await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: plan.id, details: { planId: plan.id, version: next, publishOverride: { reason: decision.override.reason, violations: decision.override.violations } } as unknown as Prisma.InputJsonValue }, tx);
+        }
       },
     };
     let r: Replayable<ChangeSetResult>;
@@ -532,13 +573,16 @@ export class RoutePlansService {
   }
 
   /** A PUBLISHED plan: the same caller's same key replays (from the ledger and the trip links); anything else is refused. */
-  private async replayPublished(ctx: AuthContext, plan: PlanRow, key: string): Promise<Replayable<RoutePlanPublishResult>> {
+  private async replayPublished(ctx: AuthContext, plan: PlanRow, key: string, decisionHash: string): Promise<Replayable<RoutePlanPublishResult>> {
     const ledger = await this.prisma.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key } });
     if (!ledger) throw notEditable(plan.status);
     const result = ledger.result as unknown as ChangeSetResult | null;
     const linked = new Map(plan.transportTrips.map((t) => [t.id, t]));
     const ours = ledger.status === 'PUBLISHED' && ledger.createdById === ctx.userId && !!result?.trips?.length && result.trips.every((t) => linked.has(t.id));
     if (!ours) throw idempotencyReused();
+    // Decision 5: the same key with another acknowledgement / override is another request.
+    const stored = (plan.options as { publishDecision?: { requestHash?: string } } | null)?.publishDecision?.requestHash;
+    if (stored && stored !== decisionHash) throw idempotencyReused();
     return {
       value: {
         planId: plan.id,
@@ -611,4 +655,37 @@ export function routeError(e: unknown, failedAt: number, opRoute: (string | null
   const res = (typeof body === 'object' && body ? body : { message: String(body) }) as { message?: string; code?: string };
   const message = `Route ${a.vehicleLabel}: ${res.message ?? 'refused'}`;
   return new HttpException({ ...res, message, routes: [{ assignmentId: a.id, vehicleLabel: a.vehicleLabel, code: res.code ?? `HTTP_${e.getStatus()}`, message }] }, e.getStatus());
+}
+
+// ───────────────────────────── publish gate helpers (owner decision 5) ─────────────────────────────
+
+/**
+ * Who may override overridable hard publish issues (arrival windows): the existing grant model, no new grant — a
+ * whole-company role (dataScope COMPANY, e.g. the Transport admin template) holding both publish grants (Route
+ * planning: command and Dispatch: command). Branch dispatchers (ASSIGNED) publish, but never override.
+ */
+export function canOverridePublish(ctx: Pick<AuthContext, 'dataScope' | 'permissions'>): boolean {
+  return ctx.dataScope === 'COMPANY' && can(ctx.permissions, 'etms_dispatch', 'command') && can(ctx.permissions, 'etms_planning', 'command');
+}
+
+const normaliseReason = (raw: unknown): string => (typeof raw === 'string' ? raw : '').replace(/\s+/g, ' ').trim();
+
+/** A reason worth recording: at least ROUTE_PLAN_OVERRIDE_REASON_MIN characters and two words (letters, with their combining marks: Hindi / Tamil). */
+export function meaningfulReason(reason: string): boolean {
+  return reason.length >= ROUTE_PLAN_OVERRIDE_REASON_MIN && (reason.match(/\p{L}[\p{L}\p{M}]+/gu) ?? []).length >= 2;
+}
+
+/** The plan detail's publishCheck: the publish classification with the refs as this caller sees them. */
+function publishCheckFor(ctx: AuthContext, plan: PlanRow, dto: RoutePlanDetailDto, seats: (bookingId: string) => number | undefined): RoutePlanPublishCheck {
+  const refs = new Map(dto.stops.map((s) => [s.id, s.ref]));
+  const r = publishIssues(plan.assignments, plan.stops.map(toRuleStop), seats);
+  const shown = <T extends { stopId: string; ref: string }>(i: T): T => ({ ...i, ref: refs.get(i.stopId) ?? i.ref });
+  return { hard: r.hard.map(shown), soft: r.soft.map(shown), fingerprint: r.fingerprint, canOverride: canOverridePublish(ctx) };
+}
+
+/** RoutePlan.options.publishDecision as the detail shows it (without the request hash). */
+export function publishDecisionOf(options: unknown): RoutePlanPublishDecision | null {
+  const d = (options as { publishDecision?: RoutePlanPublishDecision & { requestHash?: string } } | null)?.publishDecision;
+  if (!d || typeof d !== 'object') return null;
+  return { acknowledged: d.acknowledged ?? null, override: d.override ?? null };
 }

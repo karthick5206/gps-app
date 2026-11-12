@@ -95,6 +95,10 @@ export interface RoutePlanDetailDto extends Omit<RoutePlanDto, 'stops' | 'assign
   unassigned: number;
   /** Solver weights stored with the last optimisation (RoutePlan.options.weights); null before any (T2-L4: re-optimise prefills them). */
   weights?: RoutePlanWeights | null;
+  /** Decision 5: the server's publish classification for this caller (DRAFT / PLANNED plans). */
+  publishCheck?: RoutePlanPublishCheck | null;
+  /** Decision 5: what the publish accepted (acknowledged warnings, authorised override); PUBLISHED plans only. */
+  publishDecision?: RoutePlanPublishDecision | null;
 }
 
 /** The four explicit solver weights (OptimizeOptionsDto.weights). */
@@ -223,6 +227,73 @@ export interface RoutePlanPublishResult extends PublishRoutePlanResult {
   warnings: string[];
 }
 
+/**
+ * Owner decision 5 (publishing): the server re-checks the stored plan at publish time and never trusts the client.
+ * HARD issues block publishing: an arrival-window violation (`late`: IN = arrival at the site after the booking's
+ * arrival window, OUT = departure from the site after the booking's departure window), a stop without an engine time
+ * (`unreachable`: never estimated, so the window cannot be proven) and seats above the vehicle's (`over_capacity`).
+ * SOFT warnings (`early_wait`, `max_ride_exceeded`) need an explicit acknowledgement of exactly this warning set
+ * (`fingerprint`). Only `late` may be overridden, by an authorised caller with a reason (audited).
+ */
+export const ROUTE_PLAN_HARD_KINDS = ['late', 'unreachable', 'over_capacity'] as const;
+export const ROUTE_PLAN_OVERRIDABLE_KINDS = ['late'] as const;
+/** Minimum length (trimmed) of a publish override reason. */
+export const ROUTE_PLAN_OVERRIDE_REASON_MIN = 15;
+export const ROUTE_PLAN_OVERRIDE_REASON_MAX = 500;
+
+/** One stop-level publish issue: ids, ref, kind and times only (no coordinates, no passenger names). */
+export interface RoutePlanPublishIssue {
+  assignmentId: string;
+  vehicleLabel: string;
+  stopId: string;
+  ref: string;
+  kind: RoutePlanStopViolation['kind'];
+  etaS: number | null;
+  window: [number, number] | null;
+  /** Hard issues only: true when an authorised override may publish anyway (arrival windows). */
+  overridable?: boolean;
+}
+
+/** The server's publish classification of a plan (plan detail `publishCheck`, and the 409 bodies of a refused publish). */
+export interface RoutePlanPublishCheck {
+  hard: RoutePlanPublishIssue[];
+  soft: RoutePlanPublishIssue[];
+  /** Fingerprint of the soft warning set to send as `acknowledgedWarnings`; null without soft warnings. */
+  fingerprint: string | null;
+  /** Whether this caller may override overridable hard issues (whole-company scope + Dispatch: command + Planning: command). */
+  canOverride: boolean;
+}
+
+/** What a publish accepted, stored with the published plan (RoutePlan.options.publishDecision) and shown on its detail. */
+export interface RoutePlanPublishDecision {
+  /** Acknowledged soft warnings (count and fingerprint); null when there were none. */
+  acknowledged: { fingerprint: string; count: number } | null;
+  /** The authorised override of hard issues; null when none was needed. */
+  override: { reason: string; byUserId: string; at: string; violations: RoutePlanPublishIssue[] } | null;
+}
+
+/** POST /route-plans/:id/publish body (decision 5 fields are optional; the server decides whether they are needed). */
+export interface RoutePlanPublishRequest {
+  expectedVersion: number;
+  idempotencyKey?: string;
+  /** The `publishCheck.fingerprint` the user acknowledged; a different (stale) set is refused. */
+  acknowledgedWarnings?: string;
+  /** Exceptional override of overridable hard issues (authorised callers only; reason recorded and audited). */
+  override?: { reason: string };
+}
+
+/** Deterministic fingerprint of a soft warning set (FNV-1a 32 over the sorted `stopId:kind` lines), or null when empty. */
+export function publishWarningsFingerprint(issues: Pick<RoutePlanPublishIssue, 'stopId' | 'kind'>[]): string | null {
+  if (!issues.length) return null;
+  const text = issues.map((i) => `${i.stopId}:${i.kind}`).sort().join('\n');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `w${issues.length}-${h.toString(16).padStart(8, '0')}`;
+}
+
 /** One route's refusal (409 PLAN_NOT_PUBLISHABLE before anything is written, or the E3 error of the failing route). */
 export interface RoutePlanRouteError {
   assignmentId: string;
@@ -232,7 +303,19 @@ export interface RoutePlanRouteError {
 }
 
 /** Error codes of the plans API (besides the common and E3 ones). */
-export const ROUTE_PLAN_ERROR_CODES = ['PLAN_STALE', 'PLAN_NOT_EDITABLE', 'PLAN_NOT_PUBLISHABLE', 'ROUTE_LOCKED', 'STOP_PINNED', 'ROUTING_DISABLED', 'VEHICLE_DUPLICATE'] as const;
+export const ROUTE_PLAN_ERROR_CODES = [
+  'PLAN_STALE',
+  'PLAN_NOT_EDITABLE',
+  'PLAN_NOT_PUBLISHABLE',
+  'ROUTE_LOCKED',
+  'STOP_PINNED',
+  'ROUTING_DISABLED',
+  'VEHICLE_DUPLICATE',
+  'PLAN_HAS_HARD_VIOLATIONS',
+  'PLAN_WARNINGS_NOT_ACKNOWLEDGED',
+  'PUBLISH_OVERRIDE_FORBIDDEN',
+  'PUBLISH_OVERRIDE_REASON_REQUIRED',
+] as const;
 export type RoutePlanErrorCode = (typeof ROUTE_PLAN_ERROR_CODES)[number];
 
 // ───────────────────────────── access (P6 templates) ─────────────────────────────
