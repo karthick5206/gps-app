@@ -14,7 +14,7 @@ export const hi: Strings = {
   emailHint: 'व्यक्तिगत / परिवार: फ़ोन इस ई-मेल के VeeTrax खाते में जोड़ा जाता है (ज़रूरत हो तो नया खाता बनता है)। कंपनी के फ़ोन कंपनी के खाते में ही रहते हैं; ई-मेल आपके संपर्क के रूप में रखा जाता है।',
   demoAccount: 'डेमो खाता',
   demoHintOff: 'सिर्फ़ डेमो लॉगिन के लिए। अपने सामान्य खाते के लिए बंद रखें।',
-  demoHintOn: (server: string) => `डेमो सर्वर (${server}) इस्तेमाल करता है।`,
+  demoHintOn: 'डेमो सर्वर इस्तेमाल करता है।',
   emailPlaceholder: 'you@example.com',
   emailLabelRegistered: 'ई-मेल',
   emailRegisteredHint: 'यह नंबर पहले से पंजीकृत है। विवरण वैसे ही रखें या बदलें।',

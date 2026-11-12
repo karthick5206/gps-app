@@ -181,7 +181,7 @@ export default function ActivateScreen() {
                 <View style={styles.demoRow}>
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text style={[styles.label, { color: c.text, marginTop: 0 }]}>{S.demoAccount}</Text>
-                    <Text style={{ color: c.muted, fontSize: 13 }}>{demo ? S.demoHintOn(DEMO_SERVER_URL.replace(/^https?:\/\//, '')) : S.demoHintOff}</Text>
+                    <Text style={{ color: c.muted, fontSize: 13 }}>{demo ? S.demoHintOn : S.demoHintOff}</Text>
                   </View>
                   <Switch value={demo} onValueChange={toggleDemo} disabled={busy} trackColor={{ true: c.primary }} accessibilityLabel={S.demoAccount} />
                 </View>

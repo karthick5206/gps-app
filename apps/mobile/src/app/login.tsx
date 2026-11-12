@@ -12,7 +12,7 @@ import { TrackingScene } from '@/components/TrackingScene';
 import { LanguageChips } from '@/components/LanguageChips';
 import { useAuth } from '@/features/auth/auth';
 import { api, errorMessage } from '@/lib/api';
-import { DEMO_SERVER_URL, serverChoice, useDemoServer, useServerUrl } from '@/lib/config';
+import { serverChoice, useDemoServer, useServerUrl } from '@/lib/config';
 import { session } from '@/lib/session';
 import { RADIUS, SPACE, useColors, useTheme } from '@/lib/theme';
 
@@ -143,7 +143,7 @@ export default function LoginScreen() {
             {mode === 'password' ? <PasswordForm key={server} /> : <OtpForm key={server} />}
             <SwitchRow
               label={t('Demo account')}
-              hint={demo ? t('Uses the demo server ({{server}}).', { server: DEMO_SERVER_URL.replace(/^https?:\/\//, '') }) : t('Only for demo logins. Leave off for your normal account.')}
+              hint={demo ? t('Uses the demo server.') : t('Only for demo logins. Leave off for your normal account.')}
               value={demo}
               onChange={setDemo}
             />
@@ -163,7 +163,7 @@ export default function LoginScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
               <SmartphoneIcon size={14} color={c.mutedForeground} />
               <Text size="xs" tone="muted">
-                {server.replace(/^https?:\/\//, '')}
+                {demo ? t('Demo server') : server.replace(/^https?:\/\//, '')}
               </Text>
             </View>
           </View>

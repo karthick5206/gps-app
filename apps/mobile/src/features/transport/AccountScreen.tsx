@@ -10,7 +10,7 @@ import { ThemePicker } from '@/components/ThemePicker';
 import { Button, Card, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { pushStatus } from '@/features/notifications/push';
-import { useServerUrl } from '@/lib/config';
+import { useDemoServer, useServerUrl } from '@/lib/config';
 import { SPACE, useColors } from '@/lib/theme';
 
 /**
@@ -21,6 +21,7 @@ export function AccountScreen({ children, pendingEvents = 0 }: { children?: Reac
   const { t } = useTranslation();
   const c = useColors();
   const server = useServerUrl();
+  const demoServer = useDemoServer();
   const { me, signOut } = useAuth();
   const confirmSignOut = () =>
     Alert.alert(
@@ -69,7 +70,7 @@ export function AccountScreen({ children, pendingEvents = 0 }: { children?: Reac
       <SectionTitle>{t('App')}</SectionTitle>
       <Card style={{ paddingVertical: 0 }}>
         <InfoRow label={t('Notifications')} value={pushStatus ? t(pushStatus) : t('On')} />
-        <InfoRow label={t('Server')} value={server.replace(/^https?:\/\//, '')} />
+        <InfoRow label={t('Server')} value={demoServer ? t('Demo server') : server.replace(/^https?:\/\//, '')} />
         <InfoRow label={t('Version')} value={Constants.expoConfig?.version ?? '—'} />
       </Card>
 

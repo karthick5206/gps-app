@@ -15,7 +15,7 @@ const en = {
   emailHint: 'Individual / family: the phone is added to the VeeTrax account of this e-mail (a new one is created if needed). Company phones stay in the company account; the e-mail is kept as your contact.',
   demoAccount: 'Demo account',
   demoHintOff: 'Only for demo logins. Leave off for your normal account.',
-  demoHintOn: (server: string) => `Uses the demo server (${server}).`,
+  demoHintOn: 'Uses the demo server.',
   emailPlaceholder: 'you@example.com',
   emailLabelRegistered: 'E-mail',
   emailRegisteredHint: 'This number is already registered. Keep the details or change them.',

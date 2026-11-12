@@ -16,7 +16,7 @@ import { useRealtimeStatus } from '@/features/live/use-live';
 import { pushStatus } from '@/features/notifications/push';
 import { LanguageChips } from '@/components/LanguageChips';
 import { ALL_COMPANIES, PLAY_STORE } from '@veetracer/shared';
-import { useServerUrl } from '@/lib/config';
+import { useDemoServer, useServerUrl } from '@/lib/config';
 import { useVoiceAlerts, voiceAlerts } from '@/features/notifications/voice';
 import { SPACE, useColors } from '@/lib/theme';
 
@@ -49,6 +49,7 @@ const CONNECTION_LABEL = { idle: 'Not connected', connecting: 'Connecting…', c
 export default function MoreScreen() {
   const c = useColors();
   const server = useServerUrl();
+  const demoServer = useDemoServer();
   const { t } = useTranslation();
   const { me, signOut, can, companyId } = useAuth();
   const connection = useRealtimeStatus();
@@ -177,7 +178,7 @@ export default function MoreScreen() {
           value={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <ServerIcon size={14} color={c.mutedForeground} />
-              <Text size="sm">{server.replace(/^https?:\/\//, '')}</Text>
+              <Text size="sm">{demoServer ? t('Demo server') : server.replace(/^https?:\/\//, '')}</Text>
             </View>
           }
         />
