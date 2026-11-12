@@ -48,7 +48,7 @@ describe('ETMS SOS rules (WP 5.4)', () => {
   });
 
   it('notify state: queued until the outbox row is published; never "delivered"', () => {
-    expect(notifyState(null)).toBe('QUEUED');
+    expect(notifyState(null)).toBe('SENT_TO_DISPATCH'); // N1: only published rows are trimmed
     expect(notifyState({ publishedAt: null, deadAt: null })).toBe('QUEUED');
     expect(notifyState({ publishedAt: new Date(), deadAt: null })).toBe('SENT_TO_DISPATCH');
   });

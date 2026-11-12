@@ -100,9 +100,13 @@ export function shortName(name: string | null | undefined): string {
   return parts.length === 1 ? parts[0]! : `${parts[0]} ${parts[parts.length - 1]![0]}.`;
 }
 
-/** Outbox state → the honest notify state shown to the raiser. */
+/**
+ * Outbox state → the honest notify state shown to the raiser. The SOS row and its SAFETY outbox row are written in one
+ * transaction, and the retention job deletes only PUBLISHED rows (7 d): a missing row therefore means "delivered, then
+ * trimmed" (delta review N1), never "not sent".
+ */
 export function notifyState(outbox: { publishedAt: Date | null; deadAt: Date | null } | null | undefined): SosNotifyState {
-  if (!outbox) return 'QUEUED';
+  if (!outbox) return 'SENT_TO_DISPATCH';
   if (outbox.deadAt) return 'FAILED';
   return outbox.publishedAt ? 'SENT_TO_DISPATCH' : 'QUEUED';
 }
