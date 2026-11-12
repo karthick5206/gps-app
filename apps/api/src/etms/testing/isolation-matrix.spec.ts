@@ -1287,6 +1287,30 @@ describe('ETMS isolation matrix (E4): route plans leak checks', () => {
     expect(bySnapshot.publishCheck!.soft.map((i) => i.kind)).not.toContain('max_ride_exceeded');
   });
 
+  it('E4 decisions D-L1: the plan detail’s publishCheck uses the vehicle’s current seats, as publish does', async () => {
+    const w = await e4World();
+    const admin = caller('customerAdmin', w);
+    const { plan: id } = w.plans.party;
+    const before = await w.controllers.e4.plans.get(admin, id);
+    expect(before.publishCheck!.hard.map((i) => i.kind)).not.toContain('over_capacity');
+    // The booking is for 2 and the vehicle's seats are edited down to 1 after the plan was drafted (stored capacity stays 4).
+    w.store.table('transportBooking').find((b) => b.id === w.plans.party.booking)!.passengerCount = 2;
+    const vehicle = w.store.table('routeAssignment').find((a) => a.id === w.plans.party.assignment)!.objectId as string;
+    const profile = w.store.table('transportVehicleProfile').find((p) => p.objectId === vehicle);
+    if (profile) profile.seats = 1;
+    else w.store.insert('transportVehicleProfile', { objectId: vehicle, companyId: 'custA', seats: 1, wheelchairSpaces: 0 });
+    const after = await w.controllers.e4.plans.get(admin, id);
+    expect(after.publishCheck!.hard.map((i) => i.kind)).toContain('over_capacity');
+    // Publish agrees: refused on the vehicle's current seats.
+    const err = await errorOf(w.controllers.e4.plans.publish(admin, id, { expectedVersion: after.version }, `k-${randomUUID()}`));
+    expect(err).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE', routes: [{ code: 'CAPACITY_EXCEEDED' }] } });
+    // The other way round: a stored capacity of 1 but the vehicle now has 4 seats → no hard over_capacity in the dialog.
+    w.store.table('routeAssignment').find((a) => a.id === w.plans.party.assignment)!.capacity = 1;
+    w.store.table('transportVehicleProfile').find((p) => p.objectId === vehicle)!.seats = 4;
+    const bigger = await w.controllers.e4.plans.get(admin, id);
+    expect(bigger.publishCheck!.hard.map((i) => i.kind)).not.toContain('over_capacity');
+  });
+
   it('manual edits: versioned, re-validated, locks and pins honoured, history without coordinates', async () => {
     const w = await e4World();
     const disp = caller('customerDispatcher', w);

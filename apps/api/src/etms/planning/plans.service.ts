@@ -112,7 +112,9 @@ export class RoutePlansService {
     const ride = rideRuleOf(plan, policyS);
     const { dto, shown, named } = toPlanDetail(plan, view, ride);
     // Decision 5: the server's publish classification (as publish recomputes it) and what a publish accepted.
-    dto.publishCheck = dto.editable ? publishCheckFor(ctx, plan, dto, seatsLookup(view.bookings), ride) : null;
+    // D-L1: with the vehicles' current seats, as publish uses them (not the capacity stored when the plan was drafted).
+    const capacities = dto.editable ? routeCapacities(plan, await this.currentSeats(ctx, plan)) : [];
+    dto.publishCheck = dto.editable ? publishCheckFor(ctx, capacities, plan, dto, seatsLookup(view.bookings), ride) : null;
     dto.publishDecision = publishDecisionOf(plan.options);
     // L1: a read that returned personal points or passenger names is ACCESS-audited (de-duplicated per user, view and day).
     await this.dispatch.recordPersonalAccess(ctx, 'plan', [...new Set([...shown, ...named])], dto.precise, { planId: id, ...(named.length ? { passengerNames: named.length } : {}) });
@@ -453,6 +455,13 @@ export class RoutePlansService {
 
   // ───────────────────────────── publish ─────────────────────────────
 
+  /** The seats of the plan's vehicles now (objectId → seats or null); a vehicle outside the caller's scope is absent. */
+  private async currentSeats(ctx: AuthContext, plan: Pick<PlanRow, 'assignments'>): Promise<Map<string, number | null>> {
+    const objectIds = plan.assignments.flatMap((a) => (a.objectId ? [a.objectId] : []));
+    const vehicles = objectIds.length ? await this.prisma.trackedObject.findMany({ where: { AND: [objectScopeWhere(ctx), { id: { in: objectIds }, isActive: true }] }, select: { id: true, companyId: true, transportProfile: { select: { seats: true } } } }) : [];
+    return new Map(vehicles.filter((v) => v.companyId === ctx.companyId).map((v) => [v.id, v.transportProfile?.seats ?? null]));
+  }
+
   /**
    * Publish the plan through the E3 publish path (doc 17 P9, 15 §8.4): pre-checks per route (409 PLAN_NOT_PUBLISHABLE,
    * nothing written), then ONE change set — a CREATE_TRIP + ADD_PASSENGERs per route — via DispatchService.publishPrepared
@@ -488,9 +497,7 @@ export class RoutePlansService {
     const bookings = new Map<string, PublishBooking>(bookingRows.map((b) => [b.id, b as unknown as PublishBooking]));
     const poiIds = [...new Set([...stops.flatMap((s) => (s.poiId ? [s.poiId] : [])), ...bookingRows.flatMap((b) => [b.pickupPoiId, b.dropPoiId].filter((x): x is string => !!x))])];
     const places = new Map<string, PublishPlace>((poiIds.length ? await this.prisma.poi.findMany({ where: { id: { in: poiIds }, companyId: ctx.companyId }, select: { id: true, name: true, lat: true, lng: true } }) : []).map((p) => [p.id, p]));
-    const objectIds = plan.assignments.flatMap((a) => (a.objectId ? [a.objectId] : []));
-    const vehicles = objectIds.length ? await this.prisma.trackedObject.findMany({ where: { AND: [objectScopeWhere(ctx), { id: { in: objectIds }, isActive: true }] }, select: { id: true, companyId: true, transportProfile: { select: { seats: true } } } }) : [];
-    const seatsOf = new Map(vehicles.filter((v) => v.companyId === ctx.companyId).map((v) => [v.id, v.transportProfile?.seats ?? null]));
+    const seatsOf = await this.currentSeats(ctx, plan);
     const consents = await activeRoutingConsents(this.prisma, bookingRows.map((b) => b.profileId));
 
     // Branch scope first (a branch dispatcher's plan may still carry another branch's passenger or vehicle): 404-class.
@@ -520,7 +527,7 @@ export class RoutePlansService {
     // Decision 5, recomputed from the stored plan with the vehicles' current seats: hard issues block (only arrival
     // windows may be overridden, by an authorised caller with a reason); soft warnings need this exact set acknowledged.
     const ride = rideRuleOf(plan, await maxRidePolicyOf(this.prisma, ctx.companyId));
-    const issues = publishIssues(routes.map((r) => ({ id: r.id, vehicleLabel: r.vehicleLabel, capacity: r.seats })), stops, (b) => bookings.get(b)?.passengerCount, ride);
+    const issues = publishIssues(routeCapacities(plan, seatsOf), stops, (b) => bookings.get(b)?.passengerCount, ride);
     const blocking = issues.hard.filter((i) => !i.overridable);
     if (blocking.length || (issues.hard.length && overrideReason === null)) {
       const overridable = !blocking.length;
@@ -685,9 +692,14 @@ export function meaningfulReason(reason: string): boolean {
 }
 
 /** The plan detail's publishCheck: the publish classification with the refs as this caller sees them. */
-function publishCheckFor(ctx: AuthContext, plan: PlanRow, dto: RoutePlanDetailDto, seats: (bookingId: string) => number | undefined, ride: RideRule): RoutePlanPublishCheck {
+/** The routes as the publish gate checks them: a route's capacity is its vehicle's seats now (null without a vehicle in scope). */
+function routeCapacities(plan: Pick<PlanRow, 'assignments'>, seatsOf: Map<string, number | null>): { id: string; vehicleLabel: string; capacity: number | null }[] {
+  return plan.assignments.map((a) => ({ id: a.id, vehicleLabel: a.vehicleLabel, capacity: a.objectId ? (seatsOf.get(a.objectId) ?? null) : null }));
+}
+
+function publishCheckFor(ctx: AuthContext, routes: { id: string; vehicleLabel: string; capacity: number | null }[], plan: PlanRow, dto: RoutePlanDetailDto, seats: (bookingId: string) => number | undefined, ride: RideRule): RoutePlanPublishCheck {
   const refs = new Map(dto.stops.map((s) => [s.id, s.ref]));
-  const r = publishIssues(plan.assignments, plan.stops.map(toRuleStop), seats, ride);
+  const r = publishIssues(routes, plan.stops.map(toRuleStop), seats, ride);
   const shown = <T extends { stopId: string; ref: string }>(i: T): T => ({ ...i, ref: refs.get(i.stopId) ?? i.ref });
   return { hard: r.hard.map(shown), soft: r.soft.map(shown), fingerprint: r.fingerprint, canOverride: canOverridePublish(ctx) };
 }
