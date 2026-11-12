@@ -621,10 +621,11 @@ Driver event: ${link}`,
    * Everything else (test messages, reminders): { test: true } as before.
    */
   private async pushDataFor(log: NotificationLog): Promise<Record<string, unknown> | null> {
-    if (log.refType === 'TRANSPORT_INCIDENT' && log.refId) {
+    if ((log.refType === 'TRANSPORT_INCIDENT' || log.refType === 'TRANSPORT_INCIDENT_LATE') && log.refId) {
       // ETMS SOS to a dispatcher (WP 5.4): { kind: 'SOS', tripId, notificationId = incident id }, nothing personal.
+      // TRANSPORT_INCIDENT_LATE (security review M2): an SOS relayed late, still open: quiet channel, no siren.
       const i = await this.prisma.transportIncident.findUnique({ where: { id: log.refId }, select: { id: true, tripId: true } });
-      return i ? { transport: true, sos: true, kind: 'SOS', tripId: i.tripId, notificationId: i.id } : null;
+      return i ? { transport: true, sos: log.refType === 'TRANSPORT_INCIDENT', kind: 'SOS', tripId: i.tripId, notificationId: i.id } : null;
     }
     if (log.refType !== 'TRANSPORT_NOTIFICATION' || !log.refId) return { test: true };
     const n = await this.prisma.transportNotification.findUnique({ where: { id: log.refId }, select: { id: true, kind: true, tripId: true } });

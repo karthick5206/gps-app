@@ -1,14 +1,14 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { OutboxEvent, Prisma } from '@prisma/client';
-import { SOS_OUTBOX_TYPES, sosPushText, type IncidentKind, type IncidentStatus, type TransportSosSocketPayload } from '@veetracer/shared';
+import { SOS_OUTBOX_TYPES, SOS_RELAY_LATE_MS, sosLatePushText, sosPushText, type IncidentKind, type IncidentStatus, type TransportSosSocketPayload } from '@veetracer/shared';
 import { NOTIFY_STREAM_MAXLEN } from '../../alerts/alert-dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisKeys } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import { etmsServerEnabled } from '../transport-feature.guard';
 import { SOS_CHANNEL, sosLocalBus, type SosFanoutMessage } from './sos-bus';
-import { SosDirectSender, TRANSPORT_INCIDENT_REF } from './sos-direct-sender';
+import { SosDirectSender, TRANSPORT_INCIDENT_LATE_REF, TRANSPORT_INCIDENT_REF } from './sos-direct-sender';
 import { safetyBackoffMs } from './sos-rules';
 
 /** Lease of a claimed outbox row: another relay instance may take it over after this (at-least-once). */
@@ -52,6 +52,11 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
  *    the row stays pending (back-off 1 → 15 s) and is published as soon as Valkey answers again: a SAFETY row is never
  *    DEAD and never dropped. The web SOS lane also polls PostgreSQL, so an incident is visible without any of this.
  * Kill switches: ETMS=off, ETMS_SOS_RELAY=off (rows then wait in PostgreSQL).
+ *
+ * Security review M2 (stale replay): rows that waited (relay off, rollback to a version without the relay, long outage)
+ * never ring as a new SOS. A creation row whose incident is no longer OPEN is settled with a socket refresh carrying
+ * the real status and no push; one still OPEN but older than SOS_RELAY_LATE_MS (15 min) gets the quiet "missed SOS,
+ * still open since HH:MM" push (no siren). A still-OPEN SOS is never dropped.
  */
 @Injectable()
 export class SafetyOutboxRelayService {
@@ -134,25 +139,43 @@ export class SafetyOutboxRelayService {
       await this.finish(row, null, 'NOTIFY_PUBLISHED', { skipped: 'incident removed' });
       return 'published';
     }
-    const message = fanout(incident, row.type);
-    const logIds = row.type === SOS_OUTBOX_TYPES.created ? await this.pushRows(row, incident) : [];
+    const message = fanout(incident);
+    const creation = row.type === SOS_OUTBOX_TYPES.created;
+    if (creation && incident.status !== 'OPEN') {
+      // M2: handled meanwhile (from the polled lane): refresh the lanes with the real status, never a siren.
+      await this.refreshOnly(message);
+      await this.finish(row, null, 'NOTIFY_PUBLISHED', {});
+      this.logger.log(`SAFETY outbox row ${row.id}: incident already ${incident.status}, settled without a push`);
+      return 'published';
+    }
+    const late = creation && Date.now() - row.createdAt.getTime() > SOS_RELAY_LATE_MS;
+    const logIds = creation ? await this.pushRows(row, incident, late) : [];
     try {
       await withTimeout(this.redis.client.publish(SOS_CHANNEL, JSON.stringify(message)), VALKEY_TIMEOUT_MS);
       if (logIds.length) {
         await withTimeout(this.redis.client.xadd(RedisKeys.notifyStream, 'MAXLEN', '~', NOTIFY_STREAM_MAXLEN, '*', 'logIds', JSON.stringify(logIds), 'companyId', row.companyId), VALKEY_TIMEOUT_MS);
       }
-      await this.finish(row, incident, 'NOTIFY_PUBLISHED', { via: 'valkey', pushRows: logIds.length });
+      await this.finish(row, incident, 'NOTIFY_PUBLISHED', { via: 'valkey', pushRows: logIds.length, ...(late ? { late: true } : {}) });
       return 'published';
     } catch (error) {
       const reason = (error as Error).message;
       const sockets = sosLocalBus.emit(message);
       const pushSent = logIds.length && this.direct ? await this.direct.sendRows(logIds) : 0;
       if (sockets > 0 || pushSent > 0) {
-        await this.finish(row, incident, 'NOTIFY_DIRECT', { via: 'direct', sockets, pushSent, valkeyError: reason.slice(0, 200) });
+        await this.finish(row, incident, 'NOTIFY_DIRECT', { via: 'direct', sockets, pushSent, valkeyError: reason.slice(0, 200), ...(late ? { late: true } : {}) });
         return 'direct';
       }
       await this.prisma.outboxEvent.updateMany({ where: { id: row.id, publishedAt: null }, data: { lastError: `Valkey down, nobody reachable directly: ${reason}`.slice(0, 500) } });
       return 'pending';
+    }
+  }
+
+  /** Socket refresh only (Valkey, else this process's sockets); best effort: the lanes also poll PostgreSQL. */
+  private async refreshOnly(message: SosFanoutMessage): Promise<void> {
+    try {
+      await withTimeout(this.redis.client.publish(SOS_CHANNEL, JSON.stringify(message)), VALKEY_TIMEOUT_MS);
+    } catch {
+      sosLocalBus.emit(message);
     }
   }
 
@@ -170,8 +193,9 @@ export class SafetyOutboxRelayService {
    * PUSH rows for the dispatcher logins of the companies that see the incident (raiser's company always, the other
    * party only with an ACTIVE agreement granting RECEIVE_INCIDENTS / MANAGE_INCIDENTS). One row per outbox row and
    * login (dedupeKey), generic text in the login's language; only logins with a signed-in app. Returns the QUEUED ids.
+   * `late` (M2): the quiet "still open since HH:MM" form (company time zone), no siren.
    */
-  private async pushRows(row: OutboxEvent, incident: IncidentRow): Promise<string[]> {
+  private async pushRows(row: OutboxEvent, incident: IncidentRow, late = false): Promise<string[]> {
     const companies = await this.recipientCompanies(incident);
     if (!companies.length) return [];
     const now = new Date();
@@ -182,15 +206,16 @@ export class SafetyOutboxRelayService {
         roles: { some: { role: { permissions: { some: { menu: 'etms_incidents', actions: { has: 'view' } } } } } },
         pushTokens: { some: { OR: [{ sessionId: null }, { session: { revokedAt: null, expiresAt: { gt: now } } }] } },
       },
-      select: { id: true, companyId: true, preferences: true },
+      select: { id: true, companyId: true, preferences: true, company: { select: { timezone: true } } },
       take: MAX_SOS_RECIPIENTS,
     });
     if (users.length) {
       await this.prisma.notificationLog.createMany({
         data: users.map((u) => {
           const lang = (u.preferences as { language?: unknown } | null)?.language;
-          const text = sosPushText(typeof lang === 'string' ? lang : null);
-          return { companyId: u.companyId, channel: 'PUSH' as const, recipient: `user:${u.id}`, subject: text.title, body: text.body, status: 'QUEUED' as const, refType: TRANSPORT_INCIDENT_REF, refId: incident.id, dedupeKey: `sos:${row.id}:${u.id}:PUSH` };
+          const language = typeof lang === 'string' ? lang : null;
+          const text = late ? sosLatePushText(language, clockTime(incident.raisedAt, u.company?.timezone)) : sosPushText(language);
+          return { companyId: u.companyId, channel: 'PUSH' as const, recipient: `user:${u.id}`, subject: text.title, body: text.body, status: 'QUEUED' as const, refType: late ? TRANSPORT_INCIDENT_LATE_REF : TRANSPORT_INCIDENT_REF, refId: incident.id, dedupeKey: `sos:${row.id}:${u.id}:PUSH` };
         }),
         skipDuplicates: true,
       });
@@ -223,14 +248,25 @@ export class SafetyOutboxRelayService {
   }
 }
 
-export function fanout(i: IncidentRow, type: string): SosFanoutMessage {
+/** "09:41" in the company's time zone (24 h; falls back to UTC for an unknown zone). */
+export function clockTime(at: Date, timezone: string | null | undefined): string {
+  const fmt = (timeZone: string) => new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+  try {
+    return fmt(timezone || 'UTC');
+  } catch {
+    return fmt('UTC');
+  }
+}
+
+/** Socket payload: always the incident's CURRENT status (M2: a late creation row of a handled SOS is no "OPEN"). */
+export function fanout(i: IncidentRow): SosFanoutMessage {
   const payload: TransportSosSocketPayload = {
     incidentId: i.id,
     kind: i.kind as IncidentKind,
     tripId: i.tripId,
     vehicle: i.vehicleLabel,
     raisedAt: i.raisedAt.toISOString(),
-    status: (type === SOS_OUTBOX_TYPES.created ? 'OPEN' : i.status) as IncidentStatus,
+    status: i.status as IncidentStatus,
   };
   return { providerCompanyId: i.providerCompanyId, customerCompanyId: i.customerCompanyId, raiserType: i.raiserType, payload };
 }

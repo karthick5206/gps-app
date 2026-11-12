@@ -254,3 +254,20 @@ export function sosPushText(language: string | null | undefined): { title: strin
   const table = language === 'hi' || language === 'ta' ? TRANSLATIONS[language] : null;
   return { title: table?.[SOS_PUSH_TEXT.title] ?? SOS_PUSH_TEXT.title, body: table?.[SOS_PUSH_TEXT.body] ?? SOS_PUSH_TEXT.body };
 }
+
+/**
+ * Security review M2: an SOS whose relay was delayed (relay off, rollback, long Valkey outage) by more than
+ * SOS_RELAY_LATE_MS and is still OPEN is pushed in this quiet form (no siren): "still open since HH:MM", so it is
+ * never dropped but does not ring every dispatcher phone as a brand-new SOS. Closed ones are not pushed at all.
+ */
+export const SOS_RELAY_LATE_MS = 15 * 60_000;
+export const SOS_LATE_PUSH_TEXT = {
+  title: 'Missed SOS, still open',
+  body: 'An SOS has been open since {{time}} and was not delivered at once. Open VeeTrax now.',
+} as const;
+
+export function sosLatePushText(language: string | null | undefined, time: string): { title: string; body: string } {
+  const table = language === 'hi' || language === 'ta' ? TRANSLATIONS[language] : null;
+  const body = table?.[SOS_LATE_PUSH_TEXT.body] ?? SOS_LATE_PUSH_TEXT.body;
+  return { title: table?.[SOS_LATE_PUSH_TEXT.title] ?? SOS_LATE_PUSH_TEXT.title, body: body.replace('{{time}}', time) };
+}

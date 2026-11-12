@@ -324,6 +324,9 @@ d(`ETMS E5 durable SOS on ${dbName}`, () => {
     const [a, b] = await Promise.all([relayNoDirect.run(), new SafetyOutboxRelayService(prisma as never, valkey as never).run()]);
     expect(a.claimed + b.claimed).toBeGreaterThanOrEqual(3);
     expect(await prisma.outboxEvent.count({ where: { aggregateId: iid, publishedAt: null } })).toBe(0);
-    expect(await prisma.transportIncidentEvent.count({ where: { incidentId: iid, kind: 'NOTIFY_PUBLISHED' } })).toBe(1);
+    // Security review M2: the creation row of an incident already resolved when it is relayed is settled silently (no
+    // push, no "dispatchers notified" history entry); the ack / resolve rows refresh the lanes with the real status.
+    expect(await prisma.transportIncidentEvent.count({ where: { incidentId: iid, kind: 'NOTIFY_PUBLISHED' } })).toBe(0);
+    expect(await prisma.notificationLog.count({ where: { refId: iid } })).toBe(0);
   });
 });

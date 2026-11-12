@@ -3,6 +3,8 @@
  *  - M1: VeeTrax support (Super Admin) is view only on incidents, needs X-Access-Reason for the detail, and the detail
  *    read lands in the incident's customer company log (like the E1b passenger reads); provider reads too.
  *  - QA B1: the customer picker (X-Transport-Customer) never narrows the SOS lane.
+ *  - M2: relay off → resume and rollback → roll-forward never replay a handled SOS as a new siren; a late, still-OPEN
+ *    SOS gets the quiet "still open since HH:MM" push; nothing still OPEN is dropped.
  * Not part of the normal run (testRegex is *.spec.ts):
  *   CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_<name>_test TEST_REDIS_URL=redis://localhost:6379/14 \
  *     npx jest --testRegex 'etms-secfix\.db-test\.ts$' --runInBand
@@ -15,6 +17,8 @@ import { dbDescribe } from '../test/scratch-db';
 import { IncidentsService } from './safety/incidents.service';
 import { IncidentsController } from './safety/safety.controller';
 import { SosService } from './safety/sos.service';
+import { SafetyOutboxRelayService } from './safety/safety-outbox-relay.service';
+import { SOS_CHANNEL } from './safety/sos-bus';
 import type { AuthContext } from '../access/auth-context';
 import { customerContextOf } from '../access/transport-scope';
 
@@ -34,6 +38,22 @@ export const errOf = (p: Promise<unknown> | (() => unknown)) =>
       return { status: e.getStatus(), code: r.code ?? `HTTP_${e.getStatus()}` };
     },
   );
+
+/** In-memory Valkey stand-in recording what the relay publishes (no real Valkey needed here). */
+class RecordingValkey {
+  published: { channel: string; message: { payload: { incidentId: string; status: string } } }[] = [];
+  xadds = 0;
+  readonly client = {
+    publish: (channel: string, message: string) => {
+      this.published.push({ channel, message: JSON.parse(message) as never });
+      return Promise.resolve(1);
+    },
+    xadd: () => {
+      this.xadds++;
+      return Promise.resolve('1-0');
+    },
+  };
+}
 
 d(`v1.14.0 security fix round on ${dbName}`, () => {
   jest.setTimeout(120_000);
@@ -144,5 +164,82 @@ d(`v1.14.0 security fix round on ${dbName}`, () => {
     expect(lane.items.map((i) => i.id)).toContain(incidentId);
     expect(lane.openCount).toBeGreaterThanOrEqual(1);
     expect((await incidentsCtl.ack(narrowed, incidentId, { note: 'Driver called back' })).status).toBe('ACKNOWLEDGED');
+  });
+
+  describe('M2: no stale siren replay', () => {
+    const valkey = new RecordingValkey();
+    const relay = new SafetyOutboxRelayService(prisma as never, valkey as never);
+    const pushOf = (incidentId: string) => prisma.notificationLog.findMany({ where: { refId: incidentId }, orderBy: { recipient: 'asc' } });
+    const outboxOf = (incidentId: string) => prisma.outboxEvent.findFirstOrThrow({ where: { aggregateId: incidentId, type: 'transport.incident.created' } });
+    /** Drain every due SAFETY row of this test's incidents (other suites' rows in the same DB are left alone). */
+    const drain = async () => {
+      for (let i = 0; i < 5; i++) {
+        await prisma.outboxEvent.updateMany({ where: { publishedAt: null, class: 'SAFETY' }, data: { availableAt: new Date(Date.now() - 1000) } });
+        const r = await relay.run();
+        if (!r.claimed) break;
+      }
+    };
+    const raise = async () => (await sos.raisePassenger(pax(), { note: 'help' }, id())).receipt.incidentId;
+    afterEach(() => {
+      delete process.env.ETMS_SOS_RELAY;
+    });
+
+    it('relay off → resume: fresh OPEN rings; one handled meanwhile is settled silently; a late OPEN one is the quiet form', async () => {
+      await drain();
+      valkey.published = [];
+      process.env.ETMS_SOS_RELAY = 'off';
+      expect(relay.enabled).toBe(false);
+      await relay.tick(); // off: nothing claimed
+      // 1) handled from the polled lane while the relay was off.
+      const handled = await raise();
+      expect((await incidentsCtl.resolve(custDesk, handled, { resolution: 'FALSE_ALARM', note: 'Pressed by mistake' })).status).toBe('RESOLVED');
+      // 2) still OPEN, raised 40 minutes ago (the relay has been off since).
+      const lateOpen = await raise();
+      const at = new Date(Date.now() - 40 * 60_000);
+      await prisma.transportIncident.update({ where: { id: lateOpen }, data: { raisedAt: at, receivedAt: at } });
+      await prisma.outboxEvent.updateMany({ where: { aggregateId: lateOpen }, data: { createdAt: at, occurredAt: at } });
+      expect((await outboxOf(handled)).publishedAt).toBeNull();
+      expect((await outboxOf(lateOpen)).publishedAt).toBeNull();
+      // Relay back on.
+      delete process.env.ETMS_SOS_RELAY;
+      await drain();
+      // Handled: settled (published), NO push rows, socket refresh says RESOLVED (never OPEN), no "notified" history entry.
+      expect((await outboxOf(handled)).publishedAt).not.toBeNull();
+      expect(await pushOf(handled)).toEqual([]);
+      const handledMsgs = valkey.published.filter((p) => p.message.payload.incidentId === handled);
+      expect(handledMsgs.length).toBeGreaterThan(0);
+      expect(handledMsgs.every((p) => p.channel === SOS_CHANNEL && p.message.payload.status === 'RESOLVED')).toBe(true);
+      expect(await prisma.transportIncidentEvent.count({ where: { incidentId: handled, kind: { in: ['NOTIFY_PUBLISHED', 'NOTIFY_DIRECT'] } } })).toBe(0);
+      // Late OPEN: delivered (never dropped) with the quiet form to the customer's dispatcher, the time in IST.
+      const late = await pushOf(lateOpen);
+      expect(late.map((l) => l.refType)).toEqual(['TRANSPORT_INCIDENT_LATE']);
+      const hhmm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+      expect(late[0]).toMatchObject({ recipient: `user:${w.custDesk}`, subject: 'Missed SOS, still open', body: `An SOS has been open since ${hhmm} and was not delivered at once. Open VeeTrax now.` });
+      expect(valkey.published.filter((p) => p.message.payload.incidentId === lateOpen).map((p) => p.message.payload.status)).toEqual(['OPEN']);
+      const ev = await prisma.transportIncidentEvent.findFirstOrThrow({ where: { incidentId: lateOpen, kind: 'NOTIFY_PUBLISHED' } });
+      expect(ev.data).toMatchObject({ late: true });
+      // A fresh SOS after the resume rings as usual (siren ref type).
+      await closeOpen();
+      const fresh = await raise();
+      await drain();
+      expect((await pushOf(fresh)).map((l) => l.refType)).toEqual(['TRANSPORT_INCIDENT']);
+    });
+
+    it('rollback (no relay for a day) → roll-forward: the acknowledged one is settled, the open one is the quiet form', async () => {
+      await drain();
+      valkey.published = [];
+      const day = new Date(Date.now() - 26 * 3_600_000);
+      const acked = await raise();
+      expect((await incidentsCtl.ack(custDesk, acked, { note: 'Called the rider' })).status).toBe('ACKNOWLEDGED');
+      await closeOpen();
+      const open = await raise();
+      for (const i of [acked, open]) await prisma.outboxEvent.updateMany({ where: { aggregateId: i, type: 'transport.incident.created' }, data: { createdAt: day } });
+      // The acknowledgement row itself (transport.incident.acknowledged) carries the real status.
+      await drain();
+      expect(await pushOf(acked)).toEqual([]);
+      expect(valkey.published.filter((p) => p.message.payload.incidentId === acked).every((p) => p.message.payload.status === 'ACKNOWLEDGED')).toBe(true);
+      expect((await pushOf(open)).map((l) => l.refType)).toEqual(['TRANSPORT_INCIDENT_LATE']);
+      expect(await prisma.outboxEvent.count({ where: { aggregateId: { in: [acked, open] }, publishedAt: null } })).toBe(0);
+    });
   });
 });

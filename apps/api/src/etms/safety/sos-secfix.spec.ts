@@ -4,6 +4,8 @@ import { customerContextOf } from '../../access/transport-scope';
 import { TransportFeatureGuard } from '../transport-feature.guard';
 import { IncidentsController } from './safety.controller';
 import { incidentAccess, incidentListWhere } from './sos-rules';
+import { clockTime } from './safety-outbox-relay.service';
+import { SOS_RELAY_LATE_MS, sosLatePushText } from '@veetracer/shared';
 
 const PROV = '00000000-0000-4000-8000-0000000000aa';
 const A = '00000000-0000-4000-8000-00000000000a';
@@ -39,5 +41,18 @@ describe('QA B1 (safety): the customer picker never narrows SOS / incidents', ()
     const elsewhere = providerDesk();
     expect(guard.canActivate(exec(elsewhere, A, OtherController))).toBe(true);
     expect(elsewhere.agreements!.map((a) => a.customerCompanyId)).toEqual([A]);
+  });
+});
+
+describe('Security review M2: late SOS push text', () => {
+  it('clock time in the company zone (UTC for an unknown zone) and the quiet text in the login language', () => {
+    const at = new Date('2026-11-12T04:05:00Z');
+    expect(clockTime(at, 'Asia/Kolkata')).toBe('09:35');
+    expect(clockTime(at, 'Not/AZone')).toBe('04:05');
+    expect(clockTime(at, null)).toBe('04:05');
+    expect(sosLatePushText(null, '09:35')).toEqual({ title: 'Missed SOS, still open', body: 'An SOS has been open since 09:35 and was not delivered at once. Open VeeTrax now.' });
+    expect(sosLatePushText('hi', '09:35').body).toContain('09:35');
+    expect(sosLatePushText('ta', '09:35').title).not.toBe('Missed SOS, still open');
+    expect(SOS_RELAY_LATE_MS).toBe(15 * 60_000);
   });
 });

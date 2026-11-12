@@ -1,14 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationLedger } from '../../notifier/notification-ledger';
+import { TRANSPORT_PUSH_CHANNEL } from '@veetracer/shared';
 import { createPushProvider, pushStyle, transportPushData, type PushProvider } from '../../notifier/push';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /** NotificationLog.refType of a dispatcher push that belongs to a TransportIncident (refId = incident id). */
 export const TRANSPORT_INCIDENT_REF = 'TRANSPORT_INCIDENT';
+/** Security review M2: the quiet (no siren) push of an SOS relayed late and still OPEN ("still open since HH:MM"). */
+export const TRANSPORT_INCIDENT_LATE_REF = 'TRANSPORT_INCIDENT_LATE';
 
 /** Push data of a dispatcher SOS push: the ETMS shape { kind, tripId, notificationId = incident id } (D7 / L4). */
-export function sosPushData(incident: { id: string; tripId: string | null }): Record<string, unknown> {
-  return { transport: true, sos: true, kind: 'SOS', tripId: incident.tripId, notificationId: incident.id };
+export function sosPushData(incident: { id: string; tripId: string | null }, late = false): Record<string, unknown> {
+  return { transport: true, sos: !late, kind: 'SOS', tripId: incident.tripId, notificationId: incident.id };
 }
 
 /**
@@ -50,10 +53,11 @@ export class SosDirectSender {
         continue;
       }
       const incident = log.refId ? await this.prisma.transportIncident.findUnique({ where: { id: log.refId }, select: { id: true, tripId: true } }) : null;
+      const late = log.refType === TRANSPORT_INCIDENT_LATE_REF;
       try {
         const res = await this.provider.send(
           tokens.map((t) => t.token),
-          { title: log.subject ?? 'Transport SOS', body: log.body, data: transportPushData(incident ? sosPushData(incident) : {}), ...pushStyle('SOS') },
+          { title: log.subject ?? 'Transport SOS', body: log.body, data: transportPushData(incident ? sosPushData(incident, late) : {}), ...(late ? { channelId: TRANSPORT_PUSH_CHANNEL, sound: 'default' } : pushStyle('SOS')) },
         );
         if (res.invalidTokens.length) await this.prisma.pushToken.deleteMany({ where: { token: { in: res.invalidTokens } } });
         const ok = res.sent > 0;

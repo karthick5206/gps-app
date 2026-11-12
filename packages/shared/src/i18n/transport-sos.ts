@@ -58,6 +58,8 @@ export const TRANSPORT_SOS_HI: Record<string, string> = {
   'raised {{time}} ago': '{{time}} पहले भेजा गया',
   '(+{{count}} more)': '(+{{count}} और)',
   'Open lane': 'लेन खोलें',
+  "Missed SOS, still open": "छूटा हुआ SOS, अभी भी खुला",
+  "An SOS has been open since {{time}} and was not delivered at once. Open VeeTrax now.": "एक SOS {{time}} से खुला है और तुरंत नहीं पहुँचा। अभी VeeTrax खोलें।",
 };
 
 export const TRANSPORT_SOS_TA: Record<string, string> = {
@@ -114,4 +116,6 @@ export const TRANSPORT_SOS_TA: Record<string, string> = {
   'raised {{time}} ago': '{{time}} முன்பு அனுப்பப்பட்டது',
   '(+{{count}} more)': '(+{{count}} மேலும்)',
   'Open lane': 'பாதையைத் திற',
+  "Missed SOS, still open": "தவறிய SOS, இன்னும் திறந்துள்ளது",
+  "An SOS has been open since {{time}} and was not delivered at once. Open VeeTrax now.": "ஒரு SOS {{time}} முதல் திறந்துள்ளது, உடனே அனுப்பப்படவில்லை. இப்போதே VeeTrax-ஐத் திறக்கவும்.",
 };
