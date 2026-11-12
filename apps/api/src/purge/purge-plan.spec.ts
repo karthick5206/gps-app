@@ -139,3 +139,47 @@ describe('planPurge: ETMS TransportServiceAgreement (doc 15 §3.1, §9.6)', () =
     for (const root of ['User', 'TrackedObject', 'Device']) expect(tables(planPurge(etms, root, rootCondition(id)))).not.toContain('TransportServiceAgreement');
   });
 });
+
+describe('planPurge: ETMS TransportFleetAllocation (doc 15 §10, E1b WP 1b.0)', () => {
+  // agreement Cascade, provider Restrict, customer SetNull, vehicle / driver Cascade; objectId has an FK (no logical key).
+  const etms: Catalog = {
+    fks: [
+      ...cat.fks,
+      { child: 'Driver', col: 'companyId', parent: 'Company', refCol: 'id', del: 'r' },
+      { child: 'TransportServiceAgreement', col: 'providerCompanyId', parent: 'Company', refCol: 'id', del: 'r' },
+      { child: 'TransportServiceAgreement', col: 'customerCompanyId', parent: 'Company', refCol: 'id', del: 'r' },
+      { child: 'TransportFleetAllocation', col: 'agreementId', parent: 'TransportServiceAgreement', refCol: 'id', del: 'c' },
+      { child: 'TransportFleetAllocation', col: 'providerCompanyId', parent: 'Company', refCol: 'id', del: 'r' },
+      { child: 'TransportFleetAllocation', col: 'customerCompanyId', parent: 'Company', refCol: 'id', del: 'n' },
+      { child: 'TransportFleetAllocation', col: 'objectId', parent: 'TrackedObject', refCol: 'id', del: 'c' },
+      { child: 'TransportFleetAllocation', col: 'driverId', parent: 'Driver', refCol: 'id', del: 'c' },
+    ],
+    columns: new Map([
+      ...cat.columns,
+      ['Driver', new Set(['id', 'companyId'])],
+      ['TransportServiceAgreement', new Set(['id', 'providerCompanyId', 'customerCompanyId'])],
+      ['TransportFleetAllocation', new Set(['id', 'agreementId', 'providerCompanyId', 'customerCompanyId', 'objectId', 'driverId', 'createdById'])],
+    ]),
+  };
+  const id = 'aaaaaaaa-2222-3333-4444-666666666666';
+
+  it('a company purge deletes allocations before their agreement, vehicle, driver and the company', () => {
+    const steps = planPurge(etms, 'Company', rootCondition(id));
+    const order = tables(steps);
+    const sql = steps.map((s) => stepSql(s));
+    const at = (prefix: string) => sql.findIndex((s) => s.startsWith(prefix));
+    // Each walk deletes the allocations it reaches before the parent it reached them through.
+    for (const [col, parent] of [['objectId', 'TrackedObject'], ['driverId', 'Driver'], ['agreementId', 'TransportServiceAgreement'], ['providerCompanyId', 'Company']]) {
+      const child = at(`DELETE FROM "TransportFleetAllocation" WHERE "${col}"`);
+      expect(child).toBeGreaterThanOrEqual(0);
+      expect(child).toBeLessThan(at(`DELETE FROM "${parent}" WHERE`));
+    }
+    // The SetNull customer FK is left to PostgreSQL (the agreement walk deletes the row anyway).
+    expect(order).not.toContain('TransportFleetAllocation.customerCompanyId=NULL');
+  });
+
+  it('a vehicle purge deletes its allocations (FK Cascade); a user purge never touches them', () => {
+    expect(tables(planPurge(etms, 'TrackedObject', rootCondition(id)))).toContain('TransportFleetAllocation');
+    expect(tables(planPurge(etms, 'User', rootCondition(id)))).not.toContain('TransportFleetAllocation');
+  });
+});

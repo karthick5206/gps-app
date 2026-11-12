@@ -4,14 +4,16 @@ import type {
   TransportAgreementHistoryEntryDto,
   TransportAgreementSitesDto,
   TransportAgreementSummaryDto,
+  TransportFleetAllocationDto,
   TransportSiteOptionDto,
 } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequireAnyPermission, RequirePermission } from '../../access/decorators';
 import { TransportFeatureGuard } from '../transport-feature.guard';
 import { AgreementViewsService } from './agreement-views.service';
-import { AgreementApproveDto, AgreementCommandDto, AgreementListQuery, AgreementReasonDto, AgreementSiteOptionsQuery, CreateAgreementDto, UpdateAgreementDto } from './agreements.dto';
+import { AgreementApproveDto, AgreementCommandDto, AgreementListQuery, AgreementReasonDto, AgreementSiteOptionsQuery, CreateAgreementDto, CreateFleetAllocationDto, FleetOptionsQuery, UpdateAgreementDto } from './agreements.dto';
 import { AgreementsService } from './agreements.service';
+import { FleetAllocationsService } from './fleet-allocations.service';
 
 /**
  * /api/transport/agreements (doc 05 §2.1). Menu `etms_partners` + company add-on `etms` (404 when off). Row scope:
@@ -24,6 +26,7 @@ export class AgreementsController {
   constructor(
     private readonly service: AgreementsService,
     private readonly views: AgreementViewsService,
+    private readonly fleet: FleetAllocationsService,
   ) {}
 
   @Get() @RequirePermission('etms_partners', 'view')
@@ -58,6 +61,28 @@ export class AgreementsController {
   @Get(':id/history') @RequirePermission('etms_partners', 'view')
   history(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<TransportAgreementHistoryEntryDto[]> {
     return this.views.history(ctx, id);
+  }
+
+  /** E1b: vehicles / drivers the provider set aside for this customer (parties; VeeTrax support on the platform). */
+  @Get(':id/fleet') @RequirePermission('etms_partners', 'view')
+  fleetList(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<TransportFleetAllocationDto[]> {
+    return this.fleet.list(ctx, id);
+  }
+
+  /** E1b: the provider's own vehicles / drivers to allocate (provider side, whole-company scope). */
+  @Get(':id/fleet-options') @RequirePermission('etms_partners', 'edit')
+  fleetOptions(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query() query: FleetOptionsQuery) {
+    return this.fleet.options(ctx, id, query.q);
+  }
+
+  @Post(':id/fleet') @RequirePermission('etms_partners', 'edit')
+  fleetCreate(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateFleetAllocationDto): Promise<TransportFleetAllocationDto> {
+    return this.fleet.create(ctx, id, dto);
+  }
+
+  @Post(':id/fleet/:allocationId/end') @RequirePermission('etms_partners', 'edit')
+  fleetEnd(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Param('allocationId', ParseUUIDPipe) allocationId: string): Promise<TransportFleetAllocationDto> {
+    return this.fleet.end(ctx, id, allocationId);
   }
 
   @Post() @RequirePermission('etms_partners', 'create')

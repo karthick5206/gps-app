@@ -258,7 +258,13 @@ export class AgreementsService {
     const before = await this.find(ctx, id);
     const actor = this.authorise(ctx, before, 'end', expectedVersion);
     const why = reason.trim();
-    return this.write(ctx, before, { status: nextAgreementStatus(before, 'end', actor), endedAt: new Date(), statusReason: why }, true, ctx.isSuperAdmin ? why : null);
+    const now = new Date();
+    // E1b: ending closes the agreement's fleet allocations in the same transaction (future ones are removed).
+    const closeFleet = async (tx: Prisma.TransactionClient) => {
+      await tx.transportFleetAllocation.deleteMany({ where: { agreementId: before.id, validFrom: { gte: now } } });
+      await tx.transportFleetAllocation.updateMany({ where: { agreementId: before.id, validFrom: { lt: now }, OR: [{ validTo: null }, { validTo: { gt: now } }] }, data: { validTo: now } });
+    };
+    return this.write(ctx, before, { status: nextAgreementStatus(before, 'end', actor), endedAt: now, statusReason: why }, true, ctx.isSuperAdmin ? why : null, closeFleet);
   }
 
   // ───────────────────────────── internals ─────────────────────────────
@@ -311,6 +317,7 @@ export class AgreementsService {
     data: Prisma.TransportServiceAgreementUncheckedUpdateManyInput,
     statusChanged: boolean,
     reason: string | null,
+    inTx?: (tx: Prisma.TransactionClient) => Promise<void>,
   ): Promise<TransportAgreementDto> {
     const row = await this.prisma.$transaction(async (tx) => {
       const res = await tx.transportServiceAgreement
@@ -322,6 +329,7 @@ export class AgreementsService {
         const current = await tx.transportServiceAgreement.findUnique({ where: { id: before.id }, select: { version: true } });
         throw new ConflictException({ message: 'The agreement was changed by someone else; reload it', code: 'VERSION_CONFLICT', currentVersion: current?.version ?? before.version });
       }
+      if (inTx) await inTx(tx);
       const after = await tx.transportServiceAgreement.findUniqueOrThrow({ where: { id: before.id }, include: INCLUDE });
       await this.record(ctx, after, { action: 'UPDATE', entity: AGREEMENT_ENTITY, entityId: before.id, before: snapshot(before), after: snapshot(after) }, reason, tx);
       return after;
@@ -353,6 +361,11 @@ export class AgreementsService {
       if (!c) throw transportNotFound('Company not found');
       if (c.isPlatform || c.accountType !== 'BUSINESS') throw invalid('Agreements are only between business companies');
       if (c.status !== 'ACTIVE' || !companyFeatures(c).includes('etms')) throw transportNotFound('Company not found');
+    }
+    // E1b: the provider party must be a transport provider (add-on etmsProvider, switched on by VeeTrax).
+    const provider = rows.find((r) => r.id === providerId);
+    if (provider && !companyFeatures(provider).includes('etmsProvider')) {
+      throw new BadRequestException(err('NOT_A_PROVIDER', 'The provider company is not set up as a transport provider yet; VeeTrax switches this on'));
     }
   }
 

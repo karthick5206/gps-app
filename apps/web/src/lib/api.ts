@@ -1,5 +1,7 @@
-import { LICENCE_OVERRIDE_HEADER, type AuthTokens, type LicenceType } from '@veetracer/shared';
+import { ACCESS_REASON_HEADER, LICENCE_OVERRIDE_HEADER, type AuthTokens, type LicenceType } from '@veetracer/shared';
+import { forgetAccessReason, rememberAccessReason, rememberedAccessReason } from './access-reason';
 import { session } from './session';
+import { transportRequestHeaders } from './transport-context';
 
 const BASE = '/api';
 
@@ -53,6 +55,17 @@ let onLicenceRequired: ((err: ApiError) => Promise<string | null>) | null = null
 
 export function setLicenceRequiredHandler(handler: ((err: ApiError) => Promise<string | null>) | null) {
   onLicenceRequired = handler;
+}
+
+/**
+ * ETMS (10 §2.2 item 8): the Super Admin reads a customer's passenger data only with a reason (400 REASON_REQUIRED
+ * without one). The handler (a dialog) resolves with the reason to retry with (remembered for the acting company in
+ * this browser session), or null to give up (the error is then thrown).
+ */
+let onAccessReasonRequired: ((err: ApiError) => Promise<string | null>) | null = null;
+
+export function setAccessReasonRequiredHandler(handler: ((err: ApiError) => Promise<string | null>) | null) {
+  onAccessReasonRequired = handler;
 }
 
 export function buildQuery(query?: QueryParams): string {
@@ -136,8 +149,16 @@ export function refreshAccessToken(): Promise<boolean> {
   return refreshing;
 }
 
+/** The browser location, for the transport customer header (null outside a browser, e.g. in unit tests). */
+function currentLocation(): { pathname: string; search: string } | null {
+  return typeof window === 'undefined' ? null : window.location;
+}
+
 /** Fetch with auth headers, one refresh-and-retry on 401, and logout when the refresh fails. */
-async function authorizedFetch(path: string, opts: RequestOptions): Promise<Response> {
+async function authorizedFetch(path: string, optsIn: RequestOptions, reasonAsked = false): Promise<Response> {
+  // ETMS E1b: customer picker (X-Transport-Customer) and the remembered Super Admin reason; explicit headers win.
+  const extra = optsIn.anonymous ? {} : transportRequestHeaders(path, currentLocation(), rememberedAccessReason(session.getCompanyId()));
+  const opts: RequestOptions = Object.keys(extra).length ? { ...optsIn, headers: { ...extra, ...optsIn.headers } } : optsIn;
   let res = await send(path, opts);
   if (res.status === 401 && !opts.anonymous) {
     if (await refreshAccessToken()) {
@@ -153,6 +174,16 @@ async function authorizedFetch(path: string, opts: RequestOptions): Promise<Resp
     if (err.status === 402 && err.code === 'LICENCE_REQUIRED' && err.licenceType !== 'API_ACCESS' && onLicenceRequired && !opts.headers?.[LICENCE_OVERRIDE_HEADER]) {
       const reason = await onLicenceRequired(err);
       if (reason) return authorizedFetch(path, { ...opts, headers: { ...opts.headers, [LICENCE_OVERRIDE_HEADER]: encodeURIComponent(reason) } });
+    }
+    if (err.status === 400 && err.code === 'REASON_REQUIRED' && onAccessReasonRequired && !reasonAsked && !opts.anonymous) {
+      // A remembered reason the server refused is dropped; ask once per request.
+      forgetAccessReason(session.getCompanyId());
+      const reason = await onAccessReasonRequired(err);
+      if (reason) {
+        rememberAccessReason(session.getCompanyId(), reason);
+        const headers = { ...optsIn.headers, [ACCESS_REASON_HEADER]: encodeURIComponent(reason) };
+        return authorizedFetch(path, { ...optsIn, headers }, true);
+      }
     }
     throw err;
   }

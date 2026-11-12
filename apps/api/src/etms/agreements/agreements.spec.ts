@@ -5,6 +5,7 @@ import { validateSync } from 'class-validator';
 import type { AuthContext } from '../../access/auth-context';
 import { AgreementApproveDto } from './agreements.dto';
 import { AgreementsService } from './agreements.service';
+import { matches as storeMatches } from '../testing/memory-store';
 
 /**
  * Agreement API rules against an in-memory store that evaluates the service's Prisma where-clauses
@@ -27,7 +28,7 @@ function matches(row: Obj, where: Obj | undefined): boolean {
   });
 }
 
-const ON = { status: 'ACTIVE', settings: { features: ['etms'] } };
+const ON = { status: 'ACTIVE', settings: { features: ['etms', 'etmsProvider'] } };
 function companies(): Obj[] {
   return [
     { id: 'platform', name: 'VeeTrax', isPlatform: true, accountType: 'BUSINESS', ...ON },
@@ -71,8 +72,22 @@ function store() {
       return { count: hit.length };
     },
   };
+  // E1b: fleet allocations, closed when the agreement ends (date ranges evaluated by the memory store's matcher).
+  const allocations: Obj[] = [];
   const prisma = {
     transportServiceAgreement: tsa,
+    transportFleetAllocation: {
+      deleteMany: async ({ where }: { where: Obj }) => {
+        const hit = allocations.filter((x) => storeMatches(x, where));
+        for (const h of hit) allocations.splice(allocations.indexOf(h), 1);
+        return { count: hit.length };
+      },
+      updateMany: async ({ where, data }: { where: Obj; data: Obj }) => {
+        const hit = allocations.filter((x) => storeMatches(x, where));
+        for (const h of hit) Object.assign(h, data);
+        return { count: hit.length };
+      },
+    },
     company: { findMany: async ({ where }: { where: { id: { in: string[] } } }) => COMPANIES.filter((c) => where.id.in.includes(c.id as string)) },
     poi: { count: async ({ where }: { where: Obj }) => POIS.filter((p) => matches(p, where)).length },
     $transaction: async (arg: unknown) => (typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as Promise<unknown>[])),
@@ -85,7 +100,7 @@ function store() {
   };
   const svc = new AgreementsService(prisma as never, audit as never, { invalidateCache: async (r: string) => invalidations.push(r) } as never);
   const v = (id: string) => rows.find((r) => r.id === id)!.version as number;
-  return { svc, rows, audits, invalidations, v, companies: COMPANIES };
+  return { svc, rows, audits, invalidations, v, companies: COMPANIES, allocations };
 }
 
 const ctx = (companyId: string, isSuperAdmin = false, dataScope: 'COMPANY' | 'ASSIGNED' = 'COMPANY'): AuthContext =>
@@ -342,5 +357,41 @@ describe('F8: no draft against a company outside ETMS', () => {
     expect(await status(svc.create(ctx('prov'), { ...draft, customerCompanyId: 'suspended' }))).toBe('404 NOT_FOUND');
     expect(await status(svc.create(SA, { ...saDraft, providerCompanyId: 'noEtms' }))).toBe('404 NOT_FOUND');
     expect(await status(svc.create(ctx('prov'), draft))).toBe('ok');
+  });
+});
+
+describe('E1b: transport providers and fleet allocations', () => {
+  it('the provider party must have the etmsProvider add-on (400 NOT_A_PROVIDER); the customer needs only etms', async () => {
+    const { svc, companies: cs } = store();
+    cs.find((c) => c.id === 'prov')!.settings = { features: ['etms'] };
+    expect(await status(svc.create(ctx('prov'), draft))).toBe('400 NOT_A_PROVIDER');
+    expect(await status(svc.create(ctx('custA'), draft))).toBe('400 NOT_A_PROVIDER');
+    cs.find((c) => c.id === 'custA')!.settings = { features: ['etms'] };
+    cs.find((c) => c.id === 'prov')!.settings = { features: ['etms', 'etmsProvider'] };
+    expect(await status(svc.create(ctx('custA'), draft))).toBe('ok');
+  });
+
+  it('ending the agreement closes its open allocations now and removes those that had not started (same transaction)', async () => {
+    const { svc, v, allocations } = store();
+    const a = await svc.create(ctx('prov'), draft);
+    await svc.propose(ctx('prov'), a.id);
+    await svc.approve(ctx('custA'), a.id, v(a.id));
+    await svc.approve(ctx('prov'), a.id, v(a.id));
+    const H = 3_600_000;
+    allocations.push(
+      { id: 'open', agreementId: a.id, validFrom: new Date(Date.now() - 24 * H), validTo: null },
+      { id: 'later', agreementId: a.id, validFrom: new Date(Date.now() - 24 * H), validTo: new Date(Date.now() + 24 * H) },
+      { id: 'future', agreementId: a.id, validFrom: new Date(Date.now() + 48 * H), validTo: null },
+      { id: 'past', agreementId: a.id, validFrom: new Date(Date.now() - 72 * H), validTo: new Date(Date.now() - 48 * H) },
+      { id: 'otherAgreement', agreementId: 'x', validFrom: new Date(Date.now() - 24 * H), validTo: null },
+    );
+    const before = Date.now();
+    await svc.end(ctx('custA'), a.id, 'contract over');
+    const byId = new Map(allocations.map((x) => [x.id, x]));
+    expect(byId.has('future')).toBe(false);
+    for (const id of ['open', 'later']) expect((byId.get(id)!.validTo as Date).getTime()).toBeGreaterThanOrEqual(before);
+    for (const id of ['open', 'later']) expect((byId.get(id)!.validTo as Date).getTime()).toBeLessThanOrEqual(Date.now());
+    expect((byId.get('past')!.validTo as Date).getTime()).toBeLessThan(before - 47 * H);
+    expect(byId.get('otherAgreement')!.validTo).toBeNull();
   });
 });

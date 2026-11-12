@@ -66,8 +66,10 @@ export interface AuthTokens {
  * and PNG / PDF download (the basic insights are always on).
  * etms: Employee transport (ETMS). Off by default. Its menus (MenuDef.requires) stay hidden and refused until it is on;
  * switching it on seeds the transport role templates in that company (ETMS_ROLE_TEMPLATES).
+ * etmsProvider: ETMS E1b. The company is a transport provider: it may be the provider party of a service agreement and
+ * act for its customers (customer picker). Needs `etms` as well; switching it off removes its provider grants at once.
  */
-export const COMPANY_FEATURES = ['attendanceInsightsPlus', 'etms'] as const;
+export const COMPANY_FEATURES = ['attendanceInsightsPlus', 'etms', 'etmsProvider'] as const;
 export type CompanyFeature = (typeof COMPANY_FEATURES)[number];
 
 export interface CompanySummary {

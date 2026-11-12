@@ -10,7 +10,23 @@ import { AuthContext, TransportAgreementScope } from './auth-context';
  * GPS scopes (objectScopeWhere & co. ignore them).
  */
 
-export type TransportCtx = Pick<AuthContext, 'companyId' | 'agreements'>;
+export type TransportCtx = Pick<AuthContext, 'companyId' | 'agreements' | 'transportCustomerId'>;
+
+/**
+ * A company id no row ever has. Every OR list these helpers build gets `{ …CompanyId: NO_COMPANY }` when it would
+ * otherwise be empty: Prisma treats a top-level `OR: []` as "match nothing" but an `OR: []` nested inside `AND` as "match
+ * everything" (verified on Prisma 6.19), and the services nest these scopes in AND. Before E1b the lists always held the
+ * own-company clause; the customer context (narrowed to another company, without the grant) can leave them empty.
+ */
+export const NO_COMPANY = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * E1b customer context: false when the request is narrowed (X-Transport-Customer) to ANOTHER customer company, so the
+ * caller's own-company rows are left out. Unset or the own company = own rows included.
+ */
+export function includesOwnCompany(ctx: Pick<AuthContext, 'companyId' | 'transportCustomerId'>): boolean {
+  return !ctx.transportCustomerId || ctx.transportCustomerId === ctx.companyId;
+}
 
 /** One customer company the caller may act for. */
 export interface ActingCustomer {
@@ -54,7 +70,7 @@ export function actingCustomers(ctx: TransportCtx, grant?: TransportGrant, now: 
       siteIds: [...a.siteIds],
       dataProfile: a.dataProfile,
     }));
-  return [self, ...viaAgreements];
+  return includesOwnCompany(ctx) ? [self, ...viaAgreements] : viaAgreements;
 }
 
 /** Grants the caller holds for a customer company: all for its own company, the agreement's for a customer, else none. */
@@ -85,7 +101,7 @@ export interface DualKeyedWhere {
 }
 
 function scopeWhere(ctx: TransportCtx, grant: TransportGrant, siteColumn: boolean, now: number): DualKeyedWhere {
-  const or: DualKeyedWhere['OR'] = [{ customerCompanyId: ctx.companyId }];
+  const or: DualKeyedWhere['OR'] = includesOwnCompany(ctx) ? [{ customerCompanyId: ctx.companyId }] : [];
   for (const a of liveAgreements(ctx, now)) {
     if (!a.grants.includes(grant)) continue;
     or.push({
@@ -94,6 +110,7 @@ function scopeWhere(ctx: TransportCtx, grant: TransportGrant, siteColumn: boolea
       ...(siteColumn && a.siteIds.length ? { siteId: { in: [...a.siteIds] } } : {}),
     });
   }
+  if (!or.length) or.push({ customerCompanyId: NO_COMPANY });
   return { OR: or };
 }
 
@@ -125,7 +142,10 @@ export interface TransportRowRef {
  */
 export function assertTransportAccess(ctx: TransportCtx, row: TransportRowRef | null | undefined, grant: TransportGrant, now: number = Date.now()): void {
   if (!row) throw transportNotFound();
-  if (row.customerCompanyId === ctx.companyId) return;
+  if (row.customerCompanyId === ctx.companyId) {
+    if (!includesOwnCompany(ctx)) throw transportNotFound();
+    return;
+  }
   if (row.providerCompanyId !== ctx.companyId || !row.customerCompanyId) throw transportNotFound();
   const agreement = liveAgreements(ctx, now).find((a) => a.customerCompanyId === row.customerCompanyId);
   if (!agreement || !siteAllowed(agreement.siteIds, row.siteId)) throw transportNotFound();
@@ -160,4 +180,28 @@ export function agreementSiteScope(
 
 export function transportNotFound(message = 'Not found'): NotFoundException {
   return new NotFoundException({ message, code: 'NOT_FOUND' });
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * E1b customer context (doc 07 §2.5): narrow the caller to one customer company it may act for, from the
+ * X-Transport-Customer header. Own company → no agreements (own rows only); a customer with an in-force agreement → only
+ * that agreement (own-company rows are hidden by includesOwnCompany). Anything else (unknown, ended, suspended, another
+ * provider's customer, not a UUID) is a 404 NOT_FOUND, never 403, so the header cannot probe other tenants. Without a
+ * header the context is returned unchanged ("All customers"). Pure: returns the fields to merge into the context.
+ */
+export function customerContextOf(
+  ctx: Pick<AuthContext, 'companyId' | 'agreements' | 'agreementsAll' | 'transportCustomerId'>,
+  raw: string | string[] | undefined,
+  now: number = Date.now(),
+): Pick<AuthContext, 'agreements' | 'agreementsAll' | 'transportCustomerId'> | null {
+  const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+  if (!value) return null;
+  if (!UUID_RE.test(value)) throw transportNotFound('Customer not found');
+  const all = ctx.agreementsAll ?? ctx.agreements ?? [];
+  if (value === ctx.companyId) return { transportCustomerId: value, agreements: [], agreementsAll: all };
+  const agreement = all.find((a) => a.customerCompanyId === value && a.customerCompanyId !== ctx.companyId && agreementScopeInForce(a, now));
+  if (!agreement) throw transportNotFound('Customer not found');
+  return { transportCustomerId: value, agreements: [agreement], agreementsAll: all };
 }

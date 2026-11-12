@@ -14,6 +14,7 @@ import type { CompanyDirectoryController } from '../directory/company-directory.
 import type { ConsentNoticesController, DriverLoginController, MyTransportConsentController, PassengersController, TransportVehiclesController } from '../people/people.controller';
 import type { TransportSettingsController } from '../settings/transport-settings.controller';
 import type { AuthContext } from '../../access/auth-context';
+import { E1B_MATRIX, type E1bControllers, type E1bIds, type E1bResource, type E1bWorld } from './isolation-matrix-e1b';
 import { E3_MATRIX, type E3Controllers, type E3Ids, type E3Resource, type E3World } from './isolation-matrix-e3';
 import { E4_MATRIX, type E4Controllers, type E4Ids, type E4Resource, type E4World } from './isolation-matrix-e4';
 import { DRIVER_MATRIX_ROLES, E5_MATRIX, type E5Controllers, type E5Resource, type E5World } from './isolation-matrix-e5';
@@ -57,7 +58,7 @@ export type Expected = 200 | 403 | 404;
 export type RoleTable = Record<BaseRole, Expected> & Partial<Record<DriverRole, Expected>>;
 
 /** What `Target.id` points at: an agreement (E1a), an E2 row, or an E3 row (isolation-matrix-e3.ts). */
-export type Resource = 'agreement' | 'passenger' | 'vehicle' | 'driver' | E3Resource | E4Resource | E5Resource;
+export type Resource = 'agreement' | 'passenger' | 'vehicle' | 'driver' | E1bResource | E3Resource | E4Resource | E5Resource;
 
 export interface Controllers {
   agreements: AgreementsController;
@@ -74,6 +75,8 @@ export interface Controllers {
   e4: E4Controllers;
   /** E5 controllers (driver API, passenger notifications). */
   e5: E5Controllers;
+  /** E1b controllers (fleet allocations, customer context, sensitive-access log). */
+  e1b: E1bControllers;
 }
 
 export interface Target {
@@ -91,6 +94,8 @@ export interface Target {
   e4?: { ids: E4Ids; world: E4World };
   /** E5 world. */
   e5?: { ids: E5World['party']; world: E5World };
+  /** E1b world. */
+  e1b?: { ids: E1bIds; world: E1bWorld };
 }
 
 export interface MatrixEntry {
@@ -302,11 +307,11 @@ function E2_MATRIX(): MatrixEntry[] {
   const P = 'passenger' as const;
   return [
     // ── Passengers: reads ──
-    { route: 'GET transport/passengers', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.list(ctx, {}), expect: { none: P_LIST }, verify: verifyList },
+    { route: 'GET transport/passengers', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.list(ctx, {}, REASON), expect: { none: P_LIST }, verify: verifyList },
     { route: 'GET transport/passengers/geocode', resource: P, state: 'ACTIVE', invoke: (c) => c.passengers.geocode({ q: '5 Main Road' }), expect: { none: P_GEOCODE }, verify: verifyGeocode },
-    { route: 'GET transport/passengers/:id', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.get(ctx, t.id), expect: { party: P_READ, other: P_OTHER }, verify: verifyDetail },
-    { route: 'GET transport/passengers/:id/history', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.history(ctx, t.id), expect: { party: P_READ, other: P_OTHER }, verify: verifyHistory },
-    { route: 'GET transport/passengers/:id/consents', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.consents(ctx, t.id), expect: { party: P_FULL_ONLY, other: P_OTHER }, verify: verifyConsents },
+    { route: 'GET transport/passengers/:id', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.get(ctx, t.id, REASON), expect: { party: P_READ, other: P_OTHER }, verify: verifyDetail },
+    { route: 'GET transport/passengers/:id/history', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.history(ctx, t.id, REASON), expect: { party: P_READ, other: P_OTHER }, verify: verifyHistory },
+    { route: 'GET transport/passengers/:id/consents', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.consents(ctx, t.id, REASON), expect: { party: P_FULL_ONLY, other: P_OTHER }, verify: verifyConsents },
     // ── Passengers: writes ──
     {
       route: 'POST transport/passengers',
@@ -408,6 +413,18 @@ function E5_ENTRIES(): MatrixEntry[] {
   }));
 }
 
+/** E1b entries (declared in isolation-matrix-e1b.ts) in the common MatrixEntry shape. */
+function E1B_ENTRIES(): MatrixEntry[] {
+  return E1B_MATRIX.map((e) => ({
+    route: e.route,
+    resource: 'provider',
+    state: 'ACTIVE',
+    invoke: (c, ctx, t) => e.invoke(c.e1b, ctx, t.e1b!.ids, t.e1b!.world),
+    expect: e.expect,
+    ...(e.verify ? { verify: (result: unknown, role: MatrixRole, own: Ownership, t: Target) => e.verify!(result, role, own, t.e1b!.ids, t.e1b!.world) } : {}),
+  }));
+}
+
 /** Driver roles missing from a (pre-E5) table: 403 (they hold only etms_driver). */
 function withDriverDefaults(e: MatrixEntry): MatrixEntry {
   const expect: MatrixEntry['expect'] = {};
@@ -420,4 +437,4 @@ function withDriverDefaults(e: MatrixEntry): MatrixEntry {
 }
 
 /** Every ETMS route: E1a (agreements, directory, settings), E2 (people), E3 (schedules, bookings, dispatch, trips, self view), E5 (driver API, notifications). */
-export const ISOLATION_MATRIX: MatrixEntry[] = [...E1A_MATRIX, ...E2_MATRIX(), ...E3_ENTRIES(), ...E4_ENTRIES(), ...E5_ENTRIES()].map(withDriverDefaults);
+export const ISOLATION_MATRIX: MatrixEntry[] = [...E1A_MATRIX, ...E1B_ENTRIES(), ...E2_MATRIX(), ...E3_ENTRIES(), ...E4_ENTRIES(), ...E5_ENTRIES()].map(withDriverDefaults);

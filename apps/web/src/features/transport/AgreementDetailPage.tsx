@@ -1,5 +1,5 @@
 import type { TransportAgreementDto, TransportAgreementSide } from '@veetracer/shared';
-import { ArrowLeftIcon, CheckCircle2Icon, CircleDashedIcon, ClockIcon, HandshakeIcon, MapPinIcon, ShieldCheckIcon } from 'lucide-react';
+import { ArrowLeftIcon, BusIcon, CheckCircle2Icon, CircleDashedIcon, ClockIcon, HandshakeIcon, MapPinIcon, ShieldCheckIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
@@ -26,6 +26,7 @@ import {
 } from './agreement-format';
 import { AgreementActionButtons, AgreementStatusBadge, useAgreementActions, validityText } from './agreement-ui';
 import { historyActor, historyDetail, historyLabel } from './agreement-views-format';
+import { FleetAllocations } from './FleetAllocations';
 import { useAgreement, useAgreementHistory, useAgreementSites } from './use-agreements';
 
 function BackLink() {
@@ -238,6 +239,12 @@ export function AgreementDetailPage() {
           </Section>
 
           <SitesSection a={a} />
+
+          {a.side !== null && (
+            <Section title={t('Allocated vehicles & drivers')} icon={BusIcon}>
+              <FleetAllocations a={a} />
+            </Section>
+          )}
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">

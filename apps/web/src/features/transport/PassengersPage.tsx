@@ -11,6 +11,7 @@ import type { Option } from '@/components/ui/multi-select';
 import { useAuth } from '@/features/auth/auth-context';
 import { Dash, DateCell, Muted } from '@/features/masters/cells';
 import { MasterPage } from '@/features/masters/MasterPage';
+import { AccessReasonNotice } from './AccessReasonDialog';
 import type { MasterColumn, MasterFilter, MasterFormProps } from '@/features/masters/types';
 import { named, useEntityOptions } from '@/features/masters/use-options';
 import { errorMessage } from '@/lib/api';
@@ -150,6 +151,7 @@ export function PassengersPage() {
         canDeleteRow={() => false}
         rowActions={rowActions}
         emptyIcon={UsersRoundIcon}
+        aboveTable={<AccessReasonNotice />}
         headerActions={
           <>
             {can('objects') && me?.company.features.includes('etms') && (

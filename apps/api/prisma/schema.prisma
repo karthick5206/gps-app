@@ -91,57 +91,60 @@ model Company {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  partner                       Partner                     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
-  branches                      Branch[]
-  sharedVehicles                VehicleShare[]
-  users                         User[]
-  roles                         Role[]
-  devices                       Device[]
-  objects                       TrackedObject[]
-  vehicleGroups                 VehicleGroup[]
-  drivers                       Driver[]
-  documents                     Document[]
-  pois                          Poi[]
-  lookups                       Lookup[]
-  auditLogs                     AuditLog[]
-  apiKeys                       ApiKey[]
-  webhooks                      WebhookEndpoint[]
-  billingProfile                BillingProfile?
-  licenceSeats                  LicenceSeat[]
-  licenceOrders                 LicenceOrder[]
-  invoices                      Invoice[]
-  creditNotes                   CreditNote[]
-  stockMovements                StockMovement[]
+  partner                        Partner                     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  branches                       Branch[]
+  sharedVehicles                 VehicleShare[]
+  users                          User[]
+  roles                          Role[]
+  devices                        Device[]
+  objects                        TrackedObject[]
+  vehicleGroups                  VehicleGroup[]
+  drivers                        Driver[]
+  documents                      Document[]
+  pois                           Poi[]
+  lookups                        Lookup[]
+  auditLogs                      AuditLog[]
+  apiKeys                        ApiKey[]
+  webhooks                       WebhookEndpoint[]
+  billingProfile                 BillingProfile?
+  licenceSeats                   LicenceSeat[]
+  licenceOrders                  LicenceOrder[]
+  invoices                       Invoice[]
+  creditNotes                    CreditNote[]
+  stockMovements                 StockMovement[]
   /// ETMS (D1): agreements where this company is the transport provider / the corporate customer.
-  transportAgreementsAsProvider TransportServiceAgreement[] @relation("TransportAgreementProvider")
-  transportAgreementsAsCustomer TransportServiceAgreement[] @relation("TransportAgreementCustomer")
+  transportAgreementsAsProvider  TransportServiceAgreement[] @relation("TransportAgreementProvider")
+  transportAgreementsAsCustomer  TransportServiceAgreement[] @relation("TransportAgreementCustomer")
+  /// ETMS E1b: vehicles / drivers this company (as provider) allocated to customers, and those serving it (as customer).
+  transportAllocationsAsProvider TransportFleetAllocation[]  @relation("TransportAllocationProvider")
+  transportAllocationsAsCustomer TransportFleetAllocation[]  @relation("TransportAllocationCustomer")
   /// ETMS E2: passengers (employees) of this company as the corporate customer.
-  employeeTransportProfiles     EmployeeTransportProfile[]
+  employeeTransportProfiles      EmployeeTransportProfile[]
   /// ETMS E2: versioned consent notices this company shows its passengers.
-  transportConsentNotices       TransportConsentNotice[]
+  transportConsentNotices        TransportConsentNotice[]
   /// ETMS E3 (doc 15 §5): shifts, bookings, trips, passengers, events and dispatch change sets.
-  transportShifts               TransportShift[]
-  transportBookingsAsCustomer   TransportBooking[]          @relation("TransportBookingCustomer")
-  transportBookingsAsProvider   TransportBooking[]          @relation("TransportBookingProvider")
-  transportTripsAsProvider      TransportTrip[]             @relation("TransportTripProvider")
-  transportTripsAsCustomer      TransportTrip[]             @relation("TransportTripCustomer")
-  transportPassengersAsCustomer TransportTripPassenger[]    @relation("TransportPassengerCustomer")
-  transportPassengersAsProvider TransportTripPassenger[]    @relation("TransportPassengerProvider")
-  transportTripEventsAsProvider TransportTripEvent[]        @relation("TransportTripEventProvider")
-  transportTripEventsAsCustomer TransportTripEvent[]        @relation("TransportTripEventCustomer")
-  transportChangeSets           TransportChangeSet[]
+  transportShifts                TransportShift[]
+  transportBookingsAsCustomer    TransportBooking[]          @relation("TransportBookingCustomer")
+  transportBookingsAsProvider    TransportBooking[]          @relation("TransportBookingProvider")
+  transportTripsAsProvider       TransportTrip[]             @relation("TransportTripProvider")
+  transportTripsAsCustomer       TransportTrip[]             @relation("TransportTripCustomer")
+  transportPassengersAsCustomer  TransportTripPassenger[]    @relation("TransportPassengerCustomer")
+  transportPassengersAsProvider  TransportTripPassenger[]    @relation("TransportPassengerProvider")
+  transportTripEventsAsProvider  TransportTripEvent[]        @relation("TransportTripEventProvider")
+  transportTripEventsAsCustomer  TransportTripEvent[]        @relation("TransportTripEventCustomer")
+  transportChangeSets            TransportChangeSet[]
   /// ETMS E5: driver duties (operator) and the in-app notification inbox of the company's logins.
-  transportDriverDuties         TransportDriverDuty[]
-  transportNotifications        TransportNotification[]
+  transportDriverDuties          TransportDriverDuty[]
+  transportNotifications         TransportNotification[]
   /// ETMS E5 WP 5.4: SOS incidents (FK SetNull: an incident survives a company purge, doc 15 §10 / L5 default).
-  transportIncidentsAsProvider  TransportIncident[]         @relation("TransportIncidentProvider")
-  transportIncidentsAsCustomer  TransportIncident[]         @relation("TransportIncidentCustomer")
+  transportIncidentsAsProvider   TransportIncident[]         @relation("TransportIncidentProvider")
+  transportIncidentsAsCustomer   TransportIncident[]         @relation("TransportIncidentCustomer")
   /// ETMS E4: routing plans, jobs and metering (FK Restrict, walked by a company purge).
-  routePlans                    RoutePlan[]
-  routingJobs                   RoutingJob[]
-  routingUsage                  RoutingUsage[]
+  routePlans                     RoutePlan[]
+  routingJobs                    RoutingJob[]
+  routingUsage                   RoutingUsage[]
   /// ETMS E4 (Cascade): passenger stops of this company (as customer) in operator plans.
-  routePlanStopsAsCustomer      RoutePlanStop[]             @relation("RoutePlanStopCustomer")
+  routePlanStopsAsCustomer       RoutePlanStop[]             @relation("RoutePlanStopCustomer")
 }
 
 model Branch {
@@ -360,8 +363,8 @@ model TrackedObject {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  company               Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch                Branch?                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  company               Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch                Branch?                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
   assignments           DeviceAssignment[]
   groups                VehicleGroupMember[]
   users                 UserObject[]
@@ -387,6 +390,8 @@ model TrackedObject {
   transportProfile      TransportVehicleProfile?
   /// ETMS E5: driver duties bound to this vehicle (SetNull on a vehicle purge).
   transportDriverDuties TransportDriverDuty[]
+  /// ETMS E1b: allocations of this vehicle to customers under an agreement (Cascade).
+  transportAllocations  TransportFleetAllocation[]
   /// ETMS E4 (SetNull): plan assignments keep their history after a vehicle purge.
   routeAssignments      RouteAssignment[]
 
@@ -443,16 +448,18 @@ model Driver {
   createdAt            DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
 
-  company          Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch           Branch?               @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  user             User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
-  assignments      DriverAssignment[]
-  documents        Document[]
-  driverEvents     DriverEvent[]
+  company              Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch               Branch?                    @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user                 User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  assignments          DriverAssignment[]
+  documents            Document[]
+  driverEvents         DriverEvent[]
   /// ETMS E5: duty records (Cascade).
-  transportDuties  TransportDriverDuty[]
+  transportDuties      TransportDriverDuty[]
+  /// ETMS E1b: allocations of this driver to customers under an agreement (Cascade).
+  transportAllocations TransportFleetAllocation[]
   /// ETMS E4 (SetNull): plan assignments keep their history.
-  routeAssignments RouteAssignment[]
+  routeAssignments     RouteAssignment[]
 
   @@unique([companyId, rfidTag])
   @@unique([companyId, employeeId])
@@ -2966,11 +2973,13 @@ model TransportServiceAgreement {
   createdAt                DateTime                 @default(now()) @db.Timestamptz(3)
   updatedAt                DateTime                 @updatedAt @db.Timestamptz(3)
 
-  provider Company            @relation("TransportAgreementProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
-  customer Company            @relation("TransportAgreementCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
+  provider         Company                    @relation("TransportAgreementProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
+  customer         Company                    @relation("TransportAgreementCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
   /// ETMS E3 (SetNull): bookings / trips made under this agreement.
-  bookings TransportBooking[]
-  trips    TransportTrip[]
+  bookings         TransportBooking[]
+  trips            TransportTrip[]
+  /// ETMS E1b (Cascade): the provider's vehicles / drivers allocated to this customer.
+  fleetAllocations TransportFleetAllocation[]
 
   @@index([providerCompanyId, status])
   @@index([customerCompanyId, status])
@@ -3930,4 +3939,44 @@ model RoutePlanVersion {
 
   @@unique([planId, version])
   @@index([companyId, createdAt])
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// ETMS E1b. Migration etms_fleet_allocation (docs/employee-transport/15 §10, 12 WP 1b.0). Raw SQL in the migration:
+// CHECKs _target_check (vehicle or driver), _validity_check, and the EXCLUDE constraints _vehicle_overlap_excl /
+// _driver_overlap_excl (btree_gist, installed with etms planned_trip_origin).
+
+/// A provider vehicle and / or driver set aside for one customer under a service agreement (E1b). Operator-owned:
+/// providerCompanyId = the fleet owner (FK Restrict, walked by a company purge). customerCompanyId FK SetNull (the
+/// agreement FK Cascade removes the row anyway when either party is purged). objectId / driverId FK Cascade: a purged
+/// vehicle or driver takes its allocations with it (the column is named objectId but has an FK, so the purge planner's
+/// logical key does not apply, doc 15 §1.2). The same vehicle may serve several customers (one allocation per
+/// agreement), but not twice under one agreement for overlapping periods. Ending the agreement closes its open
+/// allocations. Actor column without FK.
+model TransportFleetAllocation {
+  id                String    @id @default(uuid()) @db.Uuid
+  agreementId       String    @db.Uuid
+  providerCompanyId String    @db.Uuid
+  customerCompanyId String?   @db.Uuid
+  objectId          String?   @db.Uuid
+  driverId          String?   @db.Uuid
+  validFrom         DateTime  @db.Timestamptz(3)
+  /// Open-ended when null.
+  validTo           DateTime? @db.Timestamptz(3)
+  note              String?
+  createdById       String?   @db.Uuid
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
+
+  agreement TransportServiceAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  provider  Company                   @relation("TransportAllocationProvider", fields: [providerCompanyId], references: [id], onDelete: Restrict)
+  customer  Company?                  @relation("TransportAllocationCustomer", fields: [customerCompanyId], references: [id], onDelete: SetNull)
+  object    TrackedObject?            @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  driver    Driver?                   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId, validFrom])
+  @@index([providerCompanyId, validFrom])
+  @@index([customerCompanyId])
+  @@index([objectId])
+  @@index([driverId])
 }
