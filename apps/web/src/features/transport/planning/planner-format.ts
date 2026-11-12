@@ -449,7 +449,7 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   ROUTING_UNAVAILABLE: 'Routing unavailable: the road engine is not answering. No times were produced; dispatch manually from the board meanwhile.',
   NO_ROUTE: 'No road route between some points.',
   OUTSIDE_COVERAGE: 'Some points are outside the routing area.',
-  LIMIT_EXCEEDED: 'Too many stops or vehicles for one optimisation. Split by shift or site.',
+  LIMIT_EXCEEDED: 'Too many bookings, stops or vehicles for one plan. Split it by shift, branch or site.',
   QUOTA_EXCEEDED: 'The daily routing allowance is used up. Try again tomorrow.',
   OPTIMIZER_UNAVAILABLE: 'The optimiser is not running. Plans can still be edited by hand; dispatch manually meanwhile.',
   OPTIMIZER_BUSY: 'The optimiser is busy with other plans. Try again in a minute.',

@@ -344,6 +344,17 @@ export interface PlanProposal {
 | Policy: max walk (m), max ride (min), max pickup delay, gender / night rules, first-pickup / last-drop rules | Customer policy per service agreement | hard |
 | Cost: per-km, per-vehicle-day, per-hour | Provider config. If absent, no cost KPI | soft objective |
 
+**Implemented (owner decisions 2026-11-11, E4 patch).** *Max ride* is a **company-level policy**
+(`Company.settings.etms.maxRideS`, transport settings, 15 min – 4 h, absent = no limit) with an **authorised,
+audited per-plan override** (`RoutePlan.options.maxRideOverride` = value, mandatory reason, who, when). Only a caller
+with `etms_settings:edit` and whole-company scope (the authority that sets the policy) may set or clear an override,
+on plan creation or on (re-)optimise; each change writes an `AuditLog` entry on the plan (old / new value, reason,
+actor). Every optimise reservation snapshots the effective value into `options.maxRideS` with `options.maxRideSource`
+(`override` | `policy` | `none`), so a result stays reproducible whatever the policy becomes later; re-optimise keeps
+the override until it is changed or cleared. *Plan size*: at most `ROUTING_LIMITS.planBookings` = 75 bookings per
+plan, enforced alike by draft creation (refused, never truncated) and by optimisation (API reservation and worker),
+422 `LIMIT_EXCEEDED` "At most 75 bookings per plan (N found); split the plan by shift, branch or site".
+
 **Hard constraints** (never relaxed by the solver):
 - seat capacity, wheelchair spaces and vehicle accessibility
 - vehicle–passenger compatibility (zone, agreement, vehicle type)

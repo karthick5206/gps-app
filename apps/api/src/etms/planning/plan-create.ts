@@ -1,8 +1,10 @@
 import { Body, Controller, Headers, HttpCode, HttpException, Injectable, Param, ParseUUIDPipe, Post, Res, UseGuards } from '@nestjs/common';
 import { OptimizeOptionsDto } from '../../routing-jobs/routing-jobs.controller';
 import { RoutingJobsService } from '../../routing-jobs/routing-jobs.service';
+import { checkMaxRideOverride, MaxRideOverrideDto, maxRidePolicyOf, withOverride } from '../../routing-jobs/max-ride';
+import { RoutingHttpError } from '../../routing-jobs/routing-flags';
 import { Prisma } from '@prisma/client';
-import { ETMS_PLANNING_MENU, ROUTING_LIMITS, ROUTING_PROFILES, type RoutingJobDto, type RoutePlanDetailDto, type RoutePlanEmptyReason, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
+import { ETMS_PLANNING_MENU, planBookingsLimitMessage, ROUTING_LIMITS, ROUTING_PROFILES, type RoutingJobDto, type RoutePlanDetailDto, type RoutePlanEmptyReason, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsISO8601, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf, ValidateNested } from 'class-validator';
 import { objectScopeWhere } from '../../access/access-rules';
@@ -36,6 +38,8 @@ export class CreateRoutePlanDto {
   @IsOptional() @ValidateIf((_o, v) => v !== null) @IsUUID() shiftId?: string | null;
   @IsUUID() sitePoiId!: string;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(ROUTING_LIMITS.optimizeVehicles) @IsUUID('all', { each: true }) objectIds!: string[];
+  /** Owner decision 1: per-plan max-ride override (etms_settings:edit + whole-company scope, else 403), with a reason; audited. */
+  @IsOptional() @ValidateNested() @Type(() => MaxRideOverrideDto) maxRideOverride?: MaxRideOverrideDto;
 }
 
 export type CreatedRoutePlanDto = RoutePlanDetailDto & {
@@ -74,6 +78,8 @@ export class RoutePlanCreateService {
 
   async create(ctx: AuthContext, dto: CreateRoutePlanDto, rawKey: string | undefined): Promise<{ value: CreatedRoutePlanDto; replay: boolean }> {
     if (ctx.allCompanies) throw invalid('Select one company to plan its routes');
+    // Owner decision 1: only an authorised caller may set a max-ride override (403 before anything else).
+    const maxRideOverride = dto.maxRideOverride == null ? undefined : (checkMaxRideOverride(ctx, dto.maxRideOverride) ?? undefined);
     const key = idempotencyKey(rawKey);
     const hash = requestHash(dto);
     const replay = await this.replay(ctx, key, hash);
@@ -123,7 +129,8 @@ export class RoutePlanCreateService {
       if (!end.poiId && !consents.has(b.profileId)) return void skipped.push({ bookingId: b.id, reason: 'consent_required' }), false;
       return true;
     });
-    if (usable.length * 2 > ROUTING_LIMITS.planStops) throw invalid(`At most ${ROUTING_LIMITS.planStops / 2} bookings per plan (found ${usable.length}); narrow the plan by shift or branch`);
+    // Owner decision 2 (T3-D9): the one bookings limit of creation and optimisation; refused, never truncated.
+    if (usable.length > ROUTING_LIMITS.planBookings) throw new RoutingHttpError('LIMIT_EXCEEDED', planBookingsLimitMessage(usable.length));
     const poiNames = new Map((await this.prisma.poi.findMany({ where: { companyId: ctx.companyId, id: { in: usable.map((b) => personalEnd(b).poiId).filter((p): p is string => !!p) } }, select: { id: true, name: true } })).map((p) => [p.id, p.name]));
 
     const startMs = dto.planStartAt ? Date.parse(dto.planStartAt) : usable.length ? Math.floor((Math.min(...usable.map((b) => b.windowStart.getTime())) - 2 * H) / 60_000) * 60_000 : Date.parse(`${dto.planDate}T00:00:00Z`);
@@ -205,6 +212,12 @@ export class RoutePlanCreateService {
       };
       await tx.routePlanVersion.create({ data: { planId: plan.id, companyId: ctx.companyId, version: 1, changeType: 'CREATED', snapshot: snapshot as unknown as Prisma.InputJsonValue, changedById: ctx.userId } });
       await this.audit.record(ctx, { action: 'CREATE', entity: PLAN_ENTITY, entityId: plan.id, details: { direction: dto.direction, planDate: dto.planDate, bookings: usable.length, skipped: skipped.length, vehicles: objectIds.length } }, tx);
+      if (maxRideOverride) {
+        // Stored on the plan (applied from the first optimisation on) and audited as its own entry.
+        const base = plan.options as Record<string, unknown>;
+        const options = await withOverride(tx, this.audit, ctx, { id: plan.id, options: base, version: 1 }, maxRideOverride, 'create', await maxRidePolicyOf(tx, ctx.companyId));
+        await tx.routePlan.update({ where: { id: plan.id }, data: { options: options as Prisma.InputJsonValue } });
+      }
       return plan.id;
     }).catch(async (e: unknown) => {
       if (!isCreateKeyConflict(e)) throw e;

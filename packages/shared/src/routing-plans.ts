@@ -3,6 +3,7 @@ import type {
   PublishRoutePlanResult,
   RoutePlanAssignmentDto,
   RoutePlanDto,
+  RoutePlanMaxRide,
   RoutePlanStatus,
   RoutePlanStopDto,
   RoutePlanStopViolation,
@@ -95,6 +96,8 @@ export interface RoutePlanDetailDto extends Omit<RoutePlanDto, 'stops' | 'assign
   unassigned: number;
   /** Solver weights stored with the last optimisation (RoutePlan.options.weights); null before any (T2-L4: re-optimise prefills them). */
   weights?: RoutePlanWeights | null;
+  /** Owner decision 1: max ride of the last optimisation and its source, the company policy, the plan's override. */
+  maxRide?: RoutePlanMaxRide;
 }
 
 /** The four explicit solver weights (OptimizeOptionsDto.weights). */
