@@ -3,6 +3,7 @@ import { can as canDo, type Action, type LoginResponse, type Me, type MenuKey } 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Alert } from 'react-native';
 import { api, refreshAccessToken, setSessionExpiredHandler } from '@/lib/api';
+import { serverChoice } from '@/lib/config';
 import { session } from '@/lib/session';
 import { liveStore } from '@/features/live/live-store';
 import { unregisterPush } from '@/features/notifications/push';
@@ -37,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await Promise.all([session.load(), restoreThemePreference(), restoreLanguage(), display.restore(), basemap.restore(), voiceAlerts.restore()]);
+      await Promise.all([session.load(), serverChoice.restore(), restoreThemePreference(), restoreLanguage(), display.restore(), basemap.restore(), voiceAlerts.restore()]);
       const ok = session.getRefreshToken() ? await refreshAccessToken() : false;
       if (cancelled) return;
       if (!ok) session.clear();

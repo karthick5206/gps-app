@@ -1068,6 +1068,8 @@ export const HI: Record<string, string> = {
   'Create login': 'लॉगिन बनाएँ',
   'Create or link a login': 'लॉगिन बनाएँ या जोड़ें',
   'Create personal account': 'व्यक्तिगत खाता बनाएँ',
+  'Demo account': 'डेमो खाता',
+  'Signs in on the demo server ({{server}}).': 'डेमो सर्वर ({{server}}) पर साइन इन करता है।',
   'Create trip': 'यात्रा बनाएँ',
   'Created': 'बनाया गया',
   'Created once in your company when the module was switched on. They are ordinary roles: change or copy them under Administration → Roles.': 'मॉड्यूल चालू होने पर आपकी कंपनी में एक बार बनाई गईं। ये सामान्य भूमिकाएँ हैं: इन्हें प्रशासन → भूमिकाएँ में बदलें या कॉपी करें।',

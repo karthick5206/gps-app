@@ -1,5 +1,5 @@
 import type { AuthTokens } from '@veetracer/shared';
-import { API_URL } from './config';
+import { apiUrl } from './config';
 import { i18n } from './i18n';
 import { session } from './session';
 
@@ -88,7 +88,7 @@ function sendForm(path: string, opts: RequestOptions, form: FormData): Promise<R
   return new Promise((resolve, reject) => {
     const failed = () => reject(new ApiError(0, [i18n.t('No connection to the server. Check your internet and try again.')]));
     const xhr = new XMLHttpRequest();
-    xhr.open(opts.method ?? 'POST', `${API_URL}${path}${buildQuery(opts.query)}`);
+    xhr.open(opts.method ?? 'POST', `${apiUrl()}${path}${buildQuery(opts.query)}`);
     for (const [name, value] of Object.entries(headers(opts))) xhr.setRequestHeader(name, value);
     xhr.timeout = UPLOAD_TIMEOUT_MS;
     xhr.onload = () => {
@@ -104,7 +104,7 @@ function sendForm(path: string, opts: RequestOptions, form: FormData): Promise<R
 async function send(path: string, opts: RequestOptions): Promise<Response> {
   if (opts.form) return sendForm(path, opts, opts.form);
   try {
-    return await fetch(`${API_URL}${path}${buildQuery(opts.query)}`, {
+    return await fetch(`${apiUrl()}${path}${buildQuery(opts.query)}`, {
       method: opts.method ?? 'GET',
       headers: headers(opts),
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),

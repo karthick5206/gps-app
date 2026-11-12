@@ -10,7 +10,8 @@ alerts (with acknowledge), dashboard, reports (view and share Excel/PDF/CSV), de
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `EXPO_PUBLIC_SERVER_URL` | `https://gps.mintplus.co.in` | Server the app talks to (`/api` and the `/live` socket) |
+| `EXPO_PUBLIC_SERVER_URL` | `https://app.veetrax.com` | Live server (default): `/api` and the `/live` socket |
+| `EXPO_PUBLIC_DEMO_SERVER_URL` | `https://gps.mintplus.co.in` | Demo server, used when **Demo account** is on |
 | `EXPO_PUBLIC_MAP_STYLE_STANDARD` / `_LIGHT` / `_DARK` | OpenFreeMap styles (fleet screens only) | Same basemaps as the web map |
 
 Put overrides in `apps/mobile/.env.local` (not committed).
@@ -20,9 +21,14 @@ Put overrides in `apps/mobile/.env.local` (not committed).
 without these variables shows those screens without a map (the text description stays). Gate G8: builds for
 passengers or drivers must set them to the server's own tiles (for example `https://app.veetrax.com/tiles/...`).
 
-**Server URL (owner decision O12, not applied):** `eas.json` still sets `EXPO_PUBLIC_SERVER_URL` to
-`https://gps.mintplus.co.in`. New builds are meant to use `https://app.veetrax.com`, but changing `eas.json` needs a
-separate approval, so it is unchanged here.
+**Live and demo server:** the sign-in screen has a **Demo account** switch. Off (default) the app uses the live
+server (`app.veetrax.com`); on, it uses the demo server (`gps.mintplus.co.in`). The choice is saved on the phone
+(`vt.demoServer` in SecureStore), restored at start before the session refresh, and can only be changed while signed
+out (tokens are per server). Code: `serverChoice`, `serverUrl()`, `apiUrl()` and the `useServerUrl()` /
+`useDemoServer()` hooks in `src/lib/config.ts`. Render code uses the hooks (React Compiler would keep a stale module
+value); handlers, the API client and the live socket call `serverUrl()` / `apiUrl()` at call time. `eas.json` sets
+both addresses. Phones signed in to `gps.mintplus.co.in` with an older build are signed out after the update unless
+they turn on Demo account.
 
 Checks: `npm test` (pure logic with `node --test`: offline event queue, trip window, role routing, push targets,
 in-motion rules, navigation hand-off) and `npx tsc --noEmit`.

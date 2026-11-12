@@ -15,7 +15,7 @@ import { useLiveVersion, useNow } from '@/features/live/use-live';
 import { useAddress } from '@/features/geocoding/use-address';
 import { FleetMap } from '@/features/map/FleetMap';
 import { api } from '@/lib/api';
-import { SERVER_URL } from '@/lib/config';
+import { serverUrl } from '@/lib/config';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
 import { chargeText, useDayStats } from '@/features/live/day-stats';
@@ -142,7 +142,7 @@ export default function VehicleScreen() {
               can('alerts') && [BellIcon, t('Alerts'), () => router.push({ pathname: '/alerts', params: { objectId: o.objectId, name: o.plateNumber || o.name } })],
               !o.licenceLocked && o.lat !== null && [Share2Icon, t('Share live location'), () => router.push(`/share/${o.objectId}`)],
               can('live_map', 'command') && [TerminalIcon, t('Commands'), () => router.push(`/commands/${o.objectId}`)],
-              video.isSuccess && [VideoIcon, t('Video'), () => void WebBrowser.openBrowserAsync(`${SERVER_URL}/video?objectId=${encodeURIComponent(o.objectId)}`)],
+              video.isSuccess && [VideoIcon, t('Video'), () => void WebBrowser.openBrowserAsync(`${serverUrl()}/video?objectId=${encodeURIComponent(o.objectId)}`)],
               video.isSuccess && can('driver_events') && [ScanFaceIcon, t('Driver events'), () => router.push({ pathname: '/driver-events', params: { objectId: o.objectId } })],
             ].filter(Boolean) as [typeof HistoryIcon, string, () => void][]
           ).map(([Icon, label, onPress]) => (

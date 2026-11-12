@@ -7,7 +7,8 @@
     "base": {
       "node": "22.22.2",
       "env": {
-        "EXPO_PUBLIC_SERVER_URL": "https://gps.mintplus.co.in"
+        "EXPO_PUBLIC_SERVER_URL": "https://app.veetrax.com",
+        "EXPO_PUBLIC_DEMO_SERVER_URL": "https://gps.mintplus.co.in"
       }
     },
     "preview": {

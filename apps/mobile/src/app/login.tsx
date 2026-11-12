@@ -5,13 +5,15 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SwitchRow } from '@/components/form';
 import { Button, Chips, ErrorBanner, Field, Text } from '@/components/ui';
 import { BrandMark } from '@/components/BrandMark';
 import { TrackingScene } from '@/components/TrackingScene';
 import { LanguageChips } from '@/components/LanguageChips';
 import { useAuth } from '@/features/auth/auth';
 import { api, errorMessage } from '@/lib/api';
-import { SERVER_URL } from '@/lib/config';
+import { DEMO_SERVER_URL, serverChoice, useDemoServer, useServerUrl } from '@/lib/config';
+import { session } from '@/lib/session';
 import { RADIUS, SPACE, useColors, useTheme } from '@/lib/theme';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -108,6 +110,13 @@ export default function LoginScreen() {
   // Sky and Light have a light hero, so the logo uses its ink colours there.
   const theme = useTheme();
   const lightHero = theme === 'sky' || theme === 'light';
+  const demo = useDemoServer();
+  const server = useServerUrl();
+  // Demo accounts live on the demo server. Signed out here, so only the Super Admin's chosen company is left to drop.
+  const setDemo = (next: boolean) => {
+    session.setCompanyId(null);
+    serverChoice.set(next);
+  };
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: c.brand }} edges={['top']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -130,9 +139,16 @@ export default function LoginScreen() {
                 { value: 'otp', label: t('Mobile OTP') },
               ]}
             />
-            {mode === 'password' ? <PasswordForm /> : <OtpForm />}
+            {/* Keyed by server: a half-finished sign-in (OTP sent) does not carry over to the other server. */}
+            {mode === 'password' ? <PasswordForm key={server} /> : <OtpForm key={server} />}
+            <SwitchRow
+              label={t('Demo account')}
+              hint={demo ? t('Signs in on the demo server ({{server}}).', { server: DEMO_SERVER_URL.replace(/^https?:\/\//, '') }) : undefined}
+              value={demo}
+              onChange={setDemo}
+            />
             {/* Personal accounts sign up on the web (email code), then sign in here. */}
-            <Pressable onPress={() => Linking.openURL(`${SERVER_URL}/signup`).catch(() => undefined)} accessibilityRole="link" style={{ alignSelf: 'center', paddingVertical: SPACE.sm }}>
+            <Pressable onPress={() => Linking.openURL(`${server}/signup`).catch(() => undefined)} accessibilityRole="link" style={{ alignSelf: 'center', paddingVertical: SPACE.sm }}>
               <Text size="sm">
                 {t('New to VeeTrax?')}{' '}
                 <Text size="sm" weight="600" style={{ color: c.primary }}>
@@ -147,7 +163,7 @@ export default function LoginScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
               <SmartphoneIcon size={14} color={c.mutedForeground} />
               <Text size="xs" tone="muted">
-                {SERVER_URL.replace(/^https?:\/\//, '')}
+                {server.replace(/^https?:\/\//, '')}
               </Text>
             </View>
           </View>
