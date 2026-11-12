@@ -14,6 +14,7 @@ import {
   type IncidentStatus,
 } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
+import { requireSupportReason } from '../../access/access-reason';
 import { transportNotFound } from '../../access/transport-scope';
 import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -26,6 +27,11 @@ export const INCIDENT_READ = 'incident-detail';
 const LIST_MAX = 100;
 
 type Row = Prisma.TransportIncidentGetPayload<object>;
+
+/** The data owner of an incident (whose sensitive-access log records its reads): the customer, else the operator. */
+function incidentOwner(ctx: Pick<AuthContext, 'companyId'>, row: Pick<Row, 'customerCompanyId' | 'providerCompanyId'>): string {
+  return row.customerCompanyId ?? row.providerCompanyId ?? ctx.companyId;
+}
 
 /**
  * Dispatcher side of the durable SOS (doc 05 §2.10; WP 5.4): the open SOS lane (list, polled every 15 s while the socket
@@ -63,13 +69,15 @@ export class IncidentsService {
    * company, else the operator), like the E1b passenger reads, so a customer sees in its sensitive-access log when its
    * provider or VeeTrax support opened one of its SOS; the Super Admin must give a reason (controller), logged here.
    */
-  async detail(ctx: AuthContext, id: string, access: { reason?: string | null } = {}): Promise<IncidentDetail> {
+  async detail(ctx: AuthContext, id: string, access: { reasonHeader?: string } = {}): Promise<IncidentDetail> {
     const { row } = await this.load(ctx, id, 'view');
+    // M1 + L8: VeeTrax support gives a reason; the 400 names the data owner so the web remembers it per company.
+    const reason = requireSupportReason(ctx, access.reasonHeader, incidentOwner(ctx, row));
     const [item] = await this.items(ctx, [row], { full: true });
     const events = await this.prisma.transportIncidentEvent.findMany({ where: { incidentId: row.id }, orderBy: { at: 'asc' }, take: 200 });
     const actors = await this.names(events.map((e) => e.actorUserId));
     // Reading an incident with its location and raiser is a sensitive read (doc 05 §6 audit row).
-    await this.auditRead(ctx, row, access.reason ?? null);
+    await this.auditRead(ctx, row, reason);
     return {
       ...item!,
       note: row.note,
@@ -139,7 +147,7 @@ export class IncidentsService {
   }
 
   private async auditRead(ctx: AuthContext, row: Row, reason: string | null): Promise<void> {
-    const owner = row.customerCompanyId ?? row.providerCompanyId ?? ctx.companyId;
+    const owner = incidentOwner(ctx, row);
     const details = {
       what: INCIDENT_READ,
       ...(owner !== ctx.companyId ? { actingCompanyId: ctx.companyId } : {}),

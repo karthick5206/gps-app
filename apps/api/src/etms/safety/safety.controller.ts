@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { IDEMPOTENT_REPLAY_HEADER, type IncidentDetail, type IncidentListResponse, type SosReceipt } from '@veetracer/shared';
 import type { Response } from 'express';
-import { requireSupportReason } from '../../access/access-reason';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
 import { IgnoresTransportCustomer, TransportFeatureGuard } from '../transport-feature.guard';
@@ -77,7 +76,7 @@ export class IncidentsController {
   /** Security review M1: VeeTrax support (Super Admin) reads the detail only with X-Access-Reason (400 REASON_REQUIRED). */
   @Get(':id') @RequirePermission('etms_incidents', 'view')
   detail(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Headers('x-access-reason') reason?: string): Promise<IncidentDetail> {
-    return this.incidents.detail(ctx, id, { reason: requireSupportReason(ctx, reason) });
+    return this.incidents.detail(ctx, id, { reasonHeader: reason });
   }
 
   @Post(':id/ack') @HttpCode(200) @RequirePermission('etms_incidents', 'edit')

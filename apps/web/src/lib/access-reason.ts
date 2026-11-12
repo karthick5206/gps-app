@@ -1,15 +1,15 @@
-import { accessReasonKey } from './transport-context';
+import { accessReasonKey, decodeStoredReason, encodeStoredReason } from './transport-context';
 
 /**
- * The Super Admin's reason for reading a customer's passenger data (ETMS 10 §2.2 item 8), remembered per acting
- * company for this browser session only (sessionStorage; private mode / blocked storage just means asking again).
+ * The Super Admin's reason for reading a customer's passenger data (ETMS 10 §2.2 item 8), remembered per data-owner
+ * company for 30 minutes (security review L8; ACCESS_REASON_TTL_MS), in sessionStorage (private mode / blocked storage
+ * just means asking again). `scope` = the data-owner company (see reasonScopeOf / reasonScopeFromError).
  */
 type Listener = () => void;
 const listeners = new Set<Listener>();
 const memory = new Map<string, string>();
 
-export function rememberedAccessReason(companyId: string | null): string | null {
-  const key = accessReasonKey(companyId);
+function read(key: string): string | null {
   try {
     return sessionStorage.getItem(key) ?? memory.get(key) ?? null;
   } catch {
@@ -17,25 +17,36 @@ export function rememberedAccessReason(companyId: string | null): string | null 
   }
 }
 
-export function rememberAccessReason(companyId: string | null, reason: string): void {
-  const key = accessReasonKey(companyId);
-  memory.set(key, reason);
+export function rememberedAccessReason(actingCompanyId: string | null, scope: string | null, now: number = Date.now()): string | null {
+  const key = accessReasonKey(actingCompanyId, scope);
+  const reason = decodeStoredReason(read(key), now);
+  if (!reason && read(key)) forget(key); // expired: drop it
+  return reason;
+}
+
+export function rememberAccessReason(actingCompanyId: string | null, scope: string | null, reason: string, now: number = Date.now()): void {
+  const key = accessReasonKey(actingCompanyId, scope);
+  const value = encodeStoredReason(reason, now);
+  memory.set(key, value);
   try {
-    sessionStorage.setItem(key, reason);
+    sessionStorage.setItem(key, value);
   } catch {
     /* private mode */
   }
   listeners.forEach((l) => l());
 }
 
-export function forgetAccessReason(companyId: string | null): void {
-  const key = accessReasonKey(companyId);
+function forget(key: string): void {
   memory.delete(key);
   try {
     sessionStorage.removeItem(key);
   } catch {
     /* private mode */
   }
+}
+
+export function forgetAccessReason(actingCompanyId: string | null, scope: string | null): void {
+  forget(accessReasonKey(actingCompanyId, scope));
   listeners.forEach((l) => l());
 }
 

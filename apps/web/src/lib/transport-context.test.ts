@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  ACCESS_REASON_TTL_MS,
   accessReasonApplies,
+  accessReasonKey,
+  decodeStoredReason,
+  encodeStoredReason,
+  reasonScopeFromError,
+  reasonScopeOf,
   customerFromSearch,
   customerPickerOptions,
   isTransportApiPath,
@@ -62,4 +68,25 @@ test('reason rule and picker pages / options', () => {
     opts.map((o) => o.label),
     ['All customers', 'Our Co (our company)', 'Beta Corp'],
   );
+});
+
+test('L8: the Super Admin reason is kept per customer company and expires after 30 minutes', () => {
+  const A = '11111111-2222-4333-8444-aaaaaaaaaaaa';
+  const B = '11111111-2222-4333-8444-bbbbbbbbbbbb';
+  const T0 = Date.parse('2026-11-12T10:00:00Z');
+  assert.notEqual(accessReasonKey('acting', A), accessReasonKey('acting', B));
+  assert.equal(accessReasonKey(null, null), 'vt:access-reason:own:own');
+  const stored = encodeStoredReason('Ticket 4521 check', T0);
+  assert.equal(decodeStoredReason(stored, T0 + 29 * 60_000), 'Ticket 4521 check');
+  assert.equal(decodeStoredReason(stored, T0 + ACCESS_REASON_TTL_MS), null);
+  assert.equal(decodeStoredReason('Ticket 4521 check', T0), null); // the old session-wide plain value is not reused
+  assert.equal(decodeStoredReason('{"reason":"ab","at":0}', 0), null);
+  assert.equal(ACCESS_REASON_TTL_MS, 30 * 60_000);
+  // Scope before sending: the selected customer on a transport page, else the acting company; unknown for an incident.
+  assert.equal(reasonScopeOf('/transport/bookings', { pathname: '/transport/bookings', search: `?customer=${A}` }, 'acting'), A);
+  assert.equal(reasonScopeOf('/transport/bookings', { pathname: '/live', search: `?customer=${A}` }, 'acting'), 'acting');
+  assert.equal(reasonScopeOf('/transport/incidents/x', { pathname: '/transport/incidents', search: '' }, 'acting'), null);
+  assert.equal(reasonScopeFromError({ code: 'REASON_REQUIRED', scopeCompanyId: B.toUpperCase() }), B);
+  assert.equal(reasonScopeFromError({ scopeCompanyId: 'nope' }), null);
+  assert.equal(reasonScopeFromError(null), null);
 });

@@ -49,8 +49,8 @@ export const TRANSPORT_PROVIDER_HI: Record<string, string> = {
     'यह कंपनी सेवा अनुबंधों के तहत दूसरी कंपनियों के लिए परिवहन चला सकती है (ग्राहक चयन, फ़्लीट आवंटन)। कर्मचारी परिवहन ज़रूरी है।',
   'The provider has not allocated vehicles or drivers to you yet.': 'प्रदाता ने अभी तक आपको वाहन या ड्राइवर आवंटित नहीं किए हैं।',
   'This vehicle or driver is already allocated to this customer for an overlapping period.': 'यह वाहन या ड्राइवर इस ग्राहक को एक ओवरलैप होती अवधि के लिए पहले से आवंटित है।',
-  "VeeTrax support needs a reason to open this company's passenger data. The reason and your name are shown in the company's sensitive-access log. It is kept for this browser session.":
-    'इस कंपनी के यात्री डेटा को खोलने के लिए VeeTrax सपोर्ट को कारण देना होगा। कारण और आपका नाम कंपनी के संवेदनशील पहुँच लॉग में दिखते हैं। यह इस ब्राउज़र सत्र के लिए रखा जाता है।',
+  "VeeTrax support needs a reason to open this company's passenger data. The reason and your name are shown in the company's sensitive-access log. It is kept for 30 minutes, for this company only.":
+    'इस कंपनी के यात्री डेटा को खोलने के लिए VeeTrax सपोर्ट को कारण देना होगा। कारण और आपका नाम कंपनी के संवेदनशील पहुँच लॉग में दिखते हैं। यह केवल इस कंपनी के लिए 30 मिनट तक रखा जाता है।',
   'Viewed consent records': 'सहमति रिकॉर्ड देखे',
   'Viewed passenger history': 'यात्री इतिहास देखा',
   What: 'क्या',
@@ -108,8 +108,8 @@ export const TRANSPORT_PROVIDER_TA: Record<string, string> = {
     'சேவை ஒப்பந்தங்களின் கீழ் இந்த நிறுவனம் மற்ற நிறுவனங்களுக்குப் போக்குவரத்தை இயக்கலாம் (வாடிக்கையாளர் தேர்வு, வாகன ஒதுக்கீடு). ஊழியர் போக்குவரத்து தேவை.',
   'The provider has not allocated vehicles or drivers to you yet.': 'வழங்குநர் இன்னும் உங்களுக்கு வாகனங்களையோ ஓட்டுநர்களையோ ஒதுக்கவில்லை.',
   'This vehicle or driver is already allocated to this customer for an overlapping period.': 'இந்த வாகனம் அல்லது ஓட்டுநர் இந்த வாடிக்கையாளருக்கு ஒன்றின் மேல் ஒன்று வரும் காலத்திற்கு ஏற்கனவே ஒதுக்கப்பட்டுள்ளார்.',
-  "VeeTrax support needs a reason to open this company's passenger data. The reason and your name are shown in the company's sensitive-access log. It is kept for this browser session.":
-    'இந்த நிறுவனத்தின் பயணி தரவைத் திறக்க VeeTrax ஆதரவுக்கு ஒரு காரணம் தேவை. காரணமும் உங்கள் பெயரும் நிறுவனத்தின் உணர்திறன் அணுகல் பதிவில் காட்டப்படும். இது இந்த உலாவி அமர்வுக்கு மட்டும் வைக்கப்படும்.',
+  "VeeTrax support needs a reason to open this company's passenger data. The reason and your name are shown in the company's sensitive-access log. It is kept for 30 minutes, for this company only.":
+    'இந்த நிறுவனத்தின் பயணி தரவைத் திறக்க VeeTrax ஆதரவுக்கு ஒரு காரணம் தேவை. காரணமும் உங்கள் பெயரும் நிறுவனத்தின் உணர்திறன் அணுகல் பதிவில் காட்டப்படும். இது இந்த நிறுவனத்திற்கு மட்டும் 30 நிமிடங்கள் வைக்கப்படும்.',
   'Viewed consent records': 'ஒப்புதல் பதிவுகளைப் பார்த்தது',
   'Viewed passenger history': 'பயணி வரலாற்றைப் பார்த்தது',
   What: 'என்ன',

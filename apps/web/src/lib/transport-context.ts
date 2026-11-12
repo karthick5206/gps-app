@@ -65,9 +65,50 @@ export function validAccessReason(raw: string): string | null {
   return r.length >= ACCESS_REASON_MIN && r.length <= ACCESS_REASON_MAX ? r : null;
 }
 
-/** sessionStorage key of the remembered reason for one acting company. */
-export function accessReasonKey(companyId: string | null): string {
-  return `vt:access-reason:${companyId ?? 'own'}`;
+/**
+ * Security review L8: a Super Admin reason is remembered per CUSTOMER COMPANY (the data owner the server names in
+ * REASON_REQUIRED.scopeCompanyId) and only for ACCESS_REASON_TTL_MS, not for the whole browser session.
+ */
+export const ACCESS_REASON_TTL_MS = 30 * 60_000;
+
+/** sessionStorage key of the reason remembered for one data-owner company, while acting in `actingCompanyId`. */
+export function accessReasonKey(actingCompanyId: string | null, scopeCompanyId: string | null): string {
+  return `vt:access-reason:${actingCompanyId ?? 'own'}:${scopeCompanyId ?? actingCompanyId ?? 'own'}`;
+}
+
+/** Stored form: the reason and when it was given. */
+export function encodeStoredReason(reason: string, now: number): string {
+  return JSON.stringify({ reason, at: now });
+}
+
+/** The stored reason while it is younger than the TTL (and valid); null when expired, malformed or from the future. */
+export function decodeStoredReason(raw: string | null | undefined, now: number): string | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as { reason?: unknown; at?: unknown };
+    if (typeof v.reason !== 'string' || typeof v.at !== 'number') return null;
+    if (v.at > now + 60_000 || now - v.at >= ACCESS_REASON_TTL_MS) return null;
+    return validAccessReason(v.reason);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The data owner a request's reason belongs to, when known before sending: the selected customer of a transport page
+ * (?customer=), else the acting company. Unknown (null) for an incident detail: its owner is the incident's customer,
+ * which the server names in the 400 (the remembered reason for that company is then used without asking again).
+ */
+export function reasonScopeOf(apiPath: string, location: { pathname: string; search: string } | null, actingCompanyId: string | null): string | null {
+  if (isIncidentApiPath(apiPath)) return null;
+  const customer = location && location.pathname.startsWith('/transport') ? customerFromSearch(location.search) : null;
+  return customer ?? actingCompanyId ?? 'own';
+}
+
+/** scopeCompanyId of a REASON_REQUIRED error body (a UUID), else null. */
+export function reasonScopeFromError(body: unknown): string | null {
+  const v = (body as { scopeCompanyId?: unknown } | null)?.scopeCompanyId;
+  return typeof v === 'string' && UUID.test(v) ? v.toLowerCase() : null;
 }
 
 /** Transport list / board pages whose header shows the customer picker (detail pages keep the selection in the URL). */

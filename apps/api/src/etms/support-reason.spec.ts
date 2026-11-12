@@ -4,6 +4,7 @@ import { BookingsController, DispatchController, SchedulesController, ShiftsCont
 import { RoutePlansController } from './planning/plans.controller';
 import { IncidentsController } from './safety/safety.controller';
 import { TransportFeatureGuard, TRANSPORT_RECORDS_ENTITY } from './transport-feature.guard';
+import { requireSupportReason } from '../access/access-reason';
 
 const CUST = '00000000-0000-4000-8000-00000000000c';
 const PLATFORM = '00000000-0000-4000-8000-0000000000ff';
@@ -44,5 +45,22 @@ describe('VeeTrax support reason on every ETMS route that returns passenger pers
     recordSystem.mockClear();
     expect(guard.canActivate(exec(ctxOf(false), BookingsController))).toBe(true);
     expect(recordSystem).not.toHaveBeenCalled();
+  });
+});
+
+describe('Security review L8: REASON_REQUIRED names the data owner (the web remembers a reason per company)', () => {
+  const bodyOf = (fn: () => unknown) => {
+    try {
+      fn();
+    } catch (e) {
+      return (e as BadRequestException).getResponse();
+    }
+    return null;
+  };
+  it('owner given, else the selected customer, else the acting company', () => {
+    expect(bodyOf(() => requireSupportReason({ isSuperAdmin: true, companyId: CUST }, undefined, 'owner-co'))).toMatchObject({ code: 'REASON_REQUIRED', scopeCompanyId: 'owner-co' });
+    expect(bodyOf(() => requireSupportReason({ isSuperAdmin: true, companyId: CUST, transportCustomerId: 'cust-b' }, undefined))).toMatchObject({ scopeCompanyId: 'cust-b' });
+    expect(bodyOf(() => requireSupportReason({ isSuperAdmin: true, companyId: CUST }, undefined))).toMatchObject({ scopeCompanyId: CUST });
+    expect(bodyOf(() => new TransportFeatureGuard().canActivate(exec(ctxOf(true), BookingsController)))).toMatchObject({ scopeCompanyId: CUST });
   });
 });

@@ -72,7 +72,7 @@ export class TransportFeatureGuard implements CanActivate {
     const auth = req.auth;
     if (auth?.isSuperAdmin && hasMeta(context, PASSENGER_DATA)) {
       // Thrown synchronously (400 REASON_REQUIRED) before the handler runs.
-      const reason = requireSupportReason(auth, req.headers?.['x-access-reason']);
+      const reason = requireSupportReason(auth, req.headers?.['x-access-reason'], auth.transportCustomerId ?? auth.companyId);
       if (this.audit) return this.auditSupport(auth, req, reason).then(() => true);
     }
     return true;
