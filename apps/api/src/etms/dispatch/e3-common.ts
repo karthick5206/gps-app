@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { type TransportE3ErrorCode } from '@veetracer/shared';
 import { createHash } from 'crypto';
 import { AuthContext } from '../../access/auth-context';
-import { assertTransportAccess, transportNotFound, transportReadScope } from '../../access/transport-scope';
+import { actingCustomers, assertTransportAccess, includesOwnCompany, NO_COMPANY, transportNotFound, transportReadScope } from '../../access/transport-scope';
 
 /**
  * ETMS E3 helpers shared by the shifts / schedules / bookings / dispatch / trips services: coded errors (05 §4),
@@ -82,7 +82,7 @@ export const round = (v: number, d: number) => Math.round(v * 10 ** d) / 10 ** d
 
 // ───────────────────────────── Scopes (R1, corporate-managed) ─────────────────────────────
 
-type Ctx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'agreements'>;
+type Ctx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'agreements' | 'transportCustomerId'>;
 
 /** Branch filter of an ASSIGNED customer user on rows that belong to a passenger (own branches + company-wide passengers). */
 export function profileBranchWhere(ctx: Ctx): Prisma.EmployeeTransportProfileWhereInput | undefined {
@@ -94,39 +94,58 @@ export function inProfileBranch(ctx: Ctx, branchId: string | null | undefined): 
   return ctx.dataScope === 'COMPANY' || !branchId || ctx.branchIds.includes(branchId);
 }
 
-/** Bookings the caller may read: own (branch-scoped for ASSIGNED) + customers whose agreement grants VIEW_BOOKINGS. */
+/**
+ * Bookings the caller may read: own (branch-scoped for ASSIGNED) + those it operates for customers whose in-force
+ * agreement grants VIEW_BOOKINGS. E1b: an agreement limited to sites covers only bookings of passengers whose office is
+ * one of those sites (a booking has no site column; the passenger's office is its site, as for passengers).
+ */
 export function bookingReadWhere(ctx: Ctx): Prisma.TransportBookingWhereInput {
-  const scope = transportReadScope(ctx, 'VIEW_BOOKINGS');
   const branch = profileBranchWhere(ctx);
-  return {
-    OR: scope.OR.map((part) => {
-      const own = !('providerCompanyId' in part);
-      return own && branch ? { customerCompanyId: ctx.companyId, profile: branch } : (part as Prisma.TransportBookingWhereInput);
-    }),
-  };
+  const or: Prisma.TransportBookingWhereInput[] = [];
+  for (const part of transportReadScope(ctx, 'VIEW_BOOKINGS').OR) {
+    if ('providerCompanyId' in part) continue;
+    or.push(branch ? { customerCompanyId: ctx.companyId, profile: branch } : (part as Prisma.TransportBookingWhereInput));
+  }
+  for (const c of actingCustomers(ctx, 'VIEW_BOOKINGS')) {
+    if (c.mode !== 'AGREEMENT') continue;
+    or.push({ providerCompanyId: ctx.companyId, customerCompanyId: c.customerCompanyId, ...(c.siteIds?.length ? { profile: { officePoiId: { in: c.siteIds } } } : {}) });
+  }
+  if (!or.length) or.push({ customerCompanyId: NO_COMPANY }); // never an empty OR (see NO_COMPANY)
+  return { OR: or };
 }
 
 /**
  * Single booking: read → 404 unless visible; write (R1) → own company + branch, else 403 when the caller sees it through
  * an agreement, 404 otherwise.
  */
-export function assertBookingAccess(ctx: Ctx, row: { customerCompanyId: string; providerCompanyId: string | null; profile?: { branchId: string | null } | null } | null, mode: 'read' | 'write'): void {
+export function assertBookingAccess(ctx: Ctx, row: { customerCompanyId: string; providerCompanyId: string | null; profile?: { branchId: string | null; officePoiId?: string | null } | null } | null, mode: 'read' | 'write'): void {
   if (!row) throw notFound();
   if (row.customerCompanyId === ctx.companyId) {
-    if (!inProfileBranch(ctx, row.profile?.branchId)) throw notFound();
+    if (!includesOwnCompany(ctx) || !inProfileBranch(ctx, row.profile?.branchId)) throw notFound();
     return;
   }
-  assertTransportAccess(ctx, row, 'VIEW_BOOKINGS');
+  // E1b: the passenger's office is the booking's site for an agreement limited to sites.
+  assertTransportAccess(ctx, { customerCompanyId: row.customerCompanyId, providerCompanyId: row.providerCompanyId, siteId: row.profile?.officePoiId ?? null }, 'VIEW_BOOKINGS');
   if (mode === 'write') throw forbidden('FORBIDDEN_GRANT', 'Bookings of another company are read-only');
 }
 
 /**
- * Trips the caller may read: those it operates or that carry its company's passengers (R1: both = own company). A
+ * Trips the caller may read: those that carry its company's passengers, those it operates without a customer (the
+ * customer was purged), and (E1b, doc 10 §2.3 "Transport trip / manifest: AGR(dispatch)") those it operates for a
+ * customer whose IN-FORCE agreement grants MANAGE_DISPATCH, at the agreement's sites. Before E1b every trip the caller
+ * operated was visible, whoever the customer: an ended or suspended agreement now revokes that on the next request
+ * (doc 11 §3.2 case 1). R1 (corporate-managed) trips have provider = customer = own company, so nothing changes there. A
  * vehicle-scoped (branch) caller sees only trips of its vehicles; a detached trip (its vehicle was removed, no planned
  * trip) is for whole-company roles only (E3 security review L7: it belongs to no branch any more).
  */
 export function tripReadWhere(ctx: Ctx, objectIds: string[] | null): Prisma.TransportTripWhereInput {
-  const own: Prisma.TransportTripWhereInput = { OR: [{ providerCompanyId: ctx.companyId }, { customerCompanyId: ctx.companyId }] };
+  const or: Prisma.TransportTripWhereInput[] = includesOwnCompany(ctx) ? [{ customerCompanyId: ctx.companyId }, { providerCompanyId: ctx.companyId, customerCompanyId: null }] : [];
+  for (const c of actingCustomers(ctx, 'MANAGE_DISPATCH')) {
+    if (c.mode !== 'AGREEMENT') continue;
+    or.push({ providerCompanyId: ctx.companyId, customerCompanyId: c.customerCompanyId, ...(c.siteIds?.length ? { sitePoiId: { in: c.siteIds } } : {}) });
+  }
+  if (!or.length) or.push({ customerCompanyId: NO_COMPANY }); // never an empty OR (see NO_COMPANY)
+  const own: Prisma.TransportTripWhereInput = { OR: or };
   if (objectIds === null) return own;
   return { AND: [own, { plannedTrip: { objectId: { in: objectIds.length ? objectIds : ['00000000-0000-0000-0000-000000000000'] } } }] };
 }

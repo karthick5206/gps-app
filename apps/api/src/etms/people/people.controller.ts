@@ -18,6 +18,7 @@ import {
   type TransportVehicleProfileResponse,
   type TransportVehicleRowDto,
 } from '@veetracer/shared';
+import { requireSupportReason } from '../../access/access-reason';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequireAnyPermission, RequirePermission } from '../../access/decorators';
 import { TransportFeatureGuard } from '../transport-feature.guard';
@@ -48,8 +49,9 @@ const UPLOAD = FileInterceptor('file', { limits: { fileSize: PASSENGER_IMPORT_MA
 /**
  * /api/transport/passengers (doc 05 §2.2). Menu `etms_passengers` + company add-on `etms` (404 when off). Row scope and
  * projection come from people-access.ts: own company (FULL for whole-company roles, STANDARD for branch-scoped roles),
- * providers MINIMAL under an agreement granting VIEW_PASSENGER_MINIMAL, other ids 404. Optional `X-Access-Reason` is
- * recorded with sensitive-read audits (Super Admin reads, doc 10 §2.2 item 8).
+ * providers MINIMAL under an agreement granting VIEW_PASSENGER_MINIMAL, other ids 404. `X-Access-Reason` is recorded
+ * with sensitive-read audits; it is REQUIRED for the Super Admin on every passenger read (doc 10 §2.2 item 8, E1b:
+ * 400 REASON_REQUIRED without it), and the read is then logged in the customer's sensitive-access log.
  */
 @Controller('transport/passengers')
 @UseGuards(TransportFeatureGuard)
@@ -61,7 +63,7 @@ export class PassengersController {
 
   @Get() @RequirePermission('etms_passengers', 'view')
   list(@Auth() ctx: AuthContext, @Query() query: PassengerListQuery, @Headers('x-access-reason') reason?: string) {
-    return this.people.list(ctx, query, { reason });
+    return this.people.list(ctx, query, { reason: requireSupportReason(ctx, reason) });
   }
 
   @Get('geocode') @RequireAnyPermission(['etms_passengers', 'create'], ['etms_passengers', 'edit'])
@@ -84,12 +86,12 @@ export class PassengersController {
   /** Audit trail of the passenger, redacted per view level (passenger-history.ts); audited as a read. */
   @Get(':id/history') @RequirePermission('etms_passengers', 'view')
   history(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Headers('x-access-reason') reason?: string): Promise<AuditLogDto[]> {
-    return this.people.history(ctx, id, { reason });
+    return this.people.history(ctx, id, { reason: requireSupportReason(ctx, reason) });
   }
 
   @Get(':id') @RequirePermission('etms_passengers', 'view')
   get(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Headers('x-access-reason') reason?: string): Promise<PassengerDto> {
-    return this.people.get(ctx, id, { reason });
+    return this.people.get(ctx, id, { reason: requireSupportReason(ctx, reason) });
   }
 
   @Post() @RequirePermission('etms_passengers', 'create')
@@ -139,7 +141,7 @@ export class PassengersController {
 
   @Get(':id/consents') @RequirePermission('etms_passengers', 'view')
   consents(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Headers('x-access-reason') reason?: string): Promise<PassengerConsentsDto> {
-    return this.people.consents(ctx, id, { reason });
+    return this.people.consents(ctx, id, { reason: requireSupportReason(ctx, reason) });
   }
 
   /**

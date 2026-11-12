@@ -26,7 +26,7 @@ import {
 } from '@veetracer/shared';
 import { createHash, randomBytes } from 'crypto';
 import { AuthContext } from '../../access/auth-context';
-import { transportNotFound } from '../../access/transport-scope';
+import { includesOwnCompany, transportNotFound } from '../../access/transport-scope';
 import { AuditService } from '../../audit/audit.service';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
 import { assertPrivateGeocoder, GeocodingService } from '../../geocoding/geocoding.service';
@@ -207,7 +207,7 @@ export class PeopleService {
     } satisfies ListSpec);
     // M4: an export only ever contains the caller's OWN company's passengers; a provider never exports another company's
     // (doc 05 §6 gives providers V, no X), whatever its role template says.
-    const filters: Prisma.EmployeeTransportProfileWhereInput[] = [plan.csv ? ownPassengerWhere(ctx) : passengerReadWhere(ctx), plan.where];
+    const filters: Prisma.EmployeeTransportProfileWhereInput[] = [plan.csv ? (includesOwnCompany(ctx) ? ownPassengerWhere(ctx) : { id: { in: [] } }) : passengerReadWhere(ctx), plan.where];
     if (query.siteId) filters.push({ officePoiId: query.siteId });
     if (query.branchId) filters.push({ branchId: query.branchId });
     if (query.needsLocation === 'true') filters.push({ isActive: true, homeLat: null, defaultStopPoiId: null });
@@ -247,8 +247,12 @@ export class PeopleService {
       await this.audit.record(ctx, {
         action: 'ACCESS',
         entity: PROFILE_ENTITY,
-        details: { what: 'csv-export', rows: items.length, projections: [...new Set(items.map((i) => i.projection))], ...(access.reason ? { reason: access.reason } : {}) },
+        details: { what: 'csv-export', rows: items.length, projections: [...new Set(items.map((i) => i.projection))], ...(ctx.isSuperAdmin ? { superAdmin: true } : {}), ...(access.reason ? { reason: access.reason } : {}) },
       });
+    } else if (ctx.isSuperAdmin && items.length) {
+      // E1b (doc 10 §2.2 item 8): VeeTrax support reading a company's passenger list is logged in that company's
+      // sensitive-access log, with the reason it had to give.
+      await this.audit.record(ctx, { action: 'ACCESS', entity: PROFILE_ENTITY, details: { what: 'list', rows: items.length, superAdmin: true, ...(access.reason ? { reason: access.reason } : {}) } });
     }
     return listResult(plan, items, total, CSV);
   }

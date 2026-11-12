@@ -16,6 +16,10 @@ import { companyFeatures } from '../../common/company-features';
 import { AgreementViewsService } from '../agreements/agreement-views.service';
 import { AgreementsController } from '../agreements/agreements.controller';
 import { AgreementsService } from '../agreements/agreements.service';
+import { FleetAllocationsService } from '../agreements/fleet-allocations.service';
+import { TransportProviderController } from '../provider/transport-provider.controller';
+import { TransportProviderService } from '../provider/transport-provider.service';
+import { E1B_RESOURCES, e1bIds, seedE1b } from './isolation-matrix-e1b';
 import { CompanyDirectoryController } from '../directory/company-directory.controller';
 import { CompanyDirectoryService } from '../directory/company-directory.service';
 import { ensureEtmsRoleTemplates, templatePermissions } from '../etms-role-templates';
@@ -135,10 +139,12 @@ function matches(row: Obj, where: Obj | undefined): boolean {
 }
 
 const ETMS_ON = { features: ['etms'], etms: { directoryListed: true } };
+/** E1b: the provider parties are transport providers (add-on etmsProvider). */
+const PROVIDER_ON = { features: ['etms', 'etmsProvider'], etms: { directoryListed: true } };
 const COMPANIES: Obj[] = [
   { id: 'platform', name: 'VeeTrax', isPlatform: true, accountType: 'BUSINESS', status: 'ACTIVE', settings: {} },
-  { id: 'prov', name: 'Provider Co', isPlatform: false, accountType: 'BUSINESS', status: 'ACTIVE', settings: ETMS_ON },
-  { id: 'prov2', name: 'Provider Two', isPlatform: false, accountType: 'BUSINESS', status: 'ACTIVE', settings: ETMS_ON },
+  { id: 'prov', name: 'Provider Co', isPlatform: false, accountType: 'BUSINESS', status: 'ACTIVE', settings: PROVIDER_ON },
+  { id: 'prov2', name: 'Provider Two', isPlatform: false, accountType: 'BUSINESS', status: 'ACTIVE', settings: PROVIDER_ON },
   { id: 'custA', name: 'Customer A', isPlatform: false, accountType: 'BUSINESS', status: 'ACTIVE', settings: ETMS_ON },
   { id: 'custB', name: 'Customer B', isPlatform: false, accountType: 'BUSINESS', status: 'ACTIVE', settings: ETMS_ON },
   { id: 'off', name: 'GPS Only', isPlatform: false, accountType: 'BUSINESS', status: 'ACTIVE', settings: { features: [] } },
@@ -179,6 +185,8 @@ function buildApp() {
     },
     poi: { count: async () => 0, findMany: async () => [] },
     user: { findMany: async () => [] },
+    // E1b: ending an agreement closes its fleet allocations (none in this world).
+    transportFleetAllocation: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
     auditLog: {
       create: async ({ data }: { data: Obj }) => logs.push({ id: randomUUID(), createdAt: new Date(), ...data }),
       findMany: async ({ where }: { where: Obj }) => logs.filter((l) => matches(l, where)),
@@ -202,7 +210,7 @@ function controllersFor(prisma: Obj): Controllers {
   const people = new PeopleService(prisma as never, audit, redis as never, geocoding as never, notices);
   const fleet = new FleetLinksService(prisma as never, audit, redis as never);
   return {
-    agreements: new AgreementsController(new AgreementsService(prisma as never, audit, redis as never), new AgreementViewsService(prisma as never)),
+    agreements: new AgreementsController(new AgreementsService(prisma as never, audit, redis as never), new AgreementViewsService(prisma as never), new FleetAllocationsService(prisma as never, audit)),
     directory: new CompanyDirectoryController(new CompanyDirectoryService(prisma as never, null as never, audit)),
     settings: new TransportSettingsController(new TransportSettingsService(prisma as never, audit)),
     passengers: new PassengersController(people, new PassengerImportService(prisma as never, audit, geocoding as never)),
@@ -213,6 +221,10 @@ function controllersFor(prisma: Obj): Controllers {
     e3: e3Controllers(prisma, audit, redis, people),
     e4: e4Controllers(prisma, audit, redis),
     e5: e5Controllers(prisma, audit, redis, people),
+    e1b: {
+      agreements: new AgreementsController(new AgreementsService(prisma as never, audit, redis as never), new AgreementViewsService(prisma as never), new FleetAllocationsService(prisma as never, audit)),
+      provider: new TransportProviderController(new TransportProviderService(prisma as never)),
+    },
   };
 }
 
@@ -486,6 +498,16 @@ describe('ETMS isolation matrix: route × role × ownership', () => {
   it.each(CASES)('%s as %s on %s resource → %s', async (routeKey, role, own, expected) => {
     const entry = byRoute.get(routeKey)!;
     const route = ROUTES.find((r) => r.key === routeKey)!;
+    if (entry.resource && (E1B_RESOURCES as readonly string[]).includes(entry.resource)) {
+      const w = await buildE2App();
+      const world = seedE1b(w.store, w.scope.id, { custA: w.party.passenger, custB: w.other.passenger });
+      const ids = e1bIds(world, own);
+      const target: Target = { id: ids.agreement, version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA', ids: w.ids, e1b: { ids, world } };
+      const res = await run(route, entry, caller(role, w), target, w.controllers);
+      expect(res.status).toBe(expected);
+      if (res.status === 200) entry.verify?.(res.result, role, own, target);
+      return;
+    }
     if (entry.resource && (E5_RESOURCES as readonly string[]).includes(entry.resource)) {
       const w = await buildE2App();
       const world = seedE3(w.store, { party: { passenger: w.party.passenger, vehicle: w.party.vehicle, driver: w.party.driver }, other: { passenger: w.other.passenger, vehicle: w.other.vehicle, driver: w.other.driver } });

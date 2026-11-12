@@ -273,7 +273,9 @@ export type TransportErrorCode =
   | 'INVALID_STATE'
   | 'AGREEMENT_INACTIVE'
   | 'AGREEMENT_DUPLICATE'
-  | 'RATE_LIMITED';
+  | 'RATE_LIMITED'
+  | 'REASON_REQUIRED'
+  | 'NOT_A_PROVIDER';
 
 // ───────────────────────────── State machine (pure) ─────────────────────────────
 

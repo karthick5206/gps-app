@@ -91,7 +91,9 @@ export class AuthContextService {
       objectIds: user.objects.map((o) => o.objectId),
       shares: dataScope === 'COMPANY' && !allCompanies ? await this.sharesOf(companyId) : [],
       features,
-      agreements: features.includes('etms') && !allCompanies ? await this.agreementsOf(companyId) : [],
+      // E1b: only a transport provider (add-ons etms + etmsProvider) acts for customers; switching etmsProvider off
+      // removes its grants on the next request, like switching etms off.
+      agreements: features.includes('etms') && features.includes('etmsProvider') && !allCompanies ? await this.agreementsOf(companyId) : [],
       ip,
     };
   }

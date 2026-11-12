@@ -3,6 +3,7 @@ import {
   TRANSPORT_DATA_PROFILES,
   TRANSPORT_GRANTS,
   type CreateTransportAgreementInput,
+  type CreateTransportFleetAllocationInput,
   type TransportAgreementApproveInput,
   type TransportAgreementCommandInput,
   type TransportAgreementReasonInput,
@@ -63,4 +64,17 @@ export class AgreementSiteOptionsQuery {
   @IsOptional() @IsString() @MaxLength(100) q?: string;
   /** Super Admin only: whose places to list (ignored for everyone else). */
   @IsOptional() @IsUUID() customerCompanyId?: string;
+}
+
+/** E1b: POST /transport/agreements/:id/fleet. */
+export class CreateFleetAllocationDto implements CreateTransportFleetAllocationInput {
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() objectId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() driverId?: string | null;
+  @IsOptional() @IsISO8601() validFrom?: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsISO8601() validTo?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(300) note?: string | null;
+}
+
+export class FleetOptionsQuery {
+  @IsOptional() @IsString() @MaxLength(100) q?: string;
 }

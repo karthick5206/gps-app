@@ -120,7 +120,7 @@ describe('AuthContextService: features, module menus and ctx.agreements', () => 
   });
 
   it('add-on on: ETMS grants kept and the provider-side active agreements loaded (ACTIVE, in validity, never own company)', async () => {
-    const { svc, findMany } = service({ features: ['etms'] });
+    const { svc, findMany } = service({ features: ['etms', 'etmsProvider'] });
     const ctx = await svc.forUser('u1', undefined, null);
     expect(ctx.permissions.etms_partners).toEqual(['view']);
     expect(ctx.companyId).toBe('prov');
@@ -135,14 +135,22 @@ describe('AuthContextService: features, module menus and ctx.agreements', () => 
   });
 
   it('F3: customer module off → the provider loses the grants (query filter and code check); back on → restored', async () => {
-    const off = service({ features: ['etms'] }, { customer: { ...customerOn, settings: { features: ['attendance'] } } });
+    const off = service({ features: ['etms', 'etmsProvider'] }, { customer: { ...customerOn, settings: { features: ['attendance'] } } });
     expect((await off.svc.forUser('u1', undefined, null)).agreements).toEqual([]);
-    const none = service({ features: ['etms'] }, { customer: { ...customerOn, settings: {} } });
+    const none = service({ features: ['etms', 'etmsProvider'] }, { customer: { ...customerOn, settings: {} } });
     expect((await none.svc.forUser('u1', undefined, null)).agreements).toEqual([]);
-    const suspended = service({ features: ['etms'] }, { customer: { ...customerOn, status: 'SUSPENDED' } });
+    const suspended = service({ features: ['etms', 'etmsProvider'] }, { customer: { ...customerOn, status: 'SUSPENDED' } });
     expect((await suspended.svc.forUser('u1', undefined, null)).agreements).toEqual([]);
-    const on = service({ features: ['etms'] });
+    const on = service({ features: ['etms', 'etmsProvider'] });
     expect((await on.svc.forUser('u1', undefined, null)).agreements?.map((a) => a.id)).toEqual(['a1']);
+  });
+
+  it('E1b: only a transport provider (etms + etmsProvider) loads agreements; switching etmsProvider off removes them, no query', async () => {
+    const { svc, findMany } = service({ features: ['etms'] });
+    const ctx = await svc.forUser('u1', undefined, null);
+    expect(ctx.permissions.etms_partners).toEqual(['view']);
+    expect(ctx.agreements).toEqual([]);
+    expect(findMany).not.toHaveBeenCalled();
   });
 
   it('R-12: isCompanyAdmin only for holders of the own company’s built-in Admin role (and the Super Admin)', async () => {

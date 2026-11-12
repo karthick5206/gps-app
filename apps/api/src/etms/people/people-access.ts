@@ -16,7 +16,7 @@ import {
   type PlaceRef,
 } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
-import { actingCustomers } from '../../access/transport-scope';
+import { actingCustomers, includesOwnCompany, NO_COMPANY } from '../../access/transport-scope';
 
 /**
  * E2 passenger visibility and projections (docs 02 §4.2, 05 §6, 10 §2). Built on access/transport-scope (the single
@@ -25,7 +25,7 @@ import { actingCustomers } from '../../access/transport-scope';
  * VIEW_PASSENGER_MINIMAL (limited to the agreement's sites, MINIMAL projection), everyone else nothing (404).
  */
 
-export type PeopleCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'agreements'>;
+export type PeopleCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'agreements' | 'transportCustomerId'>;
 
 /** How a provider may see contacts: not at all, masked (VIEW_PASSENGER_CONTACT), in clear (+ STANDARD data profile). */
 export type ContactLevel = 'NONE' | 'MASKED' | 'CLEAR';
@@ -66,16 +66,19 @@ export function ownPassengerWhere(ctx: PeopleCtx): Prisma.EmployeeTransportProfi
 
 /** Every passenger the caller may read: own company (scoped) plus active passengers of customers granting access. */
 export function passengerReadWhere(ctx: PeopleCtx, now: number = Date.now()): Prisma.EmployeeTransportProfileWhereInput {
-  const or: Prisma.EmployeeTransportProfileWhereInput[] = [ownPassengerWhere(ctx)];
+  // E1b customer context narrowed to another company: own passengers are left out.
+  const or: Prisma.EmployeeTransportProfileWhereInput[] = includesOwnCompany(ctx) ? [ownPassengerWhere(ctx)] : [];
   for (const p of providerPassengerAccess(ctx, now)) {
     or.push({ companyId: p.customerCompanyId, isActive: true, ...(p.siteIds.length ? { officePoiId: { in: p.siteIds } } : {}) });
   }
+  if (!or.length) or.push({ companyId: NO_COMPANY }); // never an empty OR (see NO_COMPANY)
   return { OR: or };
 }
 
 /** Projection of one row for the caller, or null when the caller may not see it (→ 404). */
 export function passengerView(ctx: PeopleCtx, row: { companyId: string; branchId: string | null; officePoiId: string | null; isActive: boolean }, now: number = Date.now()): PassengerView | null {
   if (row.companyId === ctx.companyId) {
+    if (!includesOwnCompany(ctx)) return null;
     if (ctx.dataScope === 'COMPANY') return { projection: 'FULL', contact: 'CLEAR', agreementId: null };
     if (row.branchId === null || ctx.branchIds.includes(row.branchId)) return { projection: 'STANDARD', contact: 'CLEAR', agreementId: null };
     return null;

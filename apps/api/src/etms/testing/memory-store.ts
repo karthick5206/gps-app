@@ -68,6 +68,8 @@ const RELATIONS: Record<string, Record<string, Rel>> = {
   routePlan: { assignments: { model: 'routeAssignment', many: { by: 'planId' } }, stops: { model: 'routePlanStop', many: { by: 'planId' } }, transportTrips: { model: 'transportTrip', many: { by: 'routePlanId' } } },
   // E5
   transportDriverDuty: { object: { model: 'trackedObject', fk: 'objectId' } },
+  // E1b
+  transportFleetAllocation: { object: { model: 'trackedObject', fk: 'objectId' }, driver: { model: 'driver', fk: 'driverId' } },
 };
 
 /** Nested `create` written to a child table (model → relation → [child model, back-reference column]). */

@@ -33,7 +33,7 @@ function matches(row: Obj, where: Obj | undefined): boolean {
   });
 }
 
-const ON = { status: 'ACTIVE', settings: { features: ['etms'] } };
+const ON = { status: 'ACTIVE', settings: { features: ['etms', 'etmsProvider'] } };
 const COMPANIES: Obj[] = [
   { id: 'platform', name: 'VeeTrax', isPlatform: true, accountType: 'BUSINESS', ...ON },
   { id: 'prov', name: 'Provider Co', isPlatform: false, accountType: 'BUSINESS', ...ON },
@@ -84,6 +84,7 @@ function store() {
   };
   const prisma = {
     transportServiceAgreement: tsa,
+    transportFleetAllocation: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
     company: { findMany: async ({ where }: { where: { id: { in: string[] } } }) => COMPANIES.filter((c) => where.id.in.includes(c.id as string)) },
     poi: {
       count: async ({ where }: { where: Obj }) => POIS.filter((p) => matches(p, where)).length,

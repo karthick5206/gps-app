@@ -61,6 +61,14 @@ export interface AuthContext {
    * through access/transport-scope.ts; existing GPS modules never look at it.
    */
   agreements?: TransportAgreementScope[];
+  /**
+   * ETMS E1b customer context (doc 07 §2.5): the customer company the request is narrowed to (header
+   * X-Transport-Customer, validated by TransportFeatureGuard). When set, `agreements` holds only that customer's agreement
+   * (none when it is the own company) and own-company rows are hidden when it is another company; `agreementsAll` keeps
+   * the unnarrowed list (for the picker).
+   */
+  transportCustomerId?: string;
+  agreementsAll?: TransportAgreementScope[];
   ip: string | null;
   /** Login session behind the access token (absent for internal contexts such as sockets or schedulers). */
   sessionId?: string | null;

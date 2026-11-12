@@ -53,7 +53,7 @@ export function toShiftDto(r: ShiftRow): TransportShiftDto {
 // ───────────────────────────── Bookings ─────────────────────────────
 
 export const BOOKING_INCLUDE = {
-  profile: { select: { id: true, displayName: true, employeeCode: true, branchId: true } },
+  profile: { select: { id: true, displayName: true, employeeCode: true, branchId: true, officePoiId: true } },
   shift: { select: { name: true } },
   passengers: { select: { id: true, tripId: true, status: true, createdAt: true } },
 } satisfies Prisma.TransportBookingInclude;
