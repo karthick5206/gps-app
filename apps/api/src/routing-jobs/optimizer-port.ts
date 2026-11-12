@@ -9,7 +9,8 @@ import type { SolverPort } from './optimize-runner';
  * The worker's view of the shared OptimizerClient (E4-D salvage, `routing/optimizer/optimizer.client.ts`,
  * `POST {OPTIMIZER_URL}/optimize`): its RoutingError codes become job error codes. OPTIMIZER_BUSY (429) and
  * OPTIMIZER_UNAVAILABLE (unreachable, 5xx incl. 503 = a solver worker process died, unreadable answer) are retried by
- * the job; a rejected problem (400, LIMIT_EXCEEDED there) is final as INVALID_INPUT.
+ * the job; a rejected problem (400 / 413, LIMIT_EXCEEDED there) is final as INVALID_INPUT; a refused token / source
+ * (401 / 403, OPTIMIZER_REFUSED) is final under its own code.
  * Cancel / timeout / lease loss abort the job run at once (the runner races the abort signal); the HTTP call itself
  * ends at the client's own timeout (solver limit + 15 s).
  */
@@ -23,6 +24,8 @@ export function solverPort(client: Pick<OptimizerClient, 'solve'>): SolverPort {
       } catch (e) {
         if (e instanceof RoutingError) {
           if (e.code === 'OPTIMIZER_BUSY' || e.code === 'OPTIMIZER_UNAVAILABLE') throw new JobError(e.code, e.message);
+          // E4 review L4: token / source refused: final (not in TRANSIENT_CODES), with its own code.
+          if (e.code === 'OPTIMIZER_REFUSED') throw new JobError(e.code, e.message);
           throw new JobError('INVALID_INPUT', `Optimizer rejected the problem: ${e.message.slice(0, 200)}`);
         }
         throw e;

@@ -69,8 +69,9 @@ export const RESET_AS_BUSY_MIN_BYTES = 256 * 1024;
  * HTTP client for the OR-Tools service (`services/routing-optimizer`), ported from the routing branch's
  * `OptimizerAdapter` (doc 17 §5.1, engine-neutral), speaking the shared solver wire format (`SolverProblem` /
  * `SolverResult`, P4). Bearer token on every call; a full service (HTTP 429) is
- * `OPTIMIZER_BUSY` (the job is retried with back-off), a rejected problem (HTTP 400) is `LIMIT_EXCEEDED`, anything
- * else unexpected is `OPTIMIZER_UNAVAILABLE`. The optimiser never sees an engine: the API builds the matrix.
+ * `OPTIMIZER_BUSY` (the job is retried with back-off), a rejected problem (HTTP 400) or body (413) is `LIMIT_EXCEEDED`,
+ * a refused token / source (401 / 403) is `OPTIMIZER_REFUSED` (final), anything else unexpected is
+ * `OPTIMIZER_UNAVAILABLE`. The optimiser never sees an engine: the API builds the matrix.
  */
 export class OptimizerClient {
   private readonly logger = new Logger(OptimizerClient.name);
@@ -125,6 +126,15 @@ export class OptimizerClient {
     }
     // Every solver slot busy: transient, the caller retries with back-off instead of failing.
     if (res.status === 429) throw new RoutingError('OPTIMIZER_BUSY', 'Optimizer busy; retried shortly');
+    // E4 review L4: a refused token (401) or source (403) is a configuration fault: final and named, never "busy" or
+    // "unavailable" (which are retried for minutes). The service drains the body before every early refusal, so a large
+    // upload sees this answer rather than a reset.
+    if (res.status === 401 || res.status === 403) {
+      this.logger.error(`optimizer refused the API (HTTP ${res.status}): check OPTIMIZER_TOKEN(_FILE) and OPTIMIZER_ALLOW`);
+      throw new RoutingError('OPTIMIZER_REFUSED', `Optimizer refused the request (HTTP ${res.status}: ${res.status === 401 ? 'token' : 'source address'} not accepted)`);
+    }
+    // A body over the service's limit (413) is final like a rejected problem.
+    if (res.status === 413) throw new RoutingError('LIMIT_EXCEEDED', 'The problem is larger than the optimiser accepts');
     const body = (await res.json().catch(() => ({}))) as Partial<SolverResult>;
     // A rejected problem (HTTP 400: limits or malformed input) is final, never retried (LIMIT_EXCEEDED is not a
     // transient code). Its text is the service's own fixed message, scrubbed and bounded anyway (L4).

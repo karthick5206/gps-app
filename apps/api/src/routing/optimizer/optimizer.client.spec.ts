@@ -79,7 +79,11 @@ describe('OptimizerClient', () => {
   it('maps service answers to typed errors', async () => {
     expect(await codeOf(client(json(429, { error: 'optimizer busy' })).c.solve(problem))).toBe('OPTIMIZER_BUSY');
     expect(await codeOf(client(json(400, { status: 'INVALID_INPUT', error: 'vehicles required' })).c.solve(problem))).toBe('LIMIT_EXCEEDED');
-    expect(await codeOf(client(json(401, { error: 'unauthorised' })).c.solve(problem))).toBe('OPTIMIZER_UNAVAILABLE');
+    // E4 review L4: the optimiser refusing the API's token or source is final and says so (never busy, never retried).
+    expect(await codeOf(client(json(401, { error: 'unauthorised' })).c.solve(problem))).toBe('OPTIMIZER_REFUSED');
+    expect(await codeOf(client(json(403, { error: 'source not allowed' })).c.solve(problem))).toBe('OPTIMIZER_REFUSED');
+    // A body over the service's limit is a limit, final like a 400.
+    expect(await codeOf(client(json(413, { error: 'body must be 1..8388608 bytes' })).c.solve(problem))).toBe('LIMIT_EXCEEDED');
     expect(await codeOf(client(json(500, {})).c.solve(problem))).toBe('OPTIMIZER_UNAVAILABLE');
     expect(await codeOf(client(new Error('ECONNREFUSED')).c.solve(problem))).toBe('OPTIMIZER_UNAVAILABLE');
     expect(await codeOf(client(json(200, { hello: 1 })).c.solve(problem))).toBe('OPTIMIZER_UNAVAILABLE');

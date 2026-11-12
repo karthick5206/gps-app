@@ -101,6 +101,7 @@ export type RoutingErrorCode =
   | 'QUOTA_EXCEEDED'
   | 'OPTIMIZER_UNAVAILABLE'
   | 'OPTIMIZER_BUSY'
+  | 'OPTIMIZER_REFUSED'
   | 'JOB_NOT_FOUND'
   | 'PLAN_NOT_EDITABLE'
   | 'PLAN_STALE'
@@ -441,13 +442,15 @@ export type RoutingJobInput =
   | { kind: 'matrix'; profile: RoutingProfile; sources: LatLng[]; targets: LatLng[]; timeoutS?: number };
 
 /**
- * Job error codes: engine degraded reasons, optimiser outages, and the worker's own: WORKER_LOST (lease expired too
+ * Job error codes: engine degraded reasons, optimiser outages, OPTIMIZER_REFUSED (the optimiser refused the API's token
+ * or source: final, a configuration fault), and the worker's own: WORKER_LOST (lease expired too
  * often), INTERNAL_ERROR (unexpected fault; details only in the worker log), MATRIX_INCOMPLETE (PARTIAL travel-time
  * matrix, retried) and MATRIX_BUSY (matrix builder queue full, retried).
  */
 export type RoutingJobErrorCode =
   | RoutingDegradedReason
   | 'OPTIMIZER_BUSY'
+  | 'OPTIMIZER_REFUSED'
   | 'OPTIMIZER_UNAVAILABLE'
   | 'INVALID_INPUT'
   | 'TIMEOUT'

@@ -131,9 +131,9 @@ d('worker ↔ real routing optimiser (contract v2)', () => {
     expect(first.plans.writes).toHaveLength(0);
   });
 
-  it('wrong token: OPTIMIZER_UNAVAILABLE (401 is not a solved plan)', async () => {
+  it('wrong token: OPTIMIZER_REFUSED at once (401 is not a solved plan, and not retried; E4 review L4)', async () => {
     const bad = new OptimizerClient(readOptimizerConfig({ ETMS_ROUTING: 'on', OPTIMIZER_URL: URL_, OPTIMIZER_TOKEN: 'x'.repeat(32) }));
     const r = await run(bigPlan('IN'), bad, 1);
-    expect(r.row).toMatchObject({ status: 'FAILED', error: { code: 'OPTIMIZER_UNAVAILABLE' } });
+    expect(r.row).toMatchObject({ status: 'FAILED', error: { code: 'OPTIMIZER_REFUSED' } });
   });
 });

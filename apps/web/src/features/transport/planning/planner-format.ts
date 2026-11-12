@@ -505,6 +505,7 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   QUOTA_EXCEEDED: 'The daily routing allowance is used up. Try again tomorrow.',
   OPTIMIZER_UNAVAILABLE: 'The optimiser is not running. Plans can still be edited by hand; dispatch manually meanwhile.',
   OPTIMIZER_BUSY: 'The optimiser is busy with other plans. Try again in a minute.',
+  OPTIMIZER_REFUSED: 'The optimiser refused the connection (its access key or allowed address does not match). Tell your administrator; plans can still be edited by hand.',
   JOB_NOT_FOUND: 'This optimisation no longer exists.',
   PLAN_NOT_EDITABLE: 'This plan is published or discarded and can no longer change.',
   PLAN_STALE: 'Someone changed this plan meanwhile. The latest version was loaded; check it and try again.',
@@ -547,6 +548,7 @@ export function plannerErrorKind(code: string | null | undefined, status?: numbe
   switch (code) {
     case 'ROUTING_UNAVAILABLE':
     case 'OPTIMIZER_UNAVAILABLE':
+    case 'OPTIMIZER_REFUSED':
     case 'ENGINE_DISABLED':
     case 'ENGINE_UNREACHABLE':
     case 'ENGINE_TIMEOUT':

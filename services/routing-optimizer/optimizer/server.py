@@ -60,6 +60,12 @@ HEADER_TIMEOUT_S = 5
 # reset): at most DRAIN_MAX_S in all, giving up when the client sends nothing for DRAIN_IDLE_S.
 DRAIN_IDLE_S = 2
 DRAIN_MAX_S = 15
+# E4 review L4: every other early refusal of a POST (401, 403, 404, 413, 503 connection limit) drains the body the same
+# way, so the API sees the real answer instead of a reset it would take for "busy". A refusal before authentication
+# (401 / 403 / connection limit) drains for at most DRAIN_UNAUTH_MAX_S (no longer than a client may already take for
+# its headers, R2); no drain reads more than DRAIN_MAX_BYTES.
+DRAIN_UNAUTH_MAX_S = 5
+DRAIN_MAX_BYTES = 16 * 1024 * 1024
 # T3-D8: listen backlog (the default 5 made bursts of 16+ connections wait ~1 s for a SYN retransmit).
 LISTEN_BACKLOG = 64
 
@@ -238,10 +244,10 @@ def make_handler(cfg: Config):
                 raise BadRequest('Content-Length must be a non-negative integer')
             return int(raw)
 
-        def _discard_body(self, length: int) -> None:
-            """Reads and drops up to `length` body bytes (64 KB at a time) within DRAIN_MAX_S; stops when the client goes
-            quiet for DRAIN_IDLE_S or closes. Errors are ignored: the answer was already sent."""
-            left, until = length, time.monotonic() + DRAIN_MAX_S
+        def _discard_body(self, length: int, max_s: float = DRAIN_MAX_S) -> None:
+            """Reads and drops up to `length` body bytes (at most DRAIN_MAX_BYTES, 64 KB at a time) within `max_s`; stops
+            when the client goes quiet for DRAIN_IDLE_S or closes. Errors are ignored: the answer was already sent."""
+            left, until = min(length, DRAIN_MAX_BYTES), time.monotonic() + max_s
             try:
                 self.connection.settimeout(DRAIN_IDLE_S)
                 while left > 0 and time.monotonic() < until:
@@ -267,14 +273,22 @@ def make_handler(cfg: Config):
                 raise BadRequest('problem must be an object')
             return problem
 
+        def _declared_length(self) -> int:
+            """Content-Length for draining after a refusal (0 when missing or malformed: nothing to drain)."""
+            raw = (self.headers.get('Content-Length') or '').strip()
+            return int(raw) if raw.isdigit() else 0
+
         def _post(self) -> None:
             if not self._guard():
-                return
+                # L4: answered first, then the unread body is drained (bounded) so the client sees the 401 / 403 / 503.
+                return self._discard_body(self._declared_length(), DRAIN_UNAUTH_MAX_S)
             if self.path != '/optimize':
-                return self._send(404, {'error': 'not found'})
+                self._send(404, {'error': 'not found'})
+                return self._discard_body(self._declared_length())
             length = self._length()
             if not 0 < length <= MAX_BODY:
-                return self._send(413, {'error': f'body must be 1..{MAX_BODY} bytes'})
+                self._send(413, {'error': f'body must be 1..{MAX_BODY} bytes'})
+                return self._discard_body(length)
             # L5: the slot is taken before the body is read and parsed, so at most OPTIMIZER_CONCURRENCY bodies are in
             # memory at once; a full service answers 429 at once, without parsing anything. T3-D6: the body is then read
             # and discarded in small chunks (never held), so a client still uploading a large body gets the 429 instead

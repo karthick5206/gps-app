@@ -299,3 +299,28 @@ def test_listen_backlog_is_large_enough_for_bursts_t3_d8():
         assert slow == 0
     finally:
         srv.server_close()
+
+
+@pytest.mark.parametrize('case', ['401', '403', '404', '413'])
+def test_every_early_refusal_of_a_large_body_is_answered_not_reset_review_l4(monkeypatch, case):
+    """E4 review L4: only the 429 path drained the body, so a 401 / 403 / 413 (and 404) on a large upload could reach the
+    client as a reset, which the API maps to OPTIMIZER_BUSY (a rotated token waited ~4 min and then said "busy")."""
+    env = {'OPTIMIZER_TOKEN': TOKEN}
+    if case == '403':
+        env['OPTIMIZER_ALLOW'] = '10.8.0.0/24'  # loopback NOT allowed
+    if case == '413':
+        monkeypatch.setattr(server, 'MAX_BODY', 500_000)
+    srv, url = start(env)
+    try:
+        for size in (1_000_000, 4_000_000):
+            big = {'options': {'timeLimitS': 1}, 'pad': 'x' * size}
+            token = 'y' * 32 if case == '401' else TOKEN
+            path = '/nope' if case == '404' else '/optimize'
+            try:
+                code, _ = call(url, path, token, big)
+            except (ConnectionError, OSError) as e:  # BrokenPipe / ConnectionReset before the fix
+                pytest.fail(f'{case}, {size} B body: connection dropped without the answer ({type(e).__name__})')
+            assert code == int(case), size
+    finally:
+        srv.shutdown()
+        srv.server_close()

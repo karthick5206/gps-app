@@ -4140,6 +4140,7 @@ export const HI: Record<string, string> = {
   'The optimisation ran out of time without a result.': 'ऑप्टिमाइज़ेशन का समय बिना परिणाम के समाप्त हो गया।',
   'The optimisation worker stopped repeatedly. Try again, or dispatch manually meanwhile.': 'ऑप्टिमाइज़ेशन वर्कर बार-बार रुक गया। फिर से प्रयास करें, या तब तक मैन्युअल रूप से डिस्पैच करें।',
   'The optimiser is busy with other plans. Try again in a minute.': 'ऑप्टिमाइज़र अन्य योजनाओं में व्यस्त है। एक मिनट में फिर कोशिश करें।',
+  'The optimiser refused the connection (its access key or allowed address does not match). Tell your administrator; plans can still be edited by hand.': 'ऑप्टिमाइज़र ने कनेक्शन अस्वीकार कर दिया (उसकी एक्सेस कुंजी या अनुमत पता मेल नहीं खाता)। अपने व्यवस्थापक को बताएँ; योजनाएँ अब भी हाथ से संपादित की जा सकती हैं।',
   'The optimiser is not running. Existing plans can be reviewed and edited; dispatch manually meanwhile.': 'ऑप्टिमाइज़र नहीं चल रहा। मौजूदा योजनाओं की समीक्षा और संपादन हो सकता है; तब तक मैन्युअल डिस्पैच करें।',
   'The optimiser is not running. Plans can still be edited by hand; dispatch manually meanwhile.': 'ऑप्टिमाइज़र नहीं चल रहा। योजनाओं को अब भी हाथ से संपादित किया जा सकता है; तब तक मैन्युअल डिस्पैच करें।',
   'The other company sees it on the live map, in history and in reports, view only, and nothing from before the share. This company keeps the vehicle, its device and its licence.': 'दूसरी कंपनी इसे लाइव मैप, इतिहास और रिपोर्ट में केवल देख सकती है, और साझा करने से पहले का कुछ नहीं। वाहन, डिवाइस और लाइसेंस इसी कंपनी के पास रहते हैं।',
