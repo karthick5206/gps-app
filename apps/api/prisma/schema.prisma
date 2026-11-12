@@ -133,6 +133,9 @@ model Company {
   /// ETMS E5: driver duties (operator) and the in-app notification inbox of the company's logins.
   transportDriverDuties         TransportDriverDuty[]
   transportNotifications        TransportNotification[]
+  /// ETMS E5 WP 5.4: SOS incidents (FK SetNull: an incident survives a company purge, doc 15 §10 / L5 default).
+  transportIncidentsAsProvider  TransportIncident[]         @relation("TransportIncidentProvider")
+  transportIncidentsAsCustomer  TransportIncident[]         @relation("TransportIncidentCustomer")
   /// ETMS E4: routing plans, jobs and metering (FK Restrict, walked by a company purge).
   routePlans                    RoutePlan[]
   routingJobs                   RoutingJob[]
@@ -3388,6 +3391,8 @@ model TransportTrip {
   events          TransportTripEvent[]
   /// ETMS E5: notifications about this trip (SetNull: the inbox entry survives a trip purge).
   notifications   TransportNotification[]
+  /// ETMS E5 WP 5.4: SOS incidents raised on this trip (SetNull: the incident survives a trip purge).
+  incidents       TransportIncident[]
 
   @@unique([id, providerCompanyId])
   @@index([providerCompanyId, serviceDate])
@@ -3561,6 +3566,131 @@ model TransportNotification {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([companyId, createdAt])
+}
+
+// ───────────────────────────── ETMS E5 WP 5.4: durable SOS and the transactional outbox (migration etms_incidents) ─────────────────────────────
+
+/// Delivery class of an outbox event (doc 05 §5.2, doc 15 §3.2). Only SAFETY is relayed in E5.
+enum OutboxClass {
+  SAFETY
+  OPERATIONAL
+  INFO
+}
+
+/// Transactional outbox (doc 15 §3.2, doc 10 §6.1): durable domain events written in the same transaction as the state
+/// change, relayed at least once (consumers dedupe on id). companyId / customerCompanyId / providerCompanyId are logical
+/// keys WITHOUT FK (rows are transient; a company purge deletes by the logical key). Payload: ids only, no free-text PII.
+/// Raw SQL: partial index "OutboxEvent_pending_idx" (class, availableAt) WHERE publishedAt IS NULL AND deadAt IS NULL
+/// (relay poll, SKIP LOCKED); CHECK attempts >= 0; CHECK NOT (publishedAt AND deadAt).
+model OutboxEvent {
+  id                String      @id @default(uuid()) @db.Uuid
+  companyId         String      @db.Uuid
+  customerCompanyId String?     @db.Uuid
+  providerCompanyId String?     @db.Uuid
+  type              String
+  schemaVersion     Int         @default(1)
+  aggregateType     String
+  aggregateId       String      @db.Uuid
+  aggregateVersion  Int?
+  class             OutboxClass
+  payload           Json
+  correlationId     String?
+  causationId       String?     @db.Uuid
+  idempotencyKey    String?
+  occurredAt        DateTime    @db.Timestamptz(3)
+  createdAt         DateTime    @default(now()) @db.Timestamptz(3)
+  availableAt       DateTime    @default(now()) @db.Timestamptz(3)
+  attempts          Int         @default(0)
+  lastError         String?
+  publishedAt       DateTime?   @db.Timestamptz(3)
+  deadAt            DateTime?   @db.Timestamptz(3)
+
+  @@index([aggregateType, aggregateId, createdAt])
+  @@index([createdAt])
+}
+
+/// A safety incident (E5: SOS raised by a passenger or a driver; doc 10 §6, doc 15 §10). Must survive ordinary purge and
+/// retention: no companyId / objectId / deviceId columns; provider / customer / trip FKs SetNull; actor columns without
+/// FK (doc 15 §1.1); legalHold; last-known location snapshot. Raw SQL: partial unique one OPEN SOS per raiser login
+/// (repeat presses merge), CHECKs on the closed sets and on the status timestamps.
+model TransportIncident {
+  id                   String    @id @default(uuid()) @db.Uuid
+  /// SOS (later BREAKDOWN, ACCIDENT … in E6).
+  kind                 String    @default("SOS")
+  /// OPEN | ACKNOWLEDGED | RESOLVED.
+  status               String    @default("OPEN")
+  severity             String    @default("CRITICAL")
+  /// PASSENGER | DRIVER | DISPATCHER.
+  raiserType           String
+  raiserUserId         String?   @db.Uuid
+  raiserDriverId       String?   @db.Uuid
+  raiserProfileId      String?   @db.Uuid
+  providerCompanyId    String?   @db.Uuid
+  customerCompanyId    String?   @db.Uuid
+  tripId               String?   @db.Uuid
+  /// Snapshot of the trip's vehicle plate at raise time (no FK: survives a vehicle purge).
+  vehicleLabel         String?
+  /// Client incident id (Idempotency-Key) and the hash of the request body (same key, other body → 422).
+  idempotencyKey       String
+  requestHash          String
+  /// Device tap time (offline replays may arrive later) and server commit time.
+  raisedAt             DateTime  @db.Timestamptz(3)
+  receivedAt           DateTime  @default(now()) @db.Timestamptz(3)
+  note                 String?
+  fixLat               Float?
+  fixLng               Float?
+  fixAccuracyM         Float?
+  fixAt                DateTime? @db.Timestamptz(3)
+  /// Further SOS presses merged into this incident while it was OPEN.
+  repeatCount          Int       @default(0)
+  lastRepeatAt         DateTime? @db.Timestamptz(3)
+  acknowledgedAt       DateTime? @db.Timestamptz(3)
+  acknowledgedByUserId String?   @db.Uuid
+  ackNote              String?
+  resolvedAt           DateTime? @db.Timestamptz(3)
+  resolvedByUserId     String?   @db.Uuid
+  /// IncidentResolution: ASSISTED | FALSE_ALARM | TEST | DUPLICATE | OTHER.
+  resolution           String?
+  resolveNote          String?
+  /// Excluded from any retention / erasure while set (L3 default: incidents 7 years with legal hold).
+  legalHold            Boolean   @default(false)
+  /// Set when personal fields were anonymised in place (L5 default).
+  anonymisedAt         DateTime? @db.Timestamptz(3)
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  provider Company?                 @relation("TransportIncidentProvider", fields: [providerCompanyId], references: [id], onDelete: SetNull)
+  customer Company?                 @relation("TransportIncidentCustomer", fields: [customerCompanyId], references: [id], onDelete: SetNull)
+  trip     TransportTrip?           @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  events   TransportIncidentEvent[]
+
+  @@unique([raiserUserId, idempotencyKey])
+  @@index([providerCompanyId, status, receivedAt])
+  @@index([customerCompanyId, status, receivedAt])
+  @@index([tripId])
+  @@index([status, receivedAt])
+}
+
+/// Append-only history of an incident (CREATED, REPEATED, NOTIFY_*, ACKNOWLEDGED, RESOLVED). Incident FK Cascade (an
+/// incident is only deleted by a legal process); actor without FK. clientKey: the Idempotency-Key of a merged repeat, so
+/// its replay answers the same receipt (unique per actor login). Raw SQL: CHECK kind, CHECK actorType.
+model TransportIncidentEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  incidentId  String   @db.Uuid
+  kind        String
+  /// PASSENGER | DRIVER | DISPATCHER | SYSTEM.
+  actorType   String
+  actorUserId String?  @db.Uuid
+  clientKey   String?
+  requestHash String?
+  note        String?
+  data        Json     @default("{}")
+  at          DateTime @default(now()) @db.Timestamptz(3)
+
+  incident TransportIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@unique([actorUserId, clientKey])
+  @@index([incidentId, at])
 }
 
 // ───────────────────────────── ETMS E4: routing and optimisation (migration routing_engine_v2) ─────────────────────────────
