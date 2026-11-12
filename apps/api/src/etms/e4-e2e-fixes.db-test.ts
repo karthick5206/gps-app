@@ -192,6 +192,28 @@ d(`E4 E2E fixes on ${dbName}`, () => {
     expect(await errOf(plans.movePassenger(admin, g.plan, { expectedVersion: 2, bookingId: w.bookings[0], toAssignmentId: g.routes[1] }))).toMatchObject({ status: 409, code: 'STOP_PINNED' });
   });
 
+  it('T2-L3 root cause: after an optimisation (sequences stored from 1) a reorder on a route with a pinned stop that keeps its place is accepted; moving the pinned stop is still STOP_PINNED', async () => {
+    const plan = id();
+    const route = id();
+    const [p0, p1, d0, d1] = [id(), id(), id(), id()];
+    await sql(`INSERT INTO "RoutePlan" (id, "companyId", "branchId", name, "planDate", "planStartAt", status, direction, "sitePoiId", options, "updatedAt") VALUES ('${plan}', '${w.company}', NULL, 'l3b ${TAG}', '${DAY}', '${START}', 'PLANNED', 'IN', '${w.site}', '{"pinnedStopIds":["${d1}"]}', now())`);
+    await sql(`INSERT INTO "RouteAssignment" (id, "planId", "companyId", "objectId", "vehicleLabel", seq, capacity, "updatedAt") VALUES ('${route}', '${plan}', '${w.company}', '${w.vehicles[0]}', 'Van 1', 0, 4, now())`);
+    // As the optimiser writes them: sequence 1..n.
+    for (const [sid, ref, k, seq] of [[p0, 'p0', 0, 1], [p1, 'p1', 1, 2]] as const) {
+      await sql(`INSERT INTO "RoutePlanStop" (id, "planId", "companyId", "assignmentId", ref, lat, lng, demand, "serviceS", sequence, "stopKind", "customerCompanyId", "bookingId", "profileId", "updatedAt") VALUES ('${sid}', '${plan}', '${w.company}', '${route}', '${ref}', ${13.06 + k * 0.004}, 80.24, 1, 60, ${seq}, 'PICKUP', '${w.company}', '${w.bookings[k]}', '${w.profiles[k]}', now())`);
+    }
+    for (const [sid, ref, k, seq] of [[d0, 'd0', 0, 3], [d1, 'd1', 1, 4]] as const) {
+      await sql(`INSERT INTO "RoutePlanStop" (id, "planId", "companyId", "assignmentId", ref, lat, lng, demand, sequence, "stopKind", "customerCompanyId", "bookingId", "poiId", "updatedAt") VALUES ('${sid}', '${plan}', '${w.company}', '${route}', '${ref}', 13.05, 80.25, 1, ${seq}, 'DROP', '${w.company}', '${w.bookings[k]}', '${w.site}', now())`);
+    }
+    // Swap the two pickups: the pinned drop d1 stays last.
+    const r = await errOf(plans.resequence(admin, plan, { expectedVersion: 1, assignments: [{ assignmentId: route, stopIds: [p1, p0, d0, d1] }] }));
+    expect(r).toMatchObject({ status: 200 });
+    const order = (await prisma.routePlanStop.findMany({ where: { planId: plan }, orderBy: { sequence: 'asc' }, select: { id: true } })).map((s) => s.id);
+    expect(order).toEqual([p1, p0, d0, d1]);
+    // Moving the pinned stop itself is still refused.
+    expect(await errOf(plans.resequence(admin, plan, { expectedVersion: 2, assignments: [{ assignmentId: route, stopIds: [p1, p0, d1, d0] }] }))).toMatchObject({ status: 409, code: 'STOP_PINNED' });
+  });
+
   it('T2-L4 the plan detail carries the stored solver weights (options.weights), so re-optimise can prefill them', async () => {
     const g = await plannedPlan('l4');
     const p = await plans.get(admin, g.plan);

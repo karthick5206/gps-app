@@ -210,6 +210,10 @@ export class RoutePlansService {
       for (const r of dto.assignments) r.stopIds.forEach((s, i) => placements.set(s, { assignmentId: r.assignmentId, sequence: i }));
       // Stops of a listed route that are not listed any more become unassigned.
       for (const a of listed) for (const s of routeStops(rule, a)) if (!seen.has(s.id)) placements.set(s.id, { assignmentId: null, sequence: null });
+      // T2-L3 root cause: the optimiser stores sequences from 1 and this edit renumbers from 0, so a pinned stop is
+      // "moved" only when its route or its place in the route order changes, never because its number changes.
+      const oldIndex = new Map<string, number>();
+      for (const a of plan.assignments) routeStops(rule, a.id).forEach((s, i) => oldIndex.set(s.id, i));
       const changed = new Set<string>();
       for (const [sid, to] of placements) {
         const s = byId.get(sid)!;
@@ -218,7 +222,8 @@ export class RoutePlansService {
           continue;
         }
         if (outOfScope(s, view)) throw notFound('Stop not found');
-        if (locks.pinnedStopIds.has(sid)) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', `Stop ${s.ref} is pinned; unpin it first`);
+        const moved = s.assignmentId !== to.assignmentId || oldIndex.get(sid) !== to.sequence;
+        if (moved && locks.pinnedStopIds.has(sid)) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', `Stop ${s.ref} is pinned; unpin it first`);
         for (const r of [s.assignmentId, to.assignmentId]) {
           if (!r) continue;
           if (locks.lockedAssignmentIds.has(r)) throw planError(HttpStatus.CONFLICT, 'ROUTE_LOCKED', 'A listed route is locked; unlock it first');
