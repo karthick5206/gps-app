@@ -143,19 +143,21 @@ export default function LoginScreen() {
             {mode === 'password' ? <PasswordForm key={server} /> : <OtpForm key={server} />}
             <SwitchRow
               label={t('Demo account')}
-              hint={demo ? t('Uses the demo server.') : t('Only for demo logins. Leave off for your normal account.')}
+              hint={demo ? t('Demo mode: sample data only. Turn off for your real account.') : t('Want to try VeeTrax? Turn on to sign in with a demo login.')}
               value={demo}
               onChange={setDemo}
             />
-            {/* Personal accounts sign up on the web (email code), then sign in here. */}
-            <Pressable onPress={() => Linking.openURL(`${server}/signup`).catch(() => undefined)} accessibilityRole="link" style={{ alignSelf: 'center', paddingVertical: SPACE.sm }}>
-              <Text size="sm">
-                {t('New to VeeTrax?')}{' '}
-                <Text size="sm" weight="600" style={{ color: c.primary }}>
-                  {t('Create personal account')}
+            {/* Personal accounts sign up on the web (email code), then sign in here. Hidden in demo mode: demo logins are handed out, not self-created. */}
+            {!demo && (
+              <Pressable onPress={() => Linking.openURL(`${server}/signup`).catch(() => undefined)} accessibilityRole="link" style={{ alignSelf: 'center', paddingVertical: SPACE.sm }}>
+                <Text size="sm">
+                  {t('New to VeeTrax?')}{' '}
+                  <Text size="sm" weight="600" style={{ color: c.primary }}>
+                    {t('Create personal account')}
+                  </Text>
                 </Text>
-              </Text>
-            </Pressable>
+              </Pressable>
+            )}
             <View style={{ flex: 1 }} />
             <View style={{ alignItems: 'center' }}>
               <LanguageChips signedIn={false} />

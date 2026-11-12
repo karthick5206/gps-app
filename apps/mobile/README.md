@@ -24,7 +24,7 @@ passengers or drivers must set them to the server's own tiles (for example `http
 **Live and demo server:** the sign-in screen has a **Demo account** switch. Off (default) the app uses the live
 server (`app.veetrax.com`); on, it uses the demo server (`gps.mintplus.co.in`). The choice is saved on the phone
 (`vt.demoServer` in SecureStore), restored at start before the session refresh, and can only be changed while signed
-out (tokens are per server). Code: `serverChoice`, `serverUrl()`, `apiUrl()` and the `useServerUrl()` /
+out (tokens are per server). Tip under the switch; "Create personal account" is hidden in demo mode and server rows show "Demo server". Code: `serverChoice`, `serverUrl()`, `apiUrl()` and the `useServerUrl()` /
 `useDemoServer()` hooks in `src/lib/config.ts`. Render code uses the hooks (React Compiler would keep a stale module
 value); handlers, the API client and the live socket call `serverUrl()` / `apiUrl()` at call time. `eas.json` sets
 both addresses. Phones signed in to `gps.mintplus.co.in` with an older build are signed out after the update unless
