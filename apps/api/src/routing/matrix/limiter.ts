@@ -9,7 +9,7 @@
  * - the queueing of each walk (≥ 10 legs), latency − legs × the walks' normal per-leg cost (a 50-leg walk queued
  *   400 ms used to look like 8 ms per leg): slow above 4 × slowLegMs.
  * Slow halves the limit (down to 1); fast (the single-leg requests' p95 below max(fastLegMs, 1.5 × legRef), little
- * queueing) grows it by one; walks never vouch for growth, since they spread a queue over their legs. Because both tests are relative to the engine's own normal cost, a uniformly slow graph (20 ms+ per leg) is
+ * queueing) grows it by one; walks vouch for growth only by their own queueing (near zero against their normal cost, E4 review M3), never by their per-leg time, which spreads a queue over their legs. Because both tests are relative to the engine's own normal cost, a uniformly slow graph (20 ms+ per leg) is
  * neither throttled to 1 nor kept there (it used to be, forever). There is deliberately no blind upward probing: in the
  * T3 model it doubled tracking latency whenever GraphHopper was saturated by other users. Other GraphHopper users (tracker ETAs, map matching) slow
  * GraphHopper down too, so this yields to them without knowing about them.
@@ -123,10 +123,16 @@ export class AdaptiveLimiter {
     const queueSlow = 4 * this.slowLegMs;
     const slow = legP95 > Math.max(this.slowLegMs, Math.min(3 * base, 4 * this.slowLegMs)) || queueP95 > queueSlow;
     if (walkMedian !== null && !slow) this.walkRef = walkBase === null ? walkMedian : walkBase + 0.25 * (walkMedian - walkBase);
-    // Growth needs evidence a queue cannot hide in: single-leg requests (a walk spreads its queueing over its legs). A
-    // window of walks only may halve the limit but never grows it.
+    // Growth needs evidence a queue cannot hide in: single-leg requests (a walk spreads its queueing over its legs per
+    // leg), or (E4 review M3) walks whose own queueing is measured against the walks' normal cost and is near zero. A
+    // build whose snaps are cached sends walks only; without the second rule one slow window left the process at 1 in
+    // flight until enough uncached snaps arrived. The walk rule needs a reference from earlier quiet windows, enough
+    // walks, a queue p95 under slowLegMs (a quarter of the halving threshold) and a walk median within 10 % of the
+    // reference, so a GraphHopper busy with other users (walks slower than their normal) is still never probed.
     const singles = perLeg.filter((_, i) => w[i].legs === 1);
-    const fast = singles.length >= Math.min(MIN_WALKS, Math.ceil(w.length / 2)) && percentile(singles, 95) < Math.max(this.fastLegMs, 1.5 * base) && queueP95 < queueSlow / 2;
+    const singlesFast = singles.length >= Math.min(MIN_WALKS, Math.ceil(w.length / 2)) && percentile(singles, 95) < Math.max(this.fastLegMs, 1.5 * base);
+    const walksQuiet = walkBase !== null && walkMedian !== null && queueP95 < this.slowLegMs && walkMedian <= 1.1 * walkBase;
+    const fast = (singlesFast || walksQuiet) && queueP95 < queueSlow / 2;
     if (slow) {
       this.limitNow = Math.max(1, Math.floor(this.limitNow / 2));
     } else if (fast) {

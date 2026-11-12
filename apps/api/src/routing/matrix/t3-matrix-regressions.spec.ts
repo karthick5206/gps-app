@@ -111,6 +111,33 @@ describe('T3-D5 adaptive limiter', () => {
     feed(l, 60, 1, () => 5);
     expect(l.limit).toBe(3);
   });
+
+  // E4 review M3: builds whose snaps are cached send 50-leg walks only.
+  it('walks only (snaps cached): after a queued spell halves the limit, quiet walks grow it back', () => {
+    const l = new AdaptiveLimiter(3, 60, 20);
+    feed(l, 40, 50, jitter(10 * 50, 0.05)); // normal: 10 ms per leg
+    feed(l, 20, 50, (i) => jitter(10 * 50, 0.05)(i) + 400); // queued behind other work
+    expect(l.limit).toBe(1);
+    feed(l, 40, 50, jitter(10 * 50, 0.05)); // the queue is gone
+    expect(l.limit).toBe(3);
+  });
+
+  it('walks only: walks still queued (above slowLegMs) or slower than their normal never grow the limit', () => {
+    const queued = new AdaptiveLimiter(3, 60, 20);
+    feed(queued, 40, 50, jitter(10 * 50, 0.05));
+    feed(queued, 20, 50, (i) => jitter(10 * 50, 0.05)(i) + 400);
+    feed(queued, 40, 50, (i) => jitter(10 * 50, 0.05)(i) + 100); // 100 ms queue: below halving (240), above 60
+    expect(queued.limit).toBe(1);
+    const slower = new AdaptiveLimiter(3, 60, 20);
+    feed(slower, 40, 50, jitter(10 * 50, 0.05));
+    feed(slower, 20, 50, (i) => jitter(10 * 50, 0.05)(i) + 400);
+    feed(slower, 40, 50, jitter(11.5 * 50, 0.01)); // GraphHopper busy with other users: 15 % slower per leg
+    expect(slower.limit).toBe(1);
+    // A level that persists becomes the walks' new normal (walkRef drifts 25 % per quiet window, as legRef does for
+    // single legs), so a uniformly slower graph is not held at 1 for ever (T3-D5).
+    feed(slower, 200, 50, jitter(11.5 * 50, 0.01));
+    expect(slower.limit).toBe(3);
+  });
 });
 
 /** In-memory stand-in for the semaphore script (same arguments; ZSET of token → expiry). */
