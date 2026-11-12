@@ -386,7 +386,8 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         const { ctx } = client;
         const requested = ctx.allCompanies ? ALL_COMPANIES : ctx.companyId !== ctx.homeCompanyId ? ctx.companyId : undefined;
         const next = await this.contexts.forUser(ctx.userId, requested, ctx.ip);
-        if (!hasPermission(next, 'live_map', 'view') && !hasPermission(next, 'alerts', 'view')) throw new Error('Permission denied');
+        // Same gate as the handshake (security review L2): a role with Incidents & SOS only keeps its socket.
+        if (!hasPermission(next, 'live_map', 'view') && !hasPermission(next, 'alerts', 'view') && !hasPermission(next, 'etms_incidents', 'view')) throw new Error('Permission denied');
         // Dropped meanwhile (revoked / disconnected): do not re-index it.
         if (!this.clients.has(client.socket.id)) continue;
         this.unindexShares(client);
