@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import { SOLVER_LIMITS, SolverProblem, SolverResult } from '@veetracer/shared';
 import { etmsRoutingEnabled } from '../../etms/transport-feature.guard';
-import { defaultFetch, FetchLike } from '../fetch-like';
+import { defaultFetch, FetchLike, readJsonCapped } from '../fetch-like';
 import { privateServiceUrlProblem } from '../private-url';
 import { RoutingError } from '../routing.errors';
 import { scrubCoordinates } from '../engine-text';
@@ -94,7 +94,7 @@ export class OptimizerClient {
   async health(): Promise<boolean> {
     if (!this.configured) return false;
     try {
-      const res = await this.fetchImpl(`${this.config.baseUrl}/health`, { headers: this.headers(), signal: AbortSignal.timeout(OPTIMIZER_HEALTH_TIMEOUT_MS) });
+      const res = await this.fetchImpl(`${this.config.baseUrl}/health`, { headers: this.headers(), redirect: 'error', signal: AbortSignal.timeout(OPTIMIZER_HEALTH_TIMEOUT_MS) });
       return res.ok;
     } catch {
       return false;
@@ -110,6 +110,8 @@ export class OptimizerClient {
         method: 'POST',
         headers: this.headers(true),
         body: payload,
+        // E4 gates security L1: never follow a redirect (it would re-send the problem to another host).
+        redirect: 'error',
         signal: AbortSignal.timeout((Math.min(problem.options?.timeLimitS ?? OPTIMIZER_DEFAULT_TIME_LIMIT_S, SOLVER_LIMITS.timeLimitS) + OPTIMIZER_TIMEOUT_SLACK_S) * 1000),
       });
     } catch (e) {
@@ -135,7 +137,14 @@ export class OptimizerClient {
     }
     // A body over the service's limit (413) is final like a rejected problem.
     if (res.status === 413) throw new RoutingError('LIMIT_EXCEEDED', 'The problem is larger than the optimiser accepts');
-    const body = (await res.json().catch(() => ({}))) as Partial<SolverResult>;
+    // E4 gates security L2: the answer is read with a byte cap.
+    let body: Partial<SolverResult>;
+    try {
+      body = ((await readJsonCapped(res)) ?? {}) as Partial<SolverResult>;
+    } catch (e) {
+      if ((e as Error).name === 'ResponseTooLarge') throw new RoutingError('OPTIMIZER_UNAVAILABLE', 'Optimizer answer is too large');
+      body = {};
+    }
     // A rejected problem (HTTP 400: limits or malformed input) is final, never retried (LIMIT_EXCEEDED is not a
     // transient code). Its text is the service's own fixed message, scrubbed and bounded anyway (L4).
     if (res.status === 400) {
