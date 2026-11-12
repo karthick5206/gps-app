@@ -53,6 +53,7 @@ import {
   reoptimiseDefaults,
   routeDriveSummary,
   timeLimitOptions,
+  timeLimitWithin,
   formatDuration,
   formatKm,
   isEditablePlan,
@@ -299,9 +300,10 @@ export function PlanReviewPage() {
     });
   };
   // T2-L4: the plan's stored weights (options.weights) and a time limit within the API range.
-  const reoptDefaults = reoptimiseDefaults(plan);
+  const reoptDefaults = reoptimiseDefaults(plan, caps.data?.limits.optimizeTimeLimitS);
   const weightsForReopt = reoptWeights ?? reoptDefaults.weights;
-  const limitForReopt = reoptLimit ?? reoptDefaults.timeLimitS;
+  // E4 review L7: never a value above the API maximum (the select offers only allowed values).
+  const limitForReopt = timeLimitWithin(reoptLimit ?? reoptDefaults.timeLimitS, caps.data?.limits.optimizeTimeLimitS);
   const rideForReopt = reoptRide ?? overrideDraftOf(plan);
   const rideRequest = canOverrideMaxRide(caps.data) ? overrideRequest(rideForReopt, plan.maxRide?.override) : ({ ok: true, value: undefined } as const);
 

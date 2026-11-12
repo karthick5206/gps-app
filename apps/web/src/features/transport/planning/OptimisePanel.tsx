@@ -13,7 +13,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { DIRECTION_LABEL, shiftTimesLabel } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
-import { capabilityView, completeWeights, planBranchChoice, planSeeds, skippedSummary, timeLimitOptions, type ShiftChoice, type WeightDraft } from './planner-format';
+import { capabilityView, completeWeights, planBranchChoice, planSeeds, skippedSummary, timeLimitOptions, timeLimitWithin, type ShiftChoice, type WeightDraft } from './planner-format';
 import { JobProgress, WeightsEditor } from './planner-ui';
 import { MaxRideOverrideFields } from './MaxRideFields';
 import { canOverrideMaxRide, overrideRequest, planBookingsLimit, type MaxRideOverrideDraft } from './max-ride';
@@ -66,6 +66,8 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
   // Owner decision 1: per-plan max-ride override for the new plans (authorised callers only).
   const [maxRide, setMaxRide] = useState<MaxRideOverrideDraft>({ enabled: false, minutes: '', reason: '' });
   const health = capabilityView(caps);
+  // E4 review L7: the time limit sent and shown is always one the API allows (the page starts at 30 s).
+  const timeLimitS = timeLimitWithin(state.timeLimitS, caps?.limits.optimizeTimeLimitS);
 
   const shiftChoices: ShiftChoice[] = useMemo(() => (shifts.data ?? []).map((s) => ({ id: s.id, name: s.name, siteId: s.site?.id ?? null, siteName: s.site?.name ?? null, startMin: s.startMin, endMin: s.endMin, timeZone: s.timeZone })), [shifts.data]);
   const siteOptions = useMemo(() => {
@@ -101,7 +103,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
     setTouched(true);
     if (!ready || !weights || !override.ok) return;
     start.mutate(
-      { planDate: state.day, direction: state.direction, seeds, objectIds: chosenVehicles.map((v) => v.objectId), weights, timeLimitS: state.timeLimitS, branchId, ...(override.value !== undefined ? { maxRideOverride: override.value } : {}) },
+      { planDate: state.day, direction: state.direction, seeds, objectIds: chosenVehicles.map((v) => v.objectId), weights, timeLimitS, branchId, ...(override.value !== undefined ? { maxRideOverride: override.value } : {}) },
       {
         onSuccess: (r) => {
           setStarted(r);
@@ -187,7 +189,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
 
         <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
           <Field label={t('Time limit per plan')} htmlFor="opt-limit">
-            <SimpleSelect id="opt-limit" value={String(state.timeLimitS)} onChange={(v) => setState((s) => ({ ...s, timeLimitS: Number(v) }))} options={timeLimitOptions(caps?.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
+            <SimpleSelect id="opt-limit" value={String(timeLimitS)} onChange={(v) => setState((s) => ({ ...s, timeLimitS: Number(v) }))} options={timeLimitOptions(caps?.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
           </Field>
           <Button onClick={run} disabled={start.isPending || !canPlan || !health.canOptimise}>
             {start.isPending ? <Spinner /> : <PlayIcon />} {seeds.length > 1 ? t('Optimise {{n}} plans', { n: seeds.length }) : t('Optimise')}

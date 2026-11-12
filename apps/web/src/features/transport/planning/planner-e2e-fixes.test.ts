@@ -21,6 +21,8 @@ import {
   steadyProgress,
   stopPinnedToRoute,
   timeLimitOptions,
+  timeLimitWithin,
+  defaultTimeLimit,
   type PlannerPlan,
 } from './planner-format.ts';
 
@@ -157,6 +159,24 @@ test('T2-L4: re-optimise prefills the stored weights; the time limit is a choice
   assert.deepEqual(timeLimitOptions(20), [10, 20]);
   assert.deepEqual(timeLimitOptions(undefined), [10, 30, 60]);
   assert.doesNotMatch(read('PlanReviewPage.tsx'), /timeLimitS: 30/, 'no fixed 30 s in the re-optimise dialog');
+});
+
+test('E4 review L7: the default time limit is the largest offered choice up to 30 s, never above the API maximum', () => {
+  assert.equal(reoptimiseDefaults({ weights: null }, 20).timeLimitS, 20, 'max 20: options [10, 20], default 20 (was 30 → 400)');
+  assert.equal(reoptimiseDefaults({ weights: null }, 25).timeLimitS, 25);
+  assert.equal(reoptimiseDefaults({ weights: null }, 5).timeLimitS, 5);
+  assert.equal(reoptimiseDefaults({ weights: null }, 120).timeLimitS, 30);
+  assert.equal(reoptimiseDefaults({ weights: null }, null).timeLimitS, 30);
+  for (const max of [5, 10, 20, 25, 30, 45, 60, 120]) {
+    assert.ok(timeLimitOptions(max).every((n) => n <= max), `no option above ${max}`);
+    assert.ok(timeLimitOptions(max).includes(defaultTimeLimit(max)), `default offered for ${max}`);
+  }
+  // A value chosen earlier that the API no longer allows (capabilities loaded later / changed) falls back to the default.
+  assert.equal(timeLimitWithin(30, 20), 20);
+  assert.equal(timeLimitWithin(10, 20), 10);
+  assert.equal(timeLimitWithin(60, undefined), 60);
+  // The first optimise of the planning page uses the same rule (it started at a fixed 30 s too).
+  assert.match(read('OptimisePanel.tsx'), /timeLimitWithin\(state\.timeLimitS/);
 });
 
 // ── T2-O1: progress never goes backwards on a retry ──

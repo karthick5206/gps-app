@@ -1002,9 +1002,27 @@ export function timeLimitOptions(maxS: number | null | undefined): number[] {
   return out;
 }
 
-/** T2-L4: re-optimise starts from the weights the plan was last optimised with (stored on the plan), 30 s. */
-export function reoptimiseDefaults(plan: { weights?: PlannerWeights | null }): { weights: WeightDraft; timeLimitS: number } {
-  return { weights: plan.weights ? { ...plan.weights } : emptyWeights(), timeLimitS: 30 };
+/** Preferred default time limit (seconds) when the API allows it. */
+export const PREFERRED_TIME_LIMIT_S = 30;
+
+/**
+ * E4 review L7: the default time limit: the largest offered choice up to PREFERRED_TIME_LIMIT_S, so never above the
+ * API maximum (limits.optimizeTimeLimitS; with a maximum of 20 the choices are [10, 20] and the default 20, not 30 → 400).
+ */
+export function defaultTimeLimit(maxS: number | null | undefined): number {
+  const opts = timeLimitOptions(maxS);
+  const within = opts.filter((n) => n <= PREFERRED_TIME_LIMIT_S);
+  return within.length ? Math.max(...within) : Math.min(...opts);
+}
+
+/** E4 review L7: a chosen time limit if it is still offered (capabilities may load or change later), else the default. */
+export function timeLimitWithin(value: number | null | undefined, maxS: number | null | undefined): number {
+  return value != null && timeLimitOptions(maxS).includes(value) ? value : defaultTimeLimit(maxS);
+}
+
+/** T2-L4: re-optimise starts from the weights the plan was last optimised with (stored on the plan); L7: time limit within the API maximum. */
+export function reoptimiseDefaults(plan: { weights?: PlannerWeights | null }, maxS?: number | null): { weights: WeightDraft; timeLimitS: number } {
+  return { weights: plan.weights ? { ...plan.weights } : emptyWeights(), timeLimitS: defaultTimeLimit(maxS) };
 }
 
 export interface SteadyProgress {
