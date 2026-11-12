@@ -119,7 +119,7 @@ describe('self-service: company setting selfBooking (default OFF)', () => {
   it('while off: policy answers selfBooking false with no shifts / stops; every other route is 404 SELF_BOOKING_DISABLED', async () => {
     const w = world({ selfBooking: false });
     const p = await w.svc.policy(w.ctx('u-pA'));
-    expect(p).toMatchObject({ selfBooking: false, shifts: [], stops: [], sos: false, cutoffMin: 60 });
+    expect(p).toMatchObject({ selfBooking: false, shifts: [], stops: [], sos: true, cutoffMin: 60 });
     const c = w.ctx('u-pA');
     const calls: Promise<unknown>[] = [
       book(w),

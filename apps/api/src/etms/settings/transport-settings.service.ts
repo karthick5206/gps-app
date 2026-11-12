@@ -40,7 +40,12 @@ export class TransportSettingsService {
     if (ctx.dataScope !== 'COMPANY') {
       throw new ForbiddenException({ message: 'Only users with whole-company access can change transport settings', code: 'SCOPE_REQUIRED' });
     }
-    const before = await this.get(ctx);
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { settings: true } });
+    const before = transportSettingsOf(company.settings);
+    // Keep `etms` keys this form does not manage (e.g. a hand-set `bookingCutoffMin`); only the DTO keys are rewritten.
+    const rawEtms = (company.settings as Record<string, unknown> | null)?.[ETMS_SETTINGS_KEY];
+    const unmanaged: Record<string, unknown> = rawEtms && typeof rawEtms === 'object' && !Array.isArray(rawEtms) ? { ...(rawEtms as Record<string, unknown>) } : {};
+    for (const k of ['directoryListed', 'deskPhone', 'selfBooking', 'maxRideS']) delete unmanaged[k];
     const after: TransportSettingsDto = { ...before, ...(dto.directoryListed !== undefined ? { directoryListed: dto.directoryListed } : {}) };
     if (dto.deskPhone !== undefined) {
       if (dto.deskPhone === null || !dto.deskPhone.trim()) delete after.deskPhone;
@@ -56,7 +61,7 @@ export class TransportSettingsService {
     }
     await this.prisma.$transaction(async (tx) => {
       // F9: only the `etms` key is written (atomic jsonb_set).
-      await setCompanySetting(tx, ctx.companyId, ETMS_SETTINGS_KEY, after);
+      await setCompanySetting(tx, ctx.companyId, ETMS_SETTINGS_KEY, { ...unmanaged, ...after });
       await this.audit.record(ctx, { action: 'UPDATE', entity: 'etms_settings', entityId: ctx.companyId, before: { ...before }, after: { ...after } }, tx);
     });
     return after;

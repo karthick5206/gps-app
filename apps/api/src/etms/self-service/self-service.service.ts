@@ -89,8 +89,8 @@ export class SelfServiceService {
       shifts: [],
       stops: [],
       routingConsent: consent,
-      // WP 5.4 (durable passenger SOS) is built on another branch; this server has no POST /me/transport/sos yet.
-      sos: false,
+      // WP 5.4 durable SOS (POST /me/transport/sos) is on this server; ETMS SOS is never gated by selfBooking.
+      sos: true,
       deskPhone: transportSettingsOf(company.settings).deskPhone ?? null,
     };
     if (!on) return base;

@@ -45,6 +45,12 @@ describe('F4: transport settings (partner-directory opt-in)', () => {
     expect(audits).toEqual([{ action: 'UPDATE', entity: 'etms_settings', entityId: 'c1', before: { directoryListed: false }, after: { directoryListed: true } }]);
   });
 
+  it('a save keeps `etms` keys the form does not manage (hand-set bookingCutoffMin survives)', async () => {
+    const { svc, company } = setup({ etms: { directoryListed: false, bookingCutoffMin: 1440, deskPhone: '+91 44 1234 5678' } });
+    expect(await svc.update(ctx(), { directoryListed: true, deskPhone: null })).toEqual({ directoryListed: true });
+    expect((company.settings as Obj).etms).toEqual({ directoryListed: true, bookingCutoffMin: 1440 });
+  });
+
   it('branch-scoped users cannot change it (403 SCOPE_REQUIRED)', async () => {
     const { svc } = setup({});
     await expect(svc.update(ctx('ASSIGNED'), { directoryListed: true })).rejects.toBeInstanceOf(ForbiddenException);
