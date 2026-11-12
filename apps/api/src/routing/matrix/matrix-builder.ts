@@ -236,9 +236,12 @@ export class MatrixBuilder {
     // build that queued out is "busy" (LIMIT_EXCEEDED with retryAfterS → the job's MATRIX_BUSY), never ENGINE_TIMEOUT:
     // the engine was not asked.
     const budgetMs = opts.budgetMs ?? this.config.budgetMs;
-    const release = await this.gate.enterWithin(budgetMs, opts.signal);
+    // E4 review L3: a caller deadline caps the wait too (queue + build used to take up to 2 × budget).
+    const waitMs = opts.deadlineAt === undefined ? budgetMs : Math.min(budgetMs, opts.deadlineAt - Date.now());
+    if (waitMs <= 0) return empty('LIMIT_EXCEEDED', 'No time is left for the matrix build before the job deadline; try again shortly.', 30);
+    const release = await this.gate.enterWithin(waitMs, opts.signal);
     if (release === 'full') return empty('LIMIT_EXCEEDED', 'Too many matrix builds are running or queued; try again shortly.', 30);
-    if (release === 'timeout') return empty('LIMIT_EXCEEDED', `Waited ${Math.round(budgetMs / 1000)} s for a free matrix build slot; try again shortly.`, 30);
+    if (release === 'timeout') return empty('LIMIT_EXCEEDED', `Waited ${Math.round(waitMs / 1000)} s for a free matrix build slot; try again shortly.`, 30);
     if (release === 'aborted') return empty('LIMIT_EXCEEDED', 'The matrix build was cancelled.');
     try {
       return await this.run(engine, input, profile, opts, stats, started, empty, Date.now());
@@ -258,7 +261,7 @@ export class MatrixBuilder {
     budgetFrom: number = started,
   ): Promise<MatrixBuild> {
     const n = input.length;
-    const deadline = budgetFrom + (opts.budgetMs ?? this.config.budgetMs);
+    const deadline = Math.min(budgetFrom + (opts.budgetMs ?? this.config.budgetMs), opts.deadlineAt ?? Number.POSITIVE_INFINITY);
     const maxSnap = opts.maxSnapDistanceM ?? this.config.maxSnapDistanceM;
     const budget = new AbortController();
     const budgetTimer = setTimeout(() => budget.abort(new DOMException('budget', 'TimeoutError')), Math.max(0, deadline - Date.now()));

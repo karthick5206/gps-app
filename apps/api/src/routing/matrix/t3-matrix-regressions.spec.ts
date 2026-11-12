@@ -57,6 +57,28 @@ describe('T3-D3 matrix budget and the build queue', () => {
     // b waited ~2 s; it still had its full 3 s to compute (before: about 1 s left, too little at 60 ms per leg).
     expect(done.status).toBe('COMPLETE');
   });
+
+  // E4 review L3: queue + build could take 2 × budget, past the job's own timer (a final TIMEOUT, not retried).
+  it('a caller deadline bounds the queue wait and the build together (busy or ENGINE_TIMEOUT, both retried)', async () => {
+    const { builder } = testBuilder(url, { maxBuilds: 1, queue: 4 });
+    stub.hangRoute = true;
+    const a = builder.buildMatrix(syntheticPoints(6), 'car', { budgetMs: 2_500 });
+    await new Promise((r) => setTimeout(r, 50));
+    const t0 = Date.now();
+    const queued = await builder.buildMatrix(syntheticPoints(6, undefined, 0.03, 17), 'car', { budgetMs: 5_000, deadlineAt: Date.now() + 600 });
+    expect(Date.now() - t0).toBeLessThan(1_500); // the deadline, not the 5 s budget
+    expect(queued.degraded).toMatchObject({ reason: 'LIMIT_EXCEEDED', retryAfterS: 30 });
+    expect(queued.stats.engineCalls).toEqual({ snap: 0, pair: 0, walk: 0 });
+    const past = await builder.buildMatrix(syntheticPoints(6, undefined, 0.03, 19), 'car', { deadlineAt: Date.now() - 1 });
+    expect(past.degraded).toMatchObject({ reason: 'LIMIT_EXCEEDED', retryAfterS: 30 });
+    await a;
+    // Running: the deadline cuts the build budget too.
+    const t1 = Date.now();
+    const cut = await builder.buildMatrix(syntheticPoints(6, undefined, 0.03, 23), 'car', { budgetMs: 5_000, deadlineAt: Date.now() + 700 });
+    expect(Date.now() - t1).toBeLessThan(2_000);
+    expect(cut.status).not.toBe('COMPLETE');
+    expect(cut.degraded?.reason).toBe('ENGINE_TIMEOUT');
+  });
 });
 
 /** Feeds `n` requests of `legs` legs taking `ms(i)` each into the limiter's statistics. */

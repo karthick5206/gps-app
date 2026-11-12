@@ -39,6 +39,8 @@ export interface MatrixBuildOptions {
   onProgress?: (done: number, total: number) => Promise<void>;
   /** Indexes of depots / site (always fully connected in sparse mode). */
   depots?: number[];
+  /** Absolute end (epoch ms) for the build, its queue wait included (E4 review L3). */
+  deadlineAt?: number;
 }
 
 export interface MatrixPort {
@@ -71,7 +73,7 @@ export function builderMatrixPort(builder: Pick<MatrixBuilder, 'buildMatrix'>): 
   return {
     async build(points, profile, opts = {}) {
       const pairs = points.length > SPARSE_ABOVE_POINTS ? kNearestPairs(points, SPARSE_K, opts.depots ?? [0]) : undefined;
-      const b = await builder.buildMatrix(points, profile, { ...(pairs ? { pairs } : {}), signal: opts.signal, onProgress: opts.onProgress });
+      const b = await builder.buildMatrix(points, profile, { ...(pairs ? { pairs } : {}), ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), signal: opts.signal, onProgress: opts.onProgress });
       if (opts.signal?.aborted) throw opts.signal.reason as Error;
       if (b.status !== 'COMPLETE') {
         const reason = b.degraded?.reason ?? 'ENGINE_UNREACHABLE';

@@ -2,7 +2,7 @@ import { MemoryJobQueue } from './job-queue';
 import { decideFailure, busyBackoffMs } from './job-state';
 import { MemoryJobStore } from './job-store';
 import { JobError, RoutingJobWorker } from './job-worker';
-import { optimizeRunner } from './optimize-runner';
+import { matrixDeadline, optimizeRunner, SOLVE_SLACK_S } from './optimize-runner';
 import { FakeMatrix, FakePlans, FakeSolver, optimizeInput } from './testing/fakes';
 import { InMemoryUsageHook } from './usage-hook';
 
@@ -109,5 +109,34 @@ describe('T3-D2 optimiser busy (429) does not use up the job', () => {
     const now = 5_000_000;
     expect(decideFailure({ code: 'MATRIX_BUSY', message: 'queue full' }, { attempts: 3, maxAttempts: 3, cancelRequested: false, busy: 2, createdAtMs: now - 10_000, timeoutS: 250 }, now, () => 0.5)).toMatchObject({ to: 'QUEUED', refundAttempt: true, error: { busy: 3 } });
     expect(JobError).toBeDefined();
+  });
+});
+
+describe('E4 review L3: the matrix build gets the job deadline minus the solve share', () => {
+  it('matrixDeadline: claim + timeoutS − timeLimitS − slack; none without a timeout', () => {
+    const startedAt = new Date(1_000_000);
+    // Default job of a 30 s solve: timeoutS 270 → the matrix (queue included) must end 210 s after the claim.
+    expect(matrixDeadline({ startedAt, timeoutS: 270 }, 30)).toBe(1_000_000 + (270 - 30 - SOLVE_SLACK_S) * 1000);
+    expect(matrixDeadline({ startedAt: null, timeoutS: 270 }, 30, 5_000)).toBe(5_000 + 210_000);
+    expect(matrixDeadline({ startedAt, timeoutS: 0 }, 30)).toBeUndefined();
+  });
+
+  it('the runner passes the deadline to the matrix port', async () => {
+    const store = new MemoryJobStore();
+    const queue = new MemoryJobQueue();
+    const plans = new FakePlans();
+    const matrix = new FakeMatrix();
+    const seen: (number | undefined)[] = [];
+    const build = matrix.build.bind(matrix);
+    matrix.build = (p, prof, o) => (seen.push((o as { deadlineAt?: number } | undefined)?.deadlineAt), build(p, prof, o));
+    const w = new RoutingJobWorker(store, queue, new Map([['optimize', optimizeRunner({ plans, matrix, solver: new FakeSolver(), usage: new InMemoryUsageHook() })]]), { leaseMs: 5_000, heartbeatMs: 500, sweepMs: 60_000, republishAfterMs: 60_000, sweepLock: async () => true }, () => plans.release(), Date.now, 'w-l3');
+    const j = await store.create({ companyId: 'company-1', userId: 'user-1', planId: 'plan-1', kind: 'optimize', input: optimizeInput(), idempotencyKey: null, requestHash: null, timeoutS: 245, maxAttempts: 3 });
+    const before = Date.now();
+    expect(await w.process(j.id)).toBe('succeeded');
+    const claimedAt = (await store.get(j.id))!.startedAt!.getTime();
+    expect(claimedAt).toBeGreaterThanOrEqual(before);
+    expect(seen).toEqual([claimedAt + (245 - 5 - SOLVE_SLACK_S) * 1000]); // optimizeInput: timeLimitS 5
+    await w.stop(200);
+    await queue.close();
   });
 });
