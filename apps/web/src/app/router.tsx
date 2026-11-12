@@ -74,6 +74,8 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   etms_dispatch: page(() => import('@/features/transport/dispatch/DispatchPage'), 'DispatchPage'),
   // E4 WP 4.5: route planner (web flag etmsRouting + API ETMS_ROUTING; the page checks both).
   etms_planning: page(() => import('@/features/transport/planning/PlanningPage'), 'PlanningPage'),
+  // E5 WP 5.4: the open SOS lane (acknowledge / resolve).
+  etms_incidents: page(() => import('@/features/transport/incidents/IncidentsPage'), 'IncidentsPage'),
   etms_settings: page(() => import('@/features/transport/TransportSettingsPage'), 'TransportSettingsPage'),
   // E3 WP 3.6: the passenger's own bookings and trips (vehicle only inside the trip window).
   etms_self: page(() => import('@/features/transport/dispatch/MyTransportPage'), 'MyTransportPage'),
