@@ -20,6 +20,14 @@ export const OUTBOX_BATCH = 50;
 export const VALKEY_TIMEOUT_MS = 2_000;
 /** Dispatcher logins pushed per incident (company users holding etms_incidents:view). */
 export const MAX_SOS_RECIPIENTS = 200;
+/**
+ * QA B9: while NO company has the ETMS add-on and nothing is due, the 2 s tick backs off (2 s → 4 → … → 30 s) and
+ * only re-checks (two tiny queries per step). With an ETMS company the poll stays at 2 s (SOS latency ≤ 2 s across API
+ * instances), but an idle tick is one non-transactional EXISTS on the partial pending index instead of BEGIN / SKIP
+ * LOCKED / COMMIT. An SOS raised in this process kicks the relay at once, whatever the back-off.
+ */
+export const RELAY_POLL_MS = 2_000;
+export const RELAY_IDLE_MAX_MS = 30_000;
 
 export interface RelayPassResult {
   claimed: number;
@@ -65,6 +73,11 @@ export class SafetyOutboxRelayService {
   private readonly logger = new Logger('EtmsSafetyRelay');
   private running = false;
   private again = false;
+  /** B9 back-off while no company has ETMS: next company check not before this time; current step. */
+  private idleUntil = 0;
+  private idleStep = RELAY_POLL_MS;
+  /** Tests: the clock. */
+  now: () => number = () => Date.now();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -76,15 +89,31 @@ export class SafetyOutboxRelayService {
     return etmsServerEnabled() && (process.env.ETMS_SOS_RELAY ?? 'on').toLowerCase() !== 'off';
   }
 
-  @Interval(2_000)
-  async tick(): Promise<void> {
+  @Interval(RELAY_POLL_MS)
+  async tick(force = false): Promise<void> {
     if (!this.enabled) return;
     if (this.running) {
       this.again = true;
       return;
     }
+    if (!force && this.now() < this.idleUntil) return;
     this.running = true;
     try {
+      if (!force) {
+        // Rows still due (e.g. the last ETMS company was switched off after an SOS) are relayed in any case.
+        const due = await this.anyDue();
+        if (!due && !(await this.anyEtmsCompany())) {
+          this.idleStep = Math.min(RELAY_IDLE_MAX_MS, this.idleStep * 2);
+          this.idleUntil = this.now() + this.idleStep;
+          return;
+        }
+        this.idleStep = RELAY_POLL_MS;
+        this.idleUntil = 0;
+        if (!due) return;
+      } else {
+        this.idleStep = RELAY_POLL_MS;
+        this.idleUntil = 0;
+      }
       do {
         this.again = false;
         const r = await this.run();
@@ -97,9 +126,23 @@ export class SafetyOutboxRelayService {
     }
   }
 
-  /** Run a pass now (after an SOS commit) instead of waiting for the next tick. Never throws. */
+  /** Run a pass now (after an SOS commit) instead of waiting for the next tick, whatever the back-off. Never throws. */
   kick(): void {
-    setImmediate(() => void this.tick());
+    setImmediate(() => void this.tick(true));
+  }
+
+  /** B9: any active, non-platform company with the ETMS add-on (an SOS can only be raised in one). */
+  private async anyEtmsCompany(): Promise<boolean> {
+    const [r] = await this.prisma.$queryRaw<{ any: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM "Company" WHERE "status" = 'ACTIVE' AND NOT "isPlatform" AND "settings"->'features' @> '["etms"]'::jsonb) AS "any"`;
+    return r?.any === true;
+  }
+
+  /** B9: a due SAFETY row exists (partial pending index; no transaction, no lock). */
+  private async anyDue(): Promise<boolean> {
+    const [r] = await this.prisma.$queryRaw<{ any: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM "OutboxEvent" WHERE "class" = 'SAFETY'::"OutboxClass" AND "publishedAt" IS NULL AND "deadAt" IS NULL AND "availableAt" <= now()) AS "any"`;
+    return r?.any === true;
   }
 
   /** One pass (also called by tests). */
