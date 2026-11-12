@@ -17,9 +17,14 @@
 --   apply; driverId FK CASCADE. No CHECK involves the SET NULL column (15 §1.3).
 -- * Locks / duration: CREATE TABLE + indexes on an empty table; FKs take SHARE ROW EXCLUSIVE on Company /
 --   TrackedObject / Driver / TransportServiceAgreement for milliseconds (no validation scan: the new table is empty).
+--   Security review L5: lock_timeout 5 s, so an ALTER waiting behind a long transaction on TrackedObject (written all
+--   the time by the position processor) fails fast instead of queueing every processor write behind it. A lock
+--   timeout fails the deploy before anything is recorded; rerun release.sh in a quiet window (safe to retry).
+--   Edited in place before its first deployment (never applied anywhere outside test databases).
 --
 -- Rollback (forward-only repo, 15 §9.4): switch off (ETMS / company add-ons); the table stays unused. A full revert needs
 -- owner authorisation and is a forward migration: DROP TABLE "TransportFleetAllocation";
+SET lock_timeout = '5s';
 
 -- CreateTable
 CREATE TABLE "TransportFleetAllocation" (

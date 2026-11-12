@@ -5,6 +5,8 @@
  * Everything runs inside ONE transaction that is always rolled back (savepoints around each rejected row).
  */
 import { PrismaClient } from '@prisma/client';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { dbDescribe } from '../test/scratch-db';
 
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
@@ -16,6 +18,14 @@ d(`etms_fleet_allocation on ${dbName}`, () => {
   jest.setTimeout(60_000);
   const prisma = new PrismaClient({ datasourceUrl: URL_ });
   afterAll(() => prisma.$disconnect());
+
+  it('security review L5: the migration sets lock_timeout before its first ALTER / FK', () => {
+    const sql = readFileSync(join(__dirname, '../../prisma/migrations/20261120100000_etms_fleet_allocation/migration.sql'), 'utf8');
+    const lock = sql.search(/^SET lock_timeout = '5s';\r?$/m);
+    expect(lock).toBeGreaterThan(-1);
+    expect(lock).toBeLessThan(sql.indexOf('CREATE TABLE "TransportFleetAllocation"'));
+    expect(lock).toBeLessThan(sql.indexOf('ADD CONSTRAINT "TransportFleetAllocation_objectId_fkey"'));
+  });
 
   it('creates the documented raw-SQL objects and foreign keys with the planned delete rules', async () => {
     const cons = await prisma.$queryRaw<{ conname: string; contype: string; confdeltype: string }[]>`
