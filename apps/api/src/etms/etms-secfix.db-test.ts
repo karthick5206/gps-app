@@ -7,6 +7,7 @@
  *    SOS gets the quiet "still open since HH:MM" push; nothing still OPEN is dropped.
  *  - L1: a repeat press that links the trip (and so the operator) notifies the operator's dispatchers.
  *  - L4 / QA B6: SOS push recipients follow the incidents lane rule (etms / etmsProvider add-ons, customer ETMS on).
+ *  - L6: retention trims published OutboxEvent rows after 7 days (pending and dead rows stay).
  * Not part of the normal run (testRegex is *.spec.ts):
  *   CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_<name>_test TEST_REDIS_URL=redis://localhost:6379/14 \
  *     npx jest --testRegex 'etms-secfix\.db-test\.ts$' --runInBand
@@ -21,6 +22,7 @@ import { IncidentsController } from './safety/safety.controller';
 import { SosService } from './safety/sos.service';
 import { SafetyOutboxRelayService } from './safety/safety-outbox-relay.service';
 import { SOS_CHANNEL } from './safety/sos-bus';
+import { trimPublishedOutbox } from '../retention/retention.service';
 import type { AuthContext } from '../access/auth-context';
 import { customerContextOf } from '../access/transport-scope';
 
@@ -166,6 +168,30 @@ d(`v1.14.0 security fix round on ${dbName}`, () => {
     expect(lane.items.map((i) => i.id)).toContain(incidentId);
     expect(lane.openCount).toBeGreaterThanOrEqual(1);
     expect((await incidentsCtl.ack(narrowed, incidentId, { note: 'Driver called back' })).status).toBe('ACKNOWLEDGED');
+  });
+
+  it('L6: published outbox rows older than 7 days are trimmed; pending, dead and recent ones stay', async () => {
+    const row = (createdDaysAgo: number, state: 'published' | 'pending' | 'dead') => {
+      const at = new Date(Date.now() - createdDaysAgo * 86_400_000);
+      return prisma.outboxEvent.create({
+        data: { companyId: w.cust, type: 'transport.incident.created', aggregateType: 'incident', aggregateId: id(), class: 'SAFETY', payload: { tag: TAG }, occurredAt: at, createdAt: at, ...(state === 'published' ? { publishedAt: at } : state === 'dead' ? { deadAt: at } : {}) },
+      });
+    };
+    const oldPublished = await row(9, 'published');
+    const recentPublished = await row(2, 'published');
+    const oldPending = await row(30, 'pending');
+    const oldDead = await row(30, 'dead');
+    const cutoff = new Date(Date.now() - 7 * 86_400_000);
+    let n = 0;
+    for (let i = 0; i < 100; i++) {
+      const d = await trimPublishedOutbox(prisma as never, cutoff, 1000);
+      n += d;
+      if (!d) break;
+    }
+    expect(n).toBeGreaterThanOrEqual(1);
+    const left = await prisma.outboxEvent.findMany({ where: { id: { in: [oldPublished.id, recentPublished.id, oldPending.id, oldDead.id] } }, select: { id: true } });
+    expect(left.map((r) => r.id).sort()).toEqual([recentPublished.id, oldPending.id, oldDead.id].sort());
+    await prisma.outboxEvent.deleteMany({ where: { id: { in: [oldPending.id, oldDead.id] } } });
   });
 
   describe('M2: no stale siren replay', () => {
