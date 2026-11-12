@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable, NotFoundException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, NotFoundException, SetMetadata } from '@nestjs/common';
 import { AuthContext, AuthedRequest } from '../access/auth-context';
 import { customerContextOf } from '../access/transport-scope';
 
@@ -11,6 +11,18 @@ export const etmsServerEnabled = (): boolean => (process.env.ETMS ?? '').trim().
  */
 export const etmsRoutingEnabled = (env: NodeJS.ProcessEnv = process.env): boolean =>
   (env.ETMS ?? '').trim().toLowerCase() !== 'off' && (env.ETMS_ROUTING ?? '').trim().toLowerCase() === 'on';
+
+/**
+ * QA B1 (safety): routes that the customer picker must NEVER narrow (the SOS / incident lane, banner, bell and siren):
+ * X-Transport-Customer is ignored there, so a provider dispatcher looking at customer A still gets customer B's SOS.
+ */
+export const IGNORES_TRANSPORT_CUSTOMER = 'etms:ignoresTransportCustomer';
+export const IgnoresTransportCustomer = () => SetMetadata(IGNORES_TRANSPORT_CUSTOMER, true);
+
+function ignoresCustomer(context: ExecutionContext): boolean {
+  const targets = [context.getHandler?.(), context.getClass?.()].filter((t): t is NonNullable<typeof t> => !!t);
+  return targets.some((t) => Reflect.getMetadata(IGNORES_TRANSPORT_CUSTOMER, t) === true);
+}
 
 /**
  * On every ETMS controller (doc 05 §1 "Feature gate"): plain 404 when ETMS is switched off on the server or the acting
@@ -33,7 +45,7 @@ export class TransportFeatureGuard implements CanActivate {
     if (context.getType() !== 'http') return true;
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     if (TransportFeatureGuard.hiddenFor(req.auth)) throw new NotFoundException({ message: 'Not found', code: 'NOT_FOUND' });
-    const narrowed = req.auth ? customerContextOf(req.auth, req.headers?.['x-transport-customer']) : null;
+    const narrowed = req.auth && !ignoresCustomer(context) ? customerContextOf(req.auth, req.headers?.['x-transport-customer']) : null;
     if (narrowed && req.auth) Object.assign(req.auth, narrowed);
     return true;
   }

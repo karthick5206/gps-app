@@ -2,6 +2,7 @@
  * v1.14.0 security / QA fix round on a real, freshly migrated PostgreSQL (synthetic data only, tag sfx-…):
  *  - M1: VeeTrax support (Super Admin) is view only on incidents, needs X-Access-Reason for the detail, and the detail
  *    read lands in the incident's customer company log (like the E1b passenger reads); provider reads too.
+ *  - QA B1: the customer picker (X-Transport-Customer) never narrows the SOS lane.
  * Not part of the normal run (testRegex is *.spec.ts):
  *   CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_<name>_test TEST_REDIS_URL=redis://localhost:6379/14 \
  *     npx jest --testRegex 'etms-secfix\.db-test\.ts$' --runInBand
@@ -14,6 +15,8 @@ import { dbDescribe } from '../test/scratch-db';
 import { IncidentsService } from './safety/incidents.service';
 import { IncidentsController } from './safety/safety.controller';
 import { SosService } from './safety/sos.service';
+import type { AuthContext } from '../access/auth-context';
+import { customerContextOf } from '../access/transport-scope';
 
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
@@ -131,5 +134,15 @@ d(`v1.14.0 security fix round on ${dbName}`, () => {
     expect(prov).toMatchObject({ companyId: w.cust, changes: { what: 'incident-detail', actingCompanyId: w.prov } });
     // The customer's own dispatcher still acknowledges (own log, no acting company).
     expect((await incidentsCtl.ack(custDesk, incidentId, { note: 'Called the rider' })).status).toBe('ACKNOWLEDGED');
+  });
+
+  it('QA B1: a provider dispatcher whose picker shows its own company still sees and acts on the customer SOS', async () => {
+    const incidentId = await providerLinkedSos();
+    const desk = provDesk() as AuthContext;
+    const narrowed = { ...desk, ...customerContextOf(desk, w.prov)! } as never;
+    const lane = await incidentsCtl.list(narrowed, { open: '1' });
+    expect(lane.items.map((i) => i.id)).toContain(incidentId);
+    expect(lane.openCount).toBeGreaterThanOrEqual(1);
+    expect((await incidentsCtl.ack(narrowed, incidentId, { note: 'Driver called back' })).status).toBe('ACKNOWLEDGED');
   });
 });

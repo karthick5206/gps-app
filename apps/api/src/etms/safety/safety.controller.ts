@@ -4,7 +4,7 @@ import type { Response } from 'express';
 import { requireSupportReason } from '../../access/access-reason';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
-import { TransportFeatureGuard } from '../transport-feature.guard';
+import { IgnoresTransportCustomer, TransportFeatureGuard } from '../transport-feature.guard';
 import { IncidentsService } from './incidents.service';
 import { SosService, type SosResult } from './sos.service';
 
@@ -65,6 +65,7 @@ export class DriverSosController {
  */
 @Controller('transport/incidents')
 @UseGuards(TransportFeatureGuard)
+@IgnoresTransportCustomer() // QA B1: an SOS is never hidden by the customer picker
 export class IncidentsController {
   constructor(private readonly incidents: IncidentsService) {}
 

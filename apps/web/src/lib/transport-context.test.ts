@@ -29,6 +29,9 @@ test('headers: customer only on /transport API calls from a transport page; reas
   assert.deepEqual(transportRequestHeaders('/transport/bookings', { pathname: '/live', search: `?customer=${C}` }, null), {});
   assert.deepEqual(transportRequestHeaders('/transport/passengers/abc', { pathname: '/transport/passengers', search: '' }, 'Ticket 12 check'), { 'X-Access-Reason': 'Ticket%2012%20check' });
   assert.deepEqual(transportRequestHeaders('/transport/bookings', null, 'Ticket 12'), {});
+  // QA B1 (safety): a provider dispatcher on ?customer=A still gets every customer's SOS: no customer header on the lane.
+  for (const p of ['/transport/incidents', '/transport/incidents?open=1', '/transport/incidents/abc/ack']) assert.deepEqual(transportRequestHeaders(p, loc, null), {});
+  assert.deepEqual(transportRequestHeaders('/transport/incidents', { pathname: '/transport/dispatch', search: `?customer=${C}` }, null), {});
   assert.equal(isTransportApiPath('/transportation'), false);
   assert.equal(accessReasonApplies('/transport/passengers'), true);
   // M1: an incident detail needs the reason; the (redacted) lane does not.

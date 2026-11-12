@@ -109,7 +109,15 @@ export function notifyState(outbox: { publishedAt: Date | null; deadAt: Date | n
 
 // ───────────────────────────── Visibility (dispatcher side) ─────────────────────────────
 
-type ScopeCtx = Pick<AuthContext, 'companyId' | 'agreements' | 'isSuperAdmin'> & Partial<Pick<AuthContext, 'homeCompanyId'>>;
+type ScopeCtx = Pick<AuthContext, 'companyId' | 'agreements' | 'isSuperAdmin'> & Partial<Pick<AuthContext, 'homeCompanyId' | 'agreementsAll'>>;
+
+/**
+ * QA B1 (safety): incident visibility never follows the E1b customer picker. A context narrowed by X-Transport-Customer
+ * keeps the unnarrowed agreements in `agreementsAll`; the incident rules always use those.
+ */
+function unnarrowed<T extends ScopeCtx>(ctx: T): T {
+  return ctx.agreementsAll ? { ...ctx, agreements: ctx.agreementsAll } : ctx;
+}
 
 /**
  * Who sees an incident (doc 05 §6 "Incident / SOS", doc 10 §2): the company of the raiser always (passenger →
@@ -125,9 +133,9 @@ export function incidentAccess(ctx: ScopeCtx, row: Pick<IncidentRef, 'raiserType
   // or resolves an SOS (the data owner's dispatchers do); reading the detail needs X-Access-Reason (controller).
   if (ctx.isSuperAdmin) {
     if (!ctx.homeCompanyId || ctx.companyId === ctx.homeCompanyId) return 'view';
-    return companyAccess(ctx, row, now) === 'none' ? 'none' : 'view';
+    return companyAccess(unnarrowed(ctx), row, now) === 'none' ? 'none' : 'view';
   }
-  return companyAccess(ctx, row, now);
+  return companyAccess(unnarrowed(ctx), row, now);
 }
 
 /** The acting company's own access: the raiser's side, or the other party through an incident grant. */
@@ -146,7 +154,7 @@ export function incidentListWhere(ctx: ScopeCtx & Pick<AuthContext, 'allCompanie
   // Super Admin on the platform (not switched into a company): every incident (support, view only). Switched: that
   // company's incidents (still view only, see incidentAccess).
   if (ctx.isSuperAdmin && (ctx.allCompanies || ctx.companyId === ctx.homeCompanyId)) return {};
-  const granted = (ctx.agreements ?? [])
+  const granted = (unnarrowed(ctx).agreements ?? [])
     .filter((a) => a.customerCompanyId !== ctx.companyId && a.validFrom <= now && (a.validTo === null || a.validTo > now))
     .filter((a) => a.grants.includes('RECEIVE_INCIDENTS') || a.grants.includes('MANAGE_INCIDENTS'))
     .map((a) => a.customerCompanyId);

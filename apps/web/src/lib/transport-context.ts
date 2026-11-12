@@ -35,12 +35,18 @@ export function withCustomerParam(search: string, customerId: string | null): st
 export function transportRequestHeaders(apiPath: string, location: { pathname: string; search: string } | null, rememberedReason: string | null): Record<string, string> {
   const out: Record<string, string> = {};
   if (!isTransportApiPath(apiPath)) return out;
-  if (location && location.pathname.startsWith('/transport')) {
+  // QA B1 (safety): the SOS / incident calls (lane, banner, bell, siren) are never narrowed by the customer picker.
+  if (location && location.pathname.startsWith('/transport') && !isIncidentApiPath(apiPath)) {
     const customer = customerFromSearch(location.search);
     if (customer) out[TRANSPORT_CUSTOMER_HEADER] = customer;
   }
   if (rememberedReason && accessReasonApplies(apiPath)) out[ACCESS_REASON_HEADER] = encodeURIComponent(rememberedReason);
   return out;
+}
+
+/** The SOS / incident lane API (never narrowed to one customer). */
+export function isIncidentApiPath(path: string): boolean {
+  return path === '/transport/incidents' || path.startsWith('/transport/incidents/') || path.startsWith('/transport/incidents?');
 }
 
 /** Routes that read passenger personal data (the server asks the Super Admin for a reason there). */
