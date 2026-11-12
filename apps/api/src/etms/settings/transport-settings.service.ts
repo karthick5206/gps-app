@@ -13,6 +13,8 @@ export class UpdateTransportSettingsDto {
   @IsOptional() @ValidateIf((_o, v) => v !== null) @Matches(TRANSPORT_DESK_PHONE_RE, { message: 'deskPhone must be a phone number (digits, spaces, + ( ) -)' }) deskPhone?: string | null;
   /** Owner decision 1: company maximum ride time per passenger (seconds, 15 min – 4 h); null clears it (no limit). */
   @IsOptional() @ValidateIf((_o, v) => v !== null) @IsInt() @Min(MAX_RIDE_BOUNDS_S.min) @Max(MAX_RIDE_BOUNDS_S.max) maxRideS?: number | null;
+  /** E5 WP 5.3: passenger self-service (book, commute, places, confirm, report). Default off. */
+  @IsOptional() @IsBoolean() selfBooking?: boolean;
 }
 
 /** Key of `Company.settings` that holds the ETMS company settings (TransportSettingsDto). */
@@ -43,6 +45,10 @@ export class TransportSettingsService {
     if (dto.deskPhone !== undefined) {
       if (dto.deskPhone === null || !dto.deskPhone.trim()) delete after.deskPhone;
       else after.deskPhone = dto.deskPhone.trim();
+    }
+    if (dto.selfBooking !== undefined) {
+      if (dto.selfBooking) after.selfBooking = true;
+      else delete after.selfBooking;
     }
     if (dto.maxRideS !== undefined) {
       if (dto.maxRideS === null) delete after.maxRideS;

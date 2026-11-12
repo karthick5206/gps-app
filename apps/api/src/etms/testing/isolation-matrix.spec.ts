@@ -42,6 +42,8 @@ import { DRIVER_USERS, E5_RESOURCES, e5Ids, seedE5 } from './isolation-matrix-e5
 import { DriverApiService } from '../driver/driver-api.service';
 import { DriverController, MyTransportBookingsController, MyTransportNotificationsController } from '../driver/driver.controller';
 import { MeBookingCancelService } from '../driver/me-booking-cancel.service';
+import { MySelfServiceController } from '../self-service/self-service.controller';
+import { SelfServiceService } from '../self-service/self-service.service';
 import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Target } from './isolation-matrix';
 import { MemoryStore } from './memory-store';
@@ -249,6 +251,7 @@ function e5Controllers(prisma: Obj, audit: AuditService, redis: object, people: 
     driver: new DriverController(new DriverApiService(prisma as never, audit, redis as never, live, notifications), notifications, prisma as never),
     myNotifications: new MyTransportNotificationsController(notifications, people, prisma as never),
     myBookings: new MyTransportBookingsController(new MeBookingCancelService(prisma as never, audit, people, new MeTransportService(prisma as never, people, redis as never), live)),
+    mySelf: new MySelfServiceController(new SelfServiceService(prisma as never, audit, people, new BookingsService(prisma as never, audit, redis as never), new MeTransportService(prisma as never, people, redis as never))),
   };
 }
 
@@ -447,6 +450,8 @@ describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
     for (const c of [PassengersController, MyTransportConsentController, ConsentNoticesController, TransportVehiclesController, DriverLoginController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     // E5 (EtmsDriverModule, imported): 13 driver routes + 4 passenger notification routes + booking self-cancel.
     for (const c of [DriverController, MyTransportNotificationsController, MyTransportBookingsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
+    // E5 WP 5.3 (EtmsSelfServiceModule, imported): 9 passenger self-service routes.
+    expect(ROUTES.filter((r) => r.controller === MySelfServiceController).length).toBe(9);
     expect(ROUTES.filter((r) => r.key.includes(' driver/v1/')).length).toBe(13);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
   });
