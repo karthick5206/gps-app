@@ -1,0 +1,25 @@
+# Passenger journey (doc 08; doc 11 §2.2 E5): commute home → today's trip → trip screen (pickup, ETA, vehicle only
+# inside the window, co-riders never named) → bookings. Needs a passenger login seated on a trip today.
+appId: ${APP_ID || "com.sasvata.veetrax"}
+env:
+  EMAIL: ${PASSENGER_EMAIL}
+  PASSWORD: ${PASSENGER_PASSWORD}
+tags:
+  - etms
+  - passenger
+---
+- runFlow: subflows/login.yaml
+- extendedWaitUntil:
+    visible: "Today"
+    timeout: 30000
+- assertVisible: "VeeTrax does not track your phone. The vehicle is shown only around your trip."
+- assertNotVisible: "No passenger profile"
+- tapOn: "My pickup"
+- extendedWaitUntil:
+    visible: "Estimated pickup"
+    timeout: 15000
+- assertVisible: "Driver"
+- assertVisible: "Call transport desk"
+- back
+- tapOn: "My bookings"
+- assertNotVisible: "No passenger profile"

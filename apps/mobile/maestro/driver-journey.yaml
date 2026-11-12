@@ -1,0 +1,95 @@
+# Driver journey (doc 11 §2.2 E5 "driver duty, start trip, board, …"): duty → acknowledge → start → per-stop
+# arrive / board / leave → drop at the office → complete. Needs a driver login with one trip today (README "Test data")
+# and the vehicle standing still (the in-motion lock hides stop actions while the vehicle GPS reports movement).
+appId: ${APP_ID || "com.sasvata.veetrax"}
+env:
+  EMAIL: ${DRIVER_EMAIL}
+  PASSWORD: ${DRIVER_PASSWORD}
+tags:
+  - etms
+  - driver
+---
+- runFlow: subflows/login.yaml
+- extendedWaitUntil:
+    visible: "Today's trips"
+    timeout: 30000
+- assertVisible: "The vehicle GPS tracks the trip. This app never sends your phone’s location."
+# Duty is online only.
+- runFlow:
+    when:
+      visible: "Start duty"
+    commands:
+      - tapOn: "Start duty"
+- extendedWaitUntil:
+    visible: "End duty"
+    timeout: 15000
+# Open the first trip of today.
+- tapOn:
+    text: ".*stops · .* passengers"
+    index: 0
+- extendedWaitUntil:
+    visible: "Stops"
+    timeout: 15000
+- runFlow:
+    when:
+      visible: "Acknowledge trip"
+    commands:
+      - tapOn: "Acknowledge trip"
+      - extendedWaitUntil:
+          visible: "Acknowledged"
+          timeout: 15000
+- tapOn: "Start trip"
+- assertVisible: "Start trip?"
+- tapOn:
+    text: "Start trip"
+    index: 1
+- extendedWaitUntil:
+    visible: "Arrived at stop"
+    timeout: 20000
+# First pickup: arrive, board every waiting passenger, leave.
+- tapOn: "Arrived at stop"
+- extendedWaitUntil:
+    visible: "Boarded"
+    timeout: 15000
+- repeat:
+    while:
+      visible: "Boarded"
+    commands:
+      - tapOn:
+          text: "Boarded"
+          index: 0
+- tapOn: "Leave the stop"
+# Remaining pickups follow the same pattern; the office stop shows "Dropped" instead.
+- repeat:
+    while:
+      visible: "Arrived at stop"
+    commands:
+      - tapOn: "Arrived at stop"
+      - repeat:
+          while:
+            visible: "Boarded"
+          commands:
+            - tapOn:
+                text: "Boarded"
+                index: 0
+      - repeat:
+          while:
+            visible: "Dropped"
+          commands:
+            - tapOn:
+                text: "Dropped"
+                index: 0
+      - runFlow:
+          when:
+            visible: "Leave the stop"
+          commands:
+            - tapOn: "Leave the stop"
+- tapOn: "Complete trip"
+- assertVisible: "Complete trip?"
+- tapOn:
+    text: "Complete trip"
+    index: 1
+- extendedWaitUntil:
+    visible: "The trip is closed: passenger names and stop points are no longer shown."
+    timeout: 20000
+- assertVisible: "All actions synced"

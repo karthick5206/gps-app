@@ -1,0 +1,17 @@
+# Signs in with e-mail + password. Params: EMAIL, PASSWORD (synthetic accounts only, @example.test).
+appId: ${APP_ID || "com.sasvata.veetrax"}
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Sign in"
+    timeout: 30000
+- tapOn: "Email & password"
+- tapOn: "Email"
+- inputText: ${EMAIL}
+- tapOn: "Password"
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn:
+    text: "Sign in"
+    index: 1
