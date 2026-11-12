@@ -45,6 +45,19 @@ const EVENT_LABEL: Record<string, string> = {
   CANCELLED: 'Trip cancelled',
   NO_SHOW_REVIEW: 'Check: no-show after an arrival the GPS did not confirm',
   OUTCOME_REVIEW: 'Check: boarded or dropped after an arrival the GPS did not confirm',
+  PASSENGER_CONFIRM: 'Passenger confirmed in the app (the driver’s record stays authoritative)',
+  PASSENGER_REPORT: 'Passenger reported a problem',
+};
+/** E5 WP 5.3: reasonCode of a passenger confirmation (PICKUP / DROP) or report (category). */
+const PASSENGER_REASON_LABEL: Record<string, string> = {
+  PICKUP: 'Pickup',
+  DROP: 'Drop',
+  DELAY: 'Delay',
+  MISSED_PICKUP: 'Missed pickup',
+  VEHICLE: 'Vehicle problem',
+  DRIVER_BEHAVIOUR: 'Driver behaviour',
+  ROUTE: 'Route',
+  OTHER: 'Other',
 };
 const SOURCE_LABEL: Record<string, string> = { WEB: 'Dispatcher (web)', DRIVER_APP: 'Driver app', PASSENGER_APP: 'Passenger app', SYSTEM: 'System' };
 const STOP_STATUS_LABEL: Record<string, string> = { PENDING: 'Not reached', ARRIVED: 'Arrived', DEPARTED: 'Departed', SKIPPED: 'Skipped' };
@@ -362,6 +375,7 @@ export function TransportTripDetailPage() {
                       <span className="w-12 shrink-0 text-xs tabular-nums text-muted-foreground">{clock(e.occurredAt)}</span>
                       <span className="min-w-0 flex-1">
                         <span className="font-medium">{t(EVENT_LABEL[e.kind] ?? e.kind)}</span>
+                        {e.reasonCode && e.kind.startsWith('PASSENGER_') && PASSENGER_REASON_LABEL[e.reasonCode] && ` · ${t(PASSENGER_REASON_LABEL[e.reasonCode])}`}
                         {who && ` · ${who}`}
                         {e.stopSeq !== null && ` · ${t('stop {{n}}', { n: e.stopSeq + 1 })}`}
                         <span className="block text-xs text-muted-foreground">

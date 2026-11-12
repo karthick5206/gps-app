@@ -1,6 +1,6 @@
-import type { MeTripDto, MeVehicleDto } from '@veetracer/shared';
-import { Stack } from 'expo-router';
-import { MapPinIcon, PhoneIcon } from 'lucide-react-native';
+import type { MeConfirmKind, MeTripDto, MeVehicleDto } from '@veetracer/shared';
+import { router, Stack } from 'expo-router';
+import { CheckCircle2Icon, FlagIcon, MapPinIcon, PhoneIcon } from 'lucide-react-native';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccessibilityInfo, ActivityIndicator, Linking, ScrollView, View } from 'react-native';
@@ -12,6 +12,36 @@ import { DIRECTION_LABEL, PASSENGER_STATUS_META, TRIP_STATE_META } from '../labe
 import { isNotPassenger, transportErrorText, useMyTrip, useMyVehicle, useNow } from '../passenger-api';
 import { clockIn, distanceKm, hiddenVehicleText, myMapStops, shouldPollVehicle } from '../trip-window';
 import { BigAction, Line, StatusChip, TransportEmpty, TransportMap, useTransportMapStyle, type MapPoint } from '../ui';
+import { canConfirm, canReport, CONFIRM_LABEL, confirmKinds } from '../self-service';
+import { selfServiceErrorText, useAttemptKey, useConfirmRide, useMyPolicy } from '../self-service-api';
+import { SosPanel } from './SosPanel';
+
+/**
+ * E5 WP 5.3 passenger actions on the trip (only while the company has self-service on): confirm pickup / drop (owner
+ * decision P5: a dispute signal, the driver's record stays what the trip shows) and "Report a problem".
+ */
+function SelfServiceActions({ tripId, trip, now }: { tripId: string; trip: MeTripDto; now: number }) {
+  const { t } = useTranslation();
+  const confirm = useConfirmRide(tripId);
+  const [key, renewKey] = useAttemptKey();
+  const kinds = canConfirm(trip, now) ? confirmKinds(trip.myStatus) : [];
+  const send = (kind: MeConfirmKind) => confirm.mutate({ clientEventId: key, kind }, { onSuccess: renewKey });
+  const r = confirm.data;
+  return (
+    <>
+      {kinds.map((k) => (
+        <BigAction key={k} title={t(CONFIRM_LABEL[k])} icon={CheckCircle2Icon} tone="success" disabled={confirm.isPending} onPress={() => send(k)} />
+      ))}
+      {r && (
+        <Card>
+          <Text size="sm">{r.mismatch ? t('Thank you. Your confirmation differs from the driver’s record, so the transport desk will check it.') : t('Thank you. Your confirmation was recorded.')}</Text>
+        </Card>
+      )}
+      {confirm.isError && <ErrorBanner message={selfServiceErrorText(confirm.error, 'confirm')} />}
+      {canReport(trip, now) && <BigAction title={t('Report a problem')} icon={FlagIcon} tone="neutral" onPress={() => router.push(`/commute/report/${tripId}`)} />}
+    </>
+  );
+}
 
 /** Plain-language summary of where the vehicle is (the text equivalent of the map, doc 08 §6.2). */
 function vehicleSentence(t: (k: string, o?: Record<string, unknown>) => string, trip: MeTripDto, v: Extract<MeVehicleDto, { visible: true }>, locale: string): string {
@@ -41,6 +71,7 @@ export function PassengerTripScreen({ id }: { id: string }) {
   const poll = !!trip && active && shouldPollVehicle(trip, now);
   const vehicle = useMyVehicle(id, poll);
   const hasStyle = !!useTransportMapStyle();
+  const policy = useMyPolicy().data;
 
   // Announce status changes to screen readers (status never only by colour, doc 08 §6.2).
   const lastStatus = useRef<string | null>(null);
@@ -96,7 +127,14 @@ export function PassengerTripScreen({ id }: { id: string }) {
         <Line label={t('Other passengers')}>{String(trip.coRiders)}</Line>
       </Card>
 
-      {trip.deskPhone ? (
+      {policy?.selfBooking && <SelfServiceActions tripId={id} trip={trip} now={now} />}
+
+      {policy?.sos ? (
+        <>
+          <SectionTitle>{t('Emergency')}</SectionTitle>
+          <SosPanel enabled tripId={id} deskPhone={trip.deskPhone ?? policy.deskPhone} />
+        </>
+      ) : trip.deskPhone ? (
         <BigAction
           title={t('Call transport desk')}
           icon={PhoneIcon}

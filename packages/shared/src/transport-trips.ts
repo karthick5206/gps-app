@@ -80,6 +80,10 @@ export const TRANSPORT_TRIP_EVENT_KINDS = [
   'NO_SHOW_REVIEW',
   /** SYSTEM, re-check R-3: BOARDED / DROPPED recorded after such an arrival; dispatcher to check. */
   'OUTCOME_REVIEW',
+  /** PASSENGER, E5 WP 5.3: the passenger confirmed pickup / drop in the app (dispute signal only, owner decision P5). */
+  'PASSENGER_CONFIRM',
+  /** PASSENGER, E5 WP 5.3: the passenger reported a delay / missed pickup / concern (reasonCode = category). */
+  'PASSENGER_REPORT',
 ] as const;
 export type TransportTripEventKind = (typeof TRANSPORT_TRIP_EVENT_KINDS)[number];
 export type TransportTripActorType = 'DISPATCHER' | 'DRIVER' | 'PASSENGER' | 'SYSTEM';

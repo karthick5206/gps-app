@@ -14,12 +14,13 @@ import { randomUUID } from 'crypto';
 import type { AuthContext } from '../../access/auth-context';
 import type { DriverController, MyTransportBookingsController, MyTransportNotificationsController } from '../driver/driver.controller';
 import type { DriverSosController, IncidentsController, MySosController } from '../safety/safety.controller';
+import type { MySelfServiceController } from '../self-service/self-service.controller';
 import type { E3Ids, E3World } from './isolation-matrix-e3';
 import type { MatrixRole, RoleTable } from './isolation-matrix';
-import type { MemoryStore } from './memory-store';
+import type { MemoryStore, Obj } from './memory-store';
 
-export type E5Resource = 'driverSelf' | 'driverTrip' | 'myNotifications' | 'myBookingCancel' | 'sosPassenger' | 'sosDriver' | 'incident';
-export const E5_RESOURCES: readonly E5Resource[] = ['driverSelf', 'driverTrip', 'myNotifications', 'myBookingCancel', 'sosPassenger', 'sosDriver', 'incident'];
+export type E5Resource = 'driverSelf' | 'driverTrip' | 'myNotifications' | 'myBookingCancel' | 'sosPassenger' | 'sosDriver' | 'incident' | 'mySelfService' | 'myPlace' | 'mySelfTrip';
+export const E5_RESOURCES: readonly E5Resource[] = ['driverSelf', 'driverTrip', 'myNotifications', 'myBookingCancel', 'sosPassenger', 'sosDriver', 'incident', 'mySelfService', 'myPlace', 'mySelfTrip'];
 
 export interface E5Controllers {
   driver: DriverController;
@@ -29,6 +30,8 @@ export interface E5Controllers {
   mySos: MySosController;
   driverSos: DriverSosController;
   incidents: IncidentsController;
+  /** WP 5.3 passenger self-service. */
+  mySelf: MySelfServiceController;
 }
 
 /** E3 ids + the driver + the WP 5.4 incidents (an OPEN SOS of the company's passenger and one of its driver). */
@@ -172,6 +175,23 @@ const ownNotifications = (userId: (role: MatrixRole) => string) => (result: unkn
 
 const ev = (type: string, seq: number, extra: Record<string, unknown> = {}) => ({ clientEventId: randomUUID(), seq, type, occurredAt: now(), ...extra });
 
+/** WP 5.3: switches the company setting selfBooking on for both companies (default off). */
+const selfOn = (store: MemoryStore) => {
+  for (const c of store.table('company')) if (c.id === 'custA' || c.id === 'custB') c.settings = { ...(c.settings as Obj), etms: { ...((c.settings as { etms?: Obj }).etms ?? {}), selfBooking: true } };
+};
+/** selfOn + one saved place on each company's passenger (id = that company's E3 place id, so `t.place` targets it). */
+const selfOnWithPlaces = (store: MemoryStore, _ids: unknown, w: E5World) => {
+  selfOn(store);
+  for (const side of [w.party, w.other]) {
+    const p = store.table('employeeTransportProfile').find((r) => r.id === side.passenger)!;
+    p.preferences = { places: [{ id: side.place, label: `Saved ${side.passenger.slice(0, 4)}`, lat: 13.07, lng: 80.2, createdAt: now() }] };
+  }
+};
+const onlyOwnPlace = (r: unknown, role: MatrixRole, w: E5World) => {
+  const list = r as { id: string }[];
+  if (list.length !== 1 || list[0].id !== w.party.place) fail(`${role} sees saved places that are not its own: ${JSON.stringify(list)}`);
+};
+
 export const E5_MATRIX: E5Entry[] = [
   { route: 'GET driver/v1/me', resource: 'driverSelf', invoke: (c, ctx) => c.driver.me(ctx), expect: { none: DRV_SELF }, verify: driverClean },
   { route: 'GET driver/v1/duty', resource: 'driverSelf', invoke: (c, ctx) => c.driver.duty(ctx), expect: { none: DRV_SELF }, verify: (r, role, o, i, w) => onlyOwnTrips((r as { trips: unknown }).trips, role, o, i, w, false) },
@@ -303,6 +323,71 @@ export const E5_MATRIX: E5Entry[] = [
     verify: (r, role) => {
       if ((r as IncidentDetail).status !== 'RESOLVED') fail(`${role} resolve did not resolve`);
     },
+  },
+  // ── WP 5.3 passenger self-service (company setting selfBooking switched on for both companies in `selfOn`; the OFF
+  //    default is covered by self-service.spec.ts and etms-self-service.db-test.ts) ──
+  {
+    route: 'GET me/transport/policy',
+    resource: 'mySelfService',
+    prepare: selfOn,
+    invoke: (c, ctx) => c.mySelf.policy(ctx),
+    expect: { none: PAX_SELF },
+    verify: (r, role, _o, _i, w) => {
+      const p = r as { selfBooking: boolean; shifts: { id: string }[]; stops: { id: string }[] };
+      if (!p.selfBooking || p.shifts.some((s) => s.id === w.other.shift) || !p.shifts.some((s) => s.id === w.party.shift)) fail(`${role} policy shows the wrong shifts: ${JSON.stringify(p)}`);
+      if (p.stops.some((s) => s.id === w.other.place || s.id === 'siteB1')) fail(`${role} policy shows another company's place`);
+    },
+  },
+  {
+    route: 'POST me/transport/bookings',
+    resource: 'mySelfService',
+    prepare: selfOn,
+    invoke: (c, ctx, _t, w) => c.mySelf.book(ctx, { serviceDate: w.e3.later, direction: 'IN', shiftId: w.party.shift, place: { kind: 'HOME' } } as never, randomUUID()),
+    expect: { none: PAX_SELF },
+    verify: (r, role) => {
+      if ((r as { status: string }).status !== 'PENDING_ASSIGNMENT') fail(`${role} self-booking not created: ${JSON.stringify(r)}`);
+    },
+  },
+  {
+    route: 'GET me/transport/schedule',
+    resource: 'mySelfService',
+    prepare: selfOn,
+    invoke: (c, ctx) => c.mySelf.commute(ctx),
+    expect: { none: PAX_SELF },
+    verify: (r, role, _o, _i, w) => {
+      const text = JSON.stringify(r);
+      for (const id of [w.other.schedule, w.other.booking, w.other.seatedBooking]) if (text.includes(id)) fail(`${role} commute shows another company's row ${id}`);
+      if (!text.includes(w.party.schedule)) fail(`${role} commute misses its own schedule`);
+    },
+  },
+  { route: 'GET me/transport/places', resource: 'mySelfService', prepare: selfOnWithPlaces, invoke: (c, ctx) => c.mySelf.places(ctx), expect: { none: PAX_SELF }, verify: (r, role, _o, _i, w) => onlyOwnPlace(r, role, w) },
+  { route: 'POST me/transport/places', resource: 'mySelfService', prepare: selfOn, invoke: (c, ctx) => c.mySelf.addPlace(ctx, { label: 'Gym', lat: 13.07, lng: 80.2 }), expect: { none: PAX_SELF } },
+  {
+    route: 'PATCH me/transport/places/:id',
+    resource: 'myPlace',
+    prepare: selfOnWithPlaces,
+    invoke: (c, ctx, t) => c.mySelf.updatePlace(ctx, t.place, { label: 'Renamed' }),
+    // Saved places live on the passenger's own profile: custB's place is 404 for custA's passenger.
+    expect: { party: PAX_SELF, other: T({ customerPassenger: 404 }, PAX_SELF) },
+  },
+  { route: 'DELETE me/transport/places/:id', resource: 'myPlace', prepare: selfOnWithPlaces, invoke: (c, ctx, t) => c.mySelf.deletePlace(ctx, t.place), expect: { party: PAX_SELF, other: T({ customerPassenger: 404 }, PAX_SELF) } },
+  {
+    route: 'POST me/transport/trips/:id/confirm',
+    resource: 'mySelfTrip',
+    prepare: (s, i, w) => (selfOn(s), startable(s, i, w)),
+    invoke: (c, ctx, t) => c.mySelf.confirm(ctx, t.trip, { clientEventId: randomUUID(), kind: 'PICKUP' }),
+    expect: { party: PAX_SELF, other: T({ customerPassenger: 404 }, PAX_SELF) },
+    verify: (r, role) => {
+      const x = r as { outcome: string; myStatus: string };
+      if (x.outcome !== 'ACCEPTED' || x.myStatus !== 'PENDING') fail(`${role} confirm changed or lost the seat: ${JSON.stringify(x)}`);
+    },
+  },
+  {
+    route: 'POST me/transport/trips/:id/reports',
+    resource: 'mySelfTrip',
+    prepare: (s, i, w) => (selfOn(s), startable(s, i, w)),
+    invoke: (c, ctx, t) => c.mySelf.report(ctx, t.trip, { clientEventId: randomUUID(), category: 'DELAY', note: 'Late' }),
+    expect: { party: PAX_SELF, other: T({ customerPassenger: 404 }, PAX_SELF) },
   },
 ];
 

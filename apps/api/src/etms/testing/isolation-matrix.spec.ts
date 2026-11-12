@@ -45,6 +45,8 @@ import { IncidentsService } from '../safety/incidents.service';
 import { DriverSosController, IncidentsController, MySosController } from '../safety/safety.controller';
 import { SosService } from '../safety/sos.service';
 import { MeBookingCancelService } from '../driver/me-booking-cancel.service';
+import { MySelfServiceController } from '../self-service/self-service.controller';
+import { SelfServiceService } from '../self-service/self-service.service';
 import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Target } from './isolation-matrix';
 import { MemoryStore } from './memory-store';
@@ -256,6 +258,7 @@ function e5Controllers(prisma: Obj, audit: AuditService, redis: object, people: 
     mySos: new MySosController(new SosService(prisma as never)),
     driverSos: new DriverSosController(new SosService(prisma as never)),
     incidents: new IncidentsController(new IncidentsService(prisma as never, audit)),
+    mySelf: new MySelfServiceController(new SelfServiceService(prisma as never, audit, people, new BookingsService(prisma as never, audit, redis as never), new MeTransportService(prisma as never, people, redis as never))),
   };
 }
 
@@ -456,6 +459,9 @@ describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
     for (const c of [DriverController, MyTransportNotificationsController, MyTransportBookingsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     // WP 5.4 (EtmsSafetyModule, imported): passenger SOS (2), driver SOS (2), dispatcher incidents (4).
     for (const c of [MySosController, DriverSosController, IncidentsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
+    // E5 WP 5.3 (EtmsSelfServiceModule, imported): 9 passenger self-service routes.
+    expect(ROUTES.filter((r) => r.controller === MySelfServiceController).length).toBe(9);
+    // 13 E5 driver routes + 2 driver SOS routes (WP 5.4).
     expect(ROUTES.filter((r) => r.key.includes(' driver/v1/')).length).toBe(15);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
   });

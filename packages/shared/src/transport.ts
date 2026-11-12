@@ -156,6 +156,11 @@ export interface TransportSettingsDto {
    * no limit. Snapshotted into a plan at optimise time unless the plan has an authorised override.
    */
   maxRideS?: number;
+  /**
+   * E5 WP 5.3: passengers may book, view their commute, keep saved places, confirm a ride and report an issue in the app
+   * (`/api/me/transport/*` self-service). Default OFF; present only when switched on.
+   */
+  selfBooking?: boolean;
 }
 
 export interface UpdateTransportSettingsInput {
@@ -164,6 +169,8 @@ export interface UpdateTransportSettingsInput {
   deskPhone?: string | null;
   /** Seconds within MAX_RIDE_BOUNDS_S; null clears it (no limit). */
   maxRideS?: number | null;
+  /** E5 WP 5.3: passenger self-service on / off. */
+  selfBooking?: boolean;
 }
 
 /** Accepted range of a maximum ride time (company policy and per-plan override): 15 min – 4 h, whole seconds. */
@@ -179,7 +186,7 @@ export function transportSettingsOf(settings: unknown): TransportSettingsDto {
   const s = typeof settings === 'object' && settings !== null && !Array.isArray(settings) ? (settings as Record<string, unknown>).etms : undefined;
   const etms = typeof s === 'object' && s !== null && !Array.isArray(s) ? (s as Record<string, unknown>) : {};
   const phone = typeof etms.deskPhone === 'string' && etms.deskPhone.trim() ? etms.deskPhone.trim() : null;
-  return { directoryListed: etms.directoryListed === true, ...(phone ? { deskPhone: phone } : {}), ...(isMaxRideS(etms.maxRideS) ? { maxRideS: etms.maxRideS } : {}) };
+  return { directoryListed: etms.directoryListed === true, ...(phone ? { deskPhone: phone } : {}), ...(isMaxRideS(etms.maxRideS) ? { maxRideS: etms.maxRideS } : {}), ...(etms.selfBooking === true ? { selfBooking: true } : {}) };
 }
 
 /**
