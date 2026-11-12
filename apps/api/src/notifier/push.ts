@@ -2,9 +2,13 @@
  * Mobile push via the Expo push service (https://docs.expo.dev/push-notifications/sending-notifications/).
  * Expo relays to FCM (Android) and APNs (iOS) with the credentials configured for the app in EAS, so the server
  * needs no Firebase/Apple keys. Optional EXPO_ACCESS_TOKEN enables "enhanced push security" on the Expo project.
- * PUSH_PROVIDER=none disables sending (pushes are logged as SKIPPED).
+ * PUSH_PROVIDER=none disables sending (pushes are logged as SKIPPED). PUSH_PROVIDER=fake (tests only, refused in
+ * production) records the messages in a local file instead of sending them.
  */
 
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { dirname, resolve } from 'node:path';
 import { isEmergencyAlert } from '@veetracer/shared';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -108,6 +112,31 @@ export class DisabledPushProvider implements PushProvider {
   }
 }
 
-export function createPushProvider(): PushProvider {
-  return (process.env.PUSH_PROVIDER ?? 'expo').toLowerCase() === 'none' ? new DisabledPushProvider() : new ExpoPushProvider();
+/**
+ * Test provider (PUSH_PROVIDER=fake; E5 WP 5.5 harness): nothing leaves the machine. Each message is appended as one
+ * JSON line ({ at, tokens, title, body, data, channelId, ticketIds }) to PUSH_FAKE_LOG (default var/push/push.log) and
+ * reported as accepted with a synthetic `fake-…` ticket id, so the notifier's SENT path and the push payload can be
+ * asserted. A token containing `Unregistered` is answered DeviceNotRegistered (the token clean-up path).
+ */
+export class FakePushProvider implements PushProvider {
+  readonly name = 'fake';
+  readonly enabled = true;
+  constructor(private readonly file: string = resolve(process.env.PUSH_FAKE_LOG || 'var/push/push.log')) {}
+
+  send(tokens: string[], m: PushMessage): Promise<PushResult> {
+    const invalidTokens = tokens.filter((t) => t.includes('Unregistered'));
+    const ok = tokens.filter((t) => !invalidTokens.includes(t));
+    const ticketIds = ok.map(() => `fake-${randomUUID()}`);
+    mkdirSync(dirname(this.file), { recursive: true });
+    appendFileSync(this.file, `${JSON.stringify({ at: new Date().toISOString(), tokens: ok, title: m.title, body: m.body, data: m.data ?? {}, channelId: m.channelId ?? 'alerts', ticketIds })}\n`);
+    return Promise.resolve({ sent: ok.length, invalidTokens, error: null, ticketIds });
+  }
+}
+
+/** PUSH_PROVIDER: expo (default) | none | fake. `fake` is refused in production: pushes are then SKIPPED, never faked. */
+export function createPushProvider(env: NodeJS.ProcessEnv = process.env): PushProvider {
+  const name = (env.PUSH_PROVIDER ?? 'expo').toLowerCase();
+  if (name === 'none') return new DisabledPushProvider();
+  if (name === 'fake') return env.NODE_ENV === 'production' ? new DisabledPushProvider() : new FakePushProvider();
+  return new ExpoPushProvider();
 }

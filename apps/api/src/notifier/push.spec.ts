@@ -1,4 +1,32 @@
-import { createPushProvider, ExpoPushProvider, pushStyle } from './push';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createPushProvider, DisabledPushProvider, ExpoPushProvider, FakePushProvider, pushStyle } from './push';
+
+describe('FakePushProvider (PUSH_PROVIDER=fake, tests only)', () => {
+  it('records the message locally, never calls fetch, and answers like Expo', async () => {
+    const realFetch = global.fetch;
+    global.fetch = jest.fn() as typeof fetch;
+    try {
+      const file = join(mkdtempSync(join(tmpdir(), 'fakepush-')), 'push.log');
+      const res = await new FakePushProvider(file).send(['ExponentPushToken[aaaaaaaaaa]', 'ExponentPushToken[Unregistered1]'], { title: 't', body: 'b', data: { kind: 'TRIP_ASSIGNED' }, channelId: 'trip' });
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(res.sent).toBe(1);
+      expect(res.invalidTokens).toEqual(['ExponentPushToken[Unregistered1]']);
+      expect(res.ticketIds?.[0]).toMatch(/^fake-/);
+      const line = JSON.parse(readFileSync(file, 'utf8').trim()) as { tokens: string[]; data: unknown; channelId: string };
+      expect(line).toMatchObject({ tokens: ['ExponentPushToken[aaaaaaaaaa]'], data: { kind: 'TRIP_ASSIGNED' }, channelId: 'trip' });
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('is selected by PUSH_PROVIDER=fake outside production only', () => {
+    expect(createPushProvider({ PUSH_PROVIDER: 'fake', NODE_ENV: 'test' })).toBeInstanceOf(FakePushProvider);
+    expect(createPushProvider({ PUSH_PROVIDER: 'fake', NODE_ENV: 'production' })).toBeInstanceOf(DisabledPushProvider);
+    expect(createPushProvider({})).toBeInstanceOf(ExpoPushProvider);
+  });
+});
 
 describe('ExpoPushProvider', () => {
   const realFetch = global.fetch;
