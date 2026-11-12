@@ -29,6 +29,15 @@ export function syncServerUrl(): Promise<void> {
   return serverReady;
 }
 
+/** Demo server ("Demo account" on the activation screen); live is BUILD_SERVER_URL. */
+export const DEMO_SERVER_URL = (process.env.EXPO_PUBLIC_DEMO_SERVER_URL || 'https://gps.mintplus.co.in').replace(/\/+$/, '');
+
+/** Switches between the live and demo server. Only offered before activation (the token belongs to one server). */
+export async function setDemoServer(demo: boolean): Promise<void> {
+  await syncServerUrl();
+  noteServerUrl(await Tracker.setServerUrl(demo ? DEMO_SERVER_URL : BUILD_SERVER_URL));
+}
+
 const apiBase = () => `${serverUrl}/api/tracker/v1`;
 
 export interface TrackerConfig {

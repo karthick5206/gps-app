@@ -16,7 +16,7 @@ import { useRealtimeStatus } from '@/features/live/use-live';
 import { pushStatus } from '@/features/notifications/push';
 import { LanguageChips } from '@/components/LanguageChips';
 import { ALL_COMPANIES, PLAY_STORE } from '@veetracer/shared';
-import { SERVER_URL } from '@/lib/config';
+import { useDemoServer, useServerUrl } from '@/lib/config';
 import { useVoiceAlerts, voiceAlerts } from '@/features/notifications/voice';
 import { SPACE, useColors } from '@/lib/theme';
 
@@ -48,6 +48,8 @@ const CONNECTION_LABEL = { idle: 'Not connected', connecting: 'Connecting…', c
 
 export default function MoreScreen() {
   const c = useColors();
+  const server = useServerUrl();
+  const demoServer = useDemoServer();
   const { t } = useTranslation();
   const { me, signOut, can, companyId } = useAuth();
   const connection = useRealtimeStatus();
@@ -141,7 +143,7 @@ export default function MoreScreen() {
         {/* Opens VeeTrax Tracker (its veetrax-tracker:// scheme), else the download page. */}
         <MenuItem icon={SmartphoneIcon} label={t('Track this phone')} onPress={() => Linking.openURL('veetrax-tracker://').catch(() => Linking.openURL(PLAY_STORE.tracker).catch(() => undefined))} />
         {/* Public web page (same content as the PDF emailed on sign-up). */}
-        <MenuItem icon={BookOpenIcon} label={t('Getting-started guide')} url={`${SERVER_URL}/guide`} />
+        <MenuItem icon={BookOpenIcon} label={t('Getting-started guide')} url={`${server}/guide`} />
       </MenuGroup>
 
       <SectionTitle>{t('Account')}</SectionTitle>
@@ -176,7 +178,7 @@ export default function MoreScreen() {
           value={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <ServerIcon size={14} color={c.mutedForeground} />
-              <Text size="sm">{SERVER_URL.replace(/^https?:\/\//, '')}</Text>
+              <Text size="sm">{demoServer ? t('Demo server') : server.replace(/^https?:\/\//, '')}</Text>
             </View>
           }
         />

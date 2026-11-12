@@ -11,7 +11,7 @@ import { useAuth } from '@/features/auth/auth';
 import { HALF_DAY, hours, OUTING_WORDS, STATUS, time } from '@/features/attendance/attendance-format';
 import { useAddress } from '@/features/geocoding/use-address';
 import { api, errorMessage } from '@/lib/api';
-import { API_URL } from '@/lib/config';
+import { apiUrl } from '@/lib/config';
 import { session } from '@/lib/session';
 import { SPACE, useColors } from '@/lib/theme';
 
@@ -57,7 +57,7 @@ function Selfie({ r }: { r: AttendanceRowDto }) {
   return (
     <View style={[styles.selfie, { backgroundColor: c.muted }]}>
       <Image
-        source={{ uri: `${API_URL}/attendance/selfie?objectId=${r.objectId}&day=${r.day}`, headers }}
+        source={{ uri: `${apiUrl()}/attendance/selfie?objectId=${r.objectId}&day=${r.day}`, headers }}
         accessibilityLabel={t('Check-in selfie')}
         resizeMode="cover"
         onError={() => setFailed(true)}
@@ -82,7 +82,7 @@ function CheckInVideo({ r }: { r: AttendanceRowDto }) {
   const token = session.getAccessToken();
   const company = session.getCompanyId();
   const headers: Record<string, string> = { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(company ? { 'X-Company-Id': company } : {}) };
-  const player = useVideoPlayer({ uri: `${API_URL}/attendance/video?objectId=${r.objectId}&day=${r.day}`, headers }, (p) => {
+  const player = useVideoPlayer({ uri: `${apiUrl()}/attendance/video?objectId=${r.objectId}&day=${r.day}`, headers }, (p) => {
     p.muted = true;
   });
   return (

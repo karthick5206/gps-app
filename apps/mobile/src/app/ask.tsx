@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Card, Text } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
-import { SERVER_URL } from '@/lib/config';
+import { serverUrl } from '@/lib/config';
 import { formatDateTime } from '@/lib/format';
 import { useBottomInset } from '@/lib/keyboard';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
@@ -65,7 +65,7 @@ export default function AskScreen() {
             {t('Ask about your vehicles in plain words. To speak, tap the microphone on your keyboard.')}
           </Text>
         </View>
-        <Pressable onPress={() => void WebBrowser.openBrowserAsync(`${SERVER_URL}/guide#ask`)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Pressable onPress={() => void WebBrowser.openBrowserAsync(`${serverUrl()}/guide#ask`)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <BookOpenIcon size={16} color={c.primary} />
           <Text size="sm" weight="600" style={{ color: c.primary }}>
             {t('How to ask')}

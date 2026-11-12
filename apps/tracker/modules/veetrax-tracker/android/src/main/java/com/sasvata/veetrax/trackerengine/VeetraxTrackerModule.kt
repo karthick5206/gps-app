@@ -82,6 +82,12 @@ class VeetraxTrackerModule : Module() {
       prefs.serverUrl
     }
 
+    /** Activation screen "Demo account" (live / demo server), before activation. Kept through deactivation (Prefs.clear). */
+    AsyncFunction("setServerUrl") { url: String ->
+      if (url.isNotBlank()) engine.prefs.serverUrl = url
+      engine.prefs.serverUrl
+    }
+
     /** Stores the token (after activation) without starting tracking. */
     AsyncFunction("setCredentials") { token: String, serverUrl: String? ->
       engine.prefs.token = token
