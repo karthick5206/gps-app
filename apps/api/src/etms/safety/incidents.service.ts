@@ -13,7 +13,9 @@ import {
   type IncidentResolution,
   type IncidentStatus,
 } from '@veetracer/shared';
+import { hasPermission } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
+import { requireSupportReason } from '../../access/access-reason';
 import { transportNotFound } from '../../access/transport-scope';
 import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -21,9 +23,16 @@ import { SafetyOutboxRelayService } from './safety-outbox-relay.service';
 import { cleanNote, fixStale, incidentAccess, incidentListWhere, isResolution, notifyState, shortName, type IncidentAccess } from './sos-rules';
 
 export const INCIDENT_ENTITY = 'TransportIncident';
+/** `what` of the incident detail ACCESS audit entry (labelled in the customer's sensitive-access log). */
+export const INCIDENT_READ = 'incident-detail';
 const LIST_MAX = 100;
 
 type Row = Prisma.TransportIncidentGetPayload<object>;
+
+/** The data owner of an incident (whose sensitive-access log records its reads): the customer, else the operator. */
+function incidentOwner(ctx: Pick<AuthContext, 'companyId'>, row: Pick<Row, 'customerCompanyId' | 'providerCompanyId'>): string {
+  return row.customerCompanyId ?? row.providerCompanyId ?? ctx.companyId;
+}
 
 /**
  * Dispatcher side of the durable SOS (doc 05 §2.10; WP 5.4): the open SOS lane (list, polled every 15 s while the socket
@@ -56,13 +65,20 @@ export class IncidentsService {
     return { items, openCount };
   }
 
-  async detail(ctx: AuthContext, id: string): Promise<IncidentDetail> {
+  /**
+   * Detail with the history. Security review M1: the read is audited in the data owner's log (the incident's customer
+   * company, else the operator), like the E1b passenger reads, so a customer sees in its sensitive-access log when its
+   * provider or VeeTrax support opened one of its SOS; the Super Admin must give a reason (controller), logged here.
+   */
+  async detail(ctx: AuthContext, id: string, access: { reasonHeader?: string } = {}): Promise<IncidentDetail> {
     const { row } = await this.load(ctx, id, 'view');
-    const [item] = await this.items(ctx, [row]);
+    // M1 + L8: VeeTrax support gives a reason; the 400 names the data owner so the web remembers it per company.
+    const reason = requireSupportReason(ctx, access.reasonHeader, incidentOwner(ctx, row));
+    const [item] = await this.items(ctx, [row], { full: true });
     const events = await this.prisma.transportIncidentEvent.findMany({ where: { incidentId: row.id }, orderBy: { at: 'asc' }, take: 200 });
     const actors = await this.names(events.map((e) => e.actorUserId));
     // Reading an incident with its location and raiser is a sensitive read (doc 05 §6 audit row).
-    await this.audit.record(ctx, { action: 'ACCESS', entity: INCIDENT_ENTITY, entityId: row.id, details: { read: 'incident detail' } });
+    await this.auditRead(ctx, row, reason);
     return {
       ...item!,
       note: row.note,
@@ -74,7 +90,7 @@ export class IncidentsService {
           id: e.id,
           kind: e.kind as IncidentEventKind,
           at: e.at.toISOString(),
-          actorLabel: e.actorType === 'SYSTEM' ? null : e.actorUserId ? this.label(ctx, row, actors.get(e.actorUserId) ?? null) : null,
+          actorLabel: e.actorType === 'SYSTEM' ? null : e.actorUserId ? this.label(ctx, row, actors.get(e.actorUserId) ?? null, true) : null,
           note: e.kind === 'ACKNOWLEDGED' || e.kind === 'RESOLVED' || e.kind === 'REPEATED' ? e.note : null,
           ...(e.kind === 'RESOLVED' && (e.data as { resolution?: IncidentResolution } | null)?.resolution ? { resolution: (e.data as { resolution: IncidentResolution }).resolution } : {}),
         })),
@@ -131,16 +147,36 @@ export class IncidentsService {
     this.relay?.kick();
   }
 
+  private async auditRead(ctx: AuthContext, row: Row, reason: string | null): Promise<void> {
+    const owner = incidentOwner(ctx, row);
+    const details = {
+      what: INCIDENT_READ,
+      ...(owner !== ctx.companyId ? { actingCompanyId: ctx.companyId } : {}),
+      ...(ctx.isSuperAdmin ? { superAdmin: true } : {}),
+      ...(reason ? { reason: reason.slice(0, 300) } : {}),
+    };
+    const entry = { action: 'ACCESS' as const, entity: INCIDENT_ENTITY, entityId: row.id, details };
+    if (owner === ctx.companyId) await this.audit.record(ctx, entry);
+    else await this.audit.recordSystem({ companyId: owner, userId: ctx.userId, ip: ctx.ip }, entry);
+  }
+
   /** The row if the caller may see it (404 otherwise); `manage` needs edit rights on it (403 FORBIDDEN_GRANT). */
   private async load(ctx: AuthContext, id: string, need: 'view' | 'manage'): Promise<{ row: Row; access: IncidentAccess }> {
     const row = await this.prisma.transportIncident.findUnique({ where: { id } });
     const access = row ? incidentAccess(ctx, row) : 'none';
     if (!row || access === 'none') throw transportNotFound();
-    if (need === 'manage' && access !== 'manage') throw new ForbiddenException({ message: 'Your agreement with this customer allows viewing incidents only', code: 'FORBIDDEN_GRANT' });
+    if (need === 'manage' && access !== 'manage') {
+      if (ctx.isSuperAdmin) throw new ForbiddenException({ message: "VeeTrax support can view incidents but not act on them; the company's dispatchers acknowledge and resolve", code: 'FORBIDDEN_GRANT' });
+      throw new ForbiddenException({ message: 'Your agreement with this customer allows viewing incidents only', code: 'FORBIDDEN_GRANT' });
+    }
     return { row, access };
   }
 
-  private async items(ctx: AuthContext, rows: Row[]): Promise<IncidentListItem[]> {
+  /**
+   * List items. `full`: the detail read (audited). In the lane (not audited) VeeTrax support sees the short name and no
+   * location (M1): the full raiser and the location are behind the reasoned, audited detail.
+   */
+  private async items(ctx: AuthContext, rows: Row[], opts: { full: boolean } = { full: false }): Promise<IncidentListItem[]> {
     if (!rows.length) return [];
     const ids = rows.map((r) => r.id);
     const [outbox, profiles, drivers, users] = await Promise.all([
@@ -151,11 +187,13 @@ export class IncidentsService {
     ]);
     const ob = new Map(outbox.map((o) => [o.aggregateId, o]));
     const prof = new Map(profiles.map((p) => [p.id, p]));
+    const canEdit = hasPermission(ctx, 'etms_incidents', 'edit');
     const drv = new Map(drivers.map((d) => [d.id, d]));
     return rows.map((r) => {
       const p = r.raiserProfileId ? prof.get(r.raiserProfileId) : undefined;
       const d = r.raiserDriverId ? drv.get(r.raiserDriverId) : undefined;
-      const own = this.ownSide(ctx, r);
+      const own = this.ownSide(ctx, r, opts.full);
+      const redactFix = ctx.isSuperAdmin && !opts.full;
       const raiserLabel = r.anonymisedAt ? '—' : p ? (own ? `${p.displayName} (${p.employeeCode})` : shortName(p.displayName)) : d ? (own ? d.name : shortName(d.name)) : '—';
       return {
         id: r.id,
@@ -168,25 +206,28 @@ export class IncidentsService {
         vehiclePlate: r.vehicleLabel,
         raisedAt: r.raisedAt.toISOString(),
         receivedAt: r.receivedAt.toISOString(),
-        lastFix: r.fixLat !== null && r.fixLng !== null && r.fixAt ? { lat: r.fixLat, lng: r.fixLng, ...(r.fixAccuracyM !== null ? { accuracyM: r.fixAccuracyM } : {}), at: r.fixAt.toISOString(), stale: fixStale(r.fixAt, r.receivedAt) } : null,
+        lastFix: !redactFix && r.fixLat !== null && r.fixLng !== null && r.fixAt ? { lat: r.fixLat, lng: r.fixLng, ...(r.fixAccuracyM !== null ? { accuracyM: r.fixAccuracyM } : {}), at: r.fixAt.toISOString(), stale: fixStale(r.fixAt, r.receivedAt) } : null,
         repeatCount: r.repeatCount,
         notify: notifyState(ob.get(r.id)),
         acknowledgedAt: r.acknowledgedAt?.toISOString() ?? null,
-        acknowledgedBy: r.acknowledgedByUserId ? this.label(ctx, r, users.get(r.acknowledgedByUserId) ?? null) : null,
+        acknowledgedBy: r.acknowledgedByUserId ? this.label(ctx, r, users.get(r.acknowledgedByUserId) ?? null, opts.full) : null,
         resolvedAt: r.resolvedAt?.toISOString() ?? null,
+        canAct: canEdit && incidentAccess(ctx, r) === 'manage',
       };
     });
   }
 
   /** The caller's company is the raiser's own company (full names) — otherwise agreement view (short names). */
-  private ownSide(ctx: AuthContext, r: Pick<Row, 'raiserType' | 'providerCompanyId' | 'customerCompanyId'>): boolean {
+  private ownSide(ctx: AuthContext, r: Pick<Row, 'raiserType' | 'providerCompanyId' | 'customerCompanyId'>, full: boolean): boolean {
+    // VeeTrax support: full names only in the reasoned, audited detail (M1), whichever company it switched into.
+    if (ctx.isSuperAdmin) return full;
     const raiserCompany = r.raiserType === 'DRIVER' ? r.providerCompanyId : r.customerCompanyId;
-    return raiserCompany === ctx.companyId || (ctx.isSuperAdmin && ctx.companyId === ctx.homeCompanyId);
+    return raiserCompany === ctx.companyId;
   }
 
-  private label(ctx: AuthContext, r: Row, name: string | null): string | null {
+  private label(ctx: AuthContext, r: Row, name: string | null, full: boolean): string | null {
     if (!name) return null;
-    return this.ownSide(ctx, r) ? name : shortName(name);
+    return this.ownSide(ctx, r, full) ? name : shortName(name);
   }
 
   private async names(ids: (string | null)[]): Promise<Map<string, string>> {

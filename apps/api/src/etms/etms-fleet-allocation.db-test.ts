@@ -5,6 +5,8 @@
  * Everything runs inside ONE transaction that is always rolled back (savepoints around each rejected row).
  */
 import { PrismaClient } from '@prisma/client';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { dbDescribe } from '../test/scratch-db';
 
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
@@ -16,6 +18,56 @@ d(`etms_fleet_allocation on ${dbName}`, () => {
   jest.setTimeout(60_000);
   const prisma = new PrismaClient({ datasourceUrl: URL_ });
   afterAll(() => prisma.$disconnect());
+
+  it('security review L5: the migration sets lock_timeout before its first ALTER / FK', () => {
+    const sql = readFileSync(join(__dirname, '../../prisma/migrations/20261120100000_etms_fleet_allocation/migration.sql'), 'utf8');
+    const lock = sql.search(/^SET lock_timeout = '5s';\r?$/m);
+    expect(lock).toBeGreaterThan(-1);
+    expect(lock).toBeLessThan(sql.indexOf('CREATE TABLE "TransportFleetAllocation"'));
+    expect(lock).toBeLessThan(sql.indexOf('ADD CONSTRAINT "TransportFleetAllocation_objectId_fkey"'));
+  });
+
+  it('QA B3: the upgrade backfill gives etmsProvider to providers of non-ENDED agreements only; idempotent; settings kept', async () => {
+    const sql = readFileSync(join(__dirname, '../../prisma/migrations/20261120100000_etms_fleet_allocation/migration.sql'), 'utf8');
+    const block = /-- ETMS-E1B-PROVIDER-BACKFILL-BEGIN[\s\S]*-- ETMS-E1B-PROVIDER-BACKFILL-END/.exec(sql)![0].replace(/^\s*--.*$/gm, '').trim();
+    const settingsAfter: Record<string, unknown> = {};
+    await prisma
+      .$transaction(async (tx) => {
+        const [partner] = await tx.$queryRaw<{ id: string }[]>`INSERT INTO "Partner" (id, name, slug, "updatedAt") VALUES (gen_random_uuid(), 'etms-b3 partner', 'etms-b3-' || gen_random_uuid(), now()) RETURNING id`;
+        const company = async (n: string, settings: string) =>
+          (await tx.$queryRawUnsafe<{ id: string }[]>(`INSERT INTO "Company" (id, "partnerId", name, settings, "updatedAt") VALUES (gen_random_uuid(), '${partner.id}', 'etms-b3 ${n}', '${settings}', now()) RETURNING id`))[0].id;
+        const cust = await company('customer', '{"features":["etms"]}');
+        const ids = {
+          active: await company('active provider', '{"features":["etms"],"timezoneNote":"kept"}'),
+          suspended: await company('suspended provider', '{}'),
+          ended: await company('ended-only provider', '{"features":["etms"]}'),
+          already: await company('already provider', '{"features":["etms","etmsProvider"]}'),
+          odd: await company('odd settings', '{"features":"etms"}'),
+          none: await company('no agreement', '{"features":["etms"]}'),
+        };
+        const agreement = (p: string, status: string) =>
+          tx.$executeRawUnsafe(`INSERT INTO "TransportServiceAgreement" (id, "providerCompanyId", "customerCompanyId", status, "validFrom", "approvedByCustomerAt", "approvedByProviderAt", "endedAt", "updatedAt") VALUES (gen_random_uuid(), '${p}', '${cust}', '${status}', now(), now(), now(), ${status === 'ENDED' ? 'now()' : 'NULL'}, now())`);
+        await agreement(ids.active, 'ACTIVE');
+        await agreement(ids.suspended, 'SUSPENDED');
+        await agreement(ids.ended, 'ENDED');
+        await agreement(ids.already, 'ACTIVE');
+        await agreement(ids.odd, 'ACTIVE');
+        for (let i = 0; i < 2; i++) await tx.$executeRawUnsafe(block);
+        for (const [k, id] of Object.entries(ids)) settingsAfter[k] = (await tx.$queryRawUnsafe<{ settings: unknown }[]>(`SELECT settings FROM "Company" WHERE id = '${id}'`))[0].settings;
+        throw new Rollback();
+      })
+      .catch((e: unknown) => {
+        if (!(e instanceof Rollback)) throw e;
+      });
+    expect(settingsAfter).toEqual({
+      active: { features: ['etms', 'etmsProvider'], timezoneNote: 'kept' },
+      suspended: { features: ['etmsProvider'] },
+      ended: { features: ['etms'] },
+      already: { features: ['etms', 'etmsProvider'] },
+      odd: { features: 'etms' },
+      none: { features: ['etms'] },
+    });
+  });
 
   it('creates the documented raw-SQL objects and foreign keys with the planned delete rules', async () => {
     const cons = await prisma.$queryRaw<{ conname: string; contype: string; confdeltype: string }[]>`

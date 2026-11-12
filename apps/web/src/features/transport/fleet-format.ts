@@ -97,13 +97,17 @@ export function accessWhatLabel(what: string): string {
       return 'Viewed consent records';
     case 'history':
       return 'Viewed passenger history';
+    case 'incident-detail':
+      return 'Opened an SOS incident';
+    case 'transport-records':
+      return 'Opened bookings, trips or route plans';
     default:
       return what;
   }
 }
 
-/** "Name · Company" of who read the data; VeeTrax support when no name is given. */
-export function accessActorText(e: Pick<TransportAccessLogEntryDto, 'actorKind' | 'actorName' | 'actorCompanyName'>): string {
+/** "Name · Company" of who read the data; VeeTrax support (translated with `tr`, QA B7) when no name is given. */
+export function accessActorText(e: Pick<TransportAccessLogEntryDto, 'actorKind' | 'actorName' | 'actorCompanyName'>, tr: (s: string) => string = (s) => s): string {
   const parts = [e.actorName, e.actorKind === 'PROVIDER' ? e.actorCompanyName : null].filter((x): x is string => !!x);
-  return parts.length ? parts.join(' · ') : e.actorKind === 'SUPPORT' ? 'VeeTrax support' : '—';
+  return parts.length ? parts.join(' · ') : e.actorKind === 'SUPPORT' ? tr('VeeTrax support') : '—';
 }

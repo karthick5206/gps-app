@@ -198,6 +198,18 @@ describe('LiveGateway session binding (unit)', () => {
       expect(ok.disconnect).not.toHaveBeenCalled();
     });
 
+    it('security review L2: a socket holding only Incidents & SOS survives the refresh; one with nothing left is dropped', async () => {
+      const { internals, contexts } = gateway([{ id: S3, revokedAt: null, expiresAt: future() }]);
+      const sosOnly = fakeSocket(U2, S3);
+      await internals.handleConnection(sosOnly);
+      contexts.forUser.mockImplementationOnce(async (userId: string) => ({ ...ctxOf(userId, null), permissions: { etms_incidents: ['view'] } }));
+      await internals.refreshAll();
+      expect(sosOnly.disconnect).not.toHaveBeenCalled();
+      contexts.forUser.mockImplementationOnce(async (userId: string) => ({ ...ctxOf(userId, null), permissions: {} }));
+      await internals.refreshAll();
+      expect(sosOnly.disconnect).toHaveBeenCalledWith(true);
+    });
+
     it('legacy sockets without a session id are not queried', async () => {
       const { internals, findMany } = gateway();
       await internals.handleConnection(fakeSocket(U1, null));

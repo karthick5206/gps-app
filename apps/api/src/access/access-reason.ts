@@ -21,13 +21,21 @@ export function accessReasonOf(raw: string | string[] | undefined): string | nul
  * reason (header X-Access-Reason), which the read's ACCESS audit entry carries into the customer's sensitive-access log.
  * Missing or shorter than ACCESS_REASON_MIN → 400 REASON_REQUIRED (the web asks for it and retries). Everyone else may
  * send a reason (it is logged) but need not. Returns the reason to log, or null.
+ * Security review L8: the 400 names the data owner (`scopeCompanyId`: the given owner, else the selected customer, else
+ * the acting company), so the web remembers a reason per customer company (for 30 minutes), not per browser session.
  */
-export function requireSupportReason(ctx: Pick<AuthContext, 'isSuperAdmin'>, raw: string | string[] | undefined): string | null {
+export function requireSupportReason(
+  ctx: Pick<AuthContext, 'isSuperAdmin'> & Partial<Pick<AuthContext, 'companyId' | 'transportCustomerId'>>,
+  raw: string | string[] | undefined,
+  owner?: string | null,
+): string | null {
   const reason = accessReasonOf(raw);
   if (ctx.isSuperAdmin && (!reason || reason.length < ACCESS_REASON_MIN)) {
+    const scopeCompanyId = owner ?? ctx.transportCustomerId ?? ctx.companyId;
     throw new BadRequestException({
       message: `VeeTrax support must give a reason (at least ${ACCESS_REASON_MIN} characters) to see this company's passenger data; the customer's admin can see it`,
       code: 'REASON_REQUIRED',
+      ...(scopeCompanyId ? { scopeCompanyId } : {}),
     });
   }
   return reason;

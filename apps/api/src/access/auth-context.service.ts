@@ -105,39 +105,10 @@ export class AuthContextService {
    * provider's own add-on is checked by the caller. Read per request (like shares), so suspending or ending an agreement
    * takes effect on the next request; sockets pick it up on their refresh (forUser again).
    */
-  private async agreementsOf(companyId: string): Promise<TransportAgreementScope[]> {
-    const now = new Date();
-    const rows = await this.prisma.transportServiceAgreement.findMany({
-      where: {
-        providerCompanyId: companyId,
-        customerCompanyId: { not: companyId },
-        status: 'ACTIVE',
-        validFrom: { lte: now },
-        OR: [{ validTo: null }, { validTo: { gt: now } }],
-        customer: { status: 'ACTIVE', isPlatform: false, settings: { path: ['features'], array_contains: ['etms'] } },
-      },
-      select: {
-        id: true,
-        customerCompanyId: true,
-        grants: true,
-        siteIds: true,
-        dataProfile: true,
-        validFrom: true,
-        validTo: true,
-        customer: { select: { status: true, settings: true, isPlatform: true } },
-      },
-    });
-    // Same rule again in code (the JSON filter is easy to get wrong; companyFeatures is the single reading of add-ons).
-    return rows.filter((r) => r.customer.status === 'ACTIVE' && !r.customer.isPlatform && companyFeatures(r.customer).includes('etms')).map((r) => ({
-      id: r.id,
-      customerCompanyId: r.customerCompanyId,
-      grants: [...r.grants],
-      siteIds: [...r.siteIds],
-      dataProfile: r.dataProfile,
-      validFrom: r.validFrom.getTime(),
-      validTo: r.validTo?.getTime() ?? null,
-    }));
+  private agreementsOf(companyId: string): Promise<TransportAgreementScope[]> {
+    return providerAgreementScopes(this.prisma, companyId);
   }
+
 
   /** Vehicles of other companies shared with this one right now. */
   private async sharesOf(companyId: string): Promise<SharedVehicle[]> {
@@ -148,4 +119,43 @@ export class AuthContextService {
     });
     return rows.map((r) => ({ objectId: r.objectId, ownerCompanyId: r.object.companyId, startAt: r.startAt.getTime(), alertsOn: r.alertsOn }));
   }
+}
+
+/**
+ * The agreements a provider company acts under (AuthContextService.agreementsOf). Shared with the SAFETY outbox relay
+ * (security review L4) so SOS push recipients follow exactly the rule of the incidents lane. The caller checks the
+ * provider's own add-ons (etms + etmsProvider).
+ */
+export async function providerAgreementScopes(prisma: Pick<PrismaService, 'transportServiceAgreement'>, companyId: string): Promise<TransportAgreementScope[]> {
+  const now = new Date();
+  const rows = await prisma.transportServiceAgreement.findMany({
+    where: {
+      providerCompanyId: companyId,
+      customerCompanyId: { not: companyId },
+      status: 'ACTIVE',
+      validFrom: { lte: now },
+      OR: [{ validTo: null }, { validTo: { gt: now } }],
+      customer: { status: 'ACTIVE', isPlatform: false, settings: { path: ['features'], array_contains: ['etms'] } },
+    },
+    select: {
+      id: true,
+      customerCompanyId: true,
+      grants: true,
+      siteIds: true,
+      dataProfile: true,
+      validFrom: true,
+      validTo: true,
+      customer: { select: { status: true, settings: true, isPlatform: true } },
+    },
+  });
+  // Same rule again in code (the JSON filter is easy to get wrong; companyFeatures is the single reading of add-ons).
+  return rows.filter((r) => r.customer.status === 'ACTIVE' && !r.customer.isPlatform && companyFeatures(r.customer).includes('etms')).map((r) => ({
+    id: r.id,
+    customerCompanyId: r.customerCompanyId,
+    grants: [...r.grants],
+    siteIds: [...r.siteIds],
+    dataProfile: r.dataProfile,
+    validFrom: r.validFrom.getTime(),
+    validTo: r.validTo?.getTime() ?? null,
+  }));
 }

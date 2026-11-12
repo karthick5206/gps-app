@@ -109,19 +109,37 @@ export function notifyState(outbox: { publishedAt: Date | null; deadAt: Date | n
 
 // ───────────────────────────── Visibility (dispatcher side) ─────────────────────────────
 
-type ScopeCtx = Pick<AuthContext, 'companyId' | 'agreements' | 'isSuperAdmin'> & Partial<Pick<AuthContext, 'homeCompanyId'>>;
+type ScopeCtx = Pick<AuthContext, 'companyId' | 'agreements' | 'isSuperAdmin'> & Partial<Pick<AuthContext, 'homeCompanyId' | 'agreementsAll'>>;
+
+/**
+ * QA B1 (safety): incident visibility never follows the E1b customer picker. A context narrowed by X-Transport-Customer
+ * keeps the unnarrowed agreements in `agreementsAll`; the incident rules always use those.
+ */
+function unnarrowed<T extends ScopeCtx>(ctx: T): T {
+  return ctx.agreementsAll ? { ...ctx, agreements: ctx.agreementsAll } : ctx;
+}
 
 /**
  * Who sees an incident (doc 05 §6 "Incident / SOS", doc 10 §2): the company of the raiser always (passenger →
- * customer side, driver → operator side), the Super Admin (platform support), and the other party of the trip only
- * through an in-force agreement granting RECEIVE_INCIDENTS (view) or MANAGE_INCIDENTS (view + act). Data scope: an
- * ASSIGNED (branch / site) dispatcher sees every SOS of the company — safety first; an SOS is never hidden by branch.
+ * customer side, driver → operator side), the Super Admin (platform support, VIEW ONLY), and the other party of the
+ * trip only through an in-force agreement granting RECEIVE_INCIDENTS (view) or MANAGE_INCIDENTS (view + act). Data
+ * scope: an ASSIGNED (branch / site) dispatcher sees every SOS of the company — safety first; never hidden by branch.
  */
 export type IncidentAccess = 'none' | 'view' | 'manage';
 
 export function incidentAccess(ctx: ScopeCtx, row: Pick<IncidentRef, 'raiserType' | 'providerCompanyId' | 'customerCompanyId'>, now: number = Date.now()): IncidentAccess {
-  // The Super Admin on the platform sees and acts on every incident; switched into a company, it acts as that company.
-  if (ctx.isSuperAdmin && (!ctx.homeCompanyId || ctx.companyId === ctx.homeCompanyId)) return 'manage';
+  // Security review M1 (doc 10 §2.3, doc 05 §6 "Incident / SOS: V PLAT (reason)"): VeeTrax support is view only. On the
+  // platform it sees every incident; switched into a company it sees that company's incidents. It never acknowledges
+  // or resolves an SOS (the data owner's dispatchers do); reading the detail needs X-Access-Reason (controller).
+  if (ctx.isSuperAdmin) {
+    if (!ctx.homeCompanyId || ctx.companyId === ctx.homeCompanyId) return 'view';
+    return companyAccess(unnarrowed(ctx), row, now) === 'none' ? 'none' : 'view';
+  }
+  return companyAccess(unnarrowed(ctx), row, now);
+}
+
+/** The acting company's own access: the raiser's side, or the other party through an incident grant. */
+function companyAccess(ctx: ScopeCtx, row: Pick<IncidentRef, 'raiserType' | 'providerCompanyId' | 'customerCompanyId'>, now: number): IncidentAccess {
   if (row.customerCompanyId && row.customerCompanyId === ctx.companyId) return 'manage';
   if (row.providerCompanyId && row.providerCompanyId === ctx.companyId) {
     if (row.raiserType === 'DRIVER' || !row.customerCompanyId) return 'manage';
@@ -133,9 +151,10 @@ export function incidentAccess(ctx: ScopeCtx, row: Pick<IncidentRef, 'raiserType
 
 /** List where-clause matching incidentAccess != 'none' (the service re-checks each row in code). */
 export function incidentListWhere(ctx: ScopeCtx & Pick<AuthContext, 'allCompanies' | 'homeCompanyId'>, now: number = Date.now()): Prisma.TransportIncidentWhereInput {
-  // Super Admin on the platform (not switched into a company): every incident (support). Switched: that company's view.
+  // Super Admin on the platform (not switched into a company): every incident (support, view only). Switched: that
+  // company's incidents (still view only, see incidentAccess).
   if (ctx.isSuperAdmin && (ctx.allCompanies || ctx.companyId === ctx.homeCompanyId)) return {};
-  const granted = (ctx.agreements ?? [])
+  const granted = (unnarrowed(ctx).agreements ?? [])
     .filter((a) => a.customerCompanyId !== ctx.companyId && a.validFrom <= now && (a.validTo === null || a.validTo > now))
     .filter((a) => a.grants.includes('RECEIVE_INCIDENTS') || a.grants.includes('MANAGE_INCIDENTS'))
     .map((a) => a.customerCompanyId);

@@ -1,6 +1,7 @@
 import { ACCESS_REASON_MAX, ACCESS_REASON_MIN } from '@veetracer/shared';
 import { ShieldAlertIcon } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -9,12 +10,19 @@ import { Input } from '@/components/ui/input';
 import { useAuth } from '@/features/auth/auth-context';
 import { forgetAccessReason, rememberAccessReason, rememberedAccessReason, subscribeAccessReason } from '@/lib/access-reason';
 import { setAccessReasonRequiredHandler } from '@/lib/api';
-import { validAccessReason } from '@/lib/transport-context';
+import { reasonScopeOf, validAccessReason } from '@/lib/transport-context';
 
-/** The reason remembered for the acting company (re-renders when it changes). */
-export function useRememberedAccessReason(): string | null {
+/** The data-owner company of the current page (selected customer, else the acting company). */
+function usePageReasonScope(): { companyId: string | null; scope: string | null } {
   const { companyId } = useAuth();
-  return useSyncExternalStore(subscribeAccessReason, () => rememberedAccessReason(companyId), () => null);
+  const location = useLocation();
+  return { companyId, scope: reasonScopeOf('/transport/passengers', location, companyId) };
+}
+
+/** The reason remembered for the page's company (re-renders when it changes; expires after 30 minutes, L8). */
+export function useRememberedAccessReason(): string | null {
+  const { companyId, scope } = usePageReasonScope();
+  return useSyncExternalStore(subscribeAccessReason, () => rememberedAccessReason(companyId, scope), () => null);
 }
 
 function ReasonForm({ initial, onSubmit, onCancel, submitLabel }: { initial: string; onSubmit: (r: string) => void; onCancel: () => void; submitLabel: string }) {
@@ -45,11 +53,11 @@ function ReasonForm({ initial, onSubmit, onCancel, submitLabel }: { initial: str
   );
 }
 
-const DESCRIPTION = "VeeTrax support needs a reason to open this company's passenger data. The reason and your name are shown in the company's sensitive-access log. It is kept for this browser session.";
+const DESCRIPTION = "VeeTrax support needs a reason to open this company's passenger data. The reason and your name are shown in the company's sensitive-access log. It is kept for 30 minutes, for this company only.";
 
 /**
  * Asked when the API refuses a Super Admin's passenger read without a reason (400 REASON_REQUIRED, ETMS 10 §2.2 item
- * 8). lib/api.ts retries the request with the reason and remembers it for the acting company in this session.
+ * 8). lib/api.ts retries the request with the reason and remembers it for that customer company for 30 minutes (L8).
  */
 export function AccessReasonDialog() {
   const { t } = useTranslation();
@@ -90,7 +98,8 @@ export function AccessReasonDialog() {
 /** Super Admin only: the reason in use for this company, with "Change" and "Forget" (passenger pages). */
 export function AccessReasonNotice() {
   const { t } = useTranslation();
-  const { me, companyId } = useAuth();
+  const { me } = useAuth();
+  const { companyId, scope } = usePageReasonScope();
   const reason = useRememberedAccessReason();
   const [editing, setEditing] = useState(false);
   if (!me?.user.isSuperAdmin || !reason) return null;
@@ -103,7 +112,7 @@ export function AccessReasonNotice() {
       <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
         {t('Change reason')}
       </Button>
-      <Button size="sm" variant="ghost" onClick={() => forgetAccessReason(companyId)}>
+      <Button size="sm" variant="ghost" onClick={() => forgetAccessReason(companyId, scope)}>
         {t('Forget')}
       </Button>
       <Dialog open={editing} onOpenChange={setEditing}>
@@ -118,7 +127,7 @@ export function AccessReasonNotice() {
               submitLabel={t('Save')}
               onCancel={() => setEditing(false)}
               onSubmit={(r) => {
-                rememberAccessReason(companyId, r);
+                rememberAccessReason(companyId, scope, r);
                 setEditing(false);
               }}
             />

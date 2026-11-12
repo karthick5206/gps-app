@@ -439,7 +439,8 @@ async function run(route: DiscoveredRoute, entry: MatrixEntry, ctx: AuthContext,
     getType: () => 'http',
     getHandler: () => handler,
     getClass: () => route.controller,
-    switchToHttp: () => ({ getRequest: () => ({ auth: ctx, method: route.key.split(' ')[0], query: {}, url: `/api/${route.key.split(' ')[1]}` }) }),
+    // Every caller sends a reason: VeeTrax support needs it on passenger-data routes (guard), others may send one.
+    switchToHttp: () => ({ getRequest: () => ({ auth: ctx, method: route.key.split(' ')[0], query: {}, url: `/api/${route.key.split(' ')[1]}`, headers: { 'x-access-reason': 'Matrix: support ticket 42' } }) }),
   } as unknown as ExecutionContext;
   try {
     permissionGuard.canActivate(exec);

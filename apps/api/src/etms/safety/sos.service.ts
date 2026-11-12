@@ -13,6 +13,8 @@ import { cleanSos, notifyState, toReceipt, type CleanSos } from './sos-rules';
  *  such an uncounted press merges again, harmlessly: same incident, merged: true). */
 export const MAX_REPEAT_EVENTS = 50;
 const IN_PROGRESS = ['STARTED', 'IN_PROGRESS'];
+/** Consent purpose that allows a passenger's location to travel with the SOS (doc 10 §3; CONSENT_PURPOSES). */
+const SOS_LOCATION_PURPOSE = 'SOS_LOCATION';
 
 type Db = Prisma.TransactionClient;
 
@@ -55,12 +57,32 @@ export class SosService {
   async raisePassenger(ctx: AuthContext, body: unknown, key: string | undefined): Promise<SosResult> {
     const profile = await this.prisma.employeeTransportProfile.findFirst({ where: { userId: ctx.userId, companyId: ctx.companyId }, select: { id: true, userId: true, companyId: true } });
     if (!profile || profile.userId !== ctx.userId || profile.companyId !== ctx.companyId) throw new ForbiddenException({ message: 'You are not registered as a transport passenger', code: 'NOT_A_PASSENGER' });
-    return this.raise(ctx, { type: 'PASSENGER', profileId: profile.id, driverId: null }, cleanSos(body, key));
+    const c = cleanSos(body, key);
+    // Doc 10 §3 (security review, info): a passenger's location goes with the SOS only under an active SOS_LOCATION
+    // consent; without one the fix is DROPPED and the SOS is recorded as usual (never refused).
+    if (c.fix && !(await this.sosLocationConsent(profile.id))) {
+      c.fix = null;
+      this.logger.log('SOS location dropped: no active SOS_LOCATION consent');
+    }
+    return this.raise(ctx, { type: 'PASSENGER', profileId: profile.id, driverId: null }, c);
+  }
+
+  /** Latest SOS_LOCATION consent row of the profile is a grant. Any error counts as "no consent" (privacy first). */
+  private async sosLocationConsent(profileId: string): Promise<boolean> {
+    try {
+      const row = await this.prisma.employeeTransportConsent.findFirst({ where: { profileId, purpose: SOS_LOCATION_PURPOSE }, orderBy: { occurredAt: 'desc' }, select: { granted: true } });
+      return row?.granted === true;
+    } catch (error) {
+      this.logger.warn(`SOS location consent check failed, location dropped: ${(error as Error).message}`);
+      return false;
+    }
   }
 
   /** POST /api/driver/v1/sos: the caller's own Driver row (an archived driver may still raise an SOS). */
   async raiseDriver(ctx: AuthContext, body: unknown, key: string | undefined): Promise<SosResult> {
-    const driver = await this.prisma.driver.findFirst({ where: { userId: ctx.userId }, select: { id: true, userId: true, companyId: true } });
+    // Filtered by the acting company (security review, info): a login with Driver rows in two companies is never a
+    // false NOT_A_DRIVER.
+    const driver = await this.prisma.driver.findFirst({ where: { userId: ctx.userId, companyId: ctx.companyId }, select: { id: true, userId: true, companyId: true } });
     if (!driver || driver.userId !== ctx.userId || driver.companyId !== ctx.companyId) throw new ForbiddenException({ message: 'This login is not linked to a driver', code: 'NOT_A_DRIVER' });
     return this.raise(ctx, { type: 'DRIVER', profileId: null, driverId: driver.id }, cleanSos(body, key));
   }
@@ -74,7 +96,7 @@ export class SosService {
 
   /** GET /api/driver/v1/sos/:id: a driver's own incident only (403 NOT_A_DRIVER, anything else 404). */
   async receiptDriver(ctx: AuthContext, id: string): Promise<SosReceipt> {
-    const driver = await this.prisma.driver.findFirst({ where: { userId: ctx.userId }, select: { id: true, userId: true, companyId: true } });
+    const driver = await this.prisma.driver.findFirst({ where: { userId: ctx.userId, companyId: ctx.companyId }, select: { id: true, userId: true, companyId: true } });
     if (!driver || driver.userId !== ctx.userId || driver.companyId !== ctx.companyId) throw new ForbiddenException({ message: 'This login is not linked to a driver', code: 'NOT_A_DRIVER' });
     return this.receipt(ctx, id);
   }
@@ -96,23 +118,44 @@ export class SosService {
         if (open && open.raiserUserId === ctx.userId && open.status === 'OPEN') {
           const events = await tx.transportIncidentEvent.count({ where: { incidentId: open.id, kind: 'REPEATED' } });
           const fixNewer = c.fix && (!open.fixAt || new Date(c.fix.at) > open.fixAt);
+          const linking = !open.tripId && !!link;
+          const providerCompanyId = open.providerCompanyId ?? link?.providerCompanyId ?? null;
+          const customerCompanyId = open.customerCompanyId ?? link?.customerCompanyId ?? null;
           const updated = await tx.transportIncident.update({
             where: { id: open.id },
             data: {
               repeatCount: { increment: 1 },
               lastRepeatAt: new Date(),
               ...(fixNewer && c.fix ? { fixLat: c.fix.lat, fixLng: c.fix.lng, fixAccuracyM: c.fix.accuracyM ?? null, fixAt: new Date(c.fix.at) } : {}),
-              ...(!open.tripId && link ? { tripId: link.tripId, providerCompanyId: open.providerCompanyId ?? link.providerCompanyId, customerCompanyId: open.customerCompanyId ?? link.customerCompanyId, vehicleLabel: link.vehicleLabel } : {}),
+              ...(linking && link ? { tripId: link.tripId, providerCompanyId, customerCompanyId, vehicleLabel: link.vehicleLabel } : {}),
             },
           });
+          // Security review L1: the press linked a trip and added the other party (e.g. the operator of a passenger's
+          // trip): a SAFETY row notifies that party now (socket + push), instead of leaving it to the 15 s lane poll.
+          const addedParty = linking && (providerCompanyId !== open.providerCompanyId || customerCompanyId !== open.customerCompanyId);
+          if (addedParty) {
+            await tx.outboxEvent.create({
+              data: {
+                companyId: ctx.companyId,
+                providerCompanyId,
+                customerCompanyId,
+                type: SOS_OUTBOX_TYPES.linked,
+                aggregateType: 'incident',
+                aggregateId: open.id,
+                class: 'SAFETY',
+                payload: { incidentId: open.id, kind: 'SOS', tripId: link?.tripId ?? null, raiserType: raiser.type },
+                occurredAt: new Date(),
+              },
+            });
+          }
           if (events < MAX_REPEAT_EVENTS) {
             await tx.transportIncidentEvent.create({ data: { incidentId: open.id, kind: 'REPEATED', actorType: raiser.type, actorUserId: ctx.userId, clientKey: c.serverKey ? null : c.key, requestHash: c.hash, note: c.note, data: { tripLinked } } });
           }
-          return { row: updated, created: false };
+          return { row: updated, created: false, linked: addedParty };
         }
-        return { row: await this.create(tx, ctx, raiser, c, link), created: true };
+        return { row: await this.create(tx, ctx, raiser, c, link), created: true, linked: false };
       });
-      if (out.created) this.relay?.kick();
+      if (out.created || out.linked) this.relay?.kick();
       return { receipt: await this.toReceipt(out.row, !out.created, tripLinked), created: out.created, replay: false };
     } catch (e) {
       // Same key raced (unique raiser + key), or a second device created the OPEN SOS first (partial unique): once more,

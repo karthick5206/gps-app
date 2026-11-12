@@ -30,7 +30,20 @@ const LIMITS = {
   /** ETMS E4 (doc 17 S-7): finished optimisation jobs and daily routing usage. */
   routingJobs: Number(process.env.ROUTING_JOB_RETENTION_DAYS ?? 30),
   routingUsage: Number(process.env.ROUTING_USAGE_RETENTION_DAYS ?? 400),
+  /** ETMS (doc 15 §3.2, doc 05 §5.2; security review L6): PUBLISHED transactional-outbox rows. */
+  outboxPublished: Number(process.env.OUTBOX_RETENTION_DAYS ?? 7),
 };
+
+/**
+ * Security review L6 (doc 15 §3.2): trims PUBLISHED OutboxEvent rows older than the cutoff, one batch. Pending rows
+ * (publishedAt null) are never touched, nor DEAD ones (kept for diagnosis). A SAFETY row's delivery is already recorded
+ * on its incident (NOTIFY_PUBLISHED / NOTIFY_DIRECT, ACKNOWLEDGED / RESOLVED events written with the row), so the
+ * incident history survives the trim. The createdAt bound lets the (createdAt) index drive the scan.
+ */
+export function trimPublishedOutbox(prisma: Pick<PrismaService, '$executeRaw'>, cutoff: Date, batch = BATCH): Promise<number> {
+  return prisma.$executeRaw`DELETE FROM "OutboxEvent" WHERE id IN (
+    SELECT id FROM "OutboxEvent" WHERE "createdAt" < ${cutoff} AND "publishedAt" IS NOT NULL AND "publishedAt" < ${cutoff} AND "deadAt" IS NULL LIMIT ${batch})`;
+}
 
 export interface RetentionRunStats {
   startedAt: string;
@@ -49,7 +62,8 @@ export function effectiveRetentionDays(days: number | null | undefined): number 
  * Hourly data cleanup (DATA-04: per-company retention 30–180 days, automatic deletion).
  * - Positions, trips, stops, fuel events, closed geofence visits and alerts older than the company's `retentionDays`.
  *   Daily summaries are kept, so long-range reports stay available.
- * - Raw packets (7 d), notification logs (90 d), unknown devices not seen for 30 d, expired sessions/OTPs/reset links.
+ * - Raw packets (7 d), notification logs (90 d), unknown devices not seen for 30 d, expired sessions/OTPs/reset links,
+ *   published ETMS outbox rows (7 d, L6).
  * Deletes run in small batches within a time budget; a Valkey lock ensures one api instance works at a time.
  * Disable with RETENTION=off.
  */
@@ -205,6 +219,8 @@ export class RetentionService {
           'routingJobs',
           () => this.prisma.$executeRaw`DELETE FROM "RoutingJob" WHERE id IN (SELECT id FROM "RoutingJob" WHERE "finishedAt" < ${ago(LIMITS.routingJobs)} LIMIT ${BATCH})`,
         ],
+        // ETMS (L6): published outbox rows after 7 days.
+        ['outboxEvents', () => trimPublishedOutbox(this.prisma, ago(LIMITS.outboxPublished))],
         ['routingUsage', () => this.prisma.$executeRaw`DELETE FROM "RoutingUsage" WHERE ("companyId", "day") IN (SELECT "companyId", "day" FROM "RoutingUsage" WHERE "day" < ${ago(LIMITS.routingUsage)} LIMIT ${BATCH})`],
         ['otpCodes',() => this.prisma.$executeRaw`DELETE FROM "OtpCode" WHERE "expiresAt" < ${ago(1)}`],
         ['passwordResets', () => this.prisma.$executeRaw`DELETE FROM "PasswordReset" WHERE "expiresAt" < ${ago(LIMITS.expiredAuth)}`],

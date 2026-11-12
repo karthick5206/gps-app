@@ -116,6 +116,11 @@ const INC_LIST: RoleTable = T({ customerAdmin: 200, customerDispatcher: 200, pro
 const INC_A: RoleTable = T({ customerAdmin: 200, customerDispatcher: 200, providerAdmin: 404, providerDispatcher: 404, superAdmin: 200, superAdminSwitched: 200 }, NOT_DRIVERS);
 /** custB's incident: only the platform Super Admin (switched into custA it acts as custA: 404). */
 const INC_B: RoleTable = T({ customerAdmin: 404, customerDispatcher: 404, providerAdmin: 404, providerDispatcher: 404, superAdmin: 200, superAdminSwitched: 404 }, NOT_DRIVERS);
+/** M1: VeeTrax support is view only — acknowledge / resolve are 403 for the Super Admin (platform or switched). */
+const INC_A_ACT: RoleTable = { ...INC_A, superAdmin: 403, superAdminSwitched: 403 };
+const INC_B_ACT: RoleTable = { ...INC_B, superAdmin: 403 };
+/** The reason VeeTrax support gives for the detail read (X-Access-Reason; others may send one, it is logged). */
+const SUPPORT_REASON = 'Ticket 42: customer asked us to check an SOS';
 /** The lane lists exactly the incidents of the caller's company (custA: its 2; prov: none; platform: all 4). */
 const laneOnlyOwn = (result: unknown, role: MatrixRole, _own: string, _ids: unknown, w: E5World) => {
   const ids = (result as IncidentListResponse).items.map((i) => i.id).sort();
@@ -305,12 +310,12 @@ export const E5_MATRIX: E5Entry[] = [
   },
   // ── WP 5.4: dispatcher SOS lane (etms_incidents; the raiser's company, Super Admin; agreement grants only) ──
   { route: 'GET transport/incidents', resource: 'incident', invoke: (c, ctx) => c.incidents.list(ctx, { open: '1' }), expect: { none: INC_LIST }, verify: laneOnlyOwn },
-  { route: 'GET transport/incidents/:id', resource: 'incident', invoke: (c, ctx, t) => c.incidents.detail(ctx, t.paxIncident), expect: { party: INC_A, other: INC_B } },
+  { route: 'GET transport/incidents/:id', resource: 'incident', invoke: (c, ctx, t) => c.incidents.detail(ctx, t.paxIncident, SUPPORT_REASON), expect: { party: INC_A, other: INC_B } },
   {
     route: 'POST transport/incidents/:id/ack',
     resource: 'incident',
     invoke: (c, ctx, t) => c.incidents.ack(ctx, t.paxIncident, { note: 'Called the passenger' }),
-    expect: { party: INC_A, other: INC_B },
+    expect: { party: INC_A_ACT, other: INC_B_ACT },
     verify: (r, role) => {
       if ((r as IncidentDetail).status !== 'ACKNOWLEDGED') fail(`${role} ack did not acknowledge`);
     },
@@ -319,7 +324,7 @@ export const E5_MATRIX: E5Entry[] = [
     route: 'POST transport/incidents/:id/resolve',
     resource: 'incident',
     invoke: (c, ctx, t) => c.incidents.resolve(ctx, t.paxIncident, { resolution: 'FALSE_ALARM', note: 'Pressed by mistake' }),
-    expect: { party: INC_A, other: INC_B },
+    expect: { party: INC_A_ACT, other: INC_B_ACT },
     verify: (r, role) => {
       if ((r as IncidentDetail).status !== 'RESOLVED') fail(`${role} resolve did not resolve`);
     },

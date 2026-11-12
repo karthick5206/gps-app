@@ -4,7 +4,16 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { MENUS, SOS_PUSH_TEXT, TRANSLATIONS, type IncidentListItem } from '@veetracer/shared';
-import { bannerIncident, elapsed, isSosPayload, lanePollMs, newOpenIds, noteError, NOTIFY_LABEL, SOS_LANE_STRINGS, sortLane } from './sos-lane.ts';
+import { actionableOpenCount, bannerIncident, elapsed, isSosPayload, lanePollMs, newOpenIds, noteError, NOTIFY_LABEL, sirenIds, SOS_LANE_STRINGS, sortLane, sosAnnouncement } from './sos-lane.ts';
+
+test('QA B8: the siren rings only for SOS the caller can acknowledge', () => {
+  const items = [item({ id: 'mine' }), item({ id: 'view-only', canAct: false }), item({ id: 'acked', status: 'ACKNOWLEDGED' })];
+  assert.deepEqual(sirenIds(['mine', 'view-only'], items), ['mine']);
+  assert.deepEqual(sirenIds(['view-only'], items), []);
+  assert.equal(actionableOpenCount(items), 1);
+  assert.equal(actionableOpenCount([item({ canAct: false })]), 0);
+  assert.equal(actionableOpenCount(undefined), 0);
+});
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -26,6 +35,7 @@ function item(over: Partial<IncidentListItem>): IncidentListItem {
     acknowledgedAt: null,
     acknowledgedBy: null,
     resolvedAt: null,
+    canAct: true,
     ...over,
   };
 }
@@ -96,4 +106,20 @@ test('every string of the SOS lane, banner and bell is translated to Hindi and T
     // Placeholders survive translation.
     for (const k of keys) for (const ph of k.match(/\{\{\w+\}\}/g) ?? []) assert.ok(TRANSLATIONS[lang][k]!.includes(ph), `${lang} ${k} keeps ${ph}`);
   }
+});
+
+test('QA B5: the live region text changes once per new SOS, never with the timers', () => {
+  const a = item({ id: 'a', raiserLabel: 'Synthetic A.' });
+  const b = item({ id: 'b', raiserLabel: 'Synthetic B.' });
+  const first = sosAnnouncement(null, [a]);
+  assert.equal(first.initialOpen, 1);
+  assert.deepEqual(first.fresh, []);
+  // Same list again (a re-render every second): nothing to announce.
+  const same = sosAnnouncement(first.seen, [a]);
+  assert.equal(same.initialOpen, null);
+  assert.deepEqual(same.fresh, []);
+  const next = sosAnnouncement(same.seen, [a, b]);
+  assert.deepEqual(next.fresh.map((i) => i.id), ['b']);
+  assert.deepEqual(sosAnnouncement(next.seen, [a, b]).fresh, []);
+  assert.equal(sosAnnouncement(null, [item({ status: 'ACKNOWLEDGED' })]).initialOpen, null);
 });

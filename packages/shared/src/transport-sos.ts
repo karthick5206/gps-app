@@ -149,6 +149,12 @@ export interface IncidentListItem {
   acknowledgedAt: string | null;
   acknowledgedBy: string | null;
   resolvedAt: string | null;
+  /**
+   * QA B8: the caller may acknowledge / resolve this incident (manage access AND etms_incidents:edit). View-only staff
+   * (e.g. a provider whose agreement grants RECEIVE_INCIDENTS only, or VeeTrax support) get no Acknowledge button and
+   * no repeating siren for it.
+   */
+  canAct: boolean;
 }
 
 export interface IncidentEventDto {
@@ -203,6 +209,8 @@ export const SOS_OUTBOX_TYPES = {
   created: 'transport.incident.created',
   acknowledged: 'transport.incident.acknowledged',
   resolved: 'transport.incident.resolved',
+  /** Security review L1: a repeat press linked the trip and so added the other party (notify that party). */
+  linked: 'transport.incident.linked',
 } as const;
 
 // ───────────────────────────── Helpers ─────────────────────────────
@@ -253,4 +261,21 @@ export const SOS_PUSH_TEXT = {
 export function sosPushText(language: string | null | undefined): { title: string; body: string } {
   const table = language === 'hi' || language === 'ta' ? TRANSLATIONS[language] : null;
   return { title: table?.[SOS_PUSH_TEXT.title] ?? SOS_PUSH_TEXT.title, body: table?.[SOS_PUSH_TEXT.body] ?? SOS_PUSH_TEXT.body };
+}
+
+/**
+ * Security review M2: an SOS whose relay was delayed (relay off, rollback, long Valkey outage) by more than
+ * SOS_RELAY_LATE_MS and is still OPEN is pushed in this quiet form (no siren): "still open since HH:MM", so it is
+ * never dropped but does not ring every dispatcher phone as a brand-new SOS. Closed ones are not pushed at all.
+ */
+export const SOS_RELAY_LATE_MS = 15 * 60_000;
+export const SOS_LATE_PUSH_TEXT = {
+  title: 'Missed SOS, still open',
+  body: 'An SOS has been open since {{time}} and was not delivered at once. Open VeeTrax now.',
+} as const;
+
+export function sosLatePushText(language: string | null | undefined, time: string): { title: string; body: string } {
+  const table = language === 'hi' || language === 'ta' ? TRANSLATIONS[language] : null;
+  const body = table?.[SOS_LATE_PUSH_TEXT.body] ?? SOS_LATE_PUSH_TEXT.body;
+  return { title: table?.[SOS_LATE_PUSH_TEXT.title] ?? SOS_LATE_PUSH_TEXT.title, body: body.replace('{{time}}', time) };
 }

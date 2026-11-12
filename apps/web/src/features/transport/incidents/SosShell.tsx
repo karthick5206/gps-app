@@ -8,7 +8,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useAuth } from '@/features/auth/auth-context';
 import { playSiren } from '@/features/alerts/sound';
 import { AckIncidentDialog } from './IncidentActions';
-import { bannerIncident, elapsed, INCIDENTS_PATH, newOpenIds } from './sos-lane';
+import { actionableOpenCount, bannerIncident, elapsed, INCIDENTS_PATH, newOpenIds, sirenIds } from './sos-lane';
 import { useSosLane, useSosSocket } from './use-incidents';
 
 const SIREN_REPEAT_MS = 3000;
@@ -26,6 +26,8 @@ export function SosBellMirror() {
   const lane = useSosLane();
   const seen = useRef<Set<string> | null>(null);
   const openCount = lane.data?.openCount ?? 0;
+  // QA B8: the siren only for SOS the caller can acknowledge (view-only staff: banner + toast, no siren loop).
+  const actionable = actionableOpenCount(lane.data?.items);
 
   // Siren + toast once per new OPEN SOS (not for the ones already open when the page loaded: the banner shows them).
   useEffect(() => {
@@ -41,15 +43,15 @@ export function SosBellMirror() {
       const i = items.find((x) => x.id === id)!;
       toast.error(t('SOS raised'), { id: `sos-${id}`, description: i.raiserLabel, duration: 15_000, action: { label: t('Open'), onClick: () => navigate(INCIDENTS_PATH) } });
     }
-    if (fresh.length) playSiren(true);
+    if (sirenIds(fresh, items).length) playSiren(true);
   }, [lane.data, navigate, t]);
 
-  // Repeat the siren while any SOS is OPEN (stops on acknowledgement).
+  // Repeat the siren while any SOS the caller can acknowledge is OPEN (stops on acknowledgement).
   useEffect(() => {
-    if (!openCount) return;
+    if (!actionable) return;
     const timer = setInterval(() => playSiren(true), SIREN_REPEAT_MS);
     return () => clearInterval(timer);
-  }, [openCount]);
+  }, [actionable]);
 
   if (!can('etms_incidents')) return null;
   const label = openCount ? t('{{count}} open SOS', { count: openCount }) : t('Incidents & SOS');
@@ -87,17 +89,23 @@ export function SosBanner() {
   if (!can('etms_incidents') || !top) return null;
   const more = (lane.data?.openCount ?? 1) - 1;
   return (
-    <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-destructive px-3 py-2 text-sm text-destructive-foreground sm:px-4" role="alert">
+    <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-destructive px-3 py-2 text-sm text-destructive-foreground sm:px-4" role="region" aria-label={t('SOS')}>
+      {/* QA B5: announced once per banner SOS (keyed), never the ticking timer below. */}
+      <span key={top.id} className="sr-only" role="alert">
+        {t('SOS raised')}: {top.raiserLabel}
+      </span>
       <SirenIcon className="size-4 shrink-0 motion-safe:animate-pulse" aria-hidden />
       <p className="min-w-0 flex-1 font-semibold">
         <span className="me-1">{t('SOS')}</span>
         <span className="break-words">{top.raiserLabel}</span>
         {top.vehiclePlate ? ` · ${top.vehiclePlate}` : ''}
-        <span className="ms-1 font-normal tabular-nums">{t('raised {{time}} ago', { time: elapsed(top.raisedAt, now) })}</span>
+        <span className="ms-1 font-normal tabular-nums" aria-hidden>
+          {t('raised {{time}} ago', { time: elapsed(top.raisedAt, now) })}
+        </span>
         {more > 0 && <span className="ms-1 font-normal">{t('(+{{count}} more)', { count: more })}</span>}
       </p>
       <div className="flex gap-2">
-        {can('etms_incidents', 'edit') && (
+        {can('etms_incidents', 'edit') && top.canAct && (
           <Button size="sm" variant="secondary" onClick={() => setAckId(top.id)}>
             {t('Acknowledge')}
           </Button>

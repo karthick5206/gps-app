@@ -3,7 +3,7 @@ import { IDEMPOTENT_REPLAY_HEADER, type IncidentDetail, type IncidentListRespons
 import type { Response } from 'express';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
-import { TransportFeatureGuard } from '../transport-feature.guard';
+import { IgnoresTransportCustomer, TransportFeatureGuard } from '../transport-feature.guard';
 import { IncidentsService } from './incidents.service';
 import { SosService, type SosResult } from './sos.service';
 
@@ -59,11 +59,12 @@ export class DriverSosController {
 
 /**
  * /api/transport/incidents (doc 05 §2.10; WP 5.4): the dispatcher's SOS lane. etms_incidents:view (list, detail) and
- * :edit (acknowledge with a note, resolve with an outcome + note). Rows outside the caller's incident scope are 404;
+ * :edit (acknowledge with a note, resolve with an outcome + note; never VeeTrax support, M1). Rows outside the caller's incident scope are 404;
  * agreement rows without MANAGE_INCIDENTS are 403 FORBIDDEN_GRANT on writes.
  */
 @Controller('transport/incidents')
 @UseGuards(TransportFeatureGuard)
+@IgnoresTransportCustomer() // QA B1: an SOS is never hidden by the customer picker
 export class IncidentsController {
   constructor(private readonly incidents: IncidentsService) {}
 
@@ -72,9 +73,10 @@ export class IncidentsController {
     return this.incidents.list(ctx, { open: q.open, limit: q.limit });
   }
 
+  /** Security review M1: VeeTrax support (Super Admin) reads the detail only with X-Access-Reason (400 REASON_REQUIRED). */
   @Get(':id') @RequirePermission('etms_incidents', 'view')
-  detail(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string): Promise<IncidentDetail> {
-    return this.incidents.detail(ctx, id);
+  detail(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Headers('x-access-reason') reason?: string): Promise<IncidentDetail> {
+    return this.incidents.detail(ctx, id, { reasonHeader: reason });
   }
 
   @Post(':id/ack') @HttpCode(200) @RequirePermission('etms_incidents', 'edit')

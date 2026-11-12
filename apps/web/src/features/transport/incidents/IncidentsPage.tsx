@@ -1,6 +1,6 @@
 import type { IncidentListItem } from '@veetracer/shared';
 import { CheckCircle2Icon, ClockIcon, MapPinIcon, RepeatIcon, SirenIcon, TruckIcon, WifiOffIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -14,10 +14,28 @@ import { errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { AckIncidentDialog, ResolveIncidentDialog } from './IncidentActions';
-import { elapsed, EVENT_LABEL, NOTIFY_LABEL, RAISER_LABEL, RESOLUTION_LABEL, sortLane, STATUS_LABEL } from './sos-lane';
+import { elapsed, EVENT_LABEL, NOTIFY_LABEL, RAISER_LABEL, RESOLUTION_LABEL, sortLane, sosAnnouncement, STATUS_LABEL } from './sos-lane';
 import { useIncident, useSosLane } from './use-incidents';
 
-/** Re-render every second for the ticking "raised … ago" timers (not announced to screen readers). */
+/**
+ * QA B5: the text of the assertive live region. It changes only when there is something new (the open count on first
+ * load, then each new SOS), so screen readers announce once per SOS and never the ticking timers.
+ */
+function useSosAnnouncement(items: IncidentListItem[] | undefined): string {
+  const { t } = useTranslation();
+  const seen = useRef<Set<string> | null>(null);
+  const [text, setText] = useState('');
+  useEffect(() => {
+    if (!items) return;
+    const a = sosAnnouncement(seen.current, items);
+    seen.current = a.seen;
+    if (a.initialOpen) setText(t('{{count}} open SOS', { count: a.initialOpen }));
+    else if (a.fresh.length) setText(a.fresh.map((i) => `${t('SOS raised')}: ${i.raiserLabel}`).join('. '));
+  }, [items, t]);
+  return text;
+}
+
+/** Re-render every second for the ticking "raised … ago" timers (outside the live region: never announced). */
 function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -79,12 +97,12 @@ function SosCard({ i, now, onAck, onResolve, onOpen, canEdit }: { i: IncidentLis
           <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={onOpen}>
             {t('Details')}
           </Button>
-          {canEdit && open && (
+          {canEdit && i.canAct && open && (
             <Button variant="destructive" size="sm" className="flex-1 sm:flex-none" onClick={onAck}>
               {t('Acknowledge')}
             </Button>
           )}
-          {canEdit && i.status === 'ACKNOWLEDGED' && (
+          {canEdit && i.canAct && i.status === 'ACKNOWLEDGED' && (
             <Button size="sm" className="flex-1 sm:flex-none" onClick={onResolve}>
               {t('Resolve')}
             </Button>
@@ -147,6 +165,7 @@ export function IncidentsPage() {
   const items = sortLane(lane.data?.items ?? []);
   const openItems = items.filter((i) => i.status === 'OPEN');
   const acked = items.filter((i) => i.status !== 'OPEN');
+  const announcement = useSosAnnouncement(lane.data?.items);
 
   return (
     <div className="space-y-4">
@@ -158,6 +177,9 @@ export function IncidentsPage() {
         </p>
       )}
       {lane.error && <p className="text-sm text-destructive">{errorMessage(lane.error)}</p>}
+      <p className="sr-only" role="alert" aria-live="assertive" aria-atomic="true">
+        {announcement}
+      </p>
       <section aria-labelledby="sos-open-h" className="space-y-2">
         <h2 id="sos-open-h" className="flex items-center gap-2 text-base font-semibold">
           {t('Open SOS')}
@@ -168,7 +190,7 @@ export function IncidentsPage() {
         ) : openItems.length === 0 ? (
           <EmptyState icon={CheckCircle2Icon} title={t('No open SOS')} description={t('New SOS appear here at once, with a siren.')} />
         ) : (
-          <ul className="space-y-2" role="alert" aria-live="assertive">
+          <ul className="space-y-2">
             {openItems.map((i) => (
               <SosCard key={i.id} i={i} now={now} canEdit={canEdit} onAck={() => setAckId(i.id)} onResolve={() => setResolveId(i.id)} onOpen={() => setDetailId(i.id)} />
             ))}

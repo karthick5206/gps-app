@@ -52,6 +52,37 @@ export function newOpenIds(previous: ReadonlySet<string>, items: readonly Pick<I
   return items.filter((i) => i.status === 'OPEN' && !previous.has(i.id)).map((i) => i.id);
 }
 
+/**
+ * QA B8: the siren is for people who can act. It rings (once per new SOS, then repeating) only for OPEN incidents the
+ * caller may acknowledge; view-only staff still get the banner, the toast and the lane, without the siren loop.
+ */
+export function sirenIds(ids: readonly string[], items: readonly Pick<IncidentListItem, 'id' | 'canAct'>[]): string[] {
+  return ids.filter((id) => items.find((i) => i.id === id)?.canAct === true);
+}
+
+/**
+ * QA B5: what the assertive live region says, once per change — never the ticking timers. First load: the number of
+ * OPEN SOS (if any); afterwards each newly seen OPEN SOS by its raiser label; null = nothing new to announce.
+ */
+export function sosAnnouncement<T extends Pick<IncidentListItem, 'id' | 'status' | 'raiserLabel'>>(
+  previous: ReadonlySet<string> | null,
+  items: readonly T[],
+): { seen: Set<string>; initialOpen: number | null; fresh: T[] } {
+  const seen = new Set(previous ?? []);
+  if (previous === null) {
+    for (const i of items) seen.add(i.id);
+    const open = items.filter((i) => i.status === 'OPEN').length;
+    return { seen, initialOpen: open || null, fresh: [] };
+  }
+  const freshIds = newOpenIds(previous, items);
+  for (const id of freshIds) seen.add(id);
+  return { seen, initialOpen: null, fresh: items.filter((i) => freshIds.includes(i.id)) };
+}
+
+export function actionableOpenCount(items: readonly Pick<IncidentListItem, 'status' | 'canAct'>[] | undefined): number {
+  return (items ?? []).filter((i) => i.status === 'OPEN' && i.canAct).length;
+}
+
 /** Socket payload → should the lane refetch now? Always for a valid payload (details come over REST). */
 export function isSosPayload(p: unknown): p is TransportSosSocketPayload {
   const x = p as Partial<TransportSosSocketPayload> | null;

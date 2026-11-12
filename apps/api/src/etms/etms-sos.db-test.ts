@@ -153,6 +153,8 @@ d(`ETMS E5 durable SOS on ${dbName}`, () => {
 
   it('atomicity: incident, CREATED event and SAFETY outbox row commit together — or nothing at all', async () => {
     const key = id();
+    // The passenger has the SOS_LOCATION consent (doc 10 §3), so the fix is stored (without it, it is dropped).
+    await sql(`INSERT INTO "EmployeeTransportConsent" (id, "companyId", "profileId", "subjectUserId", purpose, "noticeVersion", granted, channel) VALUES (gen_random_uuid(), '${w.company}', '${w.profiles[0]}', '${w.paxUsers[0]}', 'SOS_LOCATION', 'v1', true, 'PASSENGER_APP')`);
     const r = await sos.raisePassenger(pax(0), { note: 'help', fix: { lat: 13.05, lng: 80.25, accuracyM: 8, at: new Date().toISOString() } }, key);
     expect(r).toMatchObject({ created: true, replay: false, receipt: { status: 'RECEIVED_BY_SERVER', incidentStatus: 'OPEN', acknowledgement: null, merged: false, notify: 'QUEUED' } });
     const row = await prisma.transportIncident.findUniqueOrThrow({ where: { id: r.receipt.incidentId }, include: { events: true } });
@@ -324,6 +326,9 @@ d(`ETMS E5 durable SOS on ${dbName}`, () => {
     const [a, b] = await Promise.all([relayNoDirect.run(), new SafetyOutboxRelayService(prisma as never, valkey as never).run()]);
     expect(a.claimed + b.claimed).toBeGreaterThanOrEqual(3);
     expect(await prisma.outboxEvent.count({ where: { aggregateId: iid, publishedAt: null } })).toBe(0);
-    expect(await prisma.transportIncidentEvent.count({ where: { incidentId: iid, kind: 'NOTIFY_PUBLISHED' } })).toBe(1);
+    // Security review M2: the creation row of an incident already resolved when it is relayed is settled silently (no
+    // push, no "dispatchers notified" history entry); the ack / resolve rows refresh the lanes with the real status.
+    expect(await prisma.transportIncidentEvent.count({ where: { incidentId: iid, kind: 'NOTIFY_PUBLISHED' } })).toBe(0);
+    expect(await prisma.notificationLog.count({ where: { refId: iid } })).toBe(0);
   });
 });

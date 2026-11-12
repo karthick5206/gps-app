@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, 
 import type { RoutePlanCompareDto, RoutePlanDetailDto, RoutePlanEditResult, RoutePlanPublishResult, RoutePlanSummaryDto, RoutePlanVersionDto } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
-import { TransportFeatureGuard } from '../transport-feature.guard';
+import { PassengerData, TransportFeatureGuard } from '../transport-feature.guard';
 import { PlanningFeatureGuard } from './planning-feature.guard';
 import { AssignmentUpdateDto, DiscardDto, MovePassengerDto, PlanCompareQuery, PlanListQuery, PublishDto, ResequenceDto, StopUpdateDto } from './plans.dto';
 import { RoutePlansService } from './plans.service';
@@ -16,6 +16,7 @@ type HeaderSink = { setHeader?: (name: string, value: string) => unknown } | und
  */
 @Controller('transport/route-plans')
 @UseGuards(TransportFeatureGuard, PlanningFeatureGuard)
+@PassengerData() // VeeTrax support: X-Access-Reason (passenger personal data)
 export class RoutePlansController {
   constructor(private readonly plans: RoutePlansService) {}
 

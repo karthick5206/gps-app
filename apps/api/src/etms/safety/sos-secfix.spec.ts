@@ -1,0 +1,71 @@
+import { ExecutionContext } from '@nestjs/common';
+import type { AuthContext, TransportAgreementScope } from '../../access/auth-context';
+import { customerContextOf } from '../../access/transport-scope';
+import { TransportFeatureGuard } from '../transport-feature.guard';
+import { IncidentsController } from './safety.controller';
+import { incidentAccess, incidentListWhere } from './sos-rules';
+import { SosService } from './sos.service';
+import { clockTime } from './safety-outbox-relay.service';
+import { SOS_RELAY_LATE_MS, sosLatePushText } from '@veetracer/shared';
+
+const PROV = '00000000-0000-4000-8000-0000000000aa';
+const A = '00000000-0000-4000-8000-00000000000a';
+const B = '00000000-0000-4000-8000-00000000000b';
+const NOW = Date.now();
+const agr = (customerCompanyId: string): TransportAgreementScope => ({ id: `agr-${customerCompanyId}`, customerCompanyId, grants: ['MANAGE_INCIDENTS'], siteIds: [], dataProfile: 'MINIMAL', validFrom: NOW - 86_400_000, validTo: null });
+const providerDesk = (): AuthContext =>
+  ({ userId: 'u', companyId: PROV, homeCompanyId: PROV, isSuperAdmin: false, permissions: { etms_incidents: ['view', 'edit'] }, dataScope: 'COMPANY', branchIds: [], objectIds: [], features: ['etms', 'etmsProvider'], agreements: [agr(A), agr(B)], ip: null }) as AuthContext;
+const paxSosOfB = { raiserType: 'PASSENGER', providerCompanyId: PROV, customerCompanyId: B };
+
+describe('QA B1 (safety): the customer picker never narrows SOS / incidents', () => {
+  it('a provider dispatcher narrowed to customer A (or to its own company) still manages B\'s passenger SOS', () => {
+    for (const pick of [A, PROV]) {
+      const narrowed = { ...providerDesk(), ...customerContextOf(providerDesk(), pick, NOW)! };
+      expect(narrowed.agreements!.some((a) => a.customerCompanyId === B)).toBe(false);
+      expect(incidentAccess(narrowed, paxSosOfB, NOW)).toBe('manage');
+      const where = incidentListWhere(narrowed, NOW) as { OR: unknown[] };
+      expect(where.OR).toContainEqual({ providerCompanyId: PROV, customerCompanyId: { in: [A, B] } });
+    }
+  });
+
+  it('TransportFeatureGuard ignores X-Transport-Customer on the incidents controller (even an invalid id is no 404)', () => {
+    const guard = new TransportFeatureGuard();
+    const exec = (auth: AuthContext, header: string, cls: unknown) =>
+      ({ getType: () => 'http', getHandler: () => IncidentsController.prototype.list, getClass: () => cls, switchToHttp: () => ({ getRequest: () => ({ auth, headers: { 'x-transport-customer': header } }) }) }) as unknown as ExecutionContext;
+    const onLane = providerDesk();
+    expect(guard.canActivate(exec(onLane, A, IncidentsController))).toBe(true);
+    expect(onLane.transportCustomerId).toBeUndefined();
+    expect(onLane.agreements!.map((a) => a.customerCompanyId)).toEqual([A, B]);
+    expect(guard.canActivate(exec(providerDesk(), '99999999-9999-4999-8999-999999999999', IncidentsController))).toBe(true);
+    // Any other ETMS controller is still narrowed by the header.
+    class OtherController {}
+    const elsewhere = providerDesk();
+    expect(guard.canActivate(exec(elsewhere, A, OtherController))).toBe(true);
+    expect(elsewhere.agreements!.map((a) => a.customerCompanyId)).toEqual([A]);
+  });
+});
+
+describe('Security review M2: late SOS push text', () => {
+  it('clock time in the company zone (UTC for an unknown zone) and the quiet text in the login language', () => {
+    const at = new Date('2026-11-12T04:05:00Z');
+    expect(clockTime(at, 'Asia/Kolkata')).toBe('09:35');
+    expect(clockTime(at, 'Not/AZone')).toBe('04:05');
+    expect(clockTime(at, null)).toBe('04:05');
+    expect(sosLatePushText(null, '09:35')).toEqual({ title: 'Missed SOS, still open', body: 'An SOS has been open since 09:35 and was not delivered at once. Open VeeTrax now.' });
+    expect(sosLatePushText('hi', '09:35').body).toContain('09:35');
+    expect(sosLatePushText('ta', '09:35').title).not.toBe('Missed SOS, still open');
+    expect(SOS_RELAY_LATE_MS).toBe(15 * 60_000);
+  });
+});
+
+describe('Security review (info): driver SOS identity is looked up in the acting company', () => {
+  it('raiseDriver / receiptDriver filter Driver by userId AND ctx.companyId', async () => {
+    const wheres: unknown[] = [];
+    const prisma = { driver: { findFirst: jest.fn(async (q: { where: unknown }) => (wheres.push(q.where), null)) } };
+    const svc = new SosService(prisma as never);
+    const ctx = { userId: 'u1', companyId: PROV } as AuthContext;
+    await expect(svc.raiseDriver(ctx, {}, undefined)).rejects.toMatchObject({ response: { code: 'NOT_A_DRIVER' } });
+    await expect(svc.receiptDriver(ctx, 'x')).rejects.toMatchObject({ response: { code: 'NOT_A_DRIVER' } });
+    expect(wheres).toEqual([{ userId: 'u1', companyId: PROV }, { userId: 'u1', companyId: PROV }]);
+  });
+});
