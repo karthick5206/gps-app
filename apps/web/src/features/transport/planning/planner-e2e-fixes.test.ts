@@ -115,6 +115,15 @@ test('T2-L3: up / down are not offered when they would move a pinned neighbour (
   assert.equal(canShiftStop([{ pinned: false }, { pinned: false }], 0, 1), true);
 });
 
+test('T2-L3 follow-up: up / down never swap a passenger’s pickup with its own drop (the API answers 400 "drop must come after the pickup")', () => {
+  const one = [{ pinned: false, bookingId: 'b1', stopKind: 'PICKUP' as const }, { pinned: false, bookingId: 'b1', stopKind: 'DROP' as const }];
+  assert.equal(canShiftStop(one, 0, 1), false);
+  assert.equal(canShiftStop(one, 1, -1), false);
+  const two = [{ pinned: false, bookingId: 'b1', stopKind: 'PICKUP' as const }, { pinned: false, bookingId: 'b2', stopKind: 'PICKUP' as const }, { pinned: false, bookingId: 'b1', stopKind: 'DROP' as const }];
+  assert.equal(canShiftStop(two, 0, 1), true);
+  assert.equal(canShiftStop(two, 1, 1), true);
+});
+
 // ── T2-L4: re-optimise prefill and time limit ──
 
 test('T2-L4: re-optimise prefills the stored weights; the time limit is a choice within the API range', () => {

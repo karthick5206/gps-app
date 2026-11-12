@@ -167,7 +167,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
           </Field>
           {branch.mode === 'pick' && (
             <Field label={t('Branch')} htmlFor="opt-branch" className="sm:col-span-2" hint={t('The plan takes the bookings of this branch.')} error={touched && !branchId ? t('Choose the branch for the plan.') : undefined}>
-              <SimpleSelect id="opt-branch" value={branchId ?? ''} onChange={(v) => setState((s) => ({ ...s, branchId: v || null }))} options={[{ value: '', label: t('Choose a branch') }, ...branch.branches.map((b) => ({ value: b.id, label: b.name }))]} />
+              <SimpleSelect id="opt-branch" value={branchId ?? ''} onChange={(v) => setState((s) => ({ ...s, branchId: v || null }))} label={t('Branch')} options={branch.branches.map((b) => ({ value: b.id, label: b.name }))} />
             </Field>
           )}
           {branch.mode === 'fixed' && <p className="text-sm text-muted-foreground sm:col-span-2">{t('Plans are made for your branch {{name}}.', { name: branch.branch.name })}</p>}

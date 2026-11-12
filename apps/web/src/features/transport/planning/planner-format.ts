@@ -913,12 +913,15 @@ export function jobOutcome(job: Pick<RoutingJobDto, 'state' | 'result'>, plan?: 
 
 /**
  * T2-L3: whether "move up / down" may be offered for the stop at index k: not past either end, and neither the stop
- * nor the neighbour it swaps with is pinned (a pinned stop never moves by hand; the API answers STOP_PINNED).
+ * nor the neighbour it swaps with is pinned (a pinned stop never moves by hand; the API answers STOP_PINNED), and the
+ * two are not one passenger's pickup and drop.
  */
-export function canShiftStop(stops: readonly { pinned?: boolean | null }[], k: number, delta: -1 | 1): boolean {
+export function canShiftStop(stops: readonly { pinned?: boolean | null; bookingId?: string | null }[], k: number, delta: -1 | 1): boolean {
   const j = k + delta;
   if (k < 0 || k >= stops.length || j < 0 || j >= stops.length) return false;
-  return !stops[k].pinned && !stops[j].pinned;
+  if (stops[k].pinned || stops[j].pinned) return false;
+  // A passenger's pickup and its own drop never swap (the drop must come after the pickup: the API answers 400).
+  return !(stops[k].bookingId && stops[k].bookingId === stops[j].bookingId);
 }
 
 /** T2-L4: time limits offered (seconds), within the API range (1 … limits.optimizeTimeLimitS). */
