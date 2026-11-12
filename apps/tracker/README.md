@@ -78,7 +78,8 @@ The server still applies its own `maxAccuracyM` / mock rules on top.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `EXPO_PUBLIC_SERVER_URL` | `https://gps.mintplus.co.in` | Server; the app calls `${SERVER}/api/tracker/v1` |
+| `EXPO_PUBLIC_SERVER_URL` | `https://app.veetrax.com` | Live server (seeds a fresh install); the app calls `${SERVER}/api/tracker/v1` |
+| `EXPO_PUBLIC_DEMO_SERVER_URL` | `https://gps.mintplus.co.in` | Demo server: the **Demo account** switch on the activation screen (shown only before activation) stores it in the native engine (`setServerUrl`); it survives deactivation |
 
 Put overrides in `apps/tracker/.env.local` (not committed). The value is baked in at build time.
 

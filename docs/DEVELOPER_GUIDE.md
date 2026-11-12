@@ -70,7 +70,7 @@ How data moves (details in section 5):
 4. `cd apps/api && npm run db:deploy && npm run db:seed` (creates tables and the first Super Admin).
 5. Start what you need, each in its own terminal: `npm run dev:api`, `npm run dev:gateway`, `npm run dev:processor`, `npm run dev:web`; notifier / summarizer: `npm run notifier:dev` / `npm run summarizer:dev -w @veetracer/api`.
 6. Fake devices: `npm run sim` (simulator sends GT06 traffic to the local gateway).
-7. Apps: `npm run dev:mobile` (Expo). For the Android emulator against a local server, build with `EXPO_PUBLIC_SERVER_URL=http://10.0.2.2:<port>`. The VeeTrax app uses the live server (`app.veetrax.com`) by default; the **Demo account** switch on its sign-in screen moves it to the demo server (`gps.mintplus.co.in`, `EXPO_PUBLIC_DEMO_SERVER_URL`). See `apps/mobile/README.md`.
+7. Apps: `npm run dev:mobile` (Expo). For the Android emulator against a local server, build with `EXPO_PUBLIC_SERVER_URL=http://10.0.2.2:<port>`. The VeeTrax app uses the live server (`app.veetrax.com`) by default; the **Demo account** switch (with a short tip) on its sign-in screen moves it to the demo server (`gps.mintplus.co.in`, `EXPO_PUBLIC_DEMO_SERVER_URL`); the Tracker app has the same switch on its activation screen (native `setServerUrl`, kept through deactivation). See `apps/mobile/README.md` and `apps/tracker/README.md`.
 
 ### Important settings (`apps/api/.env`)
 

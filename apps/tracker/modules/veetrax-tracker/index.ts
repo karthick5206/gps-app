@@ -52,6 +52,7 @@ interface NativeModuleShape {
   setConfig(config: Partial<NativeTrackerConfig>): Promise<boolean>;
   setCredentials(token: string, serverUrl: string | null): Promise<boolean>;
   initServerUrl(buildUrl: string | null): Promise<string>;
+  setServerUrl(url: string): Promise<string>;
   sendSos(): Promise<SosResult>;
   flush(): Promise<boolean>;
   resetStopReason(): Promise<boolean>;
@@ -91,6 +92,11 @@ export function start(token: string, config?: Partial<NativeTrackerConfig>): Pro
  */
 export function initServerUrl(buildUrl: string): Promise<string> {
   return Native ? Native.initServerUrl(buildUrl).catch(() => buildUrl) : Promise.resolve(buildUrl);
+}
+
+/** Stores a new server address (activation screen "Demo account"); resolves with the address now in use. */
+export function setServerUrl(url: string): Promise<string> {
+  return Native ? Native.setServerUrl(url) : Promise.resolve(url);
 }
 
 /** Delivers the queue now; resolves with how many points are still waiting. */

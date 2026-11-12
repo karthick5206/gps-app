@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { InfoSteps } from '@/components/InfoSteps';
 import { TrackerMark } from '@/components/TrackerLogo';
 import { TrackingScene } from '@/components/TrackingScene';
 import { Body, Button, Card, HeaderBand, Title } from '@/components/ui';
-import { api, ApiError, NetworkError } from '@/lib/api';
+import { api, ApiError, currentServerUrl, DEMO_SERVER_URL, NetworkError, setDemoServer, syncServerUrl } from '@/lib/api';
 import { APP_VERSION, deviceName } from '@/lib/device';
 import { saveActivation } from '@/lib/control';
 import { store, useStoreVersion } from '@/lib/state';
@@ -45,6 +45,20 @@ export default function ActivateScreen() {
   // Registered number: its e-mail / name are filled in (same phone) or the e-mail is shown masked; both editable.
   const [registered, setRegistered] = useState(false);
   const [emailHint, setEmailHint] = useState<string | null>(null);
+  // "Demo account": activates against the demo server instead of live. The phone keeps the choice.
+  const [demo, setDemo] = useState(false);
+  useEffect(() => {
+    let live = true;
+    syncServerUrl().then(() => live && setDemo(currentServerUrl() === DEMO_SERVER_URL));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const toggleDemo = (next: boolean) => {
+    setError(null);
+    // State follows the stored address, so the number lookup (keyed on `demo`) runs against the new server.
+    setDemoServer(next).then(() => setDemo(currentServerUrl() === DEMO_SERVER_URL), () => undefined);
+  };
 
   useEffect(() => {
     setRegistered(false);
@@ -65,7 +79,7 @@ export default function ActivateScreen() {
     return () => {
       live = false;
     };
-  }, [digits]);
+  }, [digits, demo]);
 
   const requestCode = async () => {
     if (!/^\d{10}$/.test(digits)) return setError(S.mobileInvalid);
@@ -164,6 +178,13 @@ export default function ActivateScreen() {
                 <Body muted style={{ fontSize: 13 }}>{registered ? (emailHint && !email ? S.emailKeep(emailHint) : S.emailRegisteredHint) : S.emailHint}</Body>
                 <Text style={[styles.label, { color: c.muted }]}>{S.nameLabel}</Text>
                 <TextInput style={input} value={name} onChangeText={setName} placeholder={S.namePlaceholder} placeholderTextColor={c.muted} autoComplete="name" />
+                <View style={styles.demoRow}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={[styles.label, { color: c.text, marginTop: 0 }]}>{S.demoAccount}</Text>
+                    <Text style={{ color: c.muted, fontSize: 13 }}>{demo ? S.demoHintOn(DEMO_SERVER_URL.replace(/^https?:\/\//, '')) : S.demoHintOff}</Text>
+                  </View>
+                  <Switch value={demo} onValueChange={toggleDemo} disabled={busy} trackColor={{ true: c.primary }} accessibilityLabel={S.demoAccount} />
+                </View>
                 <Button title={S.sendCode} onPress={requestCode} busy={busy} />
               </>
             ) : (
@@ -213,6 +234,7 @@ const styles = StyleSheet.create({
   prefixText: { fontSize: 18, fontWeight: '600' },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, minHeight: 52, fontSize: 18 },
   code: { fontSize: 26, letterSpacing: 10, textAlign: 'center', fontWeight: '700' },
+  demoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
   links: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   error: { fontSize: 15, fontWeight: '600' },
 });

@@ -143,7 +143,7 @@ export default function LoginScreen() {
             {mode === 'password' ? <PasswordForm key={server} /> : <OtpForm key={server} />}
             <SwitchRow
               label={t('Demo account')}
-              hint={demo ? t('Signs in on the demo server ({{server}}).', { server: DEMO_SERVER_URL.replace(/^https?:\/\//, '') }) : undefined}
+              hint={demo ? t('Uses the demo server ({{server}}).', { server: DEMO_SERVER_URL.replace(/^https?:\/\//, '') }) : t('Only for demo logins. Leave off for your normal account.')}
               value={demo}
               onChange={setDemo}
             />
