@@ -228,6 +228,56 @@ describe('T3-D4 one GraphHopper in-flight cap across processes (Valkey semaphore
     expect(Date.now() - t0).toBeGreaterThanOrEqual(30);
   });
 
+  // E4 review L6
+  it('a script that answers after the op timeout: the request fails open and its late token is removed (no slot held to the TTL)', async () => {
+    const v = fakeValkey();
+    const evalFast = v.eval.bind(v);
+    v.eval = async (...a: Parameters<typeof v.eval>) => {
+      const r = await evalFast(...a); // the server ran it (token added) ...
+      await new Promise((res) => setTimeout(res, 60)); // ... but answers late
+      return r;
+    };
+    const zremFast = v.zrem.bind(v);
+    v.zrem = async (k: string, t: string) => {
+      await new Promise((res) => setTimeout(res, 70)); // queued behind the script on the same connection
+      return zremFast(k, t);
+    };
+    const sem = new ValkeySemaphore(v, 3, { opTimeoutMs: 20 });
+    const release = await sem.acquire();
+    expect(sem.failOpen).toBe(1);
+    release();
+    await new Promise((res) => setTimeout(res, 120));
+    expect(v.held.size).toBe(0); // before: 1 (held until the 60 s TTL)
+  });
+
+  it('waiters poll by SHA (script text sent once, after NOSCRIPT) and back off while the cap is full', async () => {
+    const v = fakeValkey();
+    let evals = 0;
+    let shas = 0;
+    let loaded = false;
+    const evalReal = v.eval.bind(v);
+    v.eval = async (...a: Parameters<typeof v.eval>) => {
+      evals++;
+      loaded = true;
+      return evalReal(...a);
+    };
+    const client = Object.assign(v, {
+      async evalsha(_sha: string, n: number, key: string, ttl: string | number, limit: string | number, token: string) {
+        shas++;
+        if (!loaded) throw new Error('NOSCRIPT No matching script. Please use EVAL.');
+        return evalReal('', n, key, ttl, limit, token);
+      },
+    });
+    for (let i = 0; i < 3; i++) client.held.set(`busy-${i}`, Date.now() + 1_000);
+    const sem = new ValkeySemaphore(client, 3, { pollMs: 25 });
+    const t0 = Date.now();
+    const release = await sem.acquire();
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(900);
+    expect(evals).toBe(1); // the first NOSCRIPT loads it
+    expect(shas).toBeLessThan(20); // fixed 25 ms polling made about 40 calls in 1 s
+    release();
+  });
+
   const url = process.env.MATRIX_VALKEY_TEST_URL ?? '';
   const db = Number(/\/(\d+)$/.exec(url)?.[1] ?? 0);
   (url && db > 0 ? it : it.skip)('on a real Valkey (private db index): two processes share the cap; the script runs', async () => {
