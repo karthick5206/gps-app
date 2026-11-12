@@ -9,7 +9,9 @@ import { RedisService } from '../../redis/redis.service';
 import { etmsServerEnabled } from '../transport-feature.guard';
 import { SOS_CHANNEL, sosLocalBus, type SosFanoutMessage } from './sos-bus';
 import { SosDirectSender, TRANSPORT_INCIDENT_LATE_REF, TRANSPORT_INCIDENT_REF } from './sos-direct-sender';
-import { safetyBackoffMs } from './sos-rules';
+import { incidentAccess, safetyBackoffMs } from './sos-rules';
+import { providerAgreementScopes } from '../../access/auth-context.service';
+import { companyFeatures } from '../../common/company-features';
 
 /** Lease of a claimed outbox row: another relay instance may take it over after this (at-least-once). */
 export const OUTBOX_LEASE_MS = 30_000;
@@ -192,8 +194,8 @@ export class SafetyOutboxRelayService {
   }
 
   /**
-   * PUSH rows for the dispatcher logins of the companies that see the incident (raiser's company always, the other
-   * party only with an ACTIVE agreement granting RECEIVE_INCIDENTS / MANAGE_INCIDENTS). One row per outbox row and
+   * PUSH rows for the dispatcher logins of the companies that see the incident (recipientCompanies: the same rule as
+   * the incidents lane). One row per outbox row and
    * login (dedupeKey), generic text in the login's language; only logins with a signed-in app. Returns the QUEUED ids.
    * `late` (M2): the quiet "still open since HH:MM" form (company time zone), no siren.
    */
@@ -227,27 +229,25 @@ export class SafetyOutboxRelayService {
     return rows.map((r) => r.id);
   }
 
-  private async recipientCompanies(i: IncidentRow): Promise<string[]> {
-    const own = i.raiserType === 'DRIVER' ? i.providerCompanyId : i.customerCompanyId;
-    const other = i.raiserType === 'DRIVER' ? i.customerCompanyId : i.providerCompanyId;
-    const out = new Set<string>();
-    if (own) out.add(own);
-    if (other && other !== own && i.providerCompanyId && i.customerCompanyId) {
-      const now = new Date();
-      const agreement = await this.prisma.transportServiceAgreement.findFirst({
-        where: {
-          providerCompanyId: i.providerCompanyId,
-          customerCompanyId: i.customerCompanyId,
-          status: 'ACTIVE',
-          validFrom: { lte: now },
-          OR: [{ validTo: null }, { validTo: { gt: now } }],
-          grants: { hasSome: ['RECEIVE_INCIDENTS', 'MANAGE_INCIDENTS'] },
-        },
-        select: { id: true },
-      });
-      if (agreement) out.add(other);
+  /**
+   * Security review L4 / QA B6: the companies whose dispatchers may see the incident, by exactly the lane's rule —
+   * each party gets the AuthContext it would have on a request (add-on `etms` on, active company; a provider's
+   * agreements only with `etmsProvider`, through providerAgreementScopes = AuthContextService.agreementsOf, which also
+   * requires the customer to be active, non-platform and ETMS-on) and must pass incidentAccess. A company whose module
+   * is off gets no push (its etms_incidents menu is stripped too).
+   */
+  async recipientCompanies(i: Pick<IncidentRow, 'raiserType' | 'providerCompanyId' | 'customerCompanyId'>): Promise<string[]> {
+    const ids = [...new Set([i.providerCompanyId, i.customerCompanyId].filter((x): x is string => !!x))];
+    if (!ids.length) return [];
+    const companies = await this.prisma.company.findMany({ where: { id: { in: ids } }, select: { id: true, status: true, settings: true, isPlatform: true } });
+    const out: string[] = [];
+    for (const c of companies) {
+      const features = companyFeatures(c);
+      if (c.status !== 'ACTIVE' || !features.includes('etms')) continue;
+      const agreements = c.id === i.providerCompanyId && features.includes('etmsProvider') ? await providerAgreementScopes(this.prisma, c.id) : [];
+      if (incidentAccess({ companyId: c.id, homeCompanyId: c.id, isSuperAdmin: false, agreements }, i) !== 'none') out.push(c.id);
     }
-    return [...out];
+    return ids.filter((id) => out.includes(id));
   }
 }
 

@@ -6,6 +6,7 @@
  *  - M2: relay off → resume and rollback → roll-forward never replay a handled SOS as a new siren; a late, still-OPEN
  *    SOS gets the quiet "still open since HH:MM" push; nothing still OPEN is dropped.
  *  - L1: a repeat press that links the trip (and so the operator) notifies the operator's dispatchers.
+ *  - L4 / QA B6: SOS push recipients follow the incidents lane rule (etms / etmsProvider add-ons, customer ETMS on).
  * Not part of the normal run (testRegex is *.spec.ts):
  *   CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_<name>_test TEST_REDIS_URL=redis://localhost:6379/14 \
  *     npx jest --testRegex 'etms-secfix\.db-test\.ts$' --runInBand
@@ -253,6 +254,28 @@ d(`v1.14.0 security fix round on ${dbName}`, () => {
       // A third press (already linked) writes no further linked row.
       await sos.raisePassenger(pax(), { note: 'third' }, id());
       expect(await prisma.outboxEvent.count({ where: { aggregateId: first, type: 'transport.incident.linked' } })).toBe(1);
+    });
+
+    it('L4 / B6: push recipients follow the lane rule: no etmsProvider or customer ETMS off → the provider gets nothing', async () => {
+      const incident = { raiserType: 'PASSENGER', providerCompanyId: w.prov, customerCompanyId: w.cust };
+      const setFeatures = (company: string, f: string[]) => prisma.company.update({ where: { id: company }, data: { settings: { features: f } } });
+      try {
+        expect(await relay.recipientCompanies(incident)).toEqual([w.prov, w.cust]);
+        await setFeatures(w.prov, ['etms']); // etmsProvider off: no customer grants on the lane, so no push either
+        expect(await relay.recipientCompanies(incident)).toEqual([w.cust]);
+        await setFeatures(w.prov, ['etms', 'etmsProvider']);
+        await setFeatures(w.cust, []); // the customer's module off: neither its own desk nor (through the agreement) the provider
+        expect(await relay.recipientCompanies(incident)).toEqual([]);
+        await setFeatures(w.cust, ['etms']);
+        await prisma.transportServiceAgreement.update({ where: { id: w.agreement }, data: { grants: ['VIEW_BOOKINGS'] } });
+        expect(await relay.recipientCompanies(incident)).toEqual([w.cust]);
+        // A driver SOS: the operator always; the customer of the trip as the lane allows it (incidentAccess).
+        expect(await relay.recipientCompanies({ raiserType: 'DRIVER', providerCompanyId: w.prov, customerCompanyId: w.cust })).toEqual([w.prov, w.cust]);
+      } finally {
+        await setFeatures(w.prov, ['etms', 'etmsProvider']);
+        await setFeatures(w.cust, ['etms']);
+        await prisma.transportServiceAgreement.update({ where: { id: w.agreement }, data: { grants: ['MANAGE_INCIDENTS'] } });
+      }
     });
 
     it('rollback (no relay for a day) → roll-forward: the acknowledged one is settled, the open one is the quiet form', async () => {
