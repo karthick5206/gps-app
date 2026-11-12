@@ -6,6 +6,7 @@ import { LogoMark, Wordmark } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { AlertBell } from '@/features/alerts/AlertBell';
+import { SosBellMirror } from '@/features/transport/incidents/SosShell';
 import { AskButton } from '@/features/ask/AskPanel';
 import { useAuth, useMe } from '@/features/auth/auth-context';
 import { useRealtimeStatus } from '@/features/live/use-live';
@@ -78,6 +79,7 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
       </div>
       {can('live_map') && <AskButton />}
       <RealtimeIndicator />
+      {can('etms_incidents') && <SosBellMirror />}
       {can('alerts') && <AlertBell />}
       <LanguageToggle />
       <DisplayToggle />

@@ -41,6 +41,9 @@ import { E3_RESOURCES, e3Ids, seedE3, type E3Resource } from './isolation-matrix
 import { DRIVER_USERS, E5_RESOURCES, e5Ids, seedE5 } from './isolation-matrix-e5';
 import { DriverApiService } from '../driver/driver-api.service';
 import { DriverController, MyTransportBookingsController, MyTransportNotificationsController } from '../driver/driver.controller';
+import { IncidentsService } from '../safety/incidents.service';
+import { DriverSosController, IncidentsController, MySosController } from '../safety/safety.controller';
+import { SosService } from '../safety/sos.service';
 import { MeBookingCancelService } from '../driver/me-booking-cancel.service';
 import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Target } from './isolation-matrix';
@@ -249,6 +252,10 @@ function e5Controllers(prisma: Obj, audit: AuditService, redis: object, people: 
     driver: new DriverController(new DriverApiService(prisma as never, audit, redis as never, live, notifications), notifications, prisma as never),
     myNotifications: new MyTransportNotificationsController(notifications, people, prisma as never),
     myBookings: new MyTransportBookingsController(new MeBookingCancelService(prisma as never, audit, people, new MeTransportService(prisma as never, people, redis as never), live)),
+    // WP 5.4: no relay here (the SAFETY outbox rows stay in the store; the relay has its own DB test).
+    mySos: new MySosController(new SosService(prisma as never)),
+    driverSos: new DriverSosController(new SosService(prisma as never)),
+    incidents: new IncidentsController(new IncidentsService(prisma as never, audit)),
   };
 }
 
@@ -447,7 +454,9 @@ describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
     for (const c of [PassengersController, MyTransportConsentController, ConsentNoticesController, TransportVehiclesController, DriverLoginController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     // E5 (EtmsDriverModule, imported): 13 driver routes + 4 passenger notification routes + booking self-cancel.
     for (const c of [DriverController, MyTransportNotificationsController, MyTransportBookingsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
-    expect(ROUTES.filter((r) => r.key.includes(' driver/v1/')).length).toBe(13);
+    // WP 5.4 (EtmsSafetyModule, imported): passenger SOS (2), driver SOS (2), dispatcher incidents (4).
+    for (const c of [MySosController, DriverSosController, IncidentsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
+    expect(ROUTES.filter((r) => r.key.includes(' driver/v1/')).length).toBe(15);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
   });
 

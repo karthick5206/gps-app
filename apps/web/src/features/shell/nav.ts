@@ -46,6 +46,7 @@ import {
   HandshakeIcon,
   LayoutDashboardIcon,
   WaypointsIcon,
+  SirenIcon,
   Settings2Icon,
   type LucideIcon,
 } from 'lucide-react';
@@ -99,6 +100,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   etms_bookings: ScrollTextIcon,
   etms_dispatch: RadarIcon,
   etms_planning: WaypointsIcon,
+  etms_incidents: SirenIcon,
   etms_settings: Settings2Icon,
   etms_self: BusIcon,
   etms_driver: CarFrontIcon,

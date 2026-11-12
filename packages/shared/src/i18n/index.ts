@@ -2,15 +2,16 @@ import type { LanguageCode } from '../api';
 import { HI } from './hi';
 import { TA } from './ta';
 import { TRANSPORT_MOBILE_HI, TRANSPORT_MOBILE_TA } from './transport-mobile';
+import { TRANSPORT_SOS_HI, TRANSPORT_SOS_TA } from './transport-sos';
 
 /**
  * UI translations shared by web and mobile. Keys are the English source strings (i18next with keySeparator /
  * nsSeparator disabled), so untranslated text simply shows in English.
  */
 export const TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Record<string, string>> = {
-  // The main tables win over the mobile transport table (transport-mobile.ts) for any key both have.
-  hi: { ...TRANSPORT_MOBILE_HI, ...HI },
-  ta: { ...TRANSPORT_MOBILE_TA, ...TA },
+  // The main tables win over the mobile transport table (transport-mobile.ts) and the SOS table (transport-sos.ts).
+  hi: { ...TRANSPORT_SOS_HI, ...TRANSPORT_MOBILE_HI, ...HI },
+  ta: { ...TRANSPORT_SOS_TA, ...TRANSPORT_MOBILE_TA, ...TA },
 };
 
 /** i18next options both apps use. */

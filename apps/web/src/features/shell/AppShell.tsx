@@ -11,12 +11,14 @@ import { Sidebar } from './Sidebar';
 import { AllCompaniesBanner } from './AllCompaniesBanner';
 import { SystemHealthBanner } from './SystemHealthBanner';
 import { TopBar } from './TopBar';
+import { SosBanner } from '@/features/transport/incidents/SosShell';
 import { AppFooter } from './AppFooter';
 
 /** Keeps one Socket.IO connection per selected company while the user is in the app. */
 function useRealtimeConnection() {
   const { companyId, can } = useAuth();
-  const enabled = can('live_map') || can('dashboard') || can('alerts');
+  // etms_incidents: the SOS lane, banner and bell mirror listen for transport.sos (WP 5.4).
+  const enabled = can('live_map') || can('dashboard') || can('alerts') || can('etms_incidents');
   useEffect(() => {
     if (!enabled) return;
     realtime.start(companyId);
@@ -55,6 +57,7 @@ export function AppShell() {
           </SheetContent>
         </Sheet>
         <div className="flex min-w-0 flex-1 flex-col">
+          <SosBanner />
           <LicenceBanner />
           <SystemHealthBanner />
           <AllCompaniesBanner />

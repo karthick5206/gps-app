@@ -8,16 +8,17 @@ import { EtmsDispatchModule } from './dispatch/dispatch.module';
 import { EtmsDriverModule } from './driver/driver.module';
 import { EtmsPeopleModule } from './people/people.module';
 import { EtmsPlanningModule } from './planning/planning.module';
+import { EtmsSafetyModule } from './safety/safety.module';
 import { TransportSettingsController } from './settings/transport-settings.controller';
 import { TransportSettingsService } from './settings/transport-settings.service';
 
 /**
  * Employee transport (ETMS). E1a: service agreements, the partner directory and the company ETMS settings; E2: people
  * (EtmsPeopleModule — passengers, consent notices, vehicle seats, driver/passenger logins); E3: schedules, bookings,
- * dispatch and transport trips (EtmsDispatchModule); E5: driver API, notifications (EtmsDriverModule); E4: route plans (EtmsPlanningModule); later phases add theirs here.
+ * dispatch and transport trips (EtmsDispatchModule); E5: driver API, notifications (EtmsDriverModule); E4: route plans (EtmsPlanningModule); E5 WP 5.4: durable SOS (EtmsSafetyModule); later phases add theirs here.
  */
 @Module({
-  imports: [EtmsPeopleModule, EtmsDispatchModule, EtmsDriverModule, EtmsPlanningModule],
+  imports: [EtmsPeopleModule, EtmsDispatchModule, EtmsDriverModule, EtmsPlanningModule, EtmsSafetyModule],
   controllers: [AgreementsController, CompanyDirectoryController, TransportSettingsController],
   providers: [AgreementsService, AgreementViewsService, CompanyDirectoryService, TransportSettingsService],
   exports: [AgreementsService],
