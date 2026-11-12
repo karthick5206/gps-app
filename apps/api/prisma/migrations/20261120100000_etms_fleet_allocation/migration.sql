@@ -1,5 +1,6 @@
 -- ETMS E1b WP 1b.0: TransportFleetAllocation (docs/employee-transport/15 §10, 12 §6 E1b). Additive only: one new table,
--- no change to an existing table or row, no data. Merge-gated for Lead review.
+-- no change to an existing table; one data backfill at the end (QA B3: etmsProvider for existing providers). Merge-gated
+-- for Lead review.
 -- * A provider vehicle (TrackedObject) and / or driver set aside for one customer under a TransportServiceAgreement.
 -- * Decisions taken in this x.0 (15 §10 "key points"):
 --   - CHECK at least one of vehicle / driver (_target_check); validity (_validity_check).
@@ -91,3 +92,19 @@ ALTER TABLE "TransportFleetAllocation" ADD CONSTRAINT "TransportFleetAllocation_
 ALTER TABLE "TransportFleetAllocation" ADD CONSTRAINT "TransportFleetAllocation_driver_overlap_excl"
   EXCLUDE USING gist ("agreementId" WITH =, "driverId" WITH =, tstzrange("validFrom", COALESCE("validTo", 'infinity'::timestamptz), '[)') WITH &&)
   WHERE ("driverId" IS NOT NULL);
+
+-- ───────────────────────────── Upgrade backfill (QA B3) ─────────────────────────────
+-- E1b loads a provider's agreements only when the company has BOTH add-ons etms and etmsProvider (new in E1b). A
+-- company that is already the provider side of an agreement that is not ENDED keeps its grants: it gets etmsProvider
+-- here (appended to Company.settings.features; nothing else in settings changes; idempotent; only object-shaped
+-- settings with an array or missing features list are touched). Runbook: this is the "providers keep their grants"
+-- step of the v1.14.0 upgrade; there is no separate manual step. Rollback: v1.13.1 ignores the unknown add-on.
+-- ETMS-E1B-PROVIDER-BACKFILL-BEGIN
+UPDATE "Company" AS c
+   SET "settings" = jsonb_set(c."settings", '{features}', COALESCE(c."settings"->'features', '[]'::jsonb) || '["etmsProvider"]'::jsonb, true),
+       "updatedAt" = CURRENT_TIMESTAMP
+ WHERE jsonb_typeof(c."settings") = 'object'
+   AND jsonb_typeof(COALESCE(c."settings"->'features', '[]'::jsonb)) = 'array'
+   AND NOT (COALESCE(c."settings"->'features', '[]'::jsonb) ? 'etmsProvider')
+   AND EXISTS (SELECT 1 FROM "TransportServiceAgreement" a WHERE a."providerCompanyId" = c."id" AND a."status" <> 'ENDED');
+-- ETMS-E1B-PROVIDER-BACKFILL-END
