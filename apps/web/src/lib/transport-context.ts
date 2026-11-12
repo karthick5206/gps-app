@@ -49,9 +49,12 @@ export function isIncidentApiPath(path: string): boolean {
   return path === '/transport/incidents' || path.startsWith('/transport/incidents/') || path.startsWith('/transport/incidents?');
 }
 
+/** API sections whose responses carry passenger personal data (server: requireSupportReason / @PassengerData). */
+const PASSENGER_DATA_SECTIONS = ['/transport/passengers', '/transport/schedules', '/transport/bookings', '/transport/dispatch', '/transport/trips', '/transport/route-plans'];
+
 /** Routes that read passenger personal data (the server asks the Super Admin for a reason there). */
 export function accessReasonApplies(apiPath: string): boolean {
-  if (apiPath === '/transport/passengers' || apiPath.startsWith('/transport/passengers/') || apiPath.startsWith('/transport/passengers?')) return true;
+  if (PASSENGER_DATA_SECTIONS.some((s) => apiPath === s || apiPath.startsWith(`${s}/`) || apiPath.startsWith(`${s}?`))) return true;
   // Security review M1: an incident's detail (raiser, location); the lane itself is redacted for support, no reason.
   return apiPath.startsWith('/transport/incidents/');
 }

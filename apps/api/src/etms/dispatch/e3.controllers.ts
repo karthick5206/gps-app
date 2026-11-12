@@ -21,7 +21,7 @@ import type {
 } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
-import { TransportFeatureGuard } from '../transport-feature.guard';
+import { PassengerData, TransportFeatureGuard } from '../transport-feature.guard';
 import { BookingsService, type Replayable } from './bookings.service';
 import { DispatchService } from './dispatch.service';
 import {
@@ -93,6 +93,7 @@ export class ShiftsController {
 /** /api/transport/schedules (05 §2.4): recurring commutes, exceptions, generator preview. Branch-scoped for ASSIGNED roles. */
 @Controller('transport/schedules')
 @UseGuards(TransportFeatureGuard)
+@PassengerData() // VeeTrax support: X-Access-Reason (passenger personal data)
 export class SchedulesController {
   constructor(private readonly schedules: SchedulesService) {}
 
@@ -141,6 +142,7 @@ export class SchedulesController {
 /** /api/transport/bookings (05 §2.5). Create needs the Idempotency-Key header. */
 @Controller('transport/bookings')
 @UseGuards(TransportFeatureGuard)
+@PassengerData() // VeeTrax support: X-Access-Reason (passenger personal data)
 export class BookingsController {
   constructor(private readonly bookings: BookingsService) {}
 
@@ -193,6 +195,7 @@ export class BookingsController {
 /** /api/transport/dispatch (05 §2.6): board, candidates, change sets (Idempotency-Key) and drafts. */
 @Controller('transport/dispatch')
 @UseGuards(TransportFeatureGuard)
+@PassengerData() // VeeTrax support: X-Access-Reason (passenger personal data)
 export class DispatchController {
   constructor(private readonly dispatch: DispatchService) {}
 
@@ -238,6 +241,7 @@ export class DispatchController {
 /** /api/transport/trips (05 §2.6): trip list / detail with manifest, dispatcher progression and passenger outcomes. */
 @Controller('transport/trips')
 @UseGuards(TransportFeatureGuard)
+@PassengerData() // VeeTrax support: X-Access-Reason (passenger personal data)
 export class TransportTripsController {
   constructor(
     private readonly trips: TripsService,

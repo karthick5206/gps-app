@@ -28,7 +28,8 @@ test('headers: customer only on /transport API calls from a transport page; reas
   assert.deepEqual(transportRequestHeaders('/objects', loc, 'why not'), {});
   assert.deepEqual(transportRequestHeaders('/transport/bookings', { pathname: '/live', search: `?customer=${C}` }, null), {});
   assert.deepEqual(transportRequestHeaders('/transport/passengers/abc', { pathname: '/transport/passengers', search: '' }, 'Ticket 12 check'), { 'X-Access-Reason': 'Ticket%2012%20check' });
-  assert.deepEqual(transportRequestHeaders('/transport/bookings', null, 'Ticket 12'), {});
+  assert.deepEqual(transportRequestHeaders('/transport/shifts', null, 'Ticket 12'), {});
+  assert.deepEqual(transportRequestHeaders('/transport/bookings', null, 'Ticket 12'), { 'X-Access-Reason': 'Ticket%2012' });
   // QA B1 (safety): a provider dispatcher on ?customer=A still gets every customer's SOS: no customer header on the lane.
   for (const p of ['/transport/incidents', '/transport/incidents?open=1', '/transport/incidents/abc/ack']) assert.deepEqual(transportRequestHeaders(p, loc, null), {});
   assert.deepEqual(transportRequestHeaders('/transport/incidents', { pathname: '/transport/dispatch', search: `?customer=${C}` }, null), {});
@@ -37,7 +38,9 @@ test('headers: customer only on /transport API calls from a transport page; reas
   // M1: an incident detail needs the reason; the (redacted) lane does not.
   assert.equal(accessReasonApplies('/transport/incidents/3f1c2a4e-9b7d-4c1e-8a2b-1234567890ab'), true);
   assert.equal(accessReasonApplies('/transport/incidents'), false);
-  assert.equal(accessReasonApplies('/transport/bookings'), false);
+  // Every route with passenger personal data (bookings, schedules, dispatch, trips, route plans); not shifts or settings.
+  for (const p of ['/transport/bookings', '/transport/bookings/abc', '/transport/schedules?q=1', '/transport/dispatch/board', '/transport/trips/abc', '/transport/route-plans']) assert.equal(accessReasonApplies(p), true, p);
+  for (const p of ['/transport/shifts', '/transport/settings', '/transport/agreements', '/transport/tripsx']) assert.equal(accessReasonApplies(p), false, p);
 });
 
 test('reason rule and picker pages / options', () => {

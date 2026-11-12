@@ -99,6 +99,8 @@ export function accessWhatLabel(what: string): string {
       return 'Viewed passenger history';
     case 'incident-detail':
       return 'Opened an SOS incident';
+    case 'transport-records':
+      return 'Opened bookings, trips or route plans';
     default:
       return what;
   }
