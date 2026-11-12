@@ -550,12 +550,28 @@ export type MaxRideSource = 'override' | 'policy' | 'none';
 export interface MaxRideOverrideInput {
   /** Seconds, within MAX_RIDE_BOUNDS_S. */
   maxRideS: number;
-  /** Mandatory (trimmed, MAX_RIDE_REASON_LENGTH); stored on the plan and in the audit log. */
+  /** Mandatory (meaningfulOverrideReason, at most MAX_RIDE_REASON_LENGTH.max); stored on the plan and in the audit log. */
   reason: string;
 }
 
-/** Shortest / longest reason accepted with an override. */
-export const MAX_RIDE_REASON_LENGTH = { min: 3, max: 300 } as const;
+/**
+ * E4 decisions review D-L4: one reason rule for every audited override (publish override, max-ride override): at least
+ * OVERRIDE_REASON_MIN characters after collapsing whitespace, and two words or more (a word = two letters or more, with
+ * their combining marks, so Hindi / Tamil count; digits and one repeated token do not).
+ */
+export const OVERRIDE_REASON_MIN = 15;
+
+/** An override reason as it is recorded: whitespace collapsed, trimmed. */
+export const overrideReasonText = (raw: unknown): string => (typeof raw === 'string' ? raw : '').replace(/\s+/g, ' ').trim();
+
+/** Whether a reason is worth recording (see OVERRIDE_REASON_MIN). */
+export function meaningfulOverrideReason(raw: unknown): boolean {
+  const r = overrideReasonText(raw);
+  return r.length >= OVERRIDE_REASON_MIN && (r.match(/\p{L}[\p{L}\p{M}]+/gu) ?? []).length >= 2;
+}
+
+/** Shortest / longest reason accepted with a max-ride override (the shortest is the shared OVERRIDE_REASON_MIN). */
+export const MAX_RIDE_REASON_LENGTH = { min: OVERRIDE_REASON_MIN, max: 300 } as const;
 
 /**
  * The plan's max ride (RoutePlanDetailDto.maxRide). RoutePlan.options holds `maxRideOverride` (kept by re-optimise

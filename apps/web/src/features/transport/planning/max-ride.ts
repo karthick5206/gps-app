@@ -5,7 +5,7 @@
  *   etms_settings:edit with whole-company scope); the API enforces it again.
  * - Decision 2: at most ROUTING_LIMITS.planBookings (75) bookings per plan, read from the capabilities.
  */
-import { MAX_RIDE_BOUNDS_S, MAX_RIDE_REASON_LENGTH, ROUTING_LIMITS, type MaxRideOverrideInput, type RoutePlanMaxRide, type RoutingCapabilities } from '@veetracer/shared';
+import { MAX_RIDE_BOUNDS_S, MAX_RIDE_REASON_LENGTH, meaningfulOverrideReason, overrideReasonText, ROUTING_LIMITS, type MaxRideOverrideInput, type RoutePlanMaxRide, type RoutingCapabilities } from '@veetracer/shared';
 import { formatDuration } from './planner-format.ts';
 
 type Translate = (key: string, vars?: Record<string, unknown>) => string;
@@ -15,7 +15,7 @@ export const MAX_RIDE_MINUTES = { min: MAX_RIDE_BOUNDS_S.min / 60, max: MAX_RIDE
 /** Every text the max-ride / plan-size UI shows (checked for hi / ta in max-ride.test.ts). */
 export const MAX_RIDE_STRINGS = [
   'Enter the maximum ride time in minutes (15–240).',
-  'Give a reason for the override.',
+  'Give a reason for the override: at least 15 characters, in words.',
   'Company maximum ride time: {{value}}',
   'Company maximum ride time: no limit',
   '{{value}} · override: {{reason}}',
@@ -31,7 +31,7 @@ export const MAX_RIDE_STRINGS = [
   'Override the company maximum ride time for this plan',
   'Maximum ride time for this plan (minutes)',
   'Reason for the override',
-  'Required. Recorded in the audit log with your name.',
+  'Required: at least {{n}} characters, in words. Recorded in the audit log with your name.',
   'Turning this off returns the plan to the company policy at the next optimisation.',
   'At most {{n}} bookings per plan. Split larger groups by shift, branch or site.',
 ] as const;
@@ -72,12 +72,19 @@ export function overrideRequest(draft: MaxRideOverrideDraft, current: RoutePlanM
   const errors: string[] = [];
   const parsed = parseMaxRideMinutes(draft.minutes);
   if (!parsed.ok || parsed.seconds === null) errors.push('Enter the maximum ride time in minutes (15–240).');
-  const reason = draft.reason.trim();
-  if (reason.length < MAX_RIDE_REASON_LENGTH.min || reason.length > MAX_RIDE_REASON_LENGTH.max) errors.push('Give a reason for the override.');
+  const reason = overrideReasonText(draft.reason);
+  if (!maxRideReasonValid(reason)) errors.push(MAX_RIDE_REASON_ERROR);
   if (errors.length || !parsed.ok || parsed.seconds === null) return { ok: false, errors };
   if (current && current.maxRideS === parsed.seconds && current.reason === reason) return { ok: true, value: undefined };
   return { ok: true, value: { maxRideS: parsed.seconds, reason } };
 }
+
+/** D-L4: the reason rule of every audited override (shared with publish: 15+ characters, two words; hi / ta letters count). */
+export function maxRideReasonValid(raw: string): boolean {
+  return meaningfulOverrideReason(raw) && overrideReasonText(raw).length <= MAX_RIDE_REASON_LENGTH.max;
+}
+
+export const MAX_RIDE_REASON_ERROR = 'Give a reason for the override: at least 15 characters, in words.';
 
 /** Override fields are shown only to callers the API authorises. */
 export const canOverrideMaxRide = (caps: Pick<RoutingCapabilities, 'access'> | null | undefined): boolean => caps?.access?.canOverrideMaxRide === true;

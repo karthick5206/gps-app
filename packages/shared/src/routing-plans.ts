@@ -1,4 +1,5 @@
 import type { PermissionMap } from './permissions';
+import { OVERRIDE_REASON_MIN } from './routing';
 import type {
   PublishRoutePlanResult,
   RoutePlanAssignmentDto,
@@ -244,7 +245,7 @@ export interface RoutePlanPublishResult extends PublishRoutePlanResult {
 export const ROUTE_PLAN_HARD_KINDS = ['late', 'unreachable', 'over_capacity'] as const;
 export const ROUTE_PLAN_OVERRIDABLE_KINDS = ['late'] as const;
 /** Minimum length (trimmed) of a publish override reason. */
-export const ROUTE_PLAN_OVERRIDE_REASON_MIN = 15;
+export const ROUTE_PLAN_OVERRIDE_REASON_MIN = OVERRIDE_REASON_MIN;
 export const ROUTE_PLAN_OVERRIDE_REASON_MAX = 500;
 
 /** One stop-level publish issue: ids, ref, kind and times only (no coordinates, no passenger names). */

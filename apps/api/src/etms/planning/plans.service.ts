@@ -2,6 +2,8 @@ import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Opti
 import { Prisma } from '@prisma/client';
 import {
   can,
+  meaningfulOverrideReason,
+  overrideReasonText,
   ROUTE_PLAN_COMPARE_MAX,
   ROUTE_PLAN_EDITABLE,
   ROUTE_PLAN_OVERRIDE_REASON_MIN,
@@ -685,11 +687,11 @@ export function canOverridePublish(ctx: Pick<AuthContext, 'dataScope' | 'permiss
 /** D-M1: the max-ride check of a plan: its effective max ride (effectiveMaxRideS) and its direction. */
 const rideRuleOf = (plan: Pick<PlanRow, 'options' | 'direction'>, policyS: number | null): RideRule => ({ maxRideS: effectiveMaxRideS(plan.options, policyS), direction: (plan.direction as TransportDirection | null) ?? null });
 
-const normaliseReason = (raw: unknown): string => (typeof raw === 'string' ? raw : '').replace(/\s+/g, ' ').trim();
+const normaliseReason = overrideReasonText;
 
-/** A reason worth recording: at least ROUTE_PLAN_OVERRIDE_REASON_MIN characters and two words (letters, with their combining marks: Hindi / Tamil). */
+/** A reason worth recording: the shared override rule (meaningfulOverrideReason; D-L4: the max-ride override uses it too). */
 export function meaningfulReason(reason: string): boolean {
-  return reason.length >= ROUTE_PLAN_OVERRIDE_REASON_MIN && (reason.match(/\p{L}[\p{L}\p{M}]+/gu) ?? []).length >= 2;
+  return meaningfulOverrideReason(reason);
 }
 
 /** The plan detail's publishCheck: the publish classification with the refs as this caller sees them. */

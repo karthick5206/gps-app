@@ -10,6 +10,7 @@ import { optimizeRunner } from './optimize-runner';
 import { PlanJobLink, RoutingJobsService } from './routing-jobs.service';
 import { FakeMatrix, FakePlans, FakeSolver, optimizeInput, syntheticPlan } from './testing/fakes';
 import { InMemoryUsageHook } from './usage-hook';
+import { meaningfulReason } from '../etms/planning/plans.service';
 
 /**
  * Owner decisions on the E4 route-optimisation patch (2026-11-11), API unit level. Synthetic data only.
@@ -152,6 +153,18 @@ describe('Decision 1: per-plan max-ride override on optimise (authorised, with a
     expect(await errorOf(optimise(admin, { maxRideS: 60, reason: 'Too short' }, 'dec-key-0008'))).toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
     expect(await errorOf(optimise(admin, { maxRideS: 99_999, reason: 'Too long' }, 'dec-key-0009'))).toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
     expect(link.calls).toEqual([]);
+  });
+
+  it('E4 decisions D-L4: the reason follows the publish override rule (15+ characters, two words; Hindi / Tamil letters count)', async () => {
+    for (const [k, reason] of [['a', 'abc'], ['b', 'aaaaaaaaaaaaaaaaaaaa'], ['c', '1234567890 1234567890'], ['d', 'Short one']] as const) {
+      expect(await errorOf(optimise(admin, { maxRideS: 5_400, reason }, `dec-key-l4-${k}`))).toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
+    }
+    expect(link.calls).toEqual([]);
+    await optimise(admin, { maxRideS: 5_400, reason: 'शिफ्ट देर से शुरू होगी आज' }, 'dec-key-l4-hi');
+    await optimise(admin, { maxRideS: 5_400, reason: 'மழை காரணமாக மாற்றுப் பாதை' }, 'dec-key-l4-ta');
+    expect(link.calls).toHaveLength(2);
+    // One validator for both overrides.
+    for (const r of ['abc', 'Short one', 'Flood diversion', 'शिफ्ट देर से शुरू होगी आज', '1234567890 1234567890']) expect(shared.meaningfulOverrideReason(r)).toBe(meaningfulReason(r));
   });
 
   it('the override is part of the idempotent request: the same key with another override is IDEMPOTENCY_KEY_REUSED', async () => {

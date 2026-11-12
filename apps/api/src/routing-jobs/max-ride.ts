@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { canOverrideMaxRide, isMaxRideS, MAX_RIDE_BOUNDS_S, MAX_RIDE_REASON_LENGTH, transportSettingsOf, type MaxRideOverrideInput, type MaxRideSource, type RoutePlanMaxRide } from '@veetracer/shared';
+import { canOverrideMaxRide, isMaxRideS, MAX_RIDE_BOUNDS_S, MAX_RIDE_REASON_LENGTH, meaningfulOverrideReason, OVERRIDE_REASON_MIN, overrideReasonText, transportSettingsOf, type MaxRideOverrideInput, type MaxRideSource, type RoutePlanMaxRide } from '@veetracer/shared';
 import { IsInt, IsString, Max, MaxLength, Min } from 'class-validator';
 import type { AuthContext } from '../access/auth-context';
 import type { AuditService } from '../audit/audit.service';
@@ -48,8 +48,11 @@ export function checkMaxRideOverride(ctx: Pick<AuthContext, 'permissions' | 'dat
   if (raw === null) return null;
   const o = raw as Partial<MaxRideOverrideInput>;
   if (!isMaxRideS(o.maxRideS)) throw invalid(`The maximum ride time must be whole seconds between ${MAX_RIDE_BOUNDS_S.min} and ${MAX_RIDE_BOUNDS_S.max} (15 min – 4 h)`);
-  const reason = typeof o.reason === 'string' ? o.reason.trim() : '';
-  if (reason.length < MAX_RIDE_REASON_LENGTH.min || reason.length > MAX_RIDE_REASON_LENGTH.max) throw invalid('Give a reason for the maximum ride time override (3–300 characters)');
+  // D-L4: the same reason rule as the publish override (shared meaningfulOverrideReason), whitespace collapsed.
+  const reason = overrideReasonText(o.reason);
+  if (!meaningfulOverrideReason(reason) || reason.length > MAX_RIDE_REASON_LENGTH.max) {
+    throw invalid(`Give a reason of at least ${OVERRIDE_REASON_MIN} characters (two words or more, at most ${MAX_RIDE_REASON_LENGTH.max}) for the maximum ride time override`);
+  }
   return { maxRideS: o.maxRideS, reason };
 }
 

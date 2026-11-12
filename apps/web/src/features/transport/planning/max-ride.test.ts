@@ -14,7 +14,7 @@ import { TRANSLATIONS, type RoutingCapabilities, type RoutingJobDto } from '@vee
 import * as maxRide from './max-ride.ts';
 import { optimizeOptions, reoptimise, startOptimise } from './planner-flow.ts';
 import type { PlannerClient } from './planner-api.ts';
-import { plannerErrorText } from './planner-format.ts';
+import { overrideReasonValid, plannerErrorText } from './planner-format.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const read = (p: string) => readFileSync(join(HERE, p), 'utf8');
@@ -36,8 +36,8 @@ test('D1: override request: nothing sent unless changed; reason mandatory; turni
   assert.deepEqual(maxRide.overrideRequest({ enabled: false, minutes: '90', reason: 'x' }, current), { ok: true, value: null });
   assert.deepEqual(maxRide.overrideRequest({ enabled: true, minutes: '90', reason: ' Flood diversion ' }, current), { ok: true, value: undefined });
   assert.deepEqual(maxRide.overrideRequest({ enabled: true, minutes: '120', reason: ' Flood diversion ' }, current), { ok: true, value: { maxRideS: 7_200, reason: 'Flood diversion' } });
-  assert.deepEqual(maxRide.overrideRequest({ enabled: true, minutes: '120', reason: '  ' }, null), { ok: false, errors: ['Give a reason for the override.'] });
-  assert.deepEqual(maxRide.overrideRequest({ enabled: true, minutes: '', reason: 'Long loop' }, null), { ok: false, errors: ['Enter the maximum ride time in minutes (15–240).'] });
+  assert.deepEqual(maxRide.overrideRequest({ enabled: true, minutes: '120', reason: '  ' }, null), { ok: false, errors: ['Give a reason for the override: at least 15 characters, in words.'] });
+  assert.deepEqual(maxRide.overrideRequest({ enabled: true, minutes: '', reason: 'Long loop for the night shift' }, null), { ok: false, errors: ['Enter the maximum ride time in minutes (15–240).'] });
   // The dialog starts from the plan's own override.
   assert.deepEqual(maxRide.overrideDraftOf({ maxRide: { appliedS: 5_400, appliedSource: 'override', policyS: 3_600, override: current } }), { enabled: true, minutes: '90', reason: 'Flood diversion' });
   assert.deepEqual(maxRide.overrideDraftOf({}), { enabled: false, minutes: '', reason: '' });
@@ -96,4 +96,17 @@ test('D2: the plan size limit comes from capabilities (75) and LIMIT_EXCEEDED sp
   assert.match(plannerErrorText('LIMIT_EXCEEDED') ?? '', /bookings/);
   assert.match(read('OptimisePanel.tsx'), /planBookingsLimit\(/);
   for (const lang of ['hi', 'ta'] as const) assert.ok(TRANSLATIONS[lang][plannerErrorText('LIMIT_EXCEEDED')!], `${lang} LIMIT_EXCEEDED`);
+});
+
+test('E4 decisions D-L4: the max-ride override reason follows the publish override rule (one shared validator)', () => {
+  const msg = 'Give a reason for the override: at least 15 characters, in words.';
+  for (const reason of ['abc', 'Short one', 'aaaaaaaaaaaaaaaaaaaa', '1234567890 1234567890']) {
+    assert.deepEqual(maxRide.overrideRequest({ enabled: true, minutes: '90', reason }, null), { ok: false, errors: [msg] }, reason);
+  }
+  for (const reason of ['Flood diversion', 'शिफ्ट देर से शुरू होगी आज', 'மழை காரணமாக மாற்றுப் பாதை']) {
+    assert.equal(maxRide.overrideRequest({ enabled: true, minutes: '90', reason }, null).ok, true, reason);
+  }
+  for (const r of ['abc', 'Short one', 'Flood diversion', 'शिफ्ट देर से शुरू होगी आज']) assert.equal(maxRide.maxRideReasonValid(r), overrideReasonValid(r), r);
+  for (const lang of ['hi', 'ta'] as const) assert.ok(TRANSLATIONS[lang][msg], `${lang}: ${msg}`);
+  assert.doesNotMatch(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'MaxRideFields.tsx'), 'utf8'), /reason\.trim\(\)\.length < 3/);
 });

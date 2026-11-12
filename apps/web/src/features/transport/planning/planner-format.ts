@@ -30,7 +30,7 @@ import type {
   RoutingJobState,
   TransportDirection,
 } from '@veetracer/shared';
-import { publishWarningsFingerprint, ROUTE_PLAN_HARD_KINDS, ROUTE_PLAN_OVERRIDABLE_KINDS, ROUTE_PLAN_OVERRIDE_REASON_MIN, type RoutePlanPublishIssue, type RoutePlanPublishRequest } from '@veetracer/shared';
+import { meaningfulOverrideReason, overrideReasonText as sharedOverrideReasonText, publishWarningsFingerprint, ROUTE_PLAN_HARD_KINDS, ROUTE_PLAN_OVERRIDABLE_KINDS, type RoutePlanPublishIssue, type RoutePlanPublishRequest } from '@veetracer/shared';
 
 export type Tone = 'success' | 'warning' | 'destructive' | 'info' | 'neutral' | 'muted';
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
@@ -439,13 +439,12 @@ export function publishGate(plan: Pick<PlannerPlan, 'publishCheck' | 'violations
   return { hard, blocking: hard.filter((i) => !i.overridable), soft, fingerprint: publishWarningsFingerprint(soft), canOverride: false };
 }
 
-/** Collapsed whitespace, as the server records it. */
-export const overrideReasonText = (raw: string): string => raw.replace(/\s+/g, ' ').trim();
+/** Collapsed whitespace, as the server records it (shared overrideReasonText). */
+export const overrideReasonText = (raw: string): string => sharedOverrideReasonText(raw);
 
-/** The server's reason rule: at least ROUTE_PLAN_OVERRIDE_REASON_MIN characters and two words (letters with their marks). */
+/** The server's reason rule (shared meaningfulOverrideReason; D-L4: the max-ride override uses the same one). */
 export function overrideReasonValid(raw: string): boolean {
-  const r = overrideReasonText(raw);
-  return r.length >= ROUTE_PLAN_OVERRIDE_REASON_MIN && (r.match(/\p{L}[\p{L}\p{M}]+/gu) ?? []).length >= 2;
+  return meaningfulOverrideReason(raw);
 }
 
 /**
