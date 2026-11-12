@@ -62,24 +62,24 @@ export interface StopPlacement {
 }
 
 /**
- * The pinned stops that an edit moves (empty: the edit respects every pin). T2-L3 root cause: the optimiser stores
- * sequences from 1 and a manual edit renumbers from 0, so a pinned stop counts as moved only when its route or its
- * place (index) in the route order changes, never because its stored number changes.
+ * The pinned stops that an edit moves off their route (empty: the edit respects every pin). Owner semantics (E4 review
+ * M1): a pin keeps the stop on its vehicle / route — to another route, out of every route or (if it has none) onto a
+ * route is refused — while its place in that route's order may change, whether by an explicit reorder or because other
+ * stops left or joined (re-optimising may reorder it too). Only a route lock keeps an exact order. The same rule for
+ * resequence and move-passenger. The stored sequence numbers never matter (T2-L3: the optimiser numbers from 1, the
+ * manual edits from 0).
  */
-export function pinnedStopsMoved(pinned: ReadonlySet<string>, stops: readonly Pick<RuleStop, 'id' | 'ref' | 'assignmentId' | 'sequence'>[], placements: ReadonlyMap<string, StopPlacement>): Set<string> {
+export function pinnedStopsMoved(pinned: ReadonlySet<string>, stops: readonly Pick<RuleStop, 'id' | 'assignmentId'>[], placements: ReadonlyMap<string, StopPlacement>): Set<string> {
   const byId = new Map(stops.map((s) => [s.id, s]));
-  const oldIndex = new Map<string, number>();
-  for (const a of new Set(stops.map((s) => s.assignmentId).filter((x): x is string => !!x))) routeStops([...stops], a).forEach((s, i) => oldIndex.set(s.id, i));
   const moved = new Set<string>();
   for (const [sid, to] of placements) {
     const s = byId.get(sid);
-    if (!s || !pinned.has(sid)) continue;
-    if (s.assignmentId !== to.assignmentId || oldIndex.get(sid) !== to.sequence) moved.add(sid);
+    if (s && pinned.has(sid) && s.assignmentId !== to.assignmentId) moved.add(sid);
   }
   return moved;
 }
 
-/** Seats a stop takes when boarded:the booking's passengerCount for a pickup, the demand for a generic stop, else 0. */
+/** Seats a stop takes when boarded: the booking's passengerCount for a pickup, the demand for a generic stop, else 0. */
 export function seatsOf(s: Pick<RuleStop, 'stopKind' | 'bookingId' | 'demand'>, passengerCount: (bookingId: string) => number | undefined): number {
   if (s.bookingId) return s.stopKind === 'PICKUP' ? (passengerCount(s.bookingId) ?? Math.max(1, s.demand)) : 0;
   return Math.max(0, s.demand);

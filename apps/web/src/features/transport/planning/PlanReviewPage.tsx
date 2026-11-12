@@ -46,6 +46,7 @@ import { MaxRideOverrideFields } from './MaxRideFields';
 import { canOverrideMaxRide, maxRideSummary, overrideDraftOf, overrideRequest, type MaxRideOverrideDraft } from './max-ride';
 import {
   canShiftStop,
+  stopPinnedToRoute,
   capabilityView,
   completeWeights,
   engineEta,
@@ -523,7 +524,7 @@ export function PlanReviewPage() {
                               <Button size="icon-sm" variant="outline" data-focus-key={`${s.id}:down`} disabled={busy || !canShiftStop(stops, k, 1) || a.locked} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
                                 <ArrowDownIcon />
                               </Button>
-                              <Button size="sm" variant="outline" data-focus-key={`${s.id}:move`} disabled={busy || s.pinned || a.locked || plan.assignments.length < 2} onClick={() => openMove(s)}>
+                              <Button size="sm" variant="outline" data-focus-key={`${s.id}:move`} disabled={busy || stopPinnedToRoute(plan.stops, s) || a.locked || plan.assignments.length < 2} onClick={() => openMove(s)}>
                                 <ArrowRightLeftIcon /> {t('Move to…')}
                               </Button>
                               <Button
@@ -532,7 +533,7 @@ export function PlanReviewPage() {
                                 aria-pressed={!!s.pinned}
                                 data-focus-key={`${s.id}:pin`}
                                 disabled={busy}
-                                onClick={() => runEdit({ kind: 'pin', stopId: s.id, pinned: !s.pinned }, s.pinned ? t('{{name}} unpinned.', { name: stopLabel(s, t) }) : t('{{name}} pinned to this vehicle. Re-optimising keeps it on this vehicle; its place in the order may change.', { name: stopLabel(s, t) }))}
+                                onClick={() => runEdit({ kind: 'pin', stopId: s.id, pinned: !s.pinned }, s.pinned ? t('{{name}} unpinned.', { name: stopLabel(s, t) }) : t('{{name}} pinned to this vehicle. Re-optimising and edits keep it on this vehicle; its place in the order may change.', { name: stopLabel(s, t) }))}
                               >
                                 {s.pinned ? <PinOffIcon /> : <PinIcon />} {s.pinned ? t('Unpin') : t('Pin')}
                               </Button>

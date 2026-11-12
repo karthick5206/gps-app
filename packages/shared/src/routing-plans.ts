@@ -27,8 +27,10 @@ import type {
  * its stops and order (it is not re-solved); a pinned stop stays on its vehicle (solver `pinnedVehicleId`), but
  * re-optimising may change its place in that vehicle's order (T2-D6: the solver has no position constraint, and a
  * position is not well defined once the route gains or loses passengers; lock the route to keep an exact order).
- * Manual edits that would change a locked route or move a pinned stop (to another route, out of every route or to
- * another place in the order) are refused (409 ROUTE_LOCKED / STOP_PINNED) until it is unlocked / unpinned.
+ * Manual edits follow the same rule (E4 review M1: a pin preserves the stop's vehicle / route, a route lock preserves the
+ * exact order): an edit that would change a locked route, or move a pinned stop to another route or out of every route,
+ * is refused (409 ROUTE_LOCKED / STOP_PINNED) until it is unlocked / unpinned; a pinned stop may change its place within
+ * its own route (an explicit reorder, or other stops leaving / joining), in resequence and move-passenger alike.
  */
 export interface RoutePlanLockOptions {
   lockedAssignmentIds?: string[];

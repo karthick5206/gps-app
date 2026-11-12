@@ -374,7 +374,7 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
       if (!group.length) fail(404, 'NOT_FOUND', 'Booking not on the plan');
       const touched = new Set<string>();
       for (const s of group) {
-        if (s.pinned) fail(409, 'STOP_PINNED', 'Unpin the stop first');
+        if (s.pinned && s.assignmentId !== (body.toAssignmentId ?? null)) fail(409, 'STOP_PINNED', 'Unpin the stop first');
         if (s.assignmentId) {
           if (p.assignments.find((a) => a.id === s.assignmentId)?.locked) fail(409, 'ROUTE_LOCKED', 'Unlock the route first');
           touched.add(s.assignmentId);
@@ -393,6 +393,13 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
       const p = get(id);
       editable(p, body.expectedVersion);
       const touched = new Set<string>();
+      // E4 review M1 (as the API): a pinned stop never leaves its route; its place in the order may change.
+      for (const r of body.assignments) {
+        for (const s of p.stops) {
+          if (!s.pinned) continue;
+          if (r.stopIds.includes(s.id) ? s.assignmentId !== r.assignmentId : s.assignmentId === r.assignmentId) fail(409, 'STOP_PINNED', 'Unpin the stop first');
+        }
+      }
       for (const r of body.assignments) {
         const a = p.assignments.find((x) => x.id === r.assignmentId) ?? fail(400, 'INVALID_INPUT', 'Unknown route');
         if (a.locked) fail(409, 'ROUTE_LOCKED', 'Unlock the route first');
@@ -400,7 +407,6 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
         for (const s of p.stops) if (s.assignmentId === r.assignmentId && !r.stopIds.includes(s.id)) Object.assign(s, { assignmentId: null, sequence: null });
         r.stopIds.forEach((sid, i) => {
           const s = p.stops.find((x) => x.id === sid) ?? fail(400, 'INVALID_INPUT', 'Unknown stop');
-          if (s.pinned && (s.assignmentId !== r.assignmentId || s.sequence !== i)) fail(409, 'STOP_PINNED', 'Unpin the stop first');
           Object.assign(s, { assignmentId: r.assignmentId, sequence: i, unassignedReason: null });
         });
       }

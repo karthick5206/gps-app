@@ -1237,6 +1237,35 @@ describe('ETMS isolation matrix (E4): route plans leak checks', () => {
     expect(w.store.table('routePlan').find((p) => p.id === w.plans.party.plan)).toMatchObject({ status: 'DRAFT', version: 1 });
   });
 
+  it('E4 review M1: a pin keeps the stop on its route (both edits alike); its place in the order may change; a lock keeps the order', async () => {
+    const w = await e4World();
+    const disp = caller('customerDispatcher', w);
+    const { plan: id, assignment, booking, pickupStop, dropStop } = w.plans.party;
+    const plans = w.controllers.e4.plans;
+    // A generic stop (no booking) on the same route, after the drop.
+    const tpl = w.store.table('routePlanStop').find((s) => s.id === pickupStop)!;
+    const g = w.store.insert('routePlanStop', { ...tpl, id: undefined, ref: 'g1', bookingId: null, profileId: null, stopKind: null, sequence: 9, etaS: null }).id as string;
+    await plans.updateStop(disp, id, dropStop, { expectedVersion: 1, pinned: true });
+    // Resequence: the generic stop goes in front of the pinned drop, so the drop's index shifts → accepted.
+    const r1 = await plans.resequence(disp, id, { expectedVersion: 2, assignments: [{ assignmentId: assignment, stopIds: [pickupStop, g, dropStop] }] });
+    expect(r1.plan.version).toBe(3);
+    // Move-passenger within the same route (the pinned drop stays on its vehicle) → accepted.
+    const r2 = await plans.movePassenger(disp, id, { expectedVersion: 3, bookingId: booking, toAssignmentId: assignment, pickupIndex: 1, dropIndex: 2 });
+    expect(r2.plan.stops.filter((s) => s.assignmentId === assignment).sort((a, b) => a.sequence! - b.sequence!).map((s) => s.id)).toEqual([g, pickupStop, dropStop]);
+    // To another route or out of every route → STOP_PINNED, in both edits.
+    const a2 = w.store.insert('routeAssignment', { planId: id, companyId: 'custA', objectId: null, driverId: null, vehicleLabel: 'Van 2', seq: 1, capacity: 4, startS: 0, endS: 1800, geometry: null, etaModel: null }).id as string;
+    expect(await codeOf(plans.movePassenger(disp, id, { expectedVersion: 4, bookingId: booking, toAssignmentId: a2 }))).toBe('STOP_PINNED');
+    expect(await codeOf(plans.movePassenger(disp, id, { expectedVersion: 4, bookingId: booking, toAssignmentId: null }))).toBe('STOP_PINNED');
+    expect(await codeOf(plans.resequence(disp, id, { expectedVersion: 4, assignments: [{ assignmentId: assignment, stopIds: [g] }, { assignmentId: a2, stopIds: [pickupStop, dropStop] }] }))).toBe('STOP_PINNED');
+    expect(await codeOf(plans.resequence(disp, id, { expectedVersion: 4, assignments: [{ assignmentId: assignment, stopIds: [g, pickupStop] }] }))).toBe('STOP_PINNED');
+    // The generic stop moves to the other route; the pinned drop's index shifts (2 → 1) → accepted.
+    const r3 = await plans.resequence(disp, id, { expectedVersion: 4, assignments: [{ assignmentId: a2, stopIds: [g] }] });
+    expect(r3.plan.version).toBe(5);
+    // A locked route keeps its exact order.
+    await plans.updateAssignment(disp, id, assignment, { expectedVersion: 5, locked: true });
+    expect(await codeOf(plans.movePassenger(disp, id, { expectedVersion: 6, bookingId: booking, toAssignmentId: assignment }))).toBe('ROUTE_LOCKED');
+  });
+
   it('manual edits: versioned, re-validated, locks and pins honoured, history without coordinates', async () => {
     const w = await e4World();
     const disp = caller('customerDispatcher', w);

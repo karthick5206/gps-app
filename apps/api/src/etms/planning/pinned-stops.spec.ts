@@ -28,4 +28,23 @@ describe('pinned stops in manual edits', () => {
   it('unpinned stops never count', () => {
     expect([...pinnedStopsMoved(new Set(), optimised, place([['p0', null, null]]))]).toEqual([]);
   });
+
+  // E4 review M1, owner semantics: a pin keeps the stop on its vehicle / route; a route lock keeps the exact order.
+  it('M1: a pinned stop whose index shifts because another stop left or joined its route is not moved (resequence = move-passenger)', () => {
+    const plan = [s('x', 'A', 1), s('P', 'A', 2), s('y', 'A', 3), s('z', 'B', 1)];
+    // x leaves A for B: P goes from index 1 to 0 (move-passenger closes the same gap).
+    expect([...pinnedStopsMoved(new Set(['P']), plan, place([['P', 'A', 0], ['y', 'A', 1], ['x', 'B', 0], ['z', 'B', 1]]))]).toEqual([]);
+    // z joins A in front: P goes from index 1 to 2.
+    expect([...pinnedStopsMoved(new Set(['P']), plan, place([['z', 'A', 0], ['x', 'A', 1], ['P', 'A', 2], ['y', 'A', 3]]))]).toEqual([]);
+  });
+
+  it('M1: an explicit reorder of the pinned stop within its own route is allowed (pin = vehicle, not position)', () => {
+    expect([...pinnedStopsMoved(new Set(['d1']), optimised, reorder('A', ['p0', 'p1', 'd1', 'd0']))]).toEqual([]);
+    expect([...pinnedStopsMoved(new Set(['d1']), optimised, reorder('A', ['d1', 'p0', 'p1', 'd0']))]).toEqual([]);
+  });
+
+  it('M1: a pinned stop that is not on any route stays off every route', () => {
+    const plan = [...optimised, s('u', null, null)];
+    expect([...pinnedStopsMoved(new Set(['u']), plan, place([['u', 'A', 0]]))]).toEqual(['u']);
+  });
 });

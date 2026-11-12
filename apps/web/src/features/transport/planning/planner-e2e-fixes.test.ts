@@ -19,6 +19,7 @@ import {
   reoptimiseDefaults,
   routeDriveSummary,
   steadyProgress,
+  stopPinnedToRoute,
   timeLimitOptions,
   type PlannerPlan,
 } from './planner-format.ts';
@@ -54,7 +55,8 @@ test('T2-D6: no screen or contract promises that a pinned stop keeps its positio
   const svc = readFileSync(join(HERE, '../../../../../api/src/etms/planning/plans.service.ts'), 'utf8');
   assert.doesNotMatch(svc, /on its route at its position/);
   for (const lang of ['hi', 'ta'] as const) {
-    assert.ok(TRANSLATIONS[lang]['{{name}} pinned to this vehicle. Re-optimising keeps it on this vehicle; its place in the order may change.'], `${lang} pin toast`);
+    assert.ok(TRANSLATIONS[lang]['{{name}} pinned to this vehicle. Re-optimising and edits keep it on this vehicle; its place in the order may change.'], `${lang} pin toast`);
+    assert.ok(TRANSLATIONS[lang]['That stop is pinned to its vehicle. Unpin it first.'], `${lang} STOP_PINNED`);
     assert.ok(TRANSLATIONS[lang]['Pinned stops stay on their vehicle and locked routes keep their stops and order; everything else may change. A new version is saved.'], `${lang} re-optimise text`);
   }
 });
@@ -104,15 +106,36 @@ test('T2-L2: some unassigned → warning with the passenger count from the plan 
   assert.equal(jobOutcome(job({ state: 'failed' })).tone, 'destructive');
 });
 
-// ── T2-L3: up / down next to a pinned stop ──
+// ── T2-L3 / E4 review M1: up / down and pins (pin = vehicle / route; a route lock keeps the exact order) ──
 
-test('T2-L3: up / down are not offered when they would move a pinned neighbour (the API would refuse STOP_PINNED)', () => {
+test('E4 review M1: up / down are offered next to and on a pinned stop (a pin keeps the vehicle, not the position)', () => {
   const stops = [{ pinned: false }, { pinned: true }, { pinned: false }];
-  assert.equal(canShiftStop(stops, 0, 1), false, 'down onto the pinned stop');
-  assert.equal(canShiftStop(stops, 2, -1), false, 'up onto the pinned stop');
-  assert.equal(canShiftStop(stops, 1, 1), false, 'the pinned stop itself');
+  assert.equal(canShiftStop(stops, 0, 1), true, 'down onto the pinned stop');
+  assert.equal(canShiftStop(stops, 2, -1), true, 'up onto the pinned stop');
+  assert.equal(canShiftStop(stops, 1, 1), true, 'the pinned stop itself');
   assert.equal(canShiftStop(stops, 0, -1), false, 'first stop up');
-  assert.equal(canShiftStop([{ pinned: false }, { pinned: false }], 0, 1), true);
+  assert.equal(canShiftStop(stops, 2, 1), false, 'last stop down');
+});
+
+test('E4 review M1: "Move to…" is not offered when the stop or the other end of its passenger is pinned (the API answers STOP_PINNED)', () => {
+  const stops = [
+    { id: 'p1', bookingId: 'b1', pinned: false },
+    { id: 'd1', bookingId: 'b1', pinned: true },
+    { id: 'p2', bookingId: 'b2', pinned: false },
+    { id: 'g', bookingId: null, pinned: true },
+    { id: 'h', bookingId: null, pinned: false },
+  ];
+  assert.equal(stopPinnedToRoute(stops, stops[0]), true, 'its drop is pinned');
+  assert.equal(stopPinnedToRoute(stops, stops[1]), true);
+  assert.equal(stopPinnedToRoute(stops, stops[2]), false);
+  assert.equal(stopPinnedToRoute(stops, stops[3]), true);
+  assert.equal(stopPinnedToRoute(stops, stops[4]), false);
+});
+
+test('E4 review M1: the pin wording says edits keep the vehicle too, and the order may change', () => {
+  const page = read('PlanReviewPage.tsx');
+  assert.match(page, /pinned to this vehicle. Re-optimising and edits keep it on this vehicle; its place in the order may change./);
+  assert.match(read('planner-format.ts'), /STOP_PINNED: 'That stop is pinned to its vehicle. Unpin it first.'/);
 });
 
 test('T2-L3 follow-up: up / down never swap a passenger’s pickup with its own drop (the API answers 400 "drop must come after the pickup")', () => {

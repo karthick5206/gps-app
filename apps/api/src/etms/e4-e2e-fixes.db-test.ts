@@ -192,7 +192,7 @@ d(`E4 E2E fixes on ${dbName}`, () => {
     expect(await errOf(plans.movePassenger(admin, g.plan, { expectedVersion: 2, bookingId: w.bookings[0], toAssignmentId: g.routes[1] }))).toMatchObject({ status: 409, code: 'STOP_PINNED' });
   });
 
-  it('T2-L3 root cause: after an optimisation (sequences stored from 1) a reorder on a route with a pinned stop that keeps its place is accepted; moving the pinned stop is still STOP_PINNED', async () => {
+  it('T2-L3 root cause: after an optimisation (sequences stored from 1) a reorder on a route with a pinned stop is accepted; taking the pinned stop off its route is STOP_PINNED', async () => {
     const plan = id();
     const route = id();
     const [p0, p1, d0, d1] = [id(), id(), id(), id()];
@@ -210,8 +210,10 @@ d(`E4 E2E fixes on ${dbName}`, () => {
     expect(r).toMatchObject({ status: 200 });
     const order = (await prisma.routePlanStop.findMany({ where: { planId: plan }, orderBy: { sequence: 'asc' }, select: { id: true } })).map((s) => s.id);
     expect(order).toEqual([p1, p0, d0, d1]);
-    // Moving the pinned stop itself is still refused.
-    expect(await errOf(plans.resequence(admin, plan, { expectedVersion: 2, assignments: [{ assignmentId: route, stopIds: [p1, p0, d1, d0] }] }))).toMatchObject({ status: 409, code: 'STOP_PINNED' });
+    // E4 review M1 (pin = vehicle / route, lock = exact order): reordering the pinned stop within its route is accepted;
+    // taking it off its route (here: out of every route) is still refused.
+    expect(await errOf(plans.resequence(admin, plan, { expectedVersion: 2, assignments: [{ assignmentId: route, stopIds: [p1, p0, d1, d0] }] }))).toMatchObject({ status: 200 });
+    expect(await errOf(plans.resequence(admin, plan, { expectedVersion: 3, assignments: [{ assignmentId: route, stopIds: [p1, p0, d0] }] }))).toMatchObject({ status: 409, code: 'STOP_PINNED' });
   });
 
   it('T2-L4 the plan detail carries the stored solver weights (options.weights), so re-optimise can prefill them', async () => {

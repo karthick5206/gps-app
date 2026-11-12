@@ -516,7 +516,7 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   PUBLISH_OVERRIDE_FORBIDDEN: 'Only a whole-company transport administrator may override the publish checks.',
   PUBLISH_OVERRIDE_REASON_REQUIRED: 'Give a clear reason for the override.',
   ROUTE_LOCKED: 'That route is locked. Unlock it first.',
-  STOP_PINNED: 'That stop is pinned. Unpin it first.',
+  STOP_PINNED: 'That stop is pinned to its vehicle. Unpin it first.',
   DRIVER_DUPLICATE: 'This driver already drives another route of this plan.',
   VEHICLE_DUPLICATE: 'This vehicle already drives another route of this plan.',
   SITE_REQUIRED: 'A chosen shift has no site: choose exactly one site for it.',
@@ -971,16 +971,24 @@ export function jobOutcome(job: Pick<RoutingJobDto, 'state' | 'result'>, plan?: 
 }
 
 /**
- * T2-L3: whether "move up / down" may be offered for the stop at index k: not past either end, and neither the stop
- * nor the neighbour it swaps with is pinned (a pinned stop never moves by hand; the API answers STOP_PINNED), and the
- * two are not one passenger's pickup and drop.
+ * T2-L3: whether "move up / down" may be offered for the stop at index k: not past either end, and the two are not one
+ * passenger's pickup and drop. Pins do not matter (E4 review M1: a pin keeps the stop on its vehicle, not at its
+ * place; only a locked route keeps its exact order, and the page disables up / down on a locked route).
  */
 export function canShiftStop(stops: readonly { pinned?: boolean | null; bookingId?: string | null }[], k: number, delta: -1 | 1): boolean {
   const j = k + delta;
   if (k < 0 || k >= stops.length || j < 0 || j >= stops.length) return false;
-  if (stops[k].pinned || stops[j].pinned) return false;
   // A passenger's pickup and its own drop never swap (the drop must come after the pickup: the API answers 400).
   return !(stops[k].bookingId && stops[k].bookingId === stops[j].bookingId);
+}
+
+/**
+ * E4 review M1: whether the stop is held on its route by a pin, so "Move to…" (another route) is not offered: the stop
+ * itself is pinned, or — for a passenger, whose pickup and drop always move together — the other end is.
+ */
+export function stopPinnedToRoute(stops: readonly { id: string; bookingId?: string | null; pinned?: boolean | null }[], stop: { id: string; bookingId?: string | null; pinned?: boolean | null }): boolean {
+  if (stop.pinned) return true;
+  return !!stop.bookingId && stops.some((s) => s.bookingId === stop.bookingId && !!s.pinned);
 }
 
 /** T2-L4: time limits offered (seconds), within the API range (1 … limits.optimizeTimeLimitS). */

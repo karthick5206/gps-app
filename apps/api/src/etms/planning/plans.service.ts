@@ -159,9 +159,12 @@ export class RoutePlansService {
       // Another branch's passenger is a 404 for a branch dispatcher, like any id out of scope.
       if (!ends.length || ends.some((s) => outOfScope(s, view))) throw notFound('Booking not found on this plan');
       const locks = routePlanLocks(plan.options);
-      if (ends.some((s) => locks.pinnedStopIds.has(s.id))) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', 'A stop of this passenger is pinned; unpin it first');
       const from = ends[0].assignmentId;
       const to = dto.toAssignmentId;
+      // E4 review M1: a pin keeps the stop on its route (the same rule as resequence): moving the passenger within
+      // that route is allowed, to another route or out of every route is not. Other stops' gaps never count.
+      const endsTo = new Map(ends.map((s) => [s.id, { assignmentId: to ?? null, sequence: null }]));
+      if (pinnedStopsMoved(locks.pinnedStopIds, ends, endsTo).size) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', 'A stop of this passenger is pinned to its route; unpin it first');
       if (to && !plan.assignments.some((a) => a.id === to)) throw notFound('Route not found');
       for (const r of [from, to]) if (r && locks.lockedAssignmentIds.has(r)) throw planError(HttpStatus.CONFLICT, 'ROUTE_LOCKED', 'The route is locked; unlock it first');
       const rule = plan.stops.map(toRuleStop);
@@ -228,7 +231,7 @@ export class RoutePlansService {
           continue;
         }
         if (outOfScope(s, view)) throw notFound('Stop not found');
-        if (movedPins.has(sid)) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', `Stop ${s.ref} is pinned; unpin it first`);
+        if (movedPins.has(sid)) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', `Stop ${s.ref} is pinned to its route; unpin it first`);
         for (const r of [s.assignmentId, to.assignmentId]) {
           if (!r) continue;
           if (locks.lockedAssignmentIds.has(r)) throw planError(HttpStatus.CONFLICT, 'ROUTE_LOCKED', 'A listed route is locked; unlock it first');
@@ -296,8 +299,8 @@ export class RoutePlansService {
 
   /**
    * Pin / unpin a stop. Re-optimising keeps a pinned stop on its vehicle (solver pinnedVehicleId); its place in the
-   * order may change (T2-D6: no solver position constraint; lock the route to keep the exact order). Manual edits never
-   * move a pinned stop (STOP_PINNED).
+   * order may change (T2-D6: no solver position constraint; lock the route to keep the exact order). Manual edits follow
+   * the same rule: a pinned stop may change place within its route but never leaves it (STOP_PINNED; pinnedStopsMoved).
    */
   async updateStop(ctx: AuthContext, id: string, stopId: string, dto: StopUpdateDto): Promise<RoutePlanEditResult> {
     return this.edit(ctx, id, dto.expectedVersion, async (plan, view) => {
