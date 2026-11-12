@@ -75,6 +75,7 @@ export interface PlannerClient {
   resequence(planId: string, body: RoutePlanResequenceRequest): Promise<PlanEditResult>;
   updateAssignment(planId: string, assignmentId: string, body: RoutePlanAssignmentUpdateRequest): Promise<PlanEditResult>;
   updateStop(planId: string, stopId: string, body: RoutePlanStopUpdateRequest): Promise<PlanEditResult>;
-  publish(planId: string, body: { expectedVersion: number }, idempotencyKey: string): Promise<RoutePlanPublishResult>;
+  /** Decision 5: `acknowledgedWarnings` (publishCheck.fingerprint) and `override` ({ reason }) only when needed. */
+  publish(planId: string, body: { expectedVersion: number; acknowledgedWarnings?: string; override?: { reason: string } }, idempotencyKey: string): Promise<RoutePlanPublishResult>;
   discard(planId: string, body: { expectedVersion: number; reason?: string }): Promise<PlannerPlan>;
 }

@@ -426,7 +426,7 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
     },
     publish: async (id, body, key) => {
       requireKey(key);
-      only(body, ['expectedVersion', 'idempotencyKey']);
+      only(body, ['expectedVersion', 'idempotencyKey', 'acknowledgedWarnings', 'override']);
       const replay = publishKeys.get(key);
       if (replay) return clone(replay);
       const p = get(id);

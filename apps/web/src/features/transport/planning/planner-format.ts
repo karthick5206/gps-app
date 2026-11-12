@@ -30,6 +30,7 @@ import type {
   RoutingJobState,
   TransportDirection,
 } from '@veetracer/shared';
+import { publishWarningsFingerprint, ROUTE_PLAN_HARD_KINDS, ROUTE_PLAN_OVERRIDABLE_KINDS, ROUTE_PLAN_OVERRIDE_REASON_MIN, type RoutePlanPublishIssue, type RoutePlanPublishRequest } from '@veetracer/shared';
 
 export type Tone = 'success' | 'warning' | 'destructive' | 'info' | 'neutral' | 'muted';
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
@@ -411,6 +412,57 @@ export function publishable(plan: Pick<PlannerPlan, 'status' | 'editable' | 'sto
   });
 }
 
+// ───────────────────────────── publish gate (owner decision 5) ─────────────────────────────
+
+/** The publish dialog's view of the server classification (plan.publishCheck); `blocking` = hard and not overridable. */
+export interface PublishGate {
+  hard: RoutePlanPublishIssue[];
+  blocking: RoutePlanPublishIssue[];
+  soft: RoutePlanPublishIssue[];
+  fingerprint: string | null;
+  canOverride: boolean;
+}
+
+const HARD = new Set<string>(ROUTE_PLAN_HARD_KINDS);
+const OVERRIDABLE = new Set<string>(ROUTE_PLAN_OVERRIDABLE_KINDS);
+
+/**
+ * Decision 5: the server's publishCheck when present (it is what publish enforces). An older server without it: the
+ * plan's violations classified with the same shared rules, never an override (the server decides in any case).
+ */
+export function publishGate(plan: Pick<PlannerPlan, 'publishCheck' | 'violations'>): PublishGate {
+  const c = plan.publishCheck;
+  if (c) return { hard: c.hard, blocking: c.hard.filter((i) => !i.overridable), soft: c.soft, fingerprint: c.fingerprint, canOverride: c.canOverride };
+  const issues = (plan.violations ?? []).map((v) => ({ assignmentId: '', vehicleLabel: '', stopId: v.stopId, ref: v.ref, kind: v.kind, etaS: v.etaS, window: v.window }));
+  const hard = issues.filter((i) => HARD.has(i.kind)).map((i) => ({ ...i, overridable: OVERRIDABLE.has(i.kind) }));
+  const soft = issues.filter((i) => !HARD.has(i.kind));
+  return { hard, blocking: hard.filter((i) => !i.overridable), soft, fingerprint: publishWarningsFingerprint(soft), canOverride: false };
+}
+
+/** Collapsed whitespace, as the server records it. */
+export const overrideReasonText = (raw: string): string => raw.replace(/\s+/g, ' ').trim();
+
+/** The server's reason rule: at least ROUTE_PLAN_OVERRIDE_REASON_MIN characters and two words (letters with their marks). */
+export function overrideReasonValid(raw: string): boolean {
+  const r = overrideReasonText(raw);
+  return r.length >= ROUTE_PLAN_OVERRIDE_REASON_MIN && (r.match(/\p{L}[\p{L}\p{M}]+/gu) ?? []).length >= 2;
+}
+
+/** Whether Publish is enabled in the dialog, and the decision fields of the request body. */
+export function publishGateState(g: PublishGate, input: { acknowledged: boolean; overrideOn: boolean; reason: string }): { allowed: boolean; body: Pick<RoutePlanPublishRequest, 'acknowledgedWarnings' | 'override'> } {
+  const body: Pick<RoutePlanPublishRequest, 'acknowledgedWarnings' | 'override'> = {};
+  if (g.blocking.length) return { allowed: false, body: {} };
+  if (g.hard.length) {
+    if (!g.canOverride || !input.overrideOn || !overrideReasonValid(input.reason)) return { allowed: false, body: {} };
+    body.override = { reason: overrideReasonText(input.reason) };
+  }
+  if (g.soft.length) {
+    if (!input.acknowledged || !g.fingerprint) return { allowed: false, body: {} };
+    body.acknowledgedWarnings = g.fingerprint;
+  }
+  return { allowed: true, body };
+}
+
 export function isEditablePlan(status: RoutePlanStatus): boolean {
   return status === 'DRAFT' || status === 'PLANNED';
 }
@@ -459,6 +511,10 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   VERSION_CONFLICT: 'Someone changed this plan meanwhile. The latest version was loaded; check it and try again.',
   IDEMPOTENCY_KEY_REUSED: 'This request was already sent with other content. Review and try again.',
   PLAN_NOT_PUBLISHABLE: 'This plan cannot be published yet: some routes need attention (see below).',
+  PLAN_HAS_HARD_VIOLATIONS: 'This plan has violations that block publishing. Edit the routes or re-optimise the plan.',
+  PLAN_WARNINGS_NOT_ACKNOWLEDGED: 'The plan’s warnings changed. Check them again and confirm before publishing.',
+  PUBLISH_OVERRIDE_FORBIDDEN: 'Only a whole-company transport administrator may override the publish checks.',
+  PUBLISH_OVERRIDE_REASON_REQUIRED: 'Give a clear reason for the override.',
   ROUTE_LOCKED: 'That route is locked. Unlock it first.',
   STOP_PINNED: 'That stop is pinned. Unpin it first.',
   DRIVER_DUPLICATE: 'This driver already drives another route of this plan.',
@@ -509,6 +565,9 @@ export function plannerErrorKind(code: string | null | undefined, status?: numbe
       return 'busy';
     case 'PLAN_NOT_EDITABLE':
     case 'PLAN_NOT_PUBLISHABLE':
+    case 'PLAN_HAS_HARD_VIOLATIONS':
+    case 'PLAN_WARNINGS_NOT_ACKNOWLEDGED':
+    case 'PUBLISH_OVERRIDE_REASON_REQUIRED':
     case 'ROUTE_LOCKED':
     case 'STOP_PINNED':
     case 'DRIVER_DUPLICATE':

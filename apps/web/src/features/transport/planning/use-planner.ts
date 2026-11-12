@@ -237,7 +237,7 @@ export function usePlanEdit(plan: PlannerPlan | undefined) {
 export function usePublishPlan(plan: PlannerPlan | undefined, keys: KeyStore) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => call((c) => publishPlan(c, plan as PlannerPlan, keys.keyFor)),
+    mutationFn: (decision: { acknowledgedWarnings?: string; override?: { reason: string } } = {}) => call((c) => publishPlan(c, plan as PlannerPlan, keys.keyFor, decision)),
     onSuccess: () => plan && keys.forget(`publish:${plan.id}`),
     onError: (err) => {
       const st = (err as { status?: number }).status;

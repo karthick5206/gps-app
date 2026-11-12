@@ -92,9 +92,12 @@ export function reoptimise(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'ver
   return c.optimizePlan(plan.id, body, keyFor(`reoptimize:${plan.id}`, body));
 }
 
-/** Publish of one plan version: body `{ expectedVersion }`, key per (plan, version) attempt. */
-export function publishPlan(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, keyFor: KeyFor) {
-  const body = { expectedVersion: plan.version };
+/**
+ * Publish of one plan version: body `{ expectedVersion }` plus the decision 5 fields the dialog needs (acknowledged
+ * warning fingerprint, authorised override); key per (plan, version, body) attempt.
+ */
+export function publishPlan(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, keyFor: KeyFor, decision: { acknowledgedWarnings?: string; override?: { reason: string } } = {}) {
+  const body = { expectedVersion: plan.version, ...decision };
   return c.publish(plan.id, body, keyFor(`publish:${plan.id}`, body));
 }
 

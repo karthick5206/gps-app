@@ -1,4 +1,5 @@
 import type { PublishRoutePlanResult, RoutePlanStopViolation } from '@veetracer/shared';
+import { ROUTE_PLAN_OVERRIDE_REASON_MAX, ROUTE_PLAN_OVERRIDE_REASON_MIN } from '@veetracer/shared';
 import {
   ArrowDownIcon,
   ArrowLeftIcon,
@@ -30,6 +31,7 @@ import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
+import { Textarea } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/features/auth/auth-context';
@@ -54,6 +56,9 @@ import {
   mapPoints,
   mergeViolations,
   publishable,
+  planClock,
+  publishGate,
+  publishGateState,
   movePassenger,
   changedRoutes,
   planMetrics,
@@ -142,6 +147,9 @@ export function PlanReviewPage() {
   const [vehicleReq, setVehicleReq] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [ackWarnings, setAckWarnings] = useState(false);
+  // Decision 5: authorised override of arrival-window violations (reason recorded and audited by the server).
+  const [overrideOn, setOverrideOn] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
   const [published, setPublished] = useState<PublishRoutePlanResult | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [reoptOpen, setReoptOpen] = useState(false);
@@ -193,6 +201,20 @@ export function PlanReviewPage() {
   const labelOf = (stopId: string, ref: string) => {
     const s = stopById.get(stopId);
     return s ? stopLabel(s, t) : ref;
+  };
+  // Decision 5: the server's publish classification (hard blocks, soft needs the acknowledgement, override if authorised).
+  const gate = publishGate(plan);
+  const gateState = publishGateState(gate, { acknowledged: ackWarnings, overrideOn: overrideOn && gate.canOverride, reason: overrideReason });
+  const routeNo = (assignmentId: string) => plan.assignments.findIndex((a) => a.id === assignmentId) + 1;
+  const issueText = (i: (typeof gate.hard)[number]) => {
+    // Times only from the routing engine (never another source), as everywhere on the page.
+    const engine = engineEta(plan.assignments.find((a) => a.id === i.assignmentId)?.eta ?? null);
+    const at = engine ? planClock(plan.planStartAt, i.etaS, tz) : null;
+    const from = i.window ? planClock(plan.planStartAt, i.window[0], tz) : null;
+    const to = i.window ? planClock(plan.planStartAt, i.window[1], tz) : null;
+    const when = at && from && to ? ` (${t('arrives {{eta}}, window {{from}}–{{to}}', { eta: at, from, to })})` : '';
+    const route = routeNo(i.assignmentId) > 0 ? `${t('Route {{n}} · {{vehicle}}', { n: routeNo(i.assignmentId), vehicle: i.vehicleLabel })} · ` : '';
+    return `${route}${labelOf(i.stopId, i.ref)} — ${t(VIOLATION_LABEL[i.kind] ?? i.kind)}${when}`;
   };
   const { points, hidden } = mapPoints(plan, plan.precise);
   const lines = routeLines(plan);
@@ -257,7 +279,7 @@ export function PlanReviewPage() {
   };
   const doPublish = () => {
     // Key per (plan, version) from the page's key store: a retry replays; a refusal (4xx) frees it (usePublishPlan).
-    publish.mutate(undefined, {
+    publish.mutate(gateState.body, {
       onSuccess: (r) => {
         setPublished(r);
         setPublishOpen(false);
@@ -313,6 +335,8 @@ export function PlanReviewPage() {
                 onClick={() => {
                   publish.reset();
                   setAckWarnings(false);
+                  setOverrideOn(false);
+                  setOverrideReason('');
                   setPublishOpen(true);
                 }}
               >
@@ -374,6 +398,15 @@ export function PlanReviewPage() {
           <Button asChild size="sm" variant="outline" className="justify-self-start">
             <Link to="/transport/dispatch">{t('Open the dispatch board')}</Link>
           </Button>
+        </Card>
+      )}
+
+      {/* Decision 5: a plan published with an authorised override shows it (reason and what was overridden). */}
+      {plan.publishDecision?.override && (
+        <Card className="gap-1 border-warning/40 p-3 text-sm" role="note" aria-labelledby="publish-override-title">
+          <h2 id="publish-override-title" className="font-semibold">{t('Published with an authorised override')}</h2>
+          <p>{t('{{n}} arrival-window violation(s) overridden.', { n: plan.publishDecision.override.violations.length })}</p>
+          <p className="whitespace-pre-wrap break-words">“{plan.publishDecision.override.reason}”</p>
         </Card>
       )}
 
@@ -613,11 +646,55 @@ export function PlanReviewPage() {
               <li>{t('{{n}} passenger(s) seated.', { n: metrics.passengers - metrics.unassigned })}</li>
               {metrics.unassigned > 0 && <li className="text-warning-fg">{t('{{n}} unassigned passenger(s) stay in the dispatch queue.', { n: metrics.unassigned })}</li>}
             </ul>
-            {metrics.violations > 0 && (
-              <label className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft p-2 text-warning-fg">
-                <Checkbox checked={ackWarnings} onCheckedChange={(v) => setAckWarnings(v === true)} className="mt-0.5" />
-                <span>{t('Publish with {{n}} warning(s) (late arrivals, seats or ride time).', { n: metrics.violations })}</span>
-              </label>
+            {/* Decision 5: hard violations block publishing (the server refuses them too). */}
+            {gate.hard.length > 0 && (
+              <section className="grid gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-destructive-fg" aria-labelledby="publish-hard-title">
+                <h3 id="publish-hard-title" className="flex items-center gap-1.5 font-semibold">
+                  <CircleAlertIcon className="size-4" aria-hidden /> {t('Hard violations (block publishing)')}
+                </h3>
+                <ul className="grid gap-0.5">
+                  {gate.hard.map((i) => (
+                    <li key={`${i.stopId}:${i.kind}`}>{issueText(i)}</li>
+                  ))}
+                </ul>
+                <p>{t('These must be fixed before publishing. Edit the routes (move or reorder stops) or re-optimise the plan.')}</p>
+                {gate.canOverride && gate.blocking.length === 0 && (
+                  <div className="grid gap-2 border-t border-destructive/30 pt-2">
+                    <label className="flex items-start gap-2">
+                      <Checkbox checked={overrideOn} onCheckedChange={(v) => setOverrideOn(v === true)} className="mt-0.5" />
+                      <span>{t('Override the arrival-window violations (authorised)')}</span>
+                    </label>
+                    {overrideOn && (
+                      <Field label={t('Reason for the override (recorded in the audit log)')} htmlFor="publish-override-reason" required hint={t('At least {{n}} characters, in words.', { n: ROUTE_PLAN_OVERRIDE_REASON_MIN })}>
+                        <Textarea
+                          id="publish-override-reason"
+                          value={overrideReason}
+                          onChange={(e) => setOverrideReason(e.target.value)}
+                          maxLength={ROUTE_PLAN_OVERRIDE_REASON_MAX}
+                          rows={3}
+                          required
+                          aria-required
+                        />
+                      </Field>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+            {/* Soft warnings: publishable after an explicit acknowledgement of exactly this set. */}
+            {gate.soft.length > 0 && (
+              <section className="grid gap-1.5 rounded-md border border-warning/40 bg-warning-soft p-2 text-warning-fg" aria-labelledby="publish-soft-title">
+                <h3 id="publish-soft-title" className="font-semibold">{t('Warnings')}</h3>
+                <ul className="grid gap-0.5">
+                  {gate.soft.map((i) => (
+                    <li key={`${i.stopId}:${i.kind}`}>{issueText(i)}</li>
+                  ))}
+                </ul>
+                <label className="flex items-start gap-2">
+                  <Checkbox checked={ackWarnings} onCheckedChange={(v) => setAckWarnings(v === true)} className="mt-0.5" />
+                  <span>{t('I have checked these {{n}} warning(s) and want to publish.', { n: gate.soft.length })}</span>
+                </label>
+              </section>
             )}
             <EtaFootnote />
             {publish.isError && <FormError message={plannerErrorMessage(publish.error, t)} />}
@@ -638,7 +715,7 @@ export function PlanReviewPage() {
             <Button variant="outline" onClick={() => setPublishOpen(false)} disabled={publish.isPending}>
               {t('Back')}
             </Button>
-            <Button onClick={doPublish} disabled={publish.isPending || (metrics.violations > 0 && !ackWarnings) || metrics.vehiclesUsed === 0}>
+            <Button onClick={doPublish} disabled={publish.isPending || !gateState.allowed || metrics.vehiclesUsed === 0}>
               {publish.isPending ? <Spinner /> : <SendIcon />} {t('Publish')}
             </Button>
           </DialogFooter>
