@@ -15,13 +15,31 @@ const EVENT_TEXT_KEYS = ['note', 'reason'];
 /** Driver reports stored per trip (no seat link) whose `data.note` is free text (E5 security review L1). */
 const DRIVER_REPORT_KINDS = ['REPORT_DELAY', 'REPORT_BREAKDOWN'];
 
+/** Trip states in which a seat can still be served. */
+const OPEN_TRIP_STATUSES = ['SCHEDULED', 'STARTED', 'IN_PROGRESS'] as const;
+/** Seat states that are not settled yet (waiting for pickup, or on board). */
+const LIVE_SEAT_STATUSES = ['PENDING', 'BOARDED'] as const;
+
 /**
  * Before "Erase personal data" (E2 M5): the passenger must have no booking that can still be served (an active status
  * whose window has not ended). Those are cancelled first (Bookings), which also frees their seats; erasure itself never
  * changes a trip in the future. 409 INVALID_STATE otherwise.
+ *
+ * Defect I2 (E5 WP 5.5): a seated booking keeps its ASSIGNED / CONFIRMED status after its trip ends (the booking status
+ * has no "served" value). Such a booking is no longer open once none of its seats can still be served: a booking with
+ * seats counts only while one of them is PENDING / BOARDED on a trip that is still SCHEDULED / STARTED / IN_PROGRESS.
+ * A booking without any seat (PENDING_ASSIGNMENT, WAITLISTED, …) stays open until its window ends, as before.
  */
 export async function assertNoOpenBookings(db: Pick<Tx, 'transportBooking'>, companyId: string, profileId: string, now: Date = new Date()): Promise<void> {
-  const open = await db.transportBooking.count({ where: { customerCompanyId: companyId, profileId, status: { in: [...ACTIVE_BOOKING_STATUSES] }, windowEnd: { gt: now } } });
+  const open = await db.transportBooking.count({
+    where: {
+      customerCompanyId: companyId,
+      profileId,
+      status: { in: [...ACTIVE_BOOKING_STATUSES] },
+      windowEnd: { gt: now },
+      OR: [{ passengers: { none: {} } }, { passengers: { some: { status: { in: [...LIVE_SEAT_STATUSES] }, trip: { plannedTrip: { status: { in: [...OPEN_TRIP_STATUSES] } } } } } }],
+    },
+  });
   if (open) throw new ConflictException({ code: 'INVALID_STATE', message: `Cancel the passenger's ${open} upcoming booking(s) before erasing the personal data` });
 }
 

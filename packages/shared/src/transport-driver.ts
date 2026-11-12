@@ -48,6 +48,12 @@ export const DRIVER_LIMITS = {
   startLateMin: 60,
   /** NO_SHOW is accepted only this many minutes after the stop's arrival (owner decision P5 / Q8 default). */
   noShowMinWaitMin: 5,
+  /**
+   * D1 / D1b (E5 WP 5.5, Lead decision 2026-11-12): for this many hours after a trip is COMPLETED (e.g. auto-completed by
+   * the vehicle GPS at the last stop) the driver may still settle passengers: DROPPED, NO_SHOW, and a BOARDED that happened
+   * while the trip was running. Accepted with `afterClose`, audited; the trip is not reopened. Later: LATE TRIP_CLOSED.
+   */
+  settleGraceHours: 6,
   /** ARRIVED: vehicle fix within k × stop radius → verified; clearly farther (fresh fix) → NOT_AT_STOP (Q8 default k = 3). */
   arrivalRadiusFactor: 3,
   /** ARRIVED: a vehicle fix (stored track or live) counts only if it is at most this far from occurredAt. */
@@ -420,6 +426,8 @@ export interface DriverTripEventResult {
   verified?: 'gps' | 'unverified_location' | null;
   /** Server receipt time of the stored event (null for RETRY). */
   receivedAt: string | null;
+  /** ACCEPTED after the trip was COMPLETED, inside DRIVER_LIMITS.settleGraceHours: a late passenger settlement (D1). */
+  afterClose?: boolean;
 }
 
 export interface DriverTripEventBatchResult {

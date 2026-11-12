@@ -191,6 +191,7 @@ export const TRANSPORT_MOBILE_HI: Record<string, string> = {
   '{{n}} actions are not synced yet. They stay on this phone and are sent when you sign in again with the same account.':
     '{{n}} कार्रवाइयाँ अभी सिंक नहीं हुई हैं। वे इस फ़ोन पर रहेंगी और उसी खाते से फिर साइन इन करने पर भेजी जाएँगी।',
   '{{n}} new': '{{n}} नई',
+  '{{n}} not applied: trip closed': '{{n}} लागू नहीं हुईं: ट्रिप बंद है',
   '{{n}} rejected': '{{n}} अस्वीकृत',
   '{{n}} waiting to sync': '{{n}} सिंक की प्रतीक्षा में',
   '{{p}} pickups · {{d}} drops · {{w}} waiting': '{{p}} पिकअप · {{d}} ड्रॉप · {{w}} प्रतीक्षा में',
@@ -405,6 +406,7 @@ export const TRANSPORT_MOBILE_TA: Record<string, string> = {
   '{{n}} actions are not synced yet. They stay on this phone and are sent when you sign in again with the same account.':
     '{{n}} செயல்கள் இன்னும் ஒத்திசைக்கப்படவில்லை. அவை இந்த தொலைபேசியில் இருக்கும், அதே கணக்கில் மீண்டும் உள்நுழையும்போது அனுப்பப்படும்.',
   '{{n}} new': '{{n}} புதியவை',
+  '{{n}} not applied: trip closed': '{{n}} பொருந்தவில்லை: பயணம் முடிந்தது',
   '{{n}} rejected': '{{n}} நிராகரிக்கப்பட்டன',
   '{{n}} waiting to sync': '{{n}} ஒத்திசைக்கக் காத்திருக்கின்றன',
   '{{p}} pickups · {{d}} drops · {{w}} waiting': '{{p}} பிக்அப் · {{d}} இறக்கம் · {{w}} காத்திருப்பு',

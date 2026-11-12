@@ -1,0 +1,43 @@
+# R6 on the device (doc 11 §4 R6 "Maestro airplane-mode flow"): taps made offline are kept on the phone as
+# "waiting to sync", never shown as confirmed, and are sent when the connection is back. Needs a started trip with a
+# pickup the vehicle is standing at (README "Test data"). Airplane mode needs an emulator / rooted device that allows it.
+appId: ${APP_ID || "com.sasvata.veetrax"}
+env:
+  EMAIL: ${DRIVER_EMAIL}
+  PASSWORD: ${DRIVER_PASSWORD}
+tags:
+  - etms
+  - driver
+  - offline
+---
+- runFlow: subflows/login.yaml
+- extendedWaitUntil:
+    visible: "Today's trips"
+    timeout: 30000
+- tapOn:
+    text: ".*stops · .* passengers"
+    index: 0
+- extendedWaitUntil:
+    visible: "Arrived at stop"
+    timeout: 20000
+- setAirplaneMode: enabled
+- tapOn: "Arrived at stop"
+- tapOn:
+    text: "Boarded"
+    index: 0
+- extendedWaitUntil:
+    visible: ".* waiting to sync"
+    timeout: 10000
+- assertNotVisible: "All actions synced"
+# Kill and relaunch while offline: the queue survives (stored in the device keystore, confirm-before-delete).
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ".* waiting to sync"
+    timeout: 20000
+- setAirplaneMode: disabled
+- tapOn: ".* waiting to sync"
+- tapOn: "Sync now"
+- extendedWaitUntil:
+    visible: "All actions synced"
+    timeout: 60000

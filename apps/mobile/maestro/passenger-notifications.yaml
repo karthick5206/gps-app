@@ -1,0 +1,22 @@
+# Passenger inbox (D7 / L4): the in-app history is authoritative; push only wakes the app. After a dispatcher or
+# driver change the passenger sees a generic notice and opens the trip from it.
+appId: ${APP_ID || "com.sasvata.veetrax"}
+env:
+  EMAIL: ${PASSENGER_EMAIL}
+  PASSWORD: ${PASSENGER_PASSWORD}
+tags:
+  - etms
+  - passenger
+---
+- runFlow: subflows/login.yaml
+- extendedWaitUntil:
+    visible: "Today"
+    timeout: 30000
+- tapOn: "Notices"
+- extendedWaitUntil:
+    visible: "Your trip starts soon"
+    timeout: 20000
+- tapOn: "Your trip starts soon"
+- extendedWaitUntil:
+    visible: "Estimated pickup"
+    timeout: 15000

@@ -43,6 +43,8 @@ function multiArg(name: string): string[] {
 const readJson = (file: string): unknown => JSON.parse(readFileSync(file, 'utf8').replace(/^﻿/, ''));
 
 function scenarioPath(raw: string): string {
+  // ETMS scenarios (etms-*.json, E5 WP 5.5) need the driver / passenger APIs as well as the vehicle: their own runner.
+  if (/(^|[\\/])etms-[a-z0-9-]+(\.json)?$/.test(raw)) throw new Error(`"${raw}" is an ETMS scenario: run it with npm run etms:e5 -w @veetracer/api -- --scenario ${raw.replace(/^.*[\\/]/, '').replace(/\.json$/, '')} (see scripts/etms-e2e/README.md)`);
   const candidates = [raw, resolve(SCENARIO_DIR, raw), resolve(SCENARIO_DIR, `${raw}.json`)];
   const found = candidates.find((c) => existsSync(c));
   if (!found) throw new Error(`Scenario "${raw}" not found (looked in ${SCENARIO_DIR})`);

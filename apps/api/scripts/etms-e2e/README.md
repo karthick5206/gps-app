@@ -156,3 +156,44 @@ dispatcher bots, and a Playwright suite. The first three are built: `--http`, `s
   deviation alerts are not asserted.
 - **Test gate wording:** doc 12 says "full run on `veetrax_assess`". The gate uses a fresh `veetrax_e3h_*_test`
   database instead, as the brief and doc 16 I1 require for destructive runs.
+
+## E5 scenarios (WP 5.5): `npm run etms:e5`
+
+`sim:route` scenarios `etms-on-time`, `etms-no-show` and `etms-offline-driver` (doc 12 §8, doc 11 §6 / §7 E5), end to
+end against the real built API, processor and **notifier**, on a scratch database `veetrax_e5s_<stamp>_test`.
+
+```bash
+export E3H_PG_URL='postgresql://<user>:<password>@127.0.0.1:5432/postgres'
+npm run etms:e5 -w @veetracer/api                              # all three, about 15 minutes
+npm run etms:e5 -w @veetracer/api -- --scenario etms-no-show   # one (etms-offline-driver also runs etms-on-time first)
+```
+
+Flags: `--no-build`, `--keep`, `--valkey-db <1-15>` (default 14; must be empty, flushed after), `--valkey-url`,
+`--out <dir>`, `--name veetrax_e5s_x_test`, `--known-defects` (fail on checks tagged `pending known-defect …`).
+`npm run sim:route -- --scenario etms-…` points here: these scenarios need the driver and passenger APIs too.
+
+- **Scenarios** are JSON in `src/simulator/scenarios/etms-*.json`; the format and the R6 replay plan are in
+  `src/etms/testing/e5-scenario.ts` (pure, unit-tested in `e5-scenario.spec.ts`).
+- **Stack:** API + processor + notifier with `PUSH_PROVIDER=fake` (each push is a JSON line in `<out>/push.log`, ticket
+  ids `fake-…`; nothing leaves the machine; the fake is refused when `NODE_ENV=production`) and `SMS_PROVIDER=console`.
+- **Accounts:** `http-seed.ts` with 12 passengers (9 logins) and 3 drivers; driver logins are a User with the real
+  `Transport driver` template role linked as `Driver.userId` (the Transport admin template has no `drivers` edit, so
+  `POST /drivers/:id/login` is not used). Each scenario has its own vehicle, driver and three passengers.
+- **Per scenario** (`e5-bots.ts`): push tokens registered through `/auth/push-token`; dispatcher books and publishes;
+  one relay pass is awaited (TRIP_ASSIGNED + TRIP_STARTING_SOON while the trip is SCHEDULED); the driver bot uses the
+  driver API as the app does (`/me`, duty start, `/trips`, detail, ACKNOWLEDGE event, online start, a 10-minute-old start
+  refused with STALE_COMMAND); sim-trip drives the van through `vt:positions`; at each stop the driver bot sends the
+  scenario's taps with stable `clientEventId`s and a per-trip `seq`. In the offline window they are queued and, on
+  reconnect, replayed shuffled and duplicated (R6), with RETRY events resent until settled, then the whole queue once
+  more (all DUPLICATE).
+- **Checks:** GPS never sets an outcome; pickup outcomes by DRIVER_APP; each clientEventId stored once; `/driver/v1/sync`
+  returns every stored outcome; passengers see their own status and co-riders only as a count; the offline run converges
+  to `etms-on-time`'s final state; notifications (no duplicates, PUSH rows SENT through the fake provider, payload exactly
+  `{ kind, tripId, notificationId }` on channel `trip`, no names); no SMS; I2 (a finished trip no longer blocks erasure).
+- **D1 (fixed, check tagged `fixed D1`):** the v1.8 tracker auto-completes the trip when the van reaches the office.
+  Since the D1 fix the driver's DROPPED taps there are ACCEPTED with `afterClose` inside the settle grace
+  (`DRIVER_LIMITS.settleGraceHours`, 6 h) and the riders end DROPPED; the trip stays COMPLETED. The office ARRIVED is
+  still LATE (only passenger settlements are taken after the close). The offline replay after the close (D1b) is covered
+  by `src/etms/etms-driver-settle.db-test.ts`.
+
+Evidence: `apps/api/var/etms-e2e/e5-<stamp>/` (`summary.md`, `results.json`, `push.log`, process logs), git-ignored.

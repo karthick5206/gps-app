@@ -27,14 +27,15 @@ export interface HttpAccounts {
   devices: Record<string, string>; // objectId → IMEI
 }
 
-export async function seedHttpAccounts(prisma: PrismaClient, tag: string): Promise<HttpAccounts> {
+/** `size` (E5 WP 5.5 scenarios): more IST passengers / logins / drivers than the E3 stage needs; defaults unchanged. */
+export async function seedHttpAccounts(prisma: PrismaClient, tag: string, size: { passengers?: number; logins?: number; drivers?: number } = {}): Promise<HttpAccounts> {
   const [existing] = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "Partner" LIMIT 1`;
   const partnerId =
     existing?.id ?? (await prisma.$queryRaw<{ id: string }[]>`INSERT INTO "Partner" (id, name, slug, "updatedAt") VALUES (gen_random_uuid(), 'etms-e3-http partner', 'etms-e3-http-' || gen_random_uuid(), now()) RETURNING id`)[0].id;
   const plan = planE3Synthetic({
     tag,
     companies: [
-      { key: 'HTTP-IST', kind: 'CUSTOMER', timezone: 'Asia/Kolkata', passengers: 12, logins: 4, branches: ['North', 'South'], vehicles: [6, 6, 4, 4, 6, null], drivers: 2, shifts: [{ key: 'day', name: 'Day 09:00-18:00', startMin: 540, endMin: 1080, days: [0, 1, 2, 3, 4, 5, 6] }] },
+      { key: 'HTTP-IST', kind: 'CUSTOMER', timezone: 'Asia/Kolkata', passengers: size.passengers ?? 12, logins: size.logins ?? 4, branches: ['North', 'South'], vehicles: [6, 6, 4, 4, 6, null], drivers: size.drivers ?? 2, shifts: [{ key: 'day', name: 'Day 09:00-18:00', startMin: 540, endMin: 1080, days: [0, 1, 2, 3, 4, 5, 6] }] },
       { key: 'HTTP-CTRL', kind: 'CONTROL', timezone: 'Asia/Kolkata', passengers: 2, vehicles: [4] },
       { key: 'HTTP-OFF', kind: 'ETMS_OFF', timezone: 'Asia/Kolkata', passengers: 0, vehicles: [4] },
     ],

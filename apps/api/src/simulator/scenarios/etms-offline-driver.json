@@ -1,0 +1,16 @@
+{
+  "name": "etms-offline-driver",
+  "description": "As etms-on-time, but the driver app loses its connection on arriving at pickup 1 and gets it back at pickup 3. The taps at pickups 1 and 2 are queued and replayed shuffled, every second one twice, in batches of 3 (R6). The final state must equal etms-on-time's; every event is stored once; no notification is duplicated.",
+  "pickupsM": [1200, 800, 400],
+  "board": [
+    { "stop": 0, "passengers": [0] },
+    { "stop": 1, "passengers": [1] },
+    { "stop": 2, "passengers": [2] }
+  ],
+  "noShow": [],
+  "reportDelay": null,
+  "driverOffline": { "fromStop": 0, "toStop": 2 },
+  "replay": { "seed": 20261112, "duplicateEvery": 2, "batchSize": 3 },
+  "compareWith": "etms-on-time",
+  "expect": { "passengers": ["DROPPED", "DROPPED", "DROPPED"], "trip": "COMPLETED" }
+}

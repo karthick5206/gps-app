@@ -320,3 +320,31 @@ test('actionDisplay never shows a local event as confirmed', () => {
   assert.equal(actionDisplay(false, [{ state: 'LATE' }]), 'LATE');
   assert.equal(actionDisplay(true, [{ state: 'PENDING' }]), 'CONFIRMED');
 });
+
+test('D1b: a queue drained after the trip auto-completed: every item gets a definitive state, none silently lost', async () => {
+  const { q } = await loaded();
+  // Offline taps: board + drop (settle grace: ACCEPTED afterClose), arrive at the office (LATE), a drop the server
+  // first answers RETRY (out of order), then accepts.
+  const board = await q.enqueue({ tripId: TRIP_A, type: 'BOARDED', passengerTripId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' });
+  const arrive = await q.enqueue({ tripId: TRIP_A, type: 'ARRIVED', stopSeq: 3 });
+  const drop = await q.enqueue({ tripId: TRIP_A, type: 'DROPPED', passengerTripId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', stopSeq: 3 });
+  let round = 0;
+  const tr = transport((_t, events) => {
+    round++;
+    return events.map((e) =>
+      e.clientEventId === arrive.clientEventId
+        ? { clientEventId: e.clientEventId, outcome: 'LATE', code: 'TRIP_CLOSED' }
+        : e.clientEventId === drop.clientEventId && round === 1
+          ? { clientEventId: e.clientEventId, outcome: 'RETRY', code: 'OUT_OF_ORDER' }
+          : { clientEventId: e.clientEventId, outcome: 'ACCEPTED', code: null },
+    );
+  });
+  await q.drain(tr);
+  assert.equal(q.snapshot().pending, 1, 'the RETRY item stays queued, never dropped');
+  await q.drain(tr, true);
+  const snap = q.snapshot();
+  assert.equal(snap.pending, 0);
+  assert.equal(snap.late, 1, 'the LATE item is kept and counted for the banner');
+  assert.deepEqual(snap.events.map((e) => [e.clientEventId, e.state, e.code]), [[arrive.clientEventId, 'LATE', 'TRIP_CLOSED']]);
+  assert.ok(!snap.events.some((e) => e.clientEventId === board.clientEventId || e.clientEventId === drop.clientEventId), 'ACCEPTED items leave the queue only after the server confirmed them');
+});

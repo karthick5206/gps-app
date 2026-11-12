@@ -477,6 +477,43 @@ d(`ETMS E3 services on ${dbName}`, () => {
     expect(out.drafts).toEqual([{ status: 'REJECTED', draft: null }]);
   });
 
+  it('defect I2 (E5 WP 5.5): an ASSIGNED booking whose seat is settled or whose trip has ended no longer blocks erasure inside its window', async () => {
+    const out: Record<string, string> = {};
+    await inRollback(prisma, async (tx, partnerId) => {
+      const g = await seedGraph(tx, partnerId, 'I2');
+      const sql = (s: string) => tx.$executeRawUnsafe(s);
+      // Inside the seated booking's window (1 Dec 02:00-03:30 UTC); the OUT booking is cancelled so only the seat counts.
+      const at = new Date('2026-12-01T03:00:00Z');
+      const check = () => assertNoOpenBookings(tx, g.company, g.profile, at).then(() => 'allowed', (e: HttpException) => (e.getResponse() as { code: string }).code);
+      await sql(`UPDATE "TransportBooking" SET status = 'CANCELLED' WHERE id = '${g.booking}'`);
+      const state = async (trip: string, seat: string) => {
+        await sql(`UPDATE "PlannedTrip" SET status = '${trip}' WHERE id = '${g.plannedTrip}'`);
+        await sql(`UPDATE "TransportTripPassenger" SET status = '${seat}', "outcomeSource" = ${seat === 'PENDING' ? 'NULL' : `'DRIVER_APP'`}, "boardedAt" = now(), "droppedAt" = now(), "noShowAt" = now() WHERE id = '${g.passenger}'`);
+        return check();
+      };
+      out.scheduledPending = await state('SCHEDULED', 'PENDING');
+      out.runningBoarded = await state('IN_PROGRESS', 'BOARDED');
+      out.runningDropped = await state('IN_PROGRESS', 'DROPPED');
+      out.runningNoShow = await state('IN_PROGRESS', 'NO_SHOW');
+      out.completedBoarded = await state('COMPLETED', 'BOARDED');
+      out.completedDropped = await state('COMPLETED', 'DROPPED');
+      out.incompletePending = await state('INCOMPLETE', 'PENDING');
+      // A booking without a seat stays open until its window ends (unchanged).
+      await sql(`UPDATE "TransportBooking" SET status = 'PENDING_ASSIGNMENT', "windowStart" = '2026-12-01T02:00:00Z', "windowEnd" = '2026-12-01T03:30:00Z' WHERE id = '${g.booking}'`);
+      out.unseated = await check();
+    });
+    expect(out).toEqual({
+      scheduledPending: 'INVALID_STATE',
+      runningBoarded: 'INVALID_STATE',
+      runningDropped: 'allowed',
+      runningNoShow: 'allowed',
+      completedBoarded: 'allowed',
+      completedDropped: 'allowed',
+      incompletePending: 'allowed',
+      unseated: 'INVALID_STATE',
+    });
+  });
+
   it('E5 security fixes on PostgreSQL: stored-track window (M1), NO_SHOW_REVIEW row (M1), DRIVER_CHANGED path filter (L5), erasure of report notes / free reason codes (L1)', async () => {
     const out: Record<string, unknown> = {};
     await inRollback(prisma, async (tx, partnerId) => {
