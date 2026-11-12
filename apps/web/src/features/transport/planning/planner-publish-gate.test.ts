@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { TRANSLATIONS, type RoutePlanPublishCheck } from '@veetracer/shared';
 import { createKeyStore, publishPlan } from './planner-flow.ts';
 import { createMockPlannerClient } from './planner-mock.ts';
-import { plannerErrorKind, plannerErrorText, publishGate, publishGateState, type PlannerPlan } from './planner-format.ts';
+import { acknowledgedFingerprint, plannerErrorKind, plannerErrorText, publishGate, publishGateState, warningsAcknowledged, type PlannerPlan } from './planner-format.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const read = (p: string) => readFileSync(join(HERE, p), 'utf8');
@@ -116,4 +116,21 @@ test('the publish dialog: blocking list, acknowledgement checkbox, override only
     assert.ok(page.includes(`'${s}'`), `page uses: ${s}`);
     for (const lang of ['hi', 'ta'] as const) assert.ok(TRANSLATIONS[lang][s], `${lang}: ${s}`);
   }
+});
+
+test('E4 decisions D-L3: the acknowledgement is tied to the warning set; a reload with other warnings clears the tick', () => {
+  const g1 = publishGate({ publishCheck: { hard: [], soft: [{ assignmentId: 'a1', vehicleLabel: 'Van 1', stopId: 's1', ref: 'p-1', kind: 'early_wait', etaS: 60, window: [600, 900] }], fingerprint: 'fp-1', canOverride: false } } as unknown as PlannerPlan);
+  const g2 = { ...g1, fingerprint: 'fp-2' };
+  // The user ticks the box against fp-1.
+  const acked = acknowledgedFingerprint(true, g1);
+  assert.equal(acked, 'fp-1');
+  assert.equal(warningsAcknowledged(acked, g1), true);
+  // The plan is refetched while the dialog is open and the warnings changed: not acknowledged any more.
+  assert.equal(warningsAcknowledged(acked, g2), false);
+  assert.equal(publishGateState(g2, { acknowledged: warningsAcknowledged(acked, g2), overrideOn: false, reason: '' }).allowed, false);
+  assert.equal(warningsAcknowledged(acknowledgedFingerprint(false, g1), g1), false);
+  // The page keeps the acknowledged fingerprint, not a bare boolean.
+  const page = read('PlanReviewPage.tsx');
+  assert.match(page, /warningsAcknowledged\(ackedFingerprint, gate\)/);
+  assert.doesNotMatch(page, /const \[ackWarnings, setAckWarnings\] = useState\(false\)/);
 });

@@ -448,6 +448,18 @@ export function overrideReasonValid(raw: string): boolean {
   return r.length >= ROUTE_PLAN_OVERRIDE_REASON_MIN && (r.match(/\p{L}[\p{L}\p{M}]+/gu) ?? []).length >= 2;
 }
 
+/**
+ * E4 decisions review D-L3: the acknowledgement is stored as the warning fingerprint the user ticked, so a plan reload
+ * with another warning set (the dialog open meanwhile) clears it instead of carrying a stale tick to the new set.
+ */
+export function acknowledgedFingerprint(checked: boolean, g: Pick<PublishGate, 'fingerprint'>): string | null {
+  return checked ? g.fingerprint : null;
+}
+
+export function warningsAcknowledged(acked: string | null, g: Pick<PublishGate, 'fingerprint'>): boolean {
+  return acked !== null && acked === g.fingerprint;
+}
+
 /** Whether Publish is enabled in the dialog, and the decision fields of the request body. */
 export function publishGateState(g: PublishGate, input: { acknowledged: boolean; overrideOn: boolean; reason: string }): { allowed: boolean; body: Pick<RoutePlanPublishRequest, 'acknowledgedWarnings' | 'override'> } {
   const body: Pick<RoutePlanPublishRequest, 'acknowledgedWarnings' | 'override'> = {};

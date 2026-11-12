@@ -62,6 +62,8 @@ import {
   publishable,
   planClock,
   publishGate,
+  acknowledgedFingerprint,
+  warningsAcknowledged,
   publishGateState,
   movePassenger,
   changedRoutes,
@@ -150,7 +152,8 @@ export function PlanReviewPage() {
   const [moveReq, setMoveReq] = useState<PlannerStop | null>(null);
   const [vehicleReq, setVehicleReq] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [ackWarnings, setAckWarnings] = useState(false);
+  // D-L3: the warning fingerprint the user acknowledged (a refetch with other warnings un-ticks the box).
+  const [ackedFingerprint, setAckedFingerprint] = useState<string | null>(null);
   // Decision 5: authorised override of arrival-window violations (reason recorded and audited by the server).
   const [overrideOn, setOverrideOn] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
@@ -211,6 +214,7 @@ export function PlanReviewPage() {
   };
   // Decision 5: the server's publish classification (hard blocks, soft needs the acknowledgement, override if authorised).
   const gate = publishGate(plan);
+  const ackWarnings = warningsAcknowledged(ackedFingerprint, gate);
   const gateState = publishGateState(gate, { acknowledged: ackWarnings, overrideOn: overrideOn && gate.canOverride, reason: overrideReason });
   const routeNo = (assignmentId: string) => plan.assignments.findIndex((a) => a.id === assignmentId) + 1;
   const issueText = (i: (typeof gate.hard)[number]) => {
@@ -344,7 +348,7 @@ export function PlanReviewPage() {
                 disabled={busy}
                 onClick={() => {
                   publish.reset();
-                  setAckWarnings(false);
+                  setAckedFingerprint(null);
                   setOverrideOn(false);
                   setOverrideReason('');
                   setPublishOpen(true);
@@ -704,7 +708,7 @@ export function PlanReviewPage() {
                   ))}
                 </ul>
                 <label className="flex items-start gap-2">
-                  <Checkbox checked={ackWarnings} onCheckedChange={(v) => setAckWarnings(v === true)} className="mt-0.5" />
+                  <Checkbox checked={ackWarnings} onCheckedChange={(v) => setAckedFingerprint(acknowledgedFingerprint(v === true, gate))} className="mt-0.5" />
                   <span>{t('I have checked these {{n}} warning(s) and want to publish.', { n: gate.soft.length })}</span>
                 </label>
               </section>
