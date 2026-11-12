@@ -43,7 +43,7 @@ export function AccessLogPage() {
         cell: (r) => (
           <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
             <Badge variant={ACTOR_VARIANT[r.actorKind]}>{i18n.t(ACCESS_ACTOR_LABEL[r.actorKind])}</Badge>
-            <span className="break-words">{r.actorKind === 'SUPPORT' && !r.actorName ? i18n.t('VeeTrax support') : accessActorText(r)}</span>
+            <span className="break-words">{accessActorText(r, (s) => i18n.t(s))}</span>
           </span>
         ),
       },
@@ -75,7 +75,7 @@ export function AccessLogPage() {
       description="Who opened your passengers' personal data: transport providers under an agreement and VeeTrax support, with the reason they gave."
       endpoint="/transport/access-log"
       columns={columns}
-      rowLabel={(r) => `${accessActorText(r)} ${r.at}`}
+      rowLabel={(r) => `${accessActorText(r, (s) => i18n.t(s))} ${r.at}`}
       filters={FILTERS}
       statusFilter={false}
       bulkActions={false}

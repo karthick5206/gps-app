@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { TransportFleetAllocationDto } from '@veetracer/shared';
+import { TRANSLATIONS, type TransportFleetAllocationDto } from '@veetracer/shared';
 import { accessActorText, accessWhatLabel, allocationInput, allocationLabel, allocationState, fleetErrorText, sortAllocations } from './fleet-format.ts';
 
 const row = (over: Partial<TransportFleetAllocationDto>): TransportFleetAllocationDto => ({
@@ -53,4 +53,8 @@ test('fleet error codes and access-log text', () => {
   assert.equal(accessWhatLabel('transport-records'), 'Opened bookings, trips or route plans');
   assert.equal(accessActorText({ actorKind: 'PROVIDER', actorName: 'Dispatcher One', actorCompanyName: 'Prov Co' }), 'Dispatcher One · Prov Co');
   assert.equal(accessActorText({ actorKind: 'SUPPORT', actorName: null, actorCompanyName: null }), 'VeeTrax support');
+  // QA B7: translated in hi / ta (the server no longer sends an English name for support).
+  const hi = (s: string) => (TRANSLATIONS.hi as Record<string, string>)[s] ?? s;
+  assert.equal(accessActorText({ actorKind: 'SUPPORT', actorName: null, actorCompanyName: null }, hi), 'VeeTrax सहायता');
+  assert.notEqual(accessActorText({ actorKind: 'SUPPORT', actorName: null, actorCompanyName: null }, (s) => (TRANSLATIONS.ta as Record<string, string>)[s] ?? s), 'VeeTrax support');
 });

@@ -147,6 +147,8 @@ export const E1B_MATRIX: E1bEntry[] = [
         const kinds = new Set(items.map((e) => e.actorKind));
         for (const k of ['PROVIDER', 'SUPPORT', 'OWN'] as const) if (!kinds.has(k)) fail(`${role}: no ${k} entry`);
         if (!items.some((e) => e.actorKind === 'SUPPORT' && e.reason === 'ticket 42')) fail(`${role}: support reason missing`);
+        // QA B7: support entries carry no (English) name; the web translates "VeeTrax support".
+        if (items.some((e) => e.actorKind === 'SUPPORT' && e.actorName !== null)) fail(`${role}: support entry has an actorName`);
         if (!items.some((e) => e.actorKind === 'PROVIDER' && e.actorCompanyName === 'Provider Co')) fail(`${role}: provider name missing`);
       }
       if (role === 'providerAdmin' && items.length) fail('providerAdmin sees customer reads in its own log');

@@ -22,7 +22,7 @@ const CSV: CsvSpec<TransportAccessLogEntryDto> = {
   columns: [
     { header: 'When', value: (e) => e.at },
     { header: 'Who', value: (e) => e.actorKind },
-    { header: 'Name', value: (e) => e.actorName ?? '' },
+    { header: 'Name', value: (e) => e.actorName ?? (e.actorKind === 'SUPPORT' ? 'VeeTrax support' : '') },
     { header: 'Provider', value: (e) => e.actorCompanyName ?? '' },
     { header: 'What', value: (e) => e.what },
     { header: 'Passenger', value: (e) => e.subjectName ?? '' },
@@ -110,7 +110,8 @@ export class TransportProviderService {
         id: r.id,
         at: r.createdAt.toISOString(),
         actorKind: kind,
-        actorName: kind === 'SUPPORT' ? 'VeeTrax support' : (u?.name ?? null),
+        // QA B7: no English label for support: the web shows its translated "VeeTrax support" (and no person's name).
+        actorName: kind === 'SUPPORT' ? null : (u?.name ?? null),
         actorCompanyName: kind === 'PROVIDER' && actingCompany ? (companyName.get(actingCompany) ?? null) : null,
         what: str(d.what) ?? str(d.view) ?? r.entity,
         entity: r.entity,

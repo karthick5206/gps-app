@@ -106,8 +106,8 @@ export function accessWhatLabel(what: string): string {
   }
 }
 
-/** "Name · Company" of who read the data; VeeTrax support when no name is given. */
-export function accessActorText(e: Pick<TransportAccessLogEntryDto, 'actorKind' | 'actorName' | 'actorCompanyName'>): string {
+/** "Name · Company" of who read the data; VeeTrax support (translated with `tr`, QA B7) when no name is given. */
+export function accessActorText(e: Pick<TransportAccessLogEntryDto, 'actorKind' | 'actorName' | 'actorCompanyName'>, tr: (s: string) => string = (s) => s): string {
   const parts = [e.actorName, e.actorKind === 'PROVIDER' ? e.actorCompanyName : null].filter((x): x is string => !!x);
-  return parts.length ? parts.join(' · ') : e.actorKind === 'SUPPORT' ? 'VeeTrax support' : '—';
+  return parts.length ? parts.join(' · ') : e.actorKind === 'SUPPORT' ? tr('VeeTrax support') : '—';
 }
