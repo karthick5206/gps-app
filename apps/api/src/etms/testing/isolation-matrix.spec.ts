@@ -1182,6 +1182,30 @@ describe('ETMS isolation matrix (E4): route plans leak checks', () => {
     expect(adminPlan.stops.filter((s) => s.pointHidden)).toEqual([]);
   });
 
+  it('E4 decisions D-L2: a publish override’s violations are anonymised like the rest of the detail for a branch dispatcher', async () => {
+    const w = await e4World();
+    const x = w.store.insert('employeeTransportProfile', { companyId: 'custA', employeeCode: 'X8', displayName: 'Passenger X8', branchId: 'brA9' }).id as string;
+    w.store.insert('employeeTransportConsent', { companyId: 'custA', profileId: x, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: true, channel: 'WEB', occurredAt: new Date() });
+    const base = w.store.table('transportBooking').find((b) => b.id === w.plans.party.booking)!;
+    const xb = w.store.insert('transportBooking', { ...base, id: undefined, profileId: x }).id as string;
+    const drop = w.store.table('routePlanStop').find((s) => s.id === w.plans.party.dropStop)!;
+    const xd = w.store.insert('routePlanStop', { ...drop, id: undefined, ref: `d-${xb.slice(0, 8)}`, bookingId: xb, sequence: 2 }).id as string;
+    // As a company admin's override stores them: the raw refs (d-<booking id>) and the actor.
+    const issue = (stopId: string, ref: string) => ({ assignmentId: w.plans.party.assignment, vehicleLabel: 'Van custA', stopId, ref, kind: 'late', etaS: 1800, window: [0, 1500], overridable: true });
+    const plan = w.store.table('routePlan').find((p) => p.id === w.plans.party.plan)!;
+    Object.assign(plan, { status: 'PUBLISHED', options: { publishDecision: { acknowledged: null, override: { reason: 'Gate closed, agreed with the site', byUserId: 'u-admin', at: new Date().toISOString(), violations: [issue(w.plans.party.dropStop, drop.ref as string), issue(xd, `d-${xb.slice(0, 8)}`)] } } } });
+    const disp = await w.controllers.e4.plans.get(caller('customerDispatcher', w), w.plans.party.plan);
+    const shown = disp.publishDecision!.override!.violations;
+    expect(shown).toHaveLength(2);
+    expect(JSON.stringify(disp.publishDecision)).not.toContain(xb.slice(0, 8));
+    // The out-of-scope stop's ref is the one the detail shows for it; the own stop keeps its ref.
+    expect(shown.find((v) => v.stopId === xd)!.ref).toBe(disp.stops.find((s) => s.id === xd)!.ref);
+    expect(shown.find((v) => v.stopId === w.plans.party.dropStop)!.ref).toBe(drop.ref);
+    // The whole-company admin sees the stored refs.
+    const admin = await w.controllers.e4.plans.get(caller('customerAdmin', w), w.plans.party.plan);
+    expect(admin.publishDecision!.override!.violations.map((v) => v.ref)).toEqual([drop.ref, `d-${xb.slice(0, 8)}`]);
+  });
+
   it('publish: ordinary E3 trip linked to the plan, plan read-only afterwards, same key replays, another key is refused', async () => {
     const w = await e4World();
     const admin = caller('customerAdmin', w);

@@ -115,7 +115,8 @@ export class RoutePlansService {
     // D-L1: with the vehicles' current seats, as publish uses them (not the capacity stored when the plan was drafted).
     const capacities = dto.editable ? routeCapacities(plan, await this.currentSeats(ctx, plan)) : [];
     dto.publishCheck = dto.editable ? publishCheckFor(ctx, capacities, plan, dto, seatsLookup(view.bookings), ride) : null;
-    dto.publishDecision = publishDecisionOf(plan.options);
+    // D-L2: the override's stored violations with the refs as this caller sees them (like publishCheck).
+    dto.publishDecision = publishDecisionShown(publishDecisionOf(plan.options), dto);
     // L1: a read that returned personal points or passenger names is ACCESS-audited (de-duplicated per user, view and day).
     await this.dispatch.recordPersonalAccess(ctx, 'plan', [...new Set([...shown, ...named])], dto.precise, { planId: id, ...(named.length ? { passengerNames: named.length } : {}) });
     // Owner decision 1: the max ride of the last optimisation and its source, the policy now, the plan's override.
@@ -702,6 +703,19 @@ function publishCheckFor(ctx: AuthContext, routes: { id: string; vehicleLabel: s
   const r = publishIssues(routes, plan.stops.map(toRuleStop), seats, ride);
   const shown = <T extends { stopId: string; ref: string }>(i: T): T => ({ ...i, ref: refs.get(i.stopId) ?? i.ref });
   return { hard: r.hard.map(shown), soft: r.soft.map(shown), fingerprint: r.fingerprint, canOverride: canOverridePublish(ctx) };
+}
+
+/**
+ * E4 decisions review D-L2: the stored decision with each overridden violation's ref replaced by the ref this caller's
+ * detail shows for that stop (another branch's stop: its anonymised `stop-…` ref, never the stored `d-<booking id>`);
+ * a stop no longer on the plan gets an anonymised ref too. `byUserId` stays: it is the PUBLISHED version's
+ * `changedById`, which the plan history already shows every viewer of the plan.
+ */
+export function publishDecisionShown(d: RoutePlanPublishDecision | null, dto: Pick<RoutePlanDetailDto, 'stops'>): RoutePlanPublishDecision | null {
+  if (!d?.override) return d;
+  const refs = new Map(dto.stops.map((s) => [s.id, s.ref]));
+  const violations = (Array.isArray(d.override.violations) ? d.override.violations : []).map((v) => ({ ...v, ref: refs.get(v.stopId) ?? `stop-${String(v.stopId).slice(0, 8)}` }));
+  return { ...d, override: { ...d.override, violations } };
 }
 
 /** RoutePlan.options.publishDecision as the detail shows it (without the request hash). */
