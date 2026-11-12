@@ -30,8 +30,33 @@ export function isTransportPush(data: TransportPushData | null | undefined): boo
  * - A kind both audiences receive (TRIP_CANCELLED) opens the trip in the section the user has; a user with both
  *   sections gets the matching list instead of guessing.
  */
-export function transportPushTarget(data: TransportPushData | null | undefined, roles: Pick<TransportRoles, 'passenger' | 'driver'>): string | null {
+export type PushRoles = Pick<TransportRoles, 'passenger' | 'driver'> & Partial<Pick<TransportRoles, 'incidents' | 'fleet'>>;
+
+/** The dispatcher SOS push (`{ kind: 'SOS', sos: true, tripId, notificationId = incident id }`, WP 5.4). */
+export function isSosPush(data: TransportPushData | null | undefined): boolean {
+  return isTransportPush(data) && (data!.kind === 'SOS' || data!.sos === true);
+}
+
+/**
+ * Where a tapped dispatcher SOS push opens (r114, QA B2). Its `tripId` is the RAISER's trip and its `notificationId`
+ * is the incident id, so it must never be read as a passenger / driver trip push (that opened a 404 trip and marked
+ * the incident id "read" in the wrong inbox).
+ * - `etms_incidents:view` + a valid incident id → the read-only incident screen.
+ * - Otherwise the user's notification list: fleet Alerts, the driver Inbox, or the passenger Notices.
+ */
+export function sosPushTarget(data: TransportPushData, roles: PushRoles): string | null {
+  const raw = typeof data.incidentId === 'string' ? data.incidentId : data.notificationId;
+  const incidentId = typeof raw === 'string' && UUID.test(raw) ? raw.toLowerCase() : null;
+  if (roles.incidents && incidentId) return `/transport-incident/${incidentId}`;
+  if (roles.fleet) return '/alerts';
+  if (roles.driver) return '/driver-inbox';
+  if (roles.passenger) return '/commute/notices';
+  return null;
+}
+
+export function transportPushTarget(data: TransportPushData | null | undefined, roles: PushRoles): string | null {
   if (!isTransportPush(data)) return null;
+  if (isSosPush(data)) return sosPushTarget(data as TransportPushData, roles);
   const d = data as TransportPushData & { kind: string };
   const tripId = typeof d.tripId === 'string' && UUID.test(d.tripId) ? d.tripId : null;
   const forDriver = DRIVER_KINDS.includes(d.kind) || /^(driver|duty)/i.test(d.kind);

@@ -1,7 +1,7 @@
 import type { DriverTripSummaryDto } from '@veetracer/shared';
 import { router } from 'expo-router';
 import { CalendarIcon, CheckIcon, ChevronRightIcon, PhoneIcon, PlayIcon, SquareIcon } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
@@ -14,6 +14,10 @@ import { queueDriverEvent, useDriverQueue } from '../queue-store';
 import { clockIn } from '../trip-window';
 import { BigAction, StatusChip, SyncBadge, TOUCH, TransportEmpty } from '../ui';
 import { SyncBanner } from './SyncBanner';
+import { useNow } from '../passenger-api';
+import { driverCurrentTrip } from '../sos-context';
+import { driverSos } from '../sos-store';
+import { SosEntryButton } from '../SosScreen';
 
 function TripRow({ trip, tz }: { trip: DriverTripSummaryDto; tz: string }) {
   const { t } = useTranslation();
@@ -82,6 +86,19 @@ export function DutyHome() {
   const me = useDriverMe();
   const duty = useDriverDuty();
   const dutyCmd = useDutyCommand();
+  // Driver SOS context (doc 09 §7.3, r114): the current trip and the dispatcher phone are remembered on the phone, so
+  // the SOS attaches the trip and offers the call also after an offline cold start.
+  const now = useNow(30_000);
+  const current = useMemo(() => (duty.data ? driverCurrentTrip(duty.data.trips, now) : undefined), [duty.data, now]);
+  const currentTripId = current === undefined ? undefined : (current?.tripId ?? null);
+  const currentUntil = current?.until ?? null;
+  useEffect(() => {
+    if (currentTripId !== undefined) driverSos.setContext({ tripId: currentTripId, until: currentUntil });
+  }, [currentTripId, currentUntil]);
+  const dispatcherPhone = me.data?.dispatcherPhone ?? null;
+  useEffect(() => {
+    if (dispatcherPhone) driverSos.setContext({ deskPhone: dispatcherPhone });
+  }, [dispatcherPhone]);
   const refresh = () => {
     void me.refetch();
     void duty.refetch();
@@ -107,6 +124,7 @@ export function DutyHome() {
   return (
     <ScrollView contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.md, paddingBottom: SPACE.xl }} refreshControl={<RefreshControl refreshing={me.isRefetching || duty.isRefetching} onRefresh={refresh} />}>
       <SyncBanner />
+      <SosEntryButton audience="driver" />
       {!!(me.error || duty.error) && <ErrorBanner message={driverErrorText(me.error ?? duty.error)} onRetry={refresh} />}
 
       {me.data && (

@@ -118,21 +118,25 @@ async function send(path: string, opts: RequestOptions): Promise<Response> {
   }
 }
 
-let refreshing: Promise<boolean> | null = null;
+/** Outcome of a refresh: `offline` = no answer from the server (network error, timeout, 5xx), the token may still be good. */
+export type RefreshOutcome = 'ok' | 'rejected' | 'offline';
 
-/** Single-flight access-token refresh. Resolves false when the refresh token is missing or rejected. */
-export function refreshAccessToken(): Promise<boolean> {
+let refreshing: Promise<RefreshOutcome> | null = null;
+
+/** Single-flight access-token refresh with the reason it failed (r114: an offline cold start keeps the session). */
+export function refreshAccessTokenOutcome(): Promise<RefreshOutcome> {
   if (refreshing) return refreshing;
   const refreshToken = session.getRefreshToken();
-  if (!refreshToken) return Promise.resolve(false);
-  refreshing = (async () => {
+  if (!refreshToken) return Promise.resolve('rejected');
+  refreshing = (async (): Promise<RefreshOutcome> => {
     try {
       const res = await send('/auth/refresh', { method: 'POST', body: { refreshToken }, anonymous: true });
-      if (!res.ok) return false;
+      if (res.status >= 500) return 'offline';
+      if (!res.ok) return 'rejected';
       session.setTokens((await res.json()) as AuthTokens);
-      return true;
+      return 'ok';
     } catch {
-      return false;
+      return 'offline';
     } finally {
       refreshing = null;
     }
@@ -140,11 +144,20 @@ export function refreshAccessToken(): Promise<boolean> {
   return refreshing;
 }
 
+/** Single-flight access-token refresh. Resolves false when the refresh token is missing or rejected, or offline. */
+export async function refreshAccessToken(): Promise<boolean> {
+  return (await refreshAccessTokenOutcome()) === 'ok';
+}
+
 /** Fetch with auth headers, one refresh-and-retry on 401, and sign-out when the refresh fails. */
 async function authorizedFetch(path: string, opts: RequestOptions): Promise<Response> {
   let res = await send(path, opts);
   if (res.status === 401 && !opts.anonymous) {
-    if (await refreshAccessToken()) res = await send(path, opts);
+    const outcome = await refreshAccessTokenOutcome();
+    if (outcome === 'ok') res = await send(path, opts);
+    // The connection dropped during the refresh: a network error (callers retry; a queued SOS keeps its place), never
+    // a sign-out of a session that may still be valid.
+    else if (outcome === 'offline') throw new ApiError(0, [i18n.t('No connection to the server. Check your internet and try again.')]);
     else onSessionExpired();
   }
   if (!res.ok) throw await toApiError(res);

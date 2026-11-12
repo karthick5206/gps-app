@@ -6,13 +6,12 @@ import { Platform } from 'react-native';
 import { isAlarmAlert } from '@veetracer/shared';
 import { api } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
-import { isTransportPush, transportPushTarget } from '@/features/transport/push-target';
-import type { TransportRoles } from '@/features/transport/roles';
+import { isSosPush, isTransportPush, transportPushTarget, type PushRoles } from '@/features/transport/push-target';
 
-/** Passenger / driver sections the signed-in user may open (set by the root layout from /auth/me). */
-let transportRoles: Pick<TransportRoles, 'passenger' | 'driver'> = { passenger: false, driver: false };
-export function setTransportPushRoles(roles: Pick<TransportRoles, 'passenger' | 'driver'>): void {
-  transportRoles = { passenger: roles.passenger, driver: roles.driver };
+/** Passenger / driver / incident sections the signed-in user may open (set by the root layout from /auth/me). */
+let transportRoles: PushRoles = { passenger: false, driver: false, incidents: false, fleet: false };
+export function setTransportPushRoles(roles: PushRoles): void {
+  transportRoles = { passenger: roles.passenger, driver: roles.driver, incidents: !!roles.incidents, fleet: !!roles.fleet };
 }
 
 /** ETMS (employee transport) channels, doc 08 §7.2: generic texts only; PRIVATE so the lock screen hides the body. */
@@ -141,8 +140,9 @@ function openFromNotification(n: Notifications.Notification, tapped: boolean): v
     const target = tapped ? transportPushTarget(data, transportRoles) : null;
     if (target) {
       router.push(target as Parameters<typeof router.push>[0]);
-      // The tapped notice counts as read in the in-app inbox (the authoritative history).
-      if (typeof data.notificationId === 'string' && /^[0-9a-f-]{36}$/i.test(data.notificationId)) {
+      // The tapped notice counts as read in the in-app inbox (the authoritative history). Not for a dispatcher SOS
+      // push: its notificationId is the incident id, not an inbox row (QA B2).
+      if (!isSosPush(data) && typeof data.notificationId === 'string' && /^[0-9a-f-]{36}$/i.test(data.notificationId)) {
         const base = target.startsWith('/duty') ? '/driver/v1' : '/me/transport';
         api.post(`${base}/notifications/read`, { ids: [data.notificationId] }).catch(() => undefined);
       }
