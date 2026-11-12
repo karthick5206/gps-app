@@ -1,7 +1,7 @@
 import type { RoutePlanStatus, RoutePlanStopViolation, RoutingCapabilities } from '@veetracer/shared';
 import { NO_LIVE_TRAFFIC_NOTICE } from '@veetracer/shared';
 import { CircleAlertIcon, CircleStopIcon, RouteIcon, RouteOffIcon } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +14,8 @@ import {
   formatDuration,
   formatKm,
   JOB_PHASE_LABEL,
-  JOB_STATE_META,
+  jobOutcome,
+  steadyProgress,
   PLAN_STATUS_META,
   unassignedReason,
   VIOLATION_LABEL,
@@ -26,10 +27,11 @@ import {
   parseWeight,
   type EtaQuality,
   type PlanMetrics,
+  type SteadyProgress,
   type WeightDraft,
   type WeightKey,
 } from './planner-format';
-import { plannerErrorMessage, useCancelJob, useJob } from './use-planner';
+import { plannerErrorMessage, useCancelJob, useJob, usePlan } from './use-planner';
 import { planPath } from './planner-client';
 
 export function PlanStatusBadge({ status }: { status: RoutePlanStatus }) {
@@ -72,27 +74,34 @@ export function JobProgress({ jobId, planId, label, canCancel }: { jobId: string
   const job = useJob(jobId);
   const cancel = useCancelJob();
   const j = job.data;
+  // T2-L2: once a job left passengers unassigned, the plan (when known) gives the passenger counts.
+  const unassigned = !!(j?.state === 'succeeded' && (j.result as { unassigned?: unknown[] } | undefined)?.unassigned?.length);
+  const plan = usePlan(unassigned && planId ? planId : null);
+  // T2-O1: the bar never moves backwards on a retry (the worker restarts its count); the retry is labelled.
+  const steady = useRef<SteadyProgress | null>(null);
   if (!j) return <p className="text-sm text-muted-foreground">{job.isError ? plannerErrorMessage(job.error, t) : t('Loading…')}</p>;
-  const meta = JOB_STATE_META[j.state];
+  steady.current = steadyProgress(steady.current, j);
+  const shown = steady.current;
+  const outcome = jobOutcome(j, plan.data);
   const active = j.state === 'queued' || j.state === 'running';
   return (
-    <div className="grid gap-2" data-testid="job-progress">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" data-testid="job-progress">
       <div className="flex flex-wrap items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
-        <Badge variant={meta.tone}>{t(meta.label)}</Badge>
+        <Badge variant={outcome.tone}>{t(outcome.label)}</Badge>
       </div>
       {active && (
         <>
           <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
               {j.phase ? t(JOB_PHASE_LABEL[j.phase] ?? j.phase) : t('Waiting for a worker')}
-              {j.attempts > 1 ? ` · ${t('attempt {{n}} of {{max}}', { n: j.attempts, max: j.maxAttempts })}` : ''}
+              {shown.retrying ? ` · ${t('retrying (attempt {{n}} of {{max}}); progress continues from the earlier attempt', { n: j.attempts, max: j.maxAttempts })}` : ''}
               {j.cancelRequested ? ` · ${t('cancelling…')}` : ''}
             </span>
-            <span className="tabular-nums">{j.progress} %</span>
+            <span className="tabular-nums">{shown.value} %</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={t('Optimisation progress')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={j.progress}>
-            <div className="h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none" style={{ width: `${Math.max(0, Math.min(100, j.progress))}%` }} />
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={t('Optimisation progress')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={shown.value}>
+            <div className="h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none" style={{ width: `${shown.value}%` }} />
           </div>
           {canCancel && (
             <Button size="sm" variant="outline" className="justify-self-start" disabled={j.cancelRequested || cancel.isPending} onClick={() => cancel.mutate(j.jobId)}>
@@ -105,6 +114,12 @@ export function JobProgress({ jobId, planId, label, canCancel }: { jobId: string
         <p role="alert" className="flex items-start gap-1.5 text-sm text-destructive-fg">
           <CircleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
           {plannerErrorMessage(Object.assign(new Error(j.error?.message ?? ''), { code: j.error?.code ?? null }), t)}
+        </p>
+      )}
+      {outcome.detail && (
+        <p role="status" className="flex items-start gap-1.5 text-sm text-warning-fg">
+          <CircleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+          {t(outcome.detail, outcome.vars)}
         </p>
       )}
       {j.state === 'cancelled' && <p className="text-sm text-muted-foreground">{t('Optimisation cancelled. The plan is kept as a draft.')}</p>}

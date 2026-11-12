@@ -30,6 +30,7 @@ import type {
   RoutingJobState,
   TransportDirection,
 } from '@veetracer/shared';
+import { meaningfulOverrideReason, overrideReasonText as sharedOverrideReasonText, publishWarningsFingerprint, ROUTE_PLAN_HARD_KINDS, ROUTE_PLAN_OVERRIDABLE_KINDS, type RoutePlanPublishIssue, type RoutePlanPublishRequest } from '@veetracer/shared';
 
 export type Tone = 'success' | 'warning' | 'destructive' | 'info' | 'neutral' | 'muted';
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
@@ -199,6 +200,14 @@ export function unassignedStops<S extends Pick<RoutePlanStopDto, 'assignmentId'>
   return stops.filter((s) => !s.assignmentId);
 }
 
+/**
+ * Passengers without a seat: one row per passenger (the stop that stands for them, see passengerEnd), not both ends of
+ * the booking. The office end of an unassigned booking is not a passenger (T2 E2E: "Unassigned 42 / 25").
+ */
+export function unassignedPassengers<S extends Pick<RoutePlanStopDto, 'assignmentId' | 'stopKind'>>(stops: readonly S[], direction: TransportDirection | null): S[] {
+  return unassignedStops(stops).filter((s) => passengerEnd(s, direction));
+}
+
 /** Seats a route uses: each passenger counted once (at the stop that stands for them, see passengerEnd). */
 export function routeLoad(stops: readonly (Pick<RoutePlanStopDto, 'demand' | 'stopKind'> & { seats?: number })[], direction: TransportDirection | null): number {
   return stops.filter((s) => passengerEnd(s, direction)).reduce((n, s) => n + Math.max(0, (s.seats ?? s.demand) || 0), 0);
@@ -254,7 +263,7 @@ export function planMetrics(plan: Pick<PlannerPlan, 'stops' | 'assignments' | 'd
       else rides.push(r);
     }
   }
-  const unassigned = unassignedStops(plan.stops);
+  const unassigned = unassignedPassengers(plan.stops, plan.direction);
   const unassignedByReason: Record<string, number> = {};
   for (const s of unassigned) {
     const k = s.unassignedReason ?? 'not_optimised';
@@ -263,7 +272,8 @@ export function planMetrics(plan: Pick<PlannerPlan, 'stops' | 'assignments' | 'd
   const violations = mergeViolations(plan.violations ?? [], extraViolations ?? []);
   const violationsByKind: Record<string, number> = {};
   for (const v of violations) violationsByKind[v.kind] = (violationsByKind[v.kind] ?? 0) + 1;
-  const engineOk = used.every((a) => engineEta(a.eta));
+  // T2-L1: no route in use → no distance / time ("—"), not 0 m / 0 min.
+  const engineOk = used.length > 0 && used.every((a) => engineEta(a.eta));
   return {
     vehiclesUsed: used.length,
     vehiclesTotal: plan.assignments.length,
@@ -298,7 +308,8 @@ export function metricsFromCompare(d: RoutePlanMetricsDto, detail?: PlanMetrics 
     seatsUsed: d.seats,
     seats: vehicleSeats,
     passengers: d.passengers,
-    unassigned: d.unassigned,
+    // The server counts unassigned stops (both ends of a booking); the detail of the same version counts passengers.
+    unassigned: detail ? detail.unassigned : d.unassigned,
     unassignedByReason: detail?.unassignedByReason ?? {},
     violations: d.violations,
     violationsByKind: detail?.violationsByKind ?? {},
@@ -336,6 +347,30 @@ export const UNASSIGNED_REASON_LABEL: Record<OptimizeUnassignedReason | 'not_opt
   pinned_assignment_infeasible: 'The pinned vehicle cannot serve it',
   max_ride_unachievable: 'Ride would exceed the maximum ride time',
 };
+
+/** Why plan creation left a booking out (CreatedRoutePlanDto.skippedBookings[].reason). */
+export const SKIPPED_REASON_LABEL: Record<string, string> = {
+  consent_required: 'Passenger consent missing',
+  needs_location: 'Pickup or drop point missing',
+  out_of_scope: 'Outside your branches',
+};
+
+/** Bookings a new plan left out, counted per reason (in the order first seen). */
+export function skippedSummary(skipped: readonly { bookingId: string; reason: string }[] | null | undefined): { reason: string; label: string; n: number }[] {
+  const m = new Map<string, number>();
+  for (const s of skipped ?? []) m.set(s.reason, (m.get(s.reason) ?? 0) + 1);
+  return [...m].map(([reason, n]) => ({ reason, label: SKIPPED_REASON_LABEL[reason] ?? reason, n }));
+}
+
+/**
+ * The job whose progress the plan page shows: the one started on this page, else (after a reload, or a job started
+ * elsewhere) the plan's open job from GET /routing/jobs?planId (the plan detail carries no job id).
+ */
+export function activeJobId(plan: Pick<PlannerPlan, 'status' | 'lastJobId'>, localJobId: string | null, planJobs: readonly Pick<RoutingJobDto, 'jobId' | 'state'>[] | null | undefined): string | null {
+  if (localJobId) return localJobId;
+  if (plan.status !== 'OPTIMIZING') return null;
+  return plan.lastJobId ?? planJobs?.find((j) => j.state === 'queued' || j.state === 'running')?.jobId ?? null;
+}
 
 export function unassignedReason(code: string | null | undefined): string {
   if (!code) return UNASSIGNED_REASON_LABEL.not_optimised;
@@ -377,6 +412,68 @@ export function publishable(plan: Pick<PlannerPlan, 'status' | 'editable' | 'sto
   });
 }
 
+// ───────────────────────────── publish gate (owner decision 5) ─────────────────────────────
+
+/** The publish dialog's view of the server classification (plan.publishCheck); `blocking` = hard and not overridable. */
+export interface PublishGate {
+  hard: RoutePlanPublishIssue[];
+  blocking: RoutePlanPublishIssue[];
+  soft: RoutePlanPublishIssue[];
+  fingerprint: string | null;
+  canOverride: boolean;
+}
+
+const HARD = new Set<string>(ROUTE_PLAN_HARD_KINDS);
+const OVERRIDABLE = new Set<string>(ROUTE_PLAN_OVERRIDABLE_KINDS);
+
+/**
+ * Decision 5: the server's publishCheck when present (it is what publish enforces). An older server without it: the
+ * plan's violations classified with the same shared rules, never an override (the server decides in any case).
+ */
+export function publishGate(plan: Pick<PlannerPlan, 'publishCheck' | 'violations'>): PublishGate {
+  const c = plan.publishCheck;
+  if (c) return { hard: c.hard, blocking: c.hard.filter((i) => !i.overridable), soft: c.soft, fingerprint: c.fingerprint, canOverride: c.canOverride };
+  const issues = (plan.violations ?? []).map((v) => ({ assignmentId: '', vehicleLabel: '', stopId: v.stopId, ref: v.ref, kind: v.kind, etaS: v.etaS, window: v.window }));
+  const hard = issues.filter((i) => HARD.has(i.kind)).map((i) => ({ ...i, overridable: OVERRIDABLE.has(i.kind) }));
+  const soft = issues.filter((i) => !HARD.has(i.kind));
+  return { hard, blocking: hard.filter((i) => !i.overridable), soft, fingerprint: publishWarningsFingerprint(soft), canOverride: false };
+}
+
+/** Collapsed whitespace, as the server records it (shared overrideReasonText). */
+export const overrideReasonText = (raw: string): string => sharedOverrideReasonText(raw);
+
+/** The server's reason rule (shared meaningfulOverrideReason; D-L4: the max-ride override uses the same one). */
+export function overrideReasonValid(raw: string): boolean {
+  return meaningfulOverrideReason(raw);
+}
+
+/**
+ * E4 decisions review D-L3: the acknowledgement is stored as the warning fingerprint the user ticked, so a plan reload
+ * with another warning set (the dialog open meanwhile) clears it instead of carrying a stale tick to the new set.
+ */
+export function acknowledgedFingerprint(checked: boolean, g: Pick<PublishGate, 'fingerprint'>): string | null {
+  return checked ? g.fingerprint : null;
+}
+
+export function warningsAcknowledged(acked: string | null, g: Pick<PublishGate, 'fingerprint'>): boolean {
+  return acked !== null && acked === g.fingerprint;
+}
+
+/** Whether Publish is enabled in the dialog, and the decision fields of the request body. */
+export function publishGateState(g: PublishGate, input: { acknowledged: boolean; overrideOn: boolean; reason: string }): { allowed: boolean; body: Pick<RoutePlanPublishRequest, 'acknowledgedWarnings' | 'override'> } {
+  const body: Pick<RoutePlanPublishRequest, 'acknowledgedWarnings' | 'override'> = {};
+  if (g.blocking.length) return { allowed: false, body: {} };
+  if (g.hard.length) {
+    if (!g.canOverride || !input.overrideOn || !overrideReasonValid(input.reason)) return { allowed: false, body: {} };
+    body.override = { reason: overrideReasonText(input.reason) };
+  }
+  if (g.soft.length) {
+    if (!input.acknowledged || !g.fingerprint) return { allowed: false, body: {} };
+    body.acknowledgedWarnings = g.fingerprint;
+  }
+  return { allowed: true, body };
+}
+
 export function isEditablePlan(status: RoutePlanStatus): boolean {
   return status === 'DRAFT' || status === 'PLANNED';
 }
@@ -415,18 +512,25 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   ROUTING_UNAVAILABLE: 'Routing unavailable: the road engine is not answering. No times were produced; dispatch manually from the board meanwhile.',
   NO_ROUTE: 'No road route between some points.',
   OUTSIDE_COVERAGE: 'Some points are outside the routing area.',
-  LIMIT_EXCEEDED: 'Too many stops or vehicles for one optimisation. Split by shift or site.',
+  LIMIT_EXCEEDED: 'Too many bookings, stops or vehicles for one plan. Split it by shift, branch or site.',
   QUOTA_EXCEEDED: 'The daily routing allowance is used up. Try again tomorrow.',
   OPTIMIZER_UNAVAILABLE: 'The optimiser is not running. Plans can still be edited by hand; dispatch manually meanwhile.',
   OPTIMIZER_BUSY: 'The optimiser is busy with other plans. Try again in a minute.',
+  OPTIMIZER_REFUSED: 'The optimiser refused the connection (its access key or allowed address does not match). Tell your administrator; plans can still be edited by hand.',
   JOB_NOT_FOUND: 'This optimisation no longer exists.',
   PLAN_NOT_EDITABLE: 'This plan is published or discarded and can no longer change.',
   PLAN_STALE: 'Someone changed this plan meanwhile. The latest version was loaded; check it and try again.',
   VERSION_CONFLICT: 'Someone changed this plan meanwhile. The latest version was loaded; check it and try again.',
   IDEMPOTENCY_KEY_REUSED: 'This request was already sent with other content. Review and try again.',
   PLAN_NOT_PUBLISHABLE: 'This plan cannot be published yet: some routes need attention (see below).',
+  PLAN_HAS_HARD_VIOLATIONS: 'This plan has violations that block publishing. Edit the routes or re-optimise the plan.',
+  PLAN_WARNINGS_NOT_ACKNOWLEDGED: 'The plan’s warnings changed. Check them again and confirm before publishing.',
+  PUBLISH_OVERRIDE_FORBIDDEN: 'Only a whole-company transport administrator may override the publish checks.',
+  PUBLISH_OVERRIDE_REASON_REQUIRED: 'Give a clear reason for the override.',
   ROUTE_LOCKED: 'That route is locked. Unlock it first.',
-  STOP_PINNED: 'That stop is pinned. Unpin it first.',
+  STOP_PINNED: 'That stop is pinned to its vehicle. Unpin it first.',
+  DRIVER_DUPLICATE: 'This driver already drives another route of this plan.',
+  VEHICLE_DUPLICATE: 'This vehicle already drives another route of this plan.',
   SITE_REQUIRED: 'A chosen shift has no site: choose exactly one site for it.',
   IDEMPOTENCY_KEY_REQUIRED: 'The request was missing its retry key. Try again.',
   // Job error codes (RoutingJobError.code / RoutingDegradedReason).
@@ -455,6 +559,7 @@ export function plannerErrorKind(code: string | null | undefined, status?: numbe
   switch (code) {
     case 'ROUTING_UNAVAILABLE':
     case 'OPTIMIZER_UNAVAILABLE':
+    case 'OPTIMIZER_REFUSED':
     case 'ENGINE_DISABLED':
     case 'ENGINE_UNREACHABLE':
     case 'ENGINE_TIMEOUT':
@@ -473,8 +578,13 @@ export function plannerErrorKind(code: string | null | undefined, status?: numbe
       return 'busy';
     case 'PLAN_NOT_EDITABLE':
     case 'PLAN_NOT_PUBLISHABLE':
+    case 'PLAN_HAS_HARD_VIOLATIONS':
+    case 'PLAN_WARNINGS_NOT_ACKNOWLEDGED':
+    case 'PUBLISH_OVERRIDE_REASON_REQUIRED':
     case 'ROUTE_LOCKED':
     case 'STOP_PINNED':
+    case 'DRIVER_DUPLICATE':
+    case 'VEHICLE_DUPLICATE':
     case 'LIMIT_EXCEEDED':
     case 'INVALID_INPUT':
     case 'OUTSIDE_COVERAGE':
@@ -814,4 +924,144 @@ export function newKey(rand: () => number = Math.random): string {
     const r = Math.floor(rand() * 16);
     return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
+}
+
+// ───────────────────────────── E4 end-to-end round (T1 / T2, 2026-11-11) ─────────────────────────────
+
+export interface PlanBranch {
+  id: string;
+  name: string;
+}
+export type BranchChoice = { mode: 'none' } | { mode: 'fixed'; branch: PlanBranch } | { mode: 'pick'; branches: PlanBranch[] } | { mode: 'missing' };
+
+/**
+ * T2-D5: which branch a new plan is for. Whole-company roles need none; a branch-scoped role with one branch plans for
+ * it (shown, not asked); with several the user picks one (required); with none the role cannot plan.
+ */
+export function planBranchChoice(access: { scope: RoutingAccess['scope']; branches?: readonly PlanBranch[] | null }): BranchChoice {
+  if (access.scope === 'COMPANY') return { mode: 'none' };
+  const b = [...(access.branches ?? [])];
+  if (b.length === 1) return { mode: 'fixed', branch: b[0] };
+  if (b.length > 1) return { mode: 'pick', branches: b };
+  return { mode: 'missing' };
+}
+
+export type RouteDriveSummary = { kind: 'engine'; distanceM: number; durationS: number } | { kind: 'pending' } | { kind: 'empty' };
+
+/**
+ * T2-L1: the route's distance / drive time line. Engine numbers only when the engine produced both (an edit while the
+ * engine is down keeps the ETA model but clears distance and time): otherwise "No engine distance or time yet".
+ */
+export function routeDriveSummary(a: Pick<RoutePlanAssignmentDto, 'eta' | 'distanceM' | 'durationS'> & { adjustedDurationS?: number | null }, stopCount: number): RouteDriveSummary {
+  if (!stopCount) return { kind: 'empty' };
+  const durationS = a.adjustedDurationS ?? a.durationS;
+  if (!engineEta(a.eta) || a.distanceM === null || a.distanceM === undefined || durationS === null || durationS === undefined) return { kind: 'pending' };
+  return { kind: 'engine', distanceM: a.distanceM, durationS };
+}
+
+export interface JobOutcome {
+  tone: Tone;
+  label: string;
+  detail: string | null;
+  vars: Record<string, number>;
+}
+
+/**
+ * T2-L2: how a job ended, for the job card. A succeeded job that seated nobody, or left passengers unassigned, is a
+ * warning that says so (passenger counts from the plan when it is at hand: the job result counts stops), not a green
+ * "Done".
+ */
+export function jobOutcome(job: Pick<RoutingJobDto, 'state' | 'result'>, plan?: Pick<PlannerPlan, 'stops' | 'direction'> | null): JobOutcome {
+  const meta = JOB_STATE_META[job.state];
+  if (job.state !== 'succeeded') return { tone: meta.tone, label: meta.label, detail: null, vars: {} };
+  const r = job.result as { routes?: { stops?: unknown[] }[]; unassigned?: unknown[] } | undefined;
+  const left = r?.unassigned?.length ?? 0;
+  if (!r || !left) return { tone: 'success', label: 'Done', detail: null, vars: {} };
+  const seated = (r.routes ?? []).reduce((n, x) => n + (x.stops?.length ?? 0), 0);
+  const vars: Record<string, number> = plan ? { n: unassignedPassengers(plan.stops, plan.direction).length, total: plan.stops.filter((s) => passengerEnd(s, plan.direction)).length } : {};
+  if (!seated) return { tone: 'warning', label: 'Done · nobody seated', detail: 'No passenger could be seated: every one is unassigned. The plan lists the reason for each.', vars };
+  return { tone: 'warning', label: 'Done · some unassigned', detail: plan ? '{{n}} of {{total}} passengers could not be seated. The plan lists the reasons.' : 'Some passengers could not be seated. The plan lists the reasons.', vars };
+}
+
+/**
+ * T2-L3: whether "move up / down" may be offered for the stop at index k: not past either end, and the two are not one
+ * passenger's pickup and drop. Pins do not matter (E4 review M1: a pin keeps the stop on its vehicle, not at its
+ * place; only a locked route keeps its exact order, and the page disables up / down on a locked route).
+ */
+export function canShiftStop(stops: readonly { pinned?: boolean | null; bookingId?: string | null }[], k: number, delta: -1 | 1): boolean {
+  const j = k + delta;
+  if (k < 0 || k >= stops.length || j < 0 || j >= stops.length) return false;
+  // A passenger's pickup and its own drop never swap (the drop must come after the pickup: the API answers 400).
+  return !(stops[k].bookingId && stops[k].bookingId === stops[j].bookingId);
+}
+
+/**
+ * E4 review M1: whether the stop is held on its route by a pin, so "Move to…" (another route) is not offered: the stop
+ * itself is pinned, or — for a passenger, whose pickup and drop always move together — the other end is.
+ */
+export function stopPinnedToRoute(stops: readonly { id: string; bookingId?: string | null; pinned?: boolean | null }[], stop: { id: string; bookingId?: string | null; pinned?: boolean | null }): boolean {
+  if (stop.pinned) return true;
+  return !!stop.bookingId && stops.some((s) => s.bookingId === stop.bookingId && !!s.pinned);
+}
+
+/** T2-L4: time limits offered (seconds), within the API range (1 … limits.optimizeTimeLimitS). */
+export function timeLimitOptions(maxS: number | null | undefined): number[] {
+  const base = [10, 30, 60];
+  if (!maxS || maxS <= 0) return base;
+  const out = base.filter((n) => n <= maxS);
+  if (!out.includes(maxS) && maxS < 60) out.push(maxS);
+  return out;
+}
+
+/** Preferred default time limit (seconds) when the API allows it. */
+export const PREFERRED_TIME_LIMIT_S = 30;
+
+/**
+ * E4 review L7: the default time limit: the largest offered choice up to PREFERRED_TIME_LIMIT_S, so never above the
+ * API maximum (limits.optimizeTimeLimitS; with a maximum of 20 the choices are [10, 20] and the default 20, not 30 → 400).
+ */
+export function defaultTimeLimit(maxS: number | null | undefined): number {
+  const opts = timeLimitOptions(maxS);
+  const within = opts.filter((n) => n <= PREFERRED_TIME_LIMIT_S);
+  return within.length ? Math.max(...within) : Math.min(...opts);
+}
+
+/** E4 review L7: a chosen time limit if it is still offered (capabilities may load or change later), else the default. */
+export function timeLimitWithin(value: number | null | undefined, maxS: number | null | undefined): number {
+  return value != null && timeLimitOptions(maxS).includes(value) ? value : defaultTimeLimit(maxS);
+}
+
+/** T2-L4: re-optimise starts from the weights the plan was last optimised with (stored on the plan); L7: time limit within the API maximum. */
+export function reoptimiseDefaults(plan: { weights?: PlannerWeights | null }, maxS?: number | null): { weights: WeightDraft; timeLimitS: number } {
+  return { weights: plan.weights ? { ...plan.weights } : emptyWeights(), timeLimitS: defaultTimeLimit(maxS) };
+}
+
+export interface SteadyProgress {
+  jobId: string;
+  value: number;
+  retrying: boolean;
+}
+
+/**
+ * T2-O1: progress shown for a job never goes backwards (a retry restarts the worker's own count, e.g. 40 % → 17 %);
+ * the retry is labelled instead. A new job starts from its own value.
+ */
+export function steadyProgress(prev: SteadyProgress | null, job: Pick<RoutingJobDto, 'jobId' | 'progress' | 'attempts' | 'state'>): SteadyProgress {
+  const now = job.state === 'succeeded' ? 100 : Math.max(0, Math.min(100, job.progress));
+  const value = prev && prev.jobId === job.jobId ? Math.max(prev.value, now) : now;
+  return { jobId: job.jobId, value, retrying: job.attempts > 1 };
+}
+
+/** T2-L5: MapLibre control strings (its `locale` keys → English source text, translated through i18n). */
+export const MAP_CONTROL_STRINGS: Record<string, string> = {
+  'Map.Title': 'Map',
+  'NavigationControl.ZoomIn': 'Zoom in',
+  'NavigationControl.ZoomOut': 'Zoom out',
+  'NavigationControl.ResetBearing': 'Drag to rotate map, click to reset north',
+  'AttributionControl.ToggleAttribution': 'Toggle attribution',
+  'AttributionControl.MapFeedback': 'Map feedback',
+};
+
+export function mapControlLocale(t: (key: string) => string): Record<string, string> {
+  return Object.fromEntries(Object.entries(MAP_CONTROL_STRINGS).map(([k, v]) => [k, t(v)]));
 }

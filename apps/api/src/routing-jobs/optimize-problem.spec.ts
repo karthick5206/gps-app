@@ -1,6 +1,7 @@
 import type { SolverResult } from '@veetracer/shared';
 import { JobError } from './job-worker';
 import { mapSolverResult, planPoints, siteWindow, snapExclusions, solverProblem } from './optimize-problem';
+import { BUSY_CODES, TRANSIENT_CODES } from './job-state';
 import { optimizerHealth, solverPort } from './optimizer-port';
 import { RoutingError } from '../routing/routing.errors';
 import { DEPOT, greedySolve, SITE, syntheticPlan, testMatrix } from './testing/fakes';
@@ -103,7 +104,8 @@ describe('optimise problem mapping (solver contract v2)', () => {
       expect.arrayContaining([
         { stopId: 'gone-1', reason: 'consent_withdrawn' },
         { stopId: 'pick-2', reason: 'max_ride_unachievable', code: 'MAX_RIDE_UNACHIEVABLE' },
-        { stopId: 'drop-2', reason: 'max_ride_unachievable' },
+        // T1-D3: the site end carries the solver's code of the booking's pickup too
+        { stopId: 'drop-2', reason: 'max_ride_unachievable', code: 'MAX_RIDE_UNACHIEVABLE' },
         { stopId: 'drop-3', reason: 'not_scheduled_capacity_or_time' },
       ]),
     );
@@ -165,7 +167,7 @@ describe('optimise problem mapping (solver contract v2)', () => {
 });
 
 describe('optimizer port (shared OptimizerClient → job errors)', () => {
-  const failing = (code: 'OPTIMIZER_BUSY' | 'OPTIMIZER_UNAVAILABLE' | 'LIMIT_EXCEEDED') => ({
+  const failing = (code: 'OPTIMIZER_BUSY' | 'OPTIMIZER_UNAVAILABLE' | 'OPTIMIZER_REFUSED' | 'LIMIT_EXCEEDED') => ({
     solve: async () => {
       throw new RoutingError(code, 'x');
     },
@@ -174,8 +176,13 @@ describe('optimizer port (shared OptimizerClient → job errors)', () => {
     ['OPTIMIZER_BUSY', 'OPTIMIZER_BUSY'],
     ['OPTIMIZER_UNAVAILABLE', 'OPTIMIZER_UNAVAILABLE'],
     ['LIMIT_EXCEEDED', 'INVALID_INPUT'],
+    ['OPTIMIZER_REFUSED', 'OPTIMIZER_REFUSED'],
   ] as const)('%s → %s', async (from, to) => {
     await expect(solverPort(failing(from)).solve({} as never)).rejects.toMatchObject({ code: to });
+  });
+  it('E4 review L4: OPTIMIZER_REFUSED (token / source refused) is final: neither transient nor busy', () => {
+    expect(TRANSIENT_CODES.has('OPTIMIZER_REFUSED' as never)).toBe(false);
+    expect(BUSY_CODES.has('OPTIMIZER_REFUSED' as never)).toBe(false);
   });
   it('an aborted job does not call the optimiser', async () => {
     const solve = jest.fn();

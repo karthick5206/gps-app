@@ -39,7 +39,7 @@ export function PlanningPage() {
   const flag = plannerFlagOn();
   const caps = useCapabilities(flag);
   const [tab, setTab] = useState('optimise');
-  const [opt, setOpt] = useState<OptimiseState>({ day: today, direction: 'IN', siteIds: [], shiftIds: [], vehicleIds: [], weights: emptyWeights(), timeLimitS: 30 });
+  const [opt, setOpt] = useState<OptimiseState>({ day: today, direction: 'IN', siteIds: [], shiftIds: [], vehicleIds: [], weights: emptyWeights(), timeLimitS: 30, branchId: null });
   const [started, setStarted] = useState<StartedPlan[]>([]);
   const [compare, setCompare] = useState<string[]>([]);
   const [compareWeights, setCompareWeights] = useState<WeightDraft | null>(null);

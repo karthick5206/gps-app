@@ -3,7 +3,7 @@
  * contract tests run them over the real HTTP client with a recording transport, so the request shapes the screens
  * send are the ones checked (B1 / B2 of the E4 QA round).
  */
-import type { RoutePlanEmptyReason, RoutingJobDto, TransportDirection } from '@veetracer/shared';
+import type { MaxRideOverrideInput, RoutePlanCreateCounts, RoutePlanEmptyReason, RoutingJobDto, TransportDirection } from '@veetracer/shared';
 import type { CreatePlanRequest, OptimizeOptions, PlannerClient } from './planner-api.ts';
 import { solverObjective, type PlannerPlan, type PlannerWeights, type PlanSeed } from './planner-format.ts';
 
@@ -14,6 +14,10 @@ export interface OptimiseInput {
   objectIds: string[];
   weights: PlannerWeights;
   timeLimitS: number;
+  /** T2-D5: the branch of the new plans (branch-scoped users; null / absent for a whole-company plan). */
+  branchId?: string | null;
+  /** Owner decision 1: per-plan max-ride override (authorised callers only), sent with each plan's optimise. */
+  maxRideOverride?: MaxRideOverrideInput | null;
 }
 
 export interface StartedPlan {
@@ -23,6 +27,9 @@ export interface StartedPlan {
   error: unknown;
   /** The plan was created without passengers (e.g. no booking for the shift): not optimised; the screen says why. */
   empty?: RoutePlanEmptyReason | null;
+  /** Bookings the server left out of the plan (reason per booking) and the booking counts, shown with the plan. */
+  skipped?: { bookingId: string; reason: string }[];
+  counts?: RoutePlanCreateCounts | null;
 }
 
 /**
@@ -36,7 +43,7 @@ export class SeedError extends Error {
   readonly code = 'SITE_REQUIRED';
 }
 
-export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDate' | 'direction' | 'objectIds'>): CreatePlanRequest {
+export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDate' | 'direction' | 'objectIds' | 'branchId'>): CreatePlanRequest {
   if (!seed.sitePoiId) throw new SeedError('The shift has no site');
   return {
     name: seed.name,
@@ -46,11 +53,19 @@ export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDa
     sitePoiId: seed.sitePoiId,
     objectIds: [...input.objectIds],
     ...(seed.planStartAt ? { planStartAt: seed.planStartAt } : {}),
+    ...(input.branchId ? { branchId: input.branchId } : {}),
   };
 }
 
-export function optimizeOptions(plan: Pick<PlannerPlan, 'version'>, input: { weights: PlannerWeights; timeLimitS: number }): OptimizeOptions {
-  return { expectedVersion: plan.version, timeLimitS: input.timeLimitS, objective: solverObjective(input.weights), weights: { ...input.weights } };
+export function optimizeOptions(plan: Pick<PlannerPlan, 'version'>, input: { weights: PlannerWeights; timeLimitS: number; maxRideOverride?: MaxRideOverrideInput | null }): OptimizeOptions {
+  return {
+    expectedVersion: plan.version,
+    timeLimitS: input.timeLimitS,
+    objective: solverObjective(input.weights),
+    weights: { ...input.weights },
+    // Owner decision 1: only when set or cleared on purpose; absent keeps the plan's override.
+    ...(input.maxRideOverride !== undefined ? { maxRideOverride: input.maxRideOverride ? { ...input.maxRideOverride } : null } : {}),
+  };
 }
 
 /**
@@ -65,13 +80,14 @@ export async function startOptimise(c: PlannerClient, input: OptimiseInput, keyF
       const body = createRequest(seed, input);
       const plan = await c.createPlan(body, keyFor(`create:${seed.shiftId}`, body));
       planId = plan.id;
+      const left = { skipped: plan.skippedBookings ?? [], counts: plan.bookingCounts ?? null };
       if (plan.emptyReason) {
-        out.push({ seed, planId, job: null, error: null, empty: plan.emptyReason });
+        out.push({ seed, planId, job: null, error: null, empty: plan.emptyReason, ...left });
         continue;
       }
       const opt = { planId: plan.id, ...optimizeOptions(plan, input) };
       const job = await c.optimize(opt, keyFor(`optimize:${plan.id}`, opt));
-      out.push({ seed, planId, job, error: null });
+      out.push({ seed, planId, job, error: null, ...left });
     } catch (error) {
       out.push({ seed, planId, job: null, error });
     }
@@ -80,14 +96,17 @@ export async function startOptimise(c: PlannerClient, input: OptimiseInput, keyF
 }
 
 /** Re-optimise a saved plan through the alias `POST /transport/route-plans/:id/optimize`. */
-export function reoptimise(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, input: { weights: PlannerWeights; timeLimitS: number }, keyFor: KeyFor): Promise<RoutingJobDto> {
+export function reoptimise(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, input: { weights: PlannerWeights; timeLimitS: number; maxRideOverride?: MaxRideOverrideInput | null }, keyFor: KeyFor): Promise<RoutingJobDto> {
   const body = optimizeOptions(plan, input);
   return c.optimizePlan(plan.id, body, keyFor(`reoptimize:${plan.id}`, body));
 }
 
-/** Publish of one plan version: body `{ expectedVersion }`, key per (plan, version) attempt. */
-export function publishPlan(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, keyFor: KeyFor) {
-  const body = { expectedVersion: plan.version };
+/**
+ * Publish of one plan version: body `{ expectedVersion }` plus the decision 5 fields the dialog needs (acknowledged
+ * warning fingerprint, authorised override); key per (plan, version, body) attempt.
+ */
+export function publishPlan(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, keyFor: KeyFor, decision: { acknowledgedWarnings?: string; override?: { reason: string } } = {}) {
+  const body = { expectedVersion: plan.version, ...decision };
   return c.publish(plan.id, body, keyFor(`publish:${plan.id}`, body));
 }
 

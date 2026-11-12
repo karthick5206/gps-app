@@ -9,13 +9,15 @@ import {
   RoutingJobPhase,
   RoutingJobStatus,
   RoutingProfile,
+  type MaxRideOverrideInput,
 } from '@veetracer/shared';
 import type { AuthContext } from '../access/auth-context';
 import { idempotencyKey as parseIdempotencyKey, requestHash } from '../etms/dispatch/e3-common';
 import type { JobQueue } from './job-queue';
-import { ActiveLimitExceeded, DuplicateIdempotencyKey, JobRecord, RoutingJobStore, StoreTx } from './job-store';
+import { ActiveLimitExceeded, DuplicateIdempotencyKey, JobRecord, PlanNotFound, RoutingJobStore, StoreTx } from './job-store';
 import { RoutingHttpError } from './routing-flags';
 import type { SolverWeights } from './optimize-problem';
+import { checkMaxRideOverride } from './max-ride';
 
 /** P6: all four weights finite and >= 0, at least one of distance / time / routeDuration > 0 (else 400). */
 export function checkWeights(w: SolverWeights | undefined): SolverWeights {
@@ -36,9 +38,11 @@ export interface PlanJobLink {
   /**
    * Inside the job-insert transaction: checks the plan is in the caller's scope, at `expectedVersion`, editable and
    * within the limits, and moves it to OPTIMIZING. Throws RoutingHttpError (404 / 409 PLAN_STALE / PLAN_NOT_EDITABLE /
-   * 422 LIMIT_EXCEEDED). Returns the plan's routing profile.
+   * 422 LIMIT_EXCEEDED). Returns the plan's routing profile. `extra.maxRideOverride` (already checked: authorised,
+   * normalised; undefined = keep, null = clear) changes the plan's override (audited); the max-ride snapshot is always
+   * written (owner decision 1).
    */
-  reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights): Promise<{ profile: RoutingProfile }>;
+  reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights, extra?: { maxRideOverride?: MaxRideOverrideInput | null }): Promise<{ profile: RoutingProfile }>;
   /** Plan OPTIMIZING → DRAFT (no version change) after a job FAILED / was CANCELLED. Idempotent. */
   release(job: Pick<JobRecord, 'companyId' | 'planId'>): Promise<void>;
   /** Plan visible to the caller (job reads are filtered by it). */
@@ -57,6 +61,8 @@ export interface OptimizeJobRequest {
   objective?: 'duration' | 'distance';
   /** Explicit objective weights (README P6); stored on the plan and sent to the solver. */
   weights: SolverWeights;
+  /** Owner decision 1: per-plan max-ride override (authorised callers, with a reason); null clears it; absent keeps it. */
+  maxRideOverride?: MaxRideOverrideInput | null;
 }
 
 export interface JobListQuery {
@@ -119,7 +125,9 @@ export class RoutingJobsService {
     const key = parseIdempotencyKey(rawKey);
     const weights = checkWeights(req.weights);
     const timeLimitS = Math.max(1, Math.min(ROUTING_LIMITS.optimizeTimeLimitS, Math.round(req.timeLimitS ?? 10)));
-    const body = { kind: 'optimize', planId: req.planId, expectedVersion: req.expectedVersion, timeLimitS, objective: req.objective ?? 'duration', weights };
+    // Owner decision 1: only an authorised caller may name an override (403 before anything is written).
+    const maxRideOverride = checkMaxRideOverride(ctx, req.maxRideOverride);
+    const body = { kind: 'optimize', planId: req.planId, expectedVersion: req.expectedVersion, timeLimitS, objective: req.objective ?? 'duration', weights, ...(maxRideOverride !== undefined ? { maxRideOverride } : {}) };
     const hash = requestHash(body);
 
     const existing = await this.store.findByKey(ctx.companyId, key);
@@ -151,7 +159,7 @@ export class RoutingJobsService {
           maxActive: ROUTING_LIMITS.concurrentOptimizePerCompany,
         },
         async (tx) => {
-          const { profile } = await this.plans.reserve(tx, ctx, req.planId, req.expectedVersion, weights);
+          const { profile } = await this.plans.reserve(tx, ctx, req.planId, req.expectedVersion, weights, maxRideOverride !== undefined ? { maxRideOverride } : undefined);
           // Ids, numbers and the weights only: never a coordinate or a name (shared RoutingJobInput rule).
           const input: RoutingJobInput & { weights: SolverWeights } = { kind: 'optimize', planId: req.planId, planVersion: req.expectedVersion, profile, timeLimitS, ...(req.objective ? { objective: req.objective } : {}), weights };
           return { input };
@@ -163,6 +171,7 @@ export class RoutingJobsService {
         if (winner) return { job: await this.replayOf(ctx, winner, hash), replay: true };
       }
       if (e instanceof ActiveLimitExceeded) throw activeLimit();
+      if (e instanceof PlanNotFound) throw new RoutingHttpError('JOB_NOT_FOUND', 'Plan not found');
       throw e;
     }
     await this.queue.publish(row.id).catch((e) => this.logger.warn(`job ${row.id} not published (${(e as Error).message}); the sweeper re-publishes it`));

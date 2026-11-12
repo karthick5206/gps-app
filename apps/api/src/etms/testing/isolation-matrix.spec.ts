@@ -230,6 +230,7 @@ function e4Controllers(prisma: Obj, audit: AuditService, redis: object) {
     { health: async () => ({ reachable: false, checkedAt: new Date().toISOString(), degraded: 'ENGINE_DISABLED' }), capabilities: async () => ({ ok: false, degraded: 'ENGINE_DISABLED', message: 'off' }) } as never,
     { health: async () => false } as never,
     { client: { zrangebyscore: async () => [], exists: async () => 0 } } as never,
+    prisma as never,
   );
   return {
     plans: new RoutePlansController(plans),
@@ -1181,6 +1182,30 @@ describe('ETMS isolation matrix (E4): route plans leak checks', () => {
     expect(adminPlan.stops.filter((s) => s.pointHidden)).toEqual([]);
   });
 
+  it('E4 decisions D-L2: a publish override’s violations are anonymised like the rest of the detail for a branch dispatcher', async () => {
+    const w = await e4World();
+    const x = w.store.insert('employeeTransportProfile', { companyId: 'custA', employeeCode: 'X8', displayName: 'Passenger X8', branchId: 'brA9' }).id as string;
+    w.store.insert('employeeTransportConsent', { companyId: 'custA', profileId: x, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: true, channel: 'WEB', occurredAt: new Date() });
+    const base = w.store.table('transportBooking').find((b) => b.id === w.plans.party.booking)!;
+    const xb = w.store.insert('transportBooking', { ...base, id: undefined, profileId: x }).id as string;
+    const drop = w.store.table('routePlanStop').find((s) => s.id === w.plans.party.dropStop)!;
+    const xd = w.store.insert('routePlanStop', { ...drop, id: undefined, ref: `d-${xb.slice(0, 8)}`, bookingId: xb, sequence: 2 }).id as string;
+    // As a company admin's override stores them: the raw refs (d-<booking id>) and the actor.
+    const issue = (stopId: string, ref: string) => ({ assignmentId: w.plans.party.assignment, vehicleLabel: 'Van custA', stopId, ref, kind: 'late', etaS: 1800, window: [0, 1500], overridable: true });
+    const plan = w.store.table('routePlan').find((p) => p.id === w.plans.party.plan)!;
+    Object.assign(plan, { status: 'PUBLISHED', options: { publishDecision: { acknowledged: null, override: { reason: 'Gate closed, agreed with the site', byUserId: 'u-admin', at: new Date().toISOString(), violations: [issue(w.plans.party.dropStop, drop.ref as string), issue(xd, `d-${xb.slice(0, 8)}`)] } } } });
+    const disp = await w.controllers.e4.plans.get(caller('customerDispatcher', w), w.plans.party.plan);
+    const shown = disp.publishDecision!.override!.violations;
+    expect(shown).toHaveLength(2);
+    expect(JSON.stringify(disp.publishDecision)).not.toContain(xb.slice(0, 8));
+    // The out-of-scope stop's ref is the one the detail shows for it; the own stop keeps its ref.
+    expect(shown.find((v) => v.stopId === xd)!.ref).toBe(disp.stops.find((s) => s.id === xd)!.ref);
+    expect(shown.find((v) => v.stopId === w.plans.party.dropStop)!.ref).toBe(drop.ref);
+    // The whole-company admin sees the stored refs.
+    const admin = await w.controllers.e4.plans.get(caller('customerAdmin', w), w.plans.party.plan);
+    expect(admin.publishDecision!.override!.violations.map((v) => v.ref)).toEqual([drop.ref, `d-${xb.slice(0, 8)}`]);
+  });
+
   it('publish: ordinary E3 trip linked to the plan, plan read-only afterwards, same key replays, another key is refused', async () => {
     const w = await e4World();
     const admin = caller('customerAdmin', w);
@@ -1234,6 +1259,80 @@ describe('ETMS isolation matrix (E4): route plans leak checks', () => {
     expect({ trips: w.store.table('transportTrip').length, planned: w.store.table('plannedTrip').length }).toEqual(before);
     expect(w.store.table('transportBooking').find((b) => b.id === w.plans.party.booking)).toMatchObject({ status: 'PENDING_ASSIGNMENT' });
     expect(w.store.table('routePlan').find((p) => p.id === w.plans.party.plan)).toMatchObject({ status: 'DRAFT', version: 1 });
+  });
+
+  it('E4 review M1: a pin keeps the stop on its route (both edits alike); its place in the order may change; a lock keeps the order', async () => {
+    const w = await e4World();
+    const disp = caller('customerDispatcher', w);
+    const { plan: id, assignment, booking, pickupStop, dropStop } = w.plans.party;
+    const plans = w.controllers.e4.plans;
+    // A generic stop (no booking) on the same route, after the drop.
+    const tpl = w.store.table('routePlanStop').find((s) => s.id === pickupStop)!;
+    const g = w.store.insert('routePlanStop', { ...tpl, id: undefined, ref: 'g1', bookingId: null, profileId: null, stopKind: null, sequence: 9, etaS: null }).id as string;
+    await plans.updateStop(disp, id, dropStop, { expectedVersion: 1, pinned: true });
+    // Resequence: the generic stop goes in front of the pinned drop, so the drop's index shifts → accepted.
+    const r1 = await plans.resequence(disp, id, { expectedVersion: 2, assignments: [{ assignmentId: assignment, stopIds: [pickupStop, g, dropStop] }] });
+    expect(r1.plan.version).toBe(3);
+    // Move-passenger within the same route (the pinned drop stays on its vehicle) → accepted.
+    const r2 = await plans.movePassenger(disp, id, { expectedVersion: 3, bookingId: booking, toAssignmentId: assignment, pickupIndex: 1, dropIndex: 2 });
+    expect(r2.plan.stops.filter((s) => s.assignmentId === assignment).sort((a, b) => a.sequence! - b.sequence!).map((s) => s.id)).toEqual([g, pickupStop, dropStop]);
+    // To another route or out of every route → STOP_PINNED, in both edits.
+    const a2 = w.store.insert('routeAssignment', { planId: id, companyId: 'custA', objectId: null, driverId: null, vehicleLabel: 'Van 2', seq: 1, capacity: 4, startS: 0, endS: 1800, geometry: null, etaModel: null }).id as string;
+    expect(await codeOf(plans.movePassenger(disp, id, { expectedVersion: 4, bookingId: booking, toAssignmentId: a2 }))).toBe('STOP_PINNED');
+    expect(await codeOf(plans.movePassenger(disp, id, { expectedVersion: 4, bookingId: booking, toAssignmentId: null }))).toBe('STOP_PINNED');
+    expect(await codeOf(plans.resequence(disp, id, { expectedVersion: 4, assignments: [{ assignmentId: assignment, stopIds: [g] }, { assignmentId: a2, stopIds: [pickupStop, dropStop] }] }))).toBe('STOP_PINNED');
+    expect(await codeOf(plans.resequence(disp, id, { expectedVersion: 4, assignments: [{ assignmentId: assignment, stopIds: [g, pickupStop] }] }))).toBe('STOP_PINNED');
+    // The generic stop moves to the other route; the pinned drop's index shifts (2 → 1) → accepted.
+    const r3 = await plans.resequence(disp, id, { expectedVersion: 4, assignments: [{ assignmentId: a2, stopIds: [g] }] });
+    expect(r3.plan.version).toBe(5);
+    // A locked route keeps its exact order.
+    await plans.updateAssignment(disp, id, assignment, { expectedVersion: 5, locked: true });
+    expect(await codeOf(plans.movePassenger(disp, id, { expectedVersion: 6, bookingId: booking, toAssignmentId: assignment }))).toBe('ROUTE_LOCKED');
+  });
+
+  it('E4 decisions D-M1: a ride longer than the plan’s max ride is a route violation and a SOFT publish warning, computed on the server', async () => {
+    const w = await e4World();
+    const admin = caller('customerAdmin', w);
+    const { plan: id, pickupStop } = w.plans.party;
+    // Seeded ETAs: pickup 600 s, site drop 1800 s → a 20 min ride. No max ride: nothing.
+    const none = await w.controllers.e4.plans.get(admin, id);
+    expect(none.publishCheck!.soft.map((i) => i.kind)).not.toContain('max_ride_exceeded');
+    // The company policy (15 min) applies to a plan never optimised (no snapshot).
+    const company = w.store.table('company').find((c) => c.id === 'custA')!;
+    company.settings = { ...((company.settings as object) ?? {}), etms: { ...(((company.settings as Record<string, unknown>)?.etms as object) ?? {}), maxRideS: 900 } };
+    const byPolicy = await w.controllers.e4.plans.get(admin, id);
+    expect(byPolicy.publishCheck!.soft.filter((i) => i.kind === 'max_ride_exceeded').map((i) => i.stopId)).toEqual([pickupStop]);
+    expect(byPolicy.publishCheck!.hard.map((i) => i.kind)).not.toContain('max_ride_exceeded');
+    expect(byPolicy.assignments[0].violations.map((v) => v.kind)).toContain('max_ride_exceeded');
+    // An optimisation snapshot wins over the policy: here it recorded 30 min, so the 20 min ride is fine.
+    const plan = w.store.table('routePlan').find((p) => p.id === id)!;
+    plan.options = { ...(plan.options as object), maxRideS: 1800, maxRideSource: 'override' };
+    const bySnapshot = await w.controllers.e4.plans.get(admin, id);
+    expect(bySnapshot.publishCheck!.soft.map((i) => i.kind)).not.toContain('max_ride_exceeded');
+  });
+
+  it('E4 decisions D-L1: the plan detail’s publishCheck uses the vehicle’s current seats, as publish does', async () => {
+    const w = await e4World();
+    const admin = caller('customerAdmin', w);
+    const { plan: id } = w.plans.party;
+    const before = await w.controllers.e4.plans.get(admin, id);
+    expect(before.publishCheck!.hard.map((i) => i.kind)).not.toContain('over_capacity');
+    // The booking is for 2 and the vehicle's seats are edited down to 1 after the plan was drafted (stored capacity stays 4).
+    w.store.table('transportBooking').find((b) => b.id === w.plans.party.booking)!.passengerCount = 2;
+    const vehicle = w.store.table('routeAssignment').find((a) => a.id === w.plans.party.assignment)!.objectId as string;
+    const profile = w.store.table('transportVehicleProfile').find((p) => p.objectId === vehicle);
+    if (profile) profile.seats = 1;
+    else w.store.insert('transportVehicleProfile', { objectId: vehicle, companyId: 'custA', seats: 1, wheelchairSpaces: 0 });
+    const after = await w.controllers.e4.plans.get(admin, id);
+    expect(after.publishCheck!.hard.map((i) => i.kind)).toContain('over_capacity');
+    // Publish agrees: refused on the vehicle's current seats.
+    const err = await errorOf(w.controllers.e4.plans.publish(admin, id, { expectedVersion: after.version }, `k-${randomUUID()}`));
+    expect(err).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE', routes: [{ code: 'CAPACITY_EXCEEDED' }] } });
+    // The other way round: a stored capacity of 1 but the vehicle now has 4 seats → no hard over_capacity in the dialog.
+    w.store.table('routeAssignment').find((a) => a.id === w.plans.party.assignment)!.capacity = 1;
+    w.store.table('transportVehicleProfile').find((p) => p.objectId === vehicle)!.seats = 4;
+    const bigger = await w.controllers.e4.plans.get(admin, id);
+    expect(bigger.publishCheck!.hard.map((i) => i.kind)).not.toContain('over_capacity');
   });
 
   it('manual edits: versioned, re-validated, locks and pins honoured, history without coordinates', async () => {

@@ -209,6 +209,11 @@ const W = { vehicle: 7_200, distance: 0, time: 1, routeDuration: 0 };
 /** No host, URL or engine message in the capabilities answer. */
 const noHosts = (result: unknown, role: MatrixRole) => {
   if (/https?:|127\.0\.0\.1|localhost|:8989|:8090/.test(JSON.stringify(result))) fail(`${role} capabilities carry a host / URL`);
+  // T2-D5: the branch list (planner branch picker) holds the caller's own branches only.
+  const branches = ((result as { access?: { branches?: { id: string; name: string }[] } }).access?.branches ?? []).map((b) => b.id);
+  if (branches.includes('brB1')) fail(`${role} capabilities list another company's branch`);
+  if (role === 'customerDispatcher' && JSON.stringify(branches) !== JSON.stringify(['brA1'])) fail(`${role} capabilities list ${JSON.stringify(branches)}, expected only its own branch brA1`);
+  if (role === 'customerAdmin' && branches.length) fail(`${role} (whole company) capabilities list branches`);
 };
 
 /** Job lists never show another company's job. */

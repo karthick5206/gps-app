@@ -189,3 +189,46 @@ test('QA re-check: a plan created without passengers (no bookings for the shift)
   // the API answer carries the field (plan-create.ts CreatedRoutePlanDto)
   assert.ok(src('etms/planning/plan-create.ts').includes('emptyReason: RoutePlanEmptyReason | null;'), 'CreatedRoutePlanDto.emptyReason');
 });
+
+test('T2 E2E: open jobs of a plan come from GET /routing/jobs?planId&state=queued,running (JobListQueryDto)', async () => {
+  const seen: { path: string; query?: Record<string, unknown> }[] = [];
+  const tx: PlannerTransport = {
+    get: async <T>(path: string, query?: Record<string, unknown>) => {
+      seen.push({ path, query });
+      return [{ jobId: 'run', state: 'running', planId: PLAN.id }] as T;
+    },
+    send: async () => {
+      throw new Error('no writes');
+    },
+  };
+  const jobs = await createHttpPlannerClient(tx).planJobs(PLAN.id);
+  assert.deepEqual(jobs.map((j) => j.jobId), ['run']);
+  assert.equal(seen[0].path, '/routing/jobs');
+  assert.deepEqual(seen[0].query, { planId: PLAN.id, state: 'queued,running', limit: 5 });
+  const q = dto('routing-jobs/routing-jobs.controller.ts', 'JobListQueryDto');
+  for (const k of Object.keys(seen[0].query ?? {})) assert.ok([...q.required, ...q.optional].includes(k), `query "${k}" is not in JobListQueryDto`);
+});
+
+test('T2 E2E: the create answer\'s skipped bookings reach the screen', async () => {
+  const skipped = [{ bookingId: 'b1', reason: 'consent_required' }, { bookingId: 'b2', reason: 'needs_location' }];
+  const { client } = recorder((c) => (c.path.endsWith('/optimize') ? JOB : { ...PLAN, skippedBookings: skipped, bookingCounts: { found: 8, planned: 6, skipped: 2 } }));
+  const r = await startOptimise(client, INPUT, createKeyStore(() => `s${Math.random()}`).keyFor);
+  assert.deepEqual(r[0].skipped, skipped);
+  assert.deepEqual(r[0].counts, { found: 8, planned: 6, skipped: 2 });
+  assert.ok(r[0].job, 'still optimised');
+});
+
+test('T2-D5: a branch dispatcher\'s plan carries the chosen branch (CreateRoutePlanDto.branchId); a whole-company plan sends none', async () => {
+  const BR = '66666666-6666-4666-8666-666666666666';
+  const { calls, client } = recorder((c) => (c.path.endsWith('/optimize') ? JOB : PLAN));
+  await startOptimise(client, { ...INPUT, branchId: BR }, createKeyStore(() => `b${Math.random()}`).keyFor);
+  const create = calls.find((c) => c.method === 'POST' && c.path === '/transport/route-plans');
+  assert.ok(create);
+  assert.equal((create.body as { branchId?: string }).branchId, BR);
+  assertBody(create.body, dto('etms/planning/plan-create.ts', 'CreateRoutePlanDto'), 'create with branch');
+  const company = recorder((c) => (c.path.endsWith('/optimize') ? JOB : PLAN));
+  await startOptimise(company.client, { ...INPUT, branchId: null }, createKeyStore(() => `c${Math.random()}`).keyFor);
+  assert.ok(!('branchId' in (company.calls[0].body as object)), 'no branchId for a whole-company plan');
+  // The API lists the caller's own branches in the capabilities (RoutingAccess.branches) for the picker.
+  assert.ok(src('routing-jobs/routing-capabilities.controller.ts').includes('branches'), 'capabilities expose the caller\'s branches');
+});

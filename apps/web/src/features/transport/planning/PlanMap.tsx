@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { onStyleReady, useBasemap } from '@/features/geofences/map/use-basemap';
 import { cn } from '@/lib/utils';
-import { vehicleColor, type MapPoint, type RouteLine } from './planner-format';
+import { mapControlLocale, vehicleColor, type MapPoint, type RouteLine } from './planner-format';
 
 const SRC = 'etms-plan-routes';
 
@@ -17,7 +17,8 @@ export function PlanMap({ lines, points, depot, focus, className, label }: { lin
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const first = points[0] ?? depot;
-  const { map, unsupported } = useBasemap(ref, first ? { center: [first.lng, first.lat], zoom: 12 } : {});
+  // T2-L5: MapLibre control labels (zoom, compass, attribution, map) in the user's language.
+  const { map, unsupported } = useBasemap(ref, { ...(first ? { center: [first.lng, first.lat] as [number, number], zoom: 12 } : {}), locale: mapControlLocale(t) });
   const markers = useRef<maplibregl.Marker[]>([]);
   const fitted = useRef(false);
 

@@ -6,6 +6,7 @@ import { AuthContext } from '../access/auth-context';
 import { Auth, RequirePermission } from '../access/decorators';
 import { PlanningFeatureGuard } from '../etms/planning/planning-feature.guard';
 import { TransportFeatureGuard } from '../etms/transport-feature.guard';
+import { MaxRideOverrideDto } from './max-ride';
 import { RoutingJobsService } from './routing-jobs.service';
 
 /** Optimiser objective weights (README P6: always explicit; at least one of distance / time / routeDuration > 0). */
@@ -23,6 +24,11 @@ export class OptimizeOptionsDto {
   @IsOptional() @IsIn(['duration', 'distance']) objective?: 'duration' | 'distance';
   /** Required (P6): stored on the plan (options.weights) for compare and sent as options.weights. */
   @IsDefined() @ValidateNested() @Type(() => SolverWeightsDto) weights!: SolverWeightsDto;
+  /**
+   * Owner decision 1: per-plan max-ride override (etms_settings:edit + whole-company scope, else 403), with a reason;
+   * null clears the plan's override; absent keeps it. Audited.
+   */
+  @IsOptional() @ValidateNested() @Type(() => MaxRideOverrideDto) maxRideOverride?: MaxRideOverrideDto | null;
 }
 
 export class OptimizeJobDto extends OptimizeOptionsDto {

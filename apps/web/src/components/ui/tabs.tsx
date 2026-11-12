@@ -26,5 +26,6 @@ export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsP
 }
 
 export function TabsContent({ className, ...props }: ComponentProps<typeof TabsPrimitive.Content>) {
-  return <TabsPrimitive.Content className={cn('outline-none', className)} {...props} />;
+  // K3: the panel is a Tab stop (Radix), so it gets a visible focus ring like the triggers.
+  return <TabsPrimitive.Content className={cn('rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background', className)} {...props} />;
 }

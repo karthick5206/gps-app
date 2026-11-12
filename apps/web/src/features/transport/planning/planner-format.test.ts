@@ -32,6 +32,9 @@ import {
   zonedIso,
   type PlannerAssignment,
   metricsFromCompare,
+  unassignedPassengers,
+  skippedSummary,
+  activeJobId,
   publishable,
   type PlannerPlan,
   type PlannerStop,
@@ -264,4 +267,59 @@ test('compare DTO metrics (server) with ride times from the detail of the same v
   assert.equal(bare.maxRideS, null);
   assert.equal(bare.seats, null);
   assert.equal(bare.etaQuality, 'none', 'no engine numbers → no ETA quality claimed');
+});
+
+test('T2 E2E: unassigned counts passengers, not stops (IN plan: pickup + office drop per booking)', () => {
+  const p = plan({
+    stops: [
+      stop('p1', { assignmentId: 'a1', sequence: 0, etaS: 300 }),
+      stop('d1', { assignmentId: 'a1', sequence: 1, etaS: 900, stopKind: 'DROP', bookingId: 'b-p1', personal: false }),
+      stop('p2', { unassignedReason: 'not_scheduled_capacity_or_time' }),
+      stop('d2', { unassignedReason: 'not_scheduled_capacity_or_time', stopKind: 'DROP', bookingId: 'b-p2', personal: false }),
+      stop('p3', { unassignedReason: 'unreachable_location' }),
+      stop('d3', { unassignedReason: 'unreachable_location', stopKind: 'DROP', bookingId: 'b-p3', personal: false }),
+    ],
+  });
+  const m = planMetrics(p);
+  assert.equal(m.passengers, 3);
+  assert.equal(m.unassigned, 2, 'two passengers without a seat, not four stops (was "4 / 3")');
+  assert.deepEqual(m.unassignedByReason, { not_scheduled_capacity_or_time: 1, unreachable_location: 1 });
+  assert.deepEqual(unassignedPassengers(p.stops, 'IN').map((s) => s.id), ['p2', 'p3'], 'one row per passenger (its pickup); the office drop is not a passenger');
+  // OUT: the passenger end is the drop (home)
+  const out = plan({ direction: 'OUT', stops: [stop('p4', { unassignedReason: 'no_solution_found', personal: false }), stop('d4', { unassignedReason: 'no_solution_found', stopKind: 'DROP', bookingId: 'b-p4' })] });
+  assert.equal(planMetrics(out).unassigned, 1);
+  assert.deepEqual(unassignedPassengers(out.stops, 'OUT').map((s) => s.id), ['d4']);
+  // compare: the server counts stops; the detail of the same version counts passengers
+  const own = planMetrics(p);
+  const cmp = metricsFromCompare({ planId: 'pl', name: 'P', planDate: '2026-11-12', status: 'PLANNED', version: 3, routes: 2, activeRoutes: 1, stops: 6, passengers: 3, seats: 1, unassigned: 4, distanceM: 10000, durationS: 1800, seatUtilisation: 0.25, violations: 0, graphVersion: 'gh' }, own);
+  assert.equal(cmp.unassigned, 2, 'compare shows passengers too when the detail is at hand');
+});
+
+test('T2 E2E: bookings left out of a new plan are summarised by reason', () => {
+  assert.deepEqual(skippedSummary([]), []);
+  assert.deepEqual(
+    skippedSummary([
+      { bookingId: 'b1', reason: 'consent_required' },
+      { bookingId: 'b2', reason: 'needs_location' },
+      { bookingId: 'b3', reason: 'consent_required' },
+      { bookingId: 'b4', reason: 'out_of_scope' },
+    ]),
+    [
+      { reason: 'consent_required', label: 'Passenger consent missing', n: 2 },
+      { reason: 'needs_location', label: 'Pickup or drop point missing', n: 1 },
+      { reason: 'out_of_scope', label: 'Outside your branches', n: 1 },
+    ],
+  );
+  assert.deepEqual(skippedSummary([{ bookingId: 'b9', reason: 'something_new' }]), [{ reason: 'something_new', label: 'something_new', n: 1 }]);
+});
+
+test('T2 E2E: after a reload an optimising plan finds its running job from the server', () => {
+  const jobs = [
+    { jobId: 'old', state: 'succeeded', planId: 'pl' },
+    { jobId: 'run', state: 'running', planId: 'pl' },
+  ] as never;
+  assert.equal(activeJobId({ status: 'OPTIMIZING', lastJobId: null }, null, jobs), 'run', 'no local job id (page reloaded): take the open job of the plan');
+  assert.equal(activeJobId({ status: 'OPTIMIZING', lastJobId: null }, 'mine', jobs), 'mine', 'the job started on this page wins');
+  assert.equal(activeJobId({ status: 'PLANNED', lastJobId: null }, null, jobs), null, 'not optimising: no progress card');
+  assert.equal(activeJobId({ status: 'OPTIMIZING', lastJobId: null }, null, []), null);
 });

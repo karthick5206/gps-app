@@ -6,6 +6,7 @@ import { DISPATCH_ENDPOINT, invalidateDispatch, SHIFTS_ENDPOINT } from '../dispa
 import type { PlanListQuery } from './planner-api';
 import { call, plannerClient, plannerKeys } from './planner-client';
 import { publishPlan, reoptimise, startOptimise, type KeyStore, type OptimiseInput, type StartedPlan } from './planner-flow';
+import type { MaxRideOverrideInput } from '@veetracer/shared';
 import {
   jobPollMs,
   newKey,
@@ -141,6 +142,16 @@ export function useJob(id: string | null) {
   });
 }
 
+/** Open jobs of a plan (after a reload the page has no job id of its own; the plan detail carries none). */
+export function usePlanOpenJobs(planId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [...plannerKeys.job(''), 'plan', planId ?? ''],
+    queryFn: ({ signal }) => call((c) => c.planJobs(planId as string, signal)),
+    enabled: !!planId && enabled,
+    refetchInterval: enabled ? 3000 : false,
+  });
+}
+
 export function useCancelJob() {
   const qc = useQueryClient();
   return useMutation({
@@ -171,7 +182,7 @@ export function useStartOptimise(keys: KeyStore) {
 export function useReoptimise(plan: PlannerPlan | undefined, keys: KeyStore) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { weights: PlannerWeights; timeLimitS: number }) => call((c) => reoptimise(c, plan as PlannerPlan, input, keys.keyFor)),
+    mutationFn: (input: { weights: PlannerWeights; timeLimitS: number; maxRideOverride?: MaxRideOverrideInput | null }) => call((c) => reoptimise(c, plan as PlannerPlan, input, keys.keyFor)),
     onSuccess: (job) => qc.setQueryData(plannerKeys.job(job.jobId), job),
     onError: (err) => {
       const st = (err as { status?: number }).status;
@@ -212,7 +223,7 @@ export function usePlanEdit(plan: PlannerPlan | undefined) {
         }
       }),
     onSuccess: (r) => {
-      qc.setQueryData(plannerKeys.plan(r.plan.id), (old: PlannerPlan | undefined) => ({ ...r.plan, weights: old?.weights, lastJobId: old?.lastJobId }));
+      qc.setQueryData(plannerKeys.plan(r.plan.id), (old: PlannerPlan | undefined) => ({ ...r.plan, weights: r.plan.weights ?? old?.weights, lastJobId: old?.lastJobId }));
       void qc.invalidateQueries({ queryKey: plannerKeys.plans });
       void qc.invalidateQueries({ queryKey: plannerKeys.compare });
       void qc.invalidateQueries({ queryKey: plannerKeys.history(r.plan.id) });
@@ -227,7 +238,7 @@ export function usePlanEdit(plan: PlannerPlan | undefined) {
 export function usePublishPlan(plan: PlannerPlan | undefined, keys: KeyStore) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => call((c) => publishPlan(c, plan as PlannerPlan, keys.keyFor)),
+    mutationFn: (decision: { acknowledgedWarnings?: string; override?: { reason: string } } = {}) => call((c) => publishPlan(c, plan as PlannerPlan, keys.keyFor, decision)),
     onSuccess: () => plan && keys.forget(`publish:${plan.id}`),
     onError: (err) => {
       const st = (err as { status?: number }).status;

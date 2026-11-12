@@ -1,9 +1,11 @@
 import {
+  ROUTE_PLAN_OVERRIDE_REASON_MAX,
   ROUTE_PLAN_STATUSES,
   TRANSPORT_DIRECTIONS,
   type RoutePlanAssignmentUpdateRequest,
   type RoutePlanDiscardRequest,
   type RoutePlanMovePassengerRequest,
+  type RoutePlanPublishRequest,
   type RoutePlanResequenceRequest,
   type RoutePlanStatus,
   type RoutePlanStopUpdateRequest,
@@ -64,8 +66,17 @@ export class DiscardDto implements RoutePlanDiscardRequest {
   @IsOptional() @IsString() @MaxLength(300) reason?: string;
 }
 
-/** POST /transport/route-plans/:id/publish (Idempotency-Key header or body). */
-export class PublishDto {
+class PublishOverrideDto {
+  /** The trimmed length is checked by the service (400 PUBLISH_OVERRIDE_REASON_REQUIRED). */
+  @IsString() @MaxLength(ROUTE_PLAN_OVERRIDE_REASON_MAX) reason!: string;
+}
+
+/** POST /transport/route-plans/:id/publish (Idempotency-Key header or body); the decision 5 fields are optional. */
+export class PublishDto implements RoutePlanPublishRequest {
   @IsInt() @Min(1) expectedVersion!: number;
   @IsOptional() @IsString() @MaxLength(200) idempotencyKey?: string;
+  /** The publishCheck.fingerprint of the soft warnings the user acknowledged. */
+  @IsOptional() @IsString() @MaxLength(40) acknowledgedWarnings?: string;
+  /** Exceptional override of arrival-window violations (authorised callers; reason recorded and audited). */
+  @IsOptional() @ValidateNested() @Type(() => PublishOverrideDto) override?: PublishOverrideDto;
 }

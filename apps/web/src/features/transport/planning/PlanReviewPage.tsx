@@ -1,4 +1,5 @@
 import type { PublishRoutePlanResult, RoutePlanStopViolation } from '@veetracer/shared';
+import { ROUTE_PLAN_OVERRIDE_REASON_MAX, ROUTE_PLAN_OVERRIDE_REASON_MIN } from '@veetracer/shared';
 import {
   ArrowDownIcon,
   ArrowLeftIcon,
@@ -17,7 +18,7 @@ import {
   SendIcon,
   Trash2Icon,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -30,6 +31,7 @@ import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
+import { Textarea } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/features/auth/auth-context';
@@ -40,17 +42,29 @@ import { DIRECTION_LABEL, e3ErrorText } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
 import { transportTripPath } from '../dispatch/use-e3';
 import { PlanMap } from './PlanMap';
+import { MaxRideOverrideFields } from './MaxRideFields';
+import { canOverrideMaxRide, maxRideSummary, overrideDraftOf, overrideRequest, type MaxRideOverrideDraft } from './max-ride';
 import {
+  canShiftStop,
+  stopPinnedToRoute,
   capabilityView,
   completeWeights,
-  emptyWeights,
   engineEta,
+  reoptimiseDefaults,
+  routeDriveSummary,
+  timeLimitOptions,
+  timeLimitWithin,
   formatDuration,
   formatKm,
   isEditablePlan,
   mapPoints,
   mergeViolations,
   publishable,
+  planClock,
+  publishGate,
+  acknowledgedFingerprint,
+  warningsAcknowledged,
+  publishGateState,
   movePassenger,
   changedRoutes,
   planMetrics,
@@ -61,7 +75,8 @@ import {
   shiftStop,
   stopEta,
   stopLabel,
-  unassignedStops,
+  activeJobId,
+  unassignedPassengers,
   vehicleColor,
   VIOLATION_LABEL,
   plannerErrorText,
@@ -84,6 +99,7 @@ import {
   usePlan,
   usePlanEdit,
   usePlanHistory,
+  usePlanOpenJobs,
   usePlannerVehicles,
   usePublishPlan,
   useReoptimise,
@@ -125,6 +141,9 @@ export function PlanReviewPage() {
   const history = useState(false);
   const [showHistory, setShowHistory] = history;
   const hist = usePlanHistory(plan?.id ?? null, showHistory);
+  const [jobId, setJobId] = useState<string | null>(null);
+  // After a reload (or a job started in another tab) the page finds the plan's running job on the server.
+  const openJobs = usePlanOpenJobs(plan?.id ?? null, plan?.status === 'OPTIMIZING' && !jobId);
   const [focus, setFocus] = useState<number | null>(null);
   const [lastCheck, setLastCheck] = useState<RoutePlanStopViolation[] | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -133,12 +152,27 @@ export function PlanReviewPage() {
   const [moveReq, setMoveReq] = useState<PlannerStop | null>(null);
   const [vehicleReq, setVehicleReq] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [ackWarnings, setAckWarnings] = useState(false);
+  // D-L3: the warning fingerprint the user acknowledged (a refetch with other warnings un-ticks the box).
+  const [ackedFingerprint, setAckedFingerprint] = useState<string | null>(null);
+  // Decision 5: authorised override of arrival-window violations (reason recorded and audited by the server).
+  const [overrideOn, setOverrideOn] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
   const [published, setPublished] = useState<PublishRoutePlanResult | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [reoptOpen, setReoptOpen] = useState(false);
   const [reoptWeights, setReoptWeights] = useState<WeightDraft | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [reoptLimit, setReoptLimit] = useState<number | null>(null);
+  // Owner decision 1: per-plan max-ride override in the re-optimise dialog (null = start from the plan's own).
+  const [reoptRide, setReoptRide] = useState<MaxRideOverrideDraft | null>(null);
+  const [reoptTouched, setReoptTouched] = useState(false);
+  // K1 / K2: keyboard focus survives an edit (the clicked button is disabled while it runs) and a dialog opened from
+  // a button returns focus to it. Buttons carry data-focus-key; the first focusable key of the list wins.
+  const pendingFocus = useRef<string[] | null>(null);
+  const dialogReturn = useRef<string[] | null>(null);
+  useEffect(() => {
+    if (!pendingFocus.current || edit.isPending) return;
+    if (focusKey(pendingFocus.current)) pendingFocus.current = null;
+  });
   const [degraded, setDegraded] = useState<string | null>(null);
 
   const metrics = useMemo(() => (plan ? planMetrics(plan, lastCheck ?? undefined) : null), [plan, lastCheck]);
@@ -178,16 +212,33 @@ export function PlanReviewPage() {
     const s = stopById.get(stopId);
     return s ? stopLabel(s, t) : ref;
   };
+  // Decision 5: the server's publish classification (hard blocks, soft needs the acknowledgement, override if authorised).
+  const gate = publishGate(plan);
+  const ackWarnings = warningsAcknowledged(ackedFingerprint, gate);
+  const gateState = publishGateState(gate, { acknowledged: ackWarnings, overrideOn: overrideOn && gate.canOverride, reason: overrideReason });
+  const routeNo = (assignmentId: string) => plan.assignments.findIndex((a) => a.id === assignmentId) + 1;
+  const issueText = (i: (typeof gate.hard)[number]) => {
+    // Times only from the routing engine (never another source), as everywhere on the page.
+    const engine = engineEta(plan.assignments.find((a) => a.id === i.assignmentId)?.eta ?? null);
+    const at = engine ? planClock(plan.planStartAt, i.etaS, tz) : null;
+    const from = i.window ? planClock(plan.planStartAt, i.window[0], tz) : null;
+    const to = i.window ? planClock(plan.planStartAt, i.window[1], tz) : null;
+    const when = at && from && to ? ` (${t('arrives {{eta}}, window {{from}}–{{to}}', { eta: at, from, to })})` : '';
+    const route = routeNo(i.assignmentId) > 0 ? `${t('Route {{n}} · {{vehicle}}', { n: routeNo(i.assignmentId), vehicle: i.vehicleLabel })} · ` : '';
+    return `${route}${labelOf(i.stopId, i.ref)} — ${t(VIOLATION_LABEL[i.kind] ?? i.kind)}${when}`;
+  };
   const { points, hidden } = mapPoints(plan, plan.precise);
   const lines = routeLines(plan);
   const nonEngine = plan.assignments.some((a) => a.eta && !engineEta(a.eta));
-  const unassigned = unassignedStops(plan.stops);
+  const unassigned = unassignedPassengers(plan.stops, plan.direction);
   const routes = routesOf(plan);
   const busy = edit.isPending || plan.status === 'OPTIMIZING';
-  const activeJob = jobId ?? (plan.status === 'OPTIMIZING' ? (plan.lastJobId ?? null) : null);
+  const activeJob = activeJobId(plan, jobId, openJobs.data);
 
-  const runEdit = (e: PlanEdit, ok: string) => {
+  const runEdit = (e: PlanEdit, ok: string, focusAfter?: string[]) => {
     setEditError(null);
+    const active = typeof document !== 'undefined' ? document.activeElement?.getAttribute('data-focus-key') : null;
+    pendingFocus.current = focusAfter ?? (active ? [active] : null);
     edit.mutate(e, {
       onSuccess: (r) => {
         setConflict(false);
@@ -209,20 +260,37 @@ export function PlanReviewPage() {
   const reorder = (stop: PlannerStop, delta: -1 | 1) => {
     const next = changedRoutes(routes, shiftStop(routes, stop.id, delta));
     if (!next.length) return;
-    runEdit({ kind: 'sequence', assignments: next }, delta < 0 ? t('{{name}} moved up.', { name: stopLabel(stop, t) }) : t('{{name}} moved down.', { name: stopLabel(stop, t) }));
+    const dir = delta < 0 ? 'up' : 'down';
+    runEdit({ kind: 'sequence', assignments: next }, delta < 0 ? t('{{name}} moved up.', { name: stopLabel(stop, t) }) : t('{{name}} moved down.', { name: stopLabel(stop, t) }), [`${stop.id}:${dir}`, `${stop.id}:${dir === 'up' ? 'down' : 'up'}`, `${stop.id}:pin`]);
+  };
+  const openMove = (s: PlannerStop) => {
+    dialogReturn.current = [`${s.id}:move`, `${s.id}:pin`];
+    setMoveReq(s);
+  };
+  const openVehicle = (aid: string) => {
+    dialogReturn.current = [`route:${aid}:vehicle`, `route:${aid}:lock`];
+    setVehicleReq(aid);
+  };
+  // Radix returns focus to a DialogTrigger only; these dialogs open from state, so focus goes back by key.
+  const returnFocus = (e: Event) => {
+    e.preventDefault();
+    const keys = dialogReturn.current;
+    dialogReturn.current = null;
+    if (keys && !pendingFocus.current) focusKey(keys);
   };
   const moveTo = (stop: PlannerStop, assignmentId: string) => {
     setMoveReq(null);
     const idx = plan.assignments.findIndex((a) => a.id === assignmentId);
     const ok = t('{{name}} moved to route {{n}}.', { name: stopLabel(stop, t), n: idx + 1 });
     // A booking moves with both ends (POST move-passenger); a generic stop through the sequence.
-    if (stop.bookingId) return runEdit({ kind: 'move', bookingId: stop.bookingId, toAssignmentId: assignmentId }, ok);
+    const back = [`${stop.id}:move`, `${stop.id}:pin`];
+    if (stop.bookingId) return runEdit({ kind: 'move', bookingId: stop.bookingId, toAssignmentId: assignmentId }, ok, back);
     const next = changedRoutes(routes, movePassenger(routes, plan.stops, stop.id, assignmentId));
-    if (next.length) runEdit({ kind: 'sequence', assignments: next }, ok);
+    if (next.length) runEdit({ kind: 'sequence', assignments: next }, ok, back);
   };
   const doPublish = () => {
     // Key per (plan, version) from the page's key store: a retry replays; a refusal (4xx) frees it (usePublishPlan).
-    publish.mutate(undefined, {
+    publish.mutate(gateState.body, {
       onSuccess: (r) => {
         setPublished(r);
         setPublishOpen(false);
@@ -235,7 +303,13 @@ export function PlanReviewPage() {
       },
     });
   };
-  const weightsForReopt = reoptWeights ?? (plan.weights ? { ...plan.weights } : emptyWeights());
+  // T2-L4: the plan's stored weights (options.weights) and a time limit within the API range.
+  const reoptDefaults = reoptimiseDefaults(plan, caps.data?.limits.optimizeTimeLimitS);
+  const weightsForReopt = reoptWeights ?? reoptDefaults.weights;
+  // E4 review L7: never a value above the API maximum (the select offers only allowed values).
+  const limitForReopt = timeLimitWithin(reoptLimit ?? reoptDefaults.timeLimitS, caps.data?.limits.optimizeTimeLimitS);
+  const rideForReopt = reoptRide ?? overrideDraftOf(plan);
+  const rideRequest = canOverrideMaxRide(caps.data) ? overrideRequest(rideForReopt, plan.maxRide?.override) : ({ ok: true, value: undefined } as const);
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-3 p-4 sm:p-6">
@@ -274,7 +348,9 @@ export function PlanReviewPage() {
                 disabled={busy}
                 onClick={() => {
                   publish.reset();
-                  setAckWarnings(false);
+                  setAckedFingerprint(null);
+                  setOverrideOn(false);
+                  setOverrideReason('');
                   setPublishOpen(true);
                 }}
               >
@@ -339,7 +415,19 @@ export function PlanReviewPage() {
         </Card>
       )}
 
+      {/* Decision 5: a plan published with an authorised override shows it (reason and what was overridden). */}
+      {plan.publishDecision?.override && (
+        <Card className="gap-1 border-warning/40 p-3 text-sm" role="note" aria-labelledby="publish-override-title">
+          <h2 id="publish-override-title" className="font-semibold">{t('Published with an authorised override')}</h2>
+          <p>{t('{{n}} arrival-window violation(s) overridden.', { n: plan.publishDecision.override.violations.length })}</p>
+          <p className="whitespace-pre-wrap break-words">“{plan.publishDecision.override.reason}”</p>
+        </Card>
+      )}
+
       <MetricsGrid m={metrics} />
+      <p className="text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">{t('Maximum ride time')}:</span> {maxRideSummary(plan.maxRide, t)}
+      </p>
       <EtaFootnote />
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -363,7 +451,11 @@ export function PlanReviewPage() {
                 </div>
                 {a.driverName && <p className="text-xs text-muted-foreground">{t('Driver: {{name}}', { name: a.driverName })}</p>}
                 <p className="text-xs text-muted-foreground">
-                  {engineEta(a.eta) ? t('{{km}} · {{time}} drive', { km: formatKm(a.distanceM), time: formatDuration(a.adjustedDurationS ?? a.durationS, t) }) : stops.length ? t('No engine distance or time yet') : t('No stops on this route')}
+                  {(() => {
+                    // T2-L1: engine numbers only when the engine produced both (not "— · — drive" after an edit while it was down).
+                    const d = routeDriveSummary(a, stops.length);
+                    return d.kind === 'engine' ? t('{{km}} · {{time}} drive', { km: formatKm(d.distanceM), time: formatDuration(d.durationS, t) }) : d.kind === 'pending' ? t('No engine distance or time yet') : t('No stops on this route');
+                  })()}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   <Button size="sm" variant="ghost" aria-pressed={focus === i} onClick={() => setFocus(focus === i ? null : i)}>
@@ -371,13 +463,14 @@ export function PlanReviewPage() {
                   </Button>
                   {canEdit && (
                     <>
-                      <Button size="sm" variant="ghost" disabled={busy || a.locked} onClick={() => setVehicleReq(a.id)}>
+                      <Button size="sm" variant="ghost" data-focus-key={`route:${a.id}:vehicle`} disabled={busy || a.locked} onClick={() => openVehicle(a.id)}>
                         <CarFrontIcon /> {t('Change vehicle')}
                       </Button>
                       <Button
                         size="sm"
                         variant="ghost"
                         aria-pressed={a.locked}
+                        data-focus-key={`route:${a.id}:lock`}
                         disabled={busy}
                         onClick={() => runEdit({ kind: 'lock', assignmentId: a.id, locked: !a.locked }, a.locked ? t('Route {{n}} unlocked.', { n: i + 1 }) : t('Route {{n}} locked: re-optimising keeps its stops and order.', { n: i + 1 }))}
                       >
@@ -431,21 +524,22 @@ export function PlanReviewPage() {
                           )}
                           {canEdit && (
                             <div className="flex flex-wrap gap-1">
-                              <Button size="icon-sm" variant="outline" disabled={busy || k === 0 || s.pinned || a.locked} onClick={() => reorder(s, -1)} aria-label={t('Move {{name}} up', { name: stopLabel(s, t) })}>
+                              <Button size="icon-sm" variant="outline" data-focus-key={`${s.id}:up`} disabled={busy || !canShiftStop(stops, k, -1) || a.locked} onClick={() => reorder(s, -1)} aria-label={t('Move {{name}} up', { name: stopLabel(s, t) })}>
                                 <ArrowUpIcon />
                               </Button>
-                              <Button size="icon-sm" variant="outline" disabled={busy || k === stops.length - 1 || s.pinned || a.locked} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
+                              <Button size="icon-sm" variant="outline" data-focus-key={`${s.id}:down`} disabled={busy || !canShiftStop(stops, k, 1) || a.locked} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
                                 <ArrowDownIcon />
                               </Button>
-                              <Button size="sm" variant="outline" disabled={busy || s.pinned || a.locked || plan.assignments.length < 2} onClick={() => setMoveReq(s)}>
+                              <Button size="sm" variant="outline" data-focus-key={`${s.id}:move`} disabled={busy || stopPinnedToRoute(plan.stops, s) || a.locked || plan.assignments.length < 2} onClick={() => openMove(s)}>
                                 <ArrowRightLeftIcon /> {t('Move to…')}
                               </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 aria-pressed={!!s.pinned}
+                                data-focus-key={`${s.id}:pin`}
                                 disabled={busy}
-                                onClick={() => runEdit({ kind: 'pin', stopId: s.id, pinned: !s.pinned }, s.pinned ? t('{{name}} unpinned.', { name: stopLabel(s, t) }) : t('{{name}} pinned to this route and position.', { name: stopLabel(s, t) }))}
+                                onClick={() => runEdit({ kind: 'pin', stopId: s.id, pinned: !s.pinned }, s.pinned ? t('{{name}} unpinned.', { name: stopLabel(s, t) }) : t('{{name}} pinned to this vehicle. Re-optimising and edits keep it on this vehicle; its place in the order may change.', { name: stopLabel(s, t) }))}
                               >
                                 {s.pinned ? <PinOffIcon /> : <PinIcon />} {s.pinned ? t('Unpin') : t('Pin')}
                               </Button>
@@ -534,16 +628,23 @@ export function PlanReviewPage() {
         plan={plan}
         onClose={() => setMoveReq(null)}
         onPick={(aid) => moveReq && moveTo(moveReq, aid)}
+        onCloseAutoFocus={returnFocus}
       />
 
       {vehicleReq && (
         <VehicleDialog
           plan={plan}
           assignmentId={vehicleReq}
-          onClose={() => setVehicleReq(null)}
+          onClose={() => {
+            setVehicleReq(null);
+            const keys = dialogReturn.current;
+            dialogReturn.current = null;
+            if (keys) requestAnimationFrame(() => focusKey(keys));
+          }}
+          onCloseAutoFocus={returnFocus}
           onPick={(v) => {
             const idx = plan.assignments.findIndex((a) => a.id === vehicleReq);
-            runEdit({ kind: 'vehicle', assignmentId: vehicleReq, objectId: v.objectId }, t('Route {{n}} now uses {{vehicle}}.', { n: idx + 1, vehicle: v.name }));
+            runEdit({ kind: 'vehicle', assignmentId: vehicleReq, objectId: v.objectId }, t('Route {{n}} now uses {{vehicle}}.', { n: idx + 1, vehicle: v.name }), [`route:${vehicleReq}:vehicle`, `route:${vehicleReq}:lock`]);
             setVehicleReq(null);
           }}
         />
@@ -562,11 +663,55 @@ export function PlanReviewPage() {
               <li>{t('{{n}} passenger(s) seated.', { n: metrics.passengers - metrics.unassigned })}</li>
               {metrics.unassigned > 0 && <li className="text-warning-fg">{t('{{n}} unassigned passenger(s) stay in the dispatch queue.', { n: metrics.unassigned })}</li>}
             </ul>
-            {metrics.violations > 0 && (
-              <label className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft p-2 text-warning-fg">
-                <Checkbox checked={ackWarnings} onCheckedChange={(v) => setAckWarnings(v === true)} className="mt-0.5" />
-                <span>{t('Publish with {{n}} warning(s) (late arrivals, seats or ride time).', { n: metrics.violations })}</span>
-              </label>
+            {/* Decision 5: hard violations block publishing (the server refuses them too). */}
+            {gate.hard.length > 0 && (
+              <section className="grid gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-destructive-fg" aria-labelledby="publish-hard-title">
+                <h3 id="publish-hard-title" className="flex items-center gap-1.5 font-semibold">
+                  <CircleAlertIcon className="size-4" aria-hidden /> {t('Hard violations (block publishing)')}
+                </h3>
+                <ul className="grid gap-0.5">
+                  {gate.hard.map((i) => (
+                    <li key={`${i.stopId}:${i.kind}`}>{issueText(i)}</li>
+                  ))}
+                </ul>
+                <p>{t('These must be fixed before publishing. Edit the routes (move or reorder stops) or re-optimise the plan.')}</p>
+                {gate.canOverride && gate.blocking.length === 0 && (
+                  <div className="grid gap-2 border-t border-destructive/30 pt-2">
+                    <label className="flex items-start gap-2">
+                      <Checkbox checked={overrideOn} onCheckedChange={(v) => setOverrideOn(v === true)} className="mt-0.5" />
+                      <span>{t('Override the arrival-window violations (authorised)')}</span>
+                    </label>
+                    {overrideOn && (
+                      <Field label={t('Reason for the override (recorded in the audit log)')} htmlFor="publish-override-reason" required hint={t('At least {{n}} characters, in words.', { n: ROUTE_PLAN_OVERRIDE_REASON_MIN })}>
+                        <Textarea
+                          id="publish-override-reason"
+                          value={overrideReason}
+                          onChange={(e) => setOverrideReason(e.target.value)}
+                          maxLength={ROUTE_PLAN_OVERRIDE_REASON_MAX}
+                          rows={3}
+                          required
+                          aria-required
+                        />
+                      </Field>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+            {/* Soft warnings: publishable after an explicit acknowledgement of exactly this set. */}
+            {gate.soft.length > 0 && (
+              <section className="grid gap-1.5 rounded-md border border-warning/40 bg-warning-soft p-2 text-warning-fg" aria-labelledby="publish-soft-title">
+                <h3 id="publish-soft-title" className="font-semibold">{t('Warnings')}</h3>
+                <ul className="grid gap-0.5">
+                  {gate.soft.map((i) => (
+                    <li key={`${i.stopId}:${i.kind}`}>{issueText(i)}</li>
+                  ))}
+                </ul>
+                <label className="flex items-start gap-2">
+                  <Checkbox checked={ackWarnings} onCheckedChange={(v) => setAckedFingerprint(acknowledgedFingerprint(v === true, gate))} className="mt-0.5" />
+                  <span>{t('I have checked these {{n}} warning(s) and want to publish.', { n: gate.soft.length })}</span>
+                </label>
+              </section>
             )}
             <EtaFootnote />
             {publish.isError && <FormError message={plannerErrorMessage(publish.error, t)} />}
@@ -587,7 +732,7 @@ export function PlanReviewPage() {
             <Button variant="outline" onClick={() => setPublishOpen(false)} disabled={publish.isPending}>
               {t('Back')}
             </Button>
-            <Button onClick={doPublish} disabled={publish.isPending || (metrics.violations > 0 && !ackWarnings) || metrics.vehiclesUsed === 0}>
+            <Button onClick={doPublish} disabled={publish.isPending || !gateState.allowed || metrics.vehiclesUsed === 0}>
               {publish.isPending ? <Spinner /> : <SendIcon />} {t('Publish')}
             </Button>
           </DialogFooter>
@@ -625,10 +770,14 @@ export function PlanReviewPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('Re-optimise this plan')}</DialogTitle>
-            <DialogDescription>{t('Pinned stops keep their route and position; everything else may change. A new version is saved.')}</DialogDescription>
+            <DialogDescription>{t('Pinned stops stay on their vehicle and locked routes keep their stops and order; everything else may change. A new version is saved.')}</DialogDescription>
           </DialogHeader>
           <DialogBody className="grid gap-3">
             <WeightsEditor idPrefix="re-w" showErrors value={weightsForReopt} onChange={setReoptWeights} />
+            <Field label={t('Time limit per plan')} htmlFor="re-limit">
+              <SimpleSelect id="re-limit" value={String(limitForReopt)} onChange={(v) => setReoptLimit(Number(v))} options={timeLimitOptions(caps.data?.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
+            </Field>
+            <MaxRideOverrideFields idPrefix="re-ride" caps={caps.data} value={rideForReopt} onChange={setReoptRide} showErrors={reoptTouched} hadOverride={!!plan.maxRide?.override} />
             {reopt.isError && <FormError message={plannerErrorMessage(reopt.error, t)} />}
           </DialogBody>
           <DialogFooter>
@@ -639,13 +788,16 @@ export function PlanReviewPage() {
               disabled={reopt.isPending || !completeWeights(weightsForReopt)}
               onClick={() => {
                 const w = completeWeights(weightsForReopt);
-                if (!w) return;
+                setReoptTouched(true);
+                if (!w || !rideRequest.ok) return;
                 reopt.mutate(
-                  { weights: w, timeLimitS: 30 },
+                  { weights: w, timeLimitS: limitForReopt, ...(rideRequest.value !== undefined ? { maxRideOverride: rideRequest.value } : {}) },
                   {
                     onSuccess: (job) => {
                       setJobId(job.jobId);
                       setReoptOpen(false);
+                      setReoptRide(null);
+                      setReoptTouched(false);
                       setLastCheck(null);
                     },
                     onError: (err) => plannerErrorOf(err).kind === 'conflict' && setConflict(true),
@@ -662,7 +814,20 @@ export function PlanReviewPage() {
   );
 }
 
-function MoveDialog({ stop, plan, onClose, onPick }: { stop: PlannerStop | null; plan: PlannerPlan; onClose: () => void; onPick: (assignmentId: string) => void }) {
+/** Focus the first enabled element of the page with one of these data-focus-key values (K1 / K2). */
+function focusKey(keys: readonly string[]): boolean {
+  if (typeof document === 'undefined') return false;
+  for (const k of keys) {
+    const el = document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(k)}"]`);
+    if (el && !(el as HTMLButtonElement).disabled) {
+      el.focus();
+      return true;
+    }
+  }
+  return false;
+}
+
+function MoveDialog({ stop, plan, onClose, onPick, onCloseAutoFocus }: { stop: PlannerStop | null; plan: PlannerPlan; onClose: () => void; onPick: (assignmentId: string) => void; onCloseAutoFocus?: (e: Event) => void }) {
   const { t } = useTranslation();
   const [target, setTarget] = useState<string>('');
   const options = plan.assignments.filter((a) => a.id !== stop?.assignmentId).map((a) => {
@@ -673,7 +838,7 @@ function MoveDialog({ stop, plan, onClose, onPick }: { stop: PlannerStop | null;
   const chosen = target && options.some((o) => o.value === target) ? target : (options[0]?.value ?? '');
   return (
     <Dialog open={!!stop} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{t('Move passenger')}</DialogTitle>
           <DialogDescription>{stop ? t('{{name}}: pickup and drop move together. The plan is re-checked after the move.', { name: stopLabel(stop, t) }) : ''}</DialogDescription>
@@ -696,7 +861,7 @@ function MoveDialog({ stop, plan, onClose, onPick }: { stop: PlannerStop | null;
   );
 }
 
-function VehicleDialog({ plan, assignmentId, onClose, onPick }: { plan: PlannerPlan; assignmentId: string; onClose: () => void; onPick: (v: { objectId: string; name: string; seats: number | null }) => void }) {
+function VehicleDialog({ plan, assignmentId, onClose, onPick, onCloseAutoFocus }: { plan: PlannerPlan; assignmentId: string; onClose: () => void; onPick: (v: { objectId: string; name: string; seats: number | null }) => void; onCloseAutoFocus?: (e: Event) => void }) {
   const { t } = useTranslation();
   const fleet = usePlannerVehicles(plan.planDate, plan.direction ?? 'IN');
   const [value, setValue] = useState('');
@@ -708,7 +873,7 @@ function VehicleDialog({ plan, assignmentId, onClose, onPick }: { plan: PlannerP
   const tooSmall = !!chosen && (chosen.seats ?? 0) < load;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{t('Change vehicle')}</DialogTitle>
           <DialogDescription>{a ? t('{{vehicle}} carries {{n}} passenger(s) on this route.', { vehicle: a.vehicleLabel, n: load }) : ''}</DialogDescription>

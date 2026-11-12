@@ -22,11 +22,16 @@ import type {
   RoutingJobDto,
   TransportDirection,
 } from '@veetracer/shared';
-import type { RoutePlanEmptyReason } from '@veetracer/shared';
+import type { MaxRideOverrideInput, RoutePlanCreateCounts, RoutePlanEmptyReason } from '@veetracer/shared';
 import type { PlanEditResult, PlannerPlan, PlannerWeights } from './planner-format';
 
 /** POST /transport/route-plans answer: the plan, plus why it has no passenger (null / absent when it has some). */
-export type CreatedPlannerPlan = PlannerPlan & { emptyReason?: RoutePlanEmptyReason | null };
+export type CreatedPlannerPlan = PlannerPlan & {
+  emptyReason?: RoutePlanEmptyReason | null;
+  /** Bookings found for the scope but left out of the plan, with the reason (no routing consent, no point, scope). */
+  skippedBookings?: { bookingId: string; reason: string }[];
+  bookingCounts?: RoutePlanCreateCounts | null;
+};
 
 export const PLANS_ENDPOINT = '/transport/route-plans';
 export const JOBS_ENDPOINT = '/routing/jobs';
@@ -47,6 +52,8 @@ export interface OptimizeOptions {
   timeLimitS?: number;
   objective?: 'duration' | 'distance';
   weights: PlannerWeights;
+  /** Owner decision 1: per-plan max-ride override (authorised callers); null clears it; absent keeps it. */
+  maxRideOverride?: MaxRideOverrideInput | null;
 }
 
 /** Body of `POST /routing/jobs/optimize` (OptimizeJobDto). */
@@ -63,11 +70,14 @@ export interface PlannerClient {
   /** Re-optimise a saved plan (alias of the job endpoint, same body minus planId). */
   optimizePlan(planId: string, body: OptimizeOptions, idempotencyKey: string): Promise<RoutingJobDto>;
   getJob(id: string, signal?: AbortSignal): Promise<RoutingJobDto>;
+  /** Open (queued / running) jobs of one plan: `GET /routing/jobs?planId&state=queued,running`. */
+  planJobs(planId: string, signal?: AbortSignal): Promise<RoutingJobDto[]>;
   cancelJob(id: string): Promise<RoutingJobDto>;
   movePassenger(planId: string, body: RoutePlanMovePassengerRequest): Promise<PlanEditResult>;
   resequence(planId: string, body: RoutePlanResequenceRequest): Promise<PlanEditResult>;
   updateAssignment(planId: string, assignmentId: string, body: RoutePlanAssignmentUpdateRequest): Promise<PlanEditResult>;
   updateStop(planId: string, stopId: string, body: RoutePlanStopUpdateRequest): Promise<PlanEditResult>;
-  publish(planId: string, body: { expectedVersion: number }, idempotencyKey: string): Promise<RoutePlanPublishResult>;
+  /** Decision 5: `acknowledgedWarnings` (publishCheck.fingerprint) and `override` ({ reason }) only when needed. */
+  publish(planId: string, body: { expectedVersion: number; acknowledgedWarnings?: string; override?: { reason: string } }, idempotencyKey: string): Promise<RoutePlanPublishResult>;
   discard(planId: string, body: { expectedVersion: number; reason?: string }): Promise<PlannerPlan>;
 }

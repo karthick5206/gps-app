@@ -13,11 +13,11 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { DIRECTION_LABEL, shiftTimesLabel } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
-import { capabilityView, completeWeights, planSeeds, type ShiftChoice, type WeightDraft } from './planner-format';
+import { capabilityView, completeWeights, planBranchChoice, planSeeds, skippedSummary, timeLimitOptions, timeLimitWithin, type ShiftChoice, type WeightDraft } from './planner-format';
 import { JobProgress, WeightsEditor } from './planner-ui';
+import { MaxRideOverrideFields } from './MaxRideFields';
+import { canOverrideMaxRide, overrideRequest, planBookingsLimit, type MaxRideOverrideDraft } from './max-ride';
 import { createKeyStore, newKey, plannerErrorMessage, plannerErrorOf, useActiveShifts, usePlannerVehicles, useStartOptimise, type StartedPlan } from './use-planner';
-
-const TIME_LIMITS = [10, 30, 60] as const;
 
 export interface OptimiseState {
   day: string;
@@ -27,6 +27,27 @@ export interface OptimiseState {
   vehicleIds: string[];
   weights: WeightDraft;
   timeLimitS: number;
+  /** T2-D5: the branch chosen by a branch-scoped user with several branches. */
+  branchId: string | null;
+}
+
+/** Bookings the new plan left out, per reason: they stay in the dispatch queue (T2 E2E). */
+function SkippedBookings({ skipped }: { skipped: { bookingId: string; reason: string }[] | undefined }) {
+  const { t } = useTranslation();
+  const rows = skippedSummary(skipped);
+  if (!rows.length) return null;
+  return (
+    <div role="status" className="grid gap-0.5 rounded-md bg-muted p-2 text-xs">
+      <span className="font-medium">{t('{{n}} booking(s) not included in this plan; they stay in the dispatch queue:', { n: rows.reduce((n, r) => n + r.n, 0) })}</span>
+      <ul className="list-disc ps-4">
+        {rows.map((r) => (
+          <li key={r.reason}>
+            {t(r.label)}: <span className="tabular-nums">{r.n}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 /**
@@ -42,7 +63,11 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
   const [keys] = useState(() => createKeyStore(newKey));
   const start = useStartOptimise(keys);
   const [touched, setTouched] = useState(false);
+  // Owner decision 1: per-plan max-ride override for the new plans (authorised callers only).
+  const [maxRide, setMaxRide] = useState<MaxRideOverrideDraft>({ enabled: false, minutes: '', reason: '' });
   const health = capabilityView(caps);
+  // E4 review L7: the time limit sent and shown is always one the API allows (the page starts at 30 s).
+  const timeLimitS = timeLimitWithin(state.timeLimitS, caps?.limits.optimizeTimeLimitS);
 
   const shiftChoices: ShiftChoice[] = useMemo(() => (shifts.data ?? []).map((s) => ({ id: s.id, name: s.name, siteId: s.site?.id ?? null, siteName: s.site?.name ?? null, startMin: s.startMin, endMin: s.endMin, timeZone: s.timeZone })), [shifts.data]);
   const siteOptions = useMemo(() => {
@@ -59,19 +84,26 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
   const weights = completeWeights(state.weights);
   const seeds = planSeeds({ day: state.day, direction: state.direction, shifts: shiftChoices, shiftIds: state.shiftIds, siteIds: state.siteIds, tz: fleet.data?.timeZone ?? tz ?? 'UTC' }, t);
   const chosenVehicles = withSeats.filter((v) => state.vehicleIds.includes(v.objectId));
+  // T2-D5: a branch-scoped user plans for one of their branches (one: fixed; several: picked).
+  const branch = planBranchChoice(caps?.access ?? { scope: 'COMPANY' });
+  const branchId = branch.mode === 'fixed' ? branch.branch.id : branch.mode === 'pick' && branch.branches.some((b) => b.id === state.branchId) ? state.branchId : null;
 
   const problems: string[] = [];
   if (!seeds.length) problems.push(t('Choose at least one shift.'));
   if (seeds.some((x) => !x.sitePoiId)) problems.push(t('A chosen shift has no site: choose exactly one site for it.'));
   if (!chosenVehicles.length) problems.push(t('Choose at least one vehicle.'));
   if (!weights) problems.push(t('Set all four weights (at least one of distance, driving or route length above 0).'));
+  if (branch.mode === 'pick' && !branchId) problems.push(t('Choose the branch for the plan.'));
+  if (branch.mode === 'missing') problems.push(t('Your role has no branch to plan for. Ask an administrator to assign you a branch.'));
+  const override = canOverrideMaxRide(caps) ? overrideRequest(maxRide, null) : ({ ok: true, value: undefined } as const);
+  if (!override.ok) for (const e of override.errors) problems.push(t(e));
   const ready = problems.length === 0 && health.canOptimise && canPlan;
 
   const run = () => {
     setTouched(true);
-    if (!ready || !weights) return;
+    if (!ready || !weights || !override.ok) return;
     start.mutate(
-      { planDate: state.day, direction: state.direction, seeds, objectIds: chosenVehicles.map((v) => v.objectId), weights, timeLimitS: state.timeLimitS },
+      { planDate: state.day, direction: state.direction, seeds, objectIds: chosenVehicles.map((v) => v.objectId), weights, timeLimitS, branchId, ...(override.value !== undefined ? { maxRideOverride: override.value } : {}) },
       {
         onSuccess: (r) => {
           setStarted(r);
@@ -129,7 +161,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
           <Field label={t('Sites')} htmlFor="opt-sites" hint={t('Leave empty for every site.')}>
             <MultiSelect id="opt-sites" value={state.siteIds} onChange={(v) => setState((s) => ({ ...s, siteIds: v, shiftIds: s.shiftIds.filter((id) => shiftChoices.find((c) => c.id === id && (v.length === 0 || c.siteId === null || v.includes(c.siteId)))) }))} options={siteOptions} loading={shifts.isPending} placeholder={t('All sites')} searchPlaceholder={t('Search sites…')} emptyText={t('No sites on active shifts')} />
           </Field>
-          <Field label={t('Shifts')} htmlFor="opt-shifts" hint={t('One plan per shift.')} error={touched && !seeds.length ? t('Choose at least one shift.') : undefined}>
+          <Field label={t('Shifts')} htmlFor="opt-shifts" hint={`${t('One plan per shift.')} ${t('At most {{n}} bookings per plan. Split larger groups by shift, branch or site.', { n: planBookingsLimit(caps) })}`} error={touched && !seeds.length ? t('Choose at least one shift.') : undefined}>
             <MultiSelect id="opt-shifts" value={state.shiftIds} onChange={(v) => setState((s) => ({ ...s, shiftIds: v }))} options={shiftOptions} loading={shifts.isPending} placeholder={t('Choose shifts')} searchPlaceholder={t('Search shifts…')} emptyText={t('No active shifts')} invalid={touched && !seeds.length} />
           </Field>
           <Field
@@ -141,15 +173,23 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
           >
             <MultiSelect id="opt-vehicles" value={state.vehicleIds} onChange={(v) => setState((s) => ({ ...s, vehicleIds: v }))} options={vehicleOptions} loading={fleet.isPending} placeholder={t('Choose vehicles')} searchPlaceholder={t('Search name or plate…')} emptyText={t('No vehicles with seats')} invalid={touched && !chosenVehicles.length} />
           </Field>
+          {branch.mode === 'pick' && (
+            <Field label={t('Branch')} htmlFor="opt-branch" className="sm:col-span-2" hint={t('The plan takes the bookings of this branch.')} error={touched && !branchId ? t('Choose the branch for the plan.') : undefined}>
+              <SimpleSelect id="opt-branch" value={branchId ?? ''} onChange={(v) => setState((s) => ({ ...s, branchId: v || null }))} label={t('Branch')} options={branch.branches.map((b) => ({ value: b.id, label: b.name }))} />
+            </Field>
+          )}
+          {branch.mode === 'fixed' && <p className="text-sm text-muted-foreground sm:col-span-2">{t('Plans are made for your branch {{name}}.', { name: branch.branch.name })}</p>}
           {fleet.isError && <FormError message={plannerErrorMessage(fleet.error, t)} />}
           {shifts.isError && <FormError message={plannerErrorMessage(shifts.error, t)} />}
         </div>
 
         <WeightsEditor idPrefix="opt-w" showErrors={touched} value={state.weights} onChange={(w) => setState((s) => ({ ...s, weights: w }))} />
 
+        <MaxRideOverrideFields idPrefix="opt-ride" caps={caps} value={maxRide} onChange={setMaxRide} showErrors={touched} />
+
         <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
           <Field label={t('Time limit per plan')} htmlFor="opt-limit">
-            <SimpleSelect id="opt-limit" value={String(state.timeLimitS)} onChange={(v) => setState((s) => ({ ...s, timeLimitS: Number(v) }))} options={TIME_LIMITS.filter((n) => !caps || n <= caps.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
+            <SimpleSelect id="opt-limit" value={String(timeLimitS)} onChange={(v) => setState((s) => ({ ...s, timeLimitS: Number(v) }))} options={timeLimitOptions(caps?.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
           </Field>
           <Button onClick={run} disabled={start.isPending || !canPlan || !health.canOptimise}>
             {start.isPending ? <Spinner /> : <PlayIcon />} {seeds.length > 1 ? t('Optimise {{n}} plans', { n: seeds.length }) : t('Optimise')}
@@ -171,9 +211,9 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
         {started.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('Started optimisations show here with their progress. You can leave this page; plans stay under Plans.')}</p>
         ) : (
-          <ul className="grid gap-3">
+          <ul className="grid grid-cols-[minmax(0,1fr)] gap-3">
             {started.map((s) => (
-              <li key={s.seed.shiftId} className="rounded-lg border p-3">
+              <li key={s.seed.shiftId} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border p-3">
                 {s.job ? (
                   <JobProgress jobId={s.job.jobId} planId={s.planId} label={s.seed.name} canCancel={canPlan} />
                 ) : s.empty ? (
@@ -196,6 +236,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
                     </p>
                   </div>
                 )}
+                <SkippedBookings skipped={s.skipped} />
               </li>
             ))}
           </ul>

@@ -2,8 +2,11 @@ import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Opti
 import { Prisma } from '@prisma/client';
 import {
   can,
+  meaningfulOverrideReason,
+  overrideReasonText,
   ROUTE_PLAN_COMPARE_MAX,
   ROUTE_PLAN_EDITABLE,
+  ROUTE_PLAN_OVERRIDE_REASON_MIN,
   routePlanLocks,
   uncalibratedEta,
   type ChangeSetResult,
@@ -12,6 +15,8 @@ import {
   type RoutePlanCompareDto,
   type RoutePlanDetailDto,
   type RoutePlanEditResult,
+  type RoutePlanPublishCheck,
+  type RoutePlanPublishDecision,
   type RoutePlanPublishResult,
   type RoutePlanRouteError,
   type RoutePlanStatus,
@@ -29,12 +34,13 @@ import { AuditService } from '../../audit/audit.service';
 import { driverScopeWhere } from '../../drivers/drivers.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROUTING_PROVIDER, type RoutingProvider } from '../../routing/provider/routing-provider';
+import { effectiveMaxRideS, maxRidePolicyOf, maxRideView } from '../../routing-jobs/max-ride';
 import { DispatchService, type PublishSource } from '../dispatch/dispatch.service';
-import { idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound } from '../dispatch/e3-common';
+import { idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound, requestHash } from '../dispatch/e3-common';
 import { preciseFor } from '../dispatch/e3-mapping';
 import type { Replayable } from '../dispatch/bookings.service';
 import { activeRoutingConsents } from '../people/people.service';
-import { buildPlanChangeSet, pairProblem, planMetrics, retime, routeStops, routeViolations, type PublishBooking, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
+import { buildPlanChangeSet, pairProblem, pinnedStopsMoved, planMetrics, publishIssues, retime, routeStops, routeViolations, type PublishBooking, type RideRule, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
 import { PLAN_INCLUDE, outOfScope, personalOwners, planSnapshot, seatsLookup, toPlanDetail, toPlanSummary, toRuleStop, type PlanPointView, type PlanRow, type ViewBooking } from './plan-view';
 import type { AssignmentUpdateDto, DiscardDto, MovePassengerDto, PlanListQuery, PublishDto, ResequenceDto, StopUpdateDto } from './plans.dto';
 
@@ -102,10 +108,21 @@ export class RoutePlansService {
 
   async get(ctx: AuthContext, id: string): Promise<RoutePlanDetailDto> {
     const plan = await this.find(ctx, id);
-    const { dto, shown, named } = toPlanDetail(plan, await this.view(ctx, plan));
+    const view = await this.view(ctx, plan);
+    const policyS = await maxRidePolicyOf(this.prisma, ctx.companyId);
+    // D-M1: the plan's effective max ride (snapshot of the last optimisation, else override, else policy now).
+    const ride = rideRuleOf(plan, policyS);
+    const { dto, shown, named } = toPlanDetail(plan, view, ride);
+    // Decision 5: the server's publish classification (as publish recomputes it) and what a publish accepted.
+    // D-L1: with the vehicles' current seats, as publish uses them (not the capacity stored when the plan was drafted).
+    const capacities = dto.editable ? routeCapacities(plan, await this.currentSeats(ctx, plan)) : [];
+    dto.publishCheck = dto.editable ? publishCheckFor(ctx, capacities, plan, dto, seatsLookup(view.bookings), ride) : null;
+    // D-L2: the override's stored violations with the refs as this caller sees them (like publishCheck).
+    dto.publishDecision = publishDecisionShown(publishDecisionOf(plan.options), dto);
     // L1: a read that returned personal points or passenger names is ACCESS-audited (de-duplicated per user, view and day).
     await this.dispatch.recordPersonalAccess(ctx, 'plan', [...new Set([...shown, ...named])], dto.precise, { planId: id, ...(named.length ? { passengerNames: named.length } : {}) });
-    return dto;
+    // Owner decision 1: the max ride of the last optimisation and its source, the policy now, the plan's override.
+    return { ...dto, maxRide: maxRideView(plan.options, policyS) };
   }
 
   /** Version history (newest first): ids, sequences and times only; another branch's stops lose their ref for ASSIGNED roles. */
@@ -150,9 +167,12 @@ export class RoutePlansService {
       // Another branch's passenger is a 404 for a branch dispatcher, like any id out of scope.
       if (!ends.length || ends.some((s) => outOfScope(s, view))) throw notFound('Booking not found on this plan');
       const locks = routePlanLocks(plan.options);
-      if (ends.some((s) => locks.pinnedStopIds.has(s.id))) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', 'A stop of this passenger is pinned; unpin it first');
       const from = ends[0].assignmentId;
       const to = dto.toAssignmentId;
+      // E4 review M1: a pin keeps the stop on its route (the same rule as resequence): moving the passenger within
+      // that route is allowed, to another route or out of every route is not. Other stops' gaps never count.
+      const endsTo = new Map(ends.map((s) => [s.id, { assignmentId: to ?? null, sequence: null }]));
+      if (pinnedStopsMoved(locks.pinnedStopIds, ends, endsTo).size) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', 'A stop of this passenger is pinned to its route; unpin it first');
       if (to && !plan.assignments.some((a) => a.id === to)) throw notFound('Route not found');
       for (const r of [from, to]) if (r && locks.lockedAssignmentIds.has(r)) throw planError(HttpStatus.CONFLICT, 'ROUTE_LOCKED', 'The route is locked; unlock it first');
       const rule = plan.stops.map(toRuleStop);
@@ -210,6 +230,7 @@ export class RoutePlansService {
       for (const r of dto.assignments) r.stopIds.forEach((s, i) => placements.set(s, { assignmentId: r.assignmentId, sequence: i }));
       // Stops of a listed route that are not listed any more become unassigned.
       for (const a of listed) for (const s of routeStops(rule, a)) if (!seen.has(s.id)) placements.set(s.id, { assignmentId: null, sequence: null });
+      const movedPins = pinnedStopsMoved(locks.pinnedStopIds, rule, placements);
       const changed = new Set<string>();
       for (const [sid, to] of placements) {
         const s = byId.get(sid)!;
@@ -218,7 +239,7 @@ export class RoutePlansService {
           continue;
         }
         if (outOfScope(s, view)) throw notFound('Stop not found');
-        if (locks.pinnedStopIds.has(sid)) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', `Stop ${s.ref} is pinned; unpin it first`);
+        if (movedPins.has(sid)) throw planError(HttpStatus.CONFLICT, 'STOP_PINNED', `Stop ${s.ref} is pinned to its route; unpin it first`);
         for (const r of [s.assignmentId, to.assignmentId]) {
           if (!r) continue;
           if (locks.lockedAssignmentIds.has(r)) throw planError(HttpStatus.CONFLICT, 'ROUTE_LOCKED', 'A listed route is locked; unlock it first');
@@ -260,6 +281,11 @@ export class RoutePlansService {
       if (vehicle && plan.assignments.some((x) => x.id !== a.id && x.objectId === vehicle.id)) {
         throw planError(HttpStatus.CONFLICT, 'VEHICLE_DUPLICATE', 'This vehicle already drives another route of this plan');
       }
+      // T1-D5: likewise one driver cannot drive two routes of the same plan (publish refused it later as DRIVER_BUSY,
+      // naming the plan's own other route).
+      if (dto.driverId && plan.assignments.some((x) => x.id !== a.id && x.driverId === dto.driverId)) {
+        throw planError(HttpStatus.CONFLICT, 'DRIVER_DUPLICATE', 'This driver already drives another route of this plan');
+      }
       const data: Prisma.RouteAssignmentUncheckedUpdateInput = {};
       if (vehicle) Object.assign(data, { objectId: vehicle.id, vehicleLabel: vehicle.plateNumber ? `${vehicle.name} (${vehicle.plateNumber})`.slice(0, 120) : vehicle.name, capacity: vehicle.transportProfile?.seats ?? null });
       if (dto.driverId !== undefined) data.driverId = dto.driverId;
@@ -279,7 +305,11 @@ export class RoutePlansService {
     });
   }
 
-  /** Pin / unpin a stop (the optimiser keeps a pinned stop on its route at its position). */
+  /**
+   * Pin / unpin a stop. Re-optimising keeps a pinned stop on its vehicle (solver pinnedVehicleId); its place in the
+   * order may change (T2-D6: no solver position constraint; lock the route to keep the exact order). Manual edits follow
+   * the same rule: a pinned stop may change place within its route but never leaves it (STOP_PINNED; pinnedStopsMoved).
+   */
   async updateStop(ctx: AuthContext, id: string, stopId: string, dto: StopUpdateDto): Promise<RoutePlanEditResult> {
     return this.edit(ctx, id, dto.expectedVersion, async (plan, view) => {
       const s = plan.stops.find((x) => x.id === stopId);
@@ -336,6 +366,7 @@ export class RoutePlansService {
     };
     const capacity = new Map(plan.assignments.map((a) => [a.id, (edited(a.id, 'capacity', a.capacity) as number | null | undefined) ?? null]));
     const seats = seatsLookup(view.bookings);
+    const ride = rideRuleOf(plan, await maxRidePolicyOf(this.prisma, ctx.companyId));
 
     // Re-time routes whose order changed (engine outside the transaction).
     let degraded: RoutingDegradedReason | null = null;
@@ -353,7 +384,7 @@ export class RoutePlansService {
     for (const s of stops) if (!s.assignmentId && s.etaS !== null && e.placements.has(s.id)) etas.set(s.id, null);
     const timed = stops.map((s) => (etas.has(s.id) ? { ...s, etaS: etas.get(s.id)! } : s));
     const violations: RoutePlanStopViolation[] = [];
-    for (const aid of e.checked) violations.push(...routeViolations(routeStops(timed, aid), capacity.get(aid) ?? null, seats, e.retime.has(aid) && !degraded));
+    for (const aid of e.checked) violations.push(...routeViolations(routeStops(timed, aid), capacity.get(aid) ?? null, seats, e.retime.has(aid) && !degraded, ride));
     // QA B4: a route with a vehicle but no seat profile (capacity null) cannot be published; say so now.
     const routeViolationsOut: RoutePlanRouteViolation[] = [];
     for (const aid of e.checked) {
@@ -427,6 +458,13 @@ export class RoutePlansService {
 
   // ───────────────────────────── publish ─────────────────────────────
 
+  /** The seats of the plan's vehicles now (objectId → seats or null); a vehicle outside the caller's scope is absent. */
+  private async currentSeats(ctx: AuthContext, plan: Pick<PlanRow, 'assignments'>): Promise<Map<string, number | null>> {
+    const objectIds = plan.assignments.flatMap((a) => (a.objectId ? [a.objectId] : []));
+    const vehicles = objectIds.length ? await this.prisma.trackedObject.findMany({ where: { AND: [objectScopeWhere(ctx), { id: { in: objectIds }, isActive: true }] }, select: { id: true, companyId: true, transportProfile: { select: { seats: true } } } }) : [];
+    return new Map(vehicles.filter((v) => v.companyId === ctx.companyId).map((v) => [v.id, v.transportProfile?.seats ?? null]));
+  }
+
   /**
    * Publish the plan through the E3 publish path (doc 17 P9, 15 §8.4): pre-checks per route (409 PLAN_NOT_PUBLISHABLE,
    * nothing written), then ONE change set — a CREATE_TRIP + ADD_PASSENGERs per route — via DispatchService.publishPrepared
@@ -444,9 +482,17 @@ export class RoutePlansService {
     if (!can(ctx.permissions, 'etms_dispatch', 'command')) throw new ForbiddenException({ message: 'Publishing a plan needs Dispatch: command', code: 'FORBIDDEN_GRANT' });
     const key = idempotencyKey(headerKey ?? dto.idempotencyKey);
     const plan = await this.find(ctx, id);
-    if (plan.status === 'PUBLISHED') return this.replayPublished(ctx, plan, key);
+    // Decision 5: the acknowledgement / override fields are part of the request (bound into the idempotency hash).
+    const overrideReason = dto.override ? normaliseReason(dto.override.reason) : null;
+    const acknowledged = dto.acknowledgedWarnings ?? null;
+    const decisionHash = requestHash({ acknowledgedWarnings: acknowledged, override: overrideReason });
+    if (plan.status === 'PUBLISHED') return this.replayPublished(ctx, plan, key, decisionHash);
     if (!EDITABLE.includes(plan.status)) throw notEditable(plan.status);
     if (plan.version !== dto.expectedVersion) throw stale(plan.version);
+    if (overrideReason !== null) {
+      if (!canOverridePublish(ctx)) throw new ForbiddenException({ message: 'Overriding the publish checks needs a whole-company role with Dispatch: command and Route planning: command', code: 'PUBLISH_OVERRIDE_FORBIDDEN' });
+      if (!meaningfulReason(overrideReason)) throw planError(HttpStatus.BAD_REQUEST, 'PUBLISH_OVERRIDE_REASON_REQUIRED', `Give a reason of at least ${ROUTE_PLAN_OVERRIDE_REASON_MIN} characters (two words or more) for the override`);
+    }
 
     const stops = plan.stops.map(toRuleStop);
     const bookingIds = [...new Set(stops.flatMap((s) => (s.bookingId ? [s.bookingId] : [])))];
@@ -454,9 +500,7 @@ export class RoutePlansService {
     const bookings = new Map<string, PublishBooking>(bookingRows.map((b) => [b.id, b as unknown as PublishBooking]));
     const poiIds = [...new Set([...stops.flatMap((s) => (s.poiId ? [s.poiId] : [])), ...bookingRows.flatMap((b) => [b.pickupPoiId, b.dropPoiId].filter((x): x is string => !!x))])];
     const places = new Map<string, PublishPlace>((poiIds.length ? await this.prisma.poi.findMany({ where: { id: { in: poiIds }, companyId: ctx.companyId }, select: { id: true, name: true, lat: true, lng: true } }) : []).map((p) => [p.id, p]));
-    const objectIds = plan.assignments.flatMap((a) => (a.objectId ? [a.objectId] : []));
-    const vehicles = objectIds.length ? await this.prisma.trackedObject.findMany({ where: { AND: [objectScopeWhere(ctx), { id: { in: objectIds }, isActive: true }] }, select: { id: true, companyId: true, transportProfile: { select: { seats: true } } } }) : [];
-    const seatsOf = new Map(vehicles.filter((v) => v.companyId === ctx.companyId).map((v) => [v.id, v.transportProfile?.seats ?? null]));
+    const seatsOf = await this.currentSeats(ctx, plan);
     const consents = await activeRoutingConsents(this.prisma, bookingRows.map((b) => b.profileId));
 
     // Branch scope first (a branch dispatcher's plan may still carry another branch's passenger or vehicle): 404-class.
@@ -483,15 +527,37 @@ export class RoutePlansService {
     const errors = [...scopeErrors, ...cs.errors];
     if (errors.length) throw planError(HttpStatus.CONFLICT, 'PLAN_NOT_PUBLISHABLE', `The plan cannot be published: ${errors[0].message}${errors.length > 1 ? ` (and ${errors.length - 1} more)` : ''}`, { routes: errors });
 
+    // Decision 5, recomputed from the stored plan with the vehicles' current seats: hard issues block (only arrival
+    // windows may be overridden, by an authorised caller with a reason); soft warnings need this exact set acknowledged.
+    const ride = rideRuleOf(plan, await maxRidePolicyOf(this.prisma, ctx.companyId));
+    const issues = publishIssues(routeCapacities(plan, seatsOf), stops, (b) => bookings.get(b)?.passengerCount, ride);
+    const blocking = issues.hard.filter((i) => !i.overridable);
+    if (blocking.length || (issues.hard.length && overrideReason === null)) {
+      const overridable = !blocking.length;
+      throw planError(HttpStatus.CONFLICT, 'PLAN_HAS_HARD_VIOLATIONS', `The plan has ${issues.hard.length} hard violation(s) (${[...new Set(issues.hard.map((i) => i.kind))].join(', ')}); edit or re-optimise it${overridable ? ', or publish with an authorised override' : ''}`, {
+        violations: issues.hard,
+        overridable,
+        canOverride: canOverridePublish(ctx),
+      });
+    }
+    if (issues.soft.length && acknowledged !== issues.fingerprint) {
+      throw planError(HttpStatus.CONFLICT, 'PLAN_WARNINGS_NOT_ACKNOWLEDGED', `Acknowledge the plan's ${issues.soft.length} warning(s) to publish${acknowledged ? ' (the warnings changed since you acknowledged them)' : ''}`, { warnings: issues.soft, fingerprint: issues.fingerprint });
+    }
+
     const now = new Date();
     const next = plan.version + 1;
+    const decision: RoutePlanPublishDecision = {
+      acknowledged: issues.soft.length ? { fingerprint: issues.fingerprint!, count: issues.soft.length } : null,
+      override: issues.hard.length && overrideReason !== null ? { reason: overrideReason, byUserId: ctx.userId, at: now.toISOString(), violations: issues.hard } : null,
+    };
+    const options = { ...((plan.options as Record<string, unknown> | null) ?? {}), publishDecision: { ...decision, requestHash: decisionHash } } as unknown as Prisma.InputJsonValue;
     const source: PublishSource = {
-      ref: { routePlanId: plan.id, expectedVersion: dto.expectedVersion },
+      ref: { routePlanId: plan.id, expectedVersion: dto.expectedVersion, ...(acknowledged !== null || overrideReason !== null ? { decision: decisionHash } : {}) },
       inTransaction: async (tx, result) => {
         await tx.$queryRaw`SELECT id FROM "RoutePlan" WHERE id = ${plan.id}::uuid FOR UPDATE`;
         const n = await tx.routePlan.updateMany({
           where: { id: plan.id, companyId: ctx.companyId, version: dto.expectedVersion, status: { in: [...EDITABLE] as RoutePlanStatus[] } },
-          data: { status: 'PUBLISHED', publishedAt: now, version: { increment: 1 } },
+          data: { status: 'PUBLISHED', publishedAt: now, version: { increment: 1 }, options },
         });
         if (!n.count) throw stale(plan.version);
         for (const [assignmentId, tempId] of cs.tempIds) {
@@ -500,7 +566,12 @@ export class RoutePlansService {
           await tx.transportTrip.update({ where: { id: trip.id }, data: { routePlanId: plan.id, routeAssignmentId: assignmentId } });
         }
         await this.recordVersion(tx, ctx, plan, next, 'PUBLISHED', 'PUBLISHED', stops);
-        await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: plan.id, details: { published: true, changeSetId: result.changeSetId, trips: cs.tempIds.size, version: next } }, tx);
+        const ack = decision.acknowledged ? { acknowledgedWarnings: { ...decision.acknowledged, kinds: [...new Set(issues.soft.map((i) => i.kind))] } } : {};
+        await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: plan.id, details: { published: true, changeSetId: result.changeSetId, trips: cs.tempIds.size, version: next, ...ack, ...(decision.override ? { override: true } : {}) } as Prisma.InputJsonValue }, tx);
+        // The override's own audit row: the plan, the violations overridden and the reason (the actor is the row's user).
+        if (decision.override) {
+          await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: plan.id, details: { planId: plan.id, version: next, publishOverride: { reason: decision.override.reason, violations: decision.override.violations } } as unknown as Prisma.InputJsonValue }, tx);
+        }
       },
     };
     let r: Replayable<ChangeSetResult>;
@@ -518,13 +589,16 @@ export class RoutePlansService {
   }
 
   /** A PUBLISHED plan: the same caller's same key replays (from the ledger and the trip links); anything else is refused. */
-  private async replayPublished(ctx: AuthContext, plan: PlanRow, key: string): Promise<Replayable<RoutePlanPublishResult>> {
+  private async replayPublished(ctx: AuthContext, plan: PlanRow, key: string, decisionHash: string): Promise<Replayable<RoutePlanPublishResult>> {
     const ledger = await this.prisma.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key } });
     if (!ledger) throw notEditable(plan.status);
     const result = ledger.result as unknown as ChangeSetResult | null;
     const linked = new Map(plan.transportTrips.map((t) => [t.id, t]));
     const ours = ledger.status === 'PUBLISHED' && ledger.createdById === ctx.userId && !!result?.trips?.length && result.trips.every((t) => linked.has(t.id));
     if (!ours) throw idempotencyReused();
+    // Decision 5: the same key with another acknowledgement / override is another request.
+    const stored = (plan.options as { publishDecision?: { requestHash?: string } } | null)?.publishDecision?.requestHash;
+    if (stored && stored !== decisionHash) throw idempotencyReused();
     return {
       value: {
         planId: plan.id,
@@ -597,4 +671,58 @@ export function routeError(e: unknown, failedAt: number, opRoute: (string | null
   const res = (typeof body === 'object' && body ? body : { message: String(body) }) as { message?: string; code?: string };
   const message = `Route ${a.vehicleLabel}: ${res.message ?? 'refused'}`;
   return new HttpException({ ...res, message, routes: [{ assignmentId: a.id, vehicleLabel: a.vehicleLabel, code: res.code ?? `HTTP_${e.getStatus()}`, message }] }, e.getStatus());
+}
+
+// ───────────────────────────── publish gate helpers (owner decision 5) ─────────────────────────────
+
+/**
+ * Who may override overridable hard publish issues (arrival windows): the existing grant model, no new grant — a
+ * whole-company role (dataScope COMPANY, e.g. the Transport admin template) holding both publish grants (Route
+ * planning: command and Dispatch: command). Branch dispatchers (ASSIGNED) publish, but never override.
+ */
+export function canOverridePublish(ctx: Pick<AuthContext, 'dataScope' | 'permissions'>): boolean {
+  return ctx.dataScope === 'COMPANY' && can(ctx.permissions, 'etms_dispatch', 'command') && can(ctx.permissions, 'etms_planning', 'command');
+}
+
+/** D-M1: the max-ride check of a plan: its effective max ride (effectiveMaxRideS) and its direction. */
+const rideRuleOf = (plan: Pick<PlanRow, 'options' | 'direction'>, policyS: number | null): RideRule => ({ maxRideS: effectiveMaxRideS(plan.options, policyS), direction: (plan.direction as TransportDirection | null) ?? null });
+
+const normaliseReason = overrideReasonText;
+
+/** A reason worth recording: the shared override rule (meaningfulOverrideReason; D-L4: the max-ride override uses it too). */
+export function meaningfulReason(reason: string): boolean {
+  return meaningfulOverrideReason(reason);
+}
+
+/** The plan detail's publishCheck: the publish classification with the refs as this caller sees them. */
+/** The routes as the publish gate checks them: a route's capacity is its vehicle's seats now (null without a vehicle in scope). */
+function routeCapacities(plan: Pick<PlanRow, 'assignments'>, seatsOf: Map<string, number | null>): { id: string; vehicleLabel: string; capacity: number | null }[] {
+  return plan.assignments.map((a) => ({ id: a.id, vehicleLabel: a.vehicleLabel, capacity: a.objectId ? (seatsOf.get(a.objectId) ?? null) : null }));
+}
+
+function publishCheckFor(ctx: AuthContext, routes: { id: string; vehicleLabel: string; capacity: number | null }[], plan: PlanRow, dto: RoutePlanDetailDto, seats: (bookingId: string) => number | undefined, ride: RideRule): RoutePlanPublishCheck {
+  const refs = new Map(dto.stops.map((s) => [s.id, s.ref]));
+  const r = publishIssues(routes, plan.stops.map(toRuleStop), seats, ride);
+  const shown = <T extends { stopId: string; ref: string }>(i: T): T => ({ ...i, ref: refs.get(i.stopId) ?? i.ref });
+  return { hard: r.hard.map(shown), soft: r.soft.map(shown), fingerprint: r.fingerprint, canOverride: canOverridePublish(ctx) };
+}
+
+/**
+ * E4 decisions review D-L2: the stored decision with each overridden violation's ref replaced by the ref this caller's
+ * detail shows for that stop (another branch's stop: its anonymised `stop-…` ref, never the stored `d-<booking id>`);
+ * a stop no longer on the plan gets an anonymised ref too. `byUserId` stays: it is the PUBLISHED version's
+ * `changedById`, which the plan history already shows every viewer of the plan.
+ */
+export function publishDecisionShown(d: RoutePlanPublishDecision | null, dto: Pick<RoutePlanDetailDto, 'stops'>): RoutePlanPublishDecision | null {
+  if (!d?.override) return d;
+  const refs = new Map(dto.stops.map((s) => [s.id, s.ref]));
+  const violations = (Array.isArray(d.override.violations) ? d.override.violations : []).map((v) => ({ ...v, ref: refs.get(v.stopId) ?? `stop-${String(v.stopId).slice(0, 8)}` }));
+  return { ...d, override: { ...d.override, violations } };
+}
+
+/** RoutePlan.options.publishDecision as the detail shows it (without the request hash). */
+export function publishDecisionOf(options: unknown): RoutePlanPublishDecision | null {
+  const d = (options as { publishDecision?: RoutePlanPublishDecision & { requestHash?: string } } | null)?.publishDecision;
+  if (!d || typeof d !== 'object') return null;
+  return { acknowledged: d.acknowledged ?? null, override: d.override ?? null };
 }

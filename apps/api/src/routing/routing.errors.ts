@@ -18,6 +18,8 @@ export const ROUTING_ERROR_STATUS: Record<RoutingApiErrorCode, number> = {
   QUOTA_EXCEEDED: 429,
   OPTIMIZER_UNAVAILABLE: 503,
   OPTIMIZER_BUSY: 503,
+  // E4 review L4: the optimiser refused the API's token (401) or source (403): a configuration fault, never retried.
+  OPTIMIZER_REFUSED: 503,
   JOB_NOT_FOUND: 404,
   PLAN_NOT_EDITABLE: 409,
   PLAN_STALE: 409,

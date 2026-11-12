@@ -58,6 +58,12 @@ export interface NewJob {
 /** Thrown by `create` when (companyId, idempotencyKey) already exists (a concurrent duplicate request). */
 export class DuplicateIdempotencyKey extends Error {}
 
+/**
+ * Thrown by `create` when the job names a plan that is not one of the company's (the RoutingJob → RoutePlan foreign key /
+ * company check refused the insert). Answered 404 like any plan outside the caller's scope (T1 E2E T1-D6).
+ */
+export class PlanNotFound extends Error {}
+
 /** Thrown by `create` when the company already has `maxActive` active jobs. */
 export class ActiveLimitExceeded extends Error {}
 
@@ -249,7 +255,7 @@ export class MemoryJobStore implements RoutingJobStore {
   private apply(r: JobRecord, d: FailureDecision, now: Date) {
     if (d.to === 'QUEUED') {
       this.move(r, 'QUEUED', null);
-      Object.assign(r, { lockedBy: null, lockedUntil: null, notBefore: d.notBeforeMs ? new Date(d.notBeforeMs) : null, error: d.error });
+      Object.assign(r, { lockedBy: null, lockedUntil: null, notBefore: d.notBeforeMs ? new Date(d.notBeforeMs) : null, error: d.error, ...(d.refundAttempt ? { attempts: Math.max(0, r.attempts - 1) } : {}) });
     } else if (d.to === 'FAILED') {
       this.move(r, 'FAILED', null);
       Object.assign(r, { lockedUntil: null, finishedAt: now, error: d.error });

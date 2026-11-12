@@ -147,6 +147,32 @@ export interface SolverProblemV2 {
 }
 
 /** The site window: IN = when the vehicles may arrive, OUT = when they may leave (from the site stops' windows). */
+/**
+ * Trip mode has ONE site window per solve (`trip.siteWindow`), but each booking's site stop carries its own window. When
+ * those windows do not share a common span (e.g. a plan without a shift holding 08:20–08:55 and 10:20–10:55 bookings),
+ * no single site window honours them all. The largest group of site stops whose windows share a span is kept; every
+ * other booking is left out before the solve (`time_window_unreachable`, both of its stops), so no passenger is ever
+ * scheduled outside their own booking window (T1 E2E defect T1-D2: the widest-span fallback put 08:20–08:55 passengers
+ * at the site at 10:55). Ties keep the earliest span. Returns [] when the windows overlap or the plan is not a trip.
+ */
+export function siteWindowConflicts(inp: PlanInputs): PlanInputs['excluded'] {
+  if (!inp.direction || !inp.site) return [];
+  const site = inp.stops.filter((s) => s.atSite && s.timeWindows?.length);
+  if (site.length < 2) return [];
+  const contains = (s: PlanStopInput, t: number) => (s.timeWindows ?? []).some(([a, z]) => a <= t && t <= z);
+  let best: { t: number; n: number } | null = null;
+  for (const t of [...new Set(site.flatMap((s) => (s.timeWindows ?? []).map((w) => w[0])))].sort((a, b) => a - b)) {
+    const n = site.filter((s) => contains(s, t)).length;
+    if (!best || n > best.n) best = { t, n };
+  }
+  if (!best || best.n === site.length) return [];
+  const t = best.t;
+  const out = site.filter((s) => !contains(s, t));
+  const bookings = new Set(out.map((s) => s.bookingId).filter((b): b is string => !!b));
+  const ids = new Set(out.map((s) => s.id));
+  return inp.stops.filter((s) => ids.has(s.id) || (s.bookingId && bookings.has(s.bookingId))).map((s) => ({ stopId: s.id, reason: 'time_window_unreachable' as const, bookingId: s.bookingId }));
+}
+
 export function siteWindow(b: BuiltProblem, horizonS: number): [number, number] {
   const ws = b.siteStops.flatMap((s) => s.timeWindows ?? []);
   if (!ws.length) return [0, horizonS];
@@ -283,17 +309,27 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
   }
   // Why the booking's other end is not routed (left out before the solve, or unassigned by the solver).
   const reasonOfBooking = new Map<string, OptimizeUnassignedReason>();
+  // The solver's code for the booking's other end, so the site end reports it too (T1 E2E T1-D3).
+  const codeOfBooking = new Map<string, string>();
   for (const e of inp.excluded) if (e.bookingId) reasonOfBooking.set(e.bookingId, e.reason);
   for (const u of unassigned) {
     const bk = stopById.get(u.stopId)?.bookingId;
     if (bk && !reasonOfBooking.has(bk)) reasonOfBooking.set(bk, u.reason);
+    if (bk && u.code && !codeOfBooking.has(bk)) codeOfBooking.set(bk, u.code);
   }
   // OUT prepends: walk the site stops backwards so they keep their order.
   for (const s of inp.direction === 'OUT' ? [...b.siteStops].reverse() : b.siteStops) {
     const a = s.bookingId ? routeOfBooking.get(s.bookingId) : undefined;
     if (!a) {
-      unassigned.push({ stopId: s.id, reason: (s.bookingId && reasonOfBooking.get(s.bookingId)) || 'not_scheduled_capacity_or_time' });
+      const code = s.bookingId ? codeOfBooking.get(s.bookingId) : undefined;
+      unassigned.push({ stopId: s.id, reason: (s.bookingId && reasonOfBooking.get(s.bookingId)) || 'not_scheduled_capacity_or_time', ...(code ? { code } : {}) });
       continue;
+    }
+    const at = inp.direction === 'OUT' ? a.startS : a.endS;
+    // Defence in depth (T1-D2): the site end of a booking must fall inside that booking's own window, not only inside the
+    // trip's site window. A violation fails the job; nothing is stored.
+    if (at !== null && s.timeWindows?.length && !s.timeWindows.some(([lo, hi]) => at >= lo - 1 && at <= hi + 1)) {
+      throw new JobError('INVALID_INPUT', `Optimizer result failed verification: a site ${inp.direction === 'OUT' ? 'departure' : 'arrival'} outside the booking's own window`);
     }
     if (inp.direction === 'OUT') a.visits.unshift({ stopId: s.id, sequence: 0, etaS: a.startS });
     else a.visits.push({ stopId: s.id, sequence: 0, etaS: a.endS });
