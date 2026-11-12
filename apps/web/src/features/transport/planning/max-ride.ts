@@ -34,7 +34,18 @@ export const MAX_RIDE_STRINGS = [
   'Required: at least {{n}} characters, in words. Recorded in the audit log with your name.',
   'Turning this off returns the plan to the company policy at the next optimisation.',
   'At most {{n}} bookings per plan. Split larger groups by shift, branch or site.',
+  'Longest time a passenger may spend in the vehicle. Route optimisation is not switched on, so this has no effect until it is.',
 ] as const;
+
+/**
+ * E4 decisions review D-L5: the settings panel's note. Only when the capabilities say route optimisation is enabled
+ * does it say optimisation uses the value; otherwise (off, unknown, web flag off) a neutral note.
+ */
+export function maxRidePolicyNote(routingEnabled: boolean | null | undefined): string {
+  return routingEnabled === true
+    ? 'Longest time a passenger may spend in the vehicle. Route optimisation uses it unless a plan has an authorised override.'
+    : 'Longest time a passenger may spend in the vehicle. Route optimisation is not switched on, so this has no effect until it is.';
+}
 
 export type ParsedMinutes = { ok: true; seconds: number | null } | { ok: false; error: string };
 

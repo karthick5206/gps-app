@@ -4308,6 +4308,7 @@ export const HI: Record<string, string> = {
   'Give a reason for the override: at least 15 characters, in words.': 'ओवरराइड का कारण दें: कम से कम 15 अक्षर, शब्दों में।',
   'Leave empty for no limit. 15–240 minutes.': 'कोई सीमा न रखने के लिए खाली छोड़ें। 15–240 मिनट।',
   'Longest time a passenger may spend in the vehicle. Route optimisation uses it unless a plan has an authorised override.': 'एक यात्री वाहन में अधिकतम कितना समय बिता सकता है। रूट ऑप्टिमाइज़ेशन इसी का उपयोग करता है, जब तक किसी योजना में अधिकृत ओवरराइड न हो।',
+  'Longest time a passenger may spend in the vehicle. Route optimisation is not switched on, so this has no effect until it is.': 'किसी यात्री के वाहन में बिताने का अधिकतम समय। रूट ऑप्टिमाइज़ेशन चालू नहीं है, इसलिए इसके चालू होने तक इसका कोई प्रभाव नहीं है।',
   'Maximum ride time': 'अधिकतम यात्रा समय',
   'Maximum ride time (minutes)': 'अधिकतम यात्रा समय (मिनट)',
   'Maximum ride time for this plan (minutes)': 'इस योजना के लिए अधिकतम यात्रा समय (मिनट)',

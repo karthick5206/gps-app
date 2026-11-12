@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { useAuth } from '@/features/auth/auth-context';
 import { Panel } from '@/features/dashboard/refresh/kit';
 import { errorMessage } from '@/lib/api';
-import { MAX_RIDE_MINUTES, minutesText, parseMaxRideMinutes } from './planning/max-ride';
+import { MAX_RIDE_MINUTES, maxRidePolicyNote, minutesText, parseMaxRideMinutes } from './planning/max-ride';
+import { plannerFlagOn, useCapabilities } from './planning/planner-client';
 import { useTransportSettings, useUpdateTransportSettings } from './use-agreements';
 
 /**
@@ -20,6 +21,9 @@ export function MaxRidePolicy() {
   const { can, me } = useAuth();
   const settings = useTransportSettings(true);
   const update = useUpdateTransportSettings();
+  // D-L5: say that optimisation uses the value only when the API reports routing enabled.
+  const flag = plannerFlagOn();
+  const caps = useCapabilities(flag);
   const editable = can('etms_settings', 'edit') && me?.dataScope === 'COMPANY';
   const saved = minutesText(settings.data?.maxRideS);
   const [draft, setDraft] = useState<string | null>(null);
@@ -32,7 +36,7 @@ export function MaxRidePolicy() {
     update.mutate({ maxRideS: parsed.seconds }, { onSuccess: () => toast.success(t('Maximum ride time saved.')), onError: (e) => toast.error(errorMessage(e)) });
   };
   return (
-    <Panel title={t('Maximum ride time')} subtitle={t('Longest time a passenger may spend in the vehicle. Route optimisation uses it unless a plan has an authorised override.')} id="etms-max-ride">
+    <Panel title={t('Maximum ride time')} subtitle={t(maxRidePolicyNote(flag ? caps.data?.enabled : false))} id="etms-max-ride">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <Field label={t('Maximum ride time (minutes)')} htmlFor="etms-max-ride-min" hint={t('Leave empty for no limit. 15–240 minutes.')} error={!parsed.ok ? t(parsed.error) : undefined} className="sm:w-64">
           <Input id="etms-max-ride-min" type="number" inputMode="numeric" min={MAX_RIDE_MINUTES.min} max={MAX_RIDE_MINUTES.max} step={1} value={value} disabled={!editable || settings.isLoading || update.isPending} onChange={(e) => setDraft(e.target.value)} className="h-9" aria-invalid={!parsed.ok} />

@@ -4308,6 +4308,7 @@ export const TA: Record<string, string> = {
   'Give a reason for the override: at least 15 characters, in words.': 'மேலெழுதலுக்கான காரணத்தைக் கொடுக்கவும்: குறைந்தது 15 எழுத்துகள், சொற்களில்.',
   'Leave empty for no limit. 15–240 minutes.': 'வரம்பு இல்லாமல் இருக்க காலியாக விடவும். 15–240 நிமிடங்கள்.',
   'Longest time a passenger may spend in the vehicle. Route optimisation uses it unless a plan has an authorised override.': 'ஒரு பயணி வாகனத்தில் இருக்கக்கூடிய அதிகபட்ச நேரம். ஒரு திட்டத்திற்கு அங்கீகரிக்கப்பட்ட மேலெழுதல் இல்லாவிட்டால், வழி உகப்பாக்கம் இதைப் பயன்படுத்தும்.',
+  'Longest time a passenger may spend in the vehicle. Route optimisation is not switched on, so this has no effect until it is.': 'ஒரு பயணி வாகனத்தில் இருக்கக்கூடிய அதிகபட்ச நேரம். வழி உகப்பாக்கம் இயக்கப்படவில்லை, எனவே அது இயக்கப்படும் வரை இதற்கு எந்த விளைவும் இல்லை.',
   'Maximum ride time': 'அதிகபட்ச பயண நேரம்',
   'Maximum ride time (minutes)': 'அதிகபட்ச பயண நேரம் (நிமிடங்கள்)',
   'Maximum ride time for this plan (minutes)': 'இந்தத் திட்டத்திற்கான அதிகபட்ச பயண நேரம் (நிமிடங்கள்)',

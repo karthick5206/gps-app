@@ -110,3 +110,15 @@ test('E4 decisions D-L4: the max-ride override reason follows the publish overri
   for (const lang of ['hi', 'ta'] as const) assert.ok(TRANSLATIONS[lang][msg], `${lang}: ${msg}`);
   assert.doesNotMatch(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'MaxRideFields.tsx'), 'utf8'), /reason\.trim\(\)\.length < 3/);
 });
+
+test('E4 decisions D-L5: the settings panel claims optimisation uses the max ride only when routing is on', () => {
+  const on = 'Longest time a passenger may spend in the vehicle. Route optimisation uses it unless a plan has an authorised override.';
+  const off = 'Longest time a passenger may spend in the vehicle. Route optimisation is not switched on, so this has no effect until it is.';
+  assert.equal(maxRide.maxRidePolicyNote(true), on);
+  assert.equal(maxRide.maxRidePolicyNote(false), off);
+  assert.equal(maxRide.maxRidePolicyNote(undefined), off, 'unknown (loading / flag off): never claims it is used');
+  for (const lang of ['hi', 'ta'] as const) assert.ok(TRANSLATIONS[lang][off], `${lang}: ${off}`);
+  const panel = readFileSync(join(HERE, '../MaxRidePolicy.tsx'), 'utf8');
+  assert.match(panel, /maxRidePolicyNote\(/);
+  assert.doesNotMatch(panel, /subtitle=\{t\('Longest time a passenger may spend in the vehicle\. Route optimisation uses it/);
+});
