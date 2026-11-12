@@ -15,12 +15,15 @@ export function SyncBanner() {
   const { t } = useTranslation();
   const c = useColors();
   const q = useDriverQueue();
-  const tone = q.rejected > 0 || q.syncRequired || q.paused ? 'destructive' : q.pending > 0 ? 'warning' : 'success';
+  // D1b: actions the server received too late to apply (trip closed) are not "synced": the banner says so until the
+  // driver dismisses them (or they are pruned after a day), so nothing disappears silently.
+  const tone = q.rejected > 0 || q.syncRequired || q.paused ? 'destructive' : q.pending > 0 || q.late > 0 ? 'warning' : 'success';
   const tc = toneColors(c, tone);
   const Icon = tone === 'success' ? CheckCircle2Icon : tone === 'warning' ? ClockIcon : AlertTriangleIcon;
   const parts: string[] = [];
   if (q.pending > 0) parts.push(t('{{n}} waiting to sync', { n: q.pending }));
   if (q.rejected > 0) parts.push(t('{{n}} rejected', { n: q.rejected }));
+  if (q.late > 0) parts.push(t('{{n}} not applied: trip closed', { n: q.late }));
   if (q.paused === 'AUTH') parts.push(t('Sign in again to sync'));
   if (q.paused === 'INACTIVE') parts.push(t('Sync paused: contact your dispatcher'));
   if (q.syncRequired) parts.push(t('Sync required'));

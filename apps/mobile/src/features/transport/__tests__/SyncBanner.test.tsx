@@ -24,6 +24,13 @@ describe('SyncBanner (driver shell, doc 09 §5)', () => {
     expect(screen.getByLabelText('Syncing')).toBeTruthy();
   });
 
+  it('D1b: actions received too late (trip closed) are reported, never "All actions synced"', async () => {
+    (useDriverQueue as jest.Mock).mockReturnValue({ pending: 0, rejected: 0, late: 2, paused: null, syncRequired: false, syncing: false, events: [] });
+    await render(<SyncBanner />);
+    expect(screen.getByText('2 not applied: trip closed')).toBeTruthy();
+    expect(screen.queryByText('All actions synced')).toBeNull();
+  });
+
   it('shows the sign-in pause and opens the sync list', async () => {
     queue({ pending: 1, paused: 'AUTH' });
     await render(<SyncBanner />);
