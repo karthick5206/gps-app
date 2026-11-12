@@ -46,3 +46,4 @@ export * from './transport-trips';
 export * from './transport-driver';
 export * from './routing';
 export * from './routing-plans';
+export * from './transport-sos';
