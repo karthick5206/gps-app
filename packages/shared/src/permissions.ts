@@ -46,6 +46,7 @@ export const MENU_KEYS = [
   'etms_bookings',
   'etms_dispatch',
   'etms_planning',
+  'etms_incidents',
   'etms_settings',
   'etms_self',
   'etms_driver',
@@ -109,6 +110,8 @@ export const MENUS: readonly MenuDef[] = [
   // E4 (WP 4.5): route planner. Shown only with the web flag etmsRouting and when GET /routing/capabilities is enabled
   // (ETMS + ETMS_ROUTING=on); RoutingAccess: view = canView, create = canPlan, edit = canEdit, delete = canDelete, command = canPublish.
   { key: 'etms_planning', label: 'Route planning', group: 'transport', path: '/transport/planning', actions: ['view', 'create', 'edit', 'delete', 'command'], requires: ETMS },
+  // E5 (WP 5.4): open SOS lane; view = list / detail, edit = acknowledge / resolve (export / command reserved for E6).
+  { key: 'etms_incidents', label: 'Incidents & SOS', group: 'transport', path: '/transport/incidents', actions: ['view', 'edit', 'export', 'command'], requires: ETMS },
   { key: 'etms_settings', label: 'Transport settings', group: 'transport', path: '/transport/settings', actions: ['view', 'edit'], requires: ETMS },
   { key: 'etms_self', label: 'My commute', group: 'transport', path: '/transport/me', actions: ['view', 'create', 'edit'], requires: ETMS },
   { key: 'etms_driver', label: 'My transport duty', group: 'transport', path: '/transport/driver', actions: ['view', 'edit'], requires: ETMS },

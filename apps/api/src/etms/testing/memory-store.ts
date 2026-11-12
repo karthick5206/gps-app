@@ -93,6 +93,10 @@ const DEFAULTS: Record<string, () => Obj> = {
   // E5
   transportDriverDuty: () => ({ endedAt: null, objectId: null, source: 'DRIVER_APP', endClientEventId: null, startedByUserId: null }),
   transportNotification: () => ({ pushQueued: false, readAt: null, tripId: null }),
+  // E5 WP 5.4 (column defaults as the etms_incidents migration sets them)
+  transportIncident: () => ({ kind: 'SOS', status: 'OPEN', severity: 'CRITICAL', receivedAt: new Date(), repeatCount: 0, lastRepeatAt: null, acknowledgedAt: null, acknowledgedByUserId: null, ackNote: null, resolvedAt: null, resolvedByUserId: null, resolution: null, resolveNote: null, legalHold: false, anonymisedAt: null, vehicleLabel: null, tripId: null }),
+  transportIncidentEvent: () => ({ at: new Date(), data: {}, note: null, clientKey: null, requestHash: null, actorUserId: null }),
+  outboxEvent: () => ({ schemaVersion: 1, availableAt: new Date(), attempts: 0, lastError: null, publishedAt: null, deadAt: null }),
 };
 
 export class MemoryStore {

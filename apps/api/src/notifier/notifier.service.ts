@@ -574,7 +574,8 @@ Driver event: ${link}`,
     const body = (msg.text || htmlToText(msg.body)).slice(0, 500);
     let result: Awaited<ReturnType<PushProvider['send']>> | null = null;
     const { error, attempts } = await withRetries(async () => {
-      const style = data.transport === true ? { channelId: TRANSPORT_PUSH_CHANNEL, sound: 'default' } : pushStyle(data.type, data.parkingAlarm === true);
+      // ETMS SOS to dispatchers (WP 5.4) rings the app's 'sos' channel; other ETMS pushes use the quiet 'trip' channel.
+      const style = data.transport === true ? (data.sos === true ? pushStyle('SOS') : { channelId: TRANSPORT_PUSH_CHANNEL, sound: 'default' }) : pushStyle(data.type, data.parkingAlarm === true);
       const payload = data.transport === true ? transportPushData(data) : data;
       result = await this.push.send(rows.map((r) => r.token), { title, body, data: payload, ...style });
     });
@@ -620,6 +621,11 @@ Driver event: ${link}`,
    * Everything else (test messages, reminders): { test: true } as before.
    */
   private async pushDataFor(log: NotificationLog): Promise<Record<string, unknown> | null> {
+    if (log.refType === 'TRANSPORT_INCIDENT' && log.refId) {
+      // ETMS SOS to a dispatcher (WP 5.4): { kind: 'SOS', tripId, notificationId = incident id }, nothing personal.
+      const i = await this.prisma.transportIncident.findUnique({ where: { id: log.refId }, select: { id: true, tripId: true } });
+      return i ? { transport: true, sos: true, kind: 'SOS', tripId: i.tripId, notificationId: i.id } : null;
+    }
     if (log.refType !== 'TRANSPORT_NOTIFICATION' || !log.refId) return { test: true };
     const n = await this.prisma.transportNotification.findUnique({ where: { id: log.refId }, select: { id: true, kind: true, tripId: true } });
     return n ? { transport: true, kind: n.kind, tripId: n.tripId, notificationId: n.id } : null;

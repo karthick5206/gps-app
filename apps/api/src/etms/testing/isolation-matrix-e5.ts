@@ -9,26 +9,35 @@
  * grant alone is never enough: the Super Admin (who bypasses menus) is 403 NOT_A_DRIVER; dispatchers, admins,
  * providers, passengers and fleet users lack `etms_driver` (403).
  */
+import type { IncidentDetail, IncidentListResponse, SosReceipt } from '@veetracer/shared';
 import { randomUUID } from 'crypto';
 import type { AuthContext } from '../../access/auth-context';
 import type { DriverController, MyTransportBookingsController, MyTransportNotificationsController } from '../driver/driver.controller';
+import type { DriverSosController, IncidentsController, MySosController } from '../safety/safety.controller';
 import type { E3Ids, E3World } from './isolation-matrix-e3';
 import type { MatrixRole, RoleTable } from './isolation-matrix';
 import type { MemoryStore } from './memory-store';
 
-export type E5Resource = 'driverSelf' | 'driverTrip' | 'myNotifications' | 'myBookingCancel';
-export const E5_RESOURCES: readonly E5Resource[] = ['driverSelf', 'driverTrip', 'myNotifications', 'myBookingCancel'];
+export type E5Resource = 'driverSelf' | 'driverTrip' | 'myNotifications' | 'myBookingCancel' | 'sosPassenger' | 'sosDriver' | 'incident';
+export const E5_RESOURCES: readonly E5Resource[] = ['driverSelf', 'driverTrip', 'myNotifications', 'myBookingCancel', 'sosPassenger', 'sosDriver', 'incident'];
 
 export interface E5Controllers {
   driver: DriverController;
   myNotifications: MyTransportNotificationsController;
   myBookings: MyTransportBookingsController;
+  /** WP 5.4: durable SOS (passenger, driver) and the dispatcher SOS lane. */
+  mySos: MySosController;
+  driverSos: DriverSosController;
+  incidents: IncidentsController;
 }
+
+/** E3 ids + the driver + the WP 5.4 incidents (an OPEN SOS of the company's passenger and one of its driver). */
+export type E5Ids = E3Ids & { driver: string; paxIncident: string; driverIncident: string };
 
 export interface E5World {
   e3: E3World;
-  party: E3Ids & { driver: string };
-  other: E3Ids & { driver: string };
+  party: E5Ids;
+  other: E5Ids;
   /** custA's second driver (no trip). */
   otherDriverId: string;
 }
@@ -54,14 +63,23 @@ export function seedE5(store: MemoryStore, e3: E3World, drivers: { party: string
   ] as const) {
     store.insert('transportNotification', { companyId, userId, audience, kind: 'TRIP_CHANGED', tripId, title: 'Trip updated', body: 'One of your trips has changed. Open the app for details.', dedupeKey: `seed:${userId}`, pushQueued: false, readAt: null });
   }
-  return { e3, party: { ...e3.party, driver: drivers.party }, other: { ...e3.other, driver: drivers.other }, otherDriverId };
+  // WP 5.4: one OPEN SOS of each company's passenger (on its trip) and one of each company's driver.
+  const sos = (companyId: string, raiserType: 'PASSENGER' | 'DRIVER', userId: string, tripId: string, profileId: string | null, driverId: string | null) =>
+    store.insert('transportIncident', {
+      kind: 'SOS', status: 'OPEN', severity: 'CRITICAL', raiserType, raiserUserId: userId, raiserDriverId: driverId, raiserProfileId: profileId, providerCompanyId: companyId, customerCompanyId: companyId, tripId,
+      vehicleLabel: null, idempotencyKey: randomUUID(), requestHash: 'seed', raisedAt: new Date(), receivedAt: new Date(), note: null, fixLat: null, fixLng: null, fixAccuracyM: null, fixAt: null,
+      repeatCount: 0, lastRepeatAt: null, acknowledgedAt: null, acknowledgedByUserId: null, ackNote: null, resolvedAt: null, resolvedByUserId: null, resolution: null, resolveNote: null, legalHold: false, anonymisedAt: null,
+    }).id as string;
+  const party = { ...e3.party, driver: drivers.party, paxIncident: sos('custA', 'PASSENGER', 'user-customerPassenger', e3.party.trip, e3.party.passenger, null), driverIncident: sos('custA', 'DRIVER', 'user-driverA', e3.party.trip, null, drivers.party) };
+  const other = { ...e3.other, driver: drivers.other, paxIncident: sos('custB', 'PASSENGER', 'user-passengerB', e3.other.trip, e3.other.passenger, null), driverIncident: sos('custB', 'DRIVER', 'user-driverB', e3.other.trip, null, drivers.other) };
+  return { e3, party, other, otherDriverId };
 }
 
 export function e5Ids(w: E5World, own: 'party' | 'other' | 'none'): E5World['party'] {
   if (own === 'party') return w.party;
   if (own === 'other') return w.other;
   const r = () => randomUUID();
-  return { shift: r(), schedule: r(), booking: r(), seatedBooking: r(), trip: r(), plannedTrip: r(), passengerTrip: r(), changeSet: r(), vehicle: r(), passenger: r(), place: r(), driver: r() };
+  return { shift: r(), schedule: r(), booking: r(), seatedBooking: r(), trip: r(), plannedTrip: r(), passengerTrip: r(), changeSet: r(), vehicle: r(), passenger: r(), place: r(), driver: r(), paxIncident: r(), driverIncident: r() };
 }
 
 // ───────────────────────────── Expected outcomes ─────────────────────────────
@@ -89,6 +107,20 @@ const DRV_SELF: RoleTable = T({ assignedDriver: 200, otherDriver: 200, foreignDr
 const DRV_TRIP_A: RoleTable = T({ assignedDriver: 200, otherDriver: 404, foreignDriver: 404 }, NOT_DRIVERS);
 /** custB's trip: only custB's driver (its own); custA's drivers 404. */
 const DRV_TRIP_B: RoleTable = T({ assignedDriver: 404, otherDriver: 404, foreignDriver: 200 }, NOT_DRIVERS);
+/** WP 5.4 dispatcher lane: the templates holding etms_incidents (admin, dispatcher of both companies), the Super Admin. */
+const INC_LIST: RoleTable = T({ customerAdmin: 200, customerDispatcher: 200, providerAdmin: 200, providerDispatcher: 200, superAdmin: 200, superAdminSwitched: 200 }, NOT_DRIVERS);
+/** custA's incident: custA's incident roles and the Super Admin; prov has no incident grant in its agreement (404). */
+const INC_A: RoleTable = T({ customerAdmin: 200, customerDispatcher: 200, providerAdmin: 404, providerDispatcher: 404, superAdmin: 200, superAdminSwitched: 200 }, NOT_DRIVERS);
+/** custB's incident: only the platform Super Admin (switched into custA it acts as custA: 404). */
+const INC_B: RoleTable = T({ customerAdmin: 404, customerDispatcher: 404, providerAdmin: 404, providerDispatcher: 404, superAdmin: 200, superAdminSwitched: 404 }, NOT_DRIVERS);
+/** The lane lists exactly the incidents of the caller's company (custA: its 2; prov: none; platform: all 4). */
+const laneOnlyOwn = (result: unknown, role: MatrixRole, _own: string, _ids: unknown, w: E5World) => {
+  const ids = (result as IncidentListResponse).items.map((i) => i.id).sort();
+  const a = [w.party.paxIncident, w.party.driverIncident];
+  const expected = role === 'superAdmin' ? [...a, w.other.paxIncident, w.other.driverIncident] : role.startsWith('provider') ? [] : a;
+  if (JSON.stringify(ids) !== JSON.stringify([...expected].sort())) fail(`${role} lane shows ${JSON.stringify(ids)}`);
+  if ((result as IncidentListResponse).openCount !== expected.length) fail(`${role} lane openCount ${(result as IncidentListResponse).openCount}`);
+};
 /** Passenger notification routes: the passenger itself only (etms_self + own profile). */
 const PAX_SELF: RoleTable = T({ customerPassenger: 200 }, NOT_DRIVERS);
 
@@ -215,6 +247,63 @@ export const E5_MATRIX: E5Entry[] = [
     },
   },
   { route: 'PUT me/transport/notifications/preferences', resource: 'myNotifications', invoke: (c, ctx) => c.myNotifications.setPreferences(ctx, { push: false, kinds: {} }), expect: { none: PAX_SELF } },
+  // ── WP 5.4: durable SOS (raise: own identity only; receipt: own incident only) ──
+  {
+    route: 'POST me/transport/sos',
+    resource: 'sosPassenger',
+    invoke: (c, ctx) => c.mySos.raise(ctx, { note: 'help', fix: { lat: 13.05, lng: 80.25, at: now() } }, randomUUID()),
+    expect: { none: PAX_SELF },
+    // The passenger already has an OPEN SOS in the world: the press merges into it (never a second incident, never 429).
+    verify: (r, role, _o, _i, w) => {
+      const rc = r as SosReceipt;
+      if (rc.status !== 'RECEIVED_BY_SERVER' || rc.incidentId !== w.party.paxIncident || !rc.merged) fail(`${role} SOS receipt: ${JSON.stringify(rc)}`);
+    },
+  },
+  {
+    route: 'GET me/transport/sos/:id',
+    resource: 'sosPassenger',
+    invoke: (c, ctx, t) => c.mySos.receipt(ctx, t.paxIncident),
+    expect: { party: PAX_SELF, other: T({ customerPassenger: 404 }, PAX_SELF) },
+  },
+  {
+    route: 'POST driver/v1/sos',
+    resource: 'sosDriver',
+    invoke: (c, ctx) => c.driverSos.raise(ctx, {}, randomUUID()),
+    expect: { none: DRV_SELF },
+    verify: (r, role, _o, _i, w) => {
+      const rc = r as SosReceipt;
+      // assignedDriver / foreignDriver already have an OPEN SOS (merge); otherDriver raises a new one with no trip.
+      const expected = role === 'assignedDriver' ? w.party.driverIncident : role === 'foreignDriver' ? w.other.driverIncident : null;
+      if (rc.status !== 'RECEIVED_BY_SERVER' || (expected && rc.incidentId !== expected) || (!expected && rc.merged)) fail(`${role} driver SOS receipt: ${JSON.stringify(rc)}`);
+    },
+  },
+  {
+    route: 'GET driver/v1/sos/:id',
+    resource: 'sosDriver',
+    invoke: (c, ctx, t) => c.driverSos.receipt(ctx, t.driverIncident),
+    expect: { party: DRV_TRIP_A, other: DRV_TRIP_B },
+  },
+  // ── WP 5.4: dispatcher SOS lane (etms_incidents; the raiser's company, Super Admin; agreement grants only) ──
+  { route: 'GET transport/incidents', resource: 'incident', invoke: (c, ctx) => c.incidents.list(ctx, { open: '1' }), expect: { none: INC_LIST }, verify: laneOnlyOwn },
+  { route: 'GET transport/incidents/:id', resource: 'incident', invoke: (c, ctx, t) => c.incidents.detail(ctx, t.paxIncident), expect: { party: INC_A, other: INC_B } },
+  {
+    route: 'POST transport/incidents/:id/ack',
+    resource: 'incident',
+    invoke: (c, ctx, t) => c.incidents.ack(ctx, t.paxIncident, { note: 'Called the passenger' }),
+    expect: { party: INC_A, other: INC_B },
+    verify: (r, role) => {
+      if ((r as IncidentDetail).status !== 'ACKNOWLEDGED') fail(`${role} ack did not acknowledge`);
+    },
+  },
+  {
+    route: 'POST transport/incidents/:id/resolve',
+    resource: 'incident',
+    invoke: (c, ctx, t) => c.incidents.resolve(ctx, t.paxIncident, { resolution: 'FALSE_ALARM', note: 'Pressed by mistake' }),
+    expect: { party: INC_A, other: INC_B },
+    verify: (r, role) => {
+      if ((r as IncidentDetail).status !== 'RESOLVED') fail(`${role} resolve did not resolve`);
+    },
+  },
 ];
 
 /** Roles E5 adds to the matrix: on every older route they hold only etms_driver, so the menu guard answers 403. */

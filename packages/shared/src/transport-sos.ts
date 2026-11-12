@@ -7,7 +7,8 @@
  * device offline fallback), 12 §8 WP 5.4 (exit criteria).
  *
  * Rules every client must follow:
- * - `Idempotency-Key` header (UUID, made ONCE at tap time and stored with the queued SOS) is REQUIRED on create.
+ * - `Idempotency-Key` header (UUID, made ONCE at tap time and stored with the queued SOS) is expected on create. A
+ *   missing / malformed key never refuses the SOS: the server makes one (a replay then merges into the open SOS).
  *   Replays with the same key and body → the original receipt, header `Idempotent-Replay: true`. Same key, different
  *   body → 422 `IDEMPOTENCY_KEY_REUSED` (treat as delivered: the first request was stored).
  * - The device stores the SOS in its local queue BEFORE the first network call and retries with back-off until a
@@ -24,6 +25,9 @@
  * - ETMS SOS cannot be disabled, snoozed or suppressed while the caller has an active trip (10 §6.4); there is no
  *   setting that turns the endpoint off for an authenticated passenger / driver of an ETMS-enabled company.
  */
+
+import { TRANSLATIONS } from './i18n';
+import type { PermissionMap } from './permissions';
 
 // ───────────────────────────── Routes ─────────────────────────────
 
@@ -79,7 +83,7 @@ export const SOS_NOTIFY_STATES = ['QUEUED', 'SENT_TO_DISPATCH', 'FAILED'] as con
 export type SosNotifyState = (typeof SOS_NOTIFY_STATES)[number];
 
 export type SosErrorCode =
-  | 'VALIDATION'               // 400: bad body / missing or non-UUID Idempotency-Key
+  | 'VALIDATION'               // 400: ack / resolve body (an SOS create is never refused for its body)
   | 'IDEMPOTENCY_KEY_REUSED'   // 422: same key, different body (the first SOS IS stored)
   | 'NOT_A_DRIVER'             // 403 (driver route only)
   | 'DRIVER_INACTIVE'          // 403 (driver route only)
@@ -225,4 +229,28 @@ export function sosShouldRetry(httpStatus: number | undefined): boolean {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function isValidIdempotencyKey(key: unknown): key is string {
   return typeof key === 'string' && UUID_RE.test(key);
+}
+
+// ───────────────────────────── Role templates (P6) ─────────────────────────────
+
+/**
+ * Menu WP 5.4 adds to the ETMS role templates (P6) for companies whose add-on is switched on from now on; existing
+ * untouched templates are upgraded by the etms_incidents migration backfill.
+ */
+export const ETMS_E5_SOS_TEMPLATE_PERMISSIONS: Record<string, PermissionMap> = {
+  'Transport admin': { etms_incidents: ['view', 'edit', 'export', 'command'] },
+  'Transport dispatcher': { etms_incidents: ['view', 'edit'] },
+};
+
+// ───────────────────────────── Dispatcher push text (generic, D7 / L4) ─────────────────────────────
+
+/** Push to dispatcher logins: generic text only (no names, places or plates); details are fetched in the app. */
+export const SOS_PUSH_TEXT = {
+  title: 'Transport SOS',
+  body: 'An SOS needs acknowledgement. Open VeeTrax now.',
+} as const;
+
+export function sosPushText(language: string | null | undefined): { title: string; body: string } {
+  const table = language === 'hi' || language === 'ta' ? TRANSLATIONS[language] : null;
+  return { title: table?.[SOS_PUSH_TEXT.title] ?? SOS_PUSH_TEXT.title, body: table?.[SOS_PUSH_TEXT.body] ?? SOS_PUSH_TEXT.body };
 }

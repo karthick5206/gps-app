@@ -1,6 +1,6 @@
 import { Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, WebSocketGateway } from '@nestjs/websockets';
-import { ALL_COMPANIES, AlertDto, AlertsAckedEvent, LiveObject, PLANNED_TRIP_SOCKET_EVENT, PlannedTripLiveUpdate, SystemHealthSummary } from '@veetracer/shared';
+import { ALL_COMPANIES, AlertDto, AlertsAckedEvent, LiveObject, PLANNED_TRIP_SOCKET_EVENT, PlannedTripLiveUpdate, SOS_SOCKET_EVENT, SystemHealthSummary } from '@veetracer/shared';
 import { Namespace, Socket } from 'socket.io';
 import { hasPermission, objectScopeWhere, shareOf } from '../access/access-rules';
 import { asSharedLive } from './shared-live';
@@ -9,6 +9,8 @@ import { AuthContextService } from '../access/auth-context.service';
 import { SessionsRevokedMessage, parseSessionsRevoked, revocationMatches } from '../auth/session-revocation';
 import type { AlertStateMessage } from '../alerts/alerts/alert-sync.service';
 import { loadEnv } from '../config/env';
+import { incidentAccess } from '../etms/safety/sos-rules';
+import { SOS_CHANNEL, sosLocalBus, type SosFanoutMessage } from '../etms/safety/sos-bus';
 import { LicencePolicyService } from '../licences/licence-policy.service';
 import { apiMetrics } from '../monitoring/api-metrics';
 import { PrismaService } from '../prisma/prisma.service';
@@ -58,6 +60,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   private invalidateTimer: NodeJS.Timeout | null = null;
   /** Revocations received in the last RECENT_REVOCATION_MS, with the local receive time. */
   private recentRevocations: { msg: SessionsRevokedMessage; receivedAt: number }[] = [];
+  private offSosBus: (() => void) | null = null;
 
   constructor(
     private readonly contexts: AuthContextService,
@@ -76,7 +79,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       this.contexts
         .fromToken(auth.token, companyId, socket.handshake.address)
         .then((ctx) => {
-          if (!hasPermission(ctx, 'live_map', 'view') && !hasPermission(ctx, 'alerts', 'view')) {
+          if (!hasPermission(ctx, 'live_map', 'view') && !hasPermission(ctx, 'alerts', 'view') && !hasPermission(ctx, 'etms_incidents', 'view')) {
             return next(new Error('Permission denied'));
           }
           socket.data.ctx = ctx;
@@ -93,6 +96,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       RedisKeys.healthUpdates,
       RedisKeys.plannedTripUpdates,
       RedisKeys.sessionsRevoked,
+      SOS_CHANNEL,
     ];
     this.redis.subscribe(channels, (channel, message) => {
       if (channel === RedisKeys.liveUpdates) this.onUpdate(message);
@@ -101,8 +105,11 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       else if (channel === RedisKeys.plannedTripUpdates) this.onPlannedTrip(message);
       else if (channel === RedisKeys.alertsState) this.onAlertState(message);
       else if (channel === RedisKeys.healthUpdates) this.onSystemHealth(message);
+      else if (channel === SOS_CHANNEL) this.onSos(message);
       else this.scheduleRefresh();
     });
+    // ETMS SOS direct-send fallback (Valkey down): the SAFETY relay of this process emits here directly.
+    this.offSosBus = sosLocalBus.register((msg) => this.emitSos(msg));
     this.timers = [
       setInterval(() => this.flush(), FLUSH_MS),
       setInterval(() => void this.refreshAll(), SCOPE_REFRESH_MS),
@@ -136,6 +143,7 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   onModuleDestroy(): void {
     this.timers.forEach(clearInterval);
+    this.offSosBus?.();
     if (this.invalidateTimer) clearTimeout(this.invalidateTimer);
   }
 
@@ -249,6 +257,36 @@ export class LiveGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       const event: AlertsAckedEvent = { ...(ids ? { ids } : {}), ackByName: msg.ackByName, ackAt: msg.ackAt };
       client.socket.emit('alerts:acked', event);
     }
+  }
+
+  /** ETMS SOS (WP 5.4) from Valkey: see emitSos. */
+  private onSos(message: string): void {
+    let msg: SosFanoutMessage;
+    try {
+      msg = JSON.parse(message) as SosFanoutMessage;
+    } catch {
+      return;
+    }
+    if (msg?.payload?.incidentId) this.emitSos(msg);
+  }
+
+  /**
+   * `transport.sos` (doc 05 §5.5): emitted immediately (not batched) to sockets holding etms_incidents:view that may
+   * see the incident (incidentAccess: the raiser's company, the other party with an incident grant, the Super Admin).
+   * Not vehicle-scoped: an SOS is never hidden by branch. Returns the number of sockets reached (direct-send fallback).
+   */
+  private emitSos(msg: SosFanoutMessage): number {
+    const targets = new Set<Client>();
+    for (const companyId of [msg.providerCompanyId, msg.customerCompanyId]) if (companyId) for (const c of this.clientsOf(companyId) ?? []) targets.add(c);
+    let n = 0;
+    for (const client of targets) {
+      if (!hasPermission(client.ctx, 'etms_incidents', 'view')) continue;
+      if (!client.ctx.isSuperAdmin && !client.ctx.features?.includes('etms')) continue;
+      if (incidentAccess(client.ctx, msg) === 'none') continue;
+      client.socket.emit(SOS_SOCKET_EVENT, msg.payload);
+      n++;
+    }
+    return n;
   }
 
   /** System Health evaluation (`SystemHealthSummary`): only the Super Admin's sockets, any selected company. */
