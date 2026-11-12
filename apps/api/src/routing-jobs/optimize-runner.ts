@@ -1,4 +1,4 @@
-import { ROUTING_AVAILABLE_PROFILES, ROUTING_LIMITS, RoutingJobInput, SolverResult } from '@veetracer/shared';
+import { planBookingsLimitMessage, ROUTING_AVAILABLE_PROFILES, ROUTING_LIMITS, RoutingJobInput, SolverResult } from '@veetracer/shared';
 import type { JobRecord, StoreTx } from './job-store';
 import { PROGRESS, phaseProgress } from './job-state';
 import { JobError, JobRunner } from './job-worker';
@@ -68,6 +68,9 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     if (!(ROUTING_AVAILABLE_PROFILES as readonly string[]).includes(inputs.profile)) {
       throw new JobError('PROFILE_NOT_AVAILABLE', `Routing profile "${inputs.profile}" is not available on this server`);
     }
+    // Owner decision 2 (T3-D9): the same bookings limit and message as plan creation and the API reservation.
+    const bookings = new Set(inputs.stops.flatMap((s) => (s.bookingId ? [s.bookingId] : []))).size;
+    if (bookings > ROUTING_LIMITS.planBookings) throw new JobError('LIMIT_EXCEEDED', planBookingsLimitMessage(bookings));
     if (inputs.stops.length > ROUTING_LIMITS.optimizeStops) throw new JobError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeStops} stops per optimisation (plan has ${inputs.stops.length})`);
     if (inputs.vehicles.length > ROUTING_LIMITS.optimizeVehicles) throw new JobError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeVehicles} vehicles per optimisation`);
     // Coverage first (India polygon / graph bbox, routing/service-area): an uncovered stop is unassigned

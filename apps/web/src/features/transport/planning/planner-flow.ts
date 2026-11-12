@@ -3,7 +3,7 @@
  * contract tests run them over the real HTTP client with a recording transport, so the request shapes the screens
  * send are the ones checked (B1 / B2 of the E4 QA round).
  */
-import type { RoutePlanCreateCounts, RoutePlanEmptyReason, RoutingJobDto, TransportDirection } from '@veetracer/shared';
+import type { MaxRideOverrideInput, RoutePlanCreateCounts, RoutePlanEmptyReason, RoutingJobDto, TransportDirection } from '@veetracer/shared';
 import type { CreatePlanRequest, OptimizeOptions, PlannerClient } from './planner-api.ts';
 import { solverObjective, type PlannerPlan, type PlannerWeights, type PlanSeed } from './planner-format.ts';
 
@@ -16,6 +16,8 @@ export interface OptimiseInput {
   timeLimitS: number;
   /** T2-D5: the branch of the new plans (branch-scoped users; null / absent for a whole-company plan). */
   branchId?: string | null;
+  /** Owner decision 1: per-plan max-ride override (authorised callers only), sent with each plan's optimise. */
+  maxRideOverride?: MaxRideOverrideInput | null;
 }
 
 export interface StartedPlan {
@@ -55,8 +57,15 @@ export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDa
   };
 }
 
-export function optimizeOptions(plan: Pick<PlannerPlan, 'version'>, input: { weights: PlannerWeights; timeLimitS: number }): OptimizeOptions {
-  return { expectedVersion: plan.version, timeLimitS: input.timeLimitS, objective: solverObjective(input.weights), weights: { ...input.weights } };
+export function optimizeOptions(plan: Pick<PlannerPlan, 'version'>, input: { weights: PlannerWeights; timeLimitS: number; maxRideOverride?: MaxRideOverrideInput | null }): OptimizeOptions {
+  return {
+    expectedVersion: plan.version,
+    timeLimitS: input.timeLimitS,
+    objective: solverObjective(input.weights),
+    weights: { ...input.weights },
+    // Owner decision 1: only when set or cleared on purpose; absent keeps the plan's override.
+    ...(input.maxRideOverride !== undefined ? { maxRideOverride: input.maxRideOverride ? { ...input.maxRideOverride } : null } : {}),
+  };
 }
 
 /**
@@ -87,7 +96,7 @@ export async function startOptimise(c: PlannerClient, input: OptimiseInput, keyF
 }
 
 /** Re-optimise a saved plan through the alias `POST /transport/route-plans/:id/optimize`. */
-export function reoptimise(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, input: { weights: PlannerWeights; timeLimitS: number }, keyFor: KeyFor): Promise<RoutingJobDto> {
+export function reoptimise(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, input: { weights: PlannerWeights; timeLimitS: number; maxRideOverride?: MaxRideOverrideInput | null }, keyFor: KeyFor): Promise<RoutingJobDto> {
   const body = optimizeOptions(plan, input);
   return c.optimizePlan(plan.id, body, keyFor(`reoptimize:${plan.id}`, body));
 }

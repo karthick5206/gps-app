@@ -3,6 +3,7 @@ import type {
   PublishRoutePlanResult,
   RoutePlanAssignmentDto,
   RoutePlanDto,
+  RoutePlanMaxRide,
   RoutePlanStatus,
   RoutePlanStopDto,
   RoutePlanStopViolation,
@@ -99,6 +100,8 @@ export interface RoutePlanDetailDto extends Omit<RoutePlanDto, 'stops' | 'assign
   publishCheck?: RoutePlanPublishCheck | null;
   /** Decision 5: what the publish accepted (acknowledged warnings, authorised override); PUBLISHED plans only. */
   publishDecision?: RoutePlanPublishDecision | null;
+  /** Owner decision 1: max ride of the last optimisation and its source, the company policy, the plan's override. */
+  maxRide?: RoutePlanMaxRide;
 }
 
 /** The four explicit solver weights (OptimizeOptionsDto.weights). */

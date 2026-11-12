@@ -1,5 +1,6 @@
 import type { LatLng } from './geo';
 import type { TransportDirection } from './transport-trips';
+import { can, type DataScope, type PermissionMap } from './permissions';
 
 /**
  * ETMS E4 routing and optimisation contracts (WP 4.0, doc 17 §7 P4), shared by the API, the routing worker and the web
@@ -51,6 +52,12 @@ export const ROUTING_LIMITS = {
   asyncMatrixCells: 40_000,
   /** Plan editing. */
   planStops: 200,
+  /**
+   * Owner decision 2026-11-11 (T3-D9): bookings (passengers) of one plan, enforced alike by draft creation and by
+   * optimisation (422 LIMIT_EXCEEDED, planBookingsLimitMessage). 75 bookings = 150 stops (pickup + site end each), so
+   * a plan within this limit always fits optimizeStops / optimizeLocations below.
+   */
+  planBookings: 75,
   /** One optimisation job (stops + depots ≤ optimizeLocations; the solver service itself accepts up to 600). */
   optimizeStops: 150,
   optimizeVehicles: 20,
@@ -60,6 +67,14 @@ export const ROUTING_LIMITS = {
   perUserPerMinute: 60,
   perCompanyPerDay: 5000,
 } as const;
+
+/**
+ * The one message for a plan over ROUTING_LIMITS.planBookings, from draft creation and optimisation alike (422
+ * LIMIT_EXCEEDED). Creation refuses (never truncates) and names the way out.
+ */
+export function planBookingsLimitMessage(found: number): string {
+  return `At most ${ROUTING_LIMITS.planBookings} bookings per plan (${found} found); split the plan by shift, branch or site`;
+}
 
 /** Why an engine result is unavailable (`RoutingProvider` `Unavailable.degraded`). Never paired with a number. */
 export type RoutingDegradedReason =
@@ -513,7 +528,55 @@ export interface RoutingAccess {
    * CreateRoutePlanRequest.branchId (the API uses that branch); with several the client must name one.
    */
   branches?: { id: string; name: string }[];
+  /**
+   * Owner decision 1 (2026-11-11): the caller may set a per-plan max-ride override (create / optimise /
+   * re-optimise): etms_settings:edit with whole-company scope (canOverrideMaxRide). The web shows the fields only then.
+   */
+  canOverrideMaxRide?: boolean;
+  /** The company max-ride policy in seconds (Company.settings.etms.maxRideS); null = no limit. */
+  maxRidePolicyS?: number | null;
   reason?: string;
+}
+
+// ───────────────────────────── max ride time (owner decision 1, 2026-11-11) ─────────────────────────────
+
+/** Where the max ride an optimisation ran with came from: the plan's override, the company policy, or none (no limit). */
+export type MaxRideSource = 'override' | 'policy' | 'none';
+
+/** Per-plan max-ride override in a create / optimise request; on optimise, null clears the plan's override. */
+export interface MaxRideOverrideInput {
+  /** Seconds, within MAX_RIDE_BOUNDS_S. */
+  maxRideS: number;
+  /** Mandatory (trimmed, MAX_RIDE_REASON_LENGTH); stored on the plan and in the audit log. */
+  reason: string;
+}
+
+/** Shortest / longest reason accepted with an override. */
+export const MAX_RIDE_REASON_LENGTH = { min: 3, max: 300 } as const;
+
+/**
+ * The plan's max ride (RoutePlanDetailDto.maxRide). RoutePlan.options holds `maxRideOverride` (kept by re-optimise
+ * until changed or cleared) and, written at every optimise, the snapshot `maxRideS` + `maxRideSource` that the solver
+ * reads, so a result can be reproduced whatever the company policy becomes later.
+ */
+export interface RoutePlanMaxRide {
+  /** Max ride the last optimisation used (seconds); null = no limit, or not optimised yet. */
+  appliedS: number | null;
+  /** Where appliedS came from; null = not optimised since max-ride snapshots exist. */
+  appliedSource: MaxRideSource | null;
+  /** The company policy now (seconds; null = no limit): what the next optimisation uses without an override. */
+  policyS: number | null;
+  /** The plan's authorised override, with its reason, who set it and when. */
+  override: { maxRideS: number; reason: string; setById: string | null; setAt: string } | null;
+}
+
+/**
+ * Who may override the company max ride for one plan: the authority that sets the policy (etms_settings:edit) with
+ * whole-company scope (the transport-settings rule). No new grant: the Transport admin template holds it, the
+ * branch dispatcher template does not.
+ */
+export function canOverrideMaxRide(permissions: PermissionMap, dataScope: DataScope): boolean {
+  return dataScope === 'COMPANY' && can(permissions, 'etms_settings', 'edit');
 }
 
 export interface RoutingCapabilities {
@@ -673,6 +736,8 @@ export interface CreateRoutePlanRequest {
   direction?: TransportDirection;
   shiftId?: string | null;
   sitePoiId?: string | null;
+  /** Owner decision 1: authorised per-plan max-ride override (canOverrideMaxRide), with a reason; audited. */
+  maxRideOverride?: MaxRideOverrideInput;
 }
 
 export interface RoutePlanStopInput {

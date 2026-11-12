@@ -32,6 +32,7 @@ import { AuditService } from '../../audit/audit.service';
 import { driverScopeWhere } from '../../drivers/drivers.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROUTING_PROVIDER, type RoutingProvider } from '../../routing/provider/routing-provider';
+import { maxRidePolicyOf, maxRideView } from '../../routing-jobs/max-ride';
 import { DispatchService, type PublishSource } from '../dispatch/dispatch.service';
 import { idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound, requestHash } from '../dispatch/e3-common';
 import { preciseFor } from '../dispatch/e3-mapping';
@@ -112,7 +113,8 @@ export class RoutePlansService {
     dto.publishDecision = publishDecisionOf(plan.options);
     // L1: a read that returned personal points or passenger names is ACCESS-audited (de-duplicated per user, view and day).
     await this.dispatch.recordPersonalAccess(ctx, 'plan', [...new Set([...shown, ...named])], dto.precise, { planId: id, ...(named.length ? { passengerNames: named.length } : {}) });
-    return dto;
+    // Owner decision 1: the max ride of the last optimisation and its source, the policy now, the plan's override.
+    return { ...dto, maxRide: maxRideView(plan.options, await maxRidePolicyOf(this.prisma, ctx.companyId)) };
   }
 
   /** Version history (newest first): ids, sequences and times only; another branch's stops lose their ref for ASSIGNED roles. */

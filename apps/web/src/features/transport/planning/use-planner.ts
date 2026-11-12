@@ -6,6 +6,7 @@ import { DISPATCH_ENDPOINT, invalidateDispatch, SHIFTS_ENDPOINT } from '../dispa
 import type { PlanListQuery } from './planner-api';
 import { call, plannerClient, plannerKeys } from './planner-client';
 import { publishPlan, reoptimise, startOptimise, type KeyStore, type OptimiseInput, type StartedPlan } from './planner-flow';
+import type { MaxRideOverrideInput } from '@veetracer/shared';
 import {
   jobPollMs,
   newKey,
@@ -181,7 +182,7 @@ export function useStartOptimise(keys: KeyStore) {
 export function useReoptimise(plan: PlannerPlan | undefined, keys: KeyStore) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { weights: PlannerWeights; timeLimitS: number }) => call((c) => reoptimise(c, plan as PlannerPlan, input, keys.keyFor)),
+    mutationFn: (input: { weights: PlannerWeights; timeLimitS: number; maxRideOverride?: MaxRideOverrideInput | null }) => call((c) => reoptimise(c, plan as PlannerPlan, input, keys.keyFor)),
     onSuccess: (job) => qc.setQueryData(plannerKeys.job(job.jobId), job),
     onError: (err) => {
       const st = (err as { status?: number }).status;

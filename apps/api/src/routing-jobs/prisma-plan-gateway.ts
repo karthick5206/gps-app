@@ -1,7 +1,9 @@
 import { Logger } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { ACTIVE_BOOKING_STATUSES, routePlanLocks, type OptimizeUnassignedReason, ROUTE_PLAN_EDITABLE, ROUTING_LIMITS, RoutePlanStatus, RoutePlanVersionSnapshot, RoutingProfile, uncalibratedEta } from '@veetracer/shared';
+import { ACTIVE_BOOKING_STATUSES, planBookingsLimitMessage, routePlanLocks, type MaxRideOverrideInput, type OptimizeUnassignedReason, ROUTE_PLAN_EDITABLE, ROUTING_LIMITS, RoutePlanStatus, RoutePlanVersionSnapshot, RoutingProfile, uncalibratedEta } from '@veetracer/shared';
 import type { AuthContext } from '../access/auth-context';
+import { AuditService } from '../audit/audit.service';
+import { maxRidePolicyOf, maxRideSnapshot, withOverride } from './max-ride';
 import { activeRoutingConsents } from '../etms/people/people.service';
 import type { JobRecord, StoreTx } from './job-store';
 import { JobError } from './job-worker';
@@ -60,23 +62,38 @@ export function planVisibleTo(ctx: Pick<AuthContext, 'companyId' | 'dataScope' |
 export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
   private readonly logger = new Logger('RoutingPlanGateway');
 
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly audit: Pick<AuditService, 'record'> = new AuditService(db as never),
+  ) {}
 
   // ───────────── API side (PlanJobLink) ─────────────
 
-  async reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights): Promise<{ profile: RoutingProfile }> {
+  async reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights, extra?: { maxRideOverride?: MaxRideOverrideInput | null }): Promise<{ profile: RoutingProfile }> {
     const t = tx as Tx;
     const plan = await t.routePlan.findFirst({ where: { id: planId, companyId: ctx.companyId }, select: { id: true, companyId: true, branchId: true, createdById: true, status: true, version: true, profile: true, options: true } });
     if (!plan || !planVisibleTo(ctx, plan)) throw new RoutingHttpError('JOB_NOT_FOUND', 'Plan not found');
     if (plan.version !== expectedVersion) throw new RoutingHttpError('PLAN_STALE', 'The plan changed meanwhile; reload it and try again', { currentVersion: plan.version });
     if (plan.status === 'OPTIMIZING') throw new RoutingHttpError('PLAN_NOT_EDITABLE', 'An optimisation is already running for this plan');
     if (!(ROUTE_PLAN_EDITABLE as readonly string[]).includes(plan.status)) throw new RoutingHttpError('PLAN_NOT_EDITABLE', `A ${plan.status.toLowerCase()} plan cannot be optimised`);
-    const [stops, vehicles] = await Promise.all([t.routePlanStop.count({ where: { planId } }), t.routeAssignment.count({ where: { planId } })]);
+    const [stops, vehicles, bookingStops] = await Promise.all([
+      t.routePlanStop.count({ where: { planId } }),
+      t.routeAssignment.count({ where: { planId } }),
+      t.routePlanStop.findMany({ where: { planId, bookingId: { not: null } }, select: { bookingId: true } }),
+    ]);
     if (!vehicles) throw new RoutingHttpError('LIMIT_EXCEEDED', 'Add at least one vehicle to the plan before optimising');
     if (vehicles > ROUTING_LIMITS.optimizeVehicles) throw new RoutingHttpError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeVehicles} vehicles per optimisation`);
+    // Owner decision 2 (T3-D9): bookings counted as at draft creation, same limit and message (a plan made before the
+    // limit, or grown by hand, is refused here instead of by the stop count).
+    const bookings = new Set(bookingStops.map((s) => s.bookingId)).size;
+    if (bookings > ROUTING_LIMITS.planBookings) throw new RoutingHttpError('LIMIT_EXCEEDED', planBookingsLimitMessage(bookings));
     if (stops > ROUTING_LIMITS.optimizeStops) throw new RoutingHttpError('LIMIT_EXCEEDED', `At most ${ROUTING_LIMITS.optimizeStops} stops per optimisation`);
+    // Owner decision 1: the plan's override (changed only on an authorised request, audited), then the snapshot the
+    // solver runs with: override, else the company policy now, else none.
+    const policyS = await maxRidePolicyOf(t, ctx.companyId);
+    const withRide = maxRideSnapshot(await withOverride(t, this.audit, ctx, { id: plan.id, options: optionsOf(plan.options), version: plan.version }, extra?.maxRideOverride, 'optimize', policyS), policyS);
     // QA B3: the status before the run (DRAFT / PLANNED) is kept in options, so a failed or cancelled run gives it back.
-    const options = { ...optionsOf(plan.options), ...(weights ? { weights: { ...weights } } : {}), statusBeforeOptimize: plan.status };
+    const options = { ...withRide, ...(weights ? { weights: { ...weights } } : {}), statusBeforeOptimize: plan.status };
     const moved = await t.routePlan.updateMany({ where: { id: planId, companyId: ctx.companyId, version: expectedVersion, status: plan.status }, data: { status: 'OPTIMIZING', options: options as Prisma.InputJsonValue } });
     if (!moved.count) throw new RoutingHttpError('PLAN_STALE', 'The plan changed meanwhile; reload it and try again');
     return { profile: (plan.profile as RoutingProfile) ?? 'car' };

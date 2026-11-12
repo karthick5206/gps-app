@@ -42,6 +42,8 @@ import { DIRECTION_LABEL, e3ErrorText } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
 import { transportTripPath } from '../dispatch/use-e3';
 import { PlanMap } from './PlanMap';
+import { MaxRideOverrideFields } from './MaxRideFields';
+import { canOverrideMaxRide, maxRideSummary, overrideDraftOf, overrideRequest, type MaxRideOverrideDraft } from './max-ride';
 import {
   canShiftStop,
   capabilityView,
@@ -155,6 +157,9 @@ export function PlanReviewPage() {
   const [reoptOpen, setReoptOpen] = useState(false);
   const [reoptWeights, setReoptWeights] = useState<WeightDraft | null>(null);
   const [reoptLimit, setReoptLimit] = useState<number | null>(null);
+  // Owner decision 1: per-plan max-ride override in the re-optimise dialog (null = start from the plan's own).
+  const [reoptRide, setReoptRide] = useState<MaxRideOverrideDraft | null>(null);
+  const [reoptTouched, setReoptTouched] = useState(false);
   // K1 / K2: keyboard focus survives an edit (the clicked button is disabled while it runs) and a dialog opened from
   // a button returns focus to it. Buttons carry data-focus-key; the first focusable key of the list wins.
   const pendingFocus = useRef<string[] | null>(null);
@@ -296,6 +301,8 @@ export function PlanReviewPage() {
   const reoptDefaults = reoptimiseDefaults(plan);
   const weightsForReopt = reoptWeights ?? reoptDefaults.weights;
   const limitForReopt = reoptLimit ?? reoptDefaults.timeLimitS;
+  const rideForReopt = reoptRide ?? overrideDraftOf(plan);
+  const rideRequest = canOverrideMaxRide(caps.data) ? overrideRequest(rideForReopt, plan.maxRide?.override) : ({ ok: true, value: undefined } as const);
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-3 p-4 sm:p-6">
@@ -411,6 +418,9 @@ export function PlanReviewPage() {
       )}
 
       <MetricsGrid m={metrics} />
+      <p className="text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">{t('Maximum ride time')}:</span> {maxRideSummary(plan.maxRide, t)}
+      </p>
       <EtaFootnote />
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -760,6 +770,7 @@ export function PlanReviewPage() {
             <Field label={t('Time limit per plan')} htmlFor="re-limit">
               <SimpleSelect id="re-limit" value={String(limitForReopt)} onChange={(v) => setReoptLimit(Number(v))} options={timeLimitOptions(caps.data?.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
             </Field>
+            <MaxRideOverrideFields idPrefix="re-ride" caps={caps.data} value={rideForReopt} onChange={setReoptRide} showErrors={reoptTouched} hadOverride={!!plan.maxRide?.override} />
             {reopt.isError && <FormError message={plannerErrorMessage(reopt.error, t)} />}
           </DialogBody>
           <DialogFooter>
@@ -770,13 +781,16 @@ export function PlanReviewPage() {
               disabled={reopt.isPending || !completeWeights(weightsForReopt)}
               onClick={() => {
                 const w = completeWeights(weightsForReopt);
-                if (!w) return;
+                setReoptTouched(true);
+                if (!w || !rideRequest.ok) return;
                 reopt.mutate(
-                  { weights: w, timeLimitS: limitForReopt },
+                  { weights: w, timeLimitS: limitForReopt, ...(rideRequest.value !== undefined ? { maxRideOverride: rideRequest.value } : {}) },
                   {
                     onSuccess: (job) => {
                       setJobId(job.jobId);
                       setReoptOpen(false);
+                      setReoptRide(null);
+                      setReoptTouched(false);
                       setLastCheck(null);
                     },
                     onError: (err) => plannerErrorOf(err).kind === 'conflict' && setConflict(true),

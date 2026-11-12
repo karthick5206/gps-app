@@ -22,7 +22,7 @@ import type {
   RoutingJobDto,
   TransportDirection,
 } from '@veetracer/shared';
-import type { RoutePlanCreateCounts, RoutePlanEmptyReason } from '@veetracer/shared';
+import type { MaxRideOverrideInput, RoutePlanCreateCounts, RoutePlanEmptyReason } from '@veetracer/shared';
 import type { PlanEditResult, PlannerPlan, PlannerWeights } from './planner-format';
 
 /** POST /transport/route-plans answer: the plan, plus why it has no passenger (null / absent when it has some). */
@@ -52,6 +52,8 @@ export interface OptimizeOptions {
   timeLimitS?: number;
   objective?: 'duration' | 'distance';
   weights: PlannerWeights;
+  /** Owner decision 1: per-plan max-ride override (authorised callers); null clears it; absent keeps it. */
+  maxRideOverride?: MaxRideOverrideInput | null;
 }
 
 /** Body of `POST /routing/jobs/optimize` (OptimizeJobDto). */

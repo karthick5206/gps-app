@@ -210,7 +210,7 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
     workers: 1,
     etaBands: { short_lt10km: 'uncalibrated', mid_10_40km: 'uncalibrated', long_gt40km: 'uncalibrated' },
     profiles: ['car'],
-    limits: { routeLocations: 25, matrixLocations: 50, matrixCells: 2500, asyncMatrixLocations: 200, asyncMatrixCells: 40_000, planStops: 200, optimizeStops: 150, optimizeVehicles: 20, optimizeLocations: 200, optimizeTimeLimitS: 60, concurrentOptimizePerCompany: 2, perUserPerMinute: 60, perCompanyPerDay: 5000 },
+    limits: { routeLocations: 25, matrixLocations: 50, matrixCells: 2500, asyncMatrixLocations: 200, asyncMatrixCells: 40_000, planStops: 200, planBookings: 75, optimizeStops: 150, optimizeVehicles: 20, optimizeLocations: 200, optimizeTimeLimitS: 60, concurrentOptimizePerCompany: 2, perUserPerMinute: 60, perCompanyPerDay: 5000 },
     liveTraffic: false,
     attribution: '© OpenStreetMap contributors',
     access: { enabled: true, canView: true, canPlan: true, canEdit: true, canDelete: true, canPublish: true, scope: 'COMPANY', support: false },
