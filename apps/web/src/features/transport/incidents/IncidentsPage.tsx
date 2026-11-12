@@ -79,12 +79,12 @@ function SosCard({ i, now, onAck, onResolve, onOpen, canEdit }: { i: IncidentLis
           <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={onOpen}>
             {t('Details')}
           </Button>
-          {canEdit && open && (
+          {canEdit && i.canAct && open && (
             <Button variant="destructive" size="sm" className="flex-1 sm:flex-none" onClick={onAck}>
               {t('Acknowledge')}
             </Button>
           )}
-          {canEdit && i.status === 'ACKNOWLEDGED' && (
+          {canEdit && i.canAct && i.status === 'ACKNOWLEDGED' && (
             <Button size="sm" className="flex-1 sm:flex-none" onClick={onResolve}>
               {t('Resolve')}
             </Button>

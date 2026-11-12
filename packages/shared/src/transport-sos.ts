@@ -149,6 +149,12 @@ export interface IncidentListItem {
   acknowledgedAt: string | null;
   acknowledgedBy: string | null;
   resolvedAt: string | null;
+  /**
+   * QA B8: the caller may acknowledge / resolve this incident (manage access AND etms_incidents:edit). View-only staff
+   * (e.g. a provider whose agreement grants RECEIVE_INCIDENTS only, or VeeTrax support) get no Acknowledge button and
+   * no repeating siren for it.
+   */
+  canAct: boolean;
 }
 
 export interface IncidentEventDto {

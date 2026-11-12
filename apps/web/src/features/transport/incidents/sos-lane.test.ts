@@ -4,7 +4,16 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { MENUS, SOS_PUSH_TEXT, TRANSLATIONS, type IncidentListItem } from '@veetracer/shared';
-import { bannerIncident, elapsed, isSosPayload, lanePollMs, newOpenIds, noteError, NOTIFY_LABEL, SOS_LANE_STRINGS, sortLane } from './sos-lane.ts';
+import { actionableOpenCount, bannerIncident, elapsed, isSosPayload, lanePollMs, newOpenIds, noteError, NOTIFY_LABEL, sirenIds, SOS_LANE_STRINGS, sortLane } from './sos-lane.ts';
+
+test('QA B8: the siren rings only for SOS the caller can acknowledge', () => {
+  const items = [item({ id: 'mine' }), item({ id: 'view-only', canAct: false }), item({ id: 'acked', status: 'ACKNOWLEDGED' })];
+  assert.deepEqual(sirenIds(['mine', 'view-only'], items), ['mine']);
+  assert.deepEqual(sirenIds(['view-only'], items), []);
+  assert.equal(actionableOpenCount(items), 1);
+  assert.equal(actionableOpenCount([item({ canAct: false })]), 0);
+  assert.equal(actionableOpenCount(undefined), 0);
+});
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -26,6 +35,7 @@ function item(over: Partial<IncidentListItem>): IncidentListItem {
     acknowledgedAt: null,
     acknowledgedBy: null,
     resolvedAt: null,
+    canAct: true,
     ...over,
   };
 }

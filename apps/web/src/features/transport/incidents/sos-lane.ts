@@ -52,6 +52,18 @@ export function newOpenIds(previous: ReadonlySet<string>, items: readonly Pick<I
   return items.filter((i) => i.status === 'OPEN' && !previous.has(i.id)).map((i) => i.id);
 }
 
+/**
+ * QA B8: the siren is for people who can act. It rings (once per new SOS, then repeating) only for OPEN incidents the
+ * caller may acknowledge; view-only staff still get the banner, the toast and the lane, without the siren loop.
+ */
+export function sirenIds(ids: readonly string[], items: readonly Pick<IncidentListItem, 'id' | 'canAct'>[]): string[] {
+  return ids.filter((id) => items.find((i) => i.id === id)?.canAct === true);
+}
+
+export function actionableOpenCount(items: readonly Pick<IncidentListItem, 'status' | 'canAct'>[] | undefined): number {
+  return (items ?? []).filter((i) => i.status === 'OPEN' && i.canAct).length;
+}
+
 /** Socket payload → should the lane refetch now? Always for a valid payload (details come over REST). */
 export function isSosPayload(p: unknown): p is TransportSosSocketPayload {
   const x = p as Partial<TransportSosSocketPayload> | null;

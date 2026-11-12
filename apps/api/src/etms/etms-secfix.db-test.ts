@@ -166,6 +166,22 @@ d(`v1.14.0 security fix round on ${dbName}`, () => {
     expect((await incidentsCtl.ack(custDesk, incidentId, { note: 'Called the rider' })).status).toBe('ACKNOWLEDGED');
   });
 
+  it('QA B8: canAct is true only with manage access and etms_incidents:edit', async () => {
+    const incidentId = await providerLinkedSos();
+    const itemOf = async (c: unknown) => (await incidentsCtl.list(c as never, { open: '1' })).items.find((i) => i.id === incidentId)!;
+    expect((await itemOf(custDesk)).canAct).toBe(true);
+    expect((await itemOf(provDesk())).canAct).toBe(true); // MANAGE_INCIDENTS
+    expect((await itemOf(support)).canAct).toBe(false); // VeeTrax support: view only (M1)
+    expect((await itemOf(ctx(w.custDesk, w.cust, { etms_incidents: ['view'] }))).canAct).toBe(false); // no edit right
+    await prisma.transportServiceAgreement.update({ where: { id: w.agreement }, data: { grants: ['RECEIVE_INCIDENTS'] } });
+    try {
+      const receiveOnly = ctx(w.provDesk, w.prov, INC, { features: ['etms', 'etmsProvider'], agreements: [{ ...agreementScope(), grants: ['RECEIVE_INCIDENTS'] }] });
+      expect((await itemOf(receiveOnly)).canAct).toBe(false);
+    } finally {
+      await prisma.transportServiceAgreement.update({ where: { id: w.agreement }, data: { grants: ['MANAGE_INCIDENTS'] } });
+    }
+  });
+
   it('QA B1: a provider dispatcher whose picker shows its own company still sees and acts on the customer SOS', async () => {
     const incidentId = await providerLinkedSos();
     const desk = provDesk() as AuthContext;

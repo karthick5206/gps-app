@@ -13,6 +13,7 @@ import {
   type IncidentResolution,
   type IncidentStatus,
 } from '@veetracer/shared';
+import { hasPermission } from '../../access/access-rules';
 import { AuthContext } from '../../access/auth-context';
 import { requireSupportReason } from '../../access/access-reason';
 import { transportNotFound } from '../../access/transport-scope';
@@ -186,6 +187,7 @@ export class IncidentsService {
     ]);
     const ob = new Map(outbox.map((o) => [o.aggregateId, o]));
     const prof = new Map(profiles.map((p) => [p.id, p]));
+    const canEdit = hasPermission(ctx, 'etms_incidents', 'edit');
     const drv = new Map(drivers.map((d) => [d.id, d]));
     return rows.map((r) => {
       const p = r.raiserProfileId ? prof.get(r.raiserProfileId) : undefined;
@@ -210,6 +212,7 @@ export class IncidentsService {
         acknowledgedAt: r.acknowledgedAt?.toISOString() ?? null,
         acknowledgedBy: r.acknowledgedByUserId ? this.label(ctx, r, users.get(r.acknowledgedByUserId) ?? null, opts.full) : null,
         resolvedAt: r.resolvedAt?.toISOString() ?? null,
+        canAct: canEdit && incidentAccess(ctx, r) === 'manage',
       };
     });
   }
