@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from '@/features/auth/auth';
 import { setTransportPushRoles } from '@/features/notifications/push';
 import { transportRoles, type TransportRoles } from '@/features/transport/roles';
 import { useTransportQueueLifecycle } from '@/features/transport/queue-store';
+import { useSosQueueLifecycle } from '@/features/transport/sos-store';
 import { useBrandBarStyle, useColors, useScheme } from '@/lib/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -34,6 +35,8 @@ function RootStack() {
   // run before this component's effects, so a cold-start tap on a trip push already knows the roles.
   setTransportPushRoles(roles ?? { passenger: false, driver: false });
   useTransportQueueLifecycle(status === 'authenticated' && roles?.driver ? (me?.user.id ?? null) : null);
+  // E5 WP 5.3: the passenger SOS queue (pending SOS are retried after a restart until the server confirms them).
+  useSosQueueLifecycle(status === 'authenticated' && roles?.passenger ? (me?.user.id ?? null) : null);
   const ready = status === 'anonymous' || (status === 'authenticated' && !!roles);
 
   useEffect(() => {
@@ -76,6 +79,10 @@ function RootStack() {
           <Stack.Screen name="commute/notices" options={{ title: t('Notices') }} />
           <Stack.Screen name="commute/consent" options={{ title: t('Privacy & consent') }} />
           <Stack.Screen name="commute/trip/[id]" options={{ title: t('My trip') }} />
+          <Stack.Screen name="commute/book" options={{ title: t('Book a trip') }} />
+          <Stack.Screen name="commute/places" options={{ title: t('Saved places') }} />
+          <Stack.Screen name="commute/schedule" options={{ title: t('Regular commute') }} />
+          <Stack.Screen name="commute/report/[id]" options={{ title: t('Report a problem') }} />
         </Stack.Protected>
         {/* Driver screens: the Driver shell, and "My transport duty" inside the fleet shell. */}
         <Stack.Protected guard={signedIn && !!roles?.driver}>

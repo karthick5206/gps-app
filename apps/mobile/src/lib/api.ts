@@ -31,6 +31,8 @@ interface RequestOptions {
   anonymous?: boolean;
   /** multipart/form-data body (file upload); the boundary header is set by XMLHttpRequest. */
   form?: FormData;
+  /** Extra request headers (e.g. `Idempotency-Key` on ETMS creates). */
+  headers?: Record<string, string>;
 }
 
 const UPLOAD_TIMEOUT_MS = 90_000;
@@ -72,7 +74,7 @@ async function toApiError(res: Response): Promise<ApiError> {
 }
 
 function headers(opts: RequestOptions): Record<string, string> {
-  const h: Record<string, string> = { Accept: 'application/json' };
+  const h: Record<string, string> = { Accept: 'application/json', ...(opts.headers ?? {}) };
   if (opts.body !== undefined) h['Content-Type'] = 'application/json';
   if (!opts.anonymous) {
     const token = session.getAccessToken();
@@ -163,7 +165,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
 
 export const api = {
   get: <T>(path: string, query?: QueryParams, signal?: AbortSignal) => request<T>(path, { query, signal }),
-  post: <T>(path: string, body?: unknown, opts?: Pick<RequestOptions, 'anonymous'>) => request<T>(path, { method: 'POST', body: body ?? {}, ...opts }),
+  post: <T>(path: string, body?: unknown, opts?: Pick<RequestOptions, 'anonymous' | 'headers'>) => request<T>(path, { method: 'POST', body: body ?? {}, ...opts }),
   /** POST multipart/form-data (e.g. a bill photo). */
   upload: <T>(path: string, form: FormData) => request<T>(path, { method: 'POST', form }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: 'PATCH', body }),

@@ -1,5 +1,5 @@
 import { router, type Href } from 'expo-router';
-import { BellIcon, BellOffIcon, CalendarIcon, ChevronRightIcon, ShieldCheckIcon, TicketIcon, type LucideIcon } from 'lucide-react-native';
+import { BellIcon, BellOffIcon, CalendarIcon, CalendarPlusIcon, ChevronRightIcon, MapPinIcon, RepeatIcon, ShieldCheckIcon, TicketIcon, type LucideIcon } from 'lucide-react-native';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
@@ -8,6 +8,7 @@ import { pushStatus } from '@/features/notifications/push';
 import { SPACE, useColors } from '@/lib/theme';
 import { isNotPassenger, transportErrorText, useMyConsent, useMyNotices, useMyTrips, useNow } from '../passenger-api';
 import { nextTrip, tripBuckets } from '../trip-window';
+import { useMyPolicy } from '../self-service-api';
 import { TOUCH, TransportEmpty } from '../ui';
 import { TripCard } from './TripCard';
 
@@ -50,6 +51,8 @@ export function CommuteHome() {
   const trips = useMyTrips();
   const consent = useMyConsent();
   const notices = useMyNotices();
+  const policy = useMyPolicy();
+  const selfBooking = !!policy.data?.selfBooking;
   const buckets = useMemo(() => tripBuckets(trips.data ?? [], now), [trips.data, now]);
   const next = useMemo(() => nextTrip(trips.data ?? [], now), [trips.data, now]);
   const refreshing = trips.isRefetching || consent.isRefetching;
@@ -132,6 +135,9 @@ export function CommuteHome() {
       )}
 
       <Card style={{ paddingVertical: 0 }}>
+        {selfBooking && <LinkRow icon={CalendarPlusIcon} label={t('Book a trip')} href="/commute/book" />}
+        {selfBooking && <LinkRow icon={RepeatIcon} label={t('Regular commute')} href="/commute/schedule" />}
+        {selfBooking && <LinkRow icon={MapPinIcon} label={t('Saved places')} href="/commute/places" />}
         <LinkRow icon={TicketIcon} label={t('My bookings')} href="/commute/bookings" />
         <LinkRow icon={BellIcon} label={t('Notices')} href="/commute/notices" badge={recentNotices} />
         <LinkRow icon={ShieldCheckIcon} label={t('Privacy & consent')} href="/commute/consent" />

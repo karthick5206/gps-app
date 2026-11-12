@@ -10,6 +10,7 @@ import { BOOKING_STATUS_META, DIRECTION_LABEL } from '../labels';
 import { cancellable, isNotPassenger, transportErrorText, useCancelBooking, useMyBookings, useNow } from '../passenger-api';
 import { clockIn, cutoffState, cutoffText } from '../trip-window';
 import { StatusChip, TOUCH, TransportEmpty } from '../ui';
+import { useMyPolicy } from '../self-service-api';
 
 function BookingRow({ b }: { b: MeBookingDto }) {
   const { t } = useTranslation();
@@ -89,6 +90,7 @@ function BookingRow({ b }: { b: MeBookingDto }) {
 export function BookingsScreen() {
   const { t } = useTranslation();
   const q = useMyBookings();
+  const selfBooking = !!useMyPolicy().data?.selfBooking;
   if (q.isPending) return <ActivityIndicator style={{ margin: SPACE.xl }} accessibilityLabel={t('Loading')} />;
   if (isNotPassenger(q.error)) {
     return (
@@ -107,6 +109,7 @@ export function BookingsScreen() {
       ListHeaderComponent={
         <View style={{ gap: SPACE.sm, marginBottom: SPACE.sm }}>
           {q.isError && <ErrorBanner message={transportErrorText(q.error)} onRetry={() => void q.refetch()} />}
+          {selfBooking && <Button title={t('Book a trip')} onPress={() => router.push('/commute/book')} style={{ minHeight: TOUCH }} />}
           <Card>
             <Text size="sm" tone="muted">
               {t('You can cancel a booking here until its cut-off, as long as the trip has not started. After that, or to change a booking, contact your transport desk.')}
