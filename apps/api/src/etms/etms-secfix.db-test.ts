@@ -8,6 +8,8 @@
  *  - L1: a repeat press that links the trip (and so the operator) notifies the operator's dispatchers.
  *  - L4 / QA B6: SOS push recipients follow the incidents lane rule (etms / etmsProvider add-ons, customer ETMS on).
  *  - L6: retention trims published OutboxEvent rows after 7 days (pending and dead rows stay).
+ *  - Info: a passenger SOS fix is kept only under an active SOS_LOCATION consent (dropped otherwise, SOS still
+ *    recorded).
  * Not part of the normal run (testRegex is *.spec.ts):
  *   CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_<name>_test TEST_REDIS_URL=redis://localhost:6379/14 \
  *     npx jest --testRegex 'etms-secfix\.db-test\.ts$' --runInBand
@@ -94,6 +96,9 @@ d(`v1.14.0 security fix round on ${dbName}`, () => {
   const pax = () => ctx(w.paxUser, w.cust, { etms_self: ['view'] });
   const sql = (s: string) => prisma.$executeRawUnsafe(s);
   const REASON = 'Ticket 4521: customer asked us to check this SOS';
+  /** An SOS_LOCATION consent row of the rider (grant or withdrawal), `agoMs` in the past. */
+  const consent = (granted: boolean, agoMs: number) =>
+    sql(`INSERT INTO "EmployeeTransportConsent" (id, "companyId", "profileId", "subjectUserId", purpose, "noticeVersion", granted, channel, "occurredAt") VALUES (gen_random_uuid(), '${w.cust}', '${w.profile}', '${w.paxUser}', 'SOS_LOCATION', 'v1', ${granted}, 'PASSENGER_APP', now() - interval '${agoMs} milliseconds')`);
 
   /** A fresh OPEN passenger SOS of the customer, linked to the provider (as if it had a trip of the provider). */
   const providerLinkedSos = async () => {
@@ -119,6 +124,7 @@ d(`v1.14.0 security fix round on ${dbName}`, () => {
     }
     await sql(`INSERT INTO "User" (id, "companyId", name, "updatedAt") VALUES ('${w.paxUser}', '${w.cust}', 'Synthetic Rider', now())`);
     await sql(`INSERT INTO "EmployeeTransportProfile" (id, "companyId", "userId", "employeeCode", "displayName", "updatedAt") VALUES ('${w.profile}', '${w.cust}', '${w.paxUser}', 'SFX1', 'Synthetic Rider', now())`);
+    await consent(true, 86_400_000);
   });
 
   afterAll(async () => {
@@ -192,6 +198,26 @@ d(`v1.14.0 security fix round on ${dbName}`, () => {
     const left = await prisma.outboxEvent.findMany({ where: { id: { in: [oldPublished.id, recentPublished.id, oldPending.id, oldDead.id] } }, select: { id: true } });
     expect(left.map((r) => r.id).sort()).toEqual([recentPublished.id, oldPending.id, oldDead.id].sort());
     await prisma.outboxEvent.deleteMany({ where: { id: { in: [oldPending.id, oldDead.id] } } });
+  });
+
+  it('Info: the SOS location is kept only with an active SOS_LOCATION consent; without it the SOS is still recorded', async () => {
+    const fix = () => ({ lat: 13.05, lng: 80.25, accuracyM: 9, at: new Date().toISOString() });
+    const stored = async (incidentId: string) => (await prisma.transportIncident.findUniqueOrThrow({ where: { id: incidentId } })).fixLat;
+    // Granted (beforeAll): stored.
+    const a = await sos.raisePassenger(pax(), { note: 'help', fix: fix() }, id());
+    expect(a.created).toBe(true);
+    expect(await stored(a.receipt.incidentId)).toBe(13.05);
+    await closeOpen();
+    // Withdrawn later: dropped, the SOS itself is created (201) as usual.
+    await consent(false, 1000);
+    const b = await sos.raisePassenger(pax(), { note: 'help', fix: fix() }, id());
+    expect(b).toMatchObject({ created: true, receipt: { status: 'RECEIVED_BY_SERVER', incidentStatus: 'OPEN' } });
+    expect(await stored(b.receipt.incidentId)).toBeNull();
+    // A merged repeat press without consent does not add the location either.
+    await sos.raisePassenger(pax(), { note: 'again', fix: fix() }, id());
+    expect(await stored(b.receipt.incidentId)).toBeNull();
+    await closeOpen();
+    await consent(true, 0); // granted again for the other cases
   });
 
   describe('M2: no stale siren replay', () => {

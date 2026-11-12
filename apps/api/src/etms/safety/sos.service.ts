@@ -13,6 +13,8 @@ import { cleanSos, notifyState, toReceipt, type CleanSos } from './sos-rules';
  *  such an uncounted press merges again, harmlessly: same incident, merged: true). */
 export const MAX_REPEAT_EVENTS = 50;
 const IN_PROGRESS = ['STARTED', 'IN_PROGRESS'];
+/** Consent purpose that allows a passenger's location to travel with the SOS (doc 10 §3; CONSENT_PURPOSES). */
+const SOS_LOCATION_PURPOSE = 'SOS_LOCATION';
 
 type Db = Prisma.TransactionClient;
 
@@ -55,12 +57,32 @@ export class SosService {
   async raisePassenger(ctx: AuthContext, body: unknown, key: string | undefined): Promise<SosResult> {
     const profile = await this.prisma.employeeTransportProfile.findFirst({ where: { userId: ctx.userId, companyId: ctx.companyId }, select: { id: true, userId: true, companyId: true } });
     if (!profile || profile.userId !== ctx.userId || profile.companyId !== ctx.companyId) throw new ForbiddenException({ message: 'You are not registered as a transport passenger', code: 'NOT_A_PASSENGER' });
-    return this.raise(ctx, { type: 'PASSENGER', profileId: profile.id, driverId: null }, cleanSos(body, key));
+    const c = cleanSos(body, key);
+    // Doc 10 §3 (security review, info): a passenger's location goes with the SOS only under an active SOS_LOCATION
+    // consent; without one the fix is DROPPED and the SOS is recorded as usual (never refused).
+    if (c.fix && !(await this.sosLocationConsent(profile.id))) {
+      c.fix = null;
+      this.logger.log('SOS location dropped: no active SOS_LOCATION consent');
+    }
+    return this.raise(ctx, { type: 'PASSENGER', profileId: profile.id, driverId: null }, c);
+  }
+
+  /** Latest SOS_LOCATION consent row of the profile is a grant. Any error counts as "no consent" (privacy first). */
+  private async sosLocationConsent(profileId: string): Promise<boolean> {
+    try {
+      const row = await this.prisma.employeeTransportConsent.findFirst({ where: { profileId, purpose: SOS_LOCATION_PURPOSE }, orderBy: { occurredAt: 'desc' }, select: { granted: true } });
+      return row?.granted === true;
+    } catch (error) {
+      this.logger.warn(`SOS location consent check failed, location dropped: ${(error as Error).message}`);
+      return false;
+    }
   }
 
   /** POST /api/driver/v1/sos: the caller's own Driver row (an archived driver may still raise an SOS). */
   async raiseDriver(ctx: AuthContext, body: unknown, key: string | undefined): Promise<SosResult> {
-    const driver = await this.prisma.driver.findFirst({ where: { userId: ctx.userId }, select: { id: true, userId: true, companyId: true } });
+    // Filtered by the acting company (security review, info): a login with Driver rows in two companies is never a
+    // false NOT_A_DRIVER.
+    const driver = await this.prisma.driver.findFirst({ where: { userId: ctx.userId, companyId: ctx.companyId }, select: { id: true, userId: true, companyId: true } });
     if (!driver || driver.userId !== ctx.userId || driver.companyId !== ctx.companyId) throw new ForbiddenException({ message: 'This login is not linked to a driver', code: 'NOT_A_DRIVER' });
     return this.raise(ctx, { type: 'DRIVER', profileId: null, driverId: driver.id }, cleanSos(body, key));
   }
@@ -74,7 +96,7 @@ export class SosService {
 
   /** GET /api/driver/v1/sos/:id: a driver's own incident only (403 NOT_A_DRIVER, anything else 404). */
   async receiptDriver(ctx: AuthContext, id: string): Promise<SosReceipt> {
-    const driver = await this.prisma.driver.findFirst({ where: { userId: ctx.userId }, select: { id: true, userId: true, companyId: true } });
+    const driver = await this.prisma.driver.findFirst({ where: { userId: ctx.userId, companyId: ctx.companyId }, select: { id: true, userId: true, companyId: true } });
     if (!driver || driver.userId !== ctx.userId || driver.companyId !== ctx.companyId) throw new ForbiddenException({ message: 'This login is not linked to a driver', code: 'NOT_A_DRIVER' });
     return this.receipt(ctx, id);
   }
