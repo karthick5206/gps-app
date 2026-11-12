@@ -89,13 +89,19 @@ export function SosBanner() {
   if (!can('etms_incidents') || !top) return null;
   const more = (lane.data?.openCount ?? 1) - 1;
   return (
-    <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-destructive px-3 py-2 text-sm text-destructive-foreground sm:px-4" role="alert">
+    <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-destructive px-3 py-2 text-sm text-destructive-foreground sm:px-4" role="region" aria-label={t('SOS')}>
+      {/* QA B5: announced once per banner SOS (keyed), never the ticking timer below. */}
+      <span key={top.id} className="sr-only" role="alert">
+        {t('SOS raised')}: {top.raiserLabel}
+      </span>
       <SirenIcon className="size-4 shrink-0 motion-safe:animate-pulse" aria-hidden />
       <p className="min-w-0 flex-1 font-semibold">
         <span className="me-1">{t('SOS')}</span>
         <span className="break-words">{top.raiserLabel}</span>
         {top.vehiclePlate ? ` · ${top.vehiclePlate}` : ''}
-        <span className="ms-1 font-normal tabular-nums">{t('raised {{time}} ago', { time: elapsed(top.raisedAt, now) })}</span>
+        <span className="ms-1 font-normal tabular-nums" aria-hidden>
+          {t('raised {{time}} ago', { time: elapsed(top.raisedAt, now) })}
+        </span>
         {more > 0 && <span className="ms-1 font-normal">{t('(+{{count}} more)', { count: more })}</span>}
       </p>
       <div className="flex gap-2">
