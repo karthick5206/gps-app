@@ -16,7 +16,7 @@ function me(permissions: PermissionMap, features: string[] = ['etms'], isSuperAd
 
 test('roles: passenger-only user gets the Passenger shell', () => {
   const r = transportRoles(me({ etms_self: ['view', 'create', 'edit'] }));
-  assert.deepEqual(r, { etms: true, passenger: true, driver: false, fleet: false, shell: 'passenger' });
+  assert.deepEqual(r, { etms: true, passenger: true, driver: false, incidents: false, fleet: false, shell: 'passenger' });
 });
 
 test('roles: driver-only user gets the Driver shell; driver + passenger keys still the Driver shell', () => {

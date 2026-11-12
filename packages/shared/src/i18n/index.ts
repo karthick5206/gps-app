@@ -5,6 +5,7 @@ import { TRANSPORT_MOBILE_HI, TRANSPORT_MOBILE_TA } from './transport-mobile';
 import { TRANSPORT_SOS_HI, TRANSPORT_SOS_TA } from './transport-sos';
 import { TRANSPORT_SELF_HI, TRANSPORT_SELF_TA } from './transport-self';
 import { TRANSPORT_PROVIDER_HI, TRANSPORT_PROVIDER_TA } from './transport-provider';
+import { TRANSPORT_MOBILE_SOS_HI, TRANSPORT_MOBILE_SOS_TA } from './transport-mobile-sos';
 
 /**
  * UI translations shared by web and mobile. Keys are the English source strings (i18next with keySeparator /
@@ -12,9 +13,10 @@ import { TRANSPORT_PROVIDER_HI, TRANSPORT_PROVIDER_TA } from './transport-provid
  */
 export const TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Record<string, string>> = {
   // The main tables win over the mobile transport table (transport-mobile.ts), the SOS table (transport-sos.ts), the
-  // self-service table (transport-self.ts) and the provider table (transport-provider.ts) for any key they share.
-  hi: { ...TRANSPORT_SOS_HI, ...TRANSPORT_MOBILE_HI, ...TRANSPORT_SELF_HI, ...TRANSPORT_PROVIDER_HI, ...HI },
-  ta: { ...TRANSPORT_SOS_TA, ...TRANSPORT_MOBILE_TA, ...TRANSPORT_SELF_TA, ...TRANSPORT_PROVIDER_TA, ...TA },
+  // self-service table (transport-self.ts), the provider table (transport-provider.ts) and the r114 mobile SOS table
+  // (transport-mobile-sos.ts) for any key they share.
+  hi: { ...TRANSPORT_MOBILE_SOS_HI, ...TRANSPORT_SOS_HI, ...TRANSPORT_MOBILE_HI, ...TRANSPORT_SELF_HI, ...TRANSPORT_PROVIDER_HI, ...HI },
+  ta: { ...TRANSPORT_MOBILE_SOS_TA, ...TRANSPORT_SOS_TA, ...TRANSPORT_MOBILE_TA, ...TRANSPORT_SELF_TA, ...TRANSPORT_PROVIDER_TA, ...TA },
 };
 
 /** i18next options both apps use. */

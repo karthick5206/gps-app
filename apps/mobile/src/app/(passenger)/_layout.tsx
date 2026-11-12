@@ -12,7 +12,7 @@ export default function PassengerLayout() {
   const { t } = useTranslation();
   const c = useColors();
   return (
-    <ShellTabs>
+    <ShellTabs sos="passenger">
       <Tabs.Screen name="my-commute" options={{ title: t('My commute'), tabBarIcon: shellTabIcon(BusIcon, c) }} />
       <Tabs.Screen name="my-bookings" options={{ title: t('My bookings'), tabBarIcon: shellTabIcon(TicketIcon, c) }} />
       <Tabs.Screen name="my-notices" options={{ title: t('Notices'), tabBarIcon: shellTabIcon(BellIcon, c) }} />

@@ -1,6 +1,6 @@
 import { router, type Href } from 'expo-router';
 import { BellIcon, BellOffIcon, CalendarIcon, CalendarPlusIcon, ChevronRightIcon, MapPinIcon, RepeatIcon, ShieldCheckIcon, TicketIcon, type LucideIcon } from 'lucide-react-native';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
@@ -11,6 +11,9 @@ import { nextTrip, tripBuckets } from '../trip-window';
 import { useMyPolicy } from '../self-service-api';
 import { TOUCH, TransportEmpty } from '../ui';
 import { TripCard } from './TripCard';
+import { passengerCurrentTrip } from '../sos-context';
+import { passengerSos } from '../sos-store';
+import { SosPanel } from './SosPanel';
 
 function LinkRow({ icon: Icon, label, href, badge }: { icon: LucideIcon; label: string; href: Href; badge?: number }) {
   const c = useColors();
@@ -52,6 +55,19 @@ export function CommuteHome() {
   const consent = useMyConsent();
   const notices = useMyNotices();
   const policy = useMyPolicy();
+  // SOS context (QA B4): the current trip and the desk phone are remembered on the phone, so the SOS button (header,
+  // here, and the offline screen) attaches the trip and offers the call even after an offline cold start.
+  const current = useMemo(() => (trips.data ? passengerCurrentTrip(trips.data, now) : undefined), [trips.data, now]);
+  const currentDto = current ? trips.data?.find((x) => x.id.toLowerCase() === current.tripId) : undefined;
+  const deskPhone = currentDto?.deskPhone ?? policy.data?.deskPhone ?? null;
+  const currentTripId = current === undefined ? undefined : (current?.tripId ?? null);
+  const currentUntil = current?.until ?? null;
+  useEffect(() => {
+    if (currentTripId !== undefined) passengerSos.setContext({ tripId: currentTripId, until: currentUntil });
+  }, [currentTripId, currentUntil]);
+  useEffect(() => {
+    if (deskPhone) passengerSos.setContext({ deskPhone });
+  }, [deskPhone]);
   const selfBooking = !!policy.data?.selfBooking;
   const buckets = useMemo(() => tripBuckets(trips.data ?? [], now), [trips.data, now]);
   const next = useMemo(() => nextTrip(trips.data ?? [], now), [trips.data, now]);
@@ -103,6 +119,13 @@ export function CommuteHome() {
           </Text>
         </Card>
       )}
+
+      {current && policy.data?.sos !== false ? (
+        <>
+          <SectionTitle>{t('Emergency')}</SectionTitle>
+          <SosPanel channel={passengerSos} tripId={current.tripId} deskPhone={deskPhone} />
+        </>
+      ) : null}
 
       <SectionTitle>{t('Next trip')}</SectionTitle>
       {trips.isPending ? (

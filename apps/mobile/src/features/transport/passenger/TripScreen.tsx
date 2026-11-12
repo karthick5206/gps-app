@@ -14,6 +14,8 @@ import { clockIn, distanceKm, hiddenVehicleText, myMapStops, shouldPollVehicle }
 import { BigAction, Line, StatusChip, TransportEmpty, TransportMap, useTransportMapStyle, type MapPoint } from '../ui';
 import { canConfirm, canReport, CONFIRM_LABEL, confirmKinds } from '../self-service';
 import { selfServiceErrorText, useAttemptKey, useConfirmRide, useMyPolicy } from '../self-service-api';
+import { passengerCurrentTrip } from '../sos-context';
+import { passengerSos, useSosContext } from '../sos-store';
 import { SosPanel } from './SosPanel';
 
 /**
@@ -72,6 +74,19 @@ export function PassengerTripScreen({ id }: { id: string }) {
   const vehicle = useMyVehicle(id, poll);
   const hasStyle = !!useTransportMapStyle();
   const policy = useMyPolicy().data;
+  // SOS (QA B4): shown unless the server said it has no passenger SOS route (`sos === false`); an unknown policy
+  // (offline, loading, error) never hides it. This trip becomes the remembered SOS trip while it is current.
+  const sosEnabled = policy?.sos !== false;
+  const sosCtx = useSosContext(passengerSos);
+  const current = trip ? passengerCurrentTrip([trip], now) : null;
+  const currentUntil = current?.until ?? null;
+  useEffect(() => {
+    if (currentUntil !== null) passengerSos.setContext({ tripId: id, until: currentUntil });
+  }, [id, currentUntil]);
+  const tripDeskPhone = trip?.deskPhone ?? null;
+  useEffect(() => {
+    if (tripDeskPhone) passengerSos.setContext({ deskPhone: tripDeskPhone });
+  }, [tripDeskPhone]);
 
   // Announce status changes to screen readers (status never only by colour, doc 08 §6.2).
   const lastStatus = useRef<string | null>(null);
@@ -89,7 +104,14 @@ export function PassengerTripScreen({ id }: { id: string }) {
         {isNotPassenger(query.error) ? (
           <TransportEmpty title={t('No passenger profile')} description={t('Your account is not linked to an active passenger profile. Ask your transport desk.')} />
         ) : (
-          <ErrorBanner message={transportErrorText(query.error)} onRetry={() => void query.refetch()} />
+          <>
+            <ErrorBanner message={transportErrorText(query.error)} onRetry={() => void query.refetch()} />
+            {/* The trip could not load (e.g. offline): the SOS still works and still carries this trip. */}
+            <View style={{ marginTop: SPACE.md, gap: SPACE.sm }}>
+              <SectionTitle>{t('Emergency')}</SectionTitle>
+              <SosPanel channel={passengerSos} enabled={sosEnabled} tripId={id} deskPhone={policy?.deskPhone ?? sosCtx.deskPhone} />
+            </View>
+          </>
         )}
       </View>
     );
@@ -129,10 +151,10 @@ export function PassengerTripScreen({ id }: { id: string }) {
 
       {policy?.selfBooking && <SelfServiceActions tripId={id} trip={trip} now={now} />}
 
-      {policy?.sos ? (
+      {sosEnabled ? (
         <>
           <SectionTitle>{t('Emergency')}</SectionTitle>
-          <SosPanel enabled tripId={id} deskPhone={trip.deskPhone ?? policy.deskPhone} />
+          <SosPanel channel={passengerSos} tripId={id} deskPhone={trip.deskPhone ?? policy?.deskPhone ?? sosCtx.deskPhone} />
         </>
       ) : trip.deskPhone ? (
         <BigAction

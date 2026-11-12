@@ -20,6 +20,9 @@ import { useNavHandoff } from '../nav-setting';
 import { driverQueue, queueDriverEvent, useDriverQueue } from '../queue-store';
 import { clockIn } from '../trip-window';
 import { BigAction, StatusChip, SyncBadge, TransportEmpty } from '../ui';
+import { driverCurrentTrip } from '../sos-context';
+import { driverSos } from '../sos-store';
+import { SosEntryButton } from '../SosScreen';
 import { SyncBanner } from './SyncBanner';
 import { useVehicleMotion } from './useVehicleMotion';
 import { manifestScreenGuard } from './screen-guard';
@@ -230,6 +233,17 @@ export function DriverTripScreen({ id }: { id: string }) {
     if (trip?.lastSeq) void driverQueue.ensureSeqAtLeast(id, trip.lastSeq).catch(() => undefined);
   }, [id, trip?.lastSeq]);
 
+  // SOS (doc 09 §7.3, r114): this trip is what the driver SOS attaches while it is current; the dispatcher phone is kept
+  // for the SOS call buttons. Both survive an offline restart (sos-context.ts).
+  const sosUntil = trip ? (driverCurrentTrip([trip], now)?.until ?? null) : null;
+  useEffect(() => {
+    if (sosUntil !== null) driverSos.setContext({ tripId: id, until: sosUntil });
+  }, [id, sosUntil]);
+  const sosPhone = trip?.dispatcherPhone ?? me.data?.dispatcherPhone ?? null;
+  useEffect(() => {
+    if (sosPhone) driverSos.setContext({ deskPhone: sosPhone });
+  }, [sosPhone]);
+
   const lastMoving = useRef(motion.moving);
   useEffect(() => {
     if (lastMoving.current !== motion.moving) AccessibilityInfo.announceForAccessibility(motion.moving ? t('Vehicle moving: only navigation is available') : t('Vehicle stopped'));
@@ -251,6 +265,7 @@ export function DriverTripScreen({ id }: { id: string }) {
       <View style={{ padding: SPACE.lg, gap: SPACE.md }}>
         <Stack.Screen options={{ title: t('Trip') }} />
         {isNotDriver(query.error) ? <TransportEmpty title={t('No driver profile')} description={driverErrorText(query.error)} /> : <ErrorBanner message={driverErrorText(query.error)} onRetry={() => void query.refetch()} />}
+        <SosEntryButton audience="driver" />
         <SyncBanner />
       </View>
     );
@@ -331,6 +346,8 @@ export function DriverTripScreen({ id }: { id: string }) {
           {t('The vehicle has no fresh GPS position, so actions are not locked. Do not use the phone while driving.')}
         </Text>
       ) : null}
+      {/* SOS stays available while moving (doc 09 §5.1 / §7.3): one tap to the full-screen hold-to-send SOS. */}
+      <SosEntryButton audience="driver" />
       <CallButton phone={trip.dispatcherPhone ?? me.data?.dispatcherPhone} title={t('Call dispatcher')} />
 
       {start.isError && <ErrorBanner message={driverErrorText(start.error)} />}

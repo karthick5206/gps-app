@@ -14,7 +14,8 @@
  *   deleted only when the person dismisses a settled one.
  * - Honest wording: until the server answers, the app says "Not sent yet"; RECEIVED means "VeeTrax received your SOS",
  *   never "help is on the way"; only an acknowledgement is shown as acknowledged.
- * - Queues are per user (keys carry the user id).
+ * - Queues are per user (keys carry the user id) and per audience (`namespace`): passenger `sos`, driver `dsos`
+ *   (r114: driver SOS button, doc 09 §7.3), so a person who is both keeps two queues sent to their own routes.
  */
 import type { SosReceipt } from '@veetracer/shared';
 import { uuidv7, type KeyValueStore } from './event-queue.ts';
@@ -111,12 +112,15 @@ interface Meta {
 
 export interface SosQueueOptions {
   store: KeyValueStore;
+  /** Key namespace (lower-case letters): `sos` = passenger (default, keys unchanged since WP 5.3), `dsos` = driver. */
+  namespace?: string;
   now?: () => number;
   random?: (n: number) => Uint8Array;
 }
 
 export class SosQueue {
   private readonly store: KeyValueStore;
+  private readonly namespace: string;
   private readonly now: () => number;
   private readonly random: ((n: number) => Uint8Array) | undefined;
   private userId: string | null = null;
@@ -129,6 +133,8 @@ export class SosQueue {
 
   constructor(opts: SosQueueOptions) {
     this.store = opts.store;
+    this.namespace = opts.namespace ?? 'sos';
+    if (!/^[a-z]+$/.test(this.namespace)) throw new Error('Invalid SOS queue namespace');
     this.now = opts.now ?? Date.now;
     this.random = opts.random;
     this.snap = this.build();
@@ -136,7 +142,7 @@ export class SosQueue {
 
   private prefix(): string {
     if (!this.userId) throw new Error('SOS queue not loaded');
-    return `vt.sos.${this.userId}`;
+    return `vt.${this.namespace}.${this.userId}`;
   }
 
   private serial<T>(fn: () => Promise<T>): Promise<T> {

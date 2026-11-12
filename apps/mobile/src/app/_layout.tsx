@@ -10,13 +10,18 @@ import { AuthProvider, useAuth } from '@/features/auth/auth';
 import { setTransportPushRoles } from '@/features/notifications/push';
 import { transportRoles, type TransportRoles } from '@/features/transport/roles';
 import { useTransportQueueLifecycle } from '@/features/transport/queue-store';
-import { useSosQueueLifecycle } from '@/features/transport/sos-store';
+import { sosHeaderRight } from '@/features/transport/SosScreen';
+import { rememberOfflineIdentity, useDriverSosLifecycle, useSosQueueLifecycle } from '@/features/transport/sos-store';
 import { useBrandBarStyle, useColors, useScheme } from '@/lib/theme';
 
 SplashScreen.preventAutoHideAsync();
 
+/** Red SOS header button on every passenger / driver stack screen (QA B4, doc 09 §7.3). */
+const PASSENGER_SOS = { headerRight: sosHeaderRight('passenger') };
+const DRIVER_SOS = { headerRight: sosHeaderRight('driver') };
+
 function RootStack() {
-  const { status, me } = useAuth();
+  const { status, me, offlineIdentity } = useAuth();
   const { t } = useTranslation();
   const scheme = useScheme();
   const c = useColors();
@@ -33,11 +38,19 @@ function RootStack() {
   const roles = status === 'authenticated' ? (current ?? lastRoles) : null;
   // Set during render (idempotent module value): the shells' tap handler reads it in their own mount effects, which
   // run before this component's effects, so a cold-start tap on a trip push already knows the roles.
-  setTransportPushRoles(roles ?? { passenger: false, driver: false });
+  setTransportPushRoles(roles ?? { passenger: false, driver: false, incidents: false, fleet: false });
   useTransportQueueLifecycle(status === 'authenticated' && roles?.driver ? (me?.user.id ?? null) : null);
-  // E5 WP 5.3: the passenger SOS queue (pending SOS are retried after a restart until the server confirms them).
-  useSosQueueLifecycle(status === 'authenticated' && roles?.passenger ? (me?.user.id ?? null) : null);
-  const ready = status === 'anonymous' || (status === 'authenticated' && !!roles);
+  // The SOS queues (pending SOS are retried after a restart until the server confirms them): passenger (E5 WP 5.3) and
+  // driver (r114). Offline cold start: the remembered identity loads them so the offline SOS screen works.
+  const offline = status === 'offline' ? offlineIdentity : null;
+  useSosQueueLifecycle(status === 'authenticated' && roles?.passenger ? (me?.user.id ?? null) : offline?.passenger ? offline.userId : null);
+  useDriverSosLifecycle(status === 'authenticated' && roles?.driver ? (me?.user.id ?? null) : offline?.driver ? offline.userId : null);
+  // Remember who may use the offline SOS screen (cleared on sign-out and for users without an SOS section).
+  const meUserId = me?.user.id ?? null;
+  useEffect(() => {
+    if (current && meUserId) rememberOfflineIdentity(meUserId, current);
+  }, [current, meUserId]);
+  const ready = status === 'anonymous' || status === 'offline' || (status === 'authenticated' && !!roles);
 
   useEffect(() => {
     if (ready) SplashScreen.hideAsync();
@@ -62,6 +75,10 @@ function RootStack() {
           contentStyle: { backgroundColor: c.background },
         }}
       >
+        {/* Offline cold start of an ETMS passenger / driver (QA B4): only the offline SOS screen until the server answers. */}
+        <Stack.Protected guard={status === 'offline'}>
+          <Stack.Screen name="offline-sos" options={{ headerShown: false }} />
+        </Stack.Protected>
         {/* One shell at a time; the first available group is where a signed-in user lands. */}
         <Stack.Protected guard={signedIn && shell === 'fleet'}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false, title: t('Home') }} />
@@ -74,22 +91,28 @@ function RootStack() {
         </Stack.Protected>
         {/* Passenger screens: the Passenger shell, and "My commute" inside the fleet / driver shells (P3). */}
         <Stack.Protected guard={signedIn && !!roles?.passenger}>
-          <Stack.Screen name="commute/index" options={{ title: t('My commute') }} />
-          <Stack.Screen name="commute/bookings" options={{ title: t('My bookings') }} />
-          <Stack.Screen name="commute/notices" options={{ title: t('Notices') }} />
-          <Stack.Screen name="commute/consent" options={{ title: t('Privacy & consent') }} />
-          <Stack.Screen name="commute/trip/[id]" options={{ title: t('My trip') }} />
-          <Stack.Screen name="commute/book" options={{ title: t('Book a trip') }} />
-          <Stack.Screen name="commute/places" options={{ title: t('Saved places') }} />
-          <Stack.Screen name="commute/schedule" options={{ title: t('Regular commute') }} />
-          <Stack.Screen name="commute/report/[id]" options={{ title: t('Report a problem') }} />
+          <Stack.Screen name="commute/index" options={{ title: t('My commute'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/bookings" options={{ title: t('My bookings'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/notices" options={{ title: t('Notices'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/consent" options={{ title: t('Privacy & consent'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/trip/[id]" options={{ title: t('My trip'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/book" options={{ title: t('Book a trip'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/places" options={{ title: t('Saved places'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/schedule" options={{ title: t('Regular commute'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/report/[id]" options={{ title: t('Report a problem'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/sos" options={{ title: t('SOS') }} />
         </Stack.Protected>
         {/* Driver screens: the Driver shell, and "My transport duty" inside the fleet shell. */}
         <Stack.Protected guard={signedIn && !!roles?.driver}>
-          <Stack.Screen name="duty/index" options={{ title: t('My transport duty') }} />
-          <Stack.Screen name="duty/trip/[id]" options={{ title: t('Trip') }} />
-          <Stack.Screen name="duty/report/[id]" options={{ title: t('Report a problem') }} />
-          <Stack.Screen name="duty/sync" options={{ title: t('Sync') }} />
+          <Stack.Screen name="duty/index" options={{ title: t('My transport duty'), ...DRIVER_SOS }} />
+          <Stack.Screen name="duty/trip/[id]" options={{ title: t('Trip'), ...DRIVER_SOS }} />
+          <Stack.Screen name="duty/report/[id]" options={{ title: t('Report a problem'), ...DRIVER_SOS }} />
+          <Stack.Screen name="duty/sync" options={{ title: t('Sync'), ...DRIVER_SOS }} />
+          <Stack.Screen name="duty/sos" options={{ title: t('SOS') }} />
+        </Stack.Protected>
+        {/* Read-only SOS incident opened from a dispatcher SOS push (QA B2). */}
+        <Stack.Protected guard={signedIn && !!roles?.incidents}>
+          <Stack.Screen name="transport-incident/[id]" options={{ title: t('Transport SOS') }} />
         </Stack.Protected>
         <Stack.Protected guard={signedIn}>
           <Stack.Screen name="vehicle/[id]" options={{ title: t('Vehicle') }} />
@@ -124,7 +147,7 @@ function RootStack() {
           <Stack.Screen name="driver-events/index" options={{ title: t('Driver events') }} />
           <Stack.Screen name="driver-events/[id]" options={{ title: t('Driver event') }} />
         </Stack.Protected>
-        <Stack.Protected guard={!signedIn}>
+        <Stack.Protected guard={status === 'anonymous'}>
           <Stack.Screen name="login" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>

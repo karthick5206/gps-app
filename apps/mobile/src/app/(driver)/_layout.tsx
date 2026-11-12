@@ -15,7 +15,7 @@ export default function DriverLayout() {
   const q = useDriverQueue();
   const badge = q.pending + q.rejected;
   return (
-    <ShellTabs>
+    <ShellTabs sos="driver">
       <Tabs.Screen name="my-duty" options={{ title: t('Today'), tabBarIcon: shellTabIcon(CalendarCheckIcon, c) }} />
       <Tabs.Screen name="driver-inbox" options={{ title: t('Inbox'), tabBarIcon: shellTabIcon(BellIcon, c) }} />
       <Tabs.Screen name="driver-sync" options={{ title: t('Sync'), tabBarBadge: badge ? (badge > 99 ? '99+' : badge) : undefined, tabBarIcon: shellTabIcon(RefreshCwIcon, c) }} />

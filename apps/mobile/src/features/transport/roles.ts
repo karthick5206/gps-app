@@ -21,6 +21,8 @@ export interface TransportRoles {
   passenger: boolean;
   /** May open the Driver section ("My transport duty"). */
   driver: boolean;
+  /** May open the read-only SOS incident screen (`etms_incidents:view`; r114, QA B2). */
+  incidents: boolean;
   /** Holds at least one fleet / admin menu (anything other than the two self-service keys). */
   fleet: boolean;
   shell: Shell;
@@ -40,14 +42,15 @@ function has(perms: PermissionMap, key: MenuKey, action: Action = 'view'): boole
 }
 
 export function transportRoles(me: MeLike | undefined | null): TransportRoles {
-  if (!me) return { etms: false, passenger: false, driver: false, fleet: true, shell: 'fleet' };
+  if (!me) return { etms: false, passenger: false, driver: false, incidents: false, fleet: true, shell: 'fleet' };
   const etms = me.company.features.includes('etms');
   const passenger = etms && has(me.permissions, 'etms_self');
   const driver = etms && has(me.permissions, 'etms_driver');
+  const incidents = etms && has(me.permissions, 'etms_incidents');
   const fleet =
     !!me.user?.isSuperAdmin ||
     (Object.keys(me.permissions) as MenuKey[]).some((k) => !SELF_KEYS.includes(k) && (me.permissions[k]?.length ?? 0) > 0);
   // A user with no permission at all keeps the existing fleet shell (it shows its own empty states).
   const shell: Shell = fleet ? 'fleet' : driver ? 'driver' : passenger ? 'passenger' : 'fleet';
-  return { etms, passenger, driver, fleet, shell };
+  return { etms, passenger, driver, incidents, fleet, shell };
 }
