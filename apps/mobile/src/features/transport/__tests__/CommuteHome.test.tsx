@@ -12,6 +12,10 @@ jest.mock('../passenger-api', () => ({
   useMyNotices: jest.fn(),
   useNow: () => Date.parse('2026-11-12T02:00:00Z'),
 }));
+// WP 5.3 self-service policy (react-query) and the WP 5.4 SOS store (SecureStore) are outside this shell test.
+jest.mock('../self-service-api', () => ({ useMyPolicy: () => ({ data: { selfBooking: false, sos: true, deskPhone: null }, error: null, isPending: false, isError: false, isSuccess: true, refetch: jest.fn() }) }));
+jest.mock('../sos-store', () => ({ passengerSos: { setContext: jest.fn() } }));
+jest.mock('../passenger/SosPanel', () => ({ SosPanel: () => null }));
 
 const q = (data: unknown, extra: object = {}) => ({ data, error: null, isPending: false, isError: false, isSuccess: data !== undefined, isRefetching: false, refetch: jest.fn(), ...extra });
 
