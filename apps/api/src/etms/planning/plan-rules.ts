@@ -121,9 +121,41 @@ export function capacityViolations(stops: Pick<RuleStop, 'id' | 'ref' | 'etaS' |
   return [];
 }
 
-/** All checks of one route (in order). */
-export function routeViolations(stops: RuleStop[], capacity: number | null, passengerCount: (bookingId: string) => number | undefined, nullIsUnreachable = false): RoutePlanStopViolation[] {
-  return [...capacityViolations(stops, capacity, passengerCount), ...windowViolations(stops, nullIsUnreachable)];
+/** The plan's effective max ride (seconds, null = no limit) and direction, for the max-ride check (owner decision 1). */
+export interface RideRule {
+  maxRideS: number | null;
+  direction: TransportDirection | null;
+}
+
+/**
+ * E4 decisions review D-M1: `max_ride_exceeded` from the stored ETAs, with the solver's definition (an ETA is the
+ * service start): IN = site arrival (the site DROP) − pickup; OUT = drop − site departure (the site PICKUP); i.e. the
+ * passenger's drop ETA − pickup ETA, both ends on this route. Reported on the passenger's home end (IN: the pickup,
+ * OUT: the drop; unknown direction: the pickup). A missing ETA claims nothing (the window checks report it).
+ */
+export function maxRideViolations(stops: Pick<RuleStop, 'id' | 'ref' | 'etaS' | 'stopKind' | 'bookingId'>[], maxRideS: number | null, direction: TransportDirection | null): RoutePlanStopViolation[] {
+  if (!maxRideS || maxRideS <= 0) return [];
+  const ends = new Map<string, { pickup?: (typeof stops)[number]; drop?: (typeof stops)[number] }>();
+  for (const s of stops) {
+    if (!s.bookingId || (s.stopKind !== 'PICKUP' && s.stopKind !== 'DROP')) continue;
+    const e = ends.get(s.bookingId) ?? {};
+    if (s.stopKind === 'PICKUP') e.pickup = s;
+    else e.drop = s;
+    ends.set(s.bookingId, e);
+  }
+  const out: RoutePlanStopViolation[] = [];
+  for (const { pickup, drop } of ends.values()) {
+    if (!pickup || !drop || pickup.etaS === null || drop.etaS === null) continue;
+    if (drop.etaS - pickup.etaS <= maxRideS) continue;
+    const at = direction === 'OUT' ? drop : pickup;
+    out.push({ stopId: at.id, ref: at.ref, kind: 'max_ride_exceeded', etaS: at.etaS, window: null });
+  }
+  return out;
+}
+
+/** All checks of one route (in order); with `ride`, also the max ride (D-M1). */
+export function routeViolations(stops: RuleStop[], capacity: number | null, passengerCount: (bookingId: string) => number | undefined, nullIsUnreachable = false, ride?: RideRule): RoutePlanStopViolation[] {
+  return [...capacityViolations(stops, capacity, passengerCount), ...windowViolations(stops, nullIsUnreachable), ...(ride ? maxRideViolations(stops, ride.maxRideS, ride.direction) : [])];
 }
 
 /**
@@ -494,19 +526,21 @@ const OVERRIDABLE_KINDS = new Set<string>(ROUTE_PLAN_OVERRIDABLE_KINDS);
  * the route checks with a null ETA reported as `unreachable` (no engine time = the window cannot be proven: hard).
  * HARD: `late` (IN: site arrival after the booking's arrival window; OUT: the site pickup — departure, site stops have
  * no service time — after the departure window; a pickup that carries a window likewise), `unreachable`,
- * `over_capacity`. SOFT: everything else (`early_wait`, `max_ride_exceeded`). Only `late` is overridable.
+ * `over_capacity`. SOFT: everything else (`early_wait`, and `max_ride_exceeded` when `ride` names the plan's
+ * effective max ride, D-M1). Only `late` is overridable.
  */
 export function publishIssues(
   routes: { id: string; vehicleLabel: string; capacity: number | null }[],
   stops: RuleStop[],
   passengerCount: (bookingId: string) => number | undefined,
+  ride?: RideRule,
 ): { hard: RoutePlanPublishIssue[]; soft: RoutePlanPublishIssue[]; fingerprint: string | null } {
   const hard: RoutePlanPublishIssue[] = [];
   const soft: RoutePlanPublishIssue[] = [];
   for (const r of routes) {
     const list = routeStops(stops, r.id);
     if (!list.length) continue;
-    for (const v of routeViolations(list, r.capacity, passengerCount, true)) {
+    for (const v of routeViolations(list, r.capacity, passengerCount, true, ride)) {
       const issue: RoutePlanPublishIssue = { assignmentId: r.id, vehicleLabel: r.vehicleLabel, stopId: v.stopId, ref: v.ref, kind: v.kind, etaS: v.etaS, window: v.window };
       if (HARD_KINDS.has(v.kind)) hard.push({ ...issue, overridable: OVERRIDABLE_KINDS.has(v.kind) });
       else soft.push(issue);

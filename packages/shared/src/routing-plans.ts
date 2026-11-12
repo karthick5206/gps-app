@@ -237,8 +237,9 @@ export interface RoutePlanPublishResult extends PublishRoutePlanResult {
  * HARD issues block publishing: an arrival-window violation (`late`: IN = arrival at the site after the booking's
  * arrival window, OUT = departure from the site after the booking's departure window), a stop without an engine time
  * (`unreachable`: never estimated, so the window cannot be proven) and seats above the vehicle's (`over_capacity`).
- * SOFT warnings (`early_wait`, `max_ride_exceeded`) need an explicit acknowledgement of exactly this warning set
- * (`fingerprint`). Only `late` may be overridden, by an authorised caller with a reason (audited).
+ * SOFT warnings (`early_wait`; `max_ride_exceeded`: a passenger's ride — drop ETA − pickup ETA, the solver's
+ * definition — above the plan's effective max ride: the last optimisation's snapshot, else its override, else the
+ * company policy) need an explicit acknowledgement of exactly this warning set (`fingerprint`). Only `late` may be overridden, by an authorised caller with a reason (audited).
  */
 export const ROUTE_PLAN_HARD_KINDS = ['late', 'unreachable', 'over_capacity'] as const;
 export const ROUTE_PLAN_OVERRIDABLE_KINDS = ['late'] as const;

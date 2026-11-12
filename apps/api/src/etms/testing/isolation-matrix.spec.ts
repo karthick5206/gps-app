@@ -1266,6 +1266,27 @@ describe('ETMS isolation matrix (E4): route plans leak checks', () => {
     expect(await codeOf(plans.movePassenger(disp, id, { expectedVersion: 6, bookingId: booking, toAssignmentId: assignment }))).toBe('ROUTE_LOCKED');
   });
 
+  it('E4 decisions D-M1: a ride longer than the plan’s max ride is a route violation and a SOFT publish warning, computed on the server', async () => {
+    const w = await e4World();
+    const admin = caller('customerAdmin', w);
+    const { plan: id, pickupStop } = w.plans.party;
+    // Seeded ETAs: pickup 600 s, site drop 1800 s → a 20 min ride. No max ride: nothing.
+    const none = await w.controllers.e4.plans.get(admin, id);
+    expect(none.publishCheck!.soft.map((i) => i.kind)).not.toContain('max_ride_exceeded');
+    // The company policy (15 min) applies to a plan never optimised (no snapshot).
+    const company = w.store.table('company').find((c) => c.id === 'custA')!;
+    company.settings = { ...((company.settings as object) ?? {}), etms: { ...(((company.settings as Record<string, unknown>)?.etms as object) ?? {}), maxRideS: 900 } };
+    const byPolicy = await w.controllers.e4.plans.get(admin, id);
+    expect(byPolicy.publishCheck!.soft.filter((i) => i.kind === 'max_ride_exceeded').map((i) => i.stopId)).toEqual([pickupStop]);
+    expect(byPolicy.publishCheck!.hard.map((i) => i.kind)).not.toContain('max_ride_exceeded');
+    expect(byPolicy.assignments[0].violations.map((v) => v.kind)).toContain('max_ride_exceeded');
+    // An optimisation snapshot wins over the policy: here it recorded 30 min, so the 20 min ride is fine.
+    const plan = w.store.table('routePlan').find((p) => p.id === id)!;
+    plan.options = { ...(plan.options as object), maxRideS: 1800, maxRideSource: 'override' };
+    const bySnapshot = await w.controllers.e4.plans.get(admin, id);
+    expect(bySnapshot.publishCheck!.soft.map((i) => i.kind)).not.toContain('max_ride_exceeded');
+  });
+
   it('manual edits: versioned, re-validated, locks and pins honoured, history without coordinates', async () => {
     const w = await e4World();
     const disp = caller('customerDispatcher', w);

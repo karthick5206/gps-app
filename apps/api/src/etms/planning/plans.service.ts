@@ -32,13 +32,13 @@ import { AuditService } from '../../audit/audit.service';
 import { driverScopeWhere } from '../../drivers/drivers.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROUTING_PROVIDER, type RoutingProvider } from '../../routing/provider/routing-provider';
-import { maxRidePolicyOf, maxRideView } from '../../routing-jobs/max-ride';
+import { effectiveMaxRideS, maxRidePolicyOf, maxRideView } from '../../routing-jobs/max-ride';
 import { DispatchService, type PublishSource } from '../dispatch/dispatch.service';
 import { idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound, requestHash } from '../dispatch/e3-common';
 import { preciseFor } from '../dispatch/e3-mapping';
 import type { Replayable } from '../dispatch/bookings.service';
 import { activeRoutingConsents } from '../people/people.service';
-import { buildPlanChangeSet, pairProblem, pinnedStopsMoved, planMetrics, publishIssues, retime, routeStops, routeViolations, type PublishBooking, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
+import { buildPlanChangeSet, pairProblem, pinnedStopsMoved, planMetrics, publishIssues, retime, routeStops, routeViolations, type PublishBooking, type RideRule, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
 import { PLAN_INCLUDE, outOfScope, personalOwners, planSnapshot, seatsLookup, toPlanDetail, toPlanSummary, toRuleStop, type PlanPointView, type PlanRow, type ViewBooking } from './plan-view';
 import type { AssignmentUpdateDto, DiscardDto, MovePassengerDto, PlanListQuery, PublishDto, ResequenceDto, StopUpdateDto } from './plans.dto';
 
@@ -107,14 +107,17 @@ export class RoutePlansService {
   async get(ctx: AuthContext, id: string): Promise<RoutePlanDetailDto> {
     const plan = await this.find(ctx, id);
     const view = await this.view(ctx, plan);
-    const { dto, shown, named } = toPlanDetail(plan, view);
+    const policyS = await maxRidePolicyOf(this.prisma, ctx.companyId);
+    // D-M1: the plan's effective max ride (snapshot of the last optimisation, else override, else policy now).
+    const ride = rideRuleOf(plan, policyS);
+    const { dto, shown, named } = toPlanDetail(plan, view, ride);
     // Decision 5: the server's publish classification (as publish recomputes it) and what a publish accepted.
-    dto.publishCheck = dto.editable ? publishCheckFor(ctx, plan, dto, seatsLookup(view.bookings)) : null;
+    dto.publishCheck = dto.editable ? publishCheckFor(ctx, plan, dto, seatsLookup(view.bookings), ride) : null;
     dto.publishDecision = publishDecisionOf(plan.options);
     // L1: a read that returned personal points or passenger names is ACCESS-audited (de-duplicated per user, view and day).
     await this.dispatch.recordPersonalAccess(ctx, 'plan', [...new Set([...shown, ...named])], dto.precise, { planId: id, ...(named.length ? { passengerNames: named.length } : {}) });
     // Owner decision 1: the max ride of the last optimisation and its source, the policy now, the plan's override.
-    return { ...dto, maxRide: maxRideView(plan.options, await maxRidePolicyOf(this.prisma, ctx.companyId)) };
+    return { ...dto, maxRide: maxRideView(plan.options, policyS) };
   }
 
   /** Version history (newest first): ids, sequences and times only; another branch's stops lose their ref for ASSIGNED roles. */
@@ -358,6 +361,7 @@ export class RoutePlansService {
     };
     const capacity = new Map(plan.assignments.map((a) => [a.id, (edited(a.id, 'capacity', a.capacity) as number | null | undefined) ?? null]));
     const seats = seatsLookup(view.bookings);
+    const ride = rideRuleOf(plan, await maxRidePolicyOf(this.prisma, ctx.companyId));
 
     // Re-time routes whose order changed (engine outside the transaction).
     let degraded: RoutingDegradedReason | null = null;
@@ -375,7 +379,7 @@ export class RoutePlansService {
     for (const s of stops) if (!s.assignmentId && s.etaS !== null && e.placements.has(s.id)) etas.set(s.id, null);
     const timed = stops.map((s) => (etas.has(s.id) ? { ...s, etaS: etas.get(s.id)! } : s));
     const violations: RoutePlanStopViolation[] = [];
-    for (const aid of e.checked) violations.push(...routeViolations(routeStops(timed, aid), capacity.get(aid) ?? null, seats, e.retime.has(aid) && !degraded));
+    for (const aid of e.checked) violations.push(...routeViolations(routeStops(timed, aid), capacity.get(aid) ?? null, seats, e.retime.has(aid) && !degraded, ride));
     // QA B4: a route with a vehicle but no seat profile (capacity null) cannot be published; say so now.
     const routeViolationsOut: RoutePlanRouteViolation[] = [];
     for (const aid of e.checked) {
@@ -515,7 +519,8 @@ export class RoutePlansService {
 
     // Decision 5, recomputed from the stored plan with the vehicles' current seats: hard issues block (only arrival
     // windows may be overridden, by an authorised caller with a reason); soft warnings need this exact set acknowledged.
-    const issues = publishIssues(routes.map((r) => ({ id: r.id, vehicleLabel: r.vehicleLabel, capacity: r.seats })), stops, (b) => bookings.get(b)?.passengerCount);
+    const ride = rideRuleOf(plan, await maxRidePolicyOf(this.prisma, ctx.companyId));
+    const issues = publishIssues(routes.map((r) => ({ id: r.id, vehicleLabel: r.vehicleLabel, capacity: r.seats })), stops, (b) => bookings.get(b)?.passengerCount, ride);
     const blocking = issues.hard.filter((i) => !i.overridable);
     if (blocking.length || (issues.hard.length && overrideReason === null)) {
       const overridable = !blocking.length;
@@ -669,6 +674,9 @@ export function canOverridePublish(ctx: Pick<AuthContext, 'dataScope' | 'permiss
   return ctx.dataScope === 'COMPANY' && can(ctx.permissions, 'etms_dispatch', 'command') && can(ctx.permissions, 'etms_planning', 'command');
 }
 
+/** D-M1: the max-ride check of a plan: its effective max ride (effectiveMaxRideS) and its direction. */
+const rideRuleOf = (plan: Pick<PlanRow, 'options' | 'direction'>, policyS: number | null): RideRule => ({ maxRideS: effectiveMaxRideS(plan.options, policyS), direction: (plan.direction as TransportDirection | null) ?? null });
+
 const normaliseReason = (raw: unknown): string => (typeof raw === 'string' ? raw : '').replace(/\s+/g, ' ').trim();
 
 /** A reason worth recording: at least ROUTE_PLAN_OVERRIDE_REASON_MIN characters and two words (letters, with their combining marks: Hindi / Tamil). */
@@ -677,9 +685,9 @@ export function meaningfulReason(reason: string): boolean {
 }
 
 /** The plan detail's publishCheck: the publish classification with the refs as this caller sees them. */
-function publishCheckFor(ctx: AuthContext, plan: PlanRow, dto: RoutePlanDetailDto, seats: (bookingId: string) => number | undefined): RoutePlanPublishCheck {
+function publishCheckFor(ctx: AuthContext, plan: PlanRow, dto: RoutePlanDetailDto, seats: (bookingId: string) => number | undefined, ride: RideRule): RoutePlanPublishCheck {
   const refs = new Map(dto.stops.map((s) => [s.id, s.ref]));
-  const r = publishIssues(plan.assignments, plan.stops.map(toRuleStop), seats);
+  const r = publishIssues(plan.assignments, plan.stops.map(toRuleStop), seats, ride);
   const shown = <T extends { stopId: string; ref: string }>(i: T): T => ({ ...i, ref: refs.get(i.stopId) ?? i.ref });
   return { hard: r.hard.map(shown), soft: r.soft.map(shown), fingerprint: r.fingerprint, canOverride: canOverridePublish(ctx) };
 }

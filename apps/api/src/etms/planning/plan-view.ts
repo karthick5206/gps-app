@@ -19,7 +19,7 @@ import {
 import { weightsOf } from '../../routing-jobs/prisma-plan-gateway';
 import { round } from '../dispatch/e3-common';
 import { PERSONAL_STOP_NAME } from '../dispatch/personal-points';
-import { routeStops, routeViolations, windowsOf, type RuleStop } from './plan-rules';
+import { routeStops, routeViolations, windowsOf, type RideRule, type RuleStop } from './plan-rules';
 
 /** What a plan read loads (detail, edits, publish). */
 export const PLAN_INCLUDE = {
@@ -122,7 +122,7 @@ export function seatsLookup(bookings: Map<string, { passengerCount: number }>) {
  * branches (4 decimals unless whole-company), another branch's passenger anonymised (no booking / profile id), a
  * route's geometry only when none of its stops is hidden. Returns the profile ids whose points were shown (L1 audit).
  */
-export function toPlanDetail(p: PlanRow, view: PlanPointView): { dto: RoutePlanDetailDto; shown: string[]; named: string[] } {
+export function toPlanDetail(p: PlanRow, view: PlanPointView, ride?: RideRule): { dto: RoutePlanDetailDto; shown: string[]; named: string[] } {
   const locks = routePlanLocks(p.options);
   const decimals = view.precise ? 6 : 4;
   const seats = seatsLookup(view.bookings);
@@ -206,7 +206,7 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView): { dto: RoutePlanD
         driverName: a.driverId ? (view.names.drivers.get(a.driverId) ?? null) : null,
         passengers: new Set(list.flatMap((s) => (s.bookingId ? [s.bookingId] : []))).size,
         seats: list.reduce((n, s) => n + (s.bookingId ? (s.stopKind === 'PICKUP' ? (seats(s.bookingId) ?? 1) : 0) : s.demand), 0),
-        violations: routeViolations(list, a.capacity, seats),
+        violations: routeViolations(list, a.capacity, seats, false, ride),
       };
     });
   const dto: RoutePlanDetailDto = {

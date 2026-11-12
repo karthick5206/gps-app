@@ -107,6 +107,18 @@ export async function withOverride(
   return options;
 }
 
+/**
+ * E4 decisions review D-M1: the max ride a plan's checks use (route violations, publish warnings). Chosen rule: a plan
+ * optimised under owner decision 1 carries a snapshot (`maxRideSource` set): its `maxRideS` — what the solver honoured,
+ * and "none" stays none — so the checks judge the plan by the rule it was built with whatever the policy becomes later
+ * (a re-optimise re-snapshots). A plan never optimised (built by hand) uses its override, else the company policy now.
+ */
+export function effectiveMaxRideS(options: unknown, policyS: number | null): number | null {
+  const o = options && typeof options === 'object' && !Array.isArray(options) ? (options as Record<string, unknown>) : {};
+  if (typeof o.maxRideSource === 'string' || o.maxRideS !== undefined) return isMaxRideS(o.maxRideS) ? o.maxRideS : null;
+  return storedOverrideOf(o)?.maxRideS ?? (isMaxRideS(policyS) ? policyS : null);
+}
+
 /** The snapshot an optimisation runs with: override, else the policy, else none (no limit). */
 export function maxRideSnapshot(options: Record<string, unknown>, policyS: number | null): Record<string, unknown> {
   const override = storedOverrideOf(options);
