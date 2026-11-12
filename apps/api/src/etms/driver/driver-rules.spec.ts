@@ -293,3 +293,55 @@ describe('E5 security review: rules (M1, M2, L1, L2)', () => {
     expect(d).toMatchObject({ outcome: 'ACCEPTED', verified: 'unverified_location' });
   });
 });
+
+describe('D1 / D1b settle grace after a COMPLETED trip (Lead decision 2026-11-12)', () => {
+  const H = 3_600_000;
+  // GPS auto-completed the trip at the office 10 min ago; pickup 0 was reached and left, p1 rode, p2 never came.
+  const closed = (closedAgoMs: number) =>
+    snap({
+      plannedTripStatus: 'COMPLETED',
+      actualStart: new Date(NOW - 60 * MIN),
+      actualEnd: new Date(NOW - closedAgoMs),
+      stops: [
+        { id: 's0', seq: 0, status: 'DEPARTED', plannedArrival: new Date(NOW - 50 * MIN), actualArrival: new Date(NOW - 50 * MIN), lat: 13.06, lng: 80.24, radiusM: 100 },
+        { id: 's1', seq: 1, status: 'ARRIVED', plannedArrival: new Date(NOW - 12 * MIN), actualArrival: new Date(NOW - closedAgoMs), lat: 13.05, lng: 80.25, radiusM: 100 },
+      ],
+      passengers: [
+        { id: 'p1', status: 'BOARDED', pickupSeq: 0, dropSeq: 1 },
+        { id: 'p2', status: 'PENDING', pickupSeq: 0, dropSeq: 1 },
+      ],
+      lastSeq: 3,
+    });
+
+  it('inside the grace: DROPPED and NO_SHOW are ACCEPTED with afterClose; ARRIVED / DEPARTED stay LATE; the trip stays COMPLETED', () => {
+    const s = closed(10 * MIN);
+    const drop = decide(s, ev('DROPPED', 4, { passengerTripId: 'p1', stopSeq: 1 }), NOW);
+    expect(drop).toMatchObject({ outcome: 'ACCEPTED', afterClose: true, effect: { kind: 'OUTCOME', from: 'BOARDED', to: 'DROPPED' } });
+    expect(decide(s, ev('NO_SHOW', 5, { passengerTripId: 'p2', reasonCode: 'NOT_AT_PICKUP' }), NOW)).toMatchObject({ outcome: 'ACCEPTED', afterClose: true });
+    expect(run(closed(10 * MIN), [ev('ARRIVED', 4, { stopSeq: 1 }), ev('DEPARTED', 5, { stopSeq: 1 }), ev('REPORT_DELAY', 6)])).toEqual(['LATE:TRIP_CLOSED', 'LATE:TRIP_CLOSED', 'LATE:TRIP_CLOSED']);
+    const r = closed(10 * MIN);
+    run(r, [ev('DROPPED', 4, { passengerTripId: 'p1', stopSeq: 1 })]);
+    expect(r.plannedTripStatus).toBe('COMPLETED');
+  });
+
+  it('never a new boarding: BOARDED dated after the close is LATE; one that happened while the trip ran is accepted', () => {
+    expect(run(closed(10 * MIN), [ev('BOARDED', 4, { passengerTripId: 'p2' })])).toEqual(['LATE:TRIP_CLOSED']);
+    expect(run(closed(10 * MIN), [ev('BOARDED', 4, { passengerTripId: 'p2', occurredAt: new Date(NOW - 45 * MIN) })])).toEqual(['ACCEPTED']);
+  });
+
+  it('R6 inside the grace: an offline queue replayed shuffled converges (DROPPED before its BOARDED is RETRY, then accepted)', () => {
+    const s = closed(10 * MIN);
+    s.lastSeq = 1;
+    s.passengers[0].status = 'PENDING';
+    const board = ev('BOARDED', 2, { passengerTripId: 'p1', occurredAt: new Date(NOW - 45 * MIN) });
+    const drop = ev('DROPPED', 3, { passengerTripId: 'p1', stopSeq: 1, occurredAt: new Date(NOW - 10 * MIN) });
+    expect(run(s, [drop, board, drop])).toEqual(['RETRY:OUT_OF_ORDER', 'ACCEPTED', 'ACCEPTED']);
+    expect(s.passengers[0].status).toBe('DROPPED');
+  });
+
+  it('outside the grace (or a CANCELLED / INCOMPLETE trip): LATE TRIP_CLOSED, a definitive answer', () => {
+    expect(run(closed(6 * H + MIN), [ev('DROPPED', 4, { passengerTripId: 'p1', stopSeq: 1 })])).toEqual(['LATE:TRIP_CLOSED']);
+    expect(run({ ...closed(10 * MIN), plannedTripStatus: 'INCOMPLETE' }, [ev('DROPPED', 4, { passengerTripId: 'p1', stopSeq: 1 })])).toEqual(['LATE:TRIP_CLOSED']);
+    expect(run({ ...closed(10 * MIN), plannedTripStatus: 'CANCELLED' }, [ev('DROPPED', 4, { passengerTripId: 'p1', stopSeq: 1 })])).toEqual(['LATE:TRIP_CLOSED']);
+  });
+});

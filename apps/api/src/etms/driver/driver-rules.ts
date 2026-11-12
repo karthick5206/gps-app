@@ -78,6 +78,8 @@ export interface TripSnapshot {
   track?: Fix[];
   /** Server receipt of the last accepted REPORT_DELAY of this trip (security review M2); null = none. */
   lastDelayAt?: Date | null;
+  /** When the trip was closed (PlannedTrip.actualEnd); the D1 settle grace runs from here. */
+  actualEnd?: Date | null;
 }
 
 export type Fix = { lat: number; lng: number; at: Date };
@@ -102,7 +104,7 @@ export type Effect =
   | { kind: 'COMPLETE'; from: PlannedTripStatus };
 
 export type Decision =
-  | { outcome: 'ACCEPTED'; effect: Effect; verified?: 'gps' | 'unverified_location' | null; code?: null; review?: OutcomeReview }
+  | { outcome: 'ACCEPTED'; effect: Effect; verified?: 'gps' | 'unverified_location' | null; code?: null; review?: OutcomeReview; afterClose?: true }
   | { outcome: Exclude<DriverTripEventOutcome, 'ACCEPTED'>; code: DriverErrorCode | 'ALREADY_RECORDED'; effect?: undefined; verified?: undefined; review?: undefined };
 
 const OPEN: readonly (PlannedTripStatus | null)[] = ['SCHEDULED', 'STARTED', 'IN_PROGRESS'];
@@ -115,6 +117,18 @@ const dup = (): Decision => ({ outcome: 'DUPLICATE', code: 'ALREADY_RECORDED' })
 const retry = (code: DriverErrorCode = 'OUT_OF_ORDER'): Decision => ({ outcome: 'RETRY', code });
 /** Event types tied to the trip run (stops / passengers): never dated before the trip's actual start (M1). */
 const RUN_EVENTS: readonly string[] = ['ARRIVED', 'DEPARTED', 'BOARDED', 'NO_SHOW', 'DROPPED', 'COMPLETE_TRIP'];
+
+/** Passenger outcomes the driver may still send for a while after the trip is COMPLETED (D1 / D1b). */
+const SETTLE_EVENTS: readonly string[] = ['BOARDED', 'NO_SHOW', 'DROPPED'];
+
+/**
+ * D1 / D1b (Lead decision 2026-11-12): the trip is COMPLETED (typically auto-completed by the vehicle GPS on reaching the
+ * last stop) no longer than DRIVER_LIMITS.settleGraceHours ago. Then the driver's per-passenger settlements are still
+ * evaluated (see decide); the trip itself stays closed.
+ */
+export function inSettleGrace(s: Pick<TripSnapshot, 'plannedTripStatus' | 'actualEnd'>, now: number): boolean {
+  return s.plannedTripStatus === 'COMPLETED' && !!s.actualEnd && now - s.actualEnd.getTime() <= L.settleGraceHours * 3_600_000;
+}
 
 /** Stored TransportTripEvent kind of a driver event (COMPLETE_TRIP is stored as COMPLETED, like the dispatcher's). */
 export function storedKind(type: string): string {
@@ -175,6 +189,13 @@ export function decide(s: TripSnapshot, e: EventIn, now: number): Decision {
   // A trip the dispatcher (or the timeout sweeper / GPS) closed: queued events change nothing (dispatcher wins).
   if (!OPEN.includes(status)) {
     if (e.type === 'COMPLETE_TRIP' && status === 'COMPLETED') return dup();
+    // D1 / D1b: inside the settle grace a COMPLETED trip still takes passenger settlements, never a new boarding (a
+    // BOARDED counts only when it happened before the close). Everything else, and anything later, is LATE.
+    if (SETTLE_EVENTS.includes(e.type) && inSettleGrace(s, now)) {
+      if (e.type === 'BOARDED' && e.occurredAt.getTime() > s.actualEnd!.getTime()) return late('TRIP_CLOSED');
+      const d = decideOutcome(s, e, now, gap);
+      return d.outcome === 'ACCEPTED' ? { ...d, afterClose: true as const } : d;
+    }
     return late('TRIP_CLOSED');
   }
 
@@ -214,41 +235,9 @@ export function decide(s: TripSnapshot, e: EventIn, now: number): Decision {
 
     case 'BOARDED':
     case 'NO_SHOW':
-    case 'DROPPED': {
+    case 'DROPPED':
       if (!RUNNING.includes(status)) return reject('TRIP_NOT_STARTED');
-      const p = s.passengers.find((x) => x.id === e.passengerTripId);
-      if (!p) return reject('NOT_FOUND');
-      if (p.status === 'CANCELLED') return reject('INVALID_STATE');
-      const to = e.type;
-      // Same fact already recorded (by this app, another device or the dispatcher): nothing to change.
-      if (p.status === to || (to === 'BOARDED' && p.status === 'DROPPED')) return dup();
-      if (to === 'DROPPED') {
-        if (p.status === 'PENDING') return gap ? retry() : reject('INVALID_STATE');
-        if (!driverOutcomeAllowed(p.status, to)) return reject('CONFLICT');
-        const early = e.stopSeq !== undefined && e.stopSeq !== p.dropSeq;
-        if (early && !e.reasonCode) return reject('NOT_AT_DROP_STOP');
-        // R-3: a drop at a stop whose arrival is doubtful is accepted but goes to the dispatcher for review.
-        const at = s.stops.find((x) => x.seq === (e.stopSeq ?? p.dropSeq));
-        return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: early }, ...(doubtful(at) ? { review: 'DROPPED_UNVERIFIED_ARRIVAL' as const } : {}) };
-      }
-      if (!driverOutcomeAllowed(p.status, to)) return reject('CONFLICT');
-      const pickup = s.stops.find((x) => x.seq === p.pickupSeq);
-      if (!pickup || (pickup.status !== 'ARRIVED' && pickup.status !== 'DEPARTED')) return gap ? retry() : reject('STOP_NOT_ARRIVED');
-      // R-1: the no-show's time never counts beyond the server's now (a device clock up to 2 min fast cannot shorten
-      // the wait).
-      const noShowAt = Math.min(e.occurredAt.getTime(), now);
-      if (to === 'NO_SHOW' && pickup.actualArrival && noShowAt - pickup.actualArrival.getTime() < L.noShowMinWaitMin * MIN) return reject('WAIT_NOT_ELAPSED');
-      if (to === 'NO_SHOW' && doubtful(pickup)) {
-        // M1 / R-2: an arrival the GPS did not confirm, or one reported retroactively, starts the wait when the server
-        // heard of it, never earlier. RETRY: the queue keeps it and sends it again later.
-        const from = Math.max(pickup.actualArrival?.getTime() ?? 0, pickup.arrivalReceivedAt?.getTime() ?? now);
-        if (now - from < L.noShowMinWaitMin * MIN) return retry('WAIT_NOT_ELAPSED');
-        return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false }, review: pickup.arrivalUnverified ? 'NO_SHOW_UNVERIFIED_ARRIVAL' : 'NO_SHOW_LATE_ARRIVAL' };
-      }
-      // R-3: BOARDED after a doubtful arrival is accepted (boarding cannot be proven) but reviewed like a no-show.
-      if (to === 'BOARDED' && doubtful(pickup)) return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false }, review: 'BOARDED_UNVERIFIED_ARRIVAL' };
-      return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false } };
-    }
+      return decideOutcome(s, e, now, gap);
 
     case 'COMPLETE_TRIP':
       if (!RUNNING.includes(status)) return gap ? retry() : reject('TRIP_NOT_STARTED');
@@ -256,6 +245,42 @@ export function decide(s: TripSnapshot, e: EventIn, now: number): Decision {
       return { outcome: 'ACCEPTED', effect: { kind: 'COMPLETE', from: status as PlannedTripStatus } };
   }
   return reject('VALIDATION_FAILED');
+}
+
+/** BOARDED / NO_SHOW / DROPPED against the seat and its stops: while the trip runs, or in the D1 settle grace. */
+function decideOutcome(s: TripSnapshot, e: EventIn, now: number, gap: boolean): Decision {
+  const p = s.passengers.find((x) => x.id === e.passengerTripId);
+  if (!p) return reject('NOT_FOUND');
+  if (p.status === 'CANCELLED') return reject('INVALID_STATE');
+  const to = e.type as 'BOARDED' | 'NO_SHOW' | 'DROPPED';
+  // Same fact already recorded (by this app, another device or the dispatcher): nothing to change.
+  if (p.status === to || (to === 'BOARDED' && p.status === 'DROPPED')) return dup();
+  if (to === 'DROPPED') {
+    if (p.status === 'PENDING') return gap ? retry() : reject('INVALID_STATE');
+    if (!driverOutcomeAllowed(p.status, to)) return reject('CONFLICT');
+    const early = e.stopSeq !== undefined && e.stopSeq !== p.dropSeq;
+    if (early && !e.reasonCode) return reject('NOT_AT_DROP_STOP');
+    // R-3: a drop at a stop whose arrival is doubtful is accepted but goes to the dispatcher for review.
+    const at = s.stops.find((x) => x.seq === (e.stopSeq ?? p.dropSeq));
+    return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: early }, ...(doubtful(at) ? { review: 'DROPPED_UNVERIFIED_ARRIVAL' as const } : {}) };
+  }
+  if (!driverOutcomeAllowed(p.status, to)) return reject('CONFLICT');
+  const pickup = s.stops.find((x) => x.seq === p.pickupSeq);
+  if (!pickup || (pickup.status !== 'ARRIVED' && pickup.status !== 'DEPARTED')) return gap ? retry() : reject('STOP_NOT_ARRIVED');
+  // R-1: the no-show's time never counts beyond the server's now (a device clock up to 2 min fast cannot shorten
+  // the wait).
+  const noShowAt = Math.min(e.occurredAt.getTime(), now);
+  if (to === 'NO_SHOW' && pickup.actualArrival && noShowAt - pickup.actualArrival.getTime() < L.noShowMinWaitMin * MIN) return reject('WAIT_NOT_ELAPSED');
+  if (to === 'NO_SHOW' && doubtful(pickup)) {
+    // M1 / R-2: an arrival the GPS did not confirm, or one reported retroactively, starts the wait when the server
+    // heard of it, never earlier. RETRY: the queue keeps it and sends it again later.
+    const from = Math.max(pickup.actualArrival?.getTime() ?? 0, pickup.arrivalReceivedAt?.getTime() ?? now);
+    if (now - from < L.noShowMinWaitMin * MIN) return retry('WAIT_NOT_ELAPSED');
+    return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false }, review: pickup.arrivalUnverified ? 'NO_SHOW_UNVERIFIED_ARRIVAL' : 'NO_SHOW_LATE_ARRIVAL' };
+  }
+  // R-3: BOARDED after a doubtful arrival is accepted (boarding cannot be proven) but reviewed like a no-show.
+  if (to === 'BOARDED' && doubtful(pickup)) return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false }, review: 'BOARDED_UNVERIFIED_ARRIVAL' };
+  return { outcome: 'ACCEPTED', effect: { kind: 'OUTCOME', passengerTripId: p.id, from: p.status, to, earlyDrop: false } };
 }
 
 /**

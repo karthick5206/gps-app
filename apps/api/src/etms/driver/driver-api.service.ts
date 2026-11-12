@@ -341,10 +341,13 @@ export class DriverApiService {
         fix,
         track: assigned ? await this.track(tx, pt.objectId, events, actualStart, now) : [],
         lastDelayAt: latest(history.filter((h) => h.tripId === id && h.kind === 'REPORT_DELAY').map((h) => h.receivedAt)),
+        actualEnd: pt.actualEnd ?? null,
       };
       const accepted: string[] = [];
       const reviews: string[] = [];
       const outcomeReviews: string[] = [];
+      // D1: passenger settlements accepted after the trip was COMPLETED (inside the settle grace), audited by name.
+      const afterClose: string[] = [];
       const inBatch = new Map<string, string>();
       for (const e of events) {
         const base = { clientEventId: e.clientEventId, seq: e.seq };
@@ -379,6 +382,7 @@ export class DriverApiService {
           else {
             applyToSnapshot(snap, d.effect, at, { now, verified: d.verified ?? null });
             accepted.push(`${e.seq}:${e.type}`);
+            if (d.afterClose) afterClose.push(`${e.seq}:${e.type}`);
             if (d.effect.kind !== 'OVERLAY' || d.effect.overlay === 'BREAKDOWN') changed = true;
           }
         }
@@ -404,6 +408,7 @@ export class DriverApiService {
             ...(d.verified ? { verified: d.verified } : {}),
             ...(setsArrival && d.outcome === 'ACCEPTED' ? { setArrival: true } : {}),
             ...(review ? { review } : {}),
+            ...(d.outcome === 'ACCEPTED' && d.afterClose ? { afterClose: true, closedAt: pt.actualEnd?.toISOString() ?? null } : {}),
             ...(setsArrival && d.outcome === 'ACCEPTED' && arrivalIsLate(at, now) ? { lateArrival: true } : {}),
             ...(d.effect?.kind === 'OUTCOME' && d.effect.earlyDrop ? { earlyDrop: true } : {}),
             ...(e.passengerTripId && !p ? { unknownPassengerTripId: e.passengerTripId } : {}),
@@ -433,9 +438,9 @@ export class DriverApiService {
           (reviewKind === 'NO_SHOW_REVIEW' ? reviews : outcomeReviews).push(p.id);
         }
         snap.lastSeq = Math.max(snap.lastSeq ?? 0, e.seq);
-        results.set(e.clientEventId, { ...base, outcome: d.outcome, code: (d.code ?? null) as DriverTripEventResult['code'], verified: d.verified ?? null, receivedAt: row.receivedAt.toISOString() });
+        results.set(e.clientEventId, { ...base, outcome: d.outcome, code: (d.code ?? null) as DriverTripEventResult['code'], verified: d.verified ?? null, receivedAt: row.receivedAt.toISOString(), ...(d.outcome === 'ACCEPTED' && d.afterClose ? { afterClose: true } : {}) });
       }
-      if (accepted.length) await this.audit.record(ctx, { action: 'UPDATE', entity: TRIP_ENTITY, entityId: id, details: { driverEvents: accepted, source: 'DRIVER_APP', ...(reviews.length ? { noShowReview: reviews } : {}), ...(outcomeReviews.length ? { outcomeReview: outcomeReviews } : {}) } }, tx);
+      if (accepted.length) await this.audit.record(ctx, { action: 'UPDATE', entity: TRIP_ENTITY, entityId: id, details: { driverEvents: accepted, source: 'DRIVER_APP', ...(afterClose.length ? { afterClose, closedAt: pt.actualEnd?.toISOString() ?? null } : {}), ...(reviews.length ? { noShowReview: reviews } : {}), ...(outcomeReviews.length ? { outcomeReview: outcomeReviews } : {}) } }, tx);
     });
     if (changed) await this.live.changed(ctx.companyId, [m.pt.id]);
     const after = assigned ? await this.one(ctx, me, id, true) : null;
