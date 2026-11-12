@@ -49,6 +49,7 @@ test('fleet error codes and access-log text', () => {
   assert.equal(fleetErrorText('OTHER'), null);
   assert.equal(accessWhatLabel('detail'), 'Opened passenger details');
   assert.equal(accessWhatLabel('custom'), 'custom');
+  assert.equal(accessWhatLabel('incident-detail'), 'Opened an SOS incident');
   assert.equal(accessActorText({ actorKind: 'PROVIDER', actorName: 'Dispatcher One', actorCompanyName: 'Prov Co' }), 'Dispatcher One · Prov Co');
   assert.equal(accessActorText({ actorKind: 'SUPPORT', actorName: null, actorCompanyName: null }), 'VeeTrax support');
 });

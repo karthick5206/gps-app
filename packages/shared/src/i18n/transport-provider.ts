@@ -58,6 +58,7 @@ export const TRANSPORT_PROVIDER_HI: Record<string, string> = {
   Who: 'कौन',
   "Who opened your passengers' personal data: transport providers under an agreement and VeeTrax support, with the reason they gave.":
     'आपके यात्रियों का व्यक्तिगत डेटा किसने खोला: अनुबंध के तहत परिवहन प्रदाता और VeeTrax सपोर्ट, उनके दिए कारण के साथ।',
+  "Opened an SOS incident": "एक SOS घटना खोली",
 };
 
 export const TRANSPORT_PROVIDER_TA: Record<string, string> = {
@@ -115,4 +116,5 @@ export const TRANSPORT_PROVIDER_TA: Record<string, string> = {
   Who: 'யார்',
   "Who opened your passengers' personal data: transport providers under an agreement and VeeTrax support, with the reason they gave.":
     'உங்கள் பயணிகளின் தனிப்பட்ட தரவை யார் திறந்தார்கள்: ஒப்பந்தத்தின் கீழ் போக்குவரத்து வழங்குநர்களும் VeeTrax ஆதரவும், அவர்கள் கொடுத்த காரணத்துடன்.',
+  "Opened an SOS incident": "ஒரு SOS சம்பவத்தைத் திறந்தது",
 };

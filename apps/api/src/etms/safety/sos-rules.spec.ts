@@ -73,8 +73,11 @@ describe('ETMS SOS rules (WP 5.4)', () => {
       expect(incidentAccess(ctx('other'), pax, NOW)).toBe('none');
     });
 
-    it('the platform Super Admin manages all; switched into a company it acts as that company', () => {
-      expect(incidentAccess({ companyId: 'platform', homeCompanyId: 'platform', isSuperAdmin: true, agreements: [] }, pax, NOW)).toBe('manage');
+    it("M1: the Super Admin is view only: every incident on the platform, the switched-in company's own, never manage", () => {
+      expect(incidentAccess({ companyId: 'platform', homeCompanyId: 'platform', isSuperAdmin: true, agreements: [] }, pax, NOW)).toBe('view');
+      expect(incidentAccess({ companyId: 'platform', homeCompanyId: 'platform', isSuperAdmin: true, agreements: [] }, drv, NOW)).toBe('view');
+      expect(incidentAccess({ companyId: 'cust', homeCompanyId: 'platform', isSuperAdmin: true, agreements: [] }, pax, NOW)).toBe('view');
+      expect(incidentAccess({ companyId: 'prov', homeCompanyId: 'platform', isSuperAdmin: true, agreements: [] }, drv, NOW)).toBe('view');
       expect(incidentAccess({ companyId: 'other', homeCompanyId: 'platform', isSuperAdmin: true, agreements: [] }, pax, NOW)).toBe('none');
       expect(incidentListWhere({ companyId: 'platform', homeCompanyId: 'platform', isSuperAdmin: true, agreements: [] }, NOW)).toEqual({});
     });

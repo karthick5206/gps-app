@@ -97,6 +97,8 @@ export function accessWhatLabel(what: string): string {
       return 'Viewed consent records';
     case 'history':
       return 'Viewed passenger history';
+    case 'incident-detail':
+      return 'Opened an SOS incident';
     default:
       return what;
   }

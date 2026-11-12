@@ -45,7 +45,9 @@ export function transportRequestHeaders(apiPath: string, location: { pathname: s
 
 /** Routes that read passenger personal data (the server asks the Super Admin for a reason there). */
 export function accessReasonApplies(apiPath: string): boolean {
-  return apiPath === '/transport/passengers' || apiPath.startsWith('/transport/passengers/') || apiPath.startsWith('/transport/passengers?');
+  if (apiPath === '/transport/passengers' || apiPath.startsWith('/transport/passengers/') || apiPath.startsWith('/transport/passengers?')) return true;
+  // Security review M1: an incident's detail (raiser, location); the lane itself is redacted for support, no reason.
+  return apiPath.startsWith('/transport/incidents/');
 }
 
 /** Trimmed reason when it satisfies the server rule, else null. */

@@ -31,6 +31,9 @@ test('headers: customer only on /transport API calls from a transport page; reas
   assert.deepEqual(transportRequestHeaders('/transport/bookings', null, 'Ticket 12'), {});
   assert.equal(isTransportApiPath('/transportation'), false);
   assert.equal(accessReasonApplies('/transport/passengers'), true);
+  // M1: an incident detail needs the reason; the (redacted) lane does not.
+  assert.equal(accessReasonApplies('/transport/incidents/3f1c2a4e-9b7d-4c1e-8a2b-1234567890ab'), true);
+  assert.equal(accessReasonApplies('/transport/incidents'), false);
   assert.equal(accessReasonApplies('/transport/bookings'), false);
 });
 
