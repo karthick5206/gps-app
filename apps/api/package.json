@@ -22,6 +22,7 @@
     "etms:gate": "tsx scripts/etms-e2e/gate.ts",
     "etms:gh-stub": "tsx scripts/etms-e2e/graphhopper-stub.ts",
     "etms:sim-trip": "tsx scripts/etms-e2e/sim-trip.ts",
+    "etms:e5": "tsx scripts/etms-e2e/e5-scenarios.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",

@@ -1,0 +1,16 @@
+{
+  "name": "etms-on-time",
+  "description": "ETMS login trip, 3 pickups 1.2 / 0.8 / 0.4 km north of the office, on time. The driver app is online throughout: ARRIVED, BOARDED, DEPARTED at each pickup, DROPPED x 3 and COMPLETE_TRIP at the office. Baseline for etms-offline-driver (R6).",
+  "pickupsM": [1200, 800, 400],
+  "board": [
+    { "stop": 0, "passengers": [0] },
+    { "stop": 1, "passengers": [1] },
+    { "stop": 2, "passengers": [2] }
+  ],
+  "noShow": [],
+  "reportDelay": null,
+  "driverOffline": null,
+  "replay": { "seed": 1, "duplicateEvery": 1, "batchSize": 50 },
+  "compareWith": null,
+  "expect": { "passengers": ["DROPPED", "DROPPED", "DROPPED"], "trip": "COMPLETED" }
+}

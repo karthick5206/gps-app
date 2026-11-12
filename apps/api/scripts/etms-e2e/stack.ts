@@ -72,6 +72,10 @@ export interface StackOptions {
   routerUrl: string | null;
   outDir: string;
   processor?: boolean;
+  /** Also start dist/notifier/main.js (E5 WP 5.5: pushes / SMS through the fake providers). */
+  notifier?: boolean;
+  /** Extra environment for every process (applied after the defaults), e.g. PUSH_PROVIDER=fake. */
+  extraEnv?: Record<string, string>;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -121,6 +125,7 @@ export class Stack {
       WEB_URL: 'http://127.0.0.1:9',
       CORS_ORIGINS: 'http://127.0.0.1:9',
       ...(this.o.routerUrl ? { ROUTER_URL: this.o.routerUrl, ROUTER_ENGINE: 'graphhopper' } : {}),
+      ...(this.o.extraEnv ?? {}),
       ...extra,
     };
   }
@@ -157,6 +162,11 @@ export class Stack {
       const p = this.spawnNode('processor', 'dist/processor/main.js', this.env({ PROCESSOR_CONSUMER: `e3h-processor-${process.pid}` }));
       await sleep(3_000);
       if (p.exitCode !== null) throw new Error('processor exited at start (see processor.log)');
+    }
+    if (this.o.notifier) {
+      const n = this.spawnNode('notifier', 'dist/notifier/main.js', this.env({ NOTIFIER_CONSUMER: `e5s-notifier-${process.pid}` }));
+      await sleep(3_000);
+      if (n.exitCode !== null) throw new Error('notifier exited at start (see notifier.log)');
     }
   }
 

@@ -1,0 +1,15 @@
+{
+  "name": "etms-no-show",
+  "description": "As etms-on-time, but the passenger at pickup 2 does not come: the driver reports a delay (TRAFFIC, 5 min) while waiting, then NO_SHOW (NOT_AT_PICKUP) once the 5 min no-show wait after the GPS arrival has elapsed. An early NO_SHOW tap is refused with WAIT_NOT_ELAPSED first.",
+  "pickupsM": [1200, 800, 400],
+  "board": [
+    { "stop": 0, "passengers": [0] },
+    { "stop": 1, "passengers": [1] }
+  ],
+  "noShow": [{ "stop": 2, "passenger": 2, "reasonCode": "NOT_AT_PICKUP" }],
+  "reportDelay": { "stop": 2, "reasonCode": "TRAFFIC", "etaMin": 5 },
+  "driverOffline": null,
+  "replay": { "seed": 1, "duplicateEvery": 1, "batchSize": 50 },
+  "compareWith": null,
+  "expect": { "passengers": ["DROPPED", "DROPPED", "NO_SHOW"], "trip": "COMPLETED" }
+}
