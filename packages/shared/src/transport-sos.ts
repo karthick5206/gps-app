@@ -203,6 +203,8 @@ export const SOS_OUTBOX_TYPES = {
   created: 'transport.incident.created',
   acknowledged: 'transport.incident.acknowledged',
   resolved: 'transport.incident.resolved',
+  /** Security review L1: a repeat press linked the trip and so added the other party (notify that party). */
+  linked: 'transport.incident.linked',
 } as const;
 
 // ───────────────────────────── Helpers ─────────────────────────────

@@ -140,7 +140,9 @@ export class SafetyOutboxRelayService {
       return 'published';
     }
     const message = fanout(incident);
-    const creation = row.type === SOS_OUTBOX_TYPES.created;
+    // L1: a "linked" row (a repeat press added the other party) is delivered like a creation, to that party only.
+    const linked = row.type === SOS_OUTBOX_TYPES.linked;
+    const creation = row.type === SOS_OUTBOX_TYPES.created || linked;
     if (creation && incident.status !== 'OPEN') {
       // M2: handled meanwhile (from the polled lane): refresh the lanes with the real status, never a siren.
       await this.refreshOnly(message);
@@ -149,7 +151,7 @@ export class SafetyOutboxRelayService {
       return 'published';
     }
     const late = creation && Date.now() - row.createdAt.getTime() > SOS_RELAY_LATE_MS;
-    const logIds = creation ? await this.pushRows(row, incident, late) : [];
+    const logIds = creation ? await this.pushRows(row, incident, late, linked) : [];
     try {
       await withTimeout(this.redis.client.publish(SOS_CHANNEL, JSON.stringify(message)), VALKEY_TIMEOUT_MS);
       if (logIds.length) {
@@ -195,8 +197,9 @@ export class SafetyOutboxRelayService {
    * login (dedupeKey), generic text in the login's language; only logins with a signed-in app. Returns the QUEUED ids.
    * `late` (M2): the quiet "still open since HH:MM" form (company time zone), no siren.
    */
-  private async pushRows(row: OutboxEvent, incident: IncidentRow, late = false): Promise<string[]> {
-    const companies = await this.recipientCompanies(incident);
+  private async pushRows(row: OutboxEvent, incident: IncidentRow, late = false, otherPartyOnly = false): Promise<string[]> {
+    const own = incident.raiserType === 'DRIVER' ? incident.providerCompanyId : incident.customerCompanyId;
+    const companies = (await this.recipientCompanies(incident)).filter((c) => !otherPartyOnly || c !== own);
     if (!companies.length) return [];
     const now = new Date();
     const users = await this.prisma.user.findMany({

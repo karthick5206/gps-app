@@ -96,23 +96,44 @@ export class SosService {
         if (open && open.raiserUserId === ctx.userId && open.status === 'OPEN') {
           const events = await tx.transportIncidentEvent.count({ where: { incidentId: open.id, kind: 'REPEATED' } });
           const fixNewer = c.fix && (!open.fixAt || new Date(c.fix.at) > open.fixAt);
+          const linking = !open.tripId && !!link;
+          const providerCompanyId = open.providerCompanyId ?? link?.providerCompanyId ?? null;
+          const customerCompanyId = open.customerCompanyId ?? link?.customerCompanyId ?? null;
           const updated = await tx.transportIncident.update({
             where: { id: open.id },
             data: {
               repeatCount: { increment: 1 },
               lastRepeatAt: new Date(),
               ...(fixNewer && c.fix ? { fixLat: c.fix.lat, fixLng: c.fix.lng, fixAccuracyM: c.fix.accuracyM ?? null, fixAt: new Date(c.fix.at) } : {}),
-              ...(!open.tripId && link ? { tripId: link.tripId, providerCompanyId: open.providerCompanyId ?? link.providerCompanyId, customerCompanyId: open.customerCompanyId ?? link.customerCompanyId, vehicleLabel: link.vehicleLabel } : {}),
+              ...(linking && link ? { tripId: link.tripId, providerCompanyId, customerCompanyId, vehicleLabel: link.vehicleLabel } : {}),
             },
           });
+          // Security review L1: the press linked a trip and added the other party (e.g. the operator of a passenger's
+          // trip): a SAFETY row notifies that party now (socket + push), instead of leaving it to the 15 s lane poll.
+          const addedParty = linking && (providerCompanyId !== open.providerCompanyId || customerCompanyId !== open.customerCompanyId);
+          if (addedParty) {
+            await tx.outboxEvent.create({
+              data: {
+                companyId: ctx.companyId,
+                providerCompanyId,
+                customerCompanyId,
+                type: SOS_OUTBOX_TYPES.linked,
+                aggregateType: 'incident',
+                aggregateId: open.id,
+                class: 'SAFETY',
+                payload: { incidentId: open.id, kind: 'SOS', tripId: link?.tripId ?? null, raiserType: raiser.type },
+                occurredAt: new Date(),
+              },
+            });
+          }
           if (events < MAX_REPEAT_EVENTS) {
             await tx.transportIncidentEvent.create({ data: { incidentId: open.id, kind: 'REPEATED', actorType: raiser.type, actorUserId: ctx.userId, clientKey: c.serverKey ? null : c.key, requestHash: c.hash, note: c.note, data: { tripLinked } } });
           }
-          return { row: updated, created: false };
+          return { row: updated, created: false, linked: addedParty };
         }
-        return { row: await this.create(tx, ctx, raiser, c, link), created: true };
+        return { row: await this.create(tx, ctx, raiser, c, link), created: true, linked: false };
       });
-      if (out.created) this.relay?.kick();
+      if (out.created || out.linked) this.relay?.kick();
       return { receipt: await this.toReceipt(out.row, !out.created, tripLinked), created: out.created, replay: false };
     } catch (e) {
       // Same key raced (unique raiser + key), or a second device created the OPEN SOS first (partial unique): once more,

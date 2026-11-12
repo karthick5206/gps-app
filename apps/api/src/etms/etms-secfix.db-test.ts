@@ -5,6 +5,7 @@
  *  - QA B1: the customer picker (X-Transport-Customer) never narrows the SOS lane.
  *  - M2: relay off → resume and rollback → roll-forward never replay a handled SOS as a new siren; a late, still-OPEN
  *    SOS gets the quiet "still open since HH:MM" push; nothing still OPEN is dropped.
+ *  - L1: a repeat press that links the trip (and so the operator) notifies the operator's dispatchers.
  * Not part of the normal run (testRegex is *.spec.ts):
  *   CI=true ETMS_DB_TEST_URL=postgresql://…/veetrax_<name>_test TEST_REDIS_URL=redis://localhost:6379/14 \
  *     npx jest --testRegex 'etms-secfix\.db-test\.ts$' --runInBand
@@ -223,6 +224,35 @@ d(`v1.14.0 security fix round on ${dbName}`, () => {
       const fresh = await raise();
       await drain();
       expect((await pushOf(fresh)).map((l) => l.refType)).toEqual(['TRANSPORT_INCIDENT']);
+    });
+
+    it('L1: a repeat press that links the trip adds the operator, whose dispatchers are pushed (only they)', async () => {
+      await closeOpen();
+      await drain();
+      const trip = id();
+      await sql(`INSERT INTO "TransportTrip" (id, "providerCompanyId", "customerCompanyId", "agreementId", "serviceDate", direction, "seatCapacity", "updatedAt") VALUES ('${trip}', '${w.prov}', '${w.cust}', '${w.agreement}', CURRENT_DATE, 'IN', 4, now())`);
+      // First press: no linkable trip (customer only). Second press: the trip is now found (stubbed lookup).
+      const first = await raise();
+      await drain();
+      expect((await pushOf(first)).map((l) => l.recipient)).toEqual([`user:${w.custDesk}`]);
+      const stub = sos as unknown as { tripLink: () => Promise<unknown> };
+      const original = stub.tripLink;
+      stub.tripLink = () => Promise.resolve({ tripId: trip, providerCompanyId: w.prov, customerCompanyId: w.cust, vehicleLabel: 'TN 01 SF 0001' });
+      try {
+        const again = await sos.raisePassenger(pax(), { note: 'still need help' }, id());
+        expect(again).toMatchObject({ created: false, receipt: { incidentId: first, merged: true } });
+      } finally {
+        stub.tripLink = original;
+      }
+      const linkedRow = await prisma.outboxEvent.findFirstOrThrow({ where: { aggregateId: first, type: 'transport.incident.linked' } });
+      expect(linkedRow).toMatchObject({ class: 'SAFETY', providerCompanyId: w.prov, customerCompanyId: w.cust, publishedAt: null });
+      await drain();
+      const pushes = await pushOf(first);
+      expect(pushes.map((l) => [l.recipient, l.refType]).sort()).toEqual([[`user:${w.custDesk}`, 'TRANSPORT_INCIDENT'], [`user:${w.provDesk}`, 'TRANSPORT_INCIDENT']].sort());
+      expect(valkey.published.some((p) => p.message.payload.incidentId === first && p.message.payload.status === 'OPEN')).toBe(true);
+      // A third press (already linked) writes no further linked row.
+      await sos.raisePassenger(pax(), { note: 'third' }, id());
+      expect(await prisma.outboxEvent.count({ where: { aggregateId: first, type: 'transport.incident.linked' } })).toBe(1);
     });
 
     it('rollback (no relay for a day) → roll-forward: the acknowledged one is settled, the open one is the quiet form', async () => {
