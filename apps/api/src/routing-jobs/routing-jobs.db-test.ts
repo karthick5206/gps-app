@@ -23,13 +23,15 @@ import { cleanupSeeded, ctxFor, seedPartner, seedPlan } from './testing/db-seed'
 import { AuditService } from '../audit/audit.service';
 import { RoutePlanCreateService } from '../etms/planning/plan-create';
 import { RoutePlansService } from '../etms/planning/plans.service';
-import { FakeMatrix, FakeSolver, sleep, until } from './testing/fakes';
+import { FakeMatrix, FakeSolver, until } from './testing/fakes';
 import { InMemoryUsageHook } from './usage-hook';
 
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
 const W = { vehicle: 7_200, distance: 0, time: 1, routeDuration: 0 };
 const ctxForResult = ctxFor('x');
+/** Waits on database state: generous, because the scratch database may be shared with other suites under load. */
+const DB_WAIT_MS = 20_000;
 
 d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
   jest.setTimeout(120_000);
@@ -43,9 +45,9 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
 
   const opts = (over: Partial<WorkerOptions> = {}): WorkerOptions => ({ leaseMs: 400, heartbeatMs: 80, sweepMs: 60_000, republishAfterMs: 60_000, sweepLock: async () => true, ...over });
 
-  function makeWorker(id: string, matrix = new FakeMatrix(), solver = new FakeSolver(), over: Partial<WorkerOptions> = {}) {
+  function makeWorker(id: string, matrix = new FakeMatrix(), solver = new FakeSolver(), over: Partial<WorkerOptions> = {}, jobStore: PrismaJobStore = store) {
     const queue = new MemoryJobQueue();
-    const w = new RoutingJobWorker(store, queue, new Map([['optimize', optimizeRunner({ plans: gw, matrix, solver, usage: new InMemoryUsageHook() })]]), opts(over), (job) => gw.release(job), Date.now, id);
+    const w = new RoutingJobWorker(jobStore, queue, new Map([['optimize', optimizeRunner({ plans: gw, matrix, solver, usage: new InMemoryUsageHook() })]]), opts(over), (job) => gw.release(job), Date.now, id);
     return { w, matrix, solver, queue };
   }
 
@@ -145,11 +147,18 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
     m1.mode = 'hang';
     const { w: w1 } = makeWorker('db-dying', m1);
     const run = w1.process(job.jobId);
-    await until(async () => (await prisma.routingJob.findUniqueOrThrow({ where: { id: job.jobId } })).status === 'RUNNING');
+    await until(async () => (await prisma.routingJob.findUniqueOrThrow({ where: { id: job.jobId } })).status === 'RUNNING', DB_WAIT_MS);
     w1.kill();
     await run;
-    await sleep(500);
-    const { w: w2 } = makeWorker('db-rescuer');
+    // Wait for the lease to have really expired (a heartbeat in flight at kill() may have pushed it out), instead of a
+    // fixed sleep that a loaded machine can outrun.
+    await until(async () => (await prisma.routingJob.findUniqueOrThrow({ where: { id: job.jobId } })).lockedUntil! < new Date(), DB_WAIT_MS);
+    // The sweeper is global by design (any worker recovers any company's job). Scope this rescuer to the test's own
+    // company, so expired leases of other suites (or of a parallel run of this file) on the same scratch database are
+    // neither counted here nor re-queued under them. Before this, a parallel run saw requeued 0 / 2 / 3 (E4 gates).
+    const scoped: PrismaJobStore = Object.create(store);
+    scoped.expired = async (now, limit) => (await store.expired(now, limit)).filter((j) => j.companyId === g.company);
+    const { w: w2 } = makeWorker('db-rescuer', new FakeMatrix(), new FakeSolver(), {}, scoped);
     expect(await w2.sweep()).toMatchObject({ requeued: 1 });
     expect(await w2.process(job.jobId)).toBe('succeeded');
     const row = await prisma.routingJob.findUniqueOrThrow({ where: { id: job.jobId } });
@@ -264,8 +273,11 @@ d(`ETMS E4 optimisation jobs on ${dbName || '(no scratch DB)'}`, () => {
   it('retention trims finished jobs past ROUTING_JOB_RETENTION_DAYS', async () => {
     const g = await seed('retention');
     const old = await prisma.routingJob.create({ data: { companyId: g.company, kind: 'optimize', status: 'FAILED', finishedAt: new Date(Date.now() - 40 * 86_400_000) } });
-    const n = await prisma.$executeRaw`DELETE FROM "RoutingJob" WHERE id IN (SELECT id FROM "RoutingJob" WHERE "finishedAt" < ${new Date(Date.now() - 30 * 86_400_000)} LIMIT 5000)`;
-    expect(n).toBeGreaterThanOrEqual(1);
+    const recent = await prisma.routingJob.create({ data: { companyId: g.company, kind: 'optimize', status: 'FAILED', finishedAt: new Date(Date.now() - 29 * 86_400_000) } });
+    // The retention SQL is global (retention.service.ts). A parallel run on the same scratch database may delete `old`
+    // first, so the row count of this DELETE is not asserted; the outcome for this company's rows is (E4 gates).
+    await prisma.$executeRaw`DELETE FROM "RoutingJob" WHERE id IN (SELECT id FROM "RoutingJob" WHERE "finishedAt" < ${new Date(Date.now() - 30 * 86_400_000)} LIMIT 5000)`;
     expect(await prisma.routingJob.findUnique({ where: { id: old.id } })).toBeNull();
+    expect(await prisma.routingJob.findUnique({ where: { id: recent.id } })).not.toBeNull();
   });
 });
