@@ -190,8 +190,10 @@ Flags: `--no-build`, `--keep`, `--valkey-db <1-15>` (default 14; must be empty, 
   returns every stored outcome; passengers see their own status and co-riders only as a count; the offline run converges
   to `etms-on-time`'s final state; notifications (no duplicates, PUSH rows SENT through the fake provider, payload exactly
   `{ kind, tripId, notificationId }` on channel `trip`, no names); no SMS; I2 (a finished trip no longer blocks erasure).
-- **Known defect D1** (tagged `pending known-defect D1`): the v1.8 tracker auto-completes the trip when the van reaches
-  the office, so the driver's DROPPED taps there come back `LATE TRIP_CLOSED` and the riders stay BOARDED. The checks
-  record the evidence; `--known-defects` makes them fail.
+- **D1 (fixed, check tagged `fixed D1`):** the v1.8 tracker auto-completes the trip when the van reaches the office.
+  Since the D1 fix the driver's DROPPED taps there are ACCEPTED with `afterClose` inside the settle grace
+  (`DRIVER_LIMITS.settleGraceHours`, 6 h) and the riders end DROPPED; the trip stays COMPLETED. The office ARRIVED is
+  still LATE (only passenger settlements are taken after the close). The offline replay after the close (D1b) is covered
+  by `src/etms/etms-driver-settle.db-test.ts`.
 
 Evidence: `apps/api/var/etms-e2e/e5-<stamp>/` (`summary.md`, `results.json`, `push.log`, process logs), git-ignored.

@@ -35,7 +35,7 @@ describe('ETMS sim scenarios (E5 WP 5.5)', () => {
     expect(() => parseScenario({ ...base, board: [{ stop: 0, passengers: [1] }] })).toThrow('own pickup');
     expect(() => parseScenario({ ...base, board: base.board.slice(0, 2) })).toThrow('every passenger');
     expect(() => parseScenario({ ...base, noShow: [{ stop: 2, passenger: 2, reasonCode: 'X' }] })).toThrow('both boarded');
-    expect(() => parseScenario({ ...base, driverOffline: { fromStop: 1, toStop: 3 } })).toThrow('defect D1');
+    expect(() => parseScenario({ ...base, driverOffline: { fromStop: 1, toStop: 3 } })).toThrow('reconnect before the office');
     expect(() => parseScenario({ ...base, replay: { seed: 1, duplicateEvery: 0, batchSize: 3 } })).toThrow('replay');
   });
 

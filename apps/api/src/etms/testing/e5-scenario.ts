@@ -67,7 +67,7 @@ export function parseScenario(raw: unknown): EtmsScenario {
   if (seen.length !== n) fail(name, 'every passenger needs an outcome (board or noShow)');
   const off = s.driverOffline ?? null;
   if (off && (!stopOk(off.fromStop) || !stopOk(off.toStop) || off.toStop <= off.fromStop)) fail(name, 'driverOffline: fromStop < toStop, both stops of the trip');
-  if (off && off.toStop === office) fail(name, 'driverOffline: reconnect before the office (a trip auto-completed by GPS makes queued events LATE, defect D1)');
+  if (off && off.toStop === office) fail(name, 'driverOffline: reconnect before the office (the replay after a GPS auto-complete, D1b, is covered by etms-driver-settle.db-test.ts)');
   const r = s.replay;
   if (!r || !Number.isInteger(r.seed) || !Number.isInteger(r.duplicateEvery) || r.duplicateEvery < 1 || !Number.isInteger(r.batchSize) || r.batchSize < 1 || r.batchSize > 50) fail(name, 'replay: { seed, duplicateEvery ≥ 1, batchSize 1-50 }');
   const d = s.reportDelay ?? null;
