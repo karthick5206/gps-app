@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { Button, Card, Chips, ErrorBanner, Field, SearchInput, SectionTitle, Text } from '@/components/ui';
 import { SPACE, useColors } from '@/lib/theme';
-import { adhocRequest, CONSENT_EXPLANATION, defaultCommuteEnds, endKindAvailability, endKindsFor, REQUEST_LIMITS, requestDays, requestResultText, WAITING_FOR_APPROVAL, type EndKind } from '../adhoc-request';
+import { adhocRequest, CONSENT_EXPLANATION, defaultCommuteEnds, endKindAvailability, endKindsFor, REQUEST_LIMITS, requestDays, requestResultText, requestTimeZone, WAITING_FOR_APPROVAL, type EndKind } from '../adhoc-request';
 import { DIRECTION_LABEL, POINT_TO_POINT_LABEL } from '../labels';
 import { isNotPassenger, transportErrorText } from '../passenger-api';
 import { bookingsRoute } from '../push-target';
@@ -210,7 +210,8 @@ export function RequestRideScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [done, setDone] = useState<MeRequestResult | null>(null);
   const shift = p?.shifts.find((s) => s.id === shiftId) ?? null;
-  const timeZone = shift?.timeZone ?? p?.shifts[0]?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // r115 B8: the company zone (policy.timeZone) first, then the shift zone; the phone zone only for an older server.
+  const timeZone = requestTimeZone(p, shiftId, Intl.DateTimeFormat().resolvedOptions().timeZone);
   const days = useMemo(() => requestDays(todayKeyIn(timeZone), p?.maxDaysAhead ?? REQUEST_LIMITS.maxDaysAhead, journey === 'COMMUTE' && shift ? shift.days : null), [timeZone, p?.maxDaysAhead, journey, shift]);
 
   if (policy.isPending) return <ActivityIndicator style={{ margin: SPACE.xl }} accessibilityLabel={t('Loading')} />;

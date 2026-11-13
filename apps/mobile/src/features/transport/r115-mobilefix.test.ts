@@ -1,11 +1,11 @@
 /// <reference types="node" />
 /**
  * v1.15.0 QA fixes on the phone (r115-qa): B2 trip headers for point-to-point trips; B4 the "Approved" chip follows
- * MeBookingDto.approval. Synthetic data only.
+ * MeBookingDto.approval; B8 the request window zone is the company zone first. Synthetic data only.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { passengerStatusLine, passengerStatusMeta } from './adhoc-request.ts';
+import { passengerStatusLine, passengerStatusMeta, requestTimeZone } from './adhoc-request.ts';
 import { BOOKING_STATUS_META, POINT_TO_POINT_LABEL, tripKindLabel } from './labels.ts';
 
 test('B2: a point-to-point trip (stored as IN) is headed "Point-to-point", not "To site (login)"', () => {
@@ -41,4 +41,21 @@ test('B4: NOT_REQUIRED (approval switched off) or no approval field keeps the no
 test('B4: PENDING and REJECTED map to "Requested" / "Rejected"', () => {
   assert.deepEqual(passengerStatusMeta({ ...own, status: 'REQUESTED', approval: 'PENDING' }, BOOKING_STATUS_META), { label: 'Requested', tone: 'warning' });
   assert.deepEqual(passengerStatusMeta({ ...own, status: 'REJECTED', approval: 'REJECTED' }, BOOKING_STATUS_META), { label: 'Rejected', tone: 'destructive' });
+});
+
+const shifts = [
+  { id: 's1', timeZone: 'Asia/Kolkata' },
+  { id: 's2', timeZone: 'Asia/Dubai' },
+];
+
+test('B8: the request window uses the company zone (policy.timeZone) first, never the phone zone', () => {
+  assert.equal(requestTimeZone({ timeZone: 'America/New_York', shifts }, 's2', 'Europe/London'), 'America/New_York');
+  assert.equal(requestTimeZone({ timeZone: 'America/New_York', shifts: [] }, null, 'Europe/London'), 'America/New_York');
+});
+
+test('B8: without a company zone (older server): the chosen shift, then the first shift, then the phone', () => {
+  assert.equal(requestTimeZone({ shifts }, 's2', 'Europe/London'), 'Asia/Dubai');
+  assert.equal(requestTimeZone({ timeZone: '', shifts }, null, 'Europe/London'), 'Asia/Kolkata');
+  assert.equal(requestTimeZone({ shifts: [] }, null, 'Europe/London'), 'Europe/London');
+  assert.equal(requestTimeZone(undefined, null, 'Europe/London'), 'Europe/London');
 });

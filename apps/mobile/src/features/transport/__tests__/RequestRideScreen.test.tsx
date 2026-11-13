@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { ApiError } from '@/lib/api';
 import * as selfApi from '../self-service-api';
+import { zonedIso } from '../adhoc-request';
 import { RequestRideScreen } from '../passenger/RequestRideScreen';
 
 jest.mock('expo-router', () => ({ router: { push: jest.fn(), replace: jest.fn() } }));
@@ -114,5 +115,22 @@ describe('RequestRideScreen (WP 3.9 wave 2, D-A7)', () => {
     await fireEvent.press(screen.getAllByText(/^\d{4}-\d{2}-\d{2}$/)[0]);
     await fireEvent.press(screen.getByText('Send request'));
     expect(await screen.findByText('Requested — the transport desk will assign a cab')).toBeTruthy();
+  });
+
+  it('r115 B8: the time window is read in the company zone (policy.timeZone), not the shift or phone zone', async () => {
+    (selfApi.useMyPolicy as jest.Mock).mockReturnValue(policy({ timeZone: 'America/New_York' }));
+    await render(<RequestRideScreen />);
+    await fireEvent.press(screen.getByRole('radio', { name: /^General/ }));
+    const dayChip = screen.getAllByText(/^\d{4}-\d{2}-\d{2}$/)[0];
+    await fireEvent.press(dayChip);
+    await fireEvent.changeText(screen.getByPlaceholderText('09:30'), '09:30');
+    await fireEvent.changeText(screen.getByPlaceholderText('10:00'), '10:00');
+    await fireEvent.press(screen.getByText('Send request'));
+    expect(mutate).toHaveBeenCalledTimes(1);
+    const { body } = mutate.mock.calls[0][0];
+    const day = body.serviceDate as string;
+    expect(body.windowStart).toBe(zonedIso(day, 570, 'America/New_York'));
+    expect(body.windowEnd).toBe(zonedIso(day, 600, 'America/New_York'));
+    expect(body.windowStart).not.toBe(zonedIso(day, 570, 'Asia/Kolkata'));
   });
 });

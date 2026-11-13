@@ -60,6 +60,21 @@ export function parseClock(v: string): number | null {
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
 
+/**
+ * The zone a request's day list and time window are read in (r115 B8): the company zone from the policy first (WP 3.9
+ * wave 2 `timeZone`), then the chosen shift's zone, then the first shift's; the phone's own zone only when the server
+ * sends none of these (an older server).
+ */
+export function requestTimeZone(policy: { timeZone?: string | null; shifts?: readonly { id: string; timeZone?: string | null }[] } | null | undefined, shiftId: string | null, phoneZone: string): string {
+  const valid = (z: string | null | undefined): z is string => typeof z === 'string' && z.trim().length > 0;
+  if (valid(policy?.timeZone)) return policy.timeZone;
+  const shifts = policy?.shifts ?? [];
+  const chosen = shiftId ? shifts.find((s) => s.id === shiftId)?.timeZone : null;
+  if (valid(chosen)) return chosen;
+  if (valid(shifts[0]?.timeZone)) return shifts[0].timeZone;
+  return phoneZone;
+}
+
 /** ISO instant of a wall-clock time on a day in a time zone (same algorithm as the web planner's zonedIso). */
 export function zonedIso(day: string, minutes: number, tz: string): string | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
