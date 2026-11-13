@@ -146,13 +146,13 @@ describe('self-service: company setting selfBooking (default OFF)', () => {
 });
 
 describe('self-service: booking reuses the E3 rules', () => {
-  it('books one seat on the own profile, PENDING_ASSIGNMENT, cut-off from the company setting, audited; replay by key', async () => {
+  it('books one seat on the own profile, REQUESTED (D-A5 approval default on), cut-off from the company setting, audited; replay by key', async () => {
     const w = world();
     w.consent(w.ids.pA);
     const key = randomUUID();
     const r = await book(w, { note: 'Late meeting' }, 'u-pA', 'custA', key);
     expect(r.replay).toBe(false);
-    expect(r.value).toMatchObject({ status: 'PENDING_ASSIGNMENT', direction: 'IN', serviceDate: tomorrow(), dropLabel: 'Office A' });
+    expect(r.value).toMatchObject({ status: 'REQUESTED', needsApproval: true, direction: 'IN', serviceDate: tomorrow(), dropLabel: 'Office A' });
     const row = w.row('transportBooking', r.value.id);
     expect(row).toMatchObject({ profileId: w.ids.pA, customerCompanyId: 'custA', passengerCount: 1, createdById: 'u-pA', pickupPoiId: w.ids.stopA, note: 'Booked by passenger: Late meeting' });
     expect((row.windowStart as Date).getTime() - (row.cutoffAt as Date).getTime()).toBe(60 * MIN);

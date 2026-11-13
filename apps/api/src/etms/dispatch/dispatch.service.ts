@@ -64,7 +64,7 @@ import {
   tripReadWhere,
   versionConflict,
 } from './e3-common';
-import { BOOKING_INCLUDE, TRIP_INCLUDE, preciseFor, toBookingDto, toTripSummary, type TripNames } from './e3-mapping';
+import { BOOKING_INCLUDE, TRIP_INCLUDE, preciseFor, toBookingDto, toTripSummary, withGroupSizes, type TripNames } from './e3-mapping';
 import { metres, PERSONAL_STOP_NAME, recordPersonalAccess, stopOwner } from './personal-points';
 import { BoardQuery, CandidatesDto, ChangeSetDto, ChangeSetListQuery, RepeatTripDto } from './e3.dto';
 import { dayRange, sameWallTime, weekdayOf } from './service-dates';
@@ -244,7 +244,7 @@ export class DispatchService {
     // consent is active (E2 M3: dispatcher pickup only with consent); sites always.
     const consents = await this.consents(queue.map((b) => b.profileId));
     const now = Date.now();
-    const queueDtos = queue.map((b) => toBookingDto(b, ctx, { view: 'detail', consent: consents.has(b.profileId) }, now));
+    const queueDtos = await withGroupSizes(this.prisma, queue.map((b) => toBookingDto(b, ctx, { view: 'detail', consent: consents.has(b.profileId) }, now)));
     // L1: the board returns personal points in bulk (exact for whole-company roles): one ACCESS entry per day and set.
     const shown = queueDtos.filter((b) => (b.pickup && !b.pickup.poiId) || (b.drop && !b.drop.poiId)).map((b) => b.passenger.id);
     await this.recordPersonalAccess(ctx, 'board', shown, preciseFor(ctx, ctx.companyId), { serviceDate: day });

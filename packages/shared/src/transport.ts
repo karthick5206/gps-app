@@ -161,6 +161,11 @@ export interface TransportSettingsDto {
    * (`/api/me/transport/*` self-service). Default OFF; present only when switched on.
    */
   selfBooking?: boolean;
+  /**
+   * WP 3.9 wave 2 (D-A5): passenger self-bookings and ad-hoc requests wait for transport-team approval (REQUESTED).
+   * DEFAULT ON: absent = true; present (false) only when switched off (then they go straight to PENDING_ASSIGNMENT).
+   */
+  selfBookingApproval?: boolean;
 }
 
 export interface UpdateTransportSettingsInput {
@@ -171,10 +176,17 @@ export interface UpdateTransportSettingsInput {
   maxRideS?: number | null;
   /** E5 WP 5.3: passenger self-service on / off. */
   selfBooking?: boolean;
+  /** WP 3.9 wave 2 (D-A5): approval of passenger bookings on (default) / off. */
+  selfBookingApproval?: boolean;
 }
 
 /** Accepted range of a maximum ride time (company policy and per-plan override): 15 min – 4 h, whole seconds. */
 export const MAX_RIDE_BOUNDS_S = { min: 900, max: 14_400 } as const;
+
+/** D-A5: whether passenger bookings need approval (company `etms.selfBookingApproval`; absent = true). */
+export function selfBookingApprovalOn(settings: unknown): boolean {
+  return transportSettingsOf(settings).selfBookingApproval !== false;
+}
 
 /** A maximum ride time in seconds within MAX_RIDE_BOUNDS_S. */
 export function isMaxRideS(v: unknown): v is number {
@@ -186,7 +198,7 @@ export function transportSettingsOf(settings: unknown): TransportSettingsDto {
   const s = typeof settings === 'object' && settings !== null && !Array.isArray(settings) ? (settings as Record<string, unknown>).etms : undefined;
   const etms = typeof s === 'object' && s !== null && !Array.isArray(s) ? (s as Record<string, unknown>) : {};
   const phone = typeof etms.deskPhone === 'string' && etms.deskPhone.trim() ? etms.deskPhone.trim() : null;
-  return { directoryListed: etms.directoryListed === true, ...(phone ? { deskPhone: phone } : {}), ...(isMaxRideS(etms.maxRideS) ? { maxRideS: etms.maxRideS } : {}), ...(etms.selfBooking === true ? { selfBooking: true } : {}) };
+  return { directoryListed: etms.directoryListed === true, ...(phone ? { deskPhone: phone } : {}), ...(isMaxRideS(etms.maxRideS) ? { maxRideS: etms.maxRideS } : {}), ...(etms.selfBooking === true ? { selfBooking: true } : {}), ...(etms.selfBookingApproval === false ? { selfBookingApproval: false } : {}) };
 }
 
 /**

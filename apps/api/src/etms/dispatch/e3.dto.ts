@@ -1,4 +1,5 @@
 import {
+  TRANSPORT_ADHOC_LIMITS,
   TRANSPORT_BOOKING_JOURNEYS,
   TRANSPORT_BOOKING_SOURCES,
   TRANSPORT_BOOKING_STATUSES,
@@ -161,6 +162,7 @@ export class BookingListQuery extends ListQueryDto {
   @IsOptional() @IsIn(['true', 'false']) unassigned?: 'true' | 'false';
   @IsOptional() @IsIn(TRANSPORT_BOOKING_JOURNEYS) journey?: TransportBookingJourney;
   @IsOptional() @IsIn(['true', 'false']) afterCutoff?: 'true' | 'false';
+  @IsOptional() @IsUUID() groupId?: string;
   declare sort?: 'windowStart' | 'serviceDate' | 'createdAt' | 'status' | 'passenger';
 }
 
@@ -179,6 +181,29 @@ export class CreateBookingDto implements CreateTransportBookingInput {
   @IsOptional() @ValidateIf(nullable) @IsString() @MaxLength(L.noteMax) note?: string | null;
   @IsOptional() @IsBoolean() hold?: boolean;
   /** D-A1: trimmed length lateReasonMin..lateReasonMax is checked by the service (409 LATE_REASON_REQUIRED). */
+  @IsOptional() @IsString() @MaxLength(1000) lateReason?: string;
+}
+
+/** D-A8 group pickup: COMMON (one point) or OWN (each passenger's routing pickup). */
+export class GroupPickupDto {
+  @IsIn(['COMMON', 'OWN']) mode!: 'COMMON' | 'OWN';
+  @IsOptional() @ValidateNested() @Type(() => GeoPointDto) point?: GeoPointDto;
+}
+
+/** POST /transport/bookings/group (CreateTransportGroupBookingInput). */
+export class CreateGroupBookingDto {
+  @IsArray() @ArrayMinSize(TRANSPORT_ADHOC_LIMITS.groupMin) @ArrayMaxSize(TRANSPORT_ADHOC_LIMITS.groupMax) @IsUUID('all', { each: true }) passengerIds!: string[];
+  @Matches(DAY, DAY_MSG) serviceDate!: string;
+  @IsIn(TRANSPORT_BOOKING_JOURNEYS) journey!: TransportBookingJourney;
+  @IsOptional() @IsIn(TRANSPORT_DIRECTIONS) direction?: TransportDirection;
+  @IsOptional() @ValidateIf(nullable) @IsUUID() shiftId?: string | null;
+  @ValidateNested() @Type(() => GroupPickupDto) pickup!: GroupPickupDto;
+  @ValidateNested() @Type(() => GeoPointDto) drop!: GeoPointDto;
+  @IsOptional() @IsISO8601() windowStart?: string;
+  @IsOptional() @IsISO8601() windowEnd?: string;
+  @IsString() @MaxLength(TRANSPORT_ADHOC_LIMITS.purposeMax) purpose!: string;
+  @IsOptional() @ValidateIf(nullable) @IsString() @MaxLength(L.noteMax) note?: string | null;
+  @IsOptional() @IsBoolean() hold?: boolean;
   @IsOptional() @IsString() @MaxLength(1000) lateReason?: string;
 }
 

@@ -53,7 +53,7 @@ export function toShiftDto(r: ShiftRow): TransportShiftDto {
 // ───────────────────────────── Bookings ─────────────────────────────
 
 export const BOOKING_INCLUDE = {
-  profile: { select: { id: true, displayName: true, employeeCode: true, branchId: true, officePoiId: true } },
+  profile: { select: { id: true, displayName: true, employeeCode: true, branchId: true, officePoiId: true, userId: true } },
   shift: { select: { name: true } },
   passengers: { select: { id: true, tripId: true, status: true, createdAt: true } },
 } satisfies Prisma.TransportBookingInclude;
@@ -87,6 +87,17 @@ export interface BookingView {
   consent: boolean;
 }
 export const LIST_VIEW: BookingView = { view: 'list', consent: false };
+
+/** WP 3.9 wave 2: sets TransportBookingDto.groupSize (members of each group, whatever is on screen) with one query. */
+export async function withGroupSizes<T extends { groupId: string | null; groupSize: number | null; customerCompanyId: string }>(db: { transportBooking: { findMany(args: object): Promise<unknown[]> } }, dtos: T[]): Promise<T[]> {
+  const groups = [...new Set(dtos.flatMap((d) => (d.groupId ? [d.groupId] : [])))];
+  if (!groups.length) return dtos;
+  const rows = (await db.transportBooking.findMany({ where: { groupId: { in: groups }, customerCompanyId: { in: [...new Set(dtos.map((d) => d.customerCompanyId))] } }, select: { groupId: true } })) as { groupId: string | null }[];
+  const size = new Map<string, number>();
+  for (const r of rows) if (r.groupId) size.set(r.groupId, (size.get(r.groupId) ?? 0) + 1);
+  for (const d of dtos) if (d.groupId) d.groupSize = size.get(d.groupId) ?? null;
+  return dtos;
+}
 
 export function toBookingDto(r: BookingRow, ctx: Pick<AuthContext, 'companyId' | 'dataScope'>, show: BookingView, now: number = Date.now()): TransportBookingDto {
   const precise = preciseFor(ctx, r.customerCompanyId);
@@ -126,6 +137,12 @@ export function toBookingDto(r: BookingRow, ctx: Pick<AuthContext, 'companyId' |
     // late reason (the server refuses a late desk create / edit without one; passengers are refused after the cut-off).
     afterCutoff: r.lateReason !== null,
     lateReason: own ? r.lateReason : null,
+    groupId: r.groupId ?? null,
+    // Filled by withGroupSizes (one query per page); null when the booking is not in a group.
+    groupSize: null,
+    purpose: own ? (r.purpose ?? null) : null,
+    // Made through a passenger self-service path (the passenger's own login created it).
+    requestedByPassenger: !!r.createdById && r.createdById === (r.profile.userId ?? null),
     tripId: seat?.tripId ?? null,
     passengerTripId: seat?.id ?? null,
     customerCompanyId: r.customerCompanyId,

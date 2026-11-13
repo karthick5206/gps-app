@@ -1,15 +1,24 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, HttpStatus, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   SELF_BOOKING_DISABLED,
   TRANSPORT_E3_LIMITS,
   TRANSPORT_SELF_LIMITS as L,
   confirmMismatch,
+  normalisePhone,
+  phoneCountryForTimezone,
+  TRANSPORT_ADHOC_LIMITS as AL,
+  type MeGeocodeHitDto,
+  type MeHomeLocationResult,
+  type MeTransportProfileDto,
+  selfBookingApprovalOn,
   transportSettingsOf,
   type GeoPoint,
+  type MeAdhocEndRef,
   type MeBookingDto,
   type MeCommuteDto,
   type MePlaceDto,
+  type MeRequestPlaceDto,
   type MeTransportPolicyDto,
   type MeTripConfirmResult,
   type MeTripReportResult,
@@ -21,12 +30,16 @@ import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { addDays } from '../../summarizer/tz';
 import { BookingsService } from '../dispatch/bookings.service';
-import { conflict, cutoffMinutes, dateOnly, dayKeyOf, idempotencyReused, invalid, notFound, serviceDate, validPoint } from '../dispatch/e3-common';
+import { conflict, cutoffMinutes, e3Error, dateOnly, dayKeyOf, idempotencyReused, invalid, notFound, serviceDate, validPoint } from '../dispatch/e3-common';
 import { MeTransportService, vehicleWindow } from '../dispatch/me-transport.service';
 import { legWindow, todayIn, weekdayOf } from '../dispatch/service-dates';
 import { recordTripEvent, seenClientEvent } from '../dispatch/trip-ops';
 import { activeRoutingConsents, PeopleService } from '../people/people.service';
-import type { MeCreateBookingDto, MePlaceDto as MePlaceBody, MePlaceUpdateDto, MeTripConfirmDto, MeTripReportDto } from './self-service.dto';
+import { RedisService } from '../../redis/redis.service';
+import { ACTIVE_BOOKING_STATUSES, notEligible } from '../dispatch/booking-rules';
+import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
+import { accessibilityOf, emergencyContactsOf } from '../people/people-access';
+import type { MeAdhocRequestDto, MeHomeLocationDto, MeTransportProfileUpdateDto, MeCreateBookingDto, MePlaceDto as MePlaceBody, MePlaceUpdateDto, MeTripConfirmDto, MeTripReportDto } from './self-service.dto';
 
 const MIN = 60_000;
 /**
@@ -34,6 +47,9 @@ const MIN = 60_000;
  * Exported for tests and for the isolation matrix.
  */
 export const selfBookingOn = (settings: unknown): boolean => transportSettingsOf(settings).selfBooking === true;
+
+/** D-A5: the status a passenger's own booking / request starts in (company `etms.selfBookingApproval`, default on). */
+export const approvalStatus = (settings: unknown): 'REQUESTED' | 'PENDING_ASSIGNMENT' => (selfBookingApprovalOn(settings) ? 'REQUESTED' : 'PENDING_ASSIGNMENT');
 
 interface StoredPlace {
   id: string;
@@ -55,7 +71,14 @@ export function placesOf(preferences: unknown): StoredPlace[] {
 
 const placeDto = (p: StoredPlace, consent: boolean): MePlaceDto => ({ id: p.id, label: p.label, lat: consent ? p.lat : null, lng: consent ? p.lng : null, createdAt: p.createdAt });
 
-const consentRequired = () => new ForbiddenException({ message: 'Allow the use of your location for transport (Privacy) to use a personal place', code: 'CONSENT_REQUIRED' });
+/**
+ * WP 3.9 wave 2: 409 like every other CONSENT_REQUIRED of the booking rules (D-A3; was 403 in E5). The apps key on the
+ * code, not the status (apps/mobile self-service.ts selfErrorText).
+ */
+const consentRequired = () => new ConflictException({ message: 'Allow the use of your location for transport (Privacy) to use a personal place', code: 'CONSENT_REQUIRED' });
+
+/** Categories of company places a passenger may pick in an ad-hoc request (plus shift sites and their own stops). */
+export const REQUEST_PLACE_CATEGORIES = ['OFFICE', 'SHUTTLE_STOP'] as const;
 
 /**
  * Passenger self-service (E5 WP 5.3; doc 05 §2.8, doc 08 §4.2). Every method works on the caller's own active passenger
@@ -73,7 +96,149 @@ export class SelfServiceService {
     private readonly people: PeopleService,
     private readonly bookings: BookingsService,
     private readonly me: MeTransportService,
-  ) {}
+    @Optional() redis?: RedisService,
+  ) {
+    // D-A9: address search per passenger (in-process window when Valkey is not injected / unreachable).
+    this.geocodeLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:me-geocode', AL.geocodePerMinute, 60_000);
+  }
+
+  private readonly geocodeLimiter: FixedWindowLimiter;
+
+  // ───────────────────────────── own profile + home (WP 3.9 wave 2, D-A9) ─────────────────────────────
+
+  /** GET /me/transport/profile: the caller's own transport profile (home coordinates only while consent is active). */
+  async profile(ctx: AuthContext): Promise<MeTransportProfileDto> {
+    const row = await this.people.myProfileRow(ctx);
+    return this.profileDto(row, await this.consent(row.id));
+  }
+
+  /**
+   * PATCH /me/transport/profile: default stop (one of the passenger's allowed stops, see allowedStops; null clears),
+   * emergency contacts (≤ 3, name + valid phone, relation optional), accessibility. Audited without contact details or
+   * health text (counts / flags only).
+   */
+  async updateProfile(ctx: AuthContext, dto: MeTransportProfileUpdateDto): Promise<MeTransportProfileDto> {
+    const row = await this.people.myProfileRow(ctx);
+    const data: Prisma.EmployeeTransportProfileUncheckedUpdateManyInput = {};
+    if (dto.defaultStopId !== undefined) {
+      if (dto.defaultStopId === null) data.defaultStopPoiId = null;
+      else {
+        const stops = await this.allowedStops(ctx, row.id, row.defaultStopPoiId);
+        if (!stops.has(dto.defaultStopId)) throw invalid('Choose one of your transport stops');
+        data.defaultStopPoiId = dto.defaultStopId;
+      }
+    }
+    let contacts: { name: string; phone: string; relation?: string }[] | undefined;
+    if (dto.emergencyContacts !== undefined) {
+      if (dto.emergencyContacts.length > AL.emergencyContactsMax) throw invalid(`Keep at most ${AL.emergencyContactsMax} emergency contacts`);
+      const company = await this.company(ctx);
+      const country = phoneCountryForTimezone(company.timezone);
+      contacts = dto.emergencyContacts.map((c) => {
+        const name = (c.name ?? '').replace(/\s+/g, ' ').trim().slice(0, AL.contactNameMax);
+        if (!name) throw invalid('Give the emergency contact a name');
+        const phone = normalisePhone(c.phone ?? '', country);
+        if (!phone) throw invalid(`Emergency contact "${name}": invalid phone number`);
+        const relation = c.relation?.replace(/\s+/g, ' ').trim().slice(0, AL.contactRelationMax);
+        return { name, phone, ...(relation ? { relation } : {}) };
+      });
+      data.emergencyContacts = contacts as Prisma.InputJsonValue;
+    }
+    let access: { wheelchair?: boolean; notes?: string } | undefined;
+    if (dto.accessibility !== undefined) {
+      const notes = dto.accessibility.notes?.trim().slice(0, AL.accessibilityNotesMax);
+      access = { ...(typeof dto.accessibility.wheelchair === 'boolean' ? { wheelchair: dto.accessibility.wheelchair } : {}), ...(notes ? { notes } : {}) };
+      data.accessibility = access as Prisma.InputJsonValue;
+    }
+    if (Object.keys(data).length) {
+      const summary = (stop: string | null, contactsJson: unknown, accessJson: unknown) => {
+        const a = accessibilityOf(accessJson as Prisma.JsonValue);
+        return { defaultStopPoiId: stop, emergencyContactCount: emergencyContactsOf(contactsJson as Prisma.JsonValue).length, wheelchair: a.wheelchair === true, hasAccessibilityNotes: !!a.notes };
+      };
+      await this.prisma.$transaction(async (tx) => {
+        const done = await tx.employeeTransportProfile.updateMany({ where: { id: row.id, companyId: ctx.companyId, userId: ctx.userId, isActive: true }, data });
+        if (!done.count) throw notFound();
+        await this.audit.record(
+          ctx,
+          {
+            action: 'UPDATE',
+            entity: 'EmployeeTransportProfile',
+            entityId: row.id,
+            before: summary(row.defaultStopPoiId, row.emergencyContacts, row.accessibility),
+            after: { ...summary(data.defaultStopPoiId !== undefined ? (data.defaultStopPoiId as string | null) : row.defaultStopPoiId, contacts ?? row.emergencyContacts, access ?? row.accessibility), by: 'PASSENGER' },
+          },
+          tx,
+        );
+      });
+    }
+    return this.profile(ctx);
+  }
+
+  /**
+   * PUT /me/transport/home: set (needs the active routing consent, 409 CONSENT_REQUIRED) or clear (`clear: true`, no
+   * consent needed: a passenger may always remove their own data) the home location. Audited without coordinates or
+   * address text. Bookings already made keep their point (`openBookingsKept`); new bookings and the schedule generator
+   * (routing pickup read at generation time) use the new one.
+   */
+  async setHome(ctx: AuthContext, dto: MeHomeLocationDto): Promise<MeHomeLocationResult> {
+    const row = await this.people.myProfileRow(ctx);
+    let data: Prisma.EmployeeTransportProfileUncheckedUpdateManyInput;
+    if (dto.clear) {
+      data = { homeAddress: null, homeLat: null, homeLng: null, homeGeocodeSource: null, homeGeocodeConfidence: null };
+    } else {
+      if (!(await this.consent(row.id))) throw consentRequired();
+      if (dto.lat === undefined || dto.lng === undefined || dto.lat === null || dto.lng === null || !validPoint({ lat: dto.lat, lng: dto.lng })) throw invalid('Give a valid latitude and longitude (not 0, 0)');
+      const address = dto.address?.replace(/\s+/g, ' ').trim().slice(0, AL.homeAddressMax) || null;
+      data = { homeAddress: address, homeLat: Number(dto.lat.toFixed(6)), homeLng: Number(dto.lng.toFixed(6)), homeGeocodeSource: dto.source ?? 'PIN', homeGeocodeConfidence: null };
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const done = await tx.employeeTransportProfile.updateMany({ where: { id: row.id, companyId: ctx.companyId, userId: ctx.userId, isActive: true }, data });
+      if (!done.count) throw notFound();
+      // No coordinates and no address text in the audit (a home is a high-class personal location).
+      await this.audit.record(
+        ctx,
+        {
+          action: 'UPDATE',
+          entity: 'EmployeeTransportProfile',
+          entityId: row.id,
+          before: { hasHome: row.homeLat !== null, homeSource: row.homeGeocodeSource ?? null },
+          after: { hasHome: data.homeLat !== null, homeSource: (data.homeGeocodeSource as string | null) ?? null, homeAddressChanged: (data.homeAddress ?? null) !== (row.homeAddress ?? null), homeCommand: dto.clear ? 'CLEAR' : 'SET', by: 'PASSENGER' },
+        },
+        tx,
+      );
+    });
+    const openBookingsKept = await this.prisma.transportBooking.count({
+      where: { customerCompanyId: ctx.companyId, profileId: row.id, status: { in: [...ACTIVE_BOOKING_STATUSES] }, windowEnd: { gt: new Date() } },
+    });
+    return { profile: await this.profile(ctx), openBookingsKept };
+  }
+
+  /** GET /me/transport/geocode?q=: self-hosted Photon only (503 GEOCODER_NOT_PRIVATE otherwise), ≤ 6 hits, 20 / min per user. */
+  async geocode(ctx: AuthContext, q: string | undefined): Promise<MeGeocodeHitDto[]> {
+    await this.people.myProfileRow(ctx);
+    const term = (q ?? '').trim();
+    if (term.length < AL.geocodeMinChars) throw invalid(`Type at least ${AL.geocodeMinChars} characters`);
+    const rl = await this.geocodeLimiter.hit(ctx.userId);
+    if (!rl.allowed) throw e3Error(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMITED', `Too many searches; try again in ${rl.retryAfterSec} s`, { retryAfterSec: rl.retryAfterSec });
+    const hits = await this.people.geocode(term);
+    return hits.slice(0, AL.geocodeMaxHits).map((h) => ({ label: h.label, lat: h.lat, lng: h.lng }));
+  }
+
+  private profileDto(row: Awaited<ReturnType<PeopleService['myProfileRow']>>, consent: boolean): MeTransportProfileDto {
+    const hasHome = row.homeLat !== null || !!row.homeAddress;
+    return {
+      displayName: row.displayName,
+      employeeCode: row.employeeCode,
+      branchName: row.branch?.name ?? null,
+      officeName: row.officePoi?.name ?? null,
+      defaultStop: row.defaultStop ? { id: row.defaultStop.id, name: row.defaultStop.name } : null,
+      email: row.user?.email ?? row.email ?? null,
+      mobile: row.user?.mobile ?? row.mobile ?? null,
+      home: hasHome ? { address: row.homeAddress ?? null, lat: consent ? row.homeLat : null, lng: consent ? row.homeLng : null, source: row.homeGeocodeSource ?? null } : null,
+      emergencyContacts: emergencyContactsOf(row.emergencyContacts),
+      accessibility: accessibilityOf(row.accessibility),
+      routingConsent: consent,
+    };
+  }
 
   // ───────────────────────────── policy ─────────────────────────────
 
@@ -92,6 +257,10 @@ export class SelfServiceService {
       // WP 5.4 durable SOS (POST /me/transport/sos) is on this server; ETMS SOS is never gated by selfBooking.
       sos: true,
       deskPhone: transportSettingsOf(company.settings).deskPhone ?? null,
+      // WP 3.9 wave 2 (D-A5 / D-A7): ad-hoc requests come with self-service; approval follows the company setting.
+      timeZone: company.timezone,
+      adhocRequests: on,
+      approvalRequired: selfBookingApprovalOn(company.settings),
     };
     if (!on) return base;
     const shifts = await this.prisma.transportShift.findMany({ where: { companyId: ctx.companyId, isActive: true }, include: { sitePoi: { select: { id: true, name: true } } }, orderBy: [{ startMin: 'asc' }], take: 100 });
@@ -151,9 +320,138 @@ export class SelfServiceService {
       },
       rawKey,
       // WP 3.9: the shared eligibility / consent rules apply; after the cut-off a passenger is refused (AFTER_CUTOFF).
-      { actor: 'PASSENGER' },
+      // D-A5: REQUESTED while the company's approval setting is on (default), else straight to PENDING_ASSIGNMENT.
+      { actor: 'PASSENGER', status: approvalStatus(company.settings) },
     );
     return { value: await this.me.booking(ctx, res.value.id), replay: res.replay };
+  }
+
+  // ───────────────────────────── ad-hoc requests (WP 3.9 wave 2, D-A5 / D-A7) ─────────────────────────────
+
+  /**
+   * POST /me/transport/requests: the passenger's own ad-hoc ride (COMMUTE or POINT_TO_POINT) from / to home, a saved
+   * place, a company place of `requestPlaces`, a one-time map point or the shift's site. Personal ends (HOME, SAVED,
+   * MAP) need the active routing consent (409 CONSENT_REQUIRED, checked before anything is stored; a request never
+   * becomes "needs location"). Self-service limits: one seat, at most maxDaysAhead days ahead, never after the cut-off
+   * (BookingsService.create with actor PASSENGER: 409 AFTER_CUTOFF), plus every shared booking rule. REQUESTED while
+   * the company's approval setting is on (default), else PENDING_ASSIGNMENT.
+   */
+  async createRequest(ctx: AuthContext, dto: MeAdhocRequestDto, rawKey: string | undefined): Promise<{ value: MeBookingDto; replay: boolean }> {
+    const profile = await this.people.myProfileRow(ctx);
+    const company = await this.requireOn(ctx);
+    const day = serviceDate(dto.serviceDate);
+    const p2p = dto.journey === 'POINT_TO_POINT';
+    const shift = dto.shiftId ? await this.prisma.transportShift.findFirst({ where: { id: dto.shiftId, companyId: ctx.companyId, isActive: true }, include: { sitePoi: true } }) : null;
+    if (dto.shiftId && (!shift || shift.companyId !== ctx.companyId)) throw invalid('Unknown or archived shift');
+    const hasWindow = !!dto.windowStart && !!dto.windowEnd;
+    if ((dto.windowStart || dto.windowEnd) && !hasWindow) throw invalid('Give both window start and end');
+    if (p2p) {
+      if (!hasWindow) throw invalid('A point-to-point request needs the time window');
+    } else {
+      if (!dto.direction) throw invalid('Choose the direction (to or from the office)');
+      if (!shift && !hasWindow) throw invalid('Choose a shift or give the time window');
+    }
+    const today = todayIn(shift?.timeZone ?? company.timezone);
+    if (day < today) throw invalid('The service date is in the past');
+    if (day > addDays(today, L.maxDaysAhead)) throw invalid(`Book at most ${L.maxDaysAhead} days ahead`);
+
+    // Ends: consent first for personal points (never stored without it).
+    const consent = await this.consent(profile.id);
+    const pickup = await this.endPoint(ctx, profile, dto.pickup, shift, consent);
+    const drop = await this.endPoint(ctx, profile, dto.destination, shift, consent);
+
+    const selfCtx: AuthContext = { ...ctx, dataScope: 'COMPANY', branchIds: [], agreements: [] };
+    const res = await this.bookings.create(
+      selfCtx,
+      {
+        passengerId: profile.id,
+        serviceDate: day,
+        journey: dto.journey,
+        ...(p2p ? {} : { direction: dto.direction }),
+        shiftId: shift?.id ?? null,
+        pickup,
+        drop,
+        ...(hasWindow ? { windowStart: dto.windowStart, windowEnd: dto.windowEnd } : {}),
+        passengerCount: 1,
+        note: dto.note?.trim() ? `Requested by passenger: ${dto.note.trim().slice(0, L.bookingNoteMax)}` : 'Requested by passenger',
+      },
+      rawKey,
+      { actor: 'PASSENGER', status: approvalStatus(company.settings), purpose: dto.purpose ?? null },
+    );
+    return { value: await this.me.booking(ctx, res.value.id), replay: res.replay };
+  }
+
+  /** GET /me/transport/request-places?q=: the company places a passenger may pick (see requestPlaceRows), at most 50. */
+  async requestPlaces(ctx: AuthContext, q: string | undefined): Promise<MeRequestPlaceDto[]> {
+    const profile = await this.people.myProfileRow(ctx);
+    await this.requireOn(ctx);
+    return (await this.requestPlaceRows(ctx, profile, q)).map((p) => ({ id: p.id, name: p.name, category: p.category ?? null }));
+  }
+
+  /**
+   * Active places of the caller's company of categories OFFICE / SHUTTLE_STOP, the sites of active shifts and the
+   * passenger's own stops (default stop, schedule stops); optional name search; at most 50 (or the one `onlyId`).
+   */
+  private async requestPlaceRows(ctx: AuthContext, profile: { id: string; defaultStopPoiId: string | null }, q: string | undefined, onlyId?: string) {
+    const own = [...(await this.allowedStops(ctx, profile.id, profile.defaultStopPoiId)).keys()];
+    const term = (q ?? '').trim().slice(0, 100);
+    const rows = await this.prisma.poi.findMany({
+      where: {
+        companyId: ctx.companyId,
+        isActive: true,
+        OR: [{ category: { in: [...REQUEST_PLACE_CATEGORIES] } }, { id: { in: own } }],
+        ...(onlyId ? { id: onlyId } : {}),
+        ...(term ? { name: { contains: term, mode: 'insensitive' as const } } : {}),
+      },
+      select: { id: true, name: true, category: true, lat: true, lng: true, companyId: true, isActive: true },
+      orderBy: { name: 'asc' },
+      take: 50,
+    });
+    return rows.filter((r) => r.companyId === ctx.companyId && r.isActive !== false && ((REQUEST_PLACE_CATEGORIES as readonly string[]).includes(r.category ?? '') || own.includes(r.id)) && (!onlyId || r.id === onlyId));
+  }
+
+  /** One end of a request as a booking point (D-A3 consent for HOME / SAVED / MAP; PLACE from requestPlaceRows). */
+  private async endPoint(
+    ctx: AuthContext,
+    profile: Awaited<ReturnType<PeopleService['myProfileRow']>>,
+    end: MeAdhocEndRef,
+    shift: { sitePoi: { id: string; name: string; lat: number; lng: number; isActive?: boolean } | null } | null,
+    consent: boolean,
+  ): Promise<GeoPoint> {
+    switch (end.kind) {
+      case 'HOME': {
+        if (!consent) throw consentRequired();
+        // The routing pickup, as for a desk COMMUTE booking: the default stop when set, else the home point.
+        if (profile.defaultStop) return { lat: profile.defaultStop.lat, lng: profile.defaultStop.lng, label: profile.defaultStop.name, poiId: profile.defaultStop.id };
+        if (profile.homeLat === null || profile.homeLng === null) throw invalid('Set your home location in your transport profile first');
+        return { lat: profile.homeLat, lng: profile.homeLng, label: 'Home', poiId: null };
+      }
+      case 'SAVED': {
+        if (!consent) throw consentRequired();
+        const saved = placesOf(profile.preferences).find((p) => p.id === end.placeId);
+        if (!end.placeId || !saved) throw invalid('Unknown saved place');
+        return { lat: saved.lat, lng: saved.lng, label: saved.label, poiId: null };
+      }
+      case 'MAP': {
+        if (!consent) throw consentRequired();
+        const p = { lat: Number(end.lat), lng: Number(end.lng) };
+        if (end.lat === undefined || end.lng === undefined || !validPoint(p)) throw invalid('A map point must have a valid latitude and longitude (not 0, 0)');
+        return { ...p, label: end.label?.trim().slice(0, L.placeLabelMax) || null, poiId: null };
+      }
+      case 'PLACE': {
+        if (!end.poiId) throw invalid('Choose a place');
+        const [poi] = await this.requestPlaceRows(ctx, profile, undefined, end.poiId);
+        if (!poi) throw notEligible('PLACE_NOT_ALLOWED', 'Choose one of the places offered for requests');
+        return { lat: poi.lat, lng: poi.lng, label: poi.name, poiId: poi.id };
+      }
+      case 'SHIFT_SITE': {
+        if (!shift) throw invalid('Choose the shift whose site you mean');
+        if (!shift.sitePoi || shift.sitePoi.isActive === false) throw invalid('The shift has no active site');
+        return { lat: shift.sitePoi.lat, lng: shift.sitePoi.lng, label: shift.sitePoi.name, poiId: shift.sitePoi.id };
+      }
+      default:
+        throw invalid('Unknown place kind');
+    }
   }
 
   // ───────────────────────────── commute ─────────────────────────────

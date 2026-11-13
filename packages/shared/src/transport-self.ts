@@ -4,6 +4,7 @@
  * setting `etms.selfBooking` (TransportSettingsDto.selfBooking, default OFF: 404 SELF_BOOKING_DISABLED). Only
  * `GET /me/transport/policy` answers while it is off, so the app knows whether to show the booking screens.
  */
+import type { MeAdhocPolicyFields } from './transport-adhoc';
 import type { TransportBookingStatus, TransportDirection, TransportPassengerStatus, TransportPickupMode } from './transport-trips';
 
 /** Limits of passenger self-service (server-enforced; the app mirrors them for its forms). */
@@ -45,7 +46,7 @@ export interface MeCompanyStopDto {
 }
 
 /** GET /me/transport/policy: what the passenger may do (doc 08 "Book (ad-hoc)": cut-offs, modes, limits). */
-export interface MeTransportPolicyDto {
+export interface MeTransportPolicyDto extends MeAdhocPolicyFields {
   /** Company setting `etms.selfBooking` (default false). When false every other route below answers 404. */
   selfBooking: boolean;
   /** Booking cut-off before the window start, minutes (company `etms.bookingCutoffMin`, default 60). */
@@ -62,6 +63,8 @@ export interface MeTransportPolicyDto {
    */
   sos: boolean;
   deskPhone: string | null;
+  /** WP 3.9 wave 2: the company's time zone (IANA), for request windows without a shift. */
+  timeZone: string;
 }
 
 // ───────────────────────────── Saved places ─────────────────────────────

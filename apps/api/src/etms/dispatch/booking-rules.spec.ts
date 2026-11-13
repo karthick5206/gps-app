@@ -96,4 +96,12 @@ describe('WP 3.9 error bodies through the HTTP filter', () => {
     expect(run('/api/transport/bookings/x', late).body).toMatchObject({ code: 'LATE_REASON_REQUIRED', lateReasonMin: TRANSPORT_E3_LIMITS.lateReasonMin, lateReasonMax: TRANSPORT_E3_LIMITS.lateReasonMax });
     expect(run('/api/vehicles', notEligible('SHIFT_NOT_RUNNING', 'no')).body.reason).toBeUndefined();
   });
+
+  it('wave 2: GROUP_INVALID keeps sanitised failures; the passenger routes keep reason / bookingId / retryAfterSec', () => {
+    const group = new HttpException({ message: 'x', code: 'GROUP_INVALID', failures: [{ passengerId: 'p1', code: 'NOT_ELIGIBLE', reason: 'PASSENGER_INACTIVE', name: 'leak' }, { bad: true }] }, 422);
+    expect(run('/api/transport/bookings/group', group).body).toEqual({ statusCode: 422, message: 'x', code: 'GROUP_INVALID', failures: [{ passengerId: 'p1', code: 'NOT_ELIGIBLE', reason: 'PASSENGER_INACTIVE' }] });
+    expect(run('/api/me/transport/requests', notEligible('PLACE_NOT_ALLOWED', 'no')).body).toMatchObject({ code: 'NOT_ELIGIBLE', reason: 'PLACE_NOT_ALLOWED' });
+    expect(run('/api/me/transport/requests', overlapConflict('b-2')).body).toMatchObject({ bookingId: 'b-2' });
+    expect(run('/api/me/transport/geocode', new HttpException({ message: 'slow', code: 'RATE_LIMITED', retryAfterSec: 7 }, 429)).body).toMatchObject({ code: 'RATE_LIMITED', retryAfterSec: 7 });
+  });
 });

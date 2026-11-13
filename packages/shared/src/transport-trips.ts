@@ -444,6 +444,14 @@ export interface TransportBookingDto {
   afterCutoff: boolean;
   /** The dispatcher's late reason; null when not late. Shown to transport roles only (never to the passenger). */
   lateReason: string | null;
+  /** WP 3.9 wave 2 (D-A8): shared by the bookings of one group form; null otherwise. */
+  groupId: string | null;
+  /** WP 3.9 wave 2 (D-A8): bookings in the group (all of them, not only those on screen); null when not in a group. */
+  groupSize: number | null;
+  /** WP 3.9 wave 2: created through a passenger self-service path (the passenger's own login), not by the desk. */
+  requestedByPassenger: boolean;
+  /** WP 3.9 wave 2 (D-A7 / D-A8): why the ride is needed; null when not given. Customer's own roles only. */
+  purpose: string | null;
   /** The trip / seat when ASSIGNED or CONFIRMED (or the last one it was on). */
   tripId: string | null;
   passengerTripId: string | null;
@@ -542,6 +550,8 @@ export interface TransportBookingListQuery {
   /** WP 3.9 filters. */
   journey?: TransportBookingJourney;
   afterCutoff?: 'true' | 'false';
+  /** WP 3.9 wave 2: the bookings of one group. */
+  groupId?: string;
 }
 
 // ───────────────────────────── Dispatch ─────────────────────────────
@@ -992,6 +1002,27 @@ export interface MeBookingDto {
   journey: TransportBookingJourney;
   /** WP 3.9: made for the passenger by the transport desk (not by the passenger). */
   arrangedByDesk: boolean;
+  /** WP 3.9 wave 2 (D-A5): the transport team's reason when the booking was REJECTED; null otherwise. */
+  statusReason: string | null;
+  /** WP 3.9 wave 2 (D-A7): the purpose the passenger (or desk) gave; null when none. */
+  purpose: string | null;
+  /** WP 3.9 wave 2 (D-A5): waiting for transport-team approval (status REQUESTED). */
+  needsApproval: boolean;
+  /**
+   * WP 3.9 wave 2 (D-A5): the approval state. PENDING = REQUESTED; REJECTED = status REJECTED; APPROVED = the transport
+   * team approved it while it waited (stored approvedAt); NOT_REQUIRED = it never waited for approval (desk booking
+   * without hold, approval switched off, schedule booking) — never shown as "approved".
+   */
+  approval: MeBookingApproval;
+}
+
+export type MeBookingApproval = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** D-A5: the approval state of a booking (pure; see MeBookingDto.approval). */
+export function meBookingApproval(b: { status: TransportBookingStatus; approvedAt: Date | string | null }): MeBookingApproval {
+  if (b.status === 'REQUESTED') return 'PENDING';
+  if (b.status === 'REJECTED') return 'REJECTED';
+  return b.approvedAt ? 'APPROVED' : 'NOT_REQUIRED';
 }
 
 export interface MeTransportRangeQuery {
@@ -1027,6 +1058,8 @@ export const TRANSPORT_E3_ERROR_CODES = [
   'LATE_REASON_REQUIRED',
   'NOT_ELIGIBLE',
   'BOOKING_OVERLAP',
+  // WP 3.9 wave 2 (D-A8): a group booking with per-passenger failures (body `failures`, TransportGroupFailure[]).
+  'GROUP_INVALID',
 ] as const;
 export type TransportE3ErrorCode = (typeof TRANSPORT_E3_ERROR_CODES)[number];
 

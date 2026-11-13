@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Res, UseGuards } from '@nestjs/common';
-import type { MeBookingDto, MeCommuteDto, MePlaceDto, MeTransportPolicyDto, MeTripConfirmResult, MeTripReportResult } from '@veetracer/shared';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import type { MeBookingDto, MeCommuteDto, MeGeocodeHitDto, MeHomeLocationResult, MePlaceDto, MeRequestPlaceDto, MeTransportPolicyDto, MeTransportProfileDto, MeTripConfirmResult, MeTripReportResult } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
 import { TransportFeatureGuard } from '../transport-feature.guard';
-import { MeCreateBookingDto, MePlaceDto as MePlaceBody, MePlaceUpdateDto, MeTripConfirmDto, MeTripReportDto } from './self-service.dto';
+import { MeAdhocRequestDto, MeCreateBookingDto, MeHomeLocationDto, MeSearchQuery, MeTransportProfileUpdateDto, MePlaceDto as MePlaceBody, MePlaceUpdateDto, MeTripConfirmDto, MeTripReportDto } from './self-service.dto';
 import { SelfServiceService } from './self-service.service';
 
 type HeaderSink = { setHeader?: (name: string, value: string) => unknown } | undefined;
@@ -31,6 +31,47 @@ export class MySelfServiceController {
     const r = await this.self.createBooking(ctx, dto, key);
     if (r.replay) res?.setHeader?.('Idempotent-Replay', 'true');
     return r.value;
+  }
+
+  /**
+   * WP 3.9 wave 2 (D-A5 / D-A7): the passenger's own ad-hoc request (Idempotency-Key required; replay answers the same
+   * booking with `Idempotent-Replay: true`). REQUESTED while approval is on (default), else PENDING_ASSIGNMENT.
+   */
+  @Post('requests') @RequirePermission('etms_self', 'view')
+  async request(@Auth() ctx: AuthContext, @Body() dto: MeAdhocRequestDto, @Headers('idempotency-key') key: string | undefined, @Res({ passthrough: true }) res?: HeaderSink): Promise<MeBookingDto> {
+    const r = await this.self.createRequest(ctx, dto, key);
+    if (r.replay) res?.setHeader?.('Idempotent-Replay', 'true');
+    return r.value;
+  }
+
+  /** WP 3.9 wave 2 (D-A7): company places a passenger may pick for a request (at most 50). */
+  @Get('request-places') @RequirePermission('etms_self', 'view')
+  requestPlaces(@Auth() ctx: AuthContext, @Query() q: MeSearchQuery): Promise<MeRequestPlaceDto[]> {
+    return this.self.requestPlaces(ctx, q.q);
+  }
+
+  // ── WP 3.9 wave 2 (D-A9): own transport profile and home location (not gated by etms.selfBooking) ──
+
+  @Get('profile') @RequirePermission('etms_self', 'view')
+  profile(@Auth() ctx: AuthContext): Promise<MeTransportProfileDto> {
+    return this.self.profile(ctx);
+  }
+
+  @Patch('profile') @RequirePermission('etms_self', 'view')
+  updateProfile(@Auth() ctx: AuthContext, @Body() dto: MeTransportProfileUpdateDto): Promise<MeTransportProfileDto> {
+    return this.self.updateProfile(ctx, dto);
+  }
+
+  /** Set (needs routing consent: 409 CONSENT_REQUIRED) or clear the home location; answers openBookingsKept. */
+  @Put('home') @RequirePermission('etms_self', 'view')
+  setHome(@Auth() ctx: AuthContext, @Body() dto: MeHomeLocationDto): Promise<MeHomeLocationResult> {
+    return this.self.setHome(ctx, dto);
+  }
+
+  /** Self-hosted Photon only (503 GEOCODER_NOT_PRIVATE otherwise); 20 searches per minute per passenger (429 RATE_LIMITED). */
+  @Get('geocode') @RequirePermission('etms_self', 'view')
+  geocode(@Auth() ctx: AuthContext, @Query() q: MeSearchQuery): Promise<MeGeocodeHitDto[]> {
+    return this.self.geocode(ctx, q.q);
   }
 
   @Get('schedule') @RequirePermission('etms_self', 'view')
