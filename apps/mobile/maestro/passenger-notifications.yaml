@@ -10,7 +10,7 @@ tags:
 ---
 - runFlow: subflows/login.yaml
 - extendedWaitUntil:
-    visible: "Today"
+    visible: "(?i)next trip"
     timeout: 30000
 - tapOn: "Notices"
 - extendedWaitUntil:

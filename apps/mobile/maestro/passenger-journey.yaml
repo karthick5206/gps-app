@@ -10,16 +10,25 @@ tags:
 ---
 - runFlow: subflows/login.yaml
 - extendedWaitUntil:
-    visible: "Today"
+    visible: "(?i)next trip"
     timeout: 30000
-- assertVisible: "VeeTrax does not track your phone. The vehicle is shown only around your trip."
+# The SOS panel sits above the trip list during a trip, so the privacy line is below the fold.
+- scrollUntilVisible:
+    element: "VeeTrax does not track your phone. The vehicle is shown only around your trip."
+    direction: DOWN
 - assertNotVisible: "No passenger profile"
-- tapOn: "My pickup"
+- scrollUntilVisible:
+    element: "My pickup: .*"
+    direction: UP
+- tapOn: "My pickup: .*"
+# "Estimated pickup" needs a started trip whose vehicle has reported a fix (drive it with uat sim-uat.ts / etms:sim-trip).
 - extendedWaitUntil:
     visible: "Estimated pickup"
     timeout: 15000
 - assertVisible: "Driver"
-- assertVisible: "Call transport desk"
+- scrollUntilVisible:
+    element: "Call transport desk"
+    direction: DOWN
 - back
 - tapOn: "My bookings"
 - assertNotVisible: "No passenger profile"
