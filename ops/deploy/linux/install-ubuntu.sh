@@ -41,7 +41,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 install_routing() {
   echo "== ETMS route planning: Python 3.14, optimiser venv, veetrax-routing-worker + veetrax-optimizer (idle until switched on)"
   if ! command -v python3.14 >/dev/null || ! python3.14 -c 'import venv, ensurepip' >/dev/null 2>&1; then
-    if ! { apt-get install -y software-properties-common && add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && apt-get install -y python3.14 python3.14-venv; }; then
+    # Security review M1: never let apt upgrade shared libraries here or let needrestart restart PostgreSQL / Valkey /
+    # tracking services: --no-upgrade plus needrestart suspended (list mode only).
+    local APT=(env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=l apt-get install -y --no-upgrade --no-install-recommends)
+    if ! { "${APT[@]}" software-properties-common && NEEDRESTART_SUSPEND=1 add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && "${APT[@]}" python3.14 python3.14-venv; }; then
       echo "WARNING: Python 3.14 could not be installed (deadsnakes PPA). veetrax-optimizer cannot start until it is;"
       echo "         the readiness check in Platform Settings → Route planning will say so. Re-run with --routing-only after fixing it."
     fi
@@ -53,7 +56,9 @@ veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-api veetrax-gate
 veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-routing-worker, /usr/bin/systemctl restart veetrax-optimizer
 veetrax ALL=(root) NOPASSWD: /usr/bin/journalctl -u veetrax-routing-worker -n 50 --no-pager, /usr/bin/journalctl -u veetrax-optimizer -n 50 --no-pager
 EOF
-  if visudo -cf "$tmp"; then install -m 440 -o root -g root "$tmp" /etc/sudoers.d/veetrax-routing; fi
+  # Security review L2: a rejected sudoers file must stop the install (release.sh needs these grants once the units exist).
+  if ! visudo -cf "$tmp"; then rm -f "$tmp"; echo "ERROR: /etc/sudoers.d/veetrax-routing failed visudo; nothing installed" >&2; exit 1; fi
+  install -m 440 -o root -g root "$tmp" /etc/sudoers.d/veetrax-routing
   rm -f "$tmp"
   install -m 644 "$HERE/veetrax-routing-worker.service" "$HERE/veetrax-optimizer.service" /etc/systemd/system/
   install -d -o veetrax -g veetrax /opt/veetrax/venvs
@@ -68,7 +73,7 @@ EOF
   if command -v python3.14 >/dev/null && [[ -f "$lock" ]]; then
     [[ -x "$venv/bin/python" ]] || sudo -u veetrax python3.14 -m venv "$venv" || echo "WARNING: python3.14 -m venv failed"
     if sudo -u veetrax "$venv/bin/pip" install -q --disable-pip-version-check --require-hashes --no-deps --only-binary=:all: -r "$lock"; then
-      echo "   optimiser venv ready ($("$venv/bin/python" -c 'import platform, ortools; print("Python", platform.python_version(), "OR-Tools", ortools.__version__)'))"
+      echo "   optimiser venv ready ($(sudo -u veetrax "$venv/bin/python" -c 'import platform, ortools; print("Python", platform.python_version(), "OR-Tools", ortools.__version__)'))"
     else
       echo "WARNING: the optimiser venv could not be built from $lock (see above)."
     fi

@@ -59,17 +59,27 @@ export class RoutingSwitchService implements OnModuleInit, OnModuleDestroy {
     return routingOffReasonFor(this.prisma, this.cache, companyId);
   }
 
+  /** Security review L3: one probe at a time; concurrent callers (public /health/routing included) share it. */
+  private probe: Promise<RoutingReadinessDto> | null = null;
+
   async readinessNow(force = false): Promise<RoutingReadinessDto> {
     const now = Date.now();
     if (!force && this.readiness && now - this.readiness.at < READINESS_CACHE_MS) return this.readiness.value;
-    const value = await evaluateRoutingReadiness({
+    if (this.probe) return this.probe;
+    this.probe = evaluateRoutingReadiness({
       envMode: routingEnvMode(),
       optimizer: this.optimizer,
       workers: () => liveRoutingWorkers(this.redis.client),
       engine: () => this.engine.health(),
-    });
-    this.readiness = { at: now, value };
-    return value;
+    })
+      .then((value) => {
+        this.readiness = { at: Date.now(), value };
+        return value;
+      })
+      .finally(() => {
+        this.probe = null;
+      });
+    return this.probe;
   }
 
   async get(ctx: AuthContext, force = false): Promise<RoutingPlatformSwitchDto> {
