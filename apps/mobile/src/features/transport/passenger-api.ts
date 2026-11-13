@@ -69,6 +69,19 @@ export function useMyBookings() {
   });
 }
 
+/**
+ * One own booking (GET /me/transport/bookings/:id; 404 when it is not the passenger's or no longer exists). WP 3.9
+ * wave 2: the focused booking of a notification (BOOKING_CREATED / APPROVED / REJECTED). `id` must be a validated UUID.
+ */
+export function useMyBooking(id: string | null) {
+  return useQuery({
+    queryKey: [...KEY, 'booking', id],
+    queryFn: ({ signal }) => api.get<MeBookingDto>(`/me/transport/bookings/${id}`, undefined, signal),
+    enabled: !!id,
+    retry: noRetryOn4xx,
+  });
+}
+
 export function useMyConsent() {
   return useQuery({
     queryKey: [...KEY, 'consent'],
@@ -134,6 +147,7 @@ export function useCancelBooking() {
     retry: false,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: [...KEY, 'bookings'] });
+      void qc.invalidateQueries({ queryKey: [...KEY, 'booking'] });
       void qc.invalidateQueries({ queryKey: [...KEY, 'trips'] });
     },
   });

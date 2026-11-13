@@ -135,6 +135,47 @@ export function TransportMap({ points, label, height = 220 }: { points: MapPoint
   );
 }
 
+/**
+ * WP 3.9 wave 2: tap-to-place map for a one-time point (ride request, home pin). ONLY the build's self-hosted style
+ * (same as TransportMap); returns null without one, and the caller's address search / typed position is the way to
+ * choose a point. `center` is where the camera starts (the current point, a search hit or a saved place).
+ */
+export function TransportPickMap({
+  point,
+  center,
+  onPick,
+  label,
+  height = 240,
+}: {
+  point: { lat: number; lng: number } | null;
+  center: { lat: number; lng: number } | null;
+  onPick: (p: { lat: number; lng: number }) => void;
+  label: string;
+  height?: number;
+}) {
+  const style = useTransportMapStyle();
+  const data = useMemo(
+    () => ({
+      type: 'FeatureCollection' as const,
+      features: point ? [{ type: 'Feature' as const, id: 0, geometry: { type: 'Point' as const, coordinates: [point.lng, point.lat] }, properties: { color: KIND_COLOR.pickup } }] : [],
+    }),
+    [point],
+  );
+  const at = point ?? center;
+  if (!style || !at) return null;
+  return (
+    <View style={{ height, borderRadius: RADIUS.md, overflow: 'hidden' }} accessibilityLabel={label}>
+      <Map style={{ flex: 1 }} mapStyle={style} logo={false} attributionPosition={{ bottom: 4, left: 8 }} touchPitch={false} onPress={(e) => onPick({ lat: e.nativeEvent.lngLat[1], lng: e.nativeEvent.lngLat[0] })}>
+        <Camera center={[at.lng, at.lat]} zoom={15} duration={0} />
+        <GeoJSONSource id="transport-pick" data={data}>
+          <Layer id="transport-pick-halo" type="circle" paint={{ 'circle-radius': 14, 'circle-color': ['get', 'color'], 'circle-opacity': 0.2 }} />
+          <Layer id="transport-pick-dot" type="circle" paint={{ 'circle-radius': 7, 'circle-color': ['get', 'color'], 'circle-stroke-width': 2.5, 'circle-stroke-color': '#ffffff' }} />
+        </GeoJSONSource>
+      </Map>
+    </View>
+  );
+}
+
 /** Label / value line that wraps (long stop labels, Hindi / Tamil text at large sizes). */
 export function Line({ label, children }: { label: string; children: ReactNode }) {
   const c = useColors();

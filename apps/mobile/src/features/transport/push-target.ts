@@ -12,10 +12,18 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Mirrors DRIVER_NOTIFICATION_KINDS / PASSENGER_NOTIFICATION_KINDS of @veetracer/shared (literal: no runtime import). */
 const DRIVER_KINDS: readonly string[] = ['TRIP_ASSIGNED', 'TRIP_CHANGED', 'TRIP_UNASSIGNED', 'TRIP_CANCELLED'];
-const PASSENGER_KINDS: readonly string[] = ['TRIP_STARTING_SOON', 'VEHICLE_APPROACHING', 'TRIP_DELAYED', 'TRIP_CANCELLED', 'BOOKING_CREATED'];
+const PASSENGER_KINDS: readonly string[] = ['TRIP_STARTING_SOON', 'VEHICLE_APPROACHING', 'TRIP_DELAYED', 'TRIP_CANCELLED', 'BOOKING_CREATED', 'BOOKING_APPROVED', 'BOOKING_REJECTED'];
 
 /** WP 3.9 (D-A4): the desk booked a ride for the passenger. Push data `{ kind, bookingId, notificationId }`, tripId null. */
 export const BOOKING_CREATED = 'BOOKING_CREATED';
+/**
+ * WP 3.9 wave 2 (D-A5): the passenger's ride request was approved / rejected. Same generic payload as BOOKING_CREATED
+ * (`{ kind, bookingId, notificationId }`, tripId null). Kept as strings: the shared kind list gains them with the API work.
+ */
+export const BOOKING_APPROVED = 'BOOKING_APPROVED';
+export const BOOKING_REJECTED = 'BOOKING_REJECTED';
+/** Passenger kinds about a booking (no trip yet): they open the booking, never a trip screen. */
+export const BOOKING_KINDS: readonly string[] = [BOOKING_CREATED, BOOKING_APPROVED, BOOKING_REJECTED];
 
 /** The passenger booking list, focused on one booking when its id is a valid UUID (the screen fetches it over the API). */
 export function bookingsRoute(bookingId: unknown): string {
@@ -67,7 +75,7 @@ export function transportPushTarget(data: TransportPushData | null | undefined, 
   if (isSosPush(data)) return sosPushTarget(data as TransportPushData, roles);
   const d = data as TransportPushData & { kind: string };
   // A booking made for the passenger has no trip yet (tripId null): open the booking, never a trip screen.
-  if (d.kind === BOOKING_CREATED) return roles.passenger ? bookingsRoute(d.bookingId) : null;
+  if (BOOKING_KINDS.includes(d.kind)) return roles.passenger ? bookingsRoute(d.bookingId) : null;
   const tripId = typeof d.tripId === 'string' && UUID.test(d.tripId) ? d.tripId : null;
   const forDriver = DRIVER_KINDS.includes(d.kind) || /^(driver|duty)/i.test(d.kind);
   const forPassenger = PASSENGER_KINDS.includes(d.kind) || (!forDriver && (typeof d.bookingId === 'string' || typeof d.tripId === 'string'));
@@ -89,7 +97,7 @@ export function transportPushTarget(data: TransportPushData | null | undefined, 
  * `bookingId` when the server sends one, else the Bookings list).
  */
 export function inboxTarget(n: { kind: string; tripId?: string | null; bookingId?: unknown }, audience: 'passenger' | 'driver'): string | null {
-  if (n.kind === BOOKING_CREATED) return audience === 'passenger' ? bookingsRoute(n.bookingId) : null;
+  if (BOOKING_KINDS.includes(n.kind)) return audience === 'passenger' ? bookingsRoute(n.bookingId) : null;
   const tripId = typeof n.tripId === 'string' && UUID.test(n.tripId) ? n.tripId : null;
   if (!tripId) return null;
   return audience === 'driver' ? `/duty/trip/${tripId}` : `/commute/trip/${tripId}`;

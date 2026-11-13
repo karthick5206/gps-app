@@ -1,6 +1,6 @@
 import type { MeBookingDto } from '@veetracer/shared';
 import { router, type Href } from 'expo-router';
-import { BellIcon, BellOffIcon, CalendarIcon, CalendarPlusIcon, ChevronRightIcon, MapPinIcon, RepeatIcon, ShieldCheckIcon, TicketIcon, type LucideIcon } from 'lucide-react-native';
+import { BellIcon, BellOffIcon, CalendarIcon, CalendarPlusIcon, CarIcon, ChevronRightIcon, MapPinIcon, RepeatIcon, ShieldCheckIcon, TicketIcon, UserIcon, type LucideIcon } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
@@ -108,6 +108,8 @@ export function CommuteHome() {
     if (deskPhone) passengerSos.setContext({ deskPhone });
   }, [deskPhone]);
   const selfBooking = !!policy.data?.selfBooking;
+  // WP 3.9 wave 2 (D-A7): ride requests only when the server says so (an older server has no such field).
+  const adhocRequests = selfBooking && (policy.data as { adhocRequests?: boolean } | undefined)?.adhocRequests === true;
   const buckets = useMemo(() => tripBuckets(trips.data ?? [], now), [trips.data, now]);
   const next = useMemo(() => nextTrip(trips.data ?? [], now), [trips.data, now]);
   const refreshing = trips.isRefetching || consent.isRefetching;
@@ -207,11 +209,13 @@ export function CommuteHome() {
       )}
 
       <Card style={{ paddingVertical: 0 }}>
+        {adhocRequests && <LinkRow icon={CarIcon} label={t('Request a ride')} href="/commute/request" />}
         {selfBooking && <LinkRow icon={CalendarPlusIcon} label={t('Book a trip')} href="/commute/book" />}
         {selfBooking && <LinkRow icon={RepeatIcon} label={t('Regular commute')} href="/commute/schedule" />}
         {selfBooking && <LinkRow icon={MapPinIcon} label={t('Saved places')} href="/commute/places" />}
         <LinkRow icon={TicketIcon} label={t('My bookings')} href="/commute/bookings" />
         <LinkRow icon={BellIcon} label={t('Notices')} href="/commute/notices" badge={recentNotices} />
+        <LinkRow icon={UserIcon} label={t('My transport profile')} href="/commute/profile" />
         <LinkRow icon={ShieldCheckIcon} label={t('Privacy & consent')} href="/commute/consent" />
       </Card>
       <Text size="xs" tone="muted" style={{ textAlign: 'center' }}>

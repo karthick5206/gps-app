@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  MeAdhocRequestInput,
   MeBookingDto,
+  MeGeocodeHitDto,
+  MeHomeLocationInput,
+  MeHomeLocationResult,
+  MeRequestPlaceDto,
+  MeTransportProfileDto,
+  MeTransportProfileUpdateInput,
   MeCommuteDto,
   MeCreateBookingInput,
   MePlaceDto,
@@ -16,6 +23,8 @@ import { useState } from 'react';
 import { ApiError, api, errorMessage } from '@/lib/api';
 import { i18n } from '@/lib/i18n';
 import { uuidv7 } from './event-queue';
+import { requestErrorText } from './adhoc-request';
+import { profileErrorText } from './my-profile';
 import { selfErrorText } from './self-service';
 
 /**
@@ -127,5 +136,96 @@ export function isSelfBookingOff(err: unknown): boolean {
 /** Translated text for a self-service error (known codes), else the server message. */
 export function selfServiceErrorText(err: unknown, action: 'book' | 'place' | 'confirm' | 'report'): string {
   const known = err instanceof ApiError ? selfErrorText(err.code, action) : null;
+  return known ? i18n.t(known) : errorMessage(err);
+}
+
+// ───────────── WP 3.9 wave 2: passenger ad-hoc requests (D-A5, D-A7) and own profile / home (D-A9) ─────────────
+
+/** The answer of POST /me/transport/requests (wave-2 fields optional so an older server's answer still reads). */
+export type MeRequestResult = MeBookingDto & { needsApproval?: boolean; purpose?: string | null };
+
+export function useRequestRide() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ body, key }: { body: MeAdhocRequestInput; key: string }) => api.post<MeRequestResult>('/me/transport/requests', body, { headers: { 'Idempotency-Key': key } }),
+    retry: false,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [...KEY, 'bookings'] });
+      void qc.invalidateQueries({ queryKey: [...KEY, 'commute'] });
+    },
+  });
+}
+
+/** Company places the passenger may pick (GET /me/transport/request-places?q=, at most 50). */
+export function useRequestPlaces(q: string, enabled = true) {
+  return useQuery({
+    queryKey: [...KEY, 'request-places', q],
+    queryFn: ({ signal }) => api.get<MeRequestPlaceDto[]>('/me/transport/request-places', q ? { q } : undefined, signal),
+    enabled,
+    retry: noRetryOn4xx,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Address search through the VeeTrax server only (self-hosted Photon): the passenger route
+ * `GET /me/transport/geocode?q=` (D-A9); a server without it (404) falls back to the general `/geocode/search` the
+ * saved-places screen already uses. The phone's location is never read.
+ */
+export function useAddressSearch(q: string, enabled = true) {
+  return useQuery({
+    queryKey: ['geocode-search', 'me-transport', q],
+    queryFn: async ({ signal }) => {
+      try {
+        return await api.get<MeGeocodeHitDto[]>('/me/transport/geocode', { q }, signal);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404 && !err.code) return api.get<MeGeocodeHitDto[]>('/geocode/search', { q }, signal);
+        throw err;
+      }
+    },
+    enabled: enabled && q.length >= 3,
+    retry: noRetryOn4xx,
+    staleTime: 60_000,
+  });
+}
+
+export function useMyProfile() {
+  return useQuery({
+    queryKey: [...KEY, 'profile'],
+    queryFn: ({ signal }) => api.get<MeTransportProfileDto>('/me/transport/profile', undefined, signal),
+    retry: noRetryOn4xx,
+  });
+}
+
+export function useSaveProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MeTransportProfileUpdateInput) => api.patch<MeTransportProfileDto>('/me/transport/profile', body),
+    retry: false,
+    onSuccess: (p) => qc.setQueryData([...KEY, 'profile'], p),
+  });
+}
+
+export function useSetHome() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MeHomeLocationInput) => api.put<MeHomeLocationResult>('/me/transport/home', body),
+    retry: false,
+    onSuccess: (r) => {
+      qc.setQueryData([...KEY, 'profile'], r.profile);
+      void qc.invalidateQueries({ queryKey: [...KEY, 'policy'] });
+    },
+  });
+}
+
+/** Translated text for a request error (known codes, NOT_ELIGIBLE by reason), else the server message. */
+export function requestErrorMessage(err: unknown): string {
+  const known = err instanceof ApiError ? requestErrorText(err.code, err.details.reason) : null;
+  return known ? i18n.t(known) : errorMessage(err);
+}
+
+/** Translated text for a profile / home error, else the server message. */
+export function profileErrorMessage(err: unknown): string {
+  const known = err instanceof ApiError ? profileErrorText(err.code) : null;
   return known ? i18n.t(known) : errorMessage(err);
 }
