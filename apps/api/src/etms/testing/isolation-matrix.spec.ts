@@ -285,7 +285,7 @@ function e3Controllers(prisma: Obj, audit: AuditService, redis: object, people: 
   return {
     shifts: new ShiftsController(schedules),
     schedules: new SchedulesController(schedules),
-    bookings: new BookingsController(new BookingsService(prisma as never, audit, redis as never)),
+    bookings: new BookingsController(new BookingsService(prisma as never, audit, redis as never), people),
     dispatch: new DispatchController(dispatch),
     trips: new TransportTripsController(new TripsService(prisma as never, audit, plannedTrips, dispatch, live), dispatch),
     meTrips: new MyTransportTripsController(new MeTransportService(prisma as never, people, redis as never)),

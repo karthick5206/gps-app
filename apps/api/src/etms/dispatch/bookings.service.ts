@@ -1,13 +1,18 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   TRANSPORT_E3_LIMITS,
   bookingTransition,
+  passengerPushAllowed,
   type AuditLogDto,
   type BulkApproveTransportBookingsResult,
   type GeoPoint,
   type TransportBookingCommand,
   type TransportBookingDto,
+  type TransportBookingJourney,
+  type TransportDirection,
+  type TransportBookingPolicyDto,
+  type TransportPlaceOptionDto,
 } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
@@ -16,14 +21,28 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { addDays } from '../../summarizer/tz';
 import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
+import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { activeRoutingConsents } from '../people/people.service';
 import { UNSEATED_STATUSES } from './booking-generator.service';
+import {
+  ACTIVE_BOOKING_STATUSES,
+  assertEligible,
+  isLate,
+  isOverlapExclusion,
+  notEligible,
+  overlapConflict,
+  overlapWhere,
+  personalPointConsentRequired,
+  requireLateReason,
+  type BookingActor,
+} from './booking-rules';
 import {
   assertBookingAccess,
   bookingReadWhere,
   conflict,
   cutoffMinutes,
   dateOnly,
+  dayKeyOf,
   e3Error,
   idempotencyKey,
   idempotencyReused,
@@ -39,7 +58,7 @@ import {
 } from './e3-common';
 import { BOOKING_INCLUDE, LIST_VIEW, toBookingDto, type BookingRow } from './e3-mapping';
 import { BookingCommandDto, BookingListQuery, CreateBookingDto, UpdateBookingDto } from './e3.dto';
-import { legWindow, todayIn } from './service-dates';
+import { legWindow, todayIn, weekdayOf } from './service-dates';
 import { lockBookings, lockTrips, recordTripEvent, releaseSeat } from './trip-ops';
 
 export const BOOKING_ENTITY = 'TransportBooking';
@@ -63,6 +82,8 @@ const CSV: CsvSpec<TransportBookingDto> = {
     { header: 'Window end', value: (b) => b.windowEnd },
     { header: 'Status', value: (b) => b.status },
     { header: 'Source', value: (b) => b.source },
+    { header: 'Journey', value: (b) => b.journey },
+    { header: 'After cut-off', value: (b) => (b.afterCutoff ? 'yes' : 'no') },
     // Labels only: no coordinates in an export (E2 security review M3 / M4).
     { header: 'Pickup', value: (b) => b.pickupLabel ?? '' },
     { header: 'Drop', value: (b) => b.dropLabel ?? '' },
@@ -79,6 +100,7 @@ function bookingSnapshot(b: Prisma.TransportBookingGetPayload<object>) {
     statusReason: b.statusReason,
     serviceDate: b.serviceDate.toISOString().slice(0, 10),
     direction: b.direction,
+    journey: b.journey,
     windowStart: b.windowStart.toISOString(),
     windowEnd: b.windowEnd.toISOString(),
     passengerCount: b.passengerCount,
@@ -88,6 +110,25 @@ function bookingSnapshot(b: Prisma.TransportBookingGetPayload<object>) {
     dropPoiId: b.dropPoiId,
     version: b.version,
   };
+}
+
+/** Window rules of create and PATCH: ends after it starts, at most 12 h. */
+function checkWindow(start: number, end: number): void {
+  if (end <= start) throw invalid('The window must end after it starts');
+  if (end - start > 12 * 3_600_000) throw invalid('The window can be at most 12 hours');
+}
+
+/** D-A1 audit record of a late create / edit: the cut-off, when it happened, who did it and why. */
+function lateAudit(cutoffAt: number, at: Date, userId: string, reason: string, field: 'createdAt' | 'editedAt') {
+  return { cutoffAt: new Date(cutoffAt).toISOString(), [field]: at.toISOString(), dispatcherUserId: userId, reason };
+}
+
+/** Coded error of a thrown E3 HttpException (null for anything else). */
+const codeOf = (e: unknown): string | null => ((e as { getResponse?: () => unknown })?.getResponse?.() as { code?: string } | undefined)?.code ?? null;
+
+/** Serialises the bookings of one passenger (create / edit overlap check) until the transaction ends. */
+async function lockPassenger(tx: Prisma.TransactionClient, profileId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'etms:booking:' + profileId}, 0))`;
 }
 
 export interface Replayable<T> {
@@ -100,18 +141,23 @@ export interface Replayable<T> {
  * agreement grants VIEW_BOOKINGS (read-only). Writes (R1): own company only. Create needs an Idempotency-Key (double
  * submit = one booking; same key + other body = 422) and is rate limited per user. The partial unique index refuses a
  * second active booking of a passenger, date and direction (409 BOOKING_DUPLICATE). Commands follow
- * BOOKING_TRANSITIONS; changes need expectedVersion (409 VERSION_CONFLICT) and are refused after the cut-off.
+ * BOOKING_TRANSITIONS; changes need expectedVersion (409 VERSION_CONFLICT). WP 3.9: journeys (COMMUTE /
+ * POINT_TO_POINT), the shared eligibility / consent rules, late bookings with a reason (D-A1), BOOKING_CREATED (D-A4).
  */
 @Injectable()
 export class BookingsService {
   private readonly limiter: FixedWindowLimiter;
   private readonly bulkLimiter: FixedWindowLimiter;
+  private readonly notifications: TransportNotificationsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     redis: RedisService,
+    @Optional() notifications?: TransportNotificationsService,
   ) {
+    // Stateless (Prisma + Valkey): built here when the module does not inject one (tests, other modules).
+    this.notifications = notifications ?? new TransportNotificationsService(prisma, redis);
     this.limiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:booking-create', TRANSPORT_E3_LIMITS.bookingCreatesPerMinute, 60_000);
     // L6: bulk approve runs up to maxBulk transactions per request.
     this.bulkLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:booking-bulk', TRANSPORT_E3_LIMITS.bulkApprovesPerMinute, 60_000);
@@ -131,6 +177,10 @@ export class BookingsService {
     if (q.bookingStatus) filters.push({ status: q.bookingStatus });
     if (q.source) filters.push({ source: q.source });
     if (q.unassigned === 'true') filters.push({ status: { in: [...UNSEATED_STATUSES] } });
+    if (q.journey) filters.push({ journey: q.journey });
+    // afterCutoff ⇔ a dispatcher's late reason is stored (see toBookingDto).
+    if (q.afterCutoff === 'true') filters.push({ lateReason: { not: null } });
+    if (q.afterCutoff === 'false') filters.push({ lateReason: null });
     // CSV export (E2 security review M4 applied to E3): only the caller's own company's bookings, never a partner's.
     if (q.format === 'csv') filters.push({ customerCompanyId: ctx.companyId });
     const where: Prisma.TransportBookingWhereInput = { AND: filters };
@@ -140,6 +190,29 @@ export class BookingsService {
     ]);
     const now = Date.now();
     return listResult(plan, rows.map((r) => toBookingDto(r, ctx, LIST_VIEW, now)), total, CSV);
+  }
+
+  /** The desk's booking-form policy (WP 3.9): company cut-off, days ahead, late-reason limits. */
+  async policy(ctx: AuthContext): Promise<TransportBookingPolicyDto> {
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { settings: true } });
+    return {
+      cutoffMin: cutoffMinutes(company.settings, TRANSPORT_E3_LIMITS.defaultCutoffMin),
+      maxDaysAhead: TRANSPORT_E3_LIMITS.adhocMaxDaysAhead,
+      lateReasonMin: TRANSPORT_E3_LIMITS.lateReasonMin,
+      lateReasonMax: TRANSPORT_E3_LIMITS.lateReasonMax,
+    };
+  }
+
+  /** Company places a booking may use (WP 3.9, D-A2): active Pois of the caller's company, name search, at most 50. */
+  async places(ctx: AuthContext, q: string | undefined): Promise<TransportPlaceOptionDto[]> {
+    const term = (q ?? '').trim().slice(0, 100);
+    const rows = await this.prisma.poi.findMany({
+      where: { companyId: ctx.companyId, isActive: true, ...(term ? { name: { contains: term, mode: 'insensitive' as const } } : {}) },
+      select: { id: true, name: true, category: true, lat: true, lng: true, companyId: true },
+      orderBy: { name: 'asc' },
+      take: 50,
+    });
+    return rows.filter((r) => r.companyId === ctx.companyId).map((r) => ({ id: r.id, name: r.name, category: r.category ?? null, lat: r.lat, lng: r.lng }));
   }
 
   async get(ctx: AuthContext, id: string): Promise<TransportBookingDto> {
@@ -155,7 +228,17 @@ export class BookingsService {
 
   // ───────────────────────────── create ─────────────────────────────
 
-  async create(ctx: AuthContext, dto: CreateBookingDto, rawKey: string | undefined): Promise<Replayable<TransportBookingDto>> {
+  /**
+   * Ad-hoc booking (05 §2.5; WP 3.9). `actor` = DESK (dispatcher, default) or PASSENGER (self-service, which calls this
+   * with its own limits on top). Rules, in order: idempotent replay (same user + body) → rate limit → passenger in the
+   * caller's branches (404) → eligibility (422 NOT_ELIGIBLE) → dates / window → points (company place or a consented
+   * personal point, 409 CONSENT_REQUIRED) → cut-off (DESK: 409 LATE_REASON_REQUIRED without a reason; PASSENGER: 409
+   * AFTER_CUTOFF) → COMMUTE duplicate (409 BOOKING_DUPLICATE) → in the transaction, under a per-passenger lock, the
+   * time overlap (409 BOOKING_OVERLAP) → row + audit (+ BOOKING_CREATED for the passenger when someone else booked, in
+   * the same transaction; the push job is queued after commit).
+   */
+  async create(ctx: AuthContext, dto: CreateBookingDto, rawKey: string | undefined, opts: { actor?: BookingActor } = {}): Promise<Replayable<TransportBookingDto>> {
+    const actor = opts.actor ?? 'DESK';
     const key = idempotencyKey(rawKey);
     const hash = requestHash(dto);
     const prior = await this.prisma.transportBooking.findFirst({ where: { customerCompanyId: ctx.companyId, idempotencyKey: key }, include: BOOKING_INCLUDE });
@@ -168,16 +251,20 @@ export class BookingsService {
     const rl = await this.limiter.hit(ctx.userId);
     if (!rl.allowed) throw e3Error(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMITED', `Too many bookings; try again in ${rl.retryAfterSec} s`, { retryAfterSec: rl.retryAfterSec });
 
-    const profile = await this.prisma.employeeTransportProfile.findFirst({
-      where: { id: dto.passengerId, companyId: ctx.companyId, isActive: true },
-      select: { id: true, branchId: true, homeLat: true, homeLng: true, defaultStop: { select: { id: true, name: true, lat: true, lng: true } } },
-    });
-    if (!profile || !inProfileBranch(ctx, profile.branchId)) throw notFound('Passenger not found');
-    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true, settings: true } });
+    const journey: TransportBookingJourney = dto.journey ?? 'COMMUTE';
     const day = serviceDate(dto.serviceDate);
-
-    const shift = dto.shiftId ? await this.prisma.transportShift.findFirst({ where: { id: dto.shiftId, companyId: ctx.companyId, isActive: true }, include: { sitePoi: true } }) : null;
-    if (dto.shiftId && !shift) throw invalid('Unknown or archived shift');
+    const seats = dto.passengerCount ?? 1;
+    const { profile, shift } = await this.eligible(ctx, dto.passengerId, dto.shiftId ?? null, day, seats);
+    let direction: TransportDirection;
+    if (journey === 'POINT_TO_POINT') {
+      if (!dto.pickup || !dto.drop) throw invalid('A point-to-point booking needs a pickup and a destination');
+      if (!dto.windowStart || !dto.windowEnd) throw invalid('A point-to-point booking needs the time window');
+      direction = 'IN'; // contract: pickups before drops on the trip
+    } else {
+      if (!dto.direction) throw invalid('Choose the direction (to or from the office)');
+      direction = dto.direction;
+    }
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true, settings: true } });
     const tz = shift?.timeZone ?? company.timezone;
     const today = todayIn(tz);
     if (day < today) throw invalid('The service date is in the past');
@@ -191,64 +278,76 @@ export class BookingsService {
       end = parseInstant(dto.windowEnd, 'windowEnd');
     } else {
       if (!shift) throw invalid('Choose a shift or give the time window');
-      const w = legWindow(shift, dto.direction, day);
+      const w = legWindow(shift, direction, day);
       start = w.start;
       end = w.end;
     }
-    if (end <= start) throw invalid('The window must end after it starts');
-    if (end - start > 12 * 3_600_000) throw invalid('The window can be at most 12 hours');
+    checkWindow(start, end);
     if (end < Date.now()) throw invalid('The window has already passed');
 
-    // Passenger end: given point, else the routing pickup (only with an active TRANSPORT_PROFILE consent); site end:
-    // given point, else the shift's site.
+    // Points (D-A3): a given point is a company place (poiId) or a personal point that needs the active consent. The
+    // COMMUTE defaults: the passenger end = the routing pickup (only with consent, else "needs location", nothing
+    // stored); the office end = the shift's site.
     const consent = await this.consentActive(profile.id);
-    const site: GeoPoint | null = shift?.sitePoi ? { lat: shift.sitePoi.lat, lng: shift.sitePoi.lng, label: shift.sitePoi.name, poiId: shift.sitePoi.id } : null;
-    const home: GeoPoint | null = !consent
-      ? null
-      : profile.defaultStop
-        ? { lat: profile.defaultStop.lat, lng: profile.defaultStop.lng, label: profile.defaultStop.name, poiId: profile.defaultStop.id }
-        : profile.homeLat !== null && profile.homeLng !== null
-          ? { lat: profile.homeLat, lng: profile.homeLng, label: null, poiId: null }
-          : null;
-    const pickup = await this.point(ctx, dto.pickup ?? (dto.direction === 'IN' ? home : site));
-    const drop = await this.point(ctx, dto.drop ?? (dto.direction === 'IN' ? site : home));
+    const site: GeoPoint | null = journey === 'COMMUTE' && shift?.sitePoi ? { lat: shift.sitePoi.lat, lng: shift.sitePoi.lng, label: shift.sitePoi.name, poiId: shift.sitePoi.id } : null;
+    const home: GeoPoint | null =
+      journey !== 'COMMUTE' || !consent
+        ? null
+        : profile.defaultStop
+          ? { lat: profile.defaultStop.lat, lng: profile.defaultStop.lng, label: profile.defaultStop.name, poiId: profile.defaultStop.id }
+          : profile.homeLat !== null && profile.homeLng !== null
+            ? { lat: profile.homeLat, lng: profile.homeLng, label: null, poiId: null }
+            : null;
+    const pickup = dto.pickup ? await this.point(ctx, dto.pickup, consent) : direction === 'IN' ? home : site;
+    const drop = dto.drop ? await this.point(ctx, dto.drop, consent) : direction === 'IN' ? site : home;
 
-    const cutoffMin = cutoffMinutes(company.settings, TRANSPORT_E3_LIMITS.defaultCutoffMin);
-    const duplicate = await this.prisma.transportBooking.findFirst({
-      where: { profileId: profile.id, serviceDate: dateOnly(day), direction: dto.direction, status: { in: ['REQUESTED', 'PENDING_ASSIGNMENT', 'ASSIGNED', 'CONFIRMED', 'WAITLISTED'] } },
-      select: { id: true },
-    });
-    if (duplicate) {
-      // Harness HD1: the "duplicate" may be this very request's twin (same Idempotency-Key, sent in parallel): replay it.
-      const twin = await this.replayOf(ctx, key, hash);
-      if (twin) return twin;
-      throw conflict('BOOKING_DUPLICATE', 'The passenger already has an active booking for this date and direction', { bookingId: duplicate.id });
+    // Cut-off (D-A1).
+    const cutoffAt = start - cutoffMinutes(company.settings, TRANSPORT_E3_LIMITS.defaultCutoffMin) * 60_000;
+    const now = Date.now();
+    let lateReason: string | null = null;
+    if (isLate(cutoffAt, now)) {
+      if (actor === 'PASSENGER') throw conflict('AFTER_CUTOFF', 'The booking cut-off for this trip has passed; contact the transport desk');
+      lateReason = requireLateReason(dto.lateReason);
     }
 
+    if (journey === 'COMMUTE') {
+      const duplicate = await this.prisma.transportBooking.findFirst({
+        where: { profileId: profile.id, serviceDate: dateOnly(day), direction, journey: 'COMMUTE', status: { in: [...ACTIVE_BOOKING_STATUSES] } },
+        select: { id: true },
+      });
+      if (duplicate) {
+        // Harness HD1: the "duplicate" may be this very request's twin (same Idempotency-Key, sent in parallel): replay it.
+        const twin = await this.replayOf(ctx, key, hash);
+        if (twin) return twin;
+        throw conflict('BOOKING_DUPLICATE', 'The passenger already has an active booking for this date and direction', { bookingId: duplicate.id });
+      }
+    }
+
+    // D-A4: someone else (the desk) booked for the passenger. Self-service books with the passenger's own login.
+    const notifyUser = profile.userId && profile.userId !== ctx.userId ? profile.userId : null;
     try {
-      const row = await this.prisma.$transaction(async (tx) => {
+      const { row, push } = await this.prisma.$transaction(async (tx) => {
+        await lockPassenger(tx, profile.id);
+        const clash = await tx.transportBooking.findFirst({ where: overlapWhere(profile.id, journey, start, end), select: { id: true } });
+        if (clash) throw overlapConflict(clash.id);
         const created = await tx.transportBooking.create({
           data: {
             customerCompanyId: ctx.companyId,
             profileId: profile.id,
             shiftId: shift?.id ?? null,
             source: 'ADHOC',
+            journey,
             serviceDate: dateOnly(day),
-            direction: dto.direction,
+            direction,
             timeZone: tz,
-            pickupLabel: pickup?.label ?? null,
-            pickupLat: pickup?.lat ?? null,
-            pickupLng: pickup?.lng ?? null,
-            pickupPoiId: pickup?.poiId ?? null,
-            dropLabel: drop?.label ?? null,
-            dropLat: drop?.lat ?? null,
-            dropLng: drop?.lng ?? null,
-            dropPoiId: drop?.poiId ?? null,
+            ...this.columns('pickup', pickup),
+            ...this.columns('drop', drop),
             windowStart: new Date(start),
             windowEnd: new Date(end),
-            passengerCount: dto.passengerCount ?? 1,
+            passengerCount: seats,
             status: dto.hold ? 'REQUESTED' : 'PENDING_ASSIGNMENT',
-            cutoffAt: new Date(start - cutoffMin * 60_000),
+            cutoffAt: new Date(cutoffAt),
+            lateReason,
             idempotencyKey: key,
             idempotencyHash: hash,
             note: dto.note?.trim() || null,
@@ -256,9 +355,39 @@ export class BookingsService {
           },
           include: BOOKING_INCLUDE,
         });
-        await this.audit.record(ctx, { action: 'CREATE', entity: BOOKING_ENTITY, entityId: created.id, after: bookingSnapshot(created) }, tx);
-        return created;
+        const notified = notifyUser
+          ? await this.notifications.write(tx, [
+              {
+                companyId: ctx.companyId,
+                userId: notifyUser,
+                audience: 'PASSENGER',
+                kind: 'BOOKING_CREATED',
+                tripId: null,
+                bookingId: created.id,
+                dedupeKey: `bkc:${created.id}:${notifyUser}`,
+                push: passengerPushAllowed(profile.preferences, 'BOOKING_CREATED'),
+              },
+            ])
+          : { ids: [], push: [] };
+        await this.audit.record(
+          ctx,
+          {
+            action: 'CREATE',
+            entity: BOOKING_ENTITY,
+            entityId: created.id,
+            // AuditService keeps only the snapshot diff when one is given, so the WP 3.9 facts ride on the snapshot.
+            after: {
+              ...bookingSnapshot(created),
+              actor,
+              ...(lateReason ? { late: lateAudit(cutoffAt, created.createdAt, ctx.userId, lateReason, 'createdAt') } : {}),
+              ...(notified.ids.length ? { passengerNotified: 'BOOKING_CREATED' } : {}),
+            },
+          },
+          tx,
+        );
+        return { row: created, push: notified.push };
       });
+      await this.notifications.enqueue(push);
       return { value: await this.detail(ctx, row), replay: false };
     } catch (e) {
       if (isUniqueViolation(e, 'idempotencyKey')) {
@@ -266,6 +395,12 @@ export class BookingsService {
         const winner = await this.prisma.transportBooking.findFirst({ where: { customerCompanyId: ctx.companyId, idempotencyKey: key }, include: BOOKING_INCLUDE });
         if (winner && winner.idempotencyHash === hash && winner.createdById === ctx.userId) return { value: await this.detail(ctx, winner), replay: true };
         throw idempotencyReused();
+      }
+      if (codeOf(e) === 'BOOKING_OVERLAP' || isOverlapExclusion(e)) {
+        const twin = await this.replayOf(ctx, key, hash); // HD1: the key's own twin committed first
+        if (twin) return twin;
+        if (codeOf(e) === 'BOOKING_OVERLAP') throw e;
+        throw overlapConflict(await this.overlapping(profile.id, journey, start, end));
       }
       if (isUniqueViolation(e)) {
         const twin = await this.replayOf(ctx, key, hash); // HD1: the active-booking index fired for the key's own twin
@@ -287,34 +422,78 @@ export class BookingsService {
 
   // ───────────────────────────── change ─────────────────────────────
 
+  /**
+   * PATCH (WP 3.9): while REQUESTED / PENDING_ASSIGNMENT / WAITLISTED; the shared eligibility and point / consent rules
+   * of create; a missing pickup / drop can be set. After the (new) cut-off the desk needs `lateReason` (409
+   * LATE_REASON_REQUIRED); the reason, cut-off, edit time and user are audited and `lateReason` is stored. An edit
+   * never creates a trip or a seat.
+   */
   async update(ctx: AuthContext, id: string, dto: UpdateBookingDto): Promise<TransportBookingDto> {
     const before = await this.find(ctx, id, 'write');
     if (!(UNSEATED_STATUSES as readonly string[]).includes(before.status)) throw conflict('INVALID_STATE', 'Only a booking without a seat can be changed; remove it from the trip first');
-    if (before.cutoffAt && Date.now() >= before.cutoffAt.getTime()) throw conflict('AFTER_CUTOFF', 'The cut-off for changes has passed');
     if (before.version !== dto.expectedVersion) throw versionConflict(before.version);
+    const seats = dto.passengerCount ?? before.passengerCount;
+    const { profile } = await this.eligible(ctx, before.profileId, before.shiftId, dayKeyOf(before.serviceDate), seats);
+    const consent = await this.consentActive(profile.id);
+    const p2p = before.journey === 'POINT_TO_POINT';
     const data: Prisma.TransportBookingUncheckedUpdateManyInput = {};
-    if (dto.pickup !== undefined) Object.assign(data, this.columns('pickup', await this.point(ctx, dto.pickup)));
-    if (dto.drop !== undefined) Object.assign(data, this.columns('drop', await this.point(ctx, dto.drop)));
+    if (dto.pickup !== undefined) {
+      if (p2p && !dto.pickup) throw invalid('A point-to-point booking needs a pickup');
+      Object.assign(data, this.columns('pickup', dto.pickup ? await this.point(ctx, dto.pickup, consent) : null));
+    }
+    if (dto.drop !== undefined) {
+      if (p2p && !dto.drop) throw invalid('A point-to-point booking needs a destination');
+      Object.assign(data, this.columns('drop', dto.drop ? await this.point(ctx, dto.drop, consent) : null));
+    }
     if (dto.passengerCount !== undefined) data.passengerCount = dto.passengerCount;
     if (dto.note !== undefined) data.note = dto.note?.trim() || null;
-    if (dto.windowStart !== undefined || dto.windowEnd !== undefined) {
-      const start = dto.windowStart !== undefined ? parseInstant(dto.windowStart, 'windowStart') : before.windowStart.getTime();
-      const end = dto.windowEnd !== undefined ? parseInstant(dto.windowEnd, 'windowEnd') : before.windowEnd.getTime();
-      if (end <= start) throw invalid('The window must end after it starts');
-      if (end - start > 12 * 3_600_000) throw invalid('The window can be at most 12 hours');
+    let start = before.windowStart.getTime();
+    let end = before.windowEnd.getTime();
+    let cutoffAt = before.cutoffAt?.getTime() ?? null;
+    const windowChanged = dto.windowStart !== undefined || dto.windowEnd !== undefined;
+    if (windowChanged) {
+      start = dto.windowStart !== undefined ? parseInstant(dto.windowStart, 'windowStart') : start;
+      end = dto.windowEnd !== undefined ? parseInstant(dto.windowEnd, 'windowEnd') : end;
+      checkWindow(start, end);
+      if (end < Date.now()) throw invalid('The window has already passed');
       const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { settings: true } });
+      cutoffAt = start - cutoffMinutes(company.settings, TRANSPORT_E3_LIMITS.defaultCutoffMin) * 60_000;
       data.windowStart = new Date(start);
       data.windowEnd = new Date(end);
-      data.cutoffAt = new Date(start - cutoffMinutes(company.settings, TRANSPORT_E3_LIMITS.defaultCutoffMin) * 60_000);
+      data.cutoffAt = new Date(cutoffAt);
     }
-    const row = await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.transportBooking.updateMany({ where: { id, version: dto.expectedVersion, status: before.status }, data: { ...data, version: { increment: 1 } } });
-      if (!claimed.count) throw versionConflict(before.version);
-      const after = await tx.transportBooking.findUniqueOrThrow({ where: { id }, include: BOOKING_INCLUDE });
-      await this.audit.record(ctx, { action: 'UPDATE', entity: BOOKING_ENTITY, entityId: id, before: bookingSnapshot(before), after: bookingSnapshot(after) }, tx);
-      return after;
-    });
-    return await this.detail(ctx, row);
+    // D-A1: an edit after the cut-off (the new one when the window moves) needs the dispatcher's reason.
+    const editedAt = new Date();
+    const lateReason = isLate(cutoffAt, editedAt.getTime()) ? requireLateReason(dto.lateReason) : null;
+    if (lateReason) data.lateReason = lateReason;
+    try {
+      const row = await this.prisma.$transaction(async (tx) => {
+        await lockPassenger(tx, profile.id);
+        if (windowChanged) {
+          const clash = await tx.transportBooking.findFirst({ where: overlapWhere(profile.id, before.journey, start, end, id), select: { id: true } });
+          if (clash) throw overlapConflict(clash.id);
+        }
+        const claimed = await tx.transportBooking.updateMany({ where: { id, version: dto.expectedVersion, status: before.status }, data: { ...data, version: { increment: 1 } } });
+        if (!claimed.count) throw versionConflict(before.version);
+        const after = await tx.transportBooking.findUniqueOrThrow({ where: { id }, include: BOOKING_INCLUDE });
+        await this.audit.record(
+          ctx,
+          {
+            action: 'UPDATE',
+            entity: BOOKING_ENTITY,
+            entityId: id,
+            before: bookingSnapshot(before),
+            after: { ...bookingSnapshot(after), ...(lateReason ? { late: lateAudit(cutoffAt!, editedAt, ctx.userId, lateReason, 'editedAt') } : {}) },
+          },
+          tx,
+        );
+        return after;
+      });
+      return await this.detail(ctx, row);
+    } catch (e) {
+      if (isOverlapExclusion(e)) throw overlapConflict(await this.overlapping(profile.id, before.journey, start, end, id));
+      throw e;
+    }
   }
 
   /** approve / reject / cancel (05 §2.5). Cancelling a seated booking takes the passenger off the trip in the same transaction. */
@@ -382,19 +561,50 @@ export class BookingsService {
     return (await activeRoutingConsents(this.prisma, [profileId])).has(profileId);
   }
 
-  /** A point from the request: range check, and a poiId must be the caller's own place (its coordinates win). */
-  private async point(ctx: AuthContext, p: GeoPoint | null | undefined): Promise<GeoPoint | null> {
-    if (!p) return null;
+  /**
+   * A point from the request. A company place (poiId) must be an active Poi of the caller's company (422 NOT_ELIGIBLE
+   * PLACE_NOT_ALLOWED; its coordinates win). Anything else is a personal point (D-A3): only with the passenger's active
+   * routing consent (409 CONSENT_REQUIRED, checked before the point is validated or stored).
+   */
+  private async point(ctx: AuthContext, p: GeoPoint, consent: boolean): Promise<GeoPoint> {
     if (p.poiId) {
       const poi = await this.prisma.poi.findFirst({ where: { id: p.poiId, companyId: ctx.companyId, isActive: true }, select: { id: true, name: true, lat: true, lng: true } });
-      if (!poi) throw invalid('Unknown place');
+      if (!poi) throw notEligible('PLACE_NOT_ALLOWED', 'That place is not an active place of your company');
       return { lat: poi.lat, lng: poi.lng, label: p.label?.trim() || poi.name, poiId: poi.id };
     }
+    if (!consent) throw personalPointConsentRequired();
     if (!validPoint(p)) throw invalid('A point must have a valid latitude and longitude (not 0, 0)');
     return { lat: p.lat, lng: p.lng, label: p.label?.trim() || null, poiId: null };
   }
 
-  private columns(side: 'pickup' | 'drop', p: GeoPoint | null): Record<string, unknown> {
+  /**
+   * The shared eligibility rule (WP 3.9 B2): the passenger is a profile of the caller's company in its branches (404
+   * otherwise, as before), active and not erased; the shift, when given, is the company's (400 unknown), active and
+   * runs that weekday; the seats are within limits. 422 NOT_ELIGIBLE with the reason.
+   */
+  private async eligible(ctx: AuthContext, profileId: string, shiftId: string | null, day: string, seats: number) {
+    const profile = await this.prisma.employeeTransportProfile.findFirst({
+      where: { id: profileId, companyId: ctx.companyId },
+      select: { id: true, companyId: true, branchId: true, userId: true, isActive: true, anonymisedAt: true, preferences: true, homeLat: true, homeLng: true, defaultStop: { select: { id: true, name: true, lat: true, lng: true } } },
+    });
+    if (!profile || profile.companyId !== ctx.companyId || !inProfileBranch(ctx, profile.branchId)) throw notFound('Passenger not found');
+    const shift = shiftId ? await this.prisma.transportShift.findFirst({ where: { id: shiftId, companyId: ctx.companyId }, include: { sitePoi: true } }) : null;
+    if (shiftId && (!shift || shift.companyId !== ctx.companyId)) throw invalid('Unknown shift');
+    assertEligible({
+      profile: { isActive: profile.isActive !== false, anonymisedAt: profile.anonymisedAt ?? null },
+      shift: shift ? { isActive: shift.isActive !== false, days: shift.days } : null,
+      weekday: weekdayOf(day),
+      passengerCount: seats,
+    });
+    return { profile, shift };
+  }
+
+  /** The active booking a window clashes with (for the 409 body after the exclusion constraint fired), else null. */
+  private async overlapping(profileId: string, journey: TransportBookingJourney, start: number, end: number, exceptId?: string): Promise<string | null> {
+    return (await this.prisma.transportBooking.findFirst({ where: overlapWhere(profileId, journey, start, end, exceptId), select: { id: true } }))?.id ?? null;
+  }
+
+  private columns(side: 'pickup' | 'drop', p: GeoPoint | null): Record<string, number | string | null> {
     return { [`${side}Lat`]: p?.lat ?? null, [`${side}Lng`]: p?.lng ?? null, [`${side}Label`]: p?.label ?? null, [`${side}PoiId`]: p?.poiId ?? null };
   }
 

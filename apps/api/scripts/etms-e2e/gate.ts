@@ -9,7 +9,7 @@
  *      password are taken from it; the database named in the URL is never opened except `postgres` for CREATE / DROP);
  *   2. `prisma migrate deploy` from zero;
  *   3. the DB suites with CI=true DB_TEST_REQUIRED=1: `etms-e3-gate.db-test.ts` (this WP) and the E3 backend's
- *      `etms-bookings-trips.db-test.ts` (schema, constraints, purge);
+ *      `etms-bookings-trips.db-test.ts` (schema, constraints, purge) and the WP 3.9 `etms-adhoc-booking.db-test.ts`;
  *   4. the regression unit specs behind criteria 7 and 10 (reports, planned trips, E3 rules, harness parts);
  *   5. with --http: the HTTP stage (http-stage.ts): nest build, the real dist/ API + processor on free ports against
  *      the scratch database and a private Valkey index (--valkey-db, default 11, never 0, must be empty; flushed after),
@@ -56,6 +56,7 @@ const CRITERIA: Record<string, string> = {
   UNIT: 'E3 unit rules (dispatch, schedules, bookings, change ops)',
   ISO: 'Tenant / branch isolation of bookings and dispatch (doc 11 §3, supporting)',
   DB: 'E3 schema: tables, CHECKs, EXCLUDE, FK actions, purge (supporting)',
+  ADHOC: 'WP 3.9 ad-hoc booking: P2P / commute, eligibility, consent, cut-off, overlap, BOOKING_CREATED, dispatch → publish → passenger view',
   ...(HTTP
     ? {
         AC3b: 'v1.8 tracker follows the published ETMS trip under sim-trip (stop arrivals, ETA, auto-complete; GPS never boards) [--http]',
@@ -70,6 +71,7 @@ function criterionOf(file: string, title: string): string {
   const tag = /\[(AC\d+|ISO)\]/.exec(title)?.[1];
   if (tag) return tag;
   const t = title.toLowerCase();
+  if (/etms-adhoc-booking\.db-test/.test(file)) return 'ADHOC';
   if (/etms-bookings-trips\.db-test/.test(file)) {
     if (t.includes('recurring week')) return 'AC1';
     if (t.includes('double submit')) return 'AC2';
@@ -147,7 +149,7 @@ async function main() {
     if (!flag('http-only')) {
     const db = await run(
       'DB suites (gate + E3 backend)',
-      [jestBin, '--testRegex', '(etms-e3-gate|etms-bookings-trips)\\.db-test\\.ts$', '--runInBand', '--json', '--outputFile', dbJson],
+      [jestBin, '--testRegex', '(etms-e3-gate|etms-bookings-trips|etms-adhoc-booking)\\.db-test\\.ts$', '--runInBand', '--json', '--outputFile', dbJson],
       { CI: 'true', DB_TEST_REQUIRED: '1', ETMS_DB_TEST_URL: scratch, ETMS_E3_SECFIX: SECFIX ? '1' : '0', ETMS_E3_KNOWN_DEFECTS: KNOWN ? '1' : '0' },
       'jest-db.log',
     );

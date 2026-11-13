@@ -6,6 +6,7 @@ import type {
   CreateTransportSchedulesResult,
   DispatchBoardDto,
   DispatchCandidatesDto,
+  GeocodeCandidate,
   MeBookingDto,
   MeTripDto,
   MeVehicleDto,
@@ -13,6 +14,8 @@ import type {
   TransportBookingDto,
   TransportChangeSetDetailDto,
   TransportChangeSetSummaryDto,
+  TransportBookingPolicyDto,
+  TransportPlaceOptionDto,
   TransportScheduleDto,
   TransportScheduleExceptionDto,
   TransportSchedulePreviewDto,
@@ -20,7 +23,9 @@ import type {
   TransportTripDto,
 } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
-import { Auth, RequirePermission } from '../../access/decorators';
+import { Auth, RequireAnyPermission, RequirePermission } from '../../access/decorators';
+import { GeocodeQuery } from '../people/people.dto';
+import { PeopleService } from '../people/people.service';
 import { PassengerData, TransportFeatureGuard } from '../transport-feature.guard';
 import { BookingsService, type Replayable } from './bookings.service';
 import { DispatchService } from './dispatch.service';
@@ -28,6 +33,7 @@ import {
   BoardQuery,
   BookingCommandDto,
   BookingListQuery,
+  BookingPlacesQuery,
   BulkApproveDto,
   CandidatesDto,
   ChangeSetDto,
@@ -144,7 +150,10 @@ export class SchedulesController {
 @UseGuards(TransportFeatureGuard)
 @PassengerData() // VeeTrax support: X-Access-Reason (passenger personal data)
 export class BookingsController {
-  constructor(private readonly bookings: BookingsService) {}
+  constructor(
+    private readonly bookings: BookingsService,
+    private readonly people: PeopleService,
+  ) {}
 
   @Get() @RequirePermission('etms_bookings', 'view')
   list(@Auth() ctx: AuthContext, @Query() q: BookingListQuery) {
@@ -154,6 +163,24 @@ export class BookingsController {
   @Post('bulk-approve') @HttpCode(200) @RequirePermission('etms_bookings', 'edit')
   bulkApprove(@Auth() ctx: AuthContext, @Body() dto: BulkApproveDto): Promise<BulkApproveTransportBookingsResult> {
     return this.bookings.bulkApprove(ctx, dto.ids);
+  }
+
+  /** WP 3.9: the company cut-off and booking limits for the desk's booking form. */
+  @Get('policy') @RequireAnyPermission(['etms_bookings', 'create'], ['etms_bookings', 'edit'])
+  policy(@Auth() ctx: AuthContext): Promise<TransportBookingPolicyDto> {
+    return this.bookings.policy(ctx);
+  }
+
+  /** WP 3.9 (D-A2): company places for the booking form (active Pois of the caller's company, at most 50). */
+  @Get('places') @RequireAnyPermission(['etms_bookings', 'create'], ['etms_bookings', 'edit'])
+  places(@Auth() ctx: AuthContext, @Query() q: BookingPlacesQuery): Promise<TransportPlaceOptionDto[]> {
+    return this.bookings.places(ctx, q.q);
+  }
+
+  /** WP 3.9: address search for a one-time point, self-hosted Photon only (GEOCODER_NOT_PRIVATE otherwise), as for passengers. */
+  @Get('geocode') @RequireAnyPermission(['etms_bookings', 'create'], ['etms_bookings', 'edit'])
+  geocode(@Query() q: GeocodeQuery): Promise<GeocodeCandidate[]> {
+    return this.people.geocode(q.q);
   }
 
   @Get(':id') @RequirePermission('etms_bookings', 'view')

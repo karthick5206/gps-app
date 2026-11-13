@@ -20,7 +20,7 @@
 import { TRANSLATIONS } from './i18n';
 import type { PermissionMap } from './permissions';
 import type { PlannedStopStatus, PlannedTripStatus } from './planned-trips';
-import type { TransportDirection, TransportPassengerStatus, TransportTripDerivedState } from './transport-trips';
+import type { TransportBookingJourney, TransportDirection, TransportPassengerStatus, TransportTripDerivedState } from './transport-trips';
 
 export const DRIVER_API_BASE = '/api/driver/v1';
 
@@ -204,6 +204,8 @@ export interface DriverTripSummaryDto {
   version: number;
   serviceDate: string;
   direction: TransportDirection;
+  /** WP 3.9: POINT_TO_POINT when any active seat's booking is point-to-point (stored as IN: do not head it "To site"), else COMMUTE. */
+  journey: TransportBookingJourney;
   name: string;
   derivedState: TransportTripDerivedState;
   plannedTripStatus: PlannedTripStatus | null;
@@ -535,6 +537,8 @@ export interface TransportNotificationDto {
   title: string;
   body: string;
   tripId: string | null;
+  /** WP 3.9: the booking of a BOOKING_CREATED notification (open GET /me/transport/bookings/:id); null for trip kinds. */
+  bookingId: string | null;
   createdAt: string;
   readAt: string | null;
   /** Whether a push was queued for it (false = in-app only: preference off, or no app signed in). */

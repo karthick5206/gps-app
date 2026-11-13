@@ -3351,6 +3351,8 @@ model TransportBooking {
   passengers     TransportTripPassenger[]
   /// ETMS E4 (SetNull): plan stops serving this booking.
   routePlanStops RoutePlanStop[]
+  /// WP 3.9 (SetNull): BOOKING_CREATED inbox rows of this booking.
+  notifications  TransportNotification[]
 
   @@unique([customerCompanyId, idempotencyKey])
   @@unique([scheduleId, serviceDate, direction])
@@ -3571,6 +3573,8 @@ model TransportNotification {
   /// TransportNotificationKind.
   kind       String
   tripId     String?   @db.Uuid
+  /// WP 3.9: the booking of a BOOKING_CREATED notification.
+  bookingId  String?   @db.Uuid
   title      String
   body       String
   dedupeKey  String    @unique
@@ -3579,9 +3583,10 @@ model TransportNotification {
   readAt     DateTime? @db.Timestamptz(3)
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
 
-  company Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  trip    TransportTrip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  company Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trip    TransportTrip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  booking TransportBooking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([companyId, createdAt])

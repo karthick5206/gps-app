@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PlannedTripsService } from '../../planned-trips/planned-trips.service';
 import { RoutingService } from '../../routing/routing.service';
+import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { EtmsPeopleModule } from '../people/people.module';
 import { BookingGeneratorService } from './booking-generator.service';
 import { BookingsService } from './bookings.service';
@@ -21,7 +22,7 @@ import { TripsService } from './trips.service';
 @Module({
   imports: [EtmsPeopleModule],
   controllers: [ShiftsController, SchedulesController, BookingsController, DispatchController, TransportTripsController, MyTransportTripsController],
-  providers: [PlannedTripsService, RoutingService, BookingGeneratorService, SchedulesService, BookingsService, DispatchService, TripsService, MeTransportService, TripLiveService],
+  providers: [TransportNotificationsService, PlannedTripsService, RoutingService, BookingGeneratorService, SchedulesService, BookingsService, DispatchService, TripsService, MeTransportService, TripLiveService],
   exports: [BookingGeneratorService, DispatchService],
 })
 export class EtmsDispatchModule {}

@@ -53,6 +53,16 @@ export type TransportBookingJourney = (typeof TRANSPORT_BOOKING_JOURNEYS)[number
 export const TRANSPORT_INELIGIBLE_REASONS = ['PASSENGER_INACTIVE', 'PASSENGER_ANONYMISED', 'SHIFT_INACTIVE', 'SHIFT_NOT_RUNNING', 'PLACE_NOT_ALLOWED', 'SEATS_NOT_ALLOWED'] as const;
 export type TransportIneligibleReason = (typeof TRANSPORT_INELIGIBLE_REASONS)[number];
 
+/** GET /api/transport/bookings/policy (WP 3.9): what the desk's booking form needs to know (company cut-off and limits). */
+export interface TransportBookingPolicyDto {
+  /** Company booking cut-off in minutes before the window start (Company.settings.etms.bookingCutoffMin or the default). */
+  cutoffMin: number;
+  /** Ad-hoc service date at most this many days ahead. */
+  maxDaysAhead: number;
+  lateReasonMin: number;
+  lateReasonMax: number;
+}
+
 /** A company place a booking may use as pickup / destination (GET /api/transport/bookings/places?q=): active Pois of the customer company. */
 export interface TransportPlaceOptionDto {
   id: string;
@@ -927,6 +937,8 @@ export interface MeTripDto {
   passengerTripId: string;
   serviceDate: string;
   direction: TransportDirection;
+  /** WP 3.9: POINT_TO_POINT when any active seat's booking on the trip is point-to-point (stored as IN), else COMMUTE. */
+  journey: TransportBookingJourney;
   timeZone: string;
   window: { start: string; end: string };
   derivedState: TransportTripDerivedState;
@@ -1010,6 +1022,10 @@ export const TRANSPORT_E3_ERROR_CODES = [
   'IDEMPOTENCY_KEY_REQUIRED',
   'IDEMPOTENCY_KEY_REUSED',
   'RATE_LIMITED',
+  // WP 3.9 ad-hoc booking (see TRANSPORT_INELIGIBLE_REASONS).
+  'LATE_REASON_REQUIRED',
+  'NOT_ELIGIBLE',
+  'BOOKING_OVERLAP',
 ] as const;
 export type TransportE3ErrorCode = (typeof TRANSPORT_E3_ERROR_CODES)[number];
 
@@ -1033,11 +1049,15 @@ export function bookingTransition(from: TransportBookingStatus, command: Transpo
 }
 
 /** Commands a dispatcher may offer for a booking now (edit only before the cut-off and while not seated). */
-export function bookingAllowedActions(b: { status: TransportBookingStatus; cutoffAt: Date | string | null }, nowMs: number = Date.now()): TransportBookingAction[] {
+/**
+ * `opts.desk` (WP 3.9 D-A1): the transport desk may still edit an unseated booking after the cut-off (the PATCH then
+ * needs `lateReason`); without it (passenger / default) 'edit' stops at the cut-off as before.
+ */
+export function bookingAllowedActions(b: { status: TransportBookingStatus; cutoffAt: Date | string | null }, nowMs: number = Date.now(), opts: { desk?: boolean } = {}): TransportBookingAction[] {
   const out: TransportBookingAction[] = [];
   const cutoff = b.cutoffAt === null ? null : new Date(b.cutoffAt).getTime();
   const beforeCutoff = cutoff === null || nowMs < cutoff;
-  if (['REQUESTED', 'PENDING_ASSIGNMENT', 'WAITLISTED'].includes(b.status) && beforeCutoff) out.push('edit');
+  if (['REQUESTED', 'PENDING_ASSIGNMENT', 'WAITLISTED'].includes(b.status) && (beforeCutoff || opts.desk === true)) out.push('edit');
   if (bookingTransition(b.status, 'cancel')) out.push('cancel');
   if (bookingTransition(b.status, 'approve')) out.push('approve');
   if (bookingTransition(b.status, 'reject')) out.push('reject');

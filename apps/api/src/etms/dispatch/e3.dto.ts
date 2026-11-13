@@ -1,4 +1,5 @@
 import {
+  TRANSPORT_BOOKING_JOURNEYS,
   TRANSPORT_BOOKING_SOURCES,
   TRANSPORT_BOOKING_STATUSES,
   TRANSPORT_DIRECTIONS,
@@ -19,6 +20,7 @@ import {
   type MeTransportRangeQuery,
   type RepeatTransportTripInput,
   type TransportBookingCommandInput,
+  type TransportBookingJourney,
   type TransportBookingSource,
   type TransportBookingStatus,
   type TransportDirection,
@@ -157,13 +159,17 @@ export class BookingListQuery extends ListQueryDto {
   @IsOptional() @IsIn(TRANSPORT_BOOKING_STATUSES) bookingStatus?: TransportBookingStatus;
   @IsOptional() @IsIn(TRANSPORT_BOOKING_SOURCES) source?: TransportBookingSource;
   @IsOptional() @IsIn(['true', 'false']) unassigned?: 'true' | 'false';
+  @IsOptional() @IsIn(TRANSPORT_BOOKING_JOURNEYS) journey?: TransportBookingJourney;
+  @IsOptional() @IsIn(['true', 'false']) afterCutoff?: 'true' | 'false';
   declare sort?: 'windowStart' | 'serviceDate' | 'createdAt' | 'status' | 'passenger';
 }
 
 export class CreateBookingDto implements CreateTransportBookingInput {
   @IsUUID() passengerId!: string;
   @Matches(DAY, DAY_MSG) serviceDate!: string;
-  @IsIn(TRANSPORT_DIRECTIONS) direction!: TransportDirection;
+  /** Required for COMMUTE (checked by the service); ignored for POINT_TO_POINT. */
+  @IsOptional() @IsIn(TRANSPORT_DIRECTIONS) direction?: TransportDirection;
+  @IsOptional() @IsIn(TRANSPORT_BOOKING_JOURNEYS) journey?: TransportBookingJourney;
   @IsOptional() @ValidateIf(nullable) @IsUUID() shiftId?: string | null;
   @IsOptional() @ValidateIf(nullable) @ValidateNested() @Type(() => GeoPointDto) pickup?: GeoPointDto | null;
   @IsOptional() @ValidateIf(nullable) @ValidateNested() @Type(() => GeoPointDto) drop?: GeoPointDto | null;
@@ -172,6 +178,8 @@ export class CreateBookingDto implements CreateTransportBookingInput {
   @IsOptional() @IsInt() @Min(1) @Max(L.maxPassengerCount) passengerCount?: number;
   @IsOptional() @ValidateIf(nullable) @IsString() @MaxLength(L.noteMax) note?: string | null;
   @IsOptional() @IsBoolean() hold?: boolean;
+  /** D-A1: trimmed length lateReasonMin..lateReasonMax is checked by the service (409 LATE_REASON_REQUIRED). */
+  @IsOptional() @IsString() @MaxLength(1000) lateReason?: string;
 }
 
 export class UpdateBookingDto implements UpdateTransportBookingInput {
@@ -182,6 +190,7 @@ export class UpdateBookingDto implements UpdateTransportBookingInput {
   @IsOptional() @IsISO8601() windowEnd?: string;
   @IsOptional() @IsInt() @Min(1) @Max(L.maxPassengerCount) passengerCount?: number;
   @IsOptional() @ValidateIf(nullable) @IsString() @MaxLength(L.noteMax) note?: string | null;
+  @IsOptional() @IsString() @MaxLength(1000) lateReason?: string;
 }
 
 export class BookingCommandDto implements TransportBookingCommandInput {
@@ -269,4 +278,9 @@ export class RepeatTripDto implements RepeatTransportTripInput {
 export class MeRangeQuery implements MeTransportRangeQuery {
   @IsOptional() @Matches(DAY, DAY_MSG) from?: string;
   @IsOptional() @Matches(DAY, DAY_MSG) to?: string;
+}
+
+/** GET /api/transport/bookings/places?q= (WP 3.9). */
+export class BookingPlacesQuery {
+  @IsOptional() @IsString() @MaxLength(100) q?: string;
 }

@@ -121,13 +121,19 @@ export function toBookingDto(r: BookingRow, ctx: Pick<AuthContext, 'companyId' |
     windowEnd: iso(r.windowEnd),
     passengerCount: r.passengerCount,
     cutoffAt: isoOrNull(r.cutoffAt),
+    journey: r.journey,
+    // WP 3.9 (D-A1): afterCutoff <=> a dispatcher created or last edited it after its cut-off, which requires a stored
+    // late reason (the server refuses a late desk create / edit without one; passengers are refused after the cut-off).
+    afterCutoff: r.lateReason !== null,
+    lateReason: own ? r.lateReason : null,
     tripId: seat?.tripId ?? null,
     passengerTripId: seat?.id ?? null,
     customerCompanyId: r.customerCompanyId,
     providerCompanyId: r.providerCompanyId,
     note: own ? r.note : null,
     // R1: only the customer itself changes its bookings (agreement viewers read only).
-    allowedActions: own ? bookingAllowedActions(r, now) : [],
+    // WP 3.9 D-A1: the desk may edit an unseated booking after the cut-off too (with a late reason).
+    allowedActions: own ? bookingAllowedActions(r, now, { desk: true }) : [],
     createdAt: iso(r.createdAt),
     updatedAt: iso(r.updatedAt),
   };

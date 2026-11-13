@@ -150,6 +150,8 @@ export class SelfServiceService {
         note: dto.note?.trim() ? `Booked by passenger: ${dto.note.trim().slice(0, L.bookingNoteMax)}` : 'Booked by passenger',
       },
       rawKey,
+      // WP 3.9: the shared eligibility / consent rules apply; after the cut-off a passenger is refused (AFTER_CUTOFF).
+      { actor: 'PASSENGER' },
     );
     return { value: await this.me.booking(ctx, res.value.id), replay: res.replay };
   }

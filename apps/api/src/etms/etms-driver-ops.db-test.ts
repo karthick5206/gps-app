@@ -53,6 +53,8 @@ d(`ETMS E5 etms_driver_ops on ${dbName || '(no scratch DB)'}`, () => {
       TransportDriverDuty_companyId_fkey: 'r',
       TransportDriverDuty_driverId_fkey: 'c',
       TransportDriverDuty_objectId_fkey: 'n',
+      // WP 3.9: BOOKING_CREATED rows point at their booking; SetNull when the booking row goes.
+      TransportNotification_bookingId_fkey: 'n',
       TransportNotification_companyId_fkey: 'r',
       TransportNotification_tripId_fkey: 'n',
       TransportNotification_userId_fkey: 'c',

@@ -628,8 +628,11 @@ Driver event: ${link}`,
       return i ? { transport: true, sos: log.refType === 'TRANSPORT_INCIDENT', kind: 'SOS', tripId: i.tripId, notificationId: i.id } : null;
     }
     if (log.refType !== 'TRANSPORT_NOTIFICATION' || !log.refId) return { test: true };
-    const n = await this.prisma.transportNotification.findUnique({ where: { id: log.refId }, select: { id: true, kind: true, tripId: true } });
-    return n ? { transport: true, kind: n.kind, tripId: n.tripId, notificationId: n.id } : null;
+    const n = await this.prisma.transportNotification.findUnique({ where: { id: log.refId }, select: { id: true, kind: true, tripId: true, bookingId: true } });
+    if (!n) return null;
+    // WP 3.9 BOOKING_CREATED: { kind, bookingId, notificationId } (no trip yet); nothing else about the booking.
+    if (n.bookingId) return { transport: true, kind: n.kind, tripId: null, bookingId: n.bookingId, notificationId: n.id };
+    return { transport: true, kind: n.kind, tripId: n.tripId, notificationId: n.id };
   }
 
   // ───────────── caches ─────────────

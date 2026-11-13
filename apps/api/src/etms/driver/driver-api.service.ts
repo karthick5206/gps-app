@@ -40,6 +40,7 @@ import { todayIn } from '../dispatch/service-dates';
 import { TripLiveService } from '../dispatch/trip-live';
 import { PERSONAL_STOP_NAME, stopOwner, type SeatLink } from '../dispatch/personal-points';
 import { lockTrips } from '../dispatch/trip-ops';
+import { tripJourney } from '../dispatch/booking-rules';
 import { activeRoutingConsents } from '../people/people.service';
 import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { DRIVER_SELECT, resolveDriver, type MeDriver } from './driver-identity';
@@ -58,7 +59,7 @@ const notFound = () => new NotFoundException({ message: 'Not found', code: 'NOT_
 
 const PT_INCLUDE = { stops: true } satisfies Prisma.PlannedTripInclude;
 type PtRow = Prisma.PlannedTripGetPayload<{ include: typeof PT_INCLUDE }>;
-const TT_INCLUDE = { passengers: true } satisfies Prisma.TransportTripInclude;
+const TT_INCLUDE = { passengers: { include: { booking: { select: { journey: true } } } } } satisfies Prisma.TransportTripInclude;
 type TtRow = Prisma.TransportTripGetPayload<{ include: typeof TT_INCLUDE }>;
 interface Mine {
   tt: TtRow;
@@ -904,6 +905,7 @@ function summary({ tt, pt }: Mine, vehicle: { id: string; name: string; plateNum
     version: tt.version,
     serviceDate: dayKeyOf(tt.serviceDate),
     direction: tt.direction,
+    journey: tripJourney(tt.passengers),
     name: pt.routeName,
     derivedState: deriveTripState({ plannedTripStatus: status, publishedAt: tt.publishedAt, acknowledgedAt: tt.acknowledgedAt, stopWithPendingOutcome: tt.passengers.some((p) => p.status === 'PENDING' && arrived.has(p.pickupSeq)) }),
     plannedTripStatus: status,

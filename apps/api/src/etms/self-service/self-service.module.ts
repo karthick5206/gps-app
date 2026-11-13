@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BookingsService } from '../dispatch/bookings.service';
 import { MeTransportService } from '../dispatch/me-transport.service';
+import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { EtmsPeopleModule } from '../people/people.module';
 import { MySelfServiceController } from './self-service.controller';
 import { SelfServiceService } from './self-service.service';
@@ -13,6 +14,6 @@ import { SelfServiceService } from './self-service.service';
 @Module({
   imports: [EtmsPeopleModule],
   controllers: [MySelfServiceController],
-  providers: [BookingsService, MeTransportService, SelfServiceService],
+  providers: [TransportNotificationsService, BookingsService, MeTransportService, SelfServiceService],
 })
 export class EtmsSelfServiceModule {}

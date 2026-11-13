@@ -11,6 +11,7 @@ import { parseLive } from '../../tracking/live-object';
 import { PeopleService, activeRoutingConsents } from '../people/people.service';
 import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
 import { dateOnly, dayKeyOf, e3Error, invalid, notFound, serviceDate } from './e3-common';
+import { tripJourney } from './booking-rules';
 import { derivedStateOf } from './e3-mapping';
 import { MeRangeQuery } from './e3.dto';
 import { todayIn } from './service-dates';
@@ -23,11 +24,11 @@ const MIN = 60_000;
 const OPEN_TRIP_MAX_AFTER_END_MIN = 120;
 
 const SEAT_INCLUDE = {
-  booking: { select: { id: true, profileId: true, windowStart: true, windowEnd: true, timeZone: true, pickupLabel: true, dropLabel: true, pickupLat: true, pickupLng: true, dropLat: true, dropLng: true } },
+  booking: { select: { id: true, profileId: true, journey: true, windowStart: true, windowEnd: true, timeZone: true, pickupLabel: true, dropLabel: true, pickupLat: true, pickupLng: true, dropLat: true, dropLng: true } },
   trip: {
     include: {
       plannedTrip: { include: { stops: { orderBy: { seq: 'asc' as const } } } },
-      passengers: { select: { id: true, status: true, seats: true, pickupSeq: true, dropSeq: true } },
+      passengers: { select: { id: true, status: true, seats: true, pickupSeq: true, dropSeq: true, booking: { select: { journey: true } } } },
     },
   },
 } satisfies Prisma.TransportTripPassengerInclude;
@@ -121,14 +122,14 @@ export class MeTransportService {
       orderBy: [{ windowStart: 'asc' }],
       take: 200,
     });
-    return rows.filter((r) => r.profileId === me.id).map(toMeBooking);
+    return rows.filter((r) => r.profileId === me.id).map((r) => toMeBooking(r, me.userId));
   }
 
   async booking(ctx: AuthContext, id: string): Promise<MeBookingDto> {
     const me = await this.people.myProfileRow(ctx);
     const row = await this.prisma.transportBooking.findFirst({ where: { id, customerCompanyId: ctx.companyId, profileId: me.id }, include: { passengers: { select: { tripId: true, status: true } } } });
     if (!row || row.profileId !== me.id) throw notFound();
-    return toMeBooking(row);
+    return toMeBooking(row, me.userId);
   }
 
   // ───────────────────────────── helpers ─────────────────────────────
@@ -193,6 +194,7 @@ export class MeTransportService {
       passengerTripId: s.id,
       serviceDate: dayKeyOf(s.trip.serviceDate),
       direction: s.trip.direction,
+      journey: tripJourney(s.trip.passengers),
       timeZone: s.booking.timeZone,
       window: { start: iso(s.booking.windowStart), end: iso(s.booking.windowEnd) },
       derivedState: derivedStateOf(s.trip),
@@ -213,7 +215,8 @@ export class MeTransportService {
   }
 }
 
-function toMeBooking(r: Prisma.TransportBookingGetPayload<{ include: { passengers: { select: { tripId: true; status: true } } } }>): MeBookingDto {
+/** `myUserId`: the passenger's own login; a booking made by anyone else (desk, schedule) is "arranged by the desk". */
+function toMeBooking(r: Prisma.TransportBookingGetPayload<{ include: { passengers: { select: { tripId: true; status: true } } } }>, myUserId: string | null): MeBookingDto {
   return {
     id: r.id,
     status: r.status,
@@ -227,5 +230,7 @@ function toMeBooking(r: Prisma.TransportBookingGetPayload<{ include: { passenger
     dropLabel: r.dropLabel,
     tripId: r.passengers.find((p) => p.status !== 'CANCELLED')?.tripId ?? null,
     cutoffAt: r.cutoffAt ? iso(r.cutoffAt) : null,
+    journey: r.journey,
+    arrangedByDesk: r.createdById !== myUserId,
   };
 }

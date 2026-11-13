@@ -335,8 +335,11 @@ describe('bookings (05 §2.5, 15 §5.4)', () => {
     try {
       const w = world();
       const noConsent = w.passenger('A', false);
-      const r = await w.bookings.create(w.ctx, { ...input(noConsent), pickup: undefined }, randomUUID());
-      expect(r.value).toMatchObject({ pickup: null, needsLocation: true });
+      // WP 3.9 (D-A3): a personal drop without consent is refused and nothing is stored; a company place is fine.
+      expect(await code(w.bookings.create(w.ctx, { ...input(noConsent), pickup: undefined }, randomUUID()))).toEqual([409, 'CONSENT_REQUIRED']);
+      expect(w.store.table('transportBooking')).toHaveLength(0);
+      const r = await w.bookings.create(w.ctx, { ...input(noConsent), pickup: undefined, drop: { lat: 0, lng: 0, poiId: OFFICE } }, randomUUID());
+      expect(r.value).toMatchObject({ pickup: null, needsLocation: true, drop: { poiId: OFFICE, lat: 13.05 } });
       const ok = w.passenger('B');
       const r2 = await w.bookings.create(w.ctx, { ...input(ok), pickup: undefined }, randomUUID());
       expect(r2.value.pickup).toMatchObject({ lat: 13.06, lng: 80.24 });
@@ -345,13 +348,20 @@ describe('bookings (05 §2.5, 15 §5.4)', () => {
     }
   });
 
-  it('changes need the current version and must come before the cut-off', async () => {
+  it('changes need the current version; after the cut-off the desk needs a late reason (WP 3.9 D-A1)', async () => {
     const w = world();
     const id = w.booking(w.passenger('A'), { cutoffAt: new Date(Date.now() + H), windowStart: new Date(Date.now() + 2 * H), windowEnd: new Date(Date.now() + 3 * H) });
     expect(await code(w.bookings.update(w.ctx, id, { expectedVersion: 7, passengerCount: 2 }))).toEqual([409, 'VERSION_CONFLICT']);
     expect((await w.bookings.update(w.ctx, id, { expectedVersion: 1, passengerCount: 2 })).version).toBe(2);
     Object.assign(w.store.table('transportBooking').find((b) => b.id === id)!, { cutoffAt: new Date(Date.now() - 1) });
-    expect(await code(w.bookings.update(w.ctx, id, { expectedVersion: 2, passengerCount: 1 }))).toEqual([409, 'AFTER_CUTOFF']);
+    expect(await code(w.bookings.update(w.ctx, id, { expectedVersion: 2, passengerCount: 1 }))).toEqual([409, 'LATE_REASON_REQUIRED']);
+    expect(await code(w.bookings.update(w.ctx, id, { expectedVersion: 2, passengerCount: 1, lateReason: '  short ' }))).toEqual([409, 'LATE_REASON_REQUIRED']);
+    const late = await w.bookings.update(w.ctx, id, { expectedVersion: 2, passengerCount: 1, lateReason: '  Client visit moved earlier ' });
+    expect(late).toMatchObject({ version: 3, afterCutoff: true, lateReason: 'Client visit moved earlier', passengerCount: 1 });
+    expect(late.allowedActions).toContain('edit');
+    const audit = w.store.table('auditLog').filter((a) => a.entityId === id).pop()!;
+    expect(JSON.stringify(audit)).toContain('Client visit moved earlier');
+    expect(JSON.stringify(audit)).toContain('dispatcherUserId');
     expect(await code(w.bookings.command(w.ctx, id, 'approve', {}))).toEqual([409, 'INVALID_STATE']);
     expect(await code(w.bookings.command(w.ctx, id, 'reject', {}))).toEqual([400, 'VALIDATION_FAILED']);
   });
@@ -467,4 +477,180 @@ describe('place claims (E3 security re-check N5)', () => {
     expect(await code(w.dispatch.publishDraft(w.ctx, draft.id as string, randomUUID()))).toEqual([400, 'VALIDATION_FAILED']);
     expect(w.store.table('plannedTrip')).toHaveLength(0);
   });
+});
+
+describe('WP 3.9 ad-hoc booking: journeys, eligibility, consent, cut-off, notification (unit, MemoryStore)', () => {
+  const NOW = Date.parse('2099-01-01T00:00:00Z');
+  const MON = '2099-01-05'; // a Monday
+  const at = (h: number) => new Date(Date.parse(`${MON}T00:00:00Z`) + h * H).toISOString();
+  const run = async (fn: () => Promise<void>) => {
+    jest.useFakeTimers({ now: NOW, doNotFake: ['nextTick', 'setImmediate'] });
+    try {
+      await fn();
+    } finally {
+      jest.useRealTimers();
+    }
+  };
+  const OFFICE_PT = { lat: 0, lng: 0, poiId: OFFICE };
+  const DEPOT_PT = { lat: 0, lng: 0, poiId: DEPOT };
+  const p2p = (passengerId: string, o: Obj = {}) => ({ passengerId, serviceDate: MON, journey: 'POINT_TO_POINT' as const, pickup: DEPOT_PT, drop: { lat: 12.99, lng: 80.17, label: 'Airport' }, windowStart: at(10), windowEnd: at(12), ...o });
+  const commute = (passengerId: string, o: Obj = {}) => ({ passengerId, serviceDate: MON, direction: 'IN' as const, pickup: DEPOT_PT, drop: OFFICE_PT, windowStart: at(2), windowEnd: at(3.5), ...o });
+  const reason = (p: Promise<unknown>) =>
+    p.then(
+      () => null,
+      (e: HttpException) => [e.getStatus(), (e.getResponse() as { reason?: string }).reason ?? (e.getResponse() as { code: string }).code],
+    );
+
+  it('POINT_TO_POINT: pickup, drop and window required; stored IN, shift optional; not a COMMUTE duplicate', () =>
+    run(async () => {
+      const w = world();
+      const a = w.passenger('A');
+      expect(await code(w.bookings.create(w.ctx, p2p(a, { pickup: undefined }) as never, randomUUID()))).toEqual([400, 'VALIDATION_FAILED']);
+      expect(await code(w.bookings.create(w.ctx, p2p(a, { windowEnd: undefined }) as never, randomUUID()))).toEqual([400, 'VALIDATION_FAILED']);
+      const r = await w.bookings.create(w.ctx, p2p(a) as never, randomUUID());
+      expect(r.value).toMatchObject({ journey: 'POINT_TO_POINT', direction: 'IN', shiftId: null, status: 'PENDING_ASSIGNMENT', afterCutoff: false, lateReason: null, needsLocation: false });
+      // A commute the same day and direction (other time) is fine: the duplicate index covers COMMUTE only.
+      expect((await w.bookings.create(w.ctx, commute(a) as never, randomUUID())).value.journey).toBe('COMMUTE');
+      expect(await code(w.bookings.create(w.ctx, commute(w.passenger('B'), { direction: undefined }) as never, randomUUID()))).toEqual([400, 'VALIDATION_FAILED']);
+    }));
+
+  it('BOOKING_OVERLAP: a P2P overlapping any active booking, a COMMUTE overlapping a P2P; COMMUTE duplicate stays BOOKING_DUPLICATE', () =>
+    run(async () => {
+      const w = world();
+      const a = w.passenger('A');
+      const first = (await w.bookings.create(w.ctx, p2p(a) as never, randomUUID())).value;
+      const e = (await w.bookings.create(w.ctx, p2p(a, { windowStart: at(11), windowEnd: at(13) }) as never, randomUUID()).catch((x: unknown) => x)) as HttpException;
+      expect(e.getStatus()).toBe(409);
+      expect(e.getResponse()).toMatchObject({ code: 'BOOKING_OVERLAP', bookingId: first.id });
+      // Touching windows ('[)') do not overlap.
+      expect((await w.bookings.create(w.ctx, p2p(a, { windowStart: at(12), windowEnd: at(13) }) as never, randomUUID())).value.journey).toBe('POINT_TO_POINT');
+      expect(await code(w.bookings.create(w.ctx, commute(a, { direction: 'OUT', pickup: OFFICE_PT, drop: DEPOT_PT, windowStart: at(11.5), windowEnd: at(12.5) }) as never, randomUUID()))).toEqual([409, 'BOOKING_OVERLAP']);
+      const c = await w.bookings.create(w.ctx, commute(a) as never, randomUUID());
+      expect(await code(w.bookings.create(w.ctx, commute(a, { windowStart: at(4), windowEnd: at(5) }) as never, randomUUID()))).toEqual([409, 'BOOKING_DUPLICATE']);
+      expect(await code(w.bookings.create(w.ctx, p2p(a, { windowStart: at(3), windowEnd: at(4) }) as never, randomUUID()))).toEqual([409, 'BOOKING_OVERLAP']);
+      // Cancelled bookings hold no time.
+      await w.bookings.command(w.ctx, c.value.id, 'cancel', { reason: 'Leave' });
+      expect((await w.bookings.create(w.ctx, p2p(a, { windowStart: at(3), windowEnd: at(4) }) as never, randomUUID())).value.status).toBe('PENDING_ASSIGNMENT');
+      // PATCH moving a P2P onto another booking's time: overlap.
+      expect(await code(w.bookings.update(w.ctx, first.id, { expectedVersion: first.version, windowStart: at(12.5), windowEnd: at(13.5) }))).toEqual([409, 'BOOKING_OVERLAP']);
+    }));
+
+  it('eligibility (422 NOT_ELIGIBLE + reason) on create and PATCH; other company / other branch passenger 404', () =>
+    run(async () => {
+      const w = world();
+      const a = w.passenger('A');
+      const prof = (id: string) => w.store.table('employeeTransportProfile').find((p) => p.id === id)!;
+      const sh = w.store.insert('transportShift', { companyId: 'c1', sitePoiId: OFFICE, name: 'Weekdays', startMin: 540, endMin: 1080, overnight: false, days: [1, 2, 3, 4, 5], timeZone: 'Asia/Kolkata', isActive: true }).id as string;
+      expect(await reason(w.bookings.create(w.ctx, commute(a, { shiftId: sh, serviceDate: '2099-01-04', windowStart: undefined, windowEnd: undefined, drop: undefined }) as never, randomUUID()))).toEqual([422, 'SHIFT_NOT_RUNNING']);
+      const ok = await w.bookings.create(w.ctx, commute(a, { shiftId: sh, windowStart: undefined, windowEnd: undefined, drop: undefined }) as never, randomUUID());
+      expect(ok.value).toMatchObject({ shiftId: sh, drop: { poiId: OFFICE } });
+      Object.assign(w.store.table('transportShift').find((s) => s.id === sh)!, { isActive: false });
+      expect(await reason(w.bookings.create(w.ctx, commute(w.passenger('B'), { shiftId: sh }) as never, randomUUID()))).toEqual([422, 'SHIFT_INACTIVE']);
+      expect(await reason(w.bookings.update(w.ctx, ok.value.id, { expectedVersion: ok.value.version, passengerCount: 2 }))).toEqual([422, 'SHIFT_INACTIVE']);
+      const otherPoi = w.store.insert('poi', { companyId: 'c2', name: 'Elsewhere', lat: 13.1, lng: 80.2, isActive: true }).id as string;
+      expect(await reason(w.bookings.create(w.ctx, commute(w.passenger('C'), { drop: { lat: 0, lng: 0, poiId: otherPoi } }) as never, randomUUID()))).toEqual([422, 'PLACE_NOT_ALLOWED']);
+      const d = w.passenger('D');
+      expect(await reason(w.bookings.create(w.ctx, commute(d, { passengerCount: 7 }) as never, randomUUID()))).toEqual([422, 'SEATS_NOT_ALLOWED']);
+      Object.assign(prof(d), { isActive: false });
+      expect(await reason(w.bookings.create(w.ctx, commute(d) as never, randomUUID()))).toEqual([422, 'PASSENGER_INACTIVE']);
+      Object.assign(prof(d), { anonymisedAt: new Date() });
+      expect(await reason(w.bookings.create(w.ctx, commute(d) as never, randomUUID()))).toEqual([422, 'PASSENGER_ANONYMISED']);
+      // Isolation: another company's passenger, and a passenger outside a branch-scoped dispatcher's branches: 404.
+      const foreign = w.store.insert('employeeTransportProfile', { companyId: 'c2', employeeCode: 'X', displayName: 'X', isActive: true }).id as string;
+      expect(await code(w.bookings.create(w.ctx, commute(foreign) as never, randomUUID()))).toEqual([404, 'NOT_FOUND']);
+      const e = w.passenger('E');
+      Object.assign(prof(e), { branchId: 'br2' });
+      const branchCtx = { ...(w.ctx as object), dataScope: 'ASSIGNED', branchIds: ['br1'] } as never;
+      expect(await code(w.bookings.create(branchCtx, commute(e) as never, randomUUID()))).toEqual([404, 'NOT_FOUND']);
+      expect(w.store.table('transportBooking').filter((b) => b.profileId === e || b.profileId === foreign || b.profileId === d)).toHaveLength(0);
+    }));
+
+  it('D-A3: a one-time map point needs consent on create and PATCH (409 CONSENT_REQUIRED, never stored); company places do not', () =>
+    run(async () => {
+      const w = world({ consent: false });
+      const a = w.passenger('A');
+      expect(await code(w.bookings.create(w.ctx, p2p(a) as never, randomUUID()))).toEqual([409, 'CONSENT_REQUIRED']);
+      const r = await w.bookings.create(w.ctx, commute(a) as never, randomUUID());
+      expect(await code(w.bookings.update(w.ctx, r.value.id, { expectedVersion: r.value.version, pickup: { lat: 13.06, lng: 80.24, label: 'Somewhere' } }))).toEqual([409, 'CONSENT_REQUIRED']);
+      expect(JSON.stringify(w.store.table('transportBooking'))).not.toContain('Somewhere');
+      expect(JSON.stringify(w.store.table('transportBooking'))).not.toContain('12.99');
+    }));
+
+  it('PATCH sets a missing location (needs location to located) and never creates a trip or seat', () =>
+    run(async () => {
+      const w = world();
+      const a = w.passenger('A');
+      Object.assign(w.store.table('employeeTransportProfile').find((p) => p.id === a)!, { homeLat: null, homeLng: null });
+      const r = await w.bookings.create(w.ctx, commute(a, { pickup: undefined }) as never, randomUUID());
+      expect(r.value.needsLocation).toBe(true);
+      const u = await w.bookings.update(w.ctx, r.value.id, { expectedVersion: r.value.version, pickup: { lat: 13.061, lng: 80.241, label: 'Gate 2' } });
+      expect(u).toMatchObject({ needsLocation: false, pickup: { lat: 13.061, label: 'Gate 2' }, status: 'PENDING_ASSIGNMENT' });
+      expect(w.store.table('transportTrip')).toHaveLength(0);
+      expect(w.store.table('transportTripPassenger')).toHaveLength(0);
+      Object.assign(w.store.table('transportBooking').find((b) => b.id === r.value.id)!, { status: 'ASSIGNED' });
+      expect(await code(w.bookings.update(w.ctx, r.value.id, { expectedVersion: u.version, passengerCount: 2 }))).toEqual([409, 'INVALID_STATE']);
+    }));
+
+  it('D-A1 cut-off on create: desk needs a reason (stored, flagged, audited); the passenger path stays AFTER_CUTOFF', () =>
+    run(async () => {
+      const w = world();
+      const a = w.passenger('A');
+      // Window starts in 30 min: inside the default cut-off.
+      const soon = { windowStart: new Date(NOW + 30 * 60_000).toISOString(), windowEnd: new Date(NOW + 90 * 60_000).toISOString(), serviceDate: '2099-01-01' };
+      expect(await code(w.bookings.create(w.ctx, commute(a, soon) as never, randomUUID()))).toEqual([409, 'LATE_REASON_REQUIRED']);
+      expect(await code(w.bookings.create(w.ctx, commute(a, soon) as never, randomUUID(), { actor: 'PASSENGER' }))).toEqual([409, 'AFTER_CUTOFF']);
+      const r = await w.bookings.create(w.ctx, commute(a, { ...soon, lateReason: 'Urgent client visit today' }) as never, randomUUID());
+      expect(r.value).toMatchObject({ afterCutoff: true, lateReason: 'Urgent client visit today' });
+      const entry = w.store.table('auditLog').find((x) => x.entityId === r.value.id)!;
+      const late = (entry.changes as { late: { to: Record<string, string> } }).late.to;
+      expect(late).toMatchObject({ reason: 'Urgent client visit today', dispatcherUserId: 'u1', cutoffAt: r.value.cutoffAt });
+      expect(typeof late.createdAt).toBe('string');
+      expect(((await w.bookings.list(w.ctx, { afterCutoff: 'true' } as never)) as { items: { id: string }[] }).items.map((b: { id: string }) => b.id)).toEqual([r.value.id]);
+      expect(((await w.bookings.list(w.ctx, { afterCutoff: 'false' } as never)) as { items: { id: string }[] }).items).toHaveLength(0);
+      expect(((await w.bookings.list(w.ctx, { journey: 'POINT_TO_POINT' } as never)) as { items: { id: string }[] }).items).toHaveLength(0);
+      // Before the cut-off a reason is ignored (not late).
+      const b = w.passenger('B');
+      expect((await w.bookings.create(w.ctx, commute(b, { lateReason: 'Not needed at all here' }) as never, randomUUID())).value).toMatchObject({ afterCutoff: false, lateReason: null });
+    }));
+
+  it('D-A4 BOOKING_CREATED: generic inbox row + queued push when the desk books; replay and self-booking never notify', () =>
+    run(async () => {
+      const w = world();
+      const a = w.passenger('A');
+      Object.assign(w.store.table('employeeTransportProfile').find((p) => p.id === a)!, { userId: 'pax-user' });
+      w.store.insert('user', { id: 'pax-user', companyId: 'c1', name: 'Pax', preferences: {} });
+      w.store.insert('pushToken', { userId: 'pax-user', token: 'ExponentPushToken[fake]', sessionId: null });
+      const key = randomUUID();
+      const r = await w.bookings.create(w.ctx, p2p(a) as never, key);
+      const again = await w.bookings.create(w.ctx, p2p(a) as never, key);
+      expect(again.replay).toBe(true);
+      const rows = w.store.table('transportNotification');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ userId: 'pax-user', audience: 'PASSENGER', kind: 'BOOKING_CREATED', tripId: null, bookingId: r.value.id, title: 'Ride booked for you', pushQueued: true });
+      const log = w.store.table('notificationLog');
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatchObject({ channel: 'PUSH', status: 'QUEUED', refType: 'TRANSPORT_NOTIFICATION', refId: rows[0].id });
+      for (const t of [rows[0].title, rows[0].body, log[0].subject, log[0].body]) for (const leak of ['Airport', 'P A', 'Depot', '2099']) expect(String(t)).not.toContain(leak);
+      // Self-booking (the passenger's own login): no notification.
+      const selfCtx = { ...(w.ctx as object), userId: 'pax-user' } as never;
+      await w.bookings.create(selfCtx, commute(a) as never, randomUUID(), { actor: 'PASSENGER' });
+      expect(w.store.table('transportNotification')).toHaveLength(1);
+      // Push preference off: inbox row only.
+      const b = w.passenger('B');
+      Object.assign(w.store.table('employeeTransportProfile').find((p) => p.id === b)!, { userId: 'pax-b', preferences: { notifications: { push: false } } });
+      w.store.insert('user', { id: 'pax-b', companyId: 'c1', name: 'B', preferences: {} });
+      w.store.insert('pushToken', { userId: 'pax-b', token: 'ExponentPushToken[b]', sessionId: null });
+      await w.bookings.create(w.ctx, commute(b) as never, randomUUID());
+      expect(w.store.table('transportNotification').filter((n) => n.userId === 'pax-b')).toMatchObject([{ pushQueued: false }]);
+      expect(w.store.table('notificationLog')).toHaveLength(1);
+    }));
+
+  it('places: active company places only, name search, at most 50', () =>
+    run(async () => {
+      const w = world();
+      w.store.insert('poi', { companyId: 'c1', name: 'Old site', lat: 13, lng: 80, isActive: false });
+      w.store.insert('poi', { companyId: 'c2', name: 'Office of c2', lat: 13, lng: 80, isActive: true });
+      expect((await w.bookings.places(w.ctx, undefined)).map((p) => p.name).sort()).toEqual(['Depot', 'Office']);
+      expect((await w.bookings.places(w.ctx, 'off')).map((p) => p.id)).toEqual([OFFICE]);
+    }));
 });
