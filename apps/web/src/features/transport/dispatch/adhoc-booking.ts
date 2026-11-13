@@ -65,6 +65,17 @@ export const POINT_KIND_LABEL: Record<PointKind, string> = {
 
 export const LABEL_MAX = 120;
 
+/** Longest name pre-filled from an address search hit (the field stays editable up to LABEL_MAX). */
+export const GEOCODE_LABEL_DEFAULT_MAX = 60;
+
+/**
+ * v1.15 M1: the label pre-filled when the desk picks an address search hit. Only the text before the first comma (as the
+ * passenger app does), never the full address with street, area and PIN; the dispatcher can change it.
+ */
+export function geocodeLabelDefault(hit: string): string {
+  return (hit.split(',')[0] ?? '').trim().slice(0, GEOCODE_LABEL_DEFAULT_MAX);
+}
+
 export const pointChoice = (kind: PointKind): PointChoice => ({ kind, place: null, point: null, label: '' });
 
 export type BookingEnd = 'pickup' | 'drop';

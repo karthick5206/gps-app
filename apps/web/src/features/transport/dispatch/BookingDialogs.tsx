@@ -28,6 +28,7 @@ import {
   emptyAdhocDraft,
   endMissing,
   endpointText,
+  geocodeLabelDefault,
   hasErrors,
   isLate,
   JOURNEY_LABEL,
@@ -132,7 +133,7 @@ export function MapPoint({ value, onChange, idPrefix }: { value: { lat: number; 
                     type="button"
                     className="flex min-h-11 w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
                     onClick={() => {
-                      onChange({ lat: Number(c.lat.toFixed(6)), lng: Number(c.lng.toFixed(6)) }, c.label.slice(0, LABEL_MAX));
+                      onChange({ lat: Number(c.lat.toFixed(6)), lng: Number(c.lng.toFixed(6)) }, geocodeLabelDefault(c.label));
                       setQuery(null);
                     }}
                   >

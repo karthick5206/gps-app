@@ -1,6 +1,6 @@
 jest.mock('@nestjs/mapped-types', () => ({ PartialType: (c: new () => object) => class extends c {} }));
 
-import { HttpException } from '@nestjs/common';
+import { HttpException, StreamableFile } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { randomUUID } from 'crypto';
@@ -62,7 +62,7 @@ function world(opts: { approval?: boolean; geocodeHits?: { label: string; lat: n
   const desk = (o: Partial<AuthContext> = {}): AuthContext => ({ userId: 'u-desk', homeCompanyId: 'custA', companyId: 'custA', isSuperAdmin: false, permissions: { etms_bookings: ['view', 'create', 'edit'] }, dataScope: 'COMPANY', branchIds: [], objectIds: [], features: ['etms'], agreements: [], ip: null, ...o });
   const consent = (profileId: string, companyId = 'custA') => store.insert('employeeTransportConsent', { companyId, profileId, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: true, channel: 'WEB', occurredAt: new Date(Date.now() - 60 * MIN) });
   const row = (model: string, id: string) => store.table(model).find((r) => r.id === id)!;
-  return { store, svc, bookings, audit, pax, desk, consent, row, ids: { siteA, officeA, stopA, secretA, officeB, shiftA, pA, pA2, pA3, pB } };
+  return { store, svc, bookings, me, audit, pax, desk, consent, row, ids: { siteA, officeA, stopA, secretA, officeB, shiftA, pA, pA2, pA3, pB } };
 }
 
 const codeOf = async (p: Promise<unknown>) => p.then(() => 'OK', (e: HttpException) => (e.getResponse() as { code?: string }).code ?? String(e.getStatus()));
@@ -352,5 +352,36 @@ describe('D-A9 own profile and home', () => {
     const e = await errOf(w.svc.geocode(w.pax('u-pA'), 'Road'));
     expect(e).toMatchObject({ status: 429, body: { code: 'RATE_LIMITED' } });
     expect(await codeOf(w.svc.geocode(w.pax('u-pA2'), 'Road'))).toBe('OK'); // per user
+  });
+});
+
+const csvText = async (f: unknown): Promise<string> => {
+  const chunks: Buffer[] = [];
+  for await (const c of (f as StreamableFile).getStream()) chunks.push(Buffer.from(c as Buffer));
+  return Buffer.concat(chunks).toString('utf8');
+};
+
+describe('v1.15.0 security review fixes', () => {
+  const homeP2P = (w: ReturnType<typeof world>, label = '12 Secret Lane, Ward 4', start = 10) =>
+    w.bookings.create(w.desk(), { passengerId: w.ids.pA, serviceDate: day(2), journey: 'POINT_TO_POINT', pickup: { lat: 13.07, lng: 80.2, label }, drop: { lat: 0, lng: 0, poiId: w.ids.officeA }, ...win(start) } as never, randomUUID());
+
+  it('M1: a personal end\'s label never reaches list rows, CSV or list search; detail keeps it only with consent; the passenger keeps it', async () => {
+    const w = world();
+    w.consent(w.ids.pA);
+    const b = (await homeP2P(w)).value;
+    expect(b).toMatchObject({ pickupLabel: '12 Secret Lane, Ward 4', dropLabel: 'Office A' }); // detail + consent
+    const list = (await w.bookings.list(w.desk(), {} as never)) as { items: { id: string; pickupLabel: string | null; dropLabel: string | null; pointsHidden: string | null }[] };
+    expect(list.items).toHaveLength(1);
+    expect(list.items[0]).toMatchObject({ pickupLabel: null, dropLabel: 'Office A', pointsHidden: 'LIST_VIEW' });
+    const csv = await csvText(await w.bookings.list(w.desk(), { format: 'csv' } as never));
+    expect(csv).not.toContain('Secret');
+    expect(csv).toContain('Office A');
+    // List search (q) on labels: the memory store cannot evaluate relation filters; see etms-adhoc-booking.db-test.ts.
+    // The passenger sees their own label.
+    expect((await w.me.bookings(w.pax('u-pA'), {} as never)).find((m) => m.id === b.id)).toMatchObject({ pickupLabel: '12 Secret Lane, Ward 4' });
+    // Consent withdrawn (row kept as is): detail, list and CSV show no personal label.
+    w.store.insert('employeeTransportConsent', { companyId: 'custA', profileId: w.ids.pA, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: false, channel: 'WEB', occurredAt: new Date() });
+    expect(await w.bookings.get(w.desk(), b.id)).toMatchObject({ pickup: null, pickupLabel: null, dropLabel: 'Office A', pointsHidden: 'CONSENT_REQUIRED' });
+    expect(await csvText(await w.bookings.list(w.desk(), { format: 'csv' } as never))).not.toContain('Secret');
   });
 });

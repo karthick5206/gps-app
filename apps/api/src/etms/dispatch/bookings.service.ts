@@ -69,7 +69,13 @@ import { lockBookings, lockTrips, recordTripEvent, releaseSeat } from './trip-op
 export const BOOKING_ENTITY = 'TransportBooking';
 
 const LIST: ListSpec = {
-  search: (q) => ({ OR: [{ profile: { displayName: { contains: q, mode: 'insensitive' } } }, { profile: { employeeCode: { contains: q, mode: 'insensitive' } } }, { pickupLabel: { contains: q, mode: 'insensitive' } }] }),
+  search: (q) => ({ OR: [
+    { profile: { displayName: { contains: q, mode: 'insensitive' } } },
+    { profile: { employeeCode: { contains: q, mode: 'insensitive' } } },
+    // v1.15 M1: labels are searched only on company-place ends (a personal end's label can be an address).
+    { pickupPoiId: { not: null }, pickupLabel: { contains: q, mode: 'insensitive' } },
+    { dropPoiId: { not: null }, dropLabel: { contains: q, mode: 'insensitive' } },
+  ] }),
   sort: { windowStart: 'windowStart', serviceDate: 'serviceDate', createdAt: 'createdAt', status: 'status', passenger: 'profile.displayName' },
   defaultSort: 'windowStart',
   status: null,
@@ -89,7 +95,8 @@ const CSV: CsvSpec<TransportBookingDto> = {
     { header: 'Source', value: (b) => b.source },
     { header: 'Journey', value: (b) => b.journey },
     { header: 'After cut-off', value: (b) => (b.afterCutoff ? 'yes' : 'no') },
-    // Labels only: no coordinates in an export (E2 security review M3 / M4).
+    // Labels only: no coordinates in an export (E2 security review M3 / M4). The rows are list views, so a personal
+    // end's label is already null here (v1.15 M1): only company-place names are exported.
     { header: 'Pickup', value: (b) => b.pickupLabel ?? '' },
     { header: 'Drop', value: (b) => b.dropLabel ?? '' },
     { header: 'Needs location', value: (b) => (b.needsLocation ? 'yes' : 'no') },

@@ -14,6 +14,7 @@ import {
   emptyAdhocDraft,
   endMissing,
   endpointText,
+  geocodeLabelDefault,
   hasErrors,
   INELIGIBLE_REASON_TEXT,
   ineligibleReasonsCovered,
@@ -300,4 +301,11 @@ test('planner: every contract skip reason has a human label and an action hint; 
   ]);
   assert.match(rows[0].hint ?? '', /dispatch board/);
   assert.match(PLANNER_ERROR_TEXT.BOOKING_CHANGED, /changed after planning/);
+});
+
+test('v1.15 M1: a geocode hit pre-fills only a short name (text before the first comma), never the full address', () => {
+  assert.equal(geocodeLabelDefault('Tower B, 12 Synthetic Street, Ward 4, Chennai 600001'), 'Tower B');
+  assert.equal(geocodeLabelDefault('  Synthetic Mall  '), 'Synthetic Mall');
+  assert.equal(geocodeLabelDefault(', Ward 4'), '');
+  assert.equal(geocodeLabelDefault('x'.repeat(200)).length, 60);
 });
