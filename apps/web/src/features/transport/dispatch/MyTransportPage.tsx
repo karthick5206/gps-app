@@ -1,7 +1,8 @@
-import type { MeTripDto } from '@veetracer/shared';
-import { BusIcon, CalendarIcon, MapPinIcon, SmartphoneIcon, TicketIcon } from 'lucide-react';
+import type { MeBookingDto, MeTripDto } from '@veetracer/shared';
+import { BusIcon, CalendarIcon, MapPinIcon, PlusIcon, SmartphoneIcon, TicketIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { Link } from 'react-router';
 import { FormError } from '@/components/form-error';
 import { PageHeader } from '@/components/page-header';
@@ -11,14 +12,19 @@ import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatClock } from '@/features/planned-trips/trip-format';
-import { ApiError } from '@/lib/api';
+import { ApiError, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { DIRECTION_LABEL, PASSENGER_STATUS_META } from './e3-format';
 import { BookingStatusBadge, DirectionBadge, e3ErrorMessage, EtaText, TripStateBadge } from './e3-ui';
 import { hiddenVehicleText, myMapStops, shouldPollVehicle, sortMyTrips } from './me-format';
 import { MyProfilePanel } from './MyProfilePanel';
 import { TransportMap } from './TransportMap';
-import { useMyBookings, useMyTrips, useMyVehicle } from './use-e3';
+import { JOURNEY_LABEL } from './adhoc-booking';
+import { approvalMeta, cancelBody, cancelErrorText, cancelState, canRequestRide, myRouteText, type RequestPolicy } from './my-request';
+import { useCancelMyBooking } from './my-request-api';
+import { MyRideRequestDialog } from './MyRideRequestDialog';
+import { ReasonDialog } from './ReasonDialog';
+import { useMyBookings, useMyPolicy, useMyTrips, useMyVehicle } from './use-e3';
 
 function useNow(ms: number) {
   const [now, setNow] = useState(() => Date.now());
@@ -113,6 +119,14 @@ export function MyTransportPage() {
   const trips = useMyTrips({});
   const bookings = useMyBookings({});
   const [expanded, setExpanded] = useState<string | null>(null);
+  // v1.15.1: "Request a ride" and own-booking cancel only while the company has self-booking (+ requests) on.
+  const policyQuery = useMyPolicy();
+  const policy = policyQuery.data as RequestPolicy | undefined;
+  const canRequest = canRequestRide(policy);
+  const selfService = policy?.selfBooking === true;
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [cancelling, setCancelling] = useState<MeBookingDto | null>(null);
+  const cancel = useCancelMyBooking();
   const list = useMemo(() => sortMyTrips(trips.data ?? [], now), [trips.data, now]);
   const notPassenger = trips.error instanceof ApiError && trips.error.code === 'NOT_A_PASSENGER';
 
@@ -141,13 +155,21 @@ export function MyTransportPage() {
         title={t('My commute')}
         description={t('Your bookings and trips. The vehicle appears on the map only around your trip.')}
         actions={
-          <Button asChild variant="outline">
-            <Link to="/download">
-              <SmartphoneIcon /> {t('Get the app')}
-            </Link>
-          </Button>
+          <>
+            {canRequest && (
+              <Button onClick={() => setRequestOpen(true)}>
+                <PlusIcon /> {t('Request a ride')}
+              </Button>
+            )}
+            <Button asChild variant="outline">
+              <Link to="/download">
+                <SmartphoneIcon /> {t('Get the app')}
+              </Link>
+            </Button>
+          </>
         }
       />
+      {canRequest && policy && <MyRideRequestDialog open={requestOpen} onOpenChange={setRequestOpen} policy={policy} />}
 
       <section aria-labelledby="my-trips" className="grid gap-3">
         <h2 id="my-trips" className="font-semibold">
@@ -192,20 +214,78 @@ export function MyTransportPage() {
         ) : (
           <ul className="divide-y rounded-xl border bg-card">
             {bookings.data.map((b) => (
-              <li key={b.id} className="flex flex-wrap items-center gap-2 p-3 text-sm">
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium">
-                    {b.serviceDate} · <span className="tabular-nums">{formatClock(b.windowStart, b.timeZone, b.serviceDate)}–{formatClock(b.windowEnd, b.timeZone, b.serviceDate)}</span>
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">{[b.pickupLabel, b.dropLabel].filter(Boolean).join(' → ') || '—'}</p>
-                </div>
-                <DirectionBadge direction={b.direction} />
-                <BookingStatusBadge status={b.status} />
-              </li>
+              <MyBookingRow key={b.id} booking={b} now={now} canCancel={selfService} onCancel={() => setCancelling(b)} />
             ))}
           </ul>
         )}
       </section>
+
+      <ReasonDialog
+        open={!!cancelling}
+        onOpenChange={(o) => {
+          if (!o) {
+            setCancelling(null);
+            cancel.reset();
+          }
+        }}
+        title={t('Cancel this ride?')}
+        description={cancelling ? bookingSummary(cancelling) : undefined}
+        label={t('Reason (optional)')}
+        confirmLabel={t('Cancel ride')}
+        destructive
+        optional
+        pending={cancel.isPending}
+        error={cancel.error ? ((cancel.error instanceof ApiError ? cancelErrorText(cancel.error.code, t) : null) ?? errorMessage(cancel.error)) : null}
+        onConfirm={(reason) => {
+          if (!cancelling) return;
+          cancel.mutate(
+            { id: cancelling.id, ...cancelBody(reason) },
+            {
+              onSuccess: () => {
+                toast.success(t('Your ride is cancelled.'));
+                setCancelling(null);
+              },
+            },
+          );
+        }}
+      />
     </div>
   );
 }
+
+function bookingSummary(b: MeBookingDto): string {
+  const route = myRouteText(b);
+  return `${b.serviceDate} · ${formatClock(b.windowStart, b.timeZone, b.serviceDate)}–${formatClock(b.windowEnd, b.timeZone, b.serviceDate)}${route ? ` · ${route}` : ''}`;
+}
+
+/** One of my bookings (v1.15.1): day, window, route, journey, approval, purpose; cancel before the cut-off. */
+function MyBookingRow({ booking: b, now, canCancel, onCancel }: { booking: MeBookingDto; now: number; canCancel: boolean; onCancel: () => void }) {
+  const { t } = useTranslation();
+  const approval = approvalMeta(b);
+  const route = myRouteText(b);
+  const cs = canCancel ? cancelState(b, now) : 'NONE';
+  return (
+    <li className="flex flex-wrap items-start gap-2 p-3 text-sm">
+      <div className="min-w-0 flex-1 basis-56">
+        <p className="font-medium">
+          {b.serviceDate} · <span className="tabular-nums">{formatClock(b.windowStart, b.timeZone, b.serviceDate)}–{formatClock(b.windowEnd, b.timeZone, b.serviceDate)}</span>
+        </p>
+        <p className="text-xs break-words text-muted-foreground">{route ?? '—'}</p>
+        {b.purpose && <p className="text-xs break-words text-muted-foreground">{t('Purpose: {{purpose}}', { purpose: b.purpose })}</p>}
+        {b.arrangedByDesk && <p className="text-xs text-muted-foreground">{t('Arranged by the transport desk')}</p>}
+        {approval?.label === 'Rejected' && <p className="text-xs break-words text-destructive">{approval.reason ? t('Not approved: {{reason}}', { reason: approval.reason }) : t('Not approved.')}</p>}
+        {cs === 'AFTER_CUTOFF' && <p className="text-xs text-muted-foreground">{t('Cancellation closed (cut-off passed). Call your transport desk.')}</p>}
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {b.journey === 'POINT_TO_POINT' ? <Badge variant="outline">{t(JOURNEY_LABEL.POINT_TO_POINT)}</Badge> : <DirectionBadge direction={b.direction} />}
+        {approval ? <Badge variant={approval.tone}>{t(approval.label)}</Badge> : <BookingStatusBadge status={b.status} />}
+        {cs === 'CAN_CANCEL' && (
+          <Button size="sm" variant="outline" onClick={onCancel}>
+            {t('Cancel ride')}
+          </Button>
+        )}
+      </div>
+    </li>
+  );
+}
+
