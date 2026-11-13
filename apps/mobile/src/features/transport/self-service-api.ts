@@ -36,7 +36,7 @@ import { selfErrorText } from './self-service';
 
 const KEY = ['me-transport'] as const;
 const noRetryOn4xx = (count: number, err: unknown) => count < 2 && !(err instanceof ApiError && err.status >= 400 && err.status < 500);
-const OFF: MeTransportPolicyDto = { selfBooking: false, cutoffMin: 60, maxDaysAhead: 14, shifts: [], stops: [], routingConsent: false, sos: false, deskPhone: null };
+const OFF: MeTransportPolicyDto = { selfBooking: false, cutoffMin: 60, maxDaysAhead: 14, shifts: [], stops: [], routingConsent: false, sos: false, deskPhone: null, timeZone: 'Asia/Kolkata', adhocRequests: false, approvalRequired: true };
 
 /**
  * What the passenger may do. A server without WP 5.3 answers 404 for /policy: treated as "nothing switched on" (no
