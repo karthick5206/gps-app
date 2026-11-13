@@ -199,6 +199,13 @@ test('approval queue: REQUESTED from today on, passenger vs desk, allowedActions
   assert.equal(isPassengerRequest(booking({ note: 'Desk note' })), false);
   assert.equal(requestNote(booking({ note: 'Desk note' })), 'Desk note');
   assert.equal(isPassengerRequest(booking({ source: 'SCHEDULE', note: 'Booked by passenger' })), false);
+  // QA B3: the server's requestedByPassenger decides; both self-service note markers are stripped.
+  const req = booking({ requestedByPassenger: true, note: 'Requested by passenger: Client dinner' });
+  assert.equal(isPassengerRequest(req), true);
+  assert.equal(requestNote(req), 'Client dinner');
+  assert.equal(requestNote(booking({ requestedByPassenger: true, note: 'Requested by passenger' })), null);
+  assert.equal(isPassengerRequest(booking({ requestedByPassenger: false, note: 'Booked by passenger: typed by the desk' })), false);
+  assert.equal(requestNote(booking({ requestedByPassenger: false, note: 'Requested by passenger: x' })), 'Requested by passenger: x');
   const rows = [booking({ id: '1' }), booking({ id: '2', allowedActions: ['cancel'] }), booking({ id: '3', status: 'PENDING_ASSIGNMENT' })];
   assert.deepEqual(requestRows(rows).map((r) => r.id), ['1', '2']);
   assert.equal(canApprove(rows[1]), false);
