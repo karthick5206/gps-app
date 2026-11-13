@@ -13,7 +13,7 @@ import { currentLocale } from '@/lib/i18n';
 import { SPACE, useColors } from '@/lib/theme';
 import { driverCodeText, driverErrorText, isNotDriver, useDriverMe, useDriverTrip, useStartTrip, useTripMotion } from '../driver-api';
 import { countdown, currentStop, noShowAvailableAt, offerTripAction, passengerButtons, passengerPending, pickupUnlocked, stopActionState, tripActionState } from '../driver-projection';
-import { DIRECTION_LABEL, DRIVER_EVENT_LABEL, PASSENGER_STATUS_META, REASON_LABEL, TRIP_STATE_META } from '../labels';
+import { DRIVER_EVENT_LABEL, PASSENGER_STATUS_META, REASON_LABEL, TRIP_STATE_META, tripKindLabel } from '../labels';
 import { actionAllowed } from '../motion';
 import { geoUri } from '../nav-handoff';
 import { useNavHandoff } from '../nav-setting';
@@ -309,7 +309,7 @@ export function DriverTripScreen({ id }: { id: string }) {
           {trip.name}
         </Text>
         <Text size="sm" tone="muted">
-          {trip.serviceDate} · {t(DIRECTION_LABEL[trip.direction])} · {clockIn(trip.plannedStart, tz, currentLocale())}–{clockIn(trip.plannedEnd, tz, currentLocale())}
+          {trip.serviceDate} · {t(tripKindLabel(trip))} · {clockIn(trip.plannedStart, tz, currentLocale())}–{clockIn(trip.plannedEnd, tz, currentLocale())}
         </Text>
         {trip.vehicle && (
           <Text size="sm" tone="muted">

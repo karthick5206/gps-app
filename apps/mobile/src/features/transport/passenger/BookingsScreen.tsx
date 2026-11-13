@@ -17,11 +17,12 @@ import { useMyPolicy } from '../self-service-api';
 /**
  * The passenger's own booking (fields an older server may leave out are optional: WP 3.9 `journey` / `arrangedByDesk`).
  */
-type Booking = Omit<MeBookingDto, 'journey' | 'arrangedByDesk'> &
+type Booking = Omit<MeBookingDto, 'journey' | 'arrangedByDesk' | 'purpose' | 'needsApproval' | 'statusReason' | 'approval'> &
   Partial<Pick<MeBookingDto, 'journey' | 'arrangedByDesk'>> & {
     /** WP 3.9 wave 2 (optional until the server sends them): why the ride is needed, approval state, reject reason. */
     purpose?: string | null;
     needsApproval?: boolean;
+    approval?: MeBookingDto['approval'];
     statusReason?: string | null;
   };
 

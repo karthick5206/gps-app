@@ -9,7 +9,7 @@ import { currentLocale } from '@/lib/i18n';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
 import { driverErrorText, isNotDriver, useDriverDuty, useDriverMe, useDutyCommand } from '../driver-api';
 import { offerTripAction, tripActionState } from '../driver-projection';
-import { DIRECTION_LABEL, TRIP_STATE_META } from '../labels';
+import { TRIP_STATE_META, tripKindLabel } from '../labels';
 import { queueDriverEvent, useDriverQueue } from '../queue-store';
 import { clockIn } from '../trip-window';
 import { BigAction, StatusChip, SyncBadge, TOUCH, TransportEmpty } from '../ui';
@@ -43,7 +43,7 @@ function TripRow({ trip, tz }: { trip: DriverTripSummaryDto; tz: string }) {
       <Pressable
         onPress={() => router.push(`/duty/trip/${trip.id}`)}
         accessibilityRole="button"
-        accessibilityLabel={[time, trip.name, t(DIRECTION_LABEL[trip.direction]), counts, t(state.label)].join(', ')}
+        accessibilityLabel={[time, trip.name, t(tripKindLabel(trip)), counts, t(state.label)].join(', ')}
         accessibilityHint={t('Opens the trip')}
         style={({ pressed }) => [{ padding: SPACE.md, gap: SPACE.xs, minHeight: TOUCH }, pressed && { opacity: 0.85 }]}
       >
@@ -55,7 +55,7 @@ function TripRow({ trip, tz }: { trip: DriverTripSummaryDto; tz: string }) {
         </View>
         <Text weight="600">{trip.name}</Text>
         <Text size="sm" tone="muted">
-          {t(DIRECTION_LABEL[trip.direction])} · {counts}
+          {t(tripKindLabel(trip))} · {counts}
           {trip.vehicle ? ` · ${trip.vehicle.plateNumber ?? trip.vehicle.name}` : ''}
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>

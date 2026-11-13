@@ -83,3 +83,25 @@ describe('DutyHome (driver "Today")', () => {
     expect(screen.getByText('Your licence has expired. Trips cannot be started.')).toBeTruthy();
   });
 });
+
+describe('DutyHome: point-to-point trip header (r115 B2)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (useDriverQueue as jest.Mock).mockReturnValue({ pending: 0, rejected: 0, paused: null, syncRequired: false, syncing: false, events: [] });
+    (driverApi.useDutyCommand as jest.Mock).mockReturnValue({ mutate: jest.fn(), isPending: false, isError: false, error: null });
+    (driverApi.useDriverMe as jest.Mock).mockReturnValue(q(me));
+  });
+
+  it('a P2P trip (stored as IN) shows "Point-to-point", never "To site (login)"', async () => {
+    (driverApi.useDriverDuty as jest.Mock).mockReturnValue(q({ duty: null, trips: [{ ...trip, journey: 'POINT_TO_POINT' }], timeZone: 'Asia/Kolkata' }));
+    await render(<DutyHome />);
+    expect(screen.getByText(/^Point-to-point · /)).toBeTruthy();
+    expect(screen.queryByText(/To site \(login\)/)).toBeNull();
+  });
+
+  it('a commute trip keeps "To site (login)"', async () => {
+    (driverApi.useDriverDuty as jest.Mock).mockReturnValue(q({ duty: null, trips: [{ ...trip, journey: 'COMMUTE' }], timeZone: 'Asia/Kolkata' }));
+    await render(<DutyHome />);
+    expect(screen.getByText(/^To site \(login\) · /)).toBeTruthy();
+  });
+});

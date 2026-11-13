@@ -6,7 +6,7 @@ import { Pressable, View } from 'react-native';
 import { Text } from '@/components/ui';
 import { currentLocale } from '@/lib/i18n';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
-import { DIRECTION_LABEL, PASSENGER_STATUS_META, TRIP_STATE_META } from '../labels';
+import { PASSENGER_STATUS_META, TRIP_STATE_META, tripKindLabel } from '../labels';
 import { clockIn } from '../trip-window';
 import { StatusChip, TOUCH } from '../ui';
 
@@ -19,7 +19,7 @@ export function TripCard({ trip, highlight }: { trip: MeTripDto; highlight?: boo
   const vehicle = trip.vehicle ? `${trip.vehicle.name}${trip.vehicle.plate ? ` · ${trip.vehicle.plate}` : ''}` : t('Vehicle to be confirmed');
   const state = TRIP_STATE_META[trip.derivedState];
   const mine = PASSENGER_STATUS_META[trip.myStatus];
-  const a11y = [trip.serviceDate, t(DIRECTION_LABEL[trip.direction]), t('My pickup'), pickup, vehicle, t(state.label), t(mine.label)].join(', ');
+  const a11y = [trip.serviceDate, t(tripKindLabel(trip)), t('My pickup'), pickup, vehicle, t(state.label), t(mine.label)].join(', ');
   return (
     <Pressable
       onPress={() => router.push(`/commute/trip/${trip.id}`)}
@@ -33,7 +33,7 @@ export function TripCard({ trip, highlight }: { trip: MeTripDto; highlight?: boo
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
         <Text weight="700" style={{ flex: 1 }}>
-          {trip.serviceDate} · {t(DIRECTION_LABEL[trip.direction])}
+          {trip.serviceDate} · {t(tripKindLabel(trip))}
         </Text>
         <ChevronRightIcon size={18} color={c.mutedForeground} />
       </View>

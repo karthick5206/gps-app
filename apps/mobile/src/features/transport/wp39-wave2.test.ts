@@ -184,7 +184,7 @@ const FALLBACK = { PENDING_ASSIGNMENT: { label: 'Waiting for a seat', tone: 'inf
 
 test('status chips: Requested, Approved (own ad-hoc request), Rejected with the reason; others unchanged', () => {
   assert.deepEqual(passengerStatusMeta({ status: 'REQUESTED' }, FALLBACK), { label: 'Requested', tone: 'warning' });
-  assert.deepEqual(passengerStatusMeta({ status: 'PENDING_ASSIGNMENT', source: 'ADHOC', arrangedByDesk: false }, FALLBACK), { label: 'Approved', tone: 'info' });
+  assert.deepEqual(passengerStatusMeta({ status: 'PENDING_ASSIGNMENT', source: 'ADHOC', arrangedByDesk: false, approval: 'APPROVED' }, FALLBACK), { label: 'Approved', tone: 'info' });
   // The desk's booking or the regular schedule was never "approved" by anyone: keep the seat wording.
   assert.deepEqual(passengerStatusMeta({ status: 'PENDING_ASSIGNMENT', source: 'ADHOC', arrangedByDesk: true }, FALLBACK), FALLBACK.PENDING_ASSIGNMENT);
   assert.deepEqual(passengerStatusMeta({ status: 'PENDING_ASSIGNMENT', source: 'SCHEDULE', arrangedByDesk: false }, FALLBACK), FALLBACK.PENDING_ASSIGNMENT);
