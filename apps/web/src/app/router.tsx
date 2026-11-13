@@ -7,6 +7,7 @@ import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage';
 import { SignupPage } from '@/features/auth/SignupPage';
 import { ClaimPage } from '@/features/claim/ClaimPage';
 import { GuidePage } from '@/features/guide/GuidePage';
+import { TroubleshootingPage } from '@/features/guide/TroubleshootingPage';
 import { DownloadPage } from '@/features/download/DownloadPage';
 import { PublicSharePage } from '@/features/live-share/PublicSharePage';
 import { DeleteAccountPage, PrivacyPage } from '@/features/legal/LegalPages';
@@ -123,6 +124,7 @@ export const router = createBrowserRouter([
   { path: '/reset-password', element: <ResetPasswordPage /> },
   // Public: linked from the mobile apps, help sheets and emails.
   { path: '/guide', element: <GuidePage /> },
+  { path: '/guide/troubleshooting', element: <TroubleshootingPage /> },
   { path: '/download', element: <DownloadPage /> },
   { path: '/privacy', element: <PrivacyPage /> },
   // Live location share link: anyone with the link, no sign-in.
