@@ -77,6 +77,58 @@ describe('CommuteHome (passenger shell)', () => {
     expect(screen.getByText('Arranged by the transport desk')).toBeTruthy();
   });
 
+  // R1151 B5: a just-finished morning trip must not hold the "Next trip" card while a later trip runs.
+  it('"Next trip" is the trip in progress; the trip I was dropped from is under "Recent trips"', async () => {
+    const base = {
+      serviceDate: '2026-11-12',
+      direction: 'IN',
+      journey: 'COMMUTE',
+      timeZone: 'Asia/Kolkata',
+      vehicle: { name: 'Synthetic Van 2', plate: null },
+      driverFirstName: null,
+      myDrop: null,
+      myPickupPoint: null,
+      myDropPoint: null,
+      pointsHidden: null,
+      coRiders: 0,
+      deskPhone: null,
+    };
+    const stop = (label: string, plannedAt: string) => ({ seq: 1, label, plannedAt, status: null, eta: { at: null, model: null } });
+    const morning = {
+      ...base,
+      id: '0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b01',
+      passengerTripId: 'pt-morning',
+      window: { start: '2026-11-12T01:00:00Z', end: '2026-11-12T01:45:00Z' },
+      plannedStart: '2026-11-12T01:00:00Z',
+      plannedEnd: '2026-11-12T01:45:00Z',
+      myStop: stop('Synthetic Morning Stop', '2026-11-12T01:10:00Z'),
+      derivedState: 'IN_PROGRESS',
+      myStatus: 'DROPPED',
+      liveVisible: true,
+    };
+    const later = {
+      ...base,
+      id: '0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b02',
+      passengerTripId: 'pt-later',
+      window: { start: '2026-11-12T01:50:00Z', end: '2026-11-12T02:40:00Z' },
+      plannedStart: '2026-11-12T01:50:00Z',
+      plannedEnd: '2026-11-12T02:40:00Z',
+      myStop: stop('Synthetic Later Stop', '2026-11-12T02:05:00Z'),
+      derivedState: 'EN_ROUTE',
+      myStatus: 'PENDING',
+      liveVisible: true,
+    };
+    (passengerApi.useMyTrips as jest.Mock).mockReturnValue(q([morning, later]));
+    (passengerApi.useMyConsent as jest.Mock).mockReturnValue(q([{ purpose: 'TRANSPORT_PROFILE', active: true }]));
+    await render(<CommuteHome />);
+    const card = screen.getByTestId('next-trip-card');
+    expect(card.props.accessibilityLabel).toContain('Synthetic Later Stop');
+    expect(card.props.accessibilityLabel).not.toContain('Synthetic Morning Stop');
+    expect(screen.getByText('Recent trips')).toBeTruthy();
+    expect(screen.queryByText('Today')).toBeNull();
+    expect(screen.getByText(/Synthetic Morning Stop/)).toBeTruthy();
+  });
+
   it('an older server (no arrangedByDesk) or a failed bookings call shows no "Booked for you" and no crash', async () => {
     (passengerApi.useMyTrips as jest.Mock).mockReturnValue(q([]));
     (passengerApi.useMyConsent as jest.Mock).mockReturnValue(q([{ purpose: 'TRANSPORT_PROFILE', active: true }]));

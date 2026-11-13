@@ -11,7 +11,7 @@ import { clockIn } from '../trip-window';
 import { StatusChip, TOUCH } from '../ui';
 
 /** One of my trips in a list: date, direction, my pickup time / label, vehicle; opens the trip screen. */
-export function TripCard({ trip, highlight }: { trip: MeTripDto; highlight?: boolean }) {
+export function TripCard({ trip, highlight, testID }: { trip: MeTripDto; highlight?: boolean; testID?: string }) {
   const { t } = useTranslation();
   const c = useColors();
   const locale = currentLocale();
@@ -22,6 +22,7 @@ export function TripCard({ trip, highlight }: { trip: MeTripDto; highlight?: boo
   const a11y = [trip.serviceDate, t(tripKindLabel(trip)), t('My pickup'), pickup, vehicle, t(state.label), t(mine.label)].join(', ');
   return (
     <Pressable
+      testID={testID}
       onPress={() => router.push(`/commute/trip/${trip.id}`)}
       accessibilityRole="button"
       accessibilityLabel={a11y}

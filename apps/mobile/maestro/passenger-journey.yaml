@@ -17,10 +17,14 @@ tags:
     element: "VeeTrax does not track your phone. The vehicle is shown only around your trip."
     direction: DOWN
 - assertNotVisible: "No passenger profile"
+# Open the "Next trip" card itself (R1151 B5): scrolling up to the first "My pickup" from the bottom hit the last card
+# under "Recent trips" (a finished trip) instead.
 - scrollUntilVisible:
-    element: "My pickup: .*"
+    element:
+      id: "next-trip-card"
     direction: UP
-- tapOn: "My pickup: .*"
+- tapOn:
+    id: "next-trip-card"
 # "Estimated pickup" needs a started trip whose vehicle has reported a fix (drive it with uat sim-uat.ts / etms:sim-trip).
 - extendedWaitUntil:
     visible: "Estimated pickup"

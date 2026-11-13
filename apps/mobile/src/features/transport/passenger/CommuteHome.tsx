@@ -175,7 +175,7 @@ export function CommuteHome() {
       ) : trips.isError ? (
         <ErrorBanner message={transportErrorText(trips.error)} onRetry={() => void trips.refetch()} />
       ) : next ? (
-        <TripCard trip={next} highlight />
+        <TripCard trip={next} highlight testID="next-trip-card" />
       ) : (
         <TransportEmpty icon={CalendarIcon} title={t('No trips in the next days')} description={t('When the transport desk seats you on a trip, it appears here.')} />
       )}

@@ -132,6 +132,49 @@ test('buckets: today (trip zone), upcoming, past; next trip prefers the live one
   assert.equal(nextTrip([past], now), null);
 });
 
+test('next trip (R1151 B5): the running trip, else the earliest upcoming; never a finished trip or a seat I left', () => {
+  const now = T('2026-11-11T05:00:00Z'); // 10:30 in Asia/Kolkata
+  const at = (h: string, m = 0) => `2026-11-11T${h}:${String(m).padStart(2, '0')}:00Z`;
+  const mk = (id: string, startH: string, over: Partial<MeTripDto> = {}) =>
+    trip({ id, passengerTripId: `p-${id}`, window: { start: at(startH), end: at(startH, 45) }, plannedStart: at(startH), plannedEnd: at(startH, 45), myStop: { seq: 1, label: id, plannedAt: at(startH, 10), status: null, eta: { at: null, model: null } }, ...over });
+  // The demo case: the morning trip is done for me (dropped; the list may still say IN_PROGRESS for up to a minute,
+  // and its vehicle window is still open), a later trip the same day is under way.
+  const dropped = mk('dropped', '04', { derivedState: 'IN_PROGRESS', myStatus: 'DROPPED', liveVisible: true });
+  const completed = mk('completed', '04', { derivedState: 'COMPLETED', myStatus: 'DROPPED', liveVisible: true });
+  const running = mk('running', '04', { derivedState: 'EN_ROUTE', myStatus: 'PENDING', liveVisible: true, window: { start: at('04', 30), end: at('05', 15) }, plannedStart: at('04', 30), plannedEnd: at('05', 15) });
+  const evening = mk('evening', '12');
+  assert.equal(nextTrip([dropped, running, evening], now)?.id, 'running');
+  assert.equal(nextTrip([completed, running, evening], now)?.id, 'running');
+  // A running trip beats an earlier-listed one whose window is merely open (published, not started).
+  const soon = mk('soon', '05', { derivedState: 'PUBLISHED', liveVisible: true });
+  assert.equal(nextTrip([soon, running], now)?.id, 'running');
+  // Boarded and at a stop is still "in progress" for me.
+  assert.equal(nextTrip([evening, mk('aboard', '04', { derivedState: 'AT_STOP', myStatus: 'BOARDED' })], now)?.id, 'aboard');
+  // Nothing running: the earliest upcoming not-finished trip; my own no-show / cancelled seat never counts.
+  assert.equal(nextTrip([evening, dropped, completed, soon], now)?.id, 'soon');
+  assert.equal(nextTrip([mk('ns', '05', { myStatus: 'NO_SHOW' }), mk('cx', '06', { myStatus: 'CANCELLED' }), evening], now)?.id, 'evening');
+  assert.equal(nextTrip([dropped, completed, mk('gone', '04', { derivedState: 'CANCELLED' }), mk('det', '05', { derivedState: 'DETACHED' })], now), null);
+  // A trip still running long after its planned end (driver has not completed it yet) stays the current trip.
+  const late = mk('late', '01', { derivedState: 'IN_PROGRESS', myStatus: 'BOARDED' });
+  assert.equal(nextTrip([evening, late], now)?.id, 'late');
+  // ...but not forever: a day later it is history.
+  assert.equal(nextTrip([late], T('2026-11-12T05:00:00Z')), null);
+  // Times are compared as instants, not strings: 08:00+05:30 (02:30Z) is before 03:00Z.
+  const offset = trip({ id: 'offset', window: { start: '2026-11-11T08:00:00+05:30', end: '2026-11-11T09:00:00+05:30' }, plannedStart: null, plannedEnd: null, myStop: null });
+  const zulu = trip({ id: 'zulu', window: { start: '2026-11-11T03:00:00Z', end: '2026-11-11T04:00:00Z' }, plannedStart: null, plannedEnd: null, myStop: null });
+  assert.equal(nextTrip([zulu, offset], T('2026-11-11T01:00:00Z'))?.id, 'offset');
+});
+
+test('buckets (R1151 B5): a trip I was dropped from / did not show for is under Recent trips, not Today', () => {
+  const now = T('2026-11-11T05:00:00Z');
+  const dropped = trip({ id: 'd', derivedState: 'IN_PROGRESS', myStatus: 'DROPPED', liveVisible: true });
+  const noShow = trip({ id: 'n', derivedState: 'EN_ROUTE', myStatus: 'NO_SHOW' });
+  const running = trip({ id: 'r', derivedState: 'EN_ROUTE', window: { start: '2026-11-11T04:30:00Z', end: '2026-11-11T05:15:00Z' } });
+  const b = tripBuckets([dropped, noShow, running], now);
+  assert.deepEqual(b.today.map((t) => t.id), ['r']);
+  assert.deepEqual(b.past.map((t) => t.id).sort(), ['d', 'n']);
+});
+
 test('clock in the trip zone', () => {
   assert.equal(clockIn('2026-11-11T03:10:00Z', 'Asia/Kolkata'), '08:40');
   assert.equal(clockIn(null, 'Asia/Kolkata'), '—');
