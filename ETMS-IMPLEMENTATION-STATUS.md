@@ -17,10 +17,12 @@ evidence in the phase log below.
 | D6 v1.8.4 (G7-A), G8 mobile, G4 prod AOF | In progress (G7-A) | Not started | Not started | Not started | Not started | Blocked (owner public key; AOF window) |
 | E1a | Deployed | Deployed | Not started | Passed | Passed | Deployed (2026-11-11 10:10 UTC, v1.9.0) |
 | E2 | Deployed | Deployed | Not started | Passed | Passed (conditions: L5 + reset residual before real data) | Deployed (2026-11-11 11:57 UTC, v1.10.0, ETMS off) |
-| E3 | Deployed | Deployed | Moved to E5 (WP 3.6/3.7 delivered with E5) | Passed (re-check + WP 3.8 gate 1,606/0) | Passed (conditions: owner L5 / L7 / withdrawal policy before real data) | Deployed (2026-11-11 15:23 UTC, v1.11.0, ETMS off) |
-| E4 | In progress (review doc 17 done; optimiser + RoutingProvider on etms/e4-optimizer) | Not started | Not started | Not started | Not started | Not started |
-| E5 | Deployed (driver API, notifications, relay) | Deployed (dispatcher review events) | Passed in source; **needs a native build** (EAS/O12 approval) + device/Maestro tests | Passed (re-check) | Passed (re-check + delta 2589b58) | Deployed (2026-11-11 16:08 UTC, v1.12.0, ETMS off). Not in scope yet: SOS WP 5.4, self-booking WP 5.3, sim/Maestro WP 5.5 |
-| E6 | Not started | Not started | Not started | Not started | Not started | Not started |
+| E3 | Deployed | Deployed | Moved to E5 (WP 3.6/3.7 delivered with E5) | Passed (re-check + WP 3.8 gate 1,606/0) | Passed (conditions: owner L5 / L7 / withdrawal policy before real data) | Deployed (2026-11-11 15:23 UTC, v1.11.0, ETMS off). **Reopened for WP 3.9 below** |
+| E3 · WP 3.9 Ad-hoc trip creation (R1, **outstanding**) | In progress: the booking API takes any pickup / drop and time window; gaps A1–A9 | Not started: the dialog has no pickup, destination or time fields, and bookings can't be edited | Not started: only passenger self-booking exists; the dispatcher's ad-hoc booking is not shown differently | Not started | Not started | Not started. Target v1.15.0 ([section below](#outstanding-r1-requirement-ad-hoc-trip-creation-wp-39)) |
+| E4 | Deployed, switched off (`ETMS_ROUTING`): contracts, schema, matrix, solver v2 + corpus 36/36, worker/jobs, plans + publish via E3 | Deployed (route planner, behind flag) | — | Passed (re-check e83eb68: web optimise → review → publish at 390/1280 px) | Passed (re-check + deltas; condition: GraphHopper staging load test R-5 before enabling) | Deployed (2026-11-11 19:46 UTC, v1.13.0, off). **Enabling needs C3 benchmarks B1–B6 + R-5 load test + Python 3.14 on the host** |
+| E5 | Deployed (driver API, notifications, relay; SOS WP 5.4; passenger self-booking WP 5.3; sim WP 5.5 + D1 settle grace) | Deployed (dispatcher review events, SOS lane) | Passed in source; **needs a native build** (EAS/O12 approval) + device/Maestro tests | Passed (re-checks; v1.14.0 QA fixes) | Passed (re-checks; v1.14.0 security + delta) | Deployed (v1.12.0 2026-11-11 16:08 UTC; completed in v1.14.0 2026-11-12 14:08 UTC) |
+| E1b | Deployed (`etmsProvider` add-on, `X-Transport-Customer`, Super Admin access reason + access log) | Deployed (provider UI) | — | Passed (v1.14.0 QA) | Passed (v1.14.0 security + delta) | Deployed (2026-11-12 14:08 UTC, v1.14.0). Open: overlap rule per agreement (owner) |
+| E6 | Not started (unblocked: E5 done) | Not started | Not started | Not started | Not started | Not started |
 | E7 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E8 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E9 | Not started | Not started | Not started | Not started | Not started | Not started |
@@ -48,6 +50,118 @@ procedure (release branch → tag → main).
 | P6 | "Employee transport" group + menu keys + role templates seeded on enable (not global `SYSTEM_ROLES`); explicit actions, no drag library; no overall winner without configured weights; reposition the VeeTrax listing, no white-label in R1; country + site time zone in E8 | As default | Consistent with D4 and P6 | E1a (menus, module switch), E3 UI, E8 | New menu group and keys in `permissions.ts`; role templates seeded when the `etms` module is enabled for a company |
 | C3 | Separate x86 VM (≥ 32 GB, no AVX) before E4 benchmarks | **Not adopted: needs a purchase / provisioning approval** | Paid infrastructure is excluded from the programme authorisation | E4 benchmarks, E7 load, E9 soak | E4 development runs on synthetic data locally; the benchmark sign-off stays blocked until a host is approved |
 | D6 / G2 outbox | Doc 15 lists the outbox under E1a | **Delivered with G2 (v1.8.3), not E1a** | Avoids ETMS bypassing or duplicating the D6 notifier controls | G2 | E1a does not create the outbox table |
+
+## Outstanding R1 requirement: ad-hoc trip creation (WP 3.9)
+
+**Status: outstanding. Part of the approved R1 scope (doc 12 §5 "ad-hoc bookings (dispatcher on behalf)", doc 05
+`POST /api/transport/bookings`, doc 07 bookings list); must not be dropped.** Recorded 2026-11-12 after an inspection
+of v1.14.0 (586f199). Phase: **E3, new WP 3.9**, delivered as **v1.15.0**. It can run in parallel with E6.
+
+**Requirement (owner, 2026-11-12):**
+- A dispatcher creates an ad-hoc booking or trip without a recurring schedule.
+- The booking has a passenger, a pickup, a destination or office, a date and a shift.
+- Consent, eligibility, capacity and cut-off rules are validated.
+- Vehicle and driver are assigned manually.
+- Eligible ad-hoc bookings can be added to E4 optimisation drafts.
+- The trip is published into the existing VeeTrax trip lifecycle.
+- The trip works with the Passenger and Driver mobile sections, notifications, ETA and live tracking.
+- Company and branch boundaries are kept.
+- There are no duplicate bookings and no duplicate trip publishing.
+
+### Already implemented (do not rebuild)
+
+| Area | What exists | Where |
+|---|---|---|
+| Booking API | `POST /api/transport/bookings`, Idempotency-Key required, `source = ADHOC`. Takes passenger, date, direction, optional shift, optional `pickup` / `drop` (lat/lng + label, or a company `poiId`), optional time window (≤ 12 h, not in the past), seats 1–6, `hold` (needs approval). Without points it uses the home point (only with routing consent) and the shift's site. Audited | `apps/api/src/etms/dispatch/bookings.service.ts` `create` |
+| Booking checks | Active passenger profile in the caller's branches. Date ≤ 60 days ahead. One active booking per passenger, date and direction (409 `BOOKING_DUPLICATE`). Idempotent replay for the same user only. Per-user rate limit | same |
+| Booking changes | `PATCH` before the cut-off (409 `AFTER_CUTOFF`); approve / reject / cancel / bulk approve | same; `BookingsPage.tsx` row menu |
+| Web booking | Transport → Bookings → "New one-off booking": passenger, date, direction, shift, seats, needs approval, note. List filter "Ad-hoc / Scheduled", "Needs location" badge | `apps/web/src/features/transport/dispatch/BookingsPage.tsx` |
+| Manual dispatch | Dispatch board: door-to-door trip on a chosen vehicle + driver, add passenger / add stop / reassign. Change-set checks: `CAPACITY_EXCEEDED`, `NO_SEATS_SET`, `NEEDS_LOCATION`, `CONSENT_REQUIRED`, vehicle / driver overlap (exclusion constraints), Idempotency-Key ledger, `expectedVersion` | `dispatch.service.ts`, `change-ops.ts`, `DispatchPage.tsx`, `dispatch-draft.ts` |
+| Trip lifecycle | Publish creates `PlannedTrip` (origin ETMS) + `TransportTrip` + passengers atomically. The v1.8 tracker follows it (stop arrivals, ETA, alerts) | E3 WP 3.4 |
+| E4 drafts | Plan creation takes every `PENDING_ASSIGNMENT` booking of the date / direction whatever its source, so ad-hoc bookings are included. Skipped reasons: `needs_location`, `consent_required`, `out_of_scope`. Publish refuses a booking that is no longer waiting (`INVALID_STATE`); publish is compare-and-set + replay | `etms/planning/plan-create.ts`, `plan-rules.ts`, `plans.service.ts` |
+| Passenger | `GET /me/transport/bookings`, `trips`, `trips/:id/vehicle` (vehicle only inside the trip window, ETA). Mobile Bookings / Trips / trip detail; self-booking (WP 5.3, cut-off enforced) | `me-transport.service.ts`, `apps/mobile/src/features/transport/passenger/` |
+| Driver | Duty / trip screens work on any published ETMS trip, whatever the booking source | `apps/mobile/src/features/transport/driver/` |
+| Notifications | `TRIP_ASSIGNED`, `TRIP_CHANGED`, `TRIP_CANCELLED`, `TRIP_DELAYED`, `TRIP_STARTING_SOON` via the outbox relay | `etms/notifications/transport-notify-relay.service.ts` |
+
+### Missing (genuine gaps)
+
+| # | Gap | Effect today |
+|---|---|---|
+| A1 | The web dialog has no pickup, destination or time-window fields, and the shift is mandatory in the UI (optional in the API). There is no place / map-pin picker for ETMS | A dispatcher can only book "home ↔ shift office". Another pickup or destination needs the API |
+| A2 | No booking edit in the web, although the `PATCH` API exists | "Needs location" bookings can't be fixed from the web, and the dispatch board skips them |
+| A3 | Cut-off not applied to dispatcher creation: a late booking gets a `cutoffAt` in the past, carries no flag or reason, and can't be edited afterwards | Late bookings are silent and can't be told apart; the rule is undefined |
+| A4 | Eligibility is only "active profile in the caller's branch". There is no check that the shift or destination matches the passenger's office or pickup mode (door vs shuttle stop) | Bookings outside the passenger's entitlement are accepted |
+| A5 | A dispatcher-entered personal point (not a company place) is stored without a consent check; it is refused only later, at assignment (`CONSENT_REQUIRED`) | The address is stored without consent (owner decision L7), and the dispatcher finds out late |
+| A6 | E4 plan creation selects only bookings whose office end equals the plan's site and, with a shift filter, the same `shiftId`. Others are filtered in the query and **not reported** in `skippedBookings` | Ad-hoc bookings with another destination or no shift disappear from drafts without a reason |
+| A7 | The destination is limited by the R1 model: every booking is IN / OUT with an office end. A point-to-point ride (e.g. airport) has no defined place | Owner decision D-A2 |
+| A8 | No "booking created for you" message to the passenger (WP 3.7 covers booking assigned / changed / cancelled, which the trip notifications send) | The passenger learns of an ad-hoc ride only when it is assigned to a trip |
+| A9 | No end-to-end test of an ad-hoc booking with its own points through dispatch → trip → driver → passenger vehicle / ETA, or through an E4 draft | No acceptance evidence for the requirement |
+
+### Changes required
+
+**Backend (apps/api, packages/shared)**
+- B1 (A3): cut-off on create. Proposed default: a dispatcher may book after the cut-off only with a reason (≥ 10 characters). The booking is marked late (derived `createdAt > cutoffAt`, reason in the audit and note) and the response carries `afterCutoff: true`. Self-booking keeps refusing.
+- B2 (A4): shared eligibility rule used by both the dispatcher and the self-service create. The profile is active and in branch; the shift is active; the office end is the passenger's site or a company place allowed for the company; door pickup is allowed only for door pickup mode, otherwise a company stop. Code `NOT_ELIGIBLE` with the reason.
+- B3 (A5): personal point without consent. Refuse with `CONSENT_REQUIRED`, or accept as "needs location" without storing the point, according to owner decision L7. A company place is always allowed.
+- B4 (A6): plan creation reports every booking of the date / direction it did not take (`other_site`, `other_shift`). A shift-less ad-hoc booking whose window falls inside the plan's window can join. Activation stays behind `ETMS_ROUTING`.
+- B5 (A8, if approved): `BOOKING_CREATED` passenger notification through the existing outbox, with a generic payload (L4).
+- No change to duplicate protection; add tests only (see T6).
+
+**Web (apps/web)**
+- W1 (A1): booking dialog.
+  - Pickup: home (with consent) / company place / map pin.
+  - Destination: shift office (default) / company place / map pin if D-A2 allows.
+  - Optional time window; shift becomes optional when a window is given.
+  - Consent and eligibility hints; late-booking reason field.
+  - Reuse the `TransportMap.tsx` map, no external map hosts.
+- W2 (A2): edit booking (pickup, destination, window, seats, note) using `PATCH`, including "set location" for "Needs location".
+- W3: bookings list shows "after cut-off" and custom pickup / destination labels (privacy rules of the list unchanged).
+- W4 (A6): route planner shows the new skipped reasons.
+
+**Mobile (apps/mobile)**
+- M1: passenger Bookings / Trips show a dispatcher-made ad-hoc booking with its own pickup and destination labels and an "Arranged by the transport desk" note. Check the existing screens; change only labels.
+- M2 (if B5): handle the `BOOKING_CREATED` notification (open Bookings).
+- Driver app: no change expected; covered by tests.
+- Real-device acceptance still needs the EAS / O12 native build.
+
+### Database changes
+
+**None expected.** `TransportBooking` already has pickup / drop label, lat / lng and place, window, `cutoffAt`, `source`
+and note. "Late" is derived. A migration is needed only if the owner wants true point-to-point rides without an office
+end (D-A2: new direction value or nullable site end).
+
+### Dependencies
+
+- **E4:** B4 / W4 code ships with routing off. Acceptance runs on the local synthetic setup. Using it in production
+  still needs C3 benchmarks B1–B6, the R-5 load test and Python 3.14 on the host (unchanged). Manual dispatch (the R1
+  path) does not depend on E4.
+- **E5:** uses the deployed driver API, notification relay, passenger trips / vehicle / ETA and the self-booking rules
+  (B2 shares one validator with WP 5.3). Device acceptance needs the native build (EAS / O12).
+- **Privacy:** B3 depends on L7; consent withdrawal affects open ad-hoc bookings the same way as scheduled ones.
+- **Owner decisions:**
+  - D-A1: late booking policy (proposed: allowed with a reason).
+  - D-A2: destinations beyond company places / office.
+  - D-A3 = L7: personal point without consent.
+  - D-A4: `BOOKING_CREATED` notification yes / no.
+
+### Tests and acceptance criteria
+
+| # | Acceptance criterion | Test |
+|---|---|---|
+| T1 | A dispatcher books a passenger with no schedule: company-place pickup, office destination, date, shift → `PENDING_ASSIGNMENT`. With "needs approval" → `REQUESTED` | API unit + DB test; Playwright dialog |
+| T2 | A map-pin pickup is stored only under the D-A3 rule; without consent it is refused or held as "needs location", never silently stored | DB test |
+| T3 | Ineligible requests are refused with `NOT_ELIGIBLE` (wrong office, door pickup for a shuttle-only passenger, inactive passenger, other branch → 404) | API unit + isolation matrix |
+| T4 | After the cut-off: refused without a reason; with a reason, created and flagged `afterCutoff`, audited. Self-booking still refused | DB test |
+| T5 | Manual dispatch: put the booking on a vehicle + driver; capacity, seats, overlap and consent checks refuse with their codes; publish creates `PlannedTrip` + `TransportTrip` + passenger atomically | Existing E3 gate extended with an ad-hoc case |
+| T6 | Double submit of the booking → 1 booking; second booking same passenger / date / direction → `BOOKING_DUPLICATE`; same change set twice → 1 trip; a booking in an E4 draft and dispatched manually → plan publish `INVALID_STATE`, no second seat | DB tests (concurrent) |
+| T7 | E4: an eligible ad-hoc booking appears in a new draft; one with another office or shift is listed in `skippedBookings` with a reason | DB test (routing on in test only) |
+| T8 | Lifecycle: under `sim:route` the trip runs; driver start / pickup / drop work; the passenger sees the trip, the vehicle only inside the window, and the ETA; `TRIP_ASSIGNED` reaches the passenger | E3 gate `--http` + driver / passenger bots |
+| T9 | Isolation: other company → 404; other branch dispatcher can't see or book; provider dispatcher only through an agreement with the dispatch grant | Isolation matrix rows for every new / changed route |
+| T10 | Web: create, edit, set location, late reason at 390 / 1280 px; no external map hosts | Playwright + `check-no-external-maps` |
+| T11 | Mobile: ad-hoc booking labels in passenger Bookings / Trips; driver trip unchanged | jest-expo component tests; device test once the build exists |
+
+Exit: T1–T11 pass, independent QA and security review pass, owner decisions D-A1..D-A4 recorded. Release as v1.15.0
+through the normal release procedure (no production change until then).
 
 ## Phase log
 
@@ -113,3 +227,47 @@ procedure (release branch → tag → main).
   - Post-deploy: 0 pending migrations; no errors in API / notifier logs; driver, passenger and transport routes 401 without a token; relay running (`vt:etms:notify:hwm` advancing, lag 5 min as designed).
   - `main` fast-forwarded to 2589b58.
   - Open: mobile native build (screenshot blocking, passenger/driver shells) needs owner approval for EAS + the O12 `eas.json` URL change; device / Maestro tests; Expo web route/session gaps (web only); I1 stray test PDF; I2 bookings stay ASSIGNED after trip completion (blocks erasure until the window ends).
+- **2026-11-11 19:46 UTC · v1.13.0 = E4 deployed, route optimisation OFF (d848537, tag v1.13.0).**
+  - Built by 7 parallel agents: E4-A contracts + schema (P4/P6), E4-B matrix (P7), E4-C solver v2 + corpus (WP 4.3/4.4), E4-D P1 evidence + P2 + salvage, E4-E worker/jobs (P8), E4-F plans + publish via E3 (P9), E4-G web planner (P10). P0: bundle of the old routing branches at `D:\Vibhav\routing-branch-bundle\` (owner to copy off-disk).
+  - Reviews:
+    - Security PASS WITH CONDITIONS (M1 deadlock, L1–L9) → fixes → re-check (R1–R4) → fixes → delta PASS; D1 fixed by the Lead with a failing-first DB test.
+    - QA FAIL on the web planner (B1–B3, mock hid request mismatches) → fixes + DTO contract tests → re-check PASS WITH ISSUES → closed.
+  - Final checks on d848537 / 48200ee:
+    - API 4,390, DB suites under the CI regex 83/83, `migrate diff` empty.
+    - E3 gate `--http` 2,648 / 0 failed.
+    - Web 312, mobile 52, optimiser 103 + corpus 36/36.
+    - Real-process E2E 100/102 (remaining 2 closed), web Playwright against the real API optimise → review → publish at 390/1280 px.
+  - Before deploy: backup 19:43 UTC (ok); `.env` saved to `/root/api.env.before-v1.13.0`; TransportTrip had 0 rows.
+  - Release: migrations `routing_engine_v2`, `etms_planning_links`, `e4_security_hardening` applied; health gate PASS 11/11.
+  - Post-deploy:
+    - 0 pending migrations; 3 E4 triggers present.
+    - API now binds 127.0.0.1:4000 only (unreachable from outside; Caddy unaffected).
+    - Plan / job / capabilities routes 401 without a token; routing worker inactive.
+    - Gateway restarted clean, 0 spooled positions, tracker reconnected. The "cache connection lost" line came from the old process during shutdown.
+  - `main` fast-forwarded to d848537.
+  - **Before enabling `ETMS_ROUTING` in production:**
+    - C3 staging benchmarks B1–B6 and the GraphHopper load test with tracking traffic (R-5).
+    - Python 3.14 + the optimiser venv on the host (R-9).
+    - Installer run to add the two hardened units.
+    - Owner review of the R2 schema decisions.
+    - An escort field in the data model if escort rules are wanted.
+- **2026-11-12 11:46 UTC · v1.13.1 deployed (175f78f, tag v1.13.1), routing still OFF.**
+  - E4 E2E fixes plus owner decisions 1 (max ride), 2 (75-booking limit), 3 (pin = vehicle) and 5 (publish gate). Decision 4: no optimisation benchmarks or load tests against production GraphHopper; all go to C3.
+  - Backup db-20261112T114303Z; `.env.pre-v1.13.1` saved; health gate PASS. `main` = ed2b101 (merge commit).
+- **2026-11-12 14:08 UTC · v1.14.0 deployed (586f199, tag v1.14.0 = main), routing still OFF.**
+  - Contents: E5 SOS (WP 5.4), passenger self-booking (WP 5.3), sim tooling + D1 settle grace (WP 5.5), E1b provider UI, plus the security, QA and delta review fixes.
+  - Migrations `20261120090000_etms_incidents` and `20261120100000_etms_fleet_allocation` applied. Backup db-20261112T140359Z; `.env.pre-v1.14.0` saved. Rollback to v1.13.1 tested OK with the new tables present.
+  - Tests at release: API 4,958; DB 22 suites 151/151; `migrate diff` empty; web 371 + build; mobile 90 + 14.
+  - Production smoke on the synthetic company "VeeTrax ETMS Test (internal)": logins, self-booking, SOS → lane → acknowledge → resolve.
+  - Not in this release: `etms/e4-gates` (5e1bc99).
+  - Open owner items:
+    - SOS visibility (L3).
+    - Transport admin can't create driver logins (D2).
+    - Overlap rule per agreement (E1b).
+    - Driver list after auto-close (L4).
+    - Privacy L5 / L7 / consent withdrawal.
+    - EAS / O12 build and devices.
+    - C3 purchase.
+    - Python 3.14 on production.
+    - E4 L4 / L5.
+- **2026-11-12 · Ad-hoc trip creation recorded as an outstanding R1 requirement (E3 WP 3.9).** Inspection of v1.14.0 found gaps A1–A9; plan, dependencies and acceptance T1–T11 are in the section above. Assessment only: no code or production change. Target v1.15.0.
