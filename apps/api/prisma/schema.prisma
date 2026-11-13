@@ -3173,6 +3173,12 @@ enum TransportBookingSource {
   SCHEDULE
 }
 
+/// ETMS WP 3.9 (D-A2): COMMUTE has one office end; POINT_TO_POINT has none.
+enum TransportBookingJourney {
+  COMMUTE
+  POINT_TO_POINT
+}
+
 /// Booking lifecycle (doc 05 §3, 02 §5.2); VALIDATING is transient and never stored.
 enum TransportBookingStatus {
   REQUESTED
@@ -3294,16 +3300,18 @@ model TransportScheduleException {
 /// pairs, ASSIGNED / CONFIRMED need both points, SCHEDULE-only scheduleId; partial unique (profileId, serviceDate,
 /// direction) over active statuses (no double booking).
 model TransportBooking {
-  id                String                 @id @default(uuid()) @db.Uuid
-  customerCompanyId String                 @db.Uuid
+  id                String                  @id @default(uuid()) @db.Uuid
+  customerCompanyId String                  @db.Uuid
   /// Null until assignment; = customer in R1 (corporate-managed).
-  providerCompanyId String?                @db.Uuid
-  agreementId       String?                @db.Uuid
-  profileId         String                 @db.Uuid
-  scheduleId        String?                @db.Uuid
-  shiftId           String?                @db.Uuid
+  providerCompanyId String?                 @db.Uuid
+  agreementId       String?                 @db.Uuid
+  profileId         String                  @db.Uuid
+  scheduleId        String?                 @db.Uuid
+  shiftId           String?                 @db.Uuid
   source            TransportBookingSource
-  serviceDate       DateTime               @db.Date
+  /// WP 3.9: COMMUTE (default) or POINT_TO_POINT. Unique active per passenger/date/direction applies to COMMUTE only (partial index in SQL).
+  journey           TransportBookingJourney @default(COMMUTE)
+  serviceDate       DateTime                @db.Date
   direction         TransportDirection
   /// Snapshot of the shift / company zone.
   timeZone          String
@@ -3314,21 +3322,23 @@ model TransportBooking {
   pickupLng         Float?
   dropLat           Float?
   dropLng           Float?
-  pickupPoiId       String?                @db.Uuid
-  dropPoiId         String?                @db.Uuid
-  windowStart       DateTime               @db.Timestamptz(3)
-  windowEnd         DateTime               @db.Timestamptz(3)
-  passengerCount    Int                    @default(1)
-  status            TransportBookingStatus @default(REQUESTED)
+  pickupPoiId       String?                 @db.Uuid
+  dropPoiId         String?                 @db.Uuid
+  windowStart       DateTime                @db.Timestamptz(3)
+  windowEnd         DateTime                @db.Timestamptz(3)
+  passengerCount    Int                     @default(1)
+  status            TransportBookingStatus  @default(REQUESTED)
   statusReason      String?
-  cutoffAt          DateTime?              @db.Timestamptz(3)
-  version           Int                    @default(1)
+  cutoffAt          DateTime?               @db.Timestamptz(3)
+  version           Int                     @default(1)
   idempotencyKey    String?
   idempotencyHash   String?
   note              String?
-  createdById       String?                @db.Uuid
-  createdAt         DateTime               @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime               @updatedAt @db.Timestamptz(3)
+  /// WP 3.9 (D-A1): dispatcher reason for a booking created / edited after its cut-off.
+  lateReason        String?
+  createdById       String?                 @db.Uuid
+  createdAt         DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime                @updatedAt @db.Timestamptz(3)
 
   customer       Company                    @relation("TransportBookingCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
   provider       Company?                   @relation("TransportBookingProvider", fields: [providerCompanyId], references: [id], onDelete: SetNull)
