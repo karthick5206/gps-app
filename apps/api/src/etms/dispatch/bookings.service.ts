@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import {
+  GEOCODE_LIMITS,
   TRANSPORT_ADHOC_LIMITS,
   TRANSPORT_E3_LIMITS,
   bookingTransition,
@@ -211,7 +212,7 @@ export class BookingsService {
     // L6: bulk approve runs up to maxBulk transactions per request.
     this.bulkLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:booking-bulk', TRANSPORT_E3_LIMITS.bulkApprovesPerMinute, 60_000);
     // v1.15 M2: the desk address search has the passenger route's limit (self-hosted Photon is not for bulk lookups).
-    this.geocodeLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:desk-geocode', TRANSPORT_ADHOC_LIMITS.geocodePerMinute, 60_000);
+    this.geocodeLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:desk-geocode', GEOCODE_LIMITS.perUserPerMinute, 60_000);
   }
 
   // ───────────────────────────── reads ─────────────────────────────

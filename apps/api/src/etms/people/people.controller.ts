@@ -67,8 +67,8 @@ export class PassengersController {
   }
 
   @Get('geocode') @RequireAnyPermission(['etms_passengers', 'create'], ['etms_passengers', 'edit'])
-  geocode(@Query() query: GeocodeQuery): Promise<GeocodeCandidate[]> {
-    return this.people.geocode(query.q);
+  geocode(@Auth() ctx: AuthContext, @Query() query: GeocodeQuery): Promise<GeocodeCandidate[]> {
+    return this.people.geocodeForEditor(ctx, query.q);
   }
 
   /** Dry run: validation report, nothing written. */

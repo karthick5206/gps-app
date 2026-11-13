@@ -1,9 +1,11 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   ERASED_PASSENGER_NAME,
   ETMS_PASSENGER_ROLE_NAME,
   PLANNED_TRIPS_INVALIDATE_REASON,
+  GEOCODE_LIMITS,
+  TRANSPORT_ADHOC_LIMITS,
   ROUTING_CONSENT_PURPOSE,
   currentConsents,
   normaliseEmail,
@@ -35,6 +37,7 @@ import { RedisService } from '../../redis/redis.service';
 import { applyRoutingConsentWithdrawal } from '../dispatch/consent-withdrawal';
 import { assertNoOpenBookings, eraseTransportData } from '../dispatch/erasure';
 import { RedisKeys } from '../../redis/keys';
+import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
 import { ConsentNoticeService } from './consent-notice.service';
 import {
   LOGIN_USER_INCLUDE,
@@ -187,7 +190,12 @@ export class PeopleService {
     private readonly redis: RedisService,
     private readonly geocoding: GeocodingService,
     private readonly notices: ConsentNoticeService,
-  ) {}
+  ) {
+    this.editorGeocodeLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:passenger-geocode', GEOCODE_LIMITS.perUserPerMinute, 60_000);
+  }
+
+  /** v1.15.1: per-user window of the passenger-editor geocode (same budget as the booking / self-service geocode). */
+  private readonly editorGeocodeLimiter: FixedWindowLimiter;
 
   // ───────────────────────────── reads ─────────────────────────────
 
@@ -309,6 +317,21 @@ export class PeopleService {
   }
 
   /** Photon candidates for an address (self-hosted only; [] when no geocoder is configured). */
+  /**
+   * GET /transport/passengers/geocode (E2 passenger editor; v1.15.1, same rule as v1.15 M2 on the booking geocode): at
+   * least geocodeMinChars characters (400 VALIDATION_FAILED), geocodePerMinute searches per user (429 RATE_LIMITED with
+   * retryAfterSec), then the self-hosted geocoder.
+   */
+  async geocodeForEditor(ctx: AuthContext, q: string | undefined): Promise<GeocodeCandidate[]> {
+    const term = (q ?? '').trim();
+    const min = TRANSPORT_ADHOC_LIMITS.geocodeMinChars;
+    if (term.length < min) throw new BadRequestException({ message: `Type at least ${min} characters`, code: 'VALIDATION_FAILED' });
+    const rl = await this.editorGeocodeLimiter.hit(ctx.userId);
+    if (!rl.allowed) throw new HttpException({ message: `Too many searches; try again in ${rl.retryAfterSec} s`, code: 'RATE_LIMITED', retryAfterSec: rl.retryAfterSec }, HttpStatus.TOO_MANY_REQUESTS);
+    return this.geocode(term);
+  }
+
+  /** Internal geocoder call (passenger import, the booking geocode after its own checks). */
   async geocode(q: string): Promise<GeocodeCandidate[]> {
     assertPrivateGeocoder();
     return this.geocoding.search(q.slice(0, 120));

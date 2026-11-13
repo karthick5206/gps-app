@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import type { PassengerDto } from '@veetracer/shared';
+import { GEOCODE_LIMITS, type PassengerDto } from '@veetracer/shared';
 import type { AuthContext, TransportAgreementScope } from '../../access/auth-context';
 import { diffSnapshots } from '../../audit/audit.service';
 import { ConsentNoticeService } from './consent-notice.service';
@@ -534,6 +534,18 @@ describe('passengers: create / update validation', () => {
     const none = await w.svc.create(adminA, { employeeCode: 'G2', displayName: 'G', home: { address: 'Unknown place', geocode: true } });
     expect(none).toMatchObject({ hasHomeLocation: false, needsLocation: true, home: { lat: null, source: null } });
     expect((await list(w.svc, adminA, { needsLocation: 'true' })).items.map((i) => i.employeeCode)).toEqual(['G2']);
+  });
+
+  it('v1.15.1: the passenger-editor geocode (GET /transport/passengers/geocode) needs 3 characters and allows GEOCODE_LIMITS.perUserPerMinute (60) searches per user per minute', async () => {
+    const w = world();
+    await expect(w.svc.geocodeForEditor(adminA, ' ab ')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(w.svc.geocodeForEditor(adminA, undefined)).rejects.toBeInstanceOf(BadRequestException);
+    for (let i = 0; i < GEOCODE_LIMITS.perUserPerMinute; i++) expect(await w.svc.geocodeForEditor(adminA, '1 Known Road')).toHaveLength(1);
+    const refused = await w.svc.geocodeForEditor(adminA, '1 Known Road').catch((e: unknown) => e);
+    expect((refused as { getStatus(): number }).getStatus()).toBe(429);
+    expect((refused as { getResponse(): object }).getResponse()).toMatchObject({ code: 'RATE_LIMITED', retryAfterSec: expect.any(Number) });
+    // Per user: another dispatcher still gets results.
+    expect(await w.svc.geocodeForEditor(dispatcherA, '1 Known Road')).toHaveLength(1);
   });
 
   it('archive keeps the row (isActive false) and disables the passenger login', async () => {

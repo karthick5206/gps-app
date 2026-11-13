@@ -7,6 +7,7 @@ import {
   confirmMismatch,
   normalisePhone,
   phoneCountryForTimezone,
+  GEOCODE_LIMITS,
   TRANSPORT_ADHOC_LIMITS as AL,
   type MeGeocodeHitDto,
   type MeHomeLocationResult,
@@ -99,7 +100,7 @@ export class SelfServiceService {
     @Optional() redis?: RedisService,
   ) {
     // D-A9: address search per passenger (in-process window when Valkey is not injected / unreachable).
-    this.geocodeLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:me-geocode', AL.geocodePerMinute, 60_000);
+    this.geocodeLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:me-geocode', GEOCODE_LIMITS.perUserPerMinute, 60_000);
   }
 
   private readonly geocodeLimiter: FixedWindowLimiter;
@@ -212,7 +213,7 @@ export class SelfServiceService {
     return { profile: await this.profile(ctx), openBookingsKept };
   }
 
-  /** GET /me/transport/geocode?q=: self-hosted Photon only (503 GEOCODER_NOT_PRIVATE otherwise), ≤ 6 hits, 20 / min per user. */
+  /** GET /me/transport/geocode?q=: self-hosted Photon only (503 GEOCODER_NOT_PRIVATE otherwise), ≤ 6 hits, GEOCODE_LIMITS.perUserPerMinute per user. */
   async geocode(ctx: AuthContext, q: string | undefined): Promise<MeGeocodeHitDto[]> {
     await this.people.myProfileRow(ctx);
     const term = (q ?? '').trim();

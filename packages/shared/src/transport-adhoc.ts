@@ -17,6 +17,23 @@
  */
 import type { GeoPoint, TransportBookingDto, TransportBookingJourney, TransportDirection } from './transport-trips';
 
+/**
+ * v1.15.1 type-ahead address search (owner, 2026-11-12): the apps debounce ~350 ms and search from 3 characters, so
+ * every geocode route (GET /transport/bookings/geocode, /me/transport/geocode, /transport/passengers/geocode) allows
+ * perUserPerMinute searches per user (429 RATE_LIMITED with retryAfterSec beyond), and the API keeps a small in-memory
+ * cache (normalised query + near-point bucket → hits) so repeated prefixes do not reach Photon again.
+ */
+export const GEOCODE_LIMITS = {
+  perUserPerMinute: 60,
+  minChars: 3,
+  maxHits: 6,
+  /** Cache entry lifetime. */
+  cacheTtlMs: 10 * 60_000,
+  /** Cache size cap per API process (oldest entry evicted first). */
+  cacheMaxEntries: 2000,
+  /** Near-point bucket: bias coordinates rounded to this many decimals (1 ≈ 11 km). */
+  cacheNearDecimals: 1,
+} as const;
 export const TRANSPORT_ADHOC_LIMITS = {
   /** Passengers per group booking (2..groupMax). */
   groupMin: 2,
@@ -29,10 +46,10 @@ export const TRANSPORT_ADHOC_LIMITS = {
   contactRelationMax: 40,
   accessibilityNotesMax: 500,
   homeAddressMax: 200,
-  /** GET /me/transport/geocode: searches per passenger per minute (429 RATE_LIMITED beyond). */
-  geocodePerMinute: 20,
-  geocodeMinChars: 3,
-  geocodeMaxHits: 6,
+  /** Geocode routes: searches per user per minute (429 RATE_LIMITED beyond); GEOCODE_LIMITS (v1.15.1 type-ahead). */
+  geocodePerMinute: GEOCODE_LIMITS.perUserPerMinute,
+  geocodeMinChars: GEOCODE_LIMITS.minChars,
+  geocodeMaxHits: GEOCODE_LIMITS.maxHits,
   /**
    * v1.15 L3: open self-service bookings per passenger (REQUESTED / PENDING_ASSIGNMENT / WAITLISTED, window not yet
    * ended, made with the passenger's own login); one more is 409 TOO_MANY_OPEN_REQUESTS. Desk bookings do not count.

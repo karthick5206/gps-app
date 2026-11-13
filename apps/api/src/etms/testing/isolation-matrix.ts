@@ -308,7 +308,7 @@ function E2_MATRIX(): MatrixEntry[] {
   return [
     // ── Passengers: reads ──
     { route: 'GET transport/passengers', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.list(ctx, {}, REASON), expect: { none: P_LIST }, verify: verifyList },
-    { route: 'GET transport/passengers/geocode', resource: P, state: 'ACTIVE', invoke: (c) => c.passengers.geocode({ q: '5 Main Road' }), expect: { none: P_GEOCODE }, verify: verifyGeocode },
+    { route: 'GET transport/passengers/geocode', resource: P, state: 'ACTIVE', invoke: (c, ctx) => c.passengers.geocode(ctx, { q: '5 Main Road' }), expect: { none: P_GEOCODE }, verify: verifyGeocode },
     { route: 'GET transport/passengers/:id', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.get(ctx, t.id, REASON), expect: { party: P_READ, other: P_OTHER }, verify: verifyDetail },
     { route: 'GET transport/passengers/:id/history', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.history(ctx, t.id, REASON), expect: { party: P_READ, other: P_OTHER }, verify: verifyHistory },
     { route: 'GET transport/passengers/:id/consents', resource: P, state: 'ACTIVE', invoke: (c, ctx, t) => c.passengers.consents(ctx, t.id, REASON), expect: { party: P_FULL_ONLY, other: P_OTHER }, verify: verifyConsents },
