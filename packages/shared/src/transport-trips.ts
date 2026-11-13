@@ -32,6 +32,37 @@ export const TRANSPORT_BOOKING_SOURCES = ['ADHOC', 'SCHEDULE'] as const;
 export type TransportBookingSource = (typeof TRANSPORT_BOOKING_SOURCES)[number];
 
 /**
+ * WP 3.9 (D-A2): the shape of a booking's journey. COMMUTE: one end is an office (the shift's site, a company place or a
+ * one-time point), `direction` IN / OUT says which; at most one active COMMUTE booking per passenger, date and direction
+ * (DB partial unique index, 409 BOOKING_DUPLICATE). POINT_TO_POINT: any pickup to any destination, no office end; both
+ * points and the time window are required, the shift is optional, `direction` is stored as IN (pickups before drops on
+ * the trip); an active POINT_TO_POINT booking may not overlap another active booking of the same passenger in time
+ * (409 BOOKING_OVERLAP). Schedules always generate COMMUTE.
+ */
+export const TRANSPORT_BOOKING_JOURNEYS = ['COMMUTE', 'POINT_TO_POINT'] as const;
+export type TransportBookingJourney = (typeof TRANSPORT_BOOKING_JOURNEYS)[number];
+
+/**
+ * WP 3.9 error codes of booking create / edit (besides the E3 ones: BOOKING_DUPLICATE, AFTER_CUTOFF, VALIDATION_FAILED,
+ * VERSION_CONFLICT, INVALID_STATE, RATE_LIMITED, IDEMPOTENCY_KEY_REUSED):
+ *   LATE_REASON_REQUIRED (409) — after the cut-off a dispatcher must give `lateReason` (≥ lateReasonMin chars, trimmed);
+ *   NOT_ELIGIBLE (422)         — the shared eligibility rule failed; body `{ code, message, reason: TransportIneligibleReason }`;
+ *   CONSENT_REQUIRED (409)     — a personal point (any point that is not a company place) without an active routing consent;
+ *   BOOKING_OVERLAP (409)      — POINT_TO_POINT overlapping another active booking of the passenger; body `{ bookingId }`.
+ */
+export const TRANSPORT_INELIGIBLE_REASONS = ['PASSENGER_INACTIVE', 'PASSENGER_ANONYMISED', 'SHIFT_INACTIVE', 'SHIFT_NOT_RUNNING', 'PLACE_NOT_ALLOWED', 'SEATS_NOT_ALLOWED'] as const;
+export type TransportIneligibleReason = (typeof TRANSPORT_INELIGIBLE_REASONS)[number];
+
+/** A company place a booking may use as pickup / destination (GET /api/transport/bookings/places?q=): active Pois of the customer company. */
+export interface TransportPlaceOptionDto {
+  id: string;
+  name: string;
+  category: string | null;
+  lat: number;
+  lng: number;
+}
+
+/**
  * Booking lifecycle (05 §3, 02 §5.2). REQUESTED (held for approval) → PENDING_ASSIGNMENT (approved, waiting for a
  * seat) → ASSIGNED (seated on a published trip) → CONFIRMED. Terminal: REJECTED, CANCELLED, EXPIRED (window passed
  * unassigned), FAILED (reserved). WAITLISTED is reserved for capacity policies (E6) and approvable like REQUESTED.
@@ -113,6 +144,9 @@ export const TRANSPORT_E3_LIMITS = {
   outWindowMin: 90,
   /** Ad-hoc booking service date at most this many days ahead. */
   adhocMaxDaysAhead: 60,
+  /** WP 3.9 (D-A1): minimum trimmed length of a dispatcher's late-booking reason. */
+  lateReasonMin: 10,
+  lateReasonMax: 300,
   maxPassengerCount: 6,
   noteMax: 500,
   reasonMax: 300,
@@ -394,6 +428,12 @@ export interface TransportBookingDto {
   windowEnd: string;
   passengerCount: number;
   cutoffAt: string | null;
+  /** WP 3.9: COMMUTE or POINT_TO_POINT. */
+  journey: TransportBookingJourney;
+  /** WP 3.9 (D-A1): created (or last edited) after its cut-off by a dispatcher with a reason. */
+  afterCutoff: boolean;
+  /** The dispatcher's late reason; null when not late. Shown to transport roles only (never to the passenger). */
+  lateReason: string | null;
   /** The trip / seat when ASSIGNED or CONFIRMED (or the last one it was on). */
   tripId: string | null;
   passengerTripId: string | null;
@@ -406,15 +446,24 @@ export interface TransportBookingDto {
 }
 
 /**
- * POST /api/transport/bookings (header Idempotency-Key, required). Ad-hoc booking on behalf of a passenger. Without
- * `pickup` / `drop` the passenger's routing pickup (only with an active TRANSPORT_PROFILE consent) and the shift's site
- * are used; without `windowStart` / `windowEnd` the shift's login / logout defines the window. `hold` = needs approval
- * (REQUESTED); otherwise the booking is PENDING_ASSIGNMENT at once.
+ * POST /api/transport/bookings (header Idempotency-Key, required). Ad-hoc booking on behalf of a passenger, no schedule
+ * needed. COMMUTE (default): without `pickup` / `drop` the passenger's routing pickup (only with an active
+ * TRANSPORT_PROFILE consent, else "needs location" and nothing stored) and the shift's site are used; without
+ * `windowStart` / `windowEnd` the shift's login / logout defines the window, so either a shift or a window is required.
+ * POINT_TO_POINT: `pickup`, `drop`, `windowStart`, `windowEnd` required; `direction` and `shiftId` optional.
+ * A point is a company place (`poiId`, coordinates taken from the place) or a one-time map point (lat / lng + label):
+ * a one-time point is personal data and needs the passenger's active consent (409 CONSENT_REQUIRED, D-A3), on this
+ * and the passenger path alike. `hold` = needs approval (REQUESTED); otherwise PENDING_ASSIGNMENT at once.
+ * After the cut-off (window start − company cut-off) the request needs `lateReason` (409 LATE_REASON_REQUIRED, D-A1);
+ * the audit records cutoffAt, the creation time, the dispatcher and the reason. The passenger is notified
+ * (BOOKING_CREATED, generic push, D-A4) when someone else books for them.
  */
 export interface CreateTransportBookingInput {
   passengerId: string;
   serviceDate: string;
-  direction: TransportDirection;
+  /** Required for COMMUTE; ignored for POINT_TO_POINT (stored as IN). */
+  direction?: TransportDirection;
+  journey?: TransportBookingJourney;
   shiftId?: string | null;
   pickup?: GeoPoint | null;
   drop?: GeoPoint | null;
@@ -423,9 +472,16 @@ export interface CreateTransportBookingInput {
   passengerCount?: number;
   note?: string | null;
   hold?: boolean;
+  lateReason?: string;
 }
 
-/** PATCH /api/transport/bookings/:id — before the cut-off, while not on a trip (409 AFTER_CUTOFF / INVALID_STATE). */
+/**
+ * PATCH /api/transport/bookings/:id — while REQUESTED / PENDING_ASSIGNMENT / WAITLISTED (409 INVALID_STATE otherwise),
+ * same point / consent / eligibility rules as create; `pickup` / `drop` set a missing location too. After the cut-off a
+ * dispatcher needs `lateReason` (409 LATE_REASON_REQUIRED); the passenger path stays refused (409 AFTER_CUTOFF).
+ * An edit never creates a trip or a seat; a plan that still holds the booking's old points refuses to publish it
+ * (PLAN_NOT_PUBLISHABLE, issue BOOKING_CHANGED) until it is re-optimised or the stop removed.
+ */
 export interface UpdateTransportBookingInput {
   expectedVersion: number;
   pickup?: GeoPoint | null;
@@ -434,6 +490,7 @@ export interface UpdateTransportBookingInput {
   windowEnd?: string;
   passengerCount?: number;
   note?: string | null;
+  lateReason?: string;
 }
 
 /** Body of approve / reject / cancel. `reason` is required for reject and cancel. */
@@ -471,6 +528,9 @@ export interface TransportBookingListQuery {
   source?: TransportBookingSource;
   /** 'true' = only bookings waiting for a seat (REQUESTED / PENDING_ASSIGNMENT / WAITLISTED). */
   unassigned?: 'true' | 'false';
+  /** WP 3.9 filters. */
+  journey?: TransportBookingJourney;
+  afterCutoff?: 'true' | 'false';
 }
 
 // ───────────────────────────── Dispatch ─────────────────────────────
@@ -915,6 +975,10 @@ export interface MeBookingDto {
    * starts). The server re-checks it on cancel (409 AFTER_CUTOFF).
    */
   cutoffAt: string | null;
+  /** WP 3.9: COMMUTE or POINT_TO_POINT. */
+  journey: TransportBookingJourney;
+  /** WP 3.9: made for the passenger by the transport desk (not by the passenger). */
+  arrangedByDesk: boolean;
 }
 
 export interface MeTransportRangeQuery {

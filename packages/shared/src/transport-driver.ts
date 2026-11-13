@@ -467,12 +467,14 @@ export const TRANSPORT_NOTIFICATION_KINDS = [
   'TRIP_STARTING_SOON',
   'VEHICLE_APPROACHING',
   'TRIP_DELAYED',
+  /** WP 3.9 (D-A4): the transport desk booked a ride for the passenger. Push data `{ kind, bookingId, notificationId }` (tripId null). */
+  'BOOKING_CREATED',
 ] as const;
 export type TransportNotificationKind = (typeof TRANSPORT_NOTIFICATION_KINDS)[number];
 export type TransportNotificationAudience = 'DRIVER' | 'PASSENGER';
 
 export const DRIVER_NOTIFICATION_KINDS: readonly TransportNotificationKind[] = ['TRIP_ASSIGNED', 'TRIP_CHANGED', 'TRIP_UNASSIGNED', 'TRIP_CANCELLED'];
-export const PASSENGER_NOTIFICATION_KINDS: readonly TransportNotificationKind[] = ['TRIP_STARTING_SOON', 'VEHICLE_APPROACHING', 'TRIP_DELAYED', 'TRIP_CANCELLED'];
+export const PASSENGER_NOTIFICATION_KINDS: readonly TransportNotificationKind[] = ['TRIP_STARTING_SOON', 'VEHICLE_APPROACHING', 'TRIP_DELAYED', 'TRIP_CANCELLED', 'BOOKING_CREATED'];
 
 /** Generic push / inbox text (English; apps localize by `kind`). Never interpolated with trip data. */
 export const TRANSPORT_NOTIFICATION_TEXT: Record<TransportNotificationKind, { title: string; body: string }> = {
@@ -483,6 +485,7 @@ export const TRANSPORT_NOTIFICATION_TEXT: Record<TransportNotificationKind, { ti
   TRIP_STARTING_SOON: { title: 'Your trip starts soon', body: 'Your cab trip starts soon. Open the app for details.' },
   VEHICLE_APPROACHING: { title: 'Your cab is arriving', body: 'Your cab is approaching your pickup point.' },
   TRIP_DELAYED: { title: 'Trip delayed', body: 'Your cab is running late. Open the app for the latest time.' },
+  BOOKING_CREATED: { title: 'Ride booked for you', body: 'The transport desk booked a ride for you. Open the app for details.' },
 };
 
 /**

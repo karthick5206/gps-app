@@ -185,6 +185,25 @@ export const ROUTE_PLAN_ROUTE_VIOLATIONS = ['VEHICLE_NO_SEATS', 'VEHICLE_DUPLICA
 export const ROUTE_PLAN_EMPTY_REASONS = ['NO_BOOKINGS_FOR_SHIFT', 'NO_BOOKINGS', 'ALL_SKIPPED'] as const;
 export type RoutePlanEmptyReason = (typeof ROUTE_PLAN_EMPTY_REASONS)[number];
 
+/**
+ * Why plan creation left out a booking of the plan's date / direction (WP 3.9: every booking the caller can see that is
+ * waiting for a seat or for approval and was not planned is reported, never silently dropped):
+ *   consent_required / needs_location / out_of_scope — as before;
+ *   other_site — the office end is not the plan's site (assign it on the dispatch board, or plan that site);
+ *   other_shift — the booking carries another shift than the plan's;
+ *   outside_shift_window — a shift-less booking whose window does not overlap the plan shift's leg window;
+ *   point_to_point — POINT_TO_POINT bookings are dispatched manually (the optimiser plans one site per plan);
+ *   needs_approval — REQUESTED / WAITLISTED: approve it first.
+ * A shift-less COMMUTE booking at the plan's site IS planned when the plan has no shift or the booking's window overlaps
+ * the plan shift's leg window.
+ */
+export const ROUTE_PLAN_SKIP_REASONS = ['consent_required', 'needs_location', 'out_of_scope', 'other_site', 'other_shift', 'outside_shift_window', 'point_to_point', 'needs_approval'] as const;
+export type RoutePlanSkipReason = (typeof ROUTE_PLAN_SKIP_REASONS)[number];
+export interface RoutePlanSkippedBooking {
+  bookingId: string;
+  reason: RoutePlanSkipReason;
+}
+
 /** Booking counts of a plan create: found for the scope, put on the plan, skipped (with a reason). */
 export interface RoutePlanCreateCounts {
   found: number;
