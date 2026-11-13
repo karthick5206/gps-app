@@ -15,6 +15,7 @@ import type {
   TransportChangeSetDetailDto,
   TransportChangeSetSummaryDto,
   TransportBookingPolicyDto,
+  TransportGroupBookingResult,
   TransportPlaceOptionDto,
   TransportScheduleDto,
   TransportScheduleExceptionDto,
@@ -40,6 +41,7 @@ import {
   ChangeSetListQuery,
   CreateBookingDto,
   CreateExceptionDto,
+  CreateGroupBookingDto,
   CreateSchedulesDto,
   CreateShiftDto,
   MeRangeQuery,
@@ -163,6 +165,15 @@ export class BookingsController {
   @Post('bulk-approve') @HttpCode(200) @RequirePermission('etms_bookings', 'edit')
   bulkApprove(@Auth() ctx: AuthContext, @Body() dto: BulkApproveDto): Promise<BulkApproveTransportBookingsResult> {
     return this.bookings.bulkApprove(ctx, dto.ids);
+  }
+
+  /**
+   * WP 3.9 wave 2 (D-A8): one booking per passenger (shared groupId / purpose), all or nothing (422 GROUP_INVALID with
+   * failures); Idempotency-Key required, a replay answers the same group. Any passenger out of scope: 404.
+   */
+  @Post('group') @RequirePermission('etms_bookings', 'create')
+  async createGroup(@Auth() ctx: AuthContext, @Body() dto: CreateGroupBookingDto, @Headers('idempotency-key') key: string | undefined, @Res({ passthrough: true }) res?: HeaderSink): Promise<TransportGroupBookingResult> {
+    return replay(res, await this.bookings.createGroup(ctx, dto, key));
   }
 
   /** WP 3.9: the company cut-off and booking limits for the desk's booking form. */

@@ -1054,6 +1054,8 @@ export const TRANSPORT_E3_ERROR_CODES = [
   'LATE_REASON_REQUIRED',
   'NOT_ELIGIBLE',
   'BOOKING_OVERLAP',
+  // WP 3.9 wave 2 (D-A8): a group booking with per-passenger failures (body `failures`, TransportGroupFailure[]).
+  'GROUP_INVALID',
 ] as const;
 export type TransportE3ErrorCode = (typeof TRANSPORT_E3_ERROR_CODES)[number];
 

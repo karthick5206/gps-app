@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import {
   TRANSPORT_ADHOC_LIMITS,
   TRANSPORT_E3_LIMITS,
@@ -13,6 +14,8 @@ import {
   type TransportBookingJourney,
   type TransportDirection,
   type TransportBookingPolicyDto,
+  type TransportGroupBookingResult,
+  type TransportGroupFailure,
   type TransportPlaceOptionDto,
 } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
@@ -22,12 +25,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { addDays } from '../../summarizer/tz';
 import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
-import { TransportNotificationsService } from '../notifications/transport-notifications.service';
+import { TransportNotificationsService, type NotifyItem } from '../notifications/transport-notifications.service';
 import { activeRoutingConsents } from '../people/people.service';
 import { UNSEATED_STATUSES } from './booking-generator.service';
 import {
   ACTIVE_BOOKING_STATUSES,
   assertEligible,
+  ineligibility,
   isLate,
   isOverlapExclusion,
   notEligible,
@@ -58,7 +62,7 @@ import {
   versionConflict,
 } from './e3-common';
 import { BOOKING_INCLUDE, LIST_VIEW, toBookingDto, type BookingRow } from './e3-mapping';
-import { BookingCommandDto, BookingListQuery, CreateBookingDto, UpdateBookingDto } from './e3.dto';
+import { BookingCommandDto, BookingListQuery, CreateBookingDto, CreateGroupBookingDto, UpdateBookingDto } from './e3.dto';
 import { legWindow, todayIn, weekdayOf } from './service-dates';
 import { lockBookings, lockTrips, recordTripEvent, releaseSeat } from './trip-ops';
 
@@ -124,6 +128,10 @@ function checkWindow(start: number, end: number): void {
 function lateAudit(cutoffAt: number, at: Date, userId: string, reason: string, field: 'createdAt' | 'editedAt') {
   return { cutoffAt: new Date(cutoffAt).toISOString(), [field]: at.toISOString(), dispatcherUserId: userId, reason };
 }
+
+/** D-A8: 422 GROUP_INVALID with the per-passenger failures (nothing was written). */
+const groupInvalid = (failures: TransportGroupFailure[]) =>
+  e3Error(HttpStatus.UNPROCESSABLE_ENTITY, 'GROUP_INVALID', 'Some passengers cannot be booked; nothing was booked', { failures });
 
 /** Coded error of a thrown E3 HttpException (null for anything else). */
 const codeOf = (e: unknown): string | null => ((e as { getResponse?: () => unknown })?.getResponse?.() as { code?: string } | undefined)?.code ?? null;
@@ -450,6 +458,223 @@ export class BookingsService {
     if (prior.idempotencyHash !== hash || prior.createdById !== ctx.userId) throw idempotencyReused();
     assertBookingAccess(ctx, prior, 'read');
     return { value: await this.detail(ctx, prior), replay: true };
+  }
+
+  // ───────────────────────────── group booking (WP 3.9 wave 2, D-A8) ─────────────────────────────
+
+  /**
+   * POST /transport/bookings/group: one booking per passenger sharing `groupId` and `purpose`, all or nothing in ONE
+   * transaction. Order: idempotent replay (per-passenger keys `<key>/<passengerId>`, same user + body) → rate limit →
+   * every passenger in the caller's scope (one out of scope: 404 for the whole request) → shared checks (shift, dates,
+   * window, cut-off / late reason) → per-passenger checks collected (NOT_ELIGIBLE, CONSENT_REQUIRED, NEEDS_LOCATION,
+   * BOOKING_DUPLICATE, BOOKING_OVERLAP) → 422 GROUP_INVALID { failures } → in the transaction, under every passenger's
+   * lock (sorted), duplicates / overlaps again (a concurrent booking: GROUP_INVALID, nothing written) → rows + audit +
+   * BOOKING_CREATED per passenger with a login other than the caller (push queued after commit).
+   * Points: COMMON = one company place, or a one-time point that (D-A3) needs each passenger's consent; OWN = each
+   * passenger's routing pickup: their default stop (a company place) or, with consent, their home point.
+   */
+  async createGroup(ctx: AuthContext, dto: CreateGroupBookingDto, rawKey: string | undefined): Promise<Replayable<TransportGroupBookingResult>> {
+    const key = idempotencyKey(rawKey);
+    const ids = dto.passengerIds;
+    if (new Set(ids).size !== ids.length) throw invalid('Each passenger can be in the group only once');
+    if (ids.length < TRANSPORT_ADHOC_LIMITS.groupMin || ids.length > TRANSPORT_ADHOC_LIMITS.groupMax) throw invalid(`A group has ${TRANSPORT_ADHOC_LIMITS.groupMin} to ${TRANSPORT_ADHOC_LIMITS.groupMax} passengers`);
+    const purpose = cleanPurpose(dto.purpose);
+    if (!purpose) throw invalid('Give the purpose of the group ride');
+    const hash = requestHash(dto);
+    const keys = new Map(ids.map((id) => [id, `${key}/${id}`]));
+    const prior = await this.groupReplay(ctx, [...keys.values()], hash);
+    if (prior) return prior;
+    const rl = await this.limiter.hit(ctx.userId);
+    if (!rl.allowed) throw e3Error(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMITED', `Too many bookings; try again in ${rl.retryAfterSec} s`, { retryAfterSec: rl.retryAfterSec });
+
+    // Scope: the whole request is 404 when any passenger is not the caller's to book (no partial answer, no hint which).
+    const profiles = await this.prisma.employeeTransportProfile.findMany({
+      where: { id: { in: ids }, companyId: ctx.companyId },
+      select: { id: true, companyId: true, branchId: true, userId: true, isActive: true, anonymisedAt: true, preferences: true, homeLat: true, homeLng: true, defaultStop: { select: { id: true, name: true, lat: true, lng: true, isActive: true } } },
+    });
+    const byId = new Map(profiles.filter((p) => p.companyId === ctx.companyId && inProfileBranch(ctx, p.branchId)).map((p) => [p.id, p]));
+    if (ids.some((id) => !byId.has(id))) throw notFound('Passenger not found');
+
+    const journey: TransportBookingJourney = dto.journey ?? 'COMMUTE';
+    const day = serviceDate(dto.serviceDate);
+    const shift = dto.shiftId ? await this.prisma.transportShift.findFirst({ where: { id: dto.shiftId, companyId: ctx.companyId }, include: { sitePoi: true } }) : null;
+    if (dto.shiftId && (!shift || shift.companyId !== ctx.companyId)) throw invalid('Unknown shift');
+    let direction: TransportDirection;
+    if (journey === 'POINT_TO_POINT') {
+      if (!dto.windowStart || !dto.windowEnd) throw invalid('A point-to-point booking needs the time window');
+      direction = 'IN';
+    } else {
+      if (!dto.direction) throw invalid('Choose the direction (to or from the office)');
+      direction = dto.direction;
+    }
+    if (dto.pickup.mode === 'COMMON' && !dto.pickup.point) throw invalid('Give the common pickup point');
+    if (dto.pickup.mode === 'OWN' && direction === 'OUT') throw invalid('Own home pickup is for rides to the office or point-to-point rides');
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true, settings: true } });
+    const tz = shift?.timeZone ?? company.timezone;
+    const today = todayIn(tz);
+    if (day < today) throw invalid('The service date is in the past');
+    if (day > addDays(today, TRANSPORT_E3_LIMITS.adhocMaxDaysAhead)) throw invalid(`Book at most ${TRANSPORT_E3_LIMITS.adhocMaxDaysAhead} days ahead`);
+    let start: number;
+    let end: number;
+    if (dto.windowStart || dto.windowEnd) {
+      if (!dto.windowStart || !dto.windowEnd) throw invalid('Give both window start and end');
+      start = parseInstant(dto.windowStart, 'windowStart');
+      end = parseInstant(dto.windowEnd, 'windowEnd');
+    } else {
+      if (!shift) throw invalid('Choose a shift or give the time window');
+      const w = legWindow(shift, direction, day);
+      start = w.start;
+      end = w.end;
+    }
+    checkWindow(start, end);
+    if (end < Date.now()) throw invalid('The window has already passed');
+    const cutoffAt = start - cutoffMinutes(company.settings, TRANSPORT_E3_LIMITS.defaultCutoffMin) * 60_000;
+    const lateReason = isLate(cutoffAt, Date.now()) ? requireLateReason(dto.lateReason) : null;
+
+    // Shared points: a company place is checked once (422 PLACE_NOT_ALLOWED for the request); a one-time point is
+    // validated once and needs each passenger's consent (collected below).
+    const drop = await this.point(ctx, dto.drop, true);
+    const common = dto.pickup.mode === 'COMMON' ? await this.point(ctx, dto.pickup.point!, true) : null;
+    const consents = await activeRoutingConsents(this.prisma, ids);
+
+    const failures: TransportGroupFailure[] = [];
+    const pickups = new Map<string, GeoPoint>();
+    for (const id of ids) {
+      const p = byId.get(id)!;
+      const bad = ineligibility({ profile: { isActive: p.isActive !== false, anonymisedAt: p.anonymisedAt ?? null }, shift: shift ? { isActive: shift.isActive !== false, days: shift.days } : null, weekday: weekdayOf(day), passengerCount: 1 });
+      if (bad) {
+        failures.push({ passengerId: id, code: 'NOT_ELIGIBLE', reason: bad.reason });
+        continue;
+      }
+      const consent = consents.has(id);
+      if ((!drop.poiId || (common && !common.poiId)) && !consent) {
+        failures.push({ passengerId: id, code: 'CONSENT_REQUIRED' });
+        continue;
+      }
+      if (common) pickups.set(id, common);
+      else if (p.defaultStop && p.defaultStop.isActive !== false) pickups.set(id, { lat: p.defaultStop.lat, lng: p.defaultStop.lng, label: p.defaultStop.name, poiId: p.defaultStop.id });
+      else if (!consent) failures.push({ passengerId: id, code: 'CONSENT_REQUIRED' });
+      else if (p.homeLat === null || p.homeLng === null) failures.push({ passengerId: id, code: 'NEEDS_LOCATION' });
+      else pickups.set(id, { lat: p.homeLat, lng: p.homeLng, label: null, poiId: null });
+    }
+    const conflicts = (db: Pick<Prisma.TransactionClient, 'transportBooking'>, only: string[]) => this.groupConflicts(db, only, journey, day, direction, start, end);
+    failures.push(...(await conflicts(this.prisma, ids.filter((id) => !failures.some((f) => f.passengerId === id)))));
+    if (failures.length) throw groupInvalid(failures);
+
+    const groupId = randomUUID();
+    const status = dto.hold ? 'REQUESTED' : 'PENDING_ASSIGNMENT';
+    try {
+      const { rows, push } = await this.prisma.$transaction(async (tx) => {
+        for (const id of [...ids].sort()) await lockPassenger(tx, id);
+        const late = await conflicts(tx, ids);
+        if (late.length) throw groupInvalid(late);
+        const rows: BookingRow[] = [];
+        const notify: NotifyItem[] = [];
+        for (const id of ids) {
+          const p = byId.get(id)!;
+          const pickup = pickups.get(id)!;
+          const created = await tx.transportBooking.create({
+            data: {
+              customerCompanyId: ctx.companyId,
+              profileId: id,
+              shiftId: shift?.id ?? null,
+              source: 'ADHOC',
+              journey,
+              serviceDate: dateOnly(day),
+              direction,
+              timeZone: tz,
+              ...this.columns('pickup', pickup),
+              ...this.columns('drop', drop),
+              windowStart: new Date(start),
+              windowEnd: new Date(end),
+              passengerCount: 1,
+              status,
+              cutoffAt: new Date(cutoffAt),
+              lateReason,
+              groupId,
+              purpose,
+              idempotencyKey: keys.get(id)!,
+              idempotencyHash: hash,
+              note: dto.note?.trim() || null,
+              createdById: ctx.userId,
+            },
+            include: BOOKING_INCLUDE,
+          });
+          rows.push(created);
+          if (p.userId && p.userId !== ctx.userId) {
+            notify.push({ companyId: ctx.companyId, userId: p.userId, audience: 'PASSENGER', kind: 'BOOKING_CREATED', tripId: null, bookingId: created.id, dedupeKey: `bkc:${created.id}:${p.userId}`, push: passengerPushAllowed(p.preferences, 'BOOKING_CREATED') });
+          }
+        }
+        const notified = await this.notifications.write(tx, notify);
+        // Fresh booking ids: every dedupe key is new, so each item is written.
+        const notifiedBookings = new Set(notify.map((n) => n.bookingId));
+        for (const created of rows) {
+          await this.audit.record(
+            ctx,
+            {
+              action: 'CREATE',
+              entity: BOOKING_ENTITY,
+              entityId: created.id,
+              after: {
+                ...bookingSnapshot(created),
+                actor: 'DESK',
+                groupSize: ids.length,
+                ...(lateReason ? { late: lateAudit(cutoffAt, created.createdAt, ctx.userId, lateReason, 'createdAt') } : {}),
+                ...(notifiedBookings.has(created.id) ? { passengerNotified: 'BOOKING_CREATED' } : {}),
+              },
+            },
+            tx,
+          );
+        }
+        return { rows, push: notified.push };
+      });
+      await this.notifications.enqueue(push);
+      return { value: { groupId, bookings: await Promise.all(rows.map((r) => this.detail(ctx, r))) }, replay: false };
+    } catch (e) {
+      if (isUniqueViolation(e, 'idempotencyKey')) {
+        // A concurrent twin with the same key committed first: answer as its replay.
+        const twin = await this.groupReplay(ctx, [...keys.values()], hash);
+        if (twin) return twin;
+        throw idempotencyReused();
+      }
+      if (isUniqueViolation(e) || isOverlapExclusion(e)) {
+        // A concurrent single booking won a passenger's slot after our checks: say who, nothing was written.
+        const twin = await this.groupReplay(ctx, [...keys.values()], hash);
+        if (twin) return twin;
+        const now = await conflicts(this.prisma, ids);
+        throw groupInvalid(now.length ? now : ids.map((passengerId) => ({ passengerId, code: 'BOOKING_DUPLICATE' })));
+      }
+      throw e;
+    }
+  }
+
+  /** The committed group of these per-passenger keys (same user + body), else null; a mismatch is 422 IDEMPOTENCY_KEY_REUSED. */
+  private async groupReplay(ctx: AuthContext, keys: string[], hash: string): Promise<Replayable<TransportGroupBookingResult> | null> {
+    const found = await this.prisma.transportBooking.findMany({ where: { customerCompanyId: ctx.companyId, idempotencyKey: { in: keys } }, include: BOOKING_INCLUDE });
+    if (!found.length) return null;
+    const groupId = found[0].groupId;
+    if (!groupId || found.length !== keys.length || found.some((b) => b.idempotencyHash !== hash || b.createdById !== ctx.userId || b.groupId !== groupId)) throw idempotencyReused();
+    for (const b of found) assertBookingAccess(ctx, b, 'read');
+    const order = new Map(keys.map((k, i) => [k, i]));
+    const rows = [...found].sort((a, b) => (order.get(a.idempotencyKey ?? '') ?? 0) - (order.get(b.idempotencyKey ?? '') ?? 0));
+    return { value: { groupId, bookings: await Promise.all(rows.map((r) => this.detail(ctx, r))) }, replay: true };
+  }
+
+  /** Per-passenger duplicate (COMMUTE, same date + direction) and overlap failures for a group's window. */
+  private async groupConflicts(db: Pick<Prisma.TransactionClient, 'transportBooking'>, ids: string[], journey: TransportBookingJourney, day: string, direction: TransportDirection, start: number, end: number): Promise<TransportGroupFailure[]> {
+    const out: TransportGroupFailure[] = [];
+    for (const id of ids) {
+      if (journey === 'COMMUTE') {
+        const dup = await db.transportBooking.findFirst({ where: { profileId: id, serviceDate: dateOnly(day), direction, journey: 'COMMUTE', status: { in: [...ACTIVE_BOOKING_STATUSES] } }, select: { id: true } });
+        if (dup) {
+          out.push({ passengerId: id, code: 'BOOKING_DUPLICATE' });
+          continue;
+        }
+      }
+      const clash = await db.transportBooking.findFirst({ where: overlapWhere(id, journey, start, end), select: { id: true } });
+      if (clash) out.push({ passengerId: id, code: 'BOOKING_OVERLAP' });
+    }
+    return out;
   }
 
   // ───────────────────────────── change ─────────────────────────────
