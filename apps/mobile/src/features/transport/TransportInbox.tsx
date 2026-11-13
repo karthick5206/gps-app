@@ -8,6 +8,7 @@ import { Card, Text } from '@/components/ui';
 import { ApiError, api } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
+import { inboxTarget } from './push-target';
 import { TOUCH } from './ui';
 
 /** Generic texts per kind (same English as TRANSPORT_NOTIFICATION_TEXT in @veetracer/shared; translated here). */
@@ -19,6 +20,7 @@ const KIND_TEXT: Record<TransportNotificationKind, string> = {
   TRIP_STARTING_SOON: 'Your trip starts soon',
   VEHICLE_APPROACHING: 'Your cab is arriving',
   TRIP_DELAYED: 'Trip delayed',
+  BOOKING_CREATED: 'Ride booked for you',
 };
 
 export function useTransportNotifications(audience: 'passenger' | 'driver') {
@@ -34,7 +36,7 @@ export function useTransportNotifications(audience: 'passenger' | 'driver') {
 
 /**
  * In-app transport notifications (the authoritative history; a push is only a wake-up with a generic text, D7).
- * Each row opens the trip, which fetches the details. Unread rows are marked read when the list is shown.
+ * Each row opens the trip (or, for a booking made by the desk, the booking), which fetches the details. Unread rows are marked read when the list is shown.
  */
 export function TransportInbox({ audience }: { audience: 'passenger' | 'driver' }) {
   const { t } = useTranslation();
@@ -58,13 +60,15 @@ export function TransportInbox({ audience }: { audience: 'passenger' | 'driver' 
     <View style={{ gap: SPACE.sm }}>
       {q.data.map((n) => {
         const title = t(KIND_TEXT[n.kind] ?? n.title);
-        const open = () => n.tripId && router.push(audience === 'driver' ? `/duty/trip/${n.tripId}` : `/commute/trip/${n.tripId}`);
+        // Only ids go into the route (BOOKING_CREATED has no trip: it opens the booking); the screen fetches the details.
+        const target = inboxTarget(n as typeof n & { bookingId?: unknown }, audience);
+        const open = () => target && router.push(target as Parameters<typeof router.push>[0]);
         return (
           <Pressable
             key={n.id}
             onPress={open}
-            disabled={!n.tripId}
-            accessibilityRole={n.tripId ? 'button' : 'text'}
+            disabled={!target}
+            accessibilityRole={target ? 'button' : 'text'}
             accessibilityLabel={`${title}, ${formatDateTime(n.createdAt)}${n.readAt ? '' : `, ${t('new')}`}`}
             style={{ minHeight: TOUCH }}
           >

@@ -6,19 +6,28 @@ import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, View } f
 import { Button, Card, ErrorBanner, Text } from '@/components/ui';
 import { currentLocale } from '@/lib/i18n';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
-import { BOOKING_STATUS_META, DIRECTION_LABEL } from '../labels';
+import { ARRANGED_BY_DESK_LABEL, arrangedByDesk, BOOKING_STATUS_META, bookingKindLabel, bookingRoute, focusBookings } from '../labels';
 import { cancellable, isNotPassenger, transportErrorText, useCancelBooking, useMyBookings, useNow } from '../passenger-api';
 import { clockIn, cutoffState, cutoffText } from '../trip-window';
 import { StatusChip, TOUCH, TransportEmpty } from '../ui';
 import { useMyPolicy } from '../self-service-api';
 
-function BookingRow({ b }: { b: MeBookingDto }) {
+/**
+ * The passenger's own booking (fields an older server may leave out are optional: WP 3.9 `journey` / `arrangedByDesk`).
+ */
+type Booking = Omit<MeBookingDto, 'journey' | 'arrangedByDesk'> & Partial<Pick<MeBookingDto, 'journey' | 'arrangedByDesk'>>;
+
+function BookingRow({ b, focused }: { b: Booking; focused?: boolean }) {
   const { t } = useTranslation();
   const c = useColors();
   const locale = currentLocale();
-  const meta = BOOKING_STATUS_META[b.status];
+  const meta = BOOKING_STATUS_META[b.status] ?? { label: b.status, tone: 'neutral' as const };
   const window = `${clockIn(b.windowStart, b.timeZone, locale)}–${clockIn(b.windowEnd, b.timeZone, locale)}`;
-  const route = [b.pickupLabel, b.dropLabel].filter(Boolean).join(' → ') || '—';
+  // WP 3.9: "Point-to-point" instead of the to / from site wording; pickup → destination from the labels only.
+  const kindSource = bookingKindLabel(b);
+  const kind = kindSource ? t(kindSource) : null;
+  const route = bookingRoute(b, t) ?? '—';
+  const byDesk = arrangedByDesk(b);
   const now = useNow();
   const active = (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(b.status);
   // The cut-off is computed by the server (MeBookingDto.cutoffAt); shown in the booking's own zone.
@@ -36,8 +45,13 @@ function BookingRow({ b }: { b: MeBookingDto }) {
         {b.serviceDate} · {window}
       </Text>
       <Text size="sm" tone="muted">
-        {t(DIRECTION_LABEL[b.direction])} · {route}
+        {[kind, route].filter(Boolean).join(' · ')}
       </Text>
+      {byDesk && (
+        <Text size="sm" tone="muted">
+          {t('Arranged by the transport desk')}
+        </Text>
+      )}
       {cutoffLine && (
         <Text size="sm" tone="muted">
           {cutoffLine}
@@ -46,8 +60,8 @@ function BookingRow({ b }: { b: MeBookingDto }) {
       <StatusChip label={t(meta.label)} tone={meta.tone} />
     </>
   );
-  const style = { minHeight: TOUCH, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, borderRadius: RADIUS.md, padding: SPACE.md, gap: SPACE.xs };
-  const label = `${b.serviceDate}, ${window}, ${t(DIRECTION_LABEL[b.direction])}, ${route}, ${t(meta.label)}${cutoffLine ? `, ${cutoffLine}` : ''}`;
+  const style = { minHeight: TOUCH, borderWidth: focused ? 2 : 1, borderColor: focused ? c.primary : c.border, backgroundColor: c.card, borderRadius: RADIUS.md, padding: SPACE.md, gap: SPACE.xs };
+  const label = [b.serviceDate, window, kind, route, byDesk ? t(ARRANGED_BY_DESK_LABEL) : null, t(meta.label), cutoffLine].filter(Boolean).join(', ');
   const cancel = useCancelBooking();
   const confirmCancel = () =>
     Alert.alert(
@@ -87,10 +101,12 @@ function BookingRow({ b }: { b: MeBookingDto }) {
  * My bookings. Active ones can be cancelled by the passenger (confirm step; online only) before the cut-off and before
  * the trip starts; the server refuses later cancels (AFTER_CUTOFF / INVALID_STATE) and the screen says to call the desk.
  */
-export function BookingsScreen() {
+export function BookingsScreen({ focusId = null }: { focusId?: string | null } = {}) {
   const { t } = useTranslation();
   const q = useMyBookings();
   const selfBooking = !!useMyPolicy().data?.selfBooking;
+  // WP 3.9: opened from a "Ride booked for you" notification (`focusId` = a validated booking id): that booking first.
+  const { rows, focusMissing } = focusBookings((q.data ?? []) as Booking[], focusId);
   if (q.isPending) return <ActivityIndicator style={{ margin: SPACE.xl }} accessibilityLabel={t('Loading')} />;
   if (isNotPassenger(q.error)) {
     return (
@@ -101,14 +117,21 @@ export function BookingsScreen() {
   }
   return (
     <FlatList
-      data={q.data ?? []}
+      data={rows}
       keyExtractor={(b) => b.id}
-      renderItem={({ item }) => <BookingRow b={item} />}
+      renderItem={({ item }) => <BookingRow b={item} focused={!!focusId && item.id.toLowerCase() === focusId} />}
       contentContainerStyle={{ padding: SPACE.lg, gap: SPACE.sm, paddingBottom: SPACE.xl }}
       refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => void q.refetch()} />}
       ListHeaderComponent={
         <View style={{ gap: SPACE.sm, marginBottom: SPACE.sm }}>
           {q.isError && <ErrorBanner message={transportErrorText(q.error)} onRetry={() => void q.refetch()} />}
+          {q.isSuccess && focusMissing && (
+            <Card>
+              <Text size="sm" tone="muted">
+                {t('This booking is no longer in your list. It may have been cancelled or already taken place.')}
+              </Text>
+            </Card>
+          )}
           {selfBooking && <Button title={t('Book a trip')} onPress={() => router.push('/commute/book')} style={{ minHeight: TOUCH }} />}
           <Card>
             <Text size="sm" tone="muted">

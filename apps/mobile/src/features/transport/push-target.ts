@@ -12,7 +12,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Mirrors DRIVER_NOTIFICATION_KINDS / PASSENGER_NOTIFICATION_KINDS of @veetracer/shared (literal: no runtime import). */
 const DRIVER_KINDS: readonly string[] = ['TRIP_ASSIGNED', 'TRIP_CHANGED', 'TRIP_UNASSIGNED', 'TRIP_CANCELLED'];
-const PASSENGER_KINDS: readonly string[] = ['TRIP_STARTING_SOON', 'VEHICLE_APPROACHING', 'TRIP_DELAYED', 'TRIP_CANCELLED'];
+const PASSENGER_KINDS: readonly string[] = ['TRIP_STARTING_SOON', 'VEHICLE_APPROACHING', 'TRIP_DELAYED', 'TRIP_CANCELLED', 'BOOKING_CREATED'];
+
+/** WP 3.9 (D-A4): the desk booked a ride for the passenger. Push data `{ kind, bookingId, notificationId }`, tripId null. */
+export const BOOKING_CREATED = 'BOOKING_CREATED';
+
+/** The passenger booking list, focused on one booking when its id is a valid UUID (the screen fetches it over the API). */
+export function bookingsRoute(bookingId: unknown): string {
+  return typeof bookingId === 'string' && UUID.test(bookingId) ? `/commute/bookings?bookingId=${bookingId.toLowerCase()}` : '/commute/bookings';
+}
 
 export type TransportPushData = Record<string, unknown>;
 
@@ -58,6 +66,8 @@ export function transportPushTarget(data: TransportPushData | null | undefined, 
   if (!isTransportPush(data)) return null;
   if (isSosPush(data)) return sosPushTarget(data as TransportPushData, roles);
   const d = data as TransportPushData & { kind: string };
+  // A booking made for the passenger has no trip yet (tripId null): open the booking, never a trip screen.
+  if (d.kind === BOOKING_CREATED) return roles.passenger ? bookingsRoute(d.bookingId) : null;
   const tripId = typeof d.tripId === 'string' && UUID.test(d.tripId) ? d.tripId : null;
   const forDriver = DRIVER_KINDS.includes(d.kind) || /^(driver|duty)/i.test(d.kind);
   const forPassenger = PASSENGER_KINDS.includes(d.kind) || (!forDriver && (typeof d.bookingId === 'string' || typeof d.tripId === 'string'));
@@ -71,6 +81,18 @@ export function transportPushTarget(data: TransportPushData | null | undefined, 
     return '/commute/notices';
   }
   return null;
+}
+
+/**
+ * Where a row of the in-app transport inbox opens, or null when it has nothing to open. Only ids go into the route; the
+ * screen fetches the details over the authenticated API. BOOKING_CREATED has no trip: it opens the booking (by
+ * `bookingId` when the server sends one, else the Bookings list).
+ */
+export function inboxTarget(n: { kind: string; tripId?: string | null; bookingId?: unknown }, audience: 'passenger' | 'driver'): string | null {
+  if (n.kind === BOOKING_CREATED) return audience === 'passenger' ? bookingsRoute(n.bookingId) : null;
+  const tripId = typeof n.tripId === 'string' && UUID.test(n.tripId) ? n.tripId : null;
+  if (!tripId) return null;
+  return audience === 'driver' ? `/duty/trip/${tripId}` : `/commute/trip/${tripId}`;
 }
 
 /**

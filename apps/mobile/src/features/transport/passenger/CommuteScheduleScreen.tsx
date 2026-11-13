@@ -4,7 +4,7 @@ import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-nativ
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { currentLocale } from '@/lib/i18n';
 import { SPACE } from '@/lib/theme';
-import { BOOKING_STATUS_META, DIRECTION_LABEL } from '../labels';
+import { BOOKING_STATUS_META, bookingKindLabel, DIRECTION_LABEL } from '../labels';
 import { isNotPassenger, transportErrorText } from '../passenger-api';
 import { clockIn } from '../trip-window';
 import { Line, StatusChip, TransportEmpty } from '../ui';
@@ -62,7 +62,7 @@ export function CommuteScheduleScreen() {
               {b.serviceDate} · {clockIn(b.windowStart, b.timeZone, locale)}–{clockIn(b.windowEnd, b.timeZone, locale)}
             </Text>
             <Text size="sm" tone="muted">
-              {t(DIRECTION_LABEL[b.direction])}
+              {t(bookingKindLabel(b) ?? DIRECTION_LABEL[b.direction])}
             </Text>
             <StatusChip label={t(meta.label)} tone={meta.tone} />
           </Card>

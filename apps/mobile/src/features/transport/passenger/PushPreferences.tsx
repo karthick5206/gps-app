@@ -10,6 +10,7 @@ const KIND_LABEL: Partial<Record<TransportNotificationKind, string>> = {
   VEHICLE_APPROACHING: 'Your cab is arriving',
   TRIP_DELAYED: 'Trip delayed',
   TRIP_CANCELLED: 'Trip cancelled',
+  BOOKING_CREATED: 'Ride booked for you',
 };
 
 function Row({ label, value, onChange, disabled }: { label: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {

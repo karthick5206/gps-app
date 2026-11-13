@@ -3,6 +3,7 @@
  * (apps/web/src/features/transport/dispatch/e3-format.ts, people-format.ts) so the shared hi / ta translations apply.
  */
 import type { ConsentPurpose, PassengerNoticeKind, TransportBookingStatus, TransportDirection, TransportPassengerStatus, TransportTripDerivedState } from '@veetracer/shared';
+import { ACTIVE_BOOKING_STATUSES } from '@veetracer/shared';
 import type { Tone } from '@/lib/theme';
 
 export const DIRECTION_LABEL: Record<TransportDirection, string> = { IN: 'To site (login)', OUT: 'From site (logout)' };
@@ -132,3 +133,75 @@ export const DRIVER_CODE_TEXT: Record<string, string> = {
   RATE_LIMITED: 'Too many updates at once. They will be sent again shortly.',
   LATE: 'Received after the trip closed: no effect.',
 };
+
+// ───────────── WP 3.9: booking journey (point-to-point) and "arranged by the desk" ─────────────
+
+export const POINT_TO_POINT_LABEL = 'Point-to-point';
+export const ARRANGED_BY_DESK_LABEL = 'Arranged by the transport desk';
+/** Shown instead of a label that is only a coordinate pair (a passenger screen never shows coordinates). */
+export const MAP_POINT_LABEL = 'Map point';
+
+/**
+ * The booking fields this helper reads. `journey` / `arrangedByDesk` are WP 3.9 additions: an older server leaves them
+ * out, so they are optional here and anything unknown falls back to the commute wording.
+ */
+export interface BookingLabelInput {
+  direction?: string | null;
+  journey?: unknown;
+  arrangedByDesk?: unknown;
+  pickupLabel?: string | null;
+  dropLabel?: string | null;
+}
+
+export function isPointToPoint(b: Pick<BookingLabelInput, 'journey'>): boolean {
+  return b.journey === 'POINT_TO_POINT';
+}
+
+/** English source label for the kind of ride: "Point-to-point", or the commute direction ("To site (login)" …). */
+export function bookingKindLabel(b: Pick<BookingLabelInput, 'direction' | 'journey'>): string | null {
+  if (isPointToPoint(b)) return POINT_TO_POINT_LABEL;
+  return (b.direction && DIRECTION_LABEL[b.direction as TransportDirection]) || null;
+}
+
+/** True only when the server says so (a missing field on an older server = not shown). */
+export function arrangedByDesk(b: Pick<BookingLabelInput, 'arrangedByDesk'>): boolean {
+  return b.arrangedByDesk === true;
+}
+
+const COORDS = /^\s*[-+]?\d{1,3}(?:\.\d+)?\s*[,;\s]\s*[-+]?\d{1,3}(?:\.\d+)?\s*$/;
+
+/** A place label for display: trimmed, and never a bare "lat, lng" pair (that becomes `MAP_POINT_LABEL`, translated by the caller). */
+export function placeLabel(label: string | null | undefined): { text: string; translate: boolean } | null {
+  const v = typeof label === 'string' ? label.trim() : '';
+  if (!v) return null;
+  return COORDS.test(v) ? { text: MAP_POINT_LABEL, translate: true } : { text: v, translate: false };
+}
+
+/** "Pickup → destination" from the server's labels only (no coordinates), or null when neither is known. */
+export function bookingRoute(b: Pick<BookingLabelInput, 'pickupLabel' | 'dropLabel'>, t: (s: string) => string = (s) => s): string | null {
+  const parts = [placeLabel(b.pickupLabel), placeLabel(b.dropLabel)].filter((p): p is { text: string; translate: boolean } => !!p).map((p) => (p.translate ? t(p.text) : p.text));
+  return parts.length ? parts.join(' → ') : null;
+}
+
+/** English sources of the WP 3.9 mobile label constants (i18n completeness test). */
+export const WP39_MOBILE_LABELS = [POINT_TO_POINT_LABEL, ARRANGED_BY_DESK_LABEL, MAP_POINT_LABEL] as const;
+
+/**
+ * The booking list with the focused booking (from a BOOKING_CREATED notification) first. `focusMissing` = a focus id was
+ * given but the booking is not in the passenger's list (cancelled, past, or not theirs: nothing else is fetched).
+ */
+export function focusBookings<T extends { id: string }>(list: readonly T[], focusId: string | null | undefined): { rows: T[]; focusMissing: boolean } {
+  const id = focusId ? focusId.toLowerCase() : null;
+  if (!id) return { rows: [...list], focusMissing: false };
+  const hit = list.find((b) => b.id.toLowerCase() === id);
+  if (!hit) return { rows: [...list], focusMissing: true };
+  return { rows: [hit, ...list.filter((b) => b !== hit)], focusMissing: false };
+}
+
+/**
+ * Commute home "Booked for you": active bookings the transport desk made for the passenger that are not on a trip yet
+ * (once seated, the trip card shows them). An older server without `arrangedByDesk` shows none.
+ */
+export function bookedForYou<T extends BookingLabelInput & { id: string; status: string; tripId?: string | null }>(list: readonly T[] | null | undefined, max = 3): T[] {
+  return (list ?? []).filter((b) => arrangedByDesk(b) && !b.tripId && (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(b.status)).slice(0, max);
+}

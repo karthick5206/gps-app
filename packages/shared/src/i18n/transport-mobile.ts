@@ -216,6 +216,15 @@ export const TRANSPORT_MOBILE_HI: Record<string, string> = {
   'Use hands-free while driving': 'गाड़ी चलाते समय हैंड्स-फ़्री का उपयोग करें',
   'You can cancel a booking here until its cut-off, as long as the trip has not started. After that, or to change a booking, contact your transport desk.':
     'ट्रिप शुरू न हुई हो तो आप समय-सीमा तक यहाँ बुकिंग रद्द कर सकते हैं। उसके बाद, या बुकिंग बदलने के लिए, अपने ट्रांसपोर्ट डेस्क से संपर्क करें।',
+  // ── WP 3.9 mobile (ad-hoc booking: point-to-point, booked by the desk, BOOKING_CREATED) ──
+  'Point-to-point': 'पॉइंट-टू-पॉइंट',
+  'Arranged by the transport desk': 'ट्रांसपोर्ट डेस्क द्वारा व्यवस्थित',
+  'Map point': 'मैप पर चुना स्थान',
+  'Ride booked for you': 'आपके लिए राइड बुक की गई',
+  'Booked for you': 'आपके लिए बुक किया गया',
+  'Opens the booking': 'बुकिंग खोलता है',
+  'This booking is no longer in your list. It may have been cancelled or already taken place.':
+    'यह बुकिंग अब आपकी सूची में नहीं है। हो सकता है वह रद्द हो गई हो या पूरी हो चुकी हो।',
 };
 
 export const TRANSPORT_MOBILE_TA: Record<string, string> = {
@@ -431,4 +440,13 @@ export const TRANSPORT_MOBILE_TA: Record<string, string> = {
   'Use hands-free while driving': 'ஓட்டும்போது ஹேண்ட்ஸ்-ஃப்ரீ பயன்படுத்தவும்',
   'You can cancel a booking here until its cut-off, as long as the trip has not started. After that, or to change a booking, contact your transport desk.':
     'பயணம் தொடங்காத வரை, கடைசி நேரம் வரை இங்கே முன்பதிவை ரத்து செய்யலாம். அதன் பிறகு, அல்லது முன்பதிவை மாற்ற, உங்கள் போக்குவரத்து மேசையைத் தொடர்பு கொள்ளவும்.',
+  // ── WP 3.9 mobile (ad-hoc booking: point-to-point, booked by the desk, BOOKING_CREATED) ──
+  'Point-to-point': 'இடத்திலிருந்து இடத்திற்கு',
+  'Arranged by the transport desk': 'போக்குவரத்து மேசையால் ஏற்பாடு செய்யப்பட்டது',
+  'Map point': 'வரைபடத்தில் தேர்ந்த இடம்',
+  'Ride booked for you': 'உங்களுக்காக பயணம் முன்பதிவு செய்யப்பட்டது',
+  'Booked for you': 'உங்களுக்காக முன்பதிவு செய்யப்பட்டது',
+  'Opens the booking': 'முன்பதிவைத் திறக்கும்',
+  'This booking is no longer in your list. It may have been cancelled or already taken place.':
+    'இந்த முன்பதிவு இனி உங்கள் பட்டியலில் இல்லை. அது ரத்து செய்யப்பட்டிருக்கலாம் அல்லது ஏற்கனவே நடந்து முடிந்திருக்கலாம்.',
 };
