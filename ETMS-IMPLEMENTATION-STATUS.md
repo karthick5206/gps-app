@@ -18,7 +18,7 @@ evidence in the phase log below.
 | E1a | Deployed | Deployed | Not started | Passed | Passed | Deployed (2026-11-11 10:10 UTC, v1.9.0) |
 | E2 | Deployed | Deployed | Not started | Passed | Passed (conditions: L5 + reset residual before real data) | Deployed (2026-11-11 11:57 UTC, v1.10.0, ETMS off) |
 | E3 | Deployed | Deployed | Moved to E5 (WP 3.6/3.7 delivered with E5) | Passed (re-check + WP 3.8 gate 1,606/0) | Passed (conditions: owner L5 / L7 / withdrawal policy before real data) | Deployed (2026-11-11 15:23 UTC, v1.11.0, ETMS off). **Reopened for WP 3.9 below** |
-| E3 · WP 3.9 Ad-hoc trip creation (R1, **outstanding**) | In progress: the booking API takes any pickup / drop and time window; gaps A1–A9 | Not started: the dialog has no pickup, destination or time fields, and bookings can't be edited | Not started: only passenger self-booking exists; the dispatcher's ad-hoc booking is not shown differently | Not started | Not started | Not started. Target v1.15.0 ([section below](#outstanding-r1-requirement-ad-hoc-trip-creation-wp-39)) |
+| E3 · WP 3.9 Ad-hoc trip creation (R1, **implementation authorised 2026-11-12**) | In progress (contract 18784f2 + migration 1d08467 done; API agent on `etms/adhoc-api`, E4 agent on `etms/adhoc-plan`) | In progress (`etms/adhoc-web`) | In progress (`etms/adhoc-mobile`) | Not started | Not started | Not started. Target v1.15.0; no deploy without separate approval |
 | E4 | Deployed, switched off (`ETMS_ROUTING`): contracts, schema, matrix, solver v2 + corpus 36/36, worker/jobs, plans + publish via E3 | Deployed (route planner, behind flag) | — | Passed (re-check e83eb68: web optimise → review → publish at 390/1280 px) | Passed (re-check + deltas; condition: GraphHopper staging load test R-5 before enabling) | Deployed (2026-11-11 19:46 UTC, v1.13.0, off). **Enabling needs C3 benchmarks B1–B6 + R-5 load test + Python 3.14 on the host** |
 | E5 | Deployed (driver API, notifications, relay; SOS WP 5.4; passenger self-booking WP 5.3; sim WP 5.5 + D1 settle grace) | Deployed (dispatcher review events, SOS lane) | Passed in source; **needs a native build** (EAS/O12 approval) + device/Maestro tests | Passed (re-checks; v1.14.0 QA fixes) | Passed (re-checks; v1.14.0 security + delta) | Deployed (v1.12.0 2026-11-11 16:08 UTC; completed in v1.14.0 2026-11-12 14:08 UTC) |
 | E1b | Deployed (`etmsProvider` add-on, `X-Transport-Customer`, Super Admin access reason + access log) | Deployed (provider UI) | — | Passed (v1.14.0 QA) | Passed (v1.14.0 security + delta) | Deployed (2026-11-12 14:08 UTC, v1.14.0). Open: overlap rule per agreement (owner) |
@@ -53,7 +53,7 @@ procedure (release branch → tag → main).
 
 ## Outstanding R1 requirement: ad-hoc trip creation (WP 3.9)
 
-**Status: outstanding. Part of the approved R1 scope (doc 12 §5 "ad-hoc bookings (dispatcher on behalf)", doc 05
+**Status: implementation authorised by the owner 2026-11-12 (D-A1..D-A4 approved, see below). Part of the approved R1 scope (doc 12 §5 "ad-hoc bookings (dispatcher on behalf)", doc 05
 `POST /api/transport/bookings`, doc 07 bookings list); must not be dropped.** Recorded 2026-11-12 after an inspection
 of v1.14.0 (586f199). Phase: **E3, new WP 3.9**, delivered as **v1.15.0**. It can run in parallel with E6.
 
@@ -67,6 +67,25 @@ of v1.14.0 (586f199). Phase: **E3, new WP 3.9**, delivered as **v1.15.0**. It ca
 - The trip works with the Passenger and Driver mobile sections, notifications, ETA and live tracking.
 - Company and branch boundaries are kept.
 - There are no duplicate bookings and no duplicate trip publishing.
+
+### Owner decisions (approved 2026-11-12)
+
+- **D-A1 late bookings:** dispatchers may book after the cut-off with a mandatory reason; server-enforced; the audit records cutoffAt, creation time, dispatcher and reason.
+- **D-A2 destinations:** offices, approved company places, one-time map points and point-to-point journeys without an office end; no dummy offices.
+- **D-A3 consent:** active passenger consent is required before a personal point (anything that is not a company place) is stored or used; the same rules on the dispatcher and passenger paths.
+- **D-A4 notification:** the passenger is notified when a dispatcher books for them; generic push only, details through the authenticated API.
+
+### Implementation log
+
+| Step | Commit / branch | State |
+|---|---|---|
+| WP 3.9.1 contract (packages/shared) | 18784f2 | Done |
+| WP 3.9.1 migration `20261121090000_etms_booking_journey` (journey enum, lateReason, COMMUTE-only duplicate index, P2P overlap exclusion) | 1d08467 | Done; scratch DB: deploy OK, `migrate diff` empty. **Production implication:** additive, lock_timeout 5 s, replaces one partial index (brief lock on TransportBooking) |
+| WP 3.9.2 / 3.9.3 / 3.9.6 backend | `etms/adhoc-api` | In progress |
+| WP 3.9.5 E4 exclusion reasons + BOOKING_CHANGED publish guard | `etms/adhoc-plan` | In progress |
+| WP 3.9.4 web | `etms/adhoc-web` | In progress |
+| WP 3.9.6 mobile | `etms/adhoc-mobile` | In progress |
+| WP 3.9.7 integration, demo, QA, security | `etms/adhoc-r1` | Not started |
 
 ### Already implemented (do not rebuild)
 
