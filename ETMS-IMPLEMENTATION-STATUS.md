@@ -75,16 +75,30 @@ of v1.14.0 (586f199). Phase: **E3, new WP 3.9**, delivered as **v1.15.0**. It ca
 - **D-A3 consent:** active passenger consent is required before a personal point (anything that is not a company place) is stored or used; the same rules on the dispatcher and passenger paths.
 - **D-A4 notification:** the passenger is notified when a dispatcher books for them; generic push only, details through the authenticated API.
 
+### Owner decisions, wave 2 (approved 2026-11-12)
+
+- **D-A5 approval:** passenger ad-hoc requests need approval when the company setting `etms.selfBookingApproval` is on (default on); the passenger is notified of approval or rejection.
+- **D-A6 approvers:** Transport admin and branch dispatchers for their own branches (existing approve permission).
+- **D-A7 passenger choices:** home, saved places, company places or a one-time map point (consent for personal points), own time window, point-to-point allowed.
+- **D-A8 group rides:** one dispatcher form books several passengers with a purpose (e.g. site visit), all-or-nothing, linked by a group id, dispatchable on one trip.
+- **D-A9 passenger profile:** passengers view their transport profile, edit emergency contacts, accessibility and default stop, and set their home pickup/drop location by self-hosted address search or map pin / lat-lng (consent required); email and mobile stay admin-managed.
+
 ### Implementation log
 
 | Step | Commit / branch | State |
 |---|---|---|
 | WP 3.9.1 contract (packages/shared) | 18784f2 | Done |
 | WP 3.9.1 migration `20261121090000_etms_booking_journey` (journey enum, lateReason, COMMUTE-only duplicate index, P2P overlap exclusion) | 1d08467 | Done; scratch DB: deploy OK, `migrate diff` empty. **Production implication:** additive, lock_timeout 5 s, replaces one partial index (brief lock on TransportBooking) |
-| WP 3.9.2 / 3.9.3 / 3.9.6 backend | `etms/adhoc-api` | In progress |
-| WP 3.9.5 E4 exclusion reasons + BOOKING_CHANGED publish guard | `etms/adhoc-plan` | In progress |
-| WP 3.9.4 web | `etms/adhoc-web` | In progress |
-| WP 3.9.6 mobile | `etms/adhoc-mobile` | In progress |
+| WP 3.9.2 / 3.9.3 / 3.9.6 backend | `etms/adhoc-api` 8c82c05 (migration amended: TransportNotification.bookingId, BOOKING_CREATED kind) | Done, merged; unit 5,016 / DB 158/158 |
+| WP 3.9.5 E4 exclusion reasons + BOOKING_CHANGED publish guard | `etms/adhoc-plan` 20e9423 | Done, merged; DB 157/157 |
+| WP 3.9.4 web | `etms/adhoc-web` 22c9f0c | Done, merged; web 387, build + external-maps check OK |
+| WP 3.9.6 mobile | `etms/adhoc-mobile` 3e75b82 | Done, merged; mobile 102 + 23 |
+| Wave 1 integration | `etms/adhoc-r1` 0a20b94 | Merged clean; api / web / mobile tsc 0 errors |
+| Wave 2 contract D-A5..D-A9 | 61409ee, 97d66eb (`transport-adhoc.ts`) | Done |
+| Wave 2 backend (approval, passenger requests, group rides, passenger profile + home) | `etms/adhoc-api2` | In progress |
+| Wave 2 web (group form, approval queue, approval setting, passenger web profile) | `etms/adhoc-web2` | In progress |
+| Wave 2 mobile (request a ride, approval states, profile + home location) | `etms/adhoc-mobile2` | In progress |
+| Android emulator + local debug build | `etms/adhoc-emu` | In progress |
 | WP 3.9.7 integration, demo, QA, security | `etms/adhoc-r1` | Not started |
 
 ### Already implemented (do not rebuild)
