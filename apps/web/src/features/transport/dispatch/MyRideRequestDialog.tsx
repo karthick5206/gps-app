@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 import { idempotencyFor, type IdempotencySlot } from './dispatch-draft';
 import { DIRECTION_LABEL, newUuid } from './e3-format';
 import { SimpleSelect } from './e3-ui';
-import { MyAddressSearch } from './MyAddressSearch';
+import { AddressSearchCombobox, ME_GEOCODE_ENDPOINT } from '../AddressSearchCombobox';
 import {
   buildRequest,
   CONSENT_EXPLANATION,
@@ -33,7 +33,7 @@ import {
   type RequestField,
   type RequestPolicy,
 } from './my-request';
-import { searchMyAddress, useMySavedPlaces, useRequestPlaces, useRequestRide } from './my-request-api';
+import { useMySavedPlaces, useRequestPlaces, useRequestRide } from './my-request-api';
 
 const HomePinMap = lazy(() => import('../HomePinMap').then((m) => ({ default: m.HomePinMap })));
 
@@ -128,7 +128,6 @@ function EndPicker({
   const idPrefix = `myreq-${which}`;
   const [kind, setKind] = useState<EndKind | null>(value?.kind ?? null);
   const [place, setPlace] = useState<{ id: string; name: string } | null>(null);
-  const [mapText, setMapText] = useState('');
   const saved = useMySavedPlaces(policy.routingConsent && kind === 'SAVED');
   const shown = value?.kind ?? kind;
   const pick = (k: EndKind) => {
@@ -176,12 +175,10 @@ function EndPicker({
       )}
       {shown === 'MAP' && (
         <div className="grid gap-2">
-          <MyAddressSearch
+          <AddressSearchCombobox
             id={`${idPrefix}-addr`}
-            value={mapText}
-            search={searchMyAddress}
+            endpoint={ME_GEOCODE_ENDPOINT}
             onPick={(hit) => {
-              setMapText(hit.label);
               const label = (mapValue?.label ?? '').trim() || (hit.label.split(',')[0] ?? '').trim().slice(0, REQUEST_LIMITS.mapLabelMax);
               onChange({ kind: 'MAP', lat: hit.lat, lng: hit.lng, label });
             }}
