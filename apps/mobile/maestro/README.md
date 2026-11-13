@@ -3,10 +3,9 @@
 Black-box flows for the driver shell (`(driver)`) and the passenger shell (`(passenger)`), as doc 11 §2.1 proposes
 (Maestro open-source CLI only; Maestro Cloud is paid and out of scope; tool approval O4, 2026-11-11).
 
-**Status (2026-11-12): committed, NOT run.** The development PC has no Android SDK, no emulator, no `adb`, no Java
-and no Maestro CLI. A native or EAS build is not allowed yet either (EAS / O12 approval pending). The flows target the
-English UI texts of the current screens; they have not been tried against a running app, so expect some selector
-fixes on the first run.
+**Status (2026-11-12, adhoc-mfix): first run on a local Android emulator** (debug build, local UAT API, synthetic
+logins). The login subflow was fixed (testIDs, no `hideKeyboard`) and the `*-login` smoke flows were run. The
+journeys still need a trip today in the test data. No EAS build was used (EAS / O12 approval pending).
 
 | Flow | What it covers |
 |---|---|
@@ -14,7 +13,8 @@ fixes on the first run.
 | `driver-offline-sync.yaml` | R6 on the device: airplane mode → arrive + board → "waiting to sync" (never confirmed) → kill + relaunch (queue survives) → back online → Sync now → "All actions synced" |
 | `passenger-journey.yaml` | sign in → commute home (privacy line, no "No passenger profile") → today's trip → trip screen (estimated pickup, driver, transport desk) → bookings |
 | `passenger-notifications.yaml` | Notices tab → "Your trip starts soon" (generic text) → opens the trip |
-| `subflows/login.yaml` | e-mail + password sign-in, used by every flow |
+| `driver-login.yaml` / `passenger-login.yaml` | smoke: sign in → lands on the shell home (no "Unmatched Route") → cold start stays there; needs only the logins |
+| `subflows/login.yaml` | e-mail + password sign-in by testID (`login-email`, `login-password`), submits with the keyboard Enter key; used by every flow |
 
 ## Running them (when an emulator is available)
 
@@ -41,5 +41,6 @@ Notes:
 - The driver flows tap stop actions only while the vehicle is standing: the in-motion lock hides them when the vehicle
   GPS reports movement. Drive the van with `npm run etms:sim-trip` or keep it parked.
 - `setAirplaneMode` needs an emulator (or a device that allows it through adb).
-- The screens have no `testID`s; selectors are the visible English texts. Keep the emulator language English.
+- Only the sign-in form has `testID`s; other selectors are the visible English texts. Keep the emulator language English.
+- Never use `hideKeyboard` on Android: it presses BACK, which closes the app from the sign-in screen.
 - Real-device checks that an emulator cannot cover are in `docs/employee-transport/evidence/2026-11-12-e5-device-lab-checklist.md`.

@@ -1,11 +1,14 @@
 # Maestro workspace for the ETMS driver and passenger shells (E5 WP 5.5; doc 11 §2.1 / §2.2 E5).
 # Run order: maestro test apps/mobile/maestro  (see README.md for the app build and the test data).
+# The *-login smoke flows need only the logins; the journeys need a trip today (README "Test data").
 flows:
   - "driver-*.yaml"
   - "passenger-*.yaml"
 executionOrder:
-  continueOnFailure: false
+  continueOnFailure: true
   flowsOrder:
+    - driver-login
+    - passenger-login
     - driver-journey
     - driver-offline-sync
     - passenger-journey

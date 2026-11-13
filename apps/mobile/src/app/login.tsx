@@ -38,10 +38,10 @@ function PasswordForm() {
   };
   return (
     <View style={{ gap: SPACE.lg }}>
-      <Field label={t('Email')} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoComplete="email" textContentType="username" placeholder="you@company.com" error={emailError} />
-      <Field label={t('Password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" textContentType="password" returnKeyType="go" onSubmitEditing={submit} error={passwordError} />
+      <Field testID="login-email" label={t('Email')} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoComplete="email" textContentType="username" placeholder="you@company.com" error={emailError} />
+      <Field testID="login-password" label={t('Password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" textContentType="password" returnKeyType="go" onSubmitEditing={submit} error={passwordError} />
       {login.isError && <ErrorBanner message={errorMessage(login.error)} />}
-      <Button title={t('Sign in')} icon={KeyRoundIcon} onPress={submit} loading={login.isPending} />
+      <Button testID="login-submit" title={t('Sign in')} icon={KeyRoundIcon} onPress={submit} loading={login.isPending} />
     </View>
   );
 }
