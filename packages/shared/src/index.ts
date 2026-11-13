@@ -49,3 +49,4 @@ export * from './transport-provider';
 export * from './routing';
 export * from './routing-plans';
 export * from './transport-sos';
+export * from './transport-adhoc';
