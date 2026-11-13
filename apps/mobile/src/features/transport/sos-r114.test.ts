@@ -265,8 +265,8 @@ test('B4: the SOS header button is on every passenger / driver tab and stack scr
   }
   assert.match(layout, /name="commute\/sos"/);
   assert.match(layout, /name="duty\/sos"/);
-  assert.match(layout, /<Stack\.Protected guard=\{status === 'offline'\}>\s*<Stack\.Screen name="offline-sos"/);
-  assert.match(layout, /guard=\{signedIn && !!roles\?\.incidents\}>\s*<Stack\.Screen name="transport-incident\/\[id\]"/);
+  assert.match(layout, /<Stack\.Protected guard=\{status === 'offline'\} redirectTo=\{home\}>\s*<Stack\.Screen name="offline-sos"/);
+  assert.match(layout, /guard=\{signedIn && !!roles\?\.incidents\} redirectTo=\{home\}>\s*<Stack\.Screen name="transport-incident\/\[id\]"/);
 });
 
 test('B4: the passenger trip screen no longer needs an online policy to show SOS', () => {
