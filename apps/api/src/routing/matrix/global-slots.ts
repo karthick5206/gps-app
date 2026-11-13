@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 /**
  * T3-D4: one cap on matrix requests in flight to the shared GraphHopper across every process that builds matrices
@@ -11,11 +11,16 @@ import { randomUUID } from 'crypto';
  */
 export const GLOBAL_SLOTS_KEY = 'vt:etms:mx:inflight';
 
-/** The two commands it needs (ioredis `Redis` satisfies this). */
+/** The commands it needs (ioredis `Redis` satisfies this). */
 export interface SemaphoreClient {
   eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
   zrem(key: string, member: string): Promise<unknown>;
+  /** Optional (E4 review L6): when present, waiters poll by SHA instead of sending the script text every time. */
+  evalsha?(sha: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
 }
+
+/** Waiters poll every pollMs at first, backing off ×1.5 per miss up to this (E4 review L6). */
+const MAX_POLL_MS = 200;
 
 /**
  * KEYS[1] = set; ARGV = ttlMs, limit, token. Server time (TIME), so the processes' clocks do not matter. Drops expired
@@ -31,6 +36,7 @@ if redis.call('ZCARD', KEYS[1]) < tonumber(ARGV[2]) then
   return 1
 end
 return 0`;
+const ACQUIRE_SHA = createHash('sha1').update(ACQUIRE).digest('hex');
 
 export interface GlobalSlots {
   /** Resolves with a release function once a slot is held (or immediately when failing open). */
@@ -56,15 +62,29 @@ export class ValkeySemaphore implements GlobalSlots {
     this.key = opts.key ?? GLOBAL_SLOTS_KEY;
   }
 
+  /** EVALSHA when the client has it (the script text is sent once, on NOSCRIPT), else EVAL. */
+  private run(token: string): Promise<unknown> {
+    const args = [1, this.key, this.ttlMs, this.limit, token] as const;
+    if (!this.client.evalsha) return this.client.eval(ACQUIRE, ...args);
+    return this.client.evalsha(ACQUIRE_SHA, ...args).catch((e: unknown) => {
+      if (!/NOSCRIPT/i.test(String((e as Error)?.message ?? e))) throw e;
+      return this.client.eval(ACQUIRE, ...args); // loads the script; later calls use the SHA again
+    });
+  }
+
   async acquire(signal?: AbortSignal): Promise<() => void> {
     const token = randomUUID();
+    let pollMs = this.pollMs;
     for (;;) {
       if (signal?.aborted) throw signal.reason ?? new Error('aborted');
       let got: unknown;
       try {
-        got = await withTimeout(this.client.eval(ACQUIRE, 1, this.key, this.ttlMs, this.limit, token), this.opTimeoutMs);
+        got = await withTimeout(this.run(token), this.opTimeoutMs);
       } catch {
         this.failOpen++;
+        // E4 review L6: the script may still have run on the server after the timeout and added the token; remove it
+        // (queued after the script on the same connection), so a slow answer does not hold a slot until the TTL.
+        void this.client.zrem(this.key, token).catch(() => undefined);
         return () => undefined; // fail open: the per-process cap still applies
       }
       if (Number(got) === 1) {
@@ -75,7 +95,8 @@ export class ValkeySemaphore implements GlobalSlots {
           void withTimeout(this.client.zrem(this.key, token), this.opTimeoutMs).catch(() => undefined); // else it expires (TTL)
         };
       }
-      await sleep(this.pollMs * (0.5 + Math.random()), signal);
+      await sleep(pollMs * (0.5 + Math.random()), signal);
+      pollMs = Math.min(MAX_POLL_MS, pollMs * 1.5);
     }
   }
 }
