@@ -182,15 +182,15 @@ export function DayPicker({ value, onChange, allowed, disabled, id }: { value: n
 }
 
 /** Radix select over plain options (labels already translated). */
-export function SimpleSelect({ value, onChange, options, id, label, className, disabled }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; id?: string; label?: string; className?: string; disabled?: boolean }) {
+export function SimpleSelect({ value, onChange, options, id, label, className, disabled, placeholder }: { value: string; onChange: (v: string) => void; options: { value: string; label: string; disabled?: boolean }[]; id?: string; label?: string; className?: string; disabled?: boolean; placeholder?: string }) {
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger id={id} aria-label={label} className={cn('h-9 w-full', className)}>
-        <SelectValue />
+        <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
         {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled}>
             {o.label}
           </SelectItem>
         ))}
