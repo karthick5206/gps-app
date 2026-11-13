@@ -59,7 +59,7 @@ const shiftOption = (s: TransportShiftDto): Option => ({ value: s.id, label: s.n
 const placeOption = (p: TransportPlaceOptionDto): Option => ({ value: p.id, label: p.category ? `${p.name} · ${p.category}` : p.name });
 
 /** Segmented choice (buttons with aria-pressed): readable at 390 px, disabled choices keep their reason as a title. */
-function Segmented<T extends string>({ value, onChange, options, label, id }: { value: T; onChange: (v: T) => void; options: { value: T; label: string; disabled?: boolean; title?: string }[]; label: string; id?: string }) {
+export function Segmented<T extends string>({ value, onChange, options, label, id }: { value: T; onChange: (v: T) => void; options: { value: T; label: string; disabled?: boolean; title?: string }[]; label: string; id?: string }) {
   return (
     <div id={id} role="group" aria-label={label} className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
       {options.map((o) => (
@@ -83,7 +83,7 @@ function Segmented<T extends string>({ value, onChange, options, label, id }: { 
 }
 
 /** A one-time point: address search (self-hosted Photon via the API) or a click on the self-hosted map. */
-function MapPoint({ value, onChange, idPrefix }: { value: { lat: number; lng: number } | null; onChange: (p: { lat: number; lng: number }, label?: string) => void; idPrefix: string }) {
+export function MapPoint({ value, onChange, idPrefix }: { value: { lat: number; lng: number } | null; onChange: (p: { lat: number; lng: number }, label?: string) => void; idPrefix: string }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
   const [query, setQuery] = useState<string | null>(null);
@@ -160,7 +160,7 @@ function MapPoint({ value, onChange, idPrefix }: { value: { lat: number; lng: nu
 }
 
 /** One end of the booking: home / site / company place / map point (+ label). */
-function PointPicker({
+export function PointPicker({
   end,
   title,
   value,
@@ -173,6 +173,7 @@ function PointPicker({
   error,
   labelError,
   idPrefix,
+  kindLabels,
 }: {
   end: BookingEnd;
   title: string;
@@ -188,6 +189,8 @@ function PointPicker({
   error?: string;
   labelError?: string;
   idPrefix: string;
+  /** Wave 2 (group): other names for some kinds (e.g. HOME = "Each passenger's own home"). */
+  kindLabels?: Partial<Record<PointKind, string>>;
 }) {
   const { t } = useTranslation();
   const [q, setQ] = useState('');
@@ -208,7 +211,7 @@ function PointPicker({
         label={title}
         value={value.kind === 'NONE' ? ('' as PointKind) : value.kind}
         onChange={(k) => onChange({ ...pointChoice(k), label: k === value.kind ? value.label : '' })}
-        options={kinds.map((k) => ({ value: k, label: t(POINT_KIND_LABEL[k]), disabled: homeBlocked && (k === 'HOME' || k === 'MAP'), title: homeBlocked && (k === 'HOME' || k === 'MAP') ? blockedTitle : undefined }))}
+        options={kinds.map((k) => ({ value: k, label: t(kindLabels?.[k] ?? POINT_KIND_LABEL[k]), disabled: homeBlocked && (k === 'HOME' || k === 'MAP'), title: homeBlocked && (k === 'HOME' || k === 'MAP') ? blockedTitle : undefined }))}
       />
       {homeBlocked && kinds.includes('HOME') && <p className="text-xs text-muted-foreground">{blockedTitle}</p>}
       {value.kind === 'KEEP' && <p className="text-sm text-muted-foreground">{current ? t(current) : '—'}</p>}
@@ -248,7 +251,7 @@ function PointPicker({
 }
 
 /** The after-cut-off notice and its required reason (D-A1). */
-function LateReason({ cutoffText, value, onChange, error, id, inputRef }: { cutoffText: string | null; value: string; onChange: (v: string) => void; error?: string; id: string; inputRef?: Ref<HTMLTextAreaElement> }) {
+export function LateReason({ cutoffText, value, onChange, error, id, inputRef }: { cutoffText: string | null; value: string; onChange: (v: string) => void; error?: string; id: string; inputRef?: Ref<HTMLTextAreaElement> }) {
   const { t } = useTranslation();
   return (
     <div className="grid gap-2 rounded-lg border border-warning/50 bg-warning/10 p-3" role="region" aria-label={t('After cut-off')}>

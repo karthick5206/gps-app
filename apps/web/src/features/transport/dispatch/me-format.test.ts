@@ -9,6 +9,7 @@ function trip(over: Partial<MeTripDto> = {}): MeTripDto {
     passengerTripId: 'p1',
     serviceDate: '2026-11-10',
     direction: 'IN',
+    journey: 'COMMUTE',
     timeZone: 'Asia/Kolkata',
     window: { start: '2026-11-10T02:00:00.000Z', end: '2026-11-10T03:30:00.000Z' },
     derivedState: 'PUBLISHED',

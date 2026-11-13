@@ -25,6 +25,15 @@ import {
   type GeocodeCandidate,
   type TransportPlaceOptionDto,
   type UpdateTransportBookingInput,
+  type TransportBookingPolicyDto,
+  type CreateTransportGroupBookingInput,
+  type TransportGroupBookingResult,
+  type MeTransportProfileDto,
+  type MeTransportPolicyDto,
+  type MeTransportProfileUpdateInput,
+  type MeHomeLocationInput,
+  type MeHomeLocationResult,
+  type MeGeocodeHitDto,
 } from '@veetracer/shared';
 import { useEffect } from 'react';
 import { realtime } from '@/features/live/realtime';
@@ -351,4 +360,87 @@ export function useMyVehicle(tripId: string | null, active: boolean) {
 /** The trip detail (stops for pickup / drop seqs), from the cache when fresh. */
 export function fetchTransportTrip(qc: QueryClient, id: string): Promise<TransportTripDto> {
   return qc.fetchQuery({ queryKey: e3Keys.trip(id), queryFn: ({ signal }) => api.get<TransportTripDto>(`${TRIPS_ENDPOINT}/${id}`, undefined, signal), staleTime: 15_000 });
+}
+
+// ───────────────────────────── WP 3.9 wave 2 ─────────────────────────────
+
+/** GET /transport/bookings/policy: the company cut-off and limits for the desk's booking forms. */
+export function useBookingPolicy(enabled = true) {
+  return useQuery({
+    queryKey: ['transport-booking-policy'],
+    queryFn: ({ signal }) => api.get<TransportBookingPolicyDto>(`${BOOKINGS_ENDPOINT}/policy`, undefined, signal),
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+/** POST /transport/bookings/group (D-A8; Idempotency-Key, the caller keeps the key for retries of the same form). */
+export function useCreateGroupBooking() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ input, key }: { input: CreateTransportGroupBookingInput; key: string }) => postIdempotent<TransportGroupBookingResult>(`${BOOKINGS_ENDPOINT}/group`, input, key),
+    onSuccess: () => invalidateDispatch(qc),
+  });
+}
+
+/** Count (and first page) of the approval queue: REQUESTED bookings from today on. */
+export function useApprovalQueue(query: TransportBookingListQuery, enabled = true) {
+  return useQuery({
+    queryKey: [...e3Keys.bookings, 'approval', query],
+    queryFn: ({ signal }) => api.get<Paginated<TransportBookingDto>>(BOOKINGS_ENDPOINT, query as QueryParams, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+// D-A9: the passenger's own transport profile and home location.
+
+export function useMyProfile(enabled = true) {
+  return useQuery({
+    queryKey: [...e3Keys.me, 'profile'],
+    queryFn: ({ signal }) => api.get<MeTransportProfileDto>(`${ME_ENDPOINT}/profile`, undefined, signal),
+    enabled,
+    retry: (count, err) => !(err instanceof ApiError && err.status < 500) && count < 2,
+  });
+}
+
+export function useMyPolicy(enabled = true) {
+  return useQuery({
+    queryKey: [...e3Keys.me, 'policy'],
+    queryFn: ({ signal }) => api.get<MeTransportPolicyDto>(`${ME_ENDPOINT}/policy`, undefined, signal),
+    enabled,
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+export function useUpdateMyProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: MeTransportProfileUpdateInput) => api.patch<MeTransportProfileDto>(`${ME_ENDPOINT}/profile`, input),
+    onSuccess: (row) => qc.setQueryData([...e3Keys.me, 'profile'], row),
+  });
+}
+
+export function useSetMyHome() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: MeHomeLocationInput) => request<MeHomeLocationResult>(`${ME_ENDPOINT}/home`, { method: 'PUT', body: input }),
+    onSuccess: (r) => {
+      qc.setQueryData([...e3Keys.me, 'profile'], r.profile);
+      void qc.invalidateQueries({ queryKey: e3Keys.me });
+    },
+  });
+}
+
+/** GET /me/transport/geocode?q= (self-hosted Photon behind the API only). */
+export function useMyGeocode(q: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...e3Keys.me, 'geocode', q],
+    queryFn: ({ signal }) => api.get<MeGeocodeHitDto[]>(`${ME_ENDPOINT}/geocode`, { q }, signal),
+    enabled: enabled && q.length >= 3,
+    staleTime: 60_000,
+    retry: false,
+  });
 }

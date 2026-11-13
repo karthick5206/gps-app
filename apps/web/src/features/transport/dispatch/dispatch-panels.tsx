@@ -17,7 +17,8 @@ import { formatClock, fromZonedWall, toZonedWall } from '@/features/planned-trip
 import { cn } from '@/lib/utils';
 import { diffDraft, draftBookingIds, setAddNewDropStop, setAddNewPickupStop, setAddSeqs, setNewTripTiming, undoReassign, undoRemove, withoutBookings, type DispatchDraft, type DraftDiffRow } from './dispatch-draft';
 import { routeText } from './adhoc-booking';
-import { AfterCutoffBadge, JourneyBadge } from './adhoc-ui';
+import { AfterCutoffBadge, GroupBadge, JourneyBadge } from './adhoc-ui';
+import { groupIdOf, groupSelection, groupSizes, purposeOf } from './group-booking';
 import { candidateReason, isEditableTrip, straightLineLabel } from './e3-format';
 import { BookingStatusBadge, e3ErrorMessage, EtaText, OccupancyBar, PassengerOutcomeBadge, TripStateBadge } from './e3-ui';
 import { transportTripPath, useCandidates, useTransportTrip } from './use-e3';
@@ -63,6 +64,18 @@ export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void
     ctx.setSelected(n);
   };
   const free = rows.filter((b) => assignable(b) && !inDraft.has(b.id));
+  // WP 3.9 wave 2 (D-A8): a group ride's bookings can be selected together to put them on one new trip.
+  const sizes = useMemo(() => groupSizes(ctx.board.queue), [ctx.board.queue]);
+  const selectGroup = (g: string) => {
+    const ids = groupSelection(ctx.board.queue, g, inDraft);
+    const n = new Set(ctx.selected);
+    const all = ids.length > 0 && ids.every((id) => n.has(id));
+    for (const id of ids) {
+      if (all) n.delete(id);
+      else n.add(id);
+    }
+    ctx.setSelected(n);
+  };
   const allSelected = free.length > 0 && free.every((b) => ctx.selected.has(b.id));
   return (
     <section aria-labelledby="queue-h" className="flex min-h-0 min-w-0 flex-col gap-2">
@@ -110,6 +123,18 @@ export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void
                       {/* WP 3.9: optional reads, so an older board DTO without the fields renders as before. */}
                       {b.journey === 'POINT_TO_POINT' && <JourneyBadge journey="POINT_TO_POINT" />}
                       {b.afterCutoff === true && <AfterCutoffBadge reason={b.lateReason ?? null} />}
+                      {groupIdOf(b) &&
+                        (ctx.canPlan ? (
+                          <GroupBadge
+                            size={sizes.get(groupIdOf(b)!) ?? 1}
+                            purpose={purposeOf(b)}
+                            active={groupSelection(ctx.board.queue, groupIdOf(b)!, inDraft).some((id) => ctx.selected.has(id))}
+                            onClick={() => selectGroup(groupIdOf(b)!)}
+                            selectLabel
+                          />
+                        ) : (
+                          <GroupBadge size={sizes.get(groupIdOf(b)!) ?? 1} purpose={purposeOf(b)} />
+                        ))}
                       {b.needsLocation && <Badge variant="warning">{t('Needs location')}</Badge>}
                       {b.pointsHidden === 'CONSENT_REQUIRED' && <Badge variant="warning">{t('No routing consent')}</Badge>}
                       {drafted && <Badge variant="info">{t('In draft')}</Badge>}

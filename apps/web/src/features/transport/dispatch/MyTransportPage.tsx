@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { DIRECTION_LABEL, PASSENGER_STATUS_META } from './e3-format';
 import { BookingStatusBadge, DirectionBadge, e3ErrorMessage, EtaText, TripStateBadge } from './e3-ui';
 import { hiddenVehicleText, myMapStops, shouldPollVehicle, sortMyTrips } from './me-format';
+import { MyProfilePanel } from './MyProfilePanel';
 import { TransportMap } from './TransportMap';
 import { useMyBookings, useMyTrips, useMyVehicle } from './use-e3';
 
@@ -167,6 +168,13 @@ export function MyTransportPage() {
             ))}
           </div>
         )}
+      </section>
+
+      <section aria-labelledby="my-profile" className="grid gap-3">
+        <h2 id="my-profile" className="font-semibold">
+          {t('My transport profile')}
+        </h2>
+        <MyProfilePanel />
       </section>
 
       <section aria-labelledby="my-bookings" className="grid gap-3">

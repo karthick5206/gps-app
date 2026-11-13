@@ -1,5 +1,5 @@
-import type { TransportBookingDto, TransportBookingJourney, TransportBookingSource, TransportBookingStatus, TransportDirection } from '@veetracer/shared';
-import { CheckCheckIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, MapPinIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, RouteIcon, SearchIcon, TicketIcon, XCircleIcon, XIcon } from 'lucide-react';
+import type { TransportBookingDto, TransportBookingJourney, TransportBookingListQuery, TransportBookingSource, TransportBookingStatus, TransportDirection } from '@veetracer/shared';
+import { CheckCheckIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, MapPinIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, RouteIcon, SearchIcon, TicketIcon, UsersIcon, XCircleIcon, XIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -22,12 +22,15 @@ import { formatClock, shiftDay } from '@/features/planned-trips/trip-format';
 import { getReportTimeZone, todayInZone } from '@/features/reports/report-time';
 import { cn } from '@/lib/utils';
 import { canEditBooking, JOURNEY_LABEL, learnCutoffMin, routeText } from './adhoc-booking';
-import { AfterCutoffBadge, JourneyBadge } from './adhoc-ui';
+import { AfterCutoffBadge, GroupBadge, JourneyBadge } from './adhoc-ui';
+import { ApprovalQueue, useApprovalCount } from './ApprovalQueue';
 import { EditBookingDialog, NewBookingDialog } from './BookingDialogs';
+import { GroupBookingDialog } from './GroupBookingDialog';
+import { filterByGroup, groupIdOf, groupSizes, purposeOf } from './group-booking';
 import { approvableIds, BOOKING_SOURCE_LABEL, BOOKING_STATUS_CHIPS, BOOKING_STATUS_META, cutoffLabel, DIRECTION_LABEL } from './e3-format';
 import { BookingStatusBadge, DirectionBadge, e3ErrorMessage, SimpleSelect } from './e3-ui';
 import { ReasonDialog } from './ReasonDialog';
-import { transportTripPath, useBookingCommand, useBookings, useBulkApprove, type BookingCommand } from './use-e3';
+import { transportTripPath, useBookingCommand, useBookingPolicy, useBookings, useBulkApprove, type BookingCommand } from './use-e3';
 
 const PAGE_SIZE = 50;
 const ALL = '__all';
@@ -40,12 +43,12 @@ function windowText(b: TransportBookingDto, clock: (iso: string) => string) {
   return `${clock(b.windowStart)} – ${clock(b.windowEnd)}`;
 }
 
-function BookingMenu({ b, onCommand, onEdit, now }: { b: TransportBookingDto; onCommand: (kind: BookingCommand['kind'], b: TransportBookingDto) => void; onEdit: (b: TransportBookingDto) => void; now: number }) {
+function BookingMenu({ b, onCommand, onEdit }: { b: TransportBookingDto; onCommand: (kind: BookingCommand['kind'], b: TransportBookingDto) => void; onEdit: (b: TransportBookingDto) => void }) {
   const { t } = useTranslation();
   const { can } = useAuth();
   const canEdit = can('etms_bookings', 'edit');
   const acts = canEdit ? b.allowedActions.filter((a) => a !== 'edit') : [];
-  const editable = canEdit && canEditBooking(b, now);
+  const editable = canEdit && canEditBooking(b);
   if (!acts.length && !editable && !b.tripId) return null;
   return (
     <DropdownMenu>
@@ -106,14 +109,19 @@ export function BookingsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [command, setCommand] = useState<{ kind: 'reject' | 'cancel'; b: TransportBookingDto } | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  // WP 3.9 wave 2: group ride form, group filter (click on "Group of N"), "Requests to approve" view.
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [view, setView] = useState<'all' | 'requests'>('all');
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
 
-  const query = {
+  const query: TransportBookingListQuery & { groupId?: string } = {
     serviceDate: day,
+    groupId: groupId ?? undefined,
     direction: direction === ALL ? undefined : (direction as TransportDirection),
     bookingStatus: status ?? undefined,
     source: source === ALL ? undefined : (source as TransportBookingSource),
@@ -127,7 +135,12 @@ export function BookingsPage() {
     pageSize: PAGE_SIZE,
   };
   const list = useBookings(query);
-  const rows = useMemo(() => list.data?.items ?? [], [list.data]);
+  const rows = useMemo(() => filterByGroup(list.data?.items ?? [], groupId), [list.data, groupId]);
+  const sizes = useMemo(() => groupSizes(rows), [rows]);
+  const policy = useBookingPolicy();
+  const requestCount = useApprovalCount(today, can('etms_bookings', 'view'));
+  const groupPurpose = groupId ? (purposeOf(rows.find((r) => groupIdOf(r) === groupId) ?? {}) ?? null) : null;
+  const toggleGroup = (g: string) => setGroupId((cur) => (cur === g ? null : g));
   const total = list.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const cmd = useBookingCommand();
@@ -138,7 +151,7 @@ export function BookingsPage() {
   useEffect(() => {
     setPage(1);
     setSelected(new Set());
-  }, [day, direction, status, source, unassigned, search, journey, afterCutoff]);
+  }, [day, direction, status, source, unassigned, search, journey, afterCutoff, groupId]);
 
   const approvable = approvableIds(rows, selected);
   const toggle = (id: string, on: boolean) =>
@@ -173,9 +186,10 @@ export function BookingsPage() {
       onError: (e) => toast.error(e3ErrorMessage(e, t)),
     });
 
-  const hasFilters = direction !== ALL || status || source !== ALL || unassigned || search || journey !== ALL || afterCutoff;
-  // The company cut-off (not exposed to dispatchers directly): learned from the bookings on screen.
-  const cutoffMin = useMemo(() => learnCutoffMin(rows), [rows]);
+  const hasFilters = direction !== ALL || status || source !== ALL || unassigned || search || journey !== ALL || afterCutoff || groupId;
+  // The company cut-off from GET /transport/bookings/policy; until it answers, learned from the bookings on screen.
+  const learned = useMemo(() => learnCutoffMin(rows), [rows]);
+  const cutoffMin = policy.data?.cutoffMin ?? learned;
   const editing = editId ? (rows.find((r) => r.id === editId) ?? null) : null;
 
   return (
@@ -185,12 +199,56 @@ export function BookingsPage() {
         description={t('Rides requested for a day: approve them, then seat them on trips in Dispatch.')}
         actions={
           can('etms_bookings', 'create') && (
-            <Button onClick={() => setNewOpen(true)}>
-              <PlusIcon /> {t('New booking')}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setGroupOpen(true)}>
+                <UsersIcon /> {t('Group ride')}
+              </Button>
+              <Button onClick={() => setNewOpen(true)}>
+                <PlusIcon /> {t('New booking')}
+              </Button>
+            </div>
           )
         }
       />
+
+      <div className="flex gap-1 rounded-lg bg-muted p-1 sm:w-fit" role="tablist" aria-label={t('Bookings view')}>
+        {(['all', 'requests'] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={view === v}
+            onClick={() => setView(v)}
+            className={cn(
+              'inline-flex min-h-8 min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-1 text-center text-sm leading-tight font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none',
+              view === v ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {v === 'all' ? t('Bookings of the day') : t('Requests to approve')}
+            {v === 'requests' && requestCount !== null && requestCount > 0 && <Badge variant="warning">{requestCount}</Badge>}
+          </button>
+        ))}
+      </div>
+
+      {view === 'requests' ? (
+        <>
+          <div className="relative min-w-0 sm:w-72">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Search passenger…')} aria-label={t('Search passenger')} className="h-9 pl-8" />
+          </div>
+          <ApprovalQueue today={today} search={search} />
+        </>
+      ) : (
+        <>
+          {groupId && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 p-2 text-sm" role="status">
+              <UsersIcon className="size-4 text-primary" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{groupPurpose ? t('Showing one group ride: {{purpose}}', { purpose: groupPurpose }) : t('Showing one group ride')}</span>
+              <Button size="sm" variant="ghost" onClick={() => setGroupId(null)}>
+                <XIcon /> {t('Show all bookings again')}
+              </Button>
+            </div>
+          )}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="flex items-center gap-1">
@@ -264,6 +322,7 @@ export function BookingsPage() {
               setJourney(ALL);
               setAfterCutoff(false);
               setSearch('');
+              setGroupId(null);
             }}
           >
             <XIcon /> {t('Clear')}
@@ -344,6 +403,12 @@ export function BookingsPage() {
                         <span className="flex flex-col">
                           <span className="font-medium">{b.passenger.displayName}</span>
                           <span className="font-mono text-xs text-muted-foreground">{b.passenger.employeeCode}</span>
+                          {groupIdOf(b) && (
+                            <span className="mt-1 flex flex-wrap items-center gap-1">
+                              <GroupBadge size={sizes.get(groupIdOf(b)!) ?? 1} purpose={purposeOf(b)} active={groupId === groupIdOf(b)} onClick={() => toggleGroup(groupIdOf(b)!)} />
+                            </span>
+                          )}
+                          {purposeOf(b) && <span className="block max-w-48 truncate text-xs text-muted-foreground" title={purposeOf(b)!}>{purposeOf(b)}</span>}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -379,7 +444,7 @@ export function BookingsPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <BookingMenu b={b} onCommand={onCommand} onEdit={(x) => setEditId(x.id)} now={now} />
+                        <BookingMenu b={b} onCommand={onCommand} onEdit={(x) => setEditId(x.id)} />
                       </TableCell>
                     </TableRow>
                   );
@@ -402,15 +467,17 @@ export function BookingsPage() {
                         </p>
                       </div>
                       <BookingStatusBadge status={b.status} />
-                      <BookingMenu b={b} onCommand={onCommand} onEdit={(x) => setEditId(x.id)} now={now} />
+                      <BookingMenu b={b} onCommand={onCommand} onEdit={(x) => setEditId(x.id)} />
                     </div>
                     <p className="truncate text-sm" title={routeText(b, t)}>
                       {routeText(b, t)}
                     </p>
+                    {purposeOf(b) && <p className="truncate text-xs text-muted-foreground">{t('Purpose')}: {purposeOf(b)}</p>}
                     {b.afterCutoff && b.lateReason && <p className="line-clamp-2 text-xs text-muted-foreground">{t('Late reason: {{reason}}', { reason: b.lateReason })}</p>}
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       {b.journey === 'POINT_TO_POINT' ? <JourneyBadge journey={b.journey} /> : <DirectionBadge direction={b.direction} />}
                       {b.afterCutoff && <AfterCutoffBadge reason={b.lateReason} />}
+                      {groupIdOf(b) && <GroupBadge size={sizes.get(groupIdOf(b)!) ?? 1} purpose={purposeOf(b)} active={groupId === groupIdOf(b)} onClick={() => toggleGroup(groupIdOf(b)!)} />}
                       <span className="tabular-nums">{windowText(b, clock)}</span>
                       {b.needsLocation && <Badge variant="warning">{t('Needs location')}</Badge>}
                       {cut && <span className="text-xs text-muted-foreground">{cut}</span>}
@@ -442,6 +509,9 @@ export function BookingsPage() {
         </div>
       )}
 
+        </>
+      )}
+
       <ReasonDialog
         open={!!command}
         onOpenChange={(o) => !o && setCommand(null)}
@@ -454,6 +524,7 @@ export function BookingsPage() {
         onConfirm={(reason) => command && run(command.kind, command.b, reason)}
       />
       <NewBookingDialog open={newOpen} onOpenChange={setNewOpen} day={day} cutoffMin={cutoffMin} />
+      <GroupBookingDialog open={groupOpen} onOpenChange={setGroupOpen} day={day} cutoffMin={cutoffMin} />
       <EditBookingDialog booking={editing} onOpenChange={(o) => !o && setEditId(null)} cutoffMin={cutoffMin} />
     </div>
   );
