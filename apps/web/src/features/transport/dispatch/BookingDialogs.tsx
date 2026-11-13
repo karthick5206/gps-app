@@ -1,16 +1,13 @@
 import type { PassengerDto, TransportBookingDto, TransportBookingJourney, TransportDirection, TransportPlaceOptionDto, TransportShiftDto } from '@veetracer/shared';
 import { TRANSPORT_E3_LIMITS } from '@veetracer/shared';
-import { CircleAlertIcon, MapPinIcon, SearchIcon, XIcon } from 'lucide-react';
+import { CircleAlertIcon } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { FormError } from '@/components/form-error';
-import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { Input, Textarea } from '@/components/ui/input';
 import { Combobox, type Option } from '@/components/ui/multi-select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { FormDialog } from '@/features/masters/FormDialog';
 import { useEntityOptions } from '@/features/masters/use-options';
@@ -48,10 +45,11 @@ import {
   type PointChoice,
   type PointKind,
 } from './adhoc-booking';
+import { AddressSearchCombobox, BOOKING_GEOCODE_ENDPOINT } from '../AddressSearchCombobox';
 import { idempotencyFor, type IdempotencySlot } from './dispatch-draft';
 import { DIRECTION_LABEL, newUuid } from './e3-format';
 import { e3ErrorMessage } from './e3-ui';
-import { SHIFTS_ENDPOINT, useBookingGeocode, useBookingPlaces, useCreateBooking, useUpdateBooking } from './use-e3';
+import { SHIFTS_ENDPOINT, useBookingPlaces, useCreateBooking, useUpdateBooking } from './use-e3';
 
 const HomePinMap = lazy(() => import('../HomePinMap').then((m) => ({ default: m.HomePinMap })));
 
@@ -59,7 +57,11 @@ const passengerOption = (p: PassengerDto): Option => ({ value: p.id, label: `${p
 const shiftOption = (s: TransportShiftDto): Option => ({ value: s.id, label: s.name });
 const placeOption = (p: TransportPlaceOptionDto): Option => ({ value: p.id, label: p.category ? `${p.name} · ${p.category}` : p.name });
 
-/** Segmented choice (buttons with aria-pressed): readable at 390 px, disabled choices keep their reason as a title. */
+/**
+ * Segmented choice (buttons with aria-pressed): readable at 390 px, disabled choices keep their reason as a title.
+ * Equal-width segments; a label that does not fit wraps inside its own segment instead of running under its
+ * neighbour, and a segment never shrinks below its longest word (it moves to a new row instead).
+ */
 export function Segmented<T extends string>({ value, onChange, options, label, id }: { value: T; onChange: (v: T) => void; options: { value: T; label: string; disabled?: boolean; title?: string }[]; label: string; id?: string }) {
   return (
     <div id={id} role="group" aria-label={label} className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
@@ -72,7 +74,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, i
           title={o.title}
           onClick={() => onChange(o.value)}
           className={cn(
-            'h-8 min-w-0 flex-1 rounded-md px-2 text-sm font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45',
+            'min-h-8 flex-1 rounded-md px-2 py-1 text-center text-sm leading-tight font-medium text-balance outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45',
             value === o.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
           )}
         >
@@ -83,71 +85,12 @@ export function Segmented<T extends string>({ value, onChange, options, label, i
   );
 }
 
-/** A one-time point: address search (self-hosted Photon via the API) or a click on the self-hosted map. */
+/** A one-time point: address type-ahead (self-hosted Photon via the API) or a click on the self-hosted map. */
 export function MapPoint({ value, onChange, idPrefix }: { value: { lat: number; lng: number } | null; onChange: (p: { lat: number; lng: number }, label?: string) => void; idPrefix: string }) {
   const { t } = useTranslation();
-  const [text, setText] = useState('');
-  const [query, setQuery] = useState<string | null>(null);
-  const geocode = useBookingGeocode(query ?? '', query !== null);
   return (
     <div className="grid gap-2">
-      <div className="flex gap-2">
-        <Input
-          id={`${idPrefix}-addr`}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              if (text.trim().length >= 3) setQuery(text.trim());
-            }
-          }}
-          placeholder={t('Search an address…')}
-          aria-label={t('Search an address')}
-          autoComplete="off"
-        />
-        <Button type="button" variant="outline" onClick={() => setQuery(text.trim())} disabled={text.trim().length < 3} aria-label={t('Search address')}>
-          <SearchIcon />
-          <span className="hidden sm:inline">{t('Search')}</span>
-        </Button>
-      </div>
-      {query !== null && (
-        <div className="grid gap-1" aria-live="polite">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-muted-foreground">{t('Address matches')}</p>
-            <Button type="button" variant="ghost" size="icon-sm" aria-label={t('Close results')} onClick={() => setQuery(null)}>
-              <XIcon />
-            </Button>
-          </div>
-          {geocode.isFetching ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner /> {t('Searching…')}
-            </p>
-          ) : geocode.isError ? (
-            <FormError message={errorMessage(geocode.error)} />
-          ) : geocode.data?.length ? (
-            <ul className="max-h-44 divide-y overflow-y-auto rounded-lg border">
-              {geocode.data.slice(0, 6).map((c, i) => (
-                <li key={`${c.lat},${c.lng},${i}`}>
-                  <button
-                    type="button"
-                    className="flex min-h-11 w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-                    onClick={() => {
-                      onChange({ lat: Number(c.lat.toFixed(6)), lng: Number(c.lng.toFixed(6)) }, geocodeLabelDefault(c.label));
-                      setQuery(null);
-                    }}
-                  >
-                    <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-                    <span className="min-w-0 flex-1 break-words">{c.label}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('No match found. Click the map to place the point instead.')}</p>
-          )}
-        </div>
-      )}
+      <AddressSearchCombobox id={`${idPrefix}-addr`} endpoint={BOOKING_GEOCODE_ENDPOINT} ariaLabel={t('Search an address')} onPick={(h) => onChange({ lat: h.lat, lng: h.lng }, geocodeLabelDefault(h.label))} />
       <Suspense fallback={<Skeleton className="h-56 w-full rounded-lg" />}>
         <HomePinMap
           position={value}
@@ -200,10 +143,10 @@ export function PointPicker({
   const options = useMemo(() => rows.map(placeOption), [rows]);
   const blockedTitle = t('The passenger has no active transport consent: choose a company place.');
   return (
-    <fieldset className="grid min-w-0 gap-2 rounded-lg border p-3">
+    <fieldset className="grid min-w-0 content-start gap-2 rounded-lg border p-3">
       <legend className="px-1 text-sm font-medium">
         {title}
-        <span className="text-destructive" aria-hidden>
+        <span className="ml-1 text-destructive" aria-hidden>
           *
         </span>
       </legend>
@@ -411,7 +354,7 @@ export function NewBookingDialog({ open, onOpenChange, day, cutoffMin }: { open:
       <Field label={d.journey === 'COMMUTE' ? t('Shift') : t('Shift (optional)')} error={show('shift')} hint={d.journey === 'COMMUTE' ? t('The shift gives the default window and the site. Leave it empty and give a time window instead.') : undefined}>
         <Combobox value={d.shiftId} onChange={(id) => set({ shiftId: id })} options={shifts.options} loading={shifts.loading} placeholder={t('Choose a shift')} searchPlaceholder={t('Search shifts…')} emptyText={t('No shifts found')} />
       </Field>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3">
         <PointPicker
           end="pickup"
           idPrefix="bk-pickup"
@@ -443,7 +386,7 @@ export function NewBookingDialog({ open, onOpenChange, day, cutoffMin }: { open:
         <legend className="mb-1 text-sm font-medium">
           {t('Time window')}
           {(d.journey === 'POINT_TO_POINT' || !d.shiftId) && (
-            <span className="text-destructive" aria-hidden>
+            <span className="ml-1 text-destructive" aria-hidden>
               *
             </span>
           )}
@@ -568,7 +511,7 @@ export function EditBookingDialog({ booking, onOpenChange, cutoffMin }: { bookin
       error={serverError}
     >
       {settingLocation && <p className="rounded-lg bg-muted px-3 py-2 text-sm">{t('This booking has no usable pickup or destination yet. Choose a company place or a point on the map so it can be seated.')}</p>}
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3">
         <PointPicker
           end="pickup"
           idPrefix="ed-pickup"

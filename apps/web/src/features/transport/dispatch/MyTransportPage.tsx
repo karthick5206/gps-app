@@ -47,7 +47,7 @@ function TripCard({ trip, now, expanded, onToggle }: { trip: MeTripDto; now: num
   // My own pickup / drop (sent only with my routing consent) stay on the map; the vehicle joins inside its window.
   const mine = myMapStops(trip);
   return (
-    <Card className="gap-3 p-4">
+    <Card className="grid gap-3 p-4">
       <div className="flex flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
           <p className="font-medium">
