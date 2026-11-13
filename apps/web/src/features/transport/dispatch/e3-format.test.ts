@@ -63,7 +63,7 @@ test('bookings: cut-off label, approvable selection', () => {
   const now = Date.parse('2026-11-10T03:00:00Z');
   assert.equal(cutoffLabel('2026-11-10T03:25:00Z', 'PENDING_ASSIGNMENT', now), 'Cut-off in 25 min');
   assert.equal(cutoffLabel('2026-11-10T06:00:00Z', 'REQUESTED', now), 'Cut-off in 3 h');
-  assert.equal(cutoffLabel('2026-11-10T02:00:00Z', 'ASSIGNED', now), 'After cut-off');
+  assert.equal(cutoffLabel('2026-11-10T02:00:00Z', 'ASSIGNED', now), 'Cut-off passed');
   assert.equal(cutoffLabel('2026-11-10T02:00:00Z', 'CANCELLED', now), null);
   assert.equal(cutoffLabel(null, 'REQUESTED', now), null);
   const rows = [

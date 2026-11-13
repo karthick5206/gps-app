@@ -43,6 +43,7 @@ function SkippedBookings({ skipped }: { skipped: { bookingId: string; reason: st
         {rows.map((r) => (
           <li key={r.reason}>
             {t(r.label)}: <span className="tabular-nums">{r.n}</span>
+            {r.hint && <span className="block text-muted-foreground">{t(r.hint)}</span>}
           </li>
         ))}
       </ul>

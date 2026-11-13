@@ -30,6 +30,7 @@ import type {
   RoutingJobState,
   TransportDirection,
 } from '@veetracer/shared';
+import type { RoutePlanSkipReason } from '@veetracer/shared';
 import { meaningfulOverrideReason, overrideReasonText as sharedOverrideReasonText, publishWarningsFingerprint, ROUTE_PLAN_HARD_KINDS, ROUTE_PLAN_OVERRIDABLE_KINDS, type RoutePlanPublishIssue, type RoutePlanPublishRequest } from '@veetracer/shared';
 
 export type Tone = 'success' | 'warning' | 'destructive' | 'info' | 'neutral' | 'muted';
@@ -348,18 +349,35 @@ export const UNASSIGNED_REASON_LABEL: Record<OptimizeUnassignedReason | 'not_opt
   max_ride_unachievable: 'Ride would exceed the maximum ride time',
 };
 
-/** Why plan creation left a booking out (CreatedRoutePlanDto.skippedBookings[].reason). */
-export const SKIPPED_REASON_LABEL: Record<string, string> = {
+/** Why plan creation left a booking out (CreatedRoutePlanDto.skippedBookings[].reason; shared ROUTE_PLAN_SKIP_REASONS). */
+export const SKIPPED_REASON_LABEL: Record<RoutePlanSkipReason, string> & Record<string, string> = {
   consent_required: 'Passenger consent missing',
   needs_location: 'Pickup or drop point missing',
   out_of_scope: 'Outside your branches',
+  other_site: 'Office end is another site',
+  other_shift: 'Booked on another shift',
+  outside_shift_window: "Window outside this shift's times",
+  point_to_point: 'Point-to-point ride',
+  needs_approval: 'Not approved yet',
 };
 
-/** Bookings a new plan left out, counted per reason (in the order first seen). */
-export function skippedSummary(skipped: readonly { bookingId: string; reason: string }[] | null | undefined): { reason: string; label: string; n: number }[] {
+/** WP 3.9: what to do about a skipped booking (shown with each reason). */
+export const SKIPPED_REASON_HINT: Record<RoutePlanSkipReason, string> & Record<string, string> = {
+  consent_required: 'Set a company place as its pickup or destination (Bookings → Edit), or ask the passenger for transport consent.',
+  needs_location: 'Set its location in Bookings, then plan again.',
+  out_of_scope: 'A dispatcher of that branch plans it.',
+  other_site: 'Seat it on the dispatch board, or make a plan for that site.',
+  other_shift: 'Plan that shift, or seat it on the dispatch board.',
+  outside_shift_window: 'Seat it on the dispatch board, or plan without a shift.',
+  point_to_point: 'Point-to-point rides are seated by hand on the dispatch board.',
+  needs_approval: 'Approve it in Bookings, then plan again.',
+};
+
+/** Bookings a new plan left out, counted per reason (in the order first seen), with the action hint. */
+export function skippedSummary(skipped: readonly { bookingId: string; reason: string }[] | null | undefined): { reason: string; label: string; hint: string | null; n: number }[] {
   const m = new Map<string, number>();
   for (const s of skipped ?? []) m.set(s.reason, (m.get(s.reason) ?? 0) + 1);
-  return [...m].map(([reason, n]) => ({ reason, label: SKIPPED_REASON_LABEL[reason] ?? reason, n }));
+  return [...m].map(([reason, n]) => ({ reason, label: SKIPPED_REASON_LABEL[reason] ?? reason, hint: SKIPPED_REASON_HINT[reason] ?? null, n }));
 }
 
 /**
@@ -523,6 +541,8 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   VERSION_CONFLICT: 'Someone changed this plan meanwhile. The latest version was loaded; check it and try again.',
   IDEMPOTENCY_KEY_REUSED: 'This request was already sent with other content. Review and try again.',
   PLAN_NOT_PUBLISHABLE: 'This plan cannot be published yet: some routes need attention (see below).',
+  // WP 3.9: a booking on the plan was edited after planning (its points / window changed).
+  BOOKING_CHANGED: 'A booking on this route was changed after planning. Re-optimise the plan or remove that stop, then publish.',
   PLAN_HAS_HARD_VIOLATIONS: 'This plan has violations that block publishing. Edit the routes or re-optimise the plan.',
   PLAN_WARNINGS_NOT_ACKNOWLEDGED: 'The plan’s warnings changed. Check them again and confirm before publishing.',
   PUBLISH_OVERRIDE_FORBIDDEN: 'Only a whole-company transport administrator may override the publish checks.',

@@ -23,7 +23,10 @@ export function HomePinMap({
   approximate = false,
   stop,
   className,
+  texts,
 }: {
+  /** WP 3.9: other wording for reuse as a booking point picker (already translated). */
+  texts?: { marker: string; empty: string; set: string; region: string };
   position: { lat: number; lng: number } | null;
   onChange: (p: { lat: number; lng: number }) => void;
   readOnly?: boolean;
@@ -72,13 +75,13 @@ export function HomePinMap({
     if (!position) return;
     const color = cssToken('--primary') || '#0e5e57';
     const m = new maplibregl.Marker({ color, draggable: !readOnly }).setLngLat([position.lng, position.lat]).addTo(map);
-    m.getElement().setAttribute('aria-label', approximate ? t('Home location (approximate)') : t('Home location'));
+    m.getElement().setAttribute('aria-label', texts ? texts.marker : approximate ? t('Home location (approximate)') : t('Home location'));
     m.on('dragend', () => {
       const ll = m.getLngLat();
       cb.current.onChange({ lat: Number(ll.lat.toFixed(6)), lng: Number(ll.lng.toFixed(6)) });
     });
     markerRef.current = m;
-  }, [map, position?.lat, position?.lng, readOnly, approximate, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [map, position?.lat, position?.lng, readOnly, approximate, t, texts?.marker]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pickup stop marker (context only).
   useEffect(() => {
@@ -130,7 +133,7 @@ export function HomePinMap({
 
   return (
     <div className={cn('relative min-h-[260px] overflow-hidden rounded-lg border', className)}>
-      <div ref={containerRef} className="h-full w-full" role="application" aria-label={t('Home location map. Use the latitude and longitude fields to set the point with the keyboard.')} />
+      <div ref={containerRef} className="h-full w-full" role="application" aria-label={texts ? texts.region : t('Home location map. Use the latitude and longitude fields to set the point with the keyboard.')} />
       {unsupported && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted p-6 text-center text-sm text-muted-foreground">
           {t('The map needs WebGL. You can still type the latitude and longitude.')}
@@ -144,8 +147,8 @@ export function HomePinMap({
                 ? t('Approximate location (within about 11 m).')
                 : t('Read only')
               : position
-                ? t('Click the map or drag the pin to move it.')
-                : t('Click the map to place the home pin.')}
+                ? (texts?.set ?? t('Click the map or drag the pin to move it.'))
+                : (texts?.empty ?? t('Click the map to place the home pin.'))}
           </span>
         </div>
       )}

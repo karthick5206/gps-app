@@ -22,6 +22,9 @@ import {
   type TransportScheduleExceptionDto,
   type TransportSchedulePreviewDto,
   type TransportTripDto,
+  type GeocodeCandidate,
+  type TransportPlaceOptionDto,
+  type UpdateTransportBookingInput,
 } from '@veetracer/shared';
 import { useEffect } from 'react';
 import { realtime } from '@/features/live/realtime';
@@ -127,6 +130,42 @@ export function useCreateBooking() {
   return useMutation({
     mutationFn: ({ input, key }: { input: CreateTransportBookingInput; key: string }) => postIdempotent<TransportBookingDto>(BOOKINGS_ENDPOINT, input, key),
     onSuccess: () => invalidateDispatch(qc),
+  });
+}
+
+/** PATCH /transport/bookings/:id (expectedVersion; WP 3.9: points, window, seats, note, late reason). */
+export function useUpdateBooking() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateTransportBookingInput }) => api.patch<TransportBookingDto>(`${BOOKINGS_ENDPOINT}/${id}`, input),
+    onSuccess: () => invalidateDispatch(qc),
+    // A stale version: reload so the dialog picks up the latest version (the typed changes stay in the form).
+    onError: (err) => {
+      if (err instanceof ApiError && err.code === 'VERSION_CONFLICT') invalidateDispatch(qc);
+    },
+  });
+}
+
+/** WP 3.9: company places a booking may use (GET /transport/bookings/places?q=; active Pois of the customer company). */
+export function useBookingPlaces(q: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['transport-booking-places', q],
+    queryFn: ({ signal }) => api.get<TransportPlaceOptionDto[]>(`${BOOKINGS_ENDPOINT}/places`, { q: q || undefined }, signal),
+    enabled,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
+}
+
+/** WP 3.9: address search for a one-time point (GET /transport/bookings/geocode?q=; self-hosted Photon only). */
+export function useBookingGeocode(q: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['transport-booking-geocode', q],
+    queryFn: ({ signal }) => api.get<GeocodeCandidate[]>(`${BOOKINGS_ENDPOINT}/geocode`, { q }, signal),
+    enabled: enabled && q.length >= 3,
+    staleTime: 60_000,
+    retry: false,
   });
 }
 

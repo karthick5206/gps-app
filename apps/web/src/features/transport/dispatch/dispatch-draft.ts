@@ -132,7 +132,8 @@ const samePoint = (a: GeoPoint, b: GeoPoint) => Math.abs(a.lat - b.lat) < 1e-5 &
 
 /**
  * Door-to-door stops of a new trip (IN: every pickup, then the site(s); OUT: the site(s), then every drop). Identical
- * points share one stop. Planned arrivals are `startMs + i × gapMin`: a plain plan the dispatcher set, not an ETA.
+ * points share one stop. WP 3.9: a POINT_TO_POINT booking is stored as IN, so its stops are pickups first, then its
+ * own destination (any point, not necessarily a site); drops follow in window-end order. Planned arrivals are `startMs + i × gapMin`: a plain plan the dispatcher set, not an ETA.
  * Returns the stops and each booking's pickup / drop seq.
  */
 export function newTripStops(trip: Pick<DraftNewTrip, 'startMs' | 'gapMin' | 'bookingIds'>, bookings: Record<string, DraftBooking>, direction: TransportDirection): { stops: DispatchStopInput[]; seqs: Record<string, { pickupSeq: number; dropSeq: number }> } {
@@ -150,7 +151,7 @@ export function newTripStops(trip: Pick<DraftNewTrip, 'startMs' | 'gapMin' | 'bo
   if (direction === 'IN') {
     for (const b of order('windowStart')) pick[b.id] = indexOf(b.pickup!);
     const firstDrop = points.length;
-    for (const b of list) {
+    for (const b of order('windowEnd')) {
       const i = points.findIndex((q, k) => k >= firstDrop && samePoint(q, b.drop!));
       drop[b.id] = i >= 0 ? i : (points.push(b.drop!), points.length - 1);
     }

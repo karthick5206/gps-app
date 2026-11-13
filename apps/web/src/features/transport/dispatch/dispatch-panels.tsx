@@ -16,6 +16,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatClock, fromZonedWall, toZonedWall } from '@/features/planned-trips/trip-format';
 import { cn } from '@/lib/utils';
 import { diffDraft, draftBookingIds, setAddNewDropStop, setAddNewPickupStop, setAddSeqs, setNewTripTiming, undoReassign, undoRemove, withoutBookings, type DispatchDraft, type DraftDiffRow } from './dispatch-draft';
+import { routeText } from './adhoc-booking';
+import { AfterCutoffBadge, JourneyBadge } from './adhoc-ui';
 import { candidateReason, isEditableTrip, straightLineLabel } from './e3-format';
 import { BookingStatusBadge, e3ErrorMessage, EtaText, OccupancyBar, PassengerOutcomeBadge, TripStateBadge } from './e3-ui';
 import { transportTripPath, useCandidates, useTransportTrip } from './use-e3';
@@ -99,12 +101,15 @@ export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void
                       </span>
                     </div>
                     <p className="truncate text-xs text-muted-foreground">
-                      {b.pickupLabel ?? (b.pickup ? t('Home') : '—')}
+                      {routeText(b, t)}
                       {b.passengerCount > 1 && ` · ${t('{{n}} seats', { n: b.passengerCount })}`}
                       {b.shiftName && ` · ${b.shiftName}`}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-1">
                       {b.status !== 'PENDING_ASSIGNMENT' && <BookingStatusBadge status={b.status} />}
+                      {/* WP 3.9: optional reads, so an older board DTO without the fields renders as before. */}
+                      {b.journey === 'POINT_TO_POINT' && <JourneyBadge journey="POINT_TO_POINT" />}
+                      {b.afterCutoff === true && <AfterCutoffBadge reason={b.lateReason ?? null} />}
                       {b.needsLocation && <Badge variant="warning">{t('Needs location')}</Badge>}
                       {b.pointsHidden === 'CONSENT_REQUIRED' && <Badge variant="warning">{t('No routing consent')}</Badge>}
                       {drafted && <Badge variant="info">{t('In draft')}</Badge>}
