@@ -51,6 +51,8 @@ const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export interface GroupFields {
   groupId?: string | null;
   purpose?: string | null;
+  /** Bookings in the group, counted by the server (all pages, seated ones too); null outside a group. */
+  groupSize?: number | null;
 }
 
 export const groupIdOf = (b: object): string | null => (b as GroupFields).groupId ?? null;
@@ -59,14 +61,21 @@ export const purposeOf = (b: object): string | null => {
   return typeof p === 'string' && p.trim() ? p.trim() : null;
 };
 
-/** Bookings per group among the rows on screen (a group is one service date, so a day's list holds all of it). */
+/**
+ * Bookings per group: the server's groupSize (QA B5: all pages, seated members too), else the rows on screen
+ * (an older DTO without groupSize).
+ */
 export function groupSizes(rows: readonly object[]): Map<string, number> {
-  const out = new Map<string, number>();
+  const onScreen = new Map<string, number>();
+  const server = new Map<string, number>();
   for (const r of rows) {
     const g = groupIdOf(r);
-    if (g) out.set(g, (out.get(g) ?? 0) + 1);
+    if (!g) continue;
+    onScreen.set(g, (onScreen.get(g) ?? 0) + 1);
+    const n = (r as GroupFields).groupSize;
+    if (typeof n === 'number' && n > 0) server.set(g, Math.max(server.get(g) ?? 0, n));
   }
-  return out;
+  return new Map([...onScreen].map(([g, n]) => [g, server.get(g) ?? n]));
 }
 
 /** Client-side safety net for the groupId filter (the server filters too). */

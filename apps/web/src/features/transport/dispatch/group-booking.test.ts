@@ -165,6 +165,10 @@ test('group list helpers: sizes, filter by groupId, select a whole group on the 
   const rows = [booking({ id: '1', groupId: 'g1', purpose: ' Site visit ' }), booking({ id: '2', groupId: 'g1' }), booking({ id: '3', groupId: 'g2' }), booking({ id: '4' })];
   assert.equal(groupSizes(rows).get('g1'), 2);
   assert.equal(groupSizes(rows).get('g2'), 1);
+  // QA B5: the server's groupSize wins over the rows on screen (paged lists, partly seated groups on the board).
+  const paged = [booking({ id: '1', groupId: 'g1', groupSize: 5 }), booking({ id: '2', groupId: 'g1', groupSize: 5 }), booking({ id: '3', groupId: 'g2', groupSize: null })];
+  assert.equal(groupSizes(paged).get('g1'), 5);
+  assert.equal(groupSizes(paged).get('g2'), 1);
   assert.equal(groupIdOf(rows[3]), null);
   assert.equal(purposeOf(rows[0]), 'Site visit');
   assert.equal(purposeOf(rows[1]), null);
