@@ -22,3 +22,9 @@ CREATE UNIQUE INDEX "TransportBooking_active_passenger_day_key" ON "TransportBoo
 ALTER TABLE "TransportBooking" ADD CONSTRAINT "TransportBooking_p2p_overlap_excl"
   EXCLUDE USING gist ("profileId" WITH =, tstzrange("windowStart", "windowEnd", '[)') WITH &&)
   WHERE ("journey" = 'POINT_TO_POINT' AND "status" NOT IN ('CANCELLED','REJECTED','EXPIRED','FAILED'));
+
+-- WP 3.9 (D-A4, added by the adhoc-api agent): a BOOKING_CREATED inbox row points at its booking (push data
+-- { kind, bookingId, notificationId }); the booking id is not personal data. SET NULL when the booking row goes.
+ALTER TABLE "TransportNotification" ADD COLUMN "bookingId" UUID;
+ALTER TABLE "TransportNotification" ADD CONSTRAINT "TransportNotification_bookingId_fkey"
+  FOREIGN KEY ("bookingId") REFERENCES "TransportBooking"("id") ON DELETE SET NULL ON UPDATE CASCADE;
