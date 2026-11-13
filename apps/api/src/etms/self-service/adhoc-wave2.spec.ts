@@ -385,3 +385,20 @@ describe('v1.15.0 security review fixes', () => {
     expect(await csvText(await w.bookings.list(w.desk(), { format: 'csv' } as never))).not.toContain('Secret');
   });
 });
+
+describe('v1.15 M2 desk geocode', () => {
+  it('GET /transport/bookings/geocode: ≥ 3 characters (400), 20 / min per user (429 RATE_LIMITED with retryAfterSec)', async () => {
+    const w = world();
+    const calls: string[] = [];
+    const search = async (term: string) => (calls.push(term), [{ label: 'Road 1', lat: 13, lng: 80.2, confidence: 0.9, matchType: 'street' }] as never);
+    expect(await codeOf(w.bookings.geocode(w.desk(), '  ab ', search))).toBe('VALIDATION_FAILED');
+    expect(await codeOf(w.bookings.geocode(w.desk(), undefined, search))).toBe('VALIDATION_FAILED');
+    expect(calls).toEqual([]);
+    for (let i = 0; i < 20; i++) expect(await w.bookings.geocode(w.desk(), ' Road ', search)).toHaveLength(1);
+    expect(calls[0]).toBe('Road');
+    const e = await errOf(w.bookings.geocode(w.desk(), 'Road', search));
+    expect(e).toMatchObject({ status: 429, body: { code: 'RATE_LIMITED', retryAfterSec: expect.any(Number) } });
+    expect(calls).toHaveLength(20);
+    expect(await codeOf(w.bookings.geocode(w.desk({ userId: 'u-other' }), 'Road', search))).toBe('OK'); // per user
+  });
+});

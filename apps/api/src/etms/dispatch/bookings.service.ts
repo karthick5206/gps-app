@@ -8,6 +8,7 @@ import {
   passengerPushAllowed,
   type AuditLogDto,
   type BulkApproveTransportBookingsResult,
+  type GeocodeCandidate,
   type GeoPoint,
   type TransportBookingCommand,
   type TransportBookingDto,
@@ -190,6 +191,7 @@ export function decisionKind(command: 'approve' | 'reject' | 'cancel', from: str
 export class BookingsService {
   private readonly limiter: FixedWindowLimiter;
   private readonly bulkLimiter: FixedWindowLimiter;
+  private readonly geocodeLimiter: FixedWindowLimiter;
   private readonly notifications: TransportNotificationsService;
 
   constructor(
@@ -203,6 +205,8 @@ export class BookingsService {
     this.limiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:booking-create', TRANSPORT_E3_LIMITS.bookingCreatesPerMinute, 60_000);
     // L6: bulk approve runs up to maxBulk transactions per request.
     this.bulkLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:booking-bulk', TRANSPORT_E3_LIMITS.bulkApprovesPerMinute, 60_000);
+    // v1.15 M2: the desk address search has the passenger route's limit (self-hosted Photon is not for bulk lookups).
+    this.geocodeLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:desk-geocode', TRANSPORT_ADHOC_LIMITS.geocodePerMinute, 60_000);
   }
 
   // ───────────────────────────── reads ─────────────────────────────
@@ -256,6 +260,18 @@ export class BookingsService {
       take: 50,
     });
     return rows.filter((r) => r.companyId === ctx.companyId).map((r) => ({ id: r.id, name: r.name, category: r.category ?? null, lat: r.lat, lng: r.lng }));
+  }
+
+  /**
+   * GET /transport/bookings/geocode (v1.15 M2): at least geocodeMinChars characters (400), geocodePerMinute searches per
+   * user (429 RATE_LIMITED with retryAfterSec), then the self-hosted geocoder (`search`, PeopleService.geocode).
+   */
+  async geocode(ctx: AuthContext, q: string | undefined, search: (term: string) => Promise<GeocodeCandidate[]>): Promise<GeocodeCandidate[]> {
+    const term = (q ?? '').trim();
+    if (term.length < TRANSPORT_ADHOC_LIMITS.geocodeMinChars) throw invalid(`Type at least ${TRANSPORT_ADHOC_LIMITS.geocodeMinChars} characters`);
+    const rl = await this.geocodeLimiter.hit(ctx.userId);
+    if (!rl.allowed) throw e3Error(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMITED', `Too many searches; try again in ${rl.retryAfterSec} s`, { retryAfterSec: rl.retryAfterSec });
+    return search(term);
   }
 
   async get(ctx: AuthContext, id: string): Promise<TransportBookingDto> {
