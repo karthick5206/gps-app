@@ -63,6 +63,8 @@ export interface MeTransportPolicyDto extends MeAdhocPolicyFields {
    */
   sos: boolean;
   deskPhone: string | null;
+  /** WP 3.9 wave 2: the company's time zone (IANA), for request windows without a shift. */
+  timeZone: string;
 }
 
 // ───────────────────────────── Saved places ─────────────────────────────

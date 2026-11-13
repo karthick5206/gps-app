@@ -1004,6 +1004,21 @@ export interface MeBookingDto {
   purpose: string | null;
   /** WP 3.9 wave 2 (D-A5): waiting for transport-team approval (status REQUESTED). */
   needsApproval: boolean;
+  /**
+   * WP 3.9 wave 2 (D-A5): the approval state. PENDING = REQUESTED; REJECTED = status REJECTED; APPROVED = the transport
+   * team approved it while it waited (stored approvedAt); NOT_REQUIRED = it never waited for approval (desk booking
+   * without hold, approval switched off, schedule booking) — never shown as "approved".
+   */
+  approval: MeBookingApproval;
+}
+
+export type MeBookingApproval = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** D-A5: the approval state of a booking (pure; see MeBookingDto.approval). */
+export function meBookingApproval(b: { status: TransportBookingStatus; approvedAt: Date | string | null }): MeBookingApproval {
+  if (b.status === 'REQUESTED') return 'PENDING';
+  if (b.status === 'REJECTED') return 'REJECTED';
+  return b.approvedAt ? 'APPROVED' : 'NOT_REQUIRED';
 }
 
 export interface MeTransportRangeQuery {

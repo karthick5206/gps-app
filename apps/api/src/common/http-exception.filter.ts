@@ -87,10 +87,19 @@ export class HttpExceptionFilter implements ExceptionFilter {
       if ((transport || etmsSelf) && (typeof b.currentVersion === 'number' || typeof b.currentVersion === 'string')) extra.currentVersion = b.currentVersion;
       // WP 3.9 booking details: NOT_ELIGIBLE `reason`, BOOKING_OVERLAP / BOOKING_DUPLICATE `bookingId` (an id the caller
       // may already read), LATE_REASON_REQUIRED limits.
-      if (transport && typeof b.reason === 'string' && b.code === 'NOT_ELIGIBLE') extra.reason = b.reason;
-      if (transport && typeof b.bookingId === 'string' && (b.code === 'BOOKING_OVERLAP' || b.code === 'BOOKING_DUPLICATE')) extra.bookingId = b.bookingId;
+      // WP 3.9 wave 2: the passenger's own request (/api/me/transport) answers the same rule details.
+      if ((transport || etmsSelf) && typeof b.reason === 'string' && b.code === 'NOT_ELIGIBLE') extra.reason = b.reason;
+      if ((transport || etmsSelf) && typeof b.bookingId === 'string' && (b.code === 'BOOKING_OVERLAP' || b.code === 'BOOKING_DUPLICATE')) extra.bookingId = b.bookingId;
+      // WP 3.9 wave 2 (D-A8): per-passenger failures of a group booking: { passengerId, code, reason? } only.
+      if (transport && b.code === 'GROUP_INVALID' && Array.isArray(b.failures)) {
+        extra.failures = (b.failures as unknown[]).slice(0, 50).flatMap((x) => {
+          const f = x as Record<string, unknown> | null;
+          if (!f || typeof f.passengerId !== 'string' || typeof f.code !== 'string') return [];
+          return [{ passengerId: f.passengerId, code: f.code, ...(typeof f.reason === 'string' ? { reason: f.reason } : {}) }];
+        });
+      }
       if (transport && b.code === 'LATE_REASON_REQUIRED' && typeof b.lateReasonMin === 'number' && typeof b.lateReasonMax === 'number') Object.assign(extra, { lateReasonMin: b.lateReasonMin, lateReasonMax: b.lateReasonMax });
-      if (transport && typeof b.retryAfterSec === 'number') {
+      if ((transport || etmsSelf) && typeof b.retryAfterSec === 'number') {
         extra.retryAfterSec = b.retryAfterSec;
         res.setHeader?.('Retry-After', String(b.retryAfterSec));
       }

@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { ME_VEHICLE_WINDOW, TRANSPORT_E3_LIMITS, transportSettingsOf, type EtaValue, type MeBookingDto, type MeTripDto, type MeVehicleDto, type PlannedStopStatus } from '@veetracer/shared';
+import { ME_VEHICLE_WINDOW, TRANSPORT_E3_LIMITS, meBookingApproval, transportSettingsOf, type EtaValue, type MeBookingDto, type MeTripDto, type MeVehicleDto, type PlannedStopStatus } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { iso } from '../../common/dto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -236,5 +236,6 @@ function toMeBooking(r: Prisma.TransportBookingGetPayload<{ include: { passenger
     statusReason: r.status === 'REJECTED' ? (r.statusReason ?? null) : null,
     purpose: r.purpose ?? null,
     needsApproval: r.status === 'REQUESTED',
+    approval: meBookingApproval(r),
   };
 }

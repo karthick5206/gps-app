@@ -549,7 +549,7 @@ export class BookingsService {
       }
       const claimed = await tx.transportBooking.updateMany({
         where: { id, status: before.status, version: before.version },
-        data: { status: next, statusReason: command === 'approve' ? null : reason, version: { increment: 1 } },
+        data: { status: next, statusReason: command === 'approve' ? null : reason, ...(kind === 'BOOKING_APPROVED' ? { approvedAt: new Date() } : {}), version: { increment: 1 } },
       });
       if (!claimed.count) throw versionConflict(before.version);
       const after = await tx.transportBooking.findUniqueOrThrow({ where: { id }, include: BOOKING_INCLUDE });
