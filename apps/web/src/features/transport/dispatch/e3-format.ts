@@ -48,12 +48,13 @@ export function approvableIds(rows: readonly { id: string; status: TransportBook
   return rows.filter((r) => selected.has(r.id) && (r.status === 'REQUESTED' || r.status === 'WAITLISTED')).map((r) => r.id);
 }
 
-/** "Cut-off in 25 min" / "After cut-off" / null when the booking has no cut-off or is final. */
+/** "Cut-off in 25 min" / "Cut-off passed" / null when the booking has no cut-off or is final. */
 export function cutoffLabel(cutoffAt: string | null, status: TransportBookingStatus, nowMs: number, t: Translate = english): string | null {
   if (!cutoffAt || ['REJECTED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(status)) return null;
   const ms = Date.parse(cutoffAt) - nowMs;
   if (!Number.isFinite(ms)) return null;
-  if (ms <= 0) return t('After cut-off');
+  // "After cut-off" is the WP 3.9 chip of a booking made late with a reason; a passed cut-off reads differently.
+  if (ms <= 0) return t('Cut-off passed');
   const min = Math.ceil(ms / 60_000);
   if (min < 60) return t('Cut-off in {{n}} min', { n: min });
   const h = Math.floor(min / 60);
@@ -220,6 +221,10 @@ export const E3_ERROR_TEXT: Record<string, string> = {
   TRIP_CLOSED: 'The trip has started or closed; it can no longer be changed here.',
   AFTER_CUTOFF: 'The booking cut-off has passed.',
   BOOKING_DUPLICATE: 'The passenger already has a booking for that day and direction.',
+  // WP 3.9 (ad-hoc booking).
+  LATE_REASON_REQUIRED: 'The cut-off has passed. Give a reason for the late booking.',
+  NOT_ELIGIBLE: 'This passenger cannot be booked for this ride.',
+  BOOKING_OVERLAP: 'The passenger already has another booking at that time.',
   UNRESOLVED_PASSENGERS: 'Record an outcome (boarded / no-show) for every passenger before completing the trip.',
   IDEMPOTENCY_KEY_REUSED: 'This request was already sent with other content. Review the changes and publish again.',
   IDEMPOTENCY_KEY_REQUIRED: 'The request was missing its retry key. Try again.',

@@ -9,6 +9,7 @@ import { formatClock } from '@/features/planned-trips/trip-format';
 import { cleanDays, WEEK_DISPLAY_ORDER, weekdayNames, formatDays } from '@/features/routes/schedule-days';
 import { ApiError, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { bookingErrorText } from './adhoc-booking';
 import { BOOKING_STATUS_META, DIRECTION_SHORT, e3ErrorText, etaView, occupancy, occupancyLabel, passengerOutcomeView, TRIP_STATE_META, type Occupancy } from './e3-format';
 
 export function BookingStatusBadge({ status, className }: { status: TransportBookingStatus; className?: string }) {
@@ -198,9 +199,15 @@ export function SimpleSelect({ value, onChange, options, id, label, className, d
   );
 }
 
-/** Friendly text for an API error code (VERSION_CONFLICT, CAPACITY_EXCEEDED, CONSENT_REQUIRED, …) plus the server's detail. */
-export function e3ErrorMessage(err: unknown, t: (k: string) => string): string {
+/**
+ * Friendly text for an API error code (VERSION_CONFLICT, CAPACITY_EXCEEDED, CONSENT_REQUIRED, …) plus the server's
+ * detail. `booking`: the booking create / edit texts (WP 3.9: NOT_ELIGIBLE per reason, CONSENT_REQUIRED = choose a
+ * company place, LATE_REASON_REQUIRED, BOOKING_OVERLAP); those are complete without the server's detail.
+ */
+export function e3ErrorMessage(err: unknown, t: (k: string) => string, opts: { booking?: boolean } = {}): string {
   if (err instanceof ApiError) {
+    const own = opts.booking ? bookingErrorText(err.code, err.body) : null;
+    if (own) return t(own);
     const friendly = e3ErrorText(err.code);
     if (friendly) return err.message && err.code !== 'VERSION_CONFLICT' ? `${t(friendly)} (${err.message})` : t(friendly);
   }
