@@ -1,5 +1,5 @@
 import type { MeTransportProfileDto } from '@veetracer/shared';
-import { CircleCheckIcon, HomeIcon, MapPinIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon, UserRoundIcon, XIcon } from 'lucide-react';
+import { CircleCheckIcon, HomeIcon, PencilIcon, PlusIcon, Trash2Icon, UserRoundIcon } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -12,7 +12,8 @@ import { Input, Textarea } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
-import { ApiError, errorMessage } from '@/lib/api';
+import { ApiError } from '@/lib/api';
+import { AddressSearchCombobox, ME_GEOCODE_ENDPOINT } from '../AddressSearchCombobox';
 import { e3ErrorMessage, SimpleSelect } from './e3-ui';
 import {
   buildHomeInput,
@@ -30,7 +31,7 @@ import {
   type HomeDraft,
   type ProfileDraft,
 } from './me-profile';
-import { useMyGeocode, useMyPolicy, useMyProfile, useSetMyHome, useUpdateMyProfile } from './use-e3';
+import { useMyPolicy, useMyProfile, useSetMyHome, useUpdateMyProfile } from './use-e3';
 
 const HomePinMap = lazy(() => import('../HomePinMap').then((m) => ({ default: m.HomePinMap })));
 const NONE = '__none';
@@ -135,16 +136,13 @@ function ProfileForm({ profile, onDone }: { profile: MeTransportProfileDto; onDo
   );
 }
 
-/** Home location: self-hosted address search, map pin or typed coordinates (PUT /me/transport/home); consent-gated. */
+/** Home location: self-hosted address type-ahead, map pin or typed coordinates (PUT /me/transport/home); consent-gated. */
 function HomeEditor({ profile, onDone }: { profile: MeTransportProfileDto; onDone: (message: string) => void }) {
   const { t } = useTranslation();
   const save = useSetMyHome();
   const [d, setD] = useState<HomeDraft>(() => homeDraftOf(profile));
-  const [text, setText] = useState('');
-  const [query, setQuery] = useState<string | null>(null);
   const [typedError, setTypedError] = useState<string | null>(null);
   const [tried, setTried] = useState(false);
-  const geocode = useMyGeocode(query ?? '', query !== null);
   const error = validateHome(d, profile.routingConsent, t);
   const consentMissing = save.error instanceof ApiError && save.error.code === 'CONSENT_REQUIRED';
 
@@ -167,63 +165,14 @@ function HomeEditor({ profile, onDone }: { profile: MeTransportProfileDto; onDon
   return (
     <form noValidate onSubmit={submit} className="grid gap-3">
       {save.isError && <FormError message={consentMissing ? t('Your transport consent is needed before a home location can be saved.') : e3ErrorMessage(save.error, t)} />}
-      <div className="flex gap-2">
-        <Input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              if (text.trim().length >= 3) setQuery(text.trim());
-            }
-          }}
-          placeholder={t('Search your address…')}
-          aria-label={t('Search your address')}
-          autoComplete="off"
-        />
-        <Button type="button" variant="outline" onClick={() => setQuery(text.trim())} disabled={text.trim().length < 3} aria-label={t('Search address')}>
-          <SearchIcon />
-          <span className="hidden sm:inline">{t('Search')}</span>
-        </Button>
-      </div>
-      {query !== null && (
-        <div className="grid gap-1" aria-live="polite">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-muted-foreground">{t('Address matches')}</p>
-            <Button type="button" variant="ghost" size="icon-sm" aria-label={t('Close results')} onClick={() => setQuery(null)}>
-              <XIcon />
-            </Button>
-          </div>
-          {geocode.isFetching ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner /> {t('Searching…')}
-            </p>
-          ) : geocode.isError ? (
-            <FormError message={errorMessage(geocode.error)} />
-          ) : geocode.data?.length ? (
-            <ul className="max-h-44 divide-y overflow-y-auto rounded-lg border">
-              {geocode.data.slice(0, 6).map((c, i) => (
-                <li key={`${c.lat},${c.lng},${i}`}>
-                  <button
-                    type="button"
-                    className="flex min-h-11 w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-                    onClick={() => {
-                      const point = { lat: Number(c.lat.toFixed(6)), lng: Number(c.lng.toFixed(6)) };
-                      setD((x) => ({ ...x, point, address: c.label.slice(0, ME_PROFILE_LIMITS.addressMax), source: 'PHOTON', latText: String(point.lat), lngText: String(point.lng) }));
-                      setQuery(null);
-                    }}
-                  >
-                    <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-                    <span className="min-w-0 flex-1 break-words">{c.label}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('No match found. Click the map to place the point instead.')}</p>
-          )}
-        </div>
-      )}
+      <AddressSearchCombobox
+        id="me-home-search"
+        endpoint={ME_GEOCODE_ENDPOINT}
+        placeholder={t('Search your address…')}
+        ariaLabel={t('Search your address')}
+        emptyText={t('No match found. Click the map to place the point instead.')}
+        onPick={(h) => setD((x) => ({ ...x, point: { lat: h.lat, lng: h.lng }, address: h.label.slice(0, ME_PROFILE_LIMITS.addressMax), source: 'PHOTON', latText: String(h.lat), lngText: String(h.lng) }))}
+      />
       <Suspense fallback={<Skeleton className="h-56 w-full rounded-lg" />}>
         <HomePinMap
           position={d.point}
