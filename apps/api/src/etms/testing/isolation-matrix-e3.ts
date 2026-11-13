@@ -244,6 +244,40 @@ export const E3_MATRIX: E3Entry[] = [
       if (role === 'customerDispatcher' && decimals > 4) fail(`${role} gets an exact home point`);
     },
   },
+  {
+    // WP 3.9: the booking-form policy (company cut-off and limits; nothing per passenger).
+    route: 'GET transport/bookings/policy',
+    resource: 'booking',
+    invoke: (c, ctx) => c.bookings.policy(ctx),
+    expect: { none: LIST },
+    verify: (r, role) => {
+      const p = r as { cutoffMin?: unknown; lateReasonMin?: unknown };
+      if (typeof p.cutoffMin !== 'number' || typeof p.lateReasonMin !== 'number') fail(`${role} policy: unexpected shape`);
+    },
+  },
+  {
+    // WP 3.9: company places for the booking form: only the caller's own company's active places.
+    route: 'GET transport/bookings/places',
+    resource: 'booking',
+    invoke: (c, ctx) => c.bookings.places(ctx, {}),
+    expect: { none: LIST },
+    verify: (r, role, _own, _ids, w) => {
+      if (!Array.isArray(r)) fail(`${role} places: not a list`);
+      const ids = (r as { id: string }[]).map((p) => p.id);
+      if (ids.includes(w.other.place) || ids.includes('siteB1')) fail(`${role} places lists another company's place`);
+      if ((role === 'customerAdmin' || role === 'customerDispatcher') && !ids.includes(w.party.place)) fail(`${role} places misses its own place`);
+    },
+  },
+  {
+    // WP 3.9: address search (self-hosted Photon only; geocoder off in the matrix: an empty list).
+    route: 'GET transport/bookings/geocode',
+    resource: 'booking',
+    invoke: (c) => c.bookings.geocode({ q: '5 Main Road' }),
+    expect: { none: LIST },
+    verify: (r, role) => {
+      if (!Array.isArray(r)) fail(`${role} geocode: not a candidate list`);
+    },
+  },
   { route: 'GET transport/bookings/:id/events', resource: 'booking', invoke: (c, ctx, t) => c.bookings.events(ctx, t.booking), expect: { party: BOOKING_READ, other: OTHER_ROW } },
   {
     route: 'POST transport/bookings',

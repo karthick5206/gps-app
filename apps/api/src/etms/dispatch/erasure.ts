@@ -88,7 +88,7 @@ export async function eraseTransportData(tx: Tx, companyId: string, profileId: s
     if (personal(b.dropLat, b.dropLng, b.dropPoiId)) points.push({ lat: b.dropLat!, lng: b.dropLng! });
   }
   for (const b of bookings) {
-    const data: Prisma.TransportBookingUncheckedUpdateInput = { note: null, statusReason: null };
+    const data: Prisma.TransportBookingUncheckedUpdateInput = { note: null, statusReason: null, lateReason: null };
     if (personal(b.pickupLat, b.pickupLng, b.pickupPoiId)) Object.assign(data, { pickupLat: round2(b.pickupLat!), pickupLng: round2(b.pickupLng!), pickupLabel: null });
     if (personal(b.dropLat, b.dropLng, b.dropPoiId)) Object.assign(data, { dropLat: round2(b.dropLat!), dropLng: round2(b.dropLng!), dropLabel: null });
     await tx.transportBooking.update({ where: { id: b.id }, data });

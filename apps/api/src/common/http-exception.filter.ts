@@ -85,6 +85,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
       // CONSENT_NOTICE_OUTDATED (the notice version string, also on the passenger's /api/me/transport routes), the wait on RATE_LIMITED.
       const etmsSelf = /^\/api\/me\/transport(\/|$|\?)/.test(req?.originalUrl ?? req?.url ?? '');
       if ((transport || etmsSelf) && (typeof b.currentVersion === 'number' || typeof b.currentVersion === 'string')) extra.currentVersion = b.currentVersion;
+      // WP 3.9 booking details: NOT_ELIGIBLE `reason`, BOOKING_OVERLAP / BOOKING_DUPLICATE `bookingId` (an id the caller
+      // may already read), LATE_REASON_REQUIRED limits.
+      if (transport && typeof b.reason === 'string' && b.code === 'NOT_ELIGIBLE') extra.reason = b.reason;
+      if (transport && typeof b.bookingId === 'string' && (b.code === 'BOOKING_OVERLAP' || b.code === 'BOOKING_DUPLICATE')) extra.bookingId = b.bookingId;
+      if (transport && b.code === 'LATE_REASON_REQUIRED' && typeof b.lateReasonMin === 'number' && typeof b.lateReasonMax === 'number') Object.assign(extra, { lateReasonMin: b.lateReasonMin, lateReasonMax: b.lateReasonMax });
       if (transport && typeof b.retryAfterSec === 'number') {
         extra.retryAfterSec = b.retryAfterSec;
         res.setHeader?.('Retry-After', String(b.retryAfterSec));
