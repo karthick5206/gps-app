@@ -444,6 +444,10 @@ export interface TransportBookingDto {
   afterCutoff: boolean;
   /** The dispatcher's late reason; null when not late. Shown to transport roles only (never to the passenger). */
   lateReason: string | null;
+  /** WP 3.9 wave 2 (D-A8): shared by the bookings of one group form; null otherwise. */
+  groupId: string | null;
+  /** WP 3.9 wave 2 (D-A7 / D-A8): why the ride is needed; null when not given. Customer's own roles only. */
+  purpose: string | null;
   /** The trip / seat when ASSIGNED or CONFIRMED (or the last one it was on). */
   tripId: string | null;
   passengerTripId: string | null;
@@ -542,6 +546,8 @@ export interface TransportBookingListQuery {
   /** WP 3.9 filters. */
   journey?: TransportBookingJourney;
   afterCutoff?: 'true' | 'false';
+  /** WP 3.9 wave 2: the bookings of one group. */
+  groupId?: string;
 }
 
 // ───────────────────────────── Dispatch ─────────────────────────────
@@ -992,6 +998,12 @@ export interface MeBookingDto {
   journey: TransportBookingJourney;
   /** WP 3.9: made for the passenger by the transport desk (not by the passenger). */
   arrangedByDesk: boolean;
+  /** WP 3.9 wave 2 (D-A5): the transport team's reason when the booking was REJECTED; null otherwise. */
+  statusReason: string | null;
+  /** WP 3.9 wave 2 (D-A7): the purpose the passenger (or desk) gave; null when none. */
+  purpose: string | null;
+  /** WP 3.9 wave 2 (D-A5): waiting for transport-team approval (status REQUESTED). */
+  needsApproval: boolean;
 }
 
 export interface MeTransportRangeQuery {

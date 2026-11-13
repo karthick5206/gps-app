@@ -232,5 +232,9 @@ function toMeBooking(r: Prisma.TransportBookingGetPayload<{ include: { passenger
     cutoffAt: r.cutoffAt ? iso(r.cutoffAt) : null,
     journey: r.journey,
     arrangedByDesk: r.createdById !== myUserId,
+    // D-A5: the desk's reject reason is shown to the passenger (never the late reason, the note or other status reasons).
+    statusReason: r.status === 'REJECTED' ? (r.statusReason ?? null) : null,
+    purpose: r.purpose ?? null,
+    needsApproval: r.status === 'REQUESTED',
   };
 }

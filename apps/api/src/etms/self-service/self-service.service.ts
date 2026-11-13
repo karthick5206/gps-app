@@ -5,6 +5,7 @@ import {
   TRANSPORT_E3_LIMITS,
   TRANSPORT_SELF_LIMITS as L,
   confirmMismatch,
+  selfBookingApprovalOn,
   transportSettingsOf,
   type GeoPoint,
   type MeBookingDto,
@@ -34,6 +35,9 @@ const MIN = 60_000;
  * Exported for tests and for the isolation matrix.
  */
 export const selfBookingOn = (settings: unknown): boolean => transportSettingsOf(settings).selfBooking === true;
+
+/** D-A5: the status a passenger's own booking / request starts in (company `etms.selfBookingApproval`, default on). */
+export const approvalStatus = (settings: unknown): 'REQUESTED' | 'PENDING_ASSIGNMENT' => (selfBookingApprovalOn(settings) ? 'REQUESTED' : 'PENDING_ASSIGNMENT');
 
 interface StoredPlace {
   id: string;
@@ -92,6 +96,9 @@ export class SelfServiceService {
       // WP 5.4 durable SOS (POST /me/transport/sos) is on this server; ETMS SOS is never gated by selfBooking.
       sos: true,
       deskPhone: transportSettingsOf(company.settings).deskPhone ?? null,
+      // WP 3.9 wave 2 (D-A5 / D-A7): ad-hoc requests come with self-service; approval follows the company setting.
+      adhocRequests: on,
+      approvalRequired: selfBookingApprovalOn(company.settings),
     };
     if (!on) return base;
     const shifts = await this.prisma.transportShift.findMany({ where: { companyId: ctx.companyId, isActive: true }, include: { sitePoi: { select: { id: true, name: true } } }, orderBy: [{ startMin: 'asc' }], take: 100 });
@@ -151,7 +158,8 @@ export class SelfServiceService {
       },
       rawKey,
       // WP 3.9: the shared eligibility / consent rules apply; after the cut-off a passenger is refused (AFTER_CUTOFF).
-      { actor: 'PASSENGER' },
+      // D-A5: REQUESTED while the company's approval setting is on (default), else straight to PENDING_ASSIGNMENT.
+      { actor: 'PASSENGER', status: approvalStatus(company.settings) },
     );
     return { value: await this.me.booking(ctx, res.value.id), replay: res.replay };
   }

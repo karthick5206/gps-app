@@ -161,6 +161,7 @@ export class BookingListQuery extends ListQueryDto {
   @IsOptional() @IsIn(['true', 'false']) unassigned?: 'true' | 'false';
   @IsOptional() @IsIn(TRANSPORT_BOOKING_JOURNEYS) journey?: TransportBookingJourney;
   @IsOptional() @IsIn(['true', 'false']) afterCutoff?: 'true' | 'false';
+  @IsOptional() @IsUUID() groupId?: string;
   declare sort?: 'windowStart' | 'serviceDate' | 'createdAt' | 'status' | 'passenger';
 }
 

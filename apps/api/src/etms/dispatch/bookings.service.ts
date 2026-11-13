@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  TRANSPORT_ADHOC_LIMITS,
   TRANSPORT_E3_LIMITS,
   bookingTransition,
   passengerPushAllowed,
@@ -108,6 +109,7 @@ function bookingSnapshot(b: Prisma.TransportBookingGetPayload<object>) {
     hasDrop: b.dropLat !== null,
     pickupPoiId: b.pickupPoiId,
     dropPoiId: b.dropPoiId,
+    ...(b.groupId ? { groupId: b.groupId } : {}),
     version: b.version,
   };
 }
@@ -134,6 +136,31 @@ async function lockPassenger(tx: Prisma.TransactionClient, profileId: string): P
 export interface Replayable<T> {
   value: T;
   replay: boolean;
+}
+
+/** Options of BookingsService.create beyond the request body. */
+export interface CreateOptions {
+  /** DESK (default) or PASSENGER (self-service limits: refused after the cut-off). */
+  actor?: BookingActor;
+  /** Initial status chosen by the caller (D-A5: self-service REQUESTED while approval is on); else from `hold`. */
+  status?: 'REQUESTED' | 'PENDING_ASSIGNMENT';
+  /** WP 3.9 wave 2: why the ride is needed (≤ TRANSPORT_ADHOC_LIMITS.purposeMax, trimmed; empty = none). */
+  purpose?: string | null;
+}
+
+/** Trimmed purpose text (single spaces), null when empty; longer than purposeMax → 400. */
+export function cleanPurpose(raw: string | null | undefined): string | null {
+  const p = (raw ?? '').trim().replace(/\s+/g, ' ');
+  if (!p) return null;
+  if (p.length > TRANSPORT_ADHOC_LIMITS.purposeMax) throw invalid(`The purpose can be at most ${TRANSPORT_ADHOC_LIMITS.purposeMax} characters`);
+  return p;
+}
+
+/** D-A5: the passenger notification of a desk decision on a booking (approve of a waiting booking / reject), else null. */
+export function decisionKind(command: 'approve' | 'reject' | 'cancel', from: string): 'BOOKING_APPROVED' | 'BOOKING_REJECTED' | null {
+  if (command === 'reject') return 'BOOKING_REJECTED';
+  if (command === 'approve' && (from === 'REQUESTED' || from === 'WAITLISTED')) return 'BOOKING_APPROVED';
+  return null;
 }
 
 /**
@@ -181,6 +208,7 @@ export class BookingsService {
     // afterCutoff ⇔ a dispatcher's late reason is stored (see toBookingDto).
     if (q.afterCutoff === 'true') filters.push({ lateReason: { not: null } });
     if (q.afterCutoff === 'false') filters.push({ lateReason: null });
+    if (q.groupId) filters.push({ groupId: q.groupId });
     // CSV export (E2 security review M4 applied to E3): only the caller's own company's bookings, never a partner's.
     if (q.format === 'csv') filters.push({ customerCompanyId: ctx.companyId });
     const where: Prisma.TransportBookingWhereInput = { AND: filters };
@@ -237,10 +265,13 @@ export class BookingsService {
    * time overlap (409 BOOKING_OVERLAP) → row + audit (+ BOOKING_CREATED for the passenger when someone else booked, in
    * the same transaction; the push job is queued after commit).
    */
-  async create(ctx: AuthContext, dto: CreateBookingDto, rawKey: string | undefined, opts: { actor?: BookingActor } = {}): Promise<Replayable<TransportBookingDto>> {
+  async create(ctx: AuthContext, dto: CreateBookingDto, rawKey: string | undefined, opts: CreateOptions = {}): Promise<Replayable<TransportBookingDto>> {
     const actor = opts.actor ?? 'DESK';
     const key = idempotencyKey(rawKey);
-    const hash = requestHash(dto);
+    const purpose = cleanPurpose(opts.purpose);
+    // The purpose is part of the request (a replay with another purpose is another request); the approval status is not
+    // (it follows the company setting at creation time, a replay answers what was stored).
+    const hash = requestHash(purpose ? { ...dto, purpose } : dto);
     const prior = await this.prisma.transportBooking.findFirst({ where: { customerCompanyId: ctx.companyId, idempotencyKey: key }, include: BOOKING_INCLUDE });
     if (prior) {
       // L3: a key replays only for the user who used it, and only after the same read check as GET /bookings/:id.
@@ -345,9 +376,10 @@ export class BookingsService {
             windowStart: new Date(start),
             windowEnd: new Date(end),
             passengerCount: seats,
-            status: dto.hold ? 'REQUESTED' : 'PENDING_ASSIGNMENT',
+            status: opts.status ?? (dto.hold ? 'REQUESTED' : 'PENDING_ASSIGNMENT'),
             cutoffAt: new Date(cutoffAt),
             lateReason,
+            purpose,
             idempotencyKey: key,
             idempotencyHash: hash,
             note: dto.note?.trim() || null,
@@ -504,7 +536,8 @@ export class BookingsService {
     if (dto.expectedVersion !== undefined && dto.expectedVersion !== before.version) throw versionConflict(before.version);
     const reason = dto.reason?.trim() || null;
     if ((command === 'reject' || command === 'cancel') && !reason) throw invalid('Give a reason');
-    const row = await this.prisma.$transaction(async (tx) => {
+    const kind = decisionKind(command, before.status);
+    const { row, push } = await this.prisma.$transaction(async (tx) => {
       await lockBookings(tx, [id]);
       const seat = command === 'cancel' && (before.status === 'ASSIGNED' || before.status === 'CONFIRMED')
         ? await tx.transportTripPassenger.findFirst({ where: { bookingId: id, status: { not: 'CANCELLED' } }, include: { trip: { select: { id: true, providerCompanyId: true, customerCompanyId: true } } } })
@@ -520,9 +553,35 @@ export class BookingsService {
       });
       if (!claimed.count) throw versionConflict(before.version);
       const after = await tx.transportBooking.findUniqueOrThrow({ where: { id }, include: BOOKING_INCLUDE });
-      await this.audit.record(ctx, { action: 'UPDATE', entity: BOOKING_ENTITY, entityId: id, before: bookingSnapshot(before), after: bookingSnapshot(after), details: { command, reason } }, tx);
-      return after;
+      // D-A5: the passenger hears about the decision on any booking they can see (GET /me/transport/bookings lists all
+      // their bookings: self-made, desk-made, schedule-generated) when they have a login that is not the caller. Generic
+      // push; the reject reason is read through the API (MeBookingDto.statusReason). Committed with the decision; the
+      // dedupe key includes the decided version, so a retried / bulk approve can never notify twice.
+      const passenger = kind ? await tx.employeeTransportProfile.findFirst({ where: { id: before.profileId, companyId: before.customerCompanyId }, select: { userId: true, preferences: true } }) : null;
+      const notifyUser = kind && passenger?.userId && passenger.userId !== ctx.userId ? passenger.userId : null;
+      const notified =
+        kind && notifyUser
+          ? await this.notifications.write(tx, [
+              {
+                companyId: before.customerCompanyId,
+                userId: notifyUser,
+                audience: 'PASSENGER',
+                kind,
+                tripId: null,
+                bookingId: id,
+                dedupeKey: `${kind === 'BOOKING_APPROVED' ? 'bka' : 'bkr'}:${id}:v${before.version}:${notifyUser}`,
+                push: passengerPushAllowed(passenger!.preferences, kind),
+              },
+            ])
+          : { ids: [], push: [] };
+      await this.audit.record(
+        ctx,
+        { action: 'UPDATE', entity: BOOKING_ENTITY, entityId: id, before: bookingSnapshot(before), after: { ...bookingSnapshot(after), ...(notified.ids.length ? { passengerNotified: kind } : {}) }, details: { command, reason } },
+        tx,
+      );
+      return { row: after, push: notified.push };
     });
+    await this.notifications.enqueue(push);
     return await this.detail(ctx, row);
   }
 

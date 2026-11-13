@@ -350,7 +350,8 @@ export const E5_MATRIX: E5Entry[] = [
     invoke: (c, ctx, _t, w) => c.mySelf.book(ctx, { serviceDate: w.e3.later, direction: 'IN', shiftId: w.party.shift, place: { kind: 'HOME' } } as never, randomUUID()),
     expect: { none: PAX_SELF },
     verify: (r, role) => {
-      if ((r as { status: string }).status !== 'PENDING_ASSIGNMENT') fail(`${role} self-booking not created: ${JSON.stringify(r)}`);
+      // D-A5: approval is on by default, so a self-booking waits as REQUESTED.
+      if ((r as { status: string }).status !== 'REQUESTED') fail(`${role} self-booking not created: ${JSON.stringify(r)}`);
     },
   },
   {

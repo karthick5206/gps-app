@@ -126,6 +126,8 @@ export function toBookingDto(r: BookingRow, ctx: Pick<AuthContext, 'companyId' |
     // late reason (the server refuses a late desk create / edit without one; passengers are refused after the cut-off).
     afterCutoff: r.lateReason !== null,
     lateReason: own ? r.lateReason : null,
+    groupId: r.groupId ?? null,
+    purpose: own ? (r.purpose ?? null) : null,
     tripId: seat?.tripId ?? null,
     passengerTripId: seat?.id ?? null,
     customerCompanyId: r.customerCompanyId,
