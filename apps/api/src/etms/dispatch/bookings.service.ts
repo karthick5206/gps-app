@@ -61,7 +61,7 @@ import {
   validPoint,
   versionConflict,
 } from './e3-common';
-import { BOOKING_INCLUDE, LIST_VIEW, toBookingDto, type BookingRow } from './e3-mapping';
+import { BOOKING_INCLUDE, LIST_VIEW, toBookingDto, withGroupSizes, type BookingRow } from './e3-mapping';
 import { BookingCommandDto, BookingListQuery, CreateBookingDto, CreateGroupBookingDto, UpdateBookingDto } from './e3.dto';
 import { legWindow, todayIn, weekdayOf } from './service-dates';
 import { lockBookings, lockTrips, recordTripEvent, releaseSeat } from './trip-ops';
@@ -225,7 +225,7 @@ export class BookingsService {
       this.prisma.transportBooking.count({ where }),
     ]);
     const now = Date.now();
-    return listResult(plan, rows.map((r) => toBookingDto(r, ctx, LIST_VIEW, now)), total, CSV);
+    return listResult(plan, await withGroupSizes(this.prisma, rows.map((r) => toBookingDto(r, ctx, LIST_VIEW, now))), total, CSV);
   }
 
   /** The desk's booking-form policy (WP 3.9): company cut-off, days ahead, late-reason limits. */
@@ -837,7 +837,8 @@ export class BookingsService {
 
   /** Detail projection: personal points only while the passenger's routing consent is active (E2 M3). */
   private async detail(ctx: AuthContext, row: BookingRow): Promise<TransportBookingDto> {
-    return toBookingDto(row, ctx, { view: 'detail', consent: await this.consentActive(row.profileId) });
+    const [dto] = await withGroupSizes(this.prisma, [toBookingDto(row, ctx, { view: 'detail', consent: await this.consentActive(row.profileId) })]);
+    return dto;
   }
 
   /** Routing consent under the E2 final model (activeRoutingConsents). */

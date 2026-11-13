@@ -22,6 +22,17 @@ export const TRANSPORT_ADHOC_LIMITS = {
   groupMin: 2,
   groupMax: 30,
   purposeMax: 120,
+  // D-A9 passenger self profile (server-enforced; the apps mirror them in their forms).
+  emergencyContactsMax: 3,
+  contactNameMax: 80,
+  contactPhoneMax: 20,
+  contactRelationMax: 40,
+  accessibilityNotesMax: 500,
+  homeAddressMax: 200,
+  /** GET /me/transport/geocode: searches per passenger per minute (429 RATE_LIMITED beyond). */
+  geocodePerMinute: 20,
+  geocodeMinChars: 3,
+  geocodeMaxHits: 6,
 } as const;
 
 // ───────────────────────────── Passenger ad-hoc request (D-A5, D-A7) ─────────────────────────────

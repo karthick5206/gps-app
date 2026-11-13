@@ -94,26 +94,26 @@ export class MeSearchQuery {
 }
 
 export class MeEmergencyContactDto {
-  @IsString() @MaxLength(80) name!: string;
-  @IsString() @MaxLength(30) phone!: string;
-  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsString() @MaxLength(40) relation?: string | null;
+  @IsString() @MaxLength(TRANSPORT_ADHOC_LIMITS.contactNameMax) name!: string;
+  @IsString() @MaxLength(TRANSPORT_ADHOC_LIMITS.contactPhoneMax) phone!: string;
+  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsString() @MaxLength(TRANSPORT_ADHOC_LIMITS.contactRelationMax) relation?: string | null;
 }
 
 export class MeAccessibilityDto {
   @IsOptional() @IsBoolean() wheelchair?: boolean;
-  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsString() @MaxLength(500) notes?: string | null;
+  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsString() @MaxLength(TRANSPORT_ADHOC_LIMITS.accessibilityNotesMax) notes?: string | null;
 }
 
 export class MeTransportProfileUpdateDto implements MeTransportProfileUpdateInput {
   @IsOptional() @ValidateIf((_o, v) => v !== null) @IsUUID() defaultStopId?: string | null;
-  @IsOptional() @IsArray() @ArrayMaxSize(3) @ValidateNested({ each: true }) @Type(() => MeEmergencyContactDto) emergencyContacts?: MeEmergencyContactDto[];
+  @IsOptional() @IsArray() @ArrayMaxSize(TRANSPORT_ADHOC_LIMITS.emergencyContactsMax) @ValidateNested({ each: true }) @Type(() => MeEmergencyContactDto) emergencyContacts?: MeEmergencyContactDto[];
   @IsOptional() @ValidateNested() @Type(() => MeAccessibilityDto) accessibility?: MeAccessibilityDto;
 }
 
 export class MeHomeLocationDto implements MeHomeLocationInput {
   @IsOptional() @IsNumber() @Min(-90) @Max(90) lat?: number;
   @IsOptional() @IsNumber() @Min(-180) @Max(180) lng?: number;
-  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsString() @MaxLength(200) address?: string | null;
+  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsString() @MaxLength(TRANSPORT_ADHOC_LIMITS.homeAddressMax) address?: string | null;
   @IsOptional() @IsIn(['PHOTON', 'PIN', 'TYPED']) source?: 'PHOTON' | 'PIN' | 'TYPED';
   @IsOptional() @IsBoolean() clear?: boolean;
 }

@@ -1,10 +1,16 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, HttpStatus, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   SELF_BOOKING_DISABLED,
   TRANSPORT_E3_LIMITS,
   TRANSPORT_SELF_LIMITS as L,
   confirmMismatch,
+  normalisePhone,
+  phoneCountryForTimezone,
+  TRANSPORT_ADHOC_LIMITS as AL,
+  type MeGeocodeHitDto,
+  type MeHomeLocationResult,
+  type MeTransportProfileDto,
   selfBookingApprovalOn,
   transportSettingsOf,
   type GeoPoint,
@@ -24,13 +30,16 @@ import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { addDays } from '../../summarizer/tz';
 import { BookingsService } from '../dispatch/bookings.service';
-import { conflict, cutoffMinutes, dateOnly, dayKeyOf, idempotencyReused, invalid, notFound, serviceDate, validPoint } from '../dispatch/e3-common';
+import { conflict, cutoffMinutes, e3Error, dateOnly, dayKeyOf, idempotencyReused, invalid, notFound, serviceDate, validPoint } from '../dispatch/e3-common';
 import { MeTransportService, vehicleWindow } from '../dispatch/me-transport.service';
 import { legWindow, todayIn, weekdayOf } from '../dispatch/service-dates';
 import { recordTripEvent, seenClientEvent } from '../dispatch/trip-ops';
 import { activeRoutingConsents, PeopleService } from '../people/people.service';
-import { notEligible } from '../dispatch/booking-rules';
-import type { MeAdhocRequestDto, MeCreateBookingDto, MePlaceDto as MePlaceBody, MePlaceUpdateDto, MeTripConfirmDto, MeTripReportDto } from './self-service.dto';
+import { RedisService } from '../../redis/redis.service';
+import { ACTIVE_BOOKING_STATUSES, notEligible } from '../dispatch/booking-rules';
+import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
+import { accessibilityOf, emergencyContactsOf } from '../people/people-access';
+import type { MeAdhocRequestDto, MeHomeLocationDto, MeTransportProfileUpdateDto, MeCreateBookingDto, MePlaceDto as MePlaceBody, MePlaceUpdateDto, MeTripConfirmDto, MeTripReportDto } from './self-service.dto';
 
 const MIN = 60_000;
 /**
@@ -87,7 +96,149 @@ export class SelfServiceService {
     private readonly people: PeopleService,
     private readonly bookings: BookingsService,
     private readonly me: MeTransportService,
-  ) {}
+    @Optional() redis?: RedisService,
+  ) {
+    // D-A9: address search per passenger (in-process window when Valkey is not injected / unreachable).
+    this.geocodeLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:me-geocode', AL.geocodePerMinute, 60_000);
+  }
+
+  private readonly geocodeLimiter: FixedWindowLimiter;
+
+  // ───────────────────────────── own profile + home (WP 3.9 wave 2, D-A9) ─────────────────────────────
+
+  /** GET /me/transport/profile: the caller's own transport profile (home coordinates only while consent is active). */
+  async profile(ctx: AuthContext): Promise<MeTransportProfileDto> {
+    const row = await this.people.myProfileRow(ctx);
+    return this.profileDto(row, await this.consent(row.id));
+  }
+
+  /**
+   * PATCH /me/transport/profile: default stop (one of the passenger's allowed stops, see allowedStops; null clears),
+   * emergency contacts (≤ 3, name + valid phone, relation optional), accessibility. Audited without contact details or
+   * health text (counts / flags only).
+   */
+  async updateProfile(ctx: AuthContext, dto: MeTransportProfileUpdateDto): Promise<MeTransportProfileDto> {
+    const row = await this.people.myProfileRow(ctx);
+    const data: Prisma.EmployeeTransportProfileUncheckedUpdateManyInput = {};
+    if (dto.defaultStopId !== undefined) {
+      if (dto.defaultStopId === null) data.defaultStopPoiId = null;
+      else {
+        const stops = await this.allowedStops(ctx, row.id, row.defaultStopPoiId);
+        if (!stops.has(dto.defaultStopId)) throw invalid('Choose one of your transport stops');
+        data.defaultStopPoiId = dto.defaultStopId;
+      }
+    }
+    let contacts: { name: string; phone: string; relation?: string }[] | undefined;
+    if (dto.emergencyContacts !== undefined) {
+      if (dto.emergencyContacts.length > AL.emergencyContactsMax) throw invalid(`Keep at most ${AL.emergencyContactsMax} emergency contacts`);
+      const company = await this.company(ctx);
+      const country = phoneCountryForTimezone(company.timezone);
+      contacts = dto.emergencyContacts.map((c) => {
+        const name = (c.name ?? '').replace(/\s+/g, ' ').trim().slice(0, AL.contactNameMax);
+        if (!name) throw invalid('Give the emergency contact a name');
+        const phone = normalisePhone(c.phone ?? '', country);
+        if (!phone) throw invalid(`Emergency contact "${name}": invalid phone number`);
+        const relation = c.relation?.replace(/\s+/g, ' ').trim().slice(0, AL.contactRelationMax);
+        return { name, phone, ...(relation ? { relation } : {}) };
+      });
+      data.emergencyContacts = contacts as Prisma.InputJsonValue;
+    }
+    let access: { wheelchair?: boolean; notes?: string } | undefined;
+    if (dto.accessibility !== undefined) {
+      const notes = dto.accessibility.notes?.trim().slice(0, AL.accessibilityNotesMax);
+      access = { ...(typeof dto.accessibility.wheelchair === 'boolean' ? { wheelchair: dto.accessibility.wheelchair } : {}), ...(notes ? { notes } : {}) };
+      data.accessibility = access as Prisma.InputJsonValue;
+    }
+    if (Object.keys(data).length) {
+      const summary = (stop: string | null, contactsJson: unknown, accessJson: unknown) => {
+        const a = accessibilityOf(accessJson as Prisma.JsonValue);
+        return { defaultStopPoiId: stop, emergencyContactCount: emergencyContactsOf(contactsJson as Prisma.JsonValue).length, wheelchair: a.wheelchair === true, hasAccessibilityNotes: !!a.notes };
+      };
+      await this.prisma.$transaction(async (tx) => {
+        const done = await tx.employeeTransportProfile.updateMany({ where: { id: row.id, companyId: ctx.companyId, userId: ctx.userId, isActive: true }, data });
+        if (!done.count) throw notFound();
+        await this.audit.record(
+          ctx,
+          {
+            action: 'UPDATE',
+            entity: 'EmployeeTransportProfile',
+            entityId: row.id,
+            before: summary(row.defaultStopPoiId, row.emergencyContacts, row.accessibility),
+            after: { ...summary(data.defaultStopPoiId !== undefined ? (data.defaultStopPoiId as string | null) : row.defaultStopPoiId, contacts ?? row.emergencyContacts, access ?? row.accessibility), by: 'PASSENGER' },
+          },
+          tx,
+        );
+      });
+    }
+    return this.profile(ctx);
+  }
+
+  /**
+   * PUT /me/transport/home: set (needs the active routing consent, 409 CONSENT_REQUIRED) or clear (`clear: true`, no
+   * consent needed: a passenger may always remove their own data) the home location. Audited without coordinates or
+   * address text. Bookings already made keep their point (`openBookingsKept`); new bookings and the schedule generator
+   * (routing pickup read at generation time) use the new one.
+   */
+  async setHome(ctx: AuthContext, dto: MeHomeLocationDto): Promise<MeHomeLocationResult> {
+    const row = await this.people.myProfileRow(ctx);
+    let data: Prisma.EmployeeTransportProfileUncheckedUpdateManyInput;
+    if (dto.clear) {
+      data = { homeAddress: null, homeLat: null, homeLng: null, homeGeocodeSource: null, homeGeocodeConfidence: null };
+    } else {
+      if (!(await this.consent(row.id))) throw consentRequired();
+      if (dto.lat === undefined || dto.lng === undefined || dto.lat === null || dto.lng === null || !validPoint({ lat: dto.lat, lng: dto.lng })) throw invalid('Give a valid latitude and longitude (not 0, 0)');
+      const address = dto.address?.replace(/\s+/g, ' ').trim().slice(0, AL.homeAddressMax) || null;
+      data = { homeAddress: address, homeLat: Number(dto.lat.toFixed(6)), homeLng: Number(dto.lng.toFixed(6)), homeGeocodeSource: dto.source ?? 'PIN', homeGeocodeConfidence: null };
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const done = await tx.employeeTransportProfile.updateMany({ where: { id: row.id, companyId: ctx.companyId, userId: ctx.userId, isActive: true }, data });
+      if (!done.count) throw notFound();
+      // No coordinates and no address text in the audit (a home is a high-class personal location).
+      await this.audit.record(
+        ctx,
+        {
+          action: 'UPDATE',
+          entity: 'EmployeeTransportProfile',
+          entityId: row.id,
+          before: { hasHome: row.homeLat !== null, homeSource: row.homeGeocodeSource ?? null },
+          after: { hasHome: data.homeLat !== null, homeSource: (data.homeGeocodeSource as string | null) ?? null, homeAddressChanged: (data.homeAddress ?? null) !== (row.homeAddress ?? null), homeCommand: dto.clear ? 'CLEAR' : 'SET', by: 'PASSENGER' },
+        },
+        tx,
+      );
+    });
+    const openBookingsKept = await this.prisma.transportBooking.count({
+      where: { customerCompanyId: ctx.companyId, profileId: row.id, status: { in: [...ACTIVE_BOOKING_STATUSES] }, windowEnd: { gt: new Date() } },
+    });
+    return { profile: await this.profile(ctx), openBookingsKept };
+  }
+
+  /** GET /me/transport/geocode?q=: self-hosted Photon only (503 GEOCODER_NOT_PRIVATE otherwise), ≤ 6 hits, 20 / min per user. */
+  async geocode(ctx: AuthContext, q: string | undefined): Promise<MeGeocodeHitDto[]> {
+    await this.people.myProfileRow(ctx);
+    const term = (q ?? '').trim();
+    if (term.length < AL.geocodeMinChars) throw invalid(`Type at least ${AL.geocodeMinChars} characters`);
+    const rl = await this.geocodeLimiter.hit(ctx.userId);
+    if (!rl.allowed) throw e3Error(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMITED', `Too many searches; try again in ${rl.retryAfterSec} s`, { retryAfterSec: rl.retryAfterSec });
+    const hits = await this.people.geocode(term);
+    return hits.slice(0, AL.geocodeMaxHits).map((h) => ({ label: h.label, lat: h.lat, lng: h.lng }));
+  }
+
+  private profileDto(row: Awaited<ReturnType<PeopleService['myProfileRow']>>, consent: boolean): MeTransportProfileDto {
+    const hasHome = row.homeLat !== null || !!row.homeAddress;
+    return {
+      displayName: row.displayName,
+      employeeCode: row.employeeCode,
+      branchName: row.branch?.name ?? null,
+      officeName: row.officePoi?.name ?? null,
+      defaultStop: row.defaultStop ? { id: row.defaultStop.id, name: row.defaultStop.name } : null,
+      email: row.user?.email ?? row.email ?? null,
+      mobile: row.user?.mobile ?? row.mobile ?? null,
+      home: hasHome ? { address: row.homeAddress ?? null, lat: consent ? row.homeLat : null, lng: consent ? row.homeLng : null, source: row.homeGeocodeSource ?? null } : null,
+      emergencyContacts: emergencyContactsOf(row.emergencyContacts),
+      accessibility: accessibilityOf(row.accessibility),
+      routingConsent: consent,
+    };
+  }
 
   // ───────────────────────────── policy ─────────────────────────────
 

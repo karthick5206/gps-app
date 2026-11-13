@@ -446,6 +446,10 @@ export interface TransportBookingDto {
   lateReason: string | null;
   /** WP 3.9 wave 2 (D-A8): shared by the bookings of one group form; null otherwise. */
   groupId: string | null;
+  /** WP 3.9 wave 2 (D-A8): bookings in the group (all of them, not only those on screen); null when not in a group. */
+  groupSize: number | null;
+  /** WP 3.9 wave 2: created through a passenger self-service path (the passenger's own login), not by the desk. */
+  requestedByPassenger: boolean;
   /** WP 3.9 wave 2 (D-A7 / D-A8): why the ride is needed; null when not given. Customer's own roles only. */
   purpose: string | null;
   /** The trip / seat when ASSIGNED or CONFIRMED (or the last one it was on). */
