@@ -402,3 +402,21 @@ describe('v1.15 M2 desk geocode', () => {
     expect(await codeOf(w.bookings.geocode(w.desk({ userId: 'u-other' }), 'Road', search))).toBe('OK'); // per user
   });
 });
+
+describe('v1.15 L1 booking places follow the branch POI scope', () => {
+  it('a branch dispatcher lists and books its branches\' places and company-wide ones only; company scope unchanged', async () => {
+    const w = world();
+    const north = w.store.insert('poi', { companyId: 'custA', branchId: 'brA1', name: 'North gate', category: 'OFFICE', lat: 13.1, lng: 80.2, isActive: true }).id as string;
+    const south = w.store.insert('poi', { companyId: 'custA', branchId: 'brA2', name: 'South gate', category: 'OFFICE', lat: 13.2, lng: 80.2, isActive: true }).id as string;
+    const branch = w.desk({ dataScope: 'ASSIGNED', branchIds: ['brA1'] });
+    const names = async (ctx: AuthContext) => (await w.bookings.places(ctx, undefined)).map((p) => p.id);
+    expect(await names(branch)).toEqual(expect.arrayContaining([north, w.ids.officeA]));
+    expect(await names(branch)).not.toContain(south);
+    expect(await names(w.desk())).toEqual(expect.arrayContaining([north, south, w.ids.officeA]));
+    const book = (ctx: AuthContext, poiId: string, h: number) =>
+      w.bookings.create(ctx, { passengerId: w.ids.pA, serviceDate: day(2), journey: 'POINT_TO_POINT', pickup: { lat: 0, lng: 0, poiId }, drop: { lat: 0, lng: 0, poiId: w.ids.officeA }, ...win(h) } as never, randomUUID());
+    expect((await errOf(book(branch, south, 8)))?.body).toMatchObject({ code: 'NOT_ELIGIBLE', reason: 'PLACE_NOT_ALLOWED' });
+    expect(await codeOf(book(branch, north, 10))).toBe('OK');
+    expect(await codeOf(book(w.desk(), south, 12))).toBe('OK');
+  });
+});

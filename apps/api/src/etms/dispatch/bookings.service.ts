@@ -22,6 +22,7 @@ import {
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
+import { poiScopeWhere } from '../../pois/pois.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { addDays } from '../../summarizer/tz';
@@ -254,7 +255,8 @@ export class BookingsService {
   async places(ctx: AuthContext, q: string | undefined): Promise<TransportPlaceOptionDto[]> {
     const term = (q ?? '').trim().slice(0, 100);
     const rows = await this.prisma.poi.findMany({
-      where: { companyId: ctx.companyId, isActive: true, ...(term ? { name: { contains: term, mode: 'insensitive' as const } } : {}) },
+      // v1.15 L1: the POI branch scope (a branch user: its branches' places + company-wide ones; company scope: all).
+      where: { AND: [poiScopeWhere(ctx), { isActive: true }, ...(term ? [{ name: { contains: term, mode: 'insensitive' as const } }] : [])] },
       select: { id: true, name: true, category: true, lat: true, lng: true, companyId: true },
       orderBy: { name: 'asc' },
       take: 50,
@@ -886,8 +888,9 @@ export class BookingsService {
    */
   private async point(ctx: AuthContext, p: GeoPoint, consent: boolean): Promise<GeoPoint> {
     if (p.poiId) {
-      const poi = await this.prisma.poi.findFirst({ where: { id: p.poiId, companyId: ctx.companyId, isActive: true }, select: { id: true, name: true, lat: true, lng: true } });
-      if (!poi) throw notEligible('PLACE_NOT_ALLOWED', 'That place is not an active place of your company');
+      // v1.15 L1: only a place in the caller's POI scope (branch users: their branches + company-wide).
+      const poi = await this.prisma.poi.findFirst({ where: { AND: [poiScopeWhere(ctx), { id: p.poiId, isActive: true }] }, select: { id: true, name: true, lat: true, lng: true } });
+      if (!poi) throw notEligible('PLACE_NOT_ALLOWED', 'That place is not an active place of your company or branch');
       return { lat: poi.lat, lng: poi.lng, label: p.label?.trim() || poi.name, poiId: poi.id };
     }
     if (!consent) throw personalPointConsentRequired();
