@@ -286,6 +286,44 @@ export interface PublishBooking {
   dropLng: number | null;
   dropPoiId: string | null;
   dropLabel: string | null;
+  /** The booking window (compared with the window its site stop was built with: BOOKING_CHANGED). */
+  windowStart?: Date;
+  windowEnd?: Date;
+}
+
+/** Seconds after the plan start (clamped at 0): how plan create writes a booking window onto its site stop. */
+export const relS = (d: Date, startMs: number): number => Math.max(0, Math.round((d.getTime() - startMs) / 1000));
+
+/** Coordinates written from the booking are copied exactly; a tolerance of ~1 cm only absorbs float noise. */
+const SAME_POINT_DEG = 1e-7;
+
+/**
+ * WP 3.9 publish integrity: true when a booking stop no longer matches the booking it was built from — a dispatcher
+ * edited the booking (PATCH points / window) while it sat in this unpublished plan. RoutePlanStop keeps the booking's
+ * point (lat / lng, or the company place poiId) and, on the site stop, the booking window relative to planStartAt
+ * (which never changes after create), so the check compares content, not the booking version (a note or hold edit
+ * changes the version without making the plan wrong). A company place stop must still name the booking's place at that
+ * end; a personal stop must still be a personal end at the same point; a stop carrying the booking window must carry
+ * the booking's current window.
+ */
+export function bookingStopChanged(s: Pick<RuleStop, 'stopKind' | 'poiId' | 'lat' | 'lng' | 'timeWindows'>, b: PublishBooking, plan0: number): boolean {
+  if (s.stopKind !== 'PICKUP' && s.stopKind !== 'DROP') return false;
+  const pickup = s.stopKind === 'PICKUP';
+  const poiId = pickup ? b.pickupPoiId : b.dropPoiId;
+  const lat = pickup ? b.pickupLat : b.dropLat;
+  const lng = pickup ? b.pickupLng : b.dropLng;
+  if (s.poiId) {
+    if (poiId !== s.poiId) return true;
+  } else {
+    if (poiId) return true;
+    // A missing point is NEEDS_LOCATION, reported on its own.
+    if (lat !== null && lng !== null && (Math.abs(lat - s.lat) > SAME_POINT_DEG || Math.abs(lng - s.lng) > SAME_POINT_DEG)) return true;
+  }
+  if (s.timeWindows && b.windowStart && b.windowEnd) {
+    const want: Window = [relS(b.windowStart, plan0), relS(b.windowEnd, plan0)];
+    if (s.timeWindows.length !== 1 || s.timeWindows[0][0] !== want[0] || s.timeWindows[0][1] !== want[1]) return true;
+  }
+  return false;
 }
 
 export interface PublishPlace {
@@ -377,6 +415,14 @@ export function buildPlanChangeSet(
       if (personal && !consents.has(b.profileId)) fail('CONSENT_REQUIRED', `A passenger on route ${r.vehicleLabel} has no active routing consent`);
       if (b.pickupLat === null || b.dropLat === null) fail('NEEDS_LOCATION', `Booking ${id} on route ${r.vehicleLabel} has no pickup or drop point`);
     }
+    // WP 3.9: a booking edited while it sat in this plan (points / window) no longer matches its stops; the trip would
+    // take its new point at times computed for the old one. Remedy: take it off the route, or create a new plan.
+    const changed = new Set<string>();
+    for (const s of list) {
+      const b = s.bookingId ? bookings.get(s.bookingId) : undefined;
+      if (b && !changed.has(b.id) && bookingStopChanged(s, b, plan0)) changed.add(b.id);
+    }
+    for (const id of changed) fail('BOOKING_CHANGED', `Booking ${id} on route ${r.vehicleLabel} was edited after the plan was built (pickup, drop or window); take it off the route or create a new plan`);
     if (r.seats !== null && seats > r.seats) fail('CAPACITY_EXCEEDED', `Route ${r.vehicleLabel} carries ${seats} passengers on ${r.seats} seats`);
     for (const s of list) {
       if (s.etaS === null) {

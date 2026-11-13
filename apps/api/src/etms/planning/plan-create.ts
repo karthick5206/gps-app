@@ -4,7 +4,7 @@ import { RoutingJobsService } from '../../routing-jobs/routing-jobs.service';
 import { checkMaxRideOverride, MaxRideOverrideDto, maxRidePolicyOf, withOverride } from '../../routing-jobs/max-ride';
 import { RoutingHttpError } from '../../routing-jobs/routing-flags';
 import { Prisma } from '@prisma/client';
-import { ETMS_PLANNING_MENU, planBookingsLimitMessage, ROUTING_LIMITS, ROUTING_PROFILES, type RoutingJobDto, type RoutePlanDetailDto, type RoutePlanEmptyReason, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
+import { ETMS_PLANNING_MENU, planBookingsLimitMessage, ROUTING_LIMITS, ROUTING_PROFILES, type RoutingJobDto, type RoutePlanDetailDto, type RoutePlanEmptyReason, type RoutePlanSkippedBooking, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsISO8601, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf, ValidateNested } from 'class-validator';
 import { objectScopeWhere } from '../../access/access-rules';
@@ -14,10 +14,13 @@ import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { dateOnly, idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound, requestHash } from '../dispatch/e3-common';
 import { PERSONAL_STOP_NAME } from '../dispatch/personal-points';
+import { legWindow } from '../dispatch/service-dates';
 import { haversineMeters } from '../../tracking/geo';
 import { activeRoutingConsents } from '../people/people.service';
 import { TransportFeatureGuard } from '../transport-feature.guard';
+import { PLAN_CANDIDATE_STATUSES, planSkipReason, type PlanScope } from './plan-booking-scope';
 import { PlanningFeatureGuard } from './planning-feature.guard';
+import { relS } from './plan-rules';
 import { PLAN_ENTITY, RoutePlansService } from './plans.service';
 
 class PointDto {
@@ -43,11 +46,19 @@ export class CreateRoutePlanDto {
 }
 
 export type CreatedRoutePlanDto = RoutePlanDetailDto & {
-  /** Bookings of the service date / direction / site not put on the plan, and why (ids only). */
-  skippedBookings: { bookingId: string; reason: 'consent_required' | 'needs_location' | 'out_of_scope' }[];
+  /**
+   * WP 3.9: every booking of the service date / direction the caller can see that waits for a seat or for approval and
+   * was not put on the plan, and why (ids only; reasons and their order: plan-booking-scope.ts).
+   */
+  skippedBookings: RoutePlanSkippedBooking[];
   /** Set when the plan has no passenger, with why (QA re-check: a shift without bookings no longer looks like a bug). */
   emptyReason: RoutePlanEmptyReason | null;
-  /** Bookings found for the scope, planned and skipped. On a replay: planned from the plan, found / skipped unknown (null). */
+  /**
+   * Bookings found, planned and skipped (found = planned + skipped). WP 3.9: `found` counts every visible booking of the
+   * date / direction in REQUESTED / WAITLISTED / PENDING_ASSIGNMENT (no longer only the plan's site / shift), so an empty
+   * plan with bookings of other shifts or sites answers ALL_SKIPPED (with their reasons) instead of NO_BOOKINGS_FOR_SHIFT.
+   * On a replay: planned from the plan, found / skipped unknown (null).
+   */
   bookingCounts: { found: number | null; planned: number; skipped: number | null };
 };
 
@@ -62,7 +73,9 @@ const H = 3_600_000;
 
 /**
  * POST /api/transport/route-plans: a DRAFT plan built from the bookings waiting for a seat (PENDING_ASSIGNMENT) of the
- * caller's company for the service date, direction, site (and shift), plus one route per chosen vehicle.
+ * caller's company for the service date, direction, site (and shift: bookings of that shift, plus shift-less COMMUTE
+ * bookings whose window overlaps the shift's leg window — WP 3.9), plus one route per chosen vehicle. Every other
+ * visible booking of the date / direction waiting for a seat or an approval is reported in skippedBookings.
  * Points: the booking's own pickup / drop (consented at the source), never a profile's home coordinates; a personal end
  * is used only with active routing consent (else the booking is skipped as consent_required). Site stops carry the
  * booking window (IN: arrival, OUT: departure, seconds after planStartAt). Idempotency-Key (stored in options.createKey
@@ -91,7 +104,8 @@ export class RoutePlanCreateService {
     // had no branch to send for such a user); with several branches the request must name one of them.
     const branchId = dto.branchId ?? (ctx.dataScope !== 'COMPANY' && ctx.branchIds.length === 1 ? ctx.branchIds[0] : null);
     if (ctx.dataScope !== 'COMPANY' && (!branchId || !ctx.branchIds.includes(branchId))) throw invalid('Choose one of your branches for the plan');
-    if (dto.shiftId && !(await this.prisma.transportShift.findFirst({ where: { id: dto.shiftId, companyId: ctx.companyId }, select: { id: true } }))) throw notFound('Shift not found');
+    const shift = dto.shiftId ? await this.prisma.transportShift.findFirst({ where: { id: dto.shiftId, companyId: ctx.companyId }, select: { startMin: true, endMin: true, timeZone: true } }) : null;
+    if (dto.shiftId && !shift) throw notFound('Shift not found');
     const depot = dto.depot ? await this.depotPlace(ctx, dto.depot) : null;
     const objectIds = [...new Set(dto.objectIds)];
     // E4 security review (informational): inactive vehicles are refused like unknown ones.
@@ -99,26 +113,27 @@ export class RoutePlanCreateService {
     if (objects.length !== objectIds.length) throw notFound('Vehicle not found');
     const seats = new Map((await this.prisma.transportVehicleProfile.findMany({ where: { objectId: { in: objectIds } }, select: { objectId: true, seats: true } })).map((v) => [v.objectId, v.seats]));
 
+    // WP 3.9: every open booking of the date / direction (ad-hoc ones too: another destination, another or no shift,
+    // point-to-point, still to approve) is either planned or reported in skippedBookings, never silently dropped.
     const bookings = await this.prisma.transportBooking.findMany({
       where: {
         customerCompanyId: ctx.companyId,
         serviceDate: dateOnly(dto.planDate),
         direction: dto.direction,
-        status: 'PENDING_ASSIGNMENT',
-        ...(dto.shiftId ? { shiftId: dto.shiftId } : {}),
-        ...(dto.direction === 'IN' ? { dropPoiId: site.id } : { pickupPoiId: site.id }),
+        status: { in: [...PLAN_CANDIDATE_STATUSES] },
       },
       include: { profile: { select: { branchId: true } } },
-      orderBy: { windowStart: 'asc' },
+      orderBy: [{ windowStart: 'asc' }, { id: 'asc' }],
     });
-    const skipped: CreatedRoutePlanDto['skippedBookings'] = [];
+    const scope: PlanScope = { direction: dto.direction, sitePoiId: site.id, shiftId: dto.shiftId ?? null, shiftLeg: shift ? legWindow(shift, dto.direction, dto.planDate) : null, branchId };
+    const skipped: RoutePlanSkippedBooking[] = [];
     // Security delta D1: bookings outside the caller's own branches are invisible to them, so they are neither listed
     // nor counted. `out_of_scope` only names bookings the caller can see that fall outside the plan's branch.
     const visible = bookings.filter((b) => inProfileBranch(ctx, b.profile.branchId));
     const inScope = visible.filter((b) => {
-      const ok = !branchId || !b.profile.branchId || b.profile.branchId === branchId;
-      if (!ok) skipped.push({ bookingId: b.id, reason: 'out_of_scope' });
-      return ok;
+      const reason = planSkipReason({ ...b, branchId: b.profile.branchId }, scope);
+      if (reason) skipped.push({ bookingId: b.id, reason });
+      return !reason;
     });
     // The passenger's end (IN: pickup, OUT: drop) is personal unless it is a company place.
     const personalEnd = (b: (typeof bookings)[number]) => (dto.direction === 'IN' ? { poiId: b.pickupPoiId, lat: b.pickupLat, lng: b.pickupLng } : { poiId: b.dropPoiId, lat: b.dropLat, lng: b.dropLng });
@@ -134,7 +149,7 @@ export class RoutePlanCreateService {
     const poiNames = new Map((await this.prisma.poi.findMany({ where: { companyId: ctx.companyId, id: { in: usable.map((b) => personalEnd(b).poiId).filter((p): p is string => !!p) } }, select: { id: true, name: true } })).map((p) => [p.id, p.name]));
 
     const startMs = dto.planStartAt ? Date.parse(dto.planStartAt) : usable.length ? Math.floor((Math.min(...usable.map((b) => b.windowStart.getTime())) - 2 * H) / 60_000) * 60_000 : Date.parse(`${dto.planDate}T00:00:00Z`);
-    const rel = (d: Date) => Math.max(0, Math.round((d.getTime() - startMs) / 1000));
+    const rel = (d: Date) => relS(d, startMs);
 
     const planId = await this.prisma.$transaction(async (tx) => {
       // L1: (companyId, options->>'createKey') is unique (migration 20261119090000): a concurrent create with the

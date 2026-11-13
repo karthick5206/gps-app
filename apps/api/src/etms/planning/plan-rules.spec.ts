@@ -1,5 +1,5 @@
 import { HttpException } from '@nestjs/common';
-import { buildPlanChangeSet, capacityViolations, pairProblem, planMetrics, retime, windowViolations, type PublishBooking, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
+import { bookingStopChanged, buildPlanChangeSet, capacityViolations, relS, pairProblem, planMetrics, retime, windowViolations, type PublishBooking, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
 import { routeError } from './plans.service';
 
 const START = new Date('2026-11-20T02:00:00Z'); // 07:30 IST
@@ -149,6 +149,40 @@ describe('plan rules: plan → E3 change set', () => {
     const split = buildPlanChangeSet(PLAN, [route('A', 0), route('B', 1)], stops.map((s) => (s.bookingId === ids[0] && s.stopKind === 'DROP' ? { ...s, assignmentId: 'B', sequence: 5 } : s)), threePassengers().bookings, PLACES, threePassengers().consents);
     expect(split.errors.map((e) => e.code)).toContain('SPLIT_BOOKING');
     expect(buildPlanChangeSet({ ...PLAN, planStartAt: null }, [route('A', 0)], stops, bookings, PLACES, consents).errors[0].code).toBe('ROUTE_NOT_TIMED');
+  });
+
+  it('WP 3.9: a booking edited after the plan was built (point, place or window) is refused as BOOKING_CHANGED', () => {
+    const { ids, bookings, stops, consents } = threePassengers();
+    // The site stops carry the booking window as plan create writes it (seconds after planStartAt).
+    const ws = new Date(START.getTime() + 1800_000);
+    const we = new Date(START.getTime() + 2700_000);
+    const withWindows = stops.map((s) => (s.poiId === SITE ? { ...s, timeWindows: [[1800, 2700]] as [number, number][] } : s));
+    for (const id of ids) bookings.set(id, booking(id, { windowStart: ws, windowEnd: we }));
+    expect(buildPlanChangeSet(PLAN, [route('A', 0), route('B', 1)], withWindows, bookings, PLACES, consents).errors).toEqual([]);
+
+    const edit = (o: Partial<PublishBooking>) => {
+      const m = new Map(bookings);
+      m.set(ids[2], { ...bookings.get(ids[2])!, ...o });
+      return buildPlanChangeSet(PLAN, [route('A', 0), route('B', 1)], withWindows, m, PLACES, consents).errors.map((e) => [e.assignmentId, e.code]);
+    };
+    expect(edit({ pickupLat: 13.07 })).toEqual([['B', 'BOOKING_CHANGED']]);
+    expect(edit({ pickupLat: 13.06 + 1e-9 })).toEqual([]); // float noise only
+    expect(edit({ dropPoiId: '00000000-0000-4000-8000-0000000000bb' })).toEqual([['B', 'BOOKING_CHANGED']]);
+    expect(edit({ pickupPoiId: SITE })).toEqual([['B', 'BOOKING_CHANGED']]); // personal pickup became a company place
+    expect(edit({ windowEnd: new Date(we.getTime() + 600_000) })).toEqual([['B', 'BOOKING_CHANGED']]);
+    expect(edit({ passengerCount: 2 })).toEqual([]); // seats are re-checked from the booking, not frozen in the stop
+    // A changed booking taken off the route is not published, so it no longer blocks.
+    const off = withWindows.map((s) => (s.bookingId === ids[2] ? { ...s, assignmentId: null, sequence: null } : s));
+    const m = new Map(bookings);
+    m.set(ids[2], { ...bookings.get(ids[2])!, pickupLat: 13.07 });
+    expect(buildPlanChangeSet(PLAN, [route('A', 0), route('B', 1)], off, m, PLACES, consents).errors).toEqual([]);
+  });
+
+  it('bookingStopChanged ignores generic stops and a missing point (NEEDS_LOCATION)', () => {
+    const b = booking('x', { pickupLat: null, pickupLng: null });
+    expect(bookingStopChanged(stop({ stopKind: null }), b, START.getTime())).toBe(false);
+    expect(bookingStopChanged(stop({ stopKind: 'PICKUP' }), b, START.getTime())).toBe(false);
+    expect(relS(new Date(START.getTime() - 5000), START.getTime())).toBe(0);
   });
 
   it('an E3 publish error names the route of the change that failed', () => {
