@@ -28,7 +28,15 @@ ALTER TABLE "TransportBooking" ADD CONSTRAINT "TransportBooking_p2p_overlap_excl
 ALTER TABLE "TransportNotification" ADD COLUMN "bookingId" UUID;
 ALTER TABLE "TransportNotification" ADD CONSTRAINT "TransportNotification_bookingId_fkey"
   FOREIGN KEY ("bookingId") REFERENCES "TransportBooking"("id") ON DELETE SET NULL ON UPDATE CASCADE;
--- The closed kind set gains BOOKING_CREATED (the service sets bookingId on BOOKING_CREATED rows only).
+-- The closed kind set gains BOOKING_CREATED and (wave 2, D-A5) BOOKING_APPROVED / BOOKING_REJECTED; the service sets
+-- bookingId on these booking kinds only.
 ALTER TABLE "TransportNotification" DROP CONSTRAINT "TransportNotification_kind_check";
 ALTER TABLE "TransportNotification" ADD CONSTRAINT "TransportNotification_kind_check"
-  CHECK ("kind" IN ('TRIP_ASSIGNED','TRIP_CHANGED','TRIP_UNASSIGNED','TRIP_CANCELLED','TRIP_STARTING_SOON','VEHICLE_APPROACHING','TRIP_DELAYED','BOOKING_CREATED'));
+  CHECK ("kind" IN ('TRIP_ASSIGNED','TRIP_CHANGED','TRIP_UNASSIGNED','TRIP_CANCELLED','TRIP_STARTING_SOON','VEHICLE_APPROACHING','TRIP_DELAYED','BOOKING_CREATED','BOOKING_APPROVED','BOOKING_REJECTED'));
+
+-- WP 3.9 wave 2 (D-A7 / D-A8, added by the adhoc-api2 agent): group bookings share a groupId (no FK, not personal
+-- data; one dispatcher form books several passengers all-or-nothing) and any booking may carry a purpose text.
+ALTER TABLE "TransportBooking"
+  ADD COLUMN "groupId" UUID,
+  ADD COLUMN "purpose" TEXT;
+CREATE INDEX "TransportBooking_customerCompanyId_groupId_idx" ON "TransportBooking" ("customerCompanyId", "groupId");

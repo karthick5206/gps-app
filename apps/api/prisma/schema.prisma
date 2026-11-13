@@ -3336,6 +3336,10 @@ model TransportBooking {
   note              String?
   /// WP 3.9 (D-A1): dispatcher reason for a booking created / edited after its cut-off.
   lateReason        String?
+  /// WP 3.9 wave 2 (D-A8): bookings created together by one group form share this id (no FK; not personal data).
+  groupId           String?                 @db.Uuid
+  /// WP 3.9 wave 2 (D-A7 / D-A8): why the ride is needed (e.g. "Site visit"), shown to the transport team.
+  purpose           String?
   createdById       String?                 @db.Uuid
   createdAt         DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime                @updatedAt @db.Timestamptz(3)
@@ -3361,6 +3365,7 @@ model TransportBooking {
   @@index([providerCompanyId, serviceDate])
   @@index([profileId, serviceDate])
   @@index([agreementId])
+  @@index([customerCompanyId, groupId])
 }
 
 /// Business header of an ETMS run, 1:1 on a PlannedTrip (D2): no status enum (PlannedTrip.status stays the only
