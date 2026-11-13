@@ -242,11 +242,11 @@ test('edit: Needs location → the missing end must be set; a withheld home end 
 });
 
 test('edit after the cut-off: Edit stays offered for editable states; a late reason is required and sent', () => {
-  const late = booking({ allowedActions: ['cancel'] }); // the shared helper drops 'edit' after the cut-off
+  const late = booking({ allowedActions: ['edit', 'cancel'] }); // the server keeps 'edit' for the desk after the cut-off
   const after = Date.parse('2026-11-12T06:30:00Z');
-  assert.equal(canEditBooking(late, after), true);
-  assert.equal(canEditBooking(late, Date.parse('2026-11-12T05:00:00Z')), false);
-  assert.equal(canEditBooking(booking({ status: 'ASSIGNED', allowedActions: ['cancel'] }), after), false);
+  assert.equal(canEditBooking(late), true);
+  assert.equal(canEditBooking(booking({ allowedActions: ['cancel'] })), false);
+  assert.equal(canEditBooking(booking({ status: 'ASSIGNED', allowedActions: ['cancel'] })), false);
   const e = { ...editDraftOf(late), seats: '2' };
   const ectx = { passengerConsent: null, cutoffMin: 60, nowMs: after };
   assert.equal(editIsLate(e, late, ectx), true);

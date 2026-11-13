@@ -350,12 +350,11 @@ export interface EditDraft {
 export const EDITABLE_STATUSES = ['REQUESTED', 'PENDING_ASSIGNMENT', 'WAITLISTED'] as const;
 
 /**
- * Whether the row offers Edit: the server's allowedActions, or (WP 3.9 D-A1) an editable state whose cut-off has passed
- * (the shared `bookingAllowedActions` helper drops 'edit' after the cut-off, but a dispatcher may edit with a reason).
+ * Whether the row offers Edit: the server's allowedActions. The desk keeps 'edit' after the cut-off (WP 3.9 D-A1,
+ * `bookingAllowedActions(..., { desk: true })`; the PATCH then needs a late reason), so no client-side fallback.
  */
-export function canEditBooking(b: Pick<TransportBookingDto, 'status' | 'allowedActions' | 'cutoffAt'>, nowMs: number): boolean {
-  if (b.allowedActions.includes('edit')) return true;
-  return (EDITABLE_STATUSES as readonly string[]).includes(b.status) && !!b.cutoffAt && nowMs >= Date.parse(b.cutoffAt);
+export function canEditBooking(b: Pick<TransportBookingDto, 'allowedActions'>): boolean {
+  return b.allowedActions.includes('edit');
 }
 
 /** "HH:mm" of an instant in a zone. */
