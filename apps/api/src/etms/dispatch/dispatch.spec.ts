@@ -386,6 +386,21 @@ describe('booking generator (12 WP 3.2)', () => {
     w.booking(p, { windowEnd: new Date(Date.now() - 1), status: 'ASSIGNED', direction: 'OUT' });
     expect(await w.generator.expire(Date.now())).toBe(1);
   });
+
+  it('v1.15 L4: skips (and counts) a generated commute leg that would overlap an active point-to-point booking', async () => {
+    const w = world();
+    const p = w.passenger('A');
+    const site = w.store.insert('poi', { companyId: 'c1', name: 'HQ', lat: 13.05, lng: 80.25, isActive: true }).id as string;
+    const shift = w.store.insert('transportShift', { companyId: 'c1', sitePoiId: site, name: 'Day', startMin: 540, endMin: 1080, overnight: false, days: [0, 1, 2, 3, 4, 5, 6], timeZone: 'Asia/Kolkata' });
+    w.store.insert('transportSchedule', { companyId: 'c1', profileId: p, shiftId: shift.id, direction: 'IN', days: [0, 1, 2, 3, 4, 5, 6], pickupMode: 'HOME', validFrom: new Date('2026-01-01T00:00:00Z') });
+    // IN legs are [07:30, 09:00) IST = [02:00, 03:30) UTC. A P2P ride on 12-02 at 02:30–03:00 UTC clashes; a cancelled one on 12-03 does not.
+    w.booking(p, { journey: 'POINT_TO_POINT', serviceDate: new Date('2026-12-02T00:00:00Z'), windowStart: new Date('2026-12-02T02:30:00Z'), windowEnd: new Date('2026-12-02T03:00:00Z') });
+    w.booking(p, { journey: 'POINT_TO_POINT', serviceDate: new Date('2026-12-03T00:00:00Z'), windowStart: new Date('2026-12-03T02:30:00Z'), windowEnd: new Date('2026-12-03T03:00:00Z'), status: 'CANCELLED' });
+    const r = await w.generator.generate(Date.parse('2026-12-01T00:00:00Z'));
+    expect(r).toEqual({ created: 2, skippedByException: 0, skippedByOverlap: 1 });
+    const generated = w.store.table('transportBooking').filter((b) => b.scheduleId);
+    expect(generated.map((b) => (b.serviceDate as Date).toISOString().slice(0, 10)).sort()).toEqual(['2026-12-01', '2026-12-03']);
+  });
 });
 
 describe('branch scope on every change-set op (QA B1 / E3 security review M6)', () => {

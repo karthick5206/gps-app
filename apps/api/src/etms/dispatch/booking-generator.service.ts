@@ -97,7 +97,12 @@ export function bookingData(s: ScheduleForGen, serviceDate: string, window: LegW
 export interface GenerateResult {
   created: number;
   skippedByException: number;
+  /** v1.15 L4: legs not created because they overlap an active POINT_TO_POINT booking of the passenger. */
+  skippedByOverlap: number;
 }
+
+/** Active booking statuses (booking-rules ACTIVE_BOOKING_STATUSES; not imported to keep this file free of HTTP helpers). */
+const P2P_BLOCKING_STATUSES = ['REQUESTED', 'PENDING_ASSIGNMENT', 'ASSIGNED', 'CONFIRMED', 'WAITLISTED'] as const;
 
 /**
  * Booking generator + expiry sweep (12 WP 3.2, 05 §2.5): every 15 minutes in the API process, one instance at a time
@@ -242,14 +247,35 @@ export class BookingGeneratorService {
    * schedule is saved). Idempotent: running it twice creates nothing the second time.
    */
   async generate(now: number, scheduleIds?: string[]): Promise<GenerateResult> {
-    if (!this.enabled) return { created: 0, skippedByException: 0 };
+    if (!this.enabled) return { created: 0, skippedByException: 0, skippedByOverlap: 0 };
     const schedules = await this.loadSchedules(scheduleIds ? { id: { in: scheduleIds } } : {});
-    const { rows, skippedByException } = await this.plan(schedules, now, now + TRANSPORT_E3_LIMITS.generatorHorizonHours * H);
+    const planned = await this.plan(schedules, now, now + TRANSPORT_E3_LIMITS.generatorHorizonHours * H);
+    const { rows, skipped } = await this.withoutP2pClashes(planned.rows);
+    if (skipped) this.logger.log(`Skipped ${skipped} generated commute booking(s) that overlap a point-to-point booking`);
     let created = 0;
     for (let i = 0; i < rows.length; i += 500) {
       created += (await this.prisma.transportBooking.createMany({ data: rows.slice(i, i + 500), skipDuplicates: true })).count;
     }
-    return { created, skippedByException };
+    return { created, skippedByException: planned.skippedByException, skippedByOverlap: skipped };
+  }
+
+  /**
+   * v1.15 L4: the commute-vs-point-to-point overlap rule of BookingsService.create (overlapWhere) for generated legs: a
+   * leg whose window overlaps an active POINT_TO_POINT booking of the same passenger ([start, end) ranges) is not
+   * created (the passenger booked a one-off ride for that time; the desk sees the P2P booking).
+   */
+  private async withoutP2pClashes(rows: Prisma.TransportBookingCreateManyInput[]): Promise<{ rows: Prisma.TransportBookingCreateManyInput[]; skipped: number }> {
+    if (!rows.length) return { rows, skipped: 0 };
+    const ms = (d: Date | string) => new Date(d).getTime();
+    const from = Math.min(...rows.map((r) => ms(r.windowStart)));
+    const to = Math.max(...rows.map((r) => ms(r.windowEnd)));
+    const p2p = await this.prisma.transportBooking.findMany({
+      where: { profileId: { in: [...new Set(rows.map((r) => r.profileId))] }, journey: 'POINT_TO_POINT', status: { in: [...P2P_BLOCKING_STATUSES] }, windowStart: { lt: new Date(to) }, windowEnd: { gt: new Date(from) } },
+      select: { profileId: true, windowStart: true, windowEnd: true },
+    });
+    if (!p2p.length) return { rows, skipped: 0 };
+    const kept = rows.filter((r) => !p2p.some((b) => b.profileId === r.profileId && b.windowStart.getTime() < ms(r.windowEnd) && b.windowEnd.getTime() > ms(r.windowStart)));
+    return { rows: kept, skipped: rows.length - kept.length };
   }
 
   /** Unseated bookings whose window has ended → EXPIRED. */
