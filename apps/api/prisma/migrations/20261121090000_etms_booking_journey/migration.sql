@@ -35,8 +35,11 @@ ALTER TABLE "TransportNotification" ADD CONSTRAINT "TransportNotification_kind_c
   CHECK ("kind" IN ('TRIP_ASSIGNED','TRIP_CHANGED','TRIP_UNASSIGNED','TRIP_CANCELLED','TRIP_STARTING_SOON','VEHICLE_APPROACHING','TRIP_DELAYED','BOOKING_CREATED','BOOKING_APPROVED','BOOKING_REJECTED'));
 
 -- WP 3.9 wave 2 (D-A7 / D-A8, added by the adhoc-api2 agent): group bookings share a groupId (no FK, not personal
--- data; one dispatcher form books several passengers all-or-nothing) and any booking may carry a purpose text.
+-- data; one dispatcher form books several passengers all-or-nothing), any booking may carry a purpose text, and
+-- approvedAt records when the transport team approved a waiting booking (D-A5: the passenger app shows "approved"
+-- only for these, not for a booking that never needed approval).
 ALTER TABLE "TransportBooking"
   ADD COLUMN "groupId" UUID,
-  ADD COLUMN "purpose" TEXT;
+  ADD COLUMN "purpose" TEXT,
+  ADD COLUMN "approvedAt" TIMESTAMPTZ(3);
 CREATE INDEX "TransportBooking_customerCompanyId_groupId_idx" ON "TransportBooking" ("customerCompanyId", "groupId");

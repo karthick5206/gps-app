@@ -3340,6 +3340,8 @@ model TransportBooking {
   groupId           String?                 @db.Uuid
   /// WP 3.9 wave 2 (D-A7 / D-A8): why the ride is needed (e.g. "Site visit"), shown to the transport team.
   purpose           String?
+  /// WP 3.9 wave 2 (D-A5): when the transport team approved a waiting (REQUESTED / WAITLISTED) booking; null otherwise.
+  approvedAt        DateTime?               @db.Timestamptz(3)
   createdById       String?                 @db.Uuid
   createdAt         DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime                @updatedAt @db.Timestamptz(3)
