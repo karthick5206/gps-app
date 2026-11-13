@@ -67,14 +67,15 @@ export function useCapabilities(enabled = true) {
 }
 
 /**
- * Whether the planner menu is shown: web flag on, the user holds etms_planning:view, and the API reports routing
- * enabled (ETMS + ETMS_ROUTING=on + company add-on). Hidden while unknown.
+ * Whether the planner menu is shown: web flag on (default on since v1.16), the user holds etms_planning:view, and the
+ * API answered the capabilities. v1.16: also shown while automatic routing is switched off, so the page can say so
+ * ("ask your administrator") once the Super Admin and the company switch it on, it simply works. Hidden while unknown.
  */
 export function usePlannerMenuHidden(): boolean {
   const me = useMe();
   const has = !!me.permissions[PLANNING_MENU]?.includes('view');
   const flag = plannerFlagOn();
   const caps = useCapabilities(has && flag);
-  return !(has && flag && caps.data?.enabled === true);
+  return !(has && flag && caps.data !== undefined);
 }
 

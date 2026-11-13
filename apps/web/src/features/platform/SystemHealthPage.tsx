@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { formatBytes, fraction, overallLabel, statusVariant, type Status } from './system-health/health-format';
 import { LineChart, type LineSeries } from './system-health/LineChart';
 import { useSystemHealth, useSystemHealthSettings } from './system-health/use-system-health';
+import { ReadinessChecklist } from './routing-switch/RoutingSwitchPanel';
 
 const STATUS_LABEL: Record<Status, string> = { OK: 'OK', WARN: 'Warning', CRITICAL: 'Critical' };
 const STATUS_ICON = { OK: CheckCircle2Icon, WARN: AlertTriangleIcon, CRITICAL: OctagonAlertIcon } as const;
@@ -531,15 +532,31 @@ function MapServicesCard({ maps }: { maps: MapServiceDto[] }) {
   );
 }
 
-/** ETMS planning (E4): routing worker, optimiser and job queue; "Disabled" while ETMS_ROUTING is off. */
+/**
+ * ETMS planning (E4): routing worker, optimiser and job queue. v1.16: "Installed, switched off" while the platform switch
+ * is off (no issues raised), the emergency switch state, and the readiness checklist (Platform Settings → Route planning
+ * changes the switch).
+ */
 function RoutingCard({ r }: { r: RoutingHealthDto }) {
   const { t } = useTranslation();
+  const readiness = r.readiness ? (
+    <div className="mt-3 border-t pt-3">
+      <p className="mb-2 text-xs font-medium text-muted-foreground uppercase">
+        {t('Readiness')}: {r.readiness.ready ? t('Ready') : t('Not ready')}
+      </p>
+      <ReadinessChecklist readiness={r.readiness} />
+    </div>
+  ) : null;
   if (!r.enabled || r.status === 'DISABLED') {
+    const killed = r.switch?.envMode === 'off';
     return (
       <Section title="Route planning (ETMS)" icon={MapIcon}>
-        <Row label={t('Routing worker')}><span className="text-muted-foreground">{t('Disabled')}</span></Row>
-        <Row label={t('Optimiser')}><span className="text-muted-foreground">{t('Disabled')}</span></Row>
-        <p className="mt-1 text-xs text-muted-foreground">{t('Off unless ETMS_ROUTING=on. Manual dispatch never depends on it.')}</p>
+        <Row label={t('Automatic route planning')}>
+          <span className="text-muted-foreground">{killed ? t('Emergency switch on the server: off') : t('Installed, switched off')}</span>
+        </Row>
+        {!killed && r.switch && <Row label={t('Routing workers')}><span className="tabular-nums text-muted-foreground">{r.workers}</span></Row>}
+        <p className="mt-1 text-xs text-muted-foreground">{t('Change it under Platform Settings → Route planning.')} {t('Manual dispatch never depends on it.')}</p>
+        {readiness}
       </Section>
     );
   }
@@ -572,6 +589,7 @@ function RoutingCard({ r }: { r: RoutingHealthDto }) {
           </Row>
         </>
       )}
+      {readiness}
     </Section>
   );
 }

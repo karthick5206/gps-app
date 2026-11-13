@@ -14,6 +14,7 @@ import { errorMessage } from '@/lib/api';
 import { ConsentNoticesPanel } from './ConsentNoticeSettings';
 import { MaxRidePolicy } from './MaxRidePolicy';
 import { SelfBookingSetting } from './SelfBookingSetting';
+import { AutoRoutingSetting } from './AutoRoutingSetting';
 import { useTransportSettings, useUpdateTransportSettings } from './use-agreements';
 
 const ACTION_LABEL: Record<Action, string> = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', export: 'Export', command: 'Command' };
@@ -139,6 +140,7 @@ export function TransportSettingsPage() {
         {!platformHome && <DirectoryListing />}
         {!platformHome && <MaxRidePolicy />}
         {!platformHome && <SelfBookingSetting />}
+        {!platformHome && <AutoRoutingSetting />}
       </div>
 
       {!platformHome && <ConsentNoticesPanel />}

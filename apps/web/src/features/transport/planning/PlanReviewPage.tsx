@@ -36,6 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/features/auth/auth-context';
 import { NotFoundPage } from '@/features/errors/ErrorPages';
+import { RoutingOffState } from './RoutingOffState';
 import { getReportTimeZone } from '@/features/reports/report-time';
 import { cn } from '@/lib/utils';
 import { DIRECTION_LABEL, e3ErrorText } from '../dispatch/e3-format';
@@ -187,6 +188,14 @@ export function PlanReviewPage() {
   const health = capabilityView(caps.data);
 
   if (!flag) return <NotFoundPage />;
+  // v1.16: switched off (the plan routes answer 404 then): say so instead of "not found".
+  if (caps.data && !caps.data.enabled) {
+    return (
+      <div className="p-4 sm:p-6">
+        <RoutingOffState reason={caps.data.offReason} />
+      </div>
+    );
+  }
   if (q.isPending) return <div className="p-4 sm:p-6"><Skeleton className="h-96 w-full rounded-xl" /></div>;
   if (q.isError || !plan || !metrics) {
     return (
