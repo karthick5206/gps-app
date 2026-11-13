@@ -1,5 +1,6 @@
 """Optimizer HTTP security (phase 4): mandatory token, source allow-list, slots -> 429."""
 import json
+import platform
 import socket
 import threading
 import time
@@ -48,6 +49,8 @@ def test_token_required_on_every_endpoint():
         assert call(url, '/optimize', None, PROBLEM)[0] == 401
         code, body = call(url, '/health', TOKEN)
         assert code == 200 and body['slots'] == 2
+        # v1.16 readiness: the API checks the Python version the service runs on.
+        assert body['python'] == platform.python_version()
         code, body = call(url, '/optimize', TOKEN, PROBLEM)
         assert code == 200 and body['status'] in ('FEASIBLE', 'OPTIMAL')
     finally:

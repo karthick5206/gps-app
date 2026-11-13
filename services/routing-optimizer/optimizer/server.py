@@ -1,7 +1,7 @@
 """Minimal HTTP wrapper (stdlib) for the OR-Tools solver. Private service: token + source allow-list (phase 4).
 
   OPTIMIZER_TOKEN=<secret> python -m optimizer.server [--host 127.0.0.1] [--port 8090]
-  GET  /health    -> {"ok": true, "ortools": "<version>", "limits": {...}, "slots": n, "busy": k}   (token required)
+  GET  /health    -> {"ok": true, "ortools": "<version>", "python": "<x.y.z>", "limits": {...}, "slots": n, "busy": k}   (token required)
   POST /optimize  -> solve(problem)   (body <= 8 MB; OPTIMIZER_CONCURRENCY solves at once, then 429)
 
 Security (owner decision 2026-11-09):
@@ -43,6 +43,7 @@ import ipaddress
 import json
 import multiprocessing
 import os
+import platform
 import socket
 import sys
 import threading
@@ -180,7 +181,7 @@ class BadRequest(Exception):
 
 def make_handler(cfg: Config):
     class Handler(BaseHTTPRequestHandler):
-        server_version = 'veetrax-routing-optimizer/0.3'
+        server_version = 'veetrax-routing-optimizer/0.4'
         # R2: until it has authenticated a client has HEADER_TIMEOUT_S for its request line and headers; an
         # authenticated request gets HANDLER_TIMEOUT_S (L5) for its body.
         timeout = HEADER_TIMEOUT_S
@@ -267,7 +268,7 @@ def make_handler(cfg: Config):
                 if not self._guard():
                     return
                 if self.path == '/health':
-                    self._send(200, {'ok': True, 'ortools': ortools.__version__, 'limits': LIMITS, 'slots': cfg.size, 'busy': cfg.busy})
+                    self._send(200, {'ok': True, 'ortools': ortools.__version__, 'python': platform.python_version(), 'limits': LIMITS, 'slots': cfg.size, 'busy': cfg.busy})
                 else:
                     self._send(404, {'error': 'not found'})
             except Exception:  # noqa: BLE001 - never drop the connection without an answer
