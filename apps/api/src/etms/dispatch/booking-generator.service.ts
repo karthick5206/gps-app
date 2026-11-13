@@ -1,15 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { TRANSPORT_E3_LIMITS, type GeoPoint, type TransportDirection, type TransportScheduleOverride } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { companyFeatures } from '../../common/company-features';
+import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { activeRoutingConsents } from '../people/people.service';
 import { etmsServerEnabled } from '../transport-feature.guard';
 import { cutoffMinutes, dateOnly, dayKeyOf, validPoint } from './e3-common';
 import { legWindow, scheduleOccurrences, type LegWindow, type ShiftTiming } from './service-dates';
+import { settleClosedTrips, type TripSettlement } from './trip-settle';
 
 export const BOOKING_GENERATOR_LOCK_KEY = 'vt:etms:bookings:generator:lock';
 const RELEASE_LOCK = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
@@ -94,6 +96,15 @@ export function bookingData(s: ScheduleForGen, serviceDate: string, window: LegW
   };
 }
 
+export interface ResyncResult {
+  updated: number;
+  cancelled: number;
+  restored: number;
+  seated: number;
+  /** v1.15.1 L4: legs left at their old time (or left cancelled) because the new window overlaps a point-to-point booking. */
+  skippedByOverlap: number;
+}
+
 export interface GenerateResult {
   created: number;
   skippedByException: number;
@@ -113,6 +124,9 @@ const P2P_BLOCKING_STATUSES = ['REQUESTED', 'PENDING_ASSIGNMENT', 'ASSIGNED', 'C
  *     skips a leg when the passenger already has another active booking that day (partial unique index).
  *     Pickup points need an active TRANSPORT_PROFILE consent; without it the booking is created "needs location".
  *  2. Expire: REQUESTED / PENDING_ASSIGNMENT / WAITLISTED bookings whose window ended → EXPIRED.
+ *  3. Settle (v1.15.1, trip-settle.ts): COMPLETED trips past DRIVER_LIMITS.settleGraceHours — seats left BOARDED /
+ *     PENDING are marked PASSENGER_AUTO_SETTLED (no invented outcome), bookings of settled seats ASSIGNED → CONFIRMED;
+ *     one SYSTEM audit row per trip.
  */
 @Injectable()
 export class BookingGeneratorService {
@@ -123,6 +137,7 @@ export class BookingGeneratorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   get enabled(): boolean {
@@ -140,7 +155,8 @@ export class BookingGeneratorService {
       const now = Date.now();
       const g = await this.generate(now);
       const expired = await this.expire(now);
-      if (g.created || expired) this.logger.log(`Bookings generated ${g.created}, expired ${expired}`);
+      const settled = await this.settle(now);
+      if (g.created || expired || settled.length) this.logger.log(`Bookings generated ${g.created}, expired ${expired}; trips settled ${settled.length}`);
     } catch (error) {
       this.logger.error(`Booking generator failed: ${(error as Error).message}`);
     } finally {
@@ -278,6 +294,25 @@ export class BookingGeneratorService {
     return { rows: kept, skipped: rows.length - kept.length };
   }
 
+  /** v1.15.1: finalise COMPLETED trips whose settle grace has ended (trip-settle.ts); audited per trip. */
+  async settle(now: number, opts: Parameters<typeof settleClosedTrips>[2] = {}): Promise<TripSettlement[]> {
+    const done = await settleClosedTrips(this.prisma, now, opts);
+    for (const r of done) {
+      await this.audit
+        ?.recordSystem(
+          { companyId: r.customerCompanyId ?? r.providerCompanyId, userId: null, ip: null },
+          {
+            action: 'UPDATE',
+            entity: 'TransportTrip',
+            entityId: r.tripId,
+            details: { autoSettle: { boardedSettled: r.boardedSettled, pendingFlagged: r.pendingFlagged, bookingsConfirmed: r.bookingsConfirmed, closedAt: r.closedAt, closedBy: r.closedBy }, source: 'SYSTEM' },
+          },
+        )
+        .catch((e: Error) => this.logger.warn(`Settle audit for trip ${r.tripId} failed: ${e.message}`));
+    }
+    return done;
+  }
+
   /** Unseated bookings whose window has ended → EXPIRED. */
   async expire(now: number): Promise<number> {
     const r = await this.prisma.transportBooking.updateMany({
@@ -292,17 +327,36 @@ export class BookingGeneratorService {
    * current pattern, cancelled when their date no longer occurs (reason `SCHEDULE_CHANGED_REASON` / `SKIPPED_REASON`),
    * and bookings this code cancelled come back when their date occurs again. Seated bookings are never touched (the
    * dispatcher moves those). Then the missing dates are generated. Returns counts.
+   *
+   * v1.15.1 L4 (same rule as generate()): a leg is not moved to a new time window, and a cancelled leg is not
+   * restored, when the new window overlaps an active POINT_TO_POINT booking of the passenger ([start, end) ranges).
+   * The booking is left as it is (old time, or still CANCELLED) and counted in `skippedByOverlap`; the caller logs it
+   * and the desk sees both bookings.
    */
-  async resync(scheduleId: string, now: number, db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<{ updated: number; cancelled: number; restored: number; seated: number }> {
-    const counts = { updated: 0, cancelled: 0, restored: 0, seated: 0 };
+  async resync(scheduleId: string, now: number, db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<ResyncResult> {
+    const counts: ResyncResult = { updated: 0, cancelled: 0, restored: 0, seated: 0, skippedByOverlap: 0 };
     const [schedule] = await this.loadSchedules({ id: scheduleId });
     const bookings = await db.transportBooking.findMany({
       where: { scheduleId, windowStart: { gt: new Date(now) } },
-      select: { id: true, status: true, statusReason: true, serviceDate: true, profileId: true, windowStart: true, version: true },
+      select: { id: true, status: true, statusReason: true, serviceDate: true, profileId: true, windowStart: true, windowEnd: true, version: true },
     });
     if (!bookings.length) return counts;
     const planned = schedule ? (await this.plan([schedule], now - 2 * 24 * H, now + 40 * 24 * H)).rows : [];
     const byDate = new Map(planned.map((r) => [dayKeyOf(r.serviceDate as Date), r]));
+    const ms = (d: Date | string) => new Date(d).getTime();
+    const p2p = planned.length
+      ? await db.transportBooking.findMany({
+          where: {
+            profileId: { in: [...new Set(bookings.map((b) => b.profileId))] },
+            journey: 'POINT_TO_POINT',
+            status: { in: [...P2P_BLOCKING_STATUSES] },
+            windowStart: { lt: new Date(Math.max(...planned.map((r) => ms(r.windowEnd)))) },
+            windowEnd: { gt: new Date(Math.min(...planned.map((r) => ms(r.windowStart)))) },
+          },
+          select: { profileId: true, windowStart: true, windowEnd: true },
+        })
+      : [];
+    const clashes = (profileId: string, start: Date | string, end: Date | string) => p2p.some((x) => x.profileId === profileId && x.windowStart.getTime() < ms(end) && x.windowEnd.getTime() > ms(start));
     for (const b of bookings) {
       const want = byDate.get(dayKeyOf(b.serviceDate));
       const unseated = (UNSEATED_STATUSES as readonly string[]).includes(b.status);
@@ -330,9 +384,15 @@ export class BookingGeneratorService {
         dropLng: want.dropLng,
         dropPoiId: want.dropPoiId,
       };
+      const retimed = ms(want.windowStart as Date) !== b.windowStart.getTime() || ms(want.windowEnd as Date) !== b.windowEnd.getTime();
+      const restoring = !unseated && (b.statusReason === SKIPPED_REASON || b.statusReason === SCHEDULE_CHANGED_REASON);
+      if ((restoring || (unseated && retimed)) && clashes(b.profileId, want.windowStart as Date, want.windowEnd as Date)) {
+        counts.skippedByOverlap++;
+        continue;
+      }
       if (unseated) {
         counts.updated += (await db.transportBooking.updateMany({ where: { id: b.id, version: b.version }, data: { ...data, version: { increment: 1 } } })).count;
-      } else if (b.statusReason === SKIPPED_REASON || b.statusReason === SCHEDULE_CHANGED_REASON) {
+      } else if (restoring) {
         // A date this code cancelled occurs again: bring the booking back (unless the passenger booked otherwise meanwhile).
         try {
           counts.restored += (

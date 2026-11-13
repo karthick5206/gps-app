@@ -401,6 +401,32 @@ describe('booking generator (12 WP 3.2)', () => {
     const generated = w.store.table('transportBooking').filter((b) => b.scheduleId);
     expect(generated.map((b) => (b.serviceDate as Date).toISOString().slice(0, 10)).sort()).toEqual(['2026-12-01', '2026-12-03']);
   });
+
+  it('v1.15.1 L4: a schedule change does not re-time (or restore) a generated leg into an active point-to-point booking; it counts it', async () => {
+    const w = world();
+    const p = w.passenger('A');
+    const site = w.store.insert('poi', { companyId: 'c1', name: 'HQ', lat: 13.05, lng: 80.25, isActive: true }).id as string;
+    const shift = w.store.insert('transportShift', { companyId: 'c1', sitePoiId: site, name: 'Day', startMin: 540, endMin: 1080, overnight: false, days: [0, 1, 2, 3, 4, 5, 6], timeZone: 'Asia/Kolkata' });
+    const sched = w.store.insert('transportSchedule', { companyId: 'c1', profileId: p, shiftId: shift.id, direction: 'IN', days: [0, 1, 2, 3, 4, 5, 6], pickupMode: 'HOME', validFrom: new Date('2026-01-01T00:00:00Z') });
+    const now = Date.parse('2026-12-01T00:00:00Z');
+    expect((await w.generator.generate(now)).created).toBe(3); // IN legs [02:00, 03:30) UTC on 12-01..12-03
+    // P2P rides at 03:40–04:10 UTC on 12-02 and 12-03: no clash with the current legs.
+    w.booking(p, { journey: 'POINT_TO_POINT', serviceDate: new Date('2026-12-02T00:00:00Z'), windowStart: new Date('2026-12-02T03:40:00Z'), windowEnd: new Date('2026-12-02T04:10:00Z') });
+    w.booking(p, { journey: 'POINT_TO_POINT', serviceDate: new Date('2026-12-03T00:00:00Z'), windowStart: new Date('2026-12-03T03:40:00Z'), windowEnd: new Date('2026-12-03T04:10:00Z') });
+    const legs = () => w.store.table('transportBooking').filter((b) => b.scheduleId === sched.id);
+    const on = (day: string) => legs().find((b) => (b.serviceDate as Date).toISOString().startsWith(day))!;
+    // The 12-03 leg was cancelled by an earlier schedule change (this code may restore it).
+    Object.assign(on('2026-12-03'), { status: 'CANCELLED', statusReason: 'Schedule changed' });
+    const before02 = (on('2026-12-02').windowStart as Date).toISOString();
+    // Shift moves 1 h later: legs become [03:00, 04:30) UTC → 12-02 and 12-03 would overlap the P2P rides.
+    Object.assign(shift, { startMin: 600, endMin: 1140 });
+    const r = await w.generator.resync(sched.id as string, now);
+    expect(r).toMatchObject({ updated: 1, restored: 0, skippedByOverlap: 2 });
+    expect((on('2026-12-01').windowStart as Date).toISOString()).toBe('2026-12-01T03:00:00.000Z');
+    expect((on('2026-12-02').windowStart as Date).toISOString()).toBe(before02); // left as it was
+    expect(on('2026-12-02').status).toBe('PENDING_ASSIGNMENT');
+    expect(on('2026-12-03').status).toBe('CANCELLED'); // not restored into the clash
+  });
 });
 
 describe('branch scope on every change-set op (QA B1 / E3 security review M6)', () => {

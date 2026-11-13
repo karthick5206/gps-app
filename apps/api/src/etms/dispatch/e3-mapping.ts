@@ -22,6 +22,7 @@ import { AuthContext } from '../../access/auth-context';
 import { iso, isoOrNull } from '../../common/dto';
 import { dayKeyOf, round } from './e3-common';
 import { roundPath, stopOwner } from './personal-points';
+import { AUTO_SETTLED_EVENT } from './trip-settle';
 
 /** Row shapes and DTO mappers of the E3 module (no database access here). */
 
@@ -258,7 +259,7 @@ export const PASSENGER_DETAIL_INCLUDE = {
 } satisfies Prisma.TransportTripPassengerInclude;
 export type PassengerDetailRow = Prisma.TransportTripPassengerGetPayload<{ include: typeof PASSENGER_DETAIL_INCLUDE }>;
 
-export function toPassengerDto(p: PassengerDetailRow, stops: { seq: number; status: string }[], tripOpen: boolean, consent = true): TransportTripPassengerDto {
+export function toPassengerDto(p: PassengerDetailRow, stops: { seq: number; status: string }[], tripOpen: boolean, consent = true, autoSettled = false): TransportTripPassengerDto {
   const pickupStop = stops.find((s) => s.seq === p.pickupSeq);
   // L7: a personal end's label is free text (often an address): shown only while the passenger's routing consent is active.
   return {
@@ -281,6 +282,7 @@ export function toPassengerDto(p: PassengerDetailRow, stops: { seq: number; stat
     // GPS reached the stop, nobody recorded what happened: shown as "outcome not recorded", never as boarded (02 §5.3).
     outcomeMissing: p.status === 'PENDING' && !!pickupStop && (pickupStop.status === 'ARRIVED' || pickupStop.status === 'DEPARTED' || pickupStop.status === 'SKIPPED'),
     allowedOutcomes: tripOpen ? allowedPassengerOutcomes(p.status) : [],
+    autoSettled,
   };
 }
 
@@ -366,11 +368,13 @@ export function toTripDetail(
   const path = !rawPath || anyHidden ? null : view.precise ? rawPath : roundPath(rawPath, decimals);
   // The manifest lists only passengers of the caller's branches (seat counts stay whole: occupancy is not personal).
   const manifest = passengers.filter((p) => view.inBranch(p.booking.profile.branchId));
+  // v1.15.1 trip settle (trip-settle.ts): seats the job finalised without an outcome.
+  const autoSettled = new Set(events.filter((e) => e.kind === AUTO_SETTLED_EVENT && e.passengerTripId).map((e) => e.passengerTripId as string));
   return {
     ...toTripSummary(t, n),
     path,
     stops: stopDtos,
-    passengers: manifest.sort((a, b) => a.pickupSeq - b.pickupSeq || a.createdAt.getTime() - b.createdAt.getTime()).map((p) => toPassengerDto(p, stops, tripOpen, view.consents.has(p.booking.profileId))),
+    passengers: manifest.sort((a, b) => a.pickupSeq - b.pickupSeq || a.createdAt.getTime() - b.createdAt.getTime()).map((p) => toPassengerDto(p, stops, tripOpen, view.consents.has(p.booking.profileId), autoSettled.has(p.id))),
     // Events of passengers outside the caller's branches are left out with them; a seat-less event (STOP_ADDED …) loses
     // the booking id of a booking that is not on the caller's manifest (security re-check N5).
     events: events

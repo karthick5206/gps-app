@@ -125,6 +125,11 @@ export const TRANSPORT_TRIP_EVENT_KINDS = [
   'PASSENGER_CONFIRM',
   /** PASSENGER, E5 WP 5.3: the passenger reported a delay / missed pickup / concern (reasonCode = category). */
   'PASSENGER_REPORT',
+  /**
+   * SYSTEM, v1.15.1 trip settle: the trip was COMPLETED more than DRIVER_LIMITS.settleGraceHours ago and the seat had no
+   * final outcome (BOARDED: drop not recorded; PENDING: no outcome, needsReview). The seat status is not changed.
+   */
+  'PASSENGER_AUTO_SETTLED',
 ] as const;
 export type TransportTripEventKind = (typeof TRANSPORT_TRIP_EVENT_KINDS)[number];
 export type TransportTripActorType = 'DISPATCHER' | 'DRIVER' | 'PASSENGER' | 'SYSTEM';
@@ -863,6 +868,13 @@ export interface TransportTripPassengerDto {
    */
   outcomeMissing: boolean;
   allowedOutcomes: TransportPassengerOutcome[];
+  /**
+   * v1.15.1: the settle job finalised this seat after DRIVER_LIMITS.settleGraceHours without a recorded outcome (trip
+   * event PASSENGER_AUTO_SETTLED). The status is NOT changed (02 §5.3: never an invented outcome): BOARDED = "drop not
+   * recorded"; PENDING = "no outcome recorded, review". The dispatcher can still record the outcome. Always sent by
+   * the v1.15.1 API (optional only for older fixtures).
+   */
+  autoSettled?: boolean;
 }
 
 export interface TransportTripEventDto {

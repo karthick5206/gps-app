@@ -16,7 +16,10 @@ import { PlannedTripsService } from '../planned-trips/planned-trips.service';
 import { planPurge, rootCondition, stepSql, type Catalog, type FkEdge } from '../purge/purge-plan';
 import { PURGE_EVIDENCE_WRITE } from '../purge/purge.service';
 import { dbDescribe } from '../test/scratch-db';
+import { BookingGeneratorService } from './dispatch/booking-generator.service';
+import { DispatchService } from './dispatch/dispatch.service';
 import { TripLiveService } from './dispatch/trip-live';
+import { TripsService } from './dispatch/trips.service';
 import { DriverApiService } from './driver/driver-api.service';
 import { TransportNotificationsService } from './notifications/transport-notifications.service';
 
@@ -55,6 +58,9 @@ d(`D1 / D1b driver settle grace on ${dbName}`, () => {
   const audit = new AuditService(prisma as never);
   const live = new TripLiveService(prisma as never, redis as never, new PlannedTripsService(prisma as never, audit, { invalidate: async () => undefined } as never));
   const svc = new DriverApiService(prisma as never, audit, redis as never, live, new TransportNotificationsService(prisma as never, redis as never));
+  const plannedTrips = new PlannedTripsService(prisma as never, audit, { invalidate: async () => undefined } as never);
+  const generator = new BookingGeneratorService(prisma as never, redis as never, audit);
+  const trips = new TripsService(prisma as never, audit, plannedTrips, new DispatchService(prisma as never, audit, {} as never, live, redis as never), live);
 
   beforeAll(async () => {
     const [p] = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "Partner" LIMIT 1`;
@@ -178,5 +184,55 @@ d(`D1 / D1b driver settle grace on ${dbName}`, () => {
     const rows = await prisma.transportTripEvent.groupBy({ by: ['clientEventId'], where: { tripId: w.tt, clientEventId: { in: q.map((e) => e.clientEventId) } }, _count: true });
     expect(rows.map((r) => r._count).sort()).toEqual([1, 1, 1, 1]);
     expect((await prisma.plannedTrip.findUniqueOrThrow({ where: { id: w.pt } })).status).toBe('COMPLETED');
+  });
+
+  // ───── v1.15.1 trip settle (I2 / E5 L4, demo B4): after the grace the sweep finalises what the driver never settled ─────
+  const bookingStatus = async (seatIds: string[]) => {
+    const rows = await prisma.transportTripPassenger.findMany({ where: { id: { in: seatIds } }, select: { id: true, booking: { select: { status: true, version: true } } } });
+    return seatIds.map((id) => rows.find((r) => r.id === id)!.booking);
+  };
+
+  it('[I2] after the grace: a BOARDED seat is marked auto-settled (status kept: no invented outcome) and its booking CONFIRMED; a PENDING seat is flagged for review; idempotent, audited, shown on the trip detail', async () => {
+    const w = await world('settle', 7 * H, ['BOARDED', 'PENDING', 'BOARDED']);
+    // The driver dropped the third passenger in time: a recorded outcome; only its booking is finalised.
+    await prisma.transportTripPassenger.update({ where: { id: w.seats[2] }, data: { status: 'DROPPED', droppedAt: new Date(w.end), outcomeSource: 'DRIVER_APP', outcomeAt: new Date(w.end) } });
+    const [first] = await generator.settle(Date.now(), { where: { id: w.tt } });
+    expect(first).toMatchObject({ tripId: w.tt, boardedSettled: [w.seats[0]], pendingFlagged: [w.seats[1]], closedBy: 'AUTO' });
+    expect(first.bookingsConfirmed).toHaveLength(2);
+    expect(await seatStatus(w.seats)).toEqual(['BOARDED', 'PENDING', 'DROPPED']);
+    expect((await bookingStatus(w.seats)).map((b) => b.status)).toEqual(['CONFIRMED', 'ASSIGNED', 'CONFIRMED']);
+    const evs = await prisma.transportTripEvent.findMany({ where: { tripId: w.tt, kind: 'PASSENGER_AUTO_SETTLED' }, orderBy: { reasonCode: 'asc' } });
+    expect(evs).toHaveLength(2);
+    expect(evs.map((e) => [e.passengerTripId, e.reasonCode, e.actorType, e.source, e.outcome, e.lat])).toEqual([
+      [w.seats[0], 'DROP_NOT_RECORDED', 'SYSTEM', 'SYSTEM', 'ACCEPTED', null],
+      [w.seats[1], 'NO_OUTCOME', 'SYSTEM', 'SYSTEM', 'ACCEPTED', null],
+    ]);
+    expect(evs[1].data).toMatchObject({ autoSettled: true, statusAtSettle: 'PENDING', needsReview: true });
+    const auditRow = await prisma.auditLog.findFirst({ where: { companyId: w.company, entityId: w.tt }, orderBy: { createdAt: 'desc' } });
+    expect(JSON.stringify(auditRow)).toContain('autoSettle');
+    // Idempotent: a second sweep changes nothing.
+    expect(await generator.settle(Date.now(), { where: { id: w.tt } })).toEqual([]);
+    expect(await prisma.transportTripEvent.count({ where: { tripId: w.tt, kind: 'PASSENGER_AUTO_SETTLED' } })).toBe(2);
+    expect((await bookingStatus(w.seats)).map((b) => b.version)).toEqual([2, 1, 2]);
+    // Dispatcher trip detail: the flag, and the outcome can still be recorded on the completed trip.
+    const dispatcher = { ...w.ctx, permissions: { etms_dispatch: ['view', 'edit'] }, dataScope: 'COMPANY' } as AuthContext;
+    const detail = await trips.get(dispatcher, w.tt);
+    const pax = (id: string) => detail.passengers.find((p) => p.id === id)!;
+    expect([pax(w.seats[0]).autoSettled, pax(w.seats[1]).autoSettled, pax(w.seats[2]).autoSettled]).toEqual([true, true, false]);
+    expect(pax(w.seats[0]).allowedOutcomes).toContain('DROPPED');
+  });
+
+  it('[I2] inside the grace the sweep leaves the trip alone; batches are limited', async () => {
+    const inside = await world('settle-in', 2 * H, ['BOARDED']);
+    expect(await generator.settle(Date.now(), { where: { id: inside.tt } })).toEqual([]);
+    expect((await bookingStatus(inside.seats))[0].status).toBe('ASSIGNED');
+    const a = await world('settle-a', 8 * H, ['BOARDED']);
+    const b = await world('settle-b', 9 * H, ['BOARDED']);
+    await prisma.transportTripPassenger.update({ where: { id: b.seats[0] }, data: { status: 'DROPPED', droppedAt: new Date(b.end), outcomeAt: new Date(b.end) } });
+    const both = { id: { in: [a.tt, b.tt, inside.tt] } };
+    expect(await generator.settle(Date.now(), { batch: 1, where: both })).toHaveLength(1);
+    expect(await generator.settle(Date.now(), { batch: 1, where: both })).toHaveLength(1);
+    expect(await generator.settle(Date.now(), { batch: 1, where: both })).toEqual([]);
+    expect((await bookingStatus([...a.seats, ...b.seats])).map((x) => x.status)).toEqual(['CONFIRMED', 'CONFIRMED']);
   });
 });
