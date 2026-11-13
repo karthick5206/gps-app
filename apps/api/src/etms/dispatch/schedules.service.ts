@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   TRANSPORT_E3_LIMITS,
@@ -15,7 +15,7 @@ import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query
 import { PrismaService } from '../../prisma/prisma.service';
 import { isValidTimezone } from '../../summarizer/tz';
 import { activeRoutingConsents } from '../people/people.service';
-import { BookingGeneratorService, overrideOf, SCHEDULE_ARCHIVED_REASON, SKIPPED_REASON, UNSEATED_STATUSES } from './booking-generator.service';
+import { BookingGeneratorService, overrideOf, type ResyncResult, SCHEDULE_ARCHIVED_REASON, SKIPPED_REASON, UNSEATED_STATUSES } from './booking-generator.service';
 import { conflict, dateOnly, dayKeyOf, forbidden, inProfileBranch, invalid, isUniqueViolation, notFound, parseInstant, profileBranchWhere, round, serviceDate, versionConflict } from './e3-common';
 import { preciseFor, SHIFT_INCLUDE, toShiftDto } from './e3-mapping';
 import { CreateExceptionDto, CreateSchedulesDto, CreateShiftDto, ScheduleListQuery, SchedulePreviewQuery, ShiftListQuery, UpdateScheduleDto, UpdateShiftDto } from './e3.dto';
@@ -80,6 +80,7 @@ type ScheduleRow = Prisma.TransportScheduleGetPayload<{ include: typeof SCHEDULE
  */
 @Injectable()
 export class SchedulesService {
+  private readonly logger = new Logger('EtmsSchedules');
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -387,10 +388,20 @@ export class SchedulesService {
 
   // ───────────────────────────── helpers ─────────────────────────────
 
-  private async resyncSchedules(ids: string[]): Promise<void> {
+  /**
+   * Re-applies the schedules to their future bookings, then generates missing legs. Returns the summed counts;
+   * v1.15.1 L4: legs not re-timed / restored (or not generated) because of a point-to-point booking are logged.
+   */
+  private async resyncSchedules(ids: string[]): Promise<ResyncResult> {
     const now = Date.now();
-    for (const id of ids) await this.generator.resync(id, now);
-    if (ids.length) await this.generator.generate(now, ids);
+    const total: ResyncResult = { updated: 0, cancelled: 0, restored: 0, seated: 0, skippedByOverlap: 0 };
+    for (const id of ids) {
+      const r = await this.generator.resync(id, now);
+      for (const k of Object.keys(total) as (keyof ResyncResult)[]) total[k] += r[k];
+    }
+    if (ids.length) total.skippedByOverlap += (await this.generator.generate(now, ids)).skippedByOverlap;
+    if (total.skippedByOverlap) this.logger.log(`Schedule change left ${total.skippedByOverlap} commute booking(s) unchanged: they would overlap a point-to-point booking`);
+    return total;
   }
 
   private async findSchedule(ctx: AuthContext, id: string): Promise<ScheduleRow> {
