@@ -1,4 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { GEOCODE_LIMITS } from '@veetracer/shared';
 import { isLocalHost } from '../monitoring/map-services';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -81,6 +82,45 @@ export interface GeocodeHit {
 /** AddressCache key: coordinates rounded to 4 decimals (~11 m). */
 export const addressKey = (lat: number, lng: number): string => `${lat.toFixed(4)},${lng.toFixed(4)}`;
 
+/**
+ * Forward-search cache key (v1.15.1): the query lower-cased with whitespace collapsed, plus the bias point rounded to
+ * GEOCODE_LIMITS.cacheNearDecimals (≈ 11 km bucket) or "-" without one.
+ */
+export function geocodeCacheKey(q: string, near?: { lat: number; lng: number }): string {
+  const term = q.trim().replace(/\s+/g, ' ').toLowerCase();
+  const d = GEOCODE_LIMITS.cacheNearDecimals;
+  const bucket = near && Number.isFinite(near.lat) && Number.isFinite(near.lng) ? `${near.lat.toFixed(d)},${near.lng.toFixed(d)}` : '-';
+  return `${bucket}|${term}`;
+}
+
+/**
+ * Small in-memory LRU with a TTL for forward-search answers. Kept in process memory rather than Valkey on purpose:
+ * the queries can be home addresses, so they are never written to a shared store; the size cap bounds memory.
+ */
+export class GeocodeSearchCache {
+  private readonly rows = new Map<string, { at: number; hits: GeocodeHit[] }>();
+
+  constructor(
+    readonly maxEntries: number,
+    readonly ttlMs: number,
+  ) {}
+
+  get(key: string, now: number = Date.now()): GeocodeHit[] | undefined {
+    const row = this.rows.get(key);
+    if (!row) return undefined;
+    this.rows.delete(key);
+    if (now - row.at > this.ttlMs) return undefined;
+    this.rows.set(key, row); // most recently used last
+    return row.hits;
+  }
+
+  set(key: string, hits: GeocodeHit[], now: number = Date.now()): void {
+    this.rows.delete(key);
+    this.rows.set(key, { at: now, hits });
+    while (this.rows.size > this.maxEntries) this.rows.delete(this.rows.keys().next().value as string);
+  }
+}
+
 @Injectable()
 export class GeocodingService {
   private readonly logger = new Logger(GeocodingService.name);
@@ -89,6 +129,8 @@ export class GeocodingService {
   private readonly minIntervalMs = this.provider === 'nominatim' ? 1100 : 0;
   private queue: Promise<unknown> = Promise.resolve();
   private lastCall = 0;
+  /** v1.15.1: forward-search answers per API process (type-ahead; GEOCODE_LIMITS). */
+  private readonly searchCache = new GeocodeSearchCache(GEOCODE_LIMITS.cacheMaxEntries, GEOCODE_LIMITS.cacheTtlMs);
 
   constructor(private readonly prisma: PrismaService) {
     const problem = privateGeocoderProblem();
@@ -111,11 +153,19 @@ export class GeocodingService {
     return address;
   }
 
-  /** Address / place search for picking a destination (Photon only; up to 6 results near India). */
+  /**
+   * Address / place search for picking a destination (Photon only; up to 6 results near India). v1.15.1 type-ahead:
+   * answers of a successful lookup are kept in `searchCache` (normalised query + near-point bucket, GEOCODE_LIMITS
+   * TTL and size cap), so repeated prefixes do not reach Photon again; failures are not cached. Callers keep running
+   * assertPrivateGeocoder first (the cache sits behind that guard).
+   */
   async search(q: string, near?: { lat: number; lng: number }): Promise<GeocodeHit[]> {
     if (!this.enabled || this.provider !== 'photon' || q.trim().length < 3) return [];
+    const key = geocodeCacheKey(q, near);
+    const cached = this.searchCache.get(key);
+    if (cached) return cached.map((h) => ({ ...h }));
     try {
-      const p = new URLSearchParams({ q: q.trim(), limit: '6', lang: 'en', bbox: '68,6,98,37' });
+      const p = new URLSearchParams({ q: q.trim().replace(/\s+/g, ' '), limit: '6', lang: 'en', bbox: '68,6,98,37' });
       if (near) {
         p.set('lat', String(near.lat));
         p.set('lon', String(near.lng));
@@ -123,11 +173,13 @@ export class GeocodingService {
       const res = await fetch(`${this.baseUrl}/api?${p.toString()}`, { signal: AbortSignal.timeout(4000) });
       if (!res.ok) return [];
       const body = (await res.json()) as { features?: { geometry?: { coordinates?: [number, number] }; properties?: Record<string, string | undefined> }[] };
-      return (body.features ?? []).flatMap((f) => {
+      const hits: GeocodeHit[] = (body.features ?? []).flatMap((f) => {
         const c = f.geometry?.coordinates;
         const label = f.properties ? photonAddress(f.properties) : null;
         return c && label ? [{ label, lat: c[1], lng: c[0], confidence: photonConfidence(f.properties), matchType: f.properties?.type ?? null }] : [];
       });
+      this.searchCache.set(key, hits);
+      return hits.map((h) => ({ ...h }));
     } catch (error) {
       this.logger.warn(`Address search failed: ${(error as Error).message}`);
       return [];

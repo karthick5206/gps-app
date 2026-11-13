@@ -675,9 +675,9 @@ describe('ETMS isolation matrix: export, history, consents, pickup, import repor
     try {
       process.env.GEOCODER = 'photon';
       process.env.GEOCODER_URL = 'https://photon.komoot.io';
-      await expect(w.controllers.passengers.geocode({ q: '5 Main Road' })).rejects.toMatchObject({ status: 503, response: { code: 'GEOCODER_NOT_PRIVATE' } });
+      await expect(w.controllers.passengers.geocode(caller('customerAdmin', w), { q: '5 Main Road' })).rejects.toMatchObject({ status: 503, response: { code: 'GEOCODER_NOT_PRIVATE' } });
       process.env.GEOCODER_URL = 'http://127.0.0.1:2322';
-      await expect(w.controllers.passengers.geocode({ q: '5 Main Road' })).resolves.toEqual([]);
+      await expect(w.controllers.passengers.geocode(caller('customerAdmin', w), { q: '5 Main Road' })).resolves.toEqual([]);
     } finally {
       if (saved.g === undefined) delete process.env.GEOCODER;
       else process.env.GEOCODER = saved.g;

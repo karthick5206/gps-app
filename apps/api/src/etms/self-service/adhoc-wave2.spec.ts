@@ -4,7 +4,7 @@ import { HttpException, StreamableFile } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { randomUUID } from 'crypto';
-import { TRANSPORT_ADHOC_LIMITS, meBookingApproval, selfBookingApprovalOn, transportSettingsOf, type MeAdhocRequestInput } from '@veetracer/shared';
+import { GEOCODE_LIMITS, TRANSPORT_ADHOC_LIMITS, meBookingApproval, selfBookingApprovalOn, transportSettingsOf, type MeAdhocRequestInput } from '@veetracer/shared';
 import type { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { addDays } from '../../summarizer/tz';
@@ -329,7 +329,7 @@ describe('D-A9 own profile and home', () => {
     expect(audit).toContain('emergencyContactCount');
   });
 
-  it('geocode: self-hosted only (503 GEOCODER_NOT_PRIVATE), ≥ 3 chars, ≤ 6 hits without extra fields, 20 / min per user', async () => {
+  it('geocode: self-hosted only (503 GEOCODER_NOT_PRIVATE), ≥ 3 chars, ≤ 6 hits without extra fields, GEOCODE_LIMITS.perUserPerMinute (60) / min per user', async () => {
     const hits = Array.from({ length: 8 }, (_, i) => ({ label: `Road ${i}`, lat: 13 + i / 100, lng: 80.2, confidence: 0.9 }));
     const w = world({ geocodeHits: hits });
     expect(await codeOf(w.svc.geocode(w.pax('u-pA'), 'ab'))).toBe('VALIDATION_FAILED');
@@ -347,8 +347,8 @@ describe('D-A9 own profile and home', () => {
       if (env.GEOCODER === undefined) delete process.env.GEOCODER;
       if (env.GEOCODER_URL === undefined) delete process.env.GEOCODER_URL;
     }
-    // 2 searches so far (the guarded one counts too): 18 more reach the limit of 20.
-    for (let i = 0; i < 18; i++) await w.svc.geocode(w.pax('u-pA'), 'Road');
+    // 2 searches so far (the guarded one counts too): the rest reach the shared per-user limit (v1.15.1: 60).
+    for (let i = 0; i < GEOCODE_LIMITS.perUserPerMinute - 2; i++) await w.svc.geocode(w.pax('u-pA'), 'Road');
     const e = await errOf(w.svc.geocode(w.pax('u-pA'), 'Road'));
     expect(e).toMatchObject({ status: 429, body: { code: 'RATE_LIMITED' } });
     expect(await codeOf(w.svc.geocode(w.pax('u-pA2'), 'Road'))).toBe('OK'); // per user
@@ -387,18 +387,18 @@ describe('v1.15.0 security review fixes', () => {
 });
 
 describe('v1.15 M2 desk geocode', () => {
-  it('GET /transport/bookings/geocode: ≥ 3 characters (400), 20 / min per user (429 RATE_LIMITED with retryAfterSec)', async () => {
+  it('GET /transport/bookings/geocode: ≥ 3 characters (400), GEOCODE_LIMITS.perUserPerMinute (60) / min per user (429 RATE_LIMITED with retryAfterSec)', async () => {
     const w = world();
     const calls: string[] = [];
     const search = async (term: string) => (calls.push(term), [{ label: 'Road 1', lat: 13, lng: 80.2, confidence: 0.9, matchType: 'street' }] as never);
     expect(await codeOf(w.bookings.geocode(w.desk(), '  ab ', search))).toBe('VALIDATION_FAILED');
     expect(await codeOf(w.bookings.geocode(w.desk(), undefined, search))).toBe('VALIDATION_FAILED');
     expect(calls).toEqual([]);
-    for (let i = 0; i < 20; i++) expect(await w.bookings.geocode(w.desk(), ' Road ', search)).toHaveLength(1);
+    for (let i = 0; i < GEOCODE_LIMITS.perUserPerMinute; i++) expect(await w.bookings.geocode(w.desk(), ' Road ', search)).toHaveLength(1);
     expect(calls[0]).toBe('Road');
     const e = await errOf(w.bookings.geocode(w.desk(), 'Road', search));
     expect(e).toMatchObject({ status: 429, body: { code: 'RATE_LIMITED', retryAfterSec: expect.any(Number) } });
-    expect(calls).toHaveLength(20);
+    expect(calls).toHaveLength(GEOCODE_LIMITS.perUserPerMinute);
     expect(await codeOf(w.bookings.geocode(w.desk({ userId: 'u-other' }), 'Road', search))).toBe('OK'); // per user
   });
 });
