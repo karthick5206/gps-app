@@ -1,21 +1,18 @@
 import type { PassengerDto, TransportBookingDto, TransportBookingJourney, TransportDirection, TransportPlaceOptionDto, TransportShiftDto } from '@veetracer/shared';
 import { TRANSPORT_E3_LIMITS } from '@veetracer/shared';
 import { Building2Icon, CircleAlertIcon, HistoryIcon, HouseIcon, LandmarkIcon, MapPinIcon, type LucideIcon } from 'lucide-react';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type Ref } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { Input, Textarea } from '@/components/ui/input';
 import { Combobox, type Option } from '@/components/ui/multi-select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { FormDialog } from '@/features/masters/FormDialog';
 import { useEntityOptions } from '@/features/masters/use-options';
 import { formatClock } from '@/features/planned-trips/trip-format';
 import { getReportTimeZone, todayInZone } from '@/features/reports/report-time';
 import { ApiError, errorMessage } from '@/lib/api';
-import { cn } from '@/lib/utils';
 import {
   buildCreateInput,
   buildUpdateInput,
@@ -26,7 +23,6 @@ import {
   emptyAdhocDraft,
   endMissing,
   endpointText,
-  geocodeLabelDefault,
   hasErrors,
   isLate,
   JOURNEY_LABEL,
@@ -46,13 +42,11 @@ import {
   type PointChoice,
   type PointKind,
 } from './adhoc-booking';
-import { AddressSearchCombobox, BOOKING_GEOCODE_ENDPOINT } from '../AddressSearchCombobox';
 import { idempotencyFor, type IdempotencySlot } from './dispatch-draft';
 import { DIRECTION_LABEL, newUuid } from './e3-format';
+import { MapPoint, PointCard, PointDone, PointSummary, Segmented } from './point-card';
 import { e3ErrorMessage } from './e3-ui';
 import { SHIFTS_ENDPOINT, useBookingPlaces, useCreateBooking, useUpdateBooking } from './use-e3';
-
-const HomePinMap = lazy(() => import('../HomePinMap').then((m) => ({ default: m.HomePinMap })));
 
 const passengerOption = (p: PassengerDto): Option => ({ value: p.id, label: `${p.displayName} · ${p.employeeCode}` });
 const shiftOption = (s: TransportShiftDto): Option => ({ value: s.id, label: s.name });
@@ -61,70 +55,6 @@ const placeOption = (p: TransportPlaceOptionDto): Option => ({ value: p.id, labe
 /** Short, icon-led segment labels of the point source; the full name (POINT_KIND_LABEL) is the segment's accessible name and tooltip. */
 const POINT_KIND_SHORT: Record<PointKind, string> = { KEEP: 'Current', HOME: 'Home address', SITE: "Shift's site", PLACE: 'Company place', MAP: 'Map point', NONE: 'Choose…' };
 const POINT_KIND_ICON: Record<PointKind, LucideIcon> = { KEEP: HistoryIcon, HOME: HouseIcon, SITE: Building2Icon, PLACE: LandmarkIcon, MAP: MapPinIcon, NONE: MapPinIcon };
-
-export interface SegmentedOption<T extends string> {
-  value: T;
-  /** Visible text (keep it short). */
-  label: string;
-  icon?: LucideIcon;
-  /** Accessible name and tooltip when the visible label is a short form. */
-  fullLabel?: string;
-  disabled?: boolean;
-  /** Tooltip (e.g. why it is disabled); wins over fullLabel as the tooltip. */
-  title?: string;
-}
-
-/**
- * Segmented choice (buttons with aria-pressed): full width, equal-width segments. A label that does not fit wraps inside
- * its own segment (never under its neighbour); a segment never shrinks below its longest word, so on a phone it moves to
- * a second row instead. Disabled choices keep their reason as a title.
- */
-export function Segmented<T extends string>({ value, onChange, options, label, id }: { value: T; onChange: (v: T) => void; options: SegmentedOption<T>[]; label: string; id?: string }) {
-  return (
-    <div id={id} role="group" aria-label={label} className="flex w-full flex-wrap gap-1 rounded-lg bg-muted p-1">
-      {options.map((o) => {
-        const Icon = o.icon;
-        const short = !!o.fullLabel && o.fullLabel !== o.label;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            aria-pressed={value === o.value}
-            aria-label={short ? o.fullLabel : undefined}
-            disabled={o.disabled}
-            title={o.title ?? (short ? o.fullLabel : undefined)}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              'inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-center text-sm leading-tight font-medium text-balance outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45',
-              value === o.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {Icon && <Icon className="size-4 shrink-0" aria-hidden />}
-            <span>{o.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/** A one-time point: address type-ahead (self-hosted Photon via the API) directly above one self-hosted map (~220 px). */
-export function MapPoint({ value, onChange, idPrefix }: { value: { lat: number; lng: number } | null; onChange: (p: { lat: number; lng: number }, label?: string) => void; idPrefix: string }) {
-  const { t } = useTranslation();
-  return (
-    <div className="grid gap-2">
-      <AddressSearchCombobox id={`${idPrefix}-addr`} endpoint={BOOKING_GEOCODE_ENDPOINT} ariaLabel={t('Search an address')} onPick={(h) => onChange({ lat: h.lat, lng: h.lng }, geocodeLabelDefault(h.label))} />
-      <Suspense fallback={<Skeleton className="h-56 w-full rounded-lg" />}>
-        <HomePinMap
-          position={value}
-          onChange={(p) => onChange(p)}
-          className="h-56 min-h-0"
-          texts={{ marker: t('Booking point'), empty: t('Click the map to place the point.'), set: t('Click the map or drag the pin to move it.'), region: t('Map to place the booking point. You can also search an address above.') }}
-        />
-      </Suspense>
-    </div>
-  );
-}
 
 /**
  * One end of the booking, as its own card: home / site / company place / map point (+ label). A finished company place or
@@ -181,24 +111,9 @@ export function PointPicker({
   const SummaryIcon = POINT_KIND_ICON[value.kind];
   const summaryText = value.label.trim() || value.place?.name || '';
   return (
-    <fieldset className="grid min-w-0 content-start gap-2 rounded-lg border bg-card p-3">
-      <legend className="px-1 text-sm font-semibold">
-        {title}
-        <span className="ml-1 text-destructive" aria-hidden>
-          *
-        </span>
-      </legend>
+    <PointCard title={title} error={error}>
       {summary ? (
-        <div className="flex min-w-0 items-center gap-2 rounded-md bg-muted/60 py-1.5 pr-1.5 pl-3 text-sm">
-          <SummaryIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <p className="min-w-0 flex-1 truncate" title={summaryText}>
-            <span className="text-muted-foreground">{fullOf(value.kind)}: </span>
-            <span className="font-medium">{summaryText}</span>
-          </p>
-          <Button type="button" size="sm" variant="outline" onClick={() => setFolded(false)} aria-label={`${t('Change')}: ${title}`}>
-            {t('Change')}
-          </Button>
-        </div>
+        <PointSummary icon={SummaryIcon} kindLabel={fullOf(value.kind)} text={summaryText} cardTitle={title} onChange={() => setFolded(false)} />
       ) : (
         <>
           <Segmented
@@ -245,21 +160,10 @@ export function PointPicker({
               <Input id={`${idPrefix}-label`} value={value.label} maxLength={LABEL_MAX} onChange={(e) => onChange({ ...value, label: e.target.value })} placeholder={value.place?.name ?? ''} />
             </Field>
           )}
-          {complete && (
-            <div className="flex justify-end">
-              <Button type="button" size="sm" variant="outline" onClick={() => setFolded(true)}>
-                {t('Done')}
-              </Button>
-            </div>
-          )}
+          {complete && <PointDone onClick={() => setFolded(true)} />}
         </>
       )}
-      {error && (
-        <p role="alert" className="text-xs text-destructive">
-          {error}
-        </p>
-      )}
-    </fieldset>
+    </PointCard>
   );
 }
 
