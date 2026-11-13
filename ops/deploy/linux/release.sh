@@ -22,8 +22,10 @@ main() {
   # Set by the caller: used as given (no routing units added).
   if [[ -n "${SERVICES:-}" ]]; then SERVICES_EXPLICIT=1; else SERVICES_EXPLICIT=0; fi
   SERVICES="${SERVICES:-veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer}"
-  # ETMS E4 route planning: with ETMS_ROUTING=on in apps/api/.env the routing worker and the optimiser are part of the
-  # release (venv refresh, restart, gate). Off (default): nothing below touches them.
+  # ETMS E4 route planning (v1.16): once install-ubuntu.sh installed the two units (veetrax-routing-worker,
+  # veetrax-optimizer) they are part of every release (venv refresh, restart, systemd check), whether the platform switch
+  # "Automatic route planning" is on or off: switched off they run idle. The gate checks routing readiness only while the
+  # switch is on (GET /api/health/routing). ETMS_ROUTING=off in apps/api/.env (emergency switch) leaves them out.
   # Remembers the release before the last one, for the rollback hint of --health-only.
   STATE_DIR="${STATE_DIR:-/var/lib/veetrax}"
   local mode="${1:-}"
@@ -32,7 +34,7 @@ main() {
   GATE="$APP_DIR/ops/deploy/linux/health-gate.sh"
   if [[ "$mode" == "--health-only" ]]; then
     load_env $GATE_ENV_KEYS
-    if routing_on && [[ "$SERVICES_EXPLICIT" != 1 ]]; then SERVICES="$SERVICES veetrax-routing-worker veetrax-optimizer"; fi
+    if routing_installed && [[ "$SERVICES_EXPLICIT" != 1 ]]; then SERVICES="$SERVICES veetrax-routing-worker veetrax-optimizer"; fi
     health_gate "$(cat "$STATE_DIR/release-prev" 2>/dev/null || echo '<previous tag>')"
     return
   fi
@@ -73,8 +75,8 @@ main() {
     return
   fi
 
-  load_env ETMS_ROUTING
-  if routing_on && [[ "$SERVICES_EXPLICIT" != 1 ]]; then
+  load_env ETMS ETMS_ROUTING
+  if routing_installed && [[ "$SERVICES_EXPLICIT" != 1 ]]; then
     SERVICES="$SERVICES veetrax-routing-worker veetrax-optimizer"
   fi
 
@@ -84,12 +86,12 @@ main() {
   build_web || web_build_failed "$prev" "nothing was migrated or restarted" full
   (cd apps/api && npx prisma generate && npm run build)
 
-  if routing_on; then
-    echo "== route optimiser (ETMS_ROUTING=on): venv from the hashed lock"
+  if routing_installed; then
+    echo "== route optimiser (units installed): venv from the hashed lock"
     optimizer_venv || {
       echo
       echo "OPTIMISER VENV FAILED (see above): nothing was migrated or restarted. Python 3.14 is required (doc 17 R-9)."
-      echo "  Fix it, or set ETMS_ROUTING=off in apps/api/.env, and run the release again."
+      echo "  Fix it (re-run install-ubuntu.sh), or set ETMS_ROUTING=off in apps/api/.env (emergency switch), and run the release again."
       exit 1
     }
   fi
@@ -117,16 +119,27 @@ main() {
 
 # The apps/api/.env settings the health gate reads (ports, map-service URLs) plus the gate's own settings.
 GATE_ENV_KEYS="API_PORT GATEWAY_HEALTH_PORT ROUTER_URL ROUTER_ENGINE GEOCODER GEOCODER_URL MARTIN_URL MAP_PROBE_ALLOW_PUBLIC
-  ETMS ETMS_ROUTING OPTIMIZER_URL HEALTH_GATE_ROUTING
+  ETMS ETMS_ROUTING OPTIMIZER_URL HEALTH_GATE_ROUTING ROUTING_HEALTH_URL
   API_HEALTH_URL GATEWAY_HEALTH_URL TRACKING_HEALTH_URL HEALTH_TIMEOUT_SEC HEALTH_POLL_SEC
   HEALTH_GATE_SYSTEMD HEALTH_GATE_GATEWAY HEALTH_GATE_TRACKING HEALTH_GATE_MAPS"
 
-# True when ETMS route planning is switched on (ETMS_ROUTING=on and ETMS not off), as the API reads it.
-routing_on() {
+# v1.16: the emergency kill switch (ETMS_ROUTING=off or ETMS=off in apps/api/.env), as the API reads it.
+routing_killed() {
   local r e
   r="$(echo "${ETMS_ROUTING:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
   e="$(echo "${ETMS:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-  [[ "$r" == on && "$e" != off ]]
+  [[ "$r" == off || "$e" == off ]]
+}
+
+# v1.16: the routing units are installed (install-ubuntu.sh) and not killed: they are released with the others (idle
+# while the platform switch is off). Exported for the gate's "installed / not installed, switched off" line.
+routing_installed() {
+  if [[ -f "${SYSTEMD_UNIT_DIR:-/etc/systemd/system}/veetrax-routing-worker.service" ]] && ! routing_killed; then
+    export ROUTING_INSTALLED=1
+    return 0
+  fi
+  export ROUTING_INSTALLED=0
+  return 1
 }
 
 # Builds / refreshes the optimiser venv (veetrax-optimizer.service) from services/routing-optimizer/requirements.lock:

@@ -297,8 +297,9 @@ echo
 # ETMS E4 route planning: "disabled" while ETMS_ROUTING is off; on → the optimiser /health with the token file.
 TOKEN_DIR="$(mktemp -d)"
 printf 'OPTIMIZER_TOKEN=%s\n' "test-token-0123456789-abcdef" >"$TOKEN_DIR/optimizer.env"
-healthy=(API_HEALTH_URL="$ok/api/health/ready" GATEWAY_HEALTH_URL="$ok/health" TRACKING_HEALTH_URL="$ok/api/health/tracking")
-run_case "routing off (default): SKIP disabled, nothing probed" 0 "${healthy[@]}" ETMS_ROUTING= OPTIMIZER_URL="http://127.0.0.1:$DEAD_PORT"
+# The routing endpoint points at a dead port unless a case names one (an API before v1.16 / not answering).
+healthy=(API_HEALTH_URL="$ok/api/health/ready" GATEWAY_HEALTH_URL="$ok/health" TRACKING_HEALTH_URL="$ok/api/health/tracking" ROUTING_HEALTH_URL="http://127.0.0.1:$DEAD_PORT/api/health/routing")
+run_case "routing off, API before v1.16 (no endpoint): SKIP disabled, nothing probed" 0 "${healthy[@]}" ETMS_ROUTING= OPTIMIZER_URL="http://127.0.0.1:$DEAD_PORT"
 expect_out "disabled line" 'SKIP  routing +disabled \(ETMS_ROUTING is not on\)'
 run_case "routing on, ETMS off: still disabled" 0 "${healthy[@]}" ETMS_ROUTING=on ETMS=off OPTIMIZER_URL="http://127.0.0.1:$DEAD_PORT"
 expect_out "disabled line" 'SKIP  routing +disabled'
@@ -312,6 +313,32 @@ expect_out "FAIL line" 'FAIL  routing +optimiser token not readable'
 run_case "routing on, public optimiser host: FAIL, not fetched" 1 "${healthy[@]}" ETMS_ROUTING=on OPTIMIZER_URL="https://optimizer.example.com" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env"
 expect_out "FAIL line" 'FAIL  routing.*not a loopback or private host'
 run_case "routing on, HEALTH_GATE_ROUTING=0: SKIP" 0 "${healthy[@]}" ETMS_ROUTING=on HEALTH_GATE_ROUTING=0
+
+# v1.16: the platform switch as the API reports it (GET /api/health/routing "switch": idle | on | off).
+SW_PORT=$((BASE_PORT + 5))     # routing endpoint: idle
+SW_ON_PORT=$((BASE_PORT + 6))  # routing endpoint: on and ready
+SW_BAD_PORT=$((BASE_PORT + 7)) # routing endpoint: on, not ready (503)
+SW_OFF_PORT=$((BASE_PORT + 8)) # routing endpoint: off (the API sees the emergency switch)
+start_stub "$SW_PORT" 200 api/health/routing=200@idle
+start_stub "$SW_ON_PORT" 200 api/health/routing=200@on
+start_stub "$SW_BAD_PORT" 200 api/health/routing=503@on
+start_stub "$SW_OFF_PORT" 200 api/health/routing=200@off
+run_case "v1.16 switch idle, units installed: SKIP installed, switched off; optimiser not probed" 0 "${healthy[@]}" ROUTING_HEALTH_URL="http://127.0.0.1:$SW_PORT/api/health/routing" OPTIMIZER_URL="http://127.0.0.1:$DEAD_PORT"
+expect_out "idle line" 'SKIP  routing +installed, switched off'
+run_case "v1.16 switch idle, ETMS_ROUTING=on left in .env: still idle (the database switch decides)" 0 "${healthy[@]}" ETMS_ROUTING=on ROUTING_HEALTH_URL="http://127.0.0.1:$SW_PORT/api/health/routing" OPTIMIZER_URL="http://127.0.0.1:$DEAD_PORT"
+expect_out "idle line" 'SKIP  routing +installed, switched off'
+run_case "v1.16 switch idle, units not installed" 0 "${healthy[@]}" ROUTING_INSTALLED=0 ROUTING_HEALTH_URL="http://127.0.0.1:$SW_PORT/api/health/routing"
+expect_out "not installed line" 'SKIP  routing +not installed, switched off'
+run_case "v1.16 the API reports the emergency switch: SKIP disabled" 0 "${healthy[@]}" ROUTING_HEALTH_URL="http://127.0.0.1:$SW_OFF_PORT/api/health/routing"
+expect_out "off line" 'SKIP  routing +disabled \(the API reports the emergency switch'
+run_case "v1.16 ETMS_ROUTING=off in .env: SKIP without asking the API" 0 "${healthy[@]}" ETMS_ROUTING=off ROUTING_HEALTH_URL="http://127.0.0.1:$SW_ON_PORT/api/health/routing"
+expect_out "kill line" 'SKIP  routing +disabled \(ETMS_ROUTING=off or ETMS=off'
+run_case "v1.16 switch on, optimiser healthy and ready: PASS twice" 0 "${healthy[@]}" ROUTING_HEALTH_URL="http://127.0.0.1:$SW_ON_PORT/api/health/routing" OPTIMIZER_URL="$ok" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env"
+expect_out "PASS lines" 'PASS  routing +optimiser http://127.0.0.1:[0-9]+/health HTTP 200' 'PASS  routing +automatic route planning on and ready'
+run_case "v1.16 switch on, not ready until the deadline: FAIL with the failing items" 1 HEALTH_TIMEOUT_SEC=3 "${healthy[@]}" ROUTING_HEALTH_URL="http://127.0.0.1:$SW_BAD_PORT/api/health/routing" OPTIMIZER_URL="$ok" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env"
+expect_out "FAIL line" 'FAIL  routing +automatic route planning is on but not ready: .*failing: worker,engine' 'HEALTH GATE: FAIL \(routing\)'
+run_case "v1.16 switch on, optimiser down: FAIL" 1 HEALTH_TIMEOUT_SEC=3 "${healthy[@]}" ROUTING_HEALTH_URL="http://127.0.0.1:$SW_ON_PORT/api/health/routing" OPTIMIZER_URL="http://127.0.0.1:$BAD_PORT" OPTIMIZER_TOKEN_FILE="$TOKEN_DIR/optimizer.env"
+expect_out "FAIL line" 'FAIL  routing.*HTTP 503'
 
 # E4 security review L9: the private token header file never outlives the gate (FAIL path and SIGTERM mid-probe).
 echo

@@ -22,10 +22,14 @@
 #                         warn = opt-in, operator's own choice: a 503 (tracking CRITICAL) at the deadline is only a WARN
 #                         (no answer or any other code still fails); re-check later with release.sh --health-only.
 #                         0 = skipped (a first install with no devices yet).
-#   ETMS_ROUTING (+ ETMS), OPTIMIZER_URL, HEALTH_GATE_ROUTING: ETMS route planning (E4). Off (ETMS_ROUTING not "on",
-#                         the default): one "SKIP routing disabled" line, nothing probed. On: release.sh adds
-#                         veetrax-routing-worker + veetrax-optimizer to SERVICES (systemd check) and the optimiser's
-#                         GET /health must answer 200 (FAIL otherwise). The token is read from OPTIMIZER_TOKEN_FILE
+#   ETMS_ROUTING (+ ETMS), OPTIMIZER_URL, ROUTING_HEALTH_URL, ROUTING_INSTALLED, HEALTH_GATE_ROUTING: ETMS route
+#                         planning (E4; v1.16 switches). ETMS_ROUTING=off / ETMS=off (emergency switch): one "SKIP routing
+#                         disabled" line. Otherwise the API's GET /api/health/routing (default
+#                         http://127.0.0.1:$API_PORT/api/health/routing) tells the platform switch: idle (off) = "SKIP
+#                         routing installed, switched off" (readiness not gated; release.sh still lists the installed
+#                         units in SERVICES for the systemd check); on = the optimiser's GET /health must answer 200 AND
+#                         /api/health/routing must report ready (200) by the deadline (FAIL otherwise). An API without
+#                         that endpoint (before v1.16): the old rule, the optimiser is probed only with ETMS_ROUTING=on. The token is read from OPTIMIZER_TOKEN_FILE
 #                         (default /etc/veetrax/optimizer.env) into a private header file, never onto a command line.
 #                         HEALTH_GATE_ROUTING=0 skips the probe.
 #   ROUTER_URL + ROUTER_ENGINE=graphhopper, GEOCODER=photon + GEOCODER_URL, MARTIN_URL: map services, probed once
@@ -45,6 +49,7 @@ if [[ -z "${GATEWAY_HEALTH_URL:-}" && "${GATEWAY_HEALTH_PORT:-}" == 0 ]]; then
 fi
 GATEWAY_HEALTH_URL="${GATEWAY_HEALTH_URL:-http://127.0.0.1:${GATEWAY_HEALTH_PORT:-4121}/health}"
 TRACKING_HEALTH_URL="${TRACKING_HEALTH_URL:-http://127.0.0.1:$API_PORT/api/health/tracking}"
+ROUTING_HEALTH_URL="${ROUTING_HEALTH_URL:-http://127.0.0.1:$API_PORT/api/health/routing}"
 MAP_PROBE_ALLOW_PUBLIC="${MAP_PROBE_ALLOW_PUBLIC:-0}"
 HEALTH_TIMEOUT_SEC="${HEALTH_TIMEOUT_SEC:-90}"
 HEALTH_POLL_SEC="${HEALTH_POLL_SEC:-3}"
@@ -228,24 +233,86 @@ check_maps() {
   done
 }
 
-routing_on() {
-  local r e
-  r="$(echo "${ETMS_ROUTING:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-  e="$(echo "${ETMS:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-  [[ "$r" == on && "$e" != off ]]
+lower() { echo "${1:-}" | tr '[:upper:]' '[:lower:]' | xargs; }
+# The emergency kill switch (v1.16): ETMS_ROUTING=off or ETMS=off.
+routing_killed() { [[ "$(lower "${ETMS_ROUTING:-}")" == off || "$(lower "${ETMS:-}")" == off ]]; }
+
+# v1.16: the platform switch as the API reports it (GET /api/health/routing → "switch": on | idle | off); empty when
+# the API has no such endpoint (a release before v1.16) or does not answer.
+routing_api_state() {
+  local code
+  code="$(http_code "$ROUTING_HEALTH_URL" 5)"
+  [[ "$code" == 200 || "$code" == 503 ]] || return 0
+  sed -n 's/.*"switch"[[:space:]]*:[[:space:]]*"\(on\|idle\|off\)".*/\1/p' "$BODY" | head -1
 }
 
-# ETMS route planning (E4): "disabled" while ETMS_ROUTING is off; on → the optimiser /health must answer 200 within
-# the deadline (the routing worker itself is a systemd unit in SERVICES and has no HTTP port).
+# ETMS route planning (E4; v1.16 switches):
+#   ETMS_ROUTING=off / ETMS=off            → SKIP "disabled (emergency switch)", nothing probed;
+#   API says idle (platform switch off)    → SKIP "installed, switched off" (or "not installed, switched off"): readiness
+#                                            is NOT gated, the idle units are only checked as systemd units (SERVICES);
+#   API says on                            → the optimiser /health must answer 200 AND /api/health/routing must report
+#                                            ready (200) within the deadline;
+#   older API (no endpoint)                → the pre-v1.16 rule: probe the optimiser only with ETMS_ROUTING=on.
 check_routing() {
-  if ! routing_on; then
-    line SKIP routing "disabled (ETMS_ROUTING is not on): routing worker and optimiser not checked"
+  if routing_killed; then
+    line SKIP routing "disabled (ETMS_ROUTING=off or ETMS=off: emergency switch): routing worker and optimiser not checked"
     return 0
   fi
   if [[ "$HEALTH_GATE_ROUTING" == 0 ]]; then
     line SKIP routing "HEALTH_GATE_ROUTING=0"
     return 0
   fi
+  local state
+  state="$(routing_api_state)"
+  case "$state" in
+    off)
+      line SKIP routing "disabled (the API reports the emergency switch ETMS_ROUTING=off)"
+      return 0
+      ;;
+    idle)
+      if [[ "${ROUTING_INSTALLED:-}" == 0 ]]; then
+        line SKIP routing "not installed, switched off (platform switch off; install-ubuntu.sh installs the units)"
+      else
+        line SKIP routing "installed, switched off (platform switch \"Automatic route planning\" is off): readiness not gated"
+      fi
+      return 0
+      ;;
+    on) ;;
+    *)
+      if [[ "$(lower "${ETMS_ROUTING:-}")" != on ]]; then
+        line SKIP routing "disabled (ETMS_ROUTING is not on): routing worker and optimiser not checked"
+        return 0
+      fi
+      ;;
+  esac
+  check_optimizer || return 1
+  [[ "$state" == on ]] || return 0
+  check_routing_ready
+}
+
+# v1.16, platform switch on: GET /api/health/routing must answer 200 (every readiness item passes) within the deadline.
+check_routing_ready() {
+  local code left failing
+  while :; do
+    left="$(remaining)"
+    code="$(http_code "$ROUTING_HEALTH_URL" $(( left < 5 ? (left < 1 ? 1 : left) : 5 )))"
+    if [[ "$code" == 200 ]]; then
+      line PASS routing "automatic route planning on and ready ($(safe_url "$ROUTING_HEALTH_URL") HTTP 200)"
+      return 0
+    fi
+    if (( $(remaining) <= 0 )); then
+      failing="$(sed -n 's/.*"failing"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p' "$BODY" | tr -d '"' | head -1)"
+      line FAIL routing "automatic route planning is on but not ready: $(describe "$code")${failing:+ (failing: $failing)}; see System Health"
+      FAILED+=("routing")
+      add_unit veetrax-routing-worker veetrax-optimizer
+      return 1
+    fi
+    sleep $(( HEALTH_POLL_SEC < left ? HEALTH_POLL_SEC : left ))
+  done
+}
+
+# The optimiser's own /health with the token file (also before v1.16).
+check_optimizer() {
   local url="${OPTIMIZER_URL:-http://127.0.0.1:8090}" host token code left max
   url="${url%/}/health"
   host="$(url_host "$url")"

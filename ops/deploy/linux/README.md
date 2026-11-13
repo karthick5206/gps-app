@@ -149,25 +149,47 @@ and exits 1. The previous release is the tag (or commit) that was checked out be
 - `release.sh` runs inside a `main` function that bash reads completely first, so the checkout changing the script
   while it runs cannot mix old and new lines.
 
-## ETMS route planning: routing worker + optimiser (E4 WP 4.2, inert by default)
+## ETMS route planning: routing worker + optimiser (E4 WP 4.2; v1.16 switches, off by default)
 
-Two optional units, installed and released **only with `ETMS_ROUTING=on`** (installer: environment variable;
-release / gate: `apps/api/.env`). Off (the default) nothing changes: no unit, no sudoers line, no venv, and the gate
-prints `SKIP routing disabled`; System Health shows "Route planning (ETMS): Disabled".
+Owner decision 2026-11-13: automatic routing stays **off** until switched on in the admin, and then it must work.
+Routing is active for a company only when all three hold:
+
+1. `ETMS_ROUTING` in `apps/api/.env` is **not** `off` (and `ETMS` is not `off`). This is only the **emergency kill
+   switch**: unset, empty, `auto` or `on` all mean "the database switches decide"; an explicit `off` stops everything
+   whatever the UI says (restart `veetrax-api` and `veetrax-routing-worker` to apply a change).
+2. The platform switch **Platform Settings → Route planning → Automatic route planning** (Super Admin, table
+   `RoutingSettings`, default **off**). It refuses to go on (HTTP 409 `ROUTING_NOT_READY`) unless every readiness check
+   passes: kill switch not pulled, `OPTIMIZER_URL` + token usable, optimiser `/health` answering, optimiser Python
+   ≥ 3.14 with OR-Tools, a routing worker heartbeat, GraphHopper healthy. The page and System Health show the checklist
+   with what is missing. Every change is audited (`RoutingSettings`).
+3. The company's own switch **Transport → Settings → Automatic route planning** (`Company.settings.etms.autoRouting`,
+   default **off**, Transport admin with whole-company scope; audited as `etms_settings`).
+
+An upgrade therefore stays off without touching `.env`: the platform switch starts off.
 
 | Unit | Runs | Caps (shared 6 vCPU / 27 GB host) |
 |---|---|---|
-| `veetrax-routing-worker` | `node dist/routing-worker/main.js`: optimisation jobs from `vt:routing:jobs` (`RoutingJob` rows are the truth); exits 0 when the switch is off | `CPUQuota=100%`, `MemoryMax=1G`, `Nice=10` |
-| `veetrax-optimizer` | OR-Tools service, `127.0.0.1:8090`, venv `/opt/veetrax/venvs/routing-optimizer` (Python 3.14, hashed lock) | `CPUQuota=150%`, `MemoryMax=3G`, `Nice=10`, `OPTIMIZER_CONCURRENCY=1`, loopback-only `IPAddressAllow` |
+| `veetrax-routing-worker` | `node dist/routing-worker/main.js`: optimisation jobs from `vt:routing:jobs` (`RoutingJob` rows are the truth). Switch off: idles (one switch read per 5 s, heartbeat, no optimiser probe, no GraphHopper call). Exits 0 only with `ETMS_ROUTING=off` | `CPUQuota=100%`, `MemoryMax=1G`, `Nice=10` |
+| `veetrax-optimizer` | OR-Tools service, `127.0.0.1:8090`, venv `/opt/veetrax/venvs/routing-optimizer` (Python 3.14, hashed lock); passive HTTP server, idle without requests | `CPUQuota=150%`, `MemoryMax=3G`, `Nice=10`, `OPTIMIZER_CONCURRENCY=1`, loopback-only `IPAddressAllow` |
 
-- `ETMS_ROUTING=on DB_PASS=… bash install-ubuntu.sh` installs and enables both units, adds their sudoers lines
-  (restart of the seven units in release order, journal tails) and creates `/etc/veetrax/optimizer.env`
-  (`OPTIMIZER_TOKEN`, root:veetrax 0640). Copy that token into `apps/api/.env` as `OPTIMIZER_TOKEN` with
-  `OPTIMIZER_URL=http://127.0.0.1:8090`. Python 3.14 must be installed separately (doc 17 R-9).
-- `release.sh` with `ETMS_ROUTING=on`: refreshes the venv from `services/routing-optimizer/requirements.lock`
-  (`--require-hashes --no-deps --only-binary=:all:`; failure stops the release before migrations), restarts the two
-  units with the other five, and the gate checks both units plus the optimiser `/health` (token read from
-  `OPTIMIZER_TOKEN_FILE`, default `/etc/veetrax/optimizer.env`, into a private header file).
+- **Install on a running server (one time, as root):** `bash /opt/veetrax/app/ops/deploy/linux/install-ubuntu.sh --routing-only`.
+  Idempotent; touches nothing else (no PostgreSQL / Valkey restart, main sudoers file unchanged). It installs Python
+  3.14 + venv from the deadsnakes PPA when missing, writes `/etc/sudoers.d/veetrax-routing` (the seven-unit restart,
+  the two units, their journal tails), installs and enables both units, creates `/etc/veetrax/optimizer.env` once
+  (`OPTIMIZER_TOKEN`, root:veetrax 0640, read by the optimiser, the API and the worker through `OPTIMIZER_TOKEN_FILE`),
+  builds the venv from the hashed lock, appends `OPTIMIZER_URL=http://127.0.0.1:8090` to `apps/api/.env` when missing
+  (and then restarts `veetrax-api`), and starts both units. A full `DB_PASS=… bash install-ubuntu.sh` does the same
+  (`ETMS_ROUTING=off bash install-ubuntu.sh` skips it).
+- `release.sh`: once `veetrax-routing-worker.service` is installed (and `ETMS_ROUTING` is not `off`) the venv is
+  refreshed from `services/routing-optimizer/requirements.lock` (`--require-hashes --no-deps --only-binary=:all:`;
+  failure stops the release before migrations) and both units are restarted with the other five, switch on or off.
+- Health gate: `ETMS_ROUTING=off` → `SKIP routing disabled`. Otherwise it asks `GET /api/health/routing`: switch off →
+  `SKIP routing installed, switched off` (or `not installed, switched off`), readiness not gated; switch on → the
+  optimiser `/health` must answer 200 (token from `OPTIMIZER_TOKEN_FILE` into a private header file) **and**
+  `/api/health/routing` must report ready, else FAIL with the failing items.
+- Switching off while jobs run: a running optimisation finishes (bounded by its own timeout); queued ones are ended
+  FAILED `ROUTING_OFF` by the worker without engine work and their plans go back to DRAFT; new ones are refused (the
+  planning routes answer 404, the planner says "Automatic routing is switched off — ask your administrator").
 - A killed worker's job is re-queued after its lease (60 s) by any worker, at most 3 attempts, then FAILED with
   `WORKER_LOST`. Manual dispatch never depends on either unit.
 

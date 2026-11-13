@@ -10,11 +10,13 @@ if (!port) {
   process.exit(2);
 }
 // Paths may be given without the leading slash (Git Bash rewrites arguments that start with /).
-const byPath = new Map(rules.map((r) => r.split('=')).map(([p, s]) => [p.startsWith('/') ? p : `/${p}`, Number(s)]));
+// A value like 200@idle also puts "switch":"idle" into the body (GET /api/health/routing, v1.16).
+const byPath = new Map(rules.map((r) => r.split('=')).map(([p, s]) => [p.startsWith('/') ? p : `/${p}`, s]));
 
 createServer((req, res) => {
   const path = (req.url ?? '/').split('?')[0];
-  const status = byPath.get(path) ?? Number(fallback);
+  const [code, sw] = (byPath.get(path) ?? fallback).split('@');
+  const status = Number(code);
   res.writeHead(status, { 'content-type': 'application/json' });
-  res.end(JSON.stringify({ ok: status === 200, status: status === 200 ? 'OK' : 'CRITICAL', stub: true, path }));
+  res.end(JSON.stringify({ ok: status === 200, status: status === 200 ? 'OK' : 'CRITICAL', stub: true, path, ...(sw ? { switch: sw, failing: status === 200 ? [] : ['worker', 'engine'] } : {}) }));
 }).listen(Number(port), '127.0.0.1', () => console.log(`listening ${port}`));
