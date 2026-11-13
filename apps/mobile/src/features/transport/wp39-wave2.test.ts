@@ -264,6 +264,7 @@ test('i18n: every wave-2 mobile string has hi and ta, placeholders kept', () => 
     'passenger/RequestRideScreen.tsx',
     'passenger/MyProfileScreen.tsx',
     'passenger/PointPicker.tsx',
+    'passenger/AddressAutocomplete.tsx',
     'passenger/BookingsScreen.tsx',
     'passenger/CommuteHome.tsx',
     'passenger/PushPreferences.tsx',

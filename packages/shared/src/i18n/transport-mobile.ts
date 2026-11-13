@@ -318,6 +318,9 @@ export const TRANSPORT_MOBILE_HI: Record<string, string> = {
   'Tap the map to move the point.': 'स्थान बदलने के लिए मैप पर टैप करें।',
   'Point placed on the map': 'मैप पर स्थान लगाया गया',
   'Purpose: {{purpose}}': 'उद्देश्य: {{purpose}}',
+  // R1151: address suggestions as you type
+  'Type at least {{n}} characters to see suggestions.': 'सुझाव देखने के लिए कम से कम {{n}} अक्षर लिखें।',
+  '{{count}} suggestions': '{{count}} सुझाव',
 };
 
 export const TRANSPORT_MOBILE_TA: Record<string, string> = {
@@ -635,4 +638,7 @@ export const TRANSPORT_MOBILE_TA: Record<string, string> = {
   'Tap the map to move the point.': 'புள்ளியை நகர்த்த வரைபடத்தில் தட்டவும்.',
   'Point placed on the map': 'வரைபடத்தில் புள்ளி வைக்கப்பட்டது',
   'Purpose: {{purpose}}': 'நோக்கம்: {{purpose}}',
+  // R1151: address suggestions as you type
+  'Type at least {{n}} characters to see suggestions.': 'பரிந்துரைகளைக் காண குறைந்தது {{n}} எழுத்துகளைத் தட்டச்சு செய்யவும்.',
+  '{{count}} suggestions': '{{count}} பரிந்துரைகள்',
 };
