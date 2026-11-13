@@ -6,6 +6,7 @@ import { purgeDriverEvents, sweepIncoming } from '../driver-events/media-retenti
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { etmsRoutingEnabled } from '../etms/transport-feature.guard';
+import { prismaPlatformSwitchReader, routingOffReasonFor, RoutingSwitchCache } from '../routing-switch/routing-switch';
 import { purgeStuckRoutePlans } from './stuck-route-plans';
 
 export const RETENTION_LOCK_KEY = 'vt:retention:lock';
@@ -73,8 +74,12 @@ export class RetentionService {
   private readonly instance = randomUUID();
   private readonly enabled = (process.env.RETENTION ?? 'on').toLowerCase() !== 'off';
   private running = false;
-  /** ETMS_ROUTING switch (overridable in tests). */
-  routingOn: () => boolean = () => etmsRoutingEnabled();
+  /**
+   * Whether routing is active for the company (v1.16: env kill switch, platform switch and the company's own switch,
+   * read from the database; overridable in tests). Off = no worker will ever run its queued jobs.
+   */
+  routingOn: (companyId: string) => boolean | Promise<boolean> = async (companyId) =>
+    etmsRoutingEnabled() && (await routingOffReasonFor(this.prisma, new RoutingSwitchCache(prismaPlatformSwitchReader(this.prisma), 0, Date.now, false), companyId)) === null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -164,7 +169,7 @@ export class RetentionService {
           () => this.prisma.$executeRaw`DELETE FROM "RoutePlan" WHERE id IN (SELECT id FROM "RoutePlan" WHERE "companyId" = ${c.id}::uuid AND "planDate" < ${cutoff} AND "status" <> 'OPTIMIZING' LIMIT ${ROUTING_BATCH})`,
         ],
         // E4 security review L6: OPTIMIZING plans past the cutoff whose job is terminal or missing, or with routing off.
-        ['routePlansStuck', () => purgeStuckRoutePlans(this.prisma, c.id, cutoff, this.routingOn(), ROUTING_BATCH)],
+        ['routePlansStuck', async () => purgeStuckRoutePlans(this.prisma, c.id, cutoff, await this.routingOn(c.id), ROUTING_BATCH)],
         ['alerts', () => this.prisma.$executeRaw`DELETE FROM "Alert" WHERE id IN (SELECT id FROM "Alert" WHERE "companyId" = ${c.id}::uuid AND "occurredAt" < ${cutoff} LIMIT ${BATCH})`],
       ];
       for (const [key, step] of steps) if (!(await drain(key, step))) complete = false;

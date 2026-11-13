@@ -36,9 +36,11 @@ async function codeOf(p: Promise<unknown>): Promise<string> {
 }
 
 describe('readOptimizerConfig', () => {
-  it('is off unless ETMS_ROUTING=on', () => {
-    expect(readOptimizerConfig({ OPTIMIZER_URL: ON.OPTIMIZER_URL, OPTIMIZER_TOKEN: TOKEN }).problem).toBe('ETMS_ROUTING is off');
+  it('v1.16: off only with the kill switch (ETMS_ROUTING=off or ETMS=off); unset / auto configure it', () => {
+    expect(readOptimizerConfig({ ...ON, ETMS_ROUTING: 'off' }).problem).toBe('ETMS_ROUTING is off');
     expect(readOptimizerConfig({ ...ON, ETMS: 'off' }).problem).toBe('ETMS_ROUTING is off');
+    expect(readOptimizerConfig({ OPTIMIZER_URL: ON.OPTIMIZER_URL, OPTIMIZER_TOKEN: TOKEN }).problem).toBeNull();
+    expect(readOptimizerConfig({ OPTIMIZER_URL: ON.OPTIMIZER_URL, OPTIMIZER_TOKEN: TOKEN, ETMS_ROUTING: 'auto' }).problem).toBeNull();
   });
 
   it('needs a private URL and a token', () => {

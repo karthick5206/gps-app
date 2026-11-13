@@ -1,10 +1,11 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 
 /**
- * E4 security review L6: a plan left in OPTIMIZING (ETMS_ROUTING switched off while jobs were QUEUED — the documented
+ * E4 security review L6: a plan left in OPTIMIZING (routing switched off while jobs were QUEUED — the documented
  * rollback — or a job that ended without releasing the plan) would otherwise outlive retention with the passengers'
  * consented points on it. Retention purges such a plan once it is past the company's cutoff and either
- *   - ETMS_ROUTING is off (no worker will ever run its job), or
+ *   - routing is not active for the company (v1.16: env kill switch, platform or company switch off; no worker will
+ *     ever run its job), or
  *   - none of its jobs is still active (QUEUED / RUNNING): the job is terminal or missing.
  *
  * Lock order (re-check R4): the job result write locks the job row, then the plan row. Retention therefore works in two

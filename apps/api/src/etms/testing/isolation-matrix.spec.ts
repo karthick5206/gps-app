@@ -64,9 +64,12 @@ import { RoutingCapabilitiesController, RoutingCapabilitiesService } from '../..
 import { RoutingJobsController } from '../../routing-jobs/routing-jobs.controller';
 import { RoutingJobsService } from '../../routing-jobs/routing-jobs.service';
 import { E4_RESOURCES, e4Ids, seedE4 } from './isolation-matrix-e4';
+import { setPlatformRoutingSnapshot } from '../../routing-switch/routing-switch';
 
-// E4 route plans are hidden (404) unless ETMS_ROUTING=on; the matrix runs them switched on (the off case: isolation-matrix-e4.spec.ts).
-process.env.ETMS_ROUTING = 'on';
+// E4 route plans are hidden (404) unless automatic routing is active (v1.16: ETMS_ROUTING not off, the platform switch on
+// and the company's own switch on); the matrix runs them switched on (the off cases: below and isolation-matrix-e4.spec.ts).
+process.env.ETMS_ROUTING = 'auto';
+setPlatformRoutingSnapshot(true);
 
 // ───────────────────────────── Route discovery (generic completeness guard) ─────────────────────────────
 
@@ -423,6 +426,8 @@ function caller(role: MatrixRole, e2?: { scope: TransportAgreementScope }): Auth
     branchIds: e2 && resolved.dataScope === 'ASSIGNED' && def.companyId === 'custA' ? ['brA1'] : [],
     objectIds: [],
     features,
+    // v1.16: every matrix company has automatic routing switched on (the off cases are tested separately).
+    autoRouting: true,
     agreements: e2 && def.companyId === 'prov' ? [e2.scope] : [],
     ip: null,
   };
@@ -1150,17 +1155,25 @@ async function e4World() {
 const errorOf = async (p: Promise<unknown>) => p.then(() => null, (e: HttpException) => ({ status: e.getStatus(), body: e.getResponse() as { code?: string; routes?: { assignmentId: string; code: string }[] } }));
 
 describe('ETMS isolation matrix (E4): route plans leak checks', () => {
-  it('ETMS_ROUTING off (the default): every plan route is a 404, also for the admin', async () => {
+  it.each([
+    ['ETMS_ROUTING=off (env kill switch, whatever the UI says)', (): void => void (process.env.ETMS_ROUTING = 'off'), false],
+    ['platform switch off (the default)', (): void => setPlatformRoutingSnapshot(false), false],
+    ['company switch off (the default)', (): void => undefined, true],
+  ] as const)('v1.16 %s: every plan and job route is a 404, also for the admin', async (_label, switchOff, companyOff) => {
     const w = await e4World();
-    process.env.ETMS_ROUTING = 'off';
+    switchOff();
     try {
-      for (const r of ROUTES.filter((x) => x.key.includes('transport/route-plans'))) {
+      for (const r of ROUTES.filter((x) => x.key.includes('transport/route-plans') || x.key.includes('routing/jobs'))) {
         const entry = byRoute.get(r.key)!;
         const target: Target = { id: w.plans.party.plan, version: 1, providerCompanyId: 'prov', customerCompanyId: 'custA', e4: { ids: w.plans.party, world: w.plans } };
-        for (const role of ['customerAdmin', 'customerDispatcher', 'fleetUser'] as const) expect([r.key, role, (await run(r, entry, caller(role, w), target, w.controllers)).status]).toEqual([r.key, role, 404]);
+        for (const role of ['customerAdmin', 'customerDispatcher', 'fleetUser', 'superAdminSwitched'] as const) {
+          const ctx = companyOff ? { ...caller(role, w), autoRouting: false } : caller(role, w);
+          expect([r.key, role, (await run(r, entry, ctx, target, w.controllers)).status]).toEqual([r.key, role, 404]);
+        }
       }
     } finally {
-      process.env.ETMS_ROUTING = 'on';
+      process.env.ETMS_ROUTING = 'auto';
+      setPlatformRoutingSnapshot(true);
     }
   });
 

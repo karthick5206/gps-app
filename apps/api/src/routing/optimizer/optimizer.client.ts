@@ -7,6 +7,12 @@ import { privateServiceUrlProblem } from '../private-url';
 import { RoutingError } from '../routing.errors';
 import { scrubCoordinates } from '../engine-text';
 
+export interface OptimizerHealthInfo {
+  ok: boolean;
+  ortools: string | null;
+  python: string | null;
+}
+
 export interface OptimizerClientConfig {
   baseUrl: string;
   token: string;
@@ -26,7 +32,7 @@ export function tokenFromFile(content: string): string {
 }
 
 /**
- * Reads `OPTIMIZER_URL` and the token. The client is configured only when `ETMS_ROUTING=on`, the URL is a
+ * Reads `OPTIMIZER_URL` and the token. The client is configured only when `ETMS_ROUTING` is not `off` (v1.16), the URL is a
  * private / loopback URL (`privateServiceUrlProblem`) and a token is set (the service refuses to start without one).
  *
  * Token (E4 security review L9): `OPTIMIZER_TOKEN_FILE` (production: /etc/veetrax/optimizer.env, root:veetrax 0640, set
@@ -98,6 +104,23 @@ export class OptimizerClient {
       return res.ok;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * v1.16 readiness: /health with what the service reports about itself (OR-Tools and, from optimiser 0.4, Python
+   * version). Never throws; versions are null when not reported or not answering.
+   */
+  async healthInfo(): Promise<OptimizerHealthInfo> {
+    if (!this.configured) return { ok: false, ortools: null, python: null };
+    try {
+      const res = await this.fetchImpl(`${this.config.baseUrl}/health`, { headers: this.headers(), redirect: 'error', signal: AbortSignal.timeout(OPTIMIZER_HEALTH_TIMEOUT_MS) });
+      if (!res.ok) return { ok: false, ortools: null, python: null };
+      const body = ((await readJsonCapped(res).catch(() => null)) ?? {}) as { ortools?: unknown; python?: unknown };
+      const str = (v: unknown) => (typeof v === 'string' && /^[\w.+-]{1,32}$/.test(v) ? v : null);
+      return { ok: true, ortools: str(body.ortools), python: str(body.python) };
+    } catch {
+      return { ok: false, ortools: null, python: null };
     }
   }
 

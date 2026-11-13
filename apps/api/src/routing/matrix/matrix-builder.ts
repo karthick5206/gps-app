@@ -154,7 +154,7 @@ export class MatrixBuilder {
     input: MatrixPoint[],
     profile: RoutingProfile = 'car',
   ): Promise<{ ok: true; value: { onRoad: boolean; snapDistanceM: number }[] } | { ok: false; reason: DegradedReason; message: string }> {
-    if (!this.config.enabled) return { ok: false, reason: 'ENGINE_DISABLED', message: 'ETMS routing is off (ETMS_ROUTING is not on).' };
+    if (!this.config.enabled) return { ok: false, reason: 'ENGINE_DISABLED', message: 'ETMS routing is off (ETMS_ROUTING=off).' };
     if (this.source.engine === null) return { ok: false, reason: this.source.reason, message: this.source.message };
     if (input.length > this.config.maxPoints) return { ok: false, reason: 'LIMIT_EXCEEDED', message: `${input.length} points; the limit is ${this.config.maxPoints}.` };
     if (input.some((p) => !validPoint(p))) return { ok: false, reason: 'INVALID_INPUT', message: 'Every point needs a valid latitude / longitude.' };
@@ -219,7 +219,7 @@ export class MatrixBuilder {
       return build;
     };
 
-    if (!this.config.enabled) return empty('ENGINE_DISABLED', 'ETMS routing is off (ETMS_ROUTING is not on); no matrix numbers are available.');
+    if (!this.config.enabled) return empty('ENGINE_DISABLED', 'ETMS routing is off (ETMS_ROUTING=off); no matrix numbers are available.');
     if (this.source.engine === null) return empty(this.source.reason, this.source.message);
     const engine = this.source.engine;
     if (!AVAILABLE_PROFILES.includes(profile)) {

@@ -1,6 +1,8 @@
 import { Inject, Injectable, Module } from '@nestjs/common';
 import { AppConfigModule } from '../config/config.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaService } from '../prisma/prisma.service';
+import { prismaPlatformSwitchReader, routingOffReasonFor, RoutingSwitchCache } from '../routing-switch/routing-switch';
 import { RedisModule } from '../redis/redis.module';
 import { RedisService } from '../redis/redis.service';
 import { ROUTING_SWEEP_LOCK, type JobQueue } from '../routing-jobs/job-queue';
@@ -22,6 +24,8 @@ import { RoutingModule } from '../routing/routing.module';
 @Injectable()
 export class RoutingWorkerHost {
   readonly worker: RoutingJobWorker;
+  /** v1.16: the platform switch with a short cache (the idle loop and every job read it; one tiny query per TTL). */
+  readonly switches: RoutingSwitchCache;
 
   constructor(
     @Inject(ROUTING_JOB_STORE) store: RoutingJobStore,
@@ -31,10 +35,13 @@ export class RoutingWorkerHost {
     readonly optimizer: OptimizerClient,
     @Inject(ROUTING_USAGE_HOOK) readonly usage: RoutingUsageHook,
     redis: RedisService,
+    prisma: PrismaService,
   ) {
+    this.switches = new RoutingSwitchCache(prismaPlatformSwitchReader(prisma), Number(process.env.ROUTING_SWITCH_CACHE_MS ?? 5_000));
+    const gate = (job: { companyId: string }) => routingOffReasonFor(prisma, this.switches, job.companyId);
     const sweepLock = async (owner: string, ttlMs: number) => (await redis.client.set(ROUTING_SWEEP_LOCK, owner, 'PX', ttlMs, 'NX').catch(() => null)) === 'OK';
     const runners = new Map([['optimize', optimizeRunner({ plans, matrix, solver: solverPort(optimizer), usage: safeUsage(usage) })]]);
-    this.worker = new RoutingJobWorker(store, queue, runners, defaultWorkerOptions(sweepLock), (job) => plans.release(job));
+    this.worker = new RoutingJobWorker(store, queue, runners, defaultWorkerOptions(sweepLock, gate), (job) => plans.release(job));
   }
 }
 

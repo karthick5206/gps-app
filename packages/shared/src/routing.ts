@@ -1,6 +1,7 @@
 import type { LatLng } from './geo';
 import type { TransportDirection } from './transport-trips';
 import { can, type DataScope, type PermissionMap } from './permissions';
+import type { RoutingOffReason } from './routing-switch';
 
 /**
  * ETMS E4 routing and optimisation contracts (WP 4.0, doc 17 §7 P4), shared by the API, the routing worker and the web
@@ -459,7 +460,9 @@ export type RoutingJobErrorCode =
   | 'WORKER_LOST'
   | 'INTERNAL_ERROR'
   | 'MATRIX_INCOMPLETE'
-  | 'MATRIX_BUSY';
+  | 'MATRIX_BUSY'
+  /** v1.16: automatic routing was switched off (platform, company or env) before the job started: final, plan back to DRAFT. */
+  | 'ROUTING_OFF';
 
 export interface RoutingJobError {
   code: RoutingJobErrorCode;
@@ -599,8 +602,13 @@ export function canOverrideMaxRide(permissions: PermissionMap, dataScope: DataSc
 }
 
 export interface RoutingCapabilities {
-  /** ETMS on, ETMS_ROUTING=on and the company add-on `etms`. */
+  /**
+   * Automatic routing active for the acting company: ETMS_ROUTING not off, the platform switch on and the company's own
+   * switch on (routing-switch.ts), plus the company add-on `etms`.
+   */
   enabled: boolean;
+  /** v1.16: why it is off (null / absent when enabled). */
+  offReason?: RoutingOffReason | null;
   engine: RoutingEngine | null;
   engineReachable: boolean;
   engineVersion: string | null;
