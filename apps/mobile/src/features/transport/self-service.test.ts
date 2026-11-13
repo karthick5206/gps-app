@@ -96,6 +96,7 @@ test('report window: 2 h before the start until 48 h after the end', () => {
 
 test('error codes get passenger wording; the cut-off text speaks of booking, not cancelling', () => {
   assert.match(selfErrorText('AFTER_CUTOFF', 'book')!, /booking cut-off/);
+  assert.match(selfErrorText('TOO_MANY_OPEN_REQUESTS', 'book')!, /10 open ride requests/);
   assert.match(selfErrorText('SELF_BOOKING_DISABLED', 'book')!, /not switched on/);
   assert.match(selfErrorText('INVALID_STATE', 'report')!, /two days/);
   assert.equal(selfErrorText('SOMETHING_ELSE', 'book'), null);

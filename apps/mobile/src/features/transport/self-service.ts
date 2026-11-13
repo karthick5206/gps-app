@@ -119,6 +119,8 @@ export function selfErrorText(code: string | null | undefined, action: 'book' | 
       return 'Allow the use of your location for transport (Privacy & consent) to use a personal place.';
     case 'RATE_LIMITED':
       return 'Too many attempts. Please wait and try again.';
+    case 'TOO_MANY_OPEN_REQUESTS':
+      return 'You already have 10 open ride requests. Wait until the desk handles them, or cancel one.';
     case 'INVALID_STATE':
       return action === 'report' ? 'Reports are accepted from shortly before the trip until two days after it.' : 'You can confirm a pickup or drop only during your trip.';
     case 'NOT_FOUND':
@@ -150,7 +152,7 @@ export const SOS_STAGE_TEXT: Record<SosStageKey, { label: string; body: string; 
 /** Every English string self-service.ts hands to t() (the hi / ta completeness test reads it). */
 export function selfServiceLabelStrings(): string[] {
   const errors = ['book', 'place', 'confirm', 'report'].flatMap((a) =>
-    ['SELF_BOOKING_DISABLED', 'AFTER_CUTOFF', 'BOOKING_DUPLICATE', 'CONSENT_REQUIRED', 'RATE_LIMITED', 'INVALID_STATE', 'NOT_FOUND', 'NOT_A_PASSENGER'].map((c) => selfErrorText(c, a as 'book')),
+    ['SELF_BOOKING_DISABLED', 'AFTER_CUTOFF', 'BOOKING_DUPLICATE', 'CONSENT_REQUIRED', 'RATE_LIMITED', 'TOO_MANY_OPEN_REQUESTS', 'INVALID_STATE', 'NOT_FOUND', 'NOT_A_PASSENGER'].map((c) => selfErrorText(c, a as 'book')),
   );
   const form = ['Choose a shift.', 'Choose a day.', 'Choose where you are picked up or dropped.', 'Choose a saved place.', 'Choose a stop.'];
   return [

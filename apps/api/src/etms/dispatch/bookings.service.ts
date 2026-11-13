@@ -71,6 +71,9 @@ import { lockBookings, lockTrips, recordTripEvent, releaseSeat } from './trip-op
 
 export const BOOKING_ENTITY = 'TransportBooking';
 
+/** v1.15 L3: statuses of a passenger's open (not yet decided or seated) booking. */
+const PASSENGER_OPEN_STATUSES = ['REQUESTED', 'PENDING_ASSIGNMENT', 'WAITLISTED'] as const;
+
 const LIST: ListSpec = {
   search: (q) => ({ OR: [
     { profile: { displayName: { contains: q, mode: 'insensitive' } } },
@@ -349,6 +352,8 @@ export class BookingsService {
     }
     checkWindow(start, end);
     if (end < Date.now()) throw invalid('The window has already passed');
+    // v1.15 L3: a passenger cannot fill the approval queue with many tiny windows.
+    if (actor === 'PASSENGER' && end - start < TRANSPORT_ADHOC_LIMITS.passengerWindowMinMin * 60_000) throw invalid(`The time window must be at least ${TRANSPORT_ADHOC_LIMITS.passengerWindowMinMin} minutes`);
 
     // Points (D-A3): a given point is a company place (poiId) or a personal point that needs the active consent. The
     // COMMUTE defaults: the passenger end = the routing pickup (only with consent, else "needs location", nothing
@@ -393,6 +398,11 @@ export class BookingsService {
     try {
       const { row, push } = await this.prisma.$transaction(async (tx) => {
         await lockPassenger(tx, profile.id);
+        // v1.15 L3: a cap on the passenger's open self-service bookings, counted under the per-passenger lock.
+        if (actor === 'PASSENGER') {
+          const open = await tx.transportBooking.count({ where: { profileId: profile.id, createdById: ctx.userId, status: { in: [...PASSENGER_OPEN_STATUSES] }, windowEnd: { gt: new Date() } } });
+          if (open >= TRANSPORT_ADHOC_LIMITS.passengerOpenMax) throw conflict('TOO_MANY_OPEN_REQUESTS', `You already have ${TRANSPORT_ADHOC_LIMITS.passengerOpenMax} open ride requests; wait for them to be handled or cancel one`);
+        }
         const clash = await tx.transportBooking.findFirst({ where: overlapWhere(profile.id, journey, start, end), select: { id: true } });
         if (clash) throw overlapConflict(clash.id);
         const created = await tx.transportBooking.create({

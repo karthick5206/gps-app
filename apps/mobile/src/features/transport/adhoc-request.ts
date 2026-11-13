@@ -6,8 +6,11 @@
  */
 import type { MeAdhocEndRef, MeAdhocRequestInput, TransportBookingJourney, TransportDirection } from '@veetracer/shared';
 
-/** Mirrors TRANSPORT_ADHOC_LIMITS.purposeMax and TRANSPORT_SELF_LIMITS (bookingNoteMax, placeLabelMax, maxDaysAhead). */
-export const REQUEST_LIMITS = { purposeMax: 120, noteMax: 200, mapLabelMax: 60, maxDaysAhead: 14 } as const;
+/**
+ * Mirrors TRANSPORT_ADHOC_LIMITS (purposeMax, passengerWindowMinMin, passengerOpenMax) and TRANSPORT_SELF_LIMITS
+ * (bookingNoteMax, placeLabelMax, maxDaysAhead).
+ */
+export const REQUEST_LIMITS = { purposeMax: 120, noteMax: 200, mapLabelMax: 60, maxDaysAhead: 14, windowMinMin: 10, openMax: 10 } as const;
 
 const DAY_MS = 86_400_000;
 const HHMM = /^([01]?\d|2[0-3]):([0-5]\d)$/;
@@ -128,6 +131,7 @@ export const REQUEST_FORM_ERRORS = [
   'Enter times as HH:MM, for example 09:30.',
   'Enter both the start and the end of the time window.',
   'The time window must end after it starts.',
+  'The time window must be at least 10 minutes long.',
   'A point-to-point ride needs a time window.',
   'A commute needs a shift or a time window.',
   'Only for a commute.',
@@ -154,6 +158,7 @@ export function adhocRequest(f: RequestForm, ctx: RequestContext): { ok: true; b
     const b = parseClock(we);
     if (a === null || b === null) return { ok: false, error: 'Enter times as HH:MM, for example 09:30.' };
     if (b <= a) return { ok: false, error: 'The time window must end after it starts.' };
+    if (b - a < REQUEST_LIMITS.windowMinMin) return { ok: false, error: 'The time window must be at least 10 minutes long.' };
     const s = zonedIso(f.serviceDate, a, ctx.timeZone);
     const e = zonedIso(f.serviceDate, b, ctx.timeZone);
     if (!s || !e) return { ok: false, error: 'Choose a day.' };
@@ -223,6 +228,8 @@ export function requestErrorText(code: string | null | undefined, reason?: unkno
       return 'Your account is not linked to an active passenger profile. Ask your transport desk.';
     case 'RATE_LIMITED':
       return 'Too many attempts. Please wait and try again.';
+    case 'TOO_MANY_OPEN_REQUESTS':
+      return 'You already have 10 open ride requests. Wait until the desk handles them, or cancel one.';
     case 'NOT_FOUND':
       return 'This place is no longer available. Choose another one.';
     default:
@@ -232,7 +239,7 @@ export function requestErrorText(code: string | null | undefined, reason?: unkno
 
 /** Every English string requestErrorText can return. */
 export function requestErrorStrings(): string[] {
-  const codes = ['NOT_ELIGIBLE', 'AFTER_CUTOFF', 'BOOKING_DUPLICATE', 'BOOKING_OVERLAP', 'CONSENT_REQUIRED', 'SELF_BOOKING_DISABLED', 'NOT_A_PASSENGER', 'RATE_LIMITED', 'NOT_FOUND'];
+  const codes = ['NOT_ELIGIBLE', 'AFTER_CUTOFF', 'BOOKING_DUPLICATE', 'BOOKING_OVERLAP', 'CONSENT_REQUIRED', 'SELF_BOOKING_DISABLED', 'NOT_A_PASSENGER', 'RATE_LIMITED', 'TOO_MANY_OPEN_REQUESTS', 'NOT_FOUND'];
   return [...new Set([...codes.map((c) => requestErrorText(c)), ...Object.values(INELIGIBLE_TEXT)].filter((s): s is string => !!s))];
 }
 

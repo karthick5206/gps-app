@@ -4,7 +4,7 @@ import { HttpException, StreamableFile } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { randomUUID } from 'crypto';
-import { meBookingApproval, selfBookingApprovalOn, transportSettingsOf, type MeAdhocRequestInput } from '@veetracer/shared';
+import { TRANSPORT_ADHOC_LIMITS, meBookingApproval, selfBookingApprovalOn, transportSettingsOf, type MeAdhocRequestInput } from '@veetracer/shared';
 import type { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { addDays } from '../../summarizer/tz';
@@ -438,5 +438,32 @@ describe('v1.15 L2 group booking personal-point access', () => {
     await w.bookings.createGroup(w.desk(), { ...base, ...win(15, 2), pickup: { mode: 'OWN' } } as never, key); // replay
     expect(access()).toHaveLength(2);
     expect(access()[1].changes).toMatchObject({ view: 'group', groupId: own.value.groupId, replay: true });
+  });
+});
+
+describe('v1.15 L3 passenger request flooding', () => {
+  it('at most passengerOpenMax open self-service bookings (409 TOO_MANY_OPEN_REQUESTS); P2P windows ≥ passengerWindowMinMin', async () => {
+    const w = world();
+    const max = TRANSPORT_ADHOC_LIMITS.passengerOpenMax;
+    const minMin = TRANSPORT_ADHOC_LIMITS.passengerWindowMinMin;
+    // Too short a window.
+    const short = (startH: number, minutes: number) => {
+      const start = Date.parse(`${day(2)}T00:00:00+05:30`) + startH * 3_600_000;
+      return { windowStart: new Date(start).toISOString(), windowEnd: new Date(start + minutes * MIN).toISOString() };
+    };
+    expect(await codeOf(request(w, short(6, minMin - 1)))).toBe('VALIDATION_FAILED');
+    expect(await codeOf(request(w, short(6, minMin)))).toBe('OK');
+    // The desk is not limited by the passenger minimum.
+    expect(await codeOf(w.bookings.create(w.desk(), { passengerId: w.ids.pA2, serviceDate: day(2), journey: 'POINT_TO_POINT', pickup: { lat: 0, lng: 0, poiId: w.ids.officeA }, drop: { lat: 0, lng: 0, poiId: w.ids.stopA }, ...short(6, 5) } as never, randomUUID()))).toBe('OK');
+    for (let i = 1; i < max; i++) expect(await codeOf(request(w, short(6 + i, minMin)))).toBe('OK');
+    const e = await errOf(request(w, short(20, minMin)));
+    expect(e).toMatchObject({ status: 409, body: { code: 'TOO_MANY_OPEN_REQUESTS' } });
+    expect(await codeOf(selfBook(w))).toBe('TOO_MANY_OPEN_REQUESTS'); // the self-booking path counts too
+    // Desk bookings for the passenger do not count, and the desk can still book.
+    expect(await codeOf(w.bookings.create(w.desk(), { passengerId: w.ids.pA, serviceDate: day(2), journey: 'POINT_TO_POINT', pickup: { lat: 0, lng: 0, poiId: w.ids.officeA }, drop: { lat: 0, lng: 0, poiId: w.ids.stopA }, ...short(18, 60) } as never, randomUUID()))).toBe('OK');
+    // A cancelled / rejected one frees a slot.
+    const open = w.store.table('transportBooking').find((b) => b.createdById === 'u-pA' && b.status === 'REQUESTED')!;
+    open.status = 'REJECTED';
+    expect(await codeOf(request(w, short(20, minMin)))).toBe('OK');
   });
 });

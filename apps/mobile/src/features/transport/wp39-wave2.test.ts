@@ -65,6 +65,8 @@ test('limits mirror the shared contract', () => {
   assert.equal(REQUEST_LIMITS.noteMax, TRANSPORT_SELF_LIMITS.bookingNoteMax);
   assert.equal(REQUEST_LIMITS.mapLabelMax, TRANSPORT_SELF_LIMITS.placeLabelMax);
   assert.equal(REQUEST_LIMITS.maxDaysAhead, TRANSPORT_SELF_LIMITS.maxDaysAhead);
+  assert.equal(REQUEST_LIMITS.windowMinMin, TRANSPORT_ADHOC_LIMITS.passengerWindowMinMin);
+  assert.equal(REQUEST_LIMITS.openMax, TRANSPORT_ADHOC_LIMITS.passengerOpenMax);
 });
 
 test('end kinds: shift site only on a commute; personal ends need consent; shift site needs a shift', () => {
@@ -149,6 +151,8 @@ test('request validation: each missing / wrong piece gives its own reason', () =
   assert.equal(err(form({ windowEnd: '' })), 'Enter both the start and the end of the time window.');
   assert.equal(err(form({ windowStart: '9.30' })), 'Enter times as HH:MM, for example 09:30.');
   assert.equal(err(form({ windowStart: '10:00', windowEnd: '09:30' })), 'The time window must end after it starts.');
+  assert.equal(err(form({ windowStart: '10:00', windowEnd: '10:09' })), 'The time window must be at least 10 minutes long.');
+  assert.equal(err(form({ windowStart: '10:00', windowEnd: '10:10' })), null);
   assert.equal(err(form({ windowStart: '', windowEnd: '' })), 'A point-to-point ride needs a time window.');
   assert.equal(err(form({ journey: 'COMMUTE', pickup: { kind: 'HOME' }, destination: { kind: 'PLACE', poiId: 'p1' }, windowStart: '', windowEnd: '' })), 'A commute needs a shift or a time window.');
   // A company place never needs consent.
@@ -174,6 +178,7 @@ test('error mapping: every NOT_ELIGIBLE reason, cut-off, duplicate, overlap, con
   assert.match(requestErrorText('BOOKING_OVERLAP')!, /already have a ride at this time/);
   assert.equal(requestErrorText('CONSENT_REQUIRED'), CONSENT_EXPLANATION);
   assert.match(requestErrorText('SELF_BOOKING_DISABLED')!, /not switched on/);
+  assert.match(requestErrorText('TOO_MANY_OPEN_REQUESTS')!, /10 open ride requests/);
   assert.equal(requestErrorText('WHATEVER'), null);
   assert.equal(requestErrorText(null), null);
 });
