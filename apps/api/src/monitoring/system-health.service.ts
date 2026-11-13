@@ -105,7 +105,7 @@ export class SystemHealthService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     @Inject(APP_ENV) private readonly env: AppEnv,
-    @Optional() private readonly switches: RoutingSwitchService | null = null,
+    @Optional() @Inject(RoutingSwitchService) private readonly switches: RoutingSwitchService | null = null,
   ) {}
 
   get streams(): StreamDef[] {

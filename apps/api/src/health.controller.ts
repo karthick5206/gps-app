@@ -1,4 +1,4 @@
-import { Controller, Get, HttpStatus, Optional, Res } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Inject, Optional, Res } from '@nestjs/common';
 import type { RoutingReadinessKey } from '@veetracer/shared';
 import type { Response } from 'express';
 import { Public } from './access/decorators';
@@ -37,7 +37,7 @@ export interface RoutingHealthReport {
 export class HealthController {
   constructor(
     private readonly probe: HealthProbeService,
-    @Optional() private readonly routingSwitch: RoutingSwitchService | null = null,
+    @Optional() @Inject(RoutingSwitchService) private readonly routingSwitch: RoutingSwitchService | null = null,
   ) {}
 
   @Public() @Get('live')
