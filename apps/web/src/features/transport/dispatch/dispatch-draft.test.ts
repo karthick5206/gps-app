@@ -218,3 +218,21 @@ test('default placement: nearest stops when close, a new stop at the cheapest in
   d = setAddNewPickupStop(d, 'a', -1);
   assert.deepEqual(d.adds[0].newStop, { end: 'PICKUP', afterSeq: -1 });
 });
+
+test('WP 3.9 point-to-point (stored as IN): pickups by window start, then each own destination by window end, door to door', () => {
+  // Two passengers, different pickups and different non-site destinations; a third shares the first one's destination.
+  const p1 = booking('p1', { pickup: { lat: 13.01, lng: 80.21, label: 'Hotel lobby' }, drop: { lat: 13.3, lng: 80.4, label: 'Client campus', poiId: 'poi-9' }, windowStart: '2026-11-10T09:00:00.000Z', windowEnd: '2026-11-10T10:30:00.000Z' });
+  const p2 = booking('p2', { pickup: { lat: 13.02, lng: 80.22, label: 'Guest house' }, drop: { lat: 13.4, lng: 80.5, label: 'Airport' }, windowStart: '2026-11-10T08:50:00.000Z', windowEnd: '2026-11-10T10:00:00.000Z' });
+  const p3 = booking('p3', { pickup: { lat: 13.01, lng: 80.21, label: 'Hotel lobby' }, drop: { lat: 13.3, lng: 80.4, label: 'Client campus', poiId: 'poi-9' }, windowStart: '2026-11-10T09:05:00.000Z', windowEnd: '2026-11-10T10:30:00.000Z' });
+  const { stops, seqs } = newTripStops({ startMs: Date.parse('2026-11-10T09:00:00Z'), gapMin: 15, bookingIds: ['p1', 'p2', 'p3'] }, { p1, p2, p3 }, 'IN');
+  assert.deepEqual(stops.map((s) => s.point.label), ['Guest house', 'Hotel lobby', 'Airport', 'Client campus']);
+  assert.deepEqual(seqs, { p2: { pickupSeq: 0, dropSeq: 2 }, p1: { pickupSeq: 1, dropSeq: 3 }, p3: { pickupSeq: 1, dropSeq: 3 } });
+  for (const s of Object.values(seqs)) assert.ok(s.pickupSeq < s.dropSeq, 'every pickup before its drop');
+  assert.equal(stops[3].point.poiId, 'poi-9');
+  assert.equal(stops[2].point.poiId, null, 'a one-time destination is not a site');
+  // A destination at the same spot as another passenger's pickup is still its own (later) stop.
+  const loop = booking('l', { pickup: { lat: 13.4, lng: 80.5, label: 'Airport' }, drop: { lat: 13.01, lng: 80.21, label: 'Hotel lobby' }, windowStart: '2026-11-10T09:10:00.000Z', windowEnd: '2026-11-10T11:00:00.000Z' });
+  const r = newTripStops({ startMs: 0, gapMin: 10, bookingIds: ['p1', 'l'] }, { p1, l: loop }, 'IN');
+  assert.deepEqual(r.stops.map((s) => s.point.label), ['Hotel lobby', 'Airport', 'Client campus', 'Hotel lobby']);
+  assert.deepEqual(r.seqs, { p1: { pickupSeq: 0, dropSeq: 2 }, l: { pickupSeq: 1, dropSeq: 3 } });
+});
