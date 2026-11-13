@@ -97,6 +97,8 @@ function RootStack() {
           <Stack.Screen name="commute/consent" options={{ title: t('Privacy & consent'), ...PASSENGER_SOS }} />
           <Stack.Screen name="commute/trip/[id]" options={{ title: t('My trip'), ...PASSENGER_SOS }} />
           <Stack.Screen name="commute/book" options={{ title: t('Book a trip'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/request" options={{ title: t('Request a ride'), ...PASSENGER_SOS }} />
+          <Stack.Screen name="commute/profile" options={{ title: t('My transport profile'), ...PASSENGER_SOS }} />
           <Stack.Screen name="commute/places" options={{ title: t('Saved places'), ...PASSENGER_SOS }} />
           <Stack.Screen name="commute/schedule" options={{ title: t('Regular commute'), ...PASSENGER_SOS }} />
           <Stack.Screen name="commute/report/[id]" options={{ title: t('Report a problem'), ...PASSENGER_SOS }} />

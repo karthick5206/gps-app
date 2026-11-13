@@ -12,7 +12,7 @@ import { inboxTarget } from './push-target';
 import { TOUCH } from './ui';
 
 /** Generic texts per kind (same English as TRANSPORT_NOTIFICATION_TEXT in @veetracer/shared; translated here). */
-const KIND_TEXT: Record<TransportNotificationKind, string> = {
+const KIND_TEXT: Record<TransportNotificationKind, string> & Record<string, string | undefined> = {
   TRIP_ASSIGNED: 'New trip assigned',
   TRIP_CHANGED: 'Trip updated',
   TRIP_UNASSIGNED: 'Trip removed',
@@ -21,6 +21,9 @@ const KIND_TEXT: Record<TransportNotificationKind, string> = {
   VEHICLE_APPROACHING: 'Your cab is arriving',
   TRIP_DELAYED: 'Trip delayed',
   BOOKING_CREATED: 'Ride booked for you',
+  // WP 3.9 wave 2 (D-A5): the kinds arrive as strings until the shared list gains them.
+  BOOKING_APPROVED: 'Ride request approved',
+  BOOKING_REJECTED: 'Ride request rejected',
 };
 
 export function useTransportNotifications(audience: 'passenger' | 'driver') {
@@ -60,8 +63,8 @@ export function TransportInbox({ audience }: { audience: 'passenger' | 'driver' 
     <View style={{ gap: SPACE.sm }}>
       {q.data.map((n) => {
         const title = t(KIND_TEXT[n.kind] ?? n.title);
-        // Only ids go into the route (BOOKING_CREATED has no trip: it opens the booking); the screen fetches the details.
-        const target = inboxTarget(n as typeof n & { bookingId?: unknown }, audience);
+        // Only ids go into the route (booking kinds have no trip: they open the booking via TransportNotificationDto.bookingId); the screen fetches the details.
+        const target = inboxTarget(n, audience);
         const open = () => target && router.push(target as Parameters<typeof router.push>[0]);
         return (
           <Pressable

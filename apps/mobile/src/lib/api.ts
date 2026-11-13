@@ -10,12 +10,15 @@ export class ApiError extends Error {
   readonly messages: string[];
   /** Machine-readable code when the API sends one (ETMS routes always do: NOT_A_PASSENGER, CONSENT_NOTICE_OUTDATED…). */
   readonly code: string | null;
+  /** Other fields of the error body (e.g. `reason` of 422 NOT_ELIGIBLE, WP 3.9); read by known keys, never shown as-is. */
+  readonly details: Record<string, unknown>;
 
-  constructor(status: number, messages: string[], code: string | null = null) {
+  constructor(status: number, messages: string[], code: string | null = null, details: Record<string, unknown> = {}) {
     super(messages.join('\n') || i18n.t('Request failed ({{status}})', { status }));
     this.status = status;
     this.messages = messages;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -58,8 +61,10 @@ export function buildQuery(query?: QueryParams): string {
 async function toApiError(res: Response): Promise<ApiError> {
   let messages: string[] = [];
   let code: string | null = null;
+  let details: Record<string, unknown> = {};
   try {
     const data: unknown = await res.json();
+    if (data && typeof data === 'object' && !Array.isArray(data)) details = data as Record<string, unknown>;
     if (data && typeof data === 'object' && typeof (data as { code?: unknown }).code === 'string') code = (data as { code: string }).code;
     if (data && typeof data === 'object' && 'message' in data) {
       const m = (data as { message: unknown }).message;
@@ -70,7 +75,7 @@ async function toApiError(res: Response): Promise<ApiError> {
     /* non-JSON body */
   }
   if (!messages.length) messages = [res.status === 429 ? i18n.t('Too many attempts. Please wait and try again.') : i18n.t('Request failed ({{status}})', { status: res.status })];
-  return new ApiError(res.status, messages, code);
+  return new ApiError(res.status, messages, code, details);
 }
 
 function headers(opts: RequestOptions): Record<string, string> {
