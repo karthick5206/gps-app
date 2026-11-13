@@ -28,10 +28,7 @@ ALTER TABLE "TransportBooking" ADD CONSTRAINT "TransportBooking_p2p_overlap_excl
 ALTER TABLE "TransportNotification" ADD COLUMN "bookingId" UUID;
 ALTER TABLE "TransportNotification" ADD CONSTRAINT "TransportNotification_bookingId_fkey"
   FOREIGN KEY ("bookingId") REFERENCES "TransportBooking"("id") ON DELETE SET NULL ON UPDATE CASCADE;
--- The closed kind set gains BOOKING_CREATED; only a BOOKING_CREATED row may carry a bookingId (null again once the
--- booking row is gone).
+-- The closed kind set gains BOOKING_CREATED (the service sets bookingId on BOOKING_CREATED rows only).
 ALTER TABLE "TransportNotification" DROP CONSTRAINT "TransportNotification_kind_check";
 ALTER TABLE "TransportNotification" ADD CONSTRAINT "TransportNotification_kind_check"
   CHECK ("kind" IN ('TRIP_ASSIGNED','TRIP_CHANGED','TRIP_UNASSIGNED','TRIP_CANCELLED','TRIP_STARTING_SOON','VEHICLE_APPROACHING','TRIP_DELAYED','BOOKING_CREATED'));
-ALTER TABLE "TransportNotification" ADD CONSTRAINT "TransportNotification_booking_check"
-  CHECK ("kind" = 'BOOKING_CREATED' OR "bookingId" IS NULL);
