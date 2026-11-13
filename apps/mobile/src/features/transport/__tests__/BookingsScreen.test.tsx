@@ -90,7 +90,7 @@ describe('BookingsScreen (WP 3.9)', () => {
   });
 
   it('an approved own request reads "Approved"; a desk booking keeps "Waiting for a seat"', async () => {
-    (passengerApi.useMyBookings as jest.Mock).mockReturnValue(q([{ ...own, id: B1 }, { ...p2p, id: B2 }]));
+    (passengerApi.useMyBookings as jest.Mock).mockReturnValue(q([{ ...own, id: B1, approval: 'APPROVED' }, { ...p2p, id: B2, approval: 'NOT_REQUIRED' }]));
     await render(<BookingsScreen />);
     expect(screen.getByText('Approved')).toBeTruthy();
     expect(screen.getByText('The transport desk will assign a cab.')).toBeTruthy();
@@ -112,5 +112,30 @@ describe('BookingsScreen (WP 3.9)', () => {
     expect(rows[0].props.children).toContain('Client office');
     expect(screen.getByText('Not approved.')).toBeTruthy();
     expect(screen.queryByText(/no longer in your list/)).toBeNull();
+  });
+});
+
+describe('BookingsScreen: approval chip follows MeBookingDto.approval (r115 B4)', () => {
+  beforeEach(() => (passengerApi.useMyBooking as jest.Mock).mockReturnValue(q(undefined)));
+  const mine = { ...base, id: B1, source: 'ADHOC', arrangedByDesk: false, journey: 'POINT_TO_POINT', pickupLabel: 'Tech Park Gate 2', dropLabel: 'Client office' };
+
+  it('approval switched off (NOT_REQUIRED): an own request waiting for a seat is never "Approved"', async () => {
+    (passengerApi.useMyBookings as jest.Mock).mockReturnValue(q([{ ...mine, approval: 'NOT_REQUIRED' }]));
+    await render(<BookingsScreen />);
+    expect(screen.queryByText('Approved')).toBeNull();
+    expect(screen.getByText('Waiting for a seat')).toBeTruthy();
+  });
+
+  it('approval APPROVED while waiting for a seat reads "Approved"', async () => {
+    (passengerApi.useMyBookings as jest.Mock).mockReturnValue(q([{ ...mine, approval: 'APPROVED' }]));
+    await render(<BookingsScreen />);
+    expect(screen.getByText('Approved')).toBeTruthy();
+  });
+
+  it('an approved booking that is now seated reads "Assigned"', async () => {
+    (passengerApi.useMyBookings as jest.Mock).mockReturnValue(q([{ ...mine, status: 'ASSIGNED', approval: 'APPROVED' }]));
+    await render(<BookingsScreen />);
+    expect(screen.queryByText('Approved')).toBeNull();
+    expect(screen.getByText('Assigned')).toBeTruthy();
   });
 });
