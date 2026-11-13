@@ -255,7 +255,7 @@ export function GroupBookingDialog({ open, onOpenChange, day, cutoffMin }: { ope
       <Field label={d.journey === 'COMMUTE' ? t('Shift') : t('Shift (optional)')} error={show('shift')} hint={d.journey === 'COMMUTE' ? t('The shift gives the default window and the site. Leave it empty and give a time window instead.') : undefined}>
         <Combobox value={d.shiftId} onChange={(id) => set({ shiftId: id })} options={shifts.options} loading={shifts.loading} placeholder={t('Choose a shift')} searchPlaceholder={t('Search shifts…')} emptyText={t('No shifts found')} />
       </Field>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3">
         <PointPicker
           end="pickup"
           idPrefix="gr-pickup"
@@ -289,7 +289,7 @@ export function GroupBookingDialog({ open, onOpenChange, day, cutoffMin }: { ope
         <legend className="mb-1 text-sm font-medium">
           {t('Time window')}
           {(d.journey === 'POINT_TO_POINT' || !d.shiftId) && (
-            <span className="text-destructive" aria-hidden>
+            <span className="ml-1 text-destructive" aria-hidden>
               *
             </span>
           )}

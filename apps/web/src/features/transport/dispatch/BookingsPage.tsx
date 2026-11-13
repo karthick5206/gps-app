@@ -457,7 +457,7 @@ export function BookingsPage() {
               const cut = cutoffLabel(b.cutoffAt, b.status, now, t);
               return (
                 <li key={b.id}>
-                  <Card className="gap-2 p-3">
+                  <Card className="grid gap-2 p-3">
                     <div className="flex items-start gap-2">
                       {canEdit && <Checkbox className="mt-1" aria-label={t('Select {{name}}', { name: b.passenger.displayName })} checked={selected.has(b.id)} onCheckedChange={(v) => toggle(b.id, !!v)} />}
                       <div className="min-w-0 flex-1">
@@ -483,7 +483,7 @@ export function BookingsPage() {
                       {cut && <span className="text-xs text-muted-foreground">{cut}</span>}
                     </div>
                     {b.tripId && can('etms_dispatch') && (
-                      <Link to={transportTripPath(b.tripId)} className="text-sm text-primary hover:underline">
+                      <Link to={transportTripPath(b.tripId)} className="w-fit text-sm text-primary hover:underline">
                         {t('Open trip')}
                       </Link>
                     )}

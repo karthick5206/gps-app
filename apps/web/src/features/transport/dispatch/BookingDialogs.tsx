@@ -59,7 +59,11 @@ const passengerOption = (p: PassengerDto): Option => ({ value: p.id, label: `${p
 const shiftOption = (s: TransportShiftDto): Option => ({ value: s.id, label: s.name });
 const placeOption = (p: TransportPlaceOptionDto): Option => ({ value: p.id, label: p.category ? `${p.name} · ${p.category}` : p.name });
 
-/** Segmented choice (buttons with aria-pressed): readable at 390 px, disabled choices keep their reason as a title. */
+/**
+ * Segmented choice (buttons with aria-pressed): readable at 390 px, disabled choices keep their reason as a title.
+ * Equal-width segments; a label that does not fit wraps inside its own segment instead of running under its
+ * neighbour, and a segment never shrinks below its longest word (it moves to a new row instead).
+ */
 export function Segmented<T extends string>({ value, onChange, options, label, id }: { value: T; onChange: (v: T) => void; options: { value: T; label: string; disabled?: boolean; title?: string }[]; label: string; id?: string }) {
   return (
     <div id={id} role="group" aria-label={label} className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
@@ -72,7 +76,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, i
           title={o.title}
           onClick={() => onChange(o.value)}
           className={cn(
-            'h-8 min-w-0 flex-1 rounded-md px-2 text-sm font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45',
+            'min-h-8 flex-1 rounded-md px-2 py-1 text-center text-sm leading-tight font-medium text-balance outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45',
             value === o.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
           )}
         >
@@ -200,10 +204,10 @@ export function PointPicker({
   const options = useMemo(() => rows.map(placeOption), [rows]);
   const blockedTitle = t('The passenger has no active transport consent: choose a company place.');
   return (
-    <fieldset className="grid min-w-0 gap-2 rounded-lg border p-3">
+    <fieldset className="grid min-w-0 content-start gap-2 rounded-lg border p-3">
       <legend className="px-1 text-sm font-medium">
         {title}
-        <span className="text-destructive" aria-hidden>
+        <span className="ml-1 text-destructive" aria-hidden>
           *
         </span>
       </legend>
@@ -411,7 +415,7 @@ export function NewBookingDialog({ open, onOpenChange, day, cutoffMin }: { open:
       <Field label={d.journey === 'COMMUTE' ? t('Shift') : t('Shift (optional)')} error={show('shift')} hint={d.journey === 'COMMUTE' ? t('The shift gives the default window and the site. Leave it empty and give a time window instead.') : undefined}>
         <Combobox value={d.shiftId} onChange={(id) => set({ shiftId: id })} options={shifts.options} loading={shifts.loading} placeholder={t('Choose a shift')} searchPlaceholder={t('Search shifts…')} emptyText={t('No shifts found')} />
       </Field>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3">
         <PointPicker
           end="pickup"
           idPrefix="bk-pickup"
@@ -443,7 +447,7 @@ export function NewBookingDialog({ open, onOpenChange, day, cutoffMin }: { open:
         <legend className="mb-1 text-sm font-medium">
           {t('Time window')}
           {(d.journey === 'POINT_TO_POINT' || !d.shiftId) && (
-            <span className="text-destructive" aria-hidden>
+            <span className="ml-1 text-destructive" aria-hidden>
               *
             </span>
           )}
@@ -568,7 +572,7 @@ export function EditBookingDialog({ booking, onOpenChange, cutoffMin }: { bookin
       error={serverError}
     >
       {settingLocation && <p className="rounded-lg bg-muted px-3 py-2 text-sm">{t('This booking has no usable pickup or destination yet. Choose a company place or a point on the map so it can be seated.')}</p>}
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3">
         <PointPicker
           end="pickup"
           idPrefix="ed-pickup"

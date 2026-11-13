@@ -138,7 +138,7 @@ export function ApprovalQueue({ today, search }: { today: string; search: string
           const clock = (iso: string) => formatClock(iso, b.timeZone, b.serviceDate);
           return (
             <li key={b.id}>
-              <Card className={cn('gap-2 p-3', selected.has(b.id) && 'border-primary')}>
+              <Card className={cn('grid gap-2 p-3', selected.has(b.id) && 'border-primary')}>
                 <div className="flex items-start gap-2">
                   {canAct && <Checkbox className="mt-1" aria-label={t('Select {{name}}', { name: b.passenger.displayName })} checked={selected.has(b.id)} onCheckedChange={(v) => toggle(b.id, !!v)} />}
                   <div className="min-w-0 flex-1">

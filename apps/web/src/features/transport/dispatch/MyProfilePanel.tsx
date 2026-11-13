@@ -284,10 +284,10 @@ export function MyProfilePanel() {
   const home = p.home;
 
   return (
-    <Card className="gap-4 p-4">
+    <Card className="grid gap-4 p-4">
       <div className="flex flex-wrap items-start gap-2">
         <UserRoundIcon className="mt-0.5 size-5 text-muted-foreground" aria-hidden />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-48 flex-1">
           <p className="font-medium">{p.displayName}</p>
           <p className="text-xs text-muted-foreground">{[p.employeeCode, p.branchName, p.officeName].filter(Boolean).join(' · ')}</p>
         </div>
