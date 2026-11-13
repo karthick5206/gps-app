@@ -51,6 +51,8 @@ const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export interface GroupFields {
   groupId?: string | null;
   purpose?: string | null;
+  /** Bookings in the group, counted by the server (all pages, seated ones too); null outside a group. */
+  groupSize?: number | null;
 }
 
 export const groupIdOf = (b: object): string | null => (b as GroupFields).groupId ?? null;
@@ -59,14 +61,21 @@ export const purposeOf = (b: object): string | null => {
   return typeof p === 'string' && p.trim() ? p.trim() : null;
 };
 
-/** Bookings per group among the rows on screen (a group is one service date, so a day's list holds all of it). */
+/**
+ * Bookings per group: the server's groupSize (QA B5: all pages, seated members too), else the rows on screen
+ * (an older DTO without groupSize).
+ */
 export function groupSizes(rows: readonly object[]): Map<string, number> {
-  const out = new Map<string, number>();
+  const onScreen = new Map<string, number>();
+  const server = new Map<string, number>();
   for (const r of rows) {
     const g = groupIdOf(r);
-    if (g) out.set(g, (out.get(g) ?? 0) + 1);
+    if (!g) continue;
+    onScreen.set(g, (onScreen.get(g) ?? 0) + 1);
+    const n = (r as GroupFields).groupSize;
+    if (typeof n === 'number' && n > 0) server.set(g, Math.max(server.get(g) ?? 0, n));
   }
-  return out;
+  return new Map([...onScreen].map(([g, n]) => [g, server.get(g) ?? n]));
 }
 
 /** Client-side safety net for the groupId filter (the server filters too). */
@@ -353,19 +362,28 @@ export function approvalQuery(today: string, extra: Pick<TransportBookingListQue
   return { from: today, to: shiftDay(today, APPROVAL_DAYS_AHEAD), bookingStatus: 'REQUESTED', sort: 'windowStart', order: 'asc', ...extra };
 }
 
-/** The self-service path writes this note (apps/api self-service: "Booked by passenger[: …]"). */
+/** The self-booking path writes "Booked by passenger[: …]" (E5); the ride request path "Requested by passenger[: …]". */
 export const PASSENGER_NOTE_PREFIX = 'Booked by passenger';
+export const PASSENGER_REQUEST_NOTE_PREFIX = 'Requested by passenger';
+const PASSENGER_NOTE_PREFIXES = [PASSENGER_NOTE_PREFIX, PASSENGER_REQUEST_NOTE_PREFIX] as const;
 
-/** Requested by the passenger in the app (vs arranged by the transport desk). */
-export function isPassengerRequest(b: Pick<TransportBookingDto, 'source' | 'note'>): boolean {
-  return b.source === 'ADHOC' && typeof b.note === 'string' && b.note.startsWith(PASSENGER_NOTE_PREFIX);
+type RequestFields = Pick<TransportBookingDto, 'source' | 'note'> & { requestedByPassenger?: boolean };
+
+/**
+ * Requested by the passenger in the app (vs arranged by the transport desk). QA B3: the server's requestedByPassenger
+ * (made with the passenger's own login) decides; the note marker is only the fallback for an older DTO.
+ */
+export function isPassengerRequest(b: RequestFields): boolean {
+  if (typeof b.requestedByPassenger === 'boolean') return b.requestedByPassenger;
+  return b.source === 'ADHOC' && typeof b.note === 'string' && PASSENGER_NOTE_PREFIXES.some((p) => b.note!.startsWith(p));
 }
 
-/** The passenger's own note without the marker; null when there is none. */
-export function requestNote(b: Pick<TransportBookingDto, 'source' | 'note'>): string | null {
+/** The passenger's own note without the self-service marker; null when there is none. */
+export function requestNote(b: RequestFields): string | null {
   if (!b.note) return null;
-  if (!isPassengerRequest(b)) return b.note.trim() || null;
-  const rest = b.note.slice(PASSENGER_NOTE_PREFIX.length).replace(/^:\s*/, '').trim();
+  const prefix = isPassengerRequest(b) ? PASSENGER_NOTE_PREFIXES.find((p) => b.note!.startsWith(p)) : undefined;
+  if (!prefix) return b.note.trim() || null;
+  const rest = b.note.slice(prefix.length).replace(/^:\s*/, '').trim();
   return rest || null;
 }
 

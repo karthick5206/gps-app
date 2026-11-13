@@ -1,10 +1,10 @@
 jest.mock('@nestjs/mapped-types', () => ({ PartialType: (c: new () => object) => class extends c {} }));
 
-import { HttpException } from '@nestjs/common';
+import { HttpException, StreamableFile } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { randomUUID } from 'crypto';
-import { meBookingApproval, selfBookingApprovalOn, transportSettingsOf, type MeAdhocRequestInput } from '@veetracer/shared';
+import { TRANSPORT_ADHOC_LIMITS, meBookingApproval, selfBookingApprovalOn, transportSettingsOf, type MeAdhocRequestInput } from '@veetracer/shared';
 import type { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { addDays } from '../../summarizer/tz';
@@ -62,7 +62,7 @@ function world(opts: { approval?: boolean; geocodeHits?: { label: string; lat: n
   const desk = (o: Partial<AuthContext> = {}): AuthContext => ({ userId: 'u-desk', homeCompanyId: 'custA', companyId: 'custA', isSuperAdmin: false, permissions: { etms_bookings: ['view', 'create', 'edit'] }, dataScope: 'COMPANY', branchIds: [], objectIds: [], features: ['etms'], agreements: [], ip: null, ...o });
   const consent = (profileId: string, companyId = 'custA') => store.insert('employeeTransportConsent', { companyId, profileId, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: true, channel: 'WEB', occurredAt: new Date(Date.now() - 60 * MIN) });
   const row = (model: string, id: string) => store.table(model).find((r) => r.id === id)!;
-  return { store, svc, bookings, audit, pax, desk, consent, row, ids: { siteA, officeA, stopA, secretA, officeB, shiftA, pA, pA2, pA3, pB } };
+  return { store, svc, bookings, me, audit, pax, desk, consent, row, ids: { siteA, officeA, stopA, secretA, officeB, shiftA, pA, pA2, pA3, pB } };
 }
 
 const codeOf = async (p: Promise<unknown>) => p.then(() => 'OK', (e: HttpException) => (e.getResponse() as { code?: string }).code ?? String(e.getStatus()));
@@ -352,5 +352,130 @@ describe('D-A9 own profile and home', () => {
     const e = await errOf(w.svc.geocode(w.pax('u-pA'), 'Road'));
     expect(e).toMatchObject({ status: 429, body: { code: 'RATE_LIMITED' } });
     expect(await codeOf(w.svc.geocode(w.pax('u-pA2'), 'Road'))).toBe('OK'); // per user
+  });
+});
+
+const csvText = async (f: unknown): Promise<string> => {
+  const chunks: Buffer[] = [];
+  for await (const c of (f as StreamableFile).getStream()) chunks.push(Buffer.from(c as Buffer));
+  return Buffer.concat(chunks).toString('utf8');
+};
+
+describe('v1.15.0 security review fixes', () => {
+  const homeP2P = (w: ReturnType<typeof world>, label = '12 Secret Lane, Ward 4', start = 10) =>
+    w.bookings.create(w.desk(), { passengerId: w.ids.pA, serviceDate: day(2), journey: 'POINT_TO_POINT', pickup: { lat: 13.07, lng: 80.2, label }, drop: { lat: 0, lng: 0, poiId: w.ids.officeA }, ...win(start) } as never, randomUUID());
+
+  it('M1: a personal end\'s label never reaches list rows, CSV or list search; detail keeps it only with consent; the passenger keeps it', async () => {
+    const w = world();
+    w.consent(w.ids.pA);
+    const b = (await homeP2P(w)).value;
+    expect(b).toMatchObject({ pickupLabel: '12 Secret Lane, Ward 4', dropLabel: 'Office A' }); // detail + consent
+    const list = (await w.bookings.list(w.desk(), {} as never)) as { items: { id: string; pickupLabel: string | null; dropLabel: string | null; pointsHidden: string | null }[] };
+    expect(list.items).toHaveLength(1);
+    expect(list.items[0]).toMatchObject({ pickupLabel: null, dropLabel: 'Office A', pointsHidden: 'LIST_VIEW' });
+    const csv = await csvText(await w.bookings.list(w.desk(), { format: 'csv' } as never));
+    expect(csv).not.toContain('Secret');
+    expect(csv).toContain('Office A');
+    // List search (q) on labels: the memory store cannot evaluate relation filters; see etms-adhoc-booking.db-test.ts.
+    // The passenger sees their own label.
+    expect((await w.me.bookings(w.pax('u-pA'), {} as never)).find((m) => m.id === b.id)).toMatchObject({ pickupLabel: '12 Secret Lane, Ward 4' });
+    // Consent withdrawn (row kept as is): detail, list and CSV show no personal label.
+    w.store.insert('employeeTransportConsent', { companyId: 'custA', profileId: w.ids.pA, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: false, channel: 'WEB', occurredAt: new Date() });
+    expect(await w.bookings.get(w.desk(), b.id)).toMatchObject({ pickup: null, pickupLabel: null, dropLabel: 'Office A', pointsHidden: 'CONSENT_REQUIRED' });
+    expect(await csvText(await w.bookings.list(w.desk(), { format: 'csv' } as never))).not.toContain('Secret');
+  });
+});
+
+describe('v1.15 M2 desk geocode', () => {
+  it('GET /transport/bookings/geocode: ≥ 3 characters (400), 20 / min per user (429 RATE_LIMITED with retryAfterSec)', async () => {
+    const w = world();
+    const calls: string[] = [];
+    const search = async (term: string) => (calls.push(term), [{ label: 'Road 1', lat: 13, lng: 80.2, confidence: 0.9, matchType: 'street' }] as never);
+    expect(await codeOf(w.bookings.geocode(w.desk(), '  ab ', search))).toBe('VALIDATION_FAILED');
+    expect(await codeOf(w.bookings.geocode(w.desk(), undefined, search))).toBe('VALIDATION_FAILED');
+    expect(calls).toEqual([]);
+    for (let i = 0; i < 20; i++) expect(await w.bookings.geocode(w.desk(), ' Road ', search)).toHaveLength(1);
+    expect(calls[0]).toBe('Road');
+    const e = await errOf(w.bookings.geocode(w.desk(), 'Road', search));
+    expect(e).toMatchObject({ status: 429, body: { code: 'RATE_LIMITED', retryAfterSec: expect.any(Number) } });
+    expect(calls).toHaveLength(20);
+    expect(await codeOf(w.bookings.geocode(w.desk({ userId: 'u-other' }), 'Road', search))).toBe('OK'); // per user
+  });
+});
+
+describe('v1.15 L1 booking places follow the branch POI scope', () => {
+  it('a branch dispatcher lists and books its branches\' places and company-wide ones only; company scope unchanged', async () => {
+    const w = world();
+    const north = w.store.insert('poi', { companyId: 'custA', branchId: 'brA1', name: 'North gate', category: 'OFFICE', lat: 13.1, lng: 80.2, isActive: true }).id as string;
+    const south = w.store.insert('poi', { companyId: 'custA', branchId: 'brA2', name: 'South gate', category: 'OFFICE', lat: 13.2, lng: 80.2, isActive: true }).id as string;
+    const branch = w.desk({ dataScope: 'ASSIGNED', branchIds: ['brA1'] });
+    const names = async (ctx: AuthContext) => (await w.bookings.places(ctx, undefined)).map((p) => p.id);
+    expect(await names(branch)).toEqual(expect.arrayContaining([north, w.ids.officeA]));
+    expect(await names(branch)).not.toContain(south);
+    expect(await names(w.desk())).toEqual(expect.arrayContaining([north, south, w.ids.officeA]));
+    const book = (ctx: AuthContext, poiId: string, h: number) =>
+      w.bookings.create(ctx, { passengerId: w.ids.pA, serviceDate: day(2), journey: 'POINT_TO_POINT', pickup: { lat: 0, lng: 0, poiId }, drop: { lat: 0, lng: 0, poiId: w.ids.officeA }, ...win(h) } as never, randomUUID());
+    expect((await errOf(book(branch, south, 8)))?.body).toMatchObject({ code: 'NOT_ELIGIBLE', reason: 'PLACE_NOT_ALLOWED' });
+    expect(await codeOf(book(branch, north, 10))).toBe('OK');
+    expect(await codeOf(book(w.desk(), south, 12))).toBe('OK');
+  });
+});
+
+describe('v1.15 L2 group booking personal-point access', () => {
+  it('create and replay that return passengers\' personal points write the L1 ACCESS entry; company places do not', async () => {
+    const w = world();
+    w.consent(w.ids.pA);
+    w.consent(w.ids.pA2);
+    const access = () => w.store.table('auditLog').filter((a) => a.action === 'ACCESS' && a.entity === 'TransportPersonalPoints');
+    const base = { passengerIds: [w.ids.pA, w.ids.pA2], serviceDate: day(2), journey: 'POINT_TO_POINT', drop: { lat: 0, lng: 0, poiId: w.ids.stopA }, ...win(10, 3), purpose: 'Site visit' };
+    await w.bookings.createGroup(w.desk(), { ...base, pickup: { mode: 'COMMON', point: { lat: 0, lng: 0, poiId: w.ids.officeA } } } as never, randomUUID());
+    expect(access()).toHaveLength(0);
+    const key = randomUUID();
+    const own = await w.bookings.createGroup(w.desk(), { ...base, ...win(15, 2), pickup: { mode: 'OWN' } } as never, key);
+    expect(own.value.bookings.every((b) => b.pickup && !b.pickup.poiId)).toBe(true);
+    expect(access()).toHaveLength(1);
+    expect(access()[0].changes).toMatchObject({ view: 'group', profileIds: [w.ids.pA, w.ids.pA2].sort(), passengers: 2, precise: true, groupId: own.value.groupId });
+    await w.bookings.createGroup(w.desk(), { ...base, ...win(15, 2), pickup: { mode: 'OWN' } } as never, key); // replay
+    expect(access()).toHaveLength(2);
+    expect(access()[1].changes).toMatchObject({ view: 'group', groupId: own.value.groupId, replay: true });
+  });
+});
+
+describe('v1.15 L3 passenger request flooding', () => {
+  it('at most passengerOpenMax open self-service bookings (409 TOO_MANY_OPEN_REQUESTS); P2P windows ≥ passengerWindowMinMin', async () => {
+    const w = world();
+    const max = TRANSPORT_ADHOC_LIMITS.passengerOpenMax;
+    const minMin = TRANSPORT_ADHOC_LIMITS.passengerWindowMinMin;
+    // Too short a window.
+    const short = (startH: number, minutes: number) => {
+      const start = Date.parse(`${day(2)}T00:00:00+05:30`) + startH * 3_600_000;
+      return { windowStart: new Date(start).toISOString(), windowEnd: new Date(start + minutes * MIN).toISOString() };
+    };
+    expect(await codeOf(request(w, short(6, minMin - 1)))).toBe('VALIDATION_FAILED');
+    expect(await codeOf(request(w, short(6, minMin)))).toBe('OK');
+    // The desk is not limited by the passenger minimum.
+    expect(await codeOf(w.bookings.create(w.desk(), { passengerId: w.ids.pA2, serviceDate: day(2), journey: 'POINT_TO_POINT', pickup: { lat: 0, lng: 0, poiId: w.ids.officeA }, drop: { lat: 0, lng: 0, poiId: w.ids.stopA }, ...short(6, 5) } as never, randomUUID()))).toBe('OK');
+    for (let i = 1; i < max; i++) expect(await codeOf(request(w, short(6 + i, minMin)))).toBe('OK');
+    const e = await errOf(request(w, short(20, minMin)));
+    expect(e).toMatchObject({ status: 409, body: { code: 'TOO_MANY_OPEN_REQUESTS' } });
+    expect(await codeOf(selfBook(w))).toBe('TOO_MANY_OPEN_REQUESTS'); // the self-booking path counts too
+    // Desk bookings for the passenger do not count, and the desk can still book.
+    expect(await codeOf(w.bookings.create(w.desk(), { passengerId: w.ids.pA, serviceDate: day(2), journey: 'POINT_TO_POINT', pickup: { lat: 0, lng: 0, poiId: w.ids.officeA }, drop: { lat: 0, lng: 0, poiId: w.ids.stopA }, ...short(18, 60) } as never, randomUUID()))).toBe('OK');
+    // A cancelled / rejected one frees a slot.
+    const open = w.store.table('transportBooking').find((b) => b.createdById === 'u-pA' && b.status === 'REQUESTED')!;
+    open.status = 'REJECTED';
+    expect(await codeOf(request(w, short(20, minMin)))).toBe('OK');
+  });
+});
+
+describe('QA B9 arrangedByDesk', () => {
+  it('true only for a desk-made ADHOC booking; schedule-generated and own bookings are not "arranged by the desk"', async () => {
+    const w = world();
+    const base = { customerCompanyId: 'custA', profileId: w.ids.pA, journey: 'COMMUTE', direction: 'IN', timeZone: TZ, serviceDate: new Date(`${day(2)}T00:00:00Z`), windowStart: new Date(Date.now() + 48 * 60 * MIN), windowEnd: new Date(Date.now() + 49 * 60 * MIN), status: 'PENDING_ASSIGNMENT', version: 1, passengerCount: 1, createdAt: new Date(), updatedAt: new Date() };
+    const sched = w.store.insert('transportBooking', { ...base, source: 'SCHEDULE', scheduleId: randomUUID(), createdById: null }).id as string;
+    const desk = w.store.insert('transportBooking', { ...base, source: 'ADHOC', createdById: 'u-desk', direction: 'OUT' }).id as string;
+    const mine = (await w.me.bookings(w.pax('u-pA'), {} as never)).map((b) => [b.id, b.arrangedByDesk]);
+    expect(mine).toEqual(expect.arrayContaining([[sched, false], [desk, true]]));
+    expect(await w.me.booking(w.pax('u-pA'), sched)).toMatchObject({ source: 'SCHEDULE', arrangedByDesk: false });
   });
 });

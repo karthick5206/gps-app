@@ -8,6 +8,7 @@ import {
   passengerPushAllowed,
   type AuditLogDto,
   type BulkApproveTransportBookingsResult,
+  type GeocodeCandidate,
   type GeoPoint,
   type TransportBookingCommand,
   type TransportBookingDto,
@@ -21,6 +22,7 @@ import {
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
+import { poiScopeWhere } from '../../pois/pois.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { addDays } from '../../summarizer/tz';
@@ -61,15 +63,25 @@ import {
   validPoint,
   versionConflict,
 } from './e3-common';
-import { BOOKING_INCLUDE, LIST_VIEW, toBookingDto, withGroupSizes, type BookingRow } from './e3-mapping';
+import { BOOKING_INCLUDE, LIST_VIEW, preciseFor, toBookingDto, withGroupSizes, type BookingRow } from './e3-mapping';
 import { BookingCommandDto, BookingListQuery, CreateBookingDto, CreateGroupBookingDto, UpdateBookingDto } from './e3.dto';
+import { recordPersonalAccess } from './personal-points';
 import { legWindow, todayIn, weekdayOf } from './service-dates';
 import { lockBookings, lockTrips, recordTripEvent, releaseSeat } from './trip-ops';
 
 export const BOOKING_ENTITY = 'TransportBooking';
 
+/** v1.15 L3: statuses of a passenger's open (not yet decided or seated) booking. */
+const PASSENGER_OPEN_STATUSES = ['REQUESTED', 'PENDING_ASSIGNMENT', 'WAITLISTED'] as const;
+
 const LIST: ListSpec = {
-  search: (q) => ({ OR: [{ profile: { displayName: { contains: q, mode: 'insensitive' } } }, { profile: { employeeCode: { contains: q, mode: 'insensitive' } } }, { pickupLabel: { contains: q, mode: 'insensitive' } }] }),
+  search: (q) => ({ OR: [
+    { profile: { displayName: { contains: q, mode: 'insensitive' } } },
+    { profile: { employeeCode: { contains: q, mode: 'insensitive' } } },
+    // v1.15 M1: labels are searched only on company-place ends (a personal end's label can be an address).
+    { pickupPoiId: { not: null }, pickupLabel: { contains: q, mode: 'insensitive' } },
+    { dropPoiId: { not: null }, dropLabel: { contains: q, mode: 'insensitive' } },
+  ] }),
   sort: { windowStart: 'windowStart', serviceDate: 'serviceDate', createdAt: 'createdAt', status: 'status', passenger: 'profile.displayName' },
   defaultSort: 'windowStart',
   status: null,
@@ -89,7 +101,8 @@ const CSV: CsvSpec<TransportBookingDto> = {
     { header: 'Source', value: (b) => b.source },
     { header: 'Journey', value: (b) => b.journey },
     { header: 'After cut-off', value: (b) => (b.afterCutoff ? 'yes' : 'no') },
-    // Labels only: no coordinates in an export (E2 security review M3 / M4).
+    // Labels only: no coordinates in an export (E2 security review M3 / M4). The rows are list views, so a personal
+    // end's label is already null here (v1.15 M1): only company-place names are exported.
     { header: 'Pickup', value: (b) => b.pickupLabel ?? '' },
     { header: 'Drop', value: (b) => b.dropLabel ?? '' },
     { header: 'Needs location', value: (b) => (b.needsLocation ? 'yes' : 'no') },
@@ -183,12 +196,13 @@ export function decisionKind(command: 'approve' | 'reject' | 'cancel', from: str
 export class BookingsService {
   private readonly limiter: FixedWindowLimiter;
   private readonly bulkLimiter: FixedWindowLimiter;
+  private readonly geocodeLimiter: FixedWindowLimiter;
   private readonly notifications: TransportNotificationsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    redis: RedisService,
+    private readonly redis: RedisService,
     @Optional() notifications?: TransportNotificationsService,
   ) {
     // Stateless (Prisma + Valkey): built here when the module does not inject one (tests, other modules).
@@ -196,6 +210,8 @@ export class BookingsService {
     this.limiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:booking-create', TRANSPORT_E3_LIMITS.bookingCreatesPerMinute, 60_000);
     // L6: bulk approve runs up to maxBulk transactions per request.
     this.bulkLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:booking-bulk', TRANSPORT_E3_LIMITS.bulkApprovesPerMinute, 60_000);
+    // v1.15 M2: the desk address search has the passenger route's limit (self-hosted Photon is not for bulk lookups).
+    this.geocodeLimiter = new FixedWindowLimiter(redis?.client ?? null, 'vt:etms:rl:desk-geocode', TRANSPORT_ADHOC_LIMITS.geocodePerMinute, 60_000);
   }
 
   // ───────────────────────────── reads ─────────────────────────────
@@ -243,12 +259,25 @@ export class BookingsService {
   async places(ctx: AuthContext, q: string | undefined): Promise<TransportPlaceOptionDto[]> {
     const term = (q ?? '').trim().slice(0, 100);
     const rows = await this.prisma.poi.findMany({
-      where: { companyId: ctx.companyId, isActive: true, ...(term ? { name: { contains: term, mode: 'insensitive' as const } } : {}) },
+      // v1.15 L1: the POI branch scope (a branch user: its branches' places + company-wide ones; company scope: all).
+      where: { AND: [poiScopeWhere(ctx), { isActive: true }, ...(term ? [{ name: { contains: term, mode: 'insensitive' as const } }] : [])] },
       select: { id: true, name: true, category: true, lat: true, lng: true, companyId: true },
       orderBy: { name: 'asc' },
       take: 50,
     });
     return rows.filter((r) => r.companyId === ctx.companyId).map((r) => ({ id: r.id, name: r.name, category: r.category ?? null, lat: r.lat, lng: r.lng }));
+  }
+
+  /**
+   * GET /transport/bookings/geocode (v1.15 M2): at least geocodeMinChars characters (400), geocodePerMinute searches per
+   * user (429 RATE_LIMITED with retryAfterSec), then the self-hosted geocoder (`search`, PeopleService.geocode).
+   */
+  async geocode(ctx: AuthContext, q: string | undefined, search: (term: string) => Promise<GeocodeCandidate[]>): Promise<GeocodeCandidate[]> {
+    const term = (q ?? '').trim();
+    if (term.length < TRANSPORT_ADHOC_LIMITS.geocodeMinChars) throw invalid(`Type at least ${TRANSPORT_ADHOC_LIMITS.geocodeMinChars} characters`);
+    const rl = await this.geocodeLimiter.hit(ctx.userId);
+    if (!rl.allowed) throw e3Error(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMITED', `Too many searches; try again in ${rl.retryAfterSec} s`, { retryAfterSec: rl.retryAfterSec });
+    return search(term);
   }
 
   async get(ctx: AuthContext, id: string): Promise<TransportBookingDto> {
@@ -323,6 +352,8 @@ export class BookingsService {
     }
     checkWindow(start, end);
     if (end < Date.now()) throw invalid('The window has already passed');
+    // v1.15 L3: a passenger cannot fill the approval queue with many tiny windows.
+    if (actor === 'PASSENGER' && end - start < TRANSPORT_ADHOC_LIMITS.passengerWindowMinMin * 60_000) throw invalid(`The time window must be at least ${TRANSPORT_ADHOC_LIMITS.passengerWindowMinMin} minutes`);
 
     // Points (D-A3): a given point is a company place (poiId) or a personal point that needs the active consent. The
     // COMMUTE defaults: the passenger end = the routing pickup (only with consent, else "needs location", nothing
@@ -367,6 +398,11 @@ export class BookingsService {
     try {
       const { row, push } = await this.prisma.$transaction(async (tx) => {
         await lockPassenger(tx, profile.id);
+        // v1.15 L3: a cap on the passenger's open self-service bookings, counted under the per-passenger lock.
+        if (actor === 'PASSENGER') {
+          const open = await tx.transportBooking.count({ where: { profileId: profile.id, createdById: ctx.userId, status: { in: [...PASSENGER_OPEN_STATUSES] }, windowEnd: { gt: new Date() } } });
+          if (open >= TRANSPORT_ADHOC_LIMITS.passengerOpenMax) throw conflict('TOO_MANY_OPEN_REQUESTS', `You already have ${TRANSPORT_ADHOC_LIMITS.passengerOpenMax} open ride requests; wait for them to be handled or cancel one`);
+        }
         const clash = await tx.transportBooking.findFirst({ where: overlapWhere(profile.id, journey, start, end), select: { id: true } });
         if (clash) throw overlapConflict(clash.id);
         const created = await tx.transportBooking.create({
@@ -633,7 +669,7 @@ export class BookingsService {
         return { rows, push: notified.push };
       });
       await this.notifications.enqueue(push);
-      return { value: { groupId, bookings: await Promise.all(rows.map((r) => this.detail(ctx, r))) }, replay: false };
+      return { value: await this.groupResult(ctx, groupId, rows, false), replay: false };
     } catch (e) {
       if (isUniqueViolation(e, 'idempotencyKey')) {
         // A concurrent twin with the same key committed first: answer as its replay.
@@ -667,7 +703,18 @@ export class BookingsService {
     for (const b of found) assertBookingAccess(ctx, b, 'read');
     const order = new Map(keys.map((k, i) => [k, i]));
     const rows = [...found].sort((a, b) => (order.get(a.idempotencyKey ?? '') ?? 0) - (order.get(b.idempotencyKey ?? '') ?? 0));
-    return { value: { groupId, bookings: await Promise.all(rows.map((r) => this.detail(ctx, r))) }, replay: true };
+    return { value: await this.groupResult(ctx, groupId, rows, true), replay: true };
+  }
+
+  /**
+   * The group answer (detail DTOs). v1.15 L2: with OWN pickups it holds many passengers' personal points (exact for
+   * whole-company roles), so it writes the L1 ACCESS entry as the board / trip / plan reads do.
+   */
+  private async groupResult(ctx: AuthContext, groupId: string, rows: BookingRow[], replay: boolean): Promise<TransportGroupBookingResult> {
+    const bookings = await Promise.all(rows.map((r) => this.detail(ctx, r)));
+    const shown = bookings.filter((b) => (b.pickup && !b.pickup.poiId) || (b.drop && !b.drop.poiId)).map((b) => b.passenger.id);
+    await recordPersonalAccess(this.audit, this.redis, ctx, 'group', shown, preciseFor(ctx, ctx.companyId), { groupId, ...(replay ? { replay: true } : {}) });
+    return { groupId, bookings };
   }
 
   /** Per-passenger duplicate (COMMUTE, same date + direction) and overlap failures for a group's window. */
@@ -863,8 +910,9 @@ export class BookingsService {
    */
   private async point(ctx: AuthContext, p: GeoPoint, consent: boolean): Promise<GeoPoint> {
     if (p.poiId) {
-      const poi = await this.prisma.poi.findFirst({ where: { id: p.poiId, companyId: ctx.companyId, isActive: true }, select: { id: true, name: true, lat: true, lng: true } });
-      if (!poi) throw notEligible('PLACE_NOT_ALLOWED', 'That place is not an active place of your company');
+      // v1.15 L1: only a place in the caller's POI scope (branch users: their branches + company-wide).
+      const poi = await this.prisma.poi.findFirst({ where: { AND: [poiScopeWhere(ctx), { id: p.poiId, isActive: true }] }, select: { id: true, name: true, lat: true, lng: true } });
+      if (!poi) throw notEligible('PLACE_NOT_ALLOWED', 'That place is not an active place of your company or branch');
       return { lat: poi.lat, lng: poi.lng, label: p.label?.trim() || poi.name, poiId: poi.id };
     }
     if (!consent) throw personalPointConsentRequired();

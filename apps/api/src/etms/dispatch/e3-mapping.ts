@@ -123,8 +123,10 @@ export function toBookingDto(r: BookingRow, ctx: Pick<AuthContext, 'companyId' |
     timeZone: r.timeZone,
     pickup,
     drop,
-    pickupLabel: r.pickupLabel,
-    dropLabel: r.dropLabel,
+    // v1.15 M1: a personal end's label (often a geocoded address) follows its coordinates: only on a detail view with
+    // consent. A company place's name is not personal and is always shown. The clients fall back to "Home" / "Map point".
+    pickupLabel: r.pickupPoiId || personalOk ? r.pickupLabel : null,
+    dropLabel: r.dropPoiId || personalOk ? r.dropLabel : null,
     pointsHidden: withheld ? (show.view === 'list' ? 'LIST_VIEW' : 'CONSENT_REQUIRED') : null,
     // From the stored points, not from what this view shows.
     needsLocation: r.pickupLat === null || r.dropLat === null,

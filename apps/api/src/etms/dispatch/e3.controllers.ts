@@ -188,10 +188,11 @@ export class BookingsController {
     return this.bookings.places(ctx, q.q);
   }
 
-  /** WP 3.9: address search for a one-time point, self-hosted Photon only (GEOCODER_NOT_PRIVATE otherwise), as for passengers. */
+  /** WP 3.9: address search for a one-time point, self-hosted Photon only (GEOCODER_NOT_PRIVATE otherwise), as for passengers: ≥ 3 characters, 20 / min per user. */
   @Get('geocode') @RequireAnyPermission(['etms_bookings', 'create'], ['etms_bookings', 'edit'])
-  geocode(@Query() q: GeocodeQuery): Promise<GeocodeCandidate[]> {
-    return this.people.geocode(q.q);
+  geocode(@Auth() ctx: AuthContext, @Query() q: GeocodeQuery): Promise<GeocodeCandidate[]> {
+    // v1.15 M2: minimum length + per-user rate limit, as the passenger route.
+    return this.bookings.geocode(ctx, q.q, (term) => this.people.geocode(term));
   }
 
   @Get(':id') @RequirePermission('etms_bookings', 'view')

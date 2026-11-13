@@ -274,7 +274,7 @@ export const E3_MATRIX: E3Entry[] = [
     // WP 3.9: address search (self-hosted Photon only; geocoder off in the matrix: an empty list).
     route: 'GET transport/bookings/geocode',
     resource: 'booking',
-    invoke: (c) => c.bookings.geocode({ q: '5 Main Road' }),
+    invoke: (c, ctx) => c.bookings.geocode(ctx, { q: '5 Main Road' }),
     expect: { none: LIST },
     verify: (r, role) => {
       if (!Array.isArray(r)) fail(`${role} geocode: not a candidate list`);

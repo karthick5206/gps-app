@@ -33,6 +33,13 @@ export const TRANSPORT_ADHOC_LIMITS = {
   geocodePerMinute: 20,
   geocodeMinChars: 3,
   geocodeMaxHits: 6,
+  /**
+   * v1.15 L3: open self-service bookings per passenger (REQUESTED / PENDING_ASSIGNMENT / WAITLISTED, window not yet
+   * ended, made with the passenger's own login); one more is 409 TOO_MANY_OPEN_REQUESTS. Desk bookings do not count.
+   */
+  passengerOpenMax: 10,
+  /** v1.15 L3: shortest time window (minutes) a passenger may request (400 VALIDATION_FAILED below). */
+  passengerWindowMinMin: 10,
 } as const;
 
 // ───────────────────────────── Passenger ad-hoc request (D-A5, D-A7) ─────────────────────────────

@@ -21,7 +21,7 @@ import { htmlToText, isSendable } from '../templates/render';
 import { loadAlertContext, Rendered, renderTemplate } from '../templates/template-renderer';
 import { withRetries } from './retry';
 import { createPushProvider, PushProvider, pushStyle, transportPushData } from './push';
-import { TRANSPORT_PUSH_CHANNEL } from '@veetracer/shared';
+import { TRANSPORT_PUSH_CHANNEL, type TransportNotificationKind, type TransportPushData } from '@veetracer/shared';
 import { ArattaiOtp } from './arattai';
 import { createSmsProvider, SmsProvider } from './sms';
 import { notConfiguredReason, outcome, writesDevCopy } from './delivery-outcome';
@@ -630,9 +630,11 @@ Driver event: ${link}`,
     if (log.refType !== 'TRANSPORT_NOTIFICATION' || !log.refId) return { test: true };
     const n = await this.prisma.transportNotification.findUnique({ where: { id: log.refId }, select: { id: true, kind: true, tripId: true, bookingId: true } });
     if (!n) return null;
-    // WP 3.9 BOOKING_CREATED: { kind, bookingId, notificationId } (no trip yet); nothing else about the booking.
-    if (n.bookingId) return { transport: true, kind: n.kind, tripId: null, bookingId: n.bookingId, notificationId: n.id };
-    return { transport: true, kind: n.kind, tripId: n.tripId, notificationId: n.id };
+    // WP 3.9 BOOKING_*: { kind, bookingId, notificationId } (no trip yet); nothing else about the booking. Typed against
+    // the shared contract (QA B10) so the payload and TransportPushData cannot drift apart.
+    const kind = n.kind as TransportNotificationKind;
+    if (n.bookingId) return { transport: true, ...({ kind, tripId: null, bookingId: n.bookingId, notificationId: n.id } satisfies TransportPushData) };
+    return { transport: true, ...({ kind, tripId: n.tripId, notificationId: n.id } satisfies TransportPushData) };
   }
 
   // ───────────── caches ─────────────

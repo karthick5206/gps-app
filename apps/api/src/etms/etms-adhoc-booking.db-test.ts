@@ -19,7 +19,8 @@
  */
 jest.mock('@nestjs/mapped-types', () => ({ PartialType: (c: new () => object) => class extends c {} }));
 
-import { HttpException } from '@nestjs/common';
+import { HttpException, StreamableFile } from '@nestjs/common';
+import type { TransportBookingDto } from '@veetracer/shared';
 import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
@@ -278,5 +279,19 @@ d(`E3 WP 3.9 ad-hoc booking on ${dbName}`, () => {
     const mine = trips.find((t) => t.id === tripId)!;
     expect(mine).toMatchObject({ journey: 'POINT_TO_POINT', direction: 'IN', myDrop: { label: 'Terminal 2' } });
     expect(await me.booking(PAX('p1'), b.value.id)).toMatchObject({ status: 'ASSIGNED', tripId, journey: 'POINT_TO_POINT', arrangedByDesk: true });
+  });
+  it('v1.15 M1: list rows, CSV and list search never carry a personal end label; company-place names stay', async () => {
+    const b = await bookings.create(DESK(), p2p(w.profiles.p4, { drop: { lat: 13.0811, lng: 80.2711, label: '9 Synthetic Home Road' }, windowStart: at(20), windowEnd: at(21) }), `${TAG}-m1-1`);
+    expect(b.value).toMatchObject({ dropLabel: '9 Synthetic Home Road' }); // detail with consent
+    const list = (await bookings.list(DESK(), { passengerId: w.profiles.p4, pageSize: 100 } as never)) as { items: TransportBookingDto[] };
+    expect(list.items.find((x) => x.id === b.value.id)).toMatchObject({ pickupLabel: 'Depot A', dropLabel: null, pointsHidden: 'LIST_VIEW' });
+    expect(((await bookings.list(DESK(), { q: 'Synthetic Home' } as never)) as { total: number }).total).toBe(0);
+    const byPlace = (await bookings.list(DESK(), { q: 'Depot A', passengerId: w.profiles.p4 } as never)) as { items: TransportBookingDto[] };
+    expect(byPlace.items.map((x) => x.id)).toContain(b.value.id);
+    const chunks: Buffer[] = [];
+    for await (const c of ((await bookings.list(DESK(), { format: 'csv', passengerId: w.profiles.p4 } as never)) as StreamableFile).getStream()) chunks.push(Buffer.from(c as Buffer));
+    const csv = Buffer.concat(chunks).toString('utf8');
+    expect(csv).toContain('Depot A');
+    expect(csv).not.toContain('Home Road');
   });
 });
