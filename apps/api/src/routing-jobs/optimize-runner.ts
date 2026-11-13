@@ -57,6 +57,21 @@ function subMatrix(m: BuiltMatrix, keep: number[]): BuiltMatrix {
  * the result as a DRAFT plan version. It never publishes: publishing into PlannedTrip / TransportTrip is the plans
  * service's command (doc 15 §8.4). Logs carry ids and counts only, never coordinates or names.
  */
+/** Time kept for the solve after the matrix: the solver's limit plus this (HTTP, model build, result write). */
+export const SOLVE_SLACK_S = 30;
+
+/**
+ * E4 review L3: the matrix build (its queue wait included) must end in time for the solve inside the job's own timer
+ * (claim + timeoutS, job-worker.ts). Default job: timeLimitS + 240 s, so the matrix gets 210 s in all instead of up to
+ * 2 × ETMS_MATRIX_BUDGET_MS. A build cut short this way is MATRIX_BUSY or ENGINE_TIMEOUT (both retried), never the
+ * job's final TIMEOUT.
+ */
+export function matrixDeadline(job: Pick<JobRecord, 'startedAt' | 'timeoutS'>, timeLimitS: number, now = Date.now()): number | undefined {
+  if (!job.timeoutS) return undefined;
+  const start = job.startedAt ? job.startedAt.getTime() : now;
+  return start + (job.timeoutS - timeLimitS - SOLVE_SLACK_S) * 1000;
+}
+
 export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; solver: SolverPort; usage: RoutingUsageHook }): JobRunner {
   return async (ctx) => {
     const { job } = ctx;
@@ -102,6 +117,7 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     await ctx.phase('matrix', PROGRESS.matrixStart);
     const m = await deps.matrix.build(built.points, inputs.profile, {
       signal: ctx.signal,
+      deadlineAt: matrixDeadline(job, input.timeLimitS),
       depots: [...Array(built.firstStopIndex).keys()],
       onProgress: async (done, total) => ctx.progress(phaseProgress(PROGRESS.matrixStart, PROGRESS.matrixEnd, total ? done / total : 0)),
     });

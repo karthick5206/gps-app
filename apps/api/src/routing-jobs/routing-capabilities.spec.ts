@@ -1,7 +1,8 @@
 import type { AuthContext } from '../access/auth-context';
 import { RoutingCapabilitiesService } from './routing-capabilities.controller';
+import { setPlatformRoutingSnapshot } from '../routing-switch/routing-switch';
 
-const ctx = { companyId: 'c1', dataScope: 'COMPANY', permissions: { etms_planning: ['view', 'create', 'command'], etms_dispatch: ['view'] } } as unknown as AuthContext;
+const ctx = { companyId: 'c1', autoRouting: true, dataScope: 'COMPANY', permissions: { etms_planning: ['view', 'create', 'command'], etms_dispatch: ['view'] } } as unknown as AuthContext;
 
 function service(over: { reachable?: boolean; optimizer?: boolean; keys?: string[] } = {}) {
   const provider = {
@@ -34,30 +35,41 @@ describe('GET /api/routing/capabilities', () => {
   const env = { ...process.env };
   afterEach(() => {
     process.env = { ...env };
+    setPlatformRoutingSnapshot(false);
   });
 
-  it('off: enabled false, nothing probed, access still reported', async () => {
+  it('off (v1.16 default: platform switch off): enabled false, offReason PLATFORM_OFF, nothing probed, access still reported', async () => {
     delete process.env.ETMS_ROUTING;
     const { svc, provider, optimizer } = service();
     const r = await svc.get(ctx);
-    expect(r).toMatchObject({ enabled: false, engine: null, engineReachable: false, engineDegraded: 'ENGINE_DISABLED', optimizer: false, workers: 0, liveTraffic: false });
+    expect(r).toMatchObject({ enabled: false, offReason: 'PLATFORM_OFF', engine: null, engineReachable: false, engineDegraded: 'ENGINE_DISABLED', optimizer: false, workers: 0, liveTraffic: false });
     expect(r.access).toMatchObject({ enabled: false, canView: true, canPlan: true, canPublish: false, scope: 'COMPANY' });
     expect(provider.health).not.toHaveBeenCalled();
     expect(optimizer.health).not.toHaveBeenCalled();
   });
 
+  it('v1.16: env kill switch → ENV_OFF; company switch off → COMPANY_OFF (platform numbers still shown)', async () => {
+    setPlatformRoutingSnapshot(true);
+    process.env.ETMS_ROUTING = 'off';
+    expect(await service().svc.get(ctx)).toMatchObject({ enabled: false, offReason: 'ENV_OFF' });
+    delete process.env.ETMS_ROUTING;
+    const r = await service().svc.get({ ...ctx, autoRouting: false } as AuthContext);
+    expect(r).toMatchObject({ enabled: false, offReason: 'COMPANY_OFF', engine: 'graphhopper', workers: 1 });
+    expect(r.access.enabled).toBe(false);
+  });
+
   it('on: engine, optimiser, live workers, matrix limits; uncalibrated ETA bands; never a host or URL', async () => {
-    process.env.ETMS_ROUTING = 'on';
+    setPlatformRoutingSnapshot(true);
     const { svc } = service({ reachable: false, optimizer: false });
     const r = await svc.get(ctx);
-    expect(r).toMatchObject({ enabled: true, engine: 'graphhopper', engineReachable: false, engineDegraded: 'ENGINE_UNREACHABLE', engineVersion: '11.1', optimizer: false, workers: 1 });
+    expect(r).toMatchObject({ enabled: true, offReason: null, engine: 'graphhopper', engineReachable: false, engineDegraded: 'ENGINE_UNREACHABLE', engineVersion: '11.1', optimizer: false, workers: 1 });
     expect(r.matrix.maxPoints).toBeGreaterThan(0);
     expect(Object.values(r.etaBands).every((b) => b === 'uncalibrated')).toBe(true);
     expect(JSON.stringify(r)).not.toMatch(/http|127\.0\.0\.1|8989|8090/);
   });
 
   it('probes are cached for 10 s', async () => {
-    process.env.ETMS_ROUTING = 'on';
+    setPlatformRoutingSnapshot(true);
     const { svc, provider } = service();
     await svc.get(ctx, 1_000);
     await svc.get(ctx, 5_000);

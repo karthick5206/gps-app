@@ -20,6 +20,7 @@ import type { DegradedReason, RoutingProfile } from '../provider/routing-provide
 import type { MatrixPoint } from './matrix-types';
 import { haversineMeters } from '../../tracking/geo';
 import { transportErrorText } from '../engine-text';
+import { readJsonCapped } from '../fetch-like';
 
 export type EngineFailure = { kind: 'failure'; reason: DegradedReason; message: string; transport: boolean };
 
@@ -142,13 +143,13 @@ export class GraphHopperMatrixEngine implements MatrixEngine {
     return withTimeout(timeoutMs, signal, async (s) => {
       let res: Response;
       try {
-        res = await fetch(url, { signal: s });
+        res = await fetch(url, { signal: s, redirect: 'error' }); // E4 gates security L1: a redirect would carry the coordinates elsewhere
       } catch (error) {
         return thrownFailure(error);
       }
       let json: unknown = null;
       try {
-        json = await res.json();
+        json = await readJsonCapped(res); // E4 gates security L2: byte cap
       } catch (error) {
         const name = (error as { name?: string })?.name;
         if (name === 'TimeoutError' || name === 'AbortError') return thrownFailure(error);
@@ -228,7 +229,7 @@ export class GraphHopperMatrixEngine implements MatrixEngine {
     const started = Date.now();
     return withTimeout(HEALTH_TIMEOUT_MS, signal, async (s): Promise<{ ok: true; latencyMs: number } | EngineFailure> => {
       try {
-        const res = await fetch(`${this.baseUrl}/health`, { signal: s });
+        const res = await fetch(`${this.baseUrl}/health`, { signal: s, redirect: 'error' });
         await res.text().catch(() => '');
         if (res.ok) return { ok: true, latencyMs: Date.now() - started };
         return { kind: 'failure', reason: 'ENGINE_UNREACHABLE', message: `GraphHopper /health returned ${res.status}`, transport: true };

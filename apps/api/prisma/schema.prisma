@@ -1973,6 +1973,15 @@ model PointQualitySettings {
   updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 }
 
+/// v1.16 automatic route planning: platform switch (single row "default", Super Admin; no row = OFF). Routing runs for a
+/// company only while this is on, the company's settings.etms.autoRouting is on and ETMS_ROUTING is not "off".
+model RoutingSettings {
+  id          String   @id @default("default")
+  enabled     Boolean  @default(false)
+  updatedById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+}
+
 model RelaySettings {
   id          String   @id @default("default")
   enabled     Boolean  @default(true)

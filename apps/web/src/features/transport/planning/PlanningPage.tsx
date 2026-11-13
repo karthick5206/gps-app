@@ -23,13 +23,14 @@ import { ComparePanel, COMPARE_MAX } from './ComparePanel';
 import { OptimisePanel, type OptimiseState } from './OptimisePanel';
 import { accessLabel, emptyWeights, type WeightDraft } from './planner-format';
 import { CapabilityChip, PlanStatusBadge } from './planner-ui';
+import { RoutingOffState } from './RoutingOffState';
 import { PLANNING_MENU, planPath, plannerErrorMessage, plannerFlagOn, useCapabilities, usePlans, type StartedPlan } from './use-planner';
 
 /**
  * Transport → Route planning (menu etms_planning; E4 WP 4.5, doc 17 P10, doc 07 §5). Optimise (date, direction,
  * sites, shifts, vehicles, explicit weights → one job per shift with progress / cancel), the plans of the day, and a
- * metrics-only comparison. Review, manual edits and publish are on the plan page. Shown only with the web flag
- * `etmsRouting` and when the API reports routing enabled.
+ * metrics-only comparison. Review, manual edits and publish are on the plan page. v1.16: while the API reports automatic
+ * routing off for this company (env, platform or company switch) it says so ("ask your administrator").
  */
 export function PlanningPage() {
   const { t } = useTranslation();
@@ -86,7 +87,7 @@ export function PlanningPage() {
           </p>
         </Card>
       ) : !caps.data?.enabled ? (
-        <EmptyState icon={WaypointsIcon} title={t('Route planning is off')} description={t('Route planning is switched off for this company. Trips are planned on the dispatch board.')} action={<Button asChild variant="outline"><Link to="/transport/dispatch">{t('Open the dispatch board')}</Link></Button>} />
+        <RoutingOffState reason={caps.data?.offReason} />
       ) : (
         <>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">

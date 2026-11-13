@@ -1,3 +1,4 @@
+import { etmsRoutingEnabled } from '../../etms/transport-feature.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normaliseDelta, PrismaRoutingUsageStore, RoutingUsageDay, RoutingUsageService, RoutingUsageStore, usageDay, UsageCounters, USAGE_MAX_DAYS } from './routing-usage.service';
 
@@ -41,9 +42,9 @@ describe('RoutingUsageService', () => {
     expect(normaliseDelta({ routes: 2.7, matrixCells: -5, optimizeJobs: Number.NaN })).toEqual({ routes: 2, matrixCells: 0, optimizeJobs: 0, cacheHits: 0 });
   });
 
-  it('switched off (default): nothing is written or read', async () => {
+  it('switched off (ETMS_ROUTING=off kill switch): nothing is written or read', async () => {
     const store = new MemoryStore();
-    const svc = new RoutingUsageService(prisma, store);
+    const svc = new RoutingUsageService(prisma, store, () => etmsRoutingEnabled({ ETMS_ROUTING: 'off' }));
     await svc.add(CO, { routes: 1 });
     expect(store.calls).toBe(0);
     expect(await svc.list(CO, 7)).toEqual([]);

@@ -8,6 +8,7 @@ import { AppConfigModule } from './config/config.module';
 import { GeocodingModule } from './geocoding/geocoding.module';
 import { HistoryModule } from './history/history.module';
 import { RoutingModule } from './routing/routing.module';
+import { RoutingSwitchModule } from './routing-switch/routing-switch.module';
 import { MapsModule } from './maps/maps.module';
 import { PointQualityModule } from './point-quality/point-quality.module';
 import { ParkingModule } from './parking/parking.module';
@@ -70,6 +71,7 @@ import { EtmsModule } from './etms/etms.module';
     // Before MastersModule: GET /objects/:id/history (?from&to = track history, else the M1 audit history) is served here.
     HistoryModule,
     RoutingModule,
+    RoutingSwitchModule,
     MapsModule,
     PointQualityModule,
     ParkingModule,

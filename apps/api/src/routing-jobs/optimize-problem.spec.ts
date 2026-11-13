@@ -1,6 +1,6 @@
 import type { SolverResult } from '@veetracer/shared';
 import { JobError } from './job-worker';
-import { mapSolverResult, planPoints, siteWindow, snapExclusions, solverProblem } from './optimize-problem';
+import { mapSolverResult, planPoints, siteWindow, siteWindowConflicts, snapExclusions, solverProblem } from './optimize-problem';
 import { BUSY_CODES, TRANSIENT_CODES } from './job-state';
 import { optimizerHealth, solverPort } from './optimizer-port';
 import { RoutingError } from '../routing/routing.errors';
@@ -83,6 +83,19 @@ describe('optimise problem mapping (solver contract v2)', () => {
     expect(siteWindow(b, 86_400)).toEqual([3_000, 4_500]);
     b.siteStops.forEach((s) => (s.timeWindows = null));
     expect(siteWindow(b, 86_400)).toEqual([0, 86_400]);
+  });
+
+  it('E4 review L1: a site stop with several windows contributes the one the others share (no widest-span fallback)', () => {
+    const b = planPoints(syntheticPlan());
+    b.siteStops[0].timeWindows = [[0, 600], [6_000, 6_600]];
+    b.siteStops[1].timeWindows = [[300, 900]];
+    b.siteStops[2].timeWindows = [[200, 700], [6_100, 6_200]];
+    // Before: every window intersected → empty → [0, 6 600]; an arrival at 6 000 then failed the per-booking check.
+    expect(siteWindow(b, 86_400)).toEqual([300, 600]);
+    // The same moment the conflict pass keeps, so it leaves nobody out here.
+    const inp = syntheticPlan();
+    inp.stops.filter((s) => s.atSite).forEach((s, i) => (s.timeWindows = b.siteStops[i].timeWindows));
+    expect(siteWindowConflicts(inp)).toEqual([]);
   });
 
   it('maps a result: routes + site drops at the route end, excluded stops unassigned with their reason, codes kept', () => {

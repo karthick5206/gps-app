@@ -57,6 +57,28 @@ describe('T3-D3 matrix budget and the build queue', () => {
     // b waited ~2 s; it still had its full 3 s to compute (before: about 1 s left, too little at 60 ms per leg).
     expect(done.status).toBe('COMPLETE');
   });
+
+  // E4 review L3: queue + build could take 2 × budget, past the job's own timer (a final TIMEOUT, not retried).
+  it('a caller deadline bounds the queue wait and the build together (busy or ENGINE_TIMEOUT, both retried)', async () => {
+    const { builder } = testBuilder(url, { maxBuilds: 1, queue: 4 });
+    stub.hangRoute = true;
+    const a = builder.buildMatrix(syntheticPoints(6), 'car', { budgetMs: 2_500 });
+    await new Promise((r) => setTimeout(r, 50));
+    const t0 = Date.now();
+    const queued = await builder.buildMatrix(syntheticPoints(6, undefined, 0.03, 17), 'car', { budgetMs: 5_000, deadlineAt: Date.now() + 600 });
+    expect(Date.now() - t0).toBeLessThan(1_500); // the deadline, not the 5 s budget
+    expect(queued.degraded).toMatchObject({ reason: 'LIMIT_EXCEEDED', retryAfterS: 30 });
+    expect(queued.stats.engineCalls).toEqual({ snap: 0, pair: 0, walk: 0 });
+    const past = await builder.buildMatrix(syntheticPoints(6, undefined, 0.03, 19), 'car', { deadlineAt: Date.now() - 1 });
+    expect(past.degraded).toMatchObject({ reason: 'LIMIT_EXCEEDED', retryAfterS: 30 });
+    await a;
+    // Running: the deadline cuts the build budget too.
+    const t1 = Date.now();
+    const cut = await builder.buildMatrix(syntheticPoints(6, undefined, 0.03, 23), 'car', { budgetMs: 5_000, deadlineAt: Date.now() + 700 });
+    expect(Date.now() - t1).toBeLessThan(2_000);
+    expect(cut.status).not.toBe('COMPLETE');
+    expect(cut.degraded?.reason).toBe('ENGINE_TIMEOUT');
+  });
 });
 
 /** Feeds `n` requests of `legs` legs taking `ms(i)` each into the limiter's statistics. */
@@ -110,6 +132,33 @@ describe('T3-D5 adaptive limiter', () => {
     expect(l.limit).toBe(1);
     feed(l, 60, 1, () => 5);
     expect(l.limit).toBe(3);
+  });
+
+  // E4 review M3: builds whose snaps are cached send 50-leg walks only.
+  it('walks only (snaps cached): after a queued spell halves the limit, quiet walks grow it back', () => {
+    const l = new AdaptiveLimiter(3, 60, 20);
+    feed(l, 40, 50, jitter(10 * 50, 0.05)); // normal: 10 ms per leg
+    feed(l, 20, 50, (i) => jitter(10 * 50, 0.05)(i) + 400); // queued behind other work
+    expect(l.limit).toBe(1);
+    feed(l, 40, 50, jitter(10 * 50, 0.05)); // the queue is gone
+    expect(l.limit).toBe(3);
+  });
+
+  it('walks only: walks still queued (above slowLegMs) or slower than their normal never grow the limit', () => {
+    const queued = new AdaptiveLimiter(3, 60, 20);
+    feed(queued, 40, 50, jitter(10 * 50, 0.05));
+    feed(queued, 20, 50, (i) => jitter(10 * 50, 0.05)(i) + 400);
+    feed(queued, 40, 50, (i) => jitter(10 * 50, 0.05)(i) + 100); // 100 ms queue: below halving (240), above 60
+    expect(queued.limit).toBe(1);
+    const slower = new AdaptiveLimiter(3, 60, 20);
+    feed(slower, 40, 50, jitter(10 * 50, 0.05));
+    feed(slower, 20, 50, (i) => jitter(10 * 50, 0.05)(i) + 400);
+    feed(slower, 40, 50, jitter(11.5 * 50, 0.01)); // GraphHopper busy with other users: 15 % slower per leg
+    expect(slower.limit).toBe(1);
+    // A level that persists becomes the walks' new normal (walkRef drifts 25 % per quiet window, as legRef does for
+    // single legs), so a uniformly slower graph is not held at 1 for ever (T3-D5).
+    feed(slower, 200, 50, jitter(11.5 * 50, 0.01));
+    expect(slower.limit).toBe(3);
   });
 });
 
@@ -177,6 +226,56 @@ describe('T3-D4 one GraphHopper in-flight cap across processes (Valkey semaphore
     const t0 = Date.now();
     await l.run(1, async () => undefined);
     expect(Date.now() - t0).toBeGreaterThanOrEqual(30);
+  });
+
+  // E4 review L6
+  it('a script that answers after the op timeout: the request fails open and its late token is removed (no slot held to the TTL)', async () => {
+    const v = fakeValkey();
+    const evalFast = v.eval.bind(v);
+    v.eval = async (...a: Parameters<typeof v.eval>) => {
+      const r = await evalFast(...a); // the server ran it (token added) ...
+      await new Promise((res) => setTimeout(res, 60)); // ... but answers late
+      return r;
+    };
+    const zremFast = v.zrem.bind(v);
+    v.zrem = async (k: string, t: string) => {
+      await new Promise((res) => setTimeout(res, 70)); // queued behind the script on the same connection
+      return zremFast(k, t);
+    };
+    const sem = new ValkeySemaphore(v, 3, { opTimeoutMs: 20 });
+    const release = await sem.acquire();
+    expect(sem.failOpen).toBe(1);
+    release();
+    await new Promise((res) => setTimeout(res, 120));
+    expect(v.held.size).toBe(0); // before: 1 (held until the 60 s TTL)
+  });
+
+  it('waiters poll by SHA (script text sent once, after NOSCRIPT) and back off while the cap is full', async () => {
+    const v = fakeValkey();
+    let evals = 0;
+    let shas = 0;
+    let loaded = false;
+    const evalReal = v.eval.bind(v);
+    v.eval = async (...a: Parameters<typeof v.eval>) => {
+      evals++;
+      loaded = true;
+      return evalReal(...a);
+    };
+    const client = Object.assign(v, {
+      async evalsha(_sha: string, n: number, key: string, ttl: string | number, limit: string | number, token: string) {
+        shas++;
+        if (!loaded) throw new Error('NOSCRIPT No matching script. Please use EVAL.');
+        return evalReal('', n, key, ttl, limit, token);
+      },
+    });
+    for (let i = 0; i < 3; i++) client.held.set(`busy-${i}`, Date.now() + 1_000);
+    const sem = new ValkeySemaphore(client, 3, { pollMs: 25 });
+    const t0 = Date.now();
+    const release = await sem.acquire();
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(900);
+    expect(evals).toBe(1); // the first NOSCRIPT loads it
+    expect(shas).toBeLessThan(20); // fixed 25 ms polling made about 40 calls in 1 s
+    release();
   });
 
   const url = process.env.MATRIX_VALKEY_TEST_URL ?? '';

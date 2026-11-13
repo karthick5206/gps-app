@@ -1,5 +1,5 @@
 [Unit]
-Description=VeeTrax ETMS routing worker (optimisation jobs; inert unless ETMS_ROUTING=on)
+Description=VeeTrax ETMS routing worker (optimisation jobs; idle until "Automatic route planning" is switched on)
 After=network-online.target postgresql.service valkey-server.service veetrax-optimizer.service
 Wants=network-online.target
 
@@ -11,7 +11,8 @@ EnvironmentFile=/opt/veetrax/app/apps/api/.env
 # so it need not be copied into apps/api/.env, which every VeeTrax unit loads. The units that do not call the
 # optimiser (gateway, processor, notifier, summarizer) have this path made inaccessible (InaccessiblePaths).
 Environment=OPTIMIZER_TOKEN_FILE=/etc/veetrax/optimizer.env
-# Exits 0 at once when ETMS_ROUTING is not "on"; Restart=on-failure leaves it stopped then.
+# v1.16: idles (one switch read every 5 s, heartbeat, no engine traffic) while the platform switch is off; exits 0 at
+# once only with ETMS_ROUTING=off (emergency switch), and Restart=on-failure then leaves it stopped.
 # E4 re-check R3: a private /proc with hidepid=invisible (other users' processes are hidden). All VeeTrax units run as
 # the same user "veetrax", and invisible does not hide same-user processes, so this is defence in depth only: separating
 # the optimiser token from the other units for real needs a separate system user for veetrax-api / veetrax-routing-worker

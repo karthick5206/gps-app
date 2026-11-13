@@ -570,6 +570,8 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   INTERNAL_ERROR: 'Unexpected error while optimising. Try again; if it repeats, tell your administrator.',
   MATRIX_INCOMPLETE: 'Not all road distances could be computed yet. The optimisation is retried shortly.',
   MATRIX_BUSY: 'Road distance calculation is busy. The optimisation is retried shortly.',
+  // v1.16: switched off (platform, company or server emergency switch) before the job started.
+  ROUTING_OFF: 'Automatic routing was switched off before this optimisation started. The plan is unchanged; plan by hand or ask your administrator.',
 };
 
 /** Error kind for presentation (E3 pattern): unavailable = engine / optimiser down; conflict = reload and redo. */
@@ -585,6 +587,7 @@ export function plannerErrorKind(code: string | null | undefined, status?: numbe
     case 'ENGINE_TIMEOUT':
     case 'GRAPH_REBUILDING':
     case 'ROUTING_DISABLED':
+    case 'ROUTING_OFF':
     case 'WORKER_LOST':
     case 'MATRIX_INCOMPLETE':
       return 'unavailable';

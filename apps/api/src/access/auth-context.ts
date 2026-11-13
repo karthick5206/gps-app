@@ -57,6 +57,11 @@ export interface AuthContext {
   /** Add-ons of the acting company (Company.settings.features); module menus are stripped from `permissions` without them. */
   features?: CompanyFeature[];
   /**
+   * v1.16: the acting company's own automatic route planning switch (Company.settings.etms.autoRouting). Routing is
+   * active only with the platform switch and the env as well (PlanningFeatureGuard, routing-switch.ts).
+   */
+  autoRouting?: boolean;
+  /**
    * ETMS: active agreements where the acting company is the provider (only when the add-on `etms` is on). Read only
    * through access/transport-scope.ts; existing GPS modules never look at it.
    */

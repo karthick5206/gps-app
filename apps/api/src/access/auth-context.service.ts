@@ -7,6 +7,7 @@ import { resolvePermissions } from './access-rules';
 import { ALL_COMPANIES, withoutUnavailableMenus } from '@veetracer/shared';
 import { ADMIN_ROLE } from './access-rules';
 import { companyFeatures } from '../common/company-features';
+import { companyAutoRouting } from '../routing-switch/routing-switch';
 import { AccessTokenPayload, AuthContext, SharedVehicle, TransportAgreementScope } from './auth-context';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -91,6 +92,8 @@ export class AuthContextService {
       objectIds: user.objects.map((o) => o.objectId),
       shares: dataScope === 'COMPANY' && !allCompanies ? await this.sharesOf(companyId) : [],
       features,
+      // v1.16: the company's automatic route planning switch (planning routes also need the platform switch and the env).
+      ...(features.includes('etms') && !allCompanies && companyAutoRouting(acting.settings) ? { autoRouting: true } : {}),
       // E1b: only a transport provider (add-ons etms + etmsProvider) acts for customers; switching etmsProvider off
       // removes its grants on the next request, like switching etms off.
       agreements: features.includes('etms') && features.includes('etmsProvider') && !allCompanies ? await this.agreementsOf(companyId) : [],

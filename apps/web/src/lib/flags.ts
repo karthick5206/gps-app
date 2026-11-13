@@ -13,8 +13,15 @@
  * Kept free of Vite-only and DOM-only imports at module level so it runs under `node --test`.
  */
 
-/** uiRefresh: visual refresh. etmsRouting: ETMS route planner (E4 WP 4.5; also needs the API's ETMS_ROUTING=on). */
+/**
+ * uiRefresh: visual refresh. etmsRouting: ETMS route planner (E4 WP 4.5). v1.16: etmsRouting defaults ON in every build;
+ * the server decides (ETMS_ROUTING kill switch, the Super Admin's platform switch and the company's own switch), so
+ * "if I enable it, it works" without a rebuild. `-etmsRouting` still hides the planner in a build or browser.
+ */
 export const UI_FLAGS = ['uiRefresh', 'etmsRouting'] as const;
+
+/** Flags that are ON by default in production builds too (server-gated features). */
+export const DEFAULT_ON_FLAGS: readonly UiFlag[] = ['etmsRouting'];
 export type UiFlag = (typeof UI_FLAGS)[number];
 export type UiFlags = Record<UiFlag, boolean>;
 
@@ -41,7 +48,7 @@ export function applyFlagList(flags: UiFlags, list: string | null | undefined): 
 
 /** Resolves flags from the three sources. Pure: everything it needs is passed in. */
 export function resolveFlags(input: { dev: boolean; env?: string | null; override?: string | null }): UiFlags {
-  const defaults = Object.fromEntries(UI_FLAGS.map((f) => [f, input.dev])) as UiFlags;
+  const defaults = Object.fromEntries(UI_FLAGS.map((f) => [f, input.dev || DEFAULT_ON_FLAGS.includes(f)])) as UiFlags;
   return applyFlagList(applyFlagList(defaults, input.env), input.override);
 }
 

@@ -50,3 +50,4 @@ export * from './routing';
 export * from './routing-plans';
 export * from './transport-sos';
 export * from './transport-adhoc';
+export * from './routing-switch';

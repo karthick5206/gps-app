@@ -9,15 +9,106 @@ export DEBIAN_FRONTEND=noninteractive
 
 APP_DIR=/opt/veetrax/app
 PG=18
-DB_PASS="${DB_PASS:?set DB_PASS=<database password> before running}"
+# v1.16: `bash install-ubuntu.sh --routing-only` (as root, no DB_PASS) installs / repairs only the route planning part on
+# a running server (see install_routing below): nothing else is touched, PostgreSQL / Valkey are not restarted.
+MODE="${1:-}"
+if [[ "$MODE" != --routing-only ]]; then
+  DB_PASS="${DB_PASS:?set DB_PASS=<database password> before running}"
+fi
 # Device ports: 5023 Concox, 5027 Teltonika, 6808 JT808 dashcam, 5030 AIS-140, 7612 JT1078 video, 7613 ADAS attachments.
 DEVICE_PORTS="${DEVICE_PORTS:-5023,5027,6808,5030,7612,7613}"
 # PostgreSQL memory budget (the rest of the RAM goes to the app, Valkey, GraphHopper and Photon).
 PG_MEMORY="${PG_MEMORY:-8GB}"
-# ETMS E4 route planning (veetrax-routing-worker + veetrax-optimizer): installed only with ETMS_ROUTING=on (the same
-# switch as in apps/api/.env). Off (default): no unit, no sudoers line, no token file — the install is unchanged.
-ETMS_ROUTING="${ETMS_ROUTING:-off}"
-routing_on() { [[ "$(echo "$ETMS_ROUTING" | tr '[:upper:]' '[:lower:]' | xargs)" == on ]]; }
+# ETMS E4 route planning (veetrax-routing-worker + veetrax-optimizer), v1.16: installed by default (Python 3.14 from the
+# deadsnakes PPA when missing, the optimiser venv from the hashed lock, both units enabled and started, the token file,
+# the sudoers lines). They run IDLE until the Super Admin switches "Automatic route planning" on (Platform Settings →
+# Route planning; it refuses until every readiness check passes) and a company switches it on in Transport → Settings.
+# ETMS_ROUTING=off for this installer skips all of it (no unit, no sudoers line, no token file), as before v1.16.
+ETMS_ROUTING="${ETMS_ROUTING:-auto}"
+routing_on() { [[ "$(echo "$ETMS_ROUTING" | tr '[:upper:]' '[:lower:]' | xargs)" != off ]]; }
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# Route planning (v1.16), idempotent: every step checks what is already there.
+#   1. Python 3.14 + venv (deadsnakes PPA, only when python3.14 is missing; ortools cp314 wheels, doc 17 R-9);
+#   2. /etc/sudoers.d/veetrax-routing: the seven-unit restart release.sh runs once the units exist, the two units
+#      alone, their journal tails (a separate file, so the main sudoers file is never rewritten for this);
+#   3. the two units, /opt/veetrax/venvs, /etc/veetrax/optimizer.env (token generated once, root:veetrax 0640);
+#   4. the optimiser venv from services/routing-optimizer/requirements.lock (hashes required, wheels only), as veetrax,
+#      when the app is checked out (release.sh refreshes it on every release afterwards);
+#   5. OPTIMIZER_URL=http://127.0.0.1:8090 appended to apps/api/.env when it has no OPTIMIZER_URL line (the token stays in
+#      the token file: veetrax-api and veetrax-routing-worker read it through OPTIMIZER_TOKEN_FILE);
+#   6. enable both units and (re)start them when their programs exist. They idle until the switches are on.
+install_routing() {
+  echo "== ETMS route planning: Python 3.14, optimiser venv, veetrax-routing-worker + veetrax-optimizer (idle until switched on)"
+  if ! command -v python3.14 >/dev/null || ! python3.14 -c 'import venv, ensurepip' >/dev/null 2>&1; then
+    if ! { apt-get install -y software-properties-common && add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && apt-get install -y python3.14 python3.14-venv; }; then
+      echo "WARNING: Python 3.14 could not be installed (deadsnakes PPA). veetrax-optimizer cannot start until it is;"
+      echo "         the readiness check in Platform Settings → Route planning will say so. Re-run with --routing-only after fixing it."
+    fi
+  fi
+  local tmp
+  tmp="$(mktemp)"
+  cat > "$tmp" <<'EOF'
+veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer veetrax-routing-worker veetrax-optimizer
+veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-routing-worker, /usr/bin/systemctl restart veetrax-optimizer
+veetrax ALL=(root) NOPASSWD: /usr/bin/journalctl -u veetrax-routing-worker -n 50 --no-pager, /usr/bin/journalctl -u veetrax-optimizer -n 50 --no-pager
+EOF
+  if visudo -cf "$tmp"; then install -m 440 -o root -g root "$tmp" /etc/sudoers.d/veetrax-routing; fi
+  rm -f "$tmp"
+  install -m 644 "$HERE/veetrax-routing-worker.service" "$HERE/veetrax-optimizer.service" /etc/systemd/system/
+  install -d -o veetrax -g veetrax /opt/veetrax/venvs
+  # An existing /etc/veetrax (backup.conf lives there) keeps its owner and mode; only a missing one is created.
+  [[ -d /etc/veetrax ]] || install -d -m 750 -o root -g veetrax /etc/veetrax
+  if [[ ! -s /etc/veetrax/optimizer.env ]]; then
+    (umask 027; echo "OPTIMIZER_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '=+/')" > /etc/veetrax/optimizer.env)
+    chown root:veetrax /etc/veetrax/optimizer.env
+    echo "   created /etc/veetrax/optimizer.env (token for the optimiser, the API and the routing worker; never printed)"
+  fi
+  local venv=/opt/veetrax/venvs/routing-optimizer lock="$APP_DIR/services/routing-optimizer/requirements.lock"
+  if command -v python3.14 >/dev/null && [[ -f "$lock" ]]; then
+    [[ -x "$venv/bin/python" ]] || sudo -u veetrax python3.14 -m venv "$venv" || echo "WARNING: python3.14 -m venv failed"
+    if sudo -u veetrax "$venv/bin/pip" install -q --disable-pip-version-check --require-hashes --no-deps --only-binary=:all: -r "$lock"; then
+      echo "   optimiser venv ready ($("$venv/bin/python" -c 'import platform, ortools; print("Python", platform.python_version(), "OR-Tools", ortools.__version__)'))"
+    else
+      echo "WARNING: the optimiser venv could not be built from $lock (see above)."
+    fi
+  elif [[ ! -f "$lock" ]]; then
+    echo "   no $lock yet: release.sh builds the venv at the first release"
+  fi
+  local envf="$APP_DIR/apps/api/.env" restart_api=0
+  if [[ -f "$envf" ]]; then
+    if ! grep -qE '^[[:space:]]*(export[[:space:]]+)?OPTIMIZER_URL=' "$envf"; then
+      printf '\n# Route optimiser (v1.16, added by install-ubuntu.sh); the token is read from /etc/veetrax/optimizer.env.\nOPTIMIZER_URL=http://127.0.0.1:8090\n' >> "$envf"
+      echo "   added OPTIMIZER_URL=http://127.0.0.1:8090 to $envf"
+      restart_api=1
+    fi
+    if grep -qiE '^[[:space:]]*(export[[:space:]]+)?ETMS_ROUTING=["'"'"']?off' "$envf"; then
+      echo "NOTE: $envf has ETMS_ROUTING=off (emergency switch): routing stays off whatever the UI says. Remove that line"
+      echo "      (or set ETMS_ROUTING=auto) and restart veetrax-api + veetrax-routing-worker to let the switches decide."
+    fi
+  fi
+  systemctl daemon-reload
+  systemctl enable veetrax-routing-worker veetrax-optimizer
+  if [[ -x "$venv/bin/python" ]]; then systemctl restart veetrax-optimizer; fi
+  if [[ -f "$APP_DIR/apps/api/dist/routing-worker/main.js" ]]; then systemctl restart veetrax-routing-worker; fi
+  if (( restart_api )) && systemctl is-active --quiet veetrax-api; then
+    systemctl restart veetrax-api
+    echo "   restarted veetrax-api (new OPTIMIZER_URL)"
+  fi
+  echo "   route planning installed. Status: systemctl status veetrax-optimizer veetrax-routing-worker"
+  echo "   It stays OFF until the Super Admin switches it on in Platform Settings → Route planning (refused until ready)."
+}
+
+if [[ "$MODE" == --routing-only ]]; then
+  [[ "$(id -u)" == 0 ]] || { echo "run as root" >&2; exit 1; }
+  id veetrax >/dev/null 2>&1 || { echo "no 'veetrax' user: run the full installer first" >&2; exit 1; }
+  if ! routing_on; then
+    echo "ETMS_ROUTING=off given to the installer: route planning not installed"
+    exit 0
+  fi
+  install_routing
+  exit 0
+fi
 
 echo "== packages"
 apt-get update
@@ -197,50 +288,22 @@ veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-api, /usr/bin/sy
 veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl reload caddy
 veetrax ALL=(root) NOPASSWD: /usr/bin/journalctl -u veetrax-api -n 50 --no-pager, /usr/bin/journalctl -u veetrax-gateway -n 50 --no-pager, /usr/bin/journalctl -u veetrax-processor -n 50 --no-pager, /usr/bin/journalctl -u veetrax-notifier -n 50 --no-pager, /usr/bin/journalctl -u veetrax-summarizer -n 50 --no-pager
 EOF
-if routing_on; then
-  # release.sh restarts the seven units in exactly this order when ETMS_ROUTING=on.
-  cat >> "$SUDOERS_TMP" <<'EOF'
-veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-api veetrax-gateway veetrax-processor veetrax-notifier veetrax-summarizer veetrax-routing-worker veetrax-optimizer
-veetrax ALL=(root) NOPASSWD: /usr/bin/systemctl restart veetrax-routing-worker, /usr/bin/systemctl restart veetrax-optimizer
-veetrax ALL=(root) NOPASSWD: /usr/bin/journalctl -u veetrax-routing-worker -n 50 --no-pager, /usr/bin/journalctl -u veetrax-optimizer -n 50 --no-pager
-EOF
-fi
+# The route planning lines (v1.16) live in /etc/sudoers.d/veetrax-routing (install_routing below).
 visudo -cf "$SUDOERS_TMP"
 install -m 440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/veetrax
 rm -f "$SUDOERS_TMP"
 trap - EXIT
 
 echo "== systemd services"
-HERE="$(cd "$(dirname "$0")" && pwd)"
 for s in api gateway processor notifier summarizer; do
   install -m 644 "$HERE/veetrax-$s.service" /etc/systemd/system/
 done
-if routing_on; then
-  echo "== ETMS route planning (ETMS_ROUTING=on): veetrax-routing-worker + veetrax-optimizer"
-  install -m 644 "$HERE/veetrax-routing-worker.service" "$HERE/veetrax-optimizer.service" /etc/systemd/system/
-  install -d -o veetrax -g veetrax /opt/veetrax/venvs
-  # Optimiser token (>= 24 chars): generated once, root:veetrax 0640, never printed. veetrax-api and
-  # veetrax-routing-worker read it through OPTIMIZER_TOKEN_FILE (set in their units; E4 security review L9), so it is
-  # NOT copied into apps/api/.env; the other VeeTrax units have the file made inaccessible. The optimiser gets no other
-  # secret. Set OPTIMIZER_URL=http://127.0.0.1:8090 in apps/api/.env.
-  # An existing /etc/veetrax (backup.conf lives there) keeps its owner and mode; only a missing one is created.
-  [[ -d /etc/veetrax ]] || install -d -m 750 -o root -g veetrax /etc/veetrax
-  if [[ ! -s /etc/veetrax/optimizer.env ]]; then
-    (umask 027; echo "OPTIMIZER_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '=+/')" > /etc/veetrax/optimizer.env)
-    chown root:veetrax /etc/veetrax/optimizer.env
-    echo "   created /etc/veetrax/optimizer.env (read by the optimiser, the API and the routing worker; add OPTIMIZER_URL=http://127.0.0.1:8090 to apps/api/.env)"
-  fi
-  # The optimiser needs Python 3.14 (ortools cp314 wheels, doc 17 R-9); release.sh builds the venv with the hashed lock.
-  if ! command -v python3.14 >/dev/null; then
-    echo "WARNING: python3.14 is not installed: veetrax-optimizer cannot start. Install Python 3.14 (+ venv) first;"
-    echo "         this installer does not add a package source for it."
-  fi
-  systemctl daemon-reload
-  systemctl enable veetrax-routing-worker veetrax-optimizer
-else
-  echo "   ETMS route planning not installed (ETMS_ROUTING is not on)"
-fi
 systemctl daemon-reload
+if routing_on; then
+  install_routing
+else
+  echo "   ETMS route planning not installed (ETMS_ROUTING=off given to the installer)"
+fi
 
 echo "== firewall"
 ufw allow OpenSSH

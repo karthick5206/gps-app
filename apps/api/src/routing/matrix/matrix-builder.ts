@@ -154,7 +154,7 @@ export class MatrixBuilder {
     input: MatrixPoint[],
     profile: RoutingProfile = 'car',
   ): Promise<{ ok: true; value: { onRoad: boolean; snapDistanceM: number }[] } | { ok: false; reason: DegradedReason; message: string }> {
-    if (!this.config.enabled) return { ok: false, reason: 'ENGINE_DISABLED', message: 'ETMS routing is off (ETMS_ROUTING is not on).' };
+    if (!this.config.enabled) return { ok: false, reason: 'ENGINE_DISABLED', message: 'ETMS routing is off (ETMS_ROUTING=off).' };
     if (this.source.engine === null) return { ok: false, reason: this.source.reason, message: this.source.message };
     if (input.length > this.config.maxPoints) return { ok: false, reason: 'LIMIT_EXCEEDED', message: `${input.length} points; the limit is ${this.config.maxPoints}.` };
     if (input.some((p) => !validPoint(p))) return { ok: false, reason: 'INVALID_INPUT', message: 'Every point needs a valid latitude / longitude.' };
@@ -219,7 +219,7 @@ export class MatrixBuilder {
       return build;
     };
 
-    if (!this.config.enabled) return empty('ENGINE_DISABLED', 'ETMS routing is off (ETMS_ROUTING is not on); no matrix numbers are available.');
+    if (!this.config.enabled) return empty('ENGINE_DISABLED', 'ETMS routing is off (ETMS_ROUTING=off); no matrix numbers are available.');
     if (this.source.engine === null) return empty(this.source.reason, this.source.message);
     const engine = this.source.engine;
     if (!AVAILABLE_PROFILES.includes(profile)) {
@@ -236,9 +236,12 @@ export class MatrixBuilder {
     // build that queued out is "busy" (LIMIT_EXCEEDED with retryAfterS → the job's MATRIX_BUSY), never ENGINE_TIMEOUT:
     // the engine was not asked.
     const budgetMs = opts.budgetMs ?? this.config.budgetMs;
-    const release = await this.gate.enterWithin(budgetMs, opts.signal);
+    // E4 review L3: a caller deadline caps the wait too (queue + build used to take up to 2 × budget).
+    const waitMs = opts.deadlineAt === undefined ? budgetMs : Math.min(budgetMs, opts.deadlineAt - Date.now());
+    if (waitMs <= 0) return empty('LIMIT_EXCEEDED', 'No time is left for the matrix build before the job deadline; try again shortly.', 30);
+    const release = await this.gate.enterWithin(waitMs, opts.signal);
     if (release === 'full') return empty('LIMIT_EXCEEDED', 'Too many matrix builds are running or queued; try again shortly.', 30);
-    if (release === 'timeout') return empty('LIMIT_EXCEEDED', `Waited ${Math.round(budgetMs / 1000)} s for a free matrix build slot; try again shortly.`, 30);
+    if (release === 'timeout') return empty('LIMIT_EXCEEDED', `Waited ${Math.round(waitMs / 1000)} s for a free matrix build slot; try again shortly.`, 30);
     if (release === 'aborted') return empty('LIMIT_EXCEEDED', 'The matrix build was cancelled.');
     try {
       return await this.run(engine, input, profile, opts, stats, started, empty, Date.now());
@@ -258,7 +261,7 @@ export class MatrixBuilder {
     budgetFrom: number = started,
   ): Promise<MatrixBuild> {
     const n = input.length;
-    const deadline = budgetFrom + (opts.budgetMs ?? this.config.budgetMs);
+    const deadline = Math.min(budgetFrom + (opts.budgetMs ?? this.config.budgetMs), opts.deadlineAt ?? Number.POSITIVE_INFINITY);
     const maxSnap = opts.maxSnapDistanceM ?? this.config.maxSnapDistanceM;
     const budget = new AbortController();
     const budgetTimer = setTimeout(() => budget.abort(new DOMException('budget', 'TimeoutError')), Math.max(0, deadline - Date.now()));

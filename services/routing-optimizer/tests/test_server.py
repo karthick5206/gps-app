@@ -1,5 +1,6 @@
 """Optimizer HTTP security (phase 4): mandatory token, source allow-list, slots -> 429."""
 import json
+import platform
 import socket
 import threading
 import time
@@ -48,6 +49,8 @@ def test_token_required_on_every_endpoint():
         assert call(url, '/optimize', None, PROBLEM)[0] == 401
         code, body = call(url, '/health', TOKEN)
         assert code == 200 and body['slots'] == 2
+        # v1.16 readiness: the API checks the Python version the service runs on.
+        assert body['python'] == platform.python_version()
         code, body = call(url, '/optimize', TOKEN, PROBLEM)
         assert code == 200 and body['status'] in ('FEASIBLE', 'OPTIMAL')
     finally:
@@ -321,6 +324,86 @@ def test_every_early_refusal_of_a_large_body_is_answered_not_reset_review_l4(mon
             except (ConnectionError, OSError) as e:  # BrokenPipe / ConnectionReset before the fix
                 pytest.fail(f'{case}, {size} B body: connection dropped without the answer ({type(e).__name__})')
             assert code == int(case), size
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# E4 activation gates (2026-11-12): security review M1 (pre-auth exhaustion), E4 review L5 (429 drains)
+# ------------------------------------------------------------------------------------------------------------------
+
+def test_header_deadline_is_total_not_per_byte_gates_m1(monkeypatch):
+    """A client trickling one header byte at a time kept its handler thread for ever (the timeout restarted per recv)."""
+    monkeypatch.setattr(server, 'HEADER_TIMEOUT_S', 1)
+    srv, url = start({'OPTIMIZER_TOKEN': TOKEN})
+    host, port = url.removeprefix('http://').split(':')
+    try:
+        with socket.create_connection((host, int(port)), timeout=10) as s:
+            t0 = time.monotonic()
+            closed = False
+            for ch in b'GET /health HTTP/1.1\r\nHost: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\n':
+                try:
+                    s.sendall(bytes([ch]))
+                except OSError:
+                    closed = True
+                    break
+                s.settimeout(0.4)
+                try:
+                    if s.recv(1024) == b'':
+                        closed = True
+                        break
+                except TimeoutError:
+                    pass
+            assert closed, 'the trickling client was never dropped'
+            assert time.monotonic() - t0 < 4
+        assert call(url, '/health', TOKEN)[0] == 200
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_disallowed_sources_cannot_take_every_handler_thread_gates_m1(monkeypatch):
+    monkeypatch.setattr(server, 'MAX_DISALLOWED', 2)
+    srv, url = start({'OPTIMIZER_TOKEN': TOKEN, 'OPTIMIZER_ALLOW': '10.8.0.0/24'})  # loopback NOT allowed
+    host, port = url.removeprefix('http://').split(':')
+    idle = []
+    try:
+        idle = [socket.create_connection((host, int(port)), timeout=10) for _ in range(2)]
+        time.sleep(0.3)
+        with socket.create_connection((host, int(port)), timeout=10) as s3:
+            t0 = time.monotonic()
+            s3.sendall(b'GET /health HTTP/1.1\r\nHost: x\r\n\r\n')
+            assert s3.recv(1024) == b''  # closed before a thread: no 403 for a third disallowed connection
+            assert time.monotonic() - t0 < 1
+        for s in idle:
+            s.close()
+        time.sleep(0.5)
+        assert call(url, '/health', TOKEN)[0] == 403  # the slots are given back
+    finally:
+        for s in idle:
+            s.close()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_a_draining_429_gives_its_authenticated_slot_back_review_l5():
+    """E4 review L5: a 429 drain held its authenticated slot (OPTIMIZER_MAX_CONNECTIONS) for up to DRAIN_MAX_S."""
+    srv = server.build_server('127.0.0.1', 0, {'OPTIMIZER_TOKEN': TOKEN, 'OPTIMIZER_CONCURRENCY': '1', 'OPTIMIZER_MAX_CONNECTIONS': '2'}, solve_fn=stall)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f'http://127.0.0.1:{srv.server_address[1]}'
+    host, port = srv.server_address[:2]
+    try:
+        busy = threading.Thread(target=lambda: call(url, '/optimize', TOKEN, {'options': {'timeLimitS': 1}, 'sleepS': 4}))
+        busy.start()
+        time.sleep(1.0)
+        # Authenticated upload that stalls half way: 429, then the server drains (waits for the rest of the body).
+        with socket.create_connection((host, port), timeout=10) as slow:
+            slow.sendall(f'POST /optimize HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: 200000\r\n\r\n'.encode() + b'{' * 1000)
+            assert b' 429 ' in slow.recv(4096).split(b'\r\n')[0] + b' '
+            # While it drains, a third authenticated request still gets a slot (before: 503 connection limit).
+            assert call(url, '/health', TOKEN)[0] == 200
+        busy.join()
     finally:
         srv.shutdown()
         srv.server_close()

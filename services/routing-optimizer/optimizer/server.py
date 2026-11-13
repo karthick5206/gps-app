@@ -1,7 +1,7 @@
 """Minimal HTTP wrapper (stdlib) for the OR-Tools solver. Private service: token + source allow-list (phase 4).
 
   OPTIMIZER_TOKEN=<secret> python -m optimizer.server [--host 127.0.0.1] [--port 8090]
-  GET  /health    -> {"ok": true, "ortools": "<version>", "limits": {...}, "slots": n, "busy": k}   (token required)
+  GET  /health    -> {"ok": true, "ortools": "<version>", "python": "<x.y.z>", "limits": {...}, "slots": n, "busy": k}   (token required)
   POST /optimize  -> solve(problem)   (body <= 8 MB; OPTIMIZER_CONCURRENCY solves at once, then 429)
 
 Security (owner decision 2026-11-09):
@@ -27,6 +27,13 @@ HEADER_TIMEOUT_S (5 s) to send its request line and headers; handler threads are
 (default 64; further connections are closed at once), and only requests that passed the allow-list and the token
 count toward OPTIMIZER_MAX_CONNECTIONS (default 16; beyond it a JSON 503). Idle unauthenticated sockets therefore
 cost at most 5 s each and never take an authenticated slot.
+
+E4 activation gates (security M1, review L5): the 5 s is a total deadline for the request line and headers (a reaper
+thread closes late sockets; a byte every few seconds no longer resets it); sources outside OPTIMIZER_ALLOW hold at
+most MAX_DISALLOWED handler threads (further ones are closed before a thread starts); a refusal gives its
+authenticated slot back before it drains the body, and at most MAX_DRAINS connections drain at once. Residual risk on
+loopback: a local process can still open OPTIMIZER_MAX_PENDING connections every 5 s (a unix socket with 0660
+permissions would close that; see the E4 gates report).
 """
 from __future__ import annotations
 
@@ -36,6 +43,8 @@ import ipaddress
 import json
 import multiprocessing
 import os
+import platform
+import socket
 import sys
 import threading
 import time
@@ -66,6 +75,13 @@ DRAIN_MAX_S = 15
 # its headers, R2); no drain reads more than DRAIN_MAX_BYTES.
 DRAIN_UNAUTH_MAX_S = 5
 DRAIN_MAX_BYTES = 16 * 1024 * 1024
+# E4 review L5: a drain gives back the authenticated slot first (the answer is already sent), and at most MAX_DRAINS
+# connections drain at once; beyond that the connection is closed at once (the client may then see a reset).
+MAX_DRAINS = 8
+# E4 gates security M1: sources outside OPTIMIZER_ALLOW may hold at most this many handler threads at once (each gets its
+# 403 with a bounded drain); further ones are closed before a thread is started, so a disallowed network cannot use up
+# OPTIMIZER_MAX_PENDING when the service is bound to a non-loopback address.
+MAX_DISALLOWED = 4
 # T3-D8: listen backlog (the default 5 made bursts of 16+ connections wait ~1 s for a SYN retransmit).
 LISTEN_BACKLOG = 64
 
@@ -99,6 +115,7 @@ class Config:
         self.pool: ProcessPoolExecutor | None = None
         self.solve_fn = solve_fn
         self.grace_s = grace_s
+        self.drains = threading.BoundedSemaphore(MAX_DRAINS)
 
     def _drop_pool(self, pool: ProcessPoolExecutor, terminate: bool) -> None:
         with self.lock:
@@ -164,11 +181,37 @@ class BadRequest(Exception):
 
 def make_handler(cfg: Config):
     class Handler(BaseHTTPRequestHandler):
-        server_version = 'veetrax-routing-optimizer/0.3'
+        server_version = 'veetrax-routing-optimizer/0.4'
         # R2: until it has authenticated a client has HEADER_TIMEOUT_S for its request line and headers; an
         # authenticated request gets HANDLER_TIMEOUT_S (L5) for its body.
         timeout = HEADER_TIMEOUT_S
         _authed = False
+
+        # E4 gates security M1: HEADER_TIMEOUT_S is also a TOTAL deadline for the request line and headers (and for an
+        # idle keep-alive connection), not only a per-recv timeout: a client trickling one byte every few seconds used
+        # to keep its thread for ever. The server's reaper shuts such a socket down (see BoundedThreadingHTTPServer).
+        def setup(self) -> None:
+            super().setup()
+            self._arm()
+
+        def _arm(self) -> None:
+            arm = getattr(self.server, 'arm_header_deadline', None)
+            if arm:
+                arm(self, time.monotonic() + HEADER_TIMEOUT_S)
+
+        def _disarm(self) -> None:
+            disarm = getattr(self.server, 'disarm_header_deadline', None)
+            if disarm:
+                disarm(self)
+
+        def parse_request(self) -> bool:
+            ok = super().parse_request()  # the request line was read before; this reads the headers
+            self._disarm()
+            return ok
+
+        def finish(self) -> None:
+            self._disarm()
+            super().finish()
 
         def _send(self, code: int, body: dict) -> None:
             data = json.dumps(body).encode()
@@ -197,15 +240,20 @@ def make_handler(cfg: Config):
             self.connection.settimeout(HANDLER_TIMEOUT_S)
             return True
 
-        def _done(self) -> None:
-            """End of a request: give back the authenticated slot; an idle keep-alive connection is on the header timeout."""
+        def _release_authed(self) -> None:
             if self._authed:
                 self._authed = False
                 cfg.authed.release()
+
+        def _done(self) -> None:
+            """End of a request: give back the authenticated slot; an idle keep-alive connection is on the header timeout."""
+            self._release_authed()
             try:
                 self.connection.settimeout(HEADER_TIMEOUT_S)
             except OSError:
                 pass
+            if not self.close_connection:
+                self._arm()
 
         def _internal(self) -> None:
             exc = sys.exc_info()[0]
@@ -220,7 +268,7 @@ def make_handler(cfg: Config):
                 if not self._guard():
                     return
                 if self.path == '/health':
-                    self._send(200, {'ok': True, 'ortools': ortools.__version__, 'limits': LIMITS, 'slots': cfg.size, 'busy': cfg.busy})
+                    self._send(200, {'ok': True, 'ortools': ortools.__version__, 'python': platform.python_version(), 'limits': LIMITS, 'slots': cfg.size, 'busy': cfg.busy})
                 else:
                     self._send(404, {'error': 'not found'})
             except Exception:  # noqa: BLE001 - never drop the connection without an answer
@@ -247,6 +295,12 @@ def make_handler(cfg: Config):
         def _discard_body(self, length: int, max_s: float = DRAIN_MAX_S) -> None:
             """Reads and drops up to `length` body bytes (at most DRAIN_MAX_BYTES, 64 KB at a time) within `max_s`; stops
             when the client goes quiet for DRAIN_IDLE_S or closes. Errors are ignored: the answer was already sent."""
+            # E4 review L5: the answer is sent, so the authenticated slot is free for others while this drains, and only
+            # MAX_DRAINS connections drain at once.
+            self._release_authed()
+            self.close_connection = True
+            if length <= 0 or not cfg.drains.acquire(blocking=False):
+                return
             left, until = min(length, DRAIN_MAX_BYTES), time.monotonic() + max_s
             try:
                 self.connection.settimeout(DRAIN_IDLE_S)
@@ -257,7 +311,8 @@ def make_handler(cfg: Config):
                     left -= len(chunk)
             except OSError:
                 pass
-            self.close_connection = True
+            finally:
+                cfg.drains.release()
 
         def _read_problem(self, length: int) -> dict:
             raw = self.rfile.read(length)
@@ -329,19 +384,67 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
 
     daemon_threads = True
     max_connections = 64
+    #: Set by build_server; only its allow-list is read here (verify_request).
+    cfg = None
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self._conn = threading.BoundedSemaphore(self.max_connections)
+        self._disallowed = threading.BoundedSemaphore(MAX_DISALLOWED)
+        self._deadlines: dict = {}
+        self._deadline_lock = threading.Lock()
+        self._reaper: threading.Thread | None = None
 
+    # -- E4 gates security M1 -------------------------------------------------------------------------------------
+    def _is_allowed(self, client_address) -> bool:
+        return self.cfg is None or allowed(client_address[0], self.cfg.allow)
+
+    def verify_request(self, request, client_address) -> bool:
+        """A disallowed source gets a thread (and its 403) only while fewer than MAX_DISALLOWED are being answered."""
+        if self._is_allowed(client_address):
+            return True
+        return self._disallowed.acquire(blocking=False)
+
+    def _release_source(self, client_address) -> None:
+        if not self._is_allowed(client_address):
+            self._disallowed.release()
+
+    def arm_header_deadline(self, handler, at: float) -> None:
+        with self._deadline_lock:
+            self._deadlines[handler] = at
+            if self._reaper is None:
+                self._reaper = threading.Thread(target=self._reap, name='header-deadline', daemon=True)
+                self._reaper.start()
+
+    def disarm_header_deadline(self, handler) -> None:
+        with self._deadline_lock:
+            self._deadlines.pop(handler, None)
+
+    def _reap(self) -> None:
+        while True:
+            time.sleep(0.25)
+            now = time.monotonic()
+            with self._deadline_lock:
+                late = [h for h, at in self._deadlines.items() if at <= now]
+                for h in late:
+                    del self._deadlines[h]
+            for h in late:
+                try:
+                    h.connection.shutdown(socket.SHUT_RDWR)  # the blocked read returns b'': the handler ends
+                except OSError:
+                    pass
+
+    # --------------------------------------------------------------------------------------------------------------
     def process_request(self, request, client_address):
         if not self._conn.acquire(blocking=False):
             self.shutdown_request(request)
+            self._release_source(client_address)
             return
         try:
             super().process_request(request, client_address)
         except Exception:
             self._conn.release()
+            self._release_source(client_address)
             raise
 
     def process_request_thread(self, request, client_address):
@@ -349,6 +452,7 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
             super().process_request_thread(request, client_address)
         finally:
             self._conn.release()
+            self._release_source(client_address)
 
 
 def build_server(host: str, port: int, env: dict, solve_fn=solve) -> ThreadingHTTPServer:
@@ -365,7 +469,7 @@ def build_server(host: str, port: int, env: dict, solve_fn=solve) -> ThreadingHT
         cfg.close()
 
     cls = type('Srv', (BoundedThreadingHTTPServer,), {
-        'address_family': __import__('socket').AF_INET6 if family_v6 else __import__('socket').AF_INET,
+        'address_family': socket.AF_INET6 if family_v6 else socket.AF_INET,
         'server_close': server_close,
         'max_connections': max(2, int(env.get('OPTIMIZER_MAX_PENDING', '64'))),
         'request_queue_size': max(LISTEN_BACKLOG, int(env.get('OPTIMIZER_MAX_PENDING', '64'))),

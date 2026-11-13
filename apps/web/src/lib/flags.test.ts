@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { applyFlagAttributes, applyFlagList, flagAttribute, flags, resolveFlags, UI_FLAGS } from './flags.ts';
 
-test('defaults: on in development, off in production', () => {
+test('defaults: on in development, off in production (except the server-gated route planner, v1.16)', () => {
   assert.deepEqual(resolveFlags({ dev: true }), { uiRefresh: true, etmsRouting: true });
-  assert.deepEqual(resolveFlags({ dev: false }), { uiRefresh: false, etmsRouting: false });
+  assert.deepEqual(resolveFlags({ dev: false }), { uiRefresh: false, etmsRouting: true });
 });
 
 test('VITE_UI_FLAGS turns flags on or off', () => {
@@ -28,13 +28,13 @@ test('unknown and malformed names are ignored', () => {
 });
 
 test('module value under node (no Vite env, no localStorage) uses production defaults', () => {
-  for (const f of UI_FLAGS) assert.equal(flags[f], false);
+  for (const f of UI_FLAGS) assert.equal(flags[f], f === 'etmsRouting');
   assert.ok(Object.isFrozen(flags));
 });
 
-test('etmsRouting (route planner) is off in production builds and can be switched on per build or browser', () => {
-  assert.equal(resolveFlags({ dev: false }).etmsRouting, false);
-  assert.equal(resolveFlags({ dev: false, env: 'etmsRouting' }).etmsRouting, true);
+test('v1.16 etmsRouting (route planner) is on in production builds (the server switches decide) and can still be hidden per build or browser', () => {
+  assert.equal(resolveFlags({ dev: false }).etmsRouting, true);
+  assert.equal(resolveFlags({ dev: false, env: '-etmsRouting' }).etmsRouting, false);
   assert.equal(resolveFlags({ dev: false, env: 'etmsRouting', override: '-etmsRouting' }).etmsRouting, false);
   assert.equal(flagAttribute('etmsRouting'), 'data-etms-routing');
 });

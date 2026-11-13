@@ -3,16 +3,18 @@ import { requireSupportReason } from '../access/access-reason';
 import { AuthContext, AuthedRequest } from '../access/auth-context';
 import { customerContextOf } from '../access/transport-scope';
 import { AuditService } from '../audit/audit.service';
+import { routingEnvMode } from '../routing-switch/routing-switch';
 
 /** Server-wide kill switch: ETMS=off hides every ETMS route (doc 15 §9.4 rollback = switch off). */
 export const etmsServerEnabled = (): boolean => (process.env.ETMS ?? '').trim().toLowerCase() !== 'off';
 
 /**
- * ETMS E4 planning / optimisation / routing worker switch (doc 17 §7): off unless ETMS_ROUTING is exactly `on`, and only
- * while ETMS itself is on. Company add-on `etms` still applies per request (TransportFeatureGuard).
+ * ETMS E4 routing at the ENV level (v1.16): true unless the emergency kill switch is pulled (ETMS_ROUTING=off or
+ * ETMS=off). It only says the routing code MAY run in this process (clients configured, worker started); whether
+ * routing is active for a company is decided by the database switches as well (routing-switch/routing-switch.ts:
+ * platform switch + Company.settings.etms.autoRouting, both default OFF). Before v1.16 this was "exactly on".
  */
-export const etmsRoutingEnabled = (env: NodeJS.ProcessEnv = process.env): boolean =>
-  (env.ETMS ?? '').trim().toLowerCase() !== 'off' && (env.ETMS_ROUTING ?? '').trim().toLowerCase() === 'on';
+export const etmsRoutingEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => routingEnvMode(env) === 'auto';
 
 /**
  * QA B1 (safety): routes that the customer picker must NEVER narrow (the SOS / incident lane, banner, bell and siren):

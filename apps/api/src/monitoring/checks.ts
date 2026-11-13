@@ -436,7 +436,7 @@ function mapChecks(input: CheckInput, out: Issue[]): void {
 export const ROUTING_QUEUE_WARN_SEC = 300;
 
 /**
- * ETMS E4 planning (only while ETMS_ROUTING=on; "disabled" raises nothing):
+ * ETMS E4 planning (only while routing is enabled: ETMS_ROUTING not off and the platform switch on; "disabled" raises nothing):
  * - routing.worker CRITICAL: no routing worker heartbeat — optimisation jobs wait in the queue;
  * - routing.engine CRITICAL (chaos R5): GraphHopper not answering while planning is on — no road matrix, optimisation
  *   jobs fail with ENGINE_UNREACHABLE after their retries; no ETA is invented meanwhile;

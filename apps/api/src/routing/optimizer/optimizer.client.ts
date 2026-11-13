@@ -2,10 +2,16 @@ import { Logger } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import { SOLVER_LIMITS, SolverProblem, SolverResult } from '@veetracer/shared';
 import { etmsRoutingEnabled } from '../../etms/transport-feature.guard';
-import { defaultFetch, FetchLike } from '../fetch-like';
+import { defaultFetch, FetchLike, readJsonCapped } from '../fetch-like';
 import { privateServiceUrlProblem } from '../private-url';
 import { RoutingError } from '../routing.errors';
 import { scrubCoordinates } from '../engine-text';
+
+export interface OptimizerHealthInfo {
+  ok: boolean;
+  ortools: string | null;
+  python: string | null;
+}
 
 export interface OptimizerClientConfig {
   baseUrl: string;
@@ -26,7 +32,7 @@ export function tokenFromFile(content: string): string {
 }
 
 /**
- * Reads `OPTIMIZER_URL` and the token. The client is configured only when `ETMS_ROUTING=on`, the URL is a
+ * Reads `OPTIMIZER_URL` and the token. The client is configured only when `ETMS_ROUTING` is not `off` (v1.16), the URL is a
  * private / loopback URL (`privateServiceUrlProblem`) and a token is set (the service refuses to start without one).
  *
  * Token (E4 security review L9): `OPTIMIZER_TOKEN_FILE` (production: /etc/veetrax/optimizer.env, root:veetrax 0640, set
@@ -94,10 +100,27 @@ export class OptimizerClient {
   async health(): Promise<boolean> {
     if (!this.configured) return false;
     try {
-      const res = await this.fetchImpl(`${this.config.baseUrl}/health`, { headers: this.headers(), signal: AbortSignal.timeout(OPTIMIZER_HEALTH_TIMEOUT_MS) });
+      const res = await this.fetchImpl(`${this.config.baseUrl}/health`, { headers: this.headers(), redirect: 'error', signal: AbortSignal.timeout(OPTIMIZER_HEALTH_TIMEOUT_MS) });
       return res.ok;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * v1.16 readiness: /health with what the service reports about itself (OR-Tools and, from optimiser 0.4, Python
+   * version). Never throws; versions are null when not reported or not answering.
+   */
+  async healthInfo(): Promise<OptimizerHealthInfo> {
+    if (!this.configured) return { ok: false, ortools: null, python: null };
+    try {
+      const res = await this.fetchImpl(`${this.config.baseUrl}/health`, { headers: this.headers(), redirect: 'error', signal: AbortSignal.timeout(OPTIMIZER_HEALTH_TIMEOUT_MS) });
+      if (!res.ok) return { ok: false, ortools: null, python: null };
+      const body = ((await readJsonCapped(res).catch(() => null)) ?? {}) as { ortools?: unknown; python?: unknown };
+      const str = (v: unknown) => (typeof v === 'string' && /^[\w.+-]{1,32}$/.test(v) ? v : null);
+      return { ok: true, ortools: str(body.ortools), python: str(body.python) };
+    } catch {
+      return { ok: false, ortools: null, python: null };
     }
   }
 
@@ -110,6 +133,8 @@ export class OptimizerClient {
         method: 'POST',
         headers: this.headers(true),
         body: payload,
+        // E4 gates security L1: never follow a redirect (it would re-send the problem to another host).
+        redirect: 'error',
         signal: AbortSignal.timeout((Math.min(problem.options?.timeLimitS ?? OPTIMIZER_DEFAULT_TIME_LIMIT_S, SOLVER_LIMITS.timeLimitS) + OPTIMIZER_TIMEOUT_SLACK_S) * 1000),
       });
     } catch (e) {
@@ -135,7 +160,14 @@ export class OptimizerClient {
     }
     // A body over the service's limit (413) is final like a rejected problem.
     if (res.status === 413) throw new RoutingError('LIMIT_EXCEEDED', 'The problem is larger than the optimiser accepts');
-    const body = (await res.json().catch(() => ({}))) as Partial<SolverResult>;
+    // E4 gates security L2: the answer is read with a byte cap.
+    let body: Partial<SolverResult>;
+    try {
+      body = ((await readJsonCapped(res)) ?? {}) as Partial<SolverResult>;
+    } catch (e) {
+      if ((e as Error).name === 'ResponseTooLarge') throw new RoutingError('OPTIMIZER_UNAVAILABLE', 'Optimizer answer is too large');
+      body = {};
+    }
     // A rejected problem (HTTP 400: limits or malformed input) is final, never retried (LIMIT_EXCEEDED is not a
     // transient code). Its text is the service's own fixed message, scrubbed and bounded anyway (L4).
     if (res.status === 400) {

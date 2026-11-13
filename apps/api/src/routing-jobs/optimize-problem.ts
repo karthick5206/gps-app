@@ -159,27 +159,46 @@ export function siteWindowConflicts(inp: PlanInputs): PlanInputs['excluded'] {
   if (!inp.direction || !inp.site) return [];
   const site = inp.stops.filter((s) => s.atSite && s.timeWindows?.length);
   if (site.length < 2) return [];
-  const contains = (s: PlanStopInput, t: number) => (s.timeWindows ?? []).some(([a, z]) => a <= t && t <= z);
-  let best: { t: number; n: number } | null = null;
-  for (const t of [...new Set(site.flatMap((s) => (s.timeWindows ?? []).map((w) => w[0])))].sort((a, b) => a - b)) {
-    const n = site.filter((s) => contains(s, t)).length;
-    if (!best || n > best.n) best = { t, n };
-  }
+  const best = bestSitePoint(site);
   if (!best || best.n === site.length) return [];
   const t = best.t;
-  const out = site.filter((s) => !contains(s, t));
+  const out = site.filter((s) => !windowsContain(s, t));
   const bookings = new Set(out.map((s) => s.bookingId).filter((b): b is string => !!b));
   const ids = new Set(out.map((s) => s.id));
   return inp.stops.filter((s) => ids.has(s.id) || (s.bookingId && bookings.has(s.bookingId))).map((s) => ({ stopId: s.id, reason: 'time_window_unreachable' as const, bookingId: s.bookingId }));
 }
 
+const windowsContain = (s: PlanStopInput, t: number) => (s.timeWindows ?? []).some(([a, z]) => a <= t && t <= z);
+
+/** The moment inside the most site stops' windows (always a window start; ties: the earliest) and how many hold it. */
+function bestSitePoint(site: PlanStopInput[]): { t: number; n: number } | null {
+  let best: { t: number; n: number } | null = null;
+  for (const t of [...new Set(site.flatMap((s) => (s.timeWindows ?? []).map((w) => w[0])))].sort((a, b) => a - b)) {
+    const n = site.filter((s) => windowsContain(s, t)).length;
+    if (!best || n > best.n) best = { t, n };
+  }
+  return best;
+}
+
+/**
+ * The trip's one site window, by the same rule as siteWindowConflicts (E4 review L1): the span around the common moment
+ * `t`, i.e. for every site stop the windows of its own that contain `t`, intersected. A stop with several windows
+ * therefore contributes the one the others share, not all of them (intersecting every window of every stop gave an
+ * empty set, then the widest span, and the per-booking check after the solve failed the job). Stops that do not share
+ * a moment were left out before the solve; the widest-span fallback remains only for a caller that skipped that step.
+ */
 export function siteWindow(b: BuiltProblem, horizonS: number): [number, number] {
-  const ws = b.siteStops.flatMap((s) => s.timeWindows ?? []);
-  if (!ws.length) return [0, horizonS];
-  const lo = Math.max(0, Math.max(...ws.map((w) => w[0])));
-  const hi = Math.min(horizonS, Math.min(...ws.map((w) => w[1])));
-  // Several shifts' windows that do not overlap: fall back to the widest common span instead of an empty window.
-  return lo <= hi ? [Math.round(lo), Math.round(hi)] : [Math.round(Math.max(0, Math.min(...ws.map((w) => w[0])))), Math.round(Math.min(horizonS, Math.max(...ws.map((w) => w[1]))))];
+  const site = b.siteStops.filter((s) => s.timeWindows?.length);
+  if (!site.length) return [0, horizonS];
+  const best = bestSitePoint(site)!;
+  if (best.n === site.length) {
+    const own = site.map((s) => (s.timeWindows ?? []).filter(([a, z]) => a <= best.t && best.t <= z));
+    const lo = Math.max(0, ...own.map((ws) => Math.min(...ws.map((w) => w[0]))));
+    const hi = Math.min(horizonS, ...own.map((ws) => Math.max(...ws.map((w) => w[1]))));
+    if (lo <= hi) return [Math.round(lo), Math.round(hi)];
+  }
+  const ws = site.flatMap((s) => s.timeWindows ?? []);
+  return [Math.round(Math.max(0, Math.min(...ws.map((w) => w[0])))), Math.round(Math.min(horizonS, Math.max(...ws.map((w) => w[1]))))];
 }
 
 export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, opts: { timeLimitS: number; objective?: 'duration' | 'distance' }): SolverProblemV2 {

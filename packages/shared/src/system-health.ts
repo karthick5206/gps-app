@@ -1,4 +1,5 @@
 import type { RelayTargetStats } from './relay';
+import type { RoutingEnvMode, RoutingReadinessDto } from './routing-switch';
 
 /**
  * System Health (Super Admin): heartbeats written by every process, the report served by
@@ -145,6 +146,8 @@ export interface RoutingWorkerMetrics {
   lastError: { code: string; at: string } | null;
   /** Last optimiser /health probe of this worker (null = not probed yet). */
   optimizerOk: boolean | null;
+  /** v1.16: the platform switch as this worker last read it (false = idle: it claims jobs only to cancel them). */
+  switchOn?: boolean;
 }
 
 export interface RoleMetrics {
@@ -167,6 +170,13 @@ export interface RoutingHealthDto {
   optimizer: { configured: boolean; ok: boolean; probeUrl: string | null; latencyMs: number | null; error: string | null; checkedAt: string | null };
   /** null when the database could not be asked (or routing is disabled). */
   jobs: { queued: number; running: number; failed24h: number; oldestQueuedAgeSec: number | null } | null;
+  /**
+   * v1.16: the switches (env kill switch and platform switch). `enabled` above = envMode auto and platform on; while it
+   * is false the units may still be installed and idle ("installed, switched off"). Absent on older APIs.
+   */
+  switch?: { envMode: RoutingEnvMode; platform: boolean };
+  /** v1.16: readiness checklist (null while ETMS_ROUTING=off: nothing probed). */
+  readiness?: RoutingReadinessDto | null;
 }
 
 export interface ProcessHeartbeat<R extends ProcessRole = ProcessRole> {

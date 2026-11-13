@@ -80,9 +80,10 @@ describe('matrixHealthIssues', () => {
 });
 
 describe('readMatrixConfig', () => {
-  it('defaults: off, 3 in flight, 120 s budget, auto strategy, 200k cached cells', () => {
+  it('defaults: env allows (v1.16: the database switches gate the callers), 3 in flight, 120 s budget, auto strategy, 200k cached cells', () => {
+    expect(readMatrixConfig({ ETMS_ROUTING: 'off' }).enabled).toBe(false);
     const c = readMatrixConfig({});
-    expect(c).toMatchObject({ enabled: false, concurrency: 3, maxBuilds: 2, budgetMs: 120_000, strategy: 'auto', legsPerRequest: 50, maxPoints: 600, cacheMaxCells: 200_000, graphVersion: null, cacheSecret: null });
+    expect(c).toMatchObject({ enabled: true, concurrency: 3, maxBuilds: 2, budgetMs: 120_000, strategy: 'auto', legsPerRequest: 50, maxPoints: 600, cacheMaxCells: 200_000, graphVersion: null, cacheSecret: null });
   });
   it('clamps numbers, reads the secret fallback and the strategy', () => {
     const c = readMatrixConfig({ ETMS_ROUTING: 'ON', ETMS_MATRIX_CONCURRENCY: '64', ETMS_MATRIX_STRATEGY: 'pairwise', JWT_SECRET: 'j', ETMS_MATRIX_BUDGET_MS: 'x', ETMS_ROUTING_GRAPH_VERSION: ' gv ' });

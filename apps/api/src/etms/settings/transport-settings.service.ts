@@ -17,6 +17,11 @@ export class UpdateTransportSettingsDto {
   @IsOptional() @IsBoolean() selfBooking?: boolean;
   /** WP 3.9 wave 2 (D-A5): passenger bookings wait for approval. Default ON (stored only when switched off). */
   @IsOptional() @IsBoolean() selfBookingApproval?: boolean;
+  /**
+   * v1.16: this company uses automatic route planning. Default off; active only while the platform switch (Super Admin)
+   * is on too. Audited with the rest of the form (entity etms_settings).
+   */
+  @IsOptional() @IsBoolean() autoRouting?: boolean;
 }
 
 /** Key of `Company.settings` that holds the ETMS company settings (TransportSettingsDto). */
@@ -47,7 +52,7 @@ export class TransportSettingsService {
     // Keep `etms` keys this form does not manage (e.g. a hand-set `bookingCutoffMin`); only the DTO keys are rewritten.
     const rawEtms = (company.settings as Record<string, unknown> | null)?.[ETMS_SETTINGS_KEY];
     const unmanaged: Record<string, unknown> = rawEtms && typeof rawEtms === 'object' && !Array.isArray(rawEtms) ? { ...(rawEtms as Record<string, unknown>) } : {};
-    for (const k of ['directoryListed', 'deskPhone', 'selfBooking', 'selfBookingApproval', 'maxRideS']) delete unmanaged[k];
+    for (const k of ['directoryListed', 'deskPhone', 'selfBooking', 'selfBookingApproval', 'maxRideS', 'autoRouting']) delete unmanaged[k];
     const after: TransportSettingsDto = { ...before, ...(dto.directoryListed !== undefined ? { directoryListed: dto.directoryListed } : {}) };
     if (dto.deskPhone !== undefined) {
       if (dto.deskPhone === null || !dto.deskPhone.trim()) delete after.deskPhone;
@@ -61,6 +66,10 @@ export class TransportSettingsService {
       // Default ON: only the switched-off state is stored (absent = approval required).
       if (dto.selfBookingApproval) delete after.selfBookingApproval;
       else after.selfBookingApproval = false;
+    }
+    if (dto.autoRouting !== undefined) {
+      if (dto.autoRouting) after.autoRouting = true;
+      else delete after.autoRouting;
     }
     if (dto.maxRideS !== undefined) {
       if (dto.maxRideS === null) delete after.maxRideS;

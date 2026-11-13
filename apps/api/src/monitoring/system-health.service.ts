@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DatabaseDto,
   GatewayMetrics,
@@ -33,6 +33,8 @@ import { bufferSecondsLeft, CheckInput, evaluateChecks, Issue, NotifyBacklog, st
 import { HEARTBEAT_TTL_SEC } from './heartbeat';
 import { MapServiceMonitor, MapServiceState } from './map-services';
 import { RoutingHealthMonitor } from './routing-health';
+import { RoutingSwitchService } from '../routing-switch/routing-switch.service';
+import { platformRoutingSnapshot } from '../routing-switch/routing-switch';
 import { PrismaJobStore } from '../routing-jobs/prisma-job-store';
 import { etmsRoutingEnabled } from '../routing/matrix/matrix-config';
 import { MATRIX_STATS_KEY, parseMatrixStats } from '../routing/matrix/matrix-metrics';
@@ -93,16 +95,17 @@ export class SystemHealthService {
   private readonly startedAt = Date.now();
   /** GraphHopper / Photon / Martin probes (only the configured ones; results reused for 10 s). */
   readonly mapServices = new MapServiceMonitor();
-  /** ETMS E4 routing worker / optimiser / job queue (DISABLED unless ETMS_ROUTING=on). */
+  /** ETMS E4 routing worker / optimiser / job queue (v1.16: DISABLED unless ETMS_ROUTING is not off and the platform switch is on). */
   private routingMonitor: RoutingHealthMonitor | null = null;
   private get routingHealth(): RoutingHealthMonitor {
-    return (this.routingMonitor ??= new RoutingHealthMonitor(new PrismaJobStore(this.prisma)));
+    return (this.routingMonitor ??= new RoutingHealthMonitor(new PrismaJobStore(this.prisma), undefined, undefined, this.switches ?? { platformOn: async () => platformRoutingSnapshot(), readinessNow: async () => null }));
   }
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     @Inject(APP_ENV) private readonly env: AppEnv,
+    @Optional() private readonly switches: RoutingSwitchService | null = null,
   ) {}
 
   get streams(): StreamDef[] {

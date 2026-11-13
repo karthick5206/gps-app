@@ -68,12 +68,18 @@ export interface WorkerOptions {
   republishAfterMs: number;
   /** One sweeper at a time; resolves true when this worker may sweep now. */
   sweepLock: (owner: string, ttlMs: number) => Promise<boolean>;
+  /**
+   * v1.16 automatic routing switch, asked after the claim and before the run: null = run; otherwise why routing is off
+   * for the job's company, and the job ends FAILED ROUTING_OFF at once (no matrix, no GraphHopper, no optimiser call;
+   * the plan goes back to DRAFT through the final hook). A job already running is never interrupted by a switch-off.
+   */
+  gate?: (job: JobRecord) => Promise<string | null>;
 }
 
 const envMs = (k: string, d: number) => (Number(process.env[k]) > 0 ? Number(process.env[k]) : d);
 
 /** Production defaults; the env overrides exist for the real-process chaos test only. */
-export function defaultWorkerOptions(sweepLock: WorkerOptions['sweepLock']): WorkerOptions {
+export function defaultWorkerOptions(sweepLock: WorkerOptions['sweepLock'], gate?: WorkerOptions['gate']): WorkerOptions {
   const leaseMs = envMs('ROUTING_JOB_LEASE_MS', 60_000);
   return {
     leaseMs,
@@ -81,6 +87,7 @@ export function defaultWorkerOptions(sweepLock: WorkerOptions['sweepLock']): Wor
     sweepMs: envMs('ROUTING_JOB_SWEEP_MS', 30_000),
     republishAfterMs: envMs('ROUTING_JOB_REPUBLISH_MS', 15_000),
     sweepLock,
+    ...(gate ? { gate } : {}),
   };
 }
 
@@ -239,6 +246,8 @@ export class RoutingJobWorker {
     };
     try {
       if (!runner) throw new JobError('INVALID_INPUT', `Unknown job kind ${String(job.kind)}`);
+      const off = this.opts.gate ? await this.opts.gate(job) : null;
+      if (off) throw new JobError('ROUTING_OFF', `Automatic route planning was switched off (${off}) before this optimisation started. The plan is unchanged; plan by hand or ask your administrator.`);
       const out = await Promise.race([runner(ctx), aborted]);
       if (this.killed) return 'lease-lost';
       await ctx.checkpoint(); // a cancel that arrived during the last step wins over the result

@@ -1,5 +1,5 @@
 [Unit]
-Description=VeeTrax ETMS route optimiser (OR-Tools, loopback only; inert unless ETMS_ROUTING=on)
+Description=VeeTrax ETMS route optimiser (OR-Tools, loopback only; called only while automatic route planning is on)
 After=network-online.target
 Wants=network-online.target
 

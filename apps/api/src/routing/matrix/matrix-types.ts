@@ -53,6 +53,12 @@ export interface MatrixBuildOptions {
   pairs?: [number, number][];
   /** Total wall-clock budget for the build; cells not computed in time are reported as unknown. */
   budgetMs?: number;
+  /**
+   * Absolute end (epoch ms) for the whole call, the wait for a build slot included (E4 review L3): the queue wait and
+   * the build budget are both cut to it. The optimisation job passes its own deadline minus the solve's share, so a
+   * queued build can no longer use up the job's time and end it with a final TIMEOUT.
+   */
+  deadlineAt?: number;
   /** Override of the configured snap limit (metres). */
   maxSnapDistanceM?: number;
   /** Cancels the build (e.g. job cancelled); remaining cells are unknown, reason LIMIT_EXCEEDED. */

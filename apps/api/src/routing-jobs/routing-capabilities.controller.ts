@@ -15,12 +15,12 @@ import {
 import { AuthContext } from '../access/auth-context';
 import { Auth, RequirePermission } from '../access/decorators';
 import { etmsRoutingEnabled, TransportFeatureGuard } from '../etms/transport-feature.guard';
-import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
+import { liveRoutingWorkers } from '../routing-switch/routing-readiness';
+import { platformRoutingSnapshot, routingOffReasonNow } from '../routing-switch/routing-switch';
 import { readMatrixConfig } from '../routing/matrix/matrix-config';
 import { OptimizerClient } from '../routing/optimizer/optimizer.client';
 import { ROUTING_PROVIDER, type RoutingProvider } from '../routing/provider/routing-provider';
-import { HEARTBEAT_TTL_SEC } from '../monitoring/heartbeat';
 import { PrismaService } from '../prisma/prisma.service';
 import { maxRidePolicyOf } from './max-ride';
 
@@ -45,21 +45,15 @@ export class RoutingCapabilitiesService {
   ) {}
 
   /** Live routing-worker processes: heartbeat keys `vt:health:proc:routing-worker:*` (TTL 20 s). */
-  async workers(): Promise<number> {
-    try {
-      const now = Date.now();
-      const keys = await this.redis.client.zrangebyscore(RedisKeys.healthProcessIndex, now - HEARTBEAT_TTL_SEC * 1000, '+inf');
-      const mine = keys.filter((k) => k.startsWith(RedisKeys.healthProcess('routing-worker', '')));
-      if (!mine.length) return 0;
-      return (await Promise.all(mine.map((k) => this.redis.client.exists(k)))).reduce((n, e) => n + e, 0);
-    } catch {
-      return 0;
-    }
+  workers(): Promise<number> {
+    return liveRoutingWorkers(this.redis.client);
   }
 
   async get(ctx: AuthContext, now = Date.now()): Promise<RoutingCapabilitiesDto> {
+    // v1.16: env kill switch, platform switch (process snapshot) and the company's own switch (AuthContext).
+    const offReason = routingOffReasonNow(ctx.autoRouting);
     const access = {
-      enabled: etmsRoutingEnabled(),
+      enabled: offReason === null,
       canView: can(ctx.permissions, ETMS_PLANNING_MENU, 'view'),
       canPlan: can(ctx.permissions, ETMS_PLANNING_MENU, 'create'),
       canEdit: can(ctx.permissions, ETMS_PLANNING_MENU, 'edit'),
@@ -73,7 +67,8 @@ export class RoutingCapabilitiesService {
       maxRidePolicyS: await this.maxRidePolicy(ctx),
     };
     if (!this.cached || now - this.cached.at > CACHE_MS) this.cached = { at: now, value: await this.collect() };
-    return { ...this.cached.value, access };
+    // The engine / optimiser / worker numbers are platform-wide; `enabled` is this company's decision.
+    return { ...this.cached.value, enabled: offReason === null, offReason, access };
   }
 
   /**
@@ -92,7 +87,9 @@ export class RoutingCapabilitiesService {
   }
 
   private async collect(): Promise<Omit<RoutingCapabilitiesDto, 'access'>> {
-    const enabled = etmsRoutingEnabled();
+    // Probed only while routing can run at all (env not off and the platform switch on): no GraphHopper / optimiser
+    // traffic from planner page loads while it is switched off.
+    const enabled = etmsRoutingEnabled() && platformRoutingSnapshot();
     const m = readMatrixConfig();
     const etaBands = Object.fromEntries(ETA_BANDS.map((b) => [b, 'uncalibrated'])) as EtaBandStatus;
     const base = { profiles: ROUTING_AVAILABLE_PROFILES, limits: ROUTING_LIMITS, liveTraffic: false as const, attribution: OSM_ATTRIBUTION, etaBands };
@@ -118,8 +115,8 @@ export class RoutingCapabilitiesService {
 
 /**
  * GET /api/routing/capabilities (ETMS planner): whether planning is on, engine / optimiser / worker health and the
- * limits. Behind ETMS auth (company add-on etms, menu etms_planning:view) but NOT behind ETMS_ROUTING, so the planner
- * can say "route planning is switched off". Never returns a host, URL or engine message.
+ * limits. Behind ETMS auth (company add-on etms, menu etms_planning:view) but NOT behind the routing switches, so the
+ * planner can say "automatic routing is switched off" and why (`offReason`: ENV_OFF / PLATFORM_OFF / COMPANY_OFF). Never returns a host, URL or engine message.
  */
 @Controller('routing/capabilities')
 @UseGuards(TransportFeatureGuard)

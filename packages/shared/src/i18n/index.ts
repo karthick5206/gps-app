@@ -8,6 +8,7 @@ import { TRANSPORT_WEB_ADDRESS_HI, TRANSPORT_WEB_ADDRESS_TA } from './transport-
 import { TRANSPORT_PROVIDER_HI, TRANSPORT_PROVIDER_TA } from './transport-provider';
 import { TRANSPORT_MOBILE_SOS_HI, TRANSPORT_MOBILE_SOS_TA } from './transport-mobile-sos';
 import { TRANSPORT_ADHOC_NOTIFY_HI, TRANSPORT_ADHOC_NOTIFY_TA } from './transport-adhoc-notify';
+import { ROUTING_SWITCH_HI, ROUTING_SWITCH_TA } from './routing-switch';
 
 /**
  * UI translations shared by web and mobile. Keys are the English source strings (i18next with keySeparator /
@@ -17,8 +18,8 @@ export const TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Record<string, st
   // The main tables win over the mobile transport table (transport-mobile.ts), the SOS table (transport-sos.ts), the
   // self-service table (transport-self.ts), the provider table (transport-provider.ts) and the r114 mobile SOS table
   // (transport-mobile-sos.ts) for any key they share.
-  hi: { ...TRANSPORT_WEB_ADDRESS_HI, ...TRANSPORT_ADHOC_NOTIFY_HI, ...TRANSPORT_MOBILE_SOS_HI, ...TRANSPORT_SOS_HI, ...TRANSPORT_MOBILE_HI, ...TRANSPORT_SELF_HI, ...TRANSPORT_PROVIDER_HI, ...HI },
-  ta: { ...TRANSPORT_WEB_ADDRESS_TA, ...TRANSPORT_ADHOC_NOTIFY_TA, ...TRANSPORT_MOBILE_SOS_TA, ...TRANSPORT_SOS_TA, ...TRANSPORT_MOBILE_TA, ...TRANSPORT_SELF_TA, ...TRANSPORT_PROVIDER_TA, ...TA },
+  hi: { ...ROUTING_SWITCH_HI, ...TRANSPORT_WEB_ADDRESS_HI, ...TRANSPORT_ADHOC_NOTIFY_HI, ...TRANSPORT_MOBILE_SOS_HI, ...TRANSPORT_SOS_HI, ...TRANSPORT_MOBILE_HI, ...TRANSPORT_SELF_HI, ...TRANSPORT_PROVIDER_HI, ...HI },
+  ta: { ...ROUTING_SWITCH_TA, ...TRANSPORT_WEB_ADDRESS_TA, ...TRANSPORT_ADHOC_NOTIFY_TA, ...TRANSPORT_MOBILE_SOS_TA, ...TRANSPORT_SOS_TA, ...TRANSPORT_MOBILE_TA, ...TRANSPORT_SELF_TA, ...TRANSPORT_PROVIDER_TA, ...TA },
 };
 
 /** i18next options both apps use. */
