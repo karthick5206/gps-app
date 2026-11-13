@@ -535,6 +535,8 @@ export interface TransportNotificationDto {
   title: string;
   body: string;
   tripId: string | null;
+  /** WP 3.9: the booking of a BOOKING_CREATED notification (open GET /me/transport/bookings/:id); absent / null otherwise. */
+  bookingId?: string | null;
   createdAt: string;
   readAt: string | null;
   /** Whether a push was queued for it (false = in-app only: preference off, or no app signed in). */

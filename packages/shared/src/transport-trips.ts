@@ -1010,6 +1010,10 @@ export const TRANSPORT_E3_ERROR_CODES = [
   'IDEMPOTENCY_KEY_REQUIRED',
   'IDEMPOTENCY_KEY_REUSED',
   'RATE_LIMITED',
+  // WP 3.9 ad-hoc booking (see TRANSPORT_INELIGIBLE_REASONS).
+  'LATE_REASON_REQUIRED',
+  'NOT_ELIGIBLE',
+  'BOOKING_OVERLAP',
 ] as const;
 export type TransportE3ErrorCode = (typeof TRANSPORT_E3_ERROR_CODES)[number];
 
