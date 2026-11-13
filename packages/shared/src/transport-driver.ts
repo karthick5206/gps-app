@@ -498,7 +498,7 @@ export const TRANSPORT_NOTIFICATION_TEXT: Record<TransportNotificationKind, { ti
 /**
  * The generic title / body of a notification in the recipient's language (QA B7; doc 12 E5 "templates en / hi / ta"):
  * the English text is the key into the shared hi / ta tables, English when a text or the language is missing. The push
- * data stays `{ kind, tripId, notificationId }` whatever the language.
+ * data stays `{ kind, tripId, notificationId }` (+ `bookingId` on BOOKING_* kinds) whatever the language.
  */
 export function transportNotificationText(kind: TransportNotificationKind, language: string | null | undefined): { title: string; body: string } {
   const en = TRANSPORT_NOTIFICATION_TEXT[kind];
@@ -509,10 +509,15 @@ export function transportNotificationText(kind: TransportNotificationKind, langu
 /** Android notification channel of ETMS pushes (lock-screen visibility PRIVATE, 02 §8.3); created by the app. */
 export const TRANSPORT_PUSH_CHANNEL = 'trip';
 
-/** The complete push `data` payload of an ETMS push (nothing else is ever added). */
+/**
+ * The complete push `data` payload of an ETMS push (nothing else is ever added besides the `transport: true` marker the
+ * notifier sets). QA B10: the WP 3.9 BOOKING_* kinds carry `bookingId` (with `tripId: null`); trip kinds never do.
+ */
 export interface TransportPushData {
   kind: TransportNotificationKind;
   tripId: string | null;
+  /** WP 3.9 BOOKING_CREATED / BOOKING_APPROVED / BOOKING_REJECTED: the booking the push opens; absent otherwise. */
+  bookingId?: string;
   notificationId: string;
 }
 

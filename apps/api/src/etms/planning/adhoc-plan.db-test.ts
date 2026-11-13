@@ -23,6 +23,7 @@ import type { DispatchChangeOp } from '@veetracer/shared';
 import { AuditService } from '../../audit/audit.service';
 import { PlannedTripsService } from '../../planned-trips/planned-trips.service';
 import { dbDescribe } from '../../test/scratch-db';
+import { BookingsService } from '../dispatch/bookings.service';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { TripLiveService } from '../dispatch/trip-live';
 import { RoutePlanCreateService } from './plan-create';
@@ -59,6 +60,7 @@ d(`WP 3.9.5 ad-hoc bookings in E4 plans on ${dbName}`, () => {
   const provider = { routeVia: async () => ({ ok: false, degraded: 'ENGINE_UNREACHABLE', message: 'stopped' }) };
   const plans = new RoutePlansService(prisma as never, audit, dispatch, provider as never);
   const creator = new RoutePlanCreateService(prisma as never, audit, plans);
+  const bookings = new BookingsService(prisma as never, audit, redis as never);
 
   const id = () => randomUUID();
   const w = {
@@ -209,8 +211,9 @@ d(`WP 3.9.5 ad-hoc bookings in E4 plans on ${dbName}`, () => {
     const r = (await creator.create(admin, body(DAY2), `${TAG}-chg`)).value;
     expect(planned(r)).toEqual([a.id, b.id].sort());
     await timeOnFirstRoute(r.id);
-    // A dispatcher PATCHes the ad-hoc pickup (the booking API bumps the version).
-    await sql(`UPDATE "TransportBooking" SET "pickupLat" = ${b.lat + 0.01}, version = version + 1 WHERE id = '${b.id}'`);
+    // A dispatcher PATCHes the ad-hoc pickup through the booking service (QA B10: the real path, which bumps the version).
+    const version = async () => (await prisma.transportBooking.findUniqueOrThrow({ where: { id: b.id } })).version;
+    await bookings.update(admin, b.id, { expectedVersion: await version(), pickup: { lat: b.lat + 0.01, lng: 80.24, label: 'Pickup' } } as never);
     const refused = await errOf(publish(admin, r.id, `${TAG}-chg-1`));
     expect(refused).toMatchObject({ status: 409, code: 'PLAN_NOT_PUBLISHABLE' });
     const issues = refused.body.routes as { code: string; message: string }[];
@@ -220,10 +223,10 @@ d(`WP 3.9.5 ad-hoc bookings in E4 plans on ${dbName}`, () => {
     expect(await prisma.transportTrip.count({ where: { routePlanId: r.id } })).toBe(0);
     expect((await prisma.routePlan.findUniqueOrThrow({ where: { id: r.id } })).status).toBe('DRAFT');
     // The window edited instead: also refused.
-    await sql(`UPDATE "TransportBooking" SET "pickupLat" = ${b.lat}, "windowEnd" = '${DAY2}T03:45:00Z', version = version + 1 WHERE id = '${b.id}'`);
+    await bookings.update(admin, b.id, { expectedVersion: await version(), pickup: { lat: b.lat, lng: 80.24, label: 'Pickup' }, windowEnd: `${DAY2}T03:45:00Z` } as never);
     expect((await errOf(publish(admin, r.id, `${TAG}-chg-2`))).body.routes).toEqual([expect.objectContaining({ code: 'BOOKING_CHANGED' })]);
     // Edited back to what the plan holds (the version moved on): content matches, the plan publishes.
-    await sql(`UPDATE "TransportBooking" SET "windowEnd" = '${WIN(DAY2)[1]}', note = 'gate 2', version = version + 1 WHERE id = '${b.id}'`);
+    await bookings.update(admin, b.id, { expectedVersion: await version(), windowEnd: WIN(DAY2)[1], note: 'gate 2' } as never);
     const ok = await publish(admin, r.id, `${TAG}-chg-3`);
     expect(ok.replay).toBe(false);
     expect(ok.value.trips).toHaveLength(1);
