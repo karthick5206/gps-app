@@ -467,3 +467,15 @@ describe('v1.15 L3 passenger request flooding', () => {
     expect(await codeOf(request(w, short(20, minMin)))).toBe('OK');
   });
 });
+
+describe('QA B9 arrangedByDesk', () => {
+  it('true only for a desk-made ADHOC booking; schedule-generated and own bookings are not "arranged by the desk"', async () => {
+    const w = world();
+    const base = { customerCompanyId: 'custA', profileId: w.ids.pA, journey: 'COMMUTE', direction: 'IN', timeZone: TZ, serviceDate: new Date(`${day(2)}T00:00:00Z`), windowStart: new Date(Date.now() + 48 * 60 * MIN), windowEnd: new Date(Date.now() + 49 * 60 * MIN), status: 'PENDING_ASSIGNMENT', version: 1, passengerCount: 1, createdAt: new Date(), updatedAt: new Date() };
+    const sched = w.store.insert('transportBooking', { ...base, source: 'SCHEDULE', scheduleId: randomUUID(), createdById: null }).id as string;
+    const desk = w.store.insert('transportBooking', { ...base, source: 'ADHOC', createdById: 'u-desk', direction: 'OUT' }).id as string;
+    const mine = (await w.me.bookings(w.pax('u-pA'), {} as never)).map((b) => [b.id, b.arrangedByDesk]);
+    expect(mine).toEqual(expect.arrayContaining([[sched, false], [desk, true]]));
+    expect(await w.me.booking(w.pax('u-pA'), sched)).toMatchObject({ source: 'SCHEDULE', arrangedByDesk: false });
+  });
+});

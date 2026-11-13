@@ -1000,7 +1000,7 @@ export interface MeBookingDto {
   cutoffAt: string | null;
   /** WP 3.9: COMMUTE or POINT_TO_POINT. */
   journey: TransportBookingJourney;
-  /** WP 3.9: made for the passenger by the transport desk (not by the passenger). */
+  /** WP 3.9: an ad-hoc booking made for the passenger by the transport desk (not by the passenger, not a schedule leg). */
   arrangedByDesk: boolean;
   /** WP 3.9 wave 2 (D-A5): the transport team's reason when the booking was REJECTED; null otherwise. */
   statusReason: string | null;
