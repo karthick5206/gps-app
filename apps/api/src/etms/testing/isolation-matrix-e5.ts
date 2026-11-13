@@ -354,6 +354,60 @@ export const E5_MATRIX: E5Entry[] = [
       if ((r as { status: string }).status !== 'REQUESTED') fail(`${role} self-booking not created: ${JSON.stringify(r)}`);
     },
   },
+  // ── WP 3.9 wave 2: passenger ad-hoc requests (D-A7) and own profile / home (D-A9) ──
+  {
+    route: 'POST me/transport/requests',
+    resource: 'mySelfService',
+    prepare: selfOn,
+    invoke: (c, ctx, _t, w) => c.mySelf.request(ctx, { serviceDate: w.e3.later, journey: 'COMMUTE', direction: 'IN', shiftId: w.party.shift, pickup: { kind: 'PLACE', poiId: w.party.place }, destination: { kind: 'SHIFT_SITE' }, purpose: 'Client visit' } as never, randomUUID()),
+    expect: { none: PAX_SELF },
+    verify: (r, role) => {
+      const b = r as { status: string; approval: string; purpose: string | null };
+      if (b.status !== 'REQUESTED' || b.approval !== 'PENDING' || b.purpose !== 'Client visit') fail(`${role} request not created as REQUESTED: ${JSON.stringify(r)}`);
+    },
+  },
+  {
+    route: 'GET me/transport/request-places',
+    resource: 'mySelfService',
+    prepare: selfOn,
+    invoke: (c, ctx) => c.mySelf.requestPlaces(ctx, {}),
+    expect: { none: PAX_SELF },
+    verify: (r, role, _o, _i, w) => {
+      const ids = (r as { id: string }[]).map((p) => p.id);
+      if (ids.includes(w.other.place) || ids.includes('siteB1')) fail(`${role} request places list another company's place`);
+      if (!ids.includes(w.party.place)) fail(`${role} request places miss its own office`);
+    },
+  },
+  {
+    route: 'GET me/transport/profile',
+    resource: 'mySelfService',
+    invoke: (c, ctx) => c.mySelf.profile(ctx),
+    expect: { none: PAX_SELF },
+    verify: (r, role) => {
+      const p = r as { displayName: string; employeeCode: string };
+      if (!p.displayName || JSON.stringify(r).includes('Passenger B1')) fail(`${role} profile is not its own: ${JSON.stringify(r)}`);
+    },
+  },
+  { route: 'PATCH me/transport/profile', resource: 'mySelfService', invoke: (c, ctx) => c.mySelf.updateProfile(ctx, { accessibility: { wheelchair: true } }), expect: { none: PAX_SELF } },
+  {
+    route: 'PUT me/transport/home',
+    resource: 'mySelfService',
+    invoke: (c, ctx) => c.mySelf.setHome(ctx, { lat: 13.071, lng: 80.201, source: 'PIN' }),
+    expect: { none: PAX_SELF },
+    verify: (r, role) => {
+      const h = r as { openBookingsKept: number; profile: { home: { lat: number } | null } };
+      if (typeof h.openBookingsKept !== 'number' || h.profile.home?.lat !== 13.071) fail(`${role} home not set: ${JSON.stringify(r)}`);
+    },
+  },
+  {
+    route: 'GET me/transport/geocode',
+    resource: 'mySelfService',
+    invoke: (c, ctx) => c.mySelf.geocode(ctx, { q: '5 Main Road' }),
+    expect: { none: PAX_SELF },
+    verify: (r, role) => {
+      if (!Array.isArray(r)) fail(`${role} geocode: not a list`);
+    },
+  },
   {
     route: 'GET me/transport/schedule',
     resource: 'mySelfService',

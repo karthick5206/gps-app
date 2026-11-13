@@ -170,6 +170,8 @@ export interface E3Entry {
 }
 
 const key = () => `matrix-${randomUUID()}`;
+/** WP 3.9 wave 2: the second passenger of a group (a copy of the target company's passenger). */
+const GROUP_MATE = '00000000-0000-4000-8000-00000000a39a';
 const set = (store: MemoryStore, model: string, id: string, patch: Obj) => Object.assign(store.table(model).find((r) => r.id === id) ?? {}, patch);
 const started = (store: MemoryStore, ids: E3Ids) => set(store, 'plannedTrip', ids.plannedTrip, { status: 'IN_PROGRESS', actualStart: new Date() });
 const fail = (m: string): never => {
@@ -276,6 +278,32 @@ export const E3_MATRIX: E3Entry[] = [
     expect: { none: LIST },
     verify: (r, role) => {
       if (!Array.isArray(r)) fail(`${role} geocode: not a candidate list`);
+    },
+  },
+  {
+    // WP 3.9 wave 2 (D-A8): group booking. party = two custA passengers; other = custB's passenger and a second custB
+    // passenger: one passenger out of scope → 404 for the whole request, nothing written.
+    route: 'POST transport/bookings/group',
+    resource: 'booking',
+    prepare: (s, t) => {
+      const p = s.table('employeeTransportProfile').find((r) => r.id === t.passenger)!;
+      s.insert('employeeTransportProfile', { ...p, id: GROUP_MATE, employeeCode: `${String(p.employeeCode)}-M`, userId: null });
+      // The drop is a one-time point (D-A3): the mate consents too.
+      s.insert('employeeTransportConsent', { companyId: p.companyId, profileId: GROUP_MATE, purpose: 'TRANSPORT_PROFILE', noticeVersion: 'v1', granted: true, channel: 'WEB', occurredAt: new Date(Date.now() - H) });
+    },
+    invoke: (c, ctx, t, w) => {
+      const start = Date.parse(`${w.later}T04:30:00Z`);
+      const site = { lat: 0, lng: 0, poiId: w.party.place };
+      return c.bookings.createGroup(
+        ctx,
+        { passengerIds: [t.passenger, GROUP_MATE], serviceDate: w.later, journey: 'POINT_TO_POINT', pickup: { mode: 'COMMON', point: site }, drop: { lat: 13.07, lng: 80.25, label: 'Client' }, windowStart: new Date(start).toISOString(), windowEnd: new Date(start + H).toISOString(), purpose: 'Site visit' },
+        key(),
+      );
+    },
+    expect: { party: CREATE_FOR_A, other: OTHER_ROW },
+    verify: (r, role) => {
+      const g = r as { groupId: string; bookings: { groupId: string; purpose: string; groupSize: number }[] };
+      if (g.bookings.length !== 2 || g.bookings.some((b) => b.groupId !== g.groupId || b.purpose !== 'Site visit' || b.groupSize !== 2)) fail(`${role} group not created as one group: ${JSON.stringify(g)}`);
     },
   },
   { route: 'GET transport/bookings/:id/events', resource: 'booking', invoke: (c, ctx, t) => c.bookings.events(ctx, t.booking), expect: { party: BOOKING_READ, other: OTHER_ROW } },

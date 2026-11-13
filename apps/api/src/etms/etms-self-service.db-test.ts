@@ -116,7 +116,7 @@ d(`E5 WP 5.3 passenger self-service on ${dbName}`, () => {
     const key = `${TAG}-book-1`;
     const body = { serviceDate: tomorrow, direction: 'IN', shiftId: w.shiftA, place: { kind: 'HOME' } } as never;
     const r = await svc.createBooking(A(), body, key);
-    expect(r.value).toMatchObject({ status: 'PENDING_ASSIGNMENT', serviceDate: tomorrow, direction: 'IN', dropLabel: 'Office A' });
+    expect(r.value).toMatchObject({ status: 'REQUESTED', approval: 'PENDING', serviceDate: tomorrow, direction: 'IN', dropLabel: 'Office A' });
     const row = await prisma.transportBooking.findUniqueOrThrow({ where: { id: r.value.id } });
     expect(row).toMatchObject({ customerCompanyId: w.a, profileId: w.profiles.a, passengerCount: 1, createdById: w.users.a, pickupLat: 13.0612, dropPoiId: w.siteA });
     expect(row.windowStart.getTime() - row.cutoffAt!.getTime()).toBe(60 * MIN);

@@ -472,8 +472,9 @@ describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
     for (const c of [DriverController, MyTransportNotificationsController, MyTransportBookingsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     // WP 5.4 (EtmsSafetyModule, imported): passenger SOS (2), driver SOS (2), dispatcher incidents (4).
     for (const c of [MySosController, DriverSosController, IncidentsController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
-    // E5 WP 5.3 (EtmsSelfServiceModule, imported): 9 passenger self-service routes.
-    expect(ROUTES.filter((r) => r.controller === MySelfServiceController).length).toBe(9);
+    // E5 WP 5.3 (EtmsSelfServiceModule, imported): 9 passenger self-service routes + 6 of WP 3.9 wave 2 (requests,
+    // request-places, profile GET / PATCH, home, geocode).
+    expect(ROUTES.filter((r) => r.controller === MySelfServiceController).length).toBe(15);
     // 13 E5 driver routes + 2 driver SOS routes (WP 5.4).
     expect(ROUTES.filter((r) => r.key.includes(' driver/v1/')).length).toBe(15);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
