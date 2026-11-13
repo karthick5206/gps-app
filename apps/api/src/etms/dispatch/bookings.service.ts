@@ -559,7 +559,11 @@ export class BookingsService {
     }
     const conflicts = (db: Pick<Prisma.TransactionClient, 'transportBooking'>, only: string[]) => this.groupConflicts(db, only, journey, day, direction, start, end);
     failures.push(...(await conflicts(this.prisma, ids.filter((id) => !failures.some((f) => f.passengerId === id)))));
-    if (failures.length) throw groupInvalid(failures);
+    if (failures.length) {
+      const twin = await this.groupReplay(ctx, [...keys.values()], hash); // HD1: a parallel twin committed meanwhile
+      if (twin) return twin;
+      throw groupInvalid(failures);
+    }
 
     const groupId = randomUUID();
     const status = dto.hold ? 'REQUESTED' : 'PENDING_ASSIGNMENT';
@@ -636,6 +640,12 @@ export class BookingsService {
         const twin = await this.groupReplay(ctx, [...keys.values()], hash);
         if (twin) return twin;
         throw idempotencyReused();
+      }
+      if (codeOf(e) === 'GROUP_INVALID') {
+        // HD1: the "conflict" found under the lock may be this very request's twin (same key, sent in parallel).
+        const twin = await this.groupReplay(ctx, [...keys.values()], hash);
+        if (twin) return twin;
+        throw e;
       }
       if (isUniqueViolation(e) || isOverlapExclusion(e)) {
         // A concurrent single booking won a passenger's slot after our checks: say who, nothing was written.
