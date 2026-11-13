@@ -1,17 +1,17 @@
-import { useQuery } from '@tanstack/react-query';
 import type { MePlaceDto } from '@veetracer/shared';
 import { router } from 'expo-router';
 import { MapPinIcon, PencilIcon, Trash2Icon } from 'lucide-react-native';
-import { useDeferredValue, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, Alert, Keyboard, Pressable, ScrollView, View } from 'react-native';
-import { Button, Card, ErrorBanner, Field, SearchInput, SectionTitle, Text } from '@/components/ui';
+import { ActivityIndicator, Alert, ScrollView, View } from 'react-native';
+import { Button, Card, ErrorBanner, Field, SectionTitle, Text } from '@/components/ui';
 import { api } from '@/lib/api';
 import { SPACE, useColors } from '@/lib/theme';
 import { isNotPassenger, transportErrorText } from '../passenger-api';
 import { SELF_LIMITS } from '../self-service';
 import { selfServiceErrorText, useDeletePlace, useMyPlaces, useMyPolicy, useSavePlace } from '../self-service-api';
 import { TOUCH, TransportEmpty } from '../ui';
+import { AddressAutocomplete } from './AddressAutocomplete';
 
 interface Found {
   label: string;
@@ -19,55 +19,21 @@ interface Found {
   lng: number;
 }
 
-/** Address search through the VeeTrax server (`/geocode/search`, self-hosted geocoder): the phone's location is never read. */
+const searchPlaces = (q: string, signal: AbortSignal) => api.get<Found[]>('/geocode/search', { q }, signal);
+
+/** Address search through the VeeTrax server (`/geocode/search`, self-hosted geocoder), suggestions as you type: the phone's location is never read. */
 function AddPlace({ onDone }: { onDone: () => void }) {
   const { t } = useTranslation();
-  const c = useColors();
   const save = useSavePlace();
-  const [q, setQ] = useState('');
   const [picked, setPicked] = useState<Found | null>(null);
   const [label, setLabel] = useState('');
-  const search = useDeferredValue(q.trim());
-  const ready = search.length >= 3 && !picked;
-  const results = useQuery({
-    queryKey: ['geocode-search', 'my-places', search],
-    queryFn: ({ signal }) => api.get<Found[]>('/geocode/search', { q: search }, signal),
-    enabled: ready,
-    staleTime: 60_000,
-  });
   const choose = (f: Found) => {
-    Keyboard.dismiss();
     setPicked(f);
-    setQ(f.label);
     if (!label) setLabel(f.label.split(',')[0]?.slice(0, SELF_LIMITS.placeLabelMax) ?? '');
   };
   return (
     <Card style={{ gap: SPACE.sm }}>
-      <SearchInput
-        value={q}
-        onChangeText={(v) => {
-          setQ(v);
-          setPicked(null);
-        }}
-        placeholder={t('Search an address or place')}
-        accessibilityLabel={t('Search an address or place')}
-        returnKeyType="search"
-      />
-      {ready && results.isFetching && <ActivityIndicator accessibilityLabel={t('Searching…')} />}
-      {ready && !results.isFetching && (results.data ?? []).length === 0 && (
-        <Text size="sm" tone="muted">
-          {t('No places found')}
-        </Text>
-      )}
-      {ready &&
-        (results.data ?? []).slice(0, 6).map((f) => (
-          <Pressable key={`${f.lat},${f.lng}`} onPress={() => choose(f)} accessibilityRole="button" style={{ minHeight: TOUCH, flexDirection: 'row', gap: SPACE.sm, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: c.border }}>
-            <MapPinIcon size={16} color={c.mutedForeground} />
-            <Text size="sm" style={{ flex: 1 }}>
-              {f.label}
-            </Text>
-          </Pressable>
-        ))}
+      <AddressAutocomplete<Found> search={searchPlaces} onPick={choose} onTextChange={() => setPicked(null)} />
       {picked && (
         <>
           <Field label={t('Name of the place')} value={label} onChangeText={setLabel} maxLength={SELF_LIMITS.placeLabelMax} />

@@ -67,14 +67,46 @@ export function myMapStops(trip: Pick<MeTripDto, 'myPickupPoint' | 'myDropPoint'
   return out;
 }
 
-export function isFinished(trip: Pick<MeTripDto, 'window' | 'derivedState'>, nowMs: number): boolean {
-  return FINISHED.includes(trip.derivedState) || Date.parse(trip.window.end) < nowMs - 2 * 60 * MIN;
+/** Trip states in which the vehicle is on its way (started, not completed). */
+const RUNNING: readonly string[] = ['EN_ROUTE', 'AT_STOP', 'IN_PROGRESS'];
+/** My own seat states after which the trip is over for me, whatever the trip itself still says. */
+const SEAT_DONE: readonly string[] = ['DROPPED', 'NO_SHOW', 'CANCELLED'];
+/** A trip not started is history 2 h after its end; a started one only 12 h after (the driver may complete it late). */
+const PAST_AFTER_MS = 2 * 60 * MIN;
+const RUNNING_PAST_AFTER_MS = 12 * 60 * MIN;
+
+type ListFields = Pick<MeTripDto, 'window' | 'derivedState'> & Partial<Pick<MeTripDto, 'myStatus' | 'myStop' | 'plannedStart' | 'plannedEnd'>>;
+
+/** Sort key (ms): my booking window start (as before, now as an instant), else the trip's planned start, else my pickup. */
+function startMs(t: ListFields): number {
+  for (const iso of [t.window.start, t.plannedStart, t.myStop?.plannedAt]) {
+    const v = iso ? Date.parse(iso) : Number.NaN;
+    if (Number.isFinite(v)) return v;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function endMs(t: ListFields): number {
+  const ends = [t.window.end, t.plannedEnd].map((iso) => (iso ? Date.parse(iso) : Number.NaN)).filter(Number.isFinite);
+  return ends.length ? Math.max(...ends) : Number.NaN;
+}
+
+/**
+ * Over for me: the trip is completed / incomplete / cancelled / detached, or my own seat is dropped / no-show /
+ * cancelled (the trip may still run for others), or it ended long ago. Compared as instants, so any ISO offset works.
+ */
+export function isFinished(trip: ListFields, nowMs: number): boolean {
+  if (FINISHED.includes(trip.derivedState)) return true;
+  if (trip.myStatus && SEAT_DONE.includes(trip.myStatus)) return true;
+  const end = endMs(trip);
+  if (!Number.isFinite(end)) return false;
+  return end < nowMs - (RUNNING.includes(trip.derivedState) ? RUNNING_PAST_AFTER_MS : PAST_AFTER_MS);
 }
 
 /** Upcoming first (soonest first), then past ones (most recent first). */
-export function sortMyTrips<T extends Pick<MeTripDto, 'window' | 'derivedState'>>(trips: readonly T[], nowMs: number): T[] {
-  const upcoming = trips.filter((t) => !isFinished(t, nowMs)).sort((a, b) => a.window.start.localeCompare(b.window.start));
-  const past = trips.filter((t) => isFinished(t, nowMs)).sort((a, b) => b.window.start.localeCompare(a.window.start));
+export function sortMyTrips<T extends ListFields>(trips: readonly T[], nowMs: number): T[] {
+  const upcoming = trips.filter((t) => !isFinished(t, nowMs)).sort((a, b) => startMs(a) - startMs(b));
+  const past = trips.filter((t) => isFinished(t, nowMs)).sort((a, b) => startMs(b) - startMs(a));
   return [...upcoming, ...past];
 }
 
@@ -93,7 +125,7 @@ export function dayIn(timeZone: string, nowMs: number): string {
  * Today / upcoming / past buckets for the passenger home. "Today" is the trip's service date in its own time zone
  * (overnight shifts: doc 08 §6.3), unless the trip is already finished.
  */
-export function tripBuckets<T extends Pick<MeTripDto, 'window' | 'derivedState' | 'serviceDate' | 'timeZone'>>(trips: readonly T[], nowMs: number): { today: T[]; upcoming: T[]; past: T[] } {
+export function tripBuckets<T extends ListFields & Pick<MeTripDto, 'serviceDate' | 'timeZone'>>(trips: readonly T[], nowMs: number): { today: T[]; upcoming: T[]; past: T[] } {
   const sorted = sortMyTrips(trips, nowMs);
   const today: T[] = [];
   const upcoming: T[] = [];
@@ -106,9 +138,14 @@ export function tripBuckets<T extends Pick<MeTripDto, 'window' | 'derivedState' 
   return { today, upcoming, past };
 }
 
-/** The trip to put on the home card: the live one, else the next unfinished one. */
-export function nextTrip<T extends Pick<MeTripDto, 'window' | 'derivedState' | 'liveVisible'>>(trips: readonly T[], nowMs: number): T | null {
-  return trips.find((t) => t.liveVisible && !isFinished(t, nowMs)) ?? sortMyTrips(trips, nowMs).find((t) => !isFinished(t, nowMs)) ?? null;
+/**
+ * The trip for the home card (R1151 B5): the one under way for me (started, my seat not dropped / no-show / cancelled),
+ * else one whose vehicle window is open, else the earliest not-finished one. A finished trip or a seat I already left
+ * is never "next", even while its vehicle window is still open; those are under "Recent trips".
+ */
+export function nextTrip<T extends ListFields & Pick<MeTripDto, 'liveVisible'>>(trips: readonly T[], nowMs: number): T | null {
+  const open = sortMyTrips(trips, nowMs).filter((t) => !isFinished(t, nowMs));
+  return open.find((t) => RUNNING.includes(t.derivedState)) ?? open.find((t) => t.liveVisible) ?? open[0] ?? null;
 }
 
 /** "HH:mm" of an ISO time in the trip's zone (falls back to the device zone). */

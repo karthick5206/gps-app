@@ -12,7 +12,7 @@ jest.mock('../self-service-api', () => ({
   useMyPolicy: () => ({ data: { stops: [{ id: 'stop-1', name: 'Gate 2 stop' }] } }),
   useSaveProfile: jest.fn(),
   useSetHome: jest.fn(),
-  useAddressSearch: () => ({ data: [], isFetching: false, isError: false, isSuccess: true }),
+  searchAddress: jest.fn(async () => []),
 }));
 
 // Synthetic person only.

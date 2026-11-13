@@ -170,23 +170,16 @@ export function useRequestPlaces(q: string, enabled = true) {
 /**
  * Address search through the VeeTrax server only (self-hosted Photon): the passenger route
  * `GET /me/transport/geocode?q=` (D-A9); a server without it (404) falls back to the general `/geocode/search` the
- * saved-places screen already uses. The phone's location is never read.
+ * saved-places screen already uses. The phone's location is never read. Called by AddressAutocomplete (debounced,
+ * one request at a time, the previous one aborted through `signal`).
  */
-export function useAddressSearch(q: string, enabled = true) {
-  return useQuery({
-    queryKey: ['geocode-search', 'me-transport', q],
-    queryFn: async ({ signal }) => {
-      try {
-        return await api.get<MeGeocodeHitDto[]>('/me/transport/geocode', { q }, signal);
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 404 && !err.code) return api.get<MeGeocodeHitDto[]>('/geocode/search', { q }, signal);
-        throw err;
-      }
-    },
-    enabled: enabled && q.length >= 3,
-    retry: noRetryOn4xx,
-    staleTime: 60_000,
-  });
+export async function searchAddress(q: string, signal?: AbortSignal): Promise<MeGeocodeHitDto[]> {
+  try {
+    return await api.get<MeGeocodeHitDto[]>('/me/transport/geocode', { q }, signal);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404 && !err.code) return api.get<MeGeocodeHitDto[]>('/geocode/search', { q }, signal);
+    throw err;
+  }
 }
 
 export function useMyProfile() {

@@ -14,6 +14,14 @@ appId: ${APP_ID || "com.sasvata.veetrax"}
 - tapOn:
     id: "login-email"
 - inputText: ${EMAIL}
+# Some keyboards (Gboard with its toolbar on a 1080x2400 screen) cover the password field. Only then press BACK: with
+# the keyboard open, BACK closes the keyboard and never reaches the app.
+- runFlow:
+    when:
+      notVisible:
+        id: "login-password"
+    commands:
+      - pressKey: back
 - tapOn:
     id: "login-password"
 - inputText: ${PASSWORD}

@@ -11,7 +11,7 @@ jest.mock('../self-service-api', () => ({
   useMyPolicy: jest.fn(),
   useMyPlaces: () => ({ data: [], isPending: false, isError: false, isSuccess: true }),
   useRequestPlaces: () => ({ data: [{ id: 'poi-1', name: 'Tech Park Gate 2', category: 'OFFICE' }], isPending: false, isError: false, isSuccess: true, refetch: jest.fn() }),
-  useAddressSearch: () => ({ data: [], isFetching: false, isError: false, isSuccess: true }),
+  searchAddress: jest.fn(async () => []),
   useAttemptKey: () => ['key-1', jest.fn()],
   useRequestRide: jest.fn(),
 }));

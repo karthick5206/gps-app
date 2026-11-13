@@ -38,13 +38,21 @@ export function useMyTrips() {
 }
 
 export function useMyTrip(id: string) {
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: [...KEY, 'trip', id],
     queryFn: ({ signal }) => api.get<MeTripDto>(`/me/transport/trips/${id}`, undefined, signal),
     retry: noRetryOn4xx,
     // The trip screen refreshes status every 15 s while it is open (doc 05 §5.5); react-query stops when unmounted.
     refetchInterval: ME_POLL_MS,
   });
+  // R1151 B5: the home list polls only every 60 s; carry the fresher trip state back into it, so going back to
+  // My commute after a drop / completion does not show the finished trip as "Next trip" for up to a minute.
+  const fresh = query.data;
+  useEffect(() => {
+    if (fresh) qc.setQueryData<MeTripDto[]>([...KEY, 'trips'], (list) => list?.map((t) => (t.passengerTripId === fresh.passengerTripId ? fresh : t)));
+  }, [fresh, qc]);
+  return query;
 }
 
 /** The vehicle, polled every 15 s only while `enabled` (inside the trip window and the screen is open). */
