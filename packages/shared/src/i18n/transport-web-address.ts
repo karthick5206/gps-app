@@ -6,9 +6,15 @@
 export const TRANSPORT_WEB_ADDRESS_HI: Record<string, string> = {
   'Too many address searches. Wait a moment and try again.': 'बहुत अधिक पता खोजें हुईं। थोड़ा रुककर फिर कोशिश करें।',
   '{{n}} address suggestions': '{{n}} पता सुझाव',
+  'Home address': 'घर का पता',
+  'Map point': 'मानचित्र बिंदु',
+  'Each home': 'हर यात्री का घर',
 };
 
 export const TRANSPORT_WEB_ADDRESS_TA: Record<string, string> = {
   'Too many address searches. Wait a moment and try again.': 'அதிகமான முகவரித் தேடல்கள். சிறிது நேரம் கழித்து மீண்டும் முயலவும்.',
   '{{n}} address suggestions': '{{n}} முகவரிப் பரிந்துரைகள்',
+  'Home address': 'வீட்டு முகவரி',
+  'Map point': 'வரைபடப் புள்ளி',
+  'Each home': 'ஒவ்வொருவரின் வீடு',
 };

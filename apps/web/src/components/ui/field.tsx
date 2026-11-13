@@ -21,7 +21,7 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <div className={cn('grid content-start gap-1.5', className)}>
+    <div className={cn('grid grid-cols-[minmax(0,1fr)] content-start gap-1.5', className)}>
       <Label htmlFor={htmlFor}>
         {label}
         {required && <span className="text-destructive" aria-hidden>*</span>}
