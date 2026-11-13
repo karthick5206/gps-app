@@ -8,7 +8,7 @@ import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { useAppActive } from '@/lib/motion';
 import { currentLocale } from '@/lib/i18n';
 import { SPACE, useColors } from '@/lib/theme';
-import { DIRECTION_LABEL, PASSENGER_STATUS_META, TRIP_STATE_META } from '../labels';
+import { PASSENGER_STATUS_META, TRIP_STATE_META, tripKindLabel } from '../labels';
 import { isNotPassenger, transportErrorText, useMyTrip, useMyVehicle, useNow } from '../passenger-api';
 import { clockIn, distanceKm, hiddenVehicleText, myMapStops, shouldPollVehicle } from '../trip-window';
 import { BigAction, Line, StatusChip, TransportEmpty, TransportMap, useTransportMapStyle, type MapPoint } from '../ui';
@@ -130,7 +130,7 @@ export function PassengerTripScreen({ id }: { id: string }) {
       <Stack.Screen options={{ title: t('My trip') }} />
       <Card style={{ gap: SPACE.sm }}>
         <Text size="lg" weight="700" accessibilityRole="header">
-          {trip.serviceDate} · {t(DIRECTION_LABEL[trip.direction])}
+          {trip.serviceDate} · {t(tripKindLabel(trip))}
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
           <StatusChip label={t(state.label)} tone={state.tone} />

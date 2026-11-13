@@ -163,6 +163,15 @@ export function bookingKindLabel(b: Pick<BookingLabelInput, 'direction' | 'journ
   return (b.direction && DIRECTION_LABEL[b.direction as TransportDirection]) || null;
 }
 
+/**
+ * English source label for a trip header (driver Today / trip, passenger trip card / trip). A point-to-point trip is
+ * stored as IN, so `journey` (DriverTripSummaryDto / MeTripDto, WP 3.9) wins over the direction wording; an older server
+ * without `journey` keeps the direction.
+ */
+export function tripKindLabel(trip: { direction: TransportDirection; journey?: unknown }): string {
+  return bookingKindLabel(trip) ?? DIRECTION_LABEL[trip.direction];
+}
+
 /** True only when the server says so (a missing field on an older server = not shown). */
 export function arrangedByDesk(b: Pick<BookingLabelInput, 'arrangedByDesk'>): boolean {
   return b.arrangedByDesk === true;

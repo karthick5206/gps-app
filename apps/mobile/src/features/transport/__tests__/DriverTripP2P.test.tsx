@@ -117,3 +117,26 @@ describe('DriverTripScreen: point-to-point trip (WP 3.9)', () => {
     await waitFor(() => expect(queueDriverEvent).toHaveBeenCalledWith({ tripId: TRIP, type: 'BOARDED', passengerTripId: passenger(1, 1, 3).passengerTripId }));
   });
 });
+
+describe('DriverTripScreen header (r115 B2)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (useDriverQueue as jest.Mock).mockReturnValue({ pending: 0, rejected: 0, paused: null, syncRequired: false, syncing: false, events: [] });
+    (driverApi.useDriverMe as jest.Mock).mockReturnValue(q({ driver: { firstName: 'Ravi' }, documents: { licenseValid: true }, company: { timeZone: 'Asia/Kolkata' }, dispatcherPhone: null }));
+    (driverApi.useStartTrip as jest.Mock).mockReturnValue({ mutate: jest.fn(), isPending: false, isError: false, error: null });
+    (driverApi.useTripMotion as jest.Mock).mockReturnValue({ data: null });
+  });
+
+  it('a P2P trip (journey POINT_TO_POINT, stored as IN) is headed "Point-to-point", not "To site (login)"', async () => {
+    (driverApi.useDriverTrip as jest.Mock).mockReturnValue(q({ ...trip(), journey: 'POINT_TO_POINT' }));
+    await render(<DriverTripScreen id={TRIP} />);
+    expect(screen.getByText(/2026-11-14 · Point-to-point · /)).toBeTruthy();
+    expect(screen.queryByText(/To site \(login\)/)).toBeNull();
+  });
+
+  it('a commute trip keeps "To site (login)"', async () => {
+    (driverApi.useDriverTrip as jest.Mock).mockReturnValue(q({ ...trip(), journey: 'COMMUTE' }));
+    await render(<DriverTripScreen id={TRIP} />);
+    expect(screen.getByText(/2026-11-14 · To site \(login\) · /)).toBeTruthy();
+  });
+});

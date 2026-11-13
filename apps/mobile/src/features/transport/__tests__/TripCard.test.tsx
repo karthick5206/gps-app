@@ -44,3 +44,17 @@ describe('TripCard (passenger shell)', () => {
     expect(screen.queryByText(/Driver /)).toBeNull();
   });
 });
+
+describe('TripCard: point-to-point trip (r115 B2)', () => {
+  it('a P2P trip (stored as IN) is headed "Point-to-point", never "To site (login)"', async () => {
+    await render(<TripCard trip={{ ...base, journey: 'POINT_TO_POINT' } as MeTripDto} />);
+    expect(screen.getByText('2026-11-12 · Point-to-point')).toBeTruthy();
+    expect(screen.queryByText(/To site \(login\)/)).toBeNull();
+    expect(screen.getByRole('button').props.accessibilityLabel).toContain('Point-to-point');
+  });
+
+  it('a commute trip keeps the direction wording', async () => {
+    await render(<TripCard trip={{ ...base, journey: 'COMMUTE' } as MeTripDto} />);
+    expect(screen.getByText('2026-11-12 · To site (login)')).toBeTruthy();
+  });
+});
