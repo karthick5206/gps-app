@@ -125,3 +125,63 @@ export interface TransportGroupFailure {
  *   notification kinds BOOKING_APPROVED, BOOKING_REJECTED (passenger, generic text, push data { kind, bookingId, notificationId }).
  */
 export type AdhocWave2Note = never;
+
+// ───────────────────────────── Passenger self profile and home location (D-A9, owner 2026-11-12) ─────────────────────────────
+
+/**
+ * D-A9: a passenger maintains their own transport profile in the app (and the web "My transport" page):
+ *   - views name, employee code, branch, office, default stop, login email / mobile (read-only: identity, D5), home
+ *     address label, emergency contacts, accessibility needs;
+ *   - edits the HOME location (used as pickup to the office and drop from it) by self-hosted address search
+ *     (GET /me/transport/geocode?q=, Photon behind the GEOCODER_NOT_PRIVATE guard, rate-limited per user) or by a map
+ *     pin / typed lat-lng. Needs the active routing consent (409 CONSENT_REQUIRED); audited (before/after without
+ *     coordinates in the audit summary); homeGeocodeSource PHOTON | PIN | TYPED. New and schedule-generated bookings use
+ *     the new point; already-made bookings keep their snapshot (answer `openBookingsKept` = count, the app says so);
+ *   - edits the default stop (one of the allowed company stops), emergency contacts (≤ 3 { name, phone, relation? }),
+ *     accessibility { wheelchair?, notes? }.
+ * Permission etms_self; own profile only (PeopleService.myProfileRow: 403 NOT_A_PASSENGER). No schema change.
+ */
+export interface MeTransportProfileDto {
+  displayName: string;
+  employeeCode: string;
+  branchName: string | null;
+  officeName: string | null;
+  defaultStop: { id: string; name: string } | null;
+  email: string | null;
+  mobile: string | null;
+  /** Home: label always; coordinates only while the routing consent is active (else null). */
+  home: { address: string | null; lat: number | null; lng: number | null; source: string | null } | null;
+  emergencyContacts: { name: string; phone: string; relation?: string | null }[];
+  accessibility: { wheelchair?: boolean; notes?: string | null };
+  routingConsent: boolean;
+}
+
+/** PATCH /api/me/transport/profile — any subset. */
+export interface MeTransportProfileUpdateInput {
+  defaultStopId?: string | null;
+  emergencyContacts?: { name: string; phone: string; relation?: string | null }[];
+  accessibility?: { wheelchair?: boolean; notes?: string | null };
+}
+
+/** PUT /api/me/transport/home — set (or with `clear: true` remove) the home location. */
+export interface MeHomeLocationInput {
+  lat?: number;
+  lng?: number;
+  /** Address text (from the search hit or typed), ≤ 200 chars. */
+  address?: string | null;
+  source?: 'PHOTON' | 'PIN' | 'TYPED';
+  clear?: boolean;
+}
+
+export interface MeHomeLocationResult {
+  profile: MeTransportProfileDto;
+  /** Open bookings that keep their earlier point. */
+  openBookingsKept: number;
+}
+
+/** GET /api/me/transport/geocode?q= (min 3 chars, ≤ 6 hits, self-hosted only). */
+export interface MeGeocodeHitDto {
+  label: string;
+  lat: number;
+  lng: number;
+}
