@@ -297,20 +297,23 @@ test('T2 E2E: unassigned counts passengers, not stops (IN plan: pickup + office 
 
 test('T2 E2E: bookings left out of a new plan are summarised by reason', () => {
   assert.deepEqual(skippedSummary([]), []);
+  const rows = skippedSummary([
+    { bookingId: 'b1', reason: 'consent_required' },
+    { bookingId: 'b2', reason: 'needs_location' },
+    { bookingId: 'b3', reason: 'consent_required' },
+    { bookingId: 'b4', reason: 'out_of_scope' },
+  ]);
+  // WP 3.9: every row carries an action hint.
+  assert.ok(rows.every((r) => typeof r.hint === 'string' && r.hint.length > 0));
   assert.deepEqual(
-    skippedSummary([
-      { bookingId: 'b1', reason: 'consent_required' },
-      { bookingId: 'b2', reason: 'needs_location' },
-      { bookingId: 'b3', reason: 'consent_required' },
-      { bookingId: 'b4', reason: 'out_of_scope' },
-    ]),
+    rows.map(({ hint: _hint, ...r }) => r),
     [
       { reason: 'consent_required', label: 'Passenger consent missing', n: 2 },
       { reason: 'needs_location', label: 'Pickup or drop point missing', n: 1 },
       { reason: 'out_of_scope', label: 'Outside your branches', n: 1 },
     ],
   );
-  assert.deepEqual(skippedSummary([{ bookingId: 'b9', reason: 'something_new' }]), [{ reason: 'something_new', label: 'something_new', n: 1 }]);
+  assert.deepEqual(skippedSummary([{ bookingId: 'b9', reason: 'something_new' }]), [{ reason: 'something_new', label: 'something_new', hint: null, n: 1 }]);
 });
 
 test('T2 E2E: after a reload an optimising plan finds its running job from the server', () => {
