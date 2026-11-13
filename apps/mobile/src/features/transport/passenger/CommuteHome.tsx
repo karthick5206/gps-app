@@ -1,3 +1,4 @@
+import type { MeBookingDto } from '@veetracer/shared';
 import { router, type Href } from 'expo-router';
 import { BellIcon, BellOffIcon, CalendarIcon, CalendarPlusIcon, ChevronRightIcon, MapPinIcon, RepeatIcon, ShieldCheckIcon, TicketIcon, type LucideIcon } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
@@ -5,9 +6,12 @@ import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { pushStatus } from '@/features/notifications/push';
-import { SPACE, useColors } from '@/lib/theme';
-import { isNotPassenger, transportErrorText, useMyConsent, useMyNotices, useMyTrips, useNow } from '../passenger-api';
-import { nextTrip, tripBuckets } from '../trip-window';
+import { RADIUS, SPACE, useColors } from '@/lib/theme';
+import { currentLocale } from '@/lib/i18n';
+import { bookedForYou, bookingKindLabel, bookingRoute } from '../labels';
+import { isNotPassenger, transportErrorText, useMyBookings, useMyConsent, useMyNotices, useMyTrips, useNow } from '../passenger-api';
+import { bookingsRoute } from '../push-target';
+import { clockIn, nextTrip, tripBuckets } from '../trip-window';
 import { useMyPolicy } from '../self-service-api';
 import { TOUCH, TransportEmpty } from '../ui';
 import { TripCard } from './TripCard';
@@ -43,6 +47,38 @@ function LinkRow({ icon: Icon, label, href, badge }: { icon: LucideIcon; label: 
   );
 }
 
+/** The passenger's own booking; WP 3.9 fields optional (an older server leaves them out). */
+type DeskBooking = Omit<MeBookingDto, 'journey' | 'arrangedByDesk'> & Partial<Pick<MeBookingDto, 'journey' | 'arrangedByDesk'>>;
+
+/** WP 3.9: a ride the transport desk booked for the passenger (not on a trip yet); opens it in My bookings. */
+function DeskBookingRow({ b }: { b: DeskBooking }) {
+  const { t } = useTranslation();
+  const c = useColors();
+  const locale = currentLocale();
+  const kindSource = bookingKindLabel(b);
+  const line = [kindSource ? t(kindSource) : null, bookingRoute(b, t)].filter(Boolean).join(' · ');
+  const head = `${b.serviceDate} · ${clockIn(b.windowStart, b.timeZone, locale)}–${clockIn(b.windowEnd, b.timeZone, locale)}`;
+  return (
+    <Pressable
+      onPress={() => router.push(bookingsRoute(b.id) as Href)}
+      accessibilityRole="button"
+      accessibilityLabel={[head, line, t('Arranged by the transport desk')].filter(Boolean).join(', ')}
+      accessibilityHint={t('Opens the booking')}
+      style={({ pressed }) => [{ minHeight: TOUCH, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, borderRadius: RADIUS.md, padding: SPACE.md, gap: SPACE.xs }, pressed && { opacity: 0.85 }]}
+    >
+      <Text weight="700">{head}</Text>
+      {line ? (
+        <Text size="sm" tone="muted">
+          {line}
+        </Text>
+      ) : null}
+      <Text size="sm" tone="muted">
+        {t('Arranged by the transport desk')}
+      </Text>
+    </Pressable>
+  );
+}
+
 /**
  * "My commute" home (Passenger shell tab and the fleet shell's My commute entry): consent reminder, the next trip,
  * today's and upcoming trips, links to bookings / notices / consent. Data only from /api/me/transport (own records).
@@ -55,6 +91,9 @@ export function CommuteHome() {
   const consent = useMyConsent();
   const notices = useMyNotices();
   const policy = useMyPolicy();
+  // WP 3.9: rides the desk booked for me that are not on a trip yet (none on an older server without arrangedByDesk).
+  const bookings = useMyBookings();
+  const deskBookings = useMemo(() => bookedForYou(bookings.data as DeskBooking[] | undefined), [bookings.data]);
   // SOS context (QA B4): the current trip and the desk phone are remembered on the phone, so the SOS button (header,
   // here, and the offline screen) attaches the trip and offers the call even after an offline cold start.
   const current = useMemo(() => (trips.data ? passengerCurrentTrip(trips.data, now) : undefined), [trips.data, now]);
@@ -76,6 +115,7 @@ export function CommuteHome() {
     void trips.refetch();
     void consent.refetch();
     void notices.refetch();
+    void bookings.refetch();
   };
 
   if (isNotPassenger(trips.error) || isNotPassenger(consent.error)) {
@@ -136,6 +176,15 @@ export function CommuteHome() {
         <TripCard trip={next} highlight />
       ) : (
         <TransportEmpty icon={CalendarIcon} title={t('No trips in the next days')} description={t('When the transport desk seats you on a trip, it appears here.')} />
+      )}
+
+      {deskBookings.length > 0 && (
+        <>
+          <SectionTitle>{t('Booked for you')}</SectionTitle>
+          {deskBookings.map((b) => (
+            <DeskBookingRow key={b.id} b={b} />
+          ))}
+        </>
       )}
 
       {buckets.today.filter((x) => x.id !== next?.id).length > 0 && (
