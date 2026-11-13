@@ -490,7 +490,8 @@ export interface CreateTransportBookingInput {
  * same point / consent / eligibility rules as create; `pickup` / `drop` set a missing location too. After the cut-off a
  * dispatcher needs `lateReason` (409 LATE_REASON_REQUIRED); the passenger path stays refused (409 AFTER_CUTOFF).
  * An edit never creates a trip or a seat; a plan that still holds the booking's old points refuses to publish it
- * (PLAN_NOT_PUBLISHABLE, issue BOOKING_CHANGED) until it is re-optimised or the stop removed.
+ * (PLAN_NOT_PUBLISHABLE, issue BOOKING_CHANGED) until the booking is taken off its route or a new plan is created
+ * (re-optimising alone does not refresh stored stop points).
  */
 export interface UpdateTransportBookingInput {
   expectedVersion: number;
