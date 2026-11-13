@@ -55,7 +55,8 @@ export const PERSONAL_STOP_NAME = { PICKUP: 'Passenger pickup', DROP: 'Passenger
 const ACCESS_DEDUPE_SEC = 86_400;
 
 /**
- * L1: one ACCESS audit entry per read that returned passengers' personal points (board, trip detail, candidates),
+ * L1: one ACCESS audit entry per read that returned passengers' personal points (board, trip detail, candidates, plan,
+ * group booking answer — v1.15 L2),
  * de-duplicated per user, view, day and set of passengers (Valkey SET NX; when Valkey is down the entry is written
  * anyway). The entry lists at most 50 profile ids and says whether the points were exact (whole-company role).
  */
@@ -63,7 +64,7 @@ export async function recordPersonalAccess(
   audit: Pick<AuditService, 'record'>,
   redis: Pick<RedisService, 'client'> | null | undefined,
   ctx: AuthContext,
-  view: 'board' | 'trip' | 'candidates' | 'plan',
+  view: 'board' | 'trip' | 'candidates' | 'plan' | 'group',
   profileIds: string[],
   precise: boolean,
   extra: Record<string, unknown> = {},

@@ -420,3 +420,23 @@ describe('v1.15 L1 booking places follow the branch POI scope', () => {
     expect(await codeOf(book(w.desk(), south, 12))).toBe('OK');
   });
 });
+
+describe('v1.15 L2 group booking personal-point access', () => {
+  it('create and replay that return passengers\' personal points write the L1 ACCESS entry; company places do not', async () => {
+    const w = world();
+    w.consent(w.ids.pA);
+    w.consent(w.ids.pA2);
+    const access = () => w.store.table('auditLog').filter((a) => a.action === 'ACCESS' && a.entity === 'TransportPersonalPoints');
+    const base = { passengerIds: [w.ids.pA, w.ids.pA2], serviceDate: day(2), journey: 'POINT_TO_POINT', drop: { lat: 0, lng: 0, poiId: w.ids.stopA }, ...win(10, 3), purpose: 'Site visit' };
+    await w.bookings.createGroup(w.desk(), { ...base, pickup: { mode: 'COMMON', point: { lat: 0, lng: 0, poiId: w.ids.officeA } } } as never, randomUUID());
+    expect(access()).toHaveLength(0);
+    const key = randomUUID();
+    const own = await w.bookings.createGroup(w.desk(), { ...base, ...win(15, 2), pickup: { mode: 'OWN' } } as never, key);
+    expect(own.value.bookings.every((b) => b.pickup && !b.pickup.poiId)).toBe(true);
+    expect(access()).toHaveLength(1);
+    expect(access()[0].changes).toMatchObject({ view: 'group', profileIds: [w.ids.pA, w.ids.pA2].sort(), passengers: 2, precise: true, groupId: own.value.groupId });
+    await w.bookings.createGroup(w.desk(), { ...base, ...win(15, 2), pickup: { mode: 'OWN' } } as never, key); // replay
+    expect(access()).toHaveLength(2);
+    expect(access()[1].changes).toMatchObject({ view: 'group', groupId: own.value.groupId, replay: true });
+  });
+});

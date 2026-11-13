@@ -63,8 +63,9 @@ import {
   validPoint,
   versionConflict,
 } from './e3-common';
-import { BOOKING_INCLUDE, LIST_VIEW, toBookingDto, withGroupSizes, type BookingRow } from './e3-mapping';
+import { BOOKING_INCLUDE, LIST_VIEW, preciseFor, toBookingDto, withGroupSizes, type BookingRow } from './e3-mapping';
 import { BookingCommandDto, BookingListQuery, CreateBookingDto, CreateGroupBookingDto, UpdateBookingDto } from './e3.dto';
+import { recordPersonalAccess } from './personal-points';
 import { legWindow, todayIn, weekdayOf } from './service-dates';
 import { lockBookings, lockTrips, recordTripEvent, releaseSeat } from './trip-ops';
 
@@ -198,7 +199,7 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    redis: RedisService,
+    private readonly redis: RedisService,
     @Optional() notifications?: TransportNotificationsService,
   ) {
     // Stateless (Prisma + Valkey): built here when the module does not inject one (tests, other modules).
@@ -658,7 +659,7 @@ export class BookingsService {
         return { rows, push: notified.push };
       });
       await this.notifications.enqueue(push);
-      return { value: { groupId, bookings: await Promise.all(rows.map((r) => this.detail(ctx, r))) }, replay: false };
+      return { value: await this.groupResult(ctx, groupId, rows, false), replay: false };
     } catch (e) {
       if (isUniqueViolation(e, 'idempotencyKey')) {
         // A concurrent twin with the same key committed first: answer as its replay.
@@ -692,7 +693,18 @@ export class BookingsService {
     for (const b of found) assertBookingAccess(ctx, b, 'read');
     const order = new Map(keys.map((k, i) => [k, i]));
     const rows = [...found].sort((a, b) => (order.get(a.idempotencyKey ?? '') ?? 0) - (order.get(b.idempotencyKey ?? '') ?? 0));
-    return { value: { groupId, bookings: await Promise.all(rows.map((r) => this.detail(ctx, r))) }, replay: true };
+    return { value: await this.groupResult(ctx, groupId, rows, true), replay: true };
+  }
+
+  /**
+   * The group answer (detail DTOs). v1.15 L2: with OWN pickups it holds many passengers' personal points (exact for
+   * whole-company roles), so it writes the L1 ACCESS entry as the board / trip / plan reads do.
+   */
+  private async groupResult(ctx: AuthContext, groupId: string, rows: BookingRow[], replay: boolean): Promise<TransportGroupBookingResult> {
+    const bookings = await Promise.all(rows.map((r) => this.detail(ctx, r)));
+    const shown = bookings.filter((b) => (b.pickup && !b.pickup.poiId) || (b.drop && !b.drop.poiId)).map((b) => b.passenger.id);
+    await recordPersonalAccess(this.audit, this.redis, ctx, 'group', shown, preciseFor(ctx, ctx.companyId), { groupId, ...(replay ? { replay: true } : {}) });
+    return { groupId, bookings };
   }
 
   /** Per-passenger duplicate (COMMUTE, same date + direction) and overlap failures for a group's window. */
