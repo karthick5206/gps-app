@@ -1,5 +1,6 @@
 # Passenger sign-in smoke: lands on the passenger home (My commute), never on "Unmatched Route". Needs only a passenger
 # login (no trip). Also covers the cold start: relaunch without clearing state stays on My commute.
+# During a trip the SOS panel and the trip cards push the privacy line below the fold, so it is scrolled to.
 appId: ${APP_ID || "com.sasvata.veetrax"}
 env:
   EMAIL: ${PASSENGER_EMAIL}
@@ -11,13 +12,19 @@ tags:
 ---
 - runFlow: subflows/login.yaml
 - extendedWaitUntil:
-    visible: "VeeTrax does not track your phone. The vehicle is shown only around your trip."
+    visible: "(?i)next trip"
     timeout: 30000
 - assertNotVisible: "Unmatched Route"
+- scrollUntilVisible:
+    element: "VeeTrax does not track your phone. The vehicle is shown only around your trip."
+    direction: DOWN
 - assertVisible: "Book a trip"
 - stopApp
 - launchApp
 - extendedWaitUntil:
-    visible: "VeeTrax does not track your phone. The vehicle is shown only around your trip."
+    visible: "(?i)next trip"
     timeout: 30000
 - assertNotVisible: "Unmatched Route"
+- scrollUntilVisible:
+    element: "VeeTrax does not track your phone. The vehicle is shown only around your trip."
+    direction: DOWN

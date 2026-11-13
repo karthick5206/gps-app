@@ -16,7 +16,11 @@ tags:
 - extendedWaitUntil:
     visible: "Your trip starts soon"
     timeout: 20000
-- tapOn: "Your trip starts soon"
+# The newest notice is the top match; the same text further down is the push preference switch (tapping that
+# turned the preference off in the R1151 run), so tap the first match only.
+- tapOn:
+    text: "Your trip starts soon"
+    index: 0
 - extendedWaitUntil:
     visible: "Estimated pickup"
     timeout: 15000
