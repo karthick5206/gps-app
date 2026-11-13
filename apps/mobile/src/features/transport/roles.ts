@@ -54,3 +54,20 @@ export function transportRoles(me: MeLike | undefined | null): TransportRoles {
   const shell: Shell = fleet ? 'fleet' : driver ? 'driver' : passenger ? 'passenger' : 'fleet';
   return { etms, passenger, driver, incidents, fleet, shell };
 }
+
+/** Where `/` lands for each shell: the fleet home, the passenger "My commute" tab, the driver "My duty" tab. */
+export const SHELL_HOME = { fleet: '/', passenger: '/my-commute', driver: '/my-duty' } as const satisfies Record<Shell, string>;
+
+export type AppHome = (typeof SHELL_HOME)[Shell] | '/login' | '/offline-sos';
+
+/**
+ * The root navigator's home for the current auth state. `_layout.tsx` passes it as `redirectTo` on every
+ * `Stack.Protected`, so any guarded route (`/` = the fleet `(tabs)` index on sign-in, cold start, the deep link
+ * `veetrax:///`, `router.replace('/')`, `<Redirect href="/" />`) redirects here. Without it expo-router falls back to
+ * the first unguarded group, `/(passenger)` or `/(driver)`, which has no index route: "Unmatched Route".
+ */
+export function appHome(status: string, shell: Shell | null | undefined): AppHome {
+  if (status === 'offline') return '/offline-sos';
+  if (status !== 'authenticated') return '/login';
+  return SHELL_HOME[shell ?? 'fleet'];
+}

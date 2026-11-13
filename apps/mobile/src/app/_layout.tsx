@@ -8,7 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import '@/lib/i18n';
 import { AuthProvider, useAuth } from '@/features/auth/auth';
 import { setTransportPushRoles } from '@/features/notifications/push';
-import { transportRoles, type TransportRoles } from '@/features/transport/roles';
+import { appHome, transportRoles, type TransportRoles } from '@/features/transport/roles';
 import { useTransportQueueLifecycle } from '@/features/transport/queue-store';
 import { sosHeaderRight } from '@/features/transport/SosScreen';
 import { rememberOfflineIdentity, useDriverSosLifecycle, useSosQueueLifecycle } from '@/features/transport/sos-store';
@@ -61,6 +61,10 @@ function RootStack() {
   const theme = { ...base, colors: { ...base.colors, primary: c.primary, background: c.background, card: c.card, text: c.foreground, border: c.border } };
   const signedIn = status === 'authenticated';
   const shell = roles?.shell ?? 'fleet';
+  // Shell-aware home: every guard below redirects here. `/` is the fleet `(tabs)` index, so a passenger / driver
+  // reaching `/` (sign-in, cold start, `veetrax:///`, `router.replace('/')`) lands on My commute / My duty instead of
+  // expo-router's default fallback `/(passenger)` / `/(driver)`, which has no index ("Unmatched Route").
+  const home = appHome(status, shell);
   return (
     <ThemeProvider value={theme}>
       {/* Every screen starts with the brand header band (the sign-in screen too), so the bar follows the band. */}
@@ -76,21 +80,21 @@ function RootStack() {
         }}
       >
         {/* Offline cold start of an ETMS passenger / driver (QA B4): only the offline SOS screen until the server answers. */}
-        <Stack.Protected guard={status === 'offline'}>
+        <Stack.Protected guard={status === 'offline'} redirectTo={home}>
           <Stack.Screen name="offline-sos" options={{ headerShown: false }} />
         </Stack.Protected>
-        {/* One shell at a time; the first available group is where a signed-in user lands. */}
-        <Stack.Protected guard={signedIn && shell === 'fleet'}>
+        {/* One shell at a time; a signed-in user lands on `home` (fleet `/`, passenger `/my-commute`, driver `/my-duty`). */}
+        <Stack.Protected guard={signedIn && shell === 'fleet'} redirectTo={home}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false, title: t('Home') }} />
         </Stack.Protected>
-        <Stack.Protected guard={signedIn && shell === 'passenger'}>
+        <Stack.Protected guard={signedIn && shell === 'passenger'} redirectTo={home}>
           <Stack.Screen name="(passenger)" options={{ headerShown: false, title: t('My commute') }} />
         </Stack.Protected>
-        <Stack.Protected guard={signedIn && shell === 'driver'}>
+        <Stack.Protected guard={signedIn && shell === 'driver'} redirectTo={home}>
           <Stack.Screen name="(driver)" options={{ headerShown: false, title: t('My transport duty') }} />
         </Stack.Protected>
         {/* Passenger screens: the Passenger shell, and "My commute" inside the fleet / driver shells (P3). */}
-        <Stack.Protected guard={signedIn && !!roles?.passenger}>
+        <Stack.Protected guard={signedIn && !!roles?.passenger} redirectTo={home}>
           <Stack.Screen name="commute/index" options={{ title: t('My commute'), ...PASSENGER_SOS }} />
           <Stack.Screen name="commute/bookings" options={{ title: t('My bookings'), ...PASSENGER_SOS }} />
           <Stack.Screen name="commute/notices" options={{ title: t('Notices'), ...PASSENGER_SOS }} />
@@ -105,7 +109,7 @@ function RootStack() {
           <Stack.Screen name="commute/sos" options={{ title: t('SOS') }} />
         </Stack.Protected>
         {/* Driver screens: the Driver shell, and "My transport duty" inside the fleet shell. */}
-        <Stack.Protected guard={signedIn && !!roles?.driver}>
+        <Stack.Protected guard={signedIn && !!roles?.driver} redirectTo={home}>
           <Stack.Screen name="duty/index" options={{ title: t('My transport duty'), ...DRIVER_SOS }} />
           <Stack.Screen name="duty/trip/[id]" options={{ title: t('Trip'), ...DRIVER_SOS }} />
           <Stack.Screen name="duty/report/[id]" options={{ title: t('Report a problem'), ...DRIVER_SOS }} />
@@ -113,10 +117,10 @@ function RootStack() {
           <Stack.Screen name="duty/sos" options={{ title: t('SOS') }} />
         </Stack.Protected>
         {/* Read-only SOS incident opened from a dispatcher SOS push (QA B2). */}
-        <Stack.Protected guard={signedIn && !!roles?.incidents}>
+        <Stack.Protected guard={signedIn && !!roles?.incidents} redirectTo={home}>
           <Stack.Screen name="transport-incident/[id]" options={{ title: t('Transport SOS') }} />
         </Stack.Protected>
-        <Stack.Protected guard={signedIn}>
+        <Stack.Protected guard={signedIn} redirectTo={home}>
           <Stack.Screen name="vehicle/[id]" options={{ title: t('Vehicle') }} />
           <Stack.Screen name="alert/[id]" options={{ title: t('Alert') }} />
           <Stack.Screen name="sos/[id]" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade', contentStyle: { backgroundColor: '#c62828' } }} />
@@ -149,7 +153,7 @@ function RootStack() {
           <Stack.Screen name="driver-events/index" options={{ title: t('Driver events') }} />
           <Stack.Screen name="driver-events/[id]" options={{ title: t('Driver event') }} />
         </Stack.Protected>
-        <Stack.Protected guard={status === 'anonymous'}>
+        <Stack.Protected guard={status === 'anonymous'} redirectTo={home}>
           <Stack.Screen name="login" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>

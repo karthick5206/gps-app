@@ -1,17 +1,24 @@
-# Signs in with e-mail + password. Params: EMAIL, PASSWORD (synthetic accounts only, @example.test).
+# Signs in with e-mail + password. Params: EMAIL, PASSWORD (synthetic accounts only).
+# Selectors are testIDs (login.tsx): the "Email" / "Password" texts are labels, tapping them types nothing.
+# No hideKeyboard: on Android it presses BACK, which closes the app from the sign-in screen. The password field submits
+# on the keyboard's Go key instead (onSubmitEditing), so the Sign in button behind the keyboard is never needed.
 appId: ${APP_ID || "com.sasvata.veetrax"}
 ---
 - launchApp:
     clearState: true
 - extendedWaitUntil:
-    visible: "Sign in"
-    timeout: 30000
+    visible:
+      id: "login-email"
+    timeout: 60000
 - tapOn: "Email & password"
-- tapOn: "Email"
-- inputText: ${EMAIL}
-- tapOn: "Password"
-- inputText: ${PASSWORD}
-- hideKeyboard
 - tapOn:
-    text: "Sign in"
-    index: 1
+    id: "login-email"
+- inputText: ${EMAIL}
+- tapOn:
+    id: "login-password"
+- inputText: ${PASSWORD}
+- pressKey: Enter
+- extendedWaitUntil:
+    notVisible:
+      id: "login-email"
+    timeout: 30000

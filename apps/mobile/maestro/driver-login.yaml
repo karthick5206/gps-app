@@ -1,0 +1,23 @@
+# Driver sign-in smoke: lands on the driver home (My duty / Today), never on "Unmatched Route". Needs only a driver
+# login (no trip). Also covers the cold start: relaunch without clearing state stays on the duty home.
+appId: ${APP_ID || "com.sasvata.veetrax"}
+env:
+  EMAIL: ${DRIVER_EMAIL}
+  PASSWORD: ${DRIVER_PASSWORD}
+tags:
+  - etms
+  - driver
+  - smoke
+---
+- runFlow: subflows/login.yaml
+- extendedWaitUntil:
+    visible: "The vehicle GPS tracks the trip. This app never sends your phone’s location."
+    timeout: 30000
+- assertNotVisible: "Unmatched Route"
+- assertVisible: "(Start duty|End duty)"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "The vehicle GPS tracks the trip. This app never sends your phone’s location."
+    timeout: 30000
+- assertNotVisible: "Unmatched Route"
