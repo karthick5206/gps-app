@@ -263,7 +263,8 @@ export function GroupBookingDialog({ open, onOpenChange, day, cutoffMin }: { ope
           value={d.pickup}
           onChange={(c) => set({ pickup: c })}
           kinds={groupPointKinds(d.journey, d.direction, 'pickup')}
-          kindLabels={{ HOME: "Each passenger's own home", PLACE: 'Company place', MAP: 'Point on the map' }}
+          kindLabels={{ HOME: "Each passenger's own home" }}
+          kindShortLabels={{ HOME: 'Each home' }}
           homeBlocked={false}
           homeHint={t("Each passenger is picked up at their own routing pickup (home or default stop). Needs every passenger's transport consent.")}
           siteName={shift?.site?.name ?? null}
