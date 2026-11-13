@@ -1,4 +1,4 @@
-import { BookOpenIcon, LaptopIcon, LogOutIcon, ShieldCheckIcon, ShieldIcon, Trash2Icon } from 'lucide-react';
+import { BookOpenIcon, LaptopIcon, LogOutIcon, ShieldCheckIcon, ShieldIcon, Trash2Icon, WrenchIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
@@ -54,6 +54,9 @@ export function UserMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => navigate('/guide')}>
           <BookOpenIcon /> {t('Getting-started guide')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigate('/guide/troubleshooting')}>
+          <WrenchIcon /> {t('Tracker troubleshooting')}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setSessionsOpen(true)}>
           <LaptopIcon /> {t('Signed-in devices')}
