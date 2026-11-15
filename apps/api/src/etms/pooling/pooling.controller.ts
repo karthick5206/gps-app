@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, 
 import type { DispatchRequestDto, DriverRouteAckResult, LiveDispatchDecisionDto, PoolingSettingsDto, TransportBookingDto, TransportSharingPolicyDto, VehicleAvailabilityDto } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
+import { PeopleService } from '../people/people.service';
 import { TransportFeatureGuard } from '../transport-feature.guard';
 import { LiveDispatchService } from './live-dispatch.service';
 import { DispatchRequestQuery, DriverPolicyBody, HoldDto, LiveDecideDto, PoolingSettingsBody, PutAvailabilityDto, RouteAckDto, SharingPolicyBody } from './pooling.dto';
@@ -77,14 +78,18 @@ export class LiveDispatchController {
   }
 }
 
-/** The passenger's view of the sharing policy before accepting it (self-service). */
+/** The passenger's view of the sharing policy before accepting it (self-service; the caller must be a passenger). */
 @Controller('me/transport')
 @UseGuards(TransportFeatureGuard)
 export class MySharingPolicyController {
-  constructor(private readonly pooling: PoolingService) {}
+  constructor(
+    private readonly pooling: PoolingService,
+    private readonly people: PeopleService,
+  ) {}
 
   @Get('sharing-policy') @RequirePermission('etms_self', 'view')
-  policy(@Auth() ctx: AuthContext): Promise<TransportSharingPolicyDto> {
+  async policy(@Auth() ctx: AuthContext): Promise<TransportSharingPolicyDto> {
+    await this.people.myProfileRow(ctx); // 403 NOT_A_PASSENGER for a login without a passenger profile
     return this.pooling.policy(ctx);
   }
 }

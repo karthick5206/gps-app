@@ -14,6 +14,7 @@ import type { AuthContext } from '../../access/auth-context';
 import type { MemoryStore, Obj } from './memory-store';
 import type { BookingsController, DispatchController, MyTransportTripsController, SchedulesController, ShiftsController, TransportTripsController } from '../dispatch/e3.controllers';
 import type { MatrixRole, RoleTable } from './isolation-matrix';
+import type { LiveDispatchController, MySharingPolicyController, PoolingController } from '../pooling/pooling.controller';
 
 export type E3Resource = 'shift' | 'schedule' | 'booking' | 'trip' | 'changeSet' | 'myTrip' | 'myBooking';
 export const E3_RESOURCES: readonly E3Resource[] = ['shift', 'schedule', 'booking', 'trip', 'changeSet', 'myTrip', 'myBooking'];
@@ -25,6 +26,10 @@ export interface E3Controllers {
   dispatch: DispatchController;
   trips: TransportTripsController;
   meTrips: MyTransportTripsController;
+  /** Doc 20 pooling (isolation-matrix-pooling.ts): hold, policy, settings, availability; live dispatch; passenger policy. */
+  pooling: PoolingController;
+  live: LiveDispatchController;
+  mySharing: MySharingPolicyController;
 }
 
 export interface E3Ids {
