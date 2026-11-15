@@ -1,7 +1,9 @@
 import type { DriverDto, DispatchBoardDto, DispatchCandidateDto, DispatchVehicleDto, TransportBookingDto, TransportTripSummaryDto } from '@veetracer/shared';
-import { ArrowRightLeftIcon, BusIcon, CarFrontIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleAlertIcon, ExternalLinkIcon, InboxIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, Undo2Icon, UserMinusIcon, UserRoundIcon } from 'lucide-react';
+import { ArrowRightLeftIcon, BusIcon, FileDownIcon, CarFrontIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleAlertIcon, ExternalLinkIcon, InboxIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, Undo2Icon, UserMinusIcon, UserRoundIcon } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { Link } from 'react-router';
 import { FormError } from '@/components/form-error';
 import { Badge } from '@/components/ui/badge';
@@ -43,7 +45,8 @@ import { AfterCutoffBadge, GroupBadge, JourneyBadge } from './adhoc-ui';
 import { groupIdOf, groupSelection, groupSizes, purposeOf } from './group-booking';
 import { candidateReason, isEditableTrip, straightLineLabel } from './e3-format';
 import { BookingStatusBadge, e3ErrorMessage, EtaText, OccupancyBar, PassengerOutcomeBadge, TripStateBadge } from './e3-ui';
-import { transportTripPath, useCandidates, useTransportTrip } from './use-e3';
+import { fetchTransportTrip, transportTripPath, useCandidates, useTransportTrip } from './use-e3';
+import { downloadTripSheetsPdf, toSheet, tripSheetsCsv } from './trip-sheet';
 
 export interface PanelCtx {
   board: DispatchBoardDto;
@@ -402,6 +405,7 @@ function TripCard({ trip, ctx, diff }: { trip: TransportTripSummaryDto; ctx: Pan
   const editable = isEditableTrip(trip.derivedState);
   const clock = (iso: string | null) => formatClock(iso, ctx.tz, ctx.day);
   const pc = trip.passengerCounts;
+  const sheets = useTripSheets(ctx);
   return (
     <li>
       <Card className={cn('gap-2 p-3', diff && 'border-info/60')}>
@@ -417,6 +421,11 @@ function TripCard({ trip, ctx, diff }: { trip: TransportTripSummaryDto; ctx: Pan
             </p>
           </div>
           <TripStateBadge state={trip.derivedState} />
+          {trip.derivedState !== 'CANCELLED' && (
+            <Button size="icon-sm" variant="ghost" disabled={sheets.busy} onClick={() => void sheets.run([trip], 'pdf')} aria-label={t('Trip sheet (PDF) for {{name}}', { name: trip.vehicleName ?? trip.name })} title={t('Trip sheet (PDF)')}>
+              <FileDownIcon />
+            </Button>
+          )}
           {ctx.canPlan && editable && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -641,16 +650,76 @@ function VehicleRow({ v, ctx }: { v: DispatchVehicleDto; ctx: PanelCtx }) {
   );
 }
 
+function downloadText(text: string, filename: string, type = 'text/csv;charset=utf-8') {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Trip sheets of published trips: PDF (one page per trip) or one CSV for Excel. */
+function useTripSheets(ctx: PanelCtx) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const { me } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const direction = ctx.draft.direction === 'OUT' ? 'From site (logout)' : 'To site (login)';
+  const run = async (trips: TransportTripSummaryDto[], kind: 'pdf' | 'csv') => {
+    const live = trips.filter((x) => x.derivedState !== 'CANCELLED');
+    if (!live.length) {
+      toast.info(t('No published trips to print. Publish the draft first.'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const details = await Promise.all(live.map((x) => fetchTransportTrip(qc, x.id)));
+      const sheets = details.map((d) => toSheet(d, (iso) => formatClock(iso, ctx.tz, ctx.day)));
+      const base = live.length === 1 ? `trip-sheet-${ctx.day}-${(live[0].vehicleName ?? live[0].name).replace(/[^\w-]+/g, '_')}` : `trip-sheets-${ctx.day}-${ctx.draft.direction}`;
+      if (kind === 'csv') downloadText(tripSheetsCsv(sheets, { date: ctx.day, direction }), `${base}.csv`);
+      else await downloadTripSheetsPdf(sheets, { company: me?.company.name ?? '', date: ctx.day, direction, printedAt: new Date().toLocaleString() }, `${base}.pdf`);
+    } catch (e) {
+      toast.error(e3ErrorMessage(e, t));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { run, busy };
+}
+
 export function TripsPanel({ ctx }: { ctx: PanelCtx }) {
   const { t } = useTranslation();
   const [showVehicles, setShowVehicles] = useState(true);
   const diff = useMemo(() => new Map(diffDraft(ctx.draft, ctx.board.trips).map((r) => [r.key, r])), [ctx.draft, ctx.board.trips]);
   const trips = useMemo(() => [...ctx.board.trips].sort((a, b) => (a.plannedStart ?? '').localeCompare(b.plannedStart ?? '')), [ctx.board.trips]);
+  const sheets = useTripSheets(ctx);
   return (
     <section aria-labelledby="trips-h" className="flex min-h-0 min-w-0 flex-col gap-2">
-      <h2 id="trips-h" className="text-sm font-semibold">
-        {t('Trips')} <span className="text-muted-foreground tabular-nums">({trips.length + ctx.draft.newTrips.length})</span>
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 id="trips-h" className="text-sm font-semibold">
+          {t('Trips')} <span className="text-muted-foreground tabular-nums">({trips.length + ctx.draft.newTrips.length})</span>
+        </h2>
+        {trips.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" disabled={sheets.busy}>
+                <FileDownIcon /> {t('Trip sheets')}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => void sheets.run(trips, 'pdf')}>
+                <FileDownIcon /> {t('All trips (PDF, one page per trip)')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void sheets.run(trips, 'csv')}>
+                <FileDownIcon /> {t('All trips (Excel / CSV)')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
       <ul className="flex flex-col gap-2">
         {ctx.draft.newTrips.map((n) => (
           <DraftTripCard key={n.tempId} tempId={n.tempId} ctx={ctx} diff={diff.get(n.tempId)} />

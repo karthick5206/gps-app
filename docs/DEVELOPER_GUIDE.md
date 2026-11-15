@@ -92,6 +92,7 @@ All three only fill the dispatcher's local draft. Nothing is saved until **Revie
   - `moveInNewTrip` (↑ ↓), `moveToNewTrip`, `setNewTripVehicle`, `setNewTripDriver` and `newTripOrder`.
   - The trip card shows the stop order with ↑ ↓ and a menu (Move to another draft trip / Remove), plus Vehicle and Driver selects.
 - **Tests:** `auto-allocate.test.ts`, `copy-day.test.ts`.
+- **Trip sheets** (`trip-sheet.ts`): per trip (download icon on the trip card) or for every trip of the day (Trips → Trip sheets: PDF, one A4 page per trip, or one CSV). The sheet holds the vehicle, driver, shift, planned start, stops (planned and actual time, pick up / drop names), passengers (code, pickup, drop, Boarded pre-filled from outcomes, board time, signature) and odometer, signature, toll / parking and remarks lines. It's drawn with jsPDF (Latin fonts only, so Hindi / Tamil names don't print). `toSheet` / `tripSheetsCsv` are tested in `trip-sheet.test.ts`.
 - **Not yet built:** the road optimiser behind Routing, the Ad-hoc tab, and grouping on Bookings.
 
 ### 2.3 Mobile apps
