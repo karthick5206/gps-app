@@ -3616,6 +3616,7 @@ export const HI: Record<string, string> = {
   'Search address': 'पता खोजें',
   'Search alerts': 'अलर्ट खोजें',
   'Search an address or place': 'पता या स्थान खोजें',
+  'Search an address, place or coordinates': 'पता, स्थान या निर्देशांक खोजें',
   'Search by company name instead': 'इसके बजाय कंपनी के नाम से खोजें',
   'Search by company name. Only companies with employee transport switched on are listed.': 'कंपनी के नाम से खोजें। केवल वे कंपनियाँ दिखती हैं जिनमें कर्मचारी परिवहन चालू है।',
   'Search by IMEI / unique id.': 'IMEI / यूनिक आईडी से खोजें।',

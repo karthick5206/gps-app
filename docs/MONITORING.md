@@ -86,6 +86,7 @@ the page's settings panel).
 | Map tiles down (`maps.martin`): web and mobile maps are blank | CRITICAL | 2 failed checks in a row (~30 s) | `MARTIN_URL` (unset = not monitored) |
 | Routing down (`maps.graphhopper`): ETAs and road snapping skipped | WARN | 2 failed checks in a row | `ROUTER_URL` + `ROUTER_ENGINE=graphhopper` |
 | Geocoder down (`maps.photon`): addresses and place search unavailable | WARN | 2 failed checks in a row | `GEOCODER=photon` + `GEOCODER_URL` |
+| Geocoder region down (`maps.photon.<code>`, e.g. `maps.photon.us`): that region's addresses missing from search / reverse | WARN | 2 failed checks in a row | `GEOCODER=photon` + `GEOCODER_REGIONS` (one probe `<url>/status` per instance; replaces the single `maps.photon`) |
 
 Map-service issues clear on the next successful check. GraphHopper becomes CRITICAL once ETMS ETAs depend on it
 (release-gate spec G6). They are not part of `/api/health/tracking`, so they never fail the release gate.

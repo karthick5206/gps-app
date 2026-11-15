@@ -654,8 +654,9 @@ function insertsPerMin(series: SeriesSample[]): number | null {
 export function mapServiceDtos(maps: MapServiceState[], issues: Issue[]): MapServiceDto[] {
   return maps.map((m) => ({
     name: m.name,
+    ...(m.id ? { id: m.id } : {}),
     label: m.label,
-    status: statusOf(issues, `maps.${m.name}`),
+    status: statusOf(issues, `maps.${m.id ?? m.name}`),
     configured: m.configured,
     probeUrl: m.probeUrl,
     ok: m.ok,

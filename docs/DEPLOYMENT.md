@@ -44,6 +44,7 @@ flowchart LR
 | `SMTP_URL` or `ZOHO_MAIL_KEY`, `MAIL_FROM` | real mail provider. Without one, password reset by e-mail returns "not available, ask your administrator" |
 | `SMS_PROVIDER=smartping` + DLT credentials | real SMS. Without one, SMS-code login returns "not available" |
 | `GEOCODER` | `none` or a self-hosted Photon/Nominatim (never public Nominatim in production) |
+| `GEOCODER_REGIONS` | Optional, Photon only: several instances `CODE\|URL\|minLon,minLat,maxLon,maxLat` separated by `;` (e.g. `IN\|http://127.0.0.1:2322\|68,6,98,37;US\|http://127.0.0.1:2323\|-180,17,-65,72`). Overrides `GEOCODER_URL` (alone = one India instance). All URLs must be loopback / private |
 | `SUPER_ADMIN_PASSWORD` | only when running the seed on an empty database (≥ 12 characters) |
 | `WEBHOOK_ALLOW_PRIVATE`, `RELAY_ALLOW_PRIVATE` | unset (`true` re-opens private-network targets) |
 | `API_HOST` | unset: the API then listens on 127.0.0.1 (production), reached only through the local proxy / tunnel. Set a private address only for a proxy on another host; `0.0.0.0` restores listening on every interface |

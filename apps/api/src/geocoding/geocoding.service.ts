@@ -1,25 +1,32 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { GEOCODE_LIMITS } from '@veetracer/shared';
+import { COORDINATES_MATCH_TYPE, formatCoordinates, GEOCODE_LIMITS, parseCoordinates } from '@veetracer/shared';
 import { isLocalHost } from '../monitoring/map-services';
 import { PrismaService } from '../prisma/prisma.service';
+import { geocoderConfig, rawRegionEntries, regionFor, type GeocoderRegion } from './geocoder-regions';
 
 /**
- * Personal addresses (ETMS passenger homes, security review L11) may only go to a self-hosted geocoder: GEOCODER_URL
- * must name a loopback, private-network or internal host, the same policy as the G6 map-service probe (isLocalHost; no
- * DNS lookup, so a public name always counts as public). Otherwise 503 GEOCODER_NOT_PRIVATE and nothing is sent.
+ * Personal addresses (ETMS passenger homes, security review L11) may only go to a self-hosted geocoder: GEOCODER_URL and
+ * every URL in GEOCODER_REGIONS must name a loopback, private-network or internal host, the same policy as the G6
+ * map-service probe (isLocalHost; no DNS lookup, so a public name always counts as public). Otherwise 503
+ * GEOCODER_NOT_PRIVATE and nothing is sent to any instance (one public URL switches the whole search off).
  * No geocoder configured (GEOCODER=none or no URL) passes: search then returns [] without a request.
  */
 export function privateGeocoderProblem(env: NodeJS.ProcessEnv = process.env): string | null {
   const provider = (env.GEOCODER ?? 'none').toLowerCase();
-  const url = env.GEOCODER_URL ?? '';
-  if (provider === 'none' || !url) return null;
-  let host: string;
-  try {
-    host = new URL(url).hostname;
-  } catch {
-    return 'GEOCODER_URL is not a valid URL';
+  if (provider === 'none') return null;
+  const urls: { setting: string; url: string }[] = [];
+  if (env.GEOCODER_URL) urls.push({ setting: 'GEOCODER_URL', url: env.GEOCODER_URL });
+  for (const e of rawRegionEntries(env)) urls.push({ setting: `GEOCODER_REGIONS entry ${e.code || '?'}`, url: e.url });
+  for (const { setting, url } of urls) {
+    let host: string;
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      return `${setting} is not a valid URL`;
+    }
+    if (!isLocalHost(host)) return `${setting} host ${host} is not a loopback or private host: addresses are only sent to a self-hosted geocoder`;
   }
-  return isLocalHost(host) ? null : `GEOCODER_URL host ${host} is not a loopback or private host: addresses are only sent to a self-hosted geocoder`;
+  return null;
 }
 
 export function assertPrivateGeocoder(env: NodeJS.ProcessEnv = process.env): void {
@@ -27,12 +34,6 @@ export function assertPrivateGeocoder(env: NodeJS.ProcessEnv = process.env): voi
   if (problem) throw new ServiceUnavailableException({ message: `Address search is switched off: ${problem}. Ask your administrator to point it at the self-hosted geocoder.`, code: 'GEOCODER_NOT_PRIVATE' });
 }
 
-/**
- * Reverse geocoding (coordinates → address) with a database cache keyed by coordinates rounded to ~11 m.
- * Provider from env GEOCODER: `none` (default), `photon` (self-hosted, GEOCODER_URL) or `nominatim`
- * (GEOCODER_URL; the public nominatim.openstreetmap.org allows ≤ 1 request/s and is for development only).
- * Callers must treat `null` as "no address" and never block the hot path on this.
- */
 /** "Anna Salai, Teynampet, Chennai, Tamil Nadu 600018" from Photon properties; repeated parts (city = district) dropped. */
 export function photonAddress(p: Record<string, string | undefined>): string | null {
   const street = p.street ? [p.housenumber, p.street].filter(Boolean).join(' ') : undefined;
@@ -75,7 +76,7 @@ export interface GeocodeHit {
   lng: number;
   /** photonConfidence of the hit (null when Photon gave no match type). */
   confidence: number | null;
-  /** Photon `type` (house, street, city…), or null. */
+  /** Photon `type` (house, street, city…), `coordinates` for a typed point (search of "lat, lng"), or null. */
   matchType: string | null;
 }
 
@@ -121,11 +122,52 @@ export class GeocodeSearchCache {
   }
 }
 
+/** Hits per Photon instance and after merging all instances (v1.18). */
+export const SEARCH_LIMIT = 6;
+/** Per-instance timeout of a forward search; a slow or failing instance only drops its own hits. */
+export const SEARCH_TIMEOUT_MS = 4000;
+
+/** Great-circle distance in metres (ranking only). */
+function distanceM(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * Merges the answers of several instances (each already in Photon's own relevance order): highest confidence first, then
+ * nearest to the bias point (when given), then Photon's order; the same label within ~100 m is kept once.
+ */
+export function mergeHits(lists: readonly GeocodeHit[][], near?: { lat: number; lng: number }, limit: number = SEARCH_LIMIT): GeocodeHit[] {
+  const rows = lists.flatMap((hits, list) => hits.map((hit, rank) => ({ hit, rank, list, dist: near ? distanceM(near, hit) : 0 })));
+  rows.sort((a, b) => (b.hit.confidence ?? 0) - (a.hit.confidence ?? 0) || a.dist - b.dist || a.rank - b.rank || a.list - b.list);
+  const seen = new Set<string>();
+  const out: GeocodeHit[] = [];
+  for (const { hit } of rows) {
+    const key = `${hit.label.trim().toLowerCase()}|${hit.lat.toFixed(3)},${hit.lng.toFixed(3)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(hit);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+type PhotonFeature = { geometry?: { coordinates?: [number, number] }; properties?: Record<string, string | undefined> };
+
+/**
+ * Reverse geocoding (coordinates → address) with a database cache keyed by coordinates rounded to ~11 m, and address /
+ * place search. Provider from env GEOCODER: `none` (default), `photon` (self-hosted; instances from GEOCODER_REGIONS or
+ * GEOCODER_URL, see geocoder-regions.ts) or `nominatim` (GEOCODER_URL; the public nominatim.openstreetmap.org allows
+ * ≤ 1 request/s and is for development only). Callers must treat `null` as "no address" and never block the hot path.
+ */
 @Injectable()
 export class GeocodingService {
   private readonly logger = new Logger(GeocodingService.name);
   private readonly provider = (process.env.GEOCODER ?? 'none').toLowerCase();
-  private readonly baseUrl = process.env.GEOCODER_URL ?? '';
+  private readonly regions: GeocoderRegion[];
   private readonly minIntervalMs = this.provider === 'nominatim' ? 1100 : 0;
   private queue: Promise<unknown> = Promise.resolve();
   private lastCall = 0;
@@ -133,20 +175,31 @@ export class GeocodingService {
   private readonly searchCache = new GeocodeSearchCache(GEOCODE_LIMITS.cacheMaxEntries, GEOCODE_LIMITS.cacheTtlMs);
 
   constructor(private readonly prisma: PrismaService) {
+    const config = geocoderConfig();
+    this.regions = config.regions;
+    for (const p of config.problems) this.logger.warn(`${p} (entry skipped)`);
     const problem = privateGeocoderProblem();
     if (problem) this.logger.warn(`${problem}. ETMS address search and passenger geocoding refuse requests (GEOCODER_NOT_PRIVATE).`);
   }
 
   get enabled(): boolean {
-    return this.provider !== 'none' && !!this.baseUrl;
+    return this.provider !== 'none' && this.regions.length > 0;
   }
 
+  /** Configured instances (code, URL, bbox). */
+  get instances(): readonly GeocoderRegion[] {
+    return this.regions;
+  }
+
+  /** Address at a point from the instance whose bbox contains it; null when none does or nothing is found. */
   async reverse(lat: number, lng: number): Promise<string | null> {
     if (!this.enabled || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    const region = regionFor(this.regions, lat, lng);
+    if (!region) return null;
     const key = addressKey(lat, lng);
     const cached = await this.prisma.addressCache.findUnique({ where: { key } });
     if (cached) return cached.address;
-    const address = await this.throttled(() => this.lookup(lat, lng));
+    const address = await this.throttled(() => this.lookup(region.url, lat, lng));
     if (address) {
       await this.prisma.addressCache.upsert({ where: { key }, create: { key, address, provider: this.provider }, update: {} });
     }
@@ -154,36 +207,67 @@ export class GeocodingService {
   }
 
   /**
-   * Address / place search for picking a destination (Photon only; up to 6 results near India). v1.15.1 type-ahead:
-   * answers of a successful lookup are kept in `searchCache` (normalised query + near-point bucket, GEOCODE_LIMITS
-   * TTL and size cap), so repeated prefixes do not reach Photon again; failures are not cached. Callers keep running
-   * assertPrivateGeocoder first (the cache sits behind that guard).
+   * Address / place search (Photon only; up to SEARCH_LIMIT results). Every instance is asked in parallel within its own
+   * bbox (SEARCH_TIMEOUT_MS each; a failing instance only drops its hits) and the answers are merged by mergeHits. The
+   * bias point `near` (e.g. the map centre) goes to the instance whose bbox contains it and orders the merged list.
+   *
+   * Coordinates ("12.97, 77.59", "12.97N 77.59E", DMS…; parseCoordinates) are never sent to search: the answer is one
+   * exact hit at that point (matchType 'coordinates', confidence 1) labelled with its address when reverse geocoding
+   * finds one, else the formatted coordinates.
+   *
+   * v1.15.1 type-ahead: answers are kept in `searchCache` (normalised query + near-point bucket, GEOCODE_LIMITS TTL and
+   * size cap) unless an instance failed. Callers keep running assertPrivateGeocoder first (the cache sits behind it).
    */
   async search(q: string, near?: { lat: number; lng: number }): Promise<GeocodeHit[]> {
+    const point = parseCoordinates(q);
+    if (point) return [await this.coordinateHit(point.lat, point.lng)];
     if (!this.enabled || this.provider !== 'photon' || q.trim().length < 3) return [];
-    const key = geocodeCacheKey(q, near);
+    const bias = near && Number.isFinite(near.lat) && Number.isFinite(near.lng) ? near : undefined;
+    const key = geocodeCacheKey(q, bias);
     const cached = this.searchCache.get(key);
     if (cached) return cached.map((h) => ({ ...h }));
-    try {
-      const p = new URLSearchParams({ q: q.trim().replace(/\s+/g, ' '), limit: '6', lang: 'en', bbox: '68,6,98,37' });
-      if (near) {
-        p.set('lat', String(near.lat));
-        p.set('lon', String(near.lng));
+    const term = q.trim().replace(/\s+/g, ' ');
+    const biasRegion = bias ? regionFor(this.regions, bias.lat, bias.lng) : null;
+    const answers = await Promise.allSettled(this.regions.map((r) => this.searchRegion(r, term, r === biasRegion ? bias : undefined)));
+    const lists: GeocodeHit[][] = [];
+    let failed = false;
+    answers.forEach((a, i) => {
+      if (a.status === 'fulfilled') lists.push(a.value);
+      else {
+        failed = true;
+        this.logger.warn(`Address search failed (${this.regions[i].code}): ${(a.reason as Error)?.message ?? String(a.reason)}`);
       }
-      const res = await fetch(`${this.baseUrl}/api?${p.toString()}`, { signal: AbortSignal.timeout(4000) });
-      if (!res.ok) return [];
-      const body = (await res.json()) as { features?: { geometry?: { coordinates?: [number, number] }; properties?: Record<string, string | undefined> }[] };
-      const hits: GeocodeHit[] = (body.features ?? []).flatMap((f) => {
-        const c = f.geometry?.coordinates;
-        const label = f.properties ? photonAddress(f.properties) : null;
-        return c && label ? [{ label, lat: c[1], lng: c[0], confidence: photonConfidence(f.properties), matchType: f.properties?.type ?? null }] : [];
-      });
-      this.searchCache.set(key, hits);
-      return hits.map((h) => ({ ...h }));
+    });
+    const hits = mergeHits(lists, bias);
+    if (!failed) this.searchCache.set(key, hits);
+    return hits.map((h) => ({ ...h }));
+  }
+
+  private async coordinateHit(lat: number, lng: number): Promise<GeocodeHit> {
+    let address: string | null = null;
+    try {
+      address = await this.reverse(lat, lng);
     } catch (error) {
-      this.logger.warn(`Address search failed: ${(error as Error).message}`);
-      return [];
+      this.logger.warn(`Reverse geocoding of searched coordinates failed: ${(error as Error).message}`);
     }
+    return { label: address ?? formatCoordinates(lat, lng), lat, lng, confidence: 1, matchType: COORDINATES_MATCH_TYPE };
+  }
+
+  /** One instance; throws on a network error, timeout or non-2xx answer (the search then goes on without it). */
+  private async searchRegion(region: GeocoderRegion, term: string, near?: { lat: number; lng: number }): Promise<GeocodeHit[]> {
+    const p = new URLSearchParams({ q: term, limit: String(SEARCH_LIMIT), lang: 'en', bbox: region.bbox.join(',') });
+    if (near) {
+      p.set('lat', String(near.lat));
+      p.set('lon', String(near.lng));
+    }
+    const res = await fetch(`${region.url}/api?${p.toString()}`, { signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = (await res.json()) as { features?: PhotonFeature[] };
+    return (body.features ?? []).flatMap((f) => {
+      const c = f.geometry?.coordinates;
+      const label = f.properties ? photonAddress(f.properties) : null;
+      return c && label ? [{ label, lat: c[1], lng: c[0], confidence: photonConfidence(f.properties), matchType: f.properties?.type ?? null }] : [];
+    });
   }
 
   /** Serialises provider calls and spaces them by minIntervalMs (rate-limited providers only; self-hosted Photon runs in parallel). */
@@ -199,11 +283,11 @@ export class GeocodingService {
     return run;
   }
 
-  private async lookup(lat: number, lng: number): Promise<string | null> {
+  private async lookup(baseUrl: string, lat: number, lng: number): Promise<string | null> {
     try {
       if (this.provider === 'photon') {
         // lang=en: Latin-script names (OSM name:en) rather than the local script, so addresses read the same everywhere.
-        const res = await fetch(`${this.baseUrl}/reverse?lat=${lat}&lon=${lng}&limit=1&lang=en`, { signal: AbortSignal.timeout(3000) });
+        const res = await fetch(`${baseUrl}/reverse?lat=${lat}&lon=${lng}&limit=1&lang=en`, { signal: AbortSignal.timeout(3000) });
         if (!res.ok) return null;
         const body = (await res.json()) as { features?: { properties?: Record<string, string | undefined> }[] };
         const p = body.features?.[0]?.properties;
@@ -211,7 +295,7 @@ export class GeocodingService {
         return photonAddress(p);
       }
       if (this.provider === 'nominatim') {
-        const url = `${this.baseUrl}/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=17&addressdetails=0`;
+        const url = `${baseUrl}/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=17&addressdetails=0`;
         const res = await fetch(url, { headers: { 'User-Agent': 'VeeTrax/0.1 (development)' }, signal: AbortSignal.timeout(5000) });
         if (!res.ok) return null;
         const body = (await res.json()) as { display_name?: string };

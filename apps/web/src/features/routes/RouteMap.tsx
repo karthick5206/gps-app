@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { circleRing } from '@/features/geofences/geometry';
 import { onStyleReady, useBasemap } from '@/features/geofences/map/use-basemap';
-import { PlaceSearch, type Place } from '@/features/geofences/PlaceSearch';
+import { PlaceSearch, type Place } from '@/components/map-place-search';
 import { cssToken } from '@/features/live/map/map-style';
 import { cn } from '@/lib/utils';
 import { coordsBounds, corridorLineWidth, midLatitude } from './corridor';

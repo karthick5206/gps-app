@@ -312,6 +312,8 @@ export type MapServiceName = 'graphhopper' | 'photon' | 'martin';
 /** Last health probe of one map service. A service whose URL is not set is not monitored (`configured: false`). */
 export interface MapServiceDto {
   name: MapServiceName;
+  /** One of several instances of a service (GEOCODER_REGIONS: "photon.in", "photon.us"); issue `maps.<id>`. */
+  id?: string;
   /** "Routing (GraphHopper)" etc. */
   label: string;
   status: HealthStatus;

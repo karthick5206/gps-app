@@ -1,0 +1,19 @@
+[Unit]
+Description=VeeTrax geocoding (Photon 1.3, USA) on localhost:2323
+After=network-online.target
+# Optional second instance (GEOCODER_REGIONS in apps/api/.env); nothing else depends on it. See maps/README.md.
+ConditionPathExists=/opt/veetrax/maps/photon-us/photon_data
+
+[Service]
+User=veetrax
+WorkingDirectory=/opt/veetrax/maps/photon
+# Data: /opt/veetrax/maps/photon-us/photon_data, imported from the planet dump with -country-codes us (maps/README.md)
+ExecStart=/usr/bin/java -Xms1g -Xmx4g -jar photon-1.3.0.jar serve -data-dir /opt/veetrax/maps/photon-us -listen-ip 127.0.0.1 -listen-port 2323 -j 4
+Restart=on-failure
+RestartSec=30
+SuccessExitStatus=143
+LimitNOFILE=65536
+# Logs: journalctl -u veetrax-photon-us -f
+
+[Install]
+WantedBy=multi-user.target

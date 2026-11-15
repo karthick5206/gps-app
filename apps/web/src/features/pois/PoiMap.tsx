@@ -1,6 +1,7 @@
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { MapPlaceSearch } from '@/components/map-place-search';
 import { circleRing } from '@/features/geofences/geometry';
 import { onStyleReady, useBasemap } from '@/features/geofences/map/use-basemap';
 import { cn } from '@/lib/utils';
@@ -119,8 +120,9 @@ export function PoiMap({
           {t('The map needs WebGL. You can still type the latitude and longitude.')}
         </div>
       )}
+      {!unsupported && <MapPlaceSearch map={map} className="absolute top-2 right-2 left-2 z-10 max-w-sm" />}
       {!unsupported && !readOnly && (
-        <div className="pointer-events-none absolute inset-x-2 top-2 z-10 flex justify-center">
+        <div className="pointer-events-none absolute inset-x-2 top-12 z-10 flex justify-center">
           <span className="rounded-md border bg-card/95 px-2 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
             {position ? t('Click the map or drag the pin to move it.') : t('Click the map to place the POI.')}
           </span>
