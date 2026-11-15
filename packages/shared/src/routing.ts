@@ -295,8 +295,53 @@ export const OPTIMIZE_UNASSIGNED_REASONS = [
   'exceeds_max_route_duration',
   'not_scheduled_capacity_or_time',
   'no_solution_found',
+  // E4 WP-A / WP-S: dropped because the fleet is too small within the binding limits (solver code FLEET_TOO_SMALL,
+  // detail { binding: ['max_ride' | 'time_window' | …], freeSeats }): more vehicles, or a longer max ride, would serve it.
+  'fleet_too_small',
 ] as const;
 export type OptimizeUnassignedReason = (typeof OPTIMIZE_UNASSIGNED_REASONS)[number];
+
+/** English text of each unassigned reason (RoutePlanStop.unassignedReason); the web translates. */
+export const OPTIMIZE_UNASSIGNED_REASON_TEXT: Record<OptimizeUnassignedReason, string> = {
+  consent_withdrawn: 'Passenger consent withdrawn',
+  booking_not_active: 'Booking no longer active',
+  needs_location: 'Pickup or drop point missing',
+  outside_coverage: 'Point outside the routing area',
+  not_on_road: 'Point not near a road',
+  far_from_road: 'Point too far from the road (check the pin)',
+  not_checked: 'Point could not be checked on the road map',
+  invalid_location: 'Invalid point',
+  invalid_time_window: 'Time window ends before it starts',
+  no_vehicle_available: 'No vehicle available',
+  demand_exceeds_vehicle_capacity: 'More seats than any vehicle has',
+  no_compatible_vehicle: 'No suitable vehicle (seats, type or wheelchair)',
+  safety_rule: 'Blocked by a safety rule (escort)',
+  pinned_assignment_infeasible: 'The pinned vehicle cannot serve it',
+  unreachable_location: 'No road route to this point',
+  time_window_unreachable: 'Cannot be reached within its time window',
+  max_ride_unachievable: 'Ride would exceed the maximum ride time',
+  exceeds_max_route_duration: 'Would exceed the maximum route duration',
+  not_scheduled_capacity_or_time: 'Did not fit (seats or time) in the solution found',
+  no_solution_found: 'No solution found',
+  fleet_too_small: 'Not enough vehicles within the maximum ride time or arrival window',
+};
+
+/** Solver `detail` of an unassigned stop as passed to the API result (known keys only; no coordinates, no names). */
+export interface OptimizeUnassignedDetail {
+  binding?: string[];
+  freeSeats?: number;
+  failed?: string[];
+  rule?: string;
+  pinnedVehicleId?: string;
+  seatsNeeded?: number;
+  seats?: number;
+}
+
+/** A vehicle the optimisation could not use (VEHICLE_BUSY / DRIVER_BUSY before the solve; solver reasons). */
+export interface OptimizeUnusableVehicle {
+  vehicleId: string;
+  reason: string;
+}
 
 export interface OptimizeVisit {
   stopId: string;
@@ -327,7 +372,11 @@ export interface OptimizeResult {
   solverStatus?: string;
   routes: OptimizeRoute[];
   /** `code`: the doc 06 §4.6 code the solver adds (e.g. CAPACITY_EXHAUSTED); absent for reasons decided before the solve. */
-  unassigned: { stopId: string; reason: OptimizeUnassignedReason; code?: string }[];
+  unassigned: { stopId: string; reason: OptimizeUnassignedReason; code?: string; detail?: OptimizeUnassignedDetail }[];
+  /** E4 WP-A: vehicles not usable in this run (busy on another trip across the whole usable time; solver reasons). */
+  unusableVehicles?: OptimizeUnusableVehicle[];
+  /** E4 WP-A: the strategy the run used (absent for raw weights). */
+  strategy?: string;
   stats?: { wallTimeMs: number; timeLimitS: number; stops?: number; vehicles?: number };
   note?: string;
 }
@@ -380,6 +429,9 @@ export type SolverStatus = 'OPTIMAL' | 'FEASIBLE' | 'NO_SOLUTION' | 'INVALID_INP
 
 export interface SolverVisit extends OptimizeVisit {
   locationIndex: number;
+  /** WP-S (optional): the passenger's direct ride and the detour above it, seconds. */
+  directS?: number;
+  detourS?: number;
 }
 
 export interface SolverRoute {
@@ -402,7 +454,12 @@ export interface SolverResult {
   /** INVALID_INPUT only. */
   error?: string;
   routes: SolverRoute[];
-  unassigned: { stopId: string; reason: OptimizeUnassignedReason }[];
+  /** `code` / `detail`: contract v2 (WP-S adds code FLEET_TOO_SMALL with detail { binding, freeSeats }). */
+  unassigned: { stopId: string; reason: OptimizeUnassignedReason; code?: string; detail?: Record<string, unknown> }[];
+  /** v2: vehicles the solver could not use. */
+  unusableVehicles?: { vehicleId: string; reason: string }[];
+  /** v2 (WP-S adds rideTimeCost / detourCost). */
+  objectiveBreakdown?: { vehiclesUsed?: number; totalDistanceM?: number; totalDurationS?: number; fixedCost?: number; dropPenalty?: number; rideTimeCost?: number; detourCost?: number };
   stats?: { wallTimeMs: number; timeLimitS: number; stops?: number; vehicles?: number };
   note?: string;
 }
@@ -439,7 +496,7 @@ export type RoutingJobPhase = (typeof ROUTING_JOB_PHASES)[number];
  * job holds company / site points only.
  */
 export type RoutingJobInput =
-  | { kind: 'optimize'; planId: string; planVersion: number; profile: RoutingProfile; timeLimitS: number; objective?: 'duration' | 'distance' }
+  | { kind: 'optimize'; planId: string; planVersion: number; profile: RoutingProfile; timeLimitS: number; objective?: 'duration' | 'distance'; strategy?: string }
   | { kind: 'matrix'; profile: RoutingProfile; sources: LatLng[]; targets: LatLng[]; timeoutS?: number };
 
 /**

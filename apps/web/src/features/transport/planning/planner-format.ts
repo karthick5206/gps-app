@@ -347,6 +347,7 @@ export const UNASSIGNED_REASON_LABEL: Record<OptimizeUnassignedReason | 'not_opt
   safety_rule: 'Blocked by a safety rule (escort)',
   pinned_assignment_infeasible: 'The pinned vehicle cannot serve it',
   max_ride_unachievable: 'Ride would exceed the maximum ride time',
+  fleet_too_small: 'Not enough vehicles within the maximum ride time or arrival window',
 };
 
 /** Why plan creation left a booking out (CreatedRoutePlanDto.skippedBookings[].reason; shared ROUTE_PLAN_SKIP_REASONS). */

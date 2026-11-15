@@ -53,6 +53,7 @@ import { bookingStopRows, endProblem, PLAN_CANDIDATE_STATUSES, personalEnd, plan
 import { AVAILABILITY_CODES, availabilityErrors, manualChanges, restorePlacements, reviewHashOf, routeSpan, snapshotRoutes } from './plan-review';
 import { buildPlanChangeSet, pairProblem, pinnedStopsMoved, planMetrics, publishIssues, retime, routeStops, routeViolations, windowsOf, type PublishBooking, type RideRule, type PublishPlace, type PublishRoute, type RuleStop } from './plan-rules';
 import { PLAN_INCLUDE, outOfScope, personalOwners, planSnapshot, seatsLookup, toPlanDetail, toPlanSummary, toRuleStop, type PlanPointView, type PlanRow, type ViewBooking } from './plan-view';
+import { extendedPlanMetrics } from './plan-metrics';
 import type { AddBookingDto, AssignmentUpdateDto, BookingPinDto, DiscardDto, MovePassengerDto, PlanListQuery, PublishDto, RecalculateDto, ResequenceDto, RestoreDto, ReviewQuery, StopUpdateDto } from './plans.dto';
 
 export const PLAN_ENTITY = 'RoutePlan';
@@ -194,7 +195,8 @@ export class RoutePlansService {
     return {
       plans: ids.map((id) => {
         const p = plans.find((x) => x.id === id)!;
-        return planMetrics({ id: p.id, name: p.name, planDate: p.planDate, status: p.status as RoutePlanStatus, version: p.version, graphVersion: p.graphVersion, assignments: p.assignments, stops: p.stops.map(toRuleStop) }, seats);
+        // E4 WP-A: + vehicles used, rides, occupancy, deadline compliance, excluded with reasons, strategy (plan-metrics.ts).
+        return { ...planMetrics({ id: p.id, name: p.name, planDate: p.planDate, status: p.status as RoutePlanStatus, version: p.version, graphVersion: p.graphVersion, assignments: p.assignments, stops: p.stops.map(toRuleStop) }, seats), ...extendedPlanMetrics({ direction: p.direction as TransportDirection | null, options: p.options, assignments: p.assignments, stops: p.stops }, seats) };
       }),
     };
   }

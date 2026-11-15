@@ -14,6 +14,7 @@ import type { RoutePlanDetailDto, RoutePlanSummaryDto } from '@veetracer/shared'
 import type { AuthContext } from '../../access/auth-context';
 import type { RoutePlansController } from '../planning/plans.controller';
 import type { RoutePlanCreateController } from '../planning/plan-create';
+import type { RoutePlanAlternativesController } from '../planning/plan-alternatives';
 import type { RoutingJobsController } from '../../routing-jobs/routing-jobs.controller';
 import type { RoutingCapabilitiesController } from '../../routing-jobs/routing-capabilities.controller';
 import type { E3World } from './isolation-matrix-e3';
@@ -29,6 +30,8 @@ export interface E4Controllers {
   create: RoutePlanCreateController;
   jobs: RoutingJobsController;
   caps: RoutingCapabilitiesController;
+  /** E4 WP-A: alternative plans per strategy. */
+  alternatives: RoutePlanAlternativesController;
 }
 
 export interface E4Ids {
@@ -258,6 +261,20 @@ export const E4_MATRIX: E4Entry[] = [
   { route: 'GET routing/jobs', resource: 'routePlan', invoke: (c, ctx) => c.jobs.list(ctx, {}), expect: { none: LIST }, verify: noOtherJobs },
   { route: 'GET routing/jobs/:id', resource: 'routePlan', invoke: (c, ctx, t) => c.jobs.get(ctx, t.job), expect: { party: OWN_PLAN, other: OTHER_PLAN } },
   { route: 'POST routing/jobs/:id/cancel', resource: 'routePlan', invoke: (c, ctx, t) => c.jobs.cancel(ctx, t.job), expect: { party: OWN_PLAN, other: OTHER_PLAN } },
+  // ── E4 WP-A: alternative plans (sibling DRAFT plans per strategy + one optimise job each) ──
+  {
+    route: 'POST transport/route-plans/:id/alternatives',
+    resource: 'routePlan',
+    invoke: (c, ctx, t) => c.alternatives.create(ctx, t.plan, { strategies: ['BALANCED', 'FEWER_VEHICLES'], expectedVersion: 1 }, key()),
+    expect: { party: OWN_PLAN, other: OTHER_PLAN },
+    verify: (r, role, own, _ids, w) => {
+      if (own !== 'party') return;
+      const res = r as { sourcePlanId: string; alternatives: { planId: string }[] };
+      if (res.sourcePlanId !== w.party.plan || res.alternatives.length !== 2) fail(`${role} alternatives made ${res.alternatives.length} siblings`);
+      if (JSON.stringify(r).includes('13.06')) fail(`${role} alternatives answer carries a point`);
+    },
+  },
+  { route: 'GET transport/route-plans/:id/alternatives', resource: 'routePlan', invoke: (c, ctx, t) => c.alternatives.list(ctx, t.plan), expect: { party: OWN_PLAN, other: OTHER_PLAN } },
   // ── P9 plans ──
   { route: 'GET transport/route-plans', resource: 'routePlan', invoke: (c, ctx) => c.plans.list(ctx, {}), expect: { none: LIST }, verify: noOtherPlans },
   // compare names the company's own two plans: 404 for every caller outside custA (a plan of another scope is never compared).

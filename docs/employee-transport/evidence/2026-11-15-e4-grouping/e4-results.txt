@@ -1,0 +1,105 @@
+### S1 base: 5 pax, 1x7-seater, maxRide 60m, arrive 08:30-09:00  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=8548
+  van-A [5/7 seats] p3-Velachery (ride 27m) -> p4-Perungudi (ride 19m) -> p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 27 min, 18.1 km
+
+### S1 base  [SYNTHETIC]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=9060
+  van-A [5/7 seats] p1-Adyar (ride 36m) -> p5-Besant (ride 32m) -> p2-Thiruvanmiyur (ride 26m) -> p3-Velachery (ride 16m) -> p4-Perungudi (ride 6m) -> Office arrive 7200s, drive 36 min, 13.0 km
+
+### S2 far passenger (Tambaram), 1 van, maxRide 60m  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=9678
+  van-A [5/7 seats] p5-Tambaram (ride 46m) -> p3-Velachery (ride 23m) -> p4-Perungudi (ride 16m) -> p2-Thiruvanmiyur (ride 9m) -> p1-Adyar (ride 5m) -> Office arrive 7200s, drive 46 min, 34.2 km
+
+### S2b far passenger, 2 vans, maxRide 60m  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=9678
+  van-B [5/7 seats] p5-Tambaram (ride 46m) -> p3-Velachery (ride 23m) -> p4-Perungudi (ride 16m) -> p2-Thiruvanmiyur (ride 9m) -> p1-Adyar (ride 5m) -> Office arrive 7200s, drive 46 min, 34.2 km
+
+### S2c far passenger, 2 vans, maxRide 40m  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=2 objective=16734
+  van-A [3/7 seats] p5-Tambaram (ride 34m) -> p3-Velachery (ride 12m) -> p4-Perungudi (ride 4m) -> Office arrive 7200s, drive 34 min, 27.1 km
+  van-B [2/7 seats] p1-Adyar (ride 9m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 9 min, 6.8 km
+
+### S2 far passenger, 2 vans  [SYNTHETIC]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=2 objective=17940
+  van-A [2/7 seats] p5-Tambaram (ride 40m) -> p4-Perungudi (ride 6m) -> Office arrive 7200s, drive 40 min, 18.0 km
+  van-B [3/7 seats] p1-Adyar (ride 24m) -> p2-Thiruvanmiyur (ride 16m) -> p3-Velachery (ride 6m) -> Office arrive 7200s, drive 24 min, 9.0 km
+
+### S3 two directions (3 south + 2 north), 2 vans, maxRide 60m  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=9756
+  van-B [5/7 seats] p4-Anna (ride 47m) -> p5-Kilpauk (ride 42m) -> p1-Thiruvanmiyur (ride 23m) -> p3-Sholinganallur (ride 12m) -> p2-Perungudi (ride 4m) -> Office arrive 7200s, drive 47 min, 41.7 km
+
+### S3b two directions, 2 vans, maxRide 45m  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=2 objective=16486
+  van-A [3/7 seats] p4-Anna (ride 27m) -> p5-Kilpauk (ride 22m) -> p1-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 27 min, 21.9 km
+  van-B [2/7 seats] p3-Sholinganallur (ride 12m) -> p2-Perungudi (ride 4m) -> Office arrive 7200s, drive 12 min, 10.9 km
+
+### S3c two directions, 1 van, maxRide 45m  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=10008954
+  van-A [4/7 seats] p4-Anna (ride 33m) -> p5-Kilpauk (ride 28m) -> p1-Thiruvanmiyur (ride 9m) -> p2-Perungudi (ride 4m) -> Office arrive 7200s, drive 33 min, 27.0 km
+  UNASSIGNED p3-Sholinganallur: not_scheduled_capacity_or_time / TIME_LIMIT 
+
+### S4 second vehicle available (base, 2 vans)  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=8548
+  van-B [5/7 seats] p3-Velachery (ride 27m) -> p4-Perungudi (ride 19m) -> p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 27 min, 18.1 km
+
+### S5 tight deadline: depot start, arrive within 25 min of plan start, 2 vans  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=2 objective=16514
+  van-A [2/7 seats] p3-Velachery (ride 12m) -> p4-Perungudi (ride 4m) -> Office arrive 1500s, drive 20 min, 15.9 km
+  van-B [3/7 seats] p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 1500s, drive 20 min, 13.9 km
+
+### S5b tight deadline: depot start, within 20 min, 2 vans  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=2 objective=10016309
+  van-A [2/7 seats] p2-Thiruvanmiyur (ride 9m) -> p4-Perungudi (ride 4m) -> Office arrive 1200s, drive 18 min, 16.5 km
+  van-B [2/7 seats] p1-Adyar (ride 9m) -> p5-Besant (ride 5m) -> Office arrive 1200s, drive 16 min, 12.3 km
+  UNASSIGNED p3-Velachery: not_scheduled_capacity_or_time / TIME_LIMIT 
+
+### S5c relaxed deadline: depot start, within 60 min, 2 vans  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=9013
+  van-B [5/7 seats] p3-Velachery (ride 27m) -> p4-Perungudi (ride 19m) -> p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 3600s, drive 35 min, 25.3 km
+
+### S6 maxRide 30m (base, 2 vans)  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=8548
+  van-B [5/7 seats] p3-Velachery (ride 27m) -> p4-Perungudi (ride 19m) -> p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 27 min, 18.1 km
+
+### S6b maxRide 20m (base, 2 vans)  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=2 objective=15602
+  van-A [2/7 seats] p3-Velachery (ride 12m) -> p4-Perungudi (ride 4m) -> Office arrive 7200s, drive 12 min, 8.7 km
+  van-B [3/7 seats] p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 12 min, 7.5 km
+
+### S6c maxRide 15m (base, 2 vans)  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=2 objective=15602
+  van-A [2/7 seats] p3-Velachery (ride 12m) -> p4-Perungudi (ride 4m) -> Office arrive 7200s, drive 12 min, 8.7 km
+  van-B [3/7 seats] p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 12 min, 7.5 km
+
+### S6d maxRide 10m (base, 2 vans)  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=2 objective=10015271
+  van-A [2/7 seats] p2-Thiruvanmiyur (ride 9m) -> p4-Perungudi (ride 4m) -> Office arrive 7200s, drive 9 min, 7.4 km
+  van-B [2/7 seats] p5-Besant (ride 9m) -> p1-Adyar (ride 5m) -> Office arrive 7200s, drive 9 min, 5.9 km
+  UNASSIGNED p3-Velachery: not_scheduled_capacity_or_time / TIME_LIMIT 
+
+### S6e no max ride (base, 2 vans)  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=8548
+  van-B [5/7 seats] p3-Velachery (ride 27m) -> p4-Perungudi (ride 19m) -> p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 27 min, 18.1 km
+
+### S7 Velachery pinned to van-B (base, 2 vans)  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=8548
+  van-B [5/7 seats] p3-Velachery (ride 27m) -> p4-Perungudi (ride 19m) -> p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 27 min, 18.1 km
+
+### S7b Velachery pinned to van-B, far case (2 vans)  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=9678
+  van-B [5/7 seats] p5-Tambaram (ride 46m) -> p3-Velachery (ride 23m) -> p4-Perungudi (ride 16m) -> p2-Thiruvanmiyur (ride 9m) -> p1-Adyar (ride 5m) -> Office arrive 7200s, drive 46 min, 34.2 km
+
+### S8 locked route: van-B locked with Velachery; solver gets 4 pax + van-A  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=8072
+  van-A [4/7 seats] p1-Adyar (ride 18m) -> p4-Besant (ride 14m) -> p2-Thiruvanmiyur (ride 9m) -> p3-Perungudi (ride 4m) -> Office arrive 7200s, drive 18 min, 12.6 km
+
+### S9 capacity: 9 pax-stops on 1x7-seater  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=1 objective=20009652
+  van-A [7/7 seats] p7-Anna (ride 47m) -> p8-Kilpauk (ride 42m) -> p1-Adyar (ride 28m) -> p5-Besant (ride 24m) -> p2-Thiruvanmiyur (ride 19m) -> p4-Perungudi (ride 14m) -> p3-Velachery (ride 7m) -> Office arrive 7200s, drive 47 min, 35.5 km
+  UNASSIGNED p6-Sholinganallur: not_scheduled_capacity_or_time / CAPACITY_EXHAUSTED 
+  UNASSIGNED p9-Tambaram: not_scheduled_capacity_or_time / CAPACITY_EXHAUSTED 
+
+### S9b capacity: 9 pax, 2 vans  [REAL]
+status=FEASIBLE solver=ROUTING_SUCCESS wall=5.0s vehicles used=2 objective=18099
+  van-A [5/7 seats] p7-Anna (ride 32m) -> p8-Kilpauk (ride 26m) -> p1-Adyar (ride 12m) -> p5-Besant (ride 8m) -> p2-Thiruvanmiyur (ride 3m) -> Office arrive 7200s, drive 32 min, 24.3 km
+  van-B [4/7 seats] p9-Tambaram (ride 38m) -> p6-Sholinganallur (ride 22m) -> p4-Perungudi (ride 14m) -> p3-Velachery (ride 7m) -> Office arrive 7200s, drive 38 min, 33.8 km

@@ -3,6 +3,10 @@
 `verify(problem, result) -> list[str]` returns human-readable violations; an empty list means every hard constraint
 holds. It reads the raw problem JSON (not the solver's normalised model) and recomputes times from the matrix, so a
 modelling error in `solver.py` shows up here. Used by the tests and the corpus runner; the API can mirror it.
+
+Max ride is HARD and checked here. `trip.detourGuard` and `options.weights.rideTime` are SOFT (objective costs):
+exceeding the guard is never a violation, but the reported `rideS` / `directS` / `detourS` the API shows are
+re-checked against the matrix.
 """
 from __future__ import annotations
 
@@ -153,6 +157,8 @@ def verify(problem: dict, result: dict) -> list[str]:
                 mr = st['maxRideS'] if st.get('maxRideS') is not None else trip_max_ride
                 if mr is not None and arr - x['serviceStartS'] > mr:
                     out.append(f'{tag}: {x["stopId"]} ride {arr - x["serviceStartS"]} > {mr}')
+                out += _ride_fields(tag, x, arr - x['serviceStartS'],
+                                    _leg(dur, int(st['locationIndex']), site, int(st.get('serviceS') or 0)))
         elif direction == 'OUT':
             dep = r['startS']
             if not sw[0] <= dep <= sw[1]:
@@ -165,4 +171,23 @@ def verify(problem: dict, result: dict) -> list[str]:
                 mr = st['maxRideS'] if st.get('maxRideS') is not None else trip_max_ride
                 if mr is not None and x['serviceStartS'] - dep > mr:
                     out.append(f'{tag}: {x["stopId"]} ride {x["serviceStartS"] - dep} > {mr}')
+                out += _ride_fields(tag, x, x['serviceStartS'] - dep, _leg(dur, site, int(st['locationIndex']), 0))
+    return out
+
+
+def _leg(dur: list, a: int, b: int, extra: int) -> int | None:
+    return None if dur[a][b] is None else dur[a][b] + extra
+
+
+def _ride_fields(tag: str, x: dict, ride: int, direct: int | None) -> list[str]:
+    """Reported ride / direct ride / detour (trip visits) agree with the matrix. IN direct = own boarding + leg to the
+    site; OUT direct = leg from the site; detourS = max(0, rideS - directS)."""
+    out = []
+    if 'rideS' in x and x['rideS'] != ride:
+        out.append(f'{tag}: {x["stopId"]} rideS {x["rideS"]} != {ride}')
+    if 'directS' in x:
+        if x['directS'] != direct:
+            out.append(f'{tag}: {x["stopId"]} directS {x["directS"]} != {direct}')
+        elif x.get('detourS') != max(0, ride - direct):
+            out.append(f'{tag}: {x["stopId"]} detourS {x.get("detourS")} != {max(0, ride - direct)}')
     return out

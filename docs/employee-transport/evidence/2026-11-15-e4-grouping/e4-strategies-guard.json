@@ -1,0 +1,106 @@
+{
+ "twoDir NO company maxRide, 2 van(s), default weights, no guard": {
+  "veh": 1,
+  "km": 41.7,
+  "driveMin": 48,
+  "maxRide": 48,
+  "avgRide": 26.1,
+  "occ": "B:5/7",
+  "routes": "B:AnnaN>Kilpa>Thiru>Sholi>Perun",
+  "unassigned": [],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "twoDir NO company maxRide, 1 van(s), default weights, no guard": {
+  "veh": 1,
+  "km": 41.7,
+  "driveMin": 48,
+  "maxRide": 48,
+  "avgRide": 26.1,
+  "occ": "A:5/7",
+  "routes": "A:AnnaN>Kilpa>Thiru>Sholi>Perun",
+  "unassigned": [],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "twoDir NO company maxRide, 2 van(s), default weights, guard 2.0/15m": {
+  "veh": 2,
+  "km": 32.9,
+  "driveMin": 40,
+  "maxRide": 27,
+  "avgRide": 14.0,
+  "occ": "A:3/7 B:2/7",
+  "routes": "A:AnnaN>Kilpa>Thiru | B:Sholi>Perun",
+  "unassigned": [],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "twoDir NO company maxRide, 1 van(s), default weights, guard 2.0/15m": {
+  "veh": 1,
+  "km": 27.0,
+  "driveMin": 33,
+  "maxRide": 33,
+  "avgRide": 18.8,
+  "occ": "A:4/7",
+  "routes": "A:AnnaN>Kilpa>Thiru>Perun",
+  "unassigned": [
+   "Sholinganallur:FLEET_TOO_SMALL:{\"binding\": [\"max_ride\"], \"freeSeats\": 3}"
+  ],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "twoDir NO company maxRide, 2 van(s), default weights, guard 1.6/10m": {
+  "veh": 2,
+  "km": 32.9,
+  "driveMin": 40,
+  "maxRide": 27,
+  "avgRide": 14.0,
+  "occ": "A:3/7 B:2/7",
+  "routes": "A:AnnaN>Kilpa>Thiru | B:Sholi>Perun",
+  "unassigned": [],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "twoDir NO company maxRide, 1 van(s), default weights, guard 1.6/10m": {
+  "veh": 1,
+  "km": 13.3,
+  "driveMin": 18,
+  "maxRide": 18,
+  "avgRide": 10.2,
+  "occ": "A:3/7",
+  "routes": "A:Sholi>Perun>Thiru",
+  "unassigned": [
+   "AnnaNagar:FLEET_TOO_SMALL:{\"binding\": [\"max_ride\"], \"freeSeats\": 4}",
+   "Kilpauk:FLEET_TOO_SMALL:{\"binding\": [\"max_ride\"], \"freeSeats\": 4}"
+  ],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "twoDir NO company maxRide, 2 van(s), default weights, guard 1.4/8m": {
+  "veh": 2,
+  "km": 31.6,
+  "driveMin": 41,
+  "maxRide": 23,
+  "avgRide": 14.3,
+  "occ": "A:2/7 B:3/7",
+  "routes": "A:AnnaN>Kilpa | B:Sholi>Perun>Thiru",
+  "unassigned": [],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "twoDir NO company maxRide, 1 van(s), default weights, guard 1.4/8m": {
+  "veh": 1,
+  "km": 13.3,
+  "driveMin": 18,
+  "maxRide": 18,
+  "avgRide": 10.2,
+  "occ": "A:3/7",
+  "routes": "A:Sholi>Perun>Thiru",
+  "unassigned": [
+   "AnnaNagar:FLEET_TOO_SMALL:{\"binding\": [\"max_ride\"], \"freeSeats\": 4}",
+   "Kilpauk:FLEET_TOO_SMALL:{\"binding\": [\"max_ride\"], \"freeSeats\": 4}"
+  ],
+  "status": "FEASIBLE",
+  "error": null
+ }
+}

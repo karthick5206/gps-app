@@ -5,6 +5,7 @@ import { ROUTING_PROVIDER } from '../../routing/provider/routing-provider';
 import { EtmsDispatchModule } from '../dispatch/dispatch.module';
 import { RoutingJobsModule } from '../../routing-jobs/routing-jobs.module';
 import { RoutePlanCreateController, RoutePlanCreateService } from './plan-create';
+import { RoutePlanAlternativesController, RoutePlanAlternativesService } from './plan-alternatives';
 import { RoutePlansController } from './plans.controller';
 import { RoutePlansService } from './plans.service';
 
@@ -17,7 +18,7 @@ import { RoutePlansService } from './plans.service';
   // E4 WP 4.2: optimisation jobs + capabilities (routing/jobs, routing/capabilities) join the ETMS module graph, so the
   // isolation-matrix completeness guard covers them.
   imports: [EtmsDispatchModule, RoutingJobsModule],
-  controllers: [RoutePlansController, RoutePlanCreateController],
-  providers: [RoutePlansService, RoutePlanCreateService, { provide: ROUTING_PROVIDER, useFactory: () => new GraphHopperProvider(readRouterConfig(process.env)) }],
+  controllers: [RoutePlansController, RoutePlanCreateController, RoutePlanAlternativesController],
+  providers: [RoutePlansService, RoutePlanCreateService, RoutePlanAlternativesService, { provide: ROUTING_PROVIDER, useFactory: () => new GraphHopperProvider(readRouterConfig(process.env)) }],
 })
 export class EtmsPlanningModule {}

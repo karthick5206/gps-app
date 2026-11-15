@@ -1,5 +1,6 @@
 import type { PermissionMap } from './permissions';
 import { OVERRIDE_REASON_MIN } from './routing';
+import type { RoutePlanExcludedCount, RoutePlanPreferences, RoutePlanVehicleOccupancy, RoutingStrategy } from './routing-strategies';
 import type {
   PublishRoutePlanResult,
   RoutePlanAssignmentDto,
@@ -111,6 +112,10 @@ export interface RoutePlanDetailDto extends Omit<RoutePlanDto, 'stops' | 'assign
   publishDecision?: RoutePlanPublishDecision | null;
   /** Owner decision 1: max ride of the last optimisation and its source, the company policy, the plan's override. */
   maxRide?: RoutePlanMaxRide;
+  /** E4 WP-A: strategy and preferences of the last optimisation (options.strategy / options.preferences), and the source plan of an alternative. */
+  strategy?: RoutingStrategy | null;
+  preferences?: RoutePlanPreferences | null;
+  alternativeOf?: string | null;
 }
 
 /** The four explicit solver weights (OptimizeOptionsDto.weights). */
@@ -119,6 +124,8 @@ export interface RoutePlanWeights {
   distance: number;
   time: number;
   routeDuration: number;
+  /** E4 WP-A (optional; absent in weights stored before it = 0): cost per passenger-second of ride (trip mode). */
+  rideTime?: number;
 }
 
 // ───────────────────────────── manual edits (each with the version the client saw: 409 PLAN_STALE otherwise) ─────────────────────────────
@@ -239,6 +246,22 @@ export interface RoutePlanMetricsDto {
   seatUtilisation: number | null;
   violations: number;
   graphVersion: string | null;
+  // E4 WP-A metrics (definitions: ROUTE_PLAN_METRIC_DEFINITIONS in routing-strategies.ts). Optional in the type only so
+  // older clients / mocks still compile; the server always fills them.
+  vehiclesUsed?: number;
+  passengersAssigned?: number;
+  bookingsAssigned?: number;
+  totalDistanceM?: number | null;
+  totalTravelS?: number | null;
+  maxRideS?: number | null;
+  avgRideS?: number | null;
+  occupancy?: RoutePlanVehicleOccupancy[];
+  avgOccupancy?: number | null;
+  deadlineCompliance?: { inside: number; total: number; ratio: number | null };
+  excluded?: RoutePlanExcludedCount[];
+  excludedBookings?: number;
+  strategy?: RoutingStrategy | null;
+  alternativeOf?: string | null;
 }
 
 /** GET /route-plans/compare?ids=a,b[,c…] (2..5 plans of the caller's scope; 404 when any is not visible). */
