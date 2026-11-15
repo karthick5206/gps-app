@@ -1,6 +1,7 @@
 # 19 Pricing and billing: assessment and design
 
-Status: **Design ready for review** (2026-11-15). This document is design only: no code, no schema change, no
+Status: **Design approved with the recommended defaults; backend implemented** (2026-11-15, see §10 implementation notes).
+Original status: design ready for review (2026-11-15). This document is design only: no code, no schema change, no
 production change. It answers the "Vehicle, Trip & Company Pricing Module" brief.
 
 Implementation starts only after this design is reviewed and the owner decisions in §9.4 are taken.
@@ -514,3 +515,87 @@ The production deploy needs explicit release approval (working agreement). No pa
 9. **Vendor statements as the operating-cost source**, and whether vendor billing is later ported to the exact-money engine.
 10. **Holiday calendars:** per company or per branch.
 11. **Out of scope unless requested:** e-invoicing (IRN), TDS, payment gateway collection for customer invoices.
+
+---
+
+## 10. Implementation notes (backend, branch `feature/etms-pricing-be`, 2026-11-15)
+
+The owner said to go ahead with the recommended defaults for §9.4. Backend (API, shared engine, DB) is built; the web
+Pricing area is a separate workstream (placeholder routes only).
+
+**§9.4 defaults applied**
+
+| # | Decision | Default used |
+|---|---|---|
+| 2 | Who bills whom | Both: customer contracts and internal charge-back (customerCompanyId null) |
+| 3 | Supplier tax registration | Per company (`BillingSupplierProfile`, key companyId) |
+| 4 | Fiscal year / number format | Per supplier: `fiscalYearStartMonth` (4 for IN_GST, 1 otherwise), `<prefix>/<fy>/<seq:4>`, prefixes INV / CN |
+| 5 | Maker-checker | Two users always (no self-approval, also for the Super Admin and single-admin companies) |
+| 6 | Currencies and tax regimes | Any ISO 4217 code the engine knows; regimes IN_GST, SIMPLE (one configured rate per code), NONE |
+| 7 | Rounding / missing GPS | HALF_UP, REVIEW |
+| 8 | Customer visibility of invoices | Not yet (supplier-side only) |
+| 9 | Vendor statements as cost source | Not wired; `OperatingCostRecord` takes manual entries (source VENDOR_STATEMENT / EXPENSE / IMPORT reserved) |
+| 10 | Holiday calendars | Per company (`PricingCalendar`, referenced by version policy `calendarId`) |
+| 11 | IRN / TDS / gateway | Out of scope |
+
+**Deviations from the design**
+
+- **Feature flag name:** `pricing` (as §4), in `COMPANY_FEATURES`, off by default; switching it on seeds the role
+  templates "Billing admin" (COMPANY, incl. `pricing_costs`) and "Billing clerk" (ASSIGNED, no approvals, no costs).
+- **One migration** `20261128090000_etms_pricing_core` (tables + raw SQL). `companyId` has no FK to `Company` (logical key,
+  like the vendor tables); every pricing table is in `FINANCIAL_TABLES` and customer invoices / credit notes / payments
+  count in `countFinancialRecords`. Snapshots keep `transportTripId` / `objectId` without FKs (trip or vehicle purges
+  never touch prices). Model names: `PricingTaxProfile` / `PricingTaxRate` (not `TaxProfile` / `TaxRate`).
+- **Statuses are TEXT + CHECK**, not Prisma enums. `TripPriceSnapshot.status` also has `ERROR` (tax profile missing,
+  invalid params); no-contract snapshots carry currency `XXX`.
+- **Version supersede:** approving a version closes an overlapping ACTIVE one at the new `validFrom` and marks it
+  SUPERSEDED; pricing looks up ACTIVE and SUPERSEDED versions by date; the EXCLUDE covers both statuses.
+- **Double-billing guard:** invoice lines carry `sourceKey` (`TRIP:<trip>:<passenger>`, `PERIOD:<id>`, `ADJ:<id>`) with a
+  partial unique index, instead of `(sourceType, sourceId)`, so a re-priced trip (new snapshot id) can never be billed
+  again. Recalculation is refused once a line (draft or issued) references the trip; deleting a draft frees it.
+- **BillingRun** unique `(companyId, contractId, kind, periodStart)` as designed; consequence: one INVOICE run per
+  contract and period (consolidated or one branch). A FAILED run (or a deleted draft) can be re-claimed; a stale
+  CLAIMED run (> 15 min) too.
+- **Trip pricing trigger:** no outbox consumer and no hook in `trip-settle.ts`. The scheduled billing job prices
+  settled trips (PlannedTrip COMPLETED / INCOMPLETE / CANCELLED, last 62 days) that have no final snapshot, plus
+  on-demand `recalculate`. Estimates at publish time are not created automatically.
+- **Planned distance** = `RouteAssignment.distanceM` only (no route-path fallback). Tolls / parking have no data source
+  yet (engine supports `tollsMinor`). Ride preference (pooling) is not available, so trips are priced per vehicle;
+  per-passenger shared-fare snapshots and `POST /quotes` (P8) are deferred, the engine's `allocateFare` is ready.
+- **Trip override approval:** when the version policy `tripOverrideNeedsApproval` is set, the override becomes a
+  PRICE_OVERRIDE adjustment that a second user approves (then the new snapshot records both users).
+- **Credit notes** take a total amount (including tax) split pro rata over the invoice tax; full credit by default.
+  Permission `pricing_adjustments:approve` as designed.
+- **PDF** is rendered on demand from the frozen invoice snapshot (identical every time) instead of being stored;
+  `pdfFile` / `emailedAt` stay writable on issued invoices for a later stored copy.
+- **Reports:** JSON and CSV (no XLSX / PDF yet). Margin needs `pricing_costs:view` (403 `COST_HIDDEN`), cost columns
+  are projected out of the revenue report and dashboard otherwise.
+- **Isolation:** `PricingModule` is a separate module (not under `EtmsModule`), so its isolation is declared in
+  `apps/api/src/pricing/pricing.db-test.ts` (route discovery over every pricing route + tenant / branch / cost checks)
+  rather than in `etms/testing/isolation-matrix*.ts`.
+- **Supplier / tax settings** are guarded by `pricing_contracts:approve`; reading them needs contracts or invoices view.
+- **Kill switch:** `BILLING_JOB=off`; Valkey lock `vt:pricing:billing:lock`; the job runs every 30 min and only drafts.
+
+**Independent review fixes (2026-11-15, migration `20261128090100_etms_pricing_review_fixes`)**
+
+- Replacement billed under the original: charges nothing itself; its km / hours / overtime / holidays are pooled into the
+  original vehicle's period allowance. The minimum guarantee is prorated with the billable days like the fee.
+- Availability: overlapping downtimes counted once (interval union); operating days without GPS day summaries make a
+  period with excess km NEEDS_REVIEW (never 0 km); trips and overtime use company-local days.
+- Precedence: a SUSPENDED customer contract, a version gap or an inactive agreement blocks the company default
+  (NO_APPLICABLE_PRICING); the default applies only when the customer has no contract (an EXPIRED one does not count).
+- Periods: a WEEKLY / MONTHLY fee must match the contract billing frequency (DAILY fees: any frequency but TRIP), checked
+  at submit and approval; close is refused before the period ends (`PERIOD_NOT_ENDED`); a DONE close run is re-claimed when
+  vehicles of the period are still unclosed. `POST /availability/compute` needs `pricing_availability:command`.
+- Invoices: generation takes the per-trip locks and re-reads current snapshots; issue re-checks them
+  (`SNAPSHOT_SUPERSEDED`); issue refuses future dates, dates outside the current fiscal year and dates before the latest
+  issued invoice of the series (`INVOICE_DATE_INVALID`); the tax kind is frozen from the priced lines and issue refuses if
+  the parties' states now imply another split (`TAX_SPLIT_CHANGED`).
+- Credit notes: two users. `POST /invoices/:id/credit-notes` (`pricing_adjustments:create`) returns a pending CREDIT
+  adjustment; a different user approves it (`POST /adjustments/:id/approve`), which issues the note. The last credit takes
+  the remaining tax exactly; tax lines carry the CGST / SGST (UTGST) / IGST split.
+- Maker-checker: the approver of a version / vehicle rate is neither the submitter nor its author nor its last editor
+  (`lastEditedById`). A manual billable distance needs a contract that allows trip overrides (or prices on MANUAL_APPROVED);
+  with `tripOverrideNeedsApproval` it becomes a DISTANCE_CORRECTION adjustment (response `BillableDistanceResponse`).
+- Cancellation charges use `TransportTrip.cancelledAt`; a cancelled trip without it goes to review. No tax-code fallback
+  to an arbitrary rate of the profile (TAX_PROFILE_MISSING instead). Billing-run lists follow the branch scope.

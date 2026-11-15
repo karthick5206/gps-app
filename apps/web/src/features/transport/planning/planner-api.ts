@@ -22,7 +22,22 @@ import type {
   RoutingJobDto,
   TransportDirection,
 } from '@veetracer/shared';
-import type { MaxRideOverrideInput, RoutePlanCreateCounts, RoutePlanEmptyReason } from '@veetracer/shared';
+import type {
+  MaxRideOverrideInput,
+  RoutePlanAddBookingRequest,
+  RoutePlanAlternativesList,
+  RoutePlanAlternativesRequest,
+  RoutePlanAlternativesResult,
+  RoutePlanBookingPinRequest,
+  RoutePlanCreateCounts,
+  RoutePlanEmptyReason,
+  RoutePlanPreferences,
+  RoutePlanPublishRequest,
+  RoutePlanRecalculateRequest,
+  RoutePlanRestoreRequest,
+  RoutePlanReviewDto,
+  RoutingStrategy,
+} from '@veetracer/shared';
 import type { PlanEditResult, PlannerPlan, PlannerWeights } from './planner-format';
 
 /** POST /transport/route-plans answer: the plan, plus why it has no passenger (null / absent when it has some). */
@@ -46,12 +61,17 @@ export interface PlanListQuery {
 /** `POST /transport/route-plans` (CreateRoutePlanDto): ETMS fields required, plus the plan's vehicles. */
 export type CreatePlanRequest = CreateRoutePlanRequest & { direction: TransportDirection; sitePoiId: string; objectIds: string[] };
 
-/** Body of `POST /transport/route-plans/:id/optimize` (OptimizeOptionsDto): explicit weights are required (P6). */
+/**
+ * Body of `POST /transport/route-plans/:id/optimize` (OptimizeOptionsDto). E4 WP-A: a strategy (BALANCED by default on
+ * the server) and optional run preferences; explicit weights are the "Advanced" option and win over the strategy.
+ */
 export interface OptimizeOptions {
   expectedVersion: number;
   timeLimitS?: number;
   objective?: 'duration' | 'distance';
-  weights: PlannerWeights;
+  weights?: PlannerWeights;
+  strategy?: RoutingStrategy;
+  preferences?: RoutePlanPreferences;
   /** Owner decision 1: per-plan max-ride override (authorised callers); null clears it; absent keeps it. */
   maxRideOverride?: MaxRideOverrideInput | null;
 }
@@ -77,7 +97,25 @@ export interface PlannerClient {
   resequence(planId: string, body: RoutePlanResequenceRequest): Promise<PlanEditResult>;
   updateAssignment(planId: string, assignmentId: string, body: RoutePlanAssignmentUpdateRequest): Promise<PlanEditResult>;
   updateStop(planId: string, stopId: string, body: RoutePlanStopUpdateRequest): Promise<PlanEditResult>;
-  /** Decision 5: `acknowledgedWarnings` (publishCheck.fingerprint) and `override` ({ reason }) only when needed. */
-  publish(planId: string, body: { expectedVersion: number; acknowledgedWarnings?: string; override?: { reason: string } }, idempotencyKey: string): Promise<RoutePlanPublishResult>;
+  /**
+   * Decision 5: `acknowledgedWarnings` (publishCheck.fingerprint) and `override` ({ reason }) only when needed. WP-B:
+   * `assignmentIds` + `reviewHash` (from GET review) publish only the selected routes.
+   */
+  publish(planId: string, body: Omit<RoutePlanPublishRequest, 'idempotencyKey'>, idempotencyKey: string): Promise<RoutePlanPublishResult>;
   discard(planId: string, body: { expectedVersion: number; reason?: string }): Promise<PlannerPlan>;
+  // WP-B: undo / redo, recalculate, passengers on a draft, review.
+  /** `POST /:id/restore` (undo / redo = restore(previous / next version)); 409 PLAN_RESTORE_CONFLICT when the stop set changed. */
+  restore(planId: string, body: RoutePlanRestoreRequest): Promise<PlanEditResult>;
+  recalculate(planId: string, body: RoutePlanRecalculateRequest): Promise<PlanEditResult>;
+  addBooking(planId: string, body: RoutePlanAddBookingRequest): Promise<PlanEditResult>;
+  /** `DELETE /:id/bookings/:bookingId?expectedVersion=n`. */
+  removeBooking(planId: string, bookingId: string, expectedVersion: number): Promise<PlanEditResult>;
+  pinBooking(planId: string, bookingId: string, body: RoutePlanBookingPinRequest): Promise<PlanEditResult>;
+  /** `GET /:id/review?assignmentIds=a,b` (null / empty = every unpublished route with stops). */
+  review(planId: string, assignmentIds: readonly string[] | null, signal?: AbortSignal): Promise<RoutePlanReviewDto>;
+  // WP-A: alternatives.
+  /** `GET /:id/alternatives`: the siblings of a plan (of its source when it is one). */
+  alternatives(planId: string, signal?: AbortSignal): Promise<RoutePlanAlternativesList>;
+  /** `POST /:id/alternatives` (Idempotency-Key): one sibling plan + optimise job per strategy. */
+  createAlternatives(planId: string, body: RoutePlanAlternativesRequest, idempotencyKey: string): Promise<RoutePlanAlternativesResult>;
 }

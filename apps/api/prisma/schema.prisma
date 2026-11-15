@@ -3316,49 +3316,49 @@ model TransportScheduleException {
 /// pairs, ASSIGNED / CONFIRMED need both points, SCHEDULE-only scheduleId; partial unique (profileId, serviceDate,
 /// direction) over active statuses (no double booking).
 model TransportBooking {
-  id                String                  @id @default(uuid()) @db.Uuid
-  customerCompanyId String                  @db.Uuid
+  id                   String                  @id @default(uuid()) @db.Uuid
+  customerCompanyId    String                  @db.Uuid
   /// Null until assignment; = customer in R1 (corporate-managed).
-  providerCompanyId String?                 @db.Uuid
-  agreementId       String?                 @db.Uuid
-  profileId         String                  @db.Uuid
-  scheduleId        String?                 @db.Uuid
-  shiftId           String?                 @db.Uuid
-  source            TransportBookingSource
+  providerCompanyId    String?                 @db.Uuid
+  agreementId          String?                 @db.Uuid
+  profileId            String                  @db.Uuid
+  scheduleId           String?                 @db.Uuid
+  shiftId              String?                 @db.Uuid
+  source               TransportBookingSource
   /// WP 3.9: COMMUTE (default) or POINT_TO_POINT. Unique active per passenger/date/direction applies to COMMUTE only (partial index in SQL).
-  journey           TransportBookingJourney @default(COMMUTE)
-  serviceDate       DateTime                @db.Date
+  journey              TransportBookingJourney @default(COMMUTE)
+  serviceDate          DateTime                @db.Date
   /// IN / OUT for COMMUTE; null for POINT_TO_POINT (pooling, doc 20 §3.2; rows made before keep IN).
-  direction         TransportDirection?
+  direction            TransportDirection?
   /// Snapshot of the shift / company zone.
-  timeZone          String
-  pickupLabel       String?
-  dropLabel         String?
+  timeZone             String
+  pickupLabel          String?
+  dropLabel            String?
   /// Original points (never road-snapped); null = needs a location.
-  pickupLat         Float?
-  pickupLng         Float?
-  dropLat           Float?
-  dropLng           Float?
-  pickupPoiId       String?                 @db.Uuid
-  dropPoiId         String?                 @db.Uuid
-  windowStart       DateTime                @db.Timestamptz(3)
-  windowEnd         DateTime                @db.Timestamptz(3)
-  passengerCount    Int                     @default(1)
-  status            TransportBookingStatus  @default(REQUESTED)
-  statusReason      String?
-  cutoffAt          DateTime?               @db.Timestamptz(3)
-  version           Int                     @default(1)
-  idempotencyKey    String?
-  idempotencyHash   String?
-  note              String?
+  pickupLat            Float?
+  pickupLng            Float?
+  dropLat              Float?
+  dropLng              Float?
+  pickupPoiId          String?                 @db.Uuid
+  dropPoiId            String?                 @db.Uuid
+  windowStart          DateTime                @db.Timestamptz(3)
+  windowEnd            DateTime                @db.Timestamptz(3)
+  passengerCount       Int                     @default(1)
+  status               TransportBookingStatus  @default(REQUESTED)
+  statusReason         String?
+  cutoffAt             DateTime?               @db.Timestamptz(3)
+  version              Int                     @default(1)
+  idempotencyKey       String?
+  idempotencyHash      String?
+  note                 String?
   /// WP 3.9 (D-A1): dispatcher reason for a booking created / edited after its cut-off.
-  lateReason        String?
+  lateReason           String?
   /// WP 3.9 wave 2 (D-A8): bookings created together by one group form share this id (no FK; not personal data).
-  groupId           String?                 @db.Uuid
+  groupId              String?                 @db.Uuid
   /// WP 3.9 wave 2 (D-A7 / D-A8): why the ride is needed (e.g. "Site visit"), shown to the transport team.
-  purpose           String?
+  purpose              String?
   /// WP 3.9 wave 2 (D-A5): when the transport team approved a waiting (REQUESTED / WAITLISTED) booking; null otherwise.
-  approvedAt        DateTime?               @db.Timestamptz(3)
+  approvedAt           DateTime?               @db.Timestamptz(3)
   /// Pooling (doc 20 §3.1, migration etms_pooling_core). SHARED | PRIVATE | FLEXIBLE; PRIVATE is never pooled.
   ridePreference       RidePreference          @default(FLEXIBLE)
   /// The sharing policy the passenger / desk accepted (FK SetNull) and its version (kept when the row goes).
@@ -3373,23 +3373,23 @@ model TransportBooking {
   holdAt               DateTime?               @db.Timestamptz(3)
   /// How the booking was served once seated (pricing, doc 19).
   assignedService      RideService?
-  createdById       String?                 @db.Uuid
-  createdAt         DateTime                @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime                @updatedAt @db.Timestamptz(3)
+  createdById          String?                 @db.Uuid
+  createdAt            DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                @updatedAt @db.Timestamptz(3)
 
-  customer       Company                    @relation("TransportBookingCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
-  provider       Company?                   @relation("TransportBookingProvider", fields: [providerCompanyId], references: [id], onDelete: SetNull)
-  agreement      TransportServiceAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
-  profile        EmployeeTransportProfile   @relation(fields: [profileId, customerCompanyId], references: [id, companyId], onDelete: Restrict)
-  schedule       TransportSchedule?         @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
-  shift          TransportShift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
-  pickupPoi      Poi?                       @relation("TransportBookingPickup", fields: [pickupPoiId], references: [id], onDelete: SetNull)
-  dropPoi        Poi?                       @relation("TransportBookingDrop", fields: [dropPoiId], references: [id], onDelete: SetNull)
-  passengers     TransportTripPassenger[]
+  customer         Company                    @relation("TransportBookingCustomer", fields: [customerCompanyId], references: [id], onDelete: Restrict)
+  provider         Company?                   @relation("TransportBookingProvider", fields: [providerCompanyId], references: [id], onDelete: SetNull)
+  agreement        TransportServiceAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  profile          EmployeeTransportProfile   @relation(fields: [profileId, customerCompanyId], references: [id, companyId], onDelete: Restrict)
+  schedule         TransportSchedule?         @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  shift            TransportShift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  pickupPoi        Poi?                       @relation("TransportBookingPickup", fields: [pickupPoiId], references: [id], onDelete: SetNull)
+  dropPoi          Poi?                       @relation("TransportBookingDrop", fields: [dropPoiId], references: [id], onDelete: SetNull)
+  passengers       TransportTripPassenger[]
   /// ETMS E4 (SetNull): plan stops serving this booking.
-  routePlanStops RoutePlanStop[]
+  routePlanStops   RoutePlanStop[]
   /// WP 3.9 (SetNull): BOOKING_CREATED inbox rows of this booking.
-  notifications  TransportNotification[]
+  notifications    TransportNotification[]
   /// Pooling: accepted sharing policy (SetNull) and live dispatch decisions (SetNull).
   sharingPolicy    TransportSharingPolicy?    @relation(fields: [sharingPolicyId], references: [id], onDelete: SetNull)
   dispatchRequests TransportDispatchRequest[]
@@ -3865,10 +3865,10 @@ model RouteAssignment {
   createdAt         DateTime @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime @updatedAt @db.Timestamptz(3)
 
-  plan          RoutePlan       @relation(fields: [planId, companyId], references: [id, companyId], onDelete: Cascade)
-  object        TrackedObject?  @relation(fields: [objectId], references: [id], onDelete: SetNull)
-  driver        Driver?         @relation(fields: [driverId], references: [id], onDelete: SetNull)
-  stops         RoutePlanStop[]
+  plan           RoutePlan       @relation(fields: [planId, companyId], references: [id, companyId], onDelete: Cascade)
+  object         TrackedObject?  @relation(fields: [objectId], references: [id], onDelete: SetNull)
+  driver         Driver?         @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  stops          RoutePlanStop[]
   /// ETMS: the TransportTrips this assignment was published into (pooling: one per tripIndex; unique on the trip side).
   transportTrips TransportTrip[]
 
@@ -4070,7 +4070,7 @@ model TransportVendor {
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
-  company   Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company     Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
   rateCards   TransportRateCard[]
   vehicles    TransportVendorVehicle[]
   drivers     TransportVendorDriver[]
@@ -4150,6 +4150,544 @@ model TransportStatementAdjustment {
   vendor TransportVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   @@index([companyId, vendorId, month])
+}
+
+// ───────────────────────────── Customer pricing & billing (doc 19, migrations 20261128090000_etms_pricing_*) ─────────────────────────────
+// Money: BigInt minor units of the row's ISO 4217 currency; rates Decimal(20,6) (bigint micro units in the engine).
+// companyId = the supplier tenant that owns / issues; it has no FK to Company (logical key, like the vendor tables) and
+// every table here is in FINANCIAL_TABLES (purge/financial-guard.ts), so a purge never deletes from them.
+// Raw SQL in the migration: CHECK constraints on every status / kind column, the btree_gist EXCLUDE constraints on
+// contract versions and vehicle rates, partial unique indexes (current snapshot per trip/passenger, default contract,
+// invoiced source key), and the immutability triggers (ACTIVE versions + their components, trip price snapshots,
+// issued invoices + lines, credit notes, payments).
+
+/// Commercial contract header (§3.1/§3.2). Terms live in versions. status: DRAFT | PENDING_APPROVAL | ACTIVE | SUSPENDED | EXPIRED.
+model PricingContract {
+  id                    String    @id @default(uuid()) @db.Uuid
+  companyId             String    @db.Uuid
+  /// Null = internal / corporate-managed charge-back.
+  customerCompanyId     String?   @db.Uuid
+  customerName          String
+  agreementId           String?   @db.Uuid
+  name                  String
+  reference             String?
+  /// ISO 4217.
+  currency              String    @db.Char(3)
+  /// TRIP | DAILY | WEEKLY | MONTHLY
+  billingFrequency      String    @default("MONTHLY")
+  paymentTermsDays      Int       @default(30)
+  taxProfileId          String?   @db.Uuid
+  /// Empty = every branch.
+  branchIds             String[]  @db.Uuid
+  status                String    @default("DRAFT")
+  /// Company default contract (customer null), precedence 4; defaultCovers = INTERNAL / EXTERNAL.
+  isDefault             Boolean   @default(false)
+  defaultCovers         String[]  @default([])
+  allowVehicleOverrides Boolean   @default(false)
+  allowTripOverrides    Boolean   @default(false)
+  /// GPS | PLANNED | AGREED | MANUAL_APPROVED
+  distanceSource        String    @default("GPS")
+  /// REVIEW | USE_PLANNED | USE_AGREED
+  onMissingGps          String    @default("REVIEW")
+  /// HALF_UP | HALF_EVEN
+  roundingMode          String    @default("HALF_UP")
+  version               Int       @default(1)
+  submittedById         String?   @db.Uuid
+  submittedAt           DateTime? @db.Timestamptz(3)
+  approvedById          String?   @db.Uuid
+  approvedAt            DateTime? @db.Timestamptz(3)
+  suspendedAt           DateTime? @db.Timestamptz(3)
+  suspendedReason       String?
+  createdById           String?   @db.Uuid
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+
+  versions     PricingContractVersion[]
+  vehicleRates PricingVehicleRate[]
+  assignments  PricingVehicleAssignment[]
+  taxProfile   PricingTaxProfile?         @relation(fields: [taxProfileId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, status])
+  @@index([companyId, customerCompanyId])
+}
+
+/// Effective-dated terms. status: DRAFT | PENDING_APPROVAL | ACTIVE | SUPERSEDED | REJECTED. validTo exclusive.
+model PricingContractVersion {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @db.Uuid
+  contractId     String    @db.Uuid
+  versionNo      Int
+  validFrom      DateTime  @db.Date
+  validTo        DateTime? @db.Date
+  status         String    @default("DRAFT")
+  policies       Json      @default("{}")
+  submittedById  String?   @db.Uuid
+  submittedAt    DateTime? @db.Timestamptz(3)
+  approvedById   String?   @db.Uuid
+  approvedAt     DateTime? @db.Timestamptz(3)
+  rejectReason   String?
+  supersedesId   String?   @db.Uuid
+  createdById    String?   @db.Uuid
+  /// QA 10: last user who changed the components / policies (maker-checker: never the approver).
+  lastEditedById String?   @db.Uuid
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+
+  contract   PricingContract    @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  components PricingComponent[]
+
+  @@unique([contractId, versionNo])
+  @@index([companyId, status])
+}
+
+/// One rule of a version (§5.2). kind: PRICING_COMPONENT_KINDS; params typed per kind (rates as decimal strings).
+model PricingComponent {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  versionId String   @db.Uuid
+  kind      String
+  label     String?
+  scope     Json     @default("{}")
+  params    Json     @default("{}")
+  covers    String[] @default([])
+  taxCode   String?
+  sortOrder Int      @default(0)
+
+  version PricingContractVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+}
+
+/// Vehicle-level override (precedence 2), only when the contract allows it. status as versions.
+model PricingVehicleRate {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @db.Uuid
+  contractId         String    @db.Uuid
+  objectId           String    @db.Uuid
+  objectName         String
+  validFrom          DateTime  @db.Date
+  validTo            DateTime? @db.Date
+  componentOverrides Json      @default("[]")
+  category           String?
+  seats              Int?
+  status             String    @default("DRAFT")
+  reason             String?
+  submittedById      String?   @db.Uuid
+  approvedById       String?   @db.Uuid
+  approvedAt         DateTime? @db.Timestamptz(3)
+  version            Int       @default(1)
+  createdById        String?   @db.Uuid
+  lastEditedById     String?   @db.Uuid
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  contract PricingContract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, contractId])
+  @@index([objectId])
+}
+
+/// Dedicated vehicle of a contract (availability billing). replacementBilling: ORIGINAL | SEPARATE. status: ACTIVE | ENDED.
+model PricingVehicleAssignment {
+  id                   String    @id @default(uuid()) @db.Uuid
+  companyId            String    @db.Uuid
+  contractId           String    @db.Uuid
+  objectId             String    @db.Uuid
+  objectName           String
+  driverId             String?   @db.Uuid
+  fleetAllocationId    String?   @db.Uuid
+  branchId             String?   @db.Uuid
+  validFrom            DateTime  @db.Date
+  validTo              DateTime? @db.Date
+  /// { from: 'HH:MM', to: 'HH:MM', weekdays?: number[] }
+  operatingHours       Json      @default("{}")
+  replacesAssignmentId String?   @db.Uuid
+  replacementBilling   String    @default("SEPARATE")
+  status               String    @default("ACTIVE")
+  version              Int       @default(1)
+  createdById          String?   @db.Uuid
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  contract  PricingContract   @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  downtimes PricingDowntime[]
+
+  @@index([companyId, contractId])
+  @@index([objectId])
+}
+
+/// kind: BREAKDOWN | MAINTENANCE | SUSPENSION | HOLIDAY | NON_OPERATING. Inclusive dates.
+model PricingDowntime {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @db.Uuid
+  assignmentId String   @db.Uuid
+  fromDate     DateTime @db.Date
+  toDate       DateTime @db.Date
+  kind         String
+  billable     Boolean  @default(false)
+  reason       String
+  createdById  String?  @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  assignment PricingVehicleAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+
+  @@index([assignmentId])
+}
+
+/// Holiday / non-operating calendar of a company (owner decision 10 default: per company).
+model PricingCalendar {
+  id                   String   @id @default(uuid()) @db.Uuid
+  companyId            String   @db.Uuid
+  name                 String
+  holidays             String[] @default([])
+  nonOperatingWeekdays Int[]    @default([])
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([companyId, name])
+}
+
+/// Append-only price of one trip (or one passenger of a shared trip). status: ESTIMATE | PRICED | NEEDS_REVIEW | COVERED |
+/// NO_APPLICABLE_PRICING | ERROR | VOID. Only isCurrent true → false may change (trigger).
+model TripPriceSnapshot {
+  id                   String    @id @default(uuid()) @db.Uuid
+  companyId            String    @db.Uuid
+  transportTripId      String    @db.Uuid
+  bookingId            String?   @db.Uuid
+  passengerId          String?   @db.Uuid
+  contractId           String?   @db.Uuid
+  contractVersionId    String?   @db.Uuid
+  vehicleRateId        String?   @db.Uuid
+  customerCompanyId    String?   @db.Uuid
+  branchId             String?   @db.Uuid
+  objectId             String?   @db.Uuid
+  serviceDate          DateTime  @db.Date
+  currency             String    @db.Char(3)
+  pricingModel         String?
+  ridePreference       String?
+  plannedDistanceM     Int?
+  gpsDistanceM         Int?
+  agreedDistanceM      Int?
+  manualDistanceM      Int?
+  billableDistanceM    Int?
+  distanceSource       String?
+  gpsQuality           String    @default("UNAVAILABLE")
+  plannedDurationS     Int?
+  actualDurationS      Int?
+  waitingS             Int?
+  extraStops           Int       @default(0)
+  lines                Json      @default("[]")
+  subtotalMinor        BigInt    @default(0)
+  discountMinor        BigInt    @default(0)
+  taxLines             Json      @default("[]")
+  taxMinor             BigInt    @default(0)
+  totalMinor           BigInt    @default(0)
+  issues               Json      @default("[]")
+  status               String
+  isCurrent            Boolean   @default(true)
+  supersedesId         String?   @db.Uuid
+  reason               String?
+  overrideById         String?   @db.Uuid
+  overrideAt           DateTime? @db.Timestamptz(3)
+  overrideReason       String?
+  overrideApprovedById String?   @db.Uuid
+  calculatedById       String?   @db.Uuid
+  calculatedAt         DateTime  @default(now()) @db.Timestamptz(3)
+  engineVersion        String
+
+  @@index([companyId, serviceDate])
+  @@index([transportTripId])
+  @@index([companyId, status])
+}
+
+/// One availability period of a dedicated vehicle. status: OPEN | CLOSED | NEEDS_REVIEW | INVOICED | VOID.
+model AvailabilityBillingPeriod {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @db.Uuid
+  contractId     String    @db.Uuid
+  versionId      String    @db.Uuid
+  assignmentId   String    @db.Uuid
+  objectId       String    @db.Uuid
+  branchId       String?   @db.Uuid
+  periodStart    DateTime  @db.Date
+  periodEnd      DateTime  @db.Date
+  frequency      String
+  currency       String    @db.Char(3)
+  attachedDays   Int
+  billableDays   Int
+  downtimeDays   Int
+  suspensionDays Int       @default(0)
+  usedDistanceM  Int       @default(0)
+  usedSeconds    Int       @default(0)
+  tripCount      Int       @default(0)
+  lines          Json      @default("[]")
+  subtotalMinor  BigInt    @default(0)
+  discountMinor  BigInt    @default(0)
+  taxLines       Json      @default("[]")
+  taxMinor       BigInt    @default(0)
+  totalMinor     BigInt    @default(0)
+  issues         Json      @default("[]")
+  status         String    @default("OPEN")
+  calculatedAt   DateTime  @default(now()) @db.Timestamptz(3)
+  closedAt       DateTime? @db.Timestamptz(3)
+  closedById     String?   @db.Uuid
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@unique([assignmentId, periodStart, frequency])
+  @@index([companyId, contractId, periodStart])
+}
+
+/// Idempotency claim of a billing job / manual run. kind: TRIP_PRICING | AVAILABILITY_CLOSE | INVOICE. status: CLAIMED | RUNNING | DONE | FAILED.
+model BillingRun {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @db.Uuid
+  contractId     String    @db.Uuid
+  kind           String
+  periodStart    DateTime  @db.Date
+  periodEnd      DateTime  @db.Date
+  status         String    @default("CLAIMED")
+  claimedBy      String
+  idempotencyKey String?
+  requestHash    String?
+  startedAt      DateTime  @default(now()) @db.Timestamptz(3)
+  finishedAt     DateTime? @db.Timestamptz(3)
+  stats          Json      @default("{}")
+  error          String?
+
+  @@unique([companyId, contractId, kind, periodStart])
+  @@index([companyId, status])
+}
+
+/// Gap-free document counters: CINV:<companyId>:<fy>, CCN:<companyId>:<fy>.
+model BillingCounter {
+  key     String @id
+  lastSeq Int    @default(0)
+}
+
+/// Supplier side of customer invoices (owner decision 3 default: per company). taxRegime: IN_GST | SIMPLE | NONE.
+model BillingSupplierProfile {
+  companyId            String   @id @db.Uuid
+  legalName            String
+  address              String
+  city                 String   @default("")
+  stateCode            String?
+  country              String   @default("IN")
+  taxRegime            String   @default("IN_GST")
+  taxRegistration      String?
+  invoicePrefix        String   @default("INV")
+  creditNotePrefix     String   @default("CN")
+  fiscalYearStartMonth Int      @default(4)
+  email                String?
+  phone                String?
+  bankDetails          Json     @default("{}")
+  version              Int      @default(1)
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(3)
+}
+
+/// Tax profile of a company (regime IN_GST | SIMPLE | NONE) with effective-dated rates.
+model PricingTaxProfile {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @db.Uuid
+  name           String
+  regime         String
+  jurisdiction   String?
+  defaultTaxCode String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  rates     PricingTaxRate[]
+  contracts PricingContract[]
+
+  @@unique([companyId, name])
+}
+
+/// ratePpm: parts per million (18 % = 180000). validTo exclusive.
+model PricingTaxRate {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @db.Uuid
+  profileId String    @db.Uuid
+  taxCode   String
+  label     String
+  ratePpm   Int
+  sac       String?
+  validFrom DateTime  @db.Date
+  validTo   DateTime? @db.Date
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  profile PricingTaxProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, taxCode])
+}
+
+/// Customer invoice (separate series per supplier company). status: DRAFT | ISSUED. Immutable once ISSUED (trigger).
+model CustomerInvoice {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @db.Uuid
+  number            String?
+  fy                String?
+  seq               Int?
+  contractId        String?   @db.Uuid
+  customerCompanyId String?   @db.Uuid
+  branchId          String?   @db.Uuid
+  consolidated      Boolean   @default(true)
+  periodStart       DateTime  @db.Date
+  periodEnd         DateTime  @db.Date
+  currency          String    @db.Char(3)
+  supplier          Json      @default("{}")
+  buyer             Json      @default("{}")
+  taxKind           String?
+  subtotalMinor     BigInt    @default(0)
+  discountMinor     BigInt    @default(0)
+  taxLines          Json      @default("[]")
+  taxMinor          BigInt    @default(0)
+  totalMinor        BigInt    @default(0)
+  status            String    @default("DRAFT")
+  issuedAt          DateTime? @db.Timestamptz(3)
+  issuedById        String?   @db.Uuid
+  invoiceDate       DateTime? @db.Date
+  dueDate           DateTime? @db.Date
+  pdfFile           String?
+  emailedAt         DateTime? @db.Timestamptz(3)
+  idempotencyKey    String?
+  requestHash       String?
+  billingRunId      String?   @db.Uuid
+  createdById       String?   @db.Uuid
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
+
+  lines       CustomerInvoiceLine[]
+  creditNotes CustomerCreditNote[]
+  payments    BillingPayment[]
+
+  @@unique([companyId, fy, seq])
+  @@unique([companyId, number])
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, status, periodStart])
+}
+
+/// sourceType: TRIP_SNAPSHOT | AVAILABILITY_PERIOD | ADJUSTMENT | MANUAL. sourceKey (trip+passenger / period / adjustment)
+/// is unique among all lines (partial unique index): a trip, period or adjustment is never invoiced twice.
+model CustomerInvoiceLine {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @db.Uuid
+  invoiceId     String    @db.Uuid
+  sourceType    String
+  sourceId      String?   @db.Uuid
+  sourceKey     String?
+  description   String
+  quantity      Decimal   @db.Decimal(20, 6)
+  unit          String
+  rate          Decimal?  @db.Decimal(20, 6)
+  amountMinor   BigInt
+  discountMinor BigInt    @default(0)
+  taxCode       String?
+  taxMinor      BigInt    @default(0)
+  totalMinor    BigInt
+  taxLines      Json      @default("[]")
+  branchId      String?   @db.Uuid
+  serviceDate   DateTime? @db.Date
+  sortOrder     Int       @default(0)
+
+  invoice CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+/// kind: CREDIT | DEBIT | DISTANCE_CORRECTION | PRICE_OVERRIDE | WAIVER. status: PENDING_APPROVAL | APPROVED | REJECTED | APPLIED.
+model BillingAdjustment {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @db.Uuid
+  contractId      String    @db.Uuid
+  invoiceId       String?   @db.Uuid
+  transportTripId String?   @db.Uuid
+  kind            String
+  /// Signed: credits negative.
+  amountMinor     BigInt
+  currency        String    @db.Char(3)
+  data            Json      @default("{}")
+  reason          String
+  status          String    @default("PENDING_APPROVAL")
+  requestedById   String    @db.Uuid
+  requestedAt     DateTime  @default(now()) @db.Timestamptz(3)
+  decidedById     String?   @db.Uuid
+  decidedAt       DateTime? @db.Timestamptz(3)
+  decisionNote    String?
+  appliedAt       DateTime? @db.Timestamptz(3)
+  version         Int       @default(1)
+
+  @@index([companyId, status])
+  @@index([contractId])
+}
+
+/// Own series CCN:<companyId>:<fy>. Append-only (trigger).
+model CustomerCreditNote {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @db.Uuid
+  invoiceId     String   @db.Uuid
+  number        String
+  fy            String
+  seq           Int
+  currency      String   @db.Char(3)
+  lines         Json     @default("[]")
+  subtotalMinor BigInt
+  taxMinor      BigInt
+  totalMinor    BigInt
+  taxLines      Json     @default("[]")
+  reason        String
+  issuedAt      DateTime @default(now()) @db.Timestamptz(3)
+  issuedById    String   @db.Uuid
+  pdfFile       String?
+
+  invoice CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, fy, seq])
+  @@unique([companyId, number])
+  @@index([invoiceId])
+}
+
+/// Payment ledger: append-only; a reversal is a new negative row pointing at the reversed one.
+model BillingPayment {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @db.Uuid
+  invoiceId    String   @db.Uuid
+  amountMinor  BigInt
+  currency     String   @db.Char(3)
+  receivedAt   DateTime @db.Timestamptz(3)
+  method       String
+  reference    String?
+  note         String?
+  recordedById String   @db.Uuid
+  reversalOf   String?  @unique @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  invoice CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([companyId, receivedAt])
+}
+
+/// Internal operating cost (readable only with pricing_costs:view). category: DRIVER | FUEL | ENERGY | MAINTENANCE | TOLL |
+/// PARKING | VEHICLE | OTHER. source: VENDOR_STATEMENT | EXPENSE | MANUAL | IMPORT.
+model OperatingCostRecord {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @db.Uuid
+  objectId        String?  @db.Uuid
+  driverId        String?  @db.Uuid
+  transportTripId String?  @db.Uuid
+  branchId        String?  @db.Uuid
+  date            DateTime @db.Date
+  category        String
+  amountMinor     BigInt
+  currency        String   @db.Char(3)
+  source          String   @default("MANUAL")
+  sourceRef       String?
+  note            String?
+  createdById     String?  @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([companyId, date])
 }
 
 // ───────────────────────────── ETMS pooling and live dispatch (migration etms_pooling_core, doc 20) ─────────────────────────────

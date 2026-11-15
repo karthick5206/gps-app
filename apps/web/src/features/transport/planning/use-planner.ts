@@ -5,18 +5,11 @@ import { e3ErrorText } from '../dispatch/e3-format';
 import { DISPATCH_ENDPOINT, invalidateDispatch, SHIFTS_ENDPOINT } from '../dispatch/use-e3';
 import type { PlanListQuery } from './planner-api';
 import { call, plannerClient, plannerKeys } from './planner-client';
-import { publishPlan, reoptimise, startOptimise, type KeyStore, type OptimiseInput, type StartedPlan } from './planner-flow';
-import type { MaxRideOverrideInput } from '@veetracer/shared';
-import {
-  jobPollMs,
-  newKey,
-  plannerErrorKind,
-  plannerErrorText,
-  type PlanEditResult,
-  type PlannerErrorKind,
-  type PlannerPlan,
-  type PlannerWeights,
-} from './planner-format';
+import { generateAlternatives, publishPlan, publishReviewed, reoptimise, startOptimise, type KeyStore, type OptimiseInput, type RunInput, type StartedPlan } from './planner-flow';
+import type { RoutePlanPreferences, RoutePlanPublishRequest, RoutingStrategy } from '@veetracer/shared';
+import { jobPollMs, newKey, plannerErrorKind, plannerErrorText, type PlanEditResult, type PlannerErrorKind, type PlannerPlan } from './planner-format';
+import type { PlanEdit } from './plan-workspace';
+import { planEditCall } from './plan-edit-call';
 
 export function invalidatePlans(qc: QueryClient, id?: string) {
   void qc.invalidateQueries({ queryKey: plannerKeys.plans });
@@ -24,7 +17,10 @@ export function invalidatePlans(qc: QueryClient, id?: string) {
   if (id) {
     void qc.invalidateQueries({ queryKey: plannerKeys.plan(id) });
     void qc.invalidateQueries({ queryKey: plannerKeys.history(id) });
+    void qc.invalidateQueries({ queryKey: plannerKeys.review(id) });
   }
+  // Any plan's status / version change shows in every alternatives list it belongs to (source or sibling).
+  void qc.invalidateQueries({ queryKey: plannerKeys.alternatives('').slice(0, 1) });
 }
 
 // ───────────────────────────── errors (E3 pattern: code → friendly text + kind) ─────────────────────────────
@@ -38,6 +34,12 @@ function errorCode(err: unknown): { code: string | null; status: number | undefi
 export function plannerErrorOf(err: unknown): { kind: PlannerErrorKind; code: string | null } {
   const { code, status } = errorCode(err);
   return { kind: plannerErrorKind(code, status), code };
+}
+
+/** The error's JSON body (e.g. BOOKING_NOT_PLANNABLE `reason`, PLAN_RESTORE_CONFLICT `addedStopIds`). */
+export function plannerErrorBody(err: unknown): Record<string, unknown> | null {
+  const b = errorCode(err).body;
+  return b && typeof b === 'object' ? (b as Record<string, unknown>) : null;
 }
 
 /** Per-route refusals of a publish (409 PLAN_NOT_PUBLISHABLE or the E3 error of the failing route). */
@@ -182,7 +184,7 @@ export function useStartOptimise(keys: KeyStore) {
 export function useReoptimise(plan: PlannerPlan | undefined, keys: KeyStore) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { weights: PlannerWeights; timeLimitS: number; maxRideOverride?: MaxRideOverrideInput | null }) => call((c) => reoptimise(c, plan as PlannerPlan, input, keys.keyFor)),
+    mutationFn: (input: RunInput) => call((c) => reoptimise(c, plan as PlannerPlan, input, keys.keyFor)),
     onSuccess: (job) => qc.setQueryData(plannerKeys.job(job.jobId), job),
     onError: (err) => {
       const st = (err as { status?: number }).status;
@@ -194,39 +196,23 @@ export function useReoptimise(plan: PlannerPlan | undefined, keys: KeyStore) {
 
 // ───────────────────────────── edits ─────────────────────────────
 
-export type PlanEdit =
-  | { kind: 'move'; bookingId: string; toAssignmentId: string | null }
-  | { kind: 'sequence'; assignments: { assignmentId: string; stopIds: string[] }[] }
-  | { kind: 'vehicle'; assignmentId: string; objectId: string }
-  | { kind: 'lock'; assignmentId: string; locked: boolean }
-  | { kind: 'pin'; stopId: string; pinned: boolean };
+export type { PlanEdit } from './plan-workspace';
+
+/** The API call of one edit (with the version the user saw). Pure over the client: plan-workspace.test.ts checks it. */
+export { planEditCall };
 
 /** One explicit edit with the version the user saw; 409 PLAN_STALE reloads the plan (the caller tells the user). */
 export function usePlanEdit(plan: PlannerPlan | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (e: PlanEdit): Promise<PlanEditResult> =>
-      call((c) => {
-        const p = plan as PlannerPlan;
-        const expectedVersion = p.version;
-        switch (e.kind) {
-          case 'move':
-            return c.movePassenger(p.id, { expectedVersion, bookingId: e.bookingId, toAssignmentId: e.toAssignmentId });
-          case 'sequence':
-            return c.resequence(p.id, { expectedVersion, assignments: e.assignments });
-          case 'vehicle':
-            return c.updateAssignment(p.id, e.assignmentId, { expectedVersion, objectId: e.objectId });
-          case 'lock':
-            return c.updateAssignment(p.id, e.assignmentId, { expectedVersion, locked: e.locked });
-          case 'pin':
-            return c.updateStop(p.id, e.stopId, { expectedVersion, pinned: e.pinned });
-        }
-      }),
+    mutationFn: (e: PlanEdit): Promise<PlanEditResult> => call((c) => planEditCall(c, plan as PlannerPlan, e)),
     onSuccess: (r) => {
       qc.setQueryData(plannerKeys.plan(r.plan.id), (old: PlannerPlan | undefined) => ({ ...r.plan, weights: r.plan.weights ?? old?.weights, lastJobId: old?.lastJobId }));
       void qc.invalidateQueries({ queryKey: plannerKeys.plans });
       void qc.invalidateQueries({ queryKey: plannerKeys.compare });
       void qc.invalidateQueries({ queryKey: plannerKeys.history(r.plan.id) });
+      void qc.invalidateQueries({ queryKey: plannerKeys.review(r.plan.id) });
+      void qc.invalidateQueries({ queryKey: plannerKeys.alternatives('').slice(0, 1) });
     },
     onError: (err) => {
       if (plan && plannerErrorOf(err).kind === 'conflict') invalidatePlans(qc, plan.id);
@@ -251,6 +237,76 @@ export function usePublishPlan(plan: PlannerPlan | undefined, keys: KeyStore) {
   });
 }
 
+/** WP-B review & publish: publish the reviewed selection (assignmentIds + reviewHash); the key follows the body. */
+export function usePublishReviewed(planId: string, keys: KeyStore) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Omit<RoutePlanPublishRequest, 'idempotencyKey'>) => call((c) => publishReviewed(c, planId, body, keys.keyFor)),
+    onSuccess: () => keys.forget(`publish:${planId}`),
+    onError: (err) => {
+      const st = (err as { status?: number }).status;
+      if (typeof st === 'number' && st < 500) keys.forget(`publish:${planId}`);
+    },
+    onSettled: () => {
+      invalidatePlans(qc, planId);
+      invalidateDispatch(qc);
+    },
+  });
+}
+
+/** GET /route-plans/:id/review for a selection (sorted ids in the key; null = the server's default selection). */
+export function useReview(planId: string | null, assignmentIds: readonly string[] | null, enabled = true) {
+  const ids = assignmentIds ? [...assignmentIds].sort() : null;
+  return useQuery({
+    queryKey: [...plannerKeys.review(planId ?? ''), ids],
+    queryFn: ({ signal }) => call((c) => c.review(planId as string, ids, signal)),
+    enabled: !!planId && enabled && (ids === null || ids.length > 0),
+    retry: (count, err) => !(err instanceof ApiError && err.status < 500) && count < 1,
+  });
+}
+
+/** GET /route-plans/:id/alternatives; polls while a sibling's job is still running. */
+export function useAlternatives(planId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: plannerKeys.alternatives(planId ?? ''),
+    queryFn: ({ signal }) => call((c) => c.alternatives(planId as string, signal)),
+    enabled: !!planId && enabled,
+    refetchInterval: (q) => (q.state.data?.alternatives.some((a) => a.job && (a.job.state === 'queued' || a.job.state === 'running') || (!a.job && a.status === 'DRAFT')) ? 3000 : false),
+  });
+}
+
+/** POST /route-plans/:id/alternatives from the plan page. */
+export function useGenerateAlternatives(plan: PlannerPlan | undefined, keys: KeyStore) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { strategies: RoutingStrategy[]; timeLimitS?: number; preferences?: RoutePlanPreferences }) => call((c) => generateAlternatives(c, plan as PlannerPlan, input, keys.keyFor)),
+    onSuccess: (r) => {
+      if (plan) keys.forget(`alternatives:${plan.id}`);
+      for (const a of r.alternatives) if (a.jobId) void qc.invalidateQueries({ queryKey: plannerKeys.job(a.jobId) });
+    },
+    onError: (err) => {
+      const st = (err as { status?: number }).status;
+      if (plan && typeof st === 'number' && st < 500) keys.forget(`alternatives:${plan.id}`);
+    },
+    onSettled: (r) => {
+      invalidatePlans(qc);
+      if (plan) void qc.invalidateQueries({ queryKey: plannerKeys.alternatives(plan.id) });
+      if (r) void qc.invalidateQueries({ queryKey: plannerKeys.alternatives(r.sourcePlanId) });
+    },
+  });
+}
+
+/** Bookings waiting for a seat on the plan's day / direction (dispatch board queue; same query as the vehicles). */
+export function usePlanBookingQueue(serviceDate: string, direction: string, enabled = true) {
+  return useQuery({
+    queryKey: ['planner-vehicles', serviceDate, direction],
+    queryFn: ({ signal }) => api.get<DispatchBoardDto>(`${DISPATCH_ENDPOINT}/board`, { serviceDate, direction }, signal),
+    staleTime: 30_000,
+    enabled,
+    select: (b) => b.queue,
+  });
+}
+
 export function useDiscardPlan() {
   const qc = useQueryClient();
   return useMutation({
@@ -261,4 +317,4 @@ export function useDiscardPlan() {
 
 export { newKey };
 export { createKeyStore, type KeyStore } from './planner-flow';
-export { PLANNING_MENU, PLANNING_PATH, planPath, plannerFlagOn, useCapabilities, usePlannerMenuHidden, plannerKeys } from './planner-client';
+export { PLANNING_MENU, PLANNING_PATH, planPath, planPublishPath, plannerFlagOn, useCapabilities, usePlannerMenuHidden, plannerKeys } from './planner-client';

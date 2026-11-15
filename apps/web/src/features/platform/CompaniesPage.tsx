@@ -48,6 +48,7 @@ function schemaFor(isCreate: boolean) {
       insightsPlus: z.boolean(),
       etms: z.boolean(),
       etmsProvider: z.boolean(),
+      pricing: z.boolean(),
       admin: z.object({ name: z.string().trim().max(100), email, mobile, password: z.string() }),
     })
     .superRefine((v, ctx) => {
@@ -61,12 +62,14 @@ function schemaFor(isCreate: boolean) {
 type Values = z.infer<ReturnType<typeof schemaFor>>;
 
 /** Add-on switches → COMPANY_FEATURES. Every add-on needs a switch here: the PATCH replaces the whole list. */
-function featureList(v: Pick<Values, 'insightsPlus' | 'etms' | 'etmsProvider'>): CompanyFeature[] {
+function featureList(v: Pick<Values, 'insightsPlus' | 'etms' | 'etmsProvider' | 'pricing'>): CompanyFeature[] {
   const out: CompanyFeature[] = [];
   if (v.insightsPlus) out.push('attendanceInsightsPlus');
   if (v.etms) out.push('etms');
   // Transport provider (ETMS E1b) needs Employee transport itself.
   if (v.etms && v.etmsProvider) out.push('etmsProvider');
+  // Customer pricing & billing (doc 19): independent of ETMS (internal charge-back works without it).
+  if (v.pricing) out.push('pricing');
   return out;
 }
 
@@ -86,6 +89,7 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
       insightsPlus: record?.features.includes('attendanceInsightsPlus') ?? false,
       etms: record?.features.includes('etms') ?? false,
       etmsProvider: record?.features.includes('etmsProvider') ?? false,
+      pricing: record?.features.includes('pricing') ?? false,
       admin: { name: '', email: '', mobile: '', password: '' },
     },
   });
@@ -124,6 +128,7 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
         {/* Add-ons (Company.settings.features): the basic Employee insights are always on. */}
         <SwitchField form={form} name="etms" label="Employee transport" hint="Adds the Employee transport menus (agreements, transport settings). Switching it on also creates the Transport admin, dispatcher, passenger and driver roles once. Switching it off hides the menus; data is kept." className="sm:col-span-2" />
         <SwitchField form={form} name="etmsProvider" label="Transport provider" hint="The company may run transport for other companies under service agreements (customer picker, fleet allocations). Needs Employee transport." className="sm:col-span-2" />
+        <SwitchField form={form} name="pricing" label="Customer pricing & billing" hint="Adds the Pricing menus (company contracts, trip charges, availability billing, customer invoices, adjustments, reports). Switching it on also creates the Billing admin and Billing clerk roles once. Switching it off hides the menus; data is kept." className="sm:col-span-2" />
         <SwitchField form={form} name="insightsPlus" label="Advanced attendance insights" hint="Adds comparisons with the previous period and the team, pattern charts, the 12-month trend, periods up to 6 months and PNG / PDF download to Staff attendance → Employee." className="sm:col-span-2" />
         {record && <SelectField form={form} name="status" label="Status" required options={STATUS_OPTIONS} hint="Suspended companies can't sign in and their data is not processed." />}
       </div>
@@ -155,6 +160,7 @@ const columns: MasterColumn<CompanyDto>[] = [
         <span className="inline-flex flex-wrap gap-1">
           {r.features.includes('etms') && <Badge variant="secondary">{i18n.t('Employee transport')}</Badge>}
           {r.features.includes('etmsProvider') && <Badge variant="secondary">{i18n.t('Transport provider')}</Badge>}
+          {r.features.includes('pricing') && <Badge variant="secondary">{i18n.t('Pricing & billing')}</Badge>}
           {r.features.includes('attendanceInsightsPlus') && <Badge variant="secondary">{i18n.t('Advanced insights')}</Badge>}
         </span>
       ) : (

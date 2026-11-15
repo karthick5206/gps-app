@@ -21,8 +21,20 @@ import type { Prisma } from '@prisma/client';
  * VeeTrax billing).
  */
 
+/**
+ * Customer pricing & billing (doc 19 §7.4): contracts, versions, trip price snapshots, availability periods, runs, counters,
+ * customer invoices / lines / credit notes / payments, adjustments, tax and supplier settings and operating costs are
+ * financial records too (retention: contract life + 7 years); they carry companyId without a foreign key, so only this
+ * list keeps the purge planner away from them.
+ */
+export const PRICING_FINANCIAL_TABLES = [
+  'PricingContract', 'PricingContractVersion', 'PricingComponent', 'PricingVehicleRate', 'PricingVehicleAssignment', 'PricingDowntime', 'PricingCalendar',
+  'TripPriceSnapshot', 'AvailabilityBillingPeriod', 'BillingRun', 'BillingCounter', 'BillingSupplierProfile', 'PricingTaxProfile', 'PricingTaxRate',
+  'CustomerInvoice', 'CustomerInvoiceLine', 'BillingAdjustment', 'CustomerCreditNote', 'BillingPayment', 'OperatingCostRecord',
+] as const;
+
 /** Tables a purge plan must never delete from (planner defence in depth, see purge-plan.ts). */
-export const FINANCIAL_TABLES = ['Invoice', 'CreditNote', 'InvoiceCounter', 'CreditNoteCounter', 'UpiPaymentClaim', 'PlatformBillingSettings'] as const;
+export const FINANCIAL_TABLES = ['Invoice', 'CreditNote', 'InvoiceCounter', 'CreditNoteCounter', 'UpiPaymentClaim', 'PlatformBillingSettings', ...PRICING_FINANCIAL_TABLES] as const;
 
 /** LicenceOrder rows that are payment records; the planner may delete only the others (unpaid checkout attempts). */
 export const PAID_ORDER_SQL = `("status" = 'PAID' OR "paidAt" IS NOT NULL OR "razorpayPaymentId" IS NOT NULL)`;
@@ -38,7 +50,8 @@ export interface FinancialCounts {
 
 export const financialTotal = (c: FinancialCounts) => c.invoices + c.creditNotes + c.payments + c.upiClaims;
 
-type Db = Pick<Prisma.TransactionClient, 'invoice' | 'creditNote' | 'licenceOrder' | 'upiPaymentClaim' | 'partner'>;
+type Db = Pick<Prisma.TransactionClient, 'invoice' | 'creditNote' | 'licenceOrder' | 'upiPaymentClaim' | 'partner'> &
+  Partial<Pick<Prisma.TransactionClient, 'customerInvoice' | 'customerCreditNote' | 'billingPayment'>>;
 
 const PAID_ORDER: Prisma.LicenceOrderWhereInput = { OR: [{ status: 'PAID' }, { paidAt: { not: null } }, { razorpayPaymentId: { not: null } }] };
 const KEPT_CLAIMS = ['CONFIRMED', 'PENDING'];
@@ -49,13 +62,17 @@ export async function countFinancialRecords(db: Db, companyId: string): Promise<
   const owner: Prisma.InvoiceWhereInput = partner ? { OR: [{ companyId }, { partnerId: partner.id }] } : { companyId };
   const claimOwners: Prisma.UpiPaymentClaimWhereInput[] = [{ ownerKind: 'COMPANY', ownerId: companyId }];
   if (partner) claimOwners.push({ ownerKind: 'PARTNER', ownerId: partner.id });
-  const [invoices, creditNotes, payments, upiClaims] = await Promise.all([
+  const [invoices, creditNotes, payments, upiClaims, customerInvoices, customerCreditNotes, customerPayments] = await Promise.all([
     db.invoice.count({ where: owner }),
     db.creditNote.count({ where: owner as Prisma.CreditNoteWhereInput }),
     db.licenceOrder.count({ where: { AND: [owner as Prisma.LicenceOrderWhereInput, PAID_ORDER] } }),
     db.upiPaymentClaim.count({ where: { OR: claimOwners, status: { in: KEPT_CLAIMS } } }),
+    // Doc 19: the company's own ISSUED customer invoices (drafts are not documents yet), credit notes and payments.
+    db.customerInvoice?.count({ where: { companyId, status: 'ISSUED' } }) ?? 0,
+    db.customerCreditNote?.count({ where: { companyId } }) ?? 0,
+    db.billingPayment?.count({ where: { companyId } }) ?? 0,
   ]);
-  return { invoices, creditNotes, payments, upiClaims, partnerId: partner?.id ?? null };
+  return { invoices: invoices + customerInvoices, creditNotes: creditNotes + customerCreditNotes, payments: payments + customerPayments, upiClaims, partnerId: partner?.id ?? null };
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

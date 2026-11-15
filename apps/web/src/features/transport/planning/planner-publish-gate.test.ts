@@ -92,12 +92,15 @@ test('the new error codes have text and a kind; the strings exist in hi / ta', (
   assert.equal(plannerErrorKind('PUBLISH_OVERRIDE_FORBIDDEN', 403), 'forbidden');
 });
 
-test('the publish dialog: blocking list, acknowledgement checkbox, override only for authorised users, decision sent; strings translated', () => {
-  const page = read('PlanReviewPage.tsx');
-  assert.match(page, /publishGate\(/);
-  assert.match(page, /publishGateState\(/);
+test('the review & publish screen: blocking list, acknowledgement checkbox, override only for authorised users, decision sent; strings translated', () => {
+  // E4 WP-W: publishing moved from the plan page dialog to the review screen (PlanPublishPage + plan-review.ts).
+  const page = read('PlanPublishPage.tsx') + read('PlanReviewPage.tsx');
+  const logic = read('plan-review.ts');
+  assert.match(logic, /publishGate\(/);
+  assert.match(logic, /publishGateState\(/);
+  assert.match(page, /reviewPublishState\(/);
   assert.match(page, /gate\.canOverride/);
-  assert.match(page, /publish\.mutate\(gateState\.body/);
+  assert.match(page, /publish\.mutate\(state\.body/);
   assert.match(page, /<Textarea[\s\S]{0,300}id="publish-override-reason"/);
   assert.match(page, /publishDecision\?\.override/);
   const strings = [
@@ -129,8 +132,8 @@ test('E4 decisions D-L3: the acknowledgement is tied to the warning set; a reloa
   assert.equal(warningsAcknowledged(acked, g2), false);
   assert.equal(publishGateState(g2, { acknowledged: warningsAcknowledged(acked, g2), overrideOn: false, reason: '' }).allowed, false);
   assert.equal(warningsAcknowledged(acknowledgedFingerprint(false, g1), g1), false);
-  // The page keeps the acknowledged fingerprint, not a bare boolean.
-  const page = read('PlanReviewPage.tsx');
+  // The review screen keeps the acknowledged fingerprint, not a bare boolean.
+  const page = read('PlanPublishPage.tsx');
   assert.match(page, /warningsAcknowledged\(ackedFingerprint, gate\)/);
   assert.doesNotMatch(page, /const \[ackWarnings, setAckWarnings\] = useState\(false\)/);
 });
