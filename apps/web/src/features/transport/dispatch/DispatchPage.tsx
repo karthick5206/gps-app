@@ -50,6 +50,7 @@ import {
   type IdempotencySlot,
 } from './dispatch-draft';
 import { allocateRoutes, largestSeats, routeGroups, type RouteGroup } from './auto-allocate';
+import { NeedsAttention } from './NeedsAttention';
 import { ChangeSetDetailDialog } from './ChangeSetDetailDialog';
 import { copyDay, type CopyBooking, type CopyResult, type SourceTrip } from './copy-day';
 import { CandidatesPanel, DraftReview, DraftTray, QueuePanel, TripsPanel, type PanelCtx } from './dispatch-panels';
@@ -693,6 +694,16 @@ export function DispatchPage() {
         </ol>
       )}
 
+      {board.data && day === today && (
+        <NeedsAttention
+          board={board.data}
+          onSelect={(ids) => {
+            const first = board.data!.queue.find((b) => b.id === ids[0]);
+            if (first) setMode(isRoster(first) ? 'roster' : 'adhoc');
+            setSelected(new Set(ids));
+          }}
+        />
+      )}
       {board.isError && <FormError message={e3ErrorMessage(board.error, t)} />}
       {board.isPending || !ctx ? (
         <Skeleton className="h-96 w-full rounded-xl" />
