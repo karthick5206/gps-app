@@ -18,6 +18,7 @@ import type {
   MeTripConfirmResult,
   MeTripReportInput,
   MeTripReportResult,
+  TransportSharingPolicyDto,
 } from '@veetracer/shared';
 import { useState } from 'react';
 import { ApiError, api, errorMessage } from '@/lib/api';
@@ -26,6 +27,7 @@ import { uuidv7 } from './event-queue';
 import { requestErrorText } from './adhoc-request';
 import { profileErrorText } from './my-profile';
 import { selfErrorText } from './self-service';
+import { poolingErrorText } from './ride-preference';
 
 /**
  * Passenger self-service API (E5 WP 5.3, `/api/me/transport/{policy, bookings, schedule, places, trips/:id/confirm,
@@ -156,6 +158,27 @@ export function useRequestRide() {
   });
 }
 
+/**
+ * Pooling (doc 20 §6): GET /me/transport/sharing-policy — the current policy version, its text and the limits per
+ * preference, read before the passenger accepts. null on an older server (404): the screens then send no preference.
+ */
+export function useMySharingPolicy(enabled = true) {
+  return useQuery({
+    queryKey: [...KEY, 'sharing-policy'],
+    queryFn: async ({ signal }) => {
+      try {
+        return await api.get<TransportSharingPolicyDto>('/me/transport/sharing-policy', undefined, signal);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) return null;
+        throw err;
+      }
+    },
+    enabled,
+    retry: noRetryOn4xx,
+    staleTime: 60_000,
+  });
+}
+
 /** Company places the passenger may pick (GET /me/transport/request-places?q=, at most 50). */
 export function useRequestPlaces(q: string, enabled = true) {
   return useQuery({
@@ -213,7 +236,7 @@ export function useSetHome() {
 
 /** Translated text for a request error (known codes, NOT_ELIGIBLE by reason), else the server message. */
 export function requestErrorMessage(err: unknown): string {
-  const known = err instanceof ApiError ? requestErrorText(err.code, err.details.reason) : null;
+  const known = err instanceof ApiError ? (poolingErrorText(err.code) ?? requestErrorText(err.code, err.details.reason)) : null;
   return known ? i18n.t(known) : errorMessage(err);
 }
 

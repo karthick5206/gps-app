@@ -30,6 +30,7 @@ import { filterByGroup, groupIdOf, groupSizes, purposeOf } from './group-booking
 import { approvableIds, BOOKING_SOURCE_LABEL, BOOKING_STATUS_CHIPS, BOOKING_STATUS_META, cutoffLabel, DIRECTION_LABEL } from './e3-format';
 import { BookingStatusBadge, DirectionBadge, e3ErrorMessage, SimpleSelect } from './e3-ui';
 import { ReasonDialog } from './ReasonDialog';
+import { HeldBadge, holdAction, RideBadge, useHoldFlow } from '../pooling/pooling-ui';
 import { transportTripPath, useBookingCommand, useBookingPolicy, useBookings, useBulkApprove, type BookingCommand } from './use-e3';
 
 const PAGE_SIZE = 50;
@@ -43,13 +44,15 @@ function windowText(b: TransportBookingDto, clock: (iso: string) => string) {
   return `${clock(b.windowStart)} – ${clock(b.windowEnd)}`;
 }
 
-function BookingMenu({ b, onCommand, onEdit }: { b: TransportBookingDto; onCommand: (kind: BookingCommand['kind'], b: TransportBookingDto) => void; onEdit: (b: TransportBookingDto) => void }) {
+function BookingMenu({ b, onCommand, onEdit, onHold }: { b: TransportBookingDto; onCommand: (kind: BookingCommand['kind'], b: TransportBookingDto) => void; onEdit: (b: TransportBookingDto) => void; onHold?: (b: TransportBookingDto) => void }) {
   const { t } = useTranslation();
   const { can } = useAuth();
   const canEdit = can('etms_bookings', 'edit');
   const acts = canEdit ? b.allowedActions.filter((a) => a !== 'edit') : [];
   const editable = canEdit && canEditBooking(b);
-  if (!acts.length && !editable && !b.tripId) return null;
+  // Pooling: dispatcher hold (etms_dispatch edit) — excluded from runs, not cancelled.
+  const hold = onHold ? holdAction(b) : null;
+  if (!acts.length && !editable && !b.tripId && !hold) return null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -71,6 +74,11 @@ function BookingMenu({ b, onCommand, onEdit }: { b: TransportBookingDto; onComma
         {acts.includes('reject') && (
           <DropdownMenuItem onSelect={() => onCommand('reject', b)}>
             <XIcon /> {t('Reject')}
+          </DropdownMenuItem>
+        )}
+        {hold && onHold && (
+          <DropdownMenuItem onSelect={() => onHold(b)}>
+            <hold.icon /> {t(hold.label)}
           </DropdownMenuItem>
         )}
         {acts.includes('cancel') && (
@@ -147,6 +155,8 @@ export function BookingsPage() {
   const bulk = useBulkApprove();
   const clock = useClock(day, tz);
   const canEdit = can('etms_bookings', 'edit');
+  const holdFlow = useHoldFlow();
+  const onHold = holdFlow.allowed ? holdFlow.ask : undefined;
 
   useEffect(() => {
     setPage(1);
@@ -415,6 +425,8 @@ export function BookingsPage() {
                         <span className="flex flex-wrap gap-1">
                           {b.journey === 'POINT_TO_POINT' ? <JourneyBadge journey={b.journey} /> : <DirectionBadge direction={b.direction ?? 'IN'} />}
                           {b.afterCutoff && <AfterCutoffBadge reason={b.lateReason} />}
+                          <RideBadge b={b} />
+                          {b.holdFromPlanning && <HeldBadge reason={b.holdReason} />}
                         </span>
                       </TableCell>
                       <TableCell className="tabular-nums">
@@ -444,7 +456,7 @@ export function BookingsPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <BookingMenu b={b} onCommand={onCommand} onEdit={(x) => setEditId(x.id)} />
+                        <BookingMenu b={b} onCommand={onCommand} onEdit={(x) => setEditId(x.id)} onHold={onHold} />
                       </TableCell>
                     </TableRow>
                   );
@@ -467,7 +479,7 @@ export function BookingsPage() {
                         </p>
                       </div>
                       <BookingStatusBadge status={b.status} />
-                      <BookingMenu b={b} onCommand={onCommand} onEdit={(x) => setEditId(x.id)} />
+                      <BookingMenu b={b} onCommand={onCommand} onEdit={(x) => setEditId(x.id)} onHold={onHold} />
                     </div>
                     <p className="truncate text-sm" title={routeText(b, t)}>
                       {routeText(b, t)}
@@ -477,6 +489,8 @@ export function BookingsPage() {
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       {b.journey === 'POINT_TO_POINT' ? <JourneyBadge journey={b.journey} /> : <DirectionBadge direction={b.direction ?? 'IN'} />}
                       {b.afterCutoff && <AfterCutoffBadge reason={b.lateReason} />}
+                      <RideBadge b={b} />
+                      {b.holdFromPlanning && <HeldBadge reason={b.holdReason} />}
                       {groupIdOf(b) && <GroupBadge size={sizes.get(groupIdOf(b)!) ?? 1} purpose={purposeOf(b)} active={groupId === groupIdOf(b)} onClick={() => toggleGroup(groupIdOf(b)!)} />}
                       <span className="tabular-nums">{windowText(b, clock)}</span>
                       {b.needsLocation && <Badge variant="warning">{t('Needs location')}</Badge>}
@@ -523,6 +537,7 @@ export function BookingsPage() {
         pending={cmd.isPending}
         onConfirm={(reason) => command && run(command.kind, command.b, reason)}
       />
+      {holdFlow.dialog}
       <NewBookingDialog open={newOpen} onOpenChange={setNewOpen} day={day} cutoffMin={cutoffMin} />
       <GroupBookingDialog open={groupOpen} onOpenChange={setGroupOpen} day={day} cutoffMin={cutoffMin} />
       <EditBookingDialog booking={editing} onOpenChange={(o) => !o && setEditId(null)} cutoffMin={cutoffMin} />

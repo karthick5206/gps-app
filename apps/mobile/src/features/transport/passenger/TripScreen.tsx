@@ -17,6 +17,7 @@ import { selfServiceErrorText, useAttemptKey, useConfirmRide, useMyPolicy } from
 import { passengerCurrentTrip } from '../sos-context';
 import { passengerSos, useSosContext } from '../sos-store';
 import { SosPanel } from './SosPanel';
+import { servedText } from '../ride-preference';
 
 /**
  * E5 WP 5.3 passenger actions on the trip (only while the company has self-service on): confirm pickup / drop (owner
@@ -122,7 +123,9 @@ export function PassengerTripScreen({ id }: { id: string }) {
   const points: MapPoint[] = [...mine.map((p) => ({ lat: p.lat, lng: p.lng, kind: p.kind, label: t(p.label) })), ...(v ? [{ lat: v.lat, lng: v.lng, kind: 'vehicle' as const }] : [])];
   const state = TRIP_STATE_META[trip.derivedState];
   const myState = PASSENGER_STATUS_META[trip.myStatus];
-  const pickupEta = trip.myStop?.eta?.at ?? null;
+  // Pooling: the server's estimated pickup (always, live-delay adjusted) when the stop has no live ETA yet.
+  const pickupEta = trip.myStop?.eta?.at ?? trip.estimatedPickupAt ?? null;
+  const served = servedText(trip.servedAs);
   const hiddenText = !poll ? t('The vehicle is shown from 30 minutes before your pickup until the trip ends.') : vehicle.isPending ? t('Looking for the vehicle…') : vehicle.isError ? transportErrorText(vehicle.error) : t(hiddenVehicleText(vehicle.data));
 
   return (
@@ -136,6 +139,7 @@ export function PassengerTripScreen({ id }: { id: string }) {
           <StatusChip label={t(state.label)} tone={state.tone} />
           <StatusChip label={t(myState.label)} tone={myState.tone} />
           {trip.liveVisible && <StatusChip label={t('Vehicle visible now')} tone="info" icon={MapPinIcon} />}
+          {served && <StatusChip label={t(served)} tone="neutral" />}
         </View>
       </Card>
 

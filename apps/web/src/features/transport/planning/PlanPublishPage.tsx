@@ -1,7 +1,7 @@
 import type { PublishRoutePlanResult } from '@veetracer/shared';
 import { ROUTE_PLAN_OVERRIDE_REASON_MAX, ROUTE_PLAN_OVERRIDE_REASON_MIN } from '@veetracer/shared';
 import { ArrowLeftIcon, CircleAlertIcon, ExternalLinkIcon, RefreshCwIcon, SendIcon } from 'lucide-react';
-import { useEffect, useReducer, useState } from 'react';
+import { Fragment, useEffect, useReducer, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -24,6 +24,7 @@ import { initialReviewFlow, reviewFlow, reviewGate, reviewPublishState, reviewUn
 import { acknowledgedFingerprint, formatDuration, formatKm, isEditablePlan, planClock, plannerErrorText, VIOLATION_LABEL, warningsAcknowledged } from './planner-format';
 import { EtaFootnote, PlanStatusBadge } from './planner-ui';
 import { RoutingOffState } from './RoutingOffState';
+import { tripSplit } from '../pooling/plan-trips';
 import { createKeyStore, newKey, PLANNING_MENU, planPath, plannerErrorMessage, plannerErrorOf, plannerFlagOn, publishRouteErrors, useCapabilities, usePlan, usePublishReviewed, useReview } from './use-planner';
 
 /**
@@ -92,6 +93,9 @@ export function PlanPublishPage() {
   }
 
   const r = review.data;
+  // Pooling (AREA plans): a vehicle route may hold several trips; each is published as its own trip.
+  const tripOfStop = new Map((plan?.stops ?? []).map((s) => [s.id, s.tripIndex] as const));
+  const split = new Map(tripSplit(plan?.stops ?? [], selection).map((x) => [x.assignmentId, x.trips] as const));
   const gate = r ? reviewGate(r) : null;
   const ackWarnings = gate ? warningsAcknowledged(ackedFingerprint, gate) : false;
   const state = r ? reviewPublishState(r, { confirmedHash: flow.confirmedHash, acknowledged: ackWarnings, overrideOn, reason: overrideReason }) : null;
@@ -219,6 +223,7 @@ export function PlanPublishPage() {
                       <h2 className="min-w-0 flex-1 text-sm font-semibold break-words">{t('Route {{n}} · {{vehicle}}', { n: routeNo(rt.assignmentId), vehicle: rt.vehicleName ? `${rt.vehicleName}${rt.plateNumber ? ` · ${rt.plateNumber}` : ''}` : rt.vehicleLabel })}</h2>
                       <Badge variant="outline">{rt.seats === null ? t('{{n}} seats used · seats not set', { n: rt.passengers }) : t('{{used}} / {{capacity}} seats', { used: Math.round(rt.occupancy * rt.seats), capacity: rt.seats })}</Badge>
                       {ch && (ch.addedStopIds.length > 0 || ch.removedStopIds.length > 0 || ch.reordered || ch.vehicleChanged || ch.driverChanged) && <Badge variant="warning">{t('Changed by hand')}</Badge>}
+                      {(split.get(rt.assignmentId) ?? 0) > 1 && <Badge variant="info">{t('Publishes as {{n}} trips', { n: split.get(rt.assignmentId) })}</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {rt.driverName ? t('Driver: {{name}}', { name: rt.driverName }) : t('No driver')} · {rt.distanceM !== null && rt.durationS !== null ? t('{{km}} · {{time}} drive', { km: formatKm(rt.distanceM), time: formatDuration(rt.durationS, t) }) : t('No engine distance or time yet')}
@@ -231,11 +236,16 @@ export function PlanPublishPage() {
                     ))}
                     <ol className="divide-y rounded-md border text-sm" aria-label={t('Stops of route {{n}}', { n: routeNo(rt.assignmentId) })}>
                       {rt.stops.map((s, k) => (
-                        <li key={s.stopId} className="flex flex-wrap items-center gap-2 p-2">
+                        <Fragment key={s.stopId}>
+                        {(split.get(rt.assignmentId) ?? 0) > 1 && (k === 0 || tripOfStop.get(s.stopId) !== tripOfStop.get(rt.stops[k - 1].stopId)) && (
+                          <li className="bg-muted px-2 py-1 text-xs font-semibold">{t('Trip {{n}}', { n: (tripOfStop.get(s.stopId) ?? 0) + 1 })}</li>
+                        )}
+                        <li className="flex flex-wrap items-center gap-2 p-2">
                           <span className="w-6 shrink-0 text-xs tabular-nums text-muted-foreground">{k + 1}.</span>
                           <span className="min-w-0 flex-1 break-words">{stopName(s)}</span>
                           <span className="text-xs tabular-nums">{clock(s.etaS) ?? t('No engine time')}</span>
                         </li>
+                        </Fragment>
                       ))}
                     </ol>
                   </Card>

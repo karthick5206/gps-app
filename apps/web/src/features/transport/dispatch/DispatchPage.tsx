@@ -1,6 +1,6 @@
 import type { DriverDto, TransportBookingDto, TransportDirection, TransportTripSummaryDto } from '@veetracer/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronLeftIcon, ChevronRightIcon, ClipboardListIcon, CopyIcon, EyeIcon, FileClockIcon, PlayIcon, PlusIcon, RouteIcon, SendIcon, Trash2Icon, UserPlusIcon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, ClipboardListIcon, RadioTowerIcon, CopyIcon, EyeIcon, FileClockIcon, PlayIcon, PlusIcon, RouteIcon, SendIcon, Trash2Icon, UserPlusIcon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -29,6 +29,8 @@ import { useTransportSettings, useUpdateTransportSettings } from '../use-agreeme
 import { learnCutoffMin } from './adhoc-booking';
 import { GroupBookingDialog } from './GroupBookingDialog';
 import { NewBookingDialog } from './BookingDialogs';
+import { useHoldFlow } from '../pooling/pooling-ui';
+import { LIVE_DISPATCH_PATH } from '../pooling/live-dispatch';
 import { cn } from '@/lib/utils';
 import {
   addNewTrip,
@@ -189,6 +191,8 @@ export function DispatchPage() {
   const publishServer = usePublishServerDraft();
   const discardServer = useDiscardServerDraft();
   const approveCmd = useBookingCommand();
+  // Pooling: dispatcher hold of a waiting booking (excluded from runs, not cancelled).
+  const holdFlow = useHoldFlow();
   const announce = (msg: string) => {
     setAnnouncement('');
     requestAnimationFrame(() => setAnnouncement(msg));
@@ -468,7 +472,8 @@ export function DispatchPage() {
         requestRemove: (trip, p) => setRemoveReq({ trip, p }),
         requestReassign: (trip, kind) => setReassignReq({ trip, kind }),
         approve: (b) => approveCmd.mutate({ kind: 'approve', id: b.id, version: b.version }, { onSuccess: () => toast.success(t('Booking approved')), onError: (e) => toast.error(e3ErrorMessage(e, t)) }),
-        busy: busy || approveCmd.isPending,
+        hold: holdFlow.allowed ? holdFlow.ask : undefined,
+        busy: busy || approveCmd.isPending || holdFlow.pending,
         routes,
         moveToRoute,
         startTrip: (trip) => void startTrips([trip]),
@@ -570,16 +575,24 @@ export function DispatchPage() {
         title={t('Daily transport')}
         description={t('Choose the date, shift and direction: route the riders, allocate vehicles, publish and start the trips.')}
         actions={
-          canPlan && mode === 'adhoc' ? (
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => setNewOpen(true)}>
-                <PlusIcon /> {t('New ad-hoc booking')}
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setGroupOpen(true)}>
-                <UsersIcon /> {t('Group ride')}
-              </Button>
-            </div>
-          ) : undefined
+          <div className="flex flex-wrap gap-2">
+            {canPlan && mode === 'adhoc' && (
+              <>
+                <Button size="sm" onClick={() => setNewOpen(true)}>
+                  <PlusIcon /> {t('New ad-hoc booking')}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setGroupOpen(true)}>
+                  <UsersIcon /> {t('Group ride')}
+                </Button>
+              </>
+            )}
+            {/* Pooling (doc 20 §7): live decision requests, "find a vehicle" and proposals to approve. */}
+            <Button size="sm" variant="outline" asChild>
+              <Link to={LIVE_DISPATCH_PATH}>
+                <RadioTowerIcon /> {t('Live dispatch')}
+              </Link>
+            </Button>
+          </div>
         }
       />
       <div className="inline-flex w-full max-w-xs rounded-lg border bg-muted p-[3px] sm:w-auto" role="tablist" aria-label={t('Roster or ad-hoc')}>
@@ -850,6 +863,7 @@ export function DispatchPage() {
         </DialogContent>
       </Dialog>
 
+      {holdFlow.dialog}
       <NewBookingDialog open={newOpen} onOpenChange={setNewOpen} day={day} cutoffMin={cutoffMin} />
       <GroupBookingDialog open={groupOpen} onOpenChange={setGroupOpen} day={day} cutoffMin={cutoffMin} />
       <Dialog open={!!copyPick} onOpenChange={(o) => !o && setCopyPick(null)}>

@@ -108,6 +108,8 @@ const TripChargeDetailPage = page(() => import('@/features/pricing/TripChargeDet
 const InvoiceDetailPage = page(() => import('@/features/pricing/InvoiceDetailPage'), 'InvoiceDetailPage');
 const PricingSettingsPage = page(() => import('@/features/pricing/PricingSettingsPage'), 'PricingSettingsPage');
 const PlanReviewPage = page(() => import('@/features/transport/planning/PlanReviewPage'), 'PlanReviewPage');
+/** Pooling (doc 20 §7): live dispatch board under the dispatch board (same permission). */
+const LiveDispatchPage = page(() => import('@/features/transport/pooling/LiveDispatchPage'), 'LiveDispatchPage');
 /** E4 WP-W: review & publish selected routes of a plan. */
 const PlanPublishPage = page(() => import('@/features/transport/planning/PlanPublishPage'), 'PlanPublishPage');
 const AgreementDetailPage = page(() => import('@/features/transport/AgreementDetailPage'), 'AgreementDetailPage');
@@ -209,6 +211,16 @@ export const router = createBrowserRouter([
               <RequirePermission menu="etms_vendors">
                 <Suspense fallback={<PageFallback />}>
                   <VendorDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/transport/dispatch/live',
+            element: (
+              <RequirePermission menu="etms_dispatch">
+                <Suspense fallback={<PageFallback />}>
+                  <LiveDispatchPage />
                 </Suspense>
               </RequirePermission>
             ),

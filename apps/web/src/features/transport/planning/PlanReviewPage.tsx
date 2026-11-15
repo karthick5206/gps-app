@@ -89,6 +89,8 @@ import { afterEdit, afterRestore, afterRestoreConflict, canDrag, cursorFromHisto
 import { alternativesError, maxRideCapS, preferencesDraftOf, preferencesRequest, runFields, strategyDraftOf, toggleStrategy, type PreferencesDraft, type StrategyDraft } from './plan-strategy';
 import { AlternativesPicker, PreferencesFields, StrategyPicker } from './plan-strategy-ui';
 import { selectableRoutes } from './plan-review';
+import { groupStopsByTrip, peakLoad, privateBookingIds } from '../pooling/plan-trips';
+import { useDayRidePreferences } from '../pooling/use-pooling';
 import { AddBookingDialog, ChangesPanel, DriverPicker, RouteIssuesView } from './plan-workspace-ui';
 import { CapabilityChip, EtaFootnote, EtaQualityBadge, JobProgress, MetricsGrid, PlanStatusBadge, UnassignedReasonText, ViolationList } from './planner-ui';
 import {
@@ -144,6 +146,9 @@ export function PlanReviewPage() {
   const q = usePlan(flag ? id : null);
   const plan = q.data;
   const edit = usePlanEdit(plan);
+  // Pooling (AREA plans): private rides are badged from the day's bookings (the stop view has no preference).
+  const areaPlan = plan?.scope === 'AREA';
+  const dayPrefs = useDayRidePreferences(areaPlan && plan ? plan.planDate : null);
   // Idempotency-Keys for this page's keyed actions (re-optimise, alternatives): a retry replays, a 4xx frees the key.
   const [keys] = useState(() => createKeyStore(newKey));
   const discard = useDiscardPlan();
@@ -245,7 +250,8 @@ export function PlanReviewPage() {
   const { points, hidden } = mapPoints(plan, plan.precise);
   const lines = routeLines(plan);
   const nonEngine = plan.assignments.some((a) => a.eta && !engineEta(a.eta));
-  const unassigned = unassignedPassengers(plan.stops, plan.direction);
+  // AREA plans have no direction: each booking is listed once (at its pickup).
+  const unassigned = unassignedPassengers(plan.stops, areaPlan ? 'IN' : plan.direction);
   const routes = routesOf(plan);
   const busy = edit.isPending || plan.status === 'OPTIMIZING';
   const activeJob = activeJobId(plan, jobId, openJobs.data);
@@ -438,6 +444,7 @@ export function PlanReviewPage() {
     );
   };
 
+  const privateIds = privateBookingIds(dayPrefs.data ?? new Map());
   const stopRow = (s: PlannerStop, k: number, list: PlannerStop[], a: PlannerPlan['assignments'][number], i: number) => {
     const eta = stopEta(s, a, plan.planStartAt, tz);
     const warn = violationsOf(s.id);
@@ -450,13 +457,17 @@ export function PlanReviewPage() {
       <li key={s.id} id={`stop-${s.id}`} className={cn('grid gap-1 p-2', isOver && 'border-t-2 border-t-primary', isSel && 'bg-primary/10 ring-2 ring-primary ring-inset', dragId === s.id && 'opacity-50')} {...dragProps(s, { assignmentId: a.id, index: k }, draggableNow)}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {draggableNow && <GripVerticalIcon className="size-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />}
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white" style={{ background: vehicleColor(i) }} aria-hidden>
+          <span className={cn('flex size-6 shrink-0 items-center justify-center text-[11px] font-bold text-white', areaPlan && s.stopKind === 'DROP' ? 'rounded-[3px]' : 'rounded-full')} style={{ background: vehicleColor(i) }} aria-hidden>
             {k + 1}
           </span>
           <span className="min-w-0 flex-1 text-sm break-words">
             <span className="sr-only">{t('Stop {{n}}:', { n: k + 1 })} </span>
+            {areaPlan && s.stopKind && (
+              <span className={cn('me-1 text-xs font-semibold', s.stopKind === 'DROP' ? 'text-muted-foreground' : 'text-primary')}>{s.stopKind === 'DROP' ? `▼ ${t('Drop')}` : `▲ ${t('Pickup')}`}</span>
+            )}
             {stopLabel(s, t)}
           </span>
+          {s.bookingId && privateIds.has(s.bookingId) && <Badge variant="info">{t('Private ride')}</Badge>}
           {s.pinned && (
             <Badge variant="info">
               <PinIcon aria-hidden /> {t('Pinned')}
@@ -651,7 +662,7 @@ export function PlanReviewPage() {
         <div className="grid min-w-0 content-start gap-3">
           {plan.assignments.map((a, i) => {
             const stops = routeStops(plan.stops, a.id);
-            const load = routeLoad(stops, plan.direction);
+            const load = areaPlan ? peakLoad(stops) : routeLoad(stops, plan.direction);
             const over_ = a.capacity !== null && load > a.capacity;
             const vehicle = a.vehicleName ? `${a.vehicleName}${a.plateNumber ? ` · ${a.plateNumber}` : ''}` : a.vehicleLabel;
             const editRoute = canEdit && !a.published;
@@ -718,7 +729,22 @@ export function PlanReviewPage() {
                     </Button>
                   )}
                 </div>
-                {stops.length > 0 ? (
+                {stops.length > 0 && areaPlan && groupStopsByTrip(stops).length > 1 ? (
+                  // Pooling: one vehicle route, several trips (each published as its own trip).
+                  <div className="grid gap-2">
+                    {groupStopsByTrip(stops).map((g) => (
+                      <div key={g.tripIndex} className="grid gap-1">
+                        <h3 className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+                          {t('Trip {{n}}', { n: g.tripIndex + 1 })}
+                          <span className="font-normal text-muted-foreground">{t('{{p}} pickups · {{d}} drops', { p: g.pickups, d: g.drops })}</span>
+                        </h3>
+                        <ol className="divide-y rounded-md border" aria-label={t('Stops of trip {{t}} of route {{n}}', { t: g.tripIndex + 1, n: i + 1 })}>
+                          {g.stops.map(({ stop, index }) => stopRow(stop, index, stops, a, i))}
+                        </ol>
+                      </div>
+                    ))}
+                  </div>
+                ) : stops.length > 0 ? (
                   <ol className="divide-y rounded-md border" aria-label={t('Stops of route {{n}}', { n: i + 1 })}>
                     {stops.map((s, k) => stopRow(s, k, stops, a, i))}
                   </ol>

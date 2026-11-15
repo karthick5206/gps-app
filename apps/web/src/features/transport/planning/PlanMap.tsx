@@ -65,10 +65,12 @@ export function PlanMap({ lines, points, depot, focus, className, label, selecte
       const el = document.createElement('div');
       const dim = focus !== null && focus !== undefined && focus !== p.route;
       const isSel = selected === p.id;
-      el.className = cn('flex size-6 items-center justify-center rounded-full border-2 border-[var(--map-marker-stroke)] text-[10px] font-bold text-white shadow-md', dim && !isSel && 'opacity-40', isSel && 'size-8 ring-4 ring-primary', onSelect && 'cursor-pointer');
+      // Pooling: pickups are round, drops square, so the two ends of a ride are told apart at a glance.
+      el.className = cn('flex size-6 items-center justify-center border-2 border-[var(--map-marker-stroke)] text-[10px] font-bold text-white shadow-md', p.kind === 'DROP' ? 'rounded-[3px]' : 'rounded-full', dim && !isSel && 'opacity-40', isSel && 'size-8 ring-4 ring-primary', onSelect && 'cursor-pointer');
       el.style.background = p.route >= 0 ? vehicleColor(p.route) : '#6b7280';
       el.textContent = p.position ? String(p.position) : '–';
-      const text = p.route >= 0 ? t('Route {{r}}, stop {{n}}: {{name}}', { r: p.route + 1, n: p.position ?? 0, name: t(p.label) }) : t('Unassigned: {{name}}', { name: t(p.label) });
+      const base = p.route >= 0 ? t('Route {{r}}, stop {{n}}: {{name}}', { r: p.route + 1, n: p.position ?? 0, name: t(p.label) }) : t('Unassigned: {{name}}', { name: t(p.label) });
+      const text = p.kind && !p.personal ? `${base} (${p.kind === 'DROP' ? t('Drop') : t('Pickup')})` : base;
       el.title = text;
       el.setAttribute('aria-label', text);
       if (onSelect) {
