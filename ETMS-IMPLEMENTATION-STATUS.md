@@ -233,6 +233,30 @@ end (D-A2: new direction value or nullable site end).
 Exit: T1–T11 pass, independent QA and security review pass, owner decisions D-A1..D-A4 recorded. Release as v1.15.0
 through the normal release procedure (no production change until then).
 
+## On-demand pooling (Phase A design)
+
+Status: **Design ready for review** (2026-11-15). The design is in
+[docs/employee-transport/20-on-demand-pooling-design.md](docs/employee-transport/20-on-demand-pooling-design.md) on branch
+`docs/etms-pooling-design`. No code, migration or production change.
+
+| Item | State |
+|---|---|
+| Inventory (bookings, trips, dispatch, live, mobile, tests) | Done (doc 20 §1) |
+| Solver prototype (pickup-and-delivery, private, multi-trip, live insertion), SYNTHETIC matrix | Done; 0 violations in an independent checker; evidence in `docs/employee-transport/evidence/2026-11-15-pooling/` |
+| Builds on E4 redesign (WP-A / WP-B / WP-S / WP-W) | Planned reuse; same publish pipeline (`DispatchService.apply`) |
+| Workstreams P-B1 … P-E2 | Not started; waiting on owner review |
+
+**Owner decisions outstanding:** P1 PRIVATE exclusivity (whole trip recommended), P2 default sharing limits, P3 backfill
+(COMMUTE → SHARED, P2P → PRIVATE), P4 live auto-assign vs propose, P5 active-trip edits, P6 priority weights, P7 driver
+hours defaults, P8 onboard transfer on breakdown (doc 20 §10).
+
+**Gates:**
+- The E4 activation gates (three switches, readiness, Python 3.14, C3 staging, B1–B6, R-5) still apply.
+- A new company switch `etms.liveDispatch` (default off) and an env kill switch.
+- No external routing or geocoding.
+- EAS (O12) for mobile builds.
+- Production deployment only with explicit approval.
+
 ## Phase log
 
 - **2026-11-11 · v1.8.1:**
