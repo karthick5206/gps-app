@@ -555,6 +555,9 @@ def _unassigned(s: dict, reason: str, detail: dict | None = None, code: str | No
 # ----------------------------------------------------------------------------------------------------------------
 
 def solve(problem: dict) -> dict:
+    if isinstance(problem, dict) and problem.get('mode') == 'pdp':
+        from .pdp import solve_pdp      # contract v3 (doc 20 §4); v1 / v2 never reach this branch
+        return solve_pdp(problem)
     t0 = time.perf_counter()
     try:
         ctx = validate(problem)
