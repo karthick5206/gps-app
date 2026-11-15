@@ -1,0 +1,28 @@
+[
+ {
+  "n": 200,
+  "v": 10,
+  "limit": 60,
+  "mode": "det",
+  "wall": 26.28,
+  "build": 0.21,
+  "served": 63,
+  "trips": 32,
+  "km": 790.4,
+  "violations": 0,
+  "peakMB": 132
+ },
+ {
+  "n": 200,
+  "v": 10,
+  "limit": 10,
+  "mode": "gls",
+  "wall": 10.11,
+  "build": 0.11,
+  "served": 63,
+  "trips": 32,
+  "km": 790.4,
+  "violations": 0,
+  "peakMB": 132
+ }
+]
