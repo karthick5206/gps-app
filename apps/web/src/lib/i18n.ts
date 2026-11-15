@@ -13,9 +13,19 @@ const KEY = 'vt.language';
  * load). English is the key language and needs no bundle. Mobile still uses the eager `i18nResources()`.
  */
 const BUNDLES: Record<Exclude<LanguageCode, 'en'>, BundleImporter> = {
-  // Pooling strings (doc 20) live in their own table; the main table wins for a shared key.
-  hi: () => Promise.all([import('@veetracer/shared-i18n/hi'), import('@veetracer/shared-i18n/pooling')]).then(([m, p]) => ({ ...p.POOLING_HI, ...m.HI })),
-  ta: () => Promise.all([import('@veetracer/shared-i18n/ta'), import('@veetracer/shared-i18n/pooling')]).then(([m, p]) => ({ ...p.POOLING_TA, ...m.TA })),
+  // Pooling (doc 20) and pricing (doc 19) strings live in their own tables; the main table wins for a shared key.
+  hi: () =>
+    Promise.all([import('@veetracer/shared-i18n/hi'), import('@veetracer/shared-i18n/pooling'), import('@veetracer/shared-i18n/pricing-web')]).then(([m, p, pr]) => ({
+      ...pr.PRICING_WEB_HI,
+      ...p.POOLING_HI,
+      ...m.HI,
+    })),
+  ta: () =>
+    Promise.all([import('@veetracer/shared-i18n/ta'), import('@veetracer/shared-i18n/pooling'), import('@veetracer/shared-i18n/pricing-web')]).then(([m, p, pr]) => ({
+      ...pr.PRICING_WEB_TA,
+      ...p.POOLING_TA,
+      ...m.TA,
+    })),
 };
 
 /** Saved choice, else the browser language when we support it, else English. */
