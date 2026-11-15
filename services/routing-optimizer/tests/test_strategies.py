@@ -231,3 +231,124 @@ def test_verify_checks_reported_ride_and_detour():
     bad = {**res, 'routes': [{**res['routes'][0], 'stops': [{**res['routes'][0]['stops'][0], 'directS': 1}]
                               + res['routes'][0]['stops'][1:]}]}
     assert any('directS' in v for v in verify(p, bad))
+
+
+# --- review fixes (H1, M1, M2, L1-L3) -------------------------------------------------------------------------------
+
+STRATEGY_VARIANTS = {'rideTime': ({'rideTime': 1}, None), 'guard': ({}, GUARD), 'both': ({'rideTime': 1}, GUARD)}
+
+
+H1_DUR = [[0, 234, 448, 548, 272, 540, 448], [234, 0, 682, 781, 221, 773, 682], [448, 682, 0, 99, 720, 131, 364],
+          [548, 781, 99, 0, 819, 95, 400], [272, 221, 720, 819, 0, 811, 720], [540, 773, 131, 95, 811, 0, 495],
+          [448, 682, 364, 400, 720, 495, 0]]
+
+
+@pytest.mark.parametrize('variant', sorted(STRATEGY_VARIANTS))
+def test_h1_waiting_window_does_not_lose_the_first_solution(variant):
+    """Review H1 minimised repro (SYNTHETIC matrix from the QA probe): OUT, one 7-seater with open start / end, p2's
+    window forces a long wait. With soft bounds on the slack-tied Ride dimension every stop came back
+    TIME_LIMIT{unusedVehicles} and no route; without the strategy fields all four are served."""
+    extra_w, guard = STRATEGY_VARIANTS[variant]
+    trip = OUT(window=(3600, 4200), **({'detourGuard': guard} if guard else {}))
+    p = {'schemaVersion': 2, 'matrix': {'durationsS': H1_DUR}, 'trip': trip,
+         'vehicles': [{'id': 'v1', 'startIndex': None, 'endIndex': None, 'capacity': 7}],
+         'stops': [{'id': 'p1', 'locationIndex': 1, 'demand': 1, 'serviceS': 60},
+                   {'id': 'p2', 'locationIndex': 2, 'demand': 2, 'serviceS': 60, 'timeWindows': [[5632, 5954]]},
+                   {'id': 'p3', 'locationIndex': 3, 'demand': 2, 'serviceS': 60},
+                   {'id': 'p4', 'locationIndex': 4, 'demand': 2, 'serviceS': 60}],
+         'options': {'timeLimitS': 1, 'deterministic': True, 'weights': {'vehicle': 1800, 'time': 1, **extra_w}}}
+    res = run(p)
+    assert res['unassigned'] == [] and len(res['routes'][0]['stops']) == 4
+
+
+def _random_case(seed):
+    import random
+    rng = random.Random(seed)
+    direction = 'IN' if seed % 2 else 'OUT'
+    pts = [(0, 0)] + [(rng.uniform(-6, 6), rng.uniform(-6, 6)) for _ in range(7)]
+    trip = IN(window=(6000, 6600)) if direction == 'IN' else OUT(window=(3600, 4200))
+    p = trip_problem(pts, trip, 2, dict(DEFAULT))
+    for st in p['stops']:
+        if rng.random() < 0.5:                                           # narrow windows that force waits
+            centre = rng.randrange(4000, 6000) if direction == 'IN' else rng.randrange(3800, 6500)
+            st['timeWindows'] = [[centre, centre + rng.randrange(20, 300)]]
+    return p
+
+
+@pytest.mark.parametrize('seed', range(30))
+def test_strategy_costs_never_change_who_is_served(seed):
+    """Seeded random IN / OUT cases with narrow stop windows: rideTime, guard or both serve as many passengers as the
+    same problem without them (soft costs never drop anyone). When drops are forced, WHICH passenger is left out is
+    a tie between equal penalties and may differ, so the count is compared; no search-limit code may appear."""
+    p = _random_case(seed)
+    served = lambda res: sum(len(r['stops']) for r in res['routes'])  # noqa: E731
+    base = served(run(p))
+    for name, (extra_w, guard) in STRATEGY_VARIANTS.items():
+        q = {**p, 'trip': {**p['trip'], **({'detourGuard': guard} if guard else {})},
+             'options': {**p['options'], 'weights': {**p['options']['weights'], **extra_w}}}
+        res = run(q)
+        assert served(res) == base, name
+        assert not {u['code'] for u in res['unassigned']} & {'TIME_LIMIT', 'NOT_SCHEDULED'}, (name, res['unassigned'])
+
+
+def test_retry_safety_net_prefers_more_served():
+    from optimizer.solver import _better, _needs_retry
+    a = {'status': 'FEASIBLE', 'objective': 10, 'routes': [], 'stats': {},
+         'unassigned': [{'stopId': 's', 'code': 'TIME_LIMIT'}]}
+    b = {'status': 'FEASIBLE', 'objective': 99, 'routes': [{'stops': [{'stopId': 's'}]}], 'unassigned': [],
+         'stats': {'firstSolution': 'parallel_cheapest_insertion'}}
+    ctx = validate(trip_problem(FIVE, IN(), 1, BALANCED))
+    assert _needs_retry(ctx, a) and not _needs_retry(validate(trip_problem(FIVE, IN(), 1, DEFAULT)), a)
+    kept = _better(a, b)
+    assert kept is b and kept['stats']['retry'] == {'firstSolution': 'parallel_cheapest_insertion', 'used': True}
+    assert _better(b, {**a, 'stats': {'firstSolution': 'x'}}) is b                 # fewer served: never kept
+
+
+def test_fractional_weights_are_scaled_not_rounded():
+    trip = IN(window=(5000, 6000))
+    half = run(trip_problem(FAR, trip, 1, {'time': 1, 'rideTime': 0.5}))
+    one = run(trip_problem(FAR, trip, 1, {'time': 1, 'rideTime': 1}))
+    assert half['stats']['costScale'] == 100 and 'costScale' not in one['stats']
+    if half['routes'][0]['stops'] == one['routes'][0]['stops']:
+        assert abs(2 * half['objectiveBreakdown']['rideTimeCost'] - one['objectiveBreakdown']['rideTimeCost']) <= 1
+    guard = run(trip_problem(TWO_DIR, trip, 1, DEFAULT, {'ratio': 1, 'costPerS': 0.25}))
+    assert guard['unassigned'] == [] and guard['objectiveBreakdown']['detourCost'] > 0
+
+
+def test_classifier_budget_checked_inside_the_position_loop():
+    """Review M1: one vehicle, 400 stops on board, 10 windows each, every insertion fails late (max duration)."""
+    import time
+    n = 401
+    dur = [[abs(i - j) for j in range(n)] for i in range(n)]
+    wins = [[k * 100, k * 100 + 50] for k in range(10)]
+    p = {'matrix': {'durationsS': dur}, 'horizonS': 10**6, 'vehicles': [{'id': 'v', 'startIndex': 0, 'maxDurationS': 1}],
+         'stops': [{'id': f's{i}', 'locationIndex': i, 'demand': 1, 'timeWindows': wins} for i in range(1, n)]}
+    route = {'vehicleId': 'v', 'stops': [{'stopId': f's{i}'} for i in range(1, n - 1)]}
+    cls, st = _classifier(p, [route], hit_limit=False)
+    cls.deadline = time.perf_counter() + 0.05
+    t = time.perf_counter()
+    code, detail = cls.classify(st[f's{n - 1}'])
+    assert time.perf_counter() - t < 0.5
+    assert code == 'NOT_SCHEDULED' and 'unknown' in detail['binding']             # review L1: not FLEET_TOO_SMALL
+
+
+def test_null_ratio_and_extra_mean_defaults():
+    res = run(trip_problem(FIVE, IN(), 1, DEFAULT, {'ratio': None, 'extraS': None, 'costPerS': 1}))
+    assert res['unassigned'] == []
+
+
+@pytest.mark.parametrize('patch, msg', [
+    ({'options': {'weights': {'time': 1, 'rideTime': 1e5}}}, 'rideTime must be <='),
+    ({'trip': IN(detourGuard={'costPerS': 1e5})}, 'costPerS must be <='),
+    ({'trip': IN(detourGuard={'ratio': 11, 'costPerS': 1})}, 'ratio must be >= 1 and <= 10'),
+    ({'trip': IN(detourGuard={'extraS': 10**6, 'costPerS': 1})}, 'extraS must be <= horizonS'),
+    ({'stops': [{'id': 's', 'locationIndex': 1, 'timeWindows': [[k, k] for k in range(11)]}]}, 'at most 10 timeWindows'),
+    ({'stops': [{'id': 's', 'locationIndex': 1, 'priority': 10**15}]}, 'too large'),
+    ({'vehicles': [{'id': 'v', 'fixedCost': 1e30}]}, 'too large'),
+    ({'options': {'weights': {'time': 1e30}}}, 'too large'),
+])
+def test_bounds_and_overflow_are_invalid_input(patch, msg):
+    base = {'matrix': grid([(0, 0), (1, 0)]), 'vehicles': [{'id': 'v'}], 'stops': [{'id': 's', 'locationIndex': 1}],
+            'options': {'timeLimitS': 1}}
+    res = solve({**base, **patch})
+    assert res['status'] == 'INVALID_INPUT' and msg in res['error'], res

@@ -16,8 +16,10 @@ Two problem shapes (README "Input / output contract"):
   the time elapsed since the vehicle left (IN: until it reaches) the site.
   E4 strategies (WP-S, doc 18 §7): `options.weights.rideTime` puts the passengers' ride time in the objective and
   `trip.detourGuard` adds a SOFT cost per second of ride beyond max(direct x ratio, direct + extraS). Both are soft
-  upper bounds on that ride cumul; OR-Tools allows one soft upper bound per cumul variable, so when both are set the
-  guard lives on a copy of the Ride dimension ('Detour', slack tied the same way). Max ride stays hard.
+  upper bounds on ZERO-SLACK copies of the time transit ('RideCost', 'Detour'): their cumul is the in-vehicle time
+  since (IN: until) the site without waiting. They must not be slack-tied like 'Ride': OR-Tools' cumul optimizer
+  (used for soft-bound costs) ignores the solver.Add tie, contradicts it as soon as a stop window forces a wait, and
+  then loses every solution (review H1). Max ride stays hard on the tied 'Ride' dimension, which has no soft bound.
 
 The solver never claims optimality unless OR-Tools proves it (`provenOptimal`): a normal result is `FEASIBLE`
 (best solution found within the time limit). Every stop is either routed or listed in `unassigned` with a reason.
@@ -60,6 +62,12 @@ REASON_CODES = {
 # Post-solve codes for 'not_scheduled_capacity_or_time' (the README table explains when each is used).
 DROP_CODES = ('CAPACITY_EXHAUSTED', 'FLEET_TOO_SMALL', 'TIME_LIMIT', 'NOT_SCHEDULED')
 CLASSIFY_BUDGET_S = 0.25     # wall-time cap of the insertion re-check over all dropped stops (then binding "unknown")
+MAX_STRATEGY_COST = 1e4      # upper bound of weights.rideTime and trip.detourGuard.costPerS
+MAX_GUARD_RATIO = 10
+MAX_STOP_WINDOWS = 10        # time windows per stop
+COST_SCALE_FRACTIONAL = 100  # see _cost_scale
+RETRY_SEARCH_MS = 1000       # search budget of the strategy safety-net re-solve
+MAX_TOTAL_COST = 2**62       # every objective term (incl. all drop penalties) must stay below this (int64 objective)
 _PRECHECK_ORDER = ('unreachable_location', 'time_window_unreachable', 'max_ride_unachievable',
                    'exceeds_max_route_duration')
 FIRST_SOLUTION = {
@@ -162,25 +170,29 @@ def _trip(t: Any, n: int, horizon: int) -> dict | None:
         raise InvalidProblem('trip.siteWindow must satisfy 0 <= startS <= endS <= horizonS')
     return {'direction': direction, 'site': site, 'window': (w0, w1),
             'maxRide': _num(t.get('maxRideS'), 'trip.maxRideS', integer=True, positive=True),
-            'guard': _detour_guard(t.get('detourGuard'))}
+            'guard': _detour_guard(t.get('detourGuard'), horizon)}
 
 
-def _detour_guard(g: Any) -> dict | None:
-    """trip.detourGuard {ratio >= 1 (default 1), extraS >= 0 (default 0), costPerS > 0 (required)}: a soft cost per
-    second of a passenger's ride beyond max(direct x ratio, direct + extraS). Never a hard limit."""
+def _detour_guard(g: Any, horizon: int) -> dict | None:
+    """trip.detourGuard {ratio 1..10 (default 1), extraS 0..horizonS (default 0), costPerS (0, 1e4] (required)}: a soft
+    cost per second of a passenger's ride beyond max(direct x ratio, direct + extraS). Never a hard limit. An
+    explicit null ratio / extraS means the default."""
     if g is None:
         return None
     if not isinstance(g, dict):
         raise InvalidProblem('trip.detourGuard must be an object')
-    ratio = _num(g.get('ratio', 1), 'trip.detourGuard.ratio')
-    if ratio < 1:
-        raise InvalidProblem('trip.detourGuard.ratio must be >= 1')
-    extra = _num(g.get('extraS', 0), 'trip.detourGuard.extraS', integer=True)
+    ratio = _num(g.get('ratio') if g.get('ratio') is not None else 1, 'trip.detourGuard.ratio')
+    if not 1 <= ratio <= MAX_GUARD_RATIO:
+        raise InvalidProblem(f'trip.detourGuard.ratio must be >= 1 and <= {MAX_GUARD_RATIO}')
+    extra = _num(g.get('extraS') if g.get('extraS') is not None else 0, 'trip.detourGuard.extraS', integer=True)
+    if extra > horizon:
+        raise InvalidProblem('trip.detourGuard.extraS must be <= horizonS')
     if g.get('costPerS') is None:
         raise InvalidProblem('trip.detourGuard.costPerS is required')
     cost = _num(g.get('costPerS'), 'trip.detourGuard.costPerS', positive=True)
-    # The solver's costs are integers: a fractional cost is rounded, but never to 0 (the guard would vanish).
-    return {'ratio': ratio, 'extraS': extra, 'costPerS': cost, 'cost': max(1, int(round(cost)))}
+    if cost > MAX_STRATEGY_COST:
+        raise InvalidProblem(f'trip.detourGuard.costPerS must be <= {MAX_STRATEGY_COST:g}')
+    return {'ratio': ratio, 'extraS': extra, 'costPerS': cost}
 
 
 def _weights(w: Any, has_dist: bool) -> dict | None:
@@ -194,16 +206,33 @@ def _weights(w: Any, has_dist: bool) -> dict | None:
         raise InvalidProblem('options.weights needs distance, time, routeDuration or rideTime > 0')
     if out['distance'] and not has_dist:
         raise InvalidProblem('options.weights.distance needs matrix.distancesM')
+    if out['rideTime'] > MAX_STRATEGY_COST:
+        raise InvalidProblem(f'options.weights.rideTime must be <= {MAX_STRATEGY_COST:g}')
     if 'rideTime' not in w:
         del out['rideTime']    # echo unchanged for callers that never send it (result `weights`)
     return out
 
 
-def _ride_coef(ride_w: float, demand: int) -> int:
-    """Objective cost per second of this stop's ride: rideTime x passengers, an integer, never 0 when both are > 0."""
+def _cost_scale(ctx: _Ctx) -> int:
+    """Integer multiplier applied to EVERY objective term (arcs, fixed, span, ride, guard, drop penalty). OR-Tools costs
+    are integers; a fractional rideTime / costPerS (e.g. 0.3) would be distorted by rounding, so then all costs are
+    computed x COST_SCALE_FRACTIONAL and the reported objective is divided back. 1 otherwise: unchanged model."""
+    vals = [(ctx.weights.get('rideTime') or 0) if ctx.weights else 0]
+    if ctx.trip and ctx.trip['guard']:
+        vals.append(ctx.trip['guard']['costPerS'])
+    return COST_SCALE_FRACTIONAL if any(v != int(v) for v in vals) else 1
+
+
+def _iround(x: float) -> int:
+    """Round half up (Python's round() is half-to-even: 2.5 -> 2)."""
+    return int(math.floor(x + 0.5))
+
+
+def _ride_coef(ride_w: float, demand: int, scale: int) -> int:
+    """Scaled objective cost per second of this stop's ride: rideTime x passengers x scale, never 0 when > 0."""
     if not ride_w or demand <= 0:
         return 0
-    return max(1, int(round(ride_w * demand)))
+    return max(1, _iround(ride_w * demand * scale))
 
 
 def _direct_ride(ctx: _Ctx, s: dict) -> int | None:
@@ -308,6 +337,8 @@ def validate(problem: dict) -> _Ctx:
         if not 0 <= li < n:
             raise InvalidProblem(f'stop {sid}: locationIndex out of range')
         windows = st.get('timeWindows') or [None]
+        if not isinstance(windows, list) or len(windows) > MAX_STOP_WINDOWS:
+            raise InvalidProblem(f'stop {sid}: at most {MAX_STOP_WINDOWS} timeWindows')
         tws = sorted(_window(w, horizon, f'stop {sid} timeWindow') for w in windows)
         pax = st.get('passengerIds')
         if pax is not None and not isinstance(pax, list):
@@ -527,10 +558,43 @@ def solve(problem: dict) -> dict:
     t0 = time.perf_counter()
     try:
         ctx = validate(problem)
-    except InvalidProblem as e:
-        return {'schemaVersion': SCHEMA_VERSION, 'status': 'INVALID_INPUT', 'provenOptimal': False, 'error': str(e),
+        res = _solve(ctx, t0)
+        if _needs_retry(ctx, res):
+            res = _better(res, _solve(ctx, t0, retry=True))
+        res['stats']['wallTimeMs'] = round((time.perf_counter() - t0) * 1000)
+        return res
+    except (InvalidProblem, OverflowError) as e:
+        # OverflowError: a number that passed validation still overflowed an int64 OR-Tools argument (review M2).
+        msg = str(e) if isinstance(e, InvalidProblem) else 'costs or penalties too large for the solver (int64)'
+        return {'schemaVersion': SCHEMA_VERSION, 'status': 'INVALID_INPUT', 'provenOptimal': False, 'error': msg,
                 'routes': [], 'unassigned': []}
+
+
+def _strategy_mode(ctx: _Ctx) -> bool:
+    return bool(ctx.trip and (ctx.trip['guard'] or (ctx.weights and ctx.weights.get('rideTime'))))
+
+
+def _needs_retry(ctx: _Ctx, res: dict) -> bool:
+    """Safety net for the strategy costs: a stop dropped although a compatible vehicle stayed unused or a feasible
+    insertion exists means the search (usually the first solution) failed, not the problem."""
+    return (_strategy_mode(ctx) and res.get('status') in ('FEASIBLE', 'OPTIMAL')
+            and any(u.get('code') in ('TIME_LIMIT', 'NOT_SCHEDULED') for u in res['unassigned']))
+
+
+def _better(a: dict, b: dict) -> dict:
+    """More passengers served first, then the lower objective. The kept result records the retry."""
+    served = lambda r: sum(len(x['stops']) for x in r.get('routes', []))  # noqa: E731
+    use_b = b.get('status') in ('FEASIBLE', 'OPTIMAL') and \
+        (served(b), -b.get('objective', 0)) > (served(a), -a.get('objective', 0))
+    keep = b if use_b else a
+    keep['stats']['retry'] = {'firstSolution': b['stats'].get('firstSolution'), 'used': use_b}
+    return keep
+
+
+def _solve(ctx: _Ctx, t0: float, retry: bool = False) -> dict:
+    """One model build + search. `retry`: the safety-net search (other first solution, greedy, own short budget)."""
     opts = ctx.opts
+    scale = _cost_scale(ctx)
     time_limit = max(1, min(int(opts.get('timeLimitS', 10)), LIMITS['timeLimitS']))
     trip = ctx.trip
     rev = trip is not None and trip['direction'] == 'IN'
@@ -641,13 +705,13 @@ def solve(problem: dict) -> dict:
                     d = legs[i][j]
                     if key[0] == 'p3':
                         c = dlegs[i][j] if key[1] == 'distance' else d
-                        c = BIG_COST if c is None or d is None else c
+                        c = BIG_COST if c is None or d is None else c * scale
                     else:
                         dm = dlegs[i][j] if dlegs is not None else 0
                         if d is None or (key[1] and dm is None):
                             c = BIG_COST
                         else:
-                            c = int(round(key[1] * (dm or 0) + key[2] * d))
+                            c = int(round(scale * (key[1] * (dm or 0) + key[2] * d)))
                     if c < BIG_COST:
                         max_arc = max(max_arc, c)
                     row.append(c)
@@ -679,50 +743,60 @@ def solve(problem: dict) -> dict:
     ride_w = (w.get('rideTime') or 0) if (w and trip) else 0
     guard = trip['guard'] if trip else None
     for s in active:
-        s['_rideCoef'] = _ride_coef(ride_w, s['demand'])
+        s['_rideCoef'] = _ride_coef(ride_w, s['demand'], scale)
         s['_direct'] = _direct_ride(ctx, s) if trip else None
         s['_guardBound'] = (max(int(round(s['_direct'] * guard['ratio'])), s['_direct'] + guard['extraS'])
                             if guard and s['_direct'] is not None else None)
 
-    # Ride time: same transits as Time, slack tied to the time slack, cumul 0 at the site, so a stop's cumul is the
-    # passenger's ride exactly as `rideS` reports it (IN: pickup service start -> site arrival; OUT: site departure ->
-    # drop service start), waits included. Built for a max ride (hard SetMax), a ride-time cost or a detour guard.
-    def ride_like(name: str):
-        routing.AddDimension(time_idx, dim_cap, dim_cap, True, name)
-        d = routing.GetDimensionOrDie(name)
+    # Max ride (HARD): same transits as Time, slack tied to the time slack, cumul 0 at the site, so a stop's cumul is
+    # the passenger's ride exactly as `rideS` reports it (IN: pickup service start -> site arrival; OUT: site departure
+    # -> drop service start), waits included. No soft bound may be put on this dimension (see the module docstring).
+    if trip and any(s['maxRide'] is not None for s in active):
+        routing.AddDimension(time_idx, dim_cap, dim_cap, True, 'Ride')
+        ride = routing.GetDimensionOrDie('Ride')
         for idx in range(routing.Size()):
-            solver.Add(d.SlackVar(idx) == tdim.SlackVar(idx))
-        return d
-
-    if trip and (ride_w or guard or any(s['maxRide'] is not None for s in active)):
-        ride = ride_like('Ride')
-        # One soft upper bound per cumul var: with both a ride-time cost and a guard, the guard gets its own copy.
-        gdim = (ride_like('Detour') if ride_w else ride) if guard else None
+            solver.Add(ride.SlackVar(idx) == tdim.SlackVar(idx))
         for k, s in enumerate(active):
-            idx = manager.NodeToIndex(nd + k)
             if s['maxRide'] is not None:
-                ride.CumulVar(idx).SetMax(s['maxRide'])
-            if s['_rideCoef']:
-                # Bound 0: cost = rideTime x demand x ride seconds (comfort as a cost, not only a cap).
-                ride.SetCumulVarSoftUpperBound(idx, 0, s['_rideCoef'])
-            if gdim is not None and s['_guardBound'] is not None:
-                # Soft: every second beyond the guard costs costPerS; the stop is never made infeasible by it.
-                gdim.SetCumulVarSoftUpperBound(idx, s['_guardBound'], guard['cost'])
+                ride.CumulVar(manager.NodeToIndex(nd + k)).SetMax(s['maxRide'])
+
+    # Strategy costs (SOFT) on zero-slack dimensions: cumul = travel + boarding since (IN: until) the site, i.e. the
+    # ride without waiting (equal to rideS whenever no window forces a wait). One soft bound per cumul var, so the
+    # ride-time cost and the guard each get their own dimension. Neither can make a stop infeasible.
+    def path_dim(name: str):
+        routing.AddDimension(time_idx, 0, dim_cap, True, name)
+        return routing.GetDimensionOrDie(name)
+
+    cost_dim = path_dim('RideCost') if any(s['_rideCoef'] for s in active) else None
+    guard_dim = path_dim('Detour') if guard and active else None
+    guard_cost = max(1, _iround(guard['costPerS'] * scale)) if guard else 0
+    for k, s in enumerate(active):
+        idx = manager.NodeToIndex(nd + k)
+        if cost_dim is not None and s['_rideCoef']:
+            # Bound 0: cost = rideTime x demand x ride seconds (comfort as a cost, not only a cap).
+            cost_dim.SetCumulVarSoftUpperBound(idx, 0, s['_rideCoef'])
+        if guard_dim is not None and s['_guardBound'] is not None:
+            # Every second beyond the guard costs costPerS.
+            guard_dim.SetCumulVarSoftUpperBound(idx, s['_guardBound'], guard_cost)
 
     # Fixed vehicle cost and route-duration weight.
     fixed = [v['fixedCost'] if v['fixedCost'] is not None else (w['vehicle'] if w else 0) for v in mv]
-    span_w = int(round(w['routeDuration'])) if w else 0
+    span_w = int(round(w['routeDuration'] * scale)) if w else 0
     for vi in range(len(mv)):
         if fixed[vi]:
-            routing.SetFixedCostOfVehicle(int(round(fixed[vi])), vi)
+            routing.SetFixedCostOfVehicle(int(round(fixed[vi] * scale)), vi)
         if span_w:
             tdim.SetSpanCostCoefficientForVehicle(span_w, vi)
 
     # Dropping a passenger must always cost more than any route could save. A ride cumul is at most dim_cap, so the
     # ride-time and guard costs of the whole plan are bounded by (sum of coefficients) x dim_cap.
-    soft_w = sum(s['_rideCoef'] for s in active) + (guard['cost'] * len(active) if guard else 0)
-    penalty_base = max(DROP_PENALTY, 2 * (int(round(max(fixed, default=0))) + (nn + 1) * max_arc + span_w * dim_cap
-                                          + soft_w * dim_cap) + 1)
+    soft_w = sum(s['_rideCoef'] for s in active) + guard_cost * len(active)
+    penalty_base = max(DROP_PENALTY * scale, 2 * (int(round(max(fixed, default=0) * scale)) + (nn + 1) * max_arc
+                                                  + span_w * dim_cap + soft_w * dim_cap) + 1)
+    # The objective is int64: refuse inputs whose worst case (every stop dropped, pinned, at top priority) overflows.
+    worst = penalty_base * max((s['priority'] for s in active), default=1) * PINNED_PENALTY_FACTOR * max(1, len(active))
+    if worst > MAX_TOTAL_COST:
+        raise InvalidProblem('costs or penalties too large for the solver: lower weights, fixedCost or priority')
 
     # Customer mixing (P2: one customer per trip in R1) via hard visit-type incompatibilities.
     customers = sorted({s['customer'] for s in active if s['customer'] is not None})
@@ -767,11 +841,17 @@ def solve(problem: dict) -> dict:
     # solution limit (not the clock) gives the same result; `stats.deterministic` says whether that held.
     deterministic = bool(opts.get('deterministic', False))
     params = pywrapcp.DefaultRoutingSearchParameters()
-    params.first_solution_strategy = FIRST_SOLUTION[opts.get('firstSolution') or 'path_cheapest_arc']
+    first = opts.get('firstSolution') or 'path_cheapest_arc'
     ls = opts.get('localSearch') or ('greedy' if deterministic else 'guided')
+    remaining_ms = max(100, int(time_limit * 1000 - (time.perf_counter() - t0) * 1000))
+    if retry:
+        # Safety net (see _needs_retry): another first-solution strategy, greedy descent, its own short budget. This
+        # rare path may overrun timeLimitS by up to RETRY_SEARCH_MS.
+        first = 'parallel_cheapest_insertion' if first != 'parallel_cheapest_insertion' else 'path_cheapest_arc'
+        ls, remaining_ms = 'greedy', RETRY_SEARCH_MS
+    params.first_solution_strategy = FIRST_SOLUTION[first]
     if ls in LOCAL_SEARCH:
         params.local_search_metaheuristic = LOCAL_SEARCH[ls]
-    remaining_ms = max(100, int(time_limit * 1000 - (time.perf_counter() - t0) * 1000))
     params.time_limit.FromMilliseconds(remaining_ms)
     if opts.get('solutionLimit'):
         params.solution_limit = int(opts['solutionLimit'])
@@ -788,10 +868,12 @@ def solve(problem: dict) -> dict:
     if opts.get('seed') is not None:
         solver.ReSeed(int(opts['seed']))
 
+    t_search = time.perf_counter()
     solution = routing.SolveWithParameters(params)
     status_name = _status_name(routing.status())
     wall_ms = round((time.perf_counter() - t0) * 1000)
-    hit_limit = wall_ms >= time_limit * 1000 * 0.97
+    hit_limit = (wall_ms >= time_limit * 1000 * 0.97) if not retry else \
+        (time.perf_counter() - t_search) * 1000 >= remaining_ms * 0.97
     stopped_by = 'time_limit' if hit_limit else 'solution_limit' if opts.get('solutionLimit') else 'local_optimum'
 
     if solution is None:
@@ -843,9 +925,11 @@ def solve(problem: dict) -> dict:
                 # Direct ride (same measure as rideS) and the detour on top of it, for the API's detour display.
                 visit['directS'] = s['_direct']
                 visit['detourS'] = max(0, visit['rideS'] - s['_direct'])
-                ride_cost += s['_rideCoef'] * visit['rideS']
-                if s['_guardBound'] is not None:
-                    detour_cost += guard['cost'] * max(0, visit['rideS'] - s['_guardBound'])
+                # Objective terms, from the same cumuls the objective uses (ride without waiting), scaled back below.
+                if cost_dim is not None:
+                    ride_cost += s['_rideCoef'] * solution.Min(cost_dim.CumulVar(idx))
+                if guard_dim is not None and s['_guardBound'] is not None:
+                    detour_cost += guard_cost * max(0, solution.Min(guard_dim.CumulVar(idx)) - s['_guardBound'])
             visits.append(visit)
             served.add(s['id'])
             prev_loc, prev_dep = s['loc'], begin + s['service']
@@ -891,14 +975,16 @@ def solve(problem: dict) -> dict:
         'status': 'OPTIMAL' if proven else 'FEASIBLE',
         'provenOptimal': proven,
         'solverStatus': status_name,
-        'objective': solution.ObjectiveValue(),
-        'objectiveBreakdown': _breakdown(routes, penalty, ride_cost, detour_cost),
+        'objective': _iround(solution.ObjectiveValue() / scale),
+        'objectiveBreakdown': _breakdown(routes, _iround(penalty / scale), _iround(ride_cost / scale),
+                                         _iround(detour_cost / scale)),
         'weights': w,
         'routes': routes,
         'unassigned': unassigned,
         'unusableVehicles': unusable,
         'stats': stats({'stoppedBy': stopped_by, 'deterministic': deterministic and not hit_limit,
-                        'searchTimeLimitMs': remaining_ms}),
+                        'searchTimeLimitMs': remaining_ms, 'firstSolution': first,
+                        **({'costScale': scale} if scale != 1 else {})}),
         'note': 'Proven optimal by OR-Tools.' if proven else 'Best solution found within the time limit; not proven optimal.',
     }
 
@@ -923,7 +1009,7 @@ class _DropClassifier:
     The re-timing is exact for single-window stops (the usual trip case). With several windows per stop the
     feasibility of reaching every window is still exact, but the choice of departure / arrival time that minimises the
     rides is not, so a max-ride / duration failure on such a route also reports binding "unknown". The work is capped
-    at CLASSIFY_BUDGET_S over all dropped stops; whatever is not checked by then reports binding "unknown".
+    at CLASSIFY_BUDGET_S over all dropped stops; a stop not fully checked by then is NOT_SCHEDULED, binding "unknown".
     """
 
     def __init__(self, ctx: _Ctx, mv: list[dict], mf: list[dict], routes: list[dict], hit_limit: bool,
@@ -959,9 +1045,6 @@ class _DropClassifier:
         free_seats = None if unlimited else sum(f for _, _, f in room)
         binding: set[str] = set()
         for k, members, _ in room:
-            if time.perf_counter() > self.deadline:
-                binding.add('unknown')
-                break
             if s['exclusive']:
                 binding.add('exclusive')      # an individual journey needs an empty vehicle
                 continue
@@ -970,6 +1053,10 @@ class _DropClassifier:
                 binding.add('customer')
                 continue
             for pos in range(len(members) + 1):
+                if time.perf_counter() > self.deadline:
+                    # Budget spent before every insertion was checked: the cause is not known, so it is not called
+                    # FLEET_TOO_SMALL (review L1).
+                    return 'NOT_SCHEDULED', {'binding': sorted(binding | {'unknown'}), 'freeSeats': free_seats}
                 fails = self._check(self.mv[k], self.mf[k], members[:pos] + [s] + members[pos:])
                 if not fails:
                     return self.search_code, {'insertableInto': self.mv[k]['id']}
