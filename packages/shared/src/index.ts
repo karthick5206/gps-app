@@ -57,3 +57,4 @@ export * from './routing-strategies';
 export * from './transport-sos';
 export * from './transport-adhoc';
 export * from './routing-switch';
+export * from './transport-pooling';

@@ -206,11 +206,14 @@ export type RoutePlanEmptyReason = (typeof ROUTE_PLAN_EMPTY_REASONS)[number];
  *   other_shift — the booking carries another shift than the plan's;
  *   outside_shift_window — a shift-less booking whose window does not overlap the plan shift's leg window;
  *   point_to_point — POINT_TO_POINT bookings are dispatched manually (the optimiser plans one site per plan);
- *   needs_approval — REQUESTED / WAITLISTED: approve it first.
+ *   needs_approval — REQUESTED / WAITLISTED: approve it first;
+ *   on_hold — pooling: the dispatcher put the booking on hold (excluded from runs, not cancelled);
+ *   private_ride — pooling: a PRIVATE commute ride is not pooled by a site plan (seat it alone, or use an AREA plan);
+ *   outside_plan_window — pooling (AREA plan): the booking window does not overlap the plan's operating window.
  * A shift-less COMMUTE booking at the plan's site IS planned when the plan has no shift or the booking's window overlaps
  * the plan shift's leg window.
  */
-export const ROUTE_PLAN_SKIP_REASONS = ['consent_required', 'needs_location', 'out_of_scope', 'other_site', 'other_shift', 'outside_shift_window', 'point_to_point', 'needs_approval'] as const;
+export const ROUTE_PLAN_SKIP_REASONS = ['consent_required', 'needs_location', 'out_of_scope', 'other_site', 'other_shift', 'outside_shift_window', 'point_to_point', 'needs_approval', 'on_hold', 'private_ride', 'outside_plan_window'] as const;
 export type RoutePlanSkipReason = (typeof ROUTE_PLAN_SKIP_REASONS)[number];
 export interface RoutePlanSkippedBooking {
   bookingId: string;

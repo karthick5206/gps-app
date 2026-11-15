@@ -3153,6 +3153,8 @@ model TransportVehicleProfile {
   /// SEDAN | SUV | VAN | TEMPO_TRAVELLER | BUS … (open set).
   category         String?
   notes            String?
+  /// Pooling (doc 20 §3.3): seconds between two trips of this vehicle; null = not enforced at publish (planners use 120).
+  turnaroundS      Int?
   createdAt        DateTime @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime @updatedAt @db.Timestamptz(3)
 
@@ -3326,7 +3328,8 @@ model TransportBooking {
   /// WP 3.9: COMMUTE (default) or POINT_TO_POINT. Unique active per passenger/date/direction applies to COMMUTE only (partial index in SQL).
   journey           TransportBookingJourney @default(COMMUTE)
   serviceDate       DateTime                @db.Date
-  direction         TransportDirection
+  /// IN / OUT for COMMUTE; null for POINT_TO_POINT (pooling, doc 20 §3.2; rows made before keep IN).
+  direction         TransportDirection?
   /// Snapshot of the shift / company zone.
   timeZone          String
   pickupLabel       String?
@@ -3356,6 +3359,20 @@ model TransportBooking {
   purpose           String?
   /// WP 3.9 wave 2 (D-A5): when the transport team approved a waiting (REQUESTED / WAITLISTED) booking; null otherwise.
   approvedAt        DateTime?               @db.Timestamptz(3)
+  /// Pooling (doc 20 §3.1, migration etms_pooling_core). SHARED | PRIVATE | FLEXIBLE; PRIVATE is never pooled.
+  ridePreference       RidePreference          @default(FLEXIBLE)
+  /// The sharing policy the passenger / desk accepted (FK SetNull) and its version (kept when the row goes).
+  sharingPolicyId      String?                 @db.Uuid
+  sharingPolicyVersion Int?
+  /// SharingLimits snapshot taken at acceptance; immutable while the booking is active (trigger TransportBooking_limits_immutable).
+  limits               Json?
+  /// Dispatcher hold: excluded from plans and live dispatch without being cancelled.
+  holdFromPlanning     Boolean                 @default(false)
+  holdReason           String?
+  holdById             String?                 @db.Uuid
+  holdAt               DateTime?               @db.Timestamptz(3)
+  /// How the booking was served once seated (pricing, doc 19).
+  assignedService      RideService?
   createdById       String?                 @db.Uuid
   createdAt         DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime                @updatedAt @db.Timestamptz(3)
@@ -3373,6 +3390,9 @@ model TransportBooking {
   routePlanStops RoutePlanStop[]
   /// WP 3.9 (SetNull): BOOKING_CREATED inbox rows of this booking.
   notifications  TransportNotification[]
+  /// Pooling: accepted sharing policy (SetNull) and live dispatch decisions (SetNull).
+  sharingPolicy    TransportSharingPolicy?    @relation(fields: [sharingPolicyId], references: [id], onDelete: SetNull)
+  dispatchRequests TransportDispatchRequest[]
 
   @@unique([customerCompanyId, idempotencyKey])
   @@unique([scheduleId, serviceDate, direction])
@@ -3416,7 +3436,12 @@ model TransportTrip {
   /// ETMS E4 (etms_planning_links): the plan / assignment this trip was published from (FK SetNull: a plan purge leaves
   /// the executed header; unique assignment = idempotent re-publish).
   routePlanId          String?            @db.Uuid
-  routeAssignmentId    String?            @unique @db.Uuid
+  routeAssignmentId    String?            @db.Uuid
+  /// Pooling (AREA plans): which trip of the assignment's vehicle route this is; unique with routeAssignmentId.
+  routeTripIndex       Int                @default(0)
+  /// Pooling P5: bumped by every live change of the started trip; the driver acknowledges it (ROUTE_ACK).
+  liveRouteVersion     Int                @default(0)
+  liveRouteAckVersion  Int                @default(0)
   createdById          String?            @db.Uuid
   createdAt            DateTime           @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime           @updatedAt @db.Timestamptz(3)
@@ -3437,6 +3462,7 @@ model TransportTrip {
   incidents       TransportIncident[]
 
   @@unique([id, providerCompanyId])
+  @@unique([routeAssignmentId, routeTripIndex])
   @@index([providerCompanyId, serviceDate])
   @@index([customerCompanyId, serviceDate])
   @@index([agreementId])
@@ -3788,6 +3814,10 @@ model RoutePlan {
   direction    TransportDirection?
   shiftId      String?             @db.Uuid
   sitePoiId    String?             @db.Uuid
+  /// Pooling (doc 20 §3.5): SITE (site / shift plan) or AREA (point-to-point pooling over [windowStart, windowEnd)).
+  scope        RoutePlanScope      @default(SITE)
+  windowStart  DateTime?           @db.Timestamptz(3)
+  windowEnd    DateTime?           @db.Timestamptz(3)
   /// Actor column without FK (doc 15 §1.1).
   createdById  String?             @db.Uuid
   createdAt    DateTime            @default(now()) @db.Timestamptz(3)
@@ -3839,8 +3869,8 @@ model RouteAssignment {
   object        TrackedObject?  @relation(fields: [objectId], references: [id], onDelete: SetNull)
   driver        Driver?         @relation(fields: [driverId], references: [id], onDelete: SetNull)
   stops         RoutePlanStop[]
-  /// ETMS: the TransportTrip this assignment was published into (unique on the trip side).
-  transportTrip TransportTrip?
+  /// ETMS: the TransportTrips this assignment was published into (pooling: one per tripIndex; unique on the trip side).
+  transportTrips TransportTrip[]
 
   @@index([planId])
   @@index([objectId])
@@ -3866,6 +3896,8 @@ model RoutePlanStop {
   sequence          Int?
   etaS              Int?
   unassignedReason  String?
+  /// Pooling (AREA plans): trip of the vehicle route (load back to 0 between trips); 0 for SITE plans.
+  tripIndex         Int      @default(0)
   /// ETMS (etms_planning_links). PICKUP | DROP: which end of the booking this stop is; null for generic stops.
   stopKind          String?
   /// Data owner of a passenger stop (FK Company Cascade: a customer purge removes its passengers from operator plans).
@@ -4118,4 +4150,97 @@ model TransportStatementAdjustment {
   vendor TransportVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   @@index([companyId, vendorId, month])
+}
+
+// ───────────────────────────── ETMS pooling and live dispatch (migration etms_pooling_core, doc 20) ─────────────────────────────
+// Raw SQL in the migration: CHECKs (policy version >= 1, availability endsAt > startsAt and kind, dispatch request trigger /
+// status / attempts), the trigger TransportBooking_limits_immutable (ridePreference / limits / sharingPolicyVersion cannot
+// change once the limits are set while the booking is active), and the P3 backfill (COMMUTE → SHARED, POINT_TO_POINT → PRIVATE).
+// companyId / objectId / tripId are logical keys without FK (the purge planner walks them, purge-plan.ts LOGICAL_KEY).
+
+/// Pooling: how a passenger wants to ride (PRIVATE never pooled; FLEXIBLE either way).
+enum RidePreference {
+  SHARED
+  PRIVATE
+  FLEXIBLE
+}
+
+/// Pooling: how a booking was actually served.
+enum RideService {
+  SHARED
+  PRIVATE
+}
+
+/// Pooling: SITE (site / shift plan, one direction) or AREA (point-to-point pooling over an operating window).
+enum RoutePlanScope {
+  SITE
+  AREA
+}
+
+/// One version of a company's sharing policy (append-only; passengers accept a version). limits = { SHARED, FLEXIBLE }
+/// SharingLimits, priority = { PRIVATE, FLEXIBLE, SHARED } weights.
+model TransportSharingPolicy {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @db.Uuid
+  version       Int
+  effectiveFrom DateTime @db.Timestamptz(3)
+  text          String
+  allowFlexible Boolean  @default(true)
+  limits        Json
+  priority      Json     @default("{}")
+  createdById   String?  @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  bookings TransportBooking[]
+
+  @@unique([companyId, version])
+}
+
+/// Vehicle availability timeline (doc 20 §3.3): OPERATING windows (when a vehicle has any on a day, trips must lie inside
+/// one), DOWNTIME / RESERVED (no trip may overlap). objectId / companyId are logical keys (purge walks them).
+model TransportVehicleAvailability {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  objectId    String   @db.Uuid
+  /// OPERATING | DOWNTIME | RESERVED.
+  kind        String
+  startsAt    DateTime @db.Timestamptz(3)
+  endsAt      DateTime @db.Timestamptz(3)
+  reason      String?
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([objectId, startsAt])
+  @@index([companyId, startsAt])
+}
+
+/// Live dispatch decision log (doc 20 §3.7): one row per decision request. idempotencyKey unique per company (a trigger
+/// fact — booking created, driver report event — never makes two requests). trigger NEW_BOOKING | CANCEL | DELAY |
+/// BREAKDOWN | MANUAL; status QUEUED | DECIDED | PROPOSED | APPLIED | REJECTED | FAILED. options / reasons hold ids,
+/// kinds and costs only (no coordinates).
+model TransportDispatchRequest {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @db.Uuid
+  bookingId      String?   @db.Uuid
+  tripId         String?   @db.Uuid
+  trigger        String
+  status         String    @default("QUEUED")
+  idempotencyKey String
+  options        Json      @default("[]")
+  chosenOptionId String?
+  reasons        Json      @default("[]")
+  changeSetId    String?   @db.Uuid
+  attempts       Int       @default(0)
+  lastError      String?
+  createdById    String?   @db.Uuid
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  decidedAt      DateTime? @db.Timestamptz(3)
+  durationMs     Int?
+
+  booking TransportBooking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@index([bookingId])
 }
