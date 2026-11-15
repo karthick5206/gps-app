@@ -108,7 +108,27 @@ All three only fill the dispatcher's local draft. Nothing is saved until **Revie
   - Skips a vehicle already on another active trip.
   - Kill switch: `ETMS_AUTO_START=off`.
   - The GPS start of the planned-trip tracker works either way.
-- **Not yet built:** the road optimiser behind Routing, and grouping on Bookings.
+- **v1.16.7 transport batch:**
+  - **Compliance** (`packages/shared/src/transport-compliance.ts`, setting `etms.compliance` OFF / WARN / BLOCK, default WARN):
+    - Required documents: vehicle RC, INSURANCE, FITNESS, PERMIT, PUC; driver DRIVING_LICENCE, POLICE_VERIFICATION.
+    - The latest document of each type counts. None = MISSING; an expiry before the service date = EXPIRED.
+    - The board carries `vehicles[].compliance` and `complianceMode`. WARN flags vehicles and Allocate puts compliant ones first.
+    - BLOCK: Allocate skips them and `DispatchService.assertCompliant` refuses CREATE_TRIP / REASSIGN_* with 409 NOT_COMPLIANT.
+  - **Vehicle form:** Masters → Objects → Add / Edit has an optional "Employee transport" section (seats, wheelchair, category, AC; `VehicleTransportFields.tsx`), saved with `PUT /transport/vehicles/:id/profile` after the vehicle. The separate Passenger seats button is gone.
+  - **Transport dashboard:** `GET /transport/insights?from&to` (`etms/dispatch/transport-insights.ts`, pure `aggregateInsights` + spec).
+    - KPIs: trips, carried, on-time pickups (pickup stops reached within 10 min of plan), seat use, GPS km, no-shows, missed bookings, incidents.
+    - Breakdowns per day, per vehicle (the billing basis) and per shift, each downloadable as CSV.
+  - **Needs attention** (`exceptions.ts` + `NeedsAttention.tsx`) on Daily transport (today): open SOS, not started 10+ min, late 10+ min, no driver, vehicle documents, boarding not recorded, waiting within 60 min, to approve, no pickup point, reached home not confirmed.
+  - **Night safety** (`transport-safety.ts`, settings `nightSafety` / `nightFrom` / `nightTo` / `reachedHomeMin`):
+    - Escort check (`night-safety.ts`) names the first pickup (IN) or last drop (OUT) alone inside the window, on draft trip cards and in the review.
+    - `GET /transport/safety-watch` lists night drops without a passenger DROP confirmation after N minutes.
+  - **Boarding OTP** (setting `etms.boardingOtp`; `etms/dispatch/boarding-code.ts`):
+    - The 4-digit code is an HMAC of the passengerTripId with ETMS_BOARDING_SECRET / JWT_SECRET; nothing is stored.
+    - `MeTripDto.boardingCode` is shown while the seat is PENDING. `DriverTripDetailDto.boardingCodeRequired` is set.
+    - A driver BOARDED without the right `boardingCode` is REJECTED BOARDING_CODE_INVALID.
+    - Mobile: the driver gets a code prompt (the queued `pin` is sent as `boardingCode`), and the passenger TripCard shows the code. Needs the next VeeTrax APK.
+- **Mobile vehicle screen:** the address is under the status pill in the top card (`HeaderAddress`), no longer a Status row.
+- **Not yet built:** the road optimiser behind Routing, grouping on Bookings, masked calling, vendors / rate cards / billing.
 
 ### 2.3 Mobile apps
 

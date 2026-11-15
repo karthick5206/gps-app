@@ -7,7 +7,7 @@ import { useAppActive } from '@/lib/motion';
 import { useNow } from '../passenger-api';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AccessibilityInfo, ActivityIndicator, Alert, Linking, Platform, ScrollView, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { currentLocale } from '@/lib/i18n';
 import { SPACE, useColors } from '@/lib/theme';
@@ -53,8 +53,11 @@ function CallButton({ phone, title }: { phone: string | null | undefined; title:
   );
 }
 
-function PassengerRow({ p, stop, tripId, moving, queue, now }: { p: DriverPassengerDto; stop: DriverStopDto; tripId: string; moving: boolean; queue: QueueFn; now: number }) {
+function PassengerRow({ p, stop, tripId, moving, queue, now, codeRequired = false }: { p: DriverPassengerDto; stop: DriverStopDto; tripId: string; moving: boolean; queue: QueueFn; now: number; codeRequired?: boolean }) {
   const { t } = useTranslation();
+  // v1.16.7 boarding OTP: ask the passenger's 4-digit code before Boarded.
+  const [askCode, setAskCode] = useState(false);
+  const [code, setCode] = useState('');
   const c = useColors();
   const q = useDriverQueue();
   const local = q.events.filter((e) => e.tripId === tripId);
@@ -77,6 +80,41 @@ function PassengerRow({ p, stop, tripId, moving, queue, now }: { p: DriverPassen
     );
   return (
     <View style={{ gap: SPACE.xs, paddingVertical: SPACE.sm }}>
+      <Modal visible={askCode} transparent animationType="fade" onRequestClose={() => setAskCode(false)}>
+        <View style={{ flex: 1, justifyContent: 'center', padding: SPACE.lg, backgroundColor: 'rgba(0,0,0,0.45)' }}>
+          <Card style={{ gap: SPACE.md }}>
+            <Text weight="600">{t('Boarding code')}</Text>
+            <Text size="sm" tone="muted">
+              {t('Ask the passenger for the 4-digit code shown in their app.')}
+            </Text>
+            <TextInput
+              value={code}
+              onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 4))}
+              keyboardType="number-pad"
+              maxLength={4}
+              autoFocus
+              accessibilityLabel={t('Boarding code')}
+              style={{ borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingVertical: SPACE.sm, fontSize: 28, letterSpacing: 12, textAlign: 'center', color: c.foreground }}
+            />
+            <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+              <Pressable onPress={() => setAskCode(false)} style={{ flex: 1, padding: SPACE.md, alignItems: 'center' }} accessibilityRole="button">
+                <Text tone="muted">{t('Cancel')}</Text>
+              </Pressable>
+              <BigAction
+                style={{ flex: 1 }}
+                title={t('Boarded')}
+                icon={UserCheckIcon}
+                tone="success"
+                disabled={code.length !== 4}
+                onPress={() => {
+                  setAskCode(false);
+                  void queue({ tripId, type: 'BOARDED', passengerTripId: p.passengerTripId, pin: code });
+                }}
+              />
+            </View>
+          </Card>
+        </View>
+      </Modal>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }} accessible accessibilityLabel={[`${p.number}. ${p.displayName}`, p.accessibility ? t('Needs assistance') : null, t(meta.label)].filter(Boolean).join(', ')}>
         <Text weight="700" style={{ flex: 1 }}>
           {p.number}. {p.displayName}
@@ -105,7 +143,7 @@ function PassengerRow({ p, stop, tripId, moving, queue, now }: { p: DriverPassen
       )}
       {!moving && buttons.length > 0 && unlocked && (
         <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-          {buttons.includes('BOARDED') && <BigAction style={{ flex: 1 }} title={t('Boarded')} icon={UserCheckIcon} tone="success" onPress={() => void queue({ tripId, type: 'BOARDED', passengerTripId: p.passengerTripId })} />}
+          {buttons.includes('BOARDED') && <BigAction style={{ flex: 1 }} title={t('Boarded')} icon={UserCheckIcon} tone="success" onPress={() => (codeRequired ? (setCode(''), setAskCode(true)) : void queue({ tripId, type: 'BOARDED', passengerTripId: p.passengerTripId }))} />}
           {buttons.includes('NO_SHOW') && (
             <BigAction
               style={{ flex: 1 }}
@@ -192,7 +230,7 @@ function StopCard({ stop, trip, current, moving, queue, tz, now }: { stop: Drive
       {current && !moving && passengers.length > 0 && (
         <View>
           {passengers.map((p) => (
-            <PassengerRow key={p.passengerTripId} p={p} stop={stop} tripId={trip.id} moving={moving} queue={queue} now={now} />
+            <PassengerRow key={p.passengerTripId} p={p} stop={stop} tripId={trip.id} moving={moving} queue={queue} now={now} codeRequired={!!trip.boardingCodeRequired} />
           ))}
         </View>
       )}

@@ -53,6 +53,8 @@ export class DriverTripEventDto implements Omit<DriverTripEventInput, 'type'> {
   @IsOptional() @IsString() @MaxLength(L.reasonCodeMax) reasonCode?: string;
   @IsOptional() @IsInt() @Min(0) @Max(L.etaMaxMin) etaMin?: number;
   @IsOptional() @IsString() @MaxLength(L.noteMax) note?: string;
+  /** v1.16.7 boarding OTP (4 digits). */
+  @IsOptional() @IsString() @MaxLength(8) boardingCode?: string;
 }
 
 export class DriverTripEventBatchDto implements DriverTripEventBatchInput {

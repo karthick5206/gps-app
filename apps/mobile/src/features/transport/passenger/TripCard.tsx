@@ -45,6 +45,11 @@ export function TripCard({ trip, highlight, testID }: { trip: MeTripDto; highlig
         {vehicle}
         {trip.driverFirstName ? ` · ${t('Driver {{name}}', { name: trip.driverFirstName })}` : ''}
       </Text>
+      {trip.boardingCode ? (
+        <Text size="lg" weight="700" accessibilityLabel={t('Boarding code {{code}}', { code: trip.boardingCode.split('').join(' ') })}>
+          {t('Boarding code')}: <Text size="lg" weight="700" style={{ letterSpacing: 4 }}>{trip.boardingCode}</Text>
+        </Text>
+      ) : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, marginTop: 2 }}>
         <StatusChip label={t(state.label)} tone={state.tone} />
         <StatusChip label={t(mine.label)} tone={mine.tone} />

@@ -963,6 +963,8 @@ export interface MeTripDto {
   /** TransportTrip id. */
   id: string;
   passengerTripId: string;
+  /** v1.16.7: 4-digit code to tell the driver at boarding (only while the company requires it and the seat is PENDING). */
+  boardingCode?: string | null;
   serviceDate: string;
   direction: TransportDirection;
   /** WP 3.9: POINT_TO_POINT when any active seat's booking on the trip is point-to-point (stored as IN), else COMMUTE. */

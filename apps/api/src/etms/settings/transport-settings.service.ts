@@ -28,6 +28,8 @@ export class UpdateTransportSettingsDto {
   @IsOptional() @IsIn(TRANSPORT_COMPLIANCE_MODES) compliance?: TransportComplianceMode;
   /** v1.16.7 night safety: on / off, window (HH:MM, company zone) and reached-home minutes. */
   @IsOptional() @IsBoolean() nightSafety?: boolean;
+  /** v1.16.7: boarding OTP on BOARDED (driver app). */
+  @IsOptional() @IsBoolean() boardingOtp?: boolean;
   @IsOptional() @Matches(HHMM_RE, { message: 'nightFrom must be HH:MM' }) nightFrom?: string;
   @IsOptional() @Matches(HHMM_RE, { message: 'nightTo must be HH:MM' }) nightTo?: string;
   @IsOptional() @IsInt() @Min(REACHED_HOME_BOUNDS_MIN.min) @Max(REACHED_HOME_BOUNDS_MIN.max) reachedHomeMin?: number;
@@ -61,7 +63,7 @@ export class TransportSettingsService {
     // Keep `etms` keys this form does not manage (e.g. a hand-set `bookingCutoffMin`); only the DTO keys are rewritten.
     const rawEtms = (company.settings as Record<string, unknown> | null)?.[ETMS_SETTINGS_KEY];
     const unmanaged: Record<string, unknown> = rawEtms && typeof rawEtms === 'object' && !Array.isArray(rawEtms) ? { ...(rawEtms as Record<string, unknown>) } : {};
-    for (const k of ['directoryListed', 'deskPhone', 'selfBooking', 'selfBookingApproval', 'maxRideS', 'autoRouting', 'autoStart', 'compliance', 'nightSafety', 'nightFrom', 'nightTo', 'reachedHomeMin']) delete unmanaged[k];
+    for (const k of ['directoryListed', 'deskPhone', 'selfBooking', 'selfBookingApproval', 'maxRideS', 'autoRouting', 'autoStart', 'compliance', 'nightSafety', 'nightFrom', 'nightTo', 'reachedHomeMin', 'boardingOtp']) delete unmanaged[k];
     const after: TransportSettingsDto = { ...before, ...(dto.directoryListed !== undefined ? { directoryListed: dto.directoryListed } : {}) };
     if (dto.deskPhone !== undefined) {
       if (dto.deskPhone === null || !dto.deskPhone.trim()) delete after.deskPhone;
@@ -91,6 +93,10 @@ export class TransportSettingsService {
     if (dto.nightSafety !== undefined) {
       if (dto.nightSafety) after.nightSafety = true;
       else delete after.nightSafety;
+    }
+    if (dto.boardingOtp !== undefined) {
+      if (dto.boardingOtp) after.boardingOtp = true;
+      else delete after.boardingOtp;
     }
     if (dto.nightFrom !== undefined) after.nightFrom = dto.nightFrom;
     if (dto.nightTo !== undefined) after.nightTo = dto.nightTo;

@@ -15,6 +15,7 @@ import { tripJourney } from './booking-rules';
 import { derivedStateOf } from './e3-mapping';
 import { MeRangeQuery } from './e3.dto';
 import { todayIn } from './service-dates';
+import { boardingCodeFor, boardingOtpOn } from './boarding-code';
 
 const MIN = 60_000;
 /**
@@ -81,13 +82,14 @@ export class MeTransportService {
     const mine = seats.filter((s) => s.booking.profileId === me.id);
     const names = await this.names(mine);
     const consent = (await activeRoutingConsents(this.prisma, [me.id])).has(me.id);
-    return mine.map((s) => this.toMeTrip(s, names, consent)).sort((a, b) => a.window.start.localeCompare(b.window.start));
+    const otp = await this.boardingOtp(ctx);
+    return mine.map((s) => this.toMeTrip(s, names, consent, otp)).sort((a, b) => a.window.start.localeCompare(b.window.start));
   }
 
   async trip(ctx: AuthContext, tripId: string): Promise<MeTripDto> {
     const seat = await this.seat(ctx, tripId);
     const consent = (await activeRoutingConsents(this.prisma, [seat.booking.profileId])).has(seat.booking.profileId);
-    return this.toMeTrip(seat, await this.names([seat]), consent);
+    return this.toMeTrip(seat, await this.names([seat]), consent, await this.boardingOtp(ctx));
   }
 
   /** The trip's vehicle, only inside the window (`{ visible: false }` outside); own trip only. */
@@ -179,7 +181,12 @@ export class MeTransportService {
    * `consent`: the caller's own routing consent (E2 final model). Their own pickup / drop point is shown only with it
    * (doc 02 §7, doc 10: a passenger may see their own location); the seat row is always the caller's own (seat()).
    */
-  private toMeTrip(s: SeatRow, n: Awaited<ReturnType<MeTransportService['names']>>, consent: boolean): MeTripDto {
+  /** v1.16.7: company setting etms.boardingOtp. */
+  private async boardingOtp(ctx: AuthContext): Promise<boolean> {
+    return boardingOtpOn((await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { settings: true } })).settings);
+  }
+
+  private toMeTrip(s: SeatRow, n: Awaited<ReturnType<MeTransportService['names']>>, consent: boolean, boardingOtp = false): MeTripDto {
     const own = (lat: number | null, lng: number | null) => (consent && lat !== null && lng !== null ? { lat, lng } : null);
     const hasPoint = s.booking.pickupLat !== null || s.booking.dropLat !== null;
     const pt = s.trip.plannedTrip;
@@ -192,6 +199,7 @@ export class MeTransportService {
     return {
       id: s.tripId,
       passengerTripId: s.id,
+      boardingCode: boardingOtp && s.status === 'PENDING' ? boardingCodeFor(s.id) : null,
       serviceDate: dayKeyOf(s.trip.serviceDate),
       direction: s.trip.direction,
       journey: tripJourney(s.trip.passengers),

@@ -21,9 +21,14 @@ import { i18n } from '@/lib/i18n';
 import { chargeText, useDayStats } from '@/features/live/day-stats';
 import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
 
-function AddressRow({ lat, lng }: { lat: number | null; lng: number | null }) {
+/** The vehicle's current address, under its status in the top card (moved up from the Status section). */
+function HeaderAddress({ lat, lng }: { lat: number | null; lng: number | null }) {
   const { address } = useAddress(lat, lng);
-  return address ? <InfoRow label={i18n.t('Address')} value={address} /> : null;
+  return address ? (
+    <Text size="sm" tone="muted" numberOfLines={2} accessibilityLabel={i18n.t('Address: {{address}}', { address })}>
+      {address}
+    </Text>
+  ) : null;
 }
 
 const yesNo = (v: boolean | null) => (v === null ? '—' : v ? i18n.t('On') : i18n.t('Off'));
@@ -89,6 +94,7 @@ export default function VehicleScreen() {
                 </Text>
               ) : null}
               <StatusPill o={o} now={now} />
+              <HeaderAddress lat={o.lat} lng={o.lng} />
             </View>
           </View>
         </Card>
@@ -171,7 +177,6 @@ export default function VehicleScreen() {
           <SpeedLimitRow o={o} />
           <InfoRow label={t('Last update')} value={`${relativeTime(o.serverTime ?? o.fixTime, now)}`} />
           <InfoRow label={t('GPS time')} value={formatDateTime(o.fixTime)} />
-          <AddressRow lat={o.lat} lng={o.lng} />
           <InfoRow label={t('Position')} value={hasPosition ? `${o.lat!.toFixed(5)}, ${o.lng!.toFixed(5)}` : '—'} />
         </Card>
 

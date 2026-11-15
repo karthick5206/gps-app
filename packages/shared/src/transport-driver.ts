@@ -106,6 +106,8 @@ export const DRIVER_ERROR_CODES = [
   'TOO_FREQUENT',
   /** Security review M2: too many event batches per minute (HTTP 429; the queue keeps the events and retries). */
   'RATE_LIMITED',
+  /** v1.16.7: BOARDED without the passenger's correct boarding code while the company requires it. */
+  'BOARDING_CODE_INVALID',
 ] as const;
 export type DriverErrorCode = (typeof DRIVER_ERROR_CODES)[number];
 
@@ -296,6 +298,8 @@ export interface DriverTripDetailDto extends DriverTripSummaryDto {
   /** Empty when `manifestHidden` is set. */
   passengers: DriverPassengerDto[];
   manifestHidden: DriverManifestHidden;
+  /** v1.16.7: ask the passenger's 4-digit boarding code before BOARDED. */
+  boardingCodeRequired?: boolean;
   /** Totals (always present). */
   counts: { passengers: number; boarded: number; noShow: number; dropped: number; pending: number };
   overlays: DriverTripOverlayDto[];
@@ -398,6 +402,8 @@ export interface DriverTripEventInput {
   reasonCode?: string;
   etaMin?: number;
   note?: string;
+  /** v1.16.7: the passenger's 4-digit code on BOARDED while the company requires it (boardingCodeRequired). */
+  boardingCode?: string;
 }
 
 /** POST /api/driver/v1/trips/:id/events — ≤ 50 events, FIFO. Evaluated in `seq` order (ties: occurredAt). */

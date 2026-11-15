@@ -57,6 +57,11 @@ function TripCard({ trip, now, expanded, onToggle }: { trip: MeTripDto; now: num
             {trip.vehicle ? `${trip.vehicle.name}${trip.vehicle.plate ? ` · ${trip.vehicle.plate}` : ''}` : t('Vehicle to be confirmed')}
             {trip.driverFirstName && ` · ${t('Driver {{name}}', { name: trip.driverFirstName })}`}
           </p>
+          {trip.boardingCode && (
+            <p className="mt-1 text-sm">
+              {t('Boarding code')}: <span className="font-mono text-lg font-bold tracking-[0.3em]">{trip.boardingCode}</span>
+            </p>
+          )}
         </div>
         <TripStateBadge state={trip.derivedState} />
         <Badge variant={PASSENGER_STATUS_META[trip.myStatus].tone}>{t(PASSENGER_STATUS_META[trip.myStatus].label)}</Badge>

@@ -131,6 +131,7 @@ export const DRIVER_CODE_TEXT: Record<string, string> = {
   ALREADY_RECORDED: 'Already recorded.',
   TOO_FREQUENT: 'A delay was reported a few minutes ago. Call the dispatcher if it changes.',
   RATE_LIMITED: 'Too many updates at once. They will be sent again shortly.',
+  BOARDING_CODE_INVALID: 'Wrong boarding code. Ask the passenger for the 4-digit code in their app and mark Boarded again.',
   LATE: 'Received after the trip closed: no effect.',
 };
 

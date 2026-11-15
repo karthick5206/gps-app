@@ -127,6 +127,8 @@ export function toEventInput(e: QueuedEvent, clockOffsetMs: number): DriverTripE
     reasonCode: e.reasonCode,
     etaMin: e.etaMin,
     note: e.note,
+    // v1.16.7 boarding OTP: the passenger's code travels as the queued `pin`.
+    ...(e.type === 'BOARDED' && e.pin ? { boardingCode: e.pin } : {}),
   };
 }
 

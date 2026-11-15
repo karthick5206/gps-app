@@ -47,6 +47,7 @@ import { DRIVER_SELECT, resolveDriver, type MeDriver } from './driver-identity';
 import { DriverDutyEndDto, DriverDutyStartDto, DriverStartTripDto, DriverSyncQuery, DriverTripEventBatchDto, DriverTripListDto } from './driver.dto';
 import { FixedWindowLimiter } from '../directory/lookup-rate-limit';
 import { applyToSnapshot, arrivalIsLate, correctedTime, decide, effectiveTime, isDriverEventType, licenceValid, onlineCommandFresh, storedKind, withinStartWindow, type Decision, type Fix, type TripSnapshot } from './driver-rules';
+import { boardingCodeFor, boardingOtpOn } from '../dispatch/boarding-code';
 
 type Db = Prisma.TransactionClient;
 const H = 3_600_000;
@@ -289,6 +290,8 @@ export class DriverApiService {
     // M2: a bounded number of batches per driver login (the queue treats 429 as "try again later").
     const rate = await this.eventLimiter.hit(ctx.userId, now);
     if (!rate.allowed) throw new HttpException({ message: `Too many event batches; try again in ${rate.retryAfterSec} s`, code: 'RATE_LIMITED', retryAfterSec: rate.retryAfterSec }, HttpStatus.TOO_MANY_REQUESTS);
+    // v1.16.7 boarding OTP: BOARDED needs the passenger's code while the company requires it.
+    const boardingOtp = boardingOtpOn((await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { settings: true } })).settings);
     let m = await this.one(ctx, me, id, true);
     let assigned = true;
     if (!m) {
@@ -375,6 +378,7 @@ export class DriverApiService {
         }
         // M1: stop / passenger events are stored at a time no earlier than the trip's actual start.
         const at = t ? effectiveTime(snap, e.type, t.at) : new Date(now);
+        if (d.outcome === 'ACCEPTED' && e.type === 'BOARDED' && boardingOtp && e.passengerTripId && (e.boardingCode ?? '').trim() !== boardingCodeFor(e.passengerTripId)) d = { outcome: 'REJECTED', code: 'BOARDING_CODE_INVALID' };
         const setsArrival = d.outcome === 'ACCEPTED' && d.effect.kind === 'ARRIVE' && !d.effect.confirmOnly;
         if (d.outcome === 'ACCEPTED') {
           const ok = await this.apply(tx, ctx, tt, pt, d, at, now);
@@ -755,6 +759,7 @@ export class DriverApiService {
       stops: stopDtos,
       passengers,
       manifestHidden: hidden ? 'TRIP_CLOSED' : null,
+      boardingCodeRequired: boardingOtpOn((await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { settings: true } })).settings),
       counts: counts(tt.passengers),
       overlays,
       lastSeq: maxSeq(mySeqs.map((r) => r.clientSeq)),
