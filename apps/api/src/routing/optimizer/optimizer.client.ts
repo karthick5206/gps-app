@@ -124,7 +124,23 @@ export class OptimizerClient {
     }
   }
 
-  async solve(problem: SolverProblem): Promise<SolverResult> {
+  /**
+   * Pooling (doc 20 §4): contract v3 `mode: "pdp"` through the same POST /optimize (token, redirect, size cap and
+   * error mapping as solve). An optimiser that does not know the mode answers 400 ("schemaVersion must be one of …"):
+   * reported as RoutingError PDP_UNSUPPORTED so callers fall back / fail clearly instead of retrying.
+   */
+  async solvePdp<P extends { schemaVersion: 3; mode: 'pdp'; options?: { timeLimitS?: number } }, R>(problem: P): Promise<R> {
+    try {
+      const body = (await this.solve(problem as unknown as SolverProblem, true)) as unknown as Record<string, unknown>;
+      if (!Array.isArray(body.vehicles) || !Array.isArray(body.unserved)) throw new RoutingError('PDP_UNSUPPORTED', 'The optimiser does not offer the pickup-and-delivery mode (contract v3)');
+      return body as R;
+    } catch (e) {
+      if (e instanceof RoutingError && e.code === 'LIMIT_EXCEEDED' && /schemaVersion|mode|unsupported/i.test(e.message)) throw new RoutingError('PDP_UNSUPPORTED', 'The optimiser does not offer the pickup-and-delivery mode (contract v3)');
+      throw e;
+    }
+  }
+
+  async solve(problem: SolverProblem, raw = false): Promise<SolverResult> {
     if (!this.configured) throw new RoutingError('OPTIMIZER_UNAVAILABLE', `Optimizer is not configured (${this.config.problem})`);
     let res: Response;
     const payload = JSON.stringify(problem);
@@ -174,6 +190,7 @@ export class OptimizerClient {
       throw new RoutingError('LIMIT_EXCEEDED', typeof body.error === 'string' && body.error ? scrubCoordinates(body.error).slice(0, 200) : 'Optimizer rejected the problem');
     }
     if (!res.ok) throw new RoutingError('OPTIMIZER_UNAVAILABLE', `Optimizer error (HTTP ${res.status})`);
+    if (raw) return body as SolverResult;
     if (!Array.isArray(body.routes) || !Array.isArray(body.unassigned) || typeof body.status !== 'string') {
       throw new RoutingError('OPTIMIZER_UNAVAILABLE', 'Optimizer answer is not a result');
     }

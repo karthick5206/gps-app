@@ -1,3 +1,4 @@
+import { limitsOf } from '../pooling/pooling-rules';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ME_VEHICLE_WINDOW, TRANSPORT_E3_LIMITS, meBookingApproval, transportSettingsOf, type EtaValue, type MeBookingDto, type MeTripDto, type MeVehicleDto, type PlannedStopStatus } from '@veetracer/shared';
@@ -245,5 +246,9 @@ function toMeBooking(r: Prisma.TransportBookingGetPayload<{ include: { passenger
     purpose: r.purpose ?? null,
     needsApproval: r.status === 'REQUESTED',
     approval: meBookingApproval(r),
+    // Pooling: the passenger's own preference, accepted limits and how the ride was served.
+    ridePreference: r.ridePreference,
+    limits: limitsOf(r.limits),
+    assignedService: r.assignedService ?? null,
   };
 }

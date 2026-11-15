@@ -1,6 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { ACTIVE_BOOKING_STATUSES, planBookingsLimitMessage, type MaxRideOverrideInput, type OptimizeUnassignedReason, ROUTE_PLAN_EDITABLE, ROUTING_LIMITS, RoutePlanStatus, RoutePlanVersionSnapshot, RoutingProfile, uncalibratedEta } from '@veetracer/shared';
+import { ACTIVE_BOOKING_STATUSES, planBookingsLimitMessage, type MaxRideOverrideInput, type OptimizeUnassignedReason, ROUTE_PLAN_EDITABLE, ROUTING_LIMITS, RoutePlanStatus, RoutePlanVersionSnapshot, RoutingProfile, uncalibratedEta, transportSettingsOf } from '@veetracer/shared';
+import type { AreaRequestInput } from './area-runner';
+import { limitsOf } from '../etms/pooling/pooling-rules';
 import type { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { maxRidePolicyOf, maxRideSnapshot, withOverride } from './max-ride';
@@ -141,7 +143,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
       (bookingIds.length
         ? // E4 gates security L3: only the job's own company's bookings (defence in depth; no DB trigger ties a plan stop's
           // booking to the plan's company). Another company's booking reads as missing: its stops are left out.
-          await this.db.transportBooking.findMany({ where: { id: { in: bookingIds }, customerCompanyId: job.companyId }, select: { id: true, profileId: true, status: true, passengerCount: true, windowStart: true, windowEnd: true, profile: { select: { accessibility: true } } } })
+          await this.db.transportBooking.findMany({ where: { id: { in: bookingIds }, customerCompanyId: job.companyId }, select: { id: true, profileId: true, status: true, passengerCount: true, windowStart: true, windowEnd: true, ridePreference: true, limits: true, holdFromPlanning: true, profile: { select: { accessibility: true } } } })
         : []
       ).map((b) => [b.id, b]),
     );
@@ -151,7 +153,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     const consenting = owners.length ? await activeRoutingConsents(this.db, owners) : new Set<string>();
     const seats = new Map(
       // E4 gates security L3: vehicle profiles of the job's company only.
-      (await this.db.transportVehicleProfile.findMany({ where: { objectId: { in: plan.assignments.map((a) => a.objectId).filter((o): o is string => !!o) }, companyId: job.companyId }, select: { objectId: true, seats: true, wheelchairSpaces: true, category: true } })).map((v) => [
+      (await this.db.transportVehicleProfile.findMany({ where: { objectId: { in: plan.assignments.map((a) => a.objectId).filter((o): o is string => !!o) }, companyId: job.companyId }, select: { objectId: true, seats: true, wheelchairSpaces: true, category: true, turnaroundS: true } })).map((v) => [
         v.objectId,
         v,
       ]),
@@ -175,7 +177,8 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
         excluded.push({ stopId: s.id, reason: EXCLUDED_REASONS.consent, bookingId: s.bookingId }); // coordinates never leave this function
         continue;
       }
-      if (s.bookingId && (!booking || !(ACTIVE_BOOKING_STATUSES as readonly string[]).includes(booking.status))) {
+      // Pooling: a booking on dispatcher hold is excluded from every run (without being cancelled).
+      if (s.bookingId && (!booking || !(ACTIVE_BOOKING_STATUSES as readonly string[]).includes(booking.status) || booking.holdFromPlanning)) {
         excluded.push({ stopId: s.id, reason: EXCLUDED_REASONS.booking, bookingId: s.bookingId });
         continue;
       }
@@ -226,10 +229,28 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
       lockedAssignmentIds: [...locks.lockedAssignmentIds],
       vehicles: plan.assignments.filter((a) => !locks.lockedAssignmentIds.has(a.id)).map((a) => {
         const vp = a.objectId ? seats.get(a.objectId) : undefined;
-        return { assignmentId: a.id, label: a.vehicleLabel, capacity: a.capacity ?? vp?.seats ?? null, type: vp?.category ?? null, wheelchairSpaces: vp?.wheelchairSpaces ?? 0 };
+        return { assignmentId: a.id, label: a.vehicleLabel, capacity: a.capacity ?? vp?.seats ?? null, type: vp?.category ?? null, wheelchairSpaces: vp?.wheelchairSpaces ?? 0, ...(vp?.turnaroundS !== null && vp?.turnaroundS !== undefined ? { turnaroundS: vp.turnaroundS } : {}) };
       }),
       excluded,
     };
+    // Pooling C2: an AREA plan becomes one pickup-and-delivery request per booking whose two stops are both usable.
+    if (plan.scope === 'AREA' && startMs !== null) {
+      const company = await this.db.company.findUnique({ where: { id: job.companyId }, select: { settings: true } });
+      const ends = new Map<string, { pickup?: string; drop?: string }>();
+      for (const s of stops) if (s.bookingId) ends.set(s.bookingId, { ...(ends.get(s.bookingId) ?? {}), [s.stopKind === 'DROP' ? 'drop' : 'pickup']: s.id });
+      const requests: AreaRequestInput[] = [];
+      for (const [bookingId, e] of ends) {
+        const b = bookings.get(bookingId);
+        if (!b || !e.pickup || !e.drop) {
+          for (const id of [e.pickup, e.drop]) if (id) excluded.push({ stopId: id, reason: EXCLUDED_REASONS.location, bookingId });
+          continue;
+        }
+        requests.push({ bookingId, pickupStopId: e.pickup, dropStopId: e.drop, passengers: b.passengerCount, preference: b.ridePreference, windowStartS: rel(b.windowStart), windowEndS: rel(b.windowEnd), limits: limitsOf(b.limits), wheelchair: wheelchairOf(b.profile?.accessibility) });
+      }
+      const keep = new Set(requests.flatMap((r) => [r.pickupStopId, r.dropStopId]));
+      inputs.stops = stops.filter((s) => keep.has(s.id));
+      inputs.area = { requests, companyMaxRideS: transportSettingsOf(company?.settings).maxRideS ?? null };
+    }
     // E4 WP-A: run preferences (max ride tightened, detour guard, vehicle size) and vehicle / driver availability.
     return withRunPreferences(this.db, inputs, plan);
   }
@@ -248,7 +269,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     const locked = inputs.lockedAssignmentIds ?? [];
     await tx.routePlanStop.updateMany({
       where: { planId: inputs.planId, ...(locked.length ? { OR: [{ assignmentId: null }, { assignmentId: { notIn: locked } }] } : {}) },
-      data: { assignmentId: null, sequence: null, etaS: null, unassignedReason: null },
+      data: { assignmentId: null, sequence: null, etaS: null, unassignedReason: null, tripIndex: 0 },
     });
     const eta = uncalibratedEta(graphVersion) as unknown as Prisma.InputJsonValue;
     // E4 WP-A: every re-solved route starts blank, so a vehicle left out of the run (busy) keeps no stale numbers.
@@ -261,7 +282,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
         where: { id: a.assignmentId, planId: inputs.planId },
         data: { startS: a.startS, endS: a.endS, durationS: a.durationS, adjustedDurationS: a.durationS, distanceM: a.distanceM, geometry: Prisma.DbNull, etaModel: a.visits.length ? eta : Prisma.DbNull },
       });
-      for (const v of a.visits) await tx.routePlanStop.updateMany({ where: { id: v.stopId, planId: inputs.planId }, data: { assignmentId: a.assignmentId, sequence: v.sequence, etaS: v.etaS } });
+      for (const v of a.visits) await tx.routePlanStop.updateMany({ where: { id: v.stopId, planId: inputs.planId }, data: { assignmentId: a.assignmentId, sequence: v.sequence, etaS: v.etaS, tripIndex: v.tripIndex ?? 0 } });
     }
     for (const u of w.unassigned) await tx.routePlanStop.updateMany({ where: { id: u.stopId, planId: inputs.planId }, data: { unassignedReason: u.reason.slice(0, 64) } });
     if (matrix) {

@@ -1,4 +1,5 @@
 import {
+  RIDE_PREFERENCES,
   TRANSPORT_ADHOC_LIMITS,
   TRANSPORT_BOOKING_JOURNEYS,
   TRANSPORT_BOOKING_SOURCES,
@@ -37,6 +38,8 @@ import {
   type UpdateTransportBookingInput,
   type UpdateTransportScheduleInput,
   type UpdateTransportShiftInput,
+  type BookingPoolingInput,
+  type RidePreference,
 } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import {
@@ -182,6 +185,10 @@ export class CreateBookingDto implements CreateTransportBookingInput {
   @IsOptional() @IsBoolean() hold?: boolean;
   /** D-A1: trimmed length lateReasonMin..lateReasonMax is checked by the service (409 LATE_REASON_REQUIRED). */
   @IsOptional() @IsString() @MaxLength(1000) lateReason?: string;
+  /** Pooling (doc 20 §3.1): preference, accepted policy version, tighter limits (checked by the service). */
+  @IsOptional() @IsIn(RIDE_PREFERENCES) ridePreference?: RidePreference;
+  @IsOptional() @IsInt() @Min(0) acceptedPolicyVersion?: number;
+  @IsOptional() @IsObject() limits?: BookingPoolingInput['limits'];
 }
 
 /** D-A8 group pickup: COMMON (one point) or OWN (each passenger's routing pickup). */
@@ -205,6 +212,10 @@ export class CreateGroupBookingDto {
   @IsOptional() @ValidateIf(nullable) @IsString() @MaxLength(L.noteMax) note?: string | null;
   @IsOptional() @IsBoolean() hold?: boolean;
   @IsOptional() @IsString() @MaxLength(1000) lateReason?: string;
+  /** Pooling: one preference / acceptance / limits for the whole group. */
+  @IsOptional() @IsIn(RIDE_PREFERENCES) ridePreference?: RidePreference;
+  @IsOptional() @IsInt() @Min(0) acceptedPolicyVersion?: number;
+  @IsOptional() @IsObject() limits?: BookingPoolingInput['limits'];
 }
 
 export class UpdateBookingDto implements UpdateTransportBookingInput {

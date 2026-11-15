@@ -78,6 +78,8 @@ export function bookingData(s: ScheduleForGen, serviceDate: string, window: LegW
     scheduleId: s.id,
     shiftId: s.shiftId,
     source: 'SCHEDULE',
+    // Pooling P3: commute legs are pooled rides (SHARED); limits = the company policy at plan time (no snapshot).
+    ridePreference: 'SHARED',
     serviceDate: dateOnly(serviceDate),
     direction: s.direction,
     timeZone: s.shift.timeZone,
