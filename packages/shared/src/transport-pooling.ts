@@ -245,6 +245,10 @@ export const DISPATCH_REASON_CODES = [
   'NEEDS_LOCATION',
   'SOLVER_UNAVAILABLE',
   'ONBOARD_TRANSFER',
+  /** P5: the driver has not acknowledged the trip's last live change; no further live insertion until they do. */
+  'ROUTE_ACK_PENDING',
+  /** P5: a live change has waited too long for the driver's acknowledgement (dispatcher proposal). */
+  'ROUTE_ACK_OVERDUE',
   'DISABLED',
 ] as const;
 export type DispatchReasonCode = (typeof DISPATCH_REASON_CODES)[number];
@@ -283,6 +287,11 @@ export interface LiveDispatchDecideInput {
   bookingId: string;
   apply?: boolean;
   optionId?: string;
+  /**
+   * The decision (`requestId` of an earlier answer, or a PROPOSED request of the log) whose stored option to apply: the
+   * option exactly as shown (its trip version is re-checked). Without it, `apply` uses a fresh computation.
+   */
+  requestId?: string;
 }
 
 export interface LiveDispatchDecisionDto {
@@ -350,6 +359,8 @@ export interface MeTripPoolingView {
   /** Planned pickup time of this passenger (always, not only when it is the next stop), adjusted by the live delay. */
   estimatedPickupAt?: string | null;
   servedAs?: RideService | null;
+  /** P5: the trip's route changed live and the driver has not acknowledged it yet: the shown times are tentative. */
+  routePending?: boolean;
 }
 
 // ───────────────────────────── AREA plans (C2) ─────────────────────────────

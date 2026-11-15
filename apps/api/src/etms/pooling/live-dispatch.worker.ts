@@ -42,7 +42,11 @@ export class LiveDispatchWorker {
     if (!this.enabled || this.running) return;
     this.running = true;
     try {
-      await this.withLock(LIVE_DISPATCH_SCAN_LOCK, () => this.live.scanReports());
+      await this.withLock(LIVE_DISPATCH_SCAN_LOCK, async () => {
+        await this.live.scanReports();
+        // Review fix 2: unacknowledged live route changes past ACK_OVERDUE_MS become dispatcher proposals.
+        await this.live.escalateOverdueAcks();
+      });
       const queued = await this.prisma.transportDispatchRequest.findMany({ where: { status: { in: ['QUEUED', 'FAILED'] }, attempts: { lt: 3 } }, orderBy: { createdAt: 'asc' }, take: 50, select: { id: true, companyId: true } });
       const byCompany = new Map<string, string[]>();
       for (const q of queued) byCompany.set(q.companyId, [...(byCompany.get(q.companyId) ?? []), q.id]);
