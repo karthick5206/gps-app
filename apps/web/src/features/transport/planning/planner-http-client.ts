@@ -1,5 +1,5 @@
 /** The planner HTTP client over a transport: pure (no React / path aliases), checked by planner-contract.test.ts. */
-import type { RoutePlanCompareDto, RoutePlanPublishResult, RoutePlanSummaryDto, RoutePlanVersionDto, RoutingCapabilities, RoutingJobDto } from '@veetracer/shared';
+import type { RoutePlanAlternativesList, RoutePlanAlternativesResult, RoutePlanCompareDto, RoutePlanPublishResult, RoutePlanReviewDto, RoutePlanSummaryDto, RoutePlanVersionDto, RoutingCapabilities, RoutingJobDto } from '@veetracer/shared';
 /** Query values (same shape as lib/api QueryParams; no path alias so node --test can load this file). */
 export type QueryParams = Record<string, string | number | boolean | null | undefined>;
 import { CAPABILITIES_ENDPOINT, JOBS_ENDPOINT, PLANS_ENDPOINT, type CreatedPlannerPlan, type PlannerClient } from './planner-api.ts';
@@ -8,7 +8,7 @@ import { toEditResult, toList, type PlannerPlan } from './planner-format.ts';
 /** The transport the HTTP client uses; tests pass a recorder to check the exact requests (planner-contract.test.ts). */
 export interface PlannerTransport {
   get<T>(path: string, query?: QueryParams, signal?: AbortSignal): Promise<T>;
-  send<T>(method: 'POST' | 'PUT' | 'PATCH', path: string, body: unknown, headers?: Record<string, string>): Promise<T>;
+  send<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body: unknown, headers?: Record<string, string>): Promise<T>;
 }
 
 /** Builds the planner client over a transport. Every keyed call sends the key in the `Idempotency-Key` header. */
@@ -33,6 +33,14 @@ export function createHttpPlannerClient(tx: PlannerTransport): PlannerClient {
     updateStop: async (id, sid, body) => toEditResult(await tx.send<unknown>('PATCH', `${plan(id)}/stops/${encodeURIComponent(sid)}`, body)),
     publish: (id, body, key) => keyed<RoutePlanPublishResult>(`${plan(id)}/publish`, body, key),
     discard: (id, body) => tx.send<PlannerPlan>('POST', `${plan(id)}/discard`, body),
+    restore: async (id, body) => toEditResult(await tx.send<unknown>('POST', `${plan(id)}/restore`, body)),
+    recalculate: async (id, body) => toEditResult(await tx.send<unknown>('POST', `${plan(id)}/recalculate`, body)),
+    addBooking: async (id, body) => toEditResult(await tx.send<unknown>('POST', `${plan(id)}/bookings`, body)),
+    removeBooking: async (id, bid, expectedVersion) => toEditResult(await tx.send<unknown>('DELETE', `${plan(id)}/bookings/${encodeURIComponent(bid)}?expectedVersion=${encodeURIComponent(String(expectedVersion))}`, null)),
+    pinBooking: async (id, bid, body) => toEditResult(await tx.send<unknown>('PATCH', `${plan(id)}/bookings/${encodeURIComponent(bid)}/pin`, body)),
+    review: (id, ids, signal) => tx.get<RoutePlanReviewDto>(`${plan(id)}/review`, ids && ids.length ? { assignmentIds: ids.join(',') } : undefined, signal),
+    alternatives: (id, signal) => tx.get<RoutePlanAlternativesList>(`${plan(id)}/alternatives`, undefined, signal),
+    createAlternatives: (id, body, key) => keyed<RoutePlanAlternativesResult>(`${plan(id)}/alternatives`, body, key),
   };
 }
 

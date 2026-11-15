@@ -1,4 +1,4 @@
-import type { RoutingCapabilities, TransportDirection } from '@veetracer/shared';
+import type { RoutingCapabilities, RoutingStrategy, TransportDirection } from '@veetracer/shared';
 import { PlayIcon, RouteOffIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,10 +13,13 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { DIRECTION_LABEL, shiftTimesLabel } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
-import { capabilityView, completeWeights, planBranchChoice, planSeeds, skippedSummary, timeLimitOptions, timeLimitWithin, type ShiftChoice, type WeightDraft } from './planner-format';
-import { JobProgress, WeightsEditor } from './planner-ui';
+import { capabilityView, planBranchChoice, planSeeds, skippedSummary, timeLimitOptions, timeLimitWithin, type ShiftChoice, type WeightDraft } from './planner-format';
+import { JobProgress } from './planner-ui';
 import { MaxRideOverrideFields } from './MaxRideFields';
 import { canOverrideMaxRide, overrideRequest, planBookingsLimit, type MaxRideOverrideDraft } from './max-ride';
+import { AlternativesPanel } from './AlternativesPanel';
+import { alternativesError, maxRideCapS, preferencesRequest, runFields, toggleStrategy, type PreferencesDraft } from './plan-strategy';
+import { AlternativesPicker, PreferencesFields, StrategyPicker } from './plan-strategy-ui';
 import { createKeyStore, newKey, plannerErrorMessage, plannerErrorOf, useActiveShifts, usePlannerVehicles, useStartOptimise, type StartedPlan } from './use-planner';
 
 export interface OptimiseState {
@@ -25,10 +28,18 @@ export interface OptimiseState {
   siteIds: string[];
   shiftIds: string[];
   vehicleIds: string[];
+  /** Advanced explicit weights (sent only with `useWeights`; they win over the strategy). */
   weights: WeightDraft;
   timeLimitS: number;
   /** T2-D5: the branch chosen by a branch-scoped user with several branches. */
   branchId: string | null;
+  /** E4 WP-W: the strategy (primary control), Advanced weights on / off, run preferences. */
+  strategy: RoutingStrategy;
+  useWeights: boolean;
+  prefs: PreferencesDraft;
+  /** One optimised plan per shift, or alternatives (one plan per chosen strategy) per shift. */
+  mode: 'single' | 'alternatives';
+  altStrategies: RoutingStrategy[];
 }
 
 /** Bookings the new plan left out, per reason: they stay in the dispatch queue (T2 E2E). */
@@ -56,7 +67,7 @@ function SkippedBookings({ skipped }: { skipped: { bookingId: string; reason: st
  * each run as its own job with progress and cancel. Disabled with the reason when routing / the optimiser is down;
  * nothing is estimated in the browser meanwhile.
  */
-export function OptimisePanel({ caps, state, setState, started, setStarted, canPlan, tz }: { caps: RoutingCapabilities | undefined; state: OptimiseState; setState: (fn: (s: OptimiseState) => OptimiseState) => void; started: StartedPlan[]; setStarted: (s: StartedPlan[]) => void; canPlan: boolean; tz: string | undefined }) {
+export function OptimisePanel({ caps, state, setState, started, setStarted, canPlan, canDelete = false, tz }: { caps: RoutingCapabilities | undefined; state: OptimiseState; setState: (fn: (s: OptimiseState) => OptimiseState) => void; started: StartedPlan[]; setStarted: (s: StartedPlan[]) => void; canPlan: boolean; canDelete?: boolean; tz: string | undefined }) {
   const { t } = useTranslation();
   const shifts = useActiveShifts();
   const fleet = usePlannerVehicles(state.day, state.direction);
@@ -82,7 +93,9 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
   const vehicles = fleet.data?.vehicles ?? [];
   const withSeats = vehicles.filter((v) => v.seats !== null);
   const vehicleOptions = withSeats.map((v) => ({ value: v.objectId, label: `${v.name}${v.plateNumber ? ` · ${v.plateNumber}` : ''}`, description: t('{{n}} seats', { n: v.seats ?? 0 }) }));
-  const weights = completeWeights(state.weights);
+  const alternatives = state.mode === 'alternatives';
+  // Alternatives take strategies only (no explicit weights).
+  const run1 = runFields({ strategy: state.strategy, useWeights: state.useWeights && !alternatives, weights: state.weights });
   const seeds = planSeeds({ day: state.day, direction: state.direction, shifts: shiftChoices, shiftIds: state.shiftIds, siteIds: state.siteIds, tz: fleet.data?.timeZone ?? tz ?? 'UTC' }, t);
   const chosenVehicles = withSeats.filter((v) => state.vehicleIds.includes(v.objectId));
   // T2-D5: a branch-scoped user plans for one of their branches (one: fixed; several: picked).
@@ -93,18 +106,36 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
   if (!seeds.length) problems.push(t('Choose at least one shift.'));
   if (seeds.some((x) => !x.sitePoiId)) problems.push(t('A chosen shift has no site: choose exactly one site for it.'));
   if (!chosenVehicles.length) problems.push(t('Choose at least one vehicle.'));
-  if (!weights) problems.push(t('Set all four weights (at least one of distance, driving or route length above 0).'));
+  if (!run1.ok) for (const e of run1.errors) problems.push(t(e));
+  const altError = alternatives ? alternativesError(state.altStrategies) : null;
+  if (altError) problems.push(t(altError));
   if (branch.mode === 'pick' && !branchId) problems.push(t('Choose the branch for the plan.'));
   if (branch.mode === 'missing') problems.push(t('Your role has no branch to plan for. Ask an administrator to assign you a branch.'));
   const override = canOverrideMaxRide(caps) ? overrideRequest(maxRide, null) : ({ ok: true, value: undefined } as const);
   if (!override.ok) for (const e of override.errors) problems.push(t(e));
+  // A preference may only tighten the plan's max ride: the override being set here, else the company policy.
+  const capS = maxRideCapS(caps?.access?.maxRidePolicyS ?? null, override.ok && override.value ? override.value.maxRideS : null);
+  const prefs = preferencesRequest(state.prefs, { capS, preserve: false, canEditLocks: false });
+  if (!prefs.ok) for (const e of prefs.errors) problems.push(t(e));
   const ready = problems.length === 0 && health.canOptimise && canPlan;
 
   const run = () => {
     setTouched(true);
-    if (!ready || !weights || !override.ok) return;
+    if (!ready || !run1.ok || !override.ok || !prefs.ok) return;
     start.mutate(
-      { planDate: state.day, direction: state.direction, seeds, objectIds: chosenVehicles.map((v) => v.objectId), weights, timeLimitS, branchId, ...(override.value !== undefined ? { maxRideOverride: override.value } : {}) },
+      {
+        planDate: state.day,
+        direction: state.direction,
+        seeds,
+        objectIds: chosenVehicles.map((v) => v.objectId),
+        strategy: run1.value.strategy,
+        weights: run1.value.weights ?? null,
+        ...(prefs.value ? { preferences: prefs.value } : {}),
+        ...(alternatives ? { alternatives: state.altStrategies } : {}),
+        timeLimitS,
+        branchId,
+        ...(override.value !== undefined ? { maxRideOverride: override.value } : {}),
+      },
       {
         onSuccess: (r) => {
           setStarted(r);
@@ -114,7 +145,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
             if (x.error && typeof st === 'number' && st < 500) keys.forget(`create:${x.seed.shiftId}`);
           }
           // Every plan started: a new click is a new action (new plans).
-          if (r.every((x) => x.job)) keys.clear();
+          if (r.every((x) => x.job || x.alternatives)) keys.clear();
         },
       },
     );
@@ -184,7 +215,32 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
           {shifts.isError && <FormError message={plannerErrorMessage(shifts.error, t)} />}
         </div>
 
-        <WeightsEditor idPrefix="opt-w" showErrors={touched} value={state.weights} onChange={(w) => setState((s) => ({ ...s, weights: w }))} />
+        <div className="grid content-start gap-1.5">
+          <span className="text-sm font-medium" id="opt-mode-label">
+            {t('What to make')}
+          </span>
+          <div className="inline-flex rounded-lg border bg-muted p-[3px] sm:max-w-md" role="group" aria-labelledby="opt-mode-label">
+            {(['single', 'alternatives'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={state.mode === m}
+                onClick={() => setState((s) => ({ ...s, mode: m }))}
+                className={cn('h-8 min-w-0 flex-1 rounded-md px-2 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring', state.mode === m ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')}
+              >
+                {m === 'single' ? t('One plan') : t('Generate alternatives')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {alternatives ? (
+          <AlternativesPicker idPrefix="opt-alt" value={state.altStrategies} onChange={(s, on) => setState((x) => ({ ...x, altStrategies: toggleStrategy(x.altStrategies, s, on) }))} error={touched ? altError : null} />
+        ) : (
+          <StrategyPicker idPrefix="opt" showErrors={touched} value={{ strategy: state.strategy, useWeights: state.useWeights, weights: state.weights }} onChange={(d) => setState((s) => ({ ...s, strategy: d.strategy, useWeights: d.useWeights, weights: d.weights }))} />
+        )}
+
+        <PreferencesFields idPrefix="opt-pref" value={state.prefs} onChange={(p) => setState((s) => ({ ...s, prefs: p }))} capS={capS} preserve={false} canEditLocks={false} capped={prefs.ok && prefs.capped} errors={touched && !prefs.ok ? prefs.errors : undefined} />
 
         <MaxRideOverrideFields idPrefix="opt-ride" caps={caps} value={maxRide} onChange={setMaxRide} showErrors={touched} />
 
@@ -193,7 +249,7 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
             <SimpleSelect id="opt-limit" value={String(timeLimitS)} onChange={(v) => setState((s) => ({ ...s, timeLimitS: Number(v) }))} options={timeLimitOptions(caps?.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
           </Field>
           <Button onClick={run} disabled={start.isPending || !canPlan || !health.canOptimise}>
-            {start.isPending ? <Spinner /> : <PlayIcon />} {seeds.length > 1 ? t('Optimise {{n}} plans', { n: seeds.length }) : t('Optimise')}
+            {start.isPending ? <Spinner /> : <PlayIcon />} {alternatives ? t('Generate alternatives') : seeds.length > 1 ? t('Optimise {{n}} plans', { n: seeds.length }) : t('Optimise')}
           </Button>
         </div>
         {!canPlan && <p className="text-sm text-muted-foreground">{t('You can view plans; optimising needs the Route planning → create permission.')}</p>}
@@ -217,6 +273,16 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
               <li key={s.seed.shiftId} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border p-3">
                 {s.job ? (
                   <JobProgress jobId={s.job.jobId} planId={s.planId} label={s.seed.name} canCancel={canPlan} />
+                ) : s.alternatives && s.planId ? (
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
+                    <span className="truncate text-sm font-medium">{t('Alternatives · {{name}}', { name: s.seed.name })}</span>
+                    {s.alternatives.alternatives.some((a) => a.error) && (
+                      <p role="status" className="text-sm text-warning-fg">
+                        {t('Some alternatives could not start yet (the optimiser is busy). Open them later and optimise.')}
+                      </p>
+                    )}
+                    <AlternativesPanel planId={s.planId} canDelete={canDelete} canPlan={canPlan} />
+                  </div>
                 ) : s.empty ? (
                   <div className="grid gap-1">
                     <span className="text-sm font-medium">{s.seed.name}</span>

@@ -9,7 +9,8 @@
  * - A passenger's personal point is drawn only when the API sent coordinates for it (consent / branch scope gate at the
  *   source); branch-scoped viewers get 4 decimals.
  * - Compare: a "Best" marker only where better is unambiguous; no overall winner unless the user set weights.
- * - Edits are explicit actions (move, up / down, change vehicle, pin); no drag library.
+ * - Edits are explicit actions (move, up / down, change vehicle, pin); E4 WP-W adds native drag and drop on top
+ *   (plan-workspace.ts), never instead of the keyboard actions; no drag library.
  * Salvaged from the routing branch `planner-utils.ts` (vehicle colours, sequence helpers, unassigned labels).
  */
 import type {
@@ -58,7 +59,7 @@ export type PlanEditResult = Omit<RoutePlanEditResult, 'plan'> & { plan: Planner
 /** Accepts `{ plan, violations, degraded }` or a bare plan. */
 export function toEditResult(raw: unknown): PlanEditResult {
   const r = raw as Partial<PlanEditResult> & PlannerPlan;
-  if (r && typeof r === 'object' && r.plan && typeof r.plan === 'object') return { plan: r.plan, violations: r.violations ?? r.plan.violations ?? [], degraded: r.degraded ?? null };
+  if (r && typeof r === 'object' && r.plan && typeof r.plan === 'object') return { plan: r.plan, violations: r.violations ?? r.plan.violations ?? [], degraded: r.degraded ?? null, ...(r.routeViolations ? { routeViolations: r.routeViolations } : {}) };
   return { plan: r, violations: r?.violations ?? [], degraded: null };
 }
 
@@ -374,6 +375,14 @@ export const SKIPPED_REASON_HINT: Record<RoutePlanSkipReason, string> & Record<s
   needs_approval: 'Approve it in Bookings, then plan again.',
 };
 
+/** Why a booking cannot be added to a plan (409 BOOKING_NOT_PLANNABLE `reason`): the skip reasons plus these. */
+export const ADD_BOOKING_REFUSAL_LABEL: Record<string, string> = {
+  ...SKIPPED_REASON_LABEL,
+  other_date: 'Booked for another date',
+  other_direction: 'Booked for the other direction',
+  not_open: 'Not waiting for a seat',
+};
+
 /** Bookings a new plan left out, counted per reason (in the order first seen), with the action hint. */
 export function skippedSummary(skipped: readonly { bookingId: string; reason: string }[] | null | undefined): { reason: string; label: string; hint: string | null; n: number }[] {
   const m = new Map<string, number>();
@@ -554,6 +563,20 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   VEHICLE_DUPLICATE: 'This vehicle already drives another route of this plan.',
   SITE_REQUIRED: 'A chosen shift has no site: choose exactly one site for it.',
   IDEMPOTENCY_KEY_REQUIRED: 'The request was missing its retry key. Try again.',
+  // E4 WP-A / WP-B.
+  PLAN_RESTORE_CONFLICT: 'Undo is not possible: passengers were added to or removed from the plan since that version.',
+  PLAN_REVIEW_REQUIRED: 'Review the routes before publishing them.',
+  PLAN_REVIEW_STALE: 'The plan changed after your review. The review was reloaded; check it and confirm again.',
+  ROUTE_ALREADY_PUBLISHED: 'That route is already published and cannot change.',
+  BOOKING_NOT_PLANNABLE: 'This booking cannot be added to this plan.',
+  BOOKING_ALREADY_ON_PLAN: 'This booking is already on the plan.',
+  VEHICLE_BUSY: 'The vehicle has another trip at that time.',
+  DRIVER_BUSY: 'The driver has another trip at that time.',
+  VEHICLE_INACTIVE: 'The vehicle is not active.',
+  DRIVER_INACTIVE: 'The driver is not active.',
+  VEHICLE_NO_SEATS: 'The vehicle has no seats set. Set its seats first (Vehicle seats).',
+  MAX_RIDE_ABOVE_POLICY: 'The maximum ride time is above the plan’s limit. Choose a shorter time.',
+  FORBIDDEN_GRANT: 'Your role may not do this (it needs Route planning → edit).',
   // Job error codes (RoutingJobError.code / RoutingDegradedReason).
   ENGINE_DISABLED: 'Routing unavailable: the road engine is switched off.',
   ENGINE_NOT_SUPPORTED: 'Routing unavailable: this engine is not supported.',
@@ -594,7 +617,22 @@ export function plannerErrorKind(code: string | null | undefined, status?: numbe
       return 'unavailable';
     case 'PLAN_STALE':
     case 'VERSION_CONFLICT':
+    case 'PLAN_REVIEW_STALE':
+    case 'ROUTE_ALREADY_PUBLISHED':
       return 'conflict';
+    case 'FORBIDDEN_GRANT':
+      return 'forbidden';
+    case 'PLAN_RESTORE_CONFLICT':
+    case 'PLAN_REVIEW_REQUIRED':
+    case 'BOOKING_NOT_PLANNABLE':
+    case 'BOOKING_ALREADY_ON_PLAN':
+    case 'VEHICLE_BUSY':
+    case 'DRIVER_BUSY':
+    case 'VEHICLE_INACTIVE':
+    case 'DRIVER_INACTIVE':
+    case 'VEHICLE_NO_SEATS':
+    case 'MAX_RIDE_ABOVE_POLICY':
+      return 'invalid';
     case 'OPTIMIZER_BUSY':
     case 'MATRIX_BUSY':
     case 'QUOTA_EXCEEDED':

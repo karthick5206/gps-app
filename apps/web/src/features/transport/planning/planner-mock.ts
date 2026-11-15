@@ -11,6 +11,7 @@ import type {
   EtaModel,
   RoutePlanMetricsDto,
   RoutePlanPublishResult,
+  RoutePlanReviewDto,
   RoutePlanStopViolation,
   RoutePlanSummaryDto,
   RoutePlanVersionDto,
@@ -285,7 +286,8 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
 
   const enqueue = (body: OptimizeJobRequest, key: string): RoutingJobDto => {
       requireKey(key);
-      validWeights(body.weights);
+      // E4 WP-A: weights are optional (the strategy gives them); when sent they must be complete.
+      if (body.weights !== undefined) validWeights(body.weights);
       const replay = jobKeys.get(key);
       if (replay) return strip(jobs.get(replay)!);
       if (mode === 'engine-down') fail(503, 'ROUTING_UNAVAILABLE', 'Routing engine unreachable');
@@ -337,11 +339,11 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
       return clone(p);
     },
     optimizePlan: async (planId, body, key) => {
-      only(body, ['expectedVersion', 'timeLimitS', 'objective', 'weights']);
+      only(body, ['expectedVersion', 'timeLimitS', 'objective', 'weights', 'strategy', 'preferences', 'maxRideOverride']);
       return enqueue({ ...body, planId }, key);
     },
     optimize: async (body, key) => {
-      only(body, ['planId', 'expectedVersion', 'timeLimitS', 'objective', 'weights']);
+      only(body, ['planId', 'expectedVersion', 'timeLimitS', 'objective', 'weights', 'strategy', 'preferences', 'maxRideOverride']);
       return enqueue(body, key);
     },
     getJob: async (jobId) => {
@@ -432,17 +434,20 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
     },
     publish: async (id, body, key) => {
       requireKey(key);
-      only(body, ['expectedVersion', 'idempotencyKey', 'acknowledgedWarnings', 'override']);
+      only(body, ['expectedVersion', 'idempotencyKey', 'acknowledgedWarnings', 'override', 'assignmentIds', 'reviewHash']);
       const replay = publishKeys.get(key);
       if (replay) return clone(replay);
       const p = get(id);
       editable(p, body.expectedVersion);
       if (!p.assignments.some((a) => p.stops.some((st) => st.assignmentId === a.id))) fail(409, 'PLAN_NOT_PUBLISHABLE', 'No route has passengers', { code: 'PLAN_NOT_PUBLISHABLE', routes: [] });
-      const used = p.assignments.filter((a) => p.stops.some((s) => s.assignmentId === a.id));
+      const used = p.assignments.filter((a) => !a.published && p.stops.some((s) => s.assignmentId === a.id) && (!body.assignmentIds || body.assignmentIds.includes(a.id)));
       const untimed = used.filter((a) => a.eta === null || a.endS === null);
       if (untimed.length) fail(409, 'PLAN_NOT_PUBLISHABLE', 'Some routes have no times', { code: 'PLAN_NOT_PUBLISHABLE', routes: untimed.map((a) => ({ assignmentId: a.id, vehicleLabel: a.vehicleLabel, code: 'ROUTING_UNAVAILABLE', message: 'Route not timed' })) });
-      for (const a of used) Object.assign(a, { transportTripId: nextId('ttrip'), plannedTripId: nextId('ptrip') });
-      Object.assign(p, { status: 'PUBLISHED', publishedAt: now(), editable: false });
+      for (const a of used) Object.assign(a, { transportTripId: nextId('ttrip'), plannedTripId: nextId('ptrip'), published: true });
+      // WP-B: the plan stays editable while unpublished routes with stops remain.
+      const rest = p.assignments.some((a) => !a.published && p.stops.some((s) => s.assignmentId === a.id));
+      if (rest) Object.assign(p, { publishedAt: p.publishedAt ?? now() });
+      else Object.assign(p, { status: 'PUBLISHED', publishedAt: p.publishedAt ?? now(), editable: false });
       p.version += 1;
       record(p, 'PUBLISHED');
       const r: RoutePlanPublishResult = { planId: id, version: p.version, trips: used.map((a) => ({ assignmentId: a.id, transportTripId: a.transportTripId as string, plannedTripId: a.plannedTripId })), changeSetId: nextId('cs'), warnings: [] };
@@ -456,6 +461,76 @@ export function createMockPlannerClient(opts: { mode?: MockMode; now?: () => str
       p.version += 1;
       record(p, 'CANCELLED');
       return clone(p);
+    },
+    // WP-B (synthetic): restore membership / order of a version, re-time, pins, passengers, review.
+    restore: async (id, body) => {
+      const p = get(id);
+      editable(p, body.expectedVersion);
+      const v = (history.get(id) ?? []).find((x) => x.version === body.version) ?? fail(404, 'NOT_FOUND', 'Version not found');
+      const ids = new Set(p.stops.map((s) => s.id));
+      const then = new Set(v.snapshot.stops.map((s) => s.id));
+      const added = [...ids].filter((x) => !then.has(x));
+      const removed = [...then].filter((x) => !ids.has(x));
+      if (added.length || removed.length) fail(409, 'PLAN_RESTORE_CONFLICT', 'The stop set changed since that version', { code: 'PLAN_RESTORE_CONFLICT', addedStopIds: added, removedStopIds: removed });
+      for (const s of v.snapshot.stops) Object.assign(p.stops.find((x) => x.id === s.id) as PlannerStop, { assignmentId: s.assignmentId, sequence: s.sequence });
+      return edited(p, 'EDITED');
+    },
+    recalculate: async (id, body) => {
+      const p = get(id);
+      editable(p, body.expectedVersion);
+      return edited(p, 'RECALCULATED');
+    },
+    addBooking: async (id, body) => {
+      editable(get(id), body.expectedVersion);
+      return fail(409, 'BOOKING_NOT_PLANNABLE', 'The synthetic planner has no open bookings', { code: 'BOOKING_NOT_PLANNABLE', reason: 'not_open' });
+    },
+    removeBooking: async (id, bookingId, expectedVersion) => {
+      const p = get(id);
+      editable(p, expectedVersion);
+      const group = p.stops.filter((s) => s.bookingId === bookingId);
+      if (!group.length) fail(404, 'NOT_FOUND', 'Booking not on the plan');
+      if (group.some((s) => s.pinned)) fail(409, 'STOP_PINNED', 'Unpin the stop first');
+      p.stops = p.stops.filter((s) => s.bookingId !== bookingId);
+      return edited(p, 'EDITED');
+    },
+    pinBooking: async (id, bookingId, body) => {
+      const p = get(id);
+      editable(p, body.expectedVersion);
+      for (const s of p.stops) if (s.bookingId === bookingId) s.pinned = body.pinned;
+      return edited(p, 'EDITED', new Set());
+    },
+    review: async (id, ids) => {
+      const p = get(id);
+      const chosen = p.assignments.filter((a) => (ids && ids.length ? ids.includes(a.id) : !a.published) && p.stops.some((s) => s.assignmentId === a.id));
+      const r: RoutePlanReviewDto = {
+        planId: p.id,
+        version: p.version,
+        status: p.status,
+        planStartAt: p.planStartAt,
+        assignmentIds: chosen.map((a) => a.id),
+        routes: chosen.map((a) => {
+          const stops = p.stops.filter((s) => s.assignmentId === a.id).sort((x, y) => (x.sequence ?? 0) - (y.sequence ?? 0));
+          const seats = stops.reduce((n, s) => n + s.seats, 0);
+          return {
+            assignmentId: a.id, seq: a.seq, vehicleLabel: a.vehicleLabel, objectId: a.objectId, vehicleName: a.vehicleName, plateNumber: a.plateNumber, driverId: a.driverId, driverName: a.driverName,
+            seats: a.capacity, passengers: stops.length, occupancy: a.capacity ? seats / a.capacity : 0, distanceM: a.distanceM, durationS: a.durationS, startS: a.startS, endS: a.endS, locked: a.locked,
+            stops: stops.map((s, i) => ({ stopId: s.id, ref: s.ref, sequence: i, stopKind: s.stopKind, bookingId: s.bookingId, profileId: s.profileId, poiId: s.poiId, name: s.name, lat: s.lat, lng: s.lng, pointHidden: s.pointHidden, passengerName: s.passengerName ?? null, etaS: s.etaS, plannedArrival: s.plannedArrival, seats: s.seats, pinned: s.pinned })),
+          };
+        }),
+        unassigned: p.stops.filter((s) => !s.assignmentId).map((s) => ({ bookingId: s.bookingId, profileId: s.profileId, stopIds: [s.id], reason: s.unassignedReason ?? 'not_assigned' })),
+        otherRoutes: p.assignments.filter((a) => !chosen.includes(a)).map((a) => ({ assignmentId: a.id, vehicleLabel: a.vehicleLabel, published: !!a.published, stops: p.stops.filter((s) => s.assignmentId === a.id).length })),
+        manualChanges: { baselineVersion: null, baselineChangeType: null, routes: [] },
+        publishCheck: { hard: [], soft: [], fingerprint: null, canOverride: false, routeErrors: [] },
+        errors: [],
+        reviewHash: `r${p.version}-${chosen.map((a) => a.id).join('.')}`,
+      };
+      return clone(r);
+    },
+    alternatives: async (id) => ({ sourcePlanId: id, alternatives: [] }),
+    createAlternatives: async (id, body, key) => {
+      requireKey(key);
+      editable(get(id), body.expectedVersion);
+      return { sourcePlanId: id, alternatives: [], skippedBookings: [] };
     },
   };
 }

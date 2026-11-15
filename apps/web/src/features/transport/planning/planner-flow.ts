@@ -3,21 +3,30 @@
  * contract tests run them over the real HTTP client with a recording transport, so the request shapes the screens
  * send are the ones checked (B1 / B2 of the E4 QA round).
  */
-import type { MaxRideOverrideInput, RoutePlanCreateCounts, RoutePlanEmptyReason, RoutingJobDto, TransportDirection } from '@veetracer/shared';
+import type { MaxRideOverrideInput, RoutePlanAlternativesResult, RoutePlanCreateCounts, RoutePlanEmptyReason, RoutePlanPreferences, RoutePlanPublishRequest, RoutingJobDto, RoutingStrategy, TransportDirection } from '@veetracer/shared';
 import type { CreatePlanRequest, OptimizeOptions, PlannerClient } from './planner-api.ts';
 import { solverObjective, type PlannerPlan, type PlannerWeights, type PlanSeed } from './planner-format.ts';
+import { alternativesBody } from './plan-strategy.ts';
 
-export interface OptimiseInput {
+/** What one optimise run asks for (E4 WP-A): a strategy, explicit weights only from "Advanced", optional preferences. */
+export interface RunInput {
+  strategy?: RoutingStrategy;
+  weights?: PlannerWeights | null;
+  preferences?: RoutePlanPreferences;
+  timeLimitS: number;
+  /** Owner decision 1: per-plan max-ride override (authorised callers only), sent with each plan's optimise. */
+  maxRideOverride?: MaxRideOverrideInput | null;
+}
+
+export interface OptimiseInput extends RunInput {
   planDate: string;
   direction: TransportDirection;
   seeds: PlanSeed[];
   objectIds: string[];
-  weights: PlannerWeights;
-  timeLimitS: number;
   /** T2-D5: the branch of the new plans (branch-scoped users; null / absent for a whole-company plan). */
   branchId?: string | null;
-  /** Owner decision 1: per-plan max-ride override (authorised callers only), sent with each plan's optimise. */
-  maxRideOverride?: MaxRideOverrideInput | null;
+  /** E4 WP-A: generate one alternative plan per strategy (2–5) instead of optimising the new plan itself. */
+  alternatives?: RoutingStrategy[];
 }
 
 export interface StartedPlan {
@@ -30,6 +39,8 @@ export interface StartedPlan {
   /** Bookings the server left out of the plan (reason per booking) and the booking counts, shown with the plan. */
   skipped?: { bookingId: string; reason: string }[];
   counts?: RoutePlanCreateCounts | null;
+  /** E4 WP-A: the alternatives started from this plan (siblings and their jobs). */
+  alternatives?: RoutePlanAlternativesResult | null;
 }
 
 /**
@@ -43,7 +54,7 @@ export class SeedError extends Error {
   readonly code = 'SITE_REQUIRED';
 }
 
-export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDate' | 'direction' | 'objectIds' | 'branchId'>): CreatePlanRequest {
+export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDate' | 'direction' | 'objectIds' | 'branchId'> & { maxRideOverride?: MaxRideOverrideInput | null }): CreatePlanRequest {
   if (!seed.sitePoiId) throw new SeedError('The shift has no site');
   return {
     name: seed.name,
@@ -54,15 +65,19 @@ export function createRequest(seed: PlanSeed, input: Pick<OptimiseInput, 'planDa
     objectIds: [...input.objectIds],
     ...(seed.planStartAt ? { planStartAt: seed.planStartAt } : {}),
     ...(input.branchId ? { branchId: input.branchId } : {}),
+    // Alternatives copy the source's override, so in that mode it is set on the new plan (CreateRoutePlanDto).
+    ...(input.maxRideOverride ? { maxRideOverride: { ...input.maxRideOverride } } : {}),
   };
 }
 
-export function optimizeOptions(plan: Pick<PlannerPlan, 'version'>, input: { weights: PlannerWeights; timeLimitS: number; maxRideOverride?: MaxRideOverrideInput | null }): OptimizeOptions {
+export function optimizeOptions(plan: Pick<PlannerPlan, 'version'>, input: RunInput): OptimizeOptions {
   return {
     expectedVersion: plan.version,
     timeLimitS: input.timeLimitS,
-    objective: solverObjective(input.weights),
-    weights: { ...input.weights },
+    // Advanced: explicit weights (they win over the strategy on the server) with their objective.
+    ...(input.weights ? { objective: solverObjective(input.weights), weights: { ...input.weights } } : {}),
+    ...(input.strategy ? { strategy: input.strategy } : {}),
+    ...(input.preferences ? { preferences: { ...input.preferences } } : {}),
     // Owner decision 1: only when set or cleared on purpose; absent keeps the plan's override.
     ...(input.maxRideOverride !== undefined ? { maxRideOverride: input.maxRideOverride ? { ...input.maxRideOverride } : null } : {}),
   };
@@ -77,12 +92,19 @@ export async function startOptimise(c: PlannerClient, input: OptimiseInput, keyF
   for (const seed of input.seeds) {
     let planId: string | null = null;
     try {
-      const body = createRequest(seed, input);
+      const alt = input.alternatives?.length ? input.alternatives : null;
+      const body = createRequest(seed, alt ? input : { ...input, maxRideOverride: undefined });
       const plan = await c.createPlan(body, keyFor(`create:${seed.shiftId}`, body));
       planId = plan.id;
       const left = { skipped: plan.skippedBookings ?? [], counts: plan.bookingCounts ?? null };
       if (plan.emptyReason) {
         out.push({ seed, planId, job: null, error: null, empty: plan.emptyReason, ...left });
+        continue;
+      }
+      if (alt) {
+        const ab = alternativesBody(plan, { strategies: alt, timeLimitS: input.timeLimitS, preferences: input.preferences });
+        const alternatives = await c.createAlternatives(plan.id, ab, keyFor(`alternatives:${plan.id}`, ab));
+        out.push({ seed, planId, job: null, error: null, alternatives, ...left });
         continue;
       }
       const opt = { planId: plan.id, ...optimizeOptions(plan, input) };
@@ -96,7 +118,7 @@ export async function startOptimise(c: PlannerClient, input: OptimiseInput, keyF
 }
 
 /** Re-optimise a saved plan through the alias `POST /transport/route-plans/:id/optimize`. */
-export function reoptimise(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, input: { weights: PlannerWeights; timeLimitS: number; maxRideOverride?: MaxRideOverrideInput | null }, keyFor: KeyFor): Promise<RoutingJobDto> {
+export function reoptimise(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, input: RunInput, keyFor: KeyFor): Promise<RoutingJobDto> {
   const body = optimizeOptions(plan, input);
   return c.optimizePlan(plan.id, body, keyFor(`reoptimize:${plan.id}`, body));
 }
@@ -105,9 +127,23 @@ export function reoptimise(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'ver
  * Publish of one plan version: body `{ expectedVersion }` plus the decision 5 fields the dialog needs (acknowledged
  * warning fingerprint, authorised override); key per (plan, version, body) attempt.
  */
-export function publishPlan(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, keyFor: KeyFor, decision: { acknowledgedWarnings?: string; override?: { reason: string } } = {}) {
+export function publishPlan(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, keyFor: KeyFor, decision: Pick<RoutePlanPublishRequest, 'acknowledgedWarnings' | 'override'> = {}) {
   const body = { expectedVersion: plan.version, ...decision };
   return c.publish(plan.id, body, keyFor(`publish:${plan.id}`, body));
+}
+
+/**
+ * WP-B selected-routes publish from the review screen: the body the review produced (expectedVersion, assignmentIds,
+ * reviewHash, decision fields); the key follows the body, so a retry replays and a reloaded review gets a new key.
+ */
+export function publishReviewed(c: PlannerClient, planId: string, body: Omit<RoutePlanPublishRequest, 'idempotencyKey'>, keyFor: KeyFor) {
+  return c.publish(planId, body, keyFor(`publish:${planId}`, body));
+}
+
+/** Generate alternatives of a saved plan (POST /:id/alternatives, Idempotency-Key per body). */
+export function generateAlternatives(c: PlannerClient, plan: Pick<PlannerPlan, 'id' | 'version'>, input: { strategies: RoutingStrategy[]; timeLimitS?: number; preferences?: RoutePlanPreferences }, keyFor: KeyFor) {
+  const body = alternativesBody(plan, input);
+  return c.createAlternatives(plan.id, body, keyFor(`alternatives:${plan.id}`, body));
 }
 
 /** Stable JSON (sorted keys) for comparing request bodies. */

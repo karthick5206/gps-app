@@ -47,7 +47,11 @@ export const plannerKeys = {
   history: (id: string) => ['route-plan-history', id] as const,
   job: (id: string) => ['routing-job', id] as const,
   compare: ['route-plans-compare'] as const,
+  review: (id: string) => ['route-plan-review', id] as const,
+  alternatives: (id: string) => ['route-plan-alternatives', id] as const,
 };
+
+export const planPublishPath = (id: string) => `${PLANNING_PATH}/${encodeURIComponent(id)}/publish`;
 
 // ───────────────────────────── gate (web flag + API capabilities) ─────────────────────────────
 
