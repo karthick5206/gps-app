@@ -1,8 +1,7 @@
 import type { BranchDto, PassengerDto, PoiDto } from '@veetracer/shared';
-import { ArchiveIcon, ArchiveRestoreIcon, BusIcon, HistoryIcon, PencilIcon, UploadIcon, UsersRoundIcon } from 'lucide-react';
+import { ArchiveIcon, ArchiveRestoreIcon, HistoryIcon, PencilIcon, UploadIcon, UsersRoundIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -20,7 +19,7 @@ import { AppAccessBadge, LocationBadge, RoutingConsentBadge, ToneBadge } from '.
 import { PassengerEditor } from './PassengerEditor';
 import { PassengerHistorySheet } from './PassengerHistorySheet';
 import { PassengerImportDialog } from './PassengerImportDialog';
-import { PASSENGERS_ENDPOINT, useArchivePassenger, VEHICLE_SEATS_PATH } from './use-people';
+import { PASSENGERS_ENDPOINT, useArchivePassenger } from './use-people';
 
 function PassengerForm(props: MasterFormProps<PassengerDto>) {
   return <PassengerEditor {...props} />;
@@ -154,13 +153,7 @@ export function PassengersPage() {
         aboveTable={<AccessReasonNotice />}
         headerActions={
           <>
-            {can('objects') && me?.company.features.includes('etms') && (
-              <Button variant="outline" asChild>
-                <Link to={VEHICLE_SEATS_PATH} aria-label={t('Vehicle seats')}>
-                  <BusIcon /> <span className="hidden sm:inline">{t('Vehicle seats')}</span>
-                </Link>
-              </Button>
-            )}
+            {/* v1.16.8: no Vehicle seats button — seats are typed in the vehicle form (Masters → Objects). */}
             {canImport && (
               <Button variant="outline" onClick={() => setImportOpen(true)} aria-label={t('Import')}>
                 <UploadIcon /> <span className="hidden sm:inline">{t('Import')}</span>
