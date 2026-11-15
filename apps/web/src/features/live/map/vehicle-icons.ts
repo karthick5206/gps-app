@@ -138,62 +138,180 @@ function badgeGlyph(ctx: CanvasRenderingContext2D, kind: IconKind) {
 }
 
 /**
- * A full-body person figure (64 px canvas, drawn @2x): standing, or one of two walking steps. Same geometry as the
- * mobile map's person PNGs (apps/mobile/scripts/gen-person-icons.mjs) — keep them in step.
+ * The person marker (64 px canvas, drawn @2x): a cartoon figure (dark hair, skin, teal top, navy trousers, dark shoes,
+ * dark outline) in a white round badge whose ring carries the movement-status colour. Poses: standing, two walking
+ * steps and two running steps; the map swaps the two steps of a moving person to animate it.
+ * The figure is described once as drawing operations (`personDrawOps`) that the web canvas and the mobile map's PNG
+ * generator (apps/mobile/scripts/gen-person-icons.mjs, SVG) both render, so both apps draw the same marker.
  */
 export type PersonPose = 'stand' | 'walkA' | 'walkB' | 'runA' | 'runB';
-type Seg = [number, number, number, number, number]; // x1, y1, x2, y2, width
-export const PERSON_POSES: Record<PersonPose, { head: [number, number]; segs: Seg[] }> = {
-  stand: { head: [32, 10], segs: [[32, 19, 32, 38, 10], [32, 22, 25, 37, 5], [32, 22, 39, 37, 5], [32, 37, 28, 58, 6.5], [32, 37, 36, 58, 6.5]] },
-  walkA: { head: [33, 10], segs: [[32.5, 19, 31.5, 38, 10], [32, 22, 24, 33, 5], [32, 22, 40, 35, 5], [31.5, 37, 23, 57, 6.5], [31.5, 37, 41, 57, 6.5]] },
-  walkB: { head: [33, 10], segs: [[32.5, 19, 31.5, 38, 10], [32, 22, 27, 36, 5], [32, 22, 37, 36, 5], [31.5, 37, 29, 58, 6.5], [31.5, 37, 35, 58, 6.5]] },
-  // Running: leaning forward, bent arms and knees, long stride (A: legs apart, B: legs passing).
+type Pt = [number, number];
+/** A limb: joint points (shoulder → elbow → hand, or hip → knee → ankle). */
+type Limb = Pt[];
+export interface PersonPoseDef {
+  head: Pt;
+  /** Neck → hip. */
+  torso: [Pt, Pt];
+  backArm: Limb;
+  frontArm: Limb;
+  backLeg: Limb;
+  frontLeg: Limb;
+  /** Shoe direction from the ankle (dx, dy) for the back and the front foot. */
+  shoes: [Pt, Pt];
+  /** Frontal (standing) figure: hair cap instead of profile hair. */
+  frontal?: boolean;
+}
+
+// Side view facing right, figure inside the badge (x 15–49, y 9–53).
+export const PERSON_POSES: Record<PersonPose, PersonPoseDef> = {
+  stand: {
+    head: [32, 15.5],
+    torso: [[32, 22], [32, 34]],
+    backArm: [[27.6, 23.6], [25.4, 29.8], [25.2, 35.4]],
+    frontArm: [[36.4, 23.6], [38.6, 29.8], [38.8, 35.4]],
+    backLeg: [[29.8, 34], [29.5, 42.5], [29.5, 50.5]],
+    frontLeg: [[34.2, 34], [34.5, 42.5], [34.5, 50.5]],
+    shoes: [[-2.4, 0.4], [2.4, 0.4]],
+    frontal: true,
+  },
+  walkA: {
+    head: [33.5, 15.5],
+    torso: [[32.8, 22], [31.6, 34]],
+    backArm: [[32.4, 23.8], [29.2, 29.6], [27.4, 35]],
+    frontArm: [[32.4, 23.8], [35.4, 29.4], [38.6, 33.2]],
+    backLeg: [[31, 34], [27.8, 42], [24.6, 49.8]],
+    frontLeg: [[32.2, 34], [35.6, 41.8], [38.6, 49.6]],
+    shoes: [[3, 0.9], [3.4, 0.5]],
+  },
+  walkB: {
+    head: [33.5, 15.5],
+    torso: [[32.8, 22], [31.8, 34]],
+    backArm: [[32.4, 23.8], [31, 29.8], [30.6, 35.4]],
+    frontArm: [[32.4, 23.8], [34, 29.6], [35.2, 35]],
+    backLeg: [[31.4, 34], [30.4, 42.2], [31.2, 50.2]],
+    frontLeg: [[32.2, 34], [35, 40.8], [32, 46.6]],
+    shoes: [[3, 0.6], [2.8, 1.2]],
+  },
+  // Running: leaning forward, bent arms, long stride (A: legs apart, back foot kicked up; B: knee forward).
   runA: {
-    head: [37, 11],
-    segs: [[34.5, 20, 30, 37, 10], [33.5, 23, 26, 28, 5], [26, 28, 23, 35, 4.5], [33.5, 23, 40, 30, 5], [40, 30, 46, 24, 4.5], [30, 36, 23, 45, 6.5], [23, 45, 15, 43, 6], [30, 36, 40, 44, 6.5], [40, 44, 41, 56, 6]],
+    head: [36.6, 15],
+    torso: [[34.6, 21.6], [30.8, 33]],
+    backArm: [[33.8, 23.6], [28.4, 28.8], [24.6, 25.4]],
+    frontArm: [[33.8, 23.6], [38.6, 28.8], [43.6, 25.2]],
+    backLeg: [[30.6, 33], [23.8, 38.8], [17.4, 37.4]],
+    frontLeg: [[31.4, 33], [38.4, 39.8], [37.8, 49.8]],
+    shoes: [[-0.6, 2.8], [3.6, 0.6]],
   },
   runB: {
-    head: [36, 10],
-    segs: [[33.5, 19, 30.5, 37, 10], [33, 22, 29, 30, 5], [29, 30, 33, 35, 4.5], [33, 22, 37, 29, 5], [37, 29, 42, 26, 4.5], [30.5, 36, 34, 46, 6.5], [34, 46, 30, 57, 6], [30.5, 36, 27, 46, 6.5], [27, 46, 21, 51, 6]],
+    head: [36, 15],
+    torso: [[34, 21.6], [30.8, 33]],
+    backArm: [[33.4, 23.6], [30.4, 30], [33.6, 34]],
+    frontArm: [[33.4, 23.6], [37.2, 29.4], [41.6, 27]],
+    backLeg: [[30.8, 33], [32.2, 41.8], [30, 50]],
+    frontLeg: [[31.4, 33], [38.4, 37], [35.4, 44]],
+    shoes: [[3.4, 0.6], [2.6, 1]],
   },
 };
+
+/** Fixed palette of the figure (the status colour is the badge ring). */
+export const PERSON_COLORS = {
+  outline: '#1f2a37',
+  hair: '#1f2a37',
+  skin: '#f4b886',
+  shirt: '#1f9488',
+  shirtBack: '#187a70',
+  trousers: '#4b587a',
+  trousersBack: '#3d4866',
+  badge: '#ffffff',
+} as const;
+
+/** One drawing operation: an SVG path, stroked (round caps and joins) and/or filled. */
+export interface DrawOp {
+  d: string;
+  stroke?: string;
+  width?: number;
+  fill?: string;
+}
+
+const n2 = (v: number) => +v.toFixed(2);
+const polyline = (l: Pt[]) => l.map(([x, y], i) => `${i ? 'L' : 'M'}${n2(x)} ${n2(y)}`).join(' ');
+const circle = (cx: number, cy: number, r: number) => `M${n2(cx - r)} ${n2(cy)} a${r} ${r} 0 1 0 ${2 * r} 0 a${r} ${r} 0 1 0 ${-2 * r} 0 Z`;
+
+/** Badge (first op) + figure, back to front. */
+export function personDrawOps(pose: PersonPose, ringColor: string): DrawOp[] {
+  const f = PERSON_POSES[pose];
+  const C = PERSON_COLORS;
+  const ops: DrawOp[] = [{ d: circle(32, 32, 28.5), fill: C.badge, stroke: ringColor, width: 4 }];
+  const OUT = 2.6; // outline added around every limb
+  const limb = (l: Limb, width: number, color: string) => {
+    ops.push({ d: polyline(l), stroke: C.outline, width: width + OUT });
+    ops.push({ d: polyline(l), stroke: color, width });
+  };
+  const hand = (l: Limb) => {
+    const [x, y] = l[l.length - 1];
+    ops.push({ d: circle(x, y, 2.2), fill: C.skin, stroke: C.outline, width: 1.3 });
+  };
+  const shoe = (l: Limb, [dx, dy]: Pt) => {
+    const [x, y] = l[l.length - 1];
+    ops.push({ d: polyline([[x, y], [x + dx, y + dy]]), stroke: C.outline, width: 4.6 });
+  };
+  // Back limbs first (a shade darker), then the torso, the front limbs and the head. A frontal figure shows both arms
+  // beside the body, so its "back" arm is drawn after the torso in the normal shirt colour.
+  if (!f.frontal) {
+    limb(f.backArm, 4.4, C.shirtBack);
+    hand(f.backArm);
+  }
+  limb(f.backLeg, 5.6, f.frontal ? C.trousers : C.trousersBack);
+  shoe(f.backLeg, f.shoes[0]);
+  limb(f.torso, 9.5, C.shirt);
+  if (f.frontal) {
+    limb(f.backArm, 4.4, C.shirt);
+    hand(f.backArm);
+  }
+  limb(f.frontLeg, 5.6, C.trousers);
+  shoe(f.frontLeg, f.shoes[1]);
+  limb(f.frontArm, 4.4, C.shirt);
+  hand(f.frontArm);
+  const [hx, hy] = f.head;
+  const r = 5.6;
+  ops.push({ d: circle(hx, hy, r), fill: C.skin, stroke: C.outline, width: 1.4 });
+  const p = (x: number, y: number) => `${n2(x)} ${n2(y)}`;
+  const hair = f.frontal
+    ? // Frontal: hair cap over the top of the head.
+      `M${p(hx - r, hy - 0.4)} C${p(hx - r, hy - r * 1.55)} ${p(hx + r, hy - r * 1.55)} ${p(hx + r, hy - 0.4)} C${p(hx + r * 0.5, hy - r * 0.75)} ${p(hx - r * 0.5, hy - r * 0.75)} ${p(hx - r, hy - 0.4)} Z`
+    : // Profile facing right: hair over the top and the back of the head, the face open to the right.
+      `M${p(hx - r * 1.05, hy + r * 0.35)} C${p(hx - r * 1.25, hy - r * 1.2)} ${p(hx + r * 0.7, hy - r * 1.6)} ${p(hx + r * 0.95, hy - r * 0.35)} C${p(hx + r * 0.3, hy - r * 0.6)} ${p(hx - r * 0.1, hy - r * 0.3)} ${p(hx - r * 0.25, hy + r * 0.25)} C${p(hx - r * 0.5, hy + r * 0.5)} ${p(hx - r * 0.8, hy + r * 0.6)} ${p(hx - r * 1.05, hy + r * 0.35)} Z`;
+  ops.push({ d: hair, fill: C.hair, stroke: C.outline, width: 1 });
+  return ops;
+}
+
 /** Moving people walk; everyone else stands. */
 export const personPose = (status: MovementStatus, running = false): PersonPose => (status === 'RUNNING' || status === 'OVERSPEED' ? (running ? 'runA' : 'walkA') : 'stand');
 
-export function createPersonFigure(status: MovementStatus, theme: ResolvedTheme, outline: string, pose: PersonPose = personPose(status)): ImageData {
+export function createPersonFigure(status: MovementStatus, theme: ResolvedTheme, _outline: string, pose: PersonPose = personPose(status)): ImageData {
   const canvas = document.createElement('canvas');
   canvas.width = SIZE;
   canvas.height = SIZE;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D unavailable');
-  const color = STATUS_META[status][theme];
-  const f = PERSON_POSES[pose];
   ctx.lineCap = 'round';
-  // Ground shadow under the feet.
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
-  ctx.beginPath();
-  ctx.ellipse(32, 60, 11, 2.6, 0, 0, Math.PI * 2);
-  ctx.fill();
-  const draw = (extra: number, style: string) => {
-    ctx.strokeStyle = style;
-    ctx.fillStyle = style;
-    for (const [x1, y1, x2, y2, w] of f.segs) {
-      ctx.lineWidth = w + extra;
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
+  ctx.lineJoin = 'round';
+  personDrawOps(pose, STATUS_META[status][theme]).forEach((op, i) => {
+    const path = new Path2D(op.d);
+    if (op.fill) {
+      ctx.save();
+      // The badge casts a soft shadow so it reads on any basemap.
+      if (i === 0) Object.assign(ctx, { shadowColor: 'rgba(0,0,0,0.35)', shadowBlur: 4, shadowOffsetY: 1 });
+      ctx.fillStyle = op.fill;
+      ctx.fill(path);
+      ctx.restore();
     }
-    ctx.beginPath();
-    ctx.arc(f.head[0], f.head[1], 6.5 + extra / 2, 0, Math.PI * 2);
-    ctx.fill();
-  };
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.3)';
-  ctx.shadowBlur = 3;
-  draw(4, outline); // outline so the figure reads on any basemap
-  ctx.restore();
-  draw(0, color);
+    if (op.stroke) {
+      ctx.strokeStyle = op.stroke;
+      ctx.lineWidth = op.width ?? 1;
+      ctx.stroke(path);
+    }
+  });
   return ctx.getImageData(0, 0, SIZE, SIZE);
 }
 
