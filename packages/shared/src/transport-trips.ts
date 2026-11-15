@@ -16,6 +16,7 @@ import type { PlannedStopStatus, PlannedTripOrigin, PlannedTripStatus, RoutePath
 import type { PermissionMap } from './permissions';
 import type { ComplianceIssue, TransportComplianceMode } from './transport-compliance';
 import type { PlaceRef } from './transport-people';
+import type { BookingPoolingInput, BookingPoolingView, MeTripPoolingView, RidePreference, RideService } from './transport-pooling';
 
 // ───────────────────────────── Enumerations ─────────────────────────────
 
@@ -131,6 +132,17 @@ export const TRANSPORT_TRIP_EVENT_KINDS = [
    * final outcome (BOARDED: drop not recorded; PENDING: no outcome, needsReview). The seat status is not changed.
    */
   'PASSENGER_AUTO_SETTLED',
+  /** Pooling (doc 20 §3.7): a passenger inserted by live dispatch (SYSTEM) or a dispatcher-applied live option. */
+  'PASSENGER_INSERTED',
+  'STOP_RESEQUENCED',
+  'PASSENGER_TRANSFERRED',
+  /** Pooling: REPORT_BREAKDOWN made the trip interrupted (TransportTrip.interruptedAt). */
+  'TRIP_INTERRUPTED',
+  'ASSIGNMENT_REOPTIMISED',
+  /** Pooling P5: a started trip's pending stops changed (routeVersion + 1); the driver must acknowledge it. */
+  'ROUTE_UPDATED',
+  /** DRIVER, pooling P5: the driver acknowledged routeVersion `data.routeVersion`. */
+  'ROUTE_ACK',
 ] as const;
 export type TransportTripEventKind = (typeof TRANSPORT_TRIP_EVENT_KINDS)[number];
 export type TransportTripActorType = 'DISPATCHER' | 'DRIVER' | 'PASSENGER' | 'SYSTEM';
@@ -414,7 +426,7 @@ export interface TransportSchedulePreviewDto {
 
 export type TransportBookingAction = 'edit' | 'cancel' | 'approve' | 'reject';
 
-export interface TransportBookingDto {
+export interface TransportBookingDto extends BookingPoolingView {
   id: string;
   version: number;
   status: TransportBookingStatus;
@@ -425,7 +437,8 @@ export interface TransportBookingDto {
   shiftId: string | null;
   shiftName: string | null;
   serviceDate: string;
-  direction: TransportDirection;
+  /** IN / OUT for COMMUTE; null for POINT_TO_POINT bookings made by a pooling server (older ones keep IN). */
+  direction: TransportDirection | null;
   timeZone: string;
   /**
    * Company sites (poiId set) always. Personal points (home / ad-hoc address) only on the booking detail and the dispatch
@@ -482,10 +495,10 @@ export interface TransportBookingDto {
  * the audit records cutoffAt, the creation time, the dispatcher and the reason. The passenger is notified
  * (BOOKING_CREATED, generic push, D-A4) when someone else books for them.
  */
-export interface CreateTransportBookingInput {
+export interface CreateTransportBookingInput extends BookingPoolingInput {
   passengerId: string;
   serviceDate: string;
-  /** Required for COMMUTE; ignored for POINT_TO_POINT (stored as IN). */
+  /** Required for COMMUTE; ignored for POINT_TO_POINT (stored as null). */
   direction?: TransportDirection;
   journey?: TransportBookingJourney;
   shiftId?: string | null;
@@ -959,7 +972,7 @@ export interface TransportPassengerOutcomeInput {
 
 // ───────────────────────────── Passenger self view (/api/me/transport) ─────────────────────────────
 
-export interface MeTripDto {
+export interface MeTripDto extends MeTripPoolingView {
   /** TransportTrip id. */
   id: string;
   passengerTripId: string;
@@ -1000,11 +1013,15 @@ export type MeVehicleDto =
   | { visible: true; lat: number; lng: number; heading: number | null; speedKph: number | null; fixAt: string; eta: EtaValue };
 
 export interface MeBookingDto {
+  /** Pooling: ride preference, accepted limits and how the ride was served (absent from older servers). */
+  ridePreference?: RidePreference;
+  limits?: BookingPoolingView['limits'];
+  assignedService?: RideService | null;
   id: string;
   status: TransportBookingStatus;
   source: TransportBookingSource;
   serviceDate: string;
-  direction: TransportDirection;
+  direction: TransportDirection | null;
   timeZone: string;
   windowStart: string;
   windowEnd: string;
@@ -1083,6 +1100,32 @@ export const TRANSPORT_E3_ERROR_CODES = [
   'TOO_MANY_OPEN_REQUESTS',
   /** v1.16.7: a vehicle or driver without valid required documents while compliance is BLOCK. */
   'NOT_COMPLIANT',
+  // Pooling (doc 20, transport-pooling.ts).
+  /** 409: a held booking (dispatcher hold) cannot be seated or published. */
+  'BOOKING_ON_HOLD',
+  /** 409: P1, a PRIVATE booking would share its trip (or a booking would join a private trip). */
+  'PRIVATE_RIDE_NOT_EXCLUSIVE',
+  /** 409: the vehicle is down / reserved / under maintenance / outside its operating hours. */
+  'VEHICLE_UNAVAILABLE',
+  /** 409: less than the vehicle's turnaround between two of its trips. */
+  'VEHICLE_TURNAROUND',
+  /** 409: the driver's working-hour policy would be broken (body `problems`). */
+  'DRIVER_HOURS',
+  /** 409: the accepted sharing limits / preference / policy version of an active booking cannot change. */
+  'LIMITS_IMMUTABLE',
+  /** 400: requested limits looser than the sharing policy. */
+  'LIMITS_ABOVE_POLICY',
+  /** 409: SHARED / FLEXIBLE needs the current sharing policy accepted (body `version`). */
+  'POLICY_ACCEPTANCE_REQUIRED',
+  'POLICY_VERSION_STALE',
+  /** 409: FLEXIBLE is not offered by the company's policy. */
+  'FLEXIBLE_NOT_ALLOWED',
+  /** 409: a live change would break a committed pickup window / onboard drop / accepted limit. */
+  'COMMITMENT_VIOLATION',
+  /** 409: live dispatch is switched off (company switch or ETMS_LIVE_DISPATCH=off). */
+  'LIVE_DISPATCH_DISABLED',
+  /** 409: no feasible option for the booking (body `reasons`). */
+  'NO_FEASIBLE_OPTION',
 ] as const;
 export type TransportE3ErrorCode = (typeof TRANSPORT_E3_ERROR_CODES)[number];
 

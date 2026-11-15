@@ -1,7 +1,12 @@
 import {
   ROUTE_PLAN_OVERRIDE_REASON_MAX,
   ROUTE_PLAN_STATUSES,
+  ROUTING_LIMITS,
   TRANSPORT_DIRECTIONS,
+  type RoutePlanAddBookingRequest,
+  type RoutePlanBookingPinRequest,
+  type RoutePlanRecalculateRequest,
+  type RoutePlanRestoreRequest,
   type RoutePlanAssignmentUpdateRequest,
   type RoutePlanDiscardRequest,
   type RoutePlanMovePassengerRequest,
@@ -79,4 +84,42 @@ export class PublishDto implements RoutePlanPublishRequest {
   @IsOptional() @IsString() @MaxLength(40) acknowledgedWarnings?: string;
   /** Exceptional override of arrival-window violations (authorised callers; reason recorded and audited). */
   @IsOptional() @ValidateNested() @Type(() => PublishOverrideDto) override?: PublishOverrideDto;
+  /** WP-B: publish only these routes (needs reviewHash). Omitted = every unpublished route with stops. */
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(ROUTING_LIMITS.optimizeVehicles) @IsUUID('all', { each: true }) assignmentIds?: string[];
+  /** WP-B: the reviewHash of GET /:id/review for this selection. */
+  @IsOptional() @IsString() @MaxLength(80) reviewHash?: string;
+}
+
+/** WP-B: POST /transport/route-plans/:id/restore (undo / redo). */
+export class RestoreDto implements RoutePlanRestoreRequest {
+  @IsInt() @Min(1) version!: number;
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+/** WP-B: POST /transport/route-plans/:id/recalculate. */
+export class RecalculateDto implements RoutePlanRecalculateRequest {
+  @IsInt() @Min(1) expectedVersion!: number;
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(ROUTING_LIMITS.optimizeVehicles) @IsUUID('all', { each: true }) assignmentIds?: string[];
+}
+
+/** WP-B: POST /transport/route-plans/:id/bookings. */
+export class AddBookingDto implements RoutePlanAddBookingRequest {
+  @IsUUID() bookingId!: string;
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+/** WP-B: DELETE /transport/route-plans/:id/bookings/:bookingId?expectedVersion=n. */
+export class RemoveBookingQuery {
+  @Type(() => Number) @IsInt() @Min(1) expectedVersion!: number;
+}
+
+/** WP-B: PATCH /transport/route-plans/:id/bookings/:bookingId/pin. */
+export class BookingPinDto implements RoutePlanBookingPinRequest {
+  @IsBoolean() pinned!: boolean;
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+/** WP-B: GET /transport/route-plans/:id/review?assignmentIds=a,b (default: every unpublished route with stops). */
+export class ReviewQuery {
+  @IsOptional() @IsString() @MaxLength(ROUTING_LIMITS.optimizeVehicles * 37) assignmentIds?: string;
 }

@@ -1,3 +1,4 @@
+import type { PdpProblem, PdpResult } from './pdp-contract';
 import type { SolverProblem } from '@veetracer/shared';
 import { OptimizerClient } from '../routing/optimizer/optimizer.client';
 import { RoutingError } from '../routing/routing.errors';
@@ -14,8 +15,26 @@ import type { SolverPort } from './optimize-runner';
  * Cancel / timeout / lease loss abort the job run at once (the runner races the abort signal); the HTTP call itself
  * ends at the client's own timeout (solver limit + 15 s).
  */
-export function solverPort(client: Pick<OptimizerClient, 'solve'>): SolverPort {
+export function solverPort(client: Pick<OptimizerClient, 'solve'> & Partial<Pick<OptimizerClient, 'solvePdp'>>): SolverPort {
   return {
+    // Pooling (doc 20 §4): contract v3 pickup-and-delivery; an optimiser without it is PDP_UNSUPPORTED (final).
+    ...(client.solvePdp
+      ? {
+          async solvePdp(problem: PdpProblem, signal?: AbortSignal): Promise<PdpResult> {
+            if (signal?.aborted) throw signal.reason as Error;
+            try {
+              return await client.solvePdp!<PdpProblem, PdpResult>(problem);
+            } catch (e) {
+              if (e instanceof RoutingError) {
+                if (e.code === 'PDP_UNSUPPORTED') throw new JobError('PDP_UNSUPPORTED', e.message);
+                if (e.code === 'OPTIMIZER_BUSY' || e.code === 'OPTIMIZER_UNAVAILABLE' || e.code === 'OPTIMIZER_REFUSED') throw new JobError(e.code, e.message);
+                throw new JobError('INVALID_INPUT', `Optimizer rejected the problem: ${e.message.slice(0, 200)}`);
+              }
+              throw e;
+            }
+          },
+        }
+      : {}),
     async solve(problem: SolverProblemV2, signal?: AbortSignal) {
       if (signal?.aborted) throw signal.reason as Error;
       try {

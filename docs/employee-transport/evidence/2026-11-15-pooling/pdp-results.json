@@ -1,0 +1,1015 @@
+{
+ "acceptance": {
+  "violations": {},
+  "metrics": {
+   "served": 12,
+   "unserved": 38,
+   "vehicles": {
+    "v1": {
+     "trips": 4,
+     "km": 88.0,
+     "tripList": [
+      {
+       "start": 1369,
+       "end": 4130,
+       "requests": 1,
+       "peakLoad": 2,
+       "stops": [
+        "P:r8",
+        "D:r8"
+       ]
+      },
+      {
+       "start": 5653,
+       "end": 6540,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r36",
+        "D:r36"
+       ]
+      },
+      {
+       "start": 9344,
+       "end": 10330,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r38",
+        "D:r38"
+       ]
+      },
+      {
+       "start": 12531,
+       "end": 16566,
+       "requests": 3,
+       "peakLoad": 3,
+       "stops": [
+        "P:r42",
+        "P:r41",
+        "P:r47",
+        "D:r47",
+        "D:r42",
+        "D:r41"
+       ]
+      }
+     ]
+    },
+    "v2": {
+     "trips": 6,
+     "km": 95.4,
+     "tripList": [
+      {
+       "start": 1973,
+       "end": 3084,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r1",
+        "D:r1"
+       ]
+      },
+      {
+       "start": 4626,
+       "end": 5855,
+       "requests": 1,
+       "peakLoad": 2,
+       "stops": [
+        "P:r30",
+        "D:r30"
+       ]
+      },
+      {
+       "start": 6565,
+       "end": 7705,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r24",
+        "D:r24"
+       ]
+      },
+      {
+       "start": 8997,
+       "end": 9965,
+       "requests": 1,
+       "peakLoad": 2,
+       "stops": [
+        "P:r28",
+        "D:r28"
+       ]
+      },
+      {
+       "start": 10998,
+       "end": 12254,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r33",
+        "D:r33"
+       ]
+      },
+      {
+       "start": 14625,
+       "end": 17560,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r40",
+        "D:r40"
+       ]
+      }
+     ]
+    }
+   },
+   "kmTotal": 183.4,
+   "waitMin": {
+    "avg": 3.5,
+    "max": 11.6
+   },
+   "rideMin": {
+    "avg": 27.5,
+    "max": 60.8
+   },
+   "detourMin": {
+    "avg": 1.7,
+    "max": 10.6
+   },
+   "peakOccupancyAvg": 0.21,
+   "sharedShare": 0.25,
+   "flexibleLabels": {
+    "r36": "alone",
+    "r40": "alone",
+    "r42": "shared"
+   },
+   "privateWithCoRiders": []
+  },
+  "unservedReasons": {
+   "r2": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r3": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r4": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r5": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r6": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r7": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r9": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r10": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r11": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r12": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r13": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r14": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r15": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r16": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r17": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r18": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r19": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r20": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r21": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r22": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r23": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r25": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r26": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r27": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r29": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r31": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r32": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r34": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r35": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r37": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r39": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r43": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r44": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r45": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ],
+   "r46": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r48": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r49": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r50": [
+    "max_ride",
+    "pickup_window",
+    "vehicle_time"
+   ]
+  },
+  "wall": 30.01,
+  "prefs": {
+   "SHARED": 30,
+   "PRIVATE": 9,
+   "FLEXIBLE": 11
+  }
+ },
+ "acceptance_5veh": {
+  "violations": {},
+  "metrics": {
+   "served": 27,
+   "unserved": 23,
+   "vehicles": {
+    "v1": {
+     "trips": 6,
+     "km": 90.5,
+     "tripList": [
+      {
+       "start": 1973,
+       "end": 3084,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r1",
+        "D:r1"
+       ]
+      },
+      {
+       "start": 4626,
+       "end": 5855,
+       "requests": 1,
+       "peakLoad": 2,
+       "stops": [
+        "P:r30",
+        "D:r30"
+       ]
+      },
+      {
+       "start": 6565,
+       "end": 7705,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r24",
+        "D:r24"
+       ]
+      },
+      {
+       "start": 8997,
+       "end": 9965,
+       "requests": 1,
+       "peakLoad": 2,
+       "stops": [
+        "P:r28",
+        "D:r28"
+       ]
+      },
+      {
+       "start": 10998,
+       "end": 12254,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r33",
+        "D:r33"
+       ]
+      },
+      {
+       "start": 14625,
+       "end": 17560,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r40",
+        "D:r40"
+       ]
+      }
+     ]
+    },
+    "v2": {
+     "trips": 4,
+     "km": 85.1,
+     "tripList": [
+      {
+       "start": 3251,
+       "end": 3734,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r46",
+        "D:r46"
+       ]
+      },
+      {
+       "start": 6811,
+       "end": 8484,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r39",
+        "D:r39"
+       ]
+      },
+      {
+       "start": 8581,
+       "end": 9875,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r16",
+        "D:r16"
+       ]
+      },
+      {
+       "start": 13680,
+       "end": 17766,
+       "requests": 2,
+       "peakLoad": 2,
+       "stops": [
+        "P:r4",
+        "P:r31",
+        "D:r4",
+        "D:r31"
+       ]
+      }
+     ]
+    },
+    "v3": {
+     "trips": 5,
+     "km": 86.3,
+     "tripList": [
+      {
+       "start": 2167,
+       "end": 4148,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r50",
+        "D:r50"
+       ]
+      },
+      {
+       "start": 5195,
+       "end": 6912,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r44",
+        "D:r44"
+       ]
+      },
+      {
+       "start": 7253,
+       "end": 8199,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r45",
+        "D:r45"
+       ]
+      },
+      {
+       "start": 12670,
+       "end": 13764,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r12",
+        "D:r12"
+       ]
+      },
+      {
+       "start": 14751,
+       "end": 17760,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r35",
+        "D:r35"
+       ]
+      }
+     ]
+    },
+    "v4": {
+     "trips": 3,
+     "km": 86.4,
+     "tripList": [
+      {
+       "start": 1420,
+       "end": 5533,
+       "requests": 2,
+       "peakLoad": 3,
+       "stops": [
+        "P:r8",
+        "P:r11",
+        "D:r8",
+        "D:r11"
+       ]
+      },
+      {
+       "start": 9763,
+       "end": 11111,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r2",
+        "D:r2"
+       ]
+      },
+      {
+       "start": 12272,
+       "end": 15828,
+       "requests": 2,
+       "peakLoad": 2,
+       "stops": [
+        "P:r42",
+        "P:r47",
+        "D:r47",
+        "D:r42"
+       ]
+      }
+     ]
+    },
+    "v5": {
+     "trips": 4,
+     "km": 78.6,
+     "tripList": [
+      {
+       "start": 2301,
+       "end": 3314,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r26",
+        "D:r26"
+       ]
+      },
+      {
+       "start": 4967,
+       "end": 5854,
+       "requests": 1,
+       "peakLoad": 1,
+       "stops": [
+        "P:r36",
+        "D:r36"
+       ]
+      },
+      {
+       "start": 7473,
+       "end": 11099,
+       "requests": 2,
+       "peakLoad": 2,
+       "stops": [
+        "P:r15",
+        "P:r38",
+        "D:r38",
+        "D:r15"
+       ]
+      },
+      {
+       "start": 13799,
+       "end": 17308,
+       "requests": 2,
+       "peakLoad": 2,
+       "stops": [
+        "P:r21",
+        "P:r41",
+        "D:r41",
+        "D:r21"
+       ]
+      }
+     ]
+    }
+   },
+   "kmTotal": 426.9,
+   "waitMin": {
+    "avg": 3.2,
+    "max": 13.4
+   },
+   "rideMin": {
+    "avg": 29.6,
+    "max": 59.4
+   },
+   "detourMin": {
+    "avg": 2.3,
+    "max": 23.9
+   },
+   "peakOccupancyAvg": 0.19,
+   "sharedShare": 0.37,
+   "flexibleLabels": {
+    "r2": "alone",
+    "r15": "shared",
+    "r31": "shared",
+    "r36": "alone",
+    "r40": "alone",
+    "r42": "shared",
+    "r44": "alone"
+   },
+   "privateWithCoRiders": []
+  },
+  "unservedReasons": {
+   "r3": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r5": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r6": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r7": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r9": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r10": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r13": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r14": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r17": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r18": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r19": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r20": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r22": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r23": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r25": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r27": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r29": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r32": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r34": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r37": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r43": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "r48": "NOT_SELECTED",
+   "r49": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ]
+  },
+  "wall": 10.02
+ },
+ "directions": {
+  "violations": {},
+  "routes": {
+   "v1": [
+    [
+     "pick",
+     "ne0",
+     3600
+    ],
+    [
+     "pick",
+     "ne1",
+     3748
+    ],
+    [
+     "pick",
+     "ne2",
+     3896
+    ],
+    [
+     "drop",
+     "ne2",
+     6276
+    ],
+    [
+     "drop",
+     "ne1",
+     6414
+    ],
+    [
+     "drop",
+     "ne0",
+     6552
+    ]
+   ],
+   "v2": [
+    [
+     "pick",
+     "sw0",
+     3600
+    ],
+    [
+     "pick",
+     "sw1",
+     3748
+    ],
+    [
+     "pick",
+     "sw2",
+     3896
+    ],
+    [
+     "drop",
+     "sw2",
+     6276
+    ],
+    [
+     "drop",
+     "sw1",
+     6414
+    ],
+    [
+     "drop",
+     "sw0",
+     6552
+    ]
+   ]
+  },
+  "dropped": [],
+  "mixedTrips": []
+ },
+ "strategies": {
+  "balanced": {
+   "served": 27,
+   "vehiclesUsed": 5,
+   "trips": 22,
+   "km": 426.9,
+   "wait": {
+    "avg": 3.2,
+    "max": 13.4
+   },
+   "ride": {
+    "avg": 29.6,
+    "max": 59.4
+   },
+   "detour": {
+    "avg": 2.3,
+    "max": 23.9
+   },
+   "peakOcc": 0.19,
+   "shared": 0.37,
+   "violations": {}
+  },
+  "max_utilisation": {
+   "served": 25,
+   "vehiclesUsed": 5,
+   "trips": 17,
+   "km": 372.2,
+   "wait": {
+    "avg": 7.0,
+    "max": 15.0
+   },
+   "ride": {
+    "avg": 30.4,
+    "max": 74.9
+   },
+   "detour": {
+    "avg": 4.6,
+    "max": 29.9
+   },
+   "peakOcc": 0.23,
+   "shared": 0.56,
+   "violations": {}
+  },
+  "shortest_distance": {
+   "served": 28,
+   "vehiclesUsed": 5,
+   "trips": 18,
+   "km": 420.1,
+   "wait": {
+    "avg": 7.7,
+    "max": 15.0
+   },
+   "ride": {
+    "avg": 37.7,
+    "max": 93.2
+   },
+   "detour": {
+    "avg": 9.0,
+    "max": 39.3
+   },
+   "peakOcc": 0.24,
+   "shared": 0.61,
+   "violations": {}
+  },
+  "fastest_pickup": {
+   "served": 26,
+   "vehiclesUsed": 5,
+   "trips": 18,
+   "km": 402.5,
+   "wait": {
+    "avg": 2.7,
+    "max": 14.6
+   },
+   "ride": {
+    "avg": 33.7,
+    "max": 68.4
+   },
+   "detour": {
+    "avg": 6.0,
+    "max": 28.4
+   },
+   "peakOcc": 0.23,
+   "shared": 0.54,
+   "violations": {}
+  },
+  "comfort": {
+   "served": 27,
+   "vehiclesUsed": 5,
+   "trips": 22,
+   "km": 423.9,
+   "wait": {
+    "avg": 3.5,
+    "max": 14.4
+   },
+   "ride": {
+    "avg": 29.3,
+    "max": 57.6
+   },
+   "detour": {
+    "avg": 2.0,
+    "max": 16.2
+   },
+   "peakOcc": 0.19,
+   "shared": 0.37,
+   "violations": {}
+  },
+  "minimum_vehicles": {
+   "served": 25,
+   "vehiclesUsed": 5,
+   "trips": 17,
+   "km": 372.2,
+   "wait": {
+    "avg": 7.0,
+    "max": 15.0
+   },
+   "ride": {
+    "avg": 30.4,
+    "max": 74.9
+   },
+   "detour": {
+    "avg": 4.6,
+    "max": 29.9
+   },
+   "peakOcc": 0.23,
+   "shared": 0.56,
+   "violations": {}
+  }
+ },
+ "live": {
+  "committedRequests": 18,
+  "onboard": 2,
+  "resolveWallS": 5.02,
+  "newServed": true,
+  "violations": {},
+  "committedMovedOrDropped": [],
+  "newVehicle": "v2",
+  "heuristic": {
+   "best": [
+    0,
+    "v2",
+    0,
+    2
+   ],
+   "failReasons": [
+    "max_ride",
+    "pickup_window",
+    "private_exclusive",
+    "vehicle_time"
+   ],
+   "ms": 3.5
+  },
+  "privateFarRequestServed": false,
+  "privateFarReasons": [
+   "max_ride",
+   "pickup_window",
+   "private_exclusive",
+   "vehicle_time"
+  ]
+ }
+}

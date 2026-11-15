@@ -54,6 +54,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { SimsModule } from './sims/sims.module';
 import { PlannedTripsModule } from './planned-trips/planned-trips.module';
 import { EtmsModule } from './etms/etms.module';
+import { PricingModule } from './pricing/pricing.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { EtmsModule } from './etms/etms.module';
     GeofencesModule,
     PlannedTripsModule,
     EtmsModule,
+    PricingModule,
     ReportsModule,
     ReportSchedulesModule,
     DashboardModule,

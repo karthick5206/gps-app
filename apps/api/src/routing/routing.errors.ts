@@ -25,6 +25,8 @@ export const ROUTING_ERROR_STATUS: Record<RoutingApiErrorCode, number> = {
   PLAN_STALE: 409,
   IDEMPOTENCY_KEY_REUSED: 422,
   VALIDATION_FAILED: 400,
+  // Pooling: the optimiser has no pickup-and-delivery mode yet (contract v3).
+  PDP_UNSUPPORTED: 409,
 };
 
 export const ROUTING_ERROR_CODES = Object.keys(ROUTING_ERROR_STATUS) as RoutingApiErrorCode[];

@@ -76,7 +76,10 @@ import { metres, PERSONAL_STOP_NAME, recordPersonalAccess, stopOwner } from './p
 import { BoardQuery, CandidatesDto, ChangeSetDto, ChangeSetListQuery, RepeatTripDto } from './e3.dto';
 import { dayRange, sameWallTime, weekdayOf } from './service-dates';
 import { TripLiveService } from './trip-live';
-import { lockBookings, lockTrips, recordTripEvent } from './trip-ops';
+import { lockBookings, lockTrips, recordTripEvent, type TripEventInput } from './trip-ops';
+import { activeEditProblem } from '../pooling/pooling-rules';
+import { poolingAfterChanges, seatedBookingIds } from '../pooling/publish-checks';
+import { overlapWhere } from './trip-overlap';
 
 export const TRIP_ENTITY = 'TransportTrip';
 const ACTIVE = [...ACTIVE_TRIP_STATUSES_FOR_OVERLAP] as PlannedTripStatus[];
@@ -118,8 +121,28 @@ export interface PublishSource {
   ref: Record<string, unknown>;
   /** Inside the publish transaction, after every change and the ledger row: the source's links / state. */
   inTransaction(tx: Prisma.TransactionClient, result: ChangeSetResult): Promise<void>;
+  /**
+   * WP-B: inside the publish transaction, after the advisory locks, the idempotency re-check and the booking / trip row
+   * locks (order bookings → trips → plan, as consent withdrawal and erasure take them) and before any change:
+   * the source locks and re-checks its own state (a route plan: its row FOR UPDATE, version, routes not yet published),
+   * so of two concurrent publishes of one plan the loser gets the source's clean 409 instead of a resource conflict.
+   */
+  lock?(tx: Prisma.TransactionClient): Promise<void>;
   /** Set by the publish: 1-based number of the change being prepared / applied when it failed (0 = none of them). */
   failedAt?: number;
+  /**
+   * Pooling (doc 20 §5.2, P5): live dispatch may add / remove passengers and add stops on a STARTED / IN_PROGRESS trip,
+   * after its last visited stop only; the trip's liveRouteVersion goes up and the driver must acknowledge it.
+   */
+  allowActiveTrips?: boolean;
+  /** Pooling: the change set comes from live dispatch (PASSENGER_INSERTED events; accepted limits are hard). */
+  live?: boolean;
+  /** Pooling: accepted limits of seated bookings are hard (AREA plans, live dispatch), not warnings. */
+  enforceLimits?: boolean;
+  /** Pooling: decided by the system (live auto-assign): trip events carry actor / source SYSTEM. */
+  systemActor?: boolean;
+  /** Pooling review fix 1: reachability of a started trip from the live position, re-checked in the transaction. */
+  reachable?(t: { tripId: string; plannedTripId: string }): Promise<string | null>;
 }
 
 /** The planned stop a TRIP candidate's road ETA starts from. */
@@ -138,10 +161,12 @@ interface StopState {
   lng: number;
   plannedArrival: Date;
   plannedDeparture: Date;
+  /** PlannedStopStatus (pooling P5: stops already visited are immutable). */
+  status: string;
 }
 
 const stopIdMap = (stops: StopState[]) => new Map(stops.map((s) => [s.seq, { id: s.id, plannedArrival: s.plannedArrival }]));
-const toStopState = (s: { id: string; seq: number; lat: number; lng: number; plannedArrival: Date; plannedDeparture: Date }): StopState => ({ id: s.id, seq: s.seq, lat: s.lat, lng: s.lng, plannedArrival: s.plannedArrival, plannedDeparture: s.plannedDeparture });
+const toStopState = (s: { id: string; seq: number; lat: number; lng: number; plannedArrival: Date; plannedDeparture: Date; status?: string }): StopState => ({ id: s.id, seq: s.seq, lat: s.lat, lng: s.lng, plannedArrival: s.plannedArrival, plannedDeparture: s.plannedDeparture, status: s.status ?? 'PENDING' });
 
 /** Default planned arrival of an inserted stop: between its neighbours; 10 min before the first / after the last. */
 export function insertedArrival(prev: Pick<StopState, 'plannedDeparture'> | undefined, next: Pick<StopState, 'plannedArrival'> | undefined): Date {
@@ -174,6 +199,10 @@ interface TripState {
   stopsAdded: number;
   version: number;
   created: boolean;
+  /** Pooling: vehicle / driver / span changed (timeline + driver hours re-checked); live change of a started trip. */
+  timeline?: boolean;
+  vehicleTimeline?: boolean;
+  activeChanged?: boolean;
   tempId?: string;
   providerCompanyId: string;
   customerCompanyId: string | null;
@@ -365,7 +394,7 @@ export class DispatchService {
     if (bookings.length !== ids.length) throw notFound('Booking not found');
     const day = dayKeyOf(bookings[0].serviceDate);
     const direction = bookings[0].direction;
-    if (bookings.some((b) => dayKeyOf(b.serviceDate) !== day || b.direction !== direction)) throw invalid('Choose bookings of one service date and direction');
+    if (bookings.some((b) => dayKeyOf(b.serviceDate) !== day || (b.direction ?? null) !== (direction ?? null))) throw invalid('Choose bookings of one service date and direction');
     const consents = await this.consents(bookings.map((b) => b.profileId));
     const bookingReasons = new Set<string>();
     for (const b of bookings) {
@@ -384,7 +413,7 @@ export class DispatchService {
 
     const objectIds = await this.scopedObjectIds(ctx);
     const trips = await this.prisma.transportTrip.findMany({
-      where: { AND: [tripReadWhere(ctx, objectIds), { serviceDate: dateOnly(day), direction, providerCompanyId: ctx.companyId, plannedTrip: { status: 'SCHEDULED' } }] },
+      where: { AND: [tripReadWhere(ctx, objectIds), { serviceDate: dateOnly(day), ...(direction ? { direction } : {}), providerCompanyId: ctx.companyId, plannedTrip: { status: 'SCHEDULED' } }] },
       include: TRIP_INCLUDE,
       take: 200,
     });
@@ -820,9 +849,13 @@ export class DispatchService {
         // is replayed (publishWithKey), never answered with the 409 its own trips now cause.
         const committed = await tx.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key }, select: { id: true } });
         if (committed) throw new KeyCommitted();
-        // 2. Bookings (added or freed), then 3. trips — FOR UPDATE, sorted.
-        await lockBookings(tx, [...bookingIds, ...removedRows.map((r) => r.bookingId)]);
+        // 2. Bookings (added or freed, and — pooling — those already seated on the touched trips, whose assignedService
+        // may change), then 3. trips — FOR UPDATE, sorted.
+        await lockBookings(tx, [...bookingIds, ...removedRows.map((r) => r.bookingId), ...(await seatedBookingIds(tx, existingTripIds))]);
         await lockTrips(tx, existingTripIds);
+        // 4. WP-B review: the source's own row (a route plan) LAST, before any change. Global order bookings → trips →
+        // plan, the same as consent withdrawal / erasure (routing-plan-privacy.ts lockPlans), so they never deadlock.
+        if (source?.lock) await source.lock(tx);
         const bookings = new Map(
           (await tx.transportBooking.findMany({ where: { id: { in: [...bookingIds, ...removedRows.map((r) => r.bookingId)] } }, include: { profile: { select: { branchId: true } } } })).map((b) => [b.id, b]),
         );
@@ -860,9 +893,17 @@ export class DispatchService {
           if (!s) throw notFound('Trip not found');
           return s;
         };
-        const editable = (s: TripState) => {
-          if (s.status !== 'SCHEDULED') throw conflict('TRIP_CLOSED', 'Only a trip that has not started can be changed');
+        // Pooling P5: a live option (source.allowActiveTrips) may add / remove passengers and add stops on a started trip.
+        const editable = (s: TripState, op: DispatchChangeOp['op']) => {
+          if (s.status === 'SCHEDULED') return;
+          if (source?.allowActiveTrips && (s.status === 'STARTED' || s.status === 'IN_PROGRESS') && (op === 'ADD_PASSENGER' || op === 'ADD_STOP' || op === 'REMOVE_PASSENGER')) {
+            s.activeChanged = true;
+            return;
+          }
+          throw conflict('TRIP_CLOSED', 'Only a trip that has not started can be changed');
         };
+        const ev = (e: TripEventInput) => recordTripEvent(tx, ctx, source?.systemActor ? { ...e, actorType: 'SYSTEM', source: 'SYSTEM' } : e);
+        const added = new Set<string>();
 
         for (const [i, op] of ops.entries()) {
           const n = i + 1;
@@ -923,28 +964,36 @@ export class DispatchService {
                 stopsAdded: 0,
                 version: 1,
                 created: true,
+                timeline: true,
+                vehicleTimeline: true,
                 tempId: op.tempId,
                 providerCompanyId: ctx.companyId,
                 customerCompanyId: ctx.companyId,
               });
-              await recordTripEvent(tx, ctx, { tripId: header.id, providerCompanyId: ctx.companyId, customerCompanyId: ctx.companyId, kind: 'PUBLISHED', data: { changeSetId, objectId: op.objectId, driverId: op.driverId ?? null, routeId: p.routeId, stops: p.stops.length } });
+              await ev({ tripId: header.id, providerCompanyId: ctx.companyId, customerCompanyId: ctx.companyId, kind: 'PUBLISHED', data: { changeSetId, objectId: op.objectId, driverId: op.driverId ?? null, routeId: p.routeId, stops: p.stops.length } });
               break;
             }
             case 'ADD_PASSENGER': {
               const s = trip(op.tripId);
-              editable(s);
+              editable(s, 'ADD_PASSENGER');
               const b = bookings.get(op.bookingId);
               // M6: own company and the caller's branches (a branch-B booking is a 404 for a branch-A dispatcher).
               if (!b || b.customerCompanyId !== ctx.companyId) throw notFound('Booking not found');
               assertBookingAccess(ctx, b, 'write');
               if (b.status !== 'PENDING_ASSIGNMENT') throw conflict('INVALID_STATE', `Change ${n}: only a booking waiting for a seat can be assigned (it is ${b.status})`);
-              if (dayKeyOf(b.serviceDate) !== input.serviceDate || b.direction !== input.direction) throw invalid(`Change ${n}: the booking is for another date or direction`);
+              // Pooling: a held booking is excluded from runs; a point-to-point booking has no direction.
+              if (b.holdFromPlanning) throw conflict('BOOKING_ON_HOLD', `Change ${n}: the booking is on hold`);
+              if (dayKeyOf(b.serviceDate) !== input.serviceDate || (b.journey !== 'POINT_TO_POINT' && b.direction !== input.direction)) throw invalid(`Change ${n}: the booking is for another date or direction`);
               if (b.pickupLat === null || b.dropLat === null) throw conflict('NEEDS_LOCATION', `Change ${n}: the booking has no pickup or drop point`);
               // No pickup without consent (D8, 10 §4.2): the TRANSPORT_PROFILE consent must be active now.
               if (!consents.has(b.profileId)) throw forbidden('CONSENT_REQUIRED', `Change ${n}: the passenger has not consented to transport data use`);
               const pick = s.stopIds.get(op.pickupSeq);
               const drop = s.stopIds.get(op.dropSeq);
               if (!pick || !drop) throw invalid(`Change ${n}: pickup / drop stop not on the trip`);
+              if (s.activeChanged) {
+                const p = activeEditProblem(s.stops, { kind: 'ADD_PASSENGER', pickupSeq: op.pickupSeq, dropSeq: op.dropSeq });
+                if (p) throw conflict('COMMITMENT_VIOLATION', `Change ${n}: ${p}`);
+              }
               if (s.occupied + b.passengerCount > s.seatCapacity) throw conflict('CAPACITY_EXCEEDED', `Change ${n}: not enough free seats (${s.seatCapacity - s.occupied} left)`);
               const row = await tx.transportTripPassenger.create({
                 data: { tripId: s.id, bookingId: b.id, customerCompanyId: b.customerCompanyId, providerCompanyId: s.providerCompanyId, pickupStopId: pick.id, dropStopId: drop.id, pickupSeq: op.pickupSeq, dropSeq: op.dropSeq, seats: b.passengerCount },
@@ -957,22 +1006,24 @@ export class DispatchService {
               b.version += 1;
               bookingOut.set(b.id, { id: b.id, status: 'ASSIGNED', version: b.version });
               const at = pick.plannedArrival.getTime();
-              if (input.direction === 'IN' ? drop.plannedArrival.getTime() > b.windowEnd.getTime() : at < b.windowStart.getTime()) {
-                warnings.push(`Booking ${b.id}: the planned ${input.direction === 'IN' ? 'arrival' : 'pickup'} is outside its window`);
+              added.add(b.id);
+              if (b.journey === 'POINT_TO_POINT' ? at < b.windowStart.getTime() || at > b.windowEnd.getTime() : input.direction === 'IN' ? drop.plannedArrival.getTime() > b.windowEnd.getTime() : at < b.windowStart.getTime()) {
+                warnings.push(`Booking ${b.id}: the planned ${b.journey !== 'POINT_TO_POINT' && input.direction === 'IN' ? 'arrival' : 'pickup'} is outside its window`);
               }
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'PASSENGER_ADDED', passengerTripId: row.id, stopSeq: op.pickupSeq, data: { changeSetId, bookingId: b.id, seats: b.passengerCount } });
+              await ev({ tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: source?.live ? 'PASSENGER_INSERTED' : 'PASSENGER_ADDED', passengerTripId: row.id, stopSeq: op.pickupSeq, data: { changeSetId, bookingId: b.id, seats: b.passengerCount } });
               touched.add(s.id);
               break;
             }
             case 'ADD_STOP': {
               const s = trip(op.tripId);
-              editable(s);
+              editable(s, 'ADD_STOP');
               if (s.created) throw invalid(`Change ${n}: give a new trip's stops in its CREATE_TRIP`);
               const b = bookings.get(op.bookingId);
               if (!b || b.customerCompanyId !== ctx.companyId) throw notFound('Booking not found');
               assertBookingAccess(ctx, b, 'write');
               if (b.status !== 'PENDING_ASSIGNMENT') throw conflict('INVALID_STATE', `Change ${n}: only a booking waiting for a seat gets a new stop (it is ${b.status})`);
-              if (dayKeyOf(b.serviceDate) !== input.serviceDate || b.direction !== input.direction) throw invalid(`Change ${n}: the booking is for another date or direction`);
+              if (b.holdFromPlanning) throw conflict('BOOKING_ON_HOLD', `Change ${n}: the booking is on hold`);
+              if (dayKeyOf(b.serviceDate) !== input.serviceDate || (b.journey !== 'POINT_TO_POINT' && b.direction !== input.direction)) throw invalid(`Change ${n}: the booking is for another date or direction`);
               const point = bookingEnd(b, op.end);
               if (!point) throw conflict('NEEDS_LOCATION', `Change ${n}: the booking has no ${op.end === 'PICKUP' ? 'pickup' : 'drop'} point`);
               // No pickup without consent (D8, 10 §4.2; E2 final consent model).
@@ -982,6 +1033,10 @@ export class DispatchService {
               if (s.stops.length >= TRANSPORT_E3_LIMITS.maxStops) throw conflict('INVALID_STATE', `Change ${n}: the trip has the maximum of ${TRANSPORT_E3_LIMITS.maxStops} stops`);
               const last = s.stops.length - 1;
               if (op.afterSeq > last) throw invalid(`Change ${n}: afterSeq must be -1..${last}`);
+              if (s.activeChanged) {
+                const p = activeEditProblem(s.stops, { kind: 'ADD_STOP', afterSeq: op.afterSeq });
+                if (p) throw conflict('COMMITMENT_VIOLATION', `Change ${n}: ${p}`);
+              }
               const prev = op.afterSeq >= 0 ? s.stops[op.afterSeq] : undefined;
               const next = s.stops[op.afterSeq + 1];
               const arrival = op.plannedArrival ? new Date(op.plannedArrival) : insertedArrival(prev, next);
@@ -995,6 +1050,8 @@ export class DispatchService {
                 await tx.plannedTrip.update({ where: { id: s.plannedTripId }, data: { plannedStart: start, plannedEnd: end } });
                 s.plannedStart = start;
                 s.plannedEnd = end;
+                s.timeline = true;
+                s.vehicleTimeline = true;
               }
               // Make room: later stops (highest first: unique tripId + seq), then seated passengers (drop before pickup: dropSeq > pickupSeq CHECK).
               for (const st of [...s.stops].filter((x) => x.seq > op.afterSeq).sort((a, b2) => b2.seq - a.seq)) {
@@ -1024,14 +1081,14 @@ export class DispatchService {
               s.stopIds = stopIdMap(s.stops);
               s.stopsAdded += 1;
               // No coordinates in the event (personal point): the stop row holds them.
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'STOP_ADDED', stopSeq: op.afterSeq + 1, data: { changeSetId, bookingId: b.id, end: op.end, plannedArrival: arrival.toISOString() } });
+              await ev({ tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'STOP_ADDED', stopSeq: op.afterSeq + 1, data: { changeSetId, bookingId: b.id, end: op.end, plannedArrival: arrival.toISOString() } });
               touched.add(s.id);
               break;
             }
             case 'REMOVE_PASSENGER': {
               const r = removedRows.find((x) => x.id === op.passengerTripId)!;
               const s = trip(r.tripId);
-              editable(s);
+              editable(s, 'REMOVE_PASSENGER');
               assertBookingAccess(ctx, bookings.get(r.bookingId) ?? null, 'write');
               const done = await tx.transportTripPassenger.updateMany({ where: { id: r.id, status: 'PENDING' }, data: { status: 'CANCELLED', cancelReason: op.reason } });
               if (!done.count) throw conflict('INVALID_STATE', `Change ${n}: the passenger's outcome is recorded or they were removed already`);
@@ -1044,13 +1101,14 @@ export class DispatchService {
                 b.version += 1;
                 bookingOut.set(b.id, { id: b.id, status: 'PENDING_ASSIGNMENT', version: b.version });
               }
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'PASSENGER_REMOVED', passengerTripId: r.id, reasonCode: 'DISPATCH', data: { changeSetId, bookingId: b.id, reason: op.reason } });
+              await ev({ tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'PASSENGER_REMOVED', passengerTripId: r.id, reasonCode: 'DISPATCH', data: { changeSetId, bookingId: b.id, reason: op.reason } });
               touched.add(s.id);
               break;
             }
             case 'REASSIGN_VEHICLE': {
               const s = trip(op.tripId);
-              editable(s);
+              editable(s, 'REASSIGN_VEHICLE');
+              s.vehicleTimeline = true;
               const v = vehicleById.get(op.objectId)!;
               const seats = v.transportProfile?.seats ?? null;
               if (seats === null) throw conflict('NO_SEATS_SET', `Change ${n}: set the vehicle's passenger seats first`);
@@ -1058,7 +1116,7 @@ export class DispatchService {
               await this.assertFree(tx, op.objectId, null, s.plannedStart, s.plannedEnd, s.plannedTripId);
               await tx.plannedTrip.update({ where: { id: s.plannedTripId }, data: { objectId: op.objectId, branchId: v.branchId } });
               await tx.transportTrip.update({ where: { id: s.id }, data: { seatCapacity: seats } });
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'VEHICLE_CHANGED', data: { changeSetId, from: s.objectId, to: op.objectId, seats } });
+              await ev({ tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'VEHICLE_CHANGED', data: { changeSetId, from: s.objectId, to: op.objectId, seats } });
               s.objectId = op.objectId;
               s.seatCapacity = seats;
               touched.add(s.id);
@@ -1066,10 +1124,11 @@ export class DispatchService {
             }
             case 'REASSIGN_DRIVER': {
               const s = trip(op.tripId);
-              editable(s);
+              editable(s, 'REASSIGN_DRIVER');
+              s.timeline = true;
               if (op.driverId) await this.assertFree(tx, null, op.driverId, s.plannedStart, s.plannedEnd, s.plannedTripId);
               await tx.plannedTrip.update({ where: { id: s.plannedTripId }, data: { driverId: op.driverId } });
-              await recordTripEvent(tx, ctx, { tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'DRIVER_CHANGED', data: { changeSetId, from: s.driverId, to: op.driverId } });
+              await ev({ tripId: s.id, providerCompanyId: s.providerCompanyId, customerCompanyId: s.customerCompanyId, kind: 'DRIVER_CHANGED', data: { changeSetId, from: s.driverId, to: op.driverId } });
               s.driverId = op.driverId;
               touched.add(s.id);
               break;
@@ -1077,6 +1136,20 @@ export class DispatchService {
           }
         }
         if (source) source.failedAt = 0;
+
+        // Pooling (doc 20): P1 exclusivity + assignedService, accepted limits, vehicle timeline, driver hours, live route version.
+        warnings.push(
+          ...(await poolingAfterChanges(tx, {
+            companyId: ctx.companyId,
+            trips: [...state.values()].map((s) => ({ ...s, touched: touched.has(s.id), timeline: !!s.timeline, vehicleTimeline: !!s.vehicleTimeline, activeChanged: !!s.activeChanged })),
+            added,
+            enforceLimits: !!source?.enforceLimits,
+            live: !!source?.live,
+            ...(source?.reachable ? { reachable: source.reachable } : {}),
+            changeSetId,
+            event: (e) => ev(e),
+          })),
+        );
 
         // ADD_STOP: the old path no longer runs through every stop: cleared now (never a stale one), re-routed after commit.
         for (const s of state.values()) {
@@ -1207,7 +1280,8 @@ export class DispatchService {
 
   /** No overlapping active planned trip (any origin) for the vehicle / driver in [start, end) (409 VEHICLE_BUSY / DRIVER_BUSY). */
   private async assertFree(tx: Prisma.TransactionClient, objectId: string | null, driverId: string | null, start: Date, end: Date, exceptPlannedTripId: string | null): Promise<void> {
-    const base = { status: { in: ACTIVE }, plannedStart: { lt: end }, plannedEnd: { gt: start }, ...(exceptPlannedTripId ? { id: { not: exceptPlannedTripId } } : {}) };
+    // WP-B: the shared overlap rule (trip-overlap.ts), also used by the route plans' availability pre-check.
+    const base = overlapWhere(start, end, exceptPlannedTripId);
     if (objectId) {
       const hit = await tx.plannedTrip.findFirst({ where: { ...base, objectId }, select: { routeName: true, plannedStart: true } });
       if (hit) throw conflict('VEHICLE_BUSY', `The vehicle is already planned on "${hit.routeName}" at that time`);

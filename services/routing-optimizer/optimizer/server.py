@@ -1,7 +1,7 @@
 """Minimal HTTP wrapper (stdlib) for the OR-Tools solver. Private service: token + source allow-list (phase 4).
 
   OPTIMIZER_TOKEN=<secret> python -m optimizer.server [--host 127.0.0.1] [--port 8090]
-  GET  /health    -> {"ok": true, "ortools": "<version>", "python": "<x.y.z>", "limits": {...}, "slots": n, "busy": k}   (token required)
+  GET  /health    -> {"ok": true, "ortools": "<version>", "python": "<x.y.z>", "limits": {...}, "pdpLimits": {...}, "slots": n, "busy": k}   (token required)
   POST /optimize  -> solve(problem)   (body <= 8 MB; OPTIMIZER_CONCURRENCY solves at once, then 429)
 
 Security (owner decision 2026-11-09):
@@ -55,6 +55,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import ortools
 
+from .pdp import PDP_LIMITS
 from .solver import LIMITS, solve
 
 MAX_BODY = 8 * 1024 * 1024
@@ -167,7 +168,8 @@ def json_depth_ok(value, limit: int = MAX_JSON_DEPTH) -> bool:
 
 
 def requested_time_limit(problem) -> float:
-    """The solver's own clamp of options.timeLimitS (solver.solve; default 10 s). Never raises."""
+    """The solver's own clamp of options.timeLimitS (solver.solve; default 10 s). Never raises. Contract v3 (`mode:
+    "pdp"`) uses the same clamp; its post-solve repair + reason passes (<= 2 s) fit in OPTIMIZER_RESULT_GRACE_S."""
     opts = problem.get('options') if isinstance(problem, dict) else None
     v = opts.get('timeLimitS', 10) if isinstance(opts, dict) else 10
     if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float('inf'), float('-inf')):
@@ -268,7 +270,7 @@ def make_handler(cfg: Config):
                 if not self._guard():
                     return
                 if self.path == '/health':
-                    self._send(200, {'ok': True, 'ortools': ortools.__version__, 'python': platform.python_version(), 'limits': LIMITS, 'slots': cfg.size, 'busy': cfg.busy})
+                    self._send(200, {'ok': True, 'ortools': ortools.__version__, 'python': platform.python_version(), 'limits': LIMITS, 'pdpLimits': PDP_LIMITS, 'slots': cfg.size, 'busy': cfg.busy})
                 else:
                     self._send(404, {'error': 'not found'})
             except Exception:  # noqa: BLE001 - never drop the connection without an answer

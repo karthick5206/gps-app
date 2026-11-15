@@ -4,10 +4,11 @@
  */
 import type { CompanyFeature } from './api';
 
-export const ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'command'] as const;
+/** `approve` (doc 19 §9.3): maker-checker approvals (pricing contracts, vehicle rates, adjustments), grantable without `command`. */
+export const ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'command', 'approve'] as const;
 export type Action = (typeof ACTIONS)[number];
 
-export type MenuGroup = 'main' | 'transport' | 'people' | 'costs' | 'masters' | 'alerting' | 'stock' | 'admin' | 'platform';
+export type MenuGroup = 'main' | 'transport' | 'pricing' | 'people' | 'costs' | 'masters' | 'alerting' | 'stock' | 'admin' | 'platform';
 
 /** What a menu needs besides a role grant. */
 export interface MenuRequires {
@@ -52,6 +53,15 @@ export const MENU_KEYS = [
   'etms_billing',
   'etms_self',
   'etms_driver',
+  'pricing',
+  'pricing_contracts',
+  'pricing_vehicle_rates',
+  'pricing_trip_charges',
+  'pricing_availability',
+  'pricing_invoices',
+  'pricing_adjustments',
+  'pricing_reports',
+  'pricing_costs',
   'driver_scores',
   'attendance',
   'expenses',
@@ -91,6 +101,7 @@ export type MenuKey = (typeof MENU_KEYS)[number];
 
 const CRUD: readonly Action[] = ['view', 'create', 'edit', 'delete', 'export'];
 const ETMS: MenuRequires = { companyFeature: 'etms' };
+const PRICING: MenuRequires = { companyFeature: 'pricing' };
 
 export const MENUS: readonly MenuDef[] = [
   // Tracking: where vehicles are and what is happening now.
@@ -121,6 +132,17 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'etms_settings', label: 'Transport settings', group: 'transport', path: '/transport/settings', actions: ['view', 'edit'], requires: ETMS },
   { key: 'etms_self', label: 'My commute', group: 'transport', path: '/transport/me', actions: ['view', 'create', 'edit'], requires: ETMS },
   { key: 'etms_driver', label: 'My transport duty', group: 'transport', path: '/transport/driver', actions: ['view', 'edit'], requires: ETMS },
+  // Customer pricing & billing (doc 19 §6): only when the company add-on `pricing` is on. Cost / margin is its own menu
+  // (pricing_costs) so ordinary pricing roles never see it; `approve` = maker-checker (approver ≠ submitter, server-side).
+  { key: 'pricing', label: 'Pricing dashboard', group: 'pricing', path: '/pricing', actions: ['view'], requires: PRICING },
+  { key: 'pricing_contracts', label: 'Company contracts', group: 'pricing', path: '/pricing/contracts', actions: ['view', 'create', 'edit', 'delete', 'export', 'approve'], requires: PRICING },
+  { key: 'pricing_vehicle_rates', label: 'Vehicle rates', group: 'pricing', path: '/pricing/vehicle-rates', actions: ['view', 'create', 'edit', 'approve'], requires: PRICING },
+  { key: 'pricing_trip_charges', label: 'Trip charges', group: 'pricing', path: '/pricing/trip-charges', actions: ['view', 'edit', 'command', 'export'], requires: PRICING },
+  { key: 'pricing_availability', label: 'Availability billing', group: 'pricing', path: '/pricing/availability', actions: ['view', 'command', 'export'], requires: PRICING },
+  { key: 'pricing_invoices', label: 'Customer invoices', group: 'pricing', path: '/pricing/invoices', actions: ['view', 'create', 'edit', 'delete', 'command', 'export'], requires: PRICING },
+  { key: 'pricing_adjustments', label: 'Billing adjustments', group: 'pricing', path: '/pricing/adjustments', actions: ['view', 'create', 'approve'], requires: PRICING },
+  { key: 'pricing_reports', label: 'Pricing reports', group: 'pricing', path: '/pricing/reports', actions: ['view', 'export'], requires: PRICING },
+  { key: 'pricing_costs', label: 'Operating costs & margin', group: 'pricing', path: '/pricing/costs', actions: ['view', 'create'], requires: PRICING },
   // Drivers & staff: behaviour, safety and attendance.
   { key: 'dms', label: 'DMS dashboard', group: 'people', path: '/dms', actions: ['view', 'export'] },
   { key: 'driver_events', label: 'Driver events', group: 'people', path: '/driver-events', actions: ['view', 'edit', 'export'] },

@@ -11,6 +11,7 @@ import { EtmsDispatchModule } from './dispatch/dispatch.module';
 import { EtmsDriverModule } from './driver/driver.module';
 import { EtmsPeopleModule } from './people/people.module';
 import { EtmsPlanningModule } from './planning/planning.module';
+import { EtmsPoolingModule } from './pooling/pooling.module';
 import { EtmsSafetyModule } from './safety/safety.module';
 import { EtmsSelfServiceModule } from './self-service/self-service.module';
 import { EtmsVendorsModule } from './vendors/vendors';
@@ -24,7 +25,8 @@ import { TransportSettingsService } from './settings/transport-settings.service'
  * context and the sensitive-access log (TransportProviderController); later phases add theirs here.
  */
 @Module({
-  imports: [EtmsPeopleModule, EtmsDispatchModule, EtmsDriverModule, EtmsPlanningModule, EtmsSafetyModule, EtmsSelfServiceModule, EtmsVendorsModule],
+  // Doc 20 pooling + live dispatch: EtmsPoolingModule.
+  imports: [EtmsPeopleModule, EtmsDispatchModule, EtmsDriverModule, EtmsPlanningModule, EtmsSafetyModule, EtmsSelfServiceModule, EtmsVendorsModule, EtmsPoolingModule],
   controllers: [AgreementsController, CompanyDirectoryController, TransportSettingsController, TransportProviderController],
   providers: [AgreementsService, AgreementViewsService, FleetAllocationsService, CompanyDirectoryService, TransportSettingsService, TransportProviderService],
   exports: [AgreementsService],

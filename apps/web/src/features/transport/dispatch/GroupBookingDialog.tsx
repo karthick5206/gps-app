@@ -20,7 +20,8 @@ import { LateReason, PointPicker } from './BookingDialogs';
 import { Segmented } from './point-card';
 import { idempotencyFor, type IdempotencySlot } from './dispatch-draft';
 import { DIRECTION_LABEL, newUuid } from './e3-format';
-import { e3ErrorMessage } from './e3-ui';
+import { bookingErrorText, usePreferenceForm } from './BookingDialogs';
+import { RidePreferenceField } from '../pooling/pooling-ui';
 import {
   buildGroupInput,
   emptyGroupDraft,
@@ -65,6 +66,7 @@ export function GroupBookingDialog({ open, onOpenChange, day, cutoffMin }: { ope
   const [slot, setSlot] = useState<IdempotencySlot | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const lateRef = useRef<HTMLTextAreaElement>(null);
+  const pooling = usePreferenceForm(open, d.journey, create.error);
 
   useEffect(() => {
     if (!open) return;
@@ -127,8 +129,9 @@ export function GroupBookingDialog({ open, onOpenChange, day, cutoffMin }: { ope
     setTried(true);
     const at = Date.now();
     setNow(at);
-    if (hasGroupErrors(validateGroup(d, { ...ctx, nowMs: at }, { lateRequired: serverLate }, t))) return;
-    const input = buildGroupInput(d, { ...ctx, nowMs: at }, { lateRequired: serverLate });
+    if (hasGroupErrors(validateGroup(d, { ...ctx, nowMs: at }, { lateRequired: serverLate }, t)) || !pooling.result.ok) return;
+    // Pooling: one preference / acceptance / limits for the whole group (the group rides as one party, P1).
+    const input = { ...buildGroupInput(d, { ...ctx, nowMs: at }, { lateRequired: serverLate }), ...pooling.result.value };
     // Same form retried (lost response) → same Idempotency-Key → the server answers the same group.
     const next = idempotencyFor(slot, input, newUuid);
     setSlot(next);
@@ -144,7 +147,7 @@ export function GroupBookingDialog({ open, onOpenChange, day, cutoffMin }: { ope
     );
   };
 
-  const serverError = create.error && !isGroupInvalid(create.error) && !(isLateCode(create.error) && !tried) ? new Error(e3ErrorMessage(create.error, t, { booking: true })) : undefined;
+  const serverError = create.error && !isGroupInvalid(create.error) && !(isLateCode(create.error) && !tried) ? new Error(bookingErrorText(create.error, t)) : undefined;
 
   return (
     <FormDialog
@@ -321,6 +324,7 @@ export function GroupBookingDialog({ open, onOpenChange, day, cutoffMin }: { ope
         <Switch checked={d.hold} onCheckedChange={(v) => set({ hold: v })} />
         {t('Needs approval')}
       </label>
+      <RidePreferenceField idPrefix="gr-ride" journey={d.journey} value={pooling.pref} onChange={pooling.setPref} groupNote error={tried && !pooling.result.ok ? t(pooling.result.error) : undefined} />
       <Field label={t('Note')} htmlFor="gr-note" error={show('note')}>
         <Textarea id="gr-note" value={d.note} onChange={(e) => set({ note: e.target.value })} maxLength={TRANSPORT_E3_LIMITS.noteMax} rows={2} />
       </Field>

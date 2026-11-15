@@ -50,6 +50,17 @@ import {
   Settings2Icon,
   type LucideIcon,
 } from 'lucide-react';
+import {
+  CalendarClockIcon as PricingCalendarClockIcon,
+  CarFrontIcon as PricingCarFrontIcon,
+  ChartColumnIcon as PricingChartColumnIcon,
+  FileSignatureIcon as PricingFileSignatureIcon,
+  LayoutDashboardIcon as PricingLayoutDashboardIcon,
+  ReceiptTextIcon as PricingReceiptTextIcon,
+  RouteIcon as PricingRouteIcon,
+  ScaleIcon as PricingScaleIcon,
+  WalletIcon as PricingWalletIcon,
+} from 'lucide-react';
 
 export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   dashboard: GaugeIcon,
@@ -106,6 +117,16 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   etms_settings: Settings2Icon,
   etms_self: BusIcon,
   etms_driver: CarFrontIcon,
+  // Doc 19 pricing area (placeholder icon until the Pricing UI lands).
+  pricing: PricingLayoutDashboardIcon,
+  pricing_contracts: PricingFileSignatureIcon,
+  pricing_vehicle_rates: PricingCarFrontIcon,
+  pricing_trip_charges: PricingRouteIcon,
+  pricing_availability: PricingCalendarClockIcon,
+  pricing_invoices: PricingReceiptTextIcon,
+  pricing_adjustments: PricingScaleIcon,
+  pricing_reports: PricingChartColumnIcon,
+  pricing_costs: PricingWalletIcon,
   alert_settings: BellRingIcon,
   message_templates: MailIcon,
   report_schedules: CalendarClockIcon,
@@ -114,6 +135,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
 export const GROUP_LABELS: Record<MenuGroup, string> = {
   main: 'Tracking',
   transport: 'Employee transport',
+  pricing: 'Pricing & billing',
   people: 'Drivers & Staff',
   costs: 'Costs & Reports',
   masters: 'Masters',
@@ -123,7 +145,7 @@ export const GROUP_LABELS: Record<MenuGroup, string> = {
   platform: 'Platform',
 };
 
-const GROUP_ORDER: MenuGroup[] = ['main', 'transport', 'people', 'costs', 'masters', 'alerting', 'stock', 'admin', 'platform'];
+const GROUP_ORDER: MenuGroup[] = ['main', 'transport', 'pricing', 'people', 'costs', 'masters', 'alerting', 'stock', 'admin', 'platform'];
 
 export interface NavGroup {
   group: MenuGroup;

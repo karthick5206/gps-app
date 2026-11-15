@@ -374,6 +374,10 @@ export class SelfServiceService {
         drop,
         ...(hasWindow ? { windowStart: dto.windowStart, windowEnd: dto.windowEnd } : {}),
         passengerCount: 1,
+        // Pooling: the passenger's preference, accepted policy version and tighter limits (checked by BookingsService).
+        ...(dto.ridePreference ? { ridePreference: dto.ridePreference } : {}),
+        ...(dto.acceptedPolicyVersion !== undefined ? { acceptedPolicyVersion: dto.acceptedPolicyVersion } : {}),
+        ...(dto.limits ? { limits: dto.limits } : {}),
         note: dto.note?.trim() ? `Requested by passenger: ${dto.note.trim().slice(0, L.bookingNoteMax)}` : 'Requested by passenger',
       },
       rawKey,

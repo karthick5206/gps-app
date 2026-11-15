@@ -8,6 +8,7 @@ import { BulkActionDto, runBulk } from '../../common/bulk';
 import { companyFeatures, withFeatures } from '../../common/company-features';
 import { setCompanySetting } from '../../common/company-settings';
 import { ensureEtmsRoleTemplates } from '../../etms/etms-role-templates';
+import { ensurePricingRoleTemplates } from '../../pricing/pricing-role-templates';
 import { toCompanySummary } from '../../common/company-summary';
 import { iso } from '../../common/dto';
 import { CsvSpec, ListSpec, listResult, planList } from '../../common/list-query';
@@ -98,6 +99,7 @@ export class CompaniesService {
       });
       const roles = await ensureSystemRoles(tx, company.id);
       if (dto.features?.includes('etms')) await ensureEtmsRoleTemplates(tx, company.id);
+      if (dto.features?.includes('pricing')) await ensurePricingRoleTemplates(tx, company.id);
       const branch = await tx.branch.create({ data: { companyId: company.id, name: 'Head Office' } });
       await tx.user.create({
         data: {
@@ -127,6 +129,8 @@ export class CompaniesService {
     // ETMS module switch (P6): turning the add-on on seeds the transport role templates once; turning it off keeps them
     // (menus are hidden and refused while off, nothing is deleted).
     const etmsOn = !!features?.includes('etms') && !companyFeatures(before).includes('etms');
+    // Doc 19: the pricing add-on seeds the billing role templates the same way (once, nothing removed when off).
+    const pricingOn = !!features?.includes('pricing') && !companyFeatures(before).includes('pricing');
     const { row, templates } = await this.prisma.$transaction(async (tx) => {
       // F9: the add-on list is written as its own key (atomic jsonb_set), so a concurrent settings save by the company
       // can't undo the switch (e.g. turn ETMS back on after a rollback), and this can't undo theirs.
@@ -136,10 +140,12 @@ export class CompaniesService {
         data: { ...fields, name: dto.name?.trim() },
         include: INCLUDE,
       });
-      return { row: updated, templates: etmsOn ? await ensureEtmsRoleTemplates(tx, id) : [] };
+      const templates = etmsOn ? await ensureEtmsRoleTemplates(tx, id) : [];
+      if (pricingOn) templates.push(...(await ensurePricingRoleTemplates(tx, id)));
+      return { row: updated, templates };
     });
     await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before, after: row });
-    if (templates.length) await this.audit.record(ctx, { action: 'CREATE', entity: 'role', entityId: null, details: { reason: 'etms module enabled', companyId: id, roles: templates } });
+    if (templates.length) await this.audit.record(ctx, { action: 'CREATE', entity: 'role', entityId: null, details: { reason: pricingOn && !etmsOn ? 'pricing module enabled' : 'etms module enabled', companyId: id, roles: templates } });
     if ((dto.status && dto.status !== before.status) || features) await this.redis.invalidateCache('company');
     return toDto(row);
   }

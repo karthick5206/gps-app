@@ -55,8 +55,12 @@ import { TransportNotificationsService } from '../notifications/transport-notifi
 import { ISOLATION_MATRIX, MATRIX_ROLES, type Controllers, type MatrixEntry, type MatrixRole, type Ownership, type Target } from './isolation-matrix';
 import { MemoryStore } from './memory-store';
 import { RoutePlansController } from '../planning/plans.controller';
+import { DriverRouteAckController, LiveDispatchController, MySharingPolicyController, PoolingController } from '../pooling/pooling.controller';
+import { PoolingService } from '../pooling/pooling.service';
+import { LiveDispatchService } from '../pooling/live-dispatch.service';
 import { RoutePlansService } from '../planning/plans.service';
 import { RoutePlanCreateController, RoutePlanCreateService } from '../planning/plan-create';
+import { RoutePlanAlternativesController, RoutePlanAlternativesService } from '../planning/plan-alternatives';
 import { MemoryJobQueue } from '../../routing-jobs/job-queue';
 import { PrismaJobStore } from '../../routing-jobs/prisma-job-store';
 import { PrismaPlanGateway } from '../../routing-jobs/prisma-plan-gateway';
@@ -257,6 +261,7 @@ function e4Controllers(prisma: Obj, audit: AuditService, redis: object) {
     create: new RoutePlanCreateController(new RoutePlanCreateService(prisma as never, audit, plans), jobs),
     jobs: new RoutingJobsController(jobs),
     caps: new RoutingCapabilitiesController(caps),
+    alternatives: new RoutePlanAlternativesController(new RoutePlanAlternativesService(prisma as never, audit, plans, jobs)),
   };
 }
 
@@ -274,6 +279,7 @@ function e5Controllers(prisma: Obj, audit: AuditService, redis: object, people: 
     driverSos: new DriverSosController(new SosService(prisma as never)),
     incidents: new IncidentsController(new IncidentsService(prisma as never, audit)),
     mySelf: new MySelfServiceController(new SelfServiceService(prisma as never, audit, people, new BookingsService(prisma as never, audit, redis as never), new MeTransportService(prisma as never, people, redis as never))),
+    routeAck: new DriverRouteAckController(new LiveDispatchService(prisma as never, audit, new DispatchService(prisma as never, audit, { enabled: false } as never, live, redis as never), redis as never)),
   };
 }
 
@@ -292,6 +298,10 @@ function e3Controllers(prisma: Obj, audit: AuditService, redis: object, people: 
     dispatch: new DispatchController(dispatch),
     trips: new TransportTripsController(new TripsService(prisma as never, audit, plannedTrips, dispatch, live), dispatch),
     meTrips: new MyTransportTripsController(new MeTransportService(prisma as never, people, redis as never)),
+    // Doc 20 pooling: the optimiser absent (in-process insertion), live dispatch on the same publish path.
+    pooling: new PoolingController(new PoolingService(prisma as never, audit, new BookingsService(prisma as never, audit, redis as never))),
+    live: new LiveDispatchController(new LiveDispatchService(prisma as never, audit, dispatch, redis as never)),
+    mySharing: new MySharingPolicyController(new PoolingService(prisma as never, audit, new BookingsService(prisma as never, audit, redis as never)), people),
   };
 }
 
@@ -480,8 +490,10 @@ describe('ETMS isolation matrix: completeness guard (doc 11 §3.1)', () => {
     // E5 WP 5.3 (EtmsSelfServiceModule, imported): 9 passenger self-service routes + 6 of WP 3.9 wave 2 (requests,
     // request-places, profile GET / PATCH, home, geocode).
     expect(ROUTES.filter((r) => r.controller === MySelfServiceController).length).toBe(15);
-    // 13 E5 driver routes + 2 driver SOS routes (WP 5.4).
-    expect(ROUTES.filter((r) => r.key.includes(' driver/v1/')).length).toBe(15);
+    // 13 E5 driver routes + 2 driver SOS routes (WP 5.4) + the pooling route acknowledgement (doc 20 P5).
+    expect(ROUTES.filter((r) => r.key.includes(' driver/v1/')).length).toBe(16);
+    // Doc 20 pooling (EtmsPoolingModule, imported): 8 administration + 2 live dispatch + passenger policy + route ack.
+    for (const c of [PoolingController, LiveDispatchController, MySharingPolicyController, DriverRouteAckController]) expect([c.name, ROUTES.some((r) => r.controller === c)]).toEqual([c.name, true]);
     expect(new Set(ROUTES.map((r) => r.key)).size).toBe(ROUTES.length);
   });
 
@@ -1282,7 +1294,9 @@ describe('ETMS isolation matrix (E4): route plans leak checks', () => {
     expect(await codeOf(w.controllers.e4.plans.publish(admin, w.plans.party.plan, { expectedVersion: 2 }, `k-${randomUUID()}`))).toBe('PLAN_NOT_EDITABLE');
     // The second plan over the same (now seated) booking cannot publish it again.
     const again = await errorOf(w.controllers.e4.plans.publish(admin, w.plans.party.plan2, { expectedVersion: 1 }, `k-${randomUUID()}`));
-    expect(again).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE', routes: [{ code: 'INVALID_STATE' }] } });
+    // WP-B: the availability pre-check also names the vehicle, now busy with the first plan's trip (VEHICLE_BUSY).
+    expect(again).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE' } });
+    expect((again!.body as { routes: { code: string }[] }).routes.map((r) => r.code).sort()).toEqual(['INVALID_STATE', 'VEHICLE_BUSY']);
     // Audit: CHANGE entry for the plan and the E3 trip entries.
     expect(w.store.table('auditLog').some((a) => a.entity === 'RoutePlan' && (a.changes as { published?: boolean }).published)).toBe(true);
     expect(w.store.table('auditLog').some((a) => a.entity === 'TransportTrip' && a.action === 'CREATE')).toBe(true);

@@ -21,7 +21,9 @@ async function lockPlans(tx: Tx, ids: string[]): Promise<void> {
  * without profileId is still treated as personal, as `stopOwner` does for planned stops).
  *
  * E4 security review M1: lock order plan → stops, the same as a plan edit (version CAS), a job result write (version
- * CAS) and publish (FOR UPDATE). The affected plans are locked (sorted, FOR UPDATE) before any stop or assignment is
+ * CAS) and publish (FOR UPDATE). WP-B review: globally bookings → trips → plan → stops — the callers (consent
+ * withdrawal, erasure) lock the bookings and trips first, and the plan publish takes its plan row lock only after its
+ * booking / trip locks (PublishSource.lock), so the two never wait on each other in opposite orders. The affected plans are locked (sorted, FOR UPDATE) before any stop or assignment is
  * touched, and the stops are read again under those locks (an edit may have changed them meanwhile). A plan that gains
  * one of the stops meanwhile (a create) is locked in a further round, so the result is read entirely under plan locks.
  */
@@ -87,7 +89,7 @@ export async function eraseRoutingPlanPoints(tx: Tx, companyId: string, profileI
 export interface RoutingPlanWithdrawal {
   /** Stops deleted from plans still being worked on (DRAFT / OPTIMIZING / PLANNED). */
   removed: number;
-  /** Stops coarsened in PUBLISHED / CANCELLED plans (read-only history; the published trips are handled by E3). */
+  /** Stops coarsened in PUBLISHED / CANCELLED plans and on published routes of open plans (history; trips: E3). */
   anonymised: number;
   /** Plans whose version was bumped (a running optimise job for them becomes stale). */
   planIds: string[];
@@ -102,11 +104,19 @@ export interface RoutingPlanWithdrawal {
 export async function withdrawRoutingPlanPoints(tx: Tx, companyId: string, profileId: string): Promise<RoutingPlanWithdrawal> {
   const bookingIds = (await tx.transportBooking.findMany({ where: { customerCompanyId: companyId, profileId }, select: { id: true } })).map((b) => b.id);
   const stops = await personalPlanStops(tx, companyId, profileId, bookingIds);
-  const open = stops.filter((s) => OPEN_PLAN.includes(s.plan.status));
-  const closed = stops.filter((s) => !OPEN_PLAN.includes(s.plan.status));
+  // WP-B review: a route already published (selected-routes publishing; the plan itself may still be open) is history
+  // like a closed plan: its stops are coarsened, never deleted (its trip is handled by E3).
+  const assignmentIds = [...new Set(stops.flatMap((s) => (s.assignmentId ? [s.assignmentId] : [])))];
+  const published = new Set(
+    (assignmentIds.length ? await tx.transportTrip.findMany({ where: { routeAssignmentId: { in: assignmentIds } }, select: { routeAssignmentId: true } }) : []).flatMap((t) => (t.routeAssignmentId ? [t.routeAssignmentId] : [])),
+  );
+  const isOpen = (s: PlanStopRow) => OPEN_PLAN.includes(s.plan.status) && !(s.assignmentId && published.has(s.assignmentId));
+  const open = stops.filter(isOpen);
+  const closed = stops.filter((s) => !isOpen(s));
   await clearGeometry(tx, open);
   if (open.length) await tx.routePlanStop.deleteMany({ where: { id: { in: open.map((s) => s.id) } } });
-  const planIds = await bumpOpenPlans(tx, open);
+  // Every open plan touched gets version + 1 (also when only its published route's stop was coarsened).
+  const planIds = await bumpOpenPlans(tx, stops);
   await coarsen(tx, closed);
   return { removed: open.length, anonymised: closed.length, planIds };
 }

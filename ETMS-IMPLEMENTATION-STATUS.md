@@ -26,6 +26,70 @@ evidence in the phase log below.
 | E7 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E8 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E9 | Not started | Not started | Not started | Not started | Not started | Not started |
+| Vendor billing (supplier side, v1.16.9–v1.16.14) | Deployed (vendors, rate cards, live monthly statement, adjustments) | Deployed | — | Not recorded | Not recorded (open: branch scope, isolation-matrix entries) | Deployed (teammate releases, previously unrecorded here) |
+| Pricing & billing (customer side) | **Backend implemented** on `feature/etms-pricing-be` (2026-11-15); web UI in a separate workstream ([doc 19](docs/employee-transport/19-pricing-and-billing-design.md) §10) | Backend done | Engine 63/63, DB 10/10 | Not started | Not started | Not started (feature `pricing` off by default) |
+
+## Pricing & billing (customer side): backend implementation
+
+- **Branch:** `feature/etms-pricing-be` (from `release/1.17`), not merged, not deployed. Owner: go ahead with the doc 19 §9.4
+  recommended defaults (recorded in doc 19 §10).
+- **Commits:**
+  - `2215c2ed` P0/P1: migration `20261128090000_etms_pricing_core`, shared exact-money engine
+    (`packages/shared/src/pricing`), `approve` action, 9 `pricing_*` menus, company feature `pricing` (off), purge financial
+    guard, billing role templates, web placeholder routes.
+  - `c7e7994c` P2–P7: `/api/pricing` contracts (maker-checker), vehicle rates, dedicated vehicles, trip charges,
+    availability periods + close, invoices (generate / issue / PDF), credit notes, payments, adjustments, reports, costs,
+    dashboard, settings, scheduled billing job (`BILLING_JOB=off` kill switch).
+  - `150b8355` DB test (isolation, duplicate runs, immutability, historical prices, maker-checker).
+- **Test evidence** (2026-11-15, only the required tests, per the owner):
+  - Engine unit tests `apps/api/src/pricing/engine.spec.ts` (doc 19 scenarios 1–7, 11–13, 17, invariants, rounding,
+    precedence): **63 passed, 0 failed, 0 skipped**.
+  - DB test `apps/api/src/pricing/pricing.db-test.ts` on scratch `veetrax_pricing_test` (`CI=true`, all migrations
+    applied with `prisma migrate deploy`): **10 passed, 0 failed, 0 skipped**.
+  - `tsc --noEmit`: apps/api clean, apps/web (`tsconfig.app.json`) clean.
+  - Not verified: the full jest suite (not run, by instruction), the ETMS isolation-matrix spec, the E2E workflow
+    (doc 19 §8 #20), production-copy migration rehearsal, QA and security reviews.
+- **Independent review fixes:** all HIGH / MEDIUM / LOW findings fixed (doc 19 §10 "Independent review fixes");
+  migration `20261128090100_etms_pricing_review_fixes`. Re-run: engine spec **69 passed**, DB test **16 passed**, api and web
+  tsc clean (full suite not run).
+- **Deferred:** on-demand quotes (P8, needs pooling ride preference), per-passenger shared-fare snapshots, settle-time
+  outbox hook (the job prices settled trips instead), toll data, XLSX / PDF reports, customer-visible invoices, vendor
+  statement → cost import, web Pricing area.
+
+## Pricing & billing (customer side): design status
+
+- **Design:** [docs/employee-transport/19-pricing-and-billing-design.md](docs/employee-transport/19-pricing-and-billing-design.md)
+  (2026-11-15). No code or schema change yet.
+- **Decisions taken in the design** (reversible at review):
+  - money as `BigInt` minor units, with `Decimal(20,6)` rates held as bigint micro-units in the engine (no floats);
+  - a new `PricingContract` with effective-dated versions, linked to `TransportServiceAgreement` when one exists;
+  - a gap-free invoice series per supplier company and fiscal year;
+  - a new `approve` permission action with maker ≠ checker;
+  - DB immutability triggers and append-only trip price snapshots;
+  - a separate `pricing_costs` menu for cost and margin.
+- **Outstanding owner decisions** (doc 19 §9.4):
+  - C1 commercial go-ahead;
+  - who bills whom (operator → customer, or also internal charge-back);
+  - supplier tax registration per company or per branch;
+  - fiscal year and invoice number format;
+  - maker-checker strictness for single-admin companies;
+  - launch currencies and tax regimes;
+  - default rounding and missing-GPS policy;
+  - customer visibility of invoices;
+  - vendor statements as the cost source;
+  - holiday calendars;
+  - IRN / TDS / gateway (out of scope unless requested).
+- **Workstreams:** P0 foundations ∥ P1 money engine → P2 contracts ∥ P6 web → P3 trip pricing ∥ P4 availability →
+  P5 invoicing ∥ P7 reports and costs → P8 on-demand quotes (with pooling). Each gets an independent QA and security review.
+- **Release gates:**
+  1. Design review and decisions.
+  2. Focused tests (money, isolation, authz, duplicates, immutability, historical prices) plus QA and security per
+     workstream.
+  3. Migration rehearsal on a scratch database and a production copy.
+  4. Backup.
+  5. Deploy with the `pricing` feature off.
+  6. Internal smoke test.
+  7. Owner approval per company.
 
 ## Branch and worktree strategy
 
@@ -195,6 +259,48 @@ end (D-A2: new direction value or nullable site end).
 
 Exit: T1–T11 pass, independent QA and security review pass, owner decisions D-A1..D-A4 recorded. Release as v1.15.0
 through the normal release procedure (no production change until then).
+
+## On-demand pooling (Phase A design)
+
+Status: **Design ready for review** (2026-11-15). The design is in
+[docs/employee-transport/20-on-demand-pooling-design.md](docs/employee-transport/20-on-demand-pooling-design.md) on branch
+`docs/etms-pooling-design`. No code, migration or production change.
+
+| Item | State |
+|---|---|
+| Inventory (bookings, trips, dispatch, live, mobile, tests) | Done (doc 20 §1) |
+| Solver prototype (pickup-and-delivery, private, multi-trip, live insertion), SYNTHETIC matrix | Done; 0 violations in an independent checker; evidence in `docs/employee-transport/evidence/2026-11-15-pooling/` |
+| Builds on E4 redesign (WP-A / WP-B / WP-S / WP-W) | Planned reuse; same publish pipeline (`DispatchService.apply`) |
+| Workstreams P-B1 … P-E2 | Backend (P-B1, P-C1, P-C2, P-D1) implemented on `feature/etms-pool-be` (see below); P-B2 solver, P-C3 / P-D2 web, P-E1 mobile in parallel branches |
+
+### Pooling backend (B–D), branch `feature/etms-pool-be` (2026-11-15)
+
+Owner approved the recommended defaults P1–P8. Migration `20261129090000_etms_pooling_core` (additive; P3 backfill).
+Not merged, not deployed. Live dispatch is OFF per company (`Company.settings.etmsPooling.liveDispatch`) and has the
+env kill switch `ETMS_LIVE_DISPATCH=off`; `ETMS_POOLING_SOLVER=off` stops asking the optimiser for insertOnly.
+
+| Item | State |
+|---|---|
+| B1 bookings: ridePreference SHARED / PRIVATE / FLEXIBLE, accepted policy version, immutable limits snapshot (DB trigger), dispatcher hold, P2P direction null, desk / group / self-service APIs, sharing policy (versioned) | Done |
+| C1 vehicle availability (operating / downtime / reserved, maintenance, turnaround) + driver working-hour policy, checked in the publish transaction (VEHICLE_UNAVAILABLE / VEHICLE_TURNAROUND / DRIVER_HOURS) | Done |
+| C2 AREA plans (window scope, P2P + commute), pdp contract v3 request builder / mapper / independent checker, multi-trip publish via `DispatchService.apply` (`tripIndex` / `routeTripIndex`), review hash covers trips | Done; needs the solver's `mode: "pdp"` (until then the job fails PDP_UNSUPPORTED) |
+| D1 live dispatch: decide endpoint + log, worker (Valkey locks, report scan), in-process cheapest insertion (+ optimiser insertOnly pick when v3 is there), P4 auto / propose, P5 active-trip edits + driver ROUTE_ACK, delay / breakdown evaluation, P8 onboard proposals, cancellation detaches unpublished plans, health `pipeline.etms-dispatch` | Done |
+| Shared types (`packages/shared/src/transport-pooling.ts`) for web / mobile | Done |
+| Isolation matrix (12 routes, 204 cases) | Done (`isolation-matrix-pooling.ts`) |
+| Tests | `pooling-rules.spec.ts` 21/21; `etms-pooling.db-test.ts` 8/8 (scratch `veetrax_pooling_test`); isolation matrix pooling cases pass |
+| Web / mobile screens, solver pdp, staging benchmarks | Not in this branch |
+
+**Owner decisions:** P1–P8 approved as recommended (2026-11-15): whole-trip PRIVATE, 15 min / max(1.8×, +15 min) /
+company max ride, COMMUTE → SHARED and P2P → PRIVATE backfill, auto for unpublished + SCHEDULED and propose for ACTIVE,
+active-trip edits on pending stops with driver acknowledgement, priority 3 / 1.5 / 1, no driver-hour default,
+dispatcher-only onboard transfer.
+
+**Gates:**
+- The E4 activation gates (three switches, readiness, Python 3.14, C3 staging, B1–B6, R-5) still apply.
+- A new company switch `etms.liveDispatch` (default off) and an env kill switch.
+- No external routing or geocoding.
+- EAS (O12) for mobile builds.
+- Production deployment only with explicit approval.
 
 ## Phase log
 

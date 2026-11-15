@@ -69,6 +69,8 @@ import { BookingCommandDto, BookingListQuery, CreateBookingDto, CreateGroupBooki
 import { recordPersonalAccess } from './personal-points';
 import { legWindow, todayIn, weekdayOf } from './service-dates';
 import { lockBookings, lockTrips, recordTripEvent, releaseSeat } from './trip-ops';
+import { resolvePooling } from '../pooling/sharing-policy';
+import { onBookingCancelled, onBookingWaiting } from '../pooling/booking-hooks';
 
 export const BOOKING_ENTITY = 'TransportBooking';
 
@@ -324,11 +326,12 @@ export class BookingsService {
     const day = serviceDate(dto.serviceDate);
     const seats = dto.passengerCount ?? 1;
     const { profile, shift } = await this.eligible(ctx, dto.passengerId, dto.shiftId ?? null, day, seats);
-    let direction: TransportDirection;
+    // Pooling (doc 20 §3.2): a point-to-point ride has no direction (it was stored as IN before).
+    let direction: TransportDirection | null;
     if (journey === 'POINT_TO_POINT') {
       if (!dto.pickup || !dto.drop) throw invalid('A point-to-point booking needs a pickup and a destination');
       if (!dto.windowStart || !dto.windowEnd) throw invalid('A point-to-point booking needs the time window');
-      direction = 'IN'; // contract: pickups before drops on the trip
+      direction = null;
     } else {
       if (!dto.direction) throw invalid('Choose the direction (to or from the office)');
       direction = dto.direction;
@@ -347,12 +350,14 @@ export class BookingsService {
       end = parseInstant(dto.windowEnd, 'windowEnd');
     } else {
       if (!shift) throw invalid('Choose a shift or give the time window');
-      const w = legWindow(shift, direction, day);
+      const w = legWindow(shift, direction ?? 'IN', day);
       start = w.start;
       end = w.end;
     }
     checkWindow(start, end);
     if (end < Date.now()) throw invalid('The window has already passed');
+    // Pooling (doc 20 §3.1): ride preference, policy acceptance and the immutable limits snapshot.
+    const pooling = await resolvePooling(this.prisma, ctx.companyId, journey, dto);
     // v1.15 L3: a passenger cannot fill the approval queue with many tiny windows.
     if (actor === 'PASSENGER' && end - start < TRANSPORT_ADHOC_LIMITS.passengerWindowMinMin * 60_000) throw invalid(`The time window must be at least ${TRANSPORT_ADHOC_LIMITS.passengerWindowMinMin} minutes`);
 
@@ -421,6 +426,10 @@ export class BookingsService {
             windowStart: new Date(start),
             windowEnd: new Date(end),
             passengerCount: seats,
+            ridePreference: pooling.ridePreference,
+            sharingPolicyId: pooling.sharingPolicyId,
+            sharingPolicyVersion: pooling.sharingPolicyVersion,
+            limits: pooling.limits as unknown as Prisma.InputJsonValue,
             status: opts.status ?? (dto.hold ? 'REQUESTED' : 'PENDING_ASSIGNMENT'),
             cutoffAt: new Date(cutoffAt),
             lateReason,
@@ -432,6 +441,8 @@ export class BookingsService {
           },
           include: BOOKING_INCLUDE,
         });
+        // Pooling D1: a booking waiting for a seat is queued for live dispatch (company switch on, kill switch not set).
+        if (created.status === 'PENDING_ASSIGNMENT') await onBookingWaiting(tx, created, ctx.userId);
         const notified = notifyUser
           ? await this.notifications.write(tx, [
               {
@@ -536,10 +547,10 @@ export class BookingsService {
     const day = serviceDate(dto.serviceDate);
     const shift = dto.shiftId ? await this.prisma.transportShift.findFirst({ where: { id: dto.shiftId, companyId: ctx.companyId }, include: { sitePoi: true } }) : null;
     if (dto.shiftId && (!shift || shift.companyId !== ctx.companyId)) throw invalid('Unknown shift');
-    let direction: TransportDirection;
+    let direction: TransportDirection | null;
     if (journey === 'POINT_TO_POINT') {
       if (!dto.windowStart || !dto.windowEnd) throw invalid('A point-to-point booking needs the time window');
-      direction = 'IN';
+      direction = null;
     } else {
       if (!dto.direction) throw invalid('Choose the direction (to or from the office)');
       direction = dto.direction;
@@ -559,7 +570,7 @@ export class BookingsService {
       end = parseInstant(dto.windowEnd, 'windowEnd');
     } else {
       if (!shift) throw invalid('Choose a shift or give the time window');
-      const w = legWindow(shift, direction, day);
+      const w = legWindow(shift, direction ?? 'IN', day);
       start = w.start;
       end = w.end;
     }
@@ -567,6 +578,8 @@ export class BookingsService {
     if (end < Date.now()) throw invalid('The window has already passed');
     const cutoffAt = start - cutoffMinutes(company.settings, TRANSPORT_E3_LIMITS.defaultCutoffMin) * 60_000;
     const lateReason = isLate(cutoffAt, Date.now()) ? requireLateReason(dto.lateReason) : null;
+    // Pooling: one preference / acceptance / limits snapshot for the whole group (the group is one party, P1).
+    const pooling = await resolvePooling(this.prisma, ctx.companyId, journey, dto);
 
     // Shared points: a company place is checked once (422 PLACE_NOT_ALLOWED for the request); a one-time point is
     // validated once and needs each passenger's consent (collected below).
@@ -629,6 +642,10 @@ export class BookingsService {
               windowStart: new Date(start),
               windowEnd: new Date(end),
               passengerCount: 1,
+              ridePreference: pooling.ridePreference,
+              sharingPolicyId: pooling.sharingPolicyId,
+              sharingPolicyVersion: pooling.sharingPolicyVersion,
+              limits: pooling.limits as unknown as Prisma.InputJsonValue,
               status,
               cutoffAt: new Date(cutoffAt),
               lateReason,
@@ -719,7 +736,7 @@ export class BookingsService {
   }
 
   /** Per-passenger duplicate (COMMUTE, same date + direction) and overlap failures for a group's window. */
-  private async groupConflicts(db: Pick<Prisma.TransactionClient, 'transportBooking'>, ids: string[], journey: TransportBookingJourney, day: string, direction: TransportDirection, start: number, end: number): Promise<TransportGroupFailure[]> {
+  private async groupConflicts(db: Pick<Prisma.TransactionClient, 'transportBooking'>, ids: string[], journey: TransportBookingJourney, day: string, direction: TransportDirection | null, start: number, end: number): Promise<TransportGroupFailure[]> {
     const out: TransportGroupFailure[] = [];
     for (const id of ids) {
       if (journey === 'COMMUTE') {
@@ -835,6 +852,9 @@ export class BookingsService {
         data: { status: next, statusReason: command === 'approve' ? null : reason, ...(kind === 'BOOKING_APPROVED' ? { approvedAt: new Date() } : {}), version: { increment: 1 } },
       });
       if (!claimed.count) throw versionConflict(before.version);
+      // Pooling: an approved booking is queued for live dispatch; a cancelled one leaves unpublished plans (doc 20 §5.3).
+      if (next === 'PENDING_ASSIGNMENT') await onBookingWaiting(tx, { id, customerCompanyId: before.customerCompanyId, version: before.version + 1 }, ctx.userId);
+      if (next === 'CANCELLED') await onBookingCancelled(tx, before, ctx.userId);
       const after = await tx.transportBooking.findUniqueOrThrow({ where: { id }, include: BOOKING_INCLUDE });
       // D-A5: the passenger hears about the decision on any booking they can see (GET /me/transport/bookings lists all
       // their bookings: self-made, desk-made, schedule-generated) when they have a login that is not the caller. Generic

@@ -30,8 +30,9 @@ const MIN = 60_000;
  * Trip events the relay turns into notifications, and how far back it looks at most (security review L3: from the
  * persisted high-water mark, never further back than 24 h; dedupe keys make re-reading harmless).
  */
-export const RELAY_KINDS = ['PUBLISHED', 'DRIVER_CHANGED', 'PASSENGER_ADDED', 'PASSENGER_REMOVED', 'VEHICLE_CHANGED', 'STOP_ADDED', 'CANCELLED', 'REPORT_DELAY'] as const;
-const CHANGE_KINDS = new Set(['PASSENGER_ADDED', 'PASSENGER_REMOVED', 'VEHICLE_CHANGED', 'STOP_ADDED']);
+export const RELAY_KINDS = ['PUBLISHED', 'DRIVER_CHANGED', 'PASSENGER_ADDED', 'PASSENGER_REMOVED', 'VEHICLE_CHANGED', 'STOP_ADDED', 'CANCELLED', 'REPORT_DELAY', 'PASSENGER_INSERTED', 'ROUTE_UPDATED'] as const;
+// Pooling: a live insertion (PASSENGER_INSERTED) and a started trip's route change (ROUTE_UPDATED) are trip changes too.
+const CHANGE_KINDS = new Set(['PASSENGER_ADDED', 'PASSENGER_REMOVED', 'VEHICLE_CHANGED', 'STOP_ADDED', 'PASSENGER_INSERTED', 'ROUTE_UPDATED']);
 export const RELAY_LOOKBACK_MS = 24 * 60 * MIN;
 /** A transaction may commit after a later one: events up to this much older than the mark are read again. */
 export const RELAY_OVERLAP_MS = 5 * MIN;

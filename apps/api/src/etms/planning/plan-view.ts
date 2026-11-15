@@ -17,6 +17,7 @@ import {
   type TransportDirection,
 } from '@veetracer/shared';
 import { weightsOf } from '../../routing-jobs/prisma-plan-gateway';
+import { runView } from './plan-alternatives-view';
 import { round } from '../dispatch/e3-common';
 import { PERSONAL_STOP_NAME } from '../dispatch/personal-points';
 import { routeStops, routeViolations, windowsOf, type RideRule, type RuleStop } from './plan-rules';
@@ -71,6 +72,7 @@ export const toRuleStop = (s: StopRow): RuleStop => ({
   lat: s.lat,
   lng: s.lng,
   name: s.name,
+  tripIndex: s.tripIndex ?? 0,
 });
 
 /** Owner (profile id) of a personal plan stop, or null for a company place / generic stop. */
@@ -167,6 +169,7 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView, ride?: RideRule): 
         poiId: s.poiId,
         customerCompanyId: s.customerCompanyId,
         personal: !!owner,
+        tripIndex: s.tripIndex ?? 0,
         pointHidden: hidden,
         pinned: locks.pinnedStopIds.has(s.id),
         plannedArrival: p.planStartAt && s.etaS !== null ? new Date(p.planStartAt.getTime() + s.etaS * 1000).toISOString() : null,
@@ -201,6 +204,8 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView, ride?: RideRule): 
         transportTripId: trip?.id ?? null,
         plannedTripId: trip?.plannedTripId ?? null,
         locked: locks.lockedAssignmentIds.has(a.id),
+        // WP-B: published (immutable) while the rest of the plan may still be edited and published.
+        published: !!trip,
         vehicleName: vehicle?.name ?? null,
         plateNumber: vehicle?.plateNumber ?? null,
         driverName: a.driverId ? (view.names.drivers.get(a.driverId) ?? null) : null,
@@ -222,6 +227,9 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView, ride?: RideRule): 
     direction: (p.direction as TransportDirection | null) ?? null,
     shiftId: p.shiftId,
     sitePoiId: p.sitePoiId,
+    scope: p.scope,
+    windowStart: iso(p.windowStart),
+    windowEnd: iso(p.windowEnd),
     version: p.version,
     publishedAt: iso(p.publishedAt),
     createdAt: p.createdAt.toISOString(),
@@ -234,6 +242,8 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView, ride?: RideRule): 
     unassigned: p.stops.filter((s) => !s.assignmentId).length,
     // T2-L4: the weights the last optimisation ran with (options.weights), for re-optimise to prefill; never invented.
     weights: weightsOf((p.options as { weights?: unknown } | null)?.weights) ?? null,
+    // E4 WP-A: strategy / preferences of the last optimisation, the source plan of an alternative.
+    ...runView(p.options),
   };
   return { dto, shown: [...shown], named: [...named] };
 }

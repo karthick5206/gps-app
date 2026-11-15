@@ -1,5 +1,4 @@
-import type { PublishRoutePlanResult, RoutePlanStopViolation } from '@veetracer/shared';
-import { ROUTE_PLAN_OVERRIDE_REASON_MAX, ROUTE_PLAN_OVERRIDE_REASON_MIN } from '@veetracer/shared';
+import type { RoutePlanRouteViolation, RoutePlanStopViolation } from '@veetracer/shared';
 import {
   ArrowDownIcon,
   ArrowLeftIcon,
@@ -9,16 +8,26 @@ import {
   CircleAlertIcon,
   CrosshairIcon,
   ExternalLinkIcon,
+  GitCompareIcon,
+  GripVerticalIcon,
   HistoryIcon,
+  ListChecksIcon,
   LockIcon,
   LockOpenIcon,
+  MousePointerClickIcon,
   PinIcon,
   PinOffIcon,
+  PlusIcon,
+  Redo2Icon,
   RefreshCwIcon,
   SendIcon,
+  TimerResetIcon,
   Trash2Icon,
+  Undo2Icon,
+  UserMinusIcon,
+  XIcon,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -28,10 +37,8 @@ import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
-import { Textarea } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/features/auth/auth-context';
@@ -39,73 +46,75 @@ import { NotFoundPage } from '@/features/errors/ErrorPages';
 import { RoutingOffState } from './RoutingOffState';
 import { getReportTimeZone } from '@/features/reports/report-time';
 import { cn } from '@/lib/utils';
-import { DIRECTION_LABEL, e3ErrorText } from '../dispatch/e3-format';
+import { DIRECTION_LABEL } from '../dispatch/e3-format';
 import { SimpleSelect } from '../dispatch/e3-ui';
 import { transportTripPath } from '../dispatch/use-e3';
 import { PlanMap } from './PlanMap';
 import { MaxRideOverrideFields } from './MaxRideFields';
+import { AlternativesPanel } from './AlternativesPanel';
 import { canOverrideMaxRide, maxRideSummary, overrideDraftOf, overrideRequest, type MaxRideOverrideDraft } from './max-ride';
 import {
   canShiftStop,
   stopPinnedToRoute,
   capabilityView,
-  completeWeights,
   engineEta,
-  reoptimiseDefaults,
   routeDriveSummary,
   timeLimitOptions,
   timeLimitWithin,
+  defaultTimeLimit,
   formatDuration,
   formatKm,
   isEditablePlan,
   mapPoints,
   mergeViolations,
-  publishable,
-  planClock,
-  publishGate,
-  acknowledgedFingerprint,
-  warningsAcknowledged,
-  publishGateState,
-  movePassenger,
-  changedRoutes,
   planMetrics,
   routeLines,
   routeLoad,
   routesOf,
   routeStops,
   shiftStop,
+  changedRoutes,
+  movePassenger,
   stopEta,
   stopLabel,
   activeJobId,
   unassignedPassengers,
   vehicleColor,
   VIOLATION_LABEL,
-  plannerErrorText,
+  ADD_BOOKING_REFUSAL_LABEL,
   type PlannerPlan,
   type PlannerStop,
-  type WeightDraft,
 } from './planner-format';
-import { CapabilityChip, EtaFootnote, EtaQualityBadge, JobProgress, MetricsGrid, PlanStatusBadge, UnassignedReasonText, ViolationList, WeightsEditor } from './planner-ui';
+import { afterEdit, afterRestore, afterRestoreConflict, canDrag, cursorFromHistory, dropToEdit, redoTarget, routeIssues, undoTarget, type DropTarget, type PlanEdit, type UndoCursor } from './plan-workspace';
+import { alternativesError, maxRideCapS, preferencesDraftOf, preferencesRequest, runFields, strategyDraftOf, toggleStrategy, type PreferencesDraft, type StrategyDraft } from './plan-strategy';
+import { AlternativesPicker, PreferencesFields, StrategyPicker } from './plan-strategy-ui';
+import { selectableRoutes } from './plan-review';
+import { groupStopsByTrip, peakLoad, privateBookingIds } from '../pooling/plan-trips';
+import { useDayRidePreferences } from '../pooling/use-pooling';
+import { AddBookingDialog, ChangesPanel, DriverPicker, RouteIssuesView } from './plan-workspace-ui';
+import { CapabilityChip, EtaFootnote, EtaQualityBadge, JobProgress, MetricsGrid, PlanStatusBadge, UnassignedReasonText, ViolationList } from './planner-ui';
 import {
   createKeyStore,
   newKey,
   PLANNING_MENU,
   PLANNING_PATH,
+  planPublishPath,
+  plannerErrorBody,
   plannerErrorMessage,
   plannerErrorOf,
-  publishRouteErrors,
   plannerFlagOn,
   useCapabilities,
   useDiscardPlan,
+  useGenerateAlternatives,
   usePlan,
   usePlanEdit,
   usePlanHistory,
   usePlanOpenJobs,
   usePlannerVehicles,
-  usePublishPlan,
   useReoptimise,
-  type PlanEdit,
+  useReview,
 } from './use-planner';
+import type { RoutingStrategy } from '@veetracer/shared';
 
 const CHANGE_LABEL: Record<string, string> = {
   CREATED: 'Created',
@@ -119,9 +128,12 @@ const CHANGE_LABEL: Record<string, string> = {
 };
 
 /**
- * One plan (E4 WP 4.5): metrics, routes with their stops, unassigned passengers with reasons, the map (consent-allowed
- * points only), explicit edits (move passenger, up / down, change vehicle, pin) with re-validation and version-conflict
- * handling, re-optimise, publish with confirmation (→ links to the E3 trips) and discard.
+ * The plan workspace (E4 WP 4.5 + WP-W): metrics, route cards with their stops, unassigned passengers with reasons, the
+ * map (consent-allowed points only; click a stop to select it), explicit edits — drag and drop between and within
+ * route cards with keyboard equivalents (up / down, Move to…, select + "Move selected here"), remove from route,
+ * add / remove booking, driver, pin passenger, lock route, recalculate, undo / redo (restore of the previous / next
+ * version) — each re-checked by the server, re-optimise (strategy, preferences, alternatives) and discard. Publishing
+ * goes through the review screen (selected routes, reviewHash). Published routes are read-only.
  */
 export function PlanReviewPage() {
   const { id = '' } = useParams();
@@ -134,34 +146,51 @@ export function PlanReviewPage() {
   const q = usePlan(flag ? id : null);
   const plan = q.data;
   const edit = usePlanEdit(plan);
-  // Idempotency-Keys for this page's keyed actions (publish, re-optimise): a retry replays, a 4xx frees the key.
+  // Pooling (AREA plans): private rides are badged from the day's bookings (the stop view has no preference).
+  const areaPlan = plan?.scope === 'AREA';
+  const dayPrefs = useDayRidePreferences(areaPlan && plan ? plan.planDate : null);
+  // Idempotency-Keys for this page's keyed actions (re-optimise, alternatives): a retry replays, a 4xx frees the key.
   const [keys] = useState(() => createKeyStore(newKey));
-  const publish = usePublishPlan(plan, keys);
   const discard = useDiscardPlan();
   const reopt = useReoptimise(plan, keys);
-  const history = useState(false);
-  const [showHistory, setShowHistory] = history;
-  const hist = usePlanHistory(plan?.id ?? null, showHistory);
+  const genAlt = useGenerateAlternatives(plan, keys);
+  const access = caps.data?.access;
+  const support = !!access?.support;
+  const editable = !!plan && isEditablePlan(plan.status) && plan.editable !== false;
+  const canEdit = editable && can(PLANNING_MENU, 'edit') && (access?.canEdit ?? false) && !support;
+  const [showHistory, setShowHistory] = useState(false);
+  // Undo / redo needs the version history (snapshots of route membership) whenever the user may edit.
+  const hist = usePlanHistory(plan?.id ?? null, showHistory || canEdit);
+  const [cursor, setCursor] = useState<UndoCursor | null>(null);
+  useEffect(() => {
+    if (!plan || !hist.data || (cursor && cursor.head === plan.version)) return;
+    if (!hist.data.some((v) => v.version === plan.version)) return; // wait for the history of this version
+    setCursor(cursorFromHistory(hist.data, plan));
+  }, [plan, hist.data, cursor]);
+  const [showChanges, setShowChanges] = useState(false);
+  const changes = useReview(plan?.id ?? null, null, showChanges);
   const [jobId, setJobId] = useState<string | null>(null);
   // After a reload (or a job started in another tab) the page finds the plan's running job on the server.
   const openJobs = usePlanOpenJobs(plan?.id ?? null, plan?.status === 'OPTIMIZING' && !jobId);
   const [focus, setFocus] = useState<number | null>(null);
-  const [lastCheck, setLastCheck] = useState<RoutePlanStopViolation[] | null>(null);
+  const [last, setLast] = useState<{ violations: RoutePlanStopViolation[]; routeViolations?: RoutePlanRouteViolation[] } | null>(null);
   const [conflict, setConflict] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [moveReq, setMoveReq] = useState<PlannerStop | null>(null);
   const [vehicleReq, setVehicleReq] = useState<string | null>(null);
-  const [publishOpen, setPublishOpen] = useState(false);
-  // D-L3: the warning fingerprint the user acknowledged (a refetch with other warnings un-ticks the box).
-  const [ackedFingerprint, setAckedFingerprint] = useState<string | null>(null);
-  // Decision 5: authorised override of arrival-window violations (reason recorded and audited by the server).
-  const [overrideOn, setOverrideOn] = useState(false);
-  const [overrideReason, setOverrideReason] = useState('');
-  const [published, setPublished] = useState<PublishRoutePlanResult | null>(null);
+  const [removeReq, setRemoveReq] = useState<PlannerStop | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [over, setOver] = useState<DropTarget | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [showAlts, setShowAlts] = useState(false);
   const [reoptOpen, setReoptOpen] = useState(false);
-  const [reoptWeights, setReoptWeights] = useState<WeightDraft | null>(null);
+  const [reoptMode, setReoptMode] = useState<'single' | 'alternatives'>('single');
+  const [reoptStrategy, setReoptStrategy] = useState<StrategyDraft | null>(null);
+  const [reoptPrefs, setReoptPrefs] = useState<PreferencesDraft | null>(null);
+  const [reoptAlts, setReoptAlts] = useState<RoutingStrategy[]>(['BALANCED', 'FEWER_VEHICLES', 'COMFORT']);
   const [reoptLimit, setReoptLimit] = useState<number | null>(null);
   // Owner decision 1: per-plan max-ride override in the re-optimise dialog (null = start from the plan's own).
   const [reoptRide, setReoptRide] = useState<MaxRideOverrideDraft | null>(null);
@@ -176,13 +205,8 @@ export function PlanReviewPage() {
   });
   const [degraded, setDegraded] = useState<string | null>(null);
 
-  const metrics = useMemo(() => (plan ? planMetrics(plan, lastCheck ?? undefined) : null), [plan, lastCheck]);
-  const access = caps.data?.access;
-  const support = !!access?.support;
-  const editable = !!plan && isEditablePlan(plan.status) && plan.editable !== false;
-  const canEdit = editable && can(PLANNING_MENU, 'edit') && (access?.canEdit ?? false) && !support;
-  // B3: DRAFT or PLANNED with at least one route that has passengers and no blocking violation; the server decides the rest.
-  const canPublish = !!plan && publishable(plan, lastCheck ?? undefined) && can(PLANNING_MENU, 'command') && (access?.canPublish ?? false) && !support;
+  const metrics = useMemo(() => (plan ? planMetrics(plan, last?.violations) : null), [plan, last]);
+  const canPublish = !!plan && editable && selectableRoutes(plan).length > 0 && can(PLANNING_MENU, 'command') && (access?.canPublish ?? false) && !support;
   const canDiscard = editable && can(PLANNING_MENU, 'delete') && (access?.canDelete ?? false) && !support;
   const canReopt = editable && can(PLANNING_MENU, 'create') && (access?.canPlan ?? false) && !support && capabilityView(caps.data).canOptimise;
   const health = capabilityView(caps.data);
@@ -214,55 +238,58 @@ export function PlanReviewPage() {
     setAnnouncement('');
     requestAnimationFrame(() => setAnnouncement(msg));
   };
-  const violations = mergeViolations(plan.violations ?? [], lastCheck ?? []);
+  const violations = mergeViolations(plan.violations ?? [], last?.violations ?? []);
   const violationsOf = (stopId: string) => violations.filter((v) => v.stopId === stopId);
   const stopById = new Map(plan.stops.map((s) => [s.id, s]));
   const labelOf = (stopId: string, ref: string) => {
     const s = stopById.get(stopId);
     return s ? stopLabel(s, t) : ref;
   };
-  // Decision 5: the server's publish classification (hard blocks, soft needs the acknowledgement, override if authorised).
-  const gate = publishGate(plan);
-  const ackWarnings = warningsAcknowledged(ackedFingerprint, gate);
-  const gateState = publishGateState(gate, { acknowledged: ackWarnings, overrideOn: overrideOn && gate.canOverride, reason: overrideReason });
-  const routeNo = (assignmentId: string) => plan.assignments.findIndex((a) => a.id === assignmentId) + 1;
-  const issueText = (i: (typeof gate.hard)[number]) => {
-    // Times only from the routing engine (never another source), as everywhere on the page.
-    const engine = engineEta(plan.assignments.find((a) => a.id === i.assignmentId)?.eta ?? null);
-    const at = engine ? planClock(plan.planStartAt, i.etaS, tz) : null;
-    const from = i.window ? planClock(plan.planStartAt, i.window[0], tz) : null;
-    const to = i.window ? planClock(plan.planStartAt, i.window[1], tz) : null;
-    const when = at && from && to ? ` (${t('arrives {{eta}}, window {{from}}–{{to}}', { eta: at, from, to })})` : '';
-    const route = routeNo(i.assignmentId) > 0 ? `${t('Route {{n}} · {{vehicle}}', { n: routeNo(i.assignmentId), vehicle: i.vehicleLabel })} · ` : '';
-    return `${route}${labelOf(i.stopId, i.ref)} — ${t(VIOLATION_LABEL[i.kind] ?? i.kind)}${when}`;
-  };
+  const issues = routeIssues(plan, last);
+  const changed = new Set((showChanges ? (changes.data?.manualChanges.routes ?? []) : []).filter((r) => r.addedStopIds.length || r.removedStopIds.length || r.reordered || r.vehicleChanged || r.driverChanged).map((r) => r.assignmentId));
   const { points, hidden } = mapPoints(plan, plan.precise);
   const lines = routeLines(plan);
   const nonEngine = plan.assignments.some((a) => a.eta && !engineEta(a.eta));
-  const unassigned = unassignedPassengers(plan.stops, plan.direction);
+  // AREA plans have no direction: each booking is listed once (at its pickup).
+  const unassigned = unassignedPassengers(plan.stops, areaPlan ? 'IN' : plan.direction);
   const routes = routesOf(plan);
   const busy = edit.isPending || plan.status === 'OPTIMIZING';
   const activeJob = activeJobId(plan, jobId, openJobs.data);
+  const sel = selected ? (stopById.get(selected) ?? null) : null;
+  // Only while the cursor describes this very version: after a reload (another user's edit, a job) the history of the
+  // new version may not be in yet, and a restore of an old version would silently revert the other change.
+  const cursorFresh = !!cursor && cursor.head === plan.version;
+  const undoV = canEdit && cursorFresh ? undoTarget(cursor) : null;
+  const redoV = canEdit && cursorFresh ? redoTarget(cursor) : null;
 
-  const runEdit = (e: PlanEdit, ok: string, focusAfter?: string[]) => {
+  const runEdit = (e: PlanEdit, ok: string, focusAfter?: string[], restoreDelta?: -1 | 1) => {
     setEditError(null);
     const active = typeof document !== 'undefined' ? document.activeElement?.getAttribute('data-focus-key') : null;
     pendingFocus.current = focusAfter ?? (active ? [active] : null);
     edit.mutate(e, {
       onSuccess: (r) => {
         setConflict(false);
-        setLastCheck(r.violations);
+        setLast({ violations: r.violations, routeViolations: r.routeViolations });
         setDegraded(r.degraded ?? null);
-        const msg = r.violations.length ? t('{{ok}} Re-checked: {{n}} warning(s).', { ok, n: r.violations.length }) : t('{{ok}} Re-checked: no warnings.', { ok });
+        setCursor((c) => (restoreDelta && c ? afterRestore(c, restoreDelta, r.plan) : afterEdit(c, r.plan)));
+        const blocking = (r.routeViolations ?? []).length;
+        const n = r.violations.length + blocking;
+        const msg = n ? t('{{ok}} Re-checked: {{n}} warning(s).', { ok, n }) : t('{{ok}} Re-checked: no warnings.', { ok });
         announce(msg);
-        if (r.violations.length) toast.warning(msg);
+        if (n) toast.warning(msg);
         else toast.success(msg);
       },
       onError: (err) => {
-        const k = plannerErrorOf(err).kind;
-        if (k === 'conflict') setConflict(true);
-        setEditError(plannerErrorMessage(err, t));
-        announce(plannerErrorMessage(err, t));
+        const { kind, code } = plannerErrorOf(err);
+        if (kind === 'conflict') setConflict(true);
+        if (code === 'PLAN_RESTORE_CONFLICT' && restoreDelta) setCursor((c) => (c ? afterRestoreConflict(c, restoreDelta) : c));
+        let msg = plannerErrorMessage(err, t);
+        if (code === 'BOOKING_NOT_PLANNABLE') {
+          const reason = plannerErrorBody(err)?.reason;
+          if (typeof reason === 'string') msg = `${msg} ${t(ADD_BOOKING_REFUSAL_LABEL[reason] ?? reason)}`;
+        }
+        setEditError(msg);
+        announce(msg);
       },
     });
   };
@@ -283,42 +310,210 @@ export function PlanReviewPage() {
   // Radix returns focus to a DialogTrigger only; these dialogs open from state, so focus goes back by key.
   const returnFocus = (e: Event) => {
     e.preventDefault();
-    const keys = dialogReturn.current;
+    const k = dialogReturn.current;
     dialogReturn.current = null;
-    if (keys && !pendingFocus.current) focusKey(keys);
+    if (k && !pendingFocus.current) focusKey(k);
   };
+  const routeNo = (aid: string | null) => (aid ? plan.assignments.findIndex((a) => a.id === aid) + 1 : 0);
   const moveTo = (stop: PlannerStop, assignmentId: string) => {
     setMoveReq(null);
-    const idx = plan.assignments.findIndex((a) => a.id === assignmentId);
-    const ok = t('{{name}} moved to route {{n}}.', { name: stopLabel(stop, t), n: idx + 1 });
+    const ok = t('{{name}} moved to route {{n}}.', { name: stopLabel(stop, t), n: routeNo(assignmentId) });
     // A booking moves with both ends (POST move-passenger); a generic stop through the sequence.
     const back = [`${stop.id}:move`, `${stop.id}:pin`];
     if (stop.bookingId) return runEdit({ kind: 'move', bookingId: stop.bookingId, toAssignmentId: assignmentId }, ok, back);
     const next = changedRoutes(routes, movePassenger(routes, plan.stops, stop.id, assignmentId));
     if (next.length) runEdit({ kind: 'sequence', assignments: next }, ok, back);
   };
-  const doPublish = () => {
-    // Key per (plan, version) from the page's key store: a retry replays; a refusal (4xx) frees it (usePublishPlan).
-    publish.mutate(gateState.body, {
-      onSuccess: (r) => {
-        setPublished(r);
-        setPublishOpen(false);
-        const msg = t('Published: {{n}} trip(s) created in dispatch.', { n: r.trips.length });
-        announce(msg);
-        toast.success(msg);
-      },
-      onError: (err) => {
-        if (plannerErrorOf(err).kind === 'conflict') setConflict(true);
-      },
-    });
+  /** Drag and drop, "Move selected here" and "Remove from route" share one mapping (plan-workspace dropToEdit). */
+  const dropAt = (stopId: string, target: DropTarget) => {
+    setDragId(null);
+    setOver(null);
+    const s = stopById.get(stopId);
+    if (!s) return;
+    const r = dropToEdit(plan, stopId, target);
+    if (!r.ok) {
+      toast.error(t(r.reason));
+      announce(t(r.reason));
+      return;
+    }
+    const ok = target.assignmentId === null ? t('{{name}} removed from its route.', { name: stopLabel(s, t) }) : target.assignmentId === s.assignmentId ? t('{{name}} moved within route {{n}}.', { name: stopLabel(s, t), n: routeNo(target.assignmentId) }) : t('{{name}} moved to route {{n}}.', { name: stopLabel(s, t), n: routeNo(target.assignmentId) });
+    runEdit(r.edit, ok);
   };
-  // T2-L4: the plan's stored weights (options.weights) and a time limit within the API range.
-  const reoptDefaults = reoptimiseDefaults(plan, caps.data?.limits.optimizeTimeLimitS);
-  const weightsForReopt = reoptWeights ?? reoptDefaults.weights;
+  const dragProps = (s: PlannerStop, target: { assignmentId: string | null; index: number }, enabled: boolean) =>
+    enabled
+      ? {
+          draggable: true,
+          onDragStart: (e: DragEvent<HTMLElement>) => {
+            e.dataTransfer.setData('text/plain', s.id);
+            e.dataTransfer.effectAllowed = 'move';
+            setDragId(s.id);
+          },
+          onDragEnd: () => {
+            setDragId(null);
+            setOver(null);
+          },
+          onDragOver: (e: DragEvent<HTMLElement>) => {
+            if (!dragId) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const box = e.currentTarget.getBoundingClientRect();
+            const before = target.assignmentId === null ? null : e.clientY < box.top + box.height / 2 ? target.index : target.index + 1;
+            if (over?.assignmentId !== target.assignmentId || over?.before !== before) setOver({ assignmentId: target.assignmentId, before });
+          },
+          onDrop: (e: DragEvent<HTMLElement>) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const sid = dragId ?? e.dataTransfer.getData('text/plain');
+            if (sid) dropAt(sid, over && over.assignmentId === target.assignmentId ? over : { assignmentId: target.assignmentId, before: null });
+          },
+        }
+      : {};
+  const zoneProps = (assignmentId: string | null, enabled: boolean) =>
+    enabled
+      ? {
+          onDragOver: (e: DragEvent<HTMLElement>) => {
+            if (!dragId) return;
+            e.preventDefault();
+            if (over?.assignmentId !== assignmentId || over?.before !== null) setOver({ assignmentId, before: null });
+          },
+          onDrop: (e: DragEvent<HTMLElement>) => {
+            e.preventDefault();
+            const sid = dragId ?? e.dataTransfer.getData('text/plain');
+            if (sid) dropAt(sid, { assignmentId, before: null });
+          },
+        }
+      : {};
+  const selectStop = (sid: string | null) => {
+    setSelected(sid);
+    if (sid) requestAnimationFrame(() => document.getElementById(`stop-${sid}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+  };
+  const togglePin = (s: PlannerStop) => {
+    const pinned = s.bookingId ? stopPinnedToRoute(plan.stops, s) : !!s.pinned;
+    const msg = pinned ? t('{{name}} unpinned.', { name: stopLabel(s, t) }) : t('{{name}} pinned to this vehicle. Re-optimising and edits keep it on this vehicle; its place in the order may change.', { name: stopLabel(s, t) });
+    // A passenger is pinned with both ends (PATCH bookings/:id/pin); a generic stop on its own.
+    runEdit(s.bookingId ? { kind: 'pinBooking', bookingId: s.bookingId, pinned: !pinned } : { kind: 'pin', stopId: s.id, pinned: !pinned }, msg);
+  };
+  const removeFromRoute = (s: PlannerStop) => dropAt(s.id, { assignmentId: null, before: null });
+
+  // Re-optimise dialog: strategy (primary) / Advanced weights / preferences / alternatives (E4 WP-A).
+  const strategyForReopt = reoptStrategy ?? strategyDraftOf(plan);
+  const prefsForReopt = reoptPrefs ?? preferencesDraftOf(plan.preferences);
   // E4 review L7: never a value above the API maximum (the select offers only allowed values).
-  const limitForReopt = timeLimitWithin(reoptLimit ?? reoptDefaults.timeLimitS, caps.data?.limits.optimizeTimeLimitS);
+  const limitForReopt = timeLimitWithin(reoptLimit ?? defaultTimeLimit(caps.data?.limits.optimizeTimeLimitS), caps.data?.limits.optimizeTimeLimitS);
   const rideForReopt = reoptRide ?? overrideDraftOf(plan);
   const rideRequest = canOverrideMaxRide(caps.data) ? overrideRequest(rideForReopt, plan.maxRide?.override) : ({ ok: true, value: undefined } as const);
+  const overrideS = rideRequest.ok ? (rideRequest.value === undefined ? (plan.maxRide?.override?.maxRideS ?? null) : (rideRequest.value?.maxRideS ?? null)) : null;
+  const capS = maxRideCapS(plan.maxRide?.policyS ?? access?.maxRidePolicyS ?? null, overrideS);
+  const canEditLocks = can(PLANNING_MENU, 'edit') && (access?.canEdit ?? false);
+  const reoptAlternatives = reoptMode === 'alternatives';
+  const reoptRun = runFields({ ...strategyForReopt, useWeights: strategyForReopt.useWeights && !reoptAlternatives });
+  const reoptPrefsReq = preferencesRequest(prefsForReopt, { capS, preserve: !reoptAlternatives, canEditLocks });
+  const reoptAltError = reoptAlternatives ? alternativesError(reoptAlts) : null;
+  const startReopt = () => {
+    setReoptTouched(true);
+    if (!reoptRun.ok || !reoptPrefsReq.ok || !rideRequest.ok || reoptAltError) return;
+    const done = () => {
+      setReoptOpen(false);
+      setReoptRide(null);
+      setReoptTouched(false);
+      setLast(null);
+    };
+    if (reoptAlternatives) {
+      genAlt.mutate(
+        { strategies: reoptAlts, timeLimitS: limitForReopt, ...(reoptPrefsReq.value ? { preferences: reoptPrefsReq.value } : {}) },
+        {
+          onSuccess: () => {
+            done();
+            setShowAlts(true);
+            toast.success(t('Alternatives started.'));
+          },
+          onError: (err) => plannerErrorOf(err).kind === 'conflict' && setConflict(true),
+        },
+      );
+      return;
+    }
+    reopt.mutate(
+      { strategy: reoptRun.value.strategy, weights: reoptRun.value.weights ?? null, timeLimitS: limitForReopt, ...(reoptPrefsReq.value ? { preferences: reoptPrefsReq.value } : {}), ...(rideRequest.value !== undefined ? { maxRideOverride: rideRequest.value } : {}) },
+      {
+        onSuccess: (job) => {
+          setJobId(job.jobId);
+          done();
+        },
+        onError: (err) => plannerErrorOf(err).kind === 'conflict' && setConflict(true),
+      },
+    );
+  };
+
+  const privateIds = privateBookingIds(dayPrefs.data ?? new Map());
+  const stopRow = (s: PlannerStop, k: number, list: PlannerStop[], a: PlannerPlan['assignments'][number], i: number) => {
+    const eta = stopEta(s, a, plan.planStartAt, tz);
+    const warn = violationsOf(s.id);
+    const editRoute = canEdit && !a.published;
+    const draggableNow = editRoute && !busy && canDrag(plan, s);
+    const isOver = over?.assignmentId === a.id && over.before === k && dragId !== s.id;
+    const isSel = selected === s.id;
+    const pinnedNow = s.bookingId ? stopPinnedToRoute(plan.stops, s) : !!s.pinned;
+    return (
+      <li key={s.id} id={`stop-${s.id}`} className={cn('grid gap-1 p-2', isOver && 'border-t-2 border-t-primary', isSel && 'bg-primary/10 ring-2 ring-primary ring-inset', dragId === s.id && 'opacity-50')} {...dragProps(s, { assignmentId: a.id, index: k }, draggableNow)}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {draggableNow && <GripVerticalIcon className="size-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />}
+          <span className={cn('flex size-6 shrink-0 items-center justify-center text-[11px] font-bold text-white', areaPlan && s.stopKind === 'DROP' ? 'rounded-[3px]' : 'rounded-full')} style={{ background: vehicleColor(i) }} aria-hidden>
+            {k + 1}
+          </span>
+          <span className="min-w-0 flex-1 text-sm break-words">
+            <span className="sr-only">{t('Stop {{n}}:', { n: k + 1 })} </span>
+            {areaPlan && s.stopKind && (
+              <span className={cn('me-1 text-xs font-semibold', s.stopKind === 'DROP' ? 'text-muted-foreground' : 'text-primary')}>{s.stopKind === 'DROP' ? `▼ ${t('Drop')}` : `▲ ${t('Pickup')}`}</span>
+            )}
+            {stopLabel(s, t)}
+          </span>
+          {s.bookingId && privateIds.has(s.bookingId) && <Badge variant="info">{t('Private ride')}</Badge>}
+          {s.pinned && (
+            <Badge variant="info">
+              <PinIcon aria-hidden /> {t('Pinned')}
+            </Badge>
+          )}
+          <span className="basis-full ps-8 text-xs">
+            {eta.at ? (
+              <>
+                <span className="font-medium tabular-nums">{eta.at}</span> <span className="text-muted-foreground">· {t(eta.note)}</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">{t(eta.note)}</span>
+            )}
+          </span>
+        </div>
+        {warn.length > 0 && (
+          <p className="flex items-start gap-1 text-xs text-warning-fg">
+            <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            {warn.map((v) => t(VIOLATION_LABEL[v.kind] ?? v.kind)).join(' · ')}
+          </p>
+        )}
+        {editRoute && (
+          <div className="flex flex-wrap gap-1">
+            <Button size="icon-sm" variant="outline" data-focus-key={`${s.id}:up`} disabled={busy || !canShiftStop(list, k, -1) || a.locked} onClick={() => reorder(s, -1)} aria-label={t('Move {{name}} up', { name: stopLabel(s, t) })}>
+              <ArrowUpIcon />
+            </Button>
+            <Button size="icon-sm" variant="outline" data-focus-key={`${s.id}:down`} disabled={busy || !canShiftStop(list, k, 1) || a.locked} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
+              <ArrowDownIcon />
+            </Button>
+            <Button size="sm" variant="outline" data-focus-key={`${s.id}:move`} disabled={busy || stopPinnedToRoute(plan.stops, s) || a.locked || plan.assignments.length < 2} onClick={() => openMove(s)}>
+              <ArrowRightLeftIcon /> {t('Move to…')}
+            </Button>
+            <Button size="sm" variant="ghost" aria-pressed={isSel} onClick={() => selectStop(isSel ? null : s.id)}>
+              <MousePointerClickIcon /> {isSel ? t('Selected') : t('Select')}
+            </Button>
+            <Button size="sm" variant="ghost" aria-pressed={pinnedNow} data-focus-key={`${s.id}:pin`} disabled={busy} onClick={() => togglePin(s)}>
+              {pinnedNow ? <PinOffIcon /> : <PinIcon />} {pinnedNow ? t('Unpin') : t('Pin')}
+            </Button>
+            <Button size="icon-sm" variant="ghost" disabled={busy || pinnedNow || a.locked} onClick={() => removeFromRoute(s)} aria-label={t('Remove {{name}} from the route', { name: stopLabel(s, t) })} title={t('Remove from route')}>
+              <UserMinusIcon />
+            </Button>
+          </div>
+        )}
+      </li>
+    );
+  };
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-3 p-4 sm:p-6">
@@ -341,6 +536,22 @@ export function PlanReviewPage() {
         }
         actions={
           <div className="flex flex-wrap gap-2">
+            {canEdit && (
+              <>
+                <Button variant="outline" size="sm" disabled={busy || undoV === null} onClick={() => undoV !== null && runEdit({ kind: 'restore', version: undoV }, t('Undone: version {{v}} restored.', { v: undoV }), undefined, -1)}>
+                  <Undo2Icon /> {t('Undo')}
+                </Button>
+                <Button variant="outline" size="sm" disabled={busy || redoV === null} onClick={() => redoV !== null && runEdit({ kind: 'restore', version: redoV }, t('Redone: version {{v}} restored.', { v: redoV }), undefined, 1)}>
+                  <Redo2Icon /> {t('Redo')}
+                </Button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => runEdit({ kind: 'recalculate' }, t('Times recalculated.'))}>
+                  <TimerResetIcon /> {t('Recalculate')}
+                </Button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => setAddOpen(true)}>
+                  <PlusIcon /> {t('Add booking')}
+                </Button>
+              </>
+            )}
             {canReopt && (
               <Button variant="outline" size="sm" disabled={busy || reopt.isPending} onClick={() => setReoptOpen(true)}>
                 <RefreshCwIcon /> {t('Re-optimise')}
@@ -351,19 +562,11 @@ export function PlanReviewPage() {
                 <Trash2Icon /> {t('Discard')}
               </Button>
             )}
-            {canPublish && (
-              <Button
-                size="sm"
-                disabled={busy}
-                onClick={() => {
-                  publish.reset();
-                  setAckedFingerprint(null);
-                  setOverrideOn(false);
-                  setOverrideReason('');
-                  setPublishOpen(true);
-                }}
-              >
-                <SendIcon /> {t('Publish…')}
+            {canPublish && !busy && (
+              <Button asChild size="sm">
+                <Link to={planPublishPath(plan.id)}>
+                  <SendIcon /> {t('Review & publish…')}
+                </Link>
               </Button>
             )}
           </div>
@@ -402,28 +605,6 @@ export function PlanReviewPage() {
         </Card>
       )}
 
-      {published && (
-        <Card className="gap-2 border-success/40 p-3" role="status">
-          <h2 className="text-sm font-semibold">{t('Published to dispatch')}</h2>
-          <ul className="grid gap-1 text-sm">
-            {published.trips.map((tr) => {
-              const idx = plan.assignments.findIndex((a) => a.id === tr.assignmentId);
-              const a = plan.assignments[idx];
-              return (
-                <li key={tr.transportTripId}>
-                  <Link to={transportTripPath(tr.transportTripId)} className="inline-flex items-center gap-1 text-primary hover:underline">
-                    <ExternalLinkIcon className="size-3.5" aria-hidden /> {t('Route {{n}} · {{vehicle}}', { n: idx + 1, vehicle: a?.vehicleLabel ?? '' })}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-          <Button asChild size="sm" variant="outline" className="justify-self-start">
-            <Link to="/transport/dispatch">{t('Open the dispatch board')}</Link>
-          </Button>
-        </Card>
-      )}
-
       {/* Decision 5: a plan published with an authorised override shows it (reason and what was overridden). */}
       {plan.publishDecision?.override && (
         <Card className="gap-1 border-warning/40 p-3 text-sm" role="note" aria-labelledby="publish-override-title">
@@ -439,26 +620,72 @@ export function PlanReviewPage() {
       </p>
       <EtaFootnote />
 
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="ghost" aria-expanded={showChanges} onClick={() => setShowChanges((v) => !v)}>
+          <ListChecksIcon /> {showChanges ? t('Hide changes') : t('Show changes')}
+        </Button>
+        {(plan.alternativeOf || showAlts) && (
+          <Button size="sm" variant="ghost" aria-expanded={showAlts} onClick={() => setShowAlts((v) => !v)}>
+            <GitCompareIcon /> {showAlts ? t('Hide alternatives') : t('Show alternatives')}
+          </Button>
+        )}
+      </div>
+      {showChanges && (
+        <Card className="min-w-0 gap-2 p-3">
+          <h2 className="text-sm font-semibold">{t('Manual changes')}</h2>
+          <ChangesPanel plan={plan} />
+        </Card>
+      )}
+      {showAlts && (
+        <Card className="min-w-0 gap-2 p-3">
+          <h2 className="text-sm font-semibold">{t('Alternatives')}</h2>
+          <AlternativesPanel planId={plan.id} canDelete={canDiscard} canPlan={canReopt} />
+        </Card>
+      )}
+
+      {canEdit && sel && (
+        <div role="status" className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-card p-2 text-sm shadow-sm">
+          <span className="min-w-0 flex-1 break-words">{t('Selected: {{name}}. Use “Move selected here” on a route.', { name: stopLabel(sel, t) })}</span>
+          {sel.assignmentId && (
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => removeFromRoute(sel)}>
+              <UserMinusIcon /> {t('Remove from route')}
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setSelected(null)} aria-label={t('Clear selection')}>
+            <XIcon />
+          </Button>
+        </div>
+      )}
+      {canEdit && <p className="text-xs text-muted-foreground">{t('Drag a passenger to another route or to a new place in its route, or use the buttons. Every change is re-checked.')}</p>}
+
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="grid min-w-0 content-start gap-3">
           {plan.assignments.map((a, i) => {
             const stops = routeStops(plan.stops, a.id);
-            const load = routeLoad(stops, plan.direction);
-            const over = a.capacity !== null && load > a.capacity;
+            const load = areaPlan ? peakLoad(stops) : routeLoad(stops, plan.direction);
+            const over_ = a.capacity !== null && load > a.capacity;
             const vehicle = a.vehicleName ? `${a.vehicleName}${a.plateNumber ? ` · ${a.plateNumber}` : ''}` : a.vehicleLabel;
+            const editRoute = canEdit && !a.published;
+            const dropOk = editRoute && !a.locked && !!dragId;
             return (
-              <Card key={a.id} className="min-w-0 gap-2 p-3">
+              <Card key={a.id} className={cn('min-w-0 gap-2 p-3', dropOk && over?.assignmentId === a.id && 'ring-2 ring-primary')} {...zoneProps(a.id, editRoute && !a.locked)}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="size-3 shrink-0 rounded-full" style={{ background: vehicleColor(i) }} aria-hidden />
                   <h2 className="min-w-0 flex-1 text-sm font-semibold break-words">{t('Route {{n}} · {{vehicle}}', { n: i + 1, vehicle })}</h2>
+                  {a.published && <Badge variant="success">{t('Published')}</Badge>}
+                  {changed.has(a.id) && <Badge variant="warning">{t('Changed')}</Badge>}
                   {a.locked && (
                     <Badge variant="info">
                       <LockIcon aria-hidden /> {t('Locked')}
                     </Badge>
                   )}
-                  <Badge variant={over ? 'destructive' : 'outline'}>{a.capacity === null ? t('{{n}} seats used · seats not set', { n: load }) : t('{{used}} / {{capacity}} seats', { used: load, capacity: a.capacity })}</Badge>
+                  <Badge variant={over_ ? 'destructive' : 'outline'}>{a.capacity === null ? t('{{n}} seats used · seats not set', { n: load }) : t('{{used}} / {{capacity}} seats', { used: load, capacity: a.capacity })}</Badge>
                 </div>
-                {a.driverName && <p className="text-xs text-muted-foreground">{t('Driver: {{name}}', { name: a.driverName })}</p>}
+                {editRoute ? (
+                  <DriverPicker id={`driver-${a.id}`} driverId={a.driverId} driverName={a.driverName} disabled={busy || a.locked} onChange={(driverId, name) => runEdit({ kind: 'driver', assignmentId: a.id, driverId }, driverId ? t('Route {{n}}: driver {{name}}.', { n: i + 1, name }) : t('Route {{n}}: no driver.', { n: i + 1 }))} />
+                ) : (
+                  a.driverName && <p className="text-xs text-muted-foreground">{t('Driver: {{name}}', { name: a.driverName })}</p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   {(() => {
                     // T2-L1: engine numbers only when the engine produced both (not "— · — drive" after an edit while it was down).
@@ -466,12 +693,19 @@ export function PlanReviewPage() {
                     return d.kind === 'engine' ? t('{{km}} · {{time}} drive', { km: formatKm(d.distanceM), time: formatDuration(d.durationS, t) }) : d.kind === 'pending' ? t('No engine distance or time yet') : t('No stops on this route');
                   })()}
                 </p>
+                {a.published && <p className="text-xs text-muted-foreground">{t('This route is published: it is read-only here. Change it on the dispatch board.')}</p>}
+                <RouteIssuesView issues={issues.get(a.id)} />
                 <div className="flex flex-wrap gap-1.5">
                   <Button size="sm" variant="ghost" aria-pressed={focus === i} onClick={() => setFocus(focus === i ? null : i)}>
                     <CrosshairIcon /> {focus === i ? t('Show all routes') : t('Show on map')}
                   </Button>
-                  {canEdit && (
+                  {editRoute && (
                     <>
+                      {sel && sel.assignmentId !== a.id && (
+                        <Button size="sm" variant="outline" disabled={busy || a.locked} onClick={() => dropAt(sel.id, { assignmentId: a.id, before: null })}>
+                          <ArrowRightLeftIcon /> {t('Move selected here')}
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" data-focus-key={`route:${a.id}:vehicle`} disabled={busy || a.locked} onClick={() => openVehicle(a.id)}>
                         <CarFrontIcon /> {t('Change vehicle')}
                       </Button>
@@ -495,112 +729,87 @@ export function PlanReviewPage() {
                     </Button>
                   )}
                 </div>
-                {stops.length > 0 && (
+                {stops.length > 0 && areaPlan && groupStopsByTrip(stops).length > 1 ? (
+                  // Pooling: one vehicle route, several trips (each published as its own trip).
+                  <div className="grid gap-2">
+                    {groupStopsByTrip(stops).map((g) => (
+                      <div key={g.tripIndex} className="grid gap-1">
+                        <h3 className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+                          {t('Trip {{n}}', { n: g.tripIndex + 1 })}
+                          <span className="font-normal text-muted-foreground">{t('{{p}} pickups · {{d}} drops', { p: g.pickups, d: g.drops })}</span>
+                        </h3>
+                        <ol className="divide-y rounded-md border" aria-label={t('Stops of trip {{t}} of route {{n}}', { t: g.tripIndex + 1, n: i + 1 })}>
+                          {g.stops.map(({ stop, index }) => stopRow(stop, index, stops, a, i))}
+                        </ol>
+                      </div>
+                    ))}
+                  </div>
+                ) : stops.length > 0 ? (
                   <ol className="divide-y rounded-md border" aria-label={t('Stops of route {{n}}', { n: i + 1 })}>
-                    {stops.map((s, k) => {
-                      const eta = stopEta(s, a, plan.planStartAt, tz);
-                      const warn = violationsOf(s.id);
-                      return (
-                        <li key={s.id} className="grid gap-1 p-2">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white" style={{ background: vehicleColor(i) }} aria-hidden>
-                              {k + 1}
-                            </span>
-                            <span className="min-w-0 flex-1 text-sm break-words">
-                              <span className="sr-only">{t('Stop {{n}}:', { n: k + 1 })} </span>
-                              {stopLabel(s, t)}
-                            </span>
-                            {s.pinned && (
-                              <Badge variant="info">
-                                <PinIcon aria-hidden /> {t('Pinned')}
-                              </Badge>
-                            )}
-                            <span className="basis-full ps-8 text-xs">
-                              {eta.at ? (
-                                <>
-                                  <span className="font-medium tabular-nums">{eta.at}</span> <span className="text-muted-foreground">· {t(eta.note)}</span>
-                                </>
-                              ) : (
-                                <span className="text-muted-foreground">{t(eta.note)}</span>
-                              )}
-                            </span>
-                          </div>
-                          {warn.length > 0 && (
-                            <p className="flex items-start gap-1 text-xs text-warning-fg">
-                              <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                              {warn.map((v) => t(VIOLATION_LABEL[v.kind] ?? v.kind)).join(' · ')}
-                            </p>
-                          )}
-                          {canEdit && (
-                            <div className="flex flex-wrap gap-1">
-                              <Button size="icon-sm" variant="outline" data-focus-key={`${s.id}:up`} disabled={busy || !canShiftStop(stops, k, -1) || a.locked} onClick={() => reorder(s, -1)} aria-label={t('Move {{name}} up', { name: stopLabel(s, t) })}>
-                                <ArrowUpIcon />
-                              </Button>
-                              <Button size="icon-sm" variant="outline" data-focus-key={`${s.id}:down`} disabled={busy || !canShiftStop(stops, k, 1) || a.locked} onClick={() => reorder(s, 1)} aria-label={t('Move {{name}} down', { name: stopLabel(s, t) })}>
-                                <ArrowDownIcon />
-                              </Button>
-                              <Button size="sm" variant="outline" data-focus-key={`${s.id}:move`} disabled={busy || stopPinnedToRoute(plan.stops, s) || a.locked || plan.assignments.length < 2} onClick={() => openMove(s)}>
-                                <ArrowRightLeftIcon /> {t('Move to…')}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                aria-pressed={!!s.pinned}
-                                data-focus-key={`${s.id}:pin`}
-                                disabled={busy}
-                                onClick={() => runEdit({ kind: 'pin', stopId: s.id, pinned: !s.pinned }, s.pinned ? t('{{name}} unpinned.', { name: stopLabel(s, t) }) : t('{{name}} pinned to this vehicle. Re-optimising and edits keep it on this vehicle; its place in the order may change.', { name: stopLabel(s, t) }))}
-                              >
-                                {s.pinned ? <PinOffIcon /> : <PinIcon />} {s.pinned ? t('Unpin') : t('Pin')}
-                              </Button>
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
+                    {stops.map((s, k) => stopRow(s, k, stops, a, i))}
                   </ol>
+                ) : (
+                  dropOk && <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">{t('Drop here')}</p>
                 )}
               </Card>
             );
           })}
 
-          <Card className="min-w-0 gap-2 p-3">
+          <Card className={cn('min-w-0 gap-2 p-3', canEdit && dragId && over?.assignmentId === null && 'ring-2 ring-primary')} {...zoneProps(null, canEdit)}>
             <h2 className="text-sm font-semibold">
               {t('Unassigned passengers')} <span className="tabular-nums text-muted-foreground">({unassigned.length})</span>
             </h2>
+            {canEdit && dragId && <p className="text-xs text-muted-foreground">{t('Drop here to take a passenger off its route.')}</p>}
             {unassigned.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('Every passenger has a seat on a route.')}</p>
             ) : (
               <ul className="divide-y rounded-md border">
-                {unassigned.map((s) => (
-                  <li key={s.id} className="flex flex-wrap items-center gap-2 p-2">
-                    <div className="grid min-w-0 flex-1 gap-0.5">
-                      <span className="text-sm break-words">{stopLabel(s, t)}</span>
-                      <span className="text-xs text-warning-fg">
-                        <UnassignedReasonText code={s.unassignedReason} />
-                      </span>
-                    </div>
-                    {canEdit && plan.assignments.length > 0 && (
-                      <Button size="sm" variant="outline" disabled={busy} onClick={() => setMoveReq(s)}>
-                        <ArrowRightLeftIcon /> {t('Add to route…')}
-                      </Button>
-                    )}
-                  </li>
-                ))}
+                {unassigned.map((s, k) => {
+                  const isSel = selected === s.id;
+                  return (
+                    <li key={s.id} id={`stop-${s.id}`} className={cn('flex flex-wrap items-center gap-2 p-2', isSel && 'bg-primary/10 ring-2 ring-primary ring-inset')} {...dragProps(s, { assignmentId: null, index: k }, canEdit && !busy)}>
+                      {canEdit && <GripVerticalIcon className="size-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />}
+                      <div className="grid min-w-0 flex-1 gap-0.5">
+                        <span className="text-sm break-words">{stopLabel(s, t)}</span>
+                        <span className="text-xs text-warning-fg">
+                          <UnassignedReasonText code={s.unassignedReason} />
+                        </span>
+                      </div>
+                      {canEdit && (
+                        <div className="flex flex-wrap gap-1">
+                          {plan.assignments.length > 0 && (
+                            <Button size="sm" variant="outline" disabled={busy} onClick={() => setMoveReq(s)}>
+                              <ArrowRightLeftIcon /> {t('Add to route…')}
+                            </Button>
+                          )}
+                          <Button size="sm" variant="ghost" aria-pressed={isSel} onClick={() => selectStop(isSel ? null : s.id)}>
+                            <MousePointerClickIcon /> {isSel ? t('Selected') : t('Select')}
+                          </Button>
+                          {s.bookingId && (
+                            <Button size="icon-sm" variant="ghost" disabled={busy} onClick={() => setRemoveReq(s)} aria-label={t('Remove {{name}} from the plan', { name: stopLabel(s, t) })} title={t('Remove booking from plan')}>
+                              <Trash2Icon />
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </Card>
 
           <Card className="min-w-0 gap-2 p-3">
-            <h2 className="text-sm font-semibold">{lastCheck ? t('Re-check after your last change') : t('Warnings')}</h2>
+            <h2 className="text-sm font-semibold">{last ? t('Re-check after your last change') : t('Warnings')}</h2>
             <ViolationList violations={violations} labelOf={labelOf} />
           </Card>
         </div>
 
         <div className="grid min-w-0 content-start gap-2 lg:sticky lg:top-4 lg:self-start">
-          <PlanMap lines={lines} points={points} depot={plan.depot} focus={focus} className="h-[320px] sm:h-[420px] lg:h-[560px]" label={t('Map of the routes of {{name}}', { name: plan.name })} />
+          <PlanMap lines={lines} points={points} depot={plan.depot} focus={focus} selected={selected} onSelect={(sid) => selectStop(sid)} className="h-[320px] sm:h-[420px] lg:h-[560px]" label={t('Map of the routes of {{name}}', { name: plan.name })} />
           <p className="text-xs text-muted-foreground">
             {hidden > 0 ? t('{{n}} passenger point(s) are not on the map (no transport consent or outside your branches); the lists still show them.', { n: hidden }) : t('Only points you may see are drawn; routes follow the engine’s road geometry.')}
-            {!plan.precise ? ` ${t('Points are approximate (about 11 m) for your role.')}` : ''}
+            {!plan.precise ? ` ${t('Points are approximate (about 11 m) for your role.')}` : ''} {t('Click a stop on the map to select it in the list.')}
           </p>
           <Button size="sm" variant="ghost" className="justify-self-start" aria-expanded={showHistory} onClick={() => setShowHistory((v) => !v)}>
             <HistoryIcon /> {showHistory ? t('Hide history') : t('Show history')}
@@ -632,13 +841,7 @@ export function PlanReviewPage() {
       </div>
 
       {/* Move a passenger to another route (pickup and drop move together). */}
-      <MoveDialog
-        stop={moveReq}
-        plan={plan}
-        onClose={() => setMoveReq(null)}
-        onPick={(aid) => moveReq && moveTo(moveReq, aid)}
-        onCloseAutoFocus={returnFocus}
-      />
+      <MoveDialog stop={moveReq} plan={plan} onClose={() => setMoveReq(null)} onPick={(aid) => moveReq && moveTo(moveReq, aid)} onCloseAutoFocus={returnFocus} />
 
       {vehicleReq && (
         <VehicleDialog
@@ -646,107 +849,43 @@ export function PlanReviewPage() {
           assignmentId={vehicleReq}
           onClose={() => {
             setVehicleReq(null);
-            const keys = dialogReturn.current;
+            const k = dialogReturn.current;
             dialogReturn.current = null;
-            if (keys) requestAnimationFrame(() => focusKey(keys));
+            if (k) requestAnimationFrame(() => focusKey(k));
           }}
           onCloseAutoFocus={returnFocus}
           onPick={(v) => {
-            const idx = plan.assignments.findIndex((a) => a.id === vehicleReq);
-            runEdit({ kind: 'vehicle', assignmentId: vehicleReq, objectId: v.objectId }, t('Route {{n}} now uses {{vehicle}}.', { n: idx + 1, vehicle: v.name }), [`route:${vehicleReq}:vehicle`, `route:${vehicleReq}:lock`]);
+            runEdit({ kind: 'vehicle', assignmentId: vehicleReq, objectId: v.objectId }, t('Route {{n}} now uses {{vehicle}}.', { n: routeNo(vehicleReq), vehicle: v.name }), [`route:${vehicleReq}:vehicle`, `route:${vehicleReq}:lock`]);
             setVehicleReq(null);
           }}
         />
       )}
 
-      {/* Publish → confirmation. */}
-      <Dialog open={publishOpen} onOpenChange={(o) => !publish.isPending && setPublishOpen(o)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t('Publish this plan?')}</DialogTitle>
-            <DialogDescription>{t('Each route with passengers becomes a trip on the dispatch board, with its vehicle and seats. The plan then becomes read-only.')}</DialogDescription>
-          </DialogHeader>
-          <DialogBody className="grid gap-3 text-sm">
-            <ul className="grid gap-1">
-              <li>{t('{{n}} trip(s) will be created.', { n: metrics.vehiclesUsed })}</li>
-              <li>{t('{{n}} passenger(s) seated.', { n: metrics.passengers - metrics.unassigned })}</li>
-              {metrics.unassigned > 0 && <li className="text-warning-fg">{t('{{n}} unassigned passenger(s) stay in the dispatch queue.', { n: metrics.unassigned })}</li>}
-            </ul>
-            {/* Decision 5: hard violations block publishing (the server refuses them too). */}
-            {gate.hard.length > 0 && (
-              <section className="grid gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-destructive-fg" aria-labelledby="publish-hard-title">
-                <h3 id="publish-hard-title" className="flex items-center gap-1.5 font-semibold">
-                  <CircleAlertIcon className="size-4" aria-hidden /> {t('Hard violations (block publishing)')}
-                </h3>
-                <ul className="grid gap-0.5">
-                  {gate.hard.map((i) => (
-                    <li key={`${i.stopId}:${i.kind}`}>{issueText(i)}</li>
-                  ))}
-                </ul>
-                <p>{t('These must be fixed before publishing. Edit the routes (move or reorder stops) or re-optimise the plan.')}</p>
-                {gate.canOverride && gate.blocking.length === 0 && (
-                  <div className="grid gap-2 border-t border-destructive/30 pt-2">
-                    <label className="flex items-start gap-2">
-                      <Checkbox checked={overrideOn} onCheckedChange={(v) => setOverrideOn(v === true)} className="mt-0.5" />
-                      <span>{t('Override the arrival-window violations (authorised)')}</span>
-                    </label>
-                    {overrideOn && (
-                      <Field label={t('Reason for the override (recorded in the audit log)')} htmlFor="publish-override-reason" required hint={t('At least {{n}} characters, in words.', { n: ROUTE_PLAN_OVERRIDE_REASON_MIN })}>
-                        <Textarea
-                          id="publish-override-reason"
-                          value={overrideReason}
-                          onChange={(e) => setOverrideReason(e.target.value)}
-                          maxLength={ROUTE_PLAN_OVERRIDE_REASON_MAX}
-                          rows={3}
-                          required
-                          aria-required
-                        />
-                      </Field>
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
-            {/* Soft warnings: publishable after an explicit acknowledgement of exactly this set. */}
-            {gate.soft.length > 0 && (
-              <section className="grid gap-1.5 rounded-md border border-warning/40 bg-warning-soft p-2 text-warning-fg" aria-labelledby="publish-soft-title">
-                <h3 id="publish-soft-title" className="font-semibold">{t('Warnings')}</h3>
-                <ul className="grid gap-0.5">
-                  {gate.soft.map((i) => (
-                    <li key={`${i.stopId}:${i.kind}`}>{issueText(i)}</li>
-                  ))}
-                </ul>
-                <label className="flex items-start gap-2">
-                  <Checkbox checked={ackWarnings} onCheckedChange={(v) => setAckedFingerprint(acknowledgedFingerprint(v === true, gate))} className="mt-0.5" />
-                  <span>{t('I have checked these {{n}} warning(s) and want to publish.', { n: gate.soft.length })}</span>
-                </label>
-              </section>
-            )}
-            <EtaFootnote />
-            {publish.isError && <FormError message={plannerErrorMessage(publish.error, t)} />}
-            {publishRouteErrors(publish.error).length > 0 && (
-              <ul className="grid gap-1 text-sm text-destructive-fg" aria-label={t('Routes that cannot be published')}>
-                {publishRouteErrors(publish.error).map((r) => {
-                  const idx = plan.assignments.findIndex((a) => a.id === r.assignmentId);
-                  return (
-                    <li key={r.assignmentId + r.code}>
-                      <span className="font-medium">{t('Route {{n}} · {{vehicle}}', { n: idx + 1, vehicle: r.vehicleLabel })}</span>: {plannerErrorText(r.code) ? t(plannerErrorText(r.code) as string) : e3ErrorText(r.code) ? t(e3ErrorText(r.code) as string) : r.message}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPublishOpen(false)} disabled={publish.isPending}>
-              {t('Back')}
-            </Button>
-            <Button onClick={doPublish} disabled={publish.isPending || !gateState.allowed || metrics.vehiclesUsed === 0}>
-              {publish.isPending ? <Spinner /> : <SendIcon />} {t('Publish')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AddBookingDialog
+        plan={plan}
+        open={addOpen}
+        pending={busy}
+        onClose={() => setAddOpen(false)}
+        onAdd={(bookingId) => {
+          setAddOpen(false);
+          runEdit({ kind: 'addBooking', bookingId }, t('Booking added to the plan (no route yet).'));
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!removeReq}
+        onOpenChange={(o) => !o && setRemoveReq(null)}
+        title={t('Remove booking from plan?')}
+        description={removeReq ? t('{{name}} leaves this plan. The booking stays open in the dispatch queue.', { name: stopLabel(removeReq, t) }) : ''}
+        confirmLabel={t('Remove')}
+        destructive
+        pending={edit.isPending}
+        onConfirm={() => {
+          const s = removeReq;
+          setRemoveReq(null);
+          if (s?.bookingId) runEdit({ kind: 'removeBooking', bookingId: s.bookingId }, t('{{name}} removed from the plan.', { name: stopLabel(s, t) }));
+        }}
+      />
 
       <ConfirmDialog
         open={discardOpen}
@@ -775,46 +914,40 @@ export function PlanReviewPage() {
         }
       />
 
-      <Dialog open={reoptOpen} onOpenChange={(o) => !reopt.isPending && setReoptOpen(o)}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={reoptOpen} onOpenChange={(o) => !reopt.isPending && !genAlt.isPending && setReoptOpen(o)}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t('Re-optimise this plan')}</DialogTitle>
             <DialogDescription>{t('Pinned stops stay on their vehicle and locked routes keep their stops and order; everything else may change. A new version is saved.')}</DialogDescription>
           </DialogHeader>
           <DialogBody className="grid gap-3">
-            <WeightsEditor idPrefix="re-w" showErrors value={weightsForReopt} onChange={setReoptWeights} />
+            <div className="inline-flex rounded-lg border bg-muted p-[3px] sm:max-w-md" role="group" aria-label={t('What to make')}>
+              {(['single', 'alternatives'] as const).map((m) => (
+                <button key={m} type="button" aria-pressed={reoptMode === m} onClick={() => setReoptMode(m)} className={cn('h-8 min-w-0 flex-1 rounded-md px-2 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring', reoptMode === m ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')}>
+                  {m === 'single' ? t('Re-optimise this plan') : t('Generate alternatives')}
+                </button>
+              ))}
+            </div>
+            {reoptAlternatives ? (
+              <AlternativesPicker idPrefix="re-alt" value={reoptAlts} onChange={(s, on) => setReoptAlts((x) => toggleStrategy(x, s, on))} error={reoptTouched ? reoptAltError : null} />
+            ) : (
+              <StrategyPicker idPrefix="re" showErrors={reoptTouched} value={strategyForReopt} onChange={setReoptStrategy} />
+            )}
+            <PreferencesFields idPrefix="re-pref" value={prefsForReopt} onChange={setReoptPrefs} capS={capS} preserve={!reoptAlternatives} canEditLocks={canEditLocks} capped={reoptPrefsReq.ok && reoptPrefsReq.capped} errors={reoptTouched && !reoptPrefsReq.ok ? reoptPrefsReq.errors : undefined} />
             <Field label={t('Time limit per plan')} htmlFor="re-limit">
               <SimpleSelect id="re-limit" value={String(limitForReopt)} onChange={(v) => setReoptLimit(Number(v))} options={timeLimitOptions(caps.data?.limits.optimizeTimeLimitS).map((n) => ({ value: String(n), label: t('{{n}} seconds', { n }) }))} />
             </Field>
-            <MaxRideOverrideFields idPrefix="re-ride" caps={caps.data} value={rideForReopt} onChange={setReoptRide} showErrors={reoptTouched} hadOverride={!!plan.maxRide?.override} />
+            {!reoptAlternatives && <MaxRideOverrideFields idPrefix="re-ride" caps={caps.data} value={rideForReopt} onChange={setReoptRide} showErrors={reoptTouched} hadOverride={!!plan.maxRide?.override} />}
+            {reoptTouched && !reoptRun.ok && <FormError message={t(reoptRun.errors[0])} />}
             {reopt.isError && <FormError message={plannerErrorMessage(reopt.error, t)} />}
+            {genAlt.isError && <FormError message={plannerErrorMessage(genAlt.error, t)} />}
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReoptOpen(false)} disabled={reopt.isPending}>
+            <Button variant="outline" onClick={() => setReoptOpen(false)} disabled={reopt.isPending || genAlt.isPending}>
               {t('Back')}
             </Button>
-            <Button
-              disabled={reopt.isPending || !completeWeights(weightsForReopt)}
-              onClick={() => {
-                const w = completeWeights(weightsForReopt);
-                setReoptTouched(true);
-                if (!w || !rideRequest.ok) return;
-                reopt.mutate(
-                  { weights: w, timeLimitS: limitForReopt, ...(rideRequest.value !== undefined ? { maxRideOverride: rideRequest.value } : {}) },
-                  {
-                    onSuccess: (job) => {
-                      setJobId(job.jobId);
-                      setReoptOpen(false);
-                      setReoptRide(null);
-                      setReoptTouched(false);
-                      setLastCheck(null);
-                    },
-                    onError: (err) => plannerErrorOf(err).kind === 'conflict' && setConflict(true),
-                  },
-                );
-              }}
-            >
-              {reopt.isPending ? <Spinner /> : <RefreshCwIcon />} {t('Start')}
+            <Button disabled={reopt.isPending || genAlt.isPending} onClick={startReopt}>
+              {reopt.isPending || genAlt.isPending ? <Spinner /> : <RefreshCwIcon />} {t('Start')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -839,11 +972,13 @@ function focusKey(keys: readonly string[]): boolean {
 function MoveDialog({ stop, plan, onClose, onPick, onCloseAutoFocus }: { stop: PlannerStop | null; plan: PlannerPlan; onClose: () => void; onPick: (assignmentId: string) => void; onCloseAutoFocus?: (e: Event) => void }) {
   const { t } = useTranslation();
   const [target, setTarget] = useState<string>('');
-  const options = plan.assignments.filter((a) => a.id !== stop?.assignmentId).map((a) => {
-    const i = plan.assignments.indexOf(a);
-    const load = routeLoad(routeStops(plan.stops, a.id), plan.direction);
-    return { value: a.id, label: `${t('Route {{n}} · {{vehicle}}', { n: i + 1, vehicle: a.vehicleLabel })} — ${a.capacity === null ? t('seats not set') : t('{{used}} / {{capacity}} seats', { used: load, capacity: a.capacity })}` };
-  });
+  const options = plan.assignments
+    .filter((a) => a.id !== stop?.assignmentId && !a.published && !a.locked)
+    .map((a) => {
+      const i = plan.assignments.indexOf(a);
+      const load = routeLoad(routeStops(plan.stops, a.id), plan.direction);
+      return { value: a.id, label: `${t('Route {{n}} · {{vehicle}}', { n: i + 1, vehicle: a.vehicleLabel })} — ${a.capacity === null ? t('seats not set') : t('{{used}} / {{capacity}} seats', { used: load, capacity: a.capacity })}` };
+    });
   const chosen = target && options.some((o) => o.value === target) ? target : (options[0]?.value ?? '');
   return (
     <Dialog open={!!stop} onOpenChange={(o) => !o && onClose()}>
@@ -853,9 +988,13 @@ function MoveDialog({ stop, plan, onClose, onPick, onCloseAutoFocus }: { stop: P
           <DialogDescription>{stop ? t('{{name}}: pickup and drop move together. The plan is re-checked after the move.', { name: stopLabel(stop, t) }) : ''}</DialogDescription>
         </DialogHeader>
         <DialogBody>
-          <Field label={t('To route')}>
-            <SimpleSelect value={chosen} onChange={setTarget} options={options} label={t('To route')} />
-          </Field>
+          {options.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('No other route can take this passenger (published or locked).')}</p>
+          ) : (
+            <Field label={t('To route')}>
+              <SimpleSelect value={chosen} onChange={setTarget} options={options} label={t('To route')} />
+            </Field>
+          )}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -894,7 +1033,7 @@ function VehicleDialog({ plan, assignmentId, onClose, onPick, onCloseAutoFocus }
             <p className="text-sm text-muted-foreground">{t('No other vehicle with seats is free for this plan.')}</p>
           ) : (
             <Field label={t('Vehicle')} error={tooSmall ? t('This vehicle has fewer seats than the passengers on the route.') : undefined}>
-              <SimpleSelect value={value} onChange={setValue} label={t('Vehicle')} options={[{ value: '', label: t('Choose a vehicle') }, ...list.map((v) => ({ value: v.objectId, label: `${v.name}${v.plateNumber ? ` · ${v.plateNumber}` : ''} — ${t('{{n}} seats', { n: v.seats ?? 0 })}` }))]} />
+              <SimpleSelect value={value} onChange={setValue} label={t('Vehicle')} placeholder={t('Choose a vehicle')} options={list.map((v) => ({ value: v.objectId, label: `${v.name}${v.plateNumber ? ` · ${v.plateNumber}` : ''} — ${t('{{n}} seats', { n: v.seats ?? 0 })}` }))} />
             </Field>
           )}
           {fleet.isError && <FormError message={plannerErrorMessage(fleet.error, t)} />}

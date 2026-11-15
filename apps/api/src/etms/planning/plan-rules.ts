@@ -14,6 +14,7 @@ import {
   type RoutePlanStopViolation,
   type TransportDirection,
 } from '@veetracer/shared';
+import { splitRouteTrips } from './plan-trip-split';
 
 /**
  * Pure rules of the route plans API (doc 17 §7 P9): route checks (capacity, time windows, pickup-before-drop), re-timing
@@ -42,6 +43,8 @@ export interface RuleStop {
   lat: number;
   lng: number;
   name: string | null;
+  /** Pooling (AREA plans): trip of the vehicle route; 0 for SITE plans. */
+  tripIndex?: number;
 }
 
 export const windowsOf = (json: unknown): Window[] | null => {
@@ -257,6 +260,8 @@ export interface PublishPlan {
   direction: TransportDirection | null;
   shiftId: string | null;
   sitePoiId: string | null;
+  /** Pooling: AREA plans publish one trip per (route, tripIndex) and have no direction / site. */
+  scope?: 'SITE' | 'AREA';
 }
 
 export interface PublishRoute {
@@ -275,8 +280,11 @@ export interface PublishBooking {
   id: string;
   status: string;
   serviceDate: Date;
-  direction: TransportDirection;
+  direction: TransportDirection | null;
   passengerCount: number;
+  /** Pooling: journey (POINT_TO_POINT has no direction) and the dispatcher hold. */
+  journey?: 'COMMUTE' | 'POINT_TO_POINT';
+  holdFromPlanning?: boolean;
   profileId: string;
   pickupLat: number | null;
   pickupLng: number | null;
@@ -337,8 +345,10 @@ export interface PlanChangeSet {
   input: DispatchChangeSetInput;
   /** Change number (1-based, as E3 errors name it) → route (null for none). */
   opRoute: (string | null)[];
-  /** route id → tempId of its CREATE_TRIP. */
+  /** route id → tempId of its (first) CREATE_TRIP. */
   tempIds: Map<string, string>;
+  /** Pooling: every CREATE_TRIP with its route and trip index (SITE plans: one per route, tripIndex 0). */
+  tripRefs: { assignmentId: string; tripIndex: number; tempId: string }[];
   errors: RoutePlanRouteError[];
   warnings: string[];
 }
@@ -377,9 +387,11 @@ export function buildPlanChangeSet(
   const changes: DispatchChangeOp[] = [];
   const opRoute: (string | null)[] = [null];
   const tempIds = new Map<string, string>();
+  const tripRefs: PlanChangeSet['tripRefs'] = [];
+  const area = plan.scope === 'AREA';
   const serviceDate = dayKey(plan.planDate);
   const plan0 = plan.planStartAt?.getTime() ?? null;
-  if (!plan.direction) errors.push({ assignmentId: '', vehicleLabel: '', code: 'PLAN_NOT_PUBLISHABLE', message: 'The plan has no direction (login / logout)' });
+  if (!plan.direction && !area) errors.push({ assignmentId: '', vehicleLabel: '', code: 'PLAN_NOT_PUBLISHABLE', message: 'The plan has no direction (login / logout)' });
   if (plan0 === null) errors.push({ assignmentId: '', vehicleLabel: '', code: 'ROUTE_NOT_TIMED', message: 'The plan has no start time; optimise or recalculate it first' });
 
   // Bookings split over two routes are refused for every route they touch.
@@ -397,7 +409,7 @@ export function buildPlanChangeSet(
     const before = errors.length;
     if (!r.objectId) fail('NO_VEHICLE', `Route ${r.vehicleLabel} has no vehicle`);
     else if (r.seats === null) fail('NO_SEATS_SET', `Set the passenger seats of the vehicle of route ${r.vehicleLabel} first`);
-    if (plan0 === null || !plan.direction) continue;
+    if (plan0 === null || (!plan.direction && !area)) continue;
 
     const bookingIds = [...new Set(list.flatMap((s) => (s.bookingId ? [s.bookingId] : [])))];
     let seats = 0;
@@ -409,7 +421,8 @@ export function buildPlanChangeSet(
       }
       seats += b.passengerCount;
       if (b.status !== 'PENDING_ASSIGNMENT') fail('INVALID_STATE', `Booking ${id} on route ${r.vehicleLabel} is ${b.status}, not waiting for a seat`);
-      if (dayKey(b.serviceDate) !== serviceDate || b.direction !== plan.direction) fail('INVALID_STATE', `Booking ${id} on route ${r.vehicleLabel} is for another date or direction`);
+      if (b.holdFromPlanning) fail('BOOKING_ON_HOLD', `Booking ${id} on route ${r.vehicleLabel} is on hold`);
+      if (dayKey(b.serviceDate) !== serviceDate || (!area && b.journey !== 'POINT_TO_POINT' && b.direction !== plan.direction)) fail('INVALID_STATE', `Booking ${id} on route ${r.vehicleLabel} is for another date or direction`);
       if ((routeOfEnd.get(id)?.size ?? 0) > 1) fail('SPLIT_BOOKING', `The pickup and drop of booking ${id} are not on the same route`);
       const personal = (b.pickupLat !== null && !b.pickupPoiId) || (b.dropLat !== null && !b.dropPoiId);
       if (personal && !consents.has(b.profileId)) fail('CONSENT_REQUIRED', `A passenger on route ${r.vehicleLabel} has no active routing consent`);
@@ -423,7 +436,7 @@ export function buildPlanChangeSet(
       if (b && !changed.has(b.id) && bookingStopChanged(s, b, plan0)) changed.add(b.id);
     }
     for (const id of changed) fail('BOOKING_CHANGED', `Booking ${id} on route ${r.vehicleLabel} was edited after the plan was built (pickup, drop or window); take it off the route or create a new plan`);
-    if (r.seats !== null && seats > r.seats) fail('CAPACITY_EXCEEDED', `Route ${r.vehicleLabel} carries ${seats} passengers on ${r.seats} seats`);
+    if (!area && r.seats !== null && seats > r.seats) fail('CAPACITY_EXCEEDED', `Route ${r.vehicleLabel} carries ${seats} passengers on ${r.seats} seats`);
     for (const s of list) {
       if (s.etaS === null) {
         fail('ROUTE_NOT_TIMED', `Route ${r.vehicleLabel} is not timed; recalculate it first`);
@@ -442,6 +455,36 @@ export function buildPlanChangeSet(
     }
     if (errors.length > before) continue;
 
+    // Pooling: an AREA route publishes one trip per tripIndex (load back to 0 between them); a SITE route is one trip.
+    const parts = area ? splitRouteTrips(list) : { trips: [{ tripIndex: 0, stops: list }], problem: null };
+    if (parts.problem) {
+      fail('SPLIT_BOOKING', `Route ${r.vehicleLabel}: ${parts.problem}`);
+      continue;
+    }
+    for (const part of parts.trips) {
+    const list = part.stops;
+    const bookingIds = [...new Set(list.flatMap((s) => (s.bookingId ? [s.bookingId] : [])))];
+    // Review fix 9: an AREA trip is judged on its on-board load (pickups minus drops along the route), not the route's
+    // total seats. The E3 trip still counts every seat seated on it (occupiedSeats ≤ seatCapacity backstop), so a trip
+    // whose riders together exceed the seats is refused clearly here (the solver caps trips accordingly, doc 20 §11).
+    if (area && r.seats !== null) {
+      let load = 0;
+      let peak = 0;
+      let total = 0;
+      for (const s of list) {
+        const b = s.bookingId ? bookings.get(s.bookingId) : undefined;
+        if (!b) continue;
+        if (s.stopKind === 'DROP') load -= b.passengerCount;
+        else {
+          load += b.passengerCount;
+          total += b.passengerCount;
+        }
+        peak = Math.max(peak, load);
+      }
+      if (peak > r.seats) fail('CAPACITY_EXCEEDED', `Trip ${part.tripIndex + 1} of route ${r.vehicleLabel} carries ${peak} passengers at once on ${r.seats} seats`);
+      else if (total > r.seats) fail('CAPACITY_EXCEEDED', `Trip ${part.tripIndex + 1} of route ${r.vehicleLabel} seats ${total} passengers on ${r.seats} seats in all; split it (a trip counts every seat it carries)`);
+      if (peak > r.seats || total > r.seats) continue;
+    }
     // Trip stops in order; seats per booking end.
     const trip: TripStop[] = [];
     const endSeq = new Map<string, { pickup?: TripStop; drop?: TripStop }>();
@@ -521,10 +564,11 @@ export function buildPlanChangeSet(
     }
     if (errors.length > before) continue;
 
-    const tempId = tempIdOf(i);
-    tempIds.set(r.id, tempId);
+    const tempId = area ? `${tempIdOf(i)}-t${part.tripIndex}` : tempIdOf(i);
+    if (!tempIds.has(r.id)) tempIds.set(r.id, tempId);
+    tripRefs.push({ assignmentId: r.id, tripIndex: part.tripIndex, tempId });
     const firstMs = trip[0].arrivalMs;
-    const wanted = r.startS !== null ? plan0 + r.startS * 1000 : firstMs;
+    const wanted = r.startS !== null && part === parts.trips[0] ? plan0 + r.startS * 1000 : firstMs;
     const plannedStart = Math.min(firstMs, Math.max(wanted, firstMs - 60 * MIN));
     const tripStops: DispatchStopInput[] = trip.map((t, k) => ({
       seq: k,
@@ -542,13 +586,14 @@ export function buildPlanChangeSet(
       stops: tripStops,
       shiftId: plan.shiftId,
       sitePoiId: plan.sitePoiId,
-      name: `${plan.name} · ${r.vehicleLabel}`.slice(0, 120),
+      name: `${plan.name} · ${r.vehicleLabel}${area && parts.trips.length > 1 ? ` · trip ${part.tripIndex + 1}` : ''}`.slice(0, 120),
     });
     opRoute.push(r.id);
     const seated = bookingIds.map((id) => ({ id, e: endSeq.get(id)! })).sort((a, b) => seqOf(a.e.pickup!) - seqOf(b.e.pickup!) || a.id.localeCompare(b.id));
     for (const { id, e } of seated) {
       changes.push({ op: 'ADD_PASSENGER', tripId: tempId, bookingId: id, pickupSeq: seqOf(e.pickup!), dropSeq: seqOf(e.drop!) });
       opRoute.push(r.id);
+    }
     }
   }
   if (!errors.length && !changes.length) errors.push({ assignmentId: '', vehicleLabel: '', code: 'PLAN_NOT_PUBLISHABLE', message: 'No route of the plan has stops to publish' });
@@ -557,6 +602,7 @@ export function buildPlanChangeSet(
     input: { serviceDate, direction: plan.direction ?? 'IN', changes, expectedVersions: {}, reason: `Route plan ${plan.id}` },
     opRoute,
     tempIds,
+    tripRefs,
     errors,
     warnings,
   };

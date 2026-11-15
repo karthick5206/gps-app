@@ -454,3 +454,41 @@ C create, E edit, D delete / cancel, X export, A acknowledge / approve, O overri
 **Differences from `10` §2.3:** the provider dispatcher, escalation contact and corporate-manager columns are omitted
 (not in R1 scope; they follow `10` §2.3 unchanged in their phase). Corporate dispatcher "dispatch / publish /
 progression" in R1 corresponds to Agent 6's corporate-managed `+C/E` on transport trips.
+
+## E4 WP-B — route plans: undo / redo, recalculate, passengers on a draft, review and selected-routes publishing
+
+All under `/api/transport/route-plans` (same gates as the other plan routes: ETMS + routing on, add-on `etms`, menu
+`etms_planning`; another company's or another branch's plan is a 404). Every edit takes `expectedVersion` (409
+`PLAN_STALE`), writes a `RoutePlanVersion` (ids, sequences, times only) and a `RoutePlan` audit row. Shared types:
+`packages/shared/src/routing-plans.ts`.
+
+| Method / path | Permission | Semantics |
+| --- | --- | --- |
+| `POST /:id/restore` `{ version, expectedVersion }` | edit | Puts back the route membership and stop order of that version (undo / redo = restore(previous) / restore(next)). Only while the plan's stop set is the version's, else 409 `PLAN_RESTORE_CONFLICT` `{ addedStopIds, removedStopIds }`. Locked and published routes stay as they are (a stop the version had on one, now elsewhere, becomes unassigned); a pinned stop never leaves its route (409 `STOP_PINNED`). Changed routes are re-timed on the road engine (ETAs null when it does not answer); new version `EDITED`, audit `restoredFrom`. Vehicles, drivers, locks and pins are not restored. |
+| `POST /:id/recalculate` `{ expectedVersion, assignmentIds? }` | edit | Re-times the listed routes (default: every unpublished route with stops) in their current order; version `RECALCULATED`; answers the re-checked violations. (A vehicle change, `PATCH /:id/assignments/:aid`, already answers the capacity re-check.) |
+| `POST /:id/bookings` `{ bookingId, expectedVersion }` | edit | Adds an open booking's two stops, unassigned. Only a booking plan creation would take (same date, direction, site, shift, branch; `PENDING_ASSIGNMENT`; COMMUTE; a point and, for a personal end, active routing consent): else 409 `BOOKING_NOT_PLANNABLE` `{ reason }` (`RoutePlanAddBookingRefusal`); 409 `BOOKING_ALREADY_ON_PLAN`; 422 `LIMIT_EXCEEDED` above 75 bookings (`planBookingsLimitMessage`). |
+| `DELETE /:id/bookings/:bookingId?expectedVersion=n` | edit | Takes the booking's stops off the plan (the booking stays open); not from a locked (`ROUTE_LOCKED`) or published (`ROUTE_ALREADY_PUBLISHED`) route nor while pinned (`STOP_PINNED`); the route closes its gap and is re-timed. |
+| `PATCH /:id/bookings/:bookingId/pin` `{ pinned, expectedVersion }` | edit | Pins / unpins both stops of the booking (the stop pin rule). |
+| `GET /:id/review?assignmentIds=a,b` | view | `RoutePlanReviewDto` for the selection (default: every unpublished route with stops): per route vehicle, driver, seats, exact stop order (stop ids, kinds, booking ids, pseudonymous profile ids; points and "First L." names under the plan-detail consent / branch rules, ACCESS-audited), ETAs, distance, duration, occupancy; unassigned passengers with reasons; manual changes since the last `OPTIMIZED` version (ids only); `publishCheck` (soft / hard / `routeErrors`) and the pre-check `errors`; `reviewHash`. |
+| `POST /:id/publish` + `assignmentIds?`, `reviewHash?` | command (+ `etms_dispatch:command`) | See below. |
+
+**Selected-routes publishing.** `assignmentIds` publishes only those routes through the same single E3 publish
+transaction (`DispatchService.publishPrepared`: advisory locks, scope, consent, capacity, overlap, ledger, idempotency,
+audits). With `assignmentIds`, `reviewHash` is required (409 `PLAN_REVIEW_REQUIRED`); the whole-plan publish (no
+`assignmentIds`) keeps working without it for the current web client and checks it when given. `reviewHash` binds the
+plan version and, per selected route, vehicle, driver, ordered stop ids and ETAs, plus the soft-warning fingerprint: any
+change after the review answers 409 `PLAN_REVIEW_STALE` with the fresh `reviewHash`. The plan stays DRAFT / PLANNED
+(editable) while unpublished routes with stops remain and becomes `PUBLISHED` with the last of them (`publishedAt` = the
+first publish). A published route (its `TransportTrip.routeAssignmentId`) is immutable: edits, pins, recalculate and
+restore refuse or skip it (409 `ROUTE_ALREADY_PUBLISHED`) and the optimiser treats it as locked. Inside the transaction
+the plan row is locked and re-checked before any change, so of two concurrent publishes of overlapping selections one
+wins and the other gets 409 `ROUTE_ALREADY_PUBLISHED` (disjoint selections: `PLAN_STALE`); the unique
+`routeAssignmentId` stays the backstop. The same key and request replays (`Idempotent-Replay`), also after a partial
+publish; another selection / review / acknowledgement with that key is `IDEMPOTENCY_KEY_REUSED`. Discard after a partial
+publish drops only the unpublished remainder: the plan closes as `PUBLISHED`, published trips untouched.
+
+**Availability before publish.** For each route to publish: an inactive vehicle / driver (`VEHICLE_INACTIVE` /
+`DRIVER_INACTIVE`) or an active planned trip of the vehicle / driver overlapping the route's span (`VEHICLE_BUSY` /
+`DRIVER_BUSY`, the E3 overlap rule shared through `trip-overlap.ts`) blocks before anything is written; the plan detail
+shows them in `publishCheck.routeErrors`. When only such errors exist, publish answers 409 with that code (as the E3
+publish would), otherwise `PLAN_NOT_PUBLISHABLE`; `routes` lists every route error.

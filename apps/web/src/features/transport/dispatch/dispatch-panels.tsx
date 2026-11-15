@@ -49,6 +49,8 @@ import { candidateReason, isEditableTrip, straightLineLabel } from './e3-format'
 import { BookingStatusBadge, e3ErrorMessage, EtaText, OccupancyBar, PassengerOutcomeBadge, TripStateBadge } from './e3-ui';
 import { fetchTransportTrip, transportTripPath, useCandidates, useTransportTrip } from './use-e3';
 import { downloadTripSheetsPdf, toSheet, tripSheetsCsv } from './trip-sheet';
+import { HeldBadge, holdAction, RideBadge } from '../pooling/pooling-ui';
+import { LIVE_DISPATCH_PATH } from '../pooling/live-dispatch';
 
 export interface PanelCtx {
   board: DispatchBoardDto;
@@ -75,11 +77,40 @@ export interface PanelCtx {
   routes?: RouteGroup[] | null;
   /** Move one waiting booking to another route (null = out of every route). */
   moveToRoute?: (bookingId: string, routeId: string | null) => void;
+  /** Pooling: hold (exclude from runs, not cancelled) / release a waiting booking; absent without etms_dispatch edit. */
+  hold?: (b: TransportBookingDto) => void;
   busy: boolean;
 }
 
+/** Pooling: the hold toggle of one waiting booking (and the held badge). */
+function HoldToggle({ b, ctx }: { b: TransportBookingDto; ctx: PanelCtx }) {
+  const { t } = useTranslation();
+  const { can } = useAuth();
+  const act = ctx.hold ? holdAction(b) : null;
+  const live = can('etms_dispatch', 'command') && b.status === 'PENDING_ASSIGNMENT' && !b.holdFromPlanning;
+  return (
+    <>
+      <RideBadge b={b} />
+      {b.holdFromPlanning && <HeldBadge reason={b.holdReason} />}
+      {act && ctx.hold && (
+        <Button size="sm" variant="ghost" className="h-7" onClick={() => ctx.hold!(b)} disabled={ctx.busy} title={t(act.label)}>
+          <act.icon /> {b.holdFromPlanning ? t('Release hold') : t('Hold')}
+        </Button>
+      )}
+      {live && (
+        <Button size="sm" variant="ghost" className="h-7" asChild>
+          <Link to={`${LIVE_DISPATCH_PATH}?booking=${encodeURIComponent(b.id)}`} title={t('Find a vehicle with live dispatch')}>
+            {t('Live')}
+          </Link>
+        </Button>
+      )}
+    </>
+  );
+}
+
 // A withheld personal point (no active routing consent, E2 M3) cannot be assigned either: the server refuses CONSENT_REQUIRED.
-const assignable = (b: TransportBookingDto) => b.status === 'PENDING_ASSIGNMENT' && !b.needsLocation && !b.pointsHidden;
+// Pooling: a held booking is excluded from runs (the server refuses BOOKING_ON_HOLD).
+const assignable = (b: TransportBookingDto) => b.status === 'PENDING_ASSIGNMENT' && !b.needsLocation && !b.pointsHidden && !b.holdFromPlanning;
 
 // ───────────────────────────── Queue ─────────────────────────────
 
@@ -214,7 +245,7 @@ export function QueuePanel({ ctx, onFind, variant = 'cards' }: { ctx: PanelCtx; 
                           </span>
                         </td>
                         <td className="px-2 py-1.5 text-xs">{b.shiftName ?? t('One-off')}</td>
-                        <td className="px-2 py-1.5 text-xs">{b.direction === 'OUT' ? t('Logout') : t('Login')}</td>
+                        <td className="px-2 py-1.5 text-xs">{b.journey === 'POINT_TO_POINT' ? t('Point-to-point') : b.direction === 'OUT' ? t('Logout') : t('Login')}</td>
                         <td className="hidden max-w-72 truncate px-2 py-1.5 text-xs text-muted-foreground lg:table-cell">{routeText(b, t)}</td>
                         <td className="px-2 py-1.5 text-xs tabular-nums">
                           {clock(b.windowStart)}–{clock(b.windowEnd)}
@@ -225,6 +256,7 @@ export function QueuePanel({ ctx, onFind, variant = 'cards' }: { ctx: PanelCtx; 
                             {b.needsLocation && <Badge variant="warning">{t('Needs location')}</Badge>}
                             {b.pointsHidden === 'CONSENT_REQUIRED' && <Badge variant="warning">{t('No routing consent')}</Badge>}
                             {groupIdOf(b) && <GroupBadge size={sizes.get(groupIdOf(b)!) ?? 1} purpose={purposeOf(b)} />}
+                            {!drafted && <HoldToggle b={b} ctx={ctx} />}
                             {(b.status === 'REQUESTED' || b.status === 'WAITLISTED') && b.allowedActions.includes('approve') && (
                               <Button size="sm" variant="outline" className="h-7" onClick={() => ctx.approve(b)} disabled={ctx.busy}>
                                 <CheckIcon /> {t('Approve')}
@@ -311,6 +343,7 @@ export function QueuePanel({ ctx, onFind, variant = 'cards' }: { ctx: PanelCtx; 
                       {b.needsLocation && <Badge variant="warning">{t('Needs location')}</Badge>}
                       {b.pointsHidden === 'CONSENT_REQUIRED' && <Badge variant="warning">{t('No routing consent')}</Badge>}
                       {drafted && <Badge variant="info">{t('In draft')}</Badge>}
+                      {!drafted && <HoldToggle b={b} ctx={ctx} />}
                       {ctx.canPlan && !!ctx.routes?.length && ctx.moveToRoute && !drafted && (
                         <select
                           className="h-7 max-w-40 rounded-md border border-input bg-card px-1.5 text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"

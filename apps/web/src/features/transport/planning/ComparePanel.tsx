@@ -13,6 +13,8 @@ import { cn } from '@/lib/utils';
 import { SimpleSelect } from '../dispatch/e3-ui';
 import { bestOf, COMPARE_ROWS, completeWeights, deltaPercent, isEditablePlan, metricsFromCompare, metricText, metricValue, planMetrics, weightedScores, WEIGHT_LABEL, type WeightDraft } from './planner-format';
 import { EtaFootnote, PlanStatusBadge, WeightsEditor } from './planner-ui';
+import { MetricsCompareTable } from './AlternativesPanel';
+import { hasE4Metrics } from './plan-compare';
 import { planPath, plannerErrorMessage, useCompare, useDiscardPlan, usePlansDetail } from './use-planner';
 
 export const COMPARE_MAX = 4; // ROUTE_PLAN_COMPARE_MAX is 5; four columns still fit a laptop screen
@@ -46,6 +48,7 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
   if (ids.length < 2) return <p className="text-sm text-muted-foreground">{t('Tick two to four plans under Plans to compare them here.')}</p>;
   if (results.some((r) => r.isPending) || cmp.isPending) return <Skeleton className="h-72 w-full rounded-xl" />;
   const failed = results.find((r) => r.isError) ?? (cmp.isError ? cmp : undefined);
+  const e4 = cmp.data && hasE4Metrics(cmp.data.plans) ? cmp.data.plans : null;
 
   const name = (id: string) => summaries.find((s) => s.id === id)?.name ?? plans.find((p) => p.id === id)?.name ?? id;
   const others = (keep: string) => plans.filter((p) => p.id !== keep && isEditablePlan(p.status));
@@ -96,8 +99,10 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
         </Button>
       </div>
 
+      {/* E4 WP-A metrics (with help tooltips) when the server sends them; else the older metrics below. */}
+      {e4 ? <MetricsCompareTable plans={e4} nameOf={name} /> : null}
       {/* Desktop / tablet: matrix. */}
-      <Card className="hidden min-w-0 overflow-hidden p-0 md:block">
+      <Card className={e4 ? 'hidden' : 'hidden min-w-0 overflow-hidden p-0 md:block'}>
         <table className="w-full table-fixed text-sm">
           <caption className="sr-only">{t('Plan comparison')}</caption>
           <thead>
@@ -151,7 +156,7 @@ export function ComparePanel({ ids, summaries, weights, setWeights, canDelete, o
       </Card>
 
       {/* Phone: one card per plan, metrics as a list. */}
-      <div className="grid gap-3 md:hidden">
+      <div className={e4 ? 'hidden' : 'grid gap-3 md:hidden'}>
         {plans.map((p, i) => (
           <Card key={p.id} className="min-w-0 gap-2 p-3">
             <div className="flex flex-wrap items-center gap-2">

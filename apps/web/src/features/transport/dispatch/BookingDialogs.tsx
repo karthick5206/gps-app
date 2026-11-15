@@ -47,6 +47,34 @@ import { DIRECTION_LABEL, newUuid } from './e3-format';
 import { MapPoint, PointCard, PointDone, PointSummary, Segmented } from './point-card';
 import { e3ErrorMessage } from './e3-ui';
 import { SHIFTS_ENDPOINT, useBookingPlaces, useCreateBooking, useUpdateBooking } from './use-e3';
+import { emptyPreferenceDraft, poolingInput, POOLING_ERROR_TEXT, type PreferenceDraft } from '../pooling/pooling-format';
+import { RidePreferenceField, RidePreferenceSummary } from '../pooling/pooling-ui';
+import { useSharingPolicy } from '../pooling/use-pooling';
+
+/** A pooling refusal (POLICY_VERSION_STALE, LIMITS_ABOVE_POLICY, …) as its own text, else the E3 booking text. */
+export function bookingErrorText(err: unknown, t: (k: string, v?: Record<string, unknown>) => string): string {
+  if (err instanceof ApiError && err.code && POOLING_ERROR_TEXT[err.code]) return t(POOLING_ERROR_TEXT[err.code]);
+  return e3ErrorMessage(err, t, { booking: true });
+}
+
+/** Pooling: the preference part of a booking form (state, the request fields, the stale-policy reset). */
+export function usePreferenceForm(open: boolean, journey: TransportBookingJourney, error: unknown) {
+  const policy = useSharingPolicy(open);
+  const [pref, setPref] = useState<PreferenceDraft>(emptyPreferenceDraft);
+  useEffect(() => {
+    if (open) setPref(emptyPreferenceDraft());
+  }, [open]);
+  // A newer policy version: reload it and ask for the acceptance again.
+  useEffect(() => {
+    if (error instanceof ApiError && error.code === 'POLICY_VERSION_STALE') {
+      void policy.refetch();
+      setPref((p) => ({ ...p, accepted: false }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error]);
+  const result = poolingInput(pref, policy.data, journey);
+  return { pref, setPref, result };
+}
 
 const passengerOption = (p: PassengerDto): Option => ({ value: p.id, label: `${p.displayName} · ${p.employeeCode}` });
 const shiftOption = (s: TransportShiftDto): Option => ({ value: s.id, label: s.name });
@@ -202,6 +230,7 @@ export function NewBookingDialog({ open, onOpenChange, day, cutoffMin }: { open:
   const [slot, setSlot] = useState<IdempotencySlot | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const lateRef = useRef<HTMLTextAreaElement>(null);
+  const pooling = usePreferenceForm(open, d.journey, create.error);
 
   useEffect(() => {
     if (!open) return;
@@ -248,8 +277,8 @@ export function NewBookingDialog({ open, onOpenChange, day, cutoffMin }: { open:
     const at = Date.now();
     setNow(at);
     const fresh = validateAdhoc(d, { ...ctx, nowMs: at }, { lateRequired: serverLate }, t);
-    if (hasErrors(fresh) || !d.passengerId) return;
-    const input = buildCreateInput(d, { ...ctx, nowMs: at }, { lateRequired: serverLate });
+    if (hasErrors(fresh) || !d.passengerId || !pooling.result.ok) return;
+    const input = { ...buildCreateInput(d, { ...ctx, nowMs: at }, { lateRequired: serverLate }), ...pooling.result.value };
     // Same form retried (e.g. lost response) → same Idempotency-Key → the server replays instead of booking twice.
     const next = idempotencyFor(slot, input, newUuid);
     setSlot(next);
@@ -265,7 +294,7 @@ export function NewBookingDialog({ open, onOpenChange, day, cutoffMin }: { open:
   };
 
   const show = (k: keyof typeof errors) => (tried ? errors[k] : undefined);
-  const serverError = create.error && !(isLateCode(create.error) && !tried) ? new Error(e3ErrorMessage(create.error, t, { booking: true })) : undefined;
+  const serverError = create.error && !(isLateCode(create.error) && !tried) ? new Error(bookingErrorText(create.error, t)) : undefined;
 
   return (
     <FormDialog
@@ -394,6 +423,7 @@ export function NewBookingDialog({ open, onOpenChange, day, cutoffMin }: { open:
           {t('Needs approval')}
         </label>
       </div>
+      <RidePreferenceField idPrefix="bk-ride" journey={d.journey} value={pooling.pref} onChange={pooling.setPref} error={tried && !pooling.result.ok ? t(pooling.result.error) : undefined} />
       <Field label={t('Note')} htmlFor="bk-note" error={show('note')}>
         <Textarea id="bk-note" value={d.note} onChange={(e) => set({ note: e.target.value })} maxLength={TRANSPORT_E3_LIMITS.noteMax} rows={2} />
       </Field>
@@ -470,7 +500,7 @@ export function EditBookingDialog({ booking, onOpenChange, cutoffMin }: { bookin
     );
   };
 
-  const serverError = update.error && !(isLateCode(update.error) && !tried) ? new Error(e3ErrorMessage(update.error, t, { booking: true })) : undefined;
+  const serverError = update.error && !(isLateCode(update.error) && !tried) ? new Error(bookingErrorText(update.error, t)) : undefined;
 
   return (
     <FormDialog
@@ -478,11 +508,12 @@ export function EditBookingDialog({ booking, onOpenChange, cutoffMin }: { bookin
       onOpenChange={onOpenChange}
       wide
       title={settingLocation ? 'Set location' : 'Edit booking'}
-      description={`${booking.passenger.displayName} · ${booking.serviceDate} · ${t(booking.journey === 'POINT_TO_POINT' ? JOURNEY_LABEL.POINT_TO_POINT : DIRECTION_LABEL[booking.direction])}`}
+      description={`${booking.passenger.displayName} · ${booking.serviceDate} · ${t(booking.journey === 'POINT_TO_POINT' ? JOURNEY_LABEL.POINT_TO_POINT : DIRECTION_LABEL[booking.direction ?? 'IN'])}`}
       onSubmit={submit}
       pending={update.isPending}
       error={serverError}
     >
+      <RidePreferenceSummary b={booking} />
       {settingLocation && <p className="rounded-lg bg-muted px-3 py-2 text-sm">{t('This booking has no usable pickup or destination yet. Choose a company place or a point on the map so it can be seated.')}</p>}
       <div className="grid gap-3">
         <PointPicker
@@ -491,7 +522,7 @@ export function EditBookingDialog({ booking, onOpenChange, cutoffMin }: { bookin
           title={t('Pickup')}
           value={e.pickup}
           onChange={(c) => set({ pickup: c })}
-          kinds={endMissing(booking, 'pickup') ? ['PLACE', 'MAP'] : pointKinds(booking.journey, booking.direction, 'pickup', 'edit')}
+          kinds={endMissing(booking, 'pickup') ? ['PLACE', 'MAP'] : pointKinds(booking.journey, booking.direction ?? 'IN', 'pickup', 'edit')}
           homeBlocked={consent === false}
           current={endpointText(booking, 'pickup')}
           error={show('pickup')}
@@ -503,7 +534,7 @@ export function EditBookingDialog({ booking, onOpenChange, cutoffMin }: { bookin
           title={t('Destination')}
           value={e.drop}
           onChange={(c) => set({ drop: c })}
-          kinds={endMissing(booking, 'drop') ? ['PLACE', 'MAP'] : pointKinds(booking.journey, booking.direction, 'drop', 'edit')}
+          kinds={endMissing(booking, 'drop') ? ['PLACE', 'MAP'] : pointKinds(booking.journey, booking.direction ?? 'IN', 'drop', 'edit')}
           homeBlocked={consent === false}
           current={endpointText(booking, 'drop')}
           error={show('drop')}

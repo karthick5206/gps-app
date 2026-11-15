@@ -1,7 +1,20 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
-import { ETMS_PLANNING_MENU, ROUTING_LIMITS, type RoutingJobDto } from '@veetracer/shared';
+import {
+  ETMS_PLANNING_MENU,
+  GROUPING_PREFERENCES,
+  MAX_RIDE_BOUNDS_S,
+  ROUTE_PLAN_PREFERENCE_BOUNDS,
+  ROUTING_LIMITS,
+  ROUTING_STRATEGIES,
+  VEHICLE_SIZE_PREFERENCES,
+  type GroupingPreference,
+  type RoutePlanPreferences,
+  type RoutingJobDto,
+  type RoutingStrategy,
+  type VehicleSizePreference,
+} from '@veetracer/shared';
 import { Type } from 'class-transformer';
-import { IsDefined, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
 import { Auth, RequirePermission } from '../access/decorators';
 import { PlanningFeatureGuard } from '../etms/planning/planning-feature.guard';
@@ -15,6 +28,26 @@ export class SolverWeightsDto {
   @IsNumber() @Min(0) @Max(1e4) distance!: number;
   @IsNumber() @Min(0) @Max(1e4) time!: number;
   @IsNumber() @Min(0) @Max(1e4) routeDuration!: number;
+  /** E4 WP-A: cost per passenger-second of ride (optional; absent = 0). */
+  @IsOptional() @IsNumber() @Min(0) @Max(1e4) rideTime?: number;
+}
+
+const PB = ROUTE_PLAN_PREFERENCE_BOUNDS;
+
+export class DetourGuardDto {
+  @IsNumber() @Min(PB.detourRatio.min) @Max(PB.detourRatio.max) ratio!: number;
+  @IsNumber() @Min(PB.detourExtraMin.min) @Max(PB.detourExtraMin.max) extraMin!: number;
+}
+
+/** E4 WP-A run preferences (shared RoutePlanPreferences; the service re-checks them and the max-ride policy). */
+export class RoutePlanPreferencesDto implements RoutePlanPreferences {
+  @IsOptional() @IsInt() @Min(MAX_RIDE_BOUNDS_S.min) @Max(MAX_RIDE_BOUNDS_S.max) maxRideS?: number;
+  @IsOptional() @ValidateNested() @Type(() => DetourGuardDto) detourGuard?: DetourGuardDto;
+  @IsOptional() @IsNumber() @Min(PB.preferredOccupancy.min) @Max(PB.preferredOccupancy.max) preferredOccupancy?: number;
+  @IsOptional() @IsIn(VEHICLE_SIZE_PREFERENCES) vehicleSize?: VehicleSizePreference;
+  @IsOptional() @IsIn(GROUPING_PREFERENCES) groupingPreference?: GroupingPreference;
+  @IsOptional() @IsBoolean() preservePins?: boolean;
+  @IsOptional() @IsBoolean() preserveLocks?: boolean;
 }
 
 /** The optimise options (also the body of POST /transport/route-plans/:id/optimize, where the path names the plan). */
@@ -22,8 +55,15 @@ export class OptimizeOptionsDto {
   @Type(() => Number) @IsInt() @Min(1) expectedVersion!: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(ROUTING_LIMITS.optimizeTimeLimitS) timeLimitS?: number;
   @IsOptional() @IsIn(['duration', 'distance']) objective?: 'duration' | 'distance';
-  /** Required (P6): stored on the plan (options.weights) for compare and sent as options.weights. */
-  @IsDefined() @ValidateNested() @Type(() => SolverWeightsDto) weights!: SolverWeightsDto;
+  /**
+   * Explicit weights (P6, advanced): stored on the plan (options.weights) for compare and sent as options.weights. E4
+   * WP-A: optional — without them the strategy's weights are used (default BALANCED); with both, the weights win.
+   */
+  @IsOptional() @ValidateNested() @Type(() => SolverWeightsDto) weights?: SolverWeightsDto;
+  /** E4 WP-A: optimisation strategy (default BALANCED). */
+  @IsOptional() @IsIn(ROUTING_STRATEGIES) strategy?: RoutingStrategy;
+  /** E4 WP-A: run preferences (never above the company max ride; preserveLocks=false needs etms_planning:edit). */
+  @IsOptional() @ValidateNested() @Type(() => RoutePlanPreferencesDto) preferences?: RoutePlanPreferencesDto;
   /**
    * Owner decision 1: per-plan max-ride override (etms_settings:edit + whole-company scope, else 403), with a reason;
    * null clears the plan's override; absent keeps it. Audited.

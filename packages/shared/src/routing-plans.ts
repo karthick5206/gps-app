@@ -1,5 +1,6 @@
 import type { PermissionMap } from './permissions';
 import { OVERRIDE_REASON_MIN } from './routing';
+import type { RoutePlanExcludedCount, RoutePlanPreferences, RoutePlanVehicleOccupancy, RoutingStrategy } from './routing-strategies';
 import type {
   PublishRoutePlanResult,
   RoutePlanAssignmentDto,
@@ -7,6 +8,7 @@ import type {
   RoutePlanMaxRide,
   RoutePlanStatus,
   RoutePlanStopDto,
+  RoutePlanStopKind,
   RoutePlanStopViolation,
   RoutingDegradedReason,
 } from './routing';
@@ -84,6 +86,11 @@ export interface RoutePlanAssignmentViewDto extends RoutePlanAssignmentDto {
   violations: RoutePlanStopViolation[];
   /** The E3 trip this route was published into (after PUBLISHED). */
   plannedTripId: string | null;
+  /**
+   * WP-B: the route was published (its own TransportTrip exists). A published route is immutable while the rest of the
+   * plan may still be edited and published (selected-routes publishing): edits, restore and re-optimisation leave it as is.
+   */
+  published?: boolean;
 }
 
 export interface RoutePlanDetailDto extends Omit<RoutePlanDto, 'stops' | 'assignments'> {
@@ -105,6 +112,10 @@ export interface RoutePlanDetailDto extends Omit<RoutePlanDto, 'stops' | 'assign
   publishDecision?: RoutePlanPublishDecision | null;
   /** Owner decision 1: max ride of the last optimisation and its source, the company policy, the plan's override. */
   maxRide?: RoutePlanMaxRide;
+  /** E4 WP-A: strategy and preferences of the last optimisation (options.strategy / options.preferences), and the source plan of an alternative. */
+  strategy?: RoutingStrategy | null;
+  preferences?: RoutePlanPreferences | null;
+  alternativeOf?: string | null;
 }
 
 /** The four explicit solver weights (OptimizeOptionsDto.weights). */
@@ -113,6 +124,8 @@ export interface RoutePlanWeights {
   distance: number;
   time: number;
   routeDuration: number;
+  /** E4 WP-A (optional; absent in weights stored before it = 0): cost per passenger-second of ride (trip mode). */
+  rideTime?: number;
 }
 
 // ───────────────────────────── manual edits (each with the version the client saw: 409 PLAN_STALE otherwise) ─────────────────────────────
@@ -193,11 +206,14 @@ export type RoutePlanEmptyReason = (typeof ROUTE_PLAN_EMPTY_REASONS)[number];
  *   other_shift — the booking carries another shift than the plan's;
  *   outside_shift_window — a shift-less booking whose window does not overlap the plan shift's leg window;
  *   point_to_point — POINT_TO_POINT bookings are dispatched manually (the optimiser plans one site per plan);
- *   needs_approval — REQUESTED / WAITLISTED: approve it first.
+ *   needs_approval — REQUESTED / WAITLISTED: approve it first;
+ *   on_hold — pooling: the dispatcher put the booking on hold (excluded from runs, not cancelled);
+ *   private_ride — pooling: a PRIVATE commute ride is not pooled by a site plan (seat it alone, or use an AREA plan);
+ *   outside_plan_window — pooling (AREA plan): the booking window does not overlap the plan's operating window.
  * A shift-less COMMUTE booking at the plan's site IS planned when the plan has no shift or the booking's window overlaps
  * the plan shift's leg window.
  */
-export const ROUTE_PLAN_SKIP_REASONS = ['consent_required', 'needs_location', 'out_of_scope', 'other_site', 'other_shift', 'outside_shift_window', 'point_to_point', 'needs_approval'] as const;
+export const ROUTE_PLAN_SKIP_REASONS = ['consent_required', 'needs_location', 'out_of_scope', 'other_site', 'other_shift', 'outside_shift_window', 'point_to_point', 'needs_approval', 'on_hold', 'private_ride', 'outside_plan_window'] as const;
 export type RoutePlanSkipReason = (typeof ROUTE_PLAN_SKIP_REASONS)[number];
 export interface RoutePlanSkippedBooking {
   bookingId: string;
@@ -233,6 +249,22 @@ export interface RoutePlanMetricsDto {
   seatUtilisation: number | null;
   violations: number;
   graphVersion: string | null;
+  // E4 WP-A metrics (definitions: ROUTE_PLAN_METRIC_DEFINITIONS in routing-strategies.ts). Optional in the type only so
+  // older clients / mocks still compile; the server always fills them.
+  vehiclesUsed?: number;
+  passengersAssigned?: number;
+  bookingsAssigned?: number;
+  totalDistanceM?: number | null;
+  totalTravelS?: number | null;
+  maxRideS?: number | null;
+  avgRideS?: number | null;
+  occupancy?: RoutePlanVehicleOccupancy[];
+  avgOccupancy?: number | null;
+  deadlineCompliance?: { inside: number; total: number; ratio: number | null };
+  excluded?: RoutePlanExcludedCount[];
+  excludedBookings?: number;
+  strategy?: RoutingStrategy | null;
+  alternativeOf?: string | null;
 }
 
 /** GET /route-plans/compare?ids=a,b[,c…] (2..5 plans of the caller's scope; 404 when any is not visible). */
@@ -288,6 +320,11 @@ export interface RoutePlanPublishCheck {
   fingerprint: string | null;
   /** Whether this caller may override overridable hard issues (whole-company scope + Dispatch: command + Planning: command). */
   canOverride: boolean;
+  /**
+   * WP-B: route-level blockers found before publishing (never overridable): VEHICLE_BUSY / DRIVER_BUSY (an active trip of
+   * the vehicle / driver overlaps the route's time span), VEHICLE_INACTIVE / DRIVER_INACTIVE. Unpublished routes only.
+   */
+  routeErrors?: RoutePlanRouteError[];
 }
 
 /** What a publish accepted, stored with the published plan (RoutePlan.options.publishDecision) and shown on its detail. */
@@ -306,6 +343,156 @@ export interface RoutePlanPublishRequest {
   acknowledgedWarnings?: string;
   /** Exceptional override of overridable hard issues (authorised callers only; reason recorded and audited). */
   override?: { reason: string };
+  /**
+   * WP-B selected-routes publishing: publish only these routes (unpublished, with stops). Omitted = every unpublished
+   * route with stops (the whole-plan publish). The plan stays DRAFT / PLANNED while unpublished routes with stops remain
+   * and becomes PUBLISHED with the last of them. Requires `reviewHash`.
+   */
+  assignmentIds?: string[];
+  /**
+   * WP-B: the `reviewHash` of GET /route-plans/:id/review for exactly this selection. Required with `assignmentIds`
+   * (409 PLAN_REVIEW_REQUIRED); optional for the whole-plan publish (checked when given). A hash that no longer matches
+   * the plan is refused with 409 PLAN_REVIEW_STALE carrying the fresh `reviewHash`.
+   */
+  reviewHash?: string;
+}
+
+// ───────────────────────────── WP-B: undo / redo, recalculate, passengers on a draft, review ─────────────────────────────
+
+/**
+ * POST /route-plans/:id/restore — put back the route membership and stop order of an earlier version (undo / redo:
+ * restore(previous) / restore(next)). Only while the plan's stop set is the version's (else 409 PLAN_RESTORE_CONFLICT
+ * with the stop ids added / removed since). Locked and published routes are left as they are (a stop the version had on
+ * such a route, now elsewhere, becomes unassigned); a pinned stop is never moved off its route (409 STOP_PINNED). Changed
+ * routes are re-timed on the road engine; a new version (EDITED, details.restoredFrom) is recorded. Vehicles, drivers,
+ * locks and pins are not restored.
+ */
+export interface RoutePlanRestoreRequest {
+  version: number;
+  expectedVersion: number;
+}
+
+/** POST /route-plans/:id/recalculate — re-time the listed routes (default: every unpublished route with stops). */
+export interface RoutePlanRecalculateRequest {
+  expectedVersion: number;
+  assignmentIds?: string[];
+}
+
+/**
+ * POST /route-plans/:id/bookings — add an open booking to a DRAFT / PLANNED plan (its two stops, unassigned). Only a
+ * booking plan creation would have taken for this plan (same date, direction, site, shift, branch; PENDING_ASSIGNMENT;
+ * COMMUTE; a usable point and, for a personal end, active routing consent) and only up to ROUTING_LIMITS.planBookings.
+ * DELETE /route-plans/:id/bookings/:bookingId?expectedVersion=n takes a booking's stops off the plan (not from a locked
+ * or published route).
+ */
+export interface RoutePlanAddBookingRequest {
+  bookingId: string;
+  expectedVersion: number;
+}
+
+/** Why a booking cannot be added to a plan (409 BOOKING_NOT_PLANNABLE `reason`). */
+export type RoutePlanAddBookingRefusal = RoutePlanSkipReason | 'other_date' | 'other_direction' | 'not_open';
+
+/** PATCH /route-plans/:id/bookings/:bookingId/pin — pin / unpin both stops of a passenger's booking. */
+export interface RoutePlanBookingPinRequest {
+  pinned: boolean;
+  expectedVersion: number;
+}
+
+/** One stop of a route under review (points and names follow the plan detail's consent / branch rules). */
+export interface RoutePlanReviewStop {
+  stopId: string;
+  ref: string;
+  sequence: number;
+  stopKind: RoutePlanStopKind | null;
+  /** null for another branch's passenger (anonymised as in the plan detail). */
+  bookingId: string | null;
+  /** Pseudonymous passenger profile id (null when anonymised or not a passenger stop). */
+  profileId: string | null;
+  poiId: string | null;
+  name: string | null;
+  lat: number | null;
+  lng: number | null;
+  pointHidden: RoutePlanPointHidden | null;
+  passengerName: string | null;
+  etaS: number | null;
+  plannedArrival: string | null;
+  seats: number;
+  pinned: boolean;
+}
+
+export interface RoutePlanReviewRoute {
+  assignmentId: string;
+  seq: number;
+  vehicleLabel: string;
+  objectId: string | null;
+  vehicleName: string | null;
+  plateNumber: string | null;
+  driverId: string | null;
+  driverName: string | null;
+  /** The vehicle's passenger seats now (as publish checks them); null when not set / not in scope. */
+  seats: number | null;
+  /** Passengers (bookings) and the seats they take (E3 rule: seats never free up along a trip). */
+  passengers: number;
+  occupancy: number;
+  distanceM: number | null;
+  durationS: number | null;
+  startS: number | null;
+  endS: number | null;
+  locked: boolean;
+  stops: RoutePlanReviewStop[];
+}
+
+/** A passenger (or generic stop group) the selection leaves without a route, with why. */
+export interface RoutePlanReviewUnassigned {
+  bookingId: string | null;
+  profileId: string | null;
+  stopIds: string[];
+  /** The optimiser's / exclusion reason, or `not_assigned` (left out by hand or never optimised). */
+  reason: string;
+}
+
+/** Manual changes of one route since the baseline version (ids only). */
+export interface RoutePlanRouteChange {
+  assignmentId: string;
+  addedStopIds: string[];
+  removedStopIds: string[];
+  /** The stops kept on the route are in another order. */
+  reordered: boolean;
+  vehicleChanged: boolean;
+  driverChanged: boolean;
+}
+
+export interface RoutePlanManualChanges {
+  /** The last OPTIMIZED version (else the first version) the changes are measured from; null without history. */
+  baselineVersion: number | null;
+  baselineChangeType: string | null;
+  routes: RoutePlanRouteChange[];
+}
+
+/**
+ * GET /route-plans/:id/review?assignmentIds=a,b — what publishing these routes (default: every unpublished route with
+ * stops) would create, for the confirmation step: per route the vehicle, driver, seats, the exact stop order with ETAs,
+ * distance, duration and occupancy; the passengers left without a route; the manual changes since the last
+ * optimisation; the warnings (soft) and errors (hard / route errors) publish would apply. `reviewHash` binds exactly
+ * this content (vehicles, drivers, ordered stops, ETAs, warning set) and the plan version: send it with the publish.
+ */
+export interface RoutePlanReviewDto {
+  planId: string;
+  version: number;
+  status: RoutePlanStatus;
+  planStartAt: string | null;
+  assignmentIds: string[];
+  routes: RoutePlanReviewRoute[];
+  unassigned: RoutePlanReviewUnassigned[];
+  /** Routes of the plan outside this selection (published or not), for context. */
+  otherRoutes: { assignmentId: string; vehicleLabel: string; published: boolean; stops: number }[];
+  manualChanges: RoutePlanManualChanges;
+  /** The publish classification of the selected routes (soft warnings to acknowledge, hard issues, route errors). */
+  publishCheck: RoutePlanPublishCheck;
+  /** Pre-check refusals publish would answer with 409 (PLAN_NOT_PUBLISHABLE, VEHICLE_BUSY, …); empty when publishable. */
+  errors: RoutePlanRouteError[];
+  reviewHash: string;
 }
 
 /** Deterministic fingerprint of a soft warning set (FNV-1a 32 over the sorted `stopId:kind` lines), or null when empty. */
@@ -341,6 +528,18 @@ export const ROUTE_PLAN_ERROR_CODES = [
   'PLAN_WARNINGS_NOT_ACKNOWLEDGED',
   'PUBLISH_OVERRIDE_FORBIDDEN',
   'PUBLISH_OVERRIDE_REASON_REQUIRED',
+  // WP-B
+  'PLAN_RESTORE_CONFLICT',
+  'PLAN_REVIEW_REQUIRED',
+  'PLAN_REVIEW_STALE',
+  'ROUTE_ALREADY_PUBLISHED',
+  'BOOKING_NOT_PLANNABLE',
+  'BOOKING_ALREADY_ON_PLAN',
+  'VEHICLE_BUSY',
+  'DRIVER_BUSY',
+  'VEHICLE_INACTIVE',
+  'DRIVER_INACTIVE',
+  'DRIVER_DUPLICATE',
 ] as const;
 export type RoutePlanErrorCode = (typeof ROUTE_PLAN_ERROR_CODES)[number];
 

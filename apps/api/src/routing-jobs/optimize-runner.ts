@@ -1,3 +1,4 @@
+import { runAreaPlan, type AreaInputs, type PdpSolverPort } from './area-runner';
 import { planBookingsLimitMessage, ROUTING_AVAILABLE_PROFILES, ROUTING_LIMITS, RoutingJobInput, SolverResult } from '@veetracer/shared';
 import type { JobRecord, StoreTx } from './job-store';
 import { PROGRESS, phaseProgress } from './job-state';
@@ -25,7 +26,7 @@ export interface PlanGateway {
   write(tx: StoreTx, job: JobRecord, inputs: PlanInputs, write: PlanWrite, matrix: BuiltMatrix | null, points: { stopId: string; index: number }[], graphVersion: string | null): Promise<void>;
 }
 
-export interface SolverPort {
+export interface SolverPort extends PdpSolverPort {
   solve(problem: SolverProblemV2, signal?: AbortSignal): Promise<SolverResult>;
 }
 
@@ -43,6 +44,8 @@ export function parseOptimizeInput(job: JobRecord): OptimizeJobInput {
     timeLimitS: Math.max(1, Math.min(ROUTING_LIMITS.optimizeTimeLimitS, Math.round(Number(i.timeLimitS) || 10))),
     ...(i.objective ? { objective: i.objective } : {}),
     ...(weights ? { weights } : {}),
+    // E4 WP-A: the strategy the weights came from (reported in the job result).
+    ...(typeof i.strategy === 'string' ? { strategy: i.strategy.slice(0, 40) } : {}),
   };
 }
 
@@ -80,8 +83,17 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     let inputs = await deps.plans.load(job, input);
     // The job's own weights win over the plan's stored ones (they are the same unless the plan was edited meanwhile).
     if (input.weights) inputs = { ...inputs, solver: { ...inputs.solver, weights: input.weights } };
+    if (input.strategy) inputs = { ...inputs, strategy: input.strategy };
     if (!(ROUTING_AVAILABLE_PROFILES as readonly string[]).includes(inputs.profile)) {
       throw new JobError('PROFILE_NOT_AVAILABLE', `Routing profile "${inputs.profile}" is not available on this server`);
+    }
+    // Pooling C2: an AREA plan is solved in pickup-and-delivery mode (area-runner.ts).
+    if (inputs.area) {
+      const area = inputs as PlanInputs & { area: AreaInputs };
+      const run = await runAreaPlan(ctx, area, deps, { timeLimitS: input.timeLimitS, strategy: inputs.strategy, deadlineAt: matrixDeadline(job, input.timeLimitS) });
+      await ctx.progress(PROGRESS.writing);
+      await ctx.checkpoint();
+      return { result: run.result, graphVersion: run.matrix.graphVersion, within: (tx: StoreTx) => deps.plans.write(tx, job, area, run.write, run.matrix, run.points, run.matrix.graphVersion) };
     }
     // Owner decision 2 (T3-D9): the same bookings limit and message as plan creation and the API reservation.
     const bookings = new Set(inputs.stops.flatMap((s) => (s.bookingId ? [s.bookingId] : []))).size;

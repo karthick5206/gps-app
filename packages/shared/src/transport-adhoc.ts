@@ -16,6 +16,7 @@
  * (indexed), TransportBooking.purpose TEXT NULL.
  */
 import type { GeoPoint, TransportBookingDto, TransportBookingJourney, TransportDirection } from './transport-trips';
+import type { BookingPoolingInput } from './transport-pooling';
 
 /**
  * v1.15.1 type-ahead address search (owner, 2026-11-12): the apps debounce ~350 ms and search from 3 characters, so
@@ -81,7 +82,8 @@ export type MeAdhocEndRef =
  * eligibility / consent / duplicate / overlap rules as every booking (NOT_ELIGIBLE, CONSENT_REQUIRED,
  * BOOKING_DUPLICATE, BOOKING_OVERLAP, AFTER_CUTOFF). Answer: MeBookingDto (+ `needsApproval`).
  */
-export interface MeAdhocRequestInput {
+/** Pooling: `ridePreference` / `acceptedPolicyVersion` / tighter `limits` (BookingPoolingInput; GET /me/transport/sharing-policy first). */
+export interface MeAdhocRequestInput extends BookingPoolingInput {
   serviceDate: string;
   journey: TransportBookingJourney;
   direction?: TransportDirection;

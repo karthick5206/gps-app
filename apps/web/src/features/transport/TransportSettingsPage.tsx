@@ -18,9 +18,10 @@ import { AutoRoutingSetting } from './AutoRoutingSetting';
 import { ComplianceSetting } from './ComplianceSetting';
 import { NightSafetySetting } from './NightSafetySetting';
 import { BoardingOtpSetting } from './BoardingOtpSetting';
+import { DriverHoursPanel, PoolingSettingsPanel, SharingPolicyPanel } from './pooling/PoolingSettings';
 import { useTransportSettings, useUpdateTransportSettings } from './use-agreements';
 
-const ACTION_LABEL: Record<Action, string> = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', export: 'Export', command: 'Command' };
+const ACTION_LABEL: Record<Action, string> = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', export: 'Export', command: 'Command', approve: 'Approve' };
 const menuLabel = (key: string) => MENUS.find((m) => m.key === key)?.label ?? key;
 /** Templates for people who use only the mobile app. */
 const MOBILE_ONLY = new Set(['Transport passenger', 'Transport driver']);
@@ -147,7 +148,11 @@ export function TransportSettingsPage() {
         {!platformHome && <ComplianceSetting />}
         {!platformHome && <NightSafetySetting />}
         {!platformHome && <BoardingOtpSetting />}
+        {!platformHome && <PoolingSettingsPanel />}
+        {!platformHome && <DriverHoursPanel />}
       </div>
+
+      {!platformHome && <SharingPolicyPanel />}
 
       {!platformHome && <ConsentNoticesPanel />}
 

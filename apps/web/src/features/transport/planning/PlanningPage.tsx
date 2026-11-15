@@ -22,6 +22,7 @@ import { DirectionBadge } from '../dispatch/e3-ui';
 import { ComparePanel, COMPARE_MAX } from './ComparePanel';
 import { OptimisePanel, type OptimiseState } from './OptimisePanel';
 import { accessLabel, emptyWeights, type WeightDraft } from './planner-format';
+import { DEFAULT_ROUTING_STRATEGY, defaultPreferencesDraft } from './plan-strategy';
 import { CapabilityChip, PlanStatusBadge } from './planner-ui';
 import { RoutingOffState } from './RoutingOffState';
 import { PLANNING_MENU, planPath, plannerErrorMessage, plannerFlagOn, useCapabilities, usePlans, type StartedPlan } from './use-planner';
@@ -40,7 +41,7 @@ export function PlanningPage() {
   const flag = plannerFlagOn();
   const caps = useCapabilities(flag);
   const [tab, setTab] = useState('optimise');
-  const [opt, setOpt] = useState<OptimiseState>({ day: today, direction: 'IN', siteIds: [], shiftIds: [], vehicleIds: [], weights: emptyWeights(), timeLimitS: 30, branchId: null });
+  const [opt, setOpt] = useState<OptimiseState>({ day: today, direction: 'IN', siteIds: [], shiftIds: [], vehicleIds: [], weights: emptyWeights(), timeLimitS: 30, branchId: null, strategy: DEFAULT_ROUTING_STRATEGY, useWeights: false, prefs: defaultPreferencesDraft(), mode: 'single', altStrategies: ['BALANCED', 'FEWER_VEHICLES', 'COMFORT'] });
   const [started, setStarted] = useState<StartedPlan[]>([]);
   const [compare, setCompare] = useState<string[]>([]);
   const [compareWeights, setCompareWeights] = useState<WeightDraft | null>(null);
@@ -123,7 +124,7 @@ export function PlanningPage() {
             </TabsList>
 
             <TabsContent value="optimise" className="min-w-0">
-              <OptimisePanel caps={caps.data} state={opt} setState={setOpt} started={started} setStarted={setStarted} canPlan={canPlan} tz={tz} />
+              <OptimisePanel caps={caps.data} state={opt} setState={setOpt} started={started} setStarted={setStarted} canPlan={canPlan} canDelete={canDelete} tz={tz} />
             </TabsContent>
 
             <TabsContent value="plans" className="min-w-0">

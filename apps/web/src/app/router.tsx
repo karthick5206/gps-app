@@ -83,6 +83,16 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   // E3 WP 3.6: the passenger's own bookings and trips (vehicle only inside the trip window).
   etms_self: page(() => import('@/features/transport/dispatch/MyTransportPage'), 'MyTransportPage'),
   etms_driver: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyTransportDutyPage'),
+  // Doc 19 pricing area: placeholder until the Pricing UI lands (the API is behind the pricing add-on).
+  pricing: page(() => import('@/features/pricing/PricingDashboardPage'), 'PricingDashboardPage'),
+  pricing_contracts: page(() => import('@/features/pricing/ContractsPage'), 'ContractsPage'),
+  pricing_vehicle_rates: page(() => import('@/features/pricing/VehicleRatesPage'), 'VehicleRatesPage'),
+  pricing_trip_charges: page(() => import('@/features/pricing/TripChargesPage'), 'TripChargesPage'),
+  pricing_availability: page(() => import('@/features/pricing/AvailabilityPage'), 'AvailabilityPage'),
+  pricing_invoices: page(() => import('@/features/pricing/InvoicesPage'), 'InvoicesPage'),
+  pricing_adjustments: page(() => import('@/features/pricing/AdjustmentsPage'), 'AdjustmentsPage'),
+  pricing_reports: page(() => import('@/features/pricing/PricingReportsPage'), 'PricingReportsPage'),
+  pricing_costs: page(() => import('@/features/pricing/OperatingCostsPage'), 'OperatingCostsPage'),
   alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
   message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };
@@ -92,7 +102,16 @@ const PlannedTripDetailPage = page(() => import('@/features/planned-trips/Planne
 const TransportTripDetailPage = page(() => import('@/features/transport/dispatch/TransportTripDetailPage'), 'TransportTripDetailPage');
 /** v1.16.12: one vendor on one page (details, branches, vehicles with type / seats / rate applied, drivers, rates). */
 const VendorDetailPage = page(() => import('@/features/transport/vendors/VendorDetailPage'), 'VendorDetailPage');
+/** Doc 19 pricing detail screens (same permission as their menu). */
+const ContractDetailPage = page(() => import('@/features/pricing/ContractDetailPage'), 'ContractDetailPage');
+const TripChargeDetailPage = page(() => import('@/features/pricing/TripChargeDetailPage'), 'TripChargeDetailPage');
+const InvoiceDetailPage = page(() => import('@/features/pricing/InvoiceDetailPage'), 'InvoiceDetailPage');
+const PricingSettingsPage = page(() => import('@/features/pricing/PricingSettingsPage'), 'PricingSettingsPage');
 const PlanReviewPage = page(() => import('@/features/transport/planning/PlanReviewPage'), 'PlanReviewPage');
+/** Pooling (doc 20 §7): live dispatch board under the dispatch board (same permission). */
+const LiveDispatchPage = page(() => import('@/features/transport/pooling/LiveDispatchPage'), 'LiveDispatchPage');
+/** E4 WP-W: review & publish selected routes of a plan. */
+const PlanPublishPage = page(() => import('@/features/transport/planning/PlanPublishPage'), 'PlanPublishPage');
 const AgreementDetailPage = page(() => import('@/features/transport/AgreementDetailPage'), 'AgreementDetailPage');
 /** E1b: the customer's sensitive-access log (static path, ranked above /transport/partners/:id). */
 const AccessLogPage = page(() => import('@/features/transport/AccessLogPage'), 'AccessLogPage');
@@ -197,11 +216,31 @@ export const router = createBrowserRouter([
             ),
           },
           {
+            path: '/transport/dispatch/live',
+            element: (
+              <RequirePermission menu="etms_dispatch">
+                <Suspense fallback={<PageFallback />}>
+                  <LiveDispatchPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
             path: '/transport/trips/:id',
             element: (
               <RequirePermission menu="etms_dispatch">
                 <Suspense fallback={<PageFallback />}>
                   <TransportTripDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/transport/planning/:id/publish',
+            element: (
+              <RequirePermission menu="etms_planning">
+                <Suspense fallback={<PageFallback />}>
+                  <PlanPublishPage />
                 </Suspense>
               </RequirePermission>
             ),
@@ -232,6 +271,46 @@ export const router = createBrowserRouter([
               <RequirePermission menu="devices">
                 <Suspense fallback={<PageFallback />}>
                   <ClaimPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/pricing/settings',
+            element: (
+              <RequirePermission menu="pricing_contracts">
+                <Suspense fallback={<PageFallback />}>
+                  <PricingSettingsPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/pricing/contracts/:id',
+            element: (
+              <RequirePermission menu="pricing_contracts">
+                <Suspense fallback={<PageFallback />}>
+                  <ContractDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/pricing/trip-charges/:tripId',
+            element: (
+              <RequirePermission menu="pricing_trip_charges">
+                <Suspense fallback={<PageFallback />}>
+                  <TripChargeDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/pricing/invoices/:id',
+            element: (
+              <RequirePermission menu="pricing_invoices">
+                <Suspense fallback={<PageFallback />}>
+                  <InvoiceDetailPage />
                 </Suspense>
               </RequirePermission>
             ),

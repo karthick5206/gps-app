@@ -12,6 +12,8 @@ type Snapshot = Record<string, unknown>;
 
 function normalise(value: unknown): unknown {
   if (value instanceof Date) return value.toISOString();
+  // Doc 19 money columns are BigInt minor units (JSON cannot carry bigint).
+  if (typeof value === 'bigint') return value.toString();
   if (Array.isArray(value)) return value.map(normalise);
   return value;
 }

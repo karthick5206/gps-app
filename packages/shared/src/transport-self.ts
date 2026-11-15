@@ -130,7 +130,8 @@ export interface MeScheduleDto {
 /** GET /me/transport/schedule: the recurring commute and the upcoming bookings it made. */
 export interface MeCommuteDto {
   schedules: MeScheduleDto[];
-  upcoming: { id: string; serviceDate: string; direction: TransportDirection; status: TransportBookingStatus; windowStart: string; windowEnd: string; timeZone: string }[];
+  /** direction null = a point-to-point ride (pooling). */
+  upcoming: { id: string; serviceDate: string; direction: TransportDirection | null; status: TransportBookingStatus; windowStart: string; windowEnd: string; timeZone: string }[];
 }
 
 // ───────────────────────────── Confirm / report ─────────────────────────────

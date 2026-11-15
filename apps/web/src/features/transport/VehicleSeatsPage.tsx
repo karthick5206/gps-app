@@ -1,5 +1,5 @@
 import { TRANSPORT_VEHICLE_CATEGORIES, type TransportVehicleCategory, type TransportVehicleProfileDto, type TransportVehicleRowDto } from '@veetracer/shared';
-import { BusIcon, ChevronLeftIcon, ChevronRightIcon, SaveIcon, SearchIcon } from 'lucide-react';
+import { BusIcon, CalendarClockIcon, ChevronLeftIcon, ChevronRightIcon, SaveIcon, SearchIcon } from 'lucide-react';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -20,6 +20,7 @@ import { humanize } from '@/lib/format';
 import { ToneBadge } from './passenger-ui';
 import { parseSeats, SEATS_MAX, SEATS_MIN } from './people-format';
 import { useSaveVehicleProfile, useTransportVehicles } from './use-people';
+import { VehicleAvailabilityDialog } from './pooling/VehicleAvailabilityDialog';
 
 const PAGE_SIZE = 50;
 const NONE = '__none';
@@ -40,6 +41,8 @@ export function VehicleSeatsPage() {
   const [seatsFilter, setSeatsFilter] = useState<string>(ALL);
   const [page, setPage] = useState(1);
   useEffect(() => setPage(1), [q, seatsFilter]);
+  // Pooling (doc 20 §3.3): operating windows, downtime and turnaround per vehicle.
+  const [availability, setAvailability] = useState<{ objectId: string; objectName: string } | null>(null);
 
   const vehicles = useTransportVehicles(
     { q: q || undefined, page, pageSize: PAGE_SIZE, sort: 'name', order: 'asc', ...(seatsFilter === ALL ? {} : { seats: seatsFilter as 'set' | 'unset' }) },
@@ -100,7 +103,7 @@ export function VehicleSeatsPage() {
                 </TableRow>
               ))}
             {!vehicles.isPending &&
-              rows.map((v) => <SeatRow key={v.objectId} vehicle={v} profile={v.profile} canEdit={canEdit} />)}
+              rows.map((v) => <SeatRow key={v.objectId} vehicle={v} profile={v.profile} canEdit={canEdit} onAvailability={() => setAvailability({ objectId: v.objectId, objectName: v.objectName })} />)}
             {vehicles.isSuccess && rows.length === 0 && (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={5}>
@@ -122,11 +125,12 @@ export function VehicleSeatsPage() {
           </Button>
         </div>
       </Card>
+      <VehicleAvailabilityDialog vehicle={availability} onClose={() => setAvailability(null)} canEdit={canEdit} />
     </div>
   );
 }
 
-function SeatRow({ vehicle, profile, canEdit }: { vehicle: TransportVehicleRowDto; profile: TransportVehicleProfileDto | null; canEdit: boolean }) {
+function SeatRow({ vehicle, profile, canEdit, onAvailability }: { vehicle: TransportVehicleRowDto; profile: TransportVehicleProfileDto | null; canEdit: boolean; onAvailability: () => void }) {
   const { t } = useTranslation();
   const save = useSaveVehicleProfile();
   const initial = { seats: profile ? String(profile.seats) : '', wheelchair: String(profile?.wheelchairSpaces ?? 0), category: profile?.category ?? NONE };
@@ -223,7 +227,11 @@ function SeatRow({ vehicle, profile, canEdit }: { vehicle: TransportVehicleRowDt
       <TableCell className="hidden md:table-cell">
         <CategorySelect value={category} onChange={setCategory} disabled={!canEdit} label={t('Category for {{name}}', { name: vehicle.objectName })} />
       </TableCell>
-      <TableCell>
+      <TableCell className="whitespace-nowrap">
+        <Button size="sm" variant="ghost" onClick={onAvailability} aria-label={t('Availability of {{name}}', { name: vehicle.objectName })} title={t('Availability')}>
+          <CalendarClockIcon />
+          <span className="hidden lg:inline">{t('Availability')}</span>
+        </Button>
         {canEdit && (
           <Button size="sm" variant={dirty ? 'default' : 'outline'} onClick={submit} disabled={!dirty || seatsN === null || !wheelValid || save.isPending} aria-label={t('Save seats for {{name}}', { name: vehicle.objectName })}>
             {save.isPending ? <Spinner /> : <SaveIcon />}
