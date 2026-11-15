@@ -92,9 +92,9 @@ be within `[0, horizonS]`.
                                   // OUT: allowed site DEPARTURE [shiftEnd + release, latest departure]
     "maxRideS": 5400,             // optional default max ride per stop (doc 06 §4.1 policy "max ride")
     "detourGuard": {              // E4 WP-S, optional: SOFT detour cost per stop (never drops anyone, never hard)
-      "ratio": 1.6,               //   >= 1, default 1
-      "extraS": 600,              //   >= 0, default 0. Guard = max(directS x ratio, directS + extraS)
-      "costPerS": 5               //   > 0, required: objective cost per second of ride beyond the guard (per stop)
+      "ratio": 1.6,               //   1..10, default 1 (null = default)
+      "extraS": 600,              //   0..horizonS, default 0 (null = default). Guard = max(directS x ratio, directS + extraS)
+      "costPerS": 5               //   (0, 10000], required: objective cost per second of ride beyond the guard (per stop)
     }
   },
 
@@ -123,7 +123,7 @@ be within `[0, horizonS]`.
     "passengerIds": ["emp1", "emp2"], // v2: co-located passengers merged into one node (doc 06 §4.2)
     "demand": 2,                  // seats; default = len(passengerIds), else 0 (v1)
     "serviceS": 60,               // boarding / alighting time, default 0
-    "timeWindows": [[600, 1200]], // optional; real (forward) pickup / drop times, one or more
+    "timeWindows": [[600, 1200]], // optional; real (forward) pickup / drop times, one to 10
     "priority": 1,                // drop-penalty weight (>= 1)
     "maxRideS": 4800,             // v2: overrides trip.maxRideS; needs trip
     "wheelchair": 1,              // v2: wheelchair spaces needed, default 0
@@ -145,8 +145,8 @@ be within `[0, horizonS]`.
       "distance": 1,              //   + routeDuration * route span (incl. waiting).
       "time": 0,                  // At least one of distance / time / routeDuration / rideTime > 0; distance needs distancesM.
       "routeDuration": 0,         // "vehicles first, then distance": make vehicle >> distance x typical route m.
-      "rideTime": 1               // E4 WP-S, >= 0, trip only (else INVALID_INPUT): + rideTime x demand x rideS per
-                                  //   stop (passenger-seconds of ride). Rounded to an integer per stop, never 0.
+      "rideTime": 1               // E4 WP-S, 0..10000, trip only (else INVALID_INPUT): + rideTime x demand x ride
+                                  //   seconds per stop (passenger-seconds). Fractions are kept (see cost scale).
     },
     "allowMixedCustomers": false, // v2
     "deterministic": false,       // v2: true -> greedy descent to a local optimum (reproducible), see below
@@ -170,14 +170,27 @@ site at model time `R = T - t` (`T` = latest allowed arrival). In both, a stop's
 measured as **IN**: site arrival − pickup service start (includes the passenger's own boarding time and any waiting);
 **OUT**: drop service start − site departure.
 
-**Ride-time cost and detour guard** (E4 WP-S, doc 18 §7). Both are soft upper bounds on that same ride cumul:
-`weights.rideTime` = `SetCumulVarSoftUpperBound(stop, 0, rideTime x demand)`; the guard =
-`SetCumulVarSoftUpperBound(stop, guard, costPerS)` with `directS` = the direct ride measured like `rideS` (IN: own
-`serviceS` + leg stop → site; OUT: leg site → stop). OR-Tools allows one soft bound per cumul variable, so when both
-are sent the guard sits on a copy of the `Ride` dimension (`Detour`, slack tied the same way). Max ride stays a hard
-`SetMax`. Drop penalties grow by (sum of ride coefficients + costPerS x stops) x horizon, so serving a passenger is
-always cheaper than dropping them. Without `rideTime` / `detourGuard` the model is unchanged (identical objective and
-routes on all deterministic corpus scenarios).
+**Ride-time cost and detour guard** (E4 WP-S, doc 18 §7). Both are soft upper bounds on **zero-slack** copies of the
+time transit (`RideCost`, `Detour`), whose cumul is the in-vehicle time since (IN: until) the site **without waiting**
+(travel + boarding; equal to `rideS` whenever no stop window forces a wait): `weights.rideTime` =
+`SetCumulVarSoftUpperBound(stop, 0, rideTime x demand)`, the guard = `SetCumulVarSoftUpperBound(stop, guard,
+costPerS)`, with `directS` = the direct ride measured like `rideS` (IN: own `serviceS` + leg stop → site; OUT: leg
+site → stop). They are deliberately **not** slack-tied like `Ride`: OR-Tools' cumul optimizer, which prices soft
+bounds, ignores the `solver.Add` tie and contradicts it as soon as a window forces a wait, losing every solution
+(review H1). Max ride stays a hard `SetMax` on the tied `Ride` dimension, which carries no soft bound. Drop penalties
+grow by (sum of ride coefficients + costPerS x stops) x horizon, so serving a passenger is always cheaper than
+dropping them. Without `rideTime` / `detourGuard` the model is unchanged (identical objective and routes on all
+deterministic corpus scenarios).
+
+- **Cost scale.** OR-Tools costs are integers. When `rideTime` or `costPerS` is fractional, every objective term
+  (arcs, fixed costs, span, ride, guard, drop penalty) is computed x 100 and the reported `objective` /
+  `objectiveBreakdown` are divided back (`stats.costScale: 100`); otherwise nothing changes.
+- **Safety net.** With `rideTime` / `detourGuard`, if a stop is dropped with `TIME_LIMIT` / `NOT_SCHEDULED` (an unused
+  compatible vehicle or a feasible insertion exists), the solve is repeated once with `parallel_cheapest_insertion`
+  and greedy descent (1 s search budget, so the call can exceed `timeLimitS` by up to 1 s) and the result serving more
+  passengers is kept (`stats.retry: {firstSolution, used}`).
+- **Limits.** The worst-case objective (every stop dropped, pinned, at its priority) must stay below 2^62, else
+  `INVALID_INPUT` ("costs or penalties too large"); an int64 overflow anywhere is also `INVALID_INPUT`, never a 500.
 
 ### Result
 
@@ -242,15 +255,17 @@ routes on all deterministic corpus scenarios).
 | `not_scheduled_capacity_or_time` | `CAPACITY_EXHAUSTED` | dropped; every compatible vehicle is in use and none has a free seat (or wheelchair space) for it | `{freeSeats: 0, failed?: ["wheelchair"]}` |
 | ″ | `FLEET_TOO_SMALL` (ext, E4 WP-S) | dropped; seats are free, but every insertion into the found routes breaks a hard rule and no compatible vehicle is unused | `{binding: [...], freeSeats}` (`null` = unlimited) |
 | ″ | `TIME_LIMIT` | dropped while the search stopped on the clock, and a compatible vehicle stayed unused or a feasible insertion exists (more time may help) | `{unusedVehicles}` or `{insertableInto}` |
-| ″ | `NOT_SCHEDULED` (ext) | as `TIME_LIMIT`, but the search ended at a local optimum (deterministic mode) | `{unusedVehicles}` or `{insertableInto}` |
+| ″ | `NOT_SCHEDULED` (ext) | as `TIME_LIMIT`, but the search ended at a local optimum (deterministic mode); or the re-check budget ran out | `{unusedVehicles}`, `{insertableInto}` or `{binding: ["unknown", ...], freeSeats}` |
 | `no_solution_found` | `NO_SOLUTION` / `TIME_LIMIT` (ext) | OR-Tools found no solution at all | — |
 
 The post-solve codes come from re-checking each dropped stop (`_DropClassifier`): unused compatible vehicle →
 search limit; no free seat → `CAPACITY_EXHAUSTED`; else the stop is re-inserted at every position of every compatible
 route and the route re-timed exactly as the model times it. `binding` values: `max_ride`, `site_window`,
 `time_window`, `vehicle_availability`, `max_route_duration`, `escort_position`, `customer`, `exclusive`,
-`unreachable`, and `unknown` (stops with several windows, where the ride-minimising timing is not checked exactly,
-or the 0.25 s re-check budget ran out). Pinned and escort reasons are unchanged.
+`unreachable`, and `unknown` (stops with several windows, where the ride-minimising timing is not checked exactly).
+When the 0.25 s re-check budget runs out (checked before every insertion), the stop is `NOT_SCHEDULED` with binding
+`["unknown", ...]`: the cause is not established, so it is never called `FLEET_TOO_SMALL`. Pinned and escort reasons
+are unchanged.
 
 `NO_STOP_WITHIN_WALK` and `NOT_ON_ROAD` / `OUTSIDE_COVERAGE` are produced by the API before the solve (stage 1 /
 locate), never by this service.
@@ -272,7 +287,7 @@ Recommended `options.weights` per strategy (the API maps a `strategy` to these, 
 `trip.detourGuard` (e.g. `ratio 1.6, extraS 600, costPerS 5`) can be added to any of them; it is soft, so with too few
 vehicles everyone is still served and `objectiveBreakdown.detourCost` / per-visit `detourS` show the detours.
 Timing (SYNTHETIC 75 stops x 17 seven-seaters, `e4_scale.build`, deterministic, dev PC, Python 3.12): 0.09 s / 43 MB
-peak without, 0.15 s / 45 MB with Balanced + guard.
+peak without, 0.12 s / 45 MB with Balanced + guard.
 
 ### Determinism, time limit, degraded matrices
 
