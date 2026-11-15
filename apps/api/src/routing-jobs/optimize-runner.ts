@@ -43,6 +43,8 @@ export function parseOptimizeInput(job: JobRecord): OptimizeJobInput {
     timeLimitS: Math.max(1, Math.min(ROUTING_LIMITS.optimizeTimeLimitS, Math.round(Number(i.timeLimitS) || 10))),
     ...(i.objective ? { objective: i.objective } : {}),
     ...(weights ? { weights } : {}),
+    // E4 WP-A: the strategy the weights came from (reported in the job result).
+    ...(typeof i.strategy === 'string' ? { strategy: i.strategy.slice(0, 40) } : {}),
   };
 }
 
@@ -80,6 +82,7 @@ export function optimizeRunner(deps: { plans: PlanGateway; matrix: MatrixPort; s
     let inputs = await deps.plans.load(job, input);
     // The job's own weights win over the plan's stored ones (they are the same unless the plan was edited meanwhile).
     if (input.weights) inputs = { ...inputs, solver: { ...inputs.solver, weights: input.weights } };
+    if (input.strategy) inputs = { ...inputs, strategy: input.strategy };
     if (!(ROUTING_AVAILABLE_PROFILES as readonly string[]).includes(inputs.profile)) {
       throw new JobError('PROFILE_NOT_AVAILABLE', `Routing profile "${inputs.profile}" is not available on this server`);
     }

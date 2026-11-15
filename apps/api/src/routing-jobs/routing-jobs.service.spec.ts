@@ -141,8 +141,8 @@ describe('RoutingJobsService (API side)', () => {
     expect(await codeOf(limited.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, KEY))).toEqual({ status: 429, code: 'QUOTA_EXCEEDED' });
   });
 
-  it('weights are required and explicit (P6): missing / negative / all-zero cost terms → 400; they are part of the request hash', async () => {
-    for (const w of [undefined, { ...W, time: -1 }, { vehicle: 1, distance: 0, time: 0, routeDuration: 0 }, { ...W, distance: Number.NaN }]) {
+  it('weights are explicit when given (P6): negative / all-zero cost terms → 400; they are part of the request hash (E4 WP-A: absent = the strategy, BALANCED by default)', async () => {
+    for (const w of [{ ...W, time: -1 }, { vehicle: 1, distance: 0, time: 0, routeDuration: 0 }, { ...W, distance: Number.NaN }]) {
       expect(await codeOf(svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: w as never }, KEY))).toMatchObject({ status: 400 });
     }
     await svc.enqueueOptimize(ctx(), { planId: 'plan-1', expectedVersion: 3, weights: W }, KEY);

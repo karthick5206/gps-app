@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { ACTIVE_BOOKING_STATUSES, planBookingsLimitMessage, routePlanLocks, type MaxRideOverrideInput, type OptimizeUnassignedReason, ROUTE_PLAN_EDITABLE, ROUTING_LIMITS, RoutePlanStatus, RoutePlanVersionSnapshot, RoutingProfile, uncalibratedEta } from '@veetracer/shared';
+import { ACTIVE_BOOKING_STATUSES, planBookingsLimitMessage, type MaxRideOverrideInput, type OptimizeUnassignedReason, ROUTE_PLAN_EDITABLE, ROUTING_LIMITS, RoutePlanStatus, RoutePlanVersionSnapshot, RoutingProfile, uncalibratedEta } from '@veetracer/shared';
 import type { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { maxRidePolicyOf, maxRideSnapshot, withOverride } from './max-ride';
@@ -11,7 +11,9 @@ import type { BuiltMatrix } from './matrix-port';
 import type { PlanInputs, PlanStopInput, PlanWrite, SolverWeights } from './optimize-problem';
 import type { OptimizeJobInput, PlanGateway } from './optimize-runner';
 import { RoutingHttpError } from './routing-flags';
-import type { PlanJobLink } from './routing-jobs.service';
+import type { OptimizeRunExtra, PlanJobLink } from './routing-jobs.service';
+import { publishedAssignmentIds, recordRun, withRunPreferences } from './run-inputs';
+import { runLockSets } from './strategies';
 
 type Db = PrismaClient;
 type Tx = Prisma.TransactionClient;
@@ -36,13 +38,18 @@ const wheelchairOf = (raw: unknown): number => (raw && typeof raw === 'object' &
 
 const optionsOf = (raw: unknown): Record<string, unknown> => (raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {});
 
-/** RoutePlan.options.weights when complete and valid (all four finite, ≥ 0, one of distance / time / routeDuration > 0). */
+/**
+ * RoutePlan.options.weights when complete and valid (all four finite, ≥ 0, one of distance / time / routeDuration > 0).
+ * E4 WP-A: an optional `rideTime` (finite, ≥ 0) is kept; weights stored before it (no rideTime) stay valid.
+ */
 export function weightsOf(raw: unknown): SolverWeights | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const w = raw as Record<string, unknown>;
   const keys = ['vehicle', 'distance', 'time', 'routeDuration'] as const;
   if (!keys.every((k) => typeof w[k] === 'number' && Number.isFinite(w[k]) && (w[k] as number) >= 0)) return undefined;
   const out = Object.fromEntries(keys.map((k) => [k, w[k] as number])) as unknown as SolverWeights;
+  if (typeof w.rideTime === 'number' && Number.isFinite(w.rideTime) && w.rideTime >= 0) out.rideTime = w.rideTime;
+  else if (w.rideTime !== undefined) return undefined;
   return out.distance || out.time || out.routeDuration ? out : undefined;
 }
 
@@ -69,7 +76,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
 
   // ───────────── API side (PlanJobLink) ─────────────
 
-  async reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights, extra?: { maxRideOverride?: MaxRideOverrideInput | null }): Promise<{ profile: RoutingProfile }> {
+  async reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights, extra?: OptimizeRunExtra & { maxRideOverride?: MaxRideOverrideInput | null }): Promise<{ profile: RoutingProfile }> {
     const t = tx as Tx;
     const plan = await t.routePlan.findFirst({ where: { id: planId, companyId: ctx.companyId }, select: { id: true, companyId: true, branchId: true, createdById: true, status: true, version: true, profile: true, options: true } });
     if (!plan || !planVisibleTo(ctx, plan)) throw new RoutingHttpError('JOB_NOT_FOUND', 'Plan not found');
@@ -93,7 +100,8 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     const policyS = await maxRidePolicyOf(t, ctx.companyId);
     const withRide = maxRideSnapshot(await withOverride(t, this.audit, ctx, { id: plan.id, options: optionsOf(plan.options), version: plan.version }, extra?.maxRideOverride, 'optimize', policyS), policyS);
     // QA B3: the status before the run (DRAFT / PLANNED) is kept in options, so a failed or cancelled run gives it back.
-    const options = { ...withRide, ...(weights ? { weights: { ...weights } } : {}), statusBeforeOptimize: plan.status };
+    // E4 WP-A: strategy / weights source / preferences recorded (preference max ride never above the plan's max ride).
+    const options = await recordRun(t, this.audit, ctx, plan, { ...withRide, ...(weights ? { weights: { ...weights } } : {}), statusBeforeOptimize: plan.status }, extra, policyS);
     const moved = await t.routePlan.updateMany({ where: { id: planId, companyId: ctx.companyId, version: expectedVersion, status: plan.status }, data: { status: 'OPTIMIZING', options: options as Prisma.InputJsonValue } });
     if (!moved.count) throw new RoutingHttpError('PLAN_STALE', 'The plan changed meanwhile; reload it and try again');
     return { profile: (plan.profile as RoutingProfile) ?? 'car' };
@@ -155,7 +163,8 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
 
     // Locks and pins (RoutePlan.options, written by the plans API): a locked route keeps its stops and order and is
     // not re-solved; a pinned stop stays on its current vehicle (solver pinnedVehicleId).
-    const locks = routePlanLocks(plan.options);
+    // E4 WP-A: preservePins / preserveLocks of the run; published routes always stay frozen.
+    const locks = runLockSets(plan.options, await publishedAssignmentIds(this.db, plan.id));
     const stops: PlanStopInput[] = [];
     const excluded: PlanInputs['excluded'] = [];
     for (const s of plan.stops) {
@@ -203,7 +212,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
     }
     const options = (plan.options && typeof plan.options === 'object' && !Array.isArray(plan.options) ? plan.options : {}) as { maxRideS?: unknown; weights?: unknown; deterministic?: unknown; allowMixedCustomers?: unknown };
     this.logger.log(`job ${job.id}: plan ${plan.id} v${plan.version}: ${stops.length} stop(s), ${excluded.length} left out, ${plan.assignments.length} vehicle(s)`);
-    return {
+    const inputs: PlanInputs = {
       planId: plan.id,
       companyId: plan.companyId,
       version: plan.version,
@@ -221,6 +230,8 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
       }),
       excluded,
     };
+    // E4 WP-A: run preferences (max ride tightened, detour guard, vehicle size) and vehicle / driver availability.
+    return withRunPreferences(this.db, inputs, plan);
   }
 
   async write(txRaw: StoreTx, job: JobRecord, inputs: PlanInputs, w: PlanWrite, matrix: BuiltMatrix | null, points: { stopId: string; index: number }[], graphVersion: string | null): Promise<void> {

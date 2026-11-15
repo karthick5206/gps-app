@@ -123,18 +123,19 @@ describe('Decision 1: per-plan max-ride override on optimise (authorised, with a
 
   it('an authorised caller (etms_settings:edit, whole company) passes the override and its reason to the plan reservation', async () => {
     await optimise(admin, { maxRideS: 5_400, reason: '  Flood diversion on the ring road  ' }, 'dec-key-0001');
-    expect(link.calls).toEqual([{ planId: 'plan-1', extra: { maxRideOverride: { maxRideS: 5_400, reason: 'Flood diversion on the ring road' } } }]);
+    // E4 WP-A: the reservation also records the run's strategy / weights source (raw weights here: no strategy).
+    expect(link.calls).toEqual([{ planId: 'plan-1', extra: { maxRideOverride: { maxRideS: 5_400, reason: 'Flood diversion on the ring road' }, strategy: null, weightsSource: 'weights', preferences: undefined } }]);
   });
 
   it('clearing the override (null) is also an override action: authorised callers only', async () => {
     await optimise(admin, null, 'dec-key-0002');
-    expect(link.calls[0].extra).toEqual({ maxRideOverride: null });
+    expect(link.calls[0].extra).toMatchObject({ maxRideOverride: null });
     expect(await errorOf(optimise(planner, null, 'dec-key-0003'))).toMatchObject({ status: 403, code: 'FORBIDDEN_GRANT' });
   });
 
   it('without the override the plan keeps what it has (nothing passed)', async () => {
     await optimise(planner, undefined, 'dec-key-0004');
-    expect(link.calls[0].extra ?? {}).toEqual({});
+    expect(link.calls[0].extra).not.toHaveProperty('maxRideOverride');
   });
 
   it('403 FORBIDDEN_GRANT for a whole-company planner without etms_settings:edit and for a branch-scoped user with it; no job is created', async () => {
