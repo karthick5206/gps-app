@@ -1,7 +1,10 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { AuthContext } from '../access/auth-context';
 import type { AuditService } from '../audit/audit.service';
-import { MAX_RIDE_AUDIT_ENTITY, storedOverrideOf } from './max-ride';
+import { storedOverrideOf } from './max-ride';
+
+/** Audit entity of a run that releases locked routes (preserveLocks=false): the plan, with details.change. */
+export const PRESERVE_LOCKS_AUDIT_ENTITY = 'RoutePlan';
 import type { PlanInputs } from './optimize-problem';
 import type { OptimizeRunExtra } from './routing-jobs.service';
 import { checkPreferenceMaxRide, detourGuardOf, runMaxRideS, storedPreferencesOf } from './strategies';
@@ -39,7 +42,7 @@ export async function recordRun(
   else delete out.preferences;
   if (extra.preferences?.preserveLocks === false) {
     const locked = Array.isArray(options.lockedAssignmentIds) ? options.lockedAssignmentIds.length : 0;
-    await audit.record(ctx, { action: 'UPDATE', entity: MAX_RIDE_AUDIT_ENTITY, entityId: plan.id, details: { preserveLocks: false, lockedRoutes: locked, via: 'optimize', version: plan.version } }, tx);
+    await audit.record(ctx, { action: 'UPDATE', entity: PRESERVE_LOCKS_AUDIT_ENTITY, entityId: plan.id, details: { change: 'preserve-locks-released', preserveLocks: false, lockedRoutes: locked, via: 'optimize', version: plan.version } }, tx);
   }
   return out;
 }
