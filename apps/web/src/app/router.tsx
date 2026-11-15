@@ -83,6 +83,16 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   // E3 WP 3.6: the passenger's own bookings and trips (vehicle only inside the trip window).
   etms_self: page(() => import('@/features/transport/dispatch/MyTransportPage'), 'MyTransportPage'),
   etms_driver: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyTransportDutyPage'),
+  // Doc 19 pricing area: placeholder until the Pricing UI lands (the API is behind the pricing add-on).
+  pricing: page(() => import('@/features/pricing/PricingPlaceholderPage'), 'PricingPlaceholderPage'),
+  pricing_contracts: page(() => import('@/features/pricing/PricingPlaceholderPage'), 'PricingPlaceholderPage'),
+  pricing_vehicle_rates: page(() => import('@/features/pricing/PricingPlaceholderPage'), 'PricingPlaceholderPage'),
+  pricing_trip_charges: page(() => import('@/features/pricing/PricingPlaceholderPage'), 'PricingPlaceholderPage'),
+  pricing_availability: page(() => import('@/features/pricing/PricingPlaceholderPage'), 'PricingPlaceholderPage'),
+  pricing_invoices: page(() => import('@/features/pricing/PricingPlaceholderPage'), 'PricingPlaceholderPage'),
+  pricing_adjustments: page(() => import('@/features/pricing/PricingPlaceholderPage'), 'PricingPlaceholderPage'),
+  pricing_reports: page(() => import('@/features/pricing/PricingPlaceholderPage'), 'PricingPlaceholderPage'),
+  pricing_costs: page(() => import('@/features/pricing/PricingPlaceholderPage'), 'PricingPlaceholderPage'),
   alert_settings: page(() => import('@/features/alerting/AlertSettingsPage'), 'AlertSettingsPage'),
   message_templates: page(() => import('@/features/templates/TemplatesPage'), 'TemplatesPage'),
 };
