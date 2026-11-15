@@ -358,6 +358,15 @@ export function useMyVehicle(tripId: string | null, active: boolean) {
 }
 
 /** The trip detail (stops for pickup / drop seqs), from the cache when fresh. */
+/** The dispatch board of another day (Copy yesterday), outside the page's own board query. */
+export function fetchDispatchBoard(qc: QueryClient, q: { serviceDate: string; direction: string | null; shiftId: string | null }): Promise<DispatchBoardDto> {
+  return qc.fetchQuery({
+    queryKey: ['transport', 'dispatch-board-other', q],
+    queryFn: ({ signal }) => api.get<DispatchBoardDto>(`${DISPATCH_ENDPOINT}/board`, { serviceDate: q.serviceDate, direction: q.direction, shiftId: q.shiftId }, signal),
+    staleTime: 15_000,
+  });
+}
+
 export function fetchTransportTrip(qc: QueryClient, id: string): Promise<TransportTripDto> {
   return qc.fetchQuery({ queryKey: e3Keys.trip(id), queryFn: ({ signal }) => api.get<TransportTripDto>(`${TRIPS_ENDPOINT}/${id}`, undefined, signal), staleTime: 15_000 });
 }

@@ -1,6 +1,6 @@
-import type { DispatchBoardDto, DispatchCandidateDto, DispatchVehicleDto, TransportBookingDto, TransportTripSummaryDto } from '@veetracer/shared';
-import { BusIcon, CarFrontIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleAlertIcon, ExternalLinkIcon, InboxIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, Undo2Icon, UserMinusIcon, UserRoundIcon } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import type { DriverDto, DispatchBoardDto, DispatchCandidateDto, DispatchVehicleDto, TransportBookingDto, TransportTripSummaryDto } from '@veetracer/shared';
+import { ArrowRightLeftIcon, BusIcon, CarFrontIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleAlertIcon, ExternalLinkIcon, InboxIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, Undo2Icon, UserMinusIcon, UserRoundIcon } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { FormError } from '@/components/form-error';
@@ -14,9 +14,31 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatClock, fromZonedWall, toZonedWall } from '@/features/planned-trips/trip-format';
+import { useAuth } from '@/features/auth/auth-context';
+import { named, useEntityOptions } from '@/features/masters/use-options';
+import { Combobox } from '@/components/ui/multi-select';
 import { cn } from '@/lib/utils';
-import { diffDraft, draftBookingIds, setAddNewDropStop, setAddNewPickupStop, setAddSeqs, setNewTripTiming, undoReassign, undoRemove, withoutBookings, type DispatchDraft, type DraftDiffRow } from './dispatch-draft';
+import {
+  diffDraft,
+  draftBookingIds,
+  moveInNewTrip,
+  moveToNewTrip,
+  newTripOrder,
+  newTripSeats,
+  setAddNewDropStop,
+  setAddNewPickupStop,
+  setAddSeqs,
+  setNewTripDriver,
+  setNewTripTiming,
+  setNewTripVehicle,
+  undoReassign,
+  undoRemove,
+  withoutBookings,
+  type DispatchDraft,
+  type DraftDiffRow,
+} from './dispatch-draft';
 import { routeText } from './adhoc-booking';
+import type { RouteGroup } from './auto-allocate';
 import { AfterCutoffBadge, GroupBadge, JourneyBadge } from './adhoc-ui';
 import { groupIdOf, groupSelection, groupSizes, purposeOf } from './group-booking';
 import { candidateReason, isEditableTrip, straightLineLabel } from './e3-format';
@@ -40,6 +62,10 @@ export interface PanelCtx {
   requestRemove: (trip: TransportTripSummaryDto, p: { id: string; bookingId: string; name: string; seats: number }) => void;
   requestReassign: (trip: TransportTripSummaryDto, kind: 'VEHICLE' | 'DRIVER') => void;
   approve: (b: TransportBookingDto) => void;
+  /** Routes made by the Routing button (the waiting list is grouped by them); null before Routing. */
+  routes?: RouteGroup[] | null;
+  /** Move one waiting booking to another route (null = out of every route). */
+  moveToRoute?: (bookingId: string, routeId: string | null) => void;
   busy: boolean;
 }
 
@@ -77,6 +103,41 @@ export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void
     ctx.setSelected(n);
   };
   const allSelected = free.length > 0 && free.every((b) => ctx.selected.has(b.id));
+  const selectMany = (ids: string[], on: boolean) => {
+    const n = new Set(ctx.selected);
+    for (const id of ids) {
+      if (on) n.add(id);
+      else n.delete(id);
+    }
+    ctx.setSelected(n);
+  };
+  // Sections: the routes made by Routing (with "Not in a route" last), else one per shift and time window.
+  const sections = useMemo(() => {
+    const make = (key: string, label: string, list: TransportBookingDto[]) => ({
+      key,
+      label,
+      rows: list,
+      seats: list.reduce((s, b) => s + b.passengerCount, 0),
+      selectable: list.filter((b) => assignable(b) && !inDraft.has(b.id)).map((b) => b.id),
+    });
+    const routes = ctx.routes ?? [];
+    if (routes.length) {
+      const routeOf = new Map(routes.flatMap((r) => r.bookings.map((b) => [b.id, r.id] as const)));
+      const out = routes.map((r) => make(r.id, r.label, r.bookings.map((x) => rows.find((b) => b.id === x.id)).filter((b): b is TransportBookingDto => !!b)));
+      const rest = rows.filter((b) => !routeOf.has(b.id));
+      if (rest.length) out.push(make('none', t('Not in a route'), rest));
+      return out.filter((s) => s.rows.length);
+    }
+    const byKey = new Map<string, TransportBookingDto[]>();
+    for (const b of [...rows].sort((a, c) => a.windowStart.localeCompare(c.windowStart) || a.passenger.displayName.localeCompare(c.passenger.displayName))) {
+      const k = `${b.shiftId ?? 'adhoc'}|${b.windowStart}|${b.windowEnd}`;
+      const l = byKey.get(k);
+      if (l) l.push(b);
+      else byKey.set(k, [b]);
+    }
+    return [...byKey.entries()].map(([k, list]) => make(k, `${list[0].shiftName ?? t('One-off')} · ${clock(list[0].windowStart)}–${clock(list[0].windowEnd)}`, list));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, ctx.routes, inDraft, t]);
   return (
     <section aria-labelledby="queue-h" className="flex min-h-0 min-w-0 flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -97,7 +158,16 @@ export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void
         <EmptyState icon={InboxIcon} title={ctx.board.queue.length ? t('No match') : t('Everyone has a seat')} description={ctx.board.queue.length ? undefined : t('No booking of this day and direction is waiting for a seat.')} className="py-8" />
       ) : (
         <ul className="flex min-h-0 flex-col gap-2 overflow-y-auto pr-0.5" aria-label={t('Bookings waiting for a seat')}>
-          {rows.map((b) => {
+          {sections.map((sec) => (
+            <Fragment key={sec.key}>
+              <li className="sticky top-0 z-[1] flex items-center gap-2 rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-primary">
+                {ctx.canPlan && sec.selectable.length > 0 && (
+                  <Checkbox checked={sec.selectable.every((id) => ctx.selected.has(id))} onCheckedChange={(v) => selectMany(sec.selectable, !!v)} aria-label={t("Select everyone in {{group}}", { group: sec.label })} />
+                )}
+                <span className="min-w-0 flex-1 truncate">{sec.label}</span>
+                <span className="shrink-0 font-normal text-muted-foreground tabular-nums">{t("{{n}} people · {{s}} seats", { n: sec.rows.length, s: sec.seats })}</span>
+              </li>
+              {sec.rows.map((b) => {
             const drafted = inDraft.has(b.id);
             const ok = assignable(b);
             return (
@@ -138,6 +208,21 @@ export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void
                       {b.needsLocation && <Badge variant="warning">{t('Needs location')}</Badge>}
                       {b.pointsHidden === 'CONSENT_REQUIRED' && <Badge variant="warning">{t('No routing consent')}</Badge>}
                       {drafted && <Badge variant="info">{t('In draft')}</Badge>}
+                      {ctx.canPlan && !!ctx.routes?.length && ctx.moveToRoute && !drafted && (
+                        <select
+                          className="h-7 max-w-40 rounded-md border border-input bg-card px-1.5 text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          value={ctx.routes.find((r) => r.bookings.some((x) => x.id === b.id))?.id ?? ''}
+                          onChange={(e) => ctx.moveToRoute!(b.id, e.target.value || null)}
+                          aria-label={t('Route of {{name}}', { name: b.passenger.displayName })}
+                        >
+                          <option value="">{t('Not in a route')}</option>
+                          {ctx.routes.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.label.split(' · ')[0]}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       {(b.status === 'REQUESTED' || b.status === 'WAITLISTED') && b.allowedActions.includes('approve') && (
                         <Button size="sm" variant="outline" className="h-7" onClick={() => ctx.approve(b)} disabled={ctx.busy}>
                           <CheckIcon /> {t('Approve')}
@@ -148,7 +233,9 @@ export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void
                 </div>
               </li>
             );
-          })}
+              })}
+            </Fragment>
+          ))}
         </ul>
       )}
       {ctx.canPlan && ctx.selected.size > 0 && onFind && (
@@ -383,6 +470,8 @@ function DraftTripCard({ tempId, ctx, diff }: { tempId: string; ctx: PanelCtx; d
   const n = ctx.draft.newTrips.find((x) => x.tempId === tempId);
   if (!n) return null;
   const wall = toZonedWall(n.startMs, ctx.tz);
+  const order = newTripOrder(n, ctx.draft.bookings, ctx.draft.direction);
+  const others = ctx.draft.newTrips.filter((x) => x.tempId !== tempId);
   return (
     <li>
       <Card className="gap-2 border-dashed border-info/70 p-3">
@@ -423,18 +512,49 @@ function DraftTripCard({ tempId, ctx, diff }: { tempId: string; ctx: PanelCtx; d
           </Field>
         </div>
         <p className="text-xs text-muted-foreground">{t('Planned stop times are spaced evenly from the start; they are a plan, not a road estimate.')}</p>
-        <ul className="flex flex-wrap gap-1">
-          {n.bookingIds.map((id) => (
-            <li key={id}>
-              <Badge variant="outline" className="gap-1 pr-0.5">
-                {ctx.draft.bookings[id]?.name ?? id}
-                <button type="button" className="rounded p-0.5 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" onClick={() => ctx.setDraft((d) => withoutBookings(d, [id]))} aria-label={t('Undo: remove {{name}} from the draft', { name: ctx.draft.bookings[id]?.name ?? id })}>
-                  <Undo2Icon className="size-3" />
-                </button>
-              </Badge>
-            </li>
-          ))}
-        </ul>
+        {ctx.canPlan && <DraftTripVehicleDriver tempId={tempId} ctx={ctx} />}
+        <ol className="grid gap-1" aria-label={ctx.draft.direction === 'OUT' ? t('Drop order') : t('Pickup order')}>
+          {order.map((id, i) => {
+            const name = ctx.draft.bookings[id]?.name ?? id;
+            return (
+              <li key={id} className="flex items-center gap-1 rounded-md border bg-card px-1.5 py-1 text-sm">
+                <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{i + 1}.</span>
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+                {ctx.canPlan && (
+                  <>
+                    <Button size="icon-sm" variant="ghost" disabled={i === 0} onClick={() => ctx.setDraft((d) => moveInNewTrip(d, tempId, id, -1))} aria-label={t('Move {{name}} up', { name })}>
+                      <ChevronUpIcon />
+                    </Button>
+                    <Button size="icon-sm" variant="ghost" disabled={i === order.length - 1} onClick={() => ctx.setDraft((d) => moveInNewTrip(d, tempId, id, 1))} aria-label={t('Move {{name}} down', { name })}>
+                      <ChevronDownIcon />
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon-sm" variant="ghost" aria-label={t('More for {{name}}', { name })}>
+                          <MoreHorizontalIcon />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {others.map((o) => {
+                          const free = o.seats - newTripSeats(o, ctx.draft.bookings);
+                          const need = ctx.draft.bookings[id]?.seats ?? 1;
+                          return (
+                            <DropdownMenuItem key={o.tempId} disabled={free < need} onSelect={() => ctx.setDraft((d) => moveToNewTrip(d, [id], o.tempId))}>
+                              <ArrowRightLeftIcon /> {t('Move to {{vehicle}} ({{n}} free)', { vehicle: o.label, n: free })}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                        <DropdownMenuItem variant="destructive" onSelect={() => ctx.setDraft((d) => withoutBookings(d, [id]))}>
+                          <UserMinusIcon /> {t('Remove (back to waiting)')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ol>
         {ctx.canPlan && ctx.selected.size > 0 && (
           <Button size="sm" onClick={() => ctx.assignToDraftTrip(tempId)} disabled={ctx.busy} className="justify-self-start">
             <PlusIcon /> {t('Assign selected here')}
@@ -442,6 +562,58 @@ function DraftTripCard({ tempId, ctx, diff }: { tempId: string; ctx: PanelCtx; d
         )}
       </Card>
     </li>
+  );
+}
+
+/** Vehicle and driver of a new trip in the draft (free vehicles with enough seats; drivers when the role may see them). */
+function DraftTripVehicleDriver({ tempId, ctx }: { tempId: string; ctx: PanelCtx }) {
+  const { t } = useTranslation();
+  const { can } = useAuth();
+  const [q, setQ] = useState('');
+  const drivers = useEntityOptions<DriverDto>('/drivers', named, { q, enabled: can('drivers') });
+  const n = ctx.draft.newTrips.find((x) => x.tempId === tempId);
+  if (!n) return null;
+  const need = newTripSeats(n, ctx.draft.bookings);
+  const usedElsewhere = new Set(ctx.draft.newTrips.filter((x) => x.tempId !== tempId).map((x) => x.objectId));
+  const vehicles = ctx.board.vehicles.filter((v) => v.objectId === n.objectId || (v.seats !== null && v.seats >= need && !usedElsewhere.has(v.objectId)));
+  const sel = 'h-8 w-full min-w-0 rounded-md border border-input bg-card px-2 text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none';
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <label className="grid gap-0.5 text-xs">
+        <span className="text-muted-foreground">{t('Vehicle')}</span>
+        <select
+          className={sel}
+          value={n.objectId}
+          onChange={(e) => {
+            const v = ctx.board.vehicles.find((x) => x.objectId === e.target.value);
+            if (v && v.seats !== null) ctx.setDraft((d) => setNewTripVehicle(d, tempId, { objectId: v.objectId, label: v.plateNumber ? `${v.name} · ${v.plateNumber}` : v.name, seats: v.seats! }));
+          }}
+        >
+          {vehicles.map((v) => (
+            <option key={v.objectId} value={v.objectId}>
+              {v.name} — {t('{{n}} seats', { n: v.seats ?? 0 })}
+            </option>
+          ))}
+        </select>
+      </label>
+      {can('drivers') ? (
+        <div className="grid gap-0.5 text-xs">
+          <span className="text-muted-foreground">{t('Driver')}</span>
+          <Combobox
+            value={n.driverId ?? null}
+            onChange={(id) => ctx.setDraft((d) => setNewTripDriver(d, tempId, id ? { id, label: drivers.options.find((o) => o.value === id)?.label ?? '' } : null))}
+            options={n.driverId && !drivers.options.some((o) => o.value === n.driverId) ? [{ value: n.driverId, label: n.driverLabel ?? '' }, ...drivers.options] : drivers.options}
+            loading={drivers.loading}
+            onSearch={setQ}
+            placeholder={t('No driver')}
+            searchPlaceholder={t('Search drivers…')}
+            emptyText={t('No drivers found')}
+          />
+        </div>
+      ) : (
+        n.driverLabel && <p className="self-end text-xs text-muted-foreground">{t('Driver')}: {n.driverLabel}</p>
+      )}
+    </div>
   );
 }
 

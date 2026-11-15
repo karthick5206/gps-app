@@ -1,6 +1,6 @@
 import type { DriverDto, TransportBookingDto, TransportDirection, TransportTripSummaryDto } from '@veetracer/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronLeftIcon, ChevronRightIcon, ClipboardListIcon, EyeIcon, FileClockIcon, SendIcon, Trash2Icon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, ClipboardListIcon, CopyIcon, EyeIcon, FileClockIcon, RouteIcon, SendIcon, Trash2Icon, XIcon, ZapIcon } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -43,13 +43,16 @@ import {
   type DraftBooking,
   type IdempotencySlot,
 } from './dispatch-draft';
+import { allocateRoutes, largestSeats, routeGroups, type RouteGroup } from './auto-allocate';
 import { ChangeSetDetailDialog } from './ChangeSetDetailDialog';
+import { copyDay, type CopyBooking, type CopyResult, type SourceTrip } from './copy-day';
 import { CandidatesPanel, DraftReview, DraftTray, QueuePanel, TripsPanel, type PanelCtx } from './dispatch-panels';
 import { DIRECTION_LABEL, isEditableTrip, newUuid } from './e3-format';
 import { ConnectionChip, e3ErrorMessage, RoutingChip, SimpleSelect } from './e3-ui';
 import { ReasonDialog } from './ReasonDialog';
 import { locatedStops } from './TransportMap';
 import {
+  fetchDispatchBoard,
   fetchTransportTrip,
   SHIFTS_ENDPOINT,
   transportTripPath,
@@ -77,6 +80,20 @@ const ALL = '__all';
 
 function toDraftBooking(b: TransportBookingDto): DraftBooking {
   return { id: b.id, name: b.passenger.displayName, pickup: b.pickup, drop: b.drop, windowStart: b.windowStart, windowEnd: b.windowEnd, seats: b.passengerCount };
+}
+
+function toAllocBooking(b: TransportBookingDto): CopyBooking {
+  return { ...toDraftBooking(b), shiftId: b.shiftId, groupId: b.groupId ?? null, profileId: b.passenger.id };
+}
+
+/** Waiting bookings that can be seated now (approved, with points and consent). */
+const seatable = (b: TransportBookingDto) => b.status === 'PENDING_ASSIGNMENT' && !b.needsLocation && !b.pointsHidden;
+
+/** What Auto-allocate / Copy yesterday did, for the summary dialog. */
+interface PlanSummary {
+  title: string;
+  trips: { label: string; driver: string | null; names: string[]; seats: number; capacity: number }[];
+  notes: { text: string; names: string[] }[];
 }
 
 /**
@@ -107,6 +124,8 @@ export function DispatchPage() {
   const [removeReq, setRemoveReq] = useState<{ trip: TransportTripSummaryDto; p: { id: string; bookingId: string; name: string; seats: number } } | null>(null);
   const [reassignReq, setReassignReq] = useState<{ trip: TransportTripSummaryDto; kind: 'VEHICLE' | 'DRIVER' } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [planSummary, setPlanSummary] = useState<PlanSummary | null>(null);
+  const [routesByKey, setRoutesByKey] = useState<Record<string, RouteGroup[] | null>>({});
   const [announcement, setAnnouncement] = useState('');
   const slot = useRef<IdempotencySlot | null>(null);
   const draftKeys = useRef<Record<string, string>>({});
@@ -118,6 +137,8 @@ export function DispatchPage() {
   const key = `${day}|${direction}`;
   const draft = drafts[key] ?? emptyDraft(day, direction);
   const setDraft = useCallback((fn: (d: DispatchDraft) => DispatchDraft) => setDrafts((all) => ({ ...all, [key]: fn(all[key] ?? emptyDraft(day, direction)) })), [key, day, direction]);
+  const routes = routesByKey[key] ?? null;
+  const setRoutes = useCallback((v: RouteGroup[] | null | ((r: RouteGroup[] | null) => RouteGroup[] | null)) => setRoutesByKey((all) => ({ ...all, [key]: typeof v === "function" ? v(all[key] ?? null) : v })), [key]);
   const canPlan = can('etms_dispatch', 'command');
   const publish = usePublishChangeSet();
   const saveServer = useSaveServerDraft();
@@ -197,6 +218,140 @@ export function DispatchPage() {
     done(t('{{n}} passenger(s) added to the new trip in the draft.', { n: list.length }));
   };
 
+  // ───────── Auto-allocate / Copy yesterday: proposals go into the draft only ─────────
+
+  const vehicleLabel = (v: { name: string; plateNumber: string | null }) => `${v.name}${v.plateNumber ? ` · ${v.plateNumber}` : ''}`;
+  /** Vehicle uses already in the draft (so a proposal never double-books a vehicle). */
+  const draftTaken = (d: DispatchDraft) =>
+    d.newTrips.map((n) => ({ objectId: n.objectId, startMs: Math.min(n.startMs, ...n.bookingIds.map((id) => Date.parse(d.bookings[id]?.windowStart ?? '') || n.startMs)), endMs: Math.max(n.startMs + 1, ...n.bookingIds.map((id) => Date.parse(d.bookings[id]?.windowEnd ?? '') || n.startMs)) }));
+  /** The bookings a proposal may use: the ticked ones, else every waiting one not yet in the draft. */
+  const proposalPool = (): TransportBookingDto[] => {
+    if (!data) return [];
+    const inDraft = draftBookingIds(draft);
+    const free = data.queue.filter((b) => !inDraft.has(b.id));
+    const ticked = free.filter((b) => selected.has(b.id));
+    return ticked.length ? ticked : free;
+  };
+  const allocVehicles = () => (data?.vehicles ?? []).map((v) => ({ objectId: v.objectId, label: vehicleLabel(v), seats: v.seats, busy: v.busy }));
+
+  /** Step 1 · Routing: group the waiting people into routes by where they live (shown as groups in the waiting list). */
+  const makeRoutes = () => {
+    if (!data) return;
+    const pool = proposalPool();
+    const ok = pool.filter(seatable);
+    if (!ok.length) {
+      toast.info(pool.length ? t('Nobody can be routed yet: the waiting bookings need approval or a pickup / drop point.') : t('Nobody is waiting for a seat.'));
+      return;
+    }
+    const max = largestSeats(allocVehicles()) || 6;
+    const r = routeGroups(ok.map(toAllocBooking), direction, max);
+    setRoutes(r.routes);
+    setSelected(new Set());
+    const msg = t('{{n}} route(s) made from {{p}} people (up to {{max}} seats each). Move people between routes if needed, then Allocate vehicles.', { n: r.routes.length, p: ok.length, max });
+    announce(msg);
+    toast.success(msg);
+    if (r.unplaced.length) toast.warning(t('{{n}} without a pickup or drop point were left out.', { n: r.unplaced.length }));
+    if (!desktop) setTab('queue');
+  };
+  const moveToRoute = (bookingId: string, routeId: string | null) =>
+    setRoutes((rs) => {
+      if (!rs) return rs;
+      const b = rs.flatMap((r) => r.bookings).find((x) => x.id === bookingId) ?? (data?.queue.find((x) => x.id === bookingId) ? toAllocBooking(data.queue.find((x) => x.id === bookingId)!) : null);
+      if (!b) return rs;
+      return rs.map((r) => {
+        const without = r.bookings.filter((x) => x.id !== bookingId);
+        const list = r.id === routeId ? [...without, b] : without;
+        return { ...r, bookings: list, seats: list.reduce((s, x) => s + x.seats, 0) };
+      });
+    });
+
+  /** Step 2 · Allocate vehicles: each route gets a vehicle by seat capacity (Routing runs first when no routes exist). */
+  const autoAllocateNow = () => {
+    if (!data) return;
+    const inDraft = draftBookingIds(draft);
+    const waitingIds = new Set(data.queue.filter((b) => seatable(b) && !inDraft.has(b.id)).map((b) => b.id));
+    let current = (routes ?? []).map((r) => ({ ...r, bookings: r.bookings.filter((b) => waitingIds.has(b.id)) })).filter((r) => r.bookings.length);
+    const notReady = proposalPool().filter((b) => !seatable(b));
+    if (!current.length) {
+      const ok = proposalPool().filter(seatable);
+      if (!ok.length) {
+        toast.info(notReady.length ? t('Nobody can be seated yet: the waiting bookings need approval or a pickup / drop point.') : t('Nobody is waiting for a seat.'));
+        return;
+      }
+      current = routeGroups(ok.map(toAllocBooking), direction, largestSeats(allocVehicles()) || 6).routes;
+    }
+    current = current.map((r) => ({ ...r, seats: r.bookings.reduce((s, b) => s + b.seats, 0) }));
+    const r = allocateRoutes(current, allocVehicles(), draftTaken(draft), direction);
+    setDraft((d) => r.trips.reduce((acc, trip) => addNewTrip(acc, trip.vehicle, trip.bookings, { ordered: true, shiftId: trip.shiftId }), d));
+    setSelected(new Set());
+    setRoutes(null);
+    const noVehicle = r.unplaced.filter((u) => u.reason === 'NO_VEHICLE').map((u) => u.booking.name);
+    const noPoints = r.unplaced.filter((u) => u.reason === 'NO_POINTS').map((u) => u.booking.name);
+    setPlanSummary({
+      title: t('Vehicles allocated: {{trips}} trip(s), {{n}} passenger(s) seated', { trips: r.trips.length, n: r.trips.reduce((s, x) => s + x.bookings.length, 0) }),
+      trips: r.trips.map((x) => ({ label: x.vehicle.label, driver: null, names: x.bookings.map((b) => b.name), seats: x.bookings.reduce((s, b) => s + b.seats, 0), capacity: x.vehicle.seats })),
+      notes: [
+        { text: t('No free vehicle with enough seats: still waiting'), names: noVehicle },
+        { text: t('No pickup or drop point: still waiting'), names: noPoints },
+        { text: t('Need approval or a point first: left out'), names: notReady.map((b) => b.passenger.displayName) },
+      ].filter((n) => n.names.length),
+    });
+    if (!desktop) setTab('trips');
+  };
+
+  const copyYesterday = async () => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      const from = shiftDay(day, -1);
+      const prev = await fetchDispatchBoard(qc, { serviceDate: from, direction, shiftId: shiftId === ALL ? null : shiftId });
+      const live = prev.trips.filter((x) => x.derivedState !== 'CANCELLED');
+      if (!live.length) {
+        toast.info(t('No trips on {{date}} to copy.', { date: from }));
+        return;
+      }
+      const details = await Promise.all(live.map((x) => fetchTransportTrip(qc, x.id)));
+      const source: SourceTrip[] = details.map((x) => ({
+        id: x.id,
+        name: x.name,
+        objectId: x.objectId,
+        vehicleName: x.vehicleName,
+        driverId: x.driverId,
+        driverName: x.driverName,
+        shiftId: x.shiftId,
+        plannedStart: x.plannedStart,
+        cancelled: x.derivedState === 'CANCELLED',
+        passengers: x.passengers.map((p) => ({ profileId: p.passenger.id, name: p.passenger.displayName, pickupSeq: p.pickupSeq, dropSeq: p.dropSeq, cancelled: p.status === 'CANCELLED' })),
+      }));
+      const inDraft = draftBookingIds(draft);
+      const waiting = data.queue.filter((b) => seatable(b) && !inDraft.has(b.id)).map(toAllocBooking);
+      const r = copyDay(source, waiting, allocVehicles(), draftTaken(draft), direction, 1);
+      setDraft((d) => r.trips.reduce((acc, x) => addNewTrip(acc, x.vehicle, x.bookings, { ordered: true, shiftId: x.shiftId, startMs: x.startMs, driverId: x.driver?.id ?? null, driverLabel: x.driver?.label ?? null }), d));
+      setSelected(new Set());
+      const skippedText: Record<CopyResult['skipped'][number]['reason'], string> = {
+        NO_VEHICLE: t('vehicle not available'),
+        NO_SEATS: t('seats not set'),
+        BUSY: t('vehicle busy at that time'),
+        NOBODY_WAITING: t('nobody waiting today'),
+      };
+      setPlanSummary({
+        title: t('Copied from {{date}}: {{trips}} trip(s), {{n}} passenger(s) seated', { date: from, trips: r.trips.length, n: r.trips.reduce((s, x) => s + x.bookings.length, 0) }),
+        trips: r.trips.map((x) => ({ label: x.vehicle.label, driver: x.driver?.label || null, names: x.bookings.map((b) => b.name), seats: x.bookings.reduce((s, b) => s + b.seats, 0), capacity: x.vehicle.seats })),
+        notes: [
+          { text: t('Rode yesterday, not waiting today (absent, on leave, already seated or not approved)'), names: r.notWaiting },
+          { text: t('Did not fit the vehicle today: still waiting'), names: r.overflow },
+          { text: t('Trips not copied'), names: r.skipped.map((s) => `${s.name} (${skippedText[s.reason]})`) },
+          { text: t('Waiting today but not on yesterday’s trips: use Auto-allocate or assign by hand'), names: waiting.filter((b) => !r.trips.some((x) => x.bookings.some((y) => y.id === b.id))).map((b) => b.name) },
+        ].filter((n) => n.names.length),
+      });
+      if (!desktop) setTab('trips');
+    } catch (e) {
+      toast.error(e3ErrorMessage(e, t));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const rows = useMemo(() => (data ? diffDraft(draft, data.trips) : []), [draft, data]);
   const count = draftChangeCount(draft);
 
@@ -263,6 +418,8 @@ export function DispatchPage() {
         requestReassign: (trip, kind) => setReassignReq({ trip, kind }),
         approve: (b) => approveCmd.mutate({ kind: 'approve', id: b.id, version: b.version }, { onSuccess: () => toast.success(t('Booking approved')), onError: (e) => toast.error(e3ErrorMessage(e, t)) }),
         busy: busy || approveCmd.isPending,
+        routes,
+        moveToRoute,
       }
     : null;
 
@@ -393,6 +550,24 @@ export function DispatchPage() {
           {data && <RoutingChip available={data.routingAvailable} />}
           {board.isFetching && !board.isPending && <Spinner className="text-muted-foreground" />}
         </div>
+        {canPlan && data && (
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            <Button size="sm" variant={routes ? 'outline' : 'default'} onClick={makeRoutes} disabled={busy} title={t('Step 1: group the waiting people (or the ticked ones) into routes by where they live. Nothing is saved.')}>
+              <RouteIcon /> {selected.size ? t('Routing {{n}} ticked', { n: selected.size }) : t('Routing')}
+            </Button>
+            {routes && (
+              <Button size="sm" variant="ghost" onClick={() => setRoutes(null)} title={t('Clear the routes')}>
+                <XIcon /> {t('Clear routes')}
+              </Button>
+            )}
+            <Button size="sm" variant={routes ? 'default' : 'outline'} onClick={autoAllocateNow} disabled={busy} title={t('Step 2: give each route a vehicle by seat capacity. Goes into the draft; nothing is published until Review & publish.')}>
+              <ZapIcon /> {t('Allocate vehicles')}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void copyYesterday()} disabled={busy} title={t('Same vehicles, drivers and people as yesterday for those waiting today. Goes into the draft; nothing is published.')}>
+              {busy ? <Spinner /> : <CopyIcon />} {t('Copy yesterday')}
+            </Button>
+          </div>
+        )}
       </div>
 
       {data && (
@@ -502,6 +677,47 @@ export function DispatchPage() {
             <Button onClick={doPublish} disabled={publish.isPending || conflict || isDraftEmpty(draft) || rows.some((r) => r.overCapacity)}>
               {publish.isPending ? <Spinner /> : <SendIcon />} {t('Publish')}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* What Auto-allocate / Copy yesterday put into the draft */}
+      <Dialog open={!!planSummary} onOpenChange={(o) => !o && setPlanSummary(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{planSummary?.title}</DialogTitle>
+            <DialogDescription>{t('Added to the draft only. Move, reorder or remove people on the trip cards, then Review & publish.')}</DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-3 text-sm">
+            {planSummary?.trips.length ? (
+              <ul className="divide-y rounded-lg border">
+                {planSummary.trips.map((x, i) => (
+                  <li key={i} className="p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">
+                        {x.label}
+                        {x.driver && <span className="font-normal text-muted-foreground"> · {x.driver}</span>}
+                      </span>
+                      <span className="text-xs tabular-nums text-muted-foreground">{t('{{n}} / {{cap}} seats', { n: x.seats, cap: x.capacity })}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{x.names.map((nm, k) => `${k + 1}. ${nm}`).join('  ')}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-muted-foreground">{t('No trip could be proposed.')}</p>
+            )}
+            {planSummary?.notes.map((note) => (
+              <div key={note.text} className="rounded-lg border border-warning/50 bg-warning/10 p-2.5">
+                <p className="font-medium">
+                  {note.text} ({note.names.length})
+                </p>
+                <p className="text-xs text-muted-foreground">{note.names.join(', ')}</p>
+              </div>
+            ))}
+          </DialogBody>
+          <DialogFooter>
+            <Button onClick={() => setPlanSummary(null)}>{t('OK')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

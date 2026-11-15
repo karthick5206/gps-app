@@ -29,6 +29,14 @@ export interface DraftNewTrip {
   gapMin: number;
   bookingIds: string[];
   shiftId: string | null;
+  /**
+   * The dispatcher's (or auto-allocate's / copy-yesterday's) stop order: `bookingIds` is the pickup order (IN) or the
+   * drop order (OUT). Without it the stops follow the booking windows.
+   */
+  ordered?: boolean;
+  /** Driver for the new trip (CREATE_TRIP driverId); copied from yesterday's trip or chosen later. */
+  driverId?: string | null;
+  driverLabel?: string | null;
 }
 
 /** A new stop at the booking's own point (server ADD_STOP), inserted after the trip's stop `afterSeq` (-1 = first). */
@@ -136,9 +144,11 @@ const samePoint = (a: GeoPoint, b: GeoPoint) => Math.abs(a.lat - b.lat) < 1e-5 &
  * own destination (any point, not necessarily a site); drops follow in window-end order. Planned arrivals are `startMs + i × gapMin`: a plain plan the dispatcher set, not an ETA.
  * Returns the stops and each booking's pickup / drop seq.
  */
-export function newTripStops(trip: Pick<DraftNewTrip, 'startMs' | 'gapMin' | 'bookingIds'>, bookings: Record<string, DraftBooking>, direction: TransportDirection): { stops: DispatchStopInput[]; seqs: Record<string, { pickupSeq: number; dropSeq: number }> } {
+export function newTripStops(trip: Pick<DraftNewTrip, 'startMs' | 'gapMin' | 'bookingIds' | 'ordered'>, bookings: Record<string, DraftBooking>, direction: TransportDirection): { stops: DispatchStopInput[]; seqs: Record<string, { pickupSeq: number; dropSeq: number }> } {
   const list = trip.bookingIds.map((id) => bookings[id]).filter((b): b is DraftBooking => !!b && !!b.pickup && !!b.drop);
-  const order = (key: 'windowStart' | 'windowEnd') => [...list].sort((a, b) => a[key].localeCompare(b[key]) || a.name.localeCompare(b.name));
+  const byWindow = (key: 'windowStart' | 'windowEnd') => [...list].sort((a, b) => a[key].localeCompare(b[key]) || a.name.localeCompare(b.name));
+  // An ordered trip keeps its booking order for the passengers' own ends (IN pickups / OUT drops).
+  const order = (key: 'windowStart' | 'windowEnd') => (trip.ordered && ((direction === 'IN' && key === 'windowStart') || (direction === 'OUT' && key === 'windowEnd')) ? list : byWindow(key));
   const points: GeoPoint[] = [];
   const indexOf = (p: GeoPoint) => {
     const i = points.findIndex((q) => samePoint(q, p));
@@ -256,7 +266,12 @@ export function defaultSeqs(stops: StopRef[], booking: Pick<DraftBooking, 'picku
 // ───────────────────────────── Draft edits ─────────────────────────────
 
 /** Seat bookings on a new trip with an idle vehicle. */
-export function addNewTrip(d: DispatchDraft, vehicle: { objectId: string; label: string; seats: number }, bookings: DraftBooking[], opts: { startMs?: number; gapMin?: number; shiftId?: string | null } = {}): DispatchDraft {
+export function addNewTrip(
+  d: DispatchDraft,
+  vehicle: { objectId: string; label: string; seats: number },
+  bookings: DraftBooking[],
+  opts: { startMs?: number; gapMin?: number; shiftId?: string | null; ordered?: boolean; driverId?: string | null; driverLabel?: string | null } = {},
+): DispatchDraft {
   const clean = withoutBookings(d, bookings.map((b) => b.id));
   const gapMin = opts.gapMin ?? DEFAULT_GAP_MIN;
   const trip: DraftNewTrip = {
@@ -268,6 +283,8 @@ export function addNewTrip(d: DispatchDraft, vehicle: { objectId: string; label:
     gapMin,
     bookingIds: bookings.map((b) => b.id),
     shiftId: opts.shiftId ?? null,
+    ...(opts.ordered ? { ordered: true } : {}),
+    ...(opts.driverId ? { driverId: opts.driverId, driverLabel: opts.driverLabel ?? null } : {}),
   };
   return { ...clean, bookings: withBookings(clean, bookings), newTrips: [...clean.newTrips, trip] };
 }
@@ -363,6 +380,58 @@ export function setNewTripTiming(d: DispatchDraft, tempId: string, startMs: numb
   return { ...d, newTrips: d.newTrips.map((n) => (n.tempId === tempId ? { ...n, startMs, gapMin } : n)) };
 }
 
+/** The passengers of a new trip in their stop order (IN: pickup order; OUT: drop order), as the stops will be built. */
+export function newTripOrder(n: Pick<DraftNewTrip, 'bookingIds' | 'ordered'>, bookings: Record<string, DraftBooking>, direction: TransportDirection): string[] {
+  if (n.ordered) return [...n.bookingIds];
+  const key = direction === 'IN' ? 'windowStart' : 'windowEnd';
+  return [...n.bookingIds].sort((a, b) => (bookings[a]?.[key] ?? '').localeCompare(bookings[b]?.[key] ?? '') || (bookings[a]?.name ?? '').localeCompare(bookings[b]?.name ?? ''));
+}
+
+/** Move one passenger of a new trip up (-1) or down (+1) in the stop order; the trip becomes ordered. */
+export function moveInNewTrip(d: DispatchDraft, tempId: string, bookingId: string, delta: -1 | 1): DispatchDraft {
+  return {
+    ...d,
+    newTrips: d.newTrips.map((n) => {
+      if (n.tempId !== tempId) return n;
+      const ids = newTripOrder(n, d.bookings, d.direction);
+      const i = ids.indexOf(bookingId);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= ids.length) return n;
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      return { ...n, bookingIds: ids, ordered: true };
+    }),
+  };
+}
+
+/** Move passengers (already in the draft) to another new trip of the draft, at the end of its stop order. */
+export function moveToNewTrip(d: DispatchDraft, bookingIds: string[], toTempId: string): DispatchDraft {
+  const target = d.newTrips.find((n) => n.tempId === toTempId);
+  const list = bookingIds.map((id) => d.bookings[id]).filter((b): b is DraftBooking => !!b);
+  if (!target || !list.length) return d;
+  const targetOrder = newTripOrder(target, d.bookings, d.direction);
+  const moving = new Set(list.map((b) => b.id));
+  const clean = withoutBookings(d, [...moving].filter((id) => !target.bookingIds.includes(id)));
+  return {
+    ...clean,
+    newTrips: clean.newTrips.map((n) => (n.tempId === toTempId ? { ...n, bookingIds: [...targetOrder.filter((id) => !moving.has(id)), ...list.map((b) => b.id)], ordered: true } : n)),
+  };
+}
+
+/** Change the vehicle (and its seats) of a new trip in the draft. */
+export function setNewTripVehicle(d: DispatchDraft, tempId: string, vehicle: { objectId: string; label: string; seats: number }): DispatchDraft {
+  return { ...d, newTrips: d.newTrips.map((n) => (n.tempId === tempId ? { ...n, objectId: vehicle.objectId, label: vehicle.label, seats: vehicle.seats } : n)) };
+}
+
+/** Set or clear the driver of a new trip in the draft. */
+export function setNewTripDriver(d: DispatchDraft, tempId: string, driver: { id: string; label: string } | null): DispatchDraft {
+  return { ...d, newTrips: d.newTrips.map((n) => (n.tempId === tempId ? { ...n, driverId: driver?.id ?? null, driverLabel: driver?.label ?? null } : n)) };
+}
+
+/** Seats taken on a new trip of the draft. */
+export function newTripSeats(n: Pick<DraftNewTrip, 'bookingIds'>, bookings: Record<string, DraftBooking>): number {
+  return n.bookingIds.reduce((s, id) => s + (bookings[id]?.seats ?? 1), 0);
+}
+
 /** Existing trips touched by the draft. */
 export function touchedTripIds(d: DispatchDraft): string[] {
   return [...new Set([...d.adds.map((a) => a.tripId), ...d.removes.map((r) => r.tripId), ...d.reassigns.map((r) => r.tripId)])];
@@ -406,7 +475,7 @@ export function buildChangeSet(d: DispatchDraft, reason?: string): DispatchChang
   }
   for (const n of d.newTrips) {
     const { stops, seqs } = newTripStops(n, d.bookings, d.direction);
-    changes.push({ op: 'CREATE_TRIP', tempId: n.tempId, objectId: n.objectId, plannedStart: new Date(n.startMs).toISOString(), stops, ...(n.shiftId ? { shiftId: n.shiftId } : {}) });
+    changes.push({ op: 'CREATE_TRIP', tempId: n.tempId, objectId: n.objectId, plannedStart: new Date(n.startMs).toISOString(), stops, ...(n.shiftId ? { shiftId: n.shiftId } : {}), ...(n.driverId ? { driverId: n.driverId } : {}) });
     for (const id of n.bookingIds) if (seqs[id]) changes.push({ op: 'ADD_PASSENGER', tripId: n.tempId, bookingId: id, ...seqs[id] });
   }
   // Passengers added to existing trips, per trip: new stops first (ADD_STOP), then the seats with the final seqs.

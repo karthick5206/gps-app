@@ -69,6 +69,31 @@ How data moves (details in section 5):
 - The API orders that sort by shift login time, then shift name, shift, direction (login first) and passenger A–Z (`listSchedules` in `etms/dispatch/schedules.service.ts`).
 - Sorting by Passenger or Valid shows the plain list.
 
+**Dispatch: Routing, Allocate vehicles, Copy yesterday (v1.16.3 trial):**
+
+All three only fill the dispatcher's local draft. Nothing is saved until **Review & publish** (the existing change set).
+
+- **Waiting list:** grouped by shift and time window, or by route after Routing. Each heading has a select-all box.
+- **Routing:** `routeGroups` in `features/transport/dispatch/auto-allocate.ts`.
+  - Bookings sharing shift, window and office end (IN drop / OUT pickup, ~100 m) are swept by bearing from the office.
+  - A route closes at a 35° gap or at the largest vehicle's seats. Group rides stay together.
+  - Routes are page state per day and direction. Each waiting row has a route select ("Move to route").
+- **Allocate vehicles:** `allocateRoutes`.
+  - Each route, biggest first, gets the smallest free vehicle that fits. Otherwise it's split over vehicles, largest first.
+  - Busy vehicles, vehicles without seats and vehicles already in the draft are skipped.
+  - Stop order is straight line: IN farthest first, OUT nearest first.
+  - Without routes it routes first. The result becomes draft new trips with `ordered: true`.
+- **Copy yesterday:** `copyDay` in `copy-day.ts`.
+  - Loads yesterday's board (`fetchDispatchBoard`) and each trip (`fetchTransportTrip`).
+  - Rebuilds each trip with the same vehicle, driver (`CREATE_TRIP driverId`), clock time (+1 day) and order, for people with a waiting, assignable booking today.
+  - The summary dialog lists who wasn't waiting, overflow and skipped trips.
+- **Draft new trips** (`dispatch-draft.ts`) gained:
+  - `ordered` (the `bookingIds` order is the pickup / drop order) and `driverId` / `driverLabel`.
+  - `moveInNewTrip` (↑ ↓), `moveToNewTrip`, `setNewTripVehicle`, `setNewTripDriver` and `newTripOrder`.
+  - The trip card shows the stop order with ↑ ↓ and a menu (Move to another draft trip / Remove), plus Vehicle and Driver selects.
+- **Tests:** `auto-allocate.test.ts`, `copy-day.test.ts`.
+- **Not yet built:** the road optimiser behind Routing, the Ad-hoc tab, and grouping on Bookings.
+
 ### 2.3 Mobile apps
 
 - `apps/mobile/src/app/` – screens (Expo Router: file name = route). `src/features/` – logic per area. `modules/veetrax-alarm/` – native Kotlin SOS alarm.
