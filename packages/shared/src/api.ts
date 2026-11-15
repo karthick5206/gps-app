@@ -68,8 +68,10 @@ export interface AuthTokens {
  * switching it on seeds the transport role templates in that company (ETMS_ROLE_TEMPLATES).
  * etmsProvider: ETMS E1b. The company is a transport provider: it may be the provider party of a service agreement and
  * act for its customers (customer picker). Needs `etms` as well; switching it off removes its provider grants at once.
+ * pricing: Customer pricing & billing (doc 19). Off by default; gates every /api/pricing route (404 while off) and its
+ * menus; switching it on seeds the billing role templates (PRICING_ROLE_TEMPLATES).
  */
-export const COMPANY_FEATURES = ['attendanceInsightsPlus', 'etms', 'etmsProvider'] as const;
+export const COMPANY_FEATURES = ['attendanceInsightsPlus', 'etms', 'etmsProvider', 'pricing'] as const;
 export type CompanyFeature = (typeof COMPANY_FEATURES)[number];
 
 export interface CompanySummary {
