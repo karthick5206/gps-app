@@ -200,7 +200,7 @@ export class PricingAvailabilityController {
   list(@Auth() ctx: AuthContext, @Query() q: AvailabilityQueryDto) {
     return this.availability.list(ctx, q);
   }
-  @Post('compute') @RequirePermission('pricing_availability', 'view')
+  @Post('compute') @RequirePermission('pricing_availability', 'command')
   compute(@Auth() ctx: AuthContext, @Body() dto: AvailabilityPeriodDto) {
     return this.availability.compute(ctx, dto.contractId, dto.periodDate);
   }
@@ -241,9 +241,10 @@ export class PricingInvoicesController {
   remove(@Auth() ctx: AuthContext, @Param('id', ID) id: string) {
     return this.invoices.remove(ctx, id);
   }
-  @Post('invoices/:id/credit-notes') @RequirePermission('pricing_adjustments', 'approve')
+  // QA 10: a request (maker); a different user with pricing_adjustments:approve issues it via POST /adjustments/:id/approve.
+  @Post('invoices/:id/credit-notes') @RequirePermission('pricing_adjustments', 'create')
   creditNote(@Auth() ctx: AuthContext, @Param('id', ID) id: string, @Body() dto: CreditNoteDto) {
-    return this.invoices.createCreditNote(ctx, id, dto);
+    return this.invoices.requestCreditNote(ctx, id, dto);
   }
   @Get('invoices/:id/payments') @RequirePermission('pricing_invoices', 'view')
   payments(@Auth() ctx: AuthContext, @Param('id', ID) id: string) {

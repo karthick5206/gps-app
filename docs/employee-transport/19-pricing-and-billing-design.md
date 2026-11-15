@@ -575,3 +575,27 @@ Pricing area is a separate workstream (placeholder routes only).
   rather than in `etms/testing/isolation-matrix*.ts`.
 - **Supplier / tax settings** are guarded by `pricing_contracts:approve`; reading them needs contracts or invoices view.
 - **Kill switch:** `BILLING_JOB=off`; Valkey lock `vt:pricing:billing:lock`; the job runs every 30 min and only drafts.
+
+**Independent review fixes (2026-11-15, migration `20261128090100_etms_pricing_review_fixes`)**
+
+- Replacement billed under the original: charges nothing itself; its km / hours / overtime / holidays are pooled into the
+  original vehicle's period allowance. The minimum guarantee is prorated with the billable days like the fee.
+- Availability: overlapping downtimes counted once (interval union); operating days without GPS day summaries make a
+  period with excess km NEEDS_REVIEW (never 0 km); trips and overtime use company-local days.
+- Precedence: a SUSPENDED customer contract, a version gap or an inactive agreement blocks the company default
+  (NO_APPLICABLE_PRICING); the default applies only when the customer has no contract (an EXPIRED one does not count).
+- Periods: a WEEKLY / MONTHLY fee must match the contract billing frequency (DAILY fees: any frequency but TRIP), checked
+  at submit and approval; close is refused before the period ends (`PERIOD_NOT_ENDED`); a DONE close run is re-claimed when
+  vehicles of the period are still unclosed. `POST /availability/compute` needs `pricing_availability:command`.
+- Invoices: generation takes the per-trip locks and re-reads current snapshots; issue re-checks them
+  (`SNAPSHOT_SUPERSEDED`); issue refuses future dates, dates outside the current fiscal year and dates before the latest
+  issued invoice of the series (`INVOICE_DATE_INVALID`); the tax kind is frozen from the priced lines and issue refuses if
+  the parties' states now imply another split (`TAX_SPLIT_CHANGED`).
+- Credit notes: two users. `POST /invoices/:id/credit-notes` (`pricing_adjustments:create`) returns a pending CREDIT
+  adjustment; a different user approves it (`POST /adjustments/:id/approve`), which issues the note. The last credit takes
+  the remaining tax exactly; tax lines carry the CGST / SGST (UTGST) / IGST split.
+- Maker-checker: the approver of a version / vehicle rate is neither the submitter nor its author nor its last editor
+  (`lastEditedById`). A manual billable distance needs a contract that allows trip overrides (or prices on MANUAL_APPROVED);
+  with `tripOverrideNeedsApproval` it becomes a DISTANCE_CORRECTION adjustment (response `BillableDistanceResponse`).
+- Cancellation charges use `TransportTrip.cancelledAt`; a cancelled trip without it goes to review. No tax-code fallback
+  to an arbitrary rate of the profile (TAX_PROFILE_MISSING instead). Billing-run lists follow the branch scope.

@@ -542,8 +542,10 @@ export function pricePeriod(input: PeriodPriceInput): PriceResult {
   let incDen = 1n;
   const dayNote = `${f.attachedDays} attached − ${f.downtimeDays} downtime − ${f.suspensionDays} suspended${f.replacementCoveredDays ? ` + ${f.replacementCoveredDays} replacement` : ''} = ${billable} billable day(s)`;
   if (f.billedUnderOriginal) {
-    push(ctx, { component: 'AVAILABILITY_FEE', label: labelOf(fee, 'Availability fee'), quantity: '0', unit: 'period', amountMinor: 0n, basis: 'replacement vehicle: billed under the original vehicle', taxCode: fee.taxCode });
-    incNum = 0n;
+    // QA 1: a replacement billed under the original has no allowance of its own; its km / hours / overtime / holidays are
+    // pooled into the original vehicle's period (the caller adds them there), so nothing else is charged here.
+    push(ctx, { component: 'AVAILABILITY_FEE', label: labelOf(fee, 'Availability fee'), quantity: '0', unit: 'period', amountMinor: 0n, basis: 'replacement vehicle: billed under the original vehicle (usage counted on the original period)', taxCode: fee.taxCode });
+    return finish(ctx, 'PRICED', [], input.tax);
   } else if (noTrips) {
     push(ctx, { component: 'AVAILABILITY_FEE', label: labelOf(fee, 'Availability fee'), quantity: '0', unit: 'period', amountMinor: 0n, basis: 'no trips in the period and the contract does not charge idle periods', taxCode: fee.taxCode });
     incNum = 0n;
@@ -591,11 +593,16 @@ export function pricePeriod(input: PeriodPriceInput): PriceResult {
     add(ctx, { component: 'HOLIDAY', label: labelOf(hol, 'Holiday duty'), quantity: String(f.holidayDaysWorked), unit: 'day', rateMicro: a, num: a * BigInt(f.holidayDaysWorked), basis: `${f.holidayDaysWorked} holiday day(s) worked × ${r6(a)}`, taxCode: hol.taxCode });
   }
   const mg = first('MIN_GUARANTEE');
-  if (mg && !f.billedUnderOriginal && !noTrips) {
-    const minMinor = divRound(micro(mg.params as P, 'amount', 'MIN_GUARANTEE'), ctx.scale, ctx.mode);
+  if (mg && !noTrips) {
+    // QA 2: the minimum is for a full period; it scales with the billable days like a prorated fee (0 billable days = 0).
+    const mgNum = prorate || freq === 'DAILY' ? BigInt(billable) : f.attachedDays > 0 ? 1n : 0n;
+    const mgDen = prorate || freq === 'DAILY' ? BigInt(periodDays) : 1n;
+    const minMinor = divRound(micro(mg.params as P, 'amount', 'MIN_GUARANTEE') * mgNum, ctx.scale * mgDen, ctx.mode);
     const charged = sumBig(ctx.lines.map((l) => l.amountMinor));
-    if (charged < minMinor) push(ctx, { component: 'MIN_GUARANTEE_TOP_UP', label: labelOf(mg, 'Minimum guarantee'), quantity: '1', unit: 'period', amountMinor: minMinor - charged, basis: `minimum guarantee ${formatMinor(minMinor, ctx.currency)} (charged ${formatMinor(charged, ctx.currency)})`, taxCode: mg.taxCode });
+    if (charged < minMinor) push(ctx, { component: 'MIN_GUARANTEE_TOP_UP', label: labelOf(mg, 'Minimum guarantee'), quantity: '1', unit: 'period', amountMinor: minMinor - charged, basis: `minimum guarantee ${formatMinor(minMinor, ctx.currency)}${mgNum !== mgDen ? ` (${mgNum}/${mgDen} days of the period)` : ''} (charged ${formatMinor(charged, ctx.currency)})`, taxCode: mg.taxCode });
   }
   applyDiscounts(ctx, comps.filter((c) => c.kind === 'DISCOUNT'));
-  return finish(ctx, 'PRICED', [], input.tax);
+  // QA 3: excess km cannot be judged on days without GPS data: never assume 0 km, send the period to review.
+  const gaps = exKm && (f.missingDistanceDays ?? 0) > 0 ? [{ code: 'GPS_DISTANCE_REVIEW' as const, message: `${f.missingDistanceDays} billable day(s) without GPS distance data; excess km needs review` }] : [];
+  return finish(ctx, gaps.length ? 'NEEDS_REVIEW' : 'PRICED', gaps, input.tax);
 }
