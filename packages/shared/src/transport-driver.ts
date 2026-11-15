@@ -17,6 +17,7 @@
  * is not assigned to the caller's driver (another driver's, another company's, unpublished, outside the window, or a
  * random id) → 404 `NOT_FOUND`, never 403.
  */
+import type { DriverRoutePoolingView } from './transport-pooling';
 import { TRANSLATIONS } from './i18n';
 import type { PermissionMap } from './permissions';
 import type { PlannedStopStatus, PlannedTripStatus } from './planned-trips';
@@ -293,7 +294,7 @@ export interface DriverTripOverlayDto {
 }
 
 /** GET /api/driver/v1/trips/:id */
-export interface DriverTripDetailDto extends DriverTripSummaryDto {
+export interface DriverTripDetailDto extends DriverTripSummaryDto, DriverRoutePoolingView {
   stops: DriverStopDto[];
   /** Empty when `manifestHidden` is set. */
   passengers: DriverPassengerDto[];

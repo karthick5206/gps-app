@@ -65,12 +65,24 @@ export class BillingRunsService {
     throw conflict('BILLING_RUN_IN_PROGRESS', 'A billing run for this contract and period is in progress', { runId: existing.id });
   }
 
+  /** QA 5: a DONE close run whose period still has unclosed vehicles may be claimed again. */
+  async reopen(id: string, why: string): Promise<void> {
+    await this.prisma.billingRun.updateMany({ where: { id, status: 'DONE' }, data: { status: 'FAILED', error: why.slice(0, 500) } });
+  }
+
   async finish(id: string, status: 'DONE' | 'FAILED', stats: Record<string, unknown>, error: string | null = null): Promise<RunRow> {
     return this.prisma.billingRun.update({ where: { id }, data: { status, stats: asJson(stats), error: error ? error.slice(0, 500) : null, finishedAt: new Date() } });
   }
 
   async list(ctx: AuthContext, contractId?: string): Promise<BillingRunDto[]> {
-    const rows = await this.prisma.billingRun.findMany({ where: { companyId: ctx.companyId, ...(contractId ? { contractId } : {}) }, orderBy: { startedAt: 'desc' }, take: 200 });
+    // ASSIGNED callers see runs of the contracts visible to them only.
+    let visible: string[] | null = null;
+    if (ctx.dataScope !== 'COMPANY') {
+      const cs = await this.prisma.pricingContract.findMany({ where: { companyId: ctx.companyId }, select: { id: true, branchIds: true } });
+      visible = cs.filter((c) => c.branchIds.length === 0 || c.branchIds.some((b) => ctx.branchIds.includes(b))).map((c) => c.id);
+    }
+    const ids = visible ? (contractId ? visible.filter((v) => v === contractId) : visible) : contractId ? [contractId] : null;
+    const rows = await this.prisma.billingRun.findMany({ where: { companyId: ctx.companyId, ...(ids ? { contractId: { in: ids } } : {}) }, orderBy: { startedAt: 'desc' }, take: 200 });
     return rows.map(runDto);
   }
 }

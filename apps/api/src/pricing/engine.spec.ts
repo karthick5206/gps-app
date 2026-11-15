@@ -436,3 +436,76 @@ describe('precedence (§5.7)', () => {
     expect(selectContract([c('other-branch', { branchIds: ['br9'] }), def(['EXTERNAL'])], q).ok).toBe(false);
   });
 });
+
+// ───────────── Independent review regressions (QA 1, 2, 3, 4, 7, 8) ─────────────
+import { splitCredit, unionDaysWithin } from '../../../../packages/shared/src/pricing';
+
+describe('review regressions', () => {
+  const tax5: TaxConfig = { regime: 'IN_GST', rates: [{ taxCode: 'GST5', label: 'GST 5%', ratePpm: 50_000 }], defaultTaxCode: 'GST5', supplierStateCode: '29', buyerStateCode: '29' };
+  const comps: PricingComponentInput[] = [
+    { kind: 'AVAILABILITY_FEE', params: { amount: '60000', frequency: 'MONTHLY' }, covers: ['VEHICLE_TIME', 'KM_INCLUDED'] },
+    { kind: 'INCLUDED_KM', params: { km: '3000' } },
+    { kind: 'EXCESS_KM', params: { rate: '15' } },
+    { kind: 'MIN_GUARANTEE', params: { amount: '50000' } },
+  ];
+  const nov = { frequency: 'MONTHLY' as const, periodStart: '2026-11-01', periodEnd: '2026-11-30', downtimeDays: 0, suspensionDays: 0, tripCount: 5 };
+  const period = (f: Partial<PeriodFacts>) => pricePeriod({ currency: 'INR', roundingMode: 'HALF_UP', components: comps, tax: tax5, facts: { ...nov, attachedDays: 30, usedDistanceM: 0, ...f } as PeriodFacts });
+
+  it('QA 1: a replacement billed under the original charges nothing itself (no excess, no minimum)', () => {
+    const r = period({ attachedDays: 10, usedDistanceM: 1_500_000, billedUnderOriginal: true });
+    expect(r.totalMinor).toBe(0n);
+    expect(r.lines.map((l) => l.component)).toEqual(['AVAILABILITY_FEE']);
+  });
+
+  it('QA 2: the minimum guarantee is prorated with the billable days (1 day → 1/30, full downtime → 0)', () => {
+    const oneDay = period({ attachedDays: 1 });
+    // fee 60000 × 1/30 = 2000.00; minimum 50000 × 1/30 = 1666.67 → no top-up.
+    expect(oneDay.subtotalMinor).toBe(200_000n);
+    expect(oneDay.lines.some((l) => l.component === 'MIN_GUARANTEE_TOP_UP')).toBe(false);
+    const down = period({ downtimeDays: 30 });
+    expect(down.subtotalMinor).toBe(0n);
+    // A discounted fee below the prorated minimum still tops up to the prorated minimum only.
+    const low = pricePeriod({ currency: 'INR', roundingMode: 'HALF_UP', components: [{ kind: 'AVAILABILITY_FEE', params: { amount: '30000', frequency: 'MONTHLY' } }, { kind: 'MIN_GUARANTEE', params: { amount: '45000' } }], tax: tax5, facts: { ...nov, attachedDays: 15, usedDistanceM: 0 } as PeriodFacts });
+    expect(low.subtotalMinor).toBe(2_250_000n); // 45000 × 15/30
+  });
+
+  it('QA 3: days without GPS data send a period with excess km to review', () => {
+    const r = period({ usedDistanceM: 3_500_000, missingDistanceDays: 4 });
+    expect(r.status).toBe('NEEDS_REVIEW');
+    expect(r.issues.map((i) => i.code)).toContain('GPS_DISTANCE_REVIEW');
+    expect(period({ usedDistanceM: 3_500_000 }).status).toBe('PRICED');
+  });
+
+  it('QA 4: the company default is never used while the customer has a suspended / gapped contract', () => {
+    const q = { customerCompanyId: 'cust', branchId: null, vehicleCategory: null, serviceDate: '2026-11-20' };
+    const def: ContractCandidate = { id: 'def', customerCompanyId: null, isDefault: true, branchIds: [], status: 'ACTIVE', validFrom: '2026-01-01', validTo: null, defaultCovers: ['EXTERNAL'] };
+    expect(selectContract([def], q)).toMatchObject({ ok: true, contractId: 'def' });
+    for (const status of ['SUSPENDED', 'NO_VERSION', 'AGREEMENT_INACTIVE']) {
+      const own: ContractCandidate = { id: 'own', customerCompanyId: 'cust', isDefault: false, branchIds: [], status, validFrom: '2026-11-20', validTo: null };
+      expect(selectContract([own, def], q)).toMatchObject({ ok: false, code: 'NO_APPLICABLE_PRICING' });
+    }
+    const expired: ContractCandidate = { id: 'old', customerCompanyId: 'cust', isDefault: false, branchIds: [], status: 'EXPIRED', validFrom: '2025-01-01', validTo: null };
+    expect(selectContract([expired, def], q)).toMatchObject({ ok: true, contractId: 'def' });
+  });
+
+  it('QA 7: partial credit notes reverse exactly the invoice tax, split CGST / SGST or IGST like the invoice', () => {
+    const invoice = { totalMinor: 10_501n, taxMinor: 500n, taxLines: [{ taxCode: 'GST5', label: 'GST 5%', ratePpm: 50_000, taxableMinor: 10_001n, taxMinor: 500n, cgstMinor: 250n, sgstMinor: 250n }] };
+    let credited = { totalMinor: 0n, taxMinor: 0n };
+    for (const amt of [3333n, 3333n, 3835n]) {
+      const c = splitCredit(invoice, credited, amt);
+      expect(c.subtotalMinor + c.taxMinor).toBe(amt);
+      expect(c.taxLines[0].cgstMinor! + c.taxLines[0].sgstMinor!).toBe(c.taxMinor);
+      credited = { totalMinor: credited.totalMinor + amt, taxMinor: credited.taxMinor + c.taxMinor };
+    }
+    expect(credited).toEqual({ totalMinor: 10_501n, taxMinor: 500n });
+    expect(() => splitCredit(invoice, credited, 1n)).toThrow('CREDIT_EXCEEDS_INVOICE');
+    const igst = splitCredit({ ...invoice, taxLines: [{ ...invoice.taxLines[0], cgstMinor: undefined, sgstMinor: undefined, igstMinor: 500n }] }, { totalMinor: 0n, taxMinor: 0n }, 10_501n);
+    expect(igst.taxLines[0]).toMatchObject({ igstMinor: 500n, taxMinor: 500n });
+  });
+
+  it('QA 8: overlapping downtimes are counted once', () => {
+    expect(unionDaysWithin([['2026-11-01', '2026-11-12'], ['2026-11-07', '2026-11-12']], '2026-11-01', '2026-11-30')).toBe(12);
+    expect(unionDaysWithin([['2026-11-01', '2026-11-03'], ['2026-11-04', '2026-11-05'], ['2026-11-10', '2026-11-10']], '2026-11-01', '2026-11-30')).toBe(6);
+    expect(unionDaysWithin([['2026-10-25', '2026-11-02']], '2026-11-01', '2026-11-30')).toBe(2);
+  });
+});

@@ -49,6 +49,9 @@ evidence in the phase log below.
   - `tsc --noEmit`: apps/api clean, apps/web (`tsconfig.app.json`) clean.
   - Not verified: the full jest suite (not run, by instruction), the ETMS isolation-matrix spec, the E2E workflow
     (doc 19 §8 #20), production-copy migration rehearsal, QA and security reviews.
+- **Independent review fixes:** all HIGH / MEDIUM / LOW findings fixed (doc 19 §10 "Independent review fixes");
+  migration `20261128090100_etms_pricing_review_fixes`. Re-run: engine spec **69 passed**, DB test **16 passed**, api and web
+  tsc clean (full suite not run).
 - **Deferred:** on-demand quotes (P8, needs pooling ride preference), per-passenger shared-fare snapshots, settle-time
   outbox hook (the job prices settled trips instead), toll data, XLSX / PDF reports, customer-visible invoices, vendor
   statement → cost import, web Pricing area.
@@ -268,11 +271,29 @@ Status: **Design ready for review** (2026-11-15). The design is in
 | Inventory (bookings, trips, dispatch, live, mobile, tests) | Done (doc 20 §1) |
 | Solver prototype (pickup-and-delivery, private, multi-trip, live insertion), SYNTHETIC matrix | Done; 0 violations in an independent checker; evidence in `docs/employee-transport/evidence/2026-11-15-pooling/` |
 | Builds on E4 redesign (WP-A / WP-B / WP-S / WP-W) | Planned reuse; same publish pipeline (`DispatchService.apply`) |
-| Workstreams P-B1 … P-E2 | Not started; waiting on owner review |
+| Workstreams P-B1 … P-E2 | Backend (P-B1, P-C1, P-C2, P-D1) implemented on `feature/etms-pool-be` (see below); P-B2 solver, P-C3 / P-D2 web, P-E1 mobile in parallel branches |
 
-**Owner decisions outstanding:** P1 PRIVATE exclusivity (whole trip recommended), P2 default sharing limits, P3 backfill
-(COMMUTE → SHARED, P2P → PRIVATE), P4 live auto-assign vs propose, P5 active-trip edits, P6 priority weights, P7 driver
-hours defaults, P8 onboard transfer on breakdown (doc 20 §10).
+### Pooling backend (B–D), branch `feature/etms-pool-be` (2026-11-15)
+
+Owner approved the recommended defaults P1–P8. Migration `20261129090000_etms_pooling_core` (additive; P3 backfill).
+Not merged, not deployed. Live dispatch is OFF per company (`Company.settings.etmsPooling.liveDispatch`) and has the
+env kill switch `ETMS_LIVE_DISPATCH=off`; `ETMS_POOLING_SOLVER=off` stops asking the optimiser for insertOnly.
+
+| Item | State |
+|---|---|
+| B1 bookings: ridePreference SHARED / PRIVATE / FLEXIBLE, accepted policy version, immutable limits snapshot (DB trigger), dispatcher hold, P2P direction null, desk / group / self-service APIs, sharing policy (versioned) | Done |
+| C1 vehicle availability (operating / downtime / reserved, maintenance, turnaround) + driver working-hour policy, checked in the publish transaction (VEHICLE_UNAVAILABLE / VEHICLE_TURNAROUND / DRIVER_HOURS) | Done |
+| C2 AREA plans (window scope, P2P + commute), pdp contract v3 request builder / mapper / independent checker, multi-trip publish via `DispatchService.apply` (`tripIndex` / `routeTripIndex`), review hash covers trips | Done; needs the solver's `mode: "pdp"` (until then the job fails PDP_UNSUPPORTED) |
+| D1 live dispatch: decide endpoint + log, worker (Valkey locks, report scan), in-process cheapest insertion (+ optimiser insertOnly pick when v3 is there), P4 auto / propose, P5 active-trip edits + driver ROUTE_ACK, delay / breakdown evaluation, P8 onboard proposals, cancellation detaches unpublished plans, health `pipeline.etms-dispatch` | Done |
+| Shared types (`packages/shared/src/transport-pooling.ts`) for web / mobile | Done |
+| Isolation matrix (12 routes, 204 cases) | Done (`isolation-matrix-pooling.ts`) |
+| Tests | `pooling-rules.spec.ts` 21/21; `etms-pooling.db-test.ts` 8/8 (scratch `veetrax_pooling_test`); isolation matrix pooling cases pass |
+| Web / mobile screens, solver pdp, staging benchmarks | Not in this branch |
+
+**Owner decisions:** P1–P8 approved as recommended (2026-11-15): whole-trip PRIVATE, 15 min / max(1.8×, +15 min) /
+company max ride, COMMUTE → SHARED and P2P → PRIVATE backfill, auto for unpublished + SCHEDULED and propose for ACTIVE,
+active-trip edits on pending stops with driver acknowledgement, priority 3 / 1.5 / 1, no driver-hour default,
+dispatcher-only onboard transfer.
 
 **Gates:**
 - The E4 activation gates (three switches, readiness, Python 3.14, C3 staging, B1–B6, R-5) still apply.

@@ -72,6 +72,7 @@ export const toRuleStop = (s: StopRow): RuleStop => ({
   lat: s.lat,
   lng: s.lng,
   name: s.name,
+  tripIndex: s.tripIndex ?? 0,
 });
 
 /** Owner (profile id) of a personal plan stop, or null for a company place / generic stop. */
@@ -168,6 +169,7 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView, ride?: RideRule): 
         poiId: s.poiId,
         customerCompanyId: s.customerCompanyId,
         personal: !!owner,
+        tripIndex: s.tripIndex ?? 0,
         pointHidden: hidden,
         pinned: locks.pinnedStopIds.has(s.id),
         plannedArrival: p.planStartAt && s.etaS !== null ? new Date(p.planStartAt.getTime() + s.etaS * 1000).toISOString() : null,
@@ -225,6 +227,9 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView, ride?: RideRule): 
     direction: (p.direction as TransportDirection | null) ?? null,
     shiftId: p.shiftId,
     sitePoiId: p.sitePoiId,
+    scope: p.scope,
+    windowStart: iso(p.windowStart),
+    windowEnd: iso(p.windowEnd),
     version: p.version,
     publishedAt: iso(p.publishedAt),
     createdAt: p.createdAt.toISOString(),

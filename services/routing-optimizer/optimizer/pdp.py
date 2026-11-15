@@ -61,6 +61,7 @@ EXCL_BIG = 10**5             # > any seat count
 BASE_PENALTY = 10**7
 COST_SCALE_FRACTIONAL = 100
 CLASSIFY_BUDGET_S = 1.0
+MAX_TURN_BUCKETS = 3
 REPAIR_BUDGET_S = 1.0
 STRATEGIES = {
     'BALANCED': {'vehicle': 3600, 'time': 1, 'wait': 1, 'rideTime': 1},
@@ -120,7 +121,7 @@ def _float(x: Any, what: str, lo: float, hi: float, default: float) -> float:
 
 def _weights(opts: dict, has_dist: bool) -> tuple[str, dict]:
     strategy = opts.get('strategy') or 'BALANCED'
-    if strategy not in STRATEGIES:
+    if not isinstance(strategy, str) or strategy not in STRATEGIES:
         raise InvalidProblem(f'options.strategy must be one of {sorted(STRATEGIES)}')
     w = {k: 0 for k in WEIGHT_KEYS}
     w.update(STRATEGIES[strategy])
@@ -164,9 +165,11 @@ def validate_pdp(problem: dict) -> dict:
         v = opts.get(key)
         if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)):
             raise InvalidProblem(f'options.{key} must be a finite number')
-    if opts.get('firstSolution') is not None and opts['firstSolution'] not in FIRST_SOLUTION:
+    if opts.get('firstSolution') is not None and (not isinstance(opts['firstSolution'], str)
+                                                  or opts['firstSolution'] not in FIRST_SOLUTION):
         raise InvalidProblem(f'options.firstSolution must be one of {sorted(FIRST_SOLUTION)}')
-    if opts.get('localSearch') is not None and opts['localSearch'] not in LOCAL_SEARCH:
+    if opts.get('localSearch') is not None and (not isinstance(opts['localSearch'], str)
+                                                or opts['localSearch'] not in LOCAL_SEARCH):
         raise InvalidProblem(f'options.localSearch must be one of {sorted(LOCAL_SEARCH)}')
     if opts.get('insertOnly') is not None and not isinstance(opts['insertOnly'], bool):
         raise InvalidProblem('options.insertOnly must be a boolean')
@@ -541,7 +544,10 @@ def _insert(pb: dict, v: dict, base: list[tuple[str, str]], rid: str, scale_cost
                     c = _code(*bad, r)
                     counts[c] = counts.get(c, 0) + 1
                     break                          # the prefix up to j already fails: later drops fail too
-            if (r['limit'] is not None and st0.t - (pick_t + r['svcP']) > r['limit']) or                     (r['arrive'] is not None and st0.t > r['arrive']):
+            if deadline is not None and time.perf_counter() > deadline:
+                return best, counts, True
+            if (r['limit'] is not None and st0.t - (pick_t + r['svcP']) > r['limit']) or \
+                    (r['arrive'] is not None and st0.t > r['arrive']):
                 counts['MAX_RIDE'] = counts.get('MAX_RIDE', 0) + 1
                 break                              # already past the ride limit: later drops are later
             st = st0.copy()
@@ -560,7 +566,11 @@ def _insert(pb: dict, v: dict, base: list[tuple[str, str]], rid: str, scale_cost
                     counts[c] = counts.get(c, 0) + 1
                     ok = False
                     break
-                if st.t <= base_dep[k][0] and len(st.pending) == base_dep[k][1] and not st.aboard - prefix[k + 1].aboard:
+                # Same state as the base route from here on: the rest is the base route's (feasible) tail. Only when
+                # the first stop is unchanged (i > 0): inserting before it can move the route start, so span and
+                # breaks must then be re-checked by finish().
+                if i > 0 and st.t <= base_dep[k][0] and len(st.pending) == base_dep[k][1] \
+                        and not st.aboard - prefix[k + 1].aboard:
                     converged = True
                     break
             if not ok:
@@ -671,7 +681,7 @@ def _solve(pb: dict, t0: float) -> dict:
              'onboard': sum(1 for r in R.values() if r['onboard']), 'vehicles': len(vehs),
              'strategy': pb['strategy'], 'insertOnly': pb['insertOnly']}
     if pb['insertOnly']:
-        routes, extra_unserved, extra_viol, info = _insert_only(pb, active)
+        routes, extra_unserved, extra_viol, info = _insert_only(pb, active, t0)
         solver_status = 'INSERT_ONLY'
         objective = None
     else:
@@ -726,8 +736,9 @@ def _warm_routes(pb: dict, active: set[str]) -> tuple[dict[str, list], int]:
     return routes, ignored
 
 
-def _insert_only(pb: dict, active: list[str]):
+def _insert_only(pb: dict, active: list[str], t0: float):
     R = pb['req']
+    deadline = t0 + _time_limit(pb['opts'])
     act = set(active)
     routes, ignored = _warm_routes(pb, act)
     unserved, violations = [], []
@@ -750,22 +761,35 @@ def _insert_only(pb: dict, active: list[str]):
     todo.sort(key=lambda x: (R[x]['committed'] is None, -R[x]['prio'], R[x]['win'][0], x))
     t_ins = time.perf_counter()
     inserted = 0
+    timed_out = False
     for rid in todo:
         r = R[rid]
+        if timed_out or time.perf_counter() > deadline:
+            # options.timeLimitS spent: the rest is reported, never silently dropped
+            timed_out = True
+            entry = {'requestId': rid, 'code': 'NOT_SELECTED', 'detail': {'binding': ['time_limit']}}
+            (violations if r['committed'] is not None else unserved).append(
+                {**entry, 'vehicleId': r['committed']} if r['committed'] is not None else entry)
+            continue
         best = None
         counts: dict[str, int] = {}
         for v in pb['vehs']:
             if v['id'] in blocked or not _compatible(v, r):
                 continue
-            b, c, _ = _insert(pb, v, routes[v['id']], rid)
+            b, c, out_of_time = _insert(pb, v, routes[v['id']], rid, deadline=deadline)
+            timed_out = timed_out or out_of_time
             for k, x in c.items():
                 counts[k] = counts.get(k, 0) + x
             if b is not None and (best is None or b[0] < best[0][0]):
                 best = (b, v['id'])
         if best is None:
-            code = ('PRIVATE_NEEDS_EMPTY_VEHICLE' if r['pref'] == 'PRIVATE'
-                    else _pick_code(counts) if counts else 'NOT_SELECTED')
-            entry = {'requestId': rid, 'code': code, 'detail': {'binding': sorted(counts)}}
+            if timed_out:
+                code, binding = 'NOT_SELECTED', ['time_limit']
+            else:
+                code = ('PRIVATE_NEEDS_EMPTY_VEHICLE' if r['pref'] == 'PRIVATE'
+                        else _pick_code(counts) if counts else 'NOT_SELECTED')
+                binding = sorted(counts)
+            entry = {'requestId': rid, 'code': code, 'detail': {'binding': binding}}
             (violations if r['committed'] is not None else unserved).append(
                 {**entry, 'vehicleId': r['committed']} if r['committed'] is not None else entry)
             continue
@@ -774,11 +798,30 @@ def _insert_only(pb: dict, active: list[str]):
         routes[vid] = seq[:i] + [('P', rid)] + seq[i:j] + [('D', rid)] + seq[j:]
         inserted += 1
     return routes, unserved, violations, {'warmStart': 'used' if pb['warm'] else 'none', 'warmStartIgnored': ignored,
-                                          'inserted': inserted,
+                                          'inserted': inserted, 'timedOut': timed_out,
                                           'insertMs': round((time.perf_counter() - t_ins) * 1000, 1)}
 
 
 # -- OR-Tools -----------------------------------------------------------------------------------------------------
+
+def _time_limit(opts: dict) -> int:
+    return max(1, min(int(opts.get('timeLimitS', 10)), PDP_LIMITS['timeLimitS']))
+
+
+def _turn_buckets(vehs: list[dict]) -> dict[int, int]:
+    """Vehicle turnaroundS -> the value used in the model. At most MAX_TURN_BUCKETS transit matrices are built: with
+    more distinct values, each is rounded UP to the largest value of its group (conservative: the reported schedule
+    still satisfies the exact turnaround, which verify checks)."""
+    vals = sorted({v['turn'] for v in vehs})
+    if len(vals) <= MAX_TURN_BUCKETS:
+        return {x: x for x in vals}
+    out, size = {}, math.ceil(len(vals) / MAX_TURN_BUCKETS)
+    for g in range(0, len(vals), size):
+        grp = vals[g:g + size]
+        for x in grp:
+            out[x] = grp[-1]
+    return out
+
 
 def _scale(w: dict) -> int:
     return COST_SCALE_FRACTIONAL if any(x != int(x) for x in w.values()) else 1
@@ -788,15 +831,19 @@ def _ortools(pb: dict, active: list[str], t0: float):
     R, vehs, dur, dist, H, w = pb['req'], pb['vehs'], pb['dur'], pb['dist'], pb['H'], pb['w']
     nv = len(vehs)
     opts = pb['opts']
-    time_limit = max(1, min(int(opts.get('timeLimitS', 10)), PDP_LIMITS['timeLimitS']))
+    time_limit = _time_limit(opts)
     info: dict = {'timeLimitS': time_limit}
     if not active:
         info.update({'stoppedBy': 'nothing_to_route', 'warmStart': 'none'})
         return {v['id']: [] for v in vehs}, [], [], info, 'NOT_RUN', 0
     # nodes: starts, dummy end, explicit ends, then request nodes
-    loc: list[int | None] = [v['start'] for v in vehs] + [None]
-    kind: list[str] = ['start'] * nv + ['end']
-    owner: list[str | None] = [None] * (nv + 1)
+    loc: list[int | None] = [v['start'] for v in vehs]
+    kind: list[str] = ['start'] * nv
+    owner: list[str | None] = [None] * nv
+    if any(v['end'] is None for v in vehs):      # shared dummy end (open end), only when some vehicle uses it
+        loc.append(None)
+        kind.append('end')
+        owner.append(None)
     ends = []
     for v in vehs:
         if v['end'] is None:
@@ -838,32 +885,34 @@ def _ortools(pb: dict, active: list[str], t0: float):
             if si is not None:
                 ddi[j] = si[lj] or 0
     is_s = [k == 'S' for k in kind]
-    t_cb, c_cb = {}, {}
-    for v in vehs:
-        ta = v['turn']
-        if ta in t_cb:
-            continue
-        tm, cm = [], []
+    # One arc-cost matrix for all vehicles (travel + service; turnaround is a time term only) and one transit matrix
+    # per turnaround bucket (review: one matrix pair per distinct turnaroundS was too slow / too large).
+    cm = []
+    for i in range(nn):
+        bi, ddi, si_ = base_leg[i], dist_leg[i], svc[i]
+        cm.append([BIG_COST if bi[j] >= UNREACHABLE else
+                   int(round(scale * (w['time'] * (bi[j] + si_) + w['distance'] * ddi[j]))) for j in range(nn)])
+    max_arc = max((c for row in cm for c in row if c < BIG_COST), default=1)
+    c_cb = rm.RegisterTransitMatrix(cm)
+    keep.append(cm)
+    del dist_leg
+    bucket = _turn_buckets(vehs)
+    t_cb = {}
+    for ta in sorted(set(bucket.values())):
+        tm = []
         for i in range(nn):
-            row_t, row_c = [], []
+            bi, si_ = base_leg[i], svc[i]
             add_turn = ta if kind[i] not in ('start', 'end') else 0
-            for j in range(nn):
-                leg = base_leg[i][j]
-                t = leg + svc[i] + (add_turn if is_s[j] else 0) if leg < UNREACHABLE else UNREACHABLE
-                row_t.append(t)
-                if t >= UNREACHABLE:
-                    row_c.append(BIG_COST)
-                else:
-                    row_c.append(int(round(scale * (w['time'] * t + w['distance'] * dist_leg[i][j]))))
-            tm.append(row_t); cm.append(row_c)
-        keep += [tm, cm]
+            tm.append([UNREACHABLE if bi[j] >= UNREACHABLE else bi[j] + si_ + (add_turn if is_s[j] else 0)
+                       for j in range(nn)])
+        keep.append(tm)
         t_cb[ta] = rm.RegisterTransitMatrix(tm)
-        c_cb[ta] = (rm.RegisterTransitMatrix(cm), max((c for row in cm for c in row if c < BIG_COST), default=1))
-    for k, v in enumerate(vehs):
-        rm.SetArcCostEvaluatorOfVehicle(c_cb[v['turn']][0], k)
+    info['turnaroundBuckets'] = sorted(t_cb)
+    for k in range(nv):
+        rm.SetArcCostEvaluatorOfVehicle(c_cb, k)
         if w['vehicle']:
             rm.SetFixedCostOfVehicle(int(round(w['vehicle'] * scale)), k)
-    rm.AddDimensionWithVehicleTransits([t_cb[v['turn']] for v in vehs], H, H, False, 'Time')
+    rm.AddDimensionWithVehicleTransits([t_cb[bucket[v['turn']]] for v in vehs], H, H, False, 'Time')
     td = rm.GetDimensionOrDie('Time')
     dem, exc, wcd = [0] * nn, [0] * nn, [0] * nn
     for (k, rid), i in node_of.items():
@@ -899,7 +948,6 @@ def _ortools(pb: dict, active: list[str], t0: float):
         if v['span'] is not None:
             td.SetSpanUpperBoundForVehicle(v['span'], k)
     # penalties
-    max_arc = max(c[1] for c in c_cb.values())
     max_pax = max(R[x]['n'] for x in active)
     base = (BASE_PENALTY * scale + 2 * (nn * max_arc + int(w['vehicle'] * scale) * nv
                                         + int((w['wait'] + w['rideTime']) * scale) * H * max_pax))
@@ -971,7 +1019,8 @@ def _ortools(pb: dict, active: list[str], t0: float):
     p = pywrapcp.DefaultRoutingSearchParameters()
     p.first_solution_strategy = FIRST_SOLUTION[opts.get('firstSolution') or 'parallel_cheapest_insertion']
     p.local_search_metaheuristic = LOCAL_SEARCH[opts.get('localSearch') or 'guided']
-    p.time_limit.FromSeconds(time_limit)
+    # The model build counts against options.timeLimitS (at least 0.5 s of search remains).
+    p.time_limit.FromMilliseconds(max(500, int(time_limit * 1000 - (time.perf_counter() - t0) * 1000)))
     info['buildMs'] = round((time.perf_counter() - t0) * 1000)
     info['nodes'] = nn
     s = None

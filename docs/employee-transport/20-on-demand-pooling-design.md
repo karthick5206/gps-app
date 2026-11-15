@@ -331,3 +331,67 @@ Not planned: load or soak tests (the scale is known from the prototype). Benchma
 | P6 | Priority weights PRIVATE / FLEXIBLE / SHARED | 3 / 1.5 / 1 |
 | P7 | Driver working-hour defaults | Company policy (none assumed) |
 | P8 | Onboard transfer on breakdown | Dispatcher-only (never automatic) |
+
+---
+
+## 11. Implementation notes: backend B–D (branch `feature/etms-pool-be`, 2026-11-15)
+
+Owner approved P1–P8 as recommended. Migration `20261129090000_etms_pooling_core`. Shared contracts:
+`packages/shared/src/transport-pooling.ts` (+ additive fields in `transport-trips.ts`, `routing.ts`, `transport-driver.ts`,
+`transport-adhoc.ts`). Code: `apps/api/src/etms/pooling/*`, `routing-jobs/{pdp-contract,pdp-problem,area-runner}.ts`,
+`planning/plan-trip-split.ts`, hooks in `DispatchService.apply`, bookings, plans, self-service, driver, health.
+
+### Endpoints
+
+| Endpoint | Permission |
+|---|---|
+| `PATCH /transport/bookings/:id/hold` | etms_dispatch edit |
+| `GET /transport/sharing-policy` · `PUT` (new version) | etms_bookings view · etms_settings edit + whole-company |
+| `GET /me/transport/sharing-policy` | etms_self view (passenger profile required) |
+| `GET /transport/pooling/settings` · `PUT` | etms_dispatch view · etms_settings edit + whole-company |
+| `PUT /transport/driver-policy` | etms_settings edit + whole-company |
+| `GET` / `PUT /transport/vehicles/:objectId/availability` | objects view / edit |
+| `POST /transport/dispatch/live/decide` (Idempotency-Key when `apply`) | etms_dispatch command |
+| `GET /transport/dispatch/live/requests` | etms_dispatch view |
+| `POST /driver/v1/trips/:id/route-ack` | etms_driver edit (own trip) |
+| `POST /transport/route-plans` `scope: AREA` + `windowStart/End` (+ depot) | etms_planning create (unchanged) |
+
+Booking create (desk, group, `POST /me/transport/requests`) accepts `ridePreference`, `acceptedPolicyVersion`, `limits`;
+every booking DTO returns `ridePreference`, `sharingPolicyVersion`, `limits`, `assignedService`, `holdFromPlanning`,
+`holdReason`, `holdAt`. Driver trip detail: `routeVersion`, `routeAckPending`. Passenger trip: `estimatedPickupAt`,
+`servedAs`.
+
+### Deviations from the design (and why)
+
+| Design | Implemented | Reason |
+|---|---|---|
+| §3.1 `requestedPickupAt` / `pickupWindowS` | P2P keeps `windowStart/End`; pickup window = `[windowStart, min(windowEnd, windowStart + maxWaitS)]` | No new time columns; the existing window already is the requested pickup time |
+| §3.1 acceptance required for SHARED / FLEXIBLE | Required for **point-to-point** SHARED / FLEXIBLE; COMMUTE is SHARED by default without acceptance | Commute rides are pooled by definition (P3); existing web / mobile clients keep working |
+| §3.1 policy "per service" | `TransportSharingPolicy` versions hold `limits.SHARED` / `limits.FLEXIBLE`; version 0 = built-in default (no row) | Every company has a policy from day one |
+| P1 whole-trip | A booking's **group** (`groupId`, group booking) counts as one party | Colleagues booked together must ride together |
+| §3.2 P2P direction | Booking `direction` null for new P2P; `TransportTrip.direction` stays non-null (P2P / live trips carry the change set's direction, IN by default) | Avoids a nullable trip direction across every trip reader |
+| §3.3 `serviceAreaIds` | Not added; AREA plans are scoped by window + branch | No service-area model exists yet |
+| §3.3 turnaround default 120 | `turnaroundS` nullable: enforced at publish only when set; planners / insertion use 120 when null | Back-to-back trips published today must keep working |
+| §3.4 `TransportDriverPolicy` table + driver override, `TransportDriverDuty.plannedStart/End` | Company policy in `Company.settings.etmsPooling.driverHours`; no per-driver override; duty derived from planned trips | Task scope (company settings); P7 = none by default |
+| §5.1 Valkey stream `vt:etms:dispatch` | `TransportDispatchRequest` rows are the queue (like `RoutingJob`); worker every 5 s with per-company Valkey locks | Recovery is "re-read QUEUED rows"; no consumer-group state |
+| §5.1 solver insertOnly | Optimiser asked for the trip choice (synthetic matrix), the placement is realised by the in-process slack model; the in-process cheapest insertion is the fallback (circuit 10 min after PDP_UNSUPPORTED) | Existing stops never move, so the E3 ADD_STOP rule and committed windows hold by construction |
+| §5.2 committed windows on SCHEDULED trips | Insertion only uses slack: committed stop times never change (stricter than "within window") | Re-sequencing published stops would need a REORDER op (deferred) |
+| §5.3 breakdown onboard → "incident" | A PROPOSED `TransportDispatchRequest` with reason `ONBOARD_TRANSFER` per boarded passenger | `TransportIncident` is the SOS model (CHECK kind = SOS) |
+| §5.3 cancellation "pending stops removed" | Seat released (as before) + the booking leaves every unpublished plan (version + 1, version row); published trip stops stay | No REMOVE_STOP op; nobody's times move |
+| §3.7 event kinds | `PASSENGER_INSERTED`, `ROUTE_UPDATED`, `ROUTE_ACK`, `TRIP_INTERRUPTED` written; the others listed in the shared enum only | Re-sequencing / transfer ops are deferred |
+| Notifications `ROUTE_UPDATED` push | Existing relay: `PASSENGER_INSERTED` / `ROUTE_UPDATED` → driver `TRIP_CHANGED` (generic push) | No new notification kind (CHECK) |
+| §4.2 unserved codes | Mapped onto the existing `OPTIMIZE_UNASSIGNED_REASONS`; the solver code is kept in the job result | Web reason labels unchanged |
+
+### Solver v3 merge (WS P-B2)
+
+- API side: `routing-jobs/pdp-contract.ts` (types), `pdp-problem.ts` (`buildPdpProblem`, `verifyPdp`, `mapPdpResult`,
+  strategy weights §4.4), `area-runner.ts` (AREA optimise job), `OptimizerClient.solvePdp` (same POST `/optimize`).
+- Stop kinds accepted as `PICKUP` / `DROP` or `P` / `D`; per-vehicle `trips[].index` is the trip slot; `startS` = service
+  start (pickup window checked on it); ride = drop arrival − (pickup start + `serviceS`, default 60).
+- Until the solver answers v3: AREA optimise → job FAILED `PDP_UNSUPPORTED` (final); live dispatch → in-process.
+- Live onboard passengers (`vehicles[].onboard`) may appear as D stops without a request; the checker allows them.
+
+### Deferred
+
+Web / mobile screens (P-C3, P-D2, P-E1), REORDER / transfer ops, periodic warm-start re-optimisation (§5.1 async),
+per-driver hour overrides and breaks in the solver input, service areas, staging benchmarks (E4 gates B1–B6).

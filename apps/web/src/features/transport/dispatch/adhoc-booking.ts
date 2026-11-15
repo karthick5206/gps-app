@@ -501,7 +501,7 @@ export function endpointText(b: Pick<TransportBookingDto, 'journey' | 'direction
   if (point?.label) return point.label;
   if (endMissing(b, end)) return 'Needs location';
   const journey = b.journey ?? 'COMMUTE';
-  if (journey === 'COMMUTE' && end === personalEnd(b.direction)) return 'Home';
+  if (journey === 'COMMUTE' && b.direction && end === personalEnd(b.direction)) return 'Home';
   return 'Personal point';
 }
 

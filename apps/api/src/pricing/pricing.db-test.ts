@@ -73,17 +73,21 @@ d(`doc 19 pricing & billing on ${dbName}`, () => {
   const runs = new BillingRunsService(db);
   const availability = new AvailabilityService(db, audit, contracts, settings, runs);
   const invoices = new CustomerInvoicesService(db, audit, settings, runs);
-  const adjustments = new BillingAdjustmentsService(db, audit, trips);
+  const adjustments = new BillingAdjustmentsService(db, audit, trips, invoices);
   const reports = new PricingReportsService(db, audit);
 
   const id = () => randomUUID();
-  const w = { partner: id(), a: id(), b: id(), b1: id(), b2: id(), bB: id(), veh: id(), adminA: id(), approverA: id(), clerkB1: id(), clerkB2: id(), adminB: id(), pt1: id(), t1: id(), pt2: id(), t2: id() };
+  const w = { partner: id(), a: id(), b: id(), b1: id(), b2: id(), bB: id(), veh: id(), adminA: id(), approverA: id(), clerkB1: id(), clerkB2: id(), adminB: id(), approver2: id(), pt1: id(), t1: id(), pt2: id(), t2: id(), pt3: id(), t3: id(), pt4: id(), t4: id() };
   const ctx = (userId: string, companyId: string, permissions: PermissionMap, extra: Partial<AuthContext> = {}): AuthContext => ({ userId, homeCompanyId: companyId, companyId, isSuperAdmin: false, permissions, dataScope: 'COMPANY', branchIds: [], objectIds: [], ip: null, features: ['pricing'], ...extra });
   const adminA = ctx(w.adminA, w.a, ALL_PRICING);
   const approverA = ctx(w.approverA, w.a, ALL_PRICING);
   const clerkB1 = ctx(w.clerkB1, w.a, CLERK, { dataScope: 'ASSIGNED', branchIds: [w.b1] });
   const clerkB2 = ctx(w.clerkB2, w.a, CLERK, { dataScope: 'ASSIGNED', branchIds: [w.b2] });
   const adminB = ctx(w.adminB, w.b, ALL_PRICING);
+  const approver2 = ctx(w.approver2, w.a, ALL_PRICING);
+  /** Today in the company's time zone (Asia/Kolkata default) and its neighbours. */
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const shift = (d: string, n: number) => new Date(new Date(`${d}T00:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
   const sql = (s: string) => prisma.$executeRawUnsafe(s);
   let contractId = '';
   let v1Id = '';
@@ -99,10 +103,11 @@ d(`doc 19 pricing & billing on ${dbName}`, () => {
     await sql(`INSERT INTO "Company" (id, "partnerId", name, settings, "updatedAt") VALUES ('${w.a}', '${w.partner}', '${TAG} cabs A', '{"features":["etms","pricing"]}', now())`);
     await sql(`INSERT INTO "Company" (id, "partnerId", name, settings, "updatedAt") VALUES ('${w.b}', '${w.partner}', '${TAG} cabs B', '{"features":["etms","pricing"]}', now())`);
     for (const [b, c, n] of [[w.b1, w.a, 'North'], [w.b2, w.a, 'South'], [w.bB, w.b, 'Main']]) await sql(`INSERT INTO "Branch" (id, "companyId", name, "updatedAt") VALUES ('${b}', '${c}', '${TAG} ${n}', now())`);
-    for (const [u, c, n] of [[w.adminA, w.a, 'Admin A'], [w.approverA, w.a, 'Approver A'], [w.clerkB1, w.a, 'Clerk North'], [w.clerkB2, w.a, 'Clerk South'], [w.adminB, w.b, 'Admin B']]) await sql(`INSERT INTO "User" (id, "companyId", name, "updatedAt") VALUES ('${u}', '${c}', '${n}', now())`);
+    for (const [u, c, n] of [[w.adminA, w.a, 'Admin A'], [w.approverA, w.a, 'Approver A'], [w.clerkB1, w.a, 'Clerk North'], [w.clerkB2, w.a, 'Clerk South'], [w.adminB, w.b, 'Admin B'], [w.approver2, w.a, 'Approver Two']]) await sql(`INSERT INTO "User" (id, "companyId", name, "updatedAt") VALUES ('${u}', '${c}', '${n}', now())`);
     await sql(`INSERT INTO "TrackedObject" (id, "companyId", "branchId", name, "updatedAt") VALUES ('${w.veh}', '${w.a}', '${w.b1}', '${TAG} cab 1', now())`);
     await trip(w.pt1, w.t1, '2026-10-10', 25);
     await trip(w.pt2, w.t2, '2026-11-05', 25);
+    await trip(w.pt4, w.t4, '2026-11-10', 10);
   });
   afterAll(() => prisma.$disconnect());
 
@@ -216,6 +221,8 @@ d(`doc 19 pricing & billing on ${dbName}`, () => {
 
   it('trip override needs the contract permission and a reason, and is audited (scenario 9)', async () => {
     expect(await errOf(trips.override(adminA, w.t2, '400', 'negotiated'))).toEqual({ status: 409, code: 'TRIP_OVERRIDE_NOT_PERMITTED' });
+    // QA 10: a manual distance always wins the resolution, so it is refused like an override on a contract without them.
+    expect(await errOf(trips.setBillableDistance(adminA, w.t2, '5', 'driver says shorter'))).toEqual({ status: 409, code: 'TRIP_OVERRIDE_NOT_PERMITTED' });
     const c = await contracts.get(adminA, contractId);
     await prisma.pricingContract.update({ where: { id: contractId }, data: { allowTripOverrides: true, version: c.version + 1 } });
     expect(await errOf(trips.override(adminA, w.t2, '400', ''))).toEqual({ status: 400, code: 'VALIDATION_FAILED' });
@@ -251,8 +258,10 @@ d(`doc 19 pricing & billing on ${dbName}`, () => {
   });
 
   it('issued invoices are immutable; credit notes and payments are audited and append-only', async () => {
-    const issued = await invoices.issue(adminA, invoiceId, '2026-11-15');
-    expect(issued).toMatchObject({ status: 'ISSUED', number: 'CABA/2026-27/0001', fy: '2026-27', invoiceDate: '2026-11-15', dueDate: '2026-12-15', paymentStatus: 'UNPAID', balanceMinor: '35400' });
+    expect(await errOf(invoices.issue(adminA, invoiceId, shift(today, 1)))).toEqual({ status: 409, code: 'INVOICE_DATE_INVALID' });
+    expect(await errOf(invoices.issue(adminA, invoiceId, shift(today, -400)))).toEqual({ status: 409, code: 'INVOICE_DATE_INVALID' });
+    const issued = await invoices.issue(adminA, invoiceId);
+    expect(issued).toMatchObject({ status: 'ISSUED', number: 'CABA/2026-27/0001', fy: '2026-27', invoiceDate: today, dueDate: shift(today, 30), paymentStatus: 'UNPAID', balanceMinor: '35400' });
     expect(issued.supplier).toMatchObject({ taxRegistration: '33ABCDE1234F1Z5' });
     expect(await refused(sql(`UPDATE "CustomerInvoice" SET "totalMinor" = 1, "subtotalMinor" = 1, "taxMinor" = 0 WHERE id = '${invoiceId}'`))).toMatch(/INVOICE_ISSUED_IMMUTABLE/);
     expect(await refused(sql(`DELETE FROM "CustomerInvoice" WHERE id = '${invoiceId}'`))).toMatch(/INVOICE_ISSUED_IMMUTABLE/);
@@ -260,10 +269,17 @@ d(`doc 19 pricing & billing on ${dbName}`, () => {
     expect(await refused(sql(`UPDATE "CustomerInvoice" SET "pdfFile" = 'x.pdf' WHERE id = '${invoiceId}'`))).toBe('ACCEPTED');
     expect(await errOf(invoices.remove(adminA, invoiceId))).toEqual({ status: 409, code: 'INVOICE_ISSUED_IMMUTABLE' });
     expect(await errOf(invoices.issue(adminA, invoiceId))).toEqual({ status: 409, code: 'INVOICE_NOT_DRAFT' });
-    const cn = await invoices.createCreditNote(approverA, invoiceId, { reason: 'Late pickup goodwill', amount: '118' });
-    expect(cn).toMatchObject({ number: 'CN/2026-27/0001', totalMinor: '11800', taxMinor: '1800', subtotalMinor: '10000' });
-    expect(await errOf(invoices.createCreditNote(approverA, invoiceId, { reason: 'too much', amount: '300' }))).toEqual({ status: 409, code: 'CREDIT_EXCEEDS_INVOICE' });
-    const cnAudit = await prisma.auditLog.findMany({ where: { companyId: w.a, entity: 'customer_credit_note', entityId: cn.id, userId: w.approverA } });
+    // QA 10: credit notes need two users: a request, then a different approver issues it.
+    const req = await invoices.requestCreditNote(approverA, invoiceId, { reason: 'Late pickup goodwill', amount: '118' });
+    expect(req).toMatchObject({ kind: 'CREDIT', status: 'PENDING_APPROVAL', invoiceId, amountMinor: '-11800' });
+    expect(await errOf(adjustments.decide(approverA, req.id, true))).toEqual({ status: 403, code: 'MAKER_CHECKER_SAME_USER' });
+    const decided = await adjustments.decide(adminA, req.id, true, 'ok');
+    expect(decided).toMatchObject({ status: 'APPLIED', decidedById: w.adminA });
+    const cn = (await invoices.get(adminA, invoiceId)).creditNotes[0];
+    expect(cn).toMatchObject({ number: 'CN/2026-27/0001', totalMinor: '11800', taxMinor: '1800', subtotalMinor: '10000', issuedById: w.adminA });
+    expect(cn.taxLines[0]).toMatchObject({ cgstMinor: '900', sgstMinor: '900' });
+    expect(await errOf(invoices.requestCreditNote(approverA, invoiceId, { reason: 'too much', amount: '300' }))).toEqual({ status: 409, code: 'CREDIT_EXCEEDS_INVOICE' });
+    const cnAudit = await prisma.auditLog.findMany({ where: { companyId: w.a, entity: 'customer_credit_note', entityId: cn.id, userId: w.adminA } });
     expect(cnAudit).toHaveLength(1);
     expect(await refused(sql(`UPDATE "CustomerCreditNote" SET reason = 'x' WHERE id = '${cn.id}'`))).toMatch(/CREDIT_NOTE_IMMUTABLE/);
     const pay = await invoices.recordPayment(adminA, invoiceId, { amount: '100', receivedAt: '2026-11-16T10:00:00Z', method: 'UPI', reference: 'UTR1' });
@@ -283,7 +299,7 @@ d(`doc 19 pricing & billing on ${dbName}`, () => {
     expect(await errOf(invoices.get(adminB, invoiceId))).toEqual({ status: 404, code: 'NOT_FOUND' });
     expect(await errOf(trips.detail(adminB, w.t1))).toEqual({ status: 404, code: 'NOT_FOUND' });
     expect(await errOf(trips.recalculate(adminB, w.t2))).toEqual({ status: 404, code: 'NOT_FOUND' });
-    expect(await errOf(invoices.createCreditNote(adminB, invoiceId, { reason: 'steal' }))).toEqual({ status: 404, code: 'NOT_FOUND' });
+    expect(await errOf(invoices.requestCreditNote(adminB, invoiceId, { reason: 'steal' }))).toEqual({ status: 404, code: 'NOT_FOUND' });
     expect(await errOf(contracts.preview(adminB, contractId, { kind: 'TRIP', trip: { serviceDate: '2026-10-10', billableDistanceM: 1000 } }))).toEqual({ status: 404, code: 'NOT_FOUND' });
     expect((await contracts.list(adminB, {})).items.map((c) => c.id)).not.toContain(contractId);
     expect((await invoices.list(adminB, {})).items).toHaveLength(0);
@@ -323,6 +339,81 @@ d(`doc 19 pricing & billing on ${dbName}`, () => {
     expect(nov.invoice).toMatchObject({ subtotalMinor: '35000', taxMinor: '6300', totalMinor: '41300' });
   });
 
+  it('QA 10: the author or last editor of a version cannot approve it (only a third user)', async () => {
+    const tp = (await settings.listTaxProfiles(adminA))[0].id;
+    const c = await contracts.create(adminA, { name: `${TAG} for B`, customerCompanyId: w.b, currency: 'INR', billingFrequency: 'MONTHLY', taxProfileId: tp, validFrom: '2026-10-01', components: [{ kind: 'PER_KM', params: { rate: '9' } }] });
+    const v = c.versions[0].id;
+    await contracts.replaceComponents(approverA, c.id, v, { components: [{ kind: 'PER_KM', params: { rate: '7' } }] });
+    await contracts.submit(adminA, c.id, v);
+    expect(await errOf(contracts.approve(approverA, c.id, v))).toEqual({ status: 403, code: 'MAKER_CHECKER_SAME_USER' }); // last editor
+    expect(await errOf(contracts.approve(adminA, c.id, v))).toEqual({ status: 403, code: 'MAKER_CHECKER_SAME_USER' }); // author + submitter
+    expect((await contracts.approve(approver2, c.id, v)).status).toBe('ACTIVE');
+  });
+
+  it('QA 4: a suspended customer contract is never replaced by the company default', async () => {
+    const tp = (await settings.listTaxProfiles(adminA))[0].id;
+    const def = await contracts.create(adminA, { name: `${TAG} default`, customerName: 'Default', isDefault: true, defaultCovers: ['INTERNAL'], currency: 'INR', billingFrequency: 'MONTHLY', taxProfileId: tp, validFrom: '2026-01-01', components: [{ kind: 'PER_KM', params: { rate: '99' } }] });
+    await contracts.submit(adminA, def.id, def.versions[0].id);
+    await contracts.approve(approverA, def.id, def.versions[0].id);
+    const own = await contracts.get(adminA, contractId);
+    await contracts.lifecycle(approverA, contractId, 'suspend', { reason: 'customer dispute', expectedVersion: own.version });
+    const s = await trips.recalculate(adminA, w.t4);
+    expect(s).toMatchObject({ status: 'NO_APPLICABLE_PRICING', contractId: null });
+    expect(s.issues[0].message).toMatch(/suspended/);
+    const susp = await contracts.get(adminA, contractId);
+    await contracts.lifecycle(approverA, contractId, 'resume', { reason: 'resolved', expectedVersion: susp.version });
+    expect(await trips.recalculate(adminA, w.t4)).toMatchObject({ status: 'PRICED', contractId, subtotalMinor: '25000' }); // 50 + 10 km × 20
+  });
+
+  it('QA 6 + 12: a draft holding a superseded snapshot cannot be issued; no back-dated issue', async () => {
+    const gen = await invoices.generate(adminA, { contractId, periodStart: '2026-11-10', periodEnd: '2026-11-10' }, `${TAG}-t4`);
+    const snapId = gen.invoice.lines[0].sourceId!;
+    expect(await errOf(trips.recalculate(adminA, w.t4))).toEqual({ status: 409, code: 'ALREADY_INVOICED' });
+    // Simulate a re-price that slipped past the guards: the draft's snapshot is no longer current.
+    await sql(`UPDATE "TripPriceSnapshot" SET "isCurrent" = false WHERE id = '${snapId}'`);
+    await sql(`INSERT INTO "TripPriceSnapshot" (id, "companyId", "transportTripId", "contractId", "serviceDate", currency, status, "isCurrent", "engineVersion", "supersedesId") SELECT gen_random_uuid(), "companyId", "transportTripId", "contractId", "serviceDate", currency, 'NEEDS_REVIEW', true, "engineVersion", id FROM "TripPriceSnapshot" WHERE id = '${snapId}'`);
+    expect(await errOf(invoices.issue(adminA, gen.invoice.id))).toEqual({ status: 409, code: 'SNAPSHOT_SUPERSEDED' });
+    await invoices.remove(adminA, gen.invoice.id);
+    // The November draft cannot be dated before the latest issued invoice (issued today).
+    const nov = (await invoices.list(adminA, { status: 'DRAFT', contractId })).items[0];
+    expect(await errOf(invoices.issue(adminA, nov.id, shift(today, -1)))).toEqual({ status: 409, code: 'INVOICE_DATE_INVALID' });
+    expect((await invoices.issue(adminA, nov.id)).number).toBe('CABA/2026-27/0002');
+  });
+
+  it('QA 11: the cancellation time comes from the cancellation event; unknown → review', async () => {
+    await trip(w.pt3, w.t3, '2026-10-20', 0);
+    await sql(`UPDATE "PlannedTrip" SET status = 'CANCELLED', "actualStart" = NULL, "actualEnd" = NULL, "distanceKm" = NULL WHERE id = '${w.pt3}'`);
+    const unknown = await trips.recalculate(adminA, w.t3);
+    expect(unknown.status).toBe('NEEDS_REVIEW');
+    expect(unknown.issues.map((i) => i.code)).toContain('MISSING_FACT');
+    await sql(`UPDATE "TransportTrip" SET "cancelledAt" = '2026-10-19T10:00:00Z' WHERE id = '${w.t3}'`);
+    expect((await trips.recalculate(adminA, w.t3)).status).toBe('PRICED');
+  });
+
+  it('QA 5: fee and billing frequency must match; no close before the period ends', async () => {
+    const tp = (await settings.listTaxProfiles(adminA))[0].id;
+    const bad = await contracts.create(adminA, { name: `${TAG} weekly bill`, customerName: 'Mismatch', currency: 'INR', billingFrequency: 'WEEKLY', taxProfileId: tp, validFrom: '2026-09-01', components: [{ kind: 'AVAILABILITY_FEE', params: { amount: '30000', frequency: 'MONTHLY' } }] });
+    expect(await errOf(contracts.submit(adminA, bad.id, bad.versions[0].id))).toEqual({ status: 400, code: 'INVALID_COMPONENTS' });
+    await contracts.update(adminA, bad.id, { expectedVersion: bad.version, billingFrequency: 'MONTHLY' });
+    const fixed = await contracts.submit(adminA, bad.id, bad.versions[0].id);
+    await contracts.approve(approverA, bad.id, fixed.versions[0].id);
+    await contracts.createAssignment(adminA, bad.id, { objectId: w.veh, validFrom: '2026-09-01' });
+    expect(await errOf(availability.close(adminA, bad.id, today, `${TAG}-early`))).toEqual({ status: 409, code: 'PERIOD_NOT_ENDED' });
+  });
+
+  it('QA 3: monthly excess with GPS days missing goes to review instead of 0 km', async () => {
+    const tp = (await settings.listTaxProfiles(adminA))[0].id;
+    const c = await contracts.create(adminA, { name: `${TAG} excess`, customerName: 'Excess km', currency: 'INR', billingFrequency: 'MONTHLY', taxProfileId: tp, validFrom: '2026-08-01', components: [{ kind: 'AVAILABILITY_FEE', params: { amount: '60000', frequency: 'MONTHLY' }, covers: ['VEHICLE_TIME', 'KM_INCLUDED'] }, { kind: 'INCLUDED_KM', params: { km: '100' } }, { kind: 'EXCESS_KM', params: { rate: '15' } }] });
+    await contracts.submit(adminA, c.id, c.versions[0].id);
+    await contracts.approve(approverA, c.id, c.versions[0].id);
+    await contracts.createAssignment(adminA, c.id, { objectId: w.veh, validFrom: '2026-08-01', validTo: '2026-09-01' });
+    for (let d = 1; d <= 10; d++) await sql(`INSERT INTO "DailySummary" ("objectId", day, "companyId", "distanceKm", "updatedAt") VALUES ('${w.veh}', '2026-08-${String(d).padStart(2, '0')}', '${w.a}', 20, now()) ON CONFLICT DO NOTHING`);
+    const [p] = await availability.compute(adminA, c.id, '2026-08-15');
+    expect(p).toMatchObject({ status: 'NEEDS_REVIEW', usedDistanceM: 200_000 });
+    expect(p.issues.map((i) => i.code)).toContain('GPS_DISTANCE_REVIEW');
+    expect(p.issues[0].message).toMatch(/^21 /);
+  });
+
   it('availability close is idempotent per contract + period (one BillingRun claim)', async () => {
     const fee = await contracts.create(adminA, { name: `${TAG} dedicated`, customerName: 'Plant shuttle', currency: 'INR', billingFrequency: 'MONTHLY', taxProfileId: (await settings.listTaxProfiles(adminA))[0].id, validFrom: '2026-09-01', components: [{ kind: 'AVAILABILITY_FEE', params: { amount: '30000', frequency: 'MONTHLY' }, covers: ['VEHICLE_TIME', 'TRIPS'] }] });
     await contracts.submit(adminA, fee.id, fee.versions[0].id);
@@ -333,7 +424,16 @@ d(`doc 19 pricing & billing on ${dbName}`, () => {
     expect(first.periods).toHaveLength(1);
     expect(first.periods[0]).toMatchObject({ status: 'CLOSED', attachedDays: 15, billableDays: 15, subtotalMinor: '1500000' });
     expect(await errOf(availability.close(adminA, fee.id, '2026-09-25', `${TAG}-close-2`))).toEqual({ status: 409, code: 'BILLING_RUN_DONE' });
-    expect((await availability.close(adminA, fee.id, '2026-09-20', `${TAG}-close-1`)).run.id).toBe(first.run.id);
+    // QA 5: a vehicle added to an already closed period can still be closed (the run is re-claimed), the first stays as it was.
+    const second = await contracts.createAssignment(adminA, fee.id, { objectId: w.veh, validFrom: '2026-09-01', validTo: '2026-09-16' });
+    // QA 8: overlapping downtimes (1–12 and 7–12) count 12 days, not 18.
+    await contracts.addDowntime(adminA, fee.id, second.id, { fromDate: '2026-09-01', toDate: '2026-09-12', kind: 'BREAKDOWN', reason: 'engine' });
+    await contracts.addDowntime(adminA, fee.id, second.id, { fromDate: '2026-09-07', toDate: '2026-09-12', kind: 'MAINTENANCE', reason: 'service' });
+    const again = await availability.close(adminA, fee.id, '2026-09-25', `${TAG}-close-3`);
+    expect(again.periods).toHaveLength(2);
+    expect(again.periods.find((p) => p.assignmentId === second.id)).toMatchObject({ status: 'CLOSED', attachedDays: 15, downtimeDays: 12, billableDays: 3 });
+    expect(again.periods.find((p) => p.id === first.periods[0].id)).toMatchObject({ subtotalMinor: '1500000' });
+    expect(await errOf(availability.close(adminA, fee.id, '2026-09-25', `${TAG}-close-4`))).toEqual({ status: 409, code: 'BILLING_RUN_DONE' });
     expect(await refused(sql(`UPDATE "AvailabilityBillingPeriod" SET "totalMinor" = 0, "subtotalMinor" = 0, "taxMinor" = 0 WHERE id = '${first.periods[0].id}'`))).toMatch(/PERIOD_CLOSED_IMMUTABLE/);
     expect(await prisma.billingRun.count({ where: { contractId: fee.id, kind: 'AVAILABILITY_CLOSE' } })).toBe(1);
   });

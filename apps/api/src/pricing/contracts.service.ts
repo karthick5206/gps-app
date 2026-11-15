@@ -138,6 +138,19 @@ export function assertComponentsValid(components: PricingComponentInput[], polic
   if (issues.length) throw pricingError(HttpStatus.BAD_REQUEST, 'INVALID_COMPONENTS', issues.map((i) => i.message).join('; '), { issues });
 }
 
+/**
+ * QA 5: availability periods follow the contract's billing frequency. A WEEKLY / MONTHLY fee needs the same billing
+ * frequency (a period is one fee period); a DAILY fee may be billed per day, week or month (not per trip).
+ */
+export function assertFrequencyConsistent(billingFrequency: string, components: PricingComponentInput[]): void {
+  for (const c of components.filter((x) => x.kind === 'AVAILABILITY_FEE')) {
+    const f = (c.params ?? {}).frequency;
+    if (f === 'DAILY' ? billingFrequency === 'TRIP' : f !== billingFrequency) {
+      throw pricingError(HttpStatus.BAD_REQUEST, 'INVALID_COMPONENTS', `The availability fee is ${String(f).toLowerCase()} but the contract bills ${billingFrequency.toLowerCase()}; use the same frequency (a daily fee can be billed daily, weekly or monthly)`);
+    }
+  }
+}
+
 export function engineComponents(rows: Prisma.PricingComponentGetPayload<object>[]): PricingComponentInput[] {
   return [...rows]
     .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -485,7 +498,7 @@ export class PricingContractsService {
       const after = await guardDb(
         tx.pricingContractVersion.update({
           where: { id: versionId },
-          data: { status: 'DRAFT', rejectReason: null, validFrom, validTo, ...(dto.policies !== undefined ? { policies: asJson(sanitizePolicies(dto.policies)) } : {}), components: { create: components.map((x) => this.componentData(ctx, x)) } },
+          data: { status: 'DRAFT', rejectReason: null, lastEditedById: ctx.userId, validFrom, validTo, ...(dto.policies !== undefined ? { policies: asJson(sanitizePolicies(dto.policies)) } : {}), components: { create: components.map((x) => this.componentData(ctx, x)) } },
           include: { components: true },
         }),
       );
@@ -503,6 +516,7 @@ export class PricingContractsService {
       const components = engineComponents(v.components);
       if (!components.length) throw pricingError(HttpStatus.BAD_REQUEST, 'INVALID_COMPONENTS', 'A version needs at least one pricing component');
       assertComponentsValid(components, (v.policies ?? {}) as PricingPolicies);
+      assertFrequencyConsistent(c.billingFrequency, components);
       const now = new Date();
       await tx.pricingContractVersion.update({ where: { id: versionId }, data: { status: 'PENDING_APPROVAL', submittedById: ctx.userId, submittedAt: now } });
       if (c.status === 'DRAFT') await tx.pricingContract.update({ where: { id }, data: { status: 'PENDING_APPROVAL', submittedById: ctx.userId, submittedAt: now, version: { increment: 1 } } });
@@ -521,7 +535,8 @@ export class PricingContractsService {
       const c = await this.lock(tx, ctx, id);
       const v = this.draftVersion(c, versionId);
       if (v.status !== 'PENDING_APPROVAL') throw conflict('CONTRACT_NOT_DRAFT', 'Only a version waiting for approval can be approved');
-      if (!v.submittedById || v.submittedById === ctx.userId) throw forbidden('MAKER_CHECKER_SAME_USER', 'A version must be approved by a different user than the one who submitted it');
+      // QA 10: the approver is neither the submitter nor the author / last editor of the version.
+      if (!v.submittedById || [v.submittedById, v.createdById, v.lastEditedById].includes(ctx.userId)) throw forbidden('MAKER_CHECKER_SAME_USER', 'A version must be approved by a different user than the one who wrote or submitted it');
       if (c.status === 'EXPIRED') throw conflict('CONTRACT_NOT_ACTIVE', 'The contract has expired');
       if (!c.taxProfileId) throw pricingError(HttpStatus.CONFLICT, 'TAX_PROFILE_MISSING', 'Pick the contract tax profile before approval (no tax rate is ever assumed)');
       if (c.agreementId) {
@@ -529,6 +544,7 @@ export class PricingContractsService {
         if (a?.status !== 'ACTIVE') throw conflict('CONTRACT_NOT_ACTIVE', 'The linked service agreement must be ACTIVE');
       }
       assertComponentsValid(engineComponents(v.components), (v.policies ?? {}) as PricingPolicies);
+      assertFrequencyConsistent(c.billingFrequency, engineComponents(v.components));
       let supersedesId: string | null = null;
       for (const prev of c.versions.filter((x) => x.status === 'ACTIVE' && x.id !== v.id)) {
         const overlaps = (!prev.validTo || prev.validTo > v.validFrom) && (!v.validTo || v.validTo > prev.validFrom);
@@ -552,7 +568,7 @@ export class PricingContractsService {
       const c = await this.lock(tx, ctx, id);
       const v = this.draftVersion(c, versionId);
       if (v.status !== 'PENDING_APPROVAL') throw conflict('CONTRACT_NOT_DRAFT', 'Only a version waiting for approval can be rejected');
-      if (v.submittedById === ctx.userId) throw forbidden('MAKER_CHECKER_SAME_USER', 'The submitter cannot decide on their own version');
+      if ([v.submittedById, v.createdById, v.lastEditedById].includes(ctx.userId)) throw forbidden('MAKER_CHECKER_SAME_USER', 'The author or submitter cannot decide on their own version');
       await tx.pricingContractVersion.update({ where: { id: versionId }, data: { status: 'REJECTED', rejectReason: why } });
       if (c.status === 'PENDING_APPROVAL') await tx.pricingContract.update({ where: { id }, data: { status: 'DRAFT', version: { increment: 1 } } });
       await this.audit.record(ctx, { action: 'UPDATE', entity: 'pricing_contract_version', entityId: versionId, details: { event: 'REJECTED', contractId: id, reason: why } }, tx);
@@ -689,7 +705,7 @@ export class PricingContractsService {
       if (validTo && validTo <= validFrom) throw invalid('validTo must be after validFrom');
       const after = await tx.pricingVehicleRate.update({
         where: { id: rateId },
-        data: { status: 'DRAFT', validFrom, validTo, ...(dto.componentOverrides ? { componentOverrides: asJson(sanitizeComponents(dto.componentOverrides)) } : {}), ...(dto.reason !== undefined ? { reason: dto.reason?.trim() || null } : {}), version: { increment: 1 } },
+        data: { status: 'DRAFT', lastEditedById: ctx.userId, validFrom, validTo, ...(dto.componentOverrides ? { componentOverrides: asJson(sanitizeComponents(dto.componentOverrides)) } : {}), ...(dto.reason !== undefined ? { reason: dto.reason?.trim() || null } : {}), version: { increment: 1 } },
       });
       await this.audit.record(ctx, { action: 'UPDATE', entity: 'pricing_vehicle_rate', entityId: rateId, before: r, after }, tx);
       return rateDto(after);
@@ -707,7 +723,7 @@ export class PricingContractsService {
         data = { status: 'PENDING_APPROVAL', submittedById: ctx.userId };
       } else {
         if (r.status !== 'PENDING_APPROVAL') throw conflict('CONTRACT_NOT_DRAFT', 'Only a rate waiting for approval can be decided');
-        if (!r.submittedById || r.submittedById === ctx.userId) throw forbidden('MAKER_CHECKER_SAME_USER', 'A vehicle rate must be approved by a different user than the one who submitted it');
+        if (!r.submittedById || [r.submittedById, r.createdById, r.lastEditedById].includes(ctx.userId)) throw forbidden('MAKER_CHECKER_SAME_USER', 'A vehicle rate must be approved by a different user than the one who wrote or submitted it');
         if (decision === 'reject') data = { status: 'REJECTED', reason: reasonOf(reason) };
         else {
           const prev = await tx.pricingVehicleRate.findMany({ where: { contractId, objectId: r.objectId, status: 'ACTIVE', id: { not: r.id } } });

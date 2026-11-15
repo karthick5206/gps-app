@@ -29,6 +29,9 @@ export interface PlanScopeBooking {
   windowEnd: Date;
   /** The passenger profile's branch (null = company-wide). */
   branchId: string | null;
+  /** Pooling: dispatcher hold and ride preference (absent = not held / shared). */
+  holdFromPlanning?: boolean;
+  ridePreference?: 'SHARED' | 'PRIVATE' | 'FLEXIBLE';
 }
 
 export interface PlanScope {
@@ -48,6 +51,9 @@ export function windowsOverlap(ws: number, we: number, leg: { start: number; end
 
 export function planSkipReason(b: PlanScopeBooking, p: PlanScope): RoutePlanSkipReason | null {
   if (b.journey === 'POINT_TO_POINT') return 'point_to_point';
+  // Pooling: a held booking is excluded from runs; a PRIVATE commute is never pooled by a site plan (P1).
+  if (b.holdFromPlanning) return 'on_hold';
+  if (b.ridePreference === 'PRIVATE') return 'private_ride';
   const officeEnd = p.direction === 'IN' ? b.dropPoiId : b.pickupPoiId;
   if (officeEnd !== p.sitePoiId) return 'other_site';
   if (p.shiftId) {
@@ -144,4 +150,62 @@ export function bookingStopRows(
     poiId: site.id,
   };
   return [passenger, atSite];
+}
+
+// ───────────────────────────── Pooling C2: AREA plans (doc 20 §3.5) ─────────────────────────────
+
+export interface AreaScope {
+  windowStartMs: number;
+  windowEndMs: number;
+  /** The plan's branch (null = whole company). */
+  branchId: string | null;
+}
+
+/**
+ * Why an AREA plan leaves a booking out (POINT_TO_POINT and COMMUTE alike, PRIVATE included: the pickup-and-delivery
+ * mode keeps a private ride alone on its trip): on_hold → outside_plan_window → out_of_scope → needs_approval.
+ */
+export function areaSkipReason(b: PlanScopeBooking, p: AreaScope): RoutePlanSkipReason | null {
+  if (b.holdFromPlanning) return 'on_hold';
+  if (!windowsOverlap(b.windowStart.getTime(), b.windowEnd.getTime(), { start: p.windowStartMs, end: p.windowEndMs })) return 'outside_plan_window';
+  if (p.branchId && b.branchId && b.branchId !== p.branchId) return 'out_of_scope';
+  if (b.status !== 'PENDING_ASSIGNMENT') return 'needs_approval';
+  return null;
+}
+
+/** Both ends of an AREA booking must have a point, and a personal end needs the passenger's routing consent. */
+export function areaEndsProblem(b: StopBooking, consents: ReadonlySet<string>): 'needs_location' | 'consent_required' | null {
+  if (b.pickupLat === null || b.pickupLng === null || b.dropLat === null || b.dropLng === null) return 'needs_location';
+  if ((!b.pickupPoiId || !b.dropPoiId) && !consents.has(b.profileId)) return 'consent_required';
+  return null;
+}
+
+/**
+ * The two plan stops of an AREA booking: pickup (demand = seats, the booking window as its time window) and drop, each
+ * at the booking's own point (personal: owner + neutral name) or its company place. Refs `p-<booking>` / `d-<booking>`.
+ */
+export function areaStopRows(b: StopBooking, plan: { id: string; companyId: string; startMs: number }, placeName: (poiId: string) => string | null): [Prisma.RoutePlanStopCreateManyInput, Prisma.RoutePlanStopCreateManyInput] {
+  const blank = { assignmentId: null, sequence: null, etaS: null, unassignedReason: null, snappedLat: null, snappedLng: null, snapDistanceM: null, snapGraphVersion: null, tripIndex: 0 };
+  const row = (kind: 'PICKUP' | 'DROP'): Prisma.RoutePlanStopCreateManyInput => {
+    const pickup = kind === 'PICKUP';
+    const poiId = pickup ? b.pickupPoiId : b.dropPoiId;
+    return {
+      ...blank,
+      planId: plan.id,
+      companyId: plan.companyId,
+      ref: `${pickup ? 'p' : 'd'}-${b.id}`,
+      name: poiId ? placeName(poiId) : PERSONAL_STOP_NAME[kind],
+      lat: (pickup ? b.pickupLat : b.dropLat)!,
+      lng: (pickup ? b.pickupLng : b.dropLng)!,
+      demand: pickup ? b.passengerCount : 0,
+      serviceS: 60,
+      ...(pickup ? { timeWindows: [[relS(b.windowStart, plan.startMs), relS(b.windowEnd, plan.startMs)]] } : {}),
+      stopKind: kind,
+      customerCompanyId: b.customerCompanyId,
+      bookingId: b.id,
+      profileId: poiId ? null : b.profileId,
+      poiId,
+    };
+  };
+  return [row('PICKUP'), row('DROP')];
 }

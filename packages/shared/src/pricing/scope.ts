@@ -1,5 +1,6 @@
 /** Component scope matching (doc 19 §3.2 PricingComponent.scope). */
-import type { PricingComponentInput, PricingComponentScope, RidePreference } from './types';
+import type { PricingComponentInput, PricingComponentScope } from './types';
+import type { RidePreference } from '../transport-pooling';
 
 /** The facts a scope is matched against (TripFacts / PeriodFacts both fit). */
 export interface ScopeFacts {

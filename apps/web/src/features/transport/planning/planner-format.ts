@@ -361,6 +361,9 @@ export const SKIPPED_REASON_LABEL: Record<RoutePlanSkipReason, string> & Record<
   outside_shift_window: "Window outside this shift's times",
   point_to_point: 'Point-to-point ride',
   needs_approval: 'Not approved yet',
+  on_hold: 'On hold',
+  private_ride: 'Private ride',
+  outside_plan_window: 'Outside the plan window',
 };
 
 /** WP 3.9: what to do about a skipped booking (shown with each reason). */
@@ -373,6 +376,9 @@ export const SKIPPED_REASON_HINT: Record<RoutePlanSkipReason, string> & Record<s
   outside_shift_window: 'Seat it on the dispatch board, or plan without a shift.',
   point_to_point: 'Point-to-point rides are seated by hand on the dispatch board.',
   needs_approval: 'Approve it in Bookings, then plan again.',
+  on_hold: 'Release the hold in Bookings, then plan again.',
+  private_ride: 'Seat it alone on the dispatch board, or use an area plan.',
+  outside_plan_window: 'Plan a window that covers it.',
 };
 
 /** Why a booking cannot be added to a plan (409 BOOKING_NOT_PLANNABLE `reason`): the skip reasons plus these. */

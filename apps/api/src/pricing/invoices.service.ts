@@ -1,9 +1,10 @@
 import { HttpStatus, Injectable, StreamableFile } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  allocateLargestRemainder,
   applyTax,
-  divRound,
+  splitCredit,
+  taxKind as gstKind,
+  type BillingAdjustmentDto,
   fiscalYearLabel,
   formatDocumentNumber,
   formatMinor,
@@ -60,7 +61,7 @@ import {
   type Db,
 } from './pricing-common';
 import { PricingSettingsService } from './settings.service';
-import { INVOICEABLE_TRIP_STATUSES, tripSourceKey } from './trip-pricing.service';
+import { adjustmentDto, INVOICEABLE_TRIP_STATUSES, lockTrip, tripSourceKey } from './trip-pricing.service';
 
 type InvoiceRow = Prisma.CustomerInvoiceGetPayload<object>;
 type InvoiceFull = Prisma.CustomerInvoiceGetPayload<{ include: { lines: true; creditNotes: true; payments: true } }>;
@@ -232,7 +233,12 @@ export class CustomerInvoicesService {
     const from = new Date(`${periodStart}T00:00:00Z`);
     const to = new Date(`${periodEnd}T00:00:00Z`);
     const branch = branchId ? { branchId } : {};
-    const snaps = await tx.tripPriceSnapshot.findMany({ where: { companyId: ctx.companyId, contractId: contract.id, isCurrent: true, serviceDate: { gte: from, lte: to }, ...branch }, orderBy: [{ serviceDate: 'asc' }, { calculatedAt: 'asc' }] });
+    const snapWhere = { companyId: ctx.companyId, contractId: contract.id, isCurrent: true, serviceDate: { gte: from, lte: to }, ...branch };
+    // QA 6: lock every candidate trip like a re-price does (sorted, no deadlock), then read the current snapshots again,
+    // so a draft never holds a snapshot superseded by a concurrent recalculation.
+    const candidateTrips = [...new Set((await tx.tripPriceSnapshot.findMany({ where: snapWhere, select: { transportTripId: true } })).map((r) => r.transportTripId))].sort();
+    for (const t of candidateTrips) await lockTrip(tx, t);
+    const snaps = await tx.tripPriceSnapshot.findMany({ where: snapWhere, orderBy: [{ serviceDate: 'asc' }, { calculatedAt: 'asc' }] });
     const invoiced = new Set((await tx.customerInvoiceLine.findMany({ where: { sourceKey: { in: snaps.map((s) => tripSourceKey(s.transportTripId, s.passengerId)) } }, select: { sourceKey: true } })).map((l) => l.sourceKey));
     const skipped = { needsReview: 0, noPricing: 0, errors: 0 };
     const usable = snaps.filter((s) => {
@@ -302,20 +308,40 @@ export class CustomerInvoicesService {
       const supplier = await this.settings.requireSupplier(tx, ctx.companyId);
       const contract = inv.contractId ? await tx.pricingContract.findUnique({ where: { id: inv.contractId } }) : null;
       const company = await tx.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true } });
-      const date = invoiceDate ? ymd(dateOnly(invoiceDate, 'invoiceDate')) : localYmd(new Date(), company.timezone);
+      const today = localYmd(new Date(), company.timezone);
+      const date = invoiceDate ? ymd(dateOnly(invoiceDate, 'invoiceDate')) : today;
       const fy = fiscalYearLabel(date, supplier.fiscalYearStartMonth);
+      const currentFy = fiscalYearLabel(today, supplier.fiscalYearStartMonth);
+      // QA 12: no future dates and no dates outside the current fiscal year.
+      if (date > today) throw pricingError(HttpStatus.CONFLICT, 'INVOICE_DATE_INVALID', 'The invoice date cannot be in the future');
+      if (fy !== currentFy) throw pricingError(HttpStatus.CONFLICT, 'INVOICE_DATE_INVALID', `The invoice date must be in the current fiscal year (${currentFy})`);
+      // QA 6: every trip line must still be the trip's current price (re-checked under the trip locks).
+      const tripLines = inv.lines.filter((l) => l.sourceType === 'TRIP_SNAPSHOT' && l.sourceId);
+      const lineTrips = await tx.tripPriceSnapshot.findMany({ where: { id: { in: tripLines.map((l) => l.sourceId!) } }, select: { id: true, transportTripId: true } });
+      for (const t of [...new Set(lineTrips.map((x) => x.transportTripId))].sort()) await lockTrip(tx, t);
+      const stale = await tx.tripPriceSnapshot.count({ where: { id: { in: lineTrips.map((x) => x.id) }, isCurrent: false } });
+      if (stale || lineTrips.length !== tripLines.length) throw conflict('SNAPSHOT_SUPERSEDED', 'A trip on this draft was re-priced since it was generated; delete the draft and generate it again');
       // Gap-free per supplier company and fiscal year: the counter row stays locked until this transaction commits.
       const [{ lastSeq }] = await tx.$queryRaw<{ lastSeq: number }[]>`
         INSERT INTO "BillingCounter" ("key", "lastSeq") VALUES (${`CINV:${ctx.companyId}:${fy}`}, 1)
         ON CONFLICT ("key") DO UPDATE SET "lastSeq" = "BillingCounter"."lastSeq" + 1 RETURNING "lastSeq"`;
       const seq = Number(lastSeq);
+      // QA 12 (under the counter lock): the series stays in date order, never before the latest issued invoice of the year.
+      const latest = await tx.customerInvoice.findFirst({ where: { companyId: ctx.companyId, fy, status: 'ISSUED' }, orderBy: { invoiceDate: 'desc' }, select: { invoiceDate: true, number: true } });
+      if (latest?.invoiceDate && ymd(latest.invoiceDate) > date) throw pricingError(HttpStatus.CONFLICT, 'INVOICE_DATE_INVALID', `Invoice ${latest.number} is dated ${ymd(latest.invoiceDate)}; a later number cannot carry an earlier date`);
       const number = formatDocumentNumber(supplier.invoicePrefix, fy, seq);
       const buyerProfile = inv.customerCompanyId ? await tx.billingProfile.findUnique({ where: { companyId: inv.customerCompanyId } }) : null;
       const buyer: InvoicePartySnapshot = buyerProfile
         ? { name: buyerProfile.billingName, address: buyerProfile.address, city: buyerProfile.city, stateCode: buyerProfile.stateCode, country: 'IN', taxRegistration: buyerProfile.gstin, email: buyerProfile.email }
         : { name: contract?.customerName ?? ((inv.buyer ?? {}) as { name?: string }).name ?? 'Customer', stateCode: inv.customerCompanyId ? null : supplier.stateCode, country: supplier.country };
       const supplierSnap: InvoicePartySnapshot = { name: supplier.legalName, address: supplier.address, city: supplier.city, stateCode: supplier.stateCode, country: supplier.country, taxRegistration: supplier.taxRegistration, email: supplier.email };
-      const taxKind = supplier.taxRegime === 'IN_GST' ? (supplier.stateCode && buyer.stateCode && supplier.stateCode !== buyer.stateCode ? 'IGST' : 'CGST_SGST') : supplier.taxRegime;
+      // The tax kind is frozen from the lines as priced. If the parties' states now imply another split, refuse: re-price.
+      const invTax = (Array.isArray(inv.taxLines) ? inv.taxLines : []) as unknown as TaxLineDto[];
+      const has = (k: 'igstMinor' | 'utgstMinor' | 'cgstMinor') => invTax.some((t) => BigInt(t[k] ?? '0') !== 0n);
+      const taxKind = has('igstMinor') ? 'IGST' : has('utgstMinor') ? 'CGST_UTGST' : has('cgstMinor') ? 'CGST_SGST' : supplier.taxRegime;
+      if (supplier.taxRegime === 'IN_GST' && inv.taxMinor !== 0n && supplier.stateCode && buyer.stateCode && gstKind(supplier.stateCode, buyer.stateCode) !== taxKind) {
+        throw conflict('TAX_SPLIT_CHANGED', `The lines were taxed as ${taxKind} but the supplier / buyer states now give ${gstKind(supplier.stateCode, buyer.stateCode)}; recalculate the trips and generate again`);
+      }
       const dueDate = addDaysYmd(date, contract?.paymentTermsDays ?? 0);
       await guardDb(
         tx.customerInvoice.update({
@@ -347,37 +373,62 @@ export class CustomerInvoicesService {
 
   // ───────────── credit notes ─────────────
 
-  async createCreditNote(ctx: AuthContext, id: string, dto: CreateCreditNoteRequest): Promise<CustomerCreditNoteDto> {
+  /**
+   * QA 10: a credit note needs two users. The request (pricing_adjustments:create) records a pending CREDIT adjustment
+   * linked to the issued invoice; a different user approves it (BillingAdjustmentsService.decide), which issues the note.
+   */
+  async requestCreditNote(ctx: AuthContext, id: string, dto: CreateCreditNoteRequest): Promise<BillingAdjustmentDto> {
     const reason = reasonOf(dto.reason);
     return this.prisma.$transaction(async (tx) => {
-      // Row lock on the invoice (FOR UPDATE is not an UPDATE: the immutability trigger does not fire).
-      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "CustomerInvoice" WHERE "id" = ${id}::uuid AND "companyId" = ${ctx.companyId}::uuid FOR UPDATE`;
-      if (!locked.length) throw notFound();
       const inv = await this.load(tx, ctx, id);
       if (inv.status !== 'ISSUED') throw conflict('INVOICE_NOT_DRAFT', 'Credit notes are issued against issued invoices only');
       const credited = inv.creditNotes.reduce((s, c) => s + c.totalMinor, 0n);
       const remaining = inv.totalMinor - credited;
       const amount = dto.amount ? majorToMinor(dto.amount, inv.currency, 'amount', { positive: true }) : remaining;
       if (amount <= 0n || amount > remaining) throw conflict('CREDIT_EXCEEDS_INVOICE', `At most ${formatMinor(remaining, inv.currency)} ${inv.currency} can still be credited`, { remainingMinor: remaining.toString() });
-      // Pro rata split over the invoice's tax (a full credit reverses the tax exactly).
-      const taxMinor = amount === remaining && credited === 0n ? inv.taxMinor : divRound(inv.taxMinor * amount, inv.totalMinor === 0n ? 1n : inv.totalMinor, 'HALF_UP');
-      const invTax = (Array.isArray(inv.taxLines) ? inv.taxLines : []) as unknown as TaxLineDto[];
-      const shares = invTax.length ? allocateLargestRemainder(taxMinor, invTax.map((t) => BigInt(t.taxMinor) > 0n ? BigInt(t.taxMinor) : 0n)) : [];
-      const taxLines: TaxLineDto[] = invTax.map((t, i) => ({ taxCode: t.taxCode, label: t.label, ratePpm: t.ratePpm, taxableMinor: divRound(BigInt(t.taxableMinor) * amount, inv.totalMinor === 0n ? 1n : inv.totalMinor, 'HALF_UP').toString(), taxMinor: (shares[i] ?? 0n).toString() }));
-      const supplier = await this.settings.requireSupplier(tx, ctx.companyId);
-      const company = await tx.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true } });
-      const fy = fiscalYearLabel(localYmd(new Date(), company.timezone), supplier.fiscalYearStartMonth);
-      const [{ lastSeq }] = await tx.$queryRaw<{ lastSeq: number }[]>`
-        INSERT INTO "BillingCounter" ("key", "lastSeq") VALUES (${`CCN:${ctx.companyId}:${fy}`}, 1)
-        ON CONFLICT ("key") DO UPDATE SET "lastSeq" = "BillingCounter"."lastSeq" + 1 RETURNING "lastSeq"`;
-      const seq = Number(lastSeq);
-      const cn = await tx.customerCreditNote.create({
-        data: { companyId: ctx.companyId, invoiceId: id, number: formatDocumentNumber(supplier.creditNotePrefix, fy, seq), fy, seq, currency: inv.currency, lines: asJson([{ description: `Credit against ${inv.number}`, amountMinor: (amount - taxMinor).toString(), taxMinor: taxMinor.toString() }]), subtotalMinor: amount - taxMinor, taxMinor, totalMinor: amount, taxLines: asJson(taxLines), reason, issuedById: ctx.userId },
-      });
-      await this.audit.record(ctx, { action: 'CREATE', entity: 'customer_credit_note', entityId: cn.id, after: { ...cn, invoiceNumber: inv.number } }, tx);
-      await this.audit.record(ctx, { action: 'UPDATE', entity: 'customer_invoice', entityId: id, details: { event: 'CREDITED', creditNoteId: cn.id, number: cn.number, totalMinor: amount.toString(), reason } }, tx);
-      return creditNoteDto(cn);
+      if (!inv.contractId) throw conflict('VALIDATION_FAILED', 'The invoice has no contract');
+      const adj = await tx.billingAdjustment.create({ data: { companyId: ctx.companyId, contractId: inv.contractId, invoiceId: id, kind: 'CREDIT', amountMinor: -amount, currency: inv.currency, data: asJson({ creditNote: true, amountMinor: amount.toString(), invoiceNumber: inv.number }), reason, requestedById: ctx.userId } });
+      await this.audit.record(ctx, { action: 'CREATE', entity: 'billing_adjustment', entityId: adj.id, after: { ...adj, _event: 'CREDIT_NOTE_REQUESTED' } }, tx);
+      return adjustmentDto(adj);
     });
+  }
+
+  /** Issue the credit note of an approved request (inside the approval transaction; ctx = the approver). */
+  async issueCreditNoteInTx(tx: Db, ctx: AuthContext, id: string, amount: bigint, reason: string, adjustmentId: string): Promise<CustomerCreditNoteDto> {
+    // Row lock on the invoice (FOR UPDATE is not an UPDATE: the immutability trigger does not fire).
+    const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "CustomerInvoice" WHERE "id" = ${id}::uuid AND "companyId" = ${ctx.companyId}::uuid FOR UPDATE`;
+    if (!locked.length) throw notFound();
+    const inv = await this.load(tx, ctx, id);
+    if (inv.status !== 'ISSUED') throw conflict('INVOICE_NOT_DRAFT', 'Credit notes are issued against issued invoices only');
+    const creditedTotal = inv.creditNotes.reduce((s, c) => s + c.totalMinor, 0n);
+    const creditedTax = inv.creditNotes.reduce((s, c) => s + c.taxMinor, 0n);
+    const big = (v: string | undefined) => (v !== undefined ? BigInt(v) : undefined);
+    const invTax = ((Array.isArray(inv.taxLines) ? inv.taxLines : []) as unknown as TaxLineDto[]).map((t) => ({ taxCode: t.taxCode, label: t.label, ratePpm: t.ratePpm, taxableMinor: BigInt(t.taxableMinor), taxMinor: BigInt(t.taxMinor), cgstMinor: big(t.cgstMinor), sgstMinor: big(t.sgstMinor), utgstMinor: big(t.utgstMinor), igstMinor: big(t.igstMinor) }));
+    let split: ReturnType<typeof splitCredit>;
+    try {
+      split = splitCredit({ totalMinor: inv.totalMinor, taxMinor: inv.taxMinor, taxLines: invTax }, { totalMinor: creditedTotal, taxMinor: creditedTax }, amount);
+    } catch {
+      throw conflict('CREDIT_EXCEEDS_INVOICE', `At most ${formatMinor(inv.totalMinor - creditedTotal, inv.currency)} ${inv.currency} can still be credited`, { remainingMinor: (inv.totalMinor - creditedTotal).toString() });
+    }
+    const taxLines: TaxLineDto[] = split.taxLines.map((t) => {
+      const o: TaxLineDto = { taxCode: t.taxCode, label: t.label, ratePpm: t.ratePpm, taxableMinor: t.taxableMinor.toString(), taxMinor: t.taxMinor.toString() };
+      for (const k of ['cgstMinor', 'sgstMinor', 'utgstMinor', 'igstMinor'] as const) if (t[k] !== undefined) o[k] = t[k]!.toString();
+      return o;
+    });
+    const supplier = await this.settings.requireSupplier(tx, ctx.companyId);
+    const company = await tx.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true } });
+    const fy = fiscalYearLabel(localYmd(new Date(), company.timezone), supplier.fiscalYearStartMonth);
+    const counterKey = `CCN:${ctx.companyId}:${fy}`;
+    const [{ lastSeq }] = await tx.$queryRaw<{ lastSeq: number }[]>`
+      INSERT INTO "BillingCounter" ("key", "lastSeq") VALUES (${counterKey}, 1)
+      ON CONFLICT ("key") DO UPDATE SET "lastSeq" = "BillingCounter"."lastSeq" + 1 RETURNING "lastSeq"`;
+    const seq = Number(lastSeq);
+    const cn = await tx.customerCreditNote.create({
+      data: { companyId: ctx.companyId, invoiceId: id, number: formatDocumentNumber(supplier.creditNotePrefix, fy, seq), fy, seq, currency: inv.currency, lines: asJson([{ description: `Credit against ${inv.number}`, amountMinor: split.subtotalMinor.toString(), taxMinor: split.taxMinor.toString(), adjustmentId }]), subtotalMinor: split.subtotalMinor, taxMinor: split.taxMinor, totalMinor: amount, taxLines: asJson(taxLines), reason, issuedById: ctx.userId },
+    });
+    await this.audit.record(ctx, { action: 'CREATE', entity: 'customer_credit_note', entityId: cn.id, after: { ...cn, invoiceNumber: inv.number, adjustmentId } }, tx);
+    await this.audit.record(ctx, { action: 'UPDATE', entity: 'customer_invoice', entityId: id, details: { event: 'CREDITED', creditNoteId: cn.id, number: cn.number, totalMinor: amount.toString(), reason, adjustmentId } }, tx);
+    return creditNoteDto(cn);
   }
 
   // ───────────── payments ─────────────

@@ -1,3 +1,4 @@
+import type { AreaInputs } from './area-runner';
 import type { OptimizeResult, OptimizeUnassignedDetail, OptimizeUnassignedReason, OptimizeUnusableVehicle, RoutingProfile, SolverOptions, SolverResult, SolverStop, VehicleSizePreference } from '@veetracer/shared';
 import { uncalibratedEta } from '@veetracer/shared';
 import { vehicleFixedCosts } from './strategies';
@@ -55,6 +56,8 @@ export interface PlanVehicleInput {
   wheelchairSpaces: number;
   /** E4 WP-A: free time of the vehicle / driver (seconds after planStartAt; end null = until the horizon). */
   availability?: [number, number | null];
+  /** Pooling (AREA plans): seconds between two trips of the vehicle. */
+  turnaroundS?: number;
 }
 
 /** Objective weights (README P6: always explicit). */
@@ -98,6 +101,8 @@ export interface PlanInputs {
   unusableVehicles?: OptimizeUnusableVehicle[];
   /** E4 WP-A: strategy of the run (reported in the job result). */
   strategy?: string | null;
+  /** Pooling (doc 20 §3.5): an AREA plan is solved in pickup-and-delivery mode (contract v3, area-runner.ts). */
+  area?: AreaInputs;
 }
 
 export interface BuiltProblem {
@@ -284,7 +289,7 @@ export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, 
 export interface AssignmentWrite {
   assignmentId: string;
   /** Ordered: [stopId, etaS]. */
-  visits: { stopId: string; sequence: number; etaS: number | null }[];
+  visits: { stopId: string; sequence: number; etaS: number | null; /** Pooling (AREA plans): trip of the vehicle route. */ tripIndex?: number }[];
   startS: number | null;
   endS: number | null;
   durationS: number | null;

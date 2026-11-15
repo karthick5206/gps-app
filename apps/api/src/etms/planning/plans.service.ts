@@ -775,15 +775,16 @@ export class RoutePlansService {
           data: { status, ...(plan.publishedAt ? {} : { publishedAt: now }), version: { increment: 1 }, options },
         });
         if (!n.count) throw stale(plan.version);
-        for (const [assignmentId, tempId] of cs.tempIds) {
-          const trip = result.trips.find((t) => t.tempId === tempId);
-          if (!trip) throw new Error(`publish: no trip for ${tempId}`);
-          await tx.transportTrip.update({ where: { id: trip.id }, data: { routePlanId: plan.id, routeAssignmentId: assignmentId } });
+        // Pooling C2: an AREA route publishes one trip per tripIndex (routeTripIndex; unique with routeAssignmentId).
+        for (const ref of cs.tripRefs) {
+          const trip = result.trips.find((t) => t.tempId === ref.tempId);
+          if (!trip) throw new Error(`publish: no trip for ${ref.tempId}`);
+          await tx.transportTrip.update({ where: { id: trip.id }, data: { routePlanId: plan.id, routeAssignmentId: ref.assignmentId, routeTripIndex: ref.tripIndex } });
         }
         await this.recordVersion(tx, ctx, plan, next, 'PUBLISHED', status, stops);
         const ack = decision.acknowledged ? { acknowledgedWarnings: { ...decision.acknowledged, kinds: [...new Set(issues.soft.map((i) => i.kind))] } } : {};
         const part = partial ? { partial: true, assignmentIds: selectedIds, remainingRoutes: p.remaining.length } : {};
-        await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: plan.id, details: { published: true, changeSetId: result.changeSetId, trips: cs.tempIds.size, version: next, status, ...part, ...ack, ...(decision.override ? { override: true } : {}) } as Prisma.InputJsonValue }, tx);
+        await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: plan.id, details: { published: true, changeSetId: result.changeSetId, trips: cs.tripRefs.length, version: next, status, ...part, ...ack, ...(decision.override ? { override: true } : {}) } as Prisma.InputJsonValue }, tx);
         // The override's own audit row: the plan, the violations overridden and the reason (the actor is the row's user).
         if (decision.override) {
           await this.audit.record(ctx, { action: 'UPDATE', entity: PLAN_ENTITY, entityId: plan.id, details: { planId: plan.id, version: next, publishOverride: { reason: decision.override.reason, violations: decision.override.violations } } as unknown as Prisma.InputJsonValue }, tx);
@@ -796,7 +797,7 @@ export class RoutePlansService {
     } catch (e) {
       throw routeError(isRouteLinkTaken(e) ? alreadyPublished('A selected route was published meanwhile; reload the plan') : e, source.failedAt ?? 0, cs.opRoute, plan.assignments);
     }
-    const trips = [...cs.tempIds].map(([assignmentId, tempId]) => {
+    const trips = cs.tripRefs.map(({ assignmentId, tempId }) => {
       const t = r.value.trips.find((x) => x.tempId === tempId);
       return { assignmentId, transportTripId: t?.id ?? '', plannedTripId: t?.plannedTripId ?? null };
     });
@@ -873,7 +874,7 @@ export class RoutePlansService {
     }
     const routes: PublishRoute[] = selected.map((a) => ({ id: a.id, seq: a.seq, vehicleLabel: a.vehicleLabel, objectId: a.objectId, driverId: a.driverId, startS: a.startS, endS: a.endS, seats: a.objectId ? (seatsOf.get(a.objectId) ?? null) : null }));
     const cs = buildPlanChangeSet(
-      { id: plan.id, name: plan.name, planDate: plan.planDate, planStartAt: plan.planStartAt, direction: (plan.direction as TransportDirection | null) ?? null, shiftId: plan.shiftId, sitePoiId: plan.sitePoiId },
+      { id: plan.id, name: plan.name, planDate: plan.planDate, planStartAt: plan.planStartAt, direction: (plan.direction as TransportDirection | null) ?? null, shiftId: plan.shiftId, sitePoiId: plan.sitePoiId, scope: plan.scope },
       routes,
       stops,
       bookings,
@@ -885,7 +886,7 @@ export class RoutePlansService {
     const issues = publishIssues(routeCapacities({ assignments: selected }, seatsOf), stops, (b) => bookings.get(b)?.passengerCount, ride);
     const reviewHash = reviewHashOf({
       version: plan.version,
-      routes: selected.map((a) => ({ id: a.id, objectId: a.objectId, driverId: a.driverId, stops: routeStops(stops, a.id).map((s) => ({ id: s.id, etaS: s.etaS })) })),
+      routes: selected.map((a) => ({ id: a.id, objectId: a.objectId, driverId: a.driverId, stops: routeStops(stops, a.id).map((s) => ({ id: s.id, etaS: s.etaS, ...(s.tripIndex ? { tripIndex: s.tripIndex } : {}) })) })),
       fingerprint: issues.fingerprint,
     });
     return { stops, published, selected, remaining: open.filter((a) => !selectedIds.has(a.id)), bookings, seatsOf, cs, errors, availability, issues, reviewHash, ride };

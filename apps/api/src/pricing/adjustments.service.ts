@@ -10,7 +10,8 @@ import {
 import type { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { conflict, contractVisible, forbidden, invalid, isCompanyScope, majorToMinor, notFound, pageOf, paging, reasonOf } from './pricing-common';
+import { asJson, conflict, contractVisible, forbidden, invalid, isCompanyScope, majorToMinor, notFound, pageOf, paging, reasonOf } from './pricing-common';
+import { CustomerInvoicesService } from './invoices.service';
 import { adjustmentDto, TripPricingService } from './trip-pricing.service';
 
 /**
@@ -24,6 +25,7 @@ export class BillingAdjustmentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly trips: TripPricingService,
+    private readonly invoices: CustomerInvoicesService,
   ) {}
 
   private async visibleContractIds(ctx: AuthContext): Promise<string[] | null> {
@@ -72,6 +74,22 @@ export class BillingAdjustmentsService {
       if (a.status !== 'PENDING_APPROVAL') throw conflict('VALIDATION_FAILED', `This adjustment is already ${a.status.toLowerCase()}`);
       if (a.requestedById === ctx.userId) throw forbidden('MAKER_CHECKER_SAME_USER', 'An adjustment must be decided by a different user than the one who requested it');
       let status = approve ? 'APPROVED' : 'REJECTED';
+      const extra: Record<string, unknown> = {};
+      if (approve && a.kind === 'CREDIT' && a.invoiceId) {
+        // QA 10: the approver (≠ requester) issues the credit note.
+        const amount = BigInt(((a.data ?? {}) as { amountMinor?: string }).amountMinor ?? (-a.amountMinor).toString());
+        const cn = await this.invoices.issueCreditNoteInTx(tx, ctx, a.invoiceId, amount, a.reason, a.id);
+        extra.creditNoteId = cn.id;
+        extra.creditNoteNumber = cn.number;
+        status = 'APPLIED';
+      }
+      if (approve && a.kind === 'DISTANCE_CORRECTION') {
+        if (!a.transportTripId) throw conflict('VALIDATION_FAILED', 'The correction has no trip');
+        if (!contract.allowTripOverrides && contract.distanceSource !== 'MANUAL_APPROVED') throw conflict('TRIP_OVERRIDE_NOT_PERMITTED', 'This contract no longer permits manual billable distances');
+        const m = Number(((a.data ?? {}) as { manualDistanceM?: number }).manualDistanceM);
+        await this.trips.priceInTx(tx, ctx, a.transportTripId, { reason: `manual distance: ${a.reason} (approved)`, manualDistanceM: m });
+        status = 'APPLIED';
+      }
       if (approve && a.kind === 'PRICE_OVERRIDE') {
         if (!a.transportTripId) throw conflict('VALIDATION_FAILED', 'The override has no trip');
         if (!contract.allowTripOverrides) throw conflict('TRIP_OVERRIDE_NOT_PERMITTED', 'This contract no longer permits trip overrides');
@@ -79,7 +97,7 @@ export class BillingAdjustmentsService {
         await this.trips.priceInTx(tx, ctx, a.transportTripId, { reason: `override: ${a.reason}`, override: { minor: overrideMinor, reason: a.reason, byId: a.requestedById, approvedById: ctx.userId } });
         status = 'APPLIED';
       }
-      const after = await tx.billingAdjustment.update({ where: { id }, data: { status, decidedById: ctx.userId, decidedAt: new Date(), decisionNote: why, ...(status === 'APPLIED' ? { appliedAt: new Date() } : {}), version: { increment: 1 } } });
+      const after = await tx.billingAdjustment.update({ where: { id }, data: { status, decidedById: ctx.userId, decidedAt: new Date(), decisionNote: why, ...(status === 'APPLIED' ? { appliedAt: new Date() } : {}), ...(Object.keys(extra).length ? { data: asJson({ ...((a.data ?? {}) as object), ...extra }) } : {}), version: { increment: 1 } } });
       await this.audit.record(ctx, { action: 'UPDATE', entity: 'billing_adjustment', entityId: id, before: a, after }, tx);
       return adjustmentDto(after);
     });

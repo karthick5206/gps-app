@@ -52,6 +52,10 @@ import { PricingSettingsService } from './settings.service';
 
 type SnapshotRow = Prisma.TripPriceSnapshotGetPayload<object>;
 const FINAL_TRIP = ['COMPLETED', 'INCOMPLETE', 'CANCELLED'];
+/** Per-trip transaction lock shared by re-pricing and invoice generation / issue (QA 6). */
+export async function lockTrip(tx: Db, tripId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pricing:trip:${tripId}`}, 0))`;
+}
 export const tripSourceKey = (tripId: string, passengerId: string | null = null) => `TRIP:${tripId}:${passengerId ?? ''}`;
 /** Snapshots an invoice may take. */
 export const INVOICEABLE_TRIP_STATUSES = ['PRICED'];
@@ -153,7 +157,7 @@ export class TripPricingService {
 
   /** Price one trip and append the snapshot (inside `tx`, under a per-trip advisory lock). */
   async priceInTx(tx: Db, ctx: AuthContext, tripId: string, opts: PriceOptions = {}): Promise<SnapshotRow | null> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pricing:trip:${tripId}`}, 0))`;
+    await lockTrip(tx, tripId);
     const trip = await this.loadTrip(tx, ctx, tripId);
     if (await this.invoiceOfTrip(tx, tripId)) {
       if (opts.skipInvoiced) return null;
@@ -168,19 +172,33 @@ export class TripPricingService {
     const company = await tx.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true } });
     const profile = objectId ? await tx.transportVehicleProfile.findUnique({ where: { objectId }, select: { category: true, seats: true } }) : null;
 
-    // Precedence 1 / 4 (§5.7): ACTIVE contracts with a version covering the service date.
-    const active = await tx.pricingContract.findMany({ where: { companyId: ctx.companyId, status: 'ACTIVE' } });
+    // Precedence 1 / 4 (§5.7): ACTIVE contracts with a version covering the service date are priceable. QA 4: a
+    // SUSPENDED contract, a version gap or an inactive agreement is still the customer's contract and is passed with a
+    // non-ACTIVE status, so the company default is never used instead (explicit NO_APPLICABLE_PRICING).
+    const all = await tx.pricingContract.findMany({ where: { companyId: ctx.companyId, status: { in: ['ACTIVE', 'SUSPENDED'] } } });
+    const active = all.filter((c) => c.status === 'ACTIVE');
     const candidates: ContractCandidate[] = [];
     const versions = new Map<string, NonNullable<Awaited<ReturnType<PricingContractsService['versionFor']>>>>();
-    for (const c of active) {
+    for (const c of all) {
+      const base = { id: c.id, customerCompanyId: c.customerCompanyId, isDefault: c.isDefault, branchIds: c.branchIds, validFrom: serviceDate, validTo: null, defaultCovers: c.defaultCovers as ('INTERNAL' | 'EXTERNAL')[] };
+      if (c.status !== 'ACTIVE') {
+        candidates.push({ ...base, status: 'SUSPENDED' });
+        continue;
+      }
       if (c.agreementId) {
         const a = await tx.transportServiceAgreement.findUnique({ where: { id: c.agreementId }, select: { status: true } });
-        if (a?.status !== 'ACTIVE') continue; // §3.1: a suspended / ended agreement suspends billing
+        if (a?.status !== 'ACTIVE') {
+          candidates.push({ ...base, status: 'AGREEMENT_INACTIVE' }); // §3.1: a suspended / ended agreement suspends billing
+          continue;
+        }
       }
       const v = await this.contracts.versionFor(tx, c.id, serviceDate);
-      if (!v) continue;
+      if (!v) {
+        candidates.push({ ...base, status: 'NO_VERSION' });
+        continue;
+      }
       versions.set(c.id, v);
-      candidates.push({ id: c.id, customerCompanyId: c.customerCompanyId, isDefault: c.isDefault, branchIds: c.branchIds, status: 'ACTIVE', validFrom: ymd(v.validFrom), validTo: v.validTo ? ymd(v.validTo) : null, defaultCovers: c.defaultCovers as ('INTERNAL' | 'EXTERNAL')[] });
+      candidates.push({ ...base, status: 'ACTIVE', validFrom: ymd(v.validFrom), validTo: v.validTo ? ymd(v.validTo) : null });
     }
     const sel = selectContract(candidates, { customerCompanyId: customer, branchId, vehicleCategory: profile?.category ?? null, serviceDate });
 
@@ -247,7 +265,11 @@ export class TripPricingService {
         const t = th * 60 + tm;
         return f <= t ? minute >= f && minute < t : minute >= f || minute < t;
       })();
-      const cancelledAt = trip.cancelledAt ?? (pt?.status === 'CANCELLED' ? pt.updatedAt : null);
+      // QA 11: the cancellation time is the trip's cancellation event (cancelledAt), never a later row update. A trip
+      // cancelled on the vehicle side without that time cannot be judged against the free-cancellation window: review.
+      const cancelledAt = trip.cancelledAt;
+      const cancelledUnknown = !cancelledAt && pt?.status === 'CANCELLED';
+      if (cancelledUnknown) issues.push({ code: 'MISSING_FACT', message: 'The trip was cancelled but the cancellation time is unknown; review the cancellation charge' });
       const tax = await this.settings.taxConfigFor(tx, ctx.companyId, contract, serviceDate);
       const estimate = !pt || !FINAL_TRIP.includes(pt.status);
       const result: PriceResult = priceTrip({
@@ -296,7 +318,7 @@ export class TripPricingService {
         taxMinor: result.taxMinor,
         totalMinor: result.totalMinor,
         issues: asJson([...issues, ...result.issues]),
-        status: result.status,
+        status: cancelledUnknown && result.status !== 'COVERED' ? 'NEEDS_REVIEW' : result.status,
         ...(opts.override ? { overrideById: opts.override.byId, overrideAt: new Date(), overrideReason: opts.override.reason, overrideApprovedById: opts.override.approvedById } : {}),
       };
     }
@@ -363,7 +385,12 @@ export class TripPricingService {
     return snapshotDto(row!);
   }
 
-  async setBillableDistance(ctx: AuthContext, tripId: string, distanceKm: string, reason: string): Promise<TripPriceSnapshotDto> {
+  /**
+   * Manual billable distance (QA 10): a manual value always wins the distance resolution, so it is a price change like
+   * an override. Allowed when the contract permits trip overrides or prices on MANUAL_APPROVED distances; when the
+   * version policy requires approval it becomes a DISTANCE_CORRECTION adjustment for a second user.
+   */
+  async setBillableDistance(ctx: AuthContext, tripId: string, distanceKm: string, reason: string): Promise<TripOverrideResponse> {
     const why = reasonOf(reason);
     let m: number;
     try {
@@ -372,8 +399,24 @@ export class TripPricingService {
       throw invalid('distanceKm must be a decimal km value such as "25.4"');
     }
     if (m <= 0 || m > 5_000_000) throw invalid('distanceKm must be between 0 and 5000');
-    const row = await this.prisma.$transaction((tx) => this.priceInTx(tx, ctx, tripId, { reason: `manual distance: ${why}`, manualDistanceM: m }));
-    return snapshotDto(row!);
+    return this.prisma.$transaction(async (tx) => {
+      await this.loadTrip(tx, ctx, tripId);
+      const current = await tx.tripPriceSnapshot.findFirst({ where: { transportTripId: tripId, passengerId: null, isCurrent: true } });
+      if (!current?.contractId) throw conflict('NO_APPLICABLE_PRICING', 'Price the trip with a contract first (recalculate)');
+      const contract = await tx.pricingContract.findFirstOrThrow({ where: { id: current.contractId, companyId: ctx.companyId } });
+      if (!contract.allowTripOverrides && contract.distanceSource !== 'MANUAL_APPROVED') throw conflict('TRIP_OVERRIDE_NOT_PERMITTED', 'This contract does not permit manual billable distances');
+      if (await this.invoiceOfTrip(tx, tripId)) throw conflict('ALREADY_INVOICED', 'This trip is on an invoice; use an adjustment or a credit note');
+      const version = current.contractVersionId ? await tx.pricingContractVersion.findUnique({ where: { id: current.contractVersionId } }) : null;
+      if (((version?.policies ?? {}) as PricingPolicies).tripOverrideNeedsApproval) {
+        const adj = await tx.billingAdjustment.create({
+          data: { companyId: ctx.companyId, contractId: contract.id, transportTripId: tripId, kind: 'DISTANCE_CORRECTION', amountMinor: 0n, currency: contract.currency, data: asJson({ manualDistanceM: m, snapshotId: current.id, previousBillableM: current.billableDistanceM }), reason: why, requestedById: ctx.userId },
+        });
+        await this.audit.record(ctx, { action: 'CREATE', entity: 'billing_adjustment', entityId: adj.id, after: adj }, tx);
+        return { snapshot: null, adjustment: adjustmentDto(adj) };
+      }
+      const row = await this.priceInTx(tx, ctx, tripId, { reason: `manual distance: ${why}`, manualDistanceM: m });
+      return { snapshot: snapshotDto(row!), adjustment: null };
+    });
   }
 
   /**

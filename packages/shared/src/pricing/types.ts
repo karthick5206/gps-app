@@ -1,3 +1,4 @@
+import type { RidePreference } from '../transport-pooling';
 /**
  * Customer pricing engine types (doc 19 §5). Pure data: no I/O. Money is always integer:
  * - amounts are `bigint` MINOR units of the contract currency (paise, cents, fils …);
@@ -43,8 +44,6 @@ export type PricingComponentKind = (typeof PRICING_COMPONENT_KINDS)[number];
 export const COVERAGE_KINDS = ['VEHICLE_TIME', 'KM_INCLUDED', 'HOURS_INCLUDED', 'TRIPS'] as const;
 export type CoverageKind = (typeof COVERAGE_KINDS)[number];
 
-export const RIDE_PREFERENCES = ['PRIVATE', 'SHARED', 'FLEXIBLE'] as const;
-export type RidePreference = (typeof RIDE_PREFERENCES)[number];
 
 export const AVAILABILITY_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
 export type AvailabilityFrequency = (typeof AVAILABILITY_FREQUENCIES)[number];
@@ -268,6 +267,8 @@ export interface PeriodFacts {
   /** Holiday days worked (HOLIDAY component). */
   holidayDaysWorked?: number;
   usedDistanceM: number;
+  /** Attached, operating days without GPS distance data (excess km then needs review). */
+  missingDistanceDays?: number;
   usedDurationS?: number;
   overtimeS?: number;
   tripCount?: number;
@@ -369,6 +370,7 @@ export interface ContractCandidate {
   branchIds: string[];
   /** Vehicle category the contract is limited to (from its components' scopes), null = any. */
   vehicleCategory?: string | null;
+  /** ACTIVE (priced), or SUSPENDED / NO_VERSION / AGREEMENT_INACTIVE: not priceable on the date but still the customer's contract (blocks the default). */
   status: string;
   validFrom: string;
   validTo: string | null;
