@@ -1,7 +1,8 @@
 import { AlertDto, NormalizedPosition, RelayRuleSpec } from '@veetracer/shared';
 import { verifySignature } from '../webhooks/signing';
 import { checkAddresses, checkHttpTarget, checkTcpHost, RelayPolicy } from './guard';
-import { authorizationHeader, HttpForwarder, RelayBatchBody } from './http-forwarder';
+import { authorizationHeader, batchBody, HttpForwarder, RelayBatchBody, TrackerUploadBody } from './http-forwarder';
+import { isTrackerPositionsUrl, toTrackerPoint, trackerApiUrl } from './tracker-format';
 import { alertMatches, inScope, passesFilters, RuleIndex } from './rules';
 import { isFailing, mergeStats, TargetStats } from './stats';
 
@@ -209,5 +210,47 @@ describe('HTTP_JSON forwarder', () => {
     expect(authorizationHeader('BEARER', 'abc')).toBe('Bearer abc');
     expect(authorizationHeader('BASIC', 'u:p')).toBe(`Basic ${Buffer.from('u:p').toString('base64')}`);
     expect(authorizationHeader('NONE', 'abc')).toBeNull();
+  });
+});
+
+describe('VEETRAX_TRACKER format', () => {
+  const tick = () => new Promise((r) => setImmediate(r));
+  const phonePoint = { t: Date.parse('2026-11-15T10:00:00.000Z'), lat: 13.05, lng: 80.25, acc: 6.5, spd: 4.2, brg: 90, bat: 81, prov: 'fused', flt: null };
+
+  it('re-posts a phone position as the original app point and an upload body without extra fields', async () => {
+    const posts: { body: string; headers: Record<string, string> }[] = [];
+    const f = new HttpForwarder({ post: async (_url, body, headers) => (posts.push({ body, headers }), { status: 200, body: '{"ok":true}' }), batchSize: 2, flushMs: 60_000 });
+    f.setRules({ at: '', rules: [rule({ format: 'VEETRAX_TRACKER', url: 'https://gps.example.com/api/tracker/v1/positions', scope: 'DEVICES', uniqueIds: ['9876543210'], includeAlerts: true })] });
+    f.addPosition(pos({ protocol: 'mobile', uniqueId: '9876543210', raw: JSON.stringify(phonePoint) }));
+    f.addAlert('c1', { objectId: 'o1' } as AlertDto); // never sent in this format
+    f.addPosition(pos({ protocol: 'mobile', uniqueId: '9876543210', raw: JSON.stringify({ ...phonePoint, t: phonePoint.t + 3000 }) }));
+    await tick();
+    expect(posts).toHaveLength(1);
+    const body = JSON.parse(posts[0].body) as TrackerUploadBody;
+    expect(Object.keys(body)).toEqual(['positions']);
+    expect(body.positions).toEqual([phonePoint, { ...phonePoint, t: phonePoint.t + 3000 }]);
+    expect(posts[0].headers.Authorization).toBe('Bearer tok');
+    f.stop();
+  });
+
+  it('maps a non-phone position from the normalised fields', () => {
+    const p = toTrackerPoint(pos({ speedKph: 36, course: 270, altitude: 12, satellites: 9, attributes: { accuracyM: 4, batteryLevel: 50, alarm: 'sos' } }));
+    expect(p).toEqual({ t: Date.parse('2026-10-20T00:00:00.000Z'), lat: 13, lng: 80, spd: 10, brg: 270, alt: 12, sat: 9, acc: 4, bat: 50, sos: true });
+    expect(toTrackerPoint(pos({ valid: false }))?.flt).toBe('inaccurate');
+    expect(toTrackerPoint(pos({ fixTime: 'garbage' }))).toBeNull();
+    // A phone position with an unreadable raw falls back to the normalised fields.
+    expect(toTrackerPoint(pos({ protocol: 'mobile', raw: 'not json' }))).toMatchObject({ lat: 13, lng: 80 });
+  });
+
+  it('recognises the Tracker upload URL and builds activation URLs next to it', () => {
+    expect(isTrackerPositionsUrl('https://gps.example.com/api/tracker/v1/positions')).toBe(true);
+    expect(isTrackerPositionsUrl('https://gps.example.com/api/tracker/v1/positions/')).toBe(true);
+    expect(isTrackerPositionsUrl('https://gps.example.com/api/relay/v1/ingest')).toBe(false);
+    expect(trackerApiUrl('https://gps.example.com/api/tracker/v1/positions', 'activate/verify')).toBe('https://gps.example.com/api/tracker/v1/activate/verify');
+  });
+
+  it('BATCH body is unchanged', () => {
+    const body = JSON.parse(batchBody(rule(), [], '2026-11-15T00:00:00.000Z')) as RelayBatchBody;
+    expect(body).toEqual({ target: { id: 'r1', name: 'Partner' }, sentAt: '2026-11-15T00:00:00.000Z', positions: [], alerts: [] });
   });
 });

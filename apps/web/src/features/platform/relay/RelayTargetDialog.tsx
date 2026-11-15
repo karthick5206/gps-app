@@ -4,11 +4,15 @@ import {
   RELAY_PROTOCOLS,
   type CompanyDto,
   type DeviceDto,
+  TRACKER_POSITIONS_PATH,
   type RelayAuthType,
+  type RelayHttpFormat,
   type RelayScope,
   type RelayTargetDto,
   type RelayTargetInput,
   type RelayTargetType,
+  type RelayTrackerCodeResult,
+  type RelayTrackerVerifyResult,
 } from '@veetracer/shared';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -40,6 +44,7 @@ interface FormState {
   port: string;
   passDownstream: boolean;
   url: string;
+  format: RelayHttpFormat;
   authType: RelayAuthType;
   authValue: string;
   includeAlerts: boolean;
@@ -60,6 +65,7 @@ function initial(r: RelayTargetDto | null): FormState {
     port: r?.port ? String(r.port) : '',
     passDownstream: r?.passDownstream ?? false,
     url: r?.url ?? 'https://',
+    format: r?.format ?? 'BATCH',
     authType: r?.authType ?? 'NONE',
     authValue: '',
     includeAlerts: r?.includeAlerts ?? false,
@@ -76,15 +82,82 @@ function toBody(f: FormState, record: RelayTargetDto | null): RelayTargetInput {
   const body: RelayTargetInput = { name: f.name.trim(), type: f.type, enabled: f.enabled, scope: f.scope };
   if (f.type === 'RAW_TCP') Object.assign(body, { host: f.host.trim(), port: Number(f.port), passDownstream: f.passDownstream });
   else {
-    Object.assign(body, { url: f.url.trim(), authType: f.authType, includeAlerts: f.includeAlerts, liveOnly: f.liveOnly, validOnly: f.validOnly });
+    const tracker = f.format === 'VEETRAX_TRACKER';
+    Object.assign(body, {
+      url: f.url.trim(),
+      format: f.format,
+      authType: tracker ? 'BEARER' : f.authType,
+      includeAlerts: tracker ? false : f.includeAlerts,
+      liveOnly: f.liveOnly,
+      validOnly: f.validOnly,
+    });
     // An empty value on edit keeps the stored token / password.
-    if (f.authType === 'NONE') body.authValue = '';
+    if (body.authType === 'NONE') body.authValue = '';
     else if (f.authValue || !record?.hasAuth) body.authValue = f.authValue;
   }
   if (f.scope === 'COMPANY') body.companyId = f.companyId;
   if (f.scope === 'DEVICES') body.deviceIds = f.deviceIds;
   if (f.scope === 'PROTOCOL') body.protocol = f.protocol;
   return body;
+}
+
+/**
+ * Phone token for the VeeTrax Tracker format, obtained from the target server the way the app activates: the target
+ * sends a code for a phone number registered there, the code is exchanged for that phone's token. The token goes into
+ * the form (saved with the target); it is never shown.
+ */
+function TrackerTokenField({ url, saved, token, onToken }: { url: string; saved: boolean; token: string; onToken: (token: string) => void }) {
+  const { t } = useTranslation();
+  const [mobile, setMobile] = useState('');
+  const [code, setCode] = useState('');
+  const [codeSent, setCodeSent] = useState<string | null>(null);
+  const request = useMutation({
+    mutationFn: () => api.post<RelayTrackerCodeResult>('/admin/relay-targets/tracker-token/request', { url: url.trim(), mobile: mobile.trim() }),
+    onSuccess: (r) => setCodeSent(r.message),
+  });
+  const verify = useMutation({
+    mutationFn: () => api.post<RelayTrackerVerifyResult>('/admin/relay-targets/tracker-token/verify', { url: url.trim(), mobile: mobile.trim(), code: code.trim() }),
+    onSuccess: (r) => {
+      onToken(r.token);
+      setCode('');
+      setCodeSent(null);
+      toast.success(t('Phone token received. Save the target to use it.'));
+    },
+  });
+  const error = request.error ?? verify.error;
+  return (
+    <div className="grid gap-3 rounded-md border p-3">
+      <div className="text-sm">
+        <span className="font-medium">{t('Phone on the target server')}</span>{' '}
+        <span className={token || saved ? 'text-success' : 'text-muted-foreground'}>
+          {token ? t('(new token ready, save to apply)') : saved ? t('(token saved)') : t('(no token yet)')}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t('Enter the mobile number of a phone tracker registered on the target server. It sends an activation code (an admin there can also read it in Devices); enter it here to link this target to that phone.')}
+      </p>
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+        <Input aria-label={t('Mobile number on the target')} inputMode="tel" value={mobile} maxLength={24} onChange={(e) => setMobile(e.target.value)} placeholder="9876543210" />
+        <Button type="button" variant="outline" disabled={mobile.trim().length < 6 || url.trim().length < 12 || request.isPending} onClick={() => request.mutate()}>
+          {request.isPending && <Spinner />}
+          {codeSent ? t('Send again') : t('Send code')}
+        </Button>
+      </div>
+      {codeSent && (
+        <>
+          <p className="text-xs text-muted-foreground">{codeSent}</p>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <Input aria-label={t('Activation code')} inputMode="numeric" value={code} maxLength={6} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="123456" />
+            <Button type="button" disabled={code.length !== 6 || verify.isPending} onClick={() => verify.mutate()}>
+              {verify.isPending && <Spinner />}
+              {t('Get token')}
+            </Button>
+          </div>
+        </>
+      )}
+      <FormError message={error ? errorMessage(error) : null} />
+    </div>
+  );
 }
 
 /** Add (record = null) or edit a data forwarding target. */
@@ -121,11 +194,17 @@ export function RelayTargetDialog({ open, onOpenChange, record }: { open: boolea
   };
 
   const tcp = f.type === 'RAW_TCP';
+  const tracker = !tcp && f.format === 'VEETRAX_TRACKER';
+  // The Tracker format forwards exactly one device (one token = one phone on the target).
+  const setFormat = (format: RelayHttpFormat) =>
+    setF((s) => ({ ...s, format, ...(format === 'VEETRAX_TRACKER' ? { scope: 'DEVICES' as const, deviceIds: s.deviceIds.slice(0, 1), includeAlerts: false } : {}) }));
+  const trackerHasToken = !!f.authValue || (!!record?.hasAuth && record.format === 'VEETRAX_TRACKER');
   const valid =
     !!f.name.trim() &&
     (tcp ? !!f.host.trim() && Number(f.port) > 0 && Number(f.port) < 65536 : f.url.trim().length > 8) &&
     (f.scope !== 'COMPANY' || !!f.companyId) &&
-    (f.scope !== 'DEVICES' || f.deviceIds.length > 0);
+    (f.scope !== 'DEVICES' || f.deviceIds.length > 0) &&
+    (!tracker || (f.scope === 'DEVICES' && f.deviceIds.length === 1 && trackerHasToken));
   const passAllowed = f.scope !== 'PROTOCOL' || RELAY_PASS_DOWNSTREAM_PROTOCOLS.includes(f.protocol);
 
   return (
@@ -179,9 +258,47 @@ export function RelayTargetDialog({ open, onOpenChange, record }: { open: boolea
               </>
             ) : (
               <>
-                <Field label={t('URL')} htmlFor="rt-url" required hint={t('Must be https:// and reachable from the internet. Batches of up to 100 positions, at least every 5 seconds, signed with X-VeeTrax-Signature.')}>
-                  <Input id="rt-url" type="url" value={f.url} maxLength={2000} onChange={(e) => set('url', e.target.value)} placeholder="https://partner.example.com/veetrax" />
+                <Field label={t('Format')} htmlFor="rt-format" hint={tracker ? t('Sends what the VeeTrax Tracker app sends, so another VeeTrax server shows the device as its own phone. One device per target.') : undefined}>
+                  <Select value={f.format} onValueChange={(v) => setFormat(v as RelayHttpFormat)}>
+                    <SelectTrigger id="rt-format">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BATCH">{t('VeeTrax batch (partners, custom servers)')}</SelectItem>
+                      <SelectItem value="VEETRAX_TRACKER">{t('VeeTrax Tracker app (another VeeTrax server)')}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </Field>
+                <Field
+                  label={t('URL')}
+                  htmlFor="rt-url"
+                  required
+                  hint={
+                    tracker
+                      ? t('The other server’s address followed by {{path}}', { path: TRACKER_POSITIONS_PATH })
+                      : t('Must be https:// and reachable from the internet. Batches of up to 100 positions, at least every 5 seconds, signed with X-VeeTrax-Signature.')
+                  }
+                >
+                  <Input
+                    id="rt-url"
+                    type="url"
+                    value={f.url}
+                    maxLength={2000}
+                    onChange={(e) => set('url', e.target.value)}
+                    placeholder={tracker ? `https://gps.example.com${TRACKER_POSITIONS_PATH}` : 'https://partner.example.com/veetrax'}
+                  />
+                </Field>
+                {!tracker && /\/api\/tracker\/v1\/positions\/?$/.test(f.url.trim()) && (
+                  <p className="rounded-md border border-warning/50 bg-warning/10 p-2.5 text-xs">
+                    {t('This is a VeeTrax Tracker address. It only accepts the Tracker app format: set Format to “VeeTrax Tracker app (another VeeTrax server)”.')}{' '}
+                    <button type="button" className="font-medium underline" onClick={() => setFormat('VEETRAX_TRACKER')}>
+                      {t('Switch format')}
+                    </button>
+                  </p>
+                )}
+                {tracker ? (
+                  <TrackerTokenField url={f.url} saved={!!record?.hasAuth && record.format === 'VEETRAX_TRACKER'} token={f.authValue} onToken={(v) => set('authValue', v)} />
+                ) : (
                 <div className="grid gap-4 sm:grid-cols-[12rem_1fr]">
                   <Field label={t('Authentication')} htmlFor="rt-auth">
                     <Select value={f.authType} onValueChange={(v) => set('authType', v as RelayAuthType)}>
@@ -201,11 +318,14 @@ export function RelayTargetDialog({ open, onOpenChange, record }: { open: boolea
                     </Field>
                   )}
                 </div>
+                )}
                 <div className="grid gap-2 sm:grid-cols-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={f.includeAlerts} onCheckedChange={(v) => set('includeAlerts', v === true)} />
-                    {t('Include alerts')}
-                  </label>
+                  {!tracker && (
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox checked={f.includeAlerts} onCheckedChange={(v) => set('includeAlerts', v === true)} />
+                      {t('Include alerts')}
+                    </label>
+                  )}
                   <label className="flex items-center gap-2 text-sm">
                     <Checkbox checked={f.liveOnly} onCheckedChange={(v) => set('liveOnly', v === true)} />
                     {t('Live positions only')}
@@ -219,7 +339,7 @@ export function RelayTargetDialog({ open, onOpenChange, record }: { open: boolea
             )}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label={t('Devices')} htmlFor="rt-scope" required>
-                <Select value={f.scope} onValueChange={(v) => set('scope', v as RelayScope)}>
+                <Select value={f.scope} disabled={tracker} onValueChange={(v) => set('scope', v as RelayScope)}>
                   <SelectTrigger id="rt-scope">
                     <SelectValue />
                   </SelectTrigger>
@@ -262,11 +382,11 @@ export function RelayTargetDialog({ open, onOpenChange, record }: { open: boolea
               )}
             </div>
             {f.scope === 'DEVICES' && (
-              <Field label={t('Selected devices')} htmlFor="rt-devices" required hint={t('Search by IMEI / unique id.')}>
+              <Field label={t('Selected devices')} htmlFor="rt-devices" required hint={tracker ? t('Exactly one device: its positions become the target phone’s.') : t('Search by IMEI / unique id.')}>
                 <MultiSelect
                   id="rt-devices"
                   value={f.deviceIds}
-                  onChange={(v) => set('deviceIds', v)}
+                  onChange={(v) => set('deviceIds', tracker ? v.slice(-1) : v)}
                   options={devices.options}
                   onSearch={setDeviceQ}
                   loading={devices.loading}
