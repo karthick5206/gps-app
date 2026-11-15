@@ -5259,4 +5259,6 @@ export const TA: Record<string, string> = {
   'The maximum ride time is above the plan’s limit. Choose a shorter time.': 'அதிகபட்ச பயண நேரம் திட்டத்தின் வரம்பை மீறுகிறது. குறைந்த நேரத்தைத் தேர்ந்தெடுக்கவும்.',
   'Your role may not do this (it needs Route planning → edit).': 'உங்கள் பாத்திரம் இதைச் செய்ய முடியாது (வழித் திட்டமிடல் → திருத்தம் தேவை).',
   'Cancelled.': 'ரத்துசெய்யப்பட்டது.',
+  '{{n}} plan(s) discarded; {{failed}} could not be discarded. Check the list and try again.': '{{n}} திட்டம்(கள்) கைவிடப்பட்டன; {{failed}} கைவிட முடியவில்லை. பட்டியலைச் சரிபார்த்து மீண்டும் முயலவும்.',
+  'This plan is being optimised. Review and publish it when the optimisation has finished.': 'இந்தத் திட்டம் உகப்பாக்கப்படுகிறது. உகப்பாக்கம் முடிந்ததும் சரிபார்த்து வெளியிடவும்.',
 };

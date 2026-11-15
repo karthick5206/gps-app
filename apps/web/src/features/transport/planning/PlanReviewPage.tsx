@@ -250,8 +250,11 @@ export function PlanReviewPage() {
   const busy = edit.isPending || plan.status === 'OPTIMIZING';
   const activeJob = activeJobId(plan, jobId, openJobs.data);
   const sel = selected ? (stopById.get(selected) ?? null) : null;
-  const undoV = canEdit ? undoTarget(cursor) : null;
-  const redoV = canEdit ? redoTarget(cursor) : null;
+  // Only while the cursor describes this very version: after a reload (another user's edit, a job) the history of the
+  // new version may not be in yet, and a restore of an old version would silently revert the other change.
+  const cursorFresh = !!cursor && cursor.head === plan.version;
+  const undoV = canEdit && cursorFresh ? undoTarget(cursor) : null;
+  const redoV = canEdit && cursorFresh ? redoTarget(cursor) : null;
 
   const runEdit = (e: PlanEdit, ok: string, focusAfter?: string[], restoreDelta?: -1 | 1) => {
     setEditError(null);
@@ -548,9 +551,9 @@ export function PlanReviewPage() {
                 <Trash2Icon /> {t('Discard')}
               </Button>
             )}
-            {canPublish && (
+            {canPublish && !busy && (
               <Button asChild size="sm">
-                <Link to={planPublishPath(plan.id)} aria-disabled={busy}>
+                <Link to={planPublishPath(plan.id)}>
                   <SendIcon /> {t('Review & publish…')}
                 </Link>
               </Button>

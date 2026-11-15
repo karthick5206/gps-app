@@ -152,15 +152,23 @@ export function AlternativesPanel({ planId, canDelete, canPlan }: { planId: stri
 
   const keepPlan = async (k: string) => {
     let n = 0;
+    let failed = 0;
     for (const p of others(k)) {
       try {
         await discard.mutateAsync({ id: p.id, version: p.version });
         n++;
       } catch (e) {
+        failed++;
         toast.error(plannerErrorMessage(e, t));
       }
     }
     setKeep(null);
+    void alts.refetch();
+    if (failed) {
+      // Partial failure: say so and stay here (the list shows what is left), never claim success.
+      toast.warning(t('{{n}} plan(s) discarded; {{failed}} could not be discarded. Check the list and try again.', { n, failed }));
+      return;
+    }
     toast.success(t('Plan kept; {{n}} other plan(s) discarded.', { n }));
     void navigate(planPath(k));
   };
