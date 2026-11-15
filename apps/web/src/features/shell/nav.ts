@@ -50,6 +50,17 @@ import {
   Settings2Icon,
   type LucideIcon,
 } from 'lucide-react';
+import {
+  CalendarClockIcon as PricingCalendarClockIcon,
+  CarFrontIcon as PricingCarFrontIcon,
+  ChartColumnIcon as PricingChartColumnIcon,
+  FileSignatureIcon as PricingFileSignatureIcon,
+  LayoutDashboardIcon as PricingLayoutDashboardIcon,
+  ReceiptTextIcon as PricingReceiptTextIcon,
+  RouteIcon as PricingRouteIcon,
+  ScaleIcon as PricingScaleIcon,
+  WalletIcon as PricingWalletIcon,
+} from 'lucide-react';
 
 export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   dashboard: GaugeIcon,
@@ -107,15 +118,15 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   etms_self: BusIcon,
   etms_driver: CarFrontIcon,
   // Doc 19 pricing area (placeholder icon until the Pricing UI lands).
-  pricing: ReceiptIndianRupeeIcon,
-  pricing_contracts: ReceiptIndianRupeeIcon,
-  pricing_vehicle_rates: ReceiptIndianRupeeIcon,
-  pricing_trip_charges: ReceiptIndianRupeeIcon,
-  pricing_availability: ReceiptIndianRupeeIcon,
-  pricing_invoices: ReceiptIndianRupeeIcon,
-  pricing_adjustments: ReceiptIndianRupeeIcon,
-  pricing_reports: ReceiptIndianRupeeIcon,
-  pricing_costs: ReceiptIndianRupeeIcon,
+  pricing: PricingLayoutDashboardIcon,
+  pricing_contracts: PricingFileSignatureIcon,
+  pricing_vehicle_rates: PricingCarFrontIcon,
+  pricing_trip_charges: PricingRouteIcon,
+  pricing_availability: PricingCalendarClockIcon,
+  pricing_invoices: PricingReceiptTextIcon,
+  pricing_adjustments: PricingScaleIcon,
+  pricing_reports: PricingChartColumnIcon,
+  pricing_costs: PricingWalletIcon,
   alert_settings: BellRingIcon,
   message_templates: MailIcon,
   report_schedules: CalendarClockIcon,
