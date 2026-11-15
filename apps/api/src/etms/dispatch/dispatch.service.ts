@@ -120,7 +120,8 @@ export interface PublishSource {
   /** Inside the publish transaction, after every change and the ledger row: the source's links / state. */
   inTransaction(tx: Prisma.TransactionClient, result: ChangeSetResult): Promise<void>;
   /**
-   * WP-B: inside the publish transaction, after the advisory locks and the idempotency re-check and before any change:
+   * WP-B: inside the publish transaction, after the advisory locks, the idempotency re-check and the booking / trip row
+   * locks (order bookings → trips → plan, as consent withdrawal and erasure take them) and before any change:
    * the source locks and re-checks its own state (a route plan: its row FOR UPDATE, version, routes not yet published),
    * so of two concurrent publishes of one plan the loser gets the source's clean 409 instead of a resource conflict.
    */
@@ -827,10 +828,12 @@ export class DispatchService {
         // is replayed (publishWithKey), never answered with the 409 its own trips now cause.
         const committed = await tx.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key }, select: { id: true } });
         if (committed) throw new KeyCommitted();
-        if (source?.lock) await source.lock(tx);
         // 2. Bookings (added or freed), then 3. trips — FOR UPDATE, sorted.
         await lockBookings(tx, [...bookingIds, ...removedRows.map((r) => r.bookingId)]);
         await lockTrips(tx, existingTripIds);
+        // 4. WP-B review: the source's own row (a route plan) LAST, before any change. Global order bookings → trips →
+        // plan, the same as consent withdrawal / erasure (routing-plan-privacy.ts lockPlans), so they never deadlock.
+        if (source?.lock) await source.lock(tx);
         const bookings = new Map(
           (await tx.transportBooking.findMany({ where: { id: { in: [...bookingIds, ...removedRows.map((r) => r.bookingId)] } }, include: { profile: { select: { branchId: true } } } })).map((b) => [b.id, b]),
         );

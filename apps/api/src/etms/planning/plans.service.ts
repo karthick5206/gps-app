@@ -935,7 +935,10 @@ export class RoutePlansService {
     const stopView = new Map(dto.stops.map((s) => [s.id, s]));
     const assignmentView = new Map(dto.assignments.map((a) => [a.id, a]));
     const locks = routePlanLocks(plan.options);
-    const ownerOf = (s: RuleStop, anonymous: boolean) => (anonymous || !s.bookingId ? null : (view.bookings.get(s.bookingId)?.profileId ?? null));
+    // WP-B review: the review never shows more than the detail: profile ids exactly as the detail's stop view gives them
+    // (a passenger's own stop only; never on a site / company-place stop or an anonymised one). The booking owner is
+    // used only for the ACCESS audit of the names shown.
+    const nameOwner = (s: RuleStop) => (s.bookingId ? (view.bookings.get(s.bookingId)?.profileId ?? null) : null);
     const shown = new Set<string>();
     const named = new Set<string>();
     const routes = p.selected.map((a) => {
@@ -959,10 +962,10 @@ export class RoutePlansService {
         locked: locks.lockedAssignmentIds.has(a.id),
         stops: routeStops(p.stops, a.id).map((s, i) => {
           const v = stopView.get(s.id)!;
-          const anonymous = !!s.bookingId && v.bookingId === null;
-          const profileId = ownerOf(s, anonymous);
+          const profileId = v.profileId ?? null;
           if (v.personal && v.lat !== null && profileId) shown.add(profileId);
-          if (v.passengerName && profileId) named.add(profileId);
+          const owner = v.passengerName ? nameOwner(s) : null;
+          if (owner) named.add(owner);
           return { stopId: s.id, ref: v.ref, sequence: i, stopKind: v.stopKind, bookingId: v.bookingId, profileId, poiId: v.poiId, name: v.name, lat: v.lat, lng: v.lng, pointHidden: v.pointHidden, passengerName: v.passengerName ?? null, etaS: s.etaS, plannedArrival: v.plannedArrival, seats: v.seats, pinned: v.pinned };
         }),
       };
@@ -971,10 +974,10 @@ export class RoutePlansService {
     const groups = new Map<string, RoutePlanReviewUnassigned>();
     for (const s of p.stops.filter((x) => !x.assignmentId)) {
       const v = stopView.get(s.id)!;
-      const anonymous = !!s.bookingId && v.bookingId === null;
       const k = s.bookingId ?? `stop:${s.id}`;
-      const g = groups.get(k) ?? { bookingId: v.bookingId, profileId: ownerOf(s, anonymous), stopIds: [], reason: 'not_assigned' };
+      const g = groups.get(k) ?? { bookingId: v.bookingId, profileId: null, stopIds: [], reason: 'not_assigned' };
       g.stopIds.push(s.id);
+      if (!g.profileId && v.profileId) g.profileId = v.profileId;
       if (v.unassignedReason && g.reason === 'not_assigned') g.reason = v.unassignedReason;
       groups.set(k, g);
     }

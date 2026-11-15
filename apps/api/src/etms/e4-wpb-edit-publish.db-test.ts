@@ -20,6 +20,7 @@ import { AuditService } from '../audit/audit.service';
 import { PlannedTripsService } from '../planned-trips/planned-trips.service';
 import { PrismaPlanGateway } from '../routing-jobs/prisma-plan-gateway';
 import { dbDescribe } from '../test/scratch-db';
+import { applyRoutingConsentWithdrawal } from './dispatch/consent-withdrawal';
 import { DispatchService } from './dispatch/dispatch.service';
 import { TripLiveService } from './dispatch/trip-live';
 import { RoutePlansService } from './planning/plans.service';
@@ -232,6 +233,8 @@ d(`ETMS E4 WP-B edit and publish on ${dbName}`, () => {
     const review = await plans.review(admin, p.plan, { assignmentIds: a.route });
     expect(review.routes.map((r) => r.assignmentId)).toEqual([a.route]);
     expect(review.routes[0].stops.map((s) => s.stopId)).toEqual([a.pickup, a.drop]);
+    // Review never shows more than the detail: the passenger's own stop carries the profile id, the site stop none.
+    expect(review.routes[0].stops.map((s) => s.profileId)).toEqual([a.profile, null]);
     expect(review.routes[0]).toMatchObject({ seats: 4, passengers: 1, occupancy: 1 });
     expect(review.errors).toEqual([]);
     expect(review.manualChanges.baselineVersion).toBe(1);
@@ -321,6 +324,55 @@ d(`ETMS E4 WP-B edit and publish on ${dbName}`, () => {
     expect(e).toMatchObject({ status: 409, code: 'PLAN_NOT_PUBLISHABLE' });
     expect((e.body.routes as { code: string }[]).map((x) => x.code)).toContain('CONSENT_REQUIRED');
     expect(await prisma.transportTrip.count({ where: { routePlanId: p.plan } })).toBe(0);
+  });
+
+  /** Routing-consent withdrawal of one passenger as the people API runs it: the withdrawal row, then its effects. */
+  const withdraw = (profileId: string) =>
+    prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`INSERT INTO "EmployeeTransportConsent" (id, "companyId", "profileId", purpose, "noticeVersion", granted, channel, "occurredAt") VALUES (gen_random_uuid(), '${w.company}', '${profileId}', 'TRANSPORT_PROFILE', 'v1', false, 'WEB', now() + interval '1 second')`);
+      return applyRoutingConsentWithdrawal(tx, admin, audit, { companyId: w.company, profileId, userId: null, home: null });
+    });
+
+  it('WP-B review M-H: a selected-route publish racing a consent withdrawal of a passenger on that route never deadlocks (one wins cleanly, no 500)', async () => {
+    for (let round = 0; round < 4; round++) {
+      const p = await makePlan(2);
+      const [a] = p.routes;
+      const r = await plans.review(admin, p.plan, { assignmentIds: a.route });
+      const [pub, wd] = await Promise.all([
+        errOf(plans.publish(admin, p.plan, { expectedVersion: 1, assignmentIds: [a.route], reviewHash: r.reviewHash }, `${TAG}-race-${round}`)),
+        withdraw(a.profile).then(
+          () => 'OK',
+          (e: unknown) => `withdrawal failed: ${String(e)}`,
+        ),
+      ]);
+      // The withdrawal always commits (it takes bookings → trips → plan like the publish now does).
+      expect(wd).toBe('OK');
+      // The publish either won (then the withdrawal released the seat) or lost with a clean 409 — never 40P01 / 500.
+      expect(pub.code).not.toMatch(/unexpected|40P01|deadlock/i);
+      if (pub.code !== 'OK') expect(pub.status).toBe(409);
+      const trips = await prisma.transportTrip.count({ where: { routePlanId: p.plan } });
+      expect(trips).toBe(pub.code === 'OK' ? 1 : 0);
+    }
+  });
+
+  it('WP-B review: withdrawal after a partial publish coarsens the stops of the PUBLISHED route (kept) and deletes those of an unpublished route', async () => {
+    const p = await makePlan(2);
+    const [a, b] = p.routes;
+    await prisma.routeAssignment.updateMany({ where: { id: { in: [a.route, b.route] } }, data: { geometry: [[80.24, 13.0], [80.25, 13.05]] } });
+    const r = await plans.review(admin, p.plan, { assignmentIds: a.route });
+    await plans.publish(admin, p.plan, { expectedVersion: 1, assignmentIds: [a.route], reviewHash: r.reviewHash }, `${TAG}-wd-pub`);
+    expect(await prisma.routePlan.findUniqueOrThrow({ where: { id: p.plan }, select: { status: true } })).toEqual({ status: 'PLANNED' });
+    const effA = await withdraw(a.profile);
+    const kept = await prisma.routePlanStop.findUnique({ where: { id: a.pickup }, select: { lat: true, assignmentId: true, name: true } });
+    expect(kept).not.toBeNull();
+    expect(kept!.assignmentId).toBe(a.route);
+    expect(kept!.lat).toBe(Math.round(kept!.lat * 100) / 100);
+    expect(kept!.name).toBeNull();
+    expect((await prisma.routeAssignment.findUniqueOrThrow({ where: { id: a.route }, select: { geometry: true } })).geometry).toBeNull();
+    expect(effA.planStopsAnonymised).toBeGreaterThanOrEqual(1);
+    const effB = await withdraw(b.profile);
+    expect(await prisma.routePlanStop.findUnique({ where: { id: b.pickup } })).toBeNull();
+    expect(effB.planStopsRemoved).toBeGreaterThanOrEqual(1);
   });
 
   it('isolation: another company and another branch get 404 on every new route; review hides another branch nothing it may not see', async () => {
