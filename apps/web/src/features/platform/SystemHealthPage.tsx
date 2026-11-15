@@ -510,7 +510,7 @@ function MapServicesCard({ maps }: { maps: MapServiceDto[] }) {
   return (
     <Section title="Map services" icon={MapIcon} status={status}>
       {maps.map((m) => (
-        <Row key={m.name} label={m.label} hint={m.probeUrl ?? undefined}>
+        <Row key={m.id ?? m.name} label={m.label} hint={m.probeUrl ?? undefined}>
           {!m.configured ? (
             <span className="text-muted-foreground">{t('Not monitored (no URL set)')}</span>
           ) : m.ok ? (

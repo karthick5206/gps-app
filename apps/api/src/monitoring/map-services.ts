@@ -1,11 +1,13 @@
 import { MapServiceName } from '@veetracer/shared';
+import { rawRegionEntries } from '../geocoding/geocoder-regions';
 import { shortError } from './util';
 
 /**
  * Health probes of the self-hosted map services (ops/deploy/linux/maps/README.md), run by SystemHealthService.collect.
  *
  *   graphhopper  GET <ROUTER_URL>/health    when ROUTER_URL is set and ROUTER_ENGINE=graphhopper
- *   photon       GET <GEOCODER_URL>/status  when GEOCODER=photon and GEOCODER_URL is set
+ *   photon       GET <GEOCODER_URL>/status  when GEOCODER=photon and GEOCODER_URL is set; with GEOCODER_REGIONS one
+ *                probe per instance (GET <url>/status, check maps.photon.<code>, e.g. maps.photon.us)
  *   martin       GET <MARTIN_URL>/health    when MARTIN_URL is set (production http://127.0.0.1:3000)
  *
  * A service whose setting is missing is "not configured": it is not probed and raises nothing. Any 2xx answer within
@@ -19,6 +21,8 @@ import { shortError } from './util';
  */
 export interface MapServiceTarget {
   name: MapServiceName;
+  /** Check key when a service runs several instances ("photon.us", issue `maps.photon.us`); absent = `name`. */
+  id?: string;
   label: string;
   /** Full probe URL, or null when the service is not configured. */
   probeUrl: string | null;
@@ -29,6 +33,8 @@ export interface MapServiceTarget {
 /** Last probe of one service, the input of the `maps.*` checks. */
 export interface MapServiceState {
   name: MapServiceName;
+  /** See MapServiceTarget.id. */
+  id?: string;
   label: string;
   configured: boolean;
   /** Probe URL for display: no userinfo, query or fragment. */
@@ -125,12 +131,20 @@ export function mapServiceTargets(env: NodeJS.ProcessEnv = process.env): MapServ
     probeUrl,
     blocked: blockedReason(probeUrl, allowPublic),
   });
+  // GEOCODER_REGIONS: one probe per Photon instance (maps.photon.in, maps.photon.us …); else the single GEOCODER_URL.
+  const regions = geocoderKind === 'photon' ? rawRegionEntries(env).filter((r) => r.code && r.url) : [];
+  const photon = regions.length
+    ? regions.map((r) => ({ ...target('photon', `Addresses (Photon ${r.code})`, join(r.url, '/status')), id: `photon.${r.code.toLowerCase()}` }))
+    : [target('photon', 'Addresses (Photon)', geocoder && geocoderKind === 'photon' ? join(geocoder, '/status') : null)];
   return [
     target('graphhopper', 'Routing (GraphHopper)', router && routerEngine === 'graphhopper' ? join(router, '/health') : null),
-    target('photon', 'Addresses (Photon)', geocoder && geocoderKind === 'photon' ? join(geocoder, '/status') : null),
+    ...photon,
     target('martin', 'Map tiles (Martin)', martin ? join(martin, '/health') : null),
   ];
 }
+
+/** Check key of a target / state: `id` when set, else the service name. */
+export const mapServiceKey = (m: { name: MapServiceName; id?: string }): string => m.id ?? m.name;
 
 /**
  * One GET with a timeout; never throws. Userinfo in the URL is sent as Basic auth, not in the request URL (fetch
@@ -173,7 +187,7 @@ export interface MapServiceMonitorOptions {
 
 /** Keeps the last probe result per service in memory (one instance per API process). */
 export class MapServiceMonitor {
-  private readonly state = new Map<MapServiceName, MapServiceState>();
+  private readonly state = new Map<string, MapServiceState>();
   private inflight: Promise<MapServiceState[]> | null = null;
   private lastRun = 0;
   private readonly timeoutMs: number;
@@ -188,8 +202,9 @@ export class MapServiceMonitor {
     this.minIntervalMs = options.minIntervalMs ?? MAP_PROBE_MIN_INTERVAL_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
     for (const t of targets) {
-      this.state.set(t.name, {
+      this.state.set(mapServiceKey(t), {
         name: t.name,
+        ...(t.id ? { id: t.id } : {}),
         label: t.label,
         configured: !!t.probeUrl,
         probeUrl: redactUrl(t.probeUrl),
@@ -214,7 +229,7 @@ export class MapServiceMonitor {
   }
 
   snapshot(): MapServiceState[] {
-    return this.targets.map((t) => ({ ...this.state.get(t.name)! }));
+    return this.targets.map((t) => ({ ...this.state.get(mapServiceKey(t))! }));
   }
 
   private async probeAll(now: number): Promise<MapServiceState[]> {
@@ -223,8 +238,8 @@ export class MapServiceMonitor {
       this.targets.map(async (t) => {
         if (!t.probeUrl || t.blocked) return; // not configured, or a public host: never fetched
         const r = await probeMapService(t.probeUrl, this.timeoutMs, this.fetchImpl);
-        const prev = this.state.get(t.name)!;
-        this.state.set(t.name, { ...prev, ok: r.ok, latencyMs: r.latencyMs, error: r.error, consecutiveFailures: r.ok ? 0 : prev.consecutiveFailures + 1, checkedAt: now });
+        const prev = this.state.get(mapServiceKey(t))!;
+        this.state.set(mapServiceKey(t), { ...prev, ok: r.ok, latencyMs: r.latencyMs, error: r.error, consecutiveFailures: r.ok ? 0 : prev.consecutiveFailures + 1, checkedAt: now });
       }),
     );
     return this.snapshot();

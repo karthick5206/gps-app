@@ -2,6 +2,7 @@ export * from './permissions';
 export * from './tracking';
 export * from './api';
 export * from './geo';
+export * from './coordinates';
 export * from './alerts';
 export * from './history';
 export * from './dashboard';
