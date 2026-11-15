@@ -26,6 +26,43 @@ evidence in the phase log below.
 | E7 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E8 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E9 | Not started | Not started | Not started | Not started | Not started | Not started |
+| Vendor billing (supplier side, v1.16.9–v1.16.14) | Deployed (vendors, rate cards, live monthly statement, adjustments) | Deployed | — | Not recorded | Not recorded (open: branch scope, isolation-matrix entries) | Deployed (teammate releases, previously unrecorded here) |
+| Pricing & billing (customer side) | **Design ready for review** ([doc 19](docs/employee-transport/19-pricing-and-billing-design.md)) | Design | — | Not started | Not started | Not started |
+
+## Pricing & billing (customer side): design status
+
+- **Design:** [docs/employee-transport/19-pricing-and-billing-design.md](docs/employee-transport/19-pricing-and-billing-design.md)
+  (2026-11-15). No code or schema change yet.
+- **Decisions taken in the design** (reversible at review):
+  - money as `BigInt` minor units, with `Decimal(20,6)` rates held as bigint micro-units in the engine (no floats);
+  - a new `PricingContract` with effective-dated versions, linked to `TransportServiceAgreement` when one exists;
+  - a gap-free invoice series per supplier company and fiscal year;
+  - a new `approve` permission action with maker ≠ checker;
+  - DB immutability triggers and append-only trip price snapshots;
+  - a separate `pricing_costs` menu for cost and margin.
+- **Outstanding owner decisions** (doc 19 §9.4):
+  - C1 commercial go-ahead;
+  - who bills whom (operator → customer, or also internal charge-back);
+  - supplier tax registration per company or per branch;
+  - fiscal year and invoice number format;
+  - maker-checker strictness for single-admin companies;
+  - launch currencies and tax regimes;
+  - default rounding and missing-GPS policy;
+  - customer visibility of invoices;
+  - vendor statements as the cost source;
+  - holiday calendars;
+  - IRN / TDS / gateway (out of scope unless requested).
+- **Workstreams:** P0 foundations ∥ P1 money engine → P2 contracts ∥ P6 web → P3 trip pricing ∥ P4 availability →
+  P5 invoicing ∥ P7 reports and costs → P8 on-demand quotes (with pooling). Each gets an independent QA and security review.
+- **Release gates:**
+  1. Design review and decisions.
+  2. Focused tests (money, isolation, authz, duplicates, immutability, historical prices) plus QA and security per
+     workstream.
+  3. Migration rehearsal on a scratch database and a production copy.
+  4. Backup.
+  5. Deploy with the `pricing` feature off.
+  6. Internal smoke test.
+  7. Owner approval per company.
 
 ## Branch and worktree strategy
 
