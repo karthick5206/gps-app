@@ -139,6 +139,13 @@ All three only fill the dispatcher's local draft. Nothing is saved until **Revie
   - The statement prices COMPLETED / INCOMPLETE, not cancelled trips of the vendor's vehicles, from GPS `distanceKm`, actual times and employees carried, per trip and per vehicle, with GST.
   - Web: `features/transport/vendors/` (VendorsPage, RateCardsSheet, VendorBillingPage with CSV / PDF).
   - Part B (vendor bill upload, compare, approve, payments) not built.
+  - v1.16.10–13:
+    - Vendors are under Masters for every company (menu `etms_vendors` without the ETMS requirement); Vendor billing stays ETMS-only.
+    - One page per vendor: `/vendors/:id` (`VendorDetailPage`) with branches, vehicles (type, seats, rate applied), drivers, simple rates per type (per trip / per km, from the 1st of the month) and Advanced rate cards. The vehicle form has a Vendor select (`/transport/vendors/by-vehicle/:objectId`).
+    - MONTHLY card choices in params: `billIdle` (default on: billed even without trips), `prorate` (default on: fee and included km × attached days / days in month; attached = link date / card validity within the month), `extraKmSource` GPS (DailySummary km, default) / TRIPS.
+    - `minMonthly` minimum guarantee on the other models (`minimumTopUp`).
+    - Statement adjustments: table `TransportStatementAdjustment` (migration `20261124090000_etms_statement_adjustments`) with NOT_AVAILABLE (days; empty amount = monthly fee per day), PENALTY, TOLL_PARKING (no GST), EXTRA, DEDUCTION. Endpoints `POST` / `DELETE /transport/billing/adjustments` (etms_billing export).
+    - The statement shows GPS km, idle days (attached days without trip or movement) and why a trip has no price (card not yet valid / ended / no card for the type).
   - **Open:** the ETMS isolation-matrix completeness test needs entries for the v1.16.7 / v1.16.9 routes (insights, safety-watch, vendors, billing).
 - **Not yet built:** the road optimiser behind Routing, grouping on Bookings, masked calling, vendors / rate cards / billing.
 

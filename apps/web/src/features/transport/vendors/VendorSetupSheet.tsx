@@ -231,7 +231,8 @@ export function RatesTab({ vendor, onAdvanced }: { vendor: TransportVendorDto; o
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [minKm, setMinKm] = useState<Record<string, string>>({});
   const [gst, setGst] = useState('5');
-  const [from, setFrom] = useState(today());
+  // From the 1st of this month, so trips already run this month are priced too.
+  const [from, setFrom] = useState(`${today().slice(0, 7)}-01`);
   // The simple card of a type: all branches, this model, active, latest.
   const simple = (cat: string, m: 'TRIP' | 'KM') =>
     (cards.data ?? []).filter((c) => c.vehicleCategory === cat && !c.branchId && c.model === m && c.isActive).sort((a, b) => b.validFrom.localeCompare(a.validFrom))[0];

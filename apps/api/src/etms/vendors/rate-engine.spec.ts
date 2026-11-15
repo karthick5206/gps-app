@@ -1,4 +1,4 @@
-import { monthlyCharge, pickRateCard, tripCharge } from '@veetracer/shared';
+import { minimumTopUp, monthlyCharge, pickRateCard, tripCharge } from '@veetracer/shared';
 
 const trip = { km: 21.4, durationMin: 70, plannedMin: 50, passengers: 4, night: false };
 
@@ -38,5 +38,24 @@ describe('rate engine', () => {
     expect(pickRateCard(cards, '2026-11-16', 'b2', 'SUV')?.id).toBe('all');
     expect(pickRateCard(cards, '2026-12-05', 'b1', 'SUV')?.id).toBe('future');
     expect(pickRateCard([{ ...base, id: 'old', branchId: null, vehicleCategory: null, validFrom: '2026-01-01', validTo: '2026-06-30' }], '2026-11-16', null, null)).toBeNull();
+  });
+});
+
+describe('dedicated cabs and minimum guarantee (v1.16.13)', () => {
+  it('prorates the monthly fee and included km by days attached', () => {
+    const p = { monthlyFee: 30000, includedKm: 3000, perExtraKm: 10 };
+    // 15 of 30 days: fee 15,000, included 1,500 km; 1,600 km → 100 extra.
+    expect(monthlyCharge(p, 1600, { days: 15, daysInMonth: 30 }).amount).toBe(16000);
+    // Proration switched off: full fee, full included km.
+    expect(monthlyCharge({ ...p, prorate: false }, 1600, { days: 15, daysInMonth: 30 }).amount).toBe(30000);
+    // A whole month: no proration text, no extra.
+    expect(monthlyCharge(p, 2000, { days: 30, daysInMonth: 30 }).amount).toBe(30000);
+  });
+
+  it('tops a vehicle up to its minimum guarantee, prorated', () => {
+    expect(minimumTopUp({ perTrip: 450, minMonthly: 20000 }, 13500)).toEqual({ topUp: 6500, basis: expect.stringContaining('minimum ₹20000') });
+    expect(minimumTopUp({ perTrip: 450, minMonthly: 20000 }, 25000)).toBeNull();
+    expect(minimumTopUp({ perTrip: 450, minMonthly: 20000 }, 5000, { days: 15, daysInMonth: 30 })?.topUp).toBe(5000);
+    expect(minimumTopUp({ perTrip: 450 }, 0)).toBeNull();
   });
 });

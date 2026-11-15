@@ -12,6 +12,7 @@ import { EmptyHint, Panel } from '@/features/dashboard/refresh/kit';
 import { named, useEntityOptions } from '@/features/masters/use-options';
 import { getReportTimeZone, todayInZone } from '@/features/reports/report-time';
 import { api, errorMessage } from '@/lib/api';
+import { AdjustmentsPanel } from './AdjustmentsPanel';
 
 const inr = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const csvCell = (v: unknown) => {
@@ -32,7 +33,11 @@ function statementCsv(s: VendorStatementDto, tz: string): string {
   const time = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString('en-IN', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }) : '');
   const head = ['Date', 'Vehicle', 'Plate', 'Driver', 'Trip', 'Direction', 'Start', 'End', 'Km', 'Employees', 'Night', 'Rate card', 'Basis', 'Base ₹', 'Add-ons ₹', 'Add-on detail', 'Amount ₹', 'Issue'];
   const rows = s.lines.map((l) => [l.day, l.vehicle, l.plateNumber, l.driver, l.trip, l.direction === 'OUT' ? 'Logout' : 'Login', time(l.start), time(l.end), l.km, l.passengers, l.night ? 'Yes' : '', l.rateCard, l.basis, l.base, l.addons, l.addonText.join('; '), l.amount, l.issue]);
-  const veh = s.vehicles.filter((v) => v.monthly).map((v) => ['', v.vehicle, v.plateNumber, '', 'Monthly charge', '', '', '', v.km, '', '', '', v.monthly!.basis, v.monthly!.amount, '', '', v.monthly!.amount, '']);
+  const veh = [
+    ...s.vehicles.filter((v) => v.monthly).map((v) => ['', v.vehicle, v.plateNumber, '', 'Monthly charge', '', '', '', v.gpsKm, '', '', '', v.monthly!.basis, v.monthly!.amount, '', '', v.monthly!.amount, '']),
+    ...s.vehicles.filter((v) => v.minimum).map((v) => ['', v.vehicle, v.plateNumber, '', 'Minimum guarantee top-up', '', '', '', '', '', '', '', v.minimum!.basis, v.minimum!.topUp, '', '', v.minimum!.topUp, '']),
+    ...s.adjustments.map((a) => ['', a.vehicle ?? 'Whole vendor', '', '', `Adjustment: ${a.kind}`, '', '', '', '', '', '', '', `${a.days ? `${a.days} day(s) ` : ''}${a.note ?? ''}`, '', '', '', a.amount, '']),
+  ];
   const tot = [[], ['', '', '', '', '', '', '', 'Total', s.totals.km, s.totals.passengers, '', '', '', '', '', 'Subtotal', s.totals.subtotal], ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'GST', s.totals.gst], ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Total', s.totals.total]];
   return `﻿${[head, ...rows, ...veh, ...tot].map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }
@@ -89,7 +94,9 @@ async function statementPdf(s: VendorStatementDto, company: string, tz: string) 
   };
   void tz;
   for (const l of s.lines) row([l.day, `${l.vehicle}${l.plateNumber ? ` ${l.plateNumber}` : ''}`, l.driver ?? '', l.trip, String(l.km), String(l.passengers), l.issue ? `! ${l.issue}` : l.basis, l.addons ? l.addons.toFixed(2) : '', l.amount.toFixed(2)]);
-  for (const v of s.vehicles.filter((x) => x.monthly)) row(['', `${v.vehicle}${v.plateNumber ? ` ${v.plateNumber}` : ''}`, '', 'Monthly charge', String(v.km), '', v.monthly!.basis, '', v.monthly!.amount.toFixed(2)]);
+  for (const v of s.vehicles.filter((x) => x.monthly)) row(['', `${v.vehicle}${v.plateNumber ? ` ${v.plateNumber}` : ''}`, '', 'Monthly charge', String(v.gpsKm), '', v.monthly!.basis, '', v.monthly!.amount.toFixed(2)]);
+  for (const v of s.vehicles.filter((x) => x.minimum)) row(['', v.vehicle, '', 'Minimum guarantee', '', '', v.minimum!.basis, '', v.minimum!.topUp.toFixed(2)]);
+  for (const a of s.adjustments) row(['', a.vehicle ?? 'Whole vendor', '', `Adjustment: ${a.kind}`, '', '', `${a.days ? `${a.days} day(s) ` : ''}${a.note ?? ''}`, '', a.amount.toFixed(2)]);
   y += 6;
   row(['', '', '', `Trips ${s.totals.trips}`, String(s.totals.km), String(s.totals.passengers), '', 'Subtotal', s.totals.subtotal.toFixed(2)], true);
   row(['', '', '', '', '', '', '', 'GST', s.totals.gst.toFixed(2)], true);
@@ -175,6 +182,7 @@ export function VendorBillingPage() {
                 ['Km', String(s.totals.km)],
                 ['Employees carried', String(s.totals.passengers)],
                 ['Subtotal', inr(s.totals.subtotal)],
+                ['Adjustments', inr(s.totals.adjustments)],
                 ['GST', inr(s.totals.gst)],
                 ['Total', inr(s.totals.total)],
               ] as const
@@ -200,7 +208,10 @@ export function VendorBillingPage() {
                       <th className="py-1.5 text-right font-medium">{t('Trips')}</th>
                       <th className="py-1.5 text-right font-medium">{t('Km')}</th>
                       <th className="py-1.5 text-right font-medium">{t('Employees')}</th>
-                      <th className="py-1.5 text-left font-medium">{t('Monthly charge')}</th>
+                      <th className="py-1.5 text-left font-medium">{t('Monthly / minimum')}</th>
+                      <th className="py-1.5 text-right font-medium">{t('GPS km')}</th>
+                      <th className="py-1.5 text-right font-medium">{t('Idle days')}</th>
+                      <th className="py-1.5 text-right font-medium">{t('Adjustments')}</th>
                       <th className="py-1.5 text-right font-medium">{t('Amount')}</th>
                     </tr>
                   </thead>
@@ -214,7 +225,10 @@ export function VendorBillingPage() {
                         <td className="py-1.5 text-right tabular-nums">{v.trips}</td>
                         <td className="py-1.5 text-right tabular-nums">{v.km}</td>
                         <td className="py-1.5 text-right tabular-nums">{v.passengers}</td>
-                        <td className="py-1.5 text-xs text-muted-foreground">{v.monthly?.basis ?? '—'}</td>
+                        <td className="py-1.5 text-xs text-muted-foreground">{v.monthly?.basis ?? (v.minimum ? `+ ${inr(v.minimum.topUp)}: ${v.minimum.basis}` : '—')}</td>
+                        <td className="py-1.5 text-right tabular-nums">{v.gpsKm}</td>
+                        <td className="py-1.5 text-right tabular-nums" title={t('Days attached without any trip or movement: check before deducting')}>{v.idleDays ? `${v.idleDays} / ${v.attachedDays}` : '—'}</td>
+                        <td className="py-1.5 text-right tabular-nums">{v.adjustments ? inr(v.adjustments) : '—'}</td>
                         <td className="py-1.5 text-right font-medium tabular-nums">{inr(v.amount)}</td>
                       </tr>
                     ))}
@@ -225,6 +239,7 @@ export function VendorBillingPage() {
               <EmptyHint icon={ReceiptIndianRupeeIcon} text={t('No finished trips of this vendor’s vehicles in the month.')} />
             )}
           </Panel>
+          <AdjustmentsPanel s={s} />
           <Panel title={t('Per trip')} subtitle={t('Finished trips priced from GPS km, times and employees carried')} id="bill-trips">
             {s.lines.length ? (
               <div className="max-h-[60dvh] overflow-auto">

@@ -44,6 +44,16 @@ export interface RateParams {
   perExtraHour?: number;
   /** SEAT */
   perSeat?: number;
+  /**
+   * v1.16.13 MONTHLY (dedicated cab) choices: bill the fee even in a month without trips (default on), prorate by the
+   * days the vehicle was attached (default on), and count extra km from the vehicle's whole GPS km ('GPS', default) or
+   * from trip km only ('TRIPS').
+   */
+  billIdle?: boolean;
+  prorate?: boolean;
+  extraKmSource?: 'GPS' | 'TRIPS';
+  /** v1.16.13 minimum guarantee (TRIP / KM / SLAB / PACKAGE / SEAT): per vehicle per month the vendor gets at least this. */
+  minMonthly?: number;
 }
 
 export interface RateAddons {
@@ -241,9 +251,63 @@ export function tripCharge(model: RateModel, p: RateParams, a: RateAddons, t: Bi
 }
 
 /** MONTHLY card: the vehicle's charge for the month from its total km. */
-export function monthlyCharge(p: RateParams, totalKm: number): { amount: number; basis: string } {
-  const extra = Math.max(0, totalKm - num(p.includedKm));
-  return { amount: r2(num(p.monthlyFee) + extra * num(p.perExtraKm)), basis: `₹${num(p.monthlyFee)} incl. ${num(p.includedKm)} km${extra > 0 ? ` + ${r2(extra)} km × ₹${num(p.perExtraKm)}` : ''}` };
+export function monthlyCharge(p: RateParams, totalKm: number, attached?: { days: number; daysInMonth: number }): { amount: number; basis: string } {
+  // Prorate the fee and the included km by the days attached (on unless switched off).
+  const share = attached && p.prorate !== false && attached.days < attached.daysInMonth ? attached.days / attached.daysInMonth : 1;
+  const fee = num(p.monthlyFee) * share;
+  const included = num(p.includedKm) * share;
+  const extra = Math.max(0, totalKm - included);
+  const feeText = share < 1 ? `₹${num(p.monthlyFee)} × ${attached!.days}/${attached!.daysInMonth} days = ₹${r2(fee)}` : `₹${num(p.monthlyFee)}`;
+  return { amount: r2(fee + extra * num(p.perExtraKm)), basis: `${feeText} incl. ${r2(included)} km${extra > 0 ? ` + ${r2(extra)} km × ₹${num(p.perExtraKm)}` : ''}` };
+}
+
+/** Minimum guarantee: the top-up that brings a vehicle's month to the card's minimum (prorated like a monthly fee). */
+export function minimumTopUp(p: RateParams, actual: number, attached?: { days: number; daysInMonth: number }): { topUp: number; basis: string } | null {
+  if (!num(p.minMonthly)) return null;
+  const share = attached && p.prorate !== false && attached.days < attached.daysInMonth ? attached.days / attached.daysInMonth : 1;
+  const min = r2(num(p.minMonthly) * share);
+  if (actual >= min) return null;
+  return { topUp: r2(min - actual), basis: `minimum ₹${min}${share < 1 ? ` (${attached!.days}/${attached!.daysInMonth} days)` : ''} − actual ₹${r2(actual)}` };
+}
+
+// ───────────────────────────── Statement adjustments ─────────────────────────────
+
+/** Manual lines on a month's statement, per vehicle (or the whole vendor). */
+export const ADJUSTMENT_KINDS = ['NOT_AVAILABLE', 'PENALTY', 'TOLL_PARKING', 'EXTRA', 'DEDUCTION'] as const;
+export type AdjustmentKind = (typeof ADJUSTMENT_KINDS)[number];
+export const ADJUSTMENT_LABEL: Record<AdjustmentKind, string> = {
+  NOT_AVAILABLE: 'Not available (days)',
+  PENALTY: 'Penalty',
+  TOLL_PARKING: 'Toll / parking (actuals)',
+  EXTRA: 'Other extra',
+  DEDUCTION: 'Other deduction',
+};
+/** Kinds that reduce the bill. */
+export const ADJUSTMENT_DEDUCTS: readonly AdjustmentKind[] = ['NOT_AVAILABLE', 'PENALTY', 'DEDUCTION'];
+
+export interface StatementAdjustmentDto {
+  id: string;
+  month: string;
+  objectId: string | null;
+  vehicle: string | null;
+  kind: AdjustmentKind;
+  /** NOT_AVAILABLE: days. */
+  days: number | null;
+  /** Signed: deductions negative. */
+  amount: number;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface StatementAdjustmentInput {
+  month: string;
+  vendorId: string;
+  objectId?: string | null;
+  kind: AdjustmentKind;
+  days?: number | null;
+  /** Positive ₹; the kind decides the sign. NOT_AVAILABLE without an amount = days × the vehicle's monthly fee per day. */
+  amount?: number | null;
+  note?: string | null;
 }
 
 /**
@@ -288,9 +352,17 @@ export interface VendorStatementVehicle {
   trips: number;
   km: number;
   passengers: number;
-  /** Trip-priced amount + monthly charge. */
+  /** Trip-priced amount + monthly charge + minimum top-up + adjustments. */
   amount: number;
   monthly: { amount: number; basis: string } | null;
+  /** v1.16.13: minimum-guarantee top-up. */
+  minimum: { topUp: number; basis: string } | null;
+  /** v1.16.13: days attached in the month and days without movement (GPS < 1 km and no trip): a hint for "not available". */
+  attachedDays: number;
+  idleDays: number;
+  /** v1.16.13: GPS km of the whole month (all driving, not only trips). */
+  gpsKm: number;
+  adjustments: number;
 }
 
 export interface VendorStatementDto {
@@ -299,5 +371,6 @@ export interface VendorStatementDto {
   branchId: string | null;
   lines: VendorStatementLine[];
   vehicles: VendorStatementVehicle[];
-  totals: { trips: number; km: number; passengers: number; subtotal: number; gst: number; total: number; unpriced: number };
+  adjustments: StatementAdjustmentDto[];
+  totals: { trips: number; km: number; passengers: number; subtotal: number; gst: number; total: number; unpriced: number; adjustments: number; tollParking: number };
 }

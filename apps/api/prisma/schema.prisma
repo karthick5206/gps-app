@@ -4037,9 +4037,10 @@ model TransportVendor {
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
   company   Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  rateCards TransportRateCard[]
-  vehicles  TransportVendorVehicle[]
-  drivers   TransportVendorDriver[]
+  rateCards   TransportRateCard[]
+  vehicles    TransportVendorVehicle[]
+  drivers     TransportVendorDriver[]
+  adjustments TransportStatementAdjustment[]
 
   @@unique([companyId, name])
   @@index([companyId, isActive])
@@ -4093,4 +4094,26 @@ model TransportVendorDriver {
   driver Driver          @relation(fields: [driverId], references: [id], onDelete: Cascade)
 
   @@index([vendorId])
+}
+
+/// v1.16.13: manual lines on a vendor's monthly statement (not available days, penalty, toll / parking, extra, deduction).
+model TransportStatementAdjustment {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  vendorId    String   @db.Uuid
+  /// YYYY-MM
+  month       String
+  objectId    String?  @db.Uuid
+  /// NOT_AVAILABLE | PENALTY | TOLL_PARKING | EXTRA | DEDUCTION
+  kind        String
+  days        Float?
+  /// Signed: deductions negative.
+  amount      Float
+  note        String?
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  vendor TransportVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, vendorId, month])
 }

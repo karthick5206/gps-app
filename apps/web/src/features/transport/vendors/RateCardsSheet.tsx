@@ -29,16 +29,18 @@ const ENDPOINT = (vendorId: string) => `/transport/vendors/${vendorId}/rate-card
 
 /** The number fields each model asks for. */
 const MODEL_FIELDS: Record<RateModel, { key: keyof RateParams; label: string }[]> = {
-  TRIP: [{ key: 'perTrip', label: '₹ per trip' }],
+  TRIP: [{ key: 'perTrip', label: '₹ per trip' }, { key: 'minMonthly', label: 'Minimum guarantee ₹ / vehicle / month (optional)' }],
   KM: [
     { key: 'perKm', label: '₹ per km' },
     { key: 'minKm', label: 'Minimum km per trip' },
     { key: 'baseFare', label: 'Base fare ₹ (optional)' },
+    { key: 'minMonthly', label: 'Minimum guarantee ₹ / vehicle / month (optional)' },
   ],
   SLAB: [
     { key: 'baseKm', label: 'First km' },
     { key: 'baseFare', label: '₹ for the first km' },
     { key: 'perKmAfter', label: '₹ per km after' },
+    { key: 'minMonthly', label: 'Minimum guarantee ₹ / vehicle / month (optional)' },
   ],
   MONTHLY: [
     { key: 'monthlyFee', label: '₹ per vehicle per month' },
@@ -51,8 +53,9 @@ const MODEL_FIELDS: Record<RateModel, { key: keyof RateParams; label: string }[]
     { key: 'fare', label: 'Package ₹' },
     { key: 'perExtraHour', label: '₹ per extra hour' },
     { key: 'perExtraKm', label: '₹ per extra km' },
+    { key: 'minMonthly', label: 'Minimum guarantee ₹ / vehicle / month (optional)' },
   ],
-  SEAT: [{ key: 'perSeat', label: '₹ per employee carried' }],
+  SEAT: [{ key: 'perSeat', label: '₹ per employee carried' }, { key: 'minMonthly', label: 'Minimum guarantee ₹ / vehicle / month (optional)' }],
 };
 const ADDON_FIELDS: { key: keyof RateAddons; label: string }[] = [
   { key: 'nightAllowance', label: 'Night allowance ₹ / trip' },
@@ -74,24 +77,28 @@ interface Draft {
   validFrom: string;
   validTo: string;
   isActive: boolean;
+  /** MONTHLY choices (v1.16.13). */
+  billIdle: boolean;
+  prorate: boolean;
+  extraKmSource: 'GPS' | 'TRIPS';
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
-const blank = (): Draft => ({ id: null, name: '', branchId: '', vehicleCategory: '', model: 'KM', params: {}, addons: {}, gstPct: '5', validFrom: today(), validTo: '', isActive: true });
-const toStrings = (o: object) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v)]));
+const blank = (): Draft => ({ id: null, name: '', branchId: '', vehicleCategory: '', model: 'KM', params: {}, addons: {}, gstPct: '5', validFrom: today(), validTo: '', isActive: true, billIdle: true, prorate: true, extraKmSource: 'GPS' });
+const toStrings = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v]) => typeof v === 'number').map(([k, v]) => [k, String(v)]));
 const toNumbers = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v.trim() !== '').map(([k, v]) => [k, Number(v)]));
 
 function summary(c: TransportRateCardDto): string {
   const p = c.params;
   switch (c.model) {
     case 'TRIP':
-      return `₹${p.perTrip ?? 0} / trip`;
+      return `₹${p.perTrip ?? 0} / trip${p.minMonthly ? ` · min ₹${p.minMonthly}/month` : ''}`;
     case 'KM':
-      return `₹${p.perKm ?? 0} / km${p.minKm ? `, min ${p.minKm} km` : ''}`;
+      return `₹${p.perKm ?? 0} / km${p.minKm ? `, min ${p.minKm} km` : ''}${p.minMonthly ? ` · min ₹${p.minMonthly}/month` : ''}`;
     case 'SLAB':
       return `₹${p.baseFare ?? 0} for ${p.baseKm ?? 0} km, then ₹${p.perKmAfter ?? 0} / km`;
     case 'MONTHLY':
-      return `₹${p.monthlyFee ?? 0} / month incl. ${p.includedKm ?? 0} km, ₹${p.perExtraKm ?? 0} / extra km`;
+      return `₹${p.monthlyFee ?? 0} / month incl. ${p.includedKm ?? 0} km, ₹${p.perExtraKm ?? 0} / extra km${p.billIdle === false ? ' · only months with trips' : ' · billed even without trips'}${p.prorate === false ? ' · not prorated' : ''}${p.extraKmSource === 'TRIPS' ? ' · trip km' : ''}`;
     case 'PACKAGE':
       return `₹${p.fare ?? 0} for ${p.hours ?? 0} h / ${p.km ?? 0} km`;
     case 'SEAT':
@@ -120,7 +127,7 @@ export function RateCardsSheet({ vendor, onClose }: { vendor: TransportVendorDto
         branchId: x.branchId || null,
         vehicleCategory: x.vehicleCategory || null,
         model: x.model,
-        params: toNumbers(x.params),
+        params: { ...toNumbers(x.params), ...(x.model === 'MONTHLY' ? { billIdle: x.billIdle, prorate: x.prorate, extraKmSource: x.extraKmSource } : {}) },
         addons: toNumbers(x.addons),
         gstPct: Number(x.gstPct) || 0,
         validFrom: x.validFrom,
@@ -201,6 +208,32 @@ export function RateCardsSheet({ vendor, onClose }: { vendor: TransportVendorDto
                   </Field>
                 ))}
               </div>
+              {d.model === 'MONTHLY' && (
+                <div className="grid gap-2 rounded-md border bg-muted/40 p-3 text-sm">
+                  <p className="font-medium">{t('Dedicated cab options')}</p>
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" className="mt-1" checked={d.billIdle} onChange={(e) => setD({ ...d, billIdle: e.target.checked })} />
+                    <span>
+                      {t('Bill the monthly fee even without trips')}
+                      <span className="block text-xs text-muted-foreground">{t('On: the vehicle is paid for every month it is attached, used or not (dedicated cab). Off: only months with at least one trip.')}</span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" className="mt-1" checked={d.prorate} onChange={(e) => setD({ ...d, prorate: e.target.checked })} />
+                    <span>
+                      {t('Prorate by days attached')}
+                      <span className="block text-xs text-muted-foreground">{t('A vehicle that joins or leaves mid-month pays only for its days (fee and included km).')}</span>
+                    </span>
+                  </label>
+                  <label className="grid gap-1">
+                    <span>{t('Extra km counted from')}</span>
+                    <select className={sel} value={d.extraKmSource} onChange={(e) => setD({ ...d, extraKmSource: e.target.value as 'GPS' | 'TRIPS' })}>
+                      <option value="GPS">{t('All GPS km of the vehicle in the month')}</option>
+                      <option value="TRIPS">{t('Trip km only')}</option>
+                    </select>
+                  </label>
+                </div>
+              )}
               <details className="rounded-md border p-2">
                 <summary className="cursor-pointer text-sm font-medium">{t('Add-ons (optional)')}</summary>
                 <div className="mt-2 grid gap-3 sm:grid-cols-3">
@@ -253,7 +286,7 @@ export function RateCardsSheet({ vendor, onClose }: { vendor: TransportVendorDto
                   </div>
                   {editable && (
                     <>
-                      <Button size="icon-sm" variant="ghost" aria-label={t('Edit {{name}}', { name: c.name })} onClick={() => setD({ id: c.id, name: c.name, branchId: c.branchId ?? '', vehicleCategory: c.vehicleCategory ?? '', model: c.model, params: toStrings(c.params), addons: toStrings(c.addons), gstPct: String(c.gstPct), validFrom: c.validFrom, validTo: c.validTo ?? '', isActive: c.isActive })}>
+                      <Button size="icon-sm" variant="ghost" aria-label={t('Edit {{name}}', { name: c.name })} onClick={() => setD({ id: c.id, name: c.name, branchId: c.branchId ?? '', vehicleCategory: c.vehicleCategory ?? '', model: c.model, params: toStrings(c.params), addons: toStrings(c.addons), gstPct: String(c.gstPct), validFrom: c.validFrom, validTo: c.validTo ?? '', isActive: c.isActive, billIdle: c.params.billIdle !== false, prorate: c.params.prorate !== false, extraKmSource: c.params.extraKmSource === 'TRIPS' ? 'TRIPS' : 'GPS' })}>
                         <PencilIcon />
                       </Button>
                       <Button size="icon-sm" variant="ghost" aria-label={t('Delete {{name}}', { name: c.name })} onClick={() => window.confirm(t('Delete rate card {{name}}?', { name: c.name })) && del.mutate(c.id)}>
