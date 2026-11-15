@@ -259,7 +259,7 @@ export interface UpdatePricingContractRequest {
   expectedVersion: number;
   name?: string;
   reference?: string | null;
-  customerName?: string;
+  customerName?: string | null;
   agreementId?: string | null;
   currency?: string;
   billingFrequency?: BillingFrequency;
