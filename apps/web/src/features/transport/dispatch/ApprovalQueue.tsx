@@ -14,7 +14,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/features/auth/auth-context';
 import { formatClock } from '@/features/planned-trips/trip-format';
 import { cn } from '@/lib/utils';
-import { routeText } from './adhoc-booking';
+import { JOURNEY_LABEL, routeText } from './adhoc-booking';
 import { AfterCutoffBadge, GroupBadge, JourneyBadge } from './adhoc-ui';
 import { DIRECTION_LABEL } from './e3-format';
 import { DirectionBadge, e3ErrorMessage } from './e3-ui';
@@ -163,7 +163,7 @@ export function ApprovalQueue({ today, search }: { today: string; search: string
                   <span className="tabular-nums">
                     {b.serviceDate} · {clock(b.windowStart)} – {clock(b.windowEnd)}
                   </span>
-                  {b.journey === 'POINT_TO_POINT' ? <JourneyBadge journey={b.journey} /> : <DirectionBadge direction={b.direction} />}
+                  {b.journey === 'POINT_TO_POINT' ? <JourneyBadge journey={b.journey} /> : <DirectionBadge direction={b.direction ?? 'IN'} />}
                   {b.afterCutoff && <AfterCutoffBadge reason={b.lateReason} />}
                   {g && <GroupBadge size={sizes.get(g) ?? 1} purpose={purpose} />}
                   {b.needsLocation && <Badge variant="warning">{t('Needs location')}</Badge>}
@@ -205,7 +205,7 @@ export function ApprovalQueue({ today, search }: { today: string; search: string
         open={!!rejecting}
         onOpenChange={(o) => !o && setRejecting(null)}
         title={t('Reject booking?')}
-        description={rejecting ? `${rejecting.passenger.displayName} · ${rejecting.serviceDate} · ${t(DIRECTION_LABEL[rejecting.direction])}` : undefined}
+        description={rejecting ? `${rejecting.passenger.displayName} · ${rejecting.serviceDate} · ${t(rejecting.direction ? DIRECTION_LABEL[rejecting.direction] : JOURNEY_LABEL.POINT_TO_POINT)}` : undefined}
         label={t('Reason')}
         confirmLabel={t('Reject')}
         destructive

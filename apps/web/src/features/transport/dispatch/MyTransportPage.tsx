@@ -282,7 +282,7 @@ function MyBookingRow({ booking: b, now, canCancel, onCancel }: { booking: MeBoo
         {cs === 'AFTER_CUTOFF' && <p className="text-xs text-muted-foreground">{t('Cancellation closed (cut-off passed). Call your transport desk.')}</p>}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {b.journey === 'POINT_TO_POINT' ? <Badge variant="outline">{t(JOURNEY_LABEL.POINT_TO_POINT)}</Badge> : <DirectionBadge direction={b.direction} />}
+        {b.journey === 'POINT_TO_POINT' ? <Badge variant="outline">{t(JOURNEY_LABEL.POINT_TO_POINT)}</Badge> : <DirectionBadge direction={b.direction ?? 'IN'} />}
         {approval ? <Badge variant={approval.tone}>{t(approval.label)}</Badge> : <BookingStatusBadge status={b.status} />}
         {cs === 'CAN_CANCEL' && (
           <Button size="sm" variant="outline" onClick={onCancel}>

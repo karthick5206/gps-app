@@ -413,7 +413,7 @@ export function BookingsPage() {
                       </TableCell>
                       <TableCell>
                         <span className="flex flex-wrap gap-1">
-                          {b.journey === 'POINT_TO_POINT' ? <JourneyBadge journey={b.journey} /> : <DirectionBadge direction={b.direction} />}
+                          {b.journey === 'POINT_TO_POINT' ? <JourneyBadge journey={b.journey} /> : <DirectionBadge direction={b.direction ?? 'IN'} />}
                           {b.afterCutoff && <AfterCutoffBadge reason={b.lateReason} />}
                         </span>
                       </TableCell>
@@ -475,7 +475,7 @@ export function BookingsPage() {
                     {purposeOf(b) && <p className="truncate text-xs text-muted-foreground">{t('Purpose')}: {purposeOf(b)}</p>}
                     {b.afterCutoff && b.lateReason && <p className="line-clamp-2 text-xs text-muted-foreground">{t('Late reason: {{reason}}', { reason: b.lateReason })}</p>}
                     <div className="flex flex-wrap items-center gap-2 text-sm">
-                      {b.journey === 'POINT_TO_POINT' ? <JourneyBadge journey={b.journey} /> : <DirectionBadge direction={b.direction} />}
+                      {b.journey === 'POINT_TO_POINT' ? <JourneyBadge journey={b.journey} /> : <DirectionBadge direction={b.direction ?? 'IN'} />}
                       {b.afterCutoff && <AfterCutoffBadge reason={b.lateReason} />}
                       {groupIdOf(b) && <GroupBadge size={sizes.get(groupIdOf(b)!) ?? 1} purpose={purposeOf(b)} active={groupId === groupIdOf(b)} onClick={() => toggleGroup(groupIdOf(b)!)} />}
                       <span className="tabular-nums">{windowText(b, clock)}</span>
@@ -516,7 +516,7 @@ export function BookingsPage() {
         open={!!command}
         onOpenChange={(o) => !o && setCommand(null)}
         title={command?.kind === 'reject' ? t('Reject booking?') : t('Cancel booking?')}
-        description={command ? `${command.b.passenger.displayName} · ${command.b.serviceDate} · ${t(DIRECTION_LABEL[command.b.direction])}` : undefined}
+        description={command ? `${command.b.passenger.displayName} · ${command.b.serviceDate} · ${t(command.b.direction ? DIRECTION_LABEL[command.b.direction] : JOURNEY_LABEL.POINT_TO_POINT)}` : undefined}
         label={t('Reason')}
         confirmLabel={command?.kind === 'reject' ? t('Reject') : t('Cancel booking')}
         destructive
