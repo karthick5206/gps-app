@@ -2,6 +2,7 @@ import { Body, Controller, ForbiddenException, Get, Headers, HttpCode, HttpExcep
 import { Prisma } from '@prisma/client';
 import {
   can,
+  canOverrideMaxRide,
   ETMS_PLANNING_MENU,
   isRoutingStrategy,
   planBookingsLimitMessage,
@@ -29,11 +30,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RoutePlanPreferencesDto } from '../../routing-jobs/routing-jobs.controller';
 import { RoutingHttpError } from '../../routing-jobs/routing-flags';
 import { RoutingJobsService } from '../../routing-jobs/routing-jobs.service';
-import { checkPreferences } from '../../routing-jobs/strategies';
-import { idempotencyKey, idempotencyReused, invalid, notFound, requestHash } from '../dispatch/e3-common';
+import { MAX_RIDE_AUDIT_ENTITY, maxRidePolicyOf, storedOverrideOf } from '../../routing-jobs/max-ride';
+import { checkPreferenceMaxRide, checkPreferences } from '../../routing-jobs/strategies';
+import { idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound, requestHash } from '../dispatch/e3-common';
 import { activeRoutingConsents } from '../people/people.service';
 import { TransportFeatureGuard } from '../transport-feature.guard';
-import { PLAN_INCLUDE } from './plan-view';
+import { outOfScope, PLAN_INCLUDE, planStopOwner, type PlanPointView, type ViewBooking } from './plan-view';
 import { PlanningFeatureGuard } from './planning-feature.guard';
 import { PLAN_ENTITY, RoutePlansService } from './plans.service';
 
@@ -99,16 +101,27 @@ export class RoutePlanAlternativesService {
     if (source.version !== dto.expectedVersion) throw new RoutingHttpError('PLAN_STALE', 'The plan changed meanwhile; reload it and try again', { currentVersion: source.version });
     if (!(ROUTE_PLAN_EDITABLE as readonly string[]).includes(source.status)) throw new RoutingHttpError('PLAN_NOT_EDITABLE', `Alternatives cannot be made from a ${source.status.toLowerCase()} plan`);
 
+    // Security delta D1: passengers outside the caller's branches are invisible to them. Their stops (and every stop of
+    // the same booking) are never cloned, and they are not counted or listed in skippedBookings.
+    const view = await this.scopeView(ctx, source.stops);
+    const hiddenBookings = new Set(source.stops.filter((s) => s.bookingId && outOfScope(s, view)).map((s) => s.bookingId as string));
+    const visible = source.stops.filter((s) => !outOfScope(s, view) && !(s.bookingId && hiddenBookings.has(s.bookingId)));
     // Published routes (an E3 trip exists) and all stops of their bookings stay out of the clones.
     const published = new Set(source.transportTrips.map((t) => t.routeAssignmentId).filter((x): x is string => !!x));
     const skipped: RoutePlanAlternativesResult['skippedBookings'] = [];
     const out = new Set<string>();
-    for (const s of source.stops) if (s.bookingId && s.assignmentId && published.has(s.assignmentId) && !out.has(s.bookingId)) (out.add(s.bookingId), skipped.push({ bookingId: s.bookingId, reason: 'published' }));
-    // Consent re-checked now: a personal point is only copied with active routing consent.
-    const owners = [...new Set(source.stops.map((s) => s.profileId).filter((p): p is string => !!p))];
+    for (const s of visible) if (s.bookingId && s.assignmentId && published.has(s.assignmentId) && !out.has(s.bookingId)) (out.add(s.bookingId), skipped.push({ bookingId: s.bookingId, reason: 'published' }));
+    // Consent re-checked now (planStopOwner: a legacy personal stop without profileId belongs to its booking's
+    // passenger): a personal point is only copied with active routing consent.
+    const ownerOf = (s: (typeof visible)[number]) => planStopOwner(s, view.bookings);
+    const owners = [...new Set(visible.map(ownerOf).filter((p): p is string => !!p))];
     const consenting = owners.length ? await activeRoutingConsents(this.prisma, owners) : new Set<string>();
-    for (const s of source.stops) if (s.bookingId && s.profileId && !consenting.has(s.profileId) && !out.has(s.bookingId)) (out.add(s.bookingId), skipped.push({ bookingId: s.bookingId, reason: 'consent_required' }));
-    const stops = source.stops.filter((s) => !(s.assignmentId && published.has(s.assignmentId)) && !(s.bookingId && out.has(s.bookingId)) && !(s.profileId && !consenting.has(s.profileId)));
+    const noConsent = (s: (typeof visible)[number]) => {
+      const o = ownerOf(s);
+      return !!o && !consenting.has(o);
+    };
+    for (const s of visible) if (s.bookingId && noConsent(s) && !out.has(s.bookingId)) (out.add(s.bookingId), skipped.push({ bookingId: s.bookingId, reason: 'consent_required' }));
+    const stops = visible.filter((s) => !(s.assignmentId && published.has(s.assignmentId)) && !(s.bookingId && out.has(s.bookingId)) && !noConsent(s));
     const assignments = source.assignments.filter((a) => !published.has(a.id));
     const bookings = new Set(stops.map((s) => s.bookingId).filter(Boolean)).size;
     if (bookings > ROUTING_LIMITS.planBookings) throw new RoutingHttpError('LIMIT_EXCEEDED', planBookingsLimitMessage(bookings));
@@ -118,7 +131,12 @@ export class RoutePlanAlternativesService {
     if (active >= ROUTING_LIMITS.concurrentOptimizePerCompany) throw new RoutingHttpError('QUOTA_EXCEEDED', `At most ${ROUTING_LIMITS.concurrentOptimizePerCompany} optimisations may run at once for a company; wait for one to finish`);
 
     const srcOptions = (source.options && typeof source.options === 'object' && !Array.isArray(source.options) ? source.options : {}) as Record<string, unknown>;
-    const copied = Object.fromEntries(COPIED_OPTIONS.filter((k) => srcOptions[k] !== undefined).map((k) => [k, srcOptions[k]]));
+    // The source's max-ride override is copied only by a caller who may set one (else the siblings use the policy).
+    const mayOverride = canOverrideMaxRide(ctx.permissions, ctx.dataScope);
+    const copied = Object.fromEntries(COPIED_OPTIONS.filter((k) => srcOptions[k] !== undefined && (k !== 'maxRideOverride' || mayOverride)).map((k) => [k, srcOptions[k]]));
+    // Preferences checked against the siblings' effective max ride BEFORE anything is written (no orphan siblings).
+    const policyS = await maxRidePolicyOf(this.prisma, ctx.companyId);
+    checkPreferenceMaxRide(preferences, storedOverrideOf(copied)?.maxRideS ?? policyS ?? null);
     let created: { planId: string; strategy: RoutingStrategy }[];
     try {
       created = await this.prisma.$transaction(async (tx) => {
@@ -194,6 +212,10 @@ export class RoutePlanAlternativesService {
             { action: 'CREATE', entity: PLAN_ENTITY, entityId: plan.id, details: { alternativeOf: source.id, strategy, bookings, skipped: skipped.length, vehicles: assignments.length, ...(copied.maxRideOverride ? { maxRideOverrideCopied: true } : {}) } },
             tx,
           );
+          const override = storedOverrideOf(copied);
+          if (override) {
+            await this.audit.record(ctx, { action: 'UPDATE', entity: MAX_RIDE_AUDIT_ENTITY, entityId: plan.id, details: { maxRideOverride: { from: null, to: override.maxRideS }, reason: override.reason, copiedFrom: source.id, via: 'alternatives', policyS, version: 1 } }, tx);
+          }
           made.push({ planId: plan.id, strategy });
         }
         return made;
@@ -204,7 +226,35 @@ export class RoutePlanAlternativesService {
       if (!(await this.siblingsByKey(ctx, key)).length) throw e;
       return this.create(ctx, sourceId, dto, rawKey);
     }
-    return { value: { sourcePlanId: source.id, alternatives: await this.startJobs(ctx, key, created, timeLimitS, preferences), skippedBookings: skipped }, replay: false };
+    let started: RoutePlanAlternativeJob[];
+    try {
+      started = await this.startJobs(ctx, key, created, timeLimitS, preferences);
+    } catch (e) {
+      // A refusal that applies to every sibling (400 / 403): nothing of this request is kept (no orphan siblings).
+      await this.discard(ctx, created.map((c) => c.planId));
+      throw e;
+    }
+    return { value: { sourcePlanId: source.id, alternatives: started, skippedBookings: skipped }, replay: false };
+  }
+
+  /** Removes siblings of a refused request (their queued jobs first). */
+  private async discard(ctx: AuthContext, planIds: string[]): Promise<void> {
+    if (!planIds.length) return;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.routingJob.deleteMany({ where: { companyId: ctx.companyId, planId: { in: planIds } } });
+      await tx.routePlan.deleteMany({ where: { companyId: ctx.companyId, id: { in: planIds } } });
+    });
+  }
+
+  /** The branch-scope view of a plan's stops (bookings with their passenger's branch, owners' branches). */
+  private async scopeView(ctx: AuthContext, stops: { bookingId: string | null; profileId: string | null; poiId: string | null }[]): Promise<Pick<PlanPointView, 'bookings' | 'ownerBranch' | 'inBranch'>> {
+    const ids = [...new Set(stops.flatMap((s) => (s.bookingId ? [s.bookingId] : [])))];
+    const rows = ids.length ? await this.prisma.transportBooking.findMany({ where: { id: { in: ids } }, select: { id: true, passengerCount: true, profileId: true, pickupLabel: true, dropLabel: true, profile: { select: { branchId: true, displayName: true } } } }) : [];
+    const bookings = new Map<string, ViewBooking>(rows.map((b) => [b.id, { id: b.id, passengerCount: b.passengerCount, profileId: b.profileId, pickupLabel: b.pickupLabel, dropLabel: b.dropLabel, branchId: b.profile?.branchId ?? null, displayName: b.profile?.displayName ?? null }]));
+    const ownerBranch = new Map<string, string | null>([...bookings.values()].map((b) => [b.profileId, b.branchId] as const));
+    const missing = [...new Set(stops.flatMap((s) => (s.profileId && !ownerBranch.has(s.profileId) ? [s.profileId] : [])))];
+    if (missing.length) for (const p of await this.prisma.employeeTransportProfile.findMany({ where: { id: { in: missing } }, select: { id: true, branchId: true } })) ownerBranch.set(p.id, p.branchId);
+    return { bookings, ownerBranch, inBranch: (b) => inProfileBranch(ctx, b) };
   }
 
   /** One optimise job per sibling (stable per-sibling job key, so a replay never queues a second one). */
@@ -217,6 +267,8 @@ export class RoutePlanAlternativesService {
         out.push({ strategy: s.strategy, planId: s.planId, jobId: r.job.jobId, jobState: r.job.state });
       } catch (e) {
         if (!(e instanceof HttpException)) throw e;
+        // 400 / 403 (validation, rights, max ride above the policy) apply to every sibling: fatal for the request.
+        if (e.getStatus() === 400 || e.getStatus() === 403) throw e;
         const body = e.getResponse() as { code?: string; message?: string };
         out.push({ strategy: s.strategy, planId: s.planId, jobId: null, jobState: null, error: { code: body.code ?? `HTTP_${e.getStatus()}`, message: String(body.message ?? 'Not started') } });
       }

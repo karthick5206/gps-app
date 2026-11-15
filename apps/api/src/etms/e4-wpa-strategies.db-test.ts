@@ -49,7 +49,17 @@ d(`ETMS E4 WP-A strategies and alternatives on ${dbName || '(no scratch DB)'}`, 
     partnerId = await seedPartner(prisma);
   });
   afterAll(async () => {
-    for (const c of companies) await sql(`DELETE FROM "TransportTrip" WHERE "providerCompanyId" = '${c}'`);
+    for (const c of companies) {
+      await sql(`DELETE FROM "TransportTrip" WHERE "providerCompanyId" = '${c}'`);
+      // Branches are removed after the plans and profiles (cleanupSeeded), then the company.
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SELECT set_config('veetrax.evidence_write', 'purge', true)`);
+      for (const c of companies) {
+        for (const t of ['RoutingJob', 'RoutePlan', 'TransportBooking', 'EmployeeTransportConsent', 'EmployeeTransportProfile']) await tx.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "${t === 'TransportBooking' ? 'customerCompanyId' : 'companyId'}" = '${c}'`);
+        await tx.$executeRawUnsafe(`DELETE FROM "Branch" WHERE "companyId" = '${c}'`);
+      }
+    });
     expect(await cleanupSeeded(prisma, companies, partnerId)).toBe(0);
     await prisma.$disconnect();
   });
@@ -121,6 +131,7 @@ d(`ETMS E4 WP-A strategies and alternatives on ${dbName || '(no scratch DB)'}`, 
   it('75-booking limit (422 LIMIT_EXCEEDED, nothing created); published routes and their passengers are not cloned', async () => {
     const big = await seedPlan(prisma, partnerId, companies, 'big');
     await sql(`INSERT INTO "EmployeeTransportProfile" (id, "companyId", "employeeCode", "displayName", "updatedAt") SELECT gen_random_uuid(), '${big.company}', 'L' || g, 'Synthetic L' || g, now() FROM generate_series(1, 73) g`);
+    await sql(`INSERT INTO "EmployeeTransportConsent" (id, "companyId", "profileId", purpose, "noticeVersion", granted, channel) SELECT gen_random_uuid(), '${big.company}', p.id, 'TRANSPORT_PROFILE', 'v1', true, 'WEB' FROM "EmployeeTransportProfile" p WHERE p."companyId" = '${big.company}' AND p."employeeCode" LIKE 'L%'`);
     await sql(`INSERT INTO "TransportBooking" (id, "customerCompanyId", "profileId", source, "serviceDate", direction, "timeZone", "pickupLat", "pickupLng", "dropPoiId", "dropLat", "dropLng", "windowStart", "windowEnd", status, "updatedAt")
       SELECT gen_random_uuid(), '${big.company}', p.id, 'ADHOC', '2026-12-01', 'IN', 'Asia/Kolkata', 13.05, 80.2, '${big.office}', 13.0827, 80.2707, '2026-12-01T02:00:00Z', '2026-12-01T03:00:00Z', 'PENDING_ASSIGNMENT', now() FROM "EmployeeTransportProfile" p WHERE p."companyId" = '${big.company}' AND p."employeeCode" LIKE 'L%'`);
     await sql(`INSERT INTO "RoutePlanStop" (id, "planId", "companyId", ref, lat, lng, demand, "serviceS", "stopKind", "customerCompanyId", "bookingId", "updatedAt")
@@ -136,6 +147,50 @@ d(`ETMS E4 WP-A strategies and alternatives on ${dbName || '(no scratch DB)'}`, 
     const sib = await prisma.routePlan.findUnique({ where: { id: r.value.alternatives[0].planId }, include: { stops: true, assignments: true } });
     expect(sib!.assignments).toHaveLength(1);
     expect(sib!.stops.map((s) => s.bookingId).sort()).toEqual([g.bookings[1], g.bookings[1], g.bookings[2], g.bookings[2]].sort());
+  });
+
+  it('review fixes: preference max ride above the policy refused before any sibling exists; the override is copied only with the right (audited)', async () => {
+    const g = await seedPlan(prisma, partnerId, companies, 'ride');
+    await sql(`UPDATE "Company" SET settings = '{"features":["etms"],"etms":{"maxRideS":2700}}' WHERE id = '${g.company}'`);
+    await sql(`UPDATE "RoutePlan" SET options = '{"maxRideOverride":{"maxRideS":5400,"reason":"Flood diversion on the ring road","setById":null,"setAt":"2026-11-15T00:00:00Z"}}' WHERE id = '${g.plan}'`);
+    const body = { strategies: ['BALANCED', 'FASTEST'] as ('BALANCED' | 'FASTEST')[], expectedVersion: 1, preferences: { maxRideS: 3600 } };
+    // Planner without the override right: the siblings would run on the policy (2700) → 400, nothing written.
+    expect(await errOf(alt.create(editor(g.company), g.plan, body, 'ride-key-0001'))).toEqual({ status: 400, code: 'MAX_RIDE_ABOVE_POLICY' });
+    expect(await prisma.routePlan.count({ where: { companyId: g.company } })).toBe(1);
+    expect(await prisma.routingJob.count({ where: { companyId: g.company } })).toBe(0);
+    // Same request without the preference: siblings without the override.
+    const plain = await alt.create(editor(g.company), g.plan, { ...body, preferences: undefined }, 'ride-key-0002');
+    const p1 = await prisma.routePlan.findUnique({ where: { id: plain.value.alternatives[0].planId }, select: { options: true } });
+    expect(p1!.options).not.toHaveProperty('maxRideOverride');
+    // Transport admin (etms_settings:edit, whole company): override copied, 3600 within it, one audit entry per clone.
+    await prisma.routingJob.deleteMany({ where: { companyId: g.company } });
+    const admin = { ...ctxFor(g.company), permissions: { etms_planning: ['view', 'create', 'edit'], etms_settings: ['view', 'edit'] } } as never;
+    const r = await alt.create(admin, g.plan, body, 'ride-key-0003');
+    for (const a of r.value.alternatives) {
+      const o = (await prisma.routePlan.findUnique({ where: { id: a.planId }, select: { options: true } }))!.options as Record<string, unknown>;
+      expect(o.maxRideOverride).toMatchObject({ maxRideS: 5400 });
+      const logs = await prisma.auditLog.findMany({ where: { entityId: a.planId } });
+      expect(logs.some((l) => JSON.stringify(l).includes('copiedFrom'))).toBe(true);
+    }
+  });
+
+  it('review fixes: a branch dispatcher clones only bookings of their branches (others neither cloned nor listed); a legacy personal stop without consent is not cloned', async () => {
+    const g = await seedPlan(prisma, partnerId, companies, 'branch');
+    const [brA, brB] = [randomUUID(), randomUUID()];
+    await sql(`INSERT INTO "Branch" (id, "companyId", name, "updatedAt") VALUES ('${brA}', '${g.company}', 'A', now()), ('${brB}', '${g.company}', 'B', now())`);
+    await sql(`UPDATE "EmployeeTransportProfile" SET "branchId" = '${brB}' WHERE id = '${g.profiles[0]}'`);
+    await sql(`UPDATE "EmployeeTransportProfile" SET "branchId" = '${brA}' WHERE id IN ('${g.profiles[1]}', '${g.profiles[2]}')`);
+    await sql(`UPDATE "RoutePlan" SET "branchId" = '${brA}' WHERE id = '${g.plan}'`);
+    // Legacy personal stop: no profileId, no poiId (owner = the booking's passenger), whose consent is withdrawn.
+    await sql(`UPDATE "RoutePlanStop" SET "profileId" = NULL WHERE id = '${g.pickups[2]}'`);
+    await sql(`INSERT INTO "EmployeeTransportConsent" (id, "companyId", "profileId", purpose, "noticeVersion", granted, channel, "occurredAt") VALUES (gen_random_uuid(), '${g.company}', '${g.profiles[2]}', 'TRANSPORT_PROFILE', 'v1', false, 'WEB', now() + interval '1 minute')`);
+    const dispatcher = { ...ctxFor(g.company), dataScope: 'ASSIGNED', branchIds: [brA], permissions: { etms_planning: ['view', 'create'] } } as never;
+    const r = await alt.create(dispatcher, g.plan, { strategies: ['BALANCED', 'COMFORT'], expectedVersion: 1 }, 'branch-key-0001');
+    expect(r.value.skippedBookings).toEqual([{ bookingId: g.bookings[2], reason: 'consent_required' }]);
+    for (const a of r.value.alternatives) {
+      const stops = await prisma.routePlanStop.findMany({ where: { planId: a.planId }, select: { bookingId: true } });
+      expect(stops.map((s) => s.bookingId)).toEqual([g.bookings[1], g.bookings[1]]);
+    }
   });
 
   it('preserveLocks=false: 403 without etms_planning:edit (nothing written); allowed and audited for an editor; preference max ride above the policy → 400', async () => {

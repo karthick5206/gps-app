@@ -117,7 +117,9 @@ const LOOK_AFTER_MS = 48 * 3_600_000;
 
 /**
  * DB part: the active planned trips of the plan's vehicles / drivers around planStartAt (any company: a shared vehicle
- * is physically busy; only times are read), excluding the trips published from this plan's own routes.
+ * is physically busy; only times are read). Trips published from this plan's own routes DO count (their routes are
+ * frozen, and their vehicle is busy then); `ownPlannedTripIds` lists trips to ignore when a caller needs that (none by
+ * default).
  */
 export async function loadBusyTrips(db: Pick<PrismaClient | Prisma.TransactionClient, 'plannedTrip'>, vehicles: AvailabilityVehicle[], planStartMs: number | null, ownPlannedTripIds: string[] = []): Promise<BusyTrip[]> {
   if (planStartMs === null) return [];

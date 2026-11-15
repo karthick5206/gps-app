@@ -251,6 +251,11 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
       data: { assignmentId: null, sequence: null, etaS: null, unassignedReason: null },
     });
     const eta = uncalibratedEta(graphVersion) as unknown as Prisma.InputJsonValue;
+    // E4 WP-A: every re-solved route starts blank, so a vehicle left out of the run (busy) keeps no stale numbers.
+    await tx.routeAssignment.updateMany({
+      where: { planId: inputs.planId, ...(locked.length ? { id: { notIn: locked } } : {}) },
+      data: { startS: null, endS: null, durationS: null, adjustedDurationS: null, distanceM: null, geometry: Prisma.DbNull, etaModel: Prisma.DbNull },
+    });
     for (const a of w.assignments) {
       await tx.routeAssignment.updateMany({
         where: { id: a.assignmentId, planId: inputs.planId },
