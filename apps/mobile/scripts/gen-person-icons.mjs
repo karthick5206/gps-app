@@ -1,6 +1,6 @@
 /**
  * Renders the full-body person markers for the mobile map from the web map's pose data
- * (PERSON_POSES in apps/web/src/features/live/map/vehicle-icons.ts), so both apps draw the same figure:
+ * (personDrawOps in apps/web/src/features/live/map/vehicle-icons.ts), so both apps draw the same marker:
  *   person-<status>      standing (or first walking step when moving)   person-<status>-b  second walking step
  *   runner-<status>      person over 10 km/h: first running step         runner-<status>-b  second running step
  * Also rewrites the image list (vehicle-icon-images.ts) from every PNG in assets/vehicles.
@@ -20,24 +20,22 @@ const require = createRequire(import.meta.url);
 const sharp = require('sharp');
 
 const bundle = await build({
-  stdin: { contents: `export { PERSON_POSES } from './apps/web/src/features/live/map/vehicle-icons.ts'; export { STATUS_META } from '@veetracer/shared';`, resolveDir: root, loader: 'ts' },
+  stdin: { contents: `export { personDrawOps } from './apps/web/src/features/live/map/vehicle-icons.ts'; export { STATUS_META } from '@veetracer/shared';`, resolveDir: root, loader: 'ts' },
   bundle: true,
   write: false,
   format: 'esm',
   alias: { '@veetracer/shared': join(root, 'packages/shared/src/index.ts') },
 });
-const { PERSON_POSES, STATUS_META } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64'));
+const { personDrawOps, STATUS_META } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64'));
 
-const OUTLINE = '#ffffff';
+// The web canvas's drawing operations (personDrawOps) as SVG: the badge (status-coloured ring, soft shadow), then the figure.
 function svg(pose, color) {
-  const f = PERSON_POSES[pose];
-  const pass = (extra, style) =>
-    f.segs.map(([x1, y1, x2, y2, w]) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${style}" stroke-width="${w + extra}" stroke-linecap="round"/>`).join('') +
-    `<circle cx="${f.head[0]}" cy="${f.head[1]}" r="${6.5 + extra / 2}" fill="${style}"/>`;
+  const el = (op) =>
+    `<path d="${op.d}" fill="${op.fill ?? 'none'}"${op.stroke ? ` stroke="${op.stroke}" stroke-width="${op.width ?? 1}" stroke-linecap="round" stroke-linejoin="round"` : ''}/>`;
+  const [badge, ...figure] = personDrawOps(pose, color);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-<defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="0" stdDeviation="1.5" flood-color="#000" flood-opacity="0.3"/></filter></defs>
-<ellipse cx="32" cy="60" rx="11" ry="2.6" fill="#000" fill-opacity="0.22"/>
-<g filter="url(#s)">${pass(4, OUTLINE)}</g>${pass(0, color)}</svg>`;
+<defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.35"/></filter></defs>
+<g filter="url(#s)">${el(badge)}</g>${figure.map(el).join('')}</svg>`;
 }
 
 const STATUSES = ['RUNNING', 'IDLE', 'OFF', 'OVERSPEED', 'OFFLINE', 'NO_DATA'];
