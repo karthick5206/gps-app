@@ -123,7 +123,7 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
   async load(job: JobRecord, input: OptimizeJobInput): Promise<PlanInputs> {
     const plan = await this.db.routePlan.findFirst({
       where: { id: input.planId, companyId: job.companyId },
-      include: { stops: { orderBy: { ref: 'asc' } }, assignments: { orderBy: { seq: 'asc' } }, sitePoi: { select: { lat: true, lng: true } } },
+      include: { stops: { orderBy: { ref: 'asc' } }, assignments: { orderBy: { seq: 'asc' } }, sitePoi: { select: { lat: true, lng: true } }, transportTrips: { select: { routeAssignmentId: true } } },
     });
     if (!plan) throw new JobError('PLAN_STALE', 'The plan no longer exists');
     if (plan.version !== input.planVersion || plan.status !== 'OPTIMIZING') throw new JobError('PLAN_STALE', 'The plan changed while the optimisation was queued; nothing was written');
@@ -155,7 +155,10 @@ export class PrismaPlanGateway implements PlanGateway, PlanJobLink {
 
     // Locks and pins (RoutePlan.options, written by the plans API): a locked route keeps its stops and order and is
     // not re-solved; a pinned stop stays on its current vehicle (solver pinnedVehicleId).
-    const locks = routePlanLocks(plan.options);
+    // WP-B: a published route (its TransportTrip exists) is fixed like a locked one: neither re-solved nor rewritten.
+    const lockedIds = routePlanLocks(plan.options).lockedAssignmentIds;
+    for (const t of plan.transportTrips ?? []) if (t.routeAssignmentId) lockedIds.add(t.routeAssignmentId);
+    const locks = { ...routePlanLocks(plan.options), lockedAssignmentIds: lockedIds };
     const stops: PlanStopInput[] = [];
     const excluded: PlanInputs['excluded'] = [];
     for (const s of plan.stops) {

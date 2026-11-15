@@ -201,6 +201,8 @@ export function toPlanDetail(p: PlanRow, view: PlanPointView, ride?: RideRule): 
         transportTripId: trip?.id ?? null,
         plannedTripId: trip?.plannedTripId ?? null,
         locked: locks.lockedAssignmentIds.has(a.id),
+        // WP-B: published (immutable) while the rest of the plan may still be edited and published.
+        published: !!trip,
         vehicleName: vehicle?.name ?? null,
         plateNumber: vehicle?.plateNumber ?? null,
         driverName: a.driverId ? (view.names.drivers.get(a.driverId) ?? null) : null,

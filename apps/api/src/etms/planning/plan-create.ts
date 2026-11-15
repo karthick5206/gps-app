@@ -13,14 +13,12 @@ import { Auth, RequirePermission } from '../../access/decorators';
 import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { dateOnly, idempotencyKey, idempotencyReused, inProfileBranch, invalid, notFound, requestHash } from '../dispatch/e3-common';
-import { PERSONAL_STOP_NAME } from '../dispatch/personal-points';
 import { legWindow } from '../dispatch/service-dates';
 import { haversineMeters } from '../../tracking/geo';
 import { activeRoutingConsents } from '../people/people.service';
 import { TransportFeatureGuard } from '../transport-feature.guard';
-import { PLAN_CANDIDATE_STATUSES, planSkipReason, type PlanScope } from './plan-booking-scope';
+import { bookingStopRows, endProblem, PLAN_CANDIDATE_STATUSES, personalEnd, planSkipReason, type PlanScope } from './plan-booking-scope';
 import { PlanningFeatureGuard } from './planning-feature.guard';
-import { relS } from './plan-rules';
 import { PLAN_ENTITY, RoutePlansService } from './plans.service';
 
 class PointDto {
@@ -136,20 +134,17 @@ export class RoutePlanCreateService {
       return !reason;
     });
     // The passenger's end (IN: pickup, OUT: drop) is personal unless it is a company place.
-    const personalEnd = (b: (typeof bookings)[number]) => (dto.direction === 'IN' ? { poiId: b.pickupPoiId, lat: b.pickupLat, lng: b.pickupLng } : { poiId: b.dropPoiId, lat: b.dropLat, lng: b.dropLng });
-    const consents = await activeRoutingConsents(this.prisma, inScope.filter((b) => !personalEnd(b).poiId).map((b) => b.profileId));
+    const consents = await activeRoutingConsents(this.prisma, inScope.filter((b) => !personalEnd(b, dto.direction).poiId).map((b) => b.profileId));
     const usable = inScope.filter((b) => {
-      const end = personalEnd(b);
-      if (end.lat === null || end.lng === null) return void skipped.push({ bookingId: b.id, reason: 'needs_location' }), false;
-      if (!end.poiId && !consents.has(b.profileId)) return void skipped.push({ bookingId: b.id, reason: 'consent_required' }), false;
+      const problem = endProblem(b, dto.direction, consents);
+      if (problem) return void skipped.push({ bookingId: b.id, reason: problem }), false;
       return true;
     });
     // Owner decision 2 (T3-D9): the one bookings limit of creation and optimisation; refused, never truncated.
     if (usable.length > ROUTING_LIMITS.planBookings) throw new RoutingHttpError('LIMIT_EXCEEDED', planBookingsLimitMessage(usable.length));
-    const poiNames = new Map((await this.prisma.poi.findMany({ where: { companyId: ctx.companyId, id: { in: usable.map((b) => personalEnd(b).poiId).filter((p): p is string => !!p) } }, select: { id: true, name: true } })).map((p) => [p.id, p.name]));
+    const poiNames = new Map((await this.prisma.poi.findMany({ where: { companyId: ctx.companyId, id: { in: usable.map((b) => personalEnd(b, dto.direction).poiId).filter((p): p is string => !!p) } }, select: { id: true, name: true } })).map((p) => [p.id, p.name]));
 
     const startMs = dto.planStartAt ? Date.parse(dto.planStartAt) : usable.length ? Math.floor((Math.min(...usable.map((b) => b.windowStart.getTime())) - 2 * H) / 60_000) * 60_000 : Date.parse(`${dto.planDate}T00:00:00Z`);
-    const rel = (d: Date) => relS(d, startMs);
 
     const planId = await this.prisma.$transaction(async (tx) => {
       // L1: (companyId, options->>'createKey') is unique (migration 20261119090000): a concurrent create with the
@@ -176,47 +171,8 @@ export class RoutePlanCreateService {
         const o = objects.find((x) => x.id === id)!;
         assignments.push(await tx.routeAssignment.create({ data: { planId: plan.id, companyId: ctx.companyId, objectId: id, driverId: null, vehicleLabel: o.plateNumber ? `${o.name} (${o.plateNumber})` : o.name, seq: i, capacity: seats.get(id) ?? null, distanceM: null, durationS: null, adjustedDurationS: null, startS: null, endS: null } }));
       }
-      // Unset columns spelled out (null), so every reader sees the same row as after a database round trip.
-      const blank = { assignmentId: null, sequence: null, etaS: null, unassignedReason: null, snappedLat: null, snappedLng: null, snapDistanceM: null, snapGraphVersion: null };
-      const rows: Prisma.RoutePlanStopCreateManyInput[] = [];
-      for (const b of usable) {
-        const end = personalEnd(b);
-        const window: [number, number][] = [[rel(b.windowStart), rel(b.windowEnd)]];
-        const passenger: Prisma.RoutePlanStopCreateManyInput = {
-          ...blank,
-          planId: plan.id,
-          companyId: ctx.companyId,
-          ref: `${dto.direction === 'IN' ? 'p' : 'd'}-${b.id}`,
-          name: end.poiId ? (poiNames.get(end.poiId) ?? null) : PERSONAL_STOP_NAME[dto.direction === 'IN' ? 'PICKUP' : 'DROP'],
-          lat: end.lat!,
-          lng: end.lng!,
-          demand: b.passengerCount,
-          serviceS: 60,
-          stopKind: dto.direction === 'IN' ? 'PICKUP' : 'DROP',
-          customerCompanyId: b.customerCompanyId,
-          bookingId: b.id,
-          profileId: end.poiId ? null : b.profileId,
-          poiId: end.poiId,
-        };
-        const atSite: Prisma.RoutePlanStopCreateManyInput = {
-          ...blank,
-          planId: plan.id,
-          companyId: ctx.companyId,
-          ref: `${dto.direction === 'IN' ? 'd' : 'p'}-${b.id}`,
-          name: site.name,
-          lat: site.lat,
-          lng: site.lng,
-          demand: 0,
-          serviceS: 0,
-          timeWindows: window,
-          stopKind: dto.direction === 'IN' ? 'DROP' : 'PICKUP',
-          customerCompanyId: b.customerCompanyId,
-          bookingId: b.id,
-          profileId: null,
-          poiId: site.id,
-        };
-        rows.push(passenger, atSite);
-      }
+      // WP-B: the same two stops per booking as add-booking (plan-booking-scope.ts bookingStopRows).
+      const rows: Prisma.RoutePlanStopCreateManyInput[] = usable.flatMap((b) => bookingStopRows(b, { id: plan.id, companyId: ctx.companyId, direction: dto.direction, startMs }, site, (p) => poiNames.get(p) ?? null));
       if (rows.length) await tx.routePlanStop.createMany({ data: rows });
       const stops = await tx.routePlanStop.findMany({ where: { planId: plan.id }, orderBy: { ref: 'asc' }, select: { id: true, ref: true } });
       // Snapshot: ids only (shared RoutePlanVersionSnapshot: no coordinates, no names).

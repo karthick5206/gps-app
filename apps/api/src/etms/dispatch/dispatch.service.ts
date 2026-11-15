@@ -77,6 +77,7 @@ import { BoardQuery, CandidatesDto, ChangeSetDto, ChangeSetListQuery, RepeatTrip
 import { dayRange, sameWallTime, weekdayOf } from './service-dates';
 import { TripLiveService } from './trip-live';
 import { lockBookings, lockTrips, recordTripEvent } from './trip-ops';
+import { overlapWhere } from './trip-overlap';
 
 export const TRIP_ENTITY = 'TransportTrip';
 const ACTIVE = [...ACTIVE_TRIP_STATUSES_FOR_OVERLAP] as PlannedTripStatus[];
@@ -118,6 +119,12 @@ export interface PublishSource {
   ref: Record<string, unknown>;
   /** Inside the publish transaction, after every change and the ledger row: the source's links / state. */
   inTransaction(tx: Prisma.TransactionClient, result: ChangeSetResult): Promise<void>;
+  /**
+   * WP-B: inside the publish transaction, after the advisory locks and the idempotency re-check and before any change:
+   * the source locks and re-checks its own state (a route plan: its row FOR UPDATE, version, routes not yet published),
+   * so of two concurrent publishes of one plan the loser gets the source's clean 409 instead of a resource conflict.
+   */
+  lock?(tx: Prisma.TransactionClient): Promise<void>;
   /** Set by the publish: 1-based number of the change being prepared / applied when it failed (0 = none of them). */
   failedAt?: number;
 }
@@ -820,6 +827,7 @@ export class DispatchService {
         // is replayed (publishWithKey), never answered with the 409 its own trips now cause.
         const committed = await tx.transportChangeSet.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: key }, select: { id: true } });
         if (committed) throw new KeyCommitted();
+        if (source?.lock) await source.lock(tx);
         // 2. Bookings (added or freed), then 3. trips — FOR UPDATE, sorted.
         await lockBookings(tx, [...bookingIds, ...removedRows.map((r) => r.bookingId)]);
         await lockTrips(tx, existingTripIds);
@@ -1207,7 +1215,8 @@ export class DispatchService {
 
   /** No overlapping active planned trip (any origin) for the vehicle / driver in [start, end) (409 VEHICLE_BUSY / DRIVER_BUSY). */
   private async assertFree(tx: Prisma.TransactionClient, objectId: string | null, driverId: string | null, start: Date, end: Date, exceptPlannedTripId: string | null): Promise<void> {
-    const base = { status: { in: ACTIVE }, plannedStart: { lt: end }, plannedEnd: { gt: start }, ...(exceptPlannedTripId ? { id: { not: exceptPlannedTripId } } : {}) };
+    // WP-B: the shared overlap rule (trip-overlap.ts), also used by the route plans' availability pre-check.
+    const base = overlapWhere(start, end, exceptPlannedTripId);
     if (objectId) {
       const hit = await tx.plannedTrip.findFirst({ where: { ...base, objectId }, select: { routeName: true, plannedStart: true } });
       if (hit) throw conflict('VEHICLE_BUSY', `The vehicle is already planned on "${hit.routeName}" at that time`);

@@ -44,6 +44,8 @@ export interface E4Ids {
   job: string;
   /** The company place the plans serve (site of a new plan). */
   site: string;
+  /** WP-B: an open booking of the company not on the plan yet (set by the add-booking entry prepare). */
+  extraBooking?: string;
 }
 
 export interface E4World {
@@ -284,6 +286,62 @@ export const E4_MATRIX: E4Entry[] = [
     expect: { party: OWN_PLAN, other: OTHER_PLAN },
     verify: (r, role, own) => {
       if (own === 'party' && (r as { trips: { transportTripId: string }[] }).trips.length !== 1) fail(`${role} publish made no trip`);
+    },
+  },
+  // ── WP-B: undo / redo, recalculate, passengers on a draft, review, selected-routes publish ──
+  {
+    route: 'POST transport/route-plans/:id/restore',
+    resource: 'routePlan',
+    // A version 1 snapshot of the plan as seeded (the seed writes no history row).
+    prepare: (store, ids) => {
+      const plan = store.table('routePlan').find((p) => p.id === ids.plan);
+      if (!plan) return;
+      const stops = store.table('routePlanStop').filter((s) => s.planId === ids.plan);
+      const assignments = store.table('routeAssignment').filter((a) => a.planId === ids.plan);
+      store.insert('routePlanVersion', {
+        planId: ids.plan,
+        companyId: plan.companyId,
+        version: 1,
+        changeType: 'CREATED',
+        changedById: null,
+        createdAt: new Date(),
+        snapshot: {
+          status: 'DRAFT',
+          assignments: assignments.map((a) => ({ id: a.id, vehicleLabel: a.vehicleLabel, objectId: a.objectId, driverId: null, stopIds: stops.filter((s) => s.assignmentId === a.id).sort((x, y) => (x.sequence as number) - (y.sequence as number)).map((s) => s.id) })),
+          stops: stops.map((s) => ({ id: s.id, ref: s.ref, assignmentId: s.assignmentId, sequence: s.sequence, etaS: s.etaS, unassignedReason: null })),
+        },
+      });
+    },
+    invoke: (c, ctx, t) => c.plans.restore(ctx, t.plan, { version: 1, expectedVersion: 1 }),
+    expect: { party: OWN_PLAN, other: OTHER_PLAN },
+  },
+  { route: 'POST transport/route-plans/:id/recalculate', resource: 'routePlan', invoke: (c, ctx, t) => c.plans.recalculate(ctx, t.plan, { expectedVersion: 1 }), expect: { party: OWN_PLAN, other: OTHER_PLAN } },
+  {
+    route: 'POST transport/route-plans/:id/bookings',
+    resource: 'routePlan',
+    // Another open booking of the plan's company (same passenger, date, direction, site): custA's for custA's plan.
+    prepare: (store, ids) => {
+      const base = store.table('transportBooking').find((b) => b.id === ids.booking);
+      if (base) ids.extraBooking = store.insert('transportBooking', { ...base, id: undefined }).id as string;
+    },
+    invoke: (c, ctx, t) => c.plans.addBooking(ctx, t.plan, { bookingId: t.extraBooking ?? t.booking, expectedVersion: 1 }),
+    expect: { party: OWN_PLAN, other: OTHER_PLAN },
+    verify: (r, role, own, ids) => {
+      if (own === 'party' && !(r as { plan: RoutePlanDetailDto }).plan.stops.some((s) => s.bookingId === ids.extraBooking && s.assignmentId === null)) fail(`${role} add-booking did not add the stops unassigned`);
+    },
+  },
+  { route: 'DELETE transport/route-plans/:id/bookings/:bookingId', resource: 'routePlan', invoke: (c, ctx, t) => c.plans.removeBooking(ctx, t.plan, t.booking, { expectedVersion: 1 }), expect: { party: OWN_PLAN, other: OTHER_PLAN } },
+  { route: 'PATCH transport/route-plans/:id/bookings/:bookingId/pin', resource: 'routePlan', invoke: (c, ctx, t) => c.plans.pinBooking(ctx, t.plan, t.booking, { pinned: true, expectedVersion: 1 }), expect: { party: OWN_PLAN, other: OTHER_PLAN } },
+  {
+    route: 'GET transport/route-plans/:id/review',
+    resource: 'routePlan',
+    invoke: (c, ctx, t) => c.plans.review(ctx, t.plan, {}),
+    expect: { party: OWN_PLAN, other: OTHER_PLAN },
+    verify: (r, role, own) => {
+      const doc = r as { routes: { stops: { lat: number | null }[] }[]; reviewHash: string };
+      if (own === 'party' && (!doc.reviewHash || doc.routes.length !== 1)) fail(`${role} review lacks the route or its hash`);
+      // The consented pickup at 4 decimals for the branch dispatcher (the plan detail's rule).
+      if (own === 'party' && role === 'customerDispatcher' && doc.routes[0].stops.some((s) => s.lat === E4_PICKUP.lat)) fail(`${role} review shows an exact personal point`);
     },
   },
 ];
