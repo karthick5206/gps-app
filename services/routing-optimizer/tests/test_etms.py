@@ -67,7 +67,8 @@ def test_in_max_ride_splits_vehicles_or_reports():
     res1 = run(one)
     assert len(res1['unassigned']) == 1
     assert res1['unassigned'][0]['reason'] == 'not_scheduled_capacity_or_time'
-    assert res1['unassigned'][0]['code'] == 'NOT_SCHEDULED'
+    assert res1['unassigned'][0]['code'] == 'FLEET_TOO_SMALL'     # a seat is free, but pooling breaks max ride
+    assert res1['unassigned'][0]['detail'] == {'binding': ['max_ride'], 'freeSeats': 3}
 
 
 def test_max_ride_unachievable_is_a_precheck():
@@ -163,7 +164,8 @@ def test_wheelchair_second_capacity():
     res = run(p)
     routed = {s['stopId']: r['vehicleId'] for r in res['routes'] for s in r['stops']}
     assert len([s for s in ('w1', 'w2') if routed.get(s) == 'access']) == 1   # one space only
-    assert codes(res) in ({'w1': 'NOT_SCHEDULED'}, {'w2': 'NOT_SCHEDULED'})
+    assert codes(res) in ({'w1': 'CAPACITY_EXHAUSTED'}, {'w2': 'CAPACITY_EXHAUSTED'})   # the only space is taken
+    assert res['unassigned'][0]['detail'] == {'freeSeats': 0, 'failed': ['wheelchair']}
     p['vehicles'] = p['vehicles'][:1]
     res2 = run(p)
     assert res2['unassigned'][0]['code'] == 'NO_COMPATIBLE_VEHICLE'
@@ -411,7 +413,7 @@ def test_callback_transit_matches_matrix_transit():
     ({'trip': {'direction': 'IN', 'siteIndex': 0, 'siteWindow': [10, 5]}}, 'siteWindow must satisfy'),
     ({'stops': [{'id': 's', 'locationIndex': 1, 'maxRideS': 100}]}, 'need trip.direction'),
     ({'stops': [{'id': 's', 'locationIndex': 1, 'escortIfFirstOrLast': True}]}, 'need trip.direction'),
-    ({'options': {'weights': {'vehicle': 5}}}, 'needs distance, time or routeDuration'),
+    ({'options': {'weights': {'vehicle': 5}}}, 'needs distance, time, routeDuration or rideTime'),
     ({'matrix': {'durationsS': [[0, 1], [1, 0]]}, 'options': {'weights': {'distance': 1}}}, 'needs matrix.distancesM'),
     ({'vehicles': [{'id': 'a'}, {'id': 'a'}]}, 'duplicate vehicle id'),
     ({'vehicles': [{'id': 'a', 'capacity': 0, 'escort': True}]}, 'seat for the escort'),
