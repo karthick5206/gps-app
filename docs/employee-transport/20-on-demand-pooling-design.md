@@ -395,3 +395,17 @@ every booking DTO returns `ridePreference`, `sharingPolicyVersion`, `limits`, `a
 
 Web / mobile screens (P-C3, P-D2, P-E1), REORDER / transfer ops, periodic warm-start re-optimisation (§5.1 async),
 per-driver hour overrides and breaks in the solver input, service areas, staging benchmarks (E4 gates B1–B6).
+
+### Independent review fixes (2026-11-15)
+
+| # | Fix |
+|---|---|
+| 4 | Migration `20261129090100_etms_pooling_review_fixes`: legacy P2P rows (no limits) seated with another party → FLEXIBLE; P1 binds only PRIVATE rows with a limits snapshot (`effectivePreference`), so trips carrying legacy riders stay editable |
+| 5 | The vehicle timeline (maintenance / downtime / operating hours / turnaround) runs only when pooling is in use (live / AREA publish, company live switch) or the vehicle has availability / a turnaround configured, and never on a driver change (driver hours still apply when a policy exists) |
+| 1 | Insertion: pickups never before now; pending stops judged on the trip's live delay (`delaySec`); a started trip that cannot reach its first pending stop takes nobody; reachability re-checked inside the publish transaction (`PublishSource.reachable`) |
+| 2 | No live insertion on a started trip while its driver has not acknowledged the last change (option reason `ROUTE_ACK_PENDING`, apply refused); passengers see `routePending` (tentative); unacknowledged changes older than 3 min become a PROPOSED request `ROUTE_ACK_OVERDUE` |
+| 3 | Delay / breakdown children retry their own re-seat (no re-evaluation of the trip, no duplicate onboard proposals); the trip version is re-read before each re-seat |
+| 6 | Decisions round personal points (4 decimals unless a whole-company role of the customer) and are ACCESS-audited |
+| 7 | Releasing a hold re-queues the booking for live dispatch |
+| 8 | Full options are stored on the request; `apply` with `requestId` + `optionId` applies the option shown; option ids no longer depend on times |
+| 9 | `assignedService` recomputed after a seat release (SKIP LOCKED); AREA trips checked on on-board load (and on total seats, the E3 occupancy backstop — the solver should cap a trip's riders at the seats); concurrent decide with one key replays; the log's alternatives respect vehicle scope |

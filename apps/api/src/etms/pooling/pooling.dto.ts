@@ -82,6 +82,7 @@ export class LiveDecideDto implements LiveDispatchDecideInput {
   @IsUUID() bookingId!: string;
   @IsOptional() @IsBoolean() apply?: boolean;
   @IsOptional() @IsString() @MaxLength(80) optionId?: string;
+  @IsOptional() @IsUUID() requestId?: string;
 }
 
 export class DispatchRequestQuery implements DispatchRequestListQuery {

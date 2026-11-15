@@ -25,6 +25,7 @@ import { lockBookings } from '../dispatch/trip-ops';
 import { LimitsError, validateLimits } from './pooling-rules';
 import { driverHoursOf, POOLING_SETTINGS_KEY, poolingSettingsOf } from './pooling-settings';
 import { currentPolicy } from './sharing-policy';
+import { onBookingWaiting } from './booking-hooks';
 import type { HoldDto, PoolingSettingsBody, PutAvailabilityDto, SharingPolicyBody } from './pooling.dto';
 
 const DAY = 86_400_000;
@@ -67,6 +68,8 @@ export class PoolingService {
         data: dto.hold ? { holdFromPlanning: true, holdReason: reason, holdById: ctx.userId, holdAt: now, version: { increment: 1 } } : { holdFromPlanning: false, holdReason: null, holdById: null, holdAt: null, version: { increment: 1 } },
       });
       await this.audit.record(ctx, { action: 'UPDATE', entity: BOOKING_ENTITY, entityId: id, before: { holdFromPlanning: b.holdFromPlanning, version: b.version }, after: { holdFromPlanning: dto.hold, version: b.version + 1, ...(dto.hold ? { holdReason: reason } : {}) } }, tx);
+      // Review fix 7: a released booking waiting for a seat is queued for live dispatch again (switch on only).
+      if (!dto.hold && b.status === 'PENDING_ASSIGNMENT') await onBookingWaiting(tx, { id: b.id, customerCompanyId: b.customerCompanyId, version: b.version + 1 }, ctx.userId);
     });
     return this.bookings.get(ctx, id);
   }

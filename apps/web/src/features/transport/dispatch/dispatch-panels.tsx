@@ -245,7 +245,7 @@ export function QueuePanel({ ctx, onFind, variant = 'cards' }: { ctx: PanelCtx; 
                           </span>
                         </td>
                         <td className="px-2 py-1.5 text-xs">{b.shiftName ?? t('One-off')}</td>
-                        <td className="px-2 py-1.5 text-xs">{b.direction === 'OUT' ? t('Logout') : t('Login')}</td>
+                        <td className="px-2 py-1.5 text-xs">{b.journey === 'POINT_TO_POINT' ? t('Point-to-point') : b.direction === 'OUT' ? t('Logout') : t('Login')}</td>
                         <td className="hidden max-w-72 truncate px-2 py-1.5 text-xs text-muted-foreground lg:table-cell">{routeText(b, t)}</td>
                         <td className="px-2 py-1.5 text-xs tabular-nums">
                           {clock(b.windowStart)}–{clock(b.windowEnd)}

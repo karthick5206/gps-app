@@ -370,4 +370,135 @@ d(`ETMS pooling on ${dbName}`, () => {
     expect((await prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId } })).occupiedSeats).toBe(0);
     expect((await prisma.routePlan.findUniqueOrThrow({ where: { id: plan.value.id } })).version).toBe(3);
   });
+
+  // ───────────────────────────── independent review fixes ─────────────────────────────
+
+  /** A legacy point-to-point booking as E3 stored it (PRIVATE by the P3 backfill, no limits snapshot). */
+  async function legacyP2P(day: string, lat: number): Promise<string> {
+    const p = await passenger();
+    const b = id();
+    await sql(`INSERT INTO "TransportBooking" (id, "customerCompanyId", "profileId", source, journey, "serviceDate", direction, "timeZone", "pickupLat", "pickupLng", "dropLat", "dropLng", "windowStart", "windowEnd", status, "ridePreference", "updatedAt")
+      VALUES ('${b}', '${w.company}', '${p}', 'ADHOC', 'POINT_TO_POINT', '${day}', 'IN', 'Asia/Kolkata', ${lat}, 80.2, ${lat + 0.08}, 80.2, '${at(day, '03:30')}', '${at(day, '04:30')}', 'PENDING_ASSIGNMENT', 'PRIVATE', now())`);
+    return b;
+  }
+
+  async function driver(): Promise<string> {
+    const dr = id();
+    await sql(`INSERT INTO "Driver" (id, "companyId", "branchId", name, "isActive", "updatedAt") VALUES ('${dr}', '${w.company}', '${w.branch}', 'Driver ${TAG}', true, now())`);
+    return dr;
+  }
+
+  const version = async (tripId: string) => (await prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId } })).version;
+  const reassignDriver = (tripId: string, v: number, driverId: string, day: string) => dispatch.submit(admin, { serviceDate: day, direction: 'IN', expectedVersions: { [tripId]: v }, changes: [{ op: 'REASSIGN_DRIVER', tripId, driverId }] } as never, key());
+  const pointsOf = async (ids: string[]) => {
+    const rows = await prisma.transportBooking.findMany({ where: { id: { in: ids } } });
+    return (x: string, end: 'p' | 'd') => {
+      const r = rows.find((y) => y.id === x)!;
+      return end === 'p' ? { lat: r.pickupLat!, lng: r.pickupLng!, label: null, poiId: null } : { lat: r.dropLat!, lng: r.dropLng!, label: null, poiId: null };
+    };
+  };
+  /** One trip seating `a` (outer) and `b` (inner): a pickup, b pickup, b drop, a drop. */
+  const sharedTrip = async (v: string, a: string, b: string, day: string) => {
+    const pt = await pointsOf([a, b]);
+    const r = await dispatch.submit(admin, { serviceDate: day, direction: 'IN', changes: [
+      { op: 'CREATE_TRIP', tempId: 't', objectId: v, plannedStart: at(day, '03:35'), stops: [
+        { seq: 0, point: pt(a, 'p'), plannedArrival: at(day, '03:35') },
+        { seq: 1, point: pt(b, 'p'), plannedArrival: at(day, '03:40') },
+        { seq: 2, point: pt(b, 'd'), plannedArrival: at(day, '04:00') },
+        { seq: 3, point: pt(a, 'd'), plannedArrival: at(day, '04:10') },
+      ] },
+      { op: 'ADD_PASSENGER', tripId: 't', bookingId: a, pickupSeq: 0, dropSeq: 3 },
+      { op: 'ADD_PASSENGER', tripId: 't', bookingId: b, pickupSeq: 1, dropSeq: 2 },
+    ] } as never, key());
+    return r.value.trips[0].id;
+  };
+
+  it('review fix 4: legacy P2P riders already sharing a trip stay editable; the backfill guard makes them FLEXIBLE', async () => {
+    const day = dayPlus(10);
+    const v = await vehicle();
+    const a = await legacyP2P(day, 13.0);
+    const b = await legacyP2P(day, 13.01);
+    // E3 could seat both on one trip; with no limits snapshot they are not bound by P1.
+    const tripId = await sharedTrip(v, a, b, day);
+    // Later change sets on that trip keep working (they used to fail 409 PRIVATE_RIDE_NOT_EXCLUSIVE).
+    expect((await errOf(reassignDriver(tripId, await version(tripId), await driver(), day))).code).toBe('OK');
+    const seat = await prisma.transportTripPassenger.findFirstOrThrow({ where: { tripId, bookingId: b } });
+    expect((await errOf(dispatch.submit(admin, { serviceDate: day, direction: 'IN', expectedVersions: { [tripId]: await version(tripId) }, changes: [{ op: 'REMOVE_PASSENGER', passengerTripId: seat.id, reason: 'Review fix 4' }] } as never, key()))).code).toBe('OK');
+    // The migration guard (20261129090100): seated with another party → FLEXIBLE; an unseated legacy row stays PRIVATE.
+    const c = await legacyP2P(day, 13.3);
+    await sql(`UPDATE "TransportTripPassenger" SET status = 'PENDING', "cancelReason" = NULL WHERE id = '${seat.id}'`);
+    await sql(readFileSync(join(__dirname, '../../../prisma/migrations/20261129090100_etms_pooling_review_fixes/migration.sql'), 'utf8'));
+    const after = await prisma.transportBooking.findMany({ where: { id: { in: [a, b, c] } }, select: { id: true, ridePreference: true } });
+    expect(Object.fromEntries(after.map((x) => [x.id, x.ridePreference]))).toEqual({ [a]: 'FLEXIBLE', [b]: 'FLEXIBLE', [c]: 'PRIVATE' });
+  });
+
+  it('review fix 5: pooling off → a maintenance-flagged vehicle keeps the E3 behaviour; a driver change never runs the vehicle timeline', async () => {
+    await pooling.updateSettings(admin, { liveDispatch: false } as never);
+    const day = dayPlus(11);
+    const v = await vehicle();
+    await sql(`UPDATE "TrackedObject" SET "maintenanceSince" = now() WHERE id = '${v}'`);
+    const b = await p2p({ day, from: 13.0, to: 13.05, start: '03:30', end: '04:30', pref: 'SHARED', accept: 1 });
+    const tripId = await tripFor(b, v, at(day, '03:35'), at(day, '04:00'), day);
+    await pooling.updateSettings(admin, { liveDispatch: true } as never);
+    expect((await errOf(reassignDriver(tripId, await version(tripId), await driver(), day))).code).toBe('OK');
+    // Pooling in use: a new trip on the vehicle under maintenance is refused.
+    const b2 = await p2p({ day, from: 13.2, to: 13.25, start: '06:30', end: '07:30', pref: 'SHARED', accept: 1 });
+    expect((await errOf(tripFor(b2, v, at(day, '06:35'), at(day, '07:00'), day))).code).toBe('VEHICLE_UNAVAILABLE');
+  });
+
+  it('review fixes 7 / 8 / 2: a released hold is re-queued; a shown option is applied by requestId; no live insertion while an ack is pending', async () => {
+    const day = dayPlus(12);
+    await vehicle();
+    const b = await p2p({ day, from: 13.4, to: 13.45, start: '03:30', end: '04:30', pref: 'SHARED', accept: 1 });
+    const held = await pooling.hold(admin, b.id, { hold: true, reason: 'Waiting for a call back', expectedVersion: b.version } as never);
+    const released = await pooling.hold(admin, b.id, { hold: false, expectedVersion: held.version } as never);
+    expect(await prisma.transportDispatchRequest.findFirst({ where: { companyId: w.company, idempotencyKey: `booking:${b.id}:v${released.version}` }, select: { status: true, trigger: true } })).toEqual({ status: 'QUEUED', trigger: 'NEW_BOOKING' });
+    // Option ids do not depend on "now" (the pickup time of a new trip moves with it; the option does not).
+    const row = await prisma.transportBooking.findUniqueOrThrow({ where: { id: b.id }, include: { profile: { select: { branchId: true } } } });
+    const ws = row.windowStart.getTime();
+    const early = (await liveDispatch.findOptions(admin, row, { now: ws - 10 * 60_000 })).options.filter((o) => o.kind === 'NEW_TRIP');
+    const later = (await liveDispatch.findOptions(admin, row, { now: ws - 8 * 60_000 })).options.filter((o) => o.kind === 'NEW_TRIP');
+    expect(early.length).toBeGreaterThan(0);
+    const twin = later.find((o) => o.objectId === early[0].objectId)!;
+    expect(twin.pickupEta).not.toBe(early[0].pickupEta);
+    expect(twin.optionId).toBe(early[0].optionId);
+    // Decide, then apply exactly the option shown (stored on the request).
+    const shown = await liveDispatch.decide(admin, { bookingId: b.id }, undefined);
+    expect(shown.status).toBe('DECIDED');
+    const pick = shown.options[shown.options.length - 1];
+    const applied = await liveDispatch.decide(admin, { bookingId: b.id, apply: true, requestId: shown.requestId, optionId: pick.optionId }, key());
+    expect(applied).toMatchObject({ status: 'APPLIED', chosenOptionId: pick.optionId });
+    // The trip starts and its driver has not acknowledged a live change: no further insertion is offered on it.
+    const tripId = (await prisma.transportTripPassenger.findFirstOrThrow({ where: { bookingId: b.id, status: 'PENDING' } })).tripId;
+    const t = await prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId } });
+    await prisma.plannedTrip.update({ where: { id: t.plannedTripId! }, data: { status: 'IN_PROGRESS', actualStart: new Date() } });
+    await prisma.transportTrip.update({ where: { id: tripId }, data: { liveRouteVersion: 1 } });
+    const c = await p2p({ day, from: 13.41, to: 13.44, start: '03:30', end: '04:30', pref: 'SHARED', accept: 1 });
+    const cRow = await prisma.transportBooking.findUniqueOrThrow({ where: { id: c.id }, include: { profile: { select: { branchId: true } } } });
+    const { options } = await liveDispatch.findOptions(admin, cRow);
+    expect(options.some((o) => o.tripId === tripId)).toBe(false);
+  });
+
+  it('review fix 3: a breakdown makes one proposal per passenger; a failed re-seat child retries alone (no grandchildren)', async () => {
+    const day = dayPlus(13);
+    const v = await vehicle();
+    const a = await p2p({ day, from: 13.5, to: 13.6, start: '03:30', end: '04:30', pref: 'SHARED', accept: 1 });
+    const c = await p2p({ day, from: 13.52, to: 13.58, start: '03:30', end: '04:30', pref: 'SHARED', accept: 1 });
+    const tripId = await sharedTrip(v, a.id, c.id, day);
+    const t = await prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId } });
+    await prisma.plannedTrip.update({ where: { id: t.plannedTripId! }, data: { status: 'IN_PROGRESS', actualStart: new Date() } });
+    await sql(`UPDATE "TransportTripPassenger" SET status = 'BOARDED', "boardedAt" = now(), "outcomeSource" = 'WEB' WHERE "tripId" = '${tripId}' AND "bookingId" = '${a.id}'`);
+    const parent = await prisma.transportDispatchRequest.create({ data: { companyId: w.company, tripId, trigger: 'BREAKDOWN', idempotencyKey: key() } });
+    expect(await liveDispatch.process(parent.id)).toBe('DECIDED');
+    expect((await prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId } })).interruptedAt).not.toBeNull();
+    const kids = await prisma.transportDispatchRequest.findMany({ where: { tripId, id: { not: parent.id } } });
+    expect(kids).toHaveLength(2);
+    expect(kids.find((k) => k.bookingId === a.id)).toMatchObject({ status: 'PROPOSED', reasons: ['ONBOARD_TRANSFER'] });
+    const child = kids.find((k) => k.bookingId === c.id)!;
+    expect(['PROPOSED', 'REJECTED']).toContain(child.status); // delay policy PROPOSE (default): never applied alone
+    // A failed child is retried by the worker on its own re-seat path.
+    await prisma.transportDispatchRequest.update({ where: { id: child.id }, data: { status: 'FAILED', attempts: 1 } });
+    expect(['PROPOSED', 'REJECTED']).toContain(await liveDispatch.process(child.id));
+    expect(await prisma.transportDispatchRequest.count({ where: { tripId } })).toBe(3);
+  });
 });

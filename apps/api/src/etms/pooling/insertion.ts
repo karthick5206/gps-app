@@ -1,6 +1,6 @@
 import type { DispatchChangeOp, RidePreference, SharingLimits } from '@veetracer/shared';
 import { haversineMeters } from '../../tracking/geo';
-import { joinProblem, maxRideFor, pickupWindow } from './pooling-rules';
+import { joinProblem, maxRideFor, pickupWindow, reachableFromPosition } from './pooling-rules';
 
 /**
  * In-process cheapest feasible insertion (doc 20 §5.1 step 2 fallback, when the optimiser's `insertOnly` is not
@@ -51,6 +51,11 @@ export interface InsertionTrip {
   turnaroundS: number;
   /** Started trip: the vehicle's live position and when (the first pending stop must still be reachable). */
   live?: { pos: LatLng; atMs: number } | null;
+  /**
+   * Review fix 1: the trip's live delay (ms, PlannedTrip.delaySec). Pending stops really happen this much later than
+   * planned: feasibility (windows, now, reachability) is judged on delayed times, the ops carry planned times.
+   */
+  delayMs?: number;
 }
 
 export interface InsertionRequest {
@@ -74,8 +79,12 @@ export interface Insertion {
   reusePickup: number | null;
   dropAfter: number | null;
   reuseDrop: number | null;
+  /** Planned frame (what ADD_STOP writes, between the neighbours' planned times). */
   pickupArrivalMs: number;
   dropArrivalMs: number;
+  /** Expected times (planned + the trip's live delay). */
+  pickupEtaMs: number;
+  dropEtaMs: number;
   /** Extra vehicle seconds (detour) the insertion costs. */
   addedS: number;
   rideS: number;
@@ -92,18 +101,23 @@ export function cheapestInsertion(trip: InsertionTrip, req: InsertionRequest, tr
   const share = joinProblem(req.preference, trip.onTrip);
   if (share) return { feasible: false, reasons: [share] };
   if (trip.occupied + req.seats > trip.seatCapacity) return { feasible: false, reasons: ['CAPACITY'] };
-  const stops = [...trip.stops].sort((a, b) => a.seq - b.seq);
+  // Review fix 1: judged on expected times — pending stops shifted by the live delay (gaps between them unchanged).
+  const delay = Math.max(0, trip.delayMs ?? 0);
+  const stops = [...trip.stops].sort((a, b) => a.seq - b.seq).map((x) => (x.visited || !delay ? x : { ...x, arrivalMs: x.arrivalMs + delay, departureMs: x.departureMs + delay }));
   const n = stops.length;
   const firstOpen = stops.findIndex((s) => !s.visited); // inserting after a visited stop is fine; before it is not
   const lastVisited = firstOpen < 0 ? n - 1 : firstOpen - 1;
   if (trip.status !== 'SCHEDULED' && firstOpen < 0) return { feasible: false, reasons: ['TRIP_STARTED'] };
+  // A started trip that can no longer make its first pending stop (even with its delay) takes nobody else.
+  if (trip.status !== 'SCHEDULED' && trip.live && firstOpen >= 0 && !reachableFromPosition(nowMs, travel(trip.live.pos, stops[firstOpen]), stops[firstOpen].arrivalMs)) return { feasible: false, reasons: ['COMMITMENT'] };
   const [pwStart, pwEnd] = pickupWindow(req.windowStartMs, req.windowEndMs, req.limits);
   const directS = travel(req.pickup, req.drop);
   const maxRideS = maxRideFor(directS, req.limits, req.companyMaxRideS);
   const svc = INSERT_SERVICE_S * 1000;
   const turn = trip.turnaroundS * 1000;
   let best: Insertion | null = null;
-  const consider = (c: Insertion) => {
+  const consider = (raw: Omit<Insertion, 'pickupEtaMs' | 'dropEtaMs'>) => {
+    const c: Insertion = { ...raw, pickupEtaMs: raw.pickupArrivalMs, dropEtaMs: raw.dropArrivalMs, pickupArrivalMs: raw.pickupArrivalMs - delay, dropArrivalMs: raw.dropArrivalMs - delay };
     if (!best || c.addedS < best.addedS || (c.addedS === best.addedS && c.pickupArrivalMs < best.pickupArrivalMs)) best = c;
   };
 
@@ -112,7 +126,7 @@ export function cheapestInsertion(trip: InsertionTrip, req: InsertionRequest, tr
   const pickups: Place[] = [];
   for (let k = lastVisited + 1; k < n; k++) {
     const s = stops[k];
-    if (req.pickup.poiId && s.poiId === req.pickup.poiId) pickups.push({ after: null, reuse: k, arr: s.arrivalMs, dep: s.departureMs, cost: 0 });
+    if (req.pickup.poiId && s.poiId === req.pickup.poiId && s.arrivalMs >= nowMs) pickups.push({ after: null, reuse: k, arr: s.arrivalMs, dep: s.departureMs, cost: 0 });
   }
   for (let i = Math.max(-1, lastVisited); i < n; i++) {
     const prev = i >= 0 ? stops[i] : null;
@@ -121,11 +135,12 @@ export function cheapestInsertion(trip: InsertionTrip, req: InsertionRequest, tr
     if (prev) {
       const from = trip.live && i === lastVisited && trip.status !== 'SCHEDULED' ? Math.max(prev.departureMs, trip.live.atMs, nowMs) : prev.departureMs;
       const origin = trip.live && i === lastVisited && trip.status !== 'SCHEDULED' ? trip.live.pos : prev;
-      arr = Math.max(pwStart, from + travel(origin, req.pickup) * 1000);
+      // Review fix 1: never before now (and from the live position when right after the vehicle's last visited stop).
+      arr = Math.max(pwStart, nowMs, from + travel(origin, req.pickup) * 1000);
     } else {
       // Before the first stop: the vehicle arrives just in time for the old first stop (latest pickup that keeps it).
       arr = Math.min(pwEnd, next!.arrivalMs - svc - travel(req.pickup, next!) * 1000);
-      if (arr < pwStart) {
+      if (arr < pwStart || arr < nowMs) {
         reasons.add('PICKUP_WINDOW');
         continue;
       }

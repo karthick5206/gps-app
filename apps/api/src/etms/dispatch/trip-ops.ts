@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { type TransportTripActorType, type TransportTripEventKind, type TransportTripEventSource } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { idempotencyReused } from './e3-common';
+import { refreshAssignedService } from '../pooling/publish-checks';
 
 /**
  * Row locks and the append-only event writer used inside E3 write transactions (15 §8.4: advisory locks per vehicle /
@@ -71,6 +72,8 @@ export async function releaseSeat(tx: Tx, p: { id: string; tripId: string; seats
   const done = await tx.transportTripPassenger.updateMany({ where: { id: p.id, status: 'PENDING' }, data: { status: 'CANCELLED', cancelReason: reason } });
   if (!done.count) return false;
   await tx.transportTrip.update({ where: { id: p.tripId }, data: { occupiedSeats: { decrement: p.seats }, version: { increment: 1 } } });
+  // Pooling review fix 9: the riders left on the trip may now be served alone (assignedService).
+  await refreshAssignedService(tx, p.tripId);
   return true;
 }
 
