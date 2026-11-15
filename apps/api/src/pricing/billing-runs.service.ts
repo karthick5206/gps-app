@@ -51,7 +51,7 @@ export class BillingRunsService {
         SET "status" = 'CLAIMED', "claimedBy" = EXCLUDED."claimedBy", "idempotencyKey" = EXCLUDED."idempotencyKey", "requestHash" = EXCLUDED."requestHash",
             "periodEnd" = EXCLUDED."periodEnd", "startedAt" = now(), "finishedAt" = NULL, "error" = NULL, "stats" = '{}'
         WHERE "BillingRun"."status" = 'FAILED'
-           OR ("BillingRun"."status" IN ('CLAIMED', 'RUNNING') AND "BillingRun"."startedAt" < now() - make_interval(mins => ${RUN_STALE_MINUTES}))
+           OR ("BillingRun"."status" IN ('CLAIMED', 'RUNNING') AND "BillingRun"."startedAt" < now() - make_interval(mins => ${RUN_STALE_MINUTES}::int))
       RETURNING *`;
     if (rows.length) return { run: rows[0], replay: false };
     const existing = await this.prisma.billingRun.findUniqueOrThrow({ where: { companyId_contractId_kind_periodStart: { companyId: ctx.companyId, contractId: p.contractId, kind: p.kind, periodStart: new Date(`${p.periodStart}T00:00:00Z`) } } });
