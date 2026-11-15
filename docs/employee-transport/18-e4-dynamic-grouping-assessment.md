@@ -150,7 +150,66 @@ fleet = ⌈n/5⌉+2 (at most 20). Measured on the dev PC with Python 3.12 and OR
 
 ## 6. Strategies (prototype results)
 
-_Filled from the strategy prototype (§6 is updated by the next commit)._
+Prototype on the REAL matrix; data in `evidence/…/e4-strategies-*.json`, prototype solver `evidence/…/solver_proto.py`.
+
+**How each metric is defined**
+- **km / drive:** from the first pickup to office arrival, summed over routes (open start).
+- **ride:** from a passenger's pickup to office arrival.
+- **occupancy:** passengers / seats.
+
+| Scenario | Today's default (v7200, t1) | Balanced (v3600, t2, rideTime 1) | Comfort (v1800, t1, rideTime 2) |
+|---|---|---|---|
+| 5 pax, 2×7-seaters | 1 van, 27 min, longest ride 27 | 1 van, 27 min, longest ride 27 | 2 vans, 25 min, longest ride 13 |
+| 3 south + 2 north, 2 vans | 1 van mixes directions, longest ride 48 | **2 vans by direction**, longest ride 27, 32.9 km (−21 %) | 2 vans by direction |
+| 9 pax, fleet of 4 / 7 / 12 seats | 12-seater alone, **longest ride 80** | 4-seater + 12-seater, longest ride 38 | 3 vehicles, longest ride 29 |
+
+**Findings**
+- Fewer vehicles (v20000, t1), Shortest distance (v2000, d1) and Fastest (v120, t1) can be expressed with today's weights.
+- **Balanced and Comfort need a new `rideTime` weight.** It is a soft cost on each passenger's ride. Span cost
+  (`routeDuration`) is not a proxy: with an open start it only rescales the time weight.
+- **Max-detour guard:**
+  - As a soft bound (ride ≤ max(direct × 1.6, direct + 10 min)) it splits opposite directions when a second van exists.
+  - As a hard bound it would drop passengers to stay inside the limit, so it must stay soft. The company max ride
+    remains the only hard ride limit.
+- **The unassigned-reason fix is prototyped.** For example, two directions with 1 van and max ride 45 min gives
+  `FLEET_TOO_SMALL {binding: [max_ride], freeSeats: 3}`; 9 pax on 1 van gives `CAPACITY_EXHAUSTED`.
+
+**Strategy presets (WP-A / WP-S):**
+
+| Strategy | Weights | Trade-off shown to the dispatcher |
+|---|---|---|
+| Balanced (default) | vehicle 3600, time 2, rideTime 1 | Few vehicles without long detours; splits opposite directions |
+| Fewer vehicles | vehicle 20000, time 1 | Fullest vehicles; longer rides within the max ride |
+| Shortest distance | vehicle 2000, distance 1 | Least km (fuel); may use one more vehicle |
+| Fastest fleet time | vehicle 120, time 1 | Least driving time; uses more vehicles |
+| Passenger comfort | vehicle 1800, time 1, rideTime 2 | Shortest rides; most vehicles |
+
+## 6a. Proposed dispatcher workflow (WP-W)
+
+1. **Optimise** tab:
+   - choose the date, direction, site, shift and vehicles (as today);
+   - choose a **strategy** (cards with the trade-off text) and optional advanced preferences: occupancy, max ride
+     (capped at the policy), detour, vehicle size, keep directions, keep pins/locks;
+   - choose **Generate alternatives** (2–5 strategies) or a single plan.
+2. **Alternatives**:
+   - a compare table using the §WP-A metrics (vehicles, passengers, km, drive time, max/avg ride, occupancy, deadline
+     compliance, excluded with reasons) with best-value markers;
+   - "Use this plan" keeps one alternative and discards the others.
+3. **Plan workspace** (`PlanReviewPage`):
+   - a map with route lines and draggable stop markers, next to vehicle route cards;
+   - drag a passenger between cards or reorder within a card; "Remove from route", "Add booking", driver picker,
+     pin passenger, pin stop, lock route;
+   - **Undo / Redo**, which restores the previous / next plan version;
+   - after every edit the server re-times the route on GraphHopper and re-checks seats, max ride, windows,
+     availability and consent. Warnings and blocking errors appear on the card; nothing invalid is silently accepted;
+   - "Show changes" compares the plan with the last optimised version.
+4. **Review & publish** (a dedicated screen):
+   - choose the routes to publish;
+   - the server returns the review: vehicles, drivers, exact sequence, km and times, occupancy, manual changes,
+     excluded passengers, warnings to acknowledge and blocking errors;
+   - Publish sends the `reviewHash`. Any change after review gives `PLAN_REVIEW_STALE` and the screen reloads for a fresh
+     confirmation;
+   - published routes become read-only; the remaining routes can be edited and published later.
 
 ## 7. Redesign plan (work packages)
 
