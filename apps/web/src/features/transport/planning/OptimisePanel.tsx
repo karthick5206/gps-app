@@ -21,6 +21,7 @@ import { AlternativesPanel } from './AlternativesPanel';
 import { alternativesError, maxRideCapS, preferencesRequest, runFields, toggleStrategy, type PreferencesDraft } from './plan-strategy';
 import { AlternativesPicker, PreferencesFields, StrategyPicker } from './plan-strategy-ui';
 import { createKeyStore, newKey, plannerErrorMessage, plannerErrorOf, useActiveShifts, usePlannerVehicles, useStartOptimise, type StartedPlan } from './use-planner';
+import { AreaPlanForm } from '../pooling/AreaPlanForm';
 
 export interface OptimiseState {
   day: string;
@@ -75,6 +76,8 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
   const [keys] = useState(() => createKeyStore(newKey));
   const start = useStartOptimise(keys);
   const [touched, setTouched] = useState(false);
+  // Pooling (doc 20 §3.5): SITE = one plan per shift (today); AREA = point-to-point pooling over an operating window.
+  const [scope, setScope] = useState<'SITE' | 'AREA'>('SITE');
   // Owner decision 1: per-plan max-ride override for the new plans (authorised callers only).
   const [maxRide, setMaxRide] = useState<MaxRideOverrideDraft>({ enabled: false, minutes: '', reason: '' });
   const health = capabilityView(caps);
@@ -151,8 +154,29 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
     );
   };
 
+  const scopeSwitch = (
+    <div className="inline-flex rounded-lg border bg-muted p-[3px] sm:max-w-md" role="group" aria-label={t('Plan scope')}>
+      {(['SITE', 'AREA'] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          aria-pressed={scope === m}
+          onClick={() => setScope(m)}
+          className={cn('h-8 min-w-0 flex-1 rounded-md px-2 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring', scope === m ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')}
+        >
+          {m === 'SITE' ? t('Site and shift plans') : t('Area plan (pooling)')}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,26rem)]">
+      <div className="grid min-w-0 content-start gap-3">
+      {scopeSwitch}
+      {scope === 'AREA' ? (
+        <AreaPlanForm caps={caps} day={state.day} setDay={(day) => setState((s) => ({ ...s, day, vehicleIds: [] }))} onStarted={(r) => setStarted([r, ...started])} keys={keys} canPlan={canPlan} tz={tz} />
+      ) : (
       <Card className="min-w-0 gap-4 p-4">
         {!health.canOptimise && (
           <div role="alert" className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning-fg">
@@ -262,6 +286,8 @@ export function OptimisePanel({ caps, state, setState, started, setStarted, canP
         )}
         {start.isError && <FormError message={plannerErrorMessage(start.error, t)} />}
       </Card>
+      )}
+      </div>
 
       <Card className="min-w-0 gap-3 p-4" aria-live="polite">
         <h2 className="text-sm font-semibold">{t('Optimisations')}</h2>

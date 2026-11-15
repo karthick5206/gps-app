@@ -602,6 +602,9 @@ export const PLANNER_ERROR_TEXT: Record<string, string> = {
   MATRIX_BUSY: 'Road distance calculation is busy. The optimisation is retried shortly.',
   // v1.16: switched off (platform, company or server emergency switch) before the job started.
   ROUTING_OFF: 'Automatic routing was switched off before this optimisation started. The plan is unchanged; plan by hand or ask your administrator.',
+  // Pooling (doc 20 §4): area plans need the optimiser's pickup-and-delivery mode.
+  PDP_UNSUPPORTED: 'The optimiser cannot plan pickups and drops together yet (area plans). The plan stays as a draft; seat the rides on the dispatch board or with live dispatch.',
+  SOLVER_RESULT_INVALID: 'The optimiser’s answer broke a rule (time window, capacity or private ride). Nothing was saved; try again.',
 };
 
 /** Error kind for presentation (E3 pattern): unavailable = engine / optimiser down; conflict = reload and redo. */
@@ -709,6 +712,8 @@ export interface MapPoint {
   position: number | null;
   label: string;
   personal: boolean;
+  /** Pooling: pickup vs drop (distinct markers); absent for generic stops. */
+  kind?: 'PICKUP' | 'DROP';
 }
 
 /**
@@ -734,6 +739,7 @@ export function mapPoints(plan: Pick<PlannerPlan, 'stops' | 'assignments'>, prec
       position,
       label: s.personal ? (s.stopKind === 'DROP' ? 'Passenger drop' : 'Passenger pickup') : (s.name ?? s.ref),
       personal: s.personal,
+      ...(s.stopKind ? { kind: s.stopKind } : {}),
     });
   }
   return { points, hidden };

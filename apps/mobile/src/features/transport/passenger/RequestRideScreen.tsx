@@ -1,4 +1,4 @@
-import type { MeAdhocEndRef, MeBookableShiftDto, MeTransportPolicyDto, TransportBookingJourney, TransportDirection } from '@veetracer/shared';
+import type { MeAdhocEndRef, MeBookableShiftDto, MeTransportPolicyDto, RidePreference, TransportBookingJourney, TransportDirection } from '@veetracer/shared';
 import { router, type Href } from 'expo-router';
 import { CheckCircle2Icon, ClockIcon } from 'lucide-react-native';
 import { useDeferredValue, useMemo, useState } from 'react';
@@ -11,7 +11,10 @@ import { DIRECTION_LABEL, POINT_TO_POINT_LABEL } from '../labels';
 import { isNotPassenger, transportErrorText } from '../passenger-api';
 import { bookingsRoute } from '../push-target';
 import { shiftTimeFor, todayKeyIn } from '../self-service';
-import { requestErrorMessage, useAttemptKey, useMyPlaces, useMyPolicy, useRequestPlaces, useRequestRide, type MeRequestResult } from '../self-service-api';
+import { requestErrorMessage, useAttemptKey, useMyPlaces, useMyPolicy, useMySharingPolicy, useRequestPlaces, useRequestRide, type MeRequestResult } from '../self-service-api';
+import { poolingFields } from '../ride-preference';
+import { ApiError } from '@/lib/api';
+import { RidePreferenceCard } from './RidePreferenceCard';
 import { StatusChip, TOUCH, TransportEmpty } from '../ui';
 import { PointPicker, type PickedPoint } from './PointPicker';
 
@@ -195,6 +198,10 @@ export function RequestRideScreen() {
   const policy = useMyPolicy();
   const p = policy.data as Policy | undefined;
   const request = useRequestRide();
+  // Pooling (doc 20 §7): preference + explicit acceptance of the current sharing policy (its version is sent).
+  const sharing = useMySharingPolicy();
+  const [ridePref, setRidePref] = useState<RidePreference | null>(null);
+  const [accepted, setAccepted] = useState(false);
   const [key, renewKey] = useAttemptKey();
   const [journey, setJourney] = useState<TransportBookingJourney>('COMMUTE');
   const [direction, setDirection] = useState<TransportDirection>('IN');
@@ -248,17 +255,30 @@ export function RequestRideScreen() {
   };
   const submit = () => {
     setFormError(null);
+    const pooling = poolingFields(ridePref, accepted, sharing.data, journey);
+    if (!pooling.ok) {
+      setFormError(t(pooling.error));
+      return;
+    }
     const req = adhocRequest({ journey, serviceDate, direction, shiftId, pickup: ends.pickup, destination: ends.destination, windowStart, windowEnd, purpose, note }, { routingConsent: p.routingConsent, timeZone });
     if (!req.ok) {
       setFormError(t(req.error));
       return;
     }
     request.mutate(
-      { body: req.body, key },
+      { body: { ...req.body, ...pooling.value }, key },
       {
         onSuccess: (r) => {
           renewKey();
           setDone(r);
+        },
+        onError: (err) => {
+          // A newer policy version: show it and ask for the acceptance again (a new attempt key: another body).
+          if (err instanceof ApiError && err.code === 'POLICY_VERSION_STALE') {
+            setAccepted(false);
+            renewKey();
+            void sharing.refetch();
+          }
         },
       },
     );
@@ -295,6 +315,8 @@ export function RequestRideScreen() {
         onChange={(j) => {
           setJourney(j);
           setServiceDate(null);
+          setRidePref(null);
+          setAccepted(false);
           resetEnds(j, direction);
         }}
       />
@@ -361,6 +383,20 @@ export function RequestRideScreen() {
           <Field label={t('To (HH:MM)')} value={windowEnd} onChangeText={setWindowEnd} placeholder="10:00" keyboardType="numbers-and-punctuation" maxLength={5} />
         </View>
       </View>
+
+      {sharing.data && (
+        <RidePreferenceCard
+          policy={sharing.data}
+          journey={journey}
+          value={ridePref}
+          onChange={(p) => {
+            setRidePref(p);
+            if (p === 'PRIVATE') setAccepted(false);
+          }}
+          accepted={accepted}
+          onAccept={setAccepted}
+        />
+      )}
 
       <Field label={t('Purpose (optional)')} hint={t('For example: client visit. Shown to the transport team.')} value={purpose} onChangeText={setPurpose} maxLength={REQUEST_LIMITS.purposeMax} />
       <Field label={t('Note for the desk (optional)')} value={note} onChangeText={setNote} maxLength={REQUEST_LIMITS.noteMax} multiline />

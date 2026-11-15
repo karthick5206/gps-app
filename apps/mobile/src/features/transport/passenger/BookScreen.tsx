@@ -9,7 +9,8 @@ import { SPACE, useColors } from '@/lib/theme';
 import { DIRECTION_LABEL } from '../labels';
 import { isNotPassenger, transportErrorText } from '../passenger-api';
 import { bookableDays, bookingRequest, SELF_LIMITS, shiftTimeFor, todayKeyIn } from '../self-service';
-import { selfServiceErrorText, useAttemptKey, useBookTrip, useMyPlaces, useMyPolicy } from '../self-service-api';
+import { selfServiceErrorText, useAttemptKey, useBookTrip, useMyPlaces, useMyPolicy, useMySharingPolicy } from '../self-service-api';
+import { CommuteSharingNote } from './RidePreferenceCard';
 import { TOUCH, TransportEmpty } from '../ui';
 
 function Choice({ label, hint, selected, onPress }: { label: string; hint?: string; selected: boolean; onPress: () => void }) {
@@ -45,6 +46,8 @@ export function BookScreen() {
   const p = policy.data;
   const places = useMyPlaces(!!p?.selfBooking);
   const book = useBookTrip();
+  // Pooling: commute bookings are shared rides under the company policy (shown, not chosen: the commute booking API has no preference).
+  const sharing = useMySharingPolicy(!!p?.selfBooking);
   const [key, renewKey] = useAttemptKey();
   const [shiftId, setShiftId] = useState<string | null>(null);
   const [direction, setDirection] = useState<TransportDirection>('IN');
@@ -98,6 +101,7 @@ export function BookScreen() {
           {t('Book up to {{days}} days ahead. Bookings close {{minutes}} minutes before the pickup window starts.', { days: p.maxDaysAhead, minutes: p.cutoffMin })}
         </Text>
       </Card>
+      {sharing.data && <CommuteSharingNote policy={sharing.data} />}
 
       <SectionTitle>{t('Shift')}</SectionTitle>
       {p.shifts.length === 0 ? (

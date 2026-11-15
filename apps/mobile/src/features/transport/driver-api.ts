@@ -3,6 +3,7 @@ import type {
   DriverDutyDto,
   DriverDutyTodayDto,
   DriverMeDto,
+  DriverRouteAckResult,
   DriverStartTripResult,
   DriverTripDetailDto,
   DriverTripEventBatchResult,
@@ -81,6 +82,19 @@ export function fetchDriverSync(since: string | null): Promise<DriverSyncDto> {
 function newCommand() {
   const now = Date.now();
   return { clientEventId: uuidv7(now), occurredAt: new Date(now).toISOString() };
+}
+
+/**
+ * Pooling P5: POST /trips/:id/route-ack — the driver acknowledges the live route change `routeVersion` (online only; an
+ * older version is a no-op on the server). The trip detail is refetched so the banner goes away.
+ */
+export function useRouteAck(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (routeVersion: number) => api.post<DriverRouteAckResult>(`${BASE}/trips/${id}/route-ack`, { routeVersion, clientEventId: uuidv7(Date.now()) }),
+    retry: false,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: [...DRIVER_KEY, 'trip', id] }),
+  });
 }
 
 /** POST /trips/:id/start — online only; a fresh clientEventId per tap (the server dedupes a retried send). */

@@ -9,6 +9,7 @@ import { RADIUS, SPACE, useColors } from '@/lib/theme';
 import { PASSENGER_STATUS_META, TRIP_STATE_META, tripKindLabel } from '../labels';
 import { clockIn } from '../trip-window';
 import { StatusChip, TOUCH } from '../ui';
+import { servedText } from '../ride-preference';
 
 /** One of my trips in a list: date, direction, my pickup time / label, vehicle; opens the trip screen. */
 export function TripCard({ trip, highlight, testID }: { trip: MeTripDto; highlight?: boolean; testID?: string }) {
@@ -19,7 +20,10 @@ export function TripCard({ trip, highlight, testID }: { trip: MeTripDto; highlig
   const vehicle = trip.vehicle ? `${trip.vehicle.name}${trip.vehicle.plate ? ` · ${trip.vehicle.plate}` : ''}` : t('Vehicle to be confirmed');
   const state = TRIP_STATE_META[trip.derivedState];
   const mine = PASSENGER_STATUS_META[trip.myStatus];
-  const a11y = [trip.serviceDate, t(tripKindLabel(trip)), t('My pickup'), pickup, vehicle, t(state.label), t(mine.label)].join(', ');
+  // Pooling: how the ride is served and the estimated pickup (absent from older servers).
+  const served = servedText(trip.servedAs);
+  const estimate = trip.myStatus === 'PENDING' && trip.estimatedPickupAt ? clockIn(trip.estimatedPickupAt, trip.timeZone, locale) : null;
+  const a11y = [trip.serviceDate, t(tripKindLabel(trip)), t('My pickup'), pickup, estimate ? t('Estimated pickup {{time}}', { time: estimate }) : null, vehicle, served ? t(served) : null, t(state.label), t(mine.label)].filter(Boolean).join(', ');
   return (
     <Pressable
       testID={testID}
@@ -41,6 +45,16 @@ export function TripCard({ trip, highlight, testID }: { trip: MeTripDto; highlig
       <Text size="sm">
         {t('My pickup')}: {pickup}
       </Text>
+      {estimate ? (
+        <Text size="sm" weight="600">
+          {t('Estimated pickup {{time}}', { time: estimate })}
+        </Text>
+      ) : null}
+      {trip.routePending ? (
+        <Text size="xs" tone="muted">
+          {t('The route was just updated: times may change.')}
+        </Text>
+      ) : null}
       <Text size="sm" tone="muted">
         {vehicle}
         {trip.driverFirstName ? ` · ${t('Driver {{name}}', { name: trip.driverFirstName })}` : ''}
@@ -53,6 +67,7 @@ export function TripCard({ trip, highlight, testID }: { trip: MeTripDto; highlig
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, marginTop: 2 }}>
         <StatusChip label={t(state.label)} tone={state.tone} />
         <StatusChip label={t(mine.label)} tone={mine.tone} />
+        {served ? <StatusChip label={t(served)} tone="neutral" /> : null}
       </View>
     </Pressable>
   );

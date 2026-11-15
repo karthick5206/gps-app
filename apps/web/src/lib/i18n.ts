@@ -13,8 +13,9 @@ const KEY = 'vt.language';
  * load). English is the key language and needs no bundle. Mobile still uses the eager `i18nResources()`.
  */
 const BUNDLES: Record<Exclude<LanguageCode, 'en'>, BundleImporter> = {
-  hi: () => import('@veetracer/shared-i18n/hi').then((m) => m.HI),
-  ta: () => import('@veetracer/shared-i18n/ta').then((m) => m.TA),
+  // Pooling strings (doc 20) live in their own table; the main table wins for a shared key.
+  hi: () => Promise.all([import('@veetracer/shared-i18n/hi'), import('@veetracer/shared-i18n/pooling')]).then(([m, p]) => ({ ...p.POOLING_HI, ...m.HI })),
+  ta: () => Promise.all([import('@veetracer/shared-i18n/ta'), import('@veetracer/shared-i18n/pooling')]).then(([m, p]) => ({ ...p.POOLING_TA, ...m.TA })),
 };
 
 /** Saved choice, else the browser language when we support it, else English. */

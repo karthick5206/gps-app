@@ -2,7 +2,7 @@ import type { DriverPassengerDto, DriverStopDto, DriverTripDetailDto, DriverVehi
 import { DRIVER_NO_SHOW_REASONS } from '@veetracer/shared';
 import { router, Stack } from 'expo-router';
 import { usePreventScreenCapture } from 'expo-screen-capture';
-import { AccessibilityIcon, AlertTriangleIcon, CheckIcon, FlagIcon, LogOutIcon, MapPinIcon, NavigationIcon, PhoneIcon, PlayIcon, UserCheckIcon, UserXIcon } from 'lucide-react-native';
+import { AccessibilityIcon, AlertTriangleIcon, CheckIcon, FlagIcon, LogOutIcon, MapPinIcon, NavigationIcon, PhoneIcon, PlayIcon, RouteIcon, UserCheckIcon, UserXIcon } from 'lucide-react-native';
 import { useAppActive } from '@/lib/motion';
 import { useNow } from '../passenger-api';
 import { useEffect, useRef, useState } from 'react';
@@ -11,7 +11,7 @@ import { AccessibilityInfo, ActivityIndicator, Alert, Linking, Modal, Platform, 
 import { Card, ErrorBanner, SectionTitle, Text } from '@/components/ui';
 import { currentLocale } from '@/lib/i18n';
 import { SPACE, useColors } from '@/lib/theme';
-import { driverCodeText, driverErrorText, isNotDriver, useDriverMe, useDriverTrip, useStartTrip, useTripMotion } from '../driver-api';
+import { driverCodeText, driverErrorText, isNotDriver, useDriverMe, useDriverTrip, useRouteAck, useStartTrip, useTripMotion } from '../driver-api';
 import { countdown, currentStop, noShowAvailableAt, offerTripAction, passengerButtons, passengerPending, pickupUnlocked, stopActionState, tripActionState } from '../driver-projection';
 import { DRIVER_EVENT_LABEL, PASSENGER_STATUS_META, REASON_LABEL, TRIP_STATE_META, tripKindLabel } from '../labels';
 import { actionAllowed } from '../motion';
@@ -254,6 +254,8 @@ export function DriverTripScreen({ id }: { id: string }) {
   const query = useDriverTrip(id);
   const me = useDriverMe();
   const start = useStartTrip(id);
+  // Pooling P5: a live change of this started trip (new routeVersion) must be acknowledged by the driver.
+  const routeAck = useRouteAck(id);
   const q = useDriverQueue();
   const trip = query.data;
   const active = useAppActive();
@@ -374,6 +376,22 @@ export function DriverTripScreen({ id }: { id: string }) {
           <StatusChip key={`${o.kind}-${o.reportedAt}`} label={`${o.kind === 'DELAY' ? t('Delay reported') : t('Breakdown reported')}${o.reasonCode ? `: ${t(REASON_LABEL[o.reasonCode] ?? o.reasonCode)}` : ''}${o.etaMin ? ` (+${o.etaMin} min)` : ''}`} tone="warning" icon={AlertTriangleIcon} />
         ))}
       </Card>
+
+      {trip.routeAckPending && typeof trip.routeVersion === 'number' && (
+        <Card style={{ gap: SPACE.sm, borderColor: c.warning, borderWidth: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }} accessibilityLiveRegion="polite">
+            <RouteIcon size={22} color={c.warning} />
+            <Text weight="700" style={{ flex: 1 }} accessibilityRole="header">
+              {t('Route updated')}
+            </Text>
+          </View>
+          <Text size="sm">{t('Dispatch changed the stops still ahead (route version {{v}}). Check the stops below, then acknowledge.', { v: trip.routeVersion })}</Text>
+          {routeAck.isError && <ErrorBanner message={driverErrorText(routeAck.error)} />}
+          {!moving && (
+            <BigAction title={routeAck.isPending ? t('Sending…') : t('Acknowledge new route')} icon={CheckIcon} tone="warning" disabled={routeAck.isPending} hint={t('Needs a connection')} onPress={() => routeAck.mutate(trip.routeVersion as number)} />
+          )}
+        </Card>
+      )}
 
       {moving ? (
         <Card style={{ borderColor: c.warning }}>
