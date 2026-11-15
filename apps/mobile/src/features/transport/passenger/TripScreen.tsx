@@ -146,6 +146,7 @@ export function PassengerTripScreen({ id }: { id: string }) {
       <Card style={{ paddingVertical: 0 }}>
         <Line label={t('My pickup')}>{trip.myStop ? `${clockIn(trip.myStop.plannedAt, trip.timeZone, locale)} · ${trip.myStop.label}` : t('Pickup to be confirmed')}</Line>
         {pickupEta && trip.myStatus === 'PENDING' ? <Line label={t('Estimated pickup')}>{clockIn(pickupEta, trip.timeZone, locale)}</Line> : null}
+        {trip.routePending ? <Line label={t('Route')}>{t('The route was just updated: times may change.')}</Line> : null}
         <Line label={t('My drop')}>{trip.myDrop ? `${clockIn(trip.myDrop.plannedAt, trip.timeZone, locale)} · ${trip.myDrop.label}` : '—'}</Line>
         <Line label={t('Vehicle')}>{trip.vehicle ? `${trip.vehicle.name}${trip.vehicle.plate ? ` · ${trip.vehicle.plate}` : ''}` : t('Vehicle to be confirmed')}</Line>
         <Line label={t('Driver')}>{trip.driverFirstName ?? '—'}</Line>

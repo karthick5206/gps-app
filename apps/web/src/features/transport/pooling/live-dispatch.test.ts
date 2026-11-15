@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { DispatchOptionDto, DispatchRequestDto, LiveDispatchDecisionDto } from '@veetracer/shared';
-import { chosenAlternative, chosenOption, decideFlow, initialDecide, needsDispatcher, proposalActionable, proposalsOf, statusCounts, type DecideState } from './live-dispatch.ts';
+import { applyInput, chosenAlternative, chosenOption, decideFlow, initialDecide, needsDispatcher, proposalActionable, proposalsOf, statusCounts, type DecideState } from './live-dispatch.ts';
 
 const option = (id: string, over: Partial<DispatchOptionDto> = {}): DispatchOptionDto => ({
   optionId: id,
@@ -92,6 +92,9 @@ test('proposals: PROPOSED only, oldest first, dismissed hidden', () => {
   assert.deepEqual(proposalsOf(rows).map((r) => r.id), ['a', 'b']);
   assert.deepEqual(proposalsOf(rows, new Set(['a'])).map((r) => r.id), ['b']);
   assert.equal(proposalActionable(req('x', { bookingStatus: 'ASSIGNED' })), false);
+  assert.equal(proposalActionable(req('x', { chosenOptionId: null })), false);
+  assert.equal(proposalActionable(req('x')), true);
+  assert.deepEqual(applyInput('b1', 'r1', 'o2'), { bookingId: 'b1', apply: true, requestId: 'r1', optionId: 'o2' });
   assert.equal(proposalActionable(req('x', { bookingId: null })), false);
   assert.equal(chosenAlternative(req('x'))?.optionId, 'o2');
   assert.equal(statusCounts(rows).PROPOSED, 2);

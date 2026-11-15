@@ -116,3 +116,13 @@ test('availability rows map to the PUT body', () => {
   const bad = availabilityInputOf({ turnaroundMin: '', rows: [{ key: 'a', kind: 'OPERATING', start: '2026-11-20T12:00', end: '2026-11-20T08:00', reason: '' }] }, fromWall, '2026-11-15T00:00:00.000Z');
   assert.equal(bad.ok, false);
 });
+
+test('pooling strings have hi and ta with the same placeholders', async () => {
+  const { TRANSLATIONS } = await import('@veetracer/shared');
+  const keys = ['Ride preference', 'Max wait {{n}} min', 'Publishes as {{n}} trips', 'Live dispatch', 'Driver has not acknowledged the last route update', 'The route was just updated: times may change.'];
+  const ph = (s: string) => (s.match(/\{\{\w+\}\}/g) ?? []).sort().join(',');
+  for (const k of keys) for (const lang of ['hi', 'ta'] as const) {
+    assert.ok(TRANSLATIONS[lang][k], `${lang} ${k}`);
+    assert.equal(ph(TRANSLATIONS[lang][k]), ph(k));
+  }
+});

@@ -29,6 +29,7 @@ import { SimpleSelect } from '../dispatch/e3-ui';
 import { transportTripPath, useBookings } from '../dispatch/use-e3';
 import {
   addedText,
+  applyInput,
   chosenAlternative,
   chosenOption,
   decideFlow,
@@ -109,6 +110,9 @@ export function LiveDispatchPage() {
   const [statusFilter, setStatusFilter] = useState<string>(ALL);
   const [flow, dispatch] = useReducer(decideFlow, initialDecide);
   const [dismissed, dismiss] = useDismissed();
+  // Approve = apply the proposal's stored option; one Idempotency-Key per proposal, kept for a retry.
+  const [approveKeys, setApproveKeys] = useState<Record<string, string>>({});
+  const [approving, setApproving] = useState<string | null>(null);
   const settings = usePoolingSettings();
   const sw = liveSwitch(settings.data);
   const canCommand = can('etms_dispatch', 'command');
@@ -147,13 +151,33 @@ export function LiveDispatchPage() {
     if (next.step !== 'applying') return;
     dispatch({ type: 'apply', newKey: () => next.key });
     decide.mutate(
-      { input: { bookingId: next.bookingId, apply: true, optionId: next.chosen }, key: next.key },
+      // The option exactly as shown: stored on the dry run's request (requestId + optionId), re-checked by the server.
+      { input: applyInput(next.bookingId, next.decision.requestId, next.chosen), key: next.key },
       {
         onSuccess: (d) => {
           dispatch({ type: 'applied', decision: d });
           toast.success(t('Seat assigned. The trip and the people on it are notified.'));
         },
         onError: (e) => dispatch({ type: 'failed', code: liveErrorCode(e), message: poolingErrorText(e, t) }),
+      },
+    );
+  };
+  const approve = (p: (typeof proposals)[number]) => {
+    if (!p.bookingId || !p.chosenOptionId) return;
+    const key = approveKeys[p.id] ?? newUuid();
+    setApproveKeys((k) => ({ ...k, [p.id]: key }));
+    setApproving(p.id);
+    decide.mutate(
+      { input: applyInput(p.bookingId, p.id, p.chosenOptionId), key },
+      {
+        onSuccess: () => toast.success(t('Proposal approved and applied.')),
+        onError: (e) => {
+          const code = liveErrorCode(e);
+          // A refusal (option no longer feasible, trip changed): a new key next time; network / server: the same key.
+          if (code !== 'SERVER' && code !== 'NETWORK') setApproveKeys(({ [p.id]: _drop, ...rest }) => rest);
+          toast.error(poolingErrorText(e, t));
+        },
+        onSettled: () => setApproving(null),
       },
     );
   };
@@ -323,18 +347,14 @@ export function LiveDispatchPage() {
                       {alt ? t('Proposed: {{target}} · {{added}}', { target: t(DISPATCH_TARGET_LABEL[alt.target]), added: addedText(alt.addedS) }) : t('{{n}} option(s) considered', { n: p.alternatives.length })} · {clock(p.createdAt)}
                     </span>
                     <span className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        disabled={disabled || !actionable}
-                        onClick={() => {
-                          if (!p.bookingId) return;
-                          setBookingId(p.bookingId);
-                          setTimeout(() => find(p.bookingId!), 0);
-                        }}
-                        title={actionable ? undefined : t('The booking no longer waits for a seat.')}
-                      >
-                        <CheckIcon /> {t('Review and approve')}
+                      <Button size="sm" disabled={disabled || !actionable || approving !== null} onClick={() => approve(p)} title={actionable ? undefined : t('The booking no longer waits for a seat.')}>
+                        {approving === p.id ? <Spinner /> : <CheckIcon />} {t('Approve')}
                       </Button>
+                      {p.bookingId && (
+                        <Button size="sm" variant="outline" disabled={disabled} onClick={() => setBookingId(p.bookingId)}>
+                          <SearchIcon /> {t('Other options')}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -356,7 +376,7 @@ export function LiveDispatchPage() {
               })}
             </ul>
           )}
-          <p className="text-xs text-muted-foreground">{t('Approving asks for fresh options and applies the one you choose. Rejecting hides the proposal on this browser; the booking stays waiting.')}</p>
+          <p className="text-xs text-muted-foreground">{t('Approving applies the proposed option as shown (the server checks it again). Rejecting hides the proposal on this browser; the booking stays waiting.')}</p>
         </Card>
       </div>
 

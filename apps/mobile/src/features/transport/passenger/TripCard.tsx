@@ -50,6 +50,11 @@ export function TripCard({ trip, highlight, testID }: { trip: MeTripDto; highlig
           {t('Estimated pickup {{time}}', { time: estimate })}
         </Text>
       ) : null}
+      {trip.routePending ? (
+        <Text size="xs" tone="muted">
+          {t('The route was just updated: times may change.')}
+        </Text>
+      ) : null}
       <Text size="sm" tone="muted">
         {vehicle}
         {trip.driverFirstName ? ` · ${t('Driver {{name}}', { name: trip.driverFirstName })}` : ''}

@@ -38,6 +38,8 @@ export const DISPATCH_REASON_LABEL: Record<DispatchReasonCode, string> = {
   NEEDS_LOCATION: 'Pickup or drop point missing',
   SOLVER_UNAVAILABLE: 'Optimiser unavailable (fallback used)',
   ONBOARD_TRANSFER: 'Boarded passenger of a broken-down vehicle',
+  ROUTE_ACK_PENDING: 'Driver has not acknowledged the last route update',
+  ROUTE_ACK_OVERDUE: 'Route update not acknowledged for over 3 minutes',
   DISABLED: 'Live dispatch switched off',
 };
 
@@ -127,9 +129,17 @@ export function proposalsOf(rows: readonly DispatchRequestDto[], dismissed: Read
   return rows.filter((r) => r.status === 'PROPOSED' && !dismissed.has(r.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-/** A proposal can be approved (a fresh decide + apply) only while its booking still waits for a seat. */
-export function proposalActionable(r: Pick<DispatchRequestDto, 'bookingId' | 'bookingStatus'>): boolean {
-  return !!r.bookingId && (r.bookingStatus === 'PENDING_ASSIGNMENT' || r.bookingStatus === null);
+/**
+ * A proposal is approved by applying its stored option (`requestId` + `optionId`, the option exactly as proposed; the
+ * server re-checks the trip version) — only while its booking still waits for a seat and an option was proposed.
+ */
+export function proposalActionable(r: Pick<DispatchRequestDto, 'bookingId' | 'bookingStatus' | 'chosenOptionId'>): boolean {
+  return !!r.bookingId && !!r.chosenOptionId && (r.bookingStatus === 'PENDING_ASSIGNMENT' || r.bookingStatus === null);
+}
+
+/** The apply body of a stored option: a dry-run answer's `requestId` or a PROPOSED request of the log. */
+export function applyInput(bookingId: string, requestId: string, optionId: string): { bookingId: string; apply: true; requestId: string; optionId: string } {
+  return { bookingId, apply: true, requestId, optionId };
 }
 
 /** The chosen alternative of a request (the one applied / proposed), or null. */
