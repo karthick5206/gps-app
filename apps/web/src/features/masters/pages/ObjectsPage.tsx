@@ -119,6 +119,8 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
           const body = etms && v.type === 'VEHICLE' ? transportProfileBody(transport) : null;
           const id = (row as { id?: string } | undefined)?.id ?? record?.id;
           if (body && id) void api.put(`/transport/vehicles/${id}/profile`, body).catch((e: unknown) => toast.error(errorMessage(e)));
+          // v1.16.9: the vehicle's vendor (only for those who may see vendors; '' = no vendor).
+          if (etms && v.type === 'VEHICLE' && id && can('etms_vendors')) void api.put(`/transport/vendors/by-vehicle/${id}`, { vendorId: transport.vendorId || null }).catch((e: unknown) => toast.error(errorMessage(e)));
         },
       },
     ),

@@ -111,8 +111,6 @@ const columns: MasterColumn<TransportVendorDto>[] = [
   { id: 'gstin', header: 'GSTIN', cell: (r) => (r.gstin ? <span className="font-mono text-xs">{r.gstin}</span> : <Muted>—</Muted>) },
   { id: 'contact', header: 'Contact', cell: (r) => <span className="text-sm">{[r.contactName, r.phone].filter(Boolean).join(' · ') || '—'}</span> },
   { id: 'branches', header: 'Branches', cell: (r) => <span className="text-xs">{r.branchNames.length ? r.branchNames.join(', ') : 'All'}</span> },
-  { id: 'fleet', header: 'Vehicles / drivers', cell: (r) => <span className="tabular-nums">{r.vehicleCount} / {r.driverCount}</span> },
-  { id: 'cards', header: 'Rate cards', cell: (r) => <span className="tabular-nums">{r.rateCardCount}</span> },
   { id: 'isActive', header: 'Status', cell: (r) => <ActiveBadge active={r.isActive} /> },
 ];
 
@@ -195,6 +193,48 @@ export function VendorsPage() {
   const { t } = useTranslation();
   const [assets, setAssets] = useState<TransportVendorDto | null>(null);
   const [cards, setCards] = useState<TransportVendorDto | null>(null);
+  // The links are buttons in the row: vehicles / drivers and rate cards open their panels.
+  const cols = useMemo<MasterColumn<TransportVendorDto>[]>(
+    () => [
+      ...columns.slice(0, 4),
+      {
+        id: 'fleet',
+        header: 'Vehicles / drivers',
+        cell: (r) => (
+          <Button size="sm" variant="outline" className="h-7 tabular-nums" onClick={() => setAssets(r)}>
+            <CarFrontIcon /> {r.vehicleCount} / {r.driverCount}
+          </Button>
+        ),
+      },
+      {
+        id: 'cards',
+        header: 'Rate cards',
+        cell: (r) => (
+          <Button size="sm" variant="outline" className="h-7 tabular-nums" onClick={() => setCards(r)}>
+            <ReceiptIndianRupeeIcon /> {r.rateCardCount}
+          </Button>
+        ),
+      },
+      ...columns.slice(4),
+    ],
+    [],
+  );
+  const guide = (
+    <ol className="grid gap-2 rounded-lg border bg-card p-3 text-sm sm:grid-cols-3">
+      <li>
+        <span className="font-semibold text-primary">1. {t('Add the vendor')}</span>
+        <span className="block text-xs text-muted-foreground">{t('Name, GST, bank and the branches they serve (Add).')}</span>
+      </li>
+      <li>
+        <span className="font-semibold text-primary">2. {t('Link vehicles & drivers')}</span>
+        <span className="block text-xs text-muted-foreground">{t('Click the vehicles / drivers button on the row. Each vehicle needs its category (Sedan, SUV, Tempo, Bus…) in Masters → Objects.')}</span>
+      </li>
+      <li>
+        <span className="font-semibold text-primary">3. {t('Add rate cards')}</span>
+        <span className="block text-xs text-muted-foreground">{t('Click the rate cards button: price per category and branch. Vendor billing then prices every finished trip.')}</span>
+      </li>
+    </ol>
+  );
   return (
     <>
       <MasterPage<TransportVendorDto>
@@ -202,7 +242,8 @@ export function VendorsPage() {
         title="Vendors & rate cards"
         description="Cab operators that run your employee transport, the branches they serve, their vehicles and drivers, and how they are paid."
         endpoint={VENDORS_ENDPOINT}
-        columns={columns}
+        columns={cols}
+        aboveTable={guide}
         rowLabel={(r) => r.name}
         defaultSort={{ id: 'name', desc: false }}
         Form={VendorForm}

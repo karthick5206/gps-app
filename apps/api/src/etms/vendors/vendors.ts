@@ -70,6 +70,9 @@ export class RateCardDto {
   @IsOptional() @ValidateIf(nullable) @Matches(DAY_RE) validTo?: string | null;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
+export class VehicleVendorDto {
+  @IsOptional() @ValidateIf(nullable) @IsUUID() vendorId?: string | null;
+}
 export class StatementQuery {
   @Matches(MONTH_RE, { message: 'month must be YYYY-MM' }) month!: string;
   @IsUUID() vendorId!: string;
@@ -261,6 +264,24 @@ export class TransportVendorsService {
     return this.assets(ctx, id);
   }
 
+  // ── one vehicle's vendor (vehicle form) ──
+
+  async vehicleVendor(ctx: AuthContext, objectId: string): Promise<{ vendorId: string | null }> {
+    const row = await this.prisma.transportVendorVehicle.findFirst({ where: { objectId, companyId: ctx.companyId }, select: { vendorId: true } });
+    return { vendorId: row?.vendorId ?? null };
+  }
+
+  async setVehicleVendor(ctx: AuthContext, objectId: string, vendorId: string | null): Promise<{ vendorId: string | null }> {
+    if (!(await this.prisma.trackedObject.count({ where: { id: objectId, companyId: ctx.companyId } }))) throw new NotFoundException('Vehicle not found');
+    if (vendorId) await this.vendorRow(ctx, vendorId);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.transportVendorVehicle.deleteMany({ where: { objectId, companyId: ctx.companyId } });
+      if (vendorId) await tx.transportVendorVehicle.create({ data: { objectId, vendorId, companyId: ctx.companyId } });
+    });
+    await this.audit.record(ctx, { action: 'UPDATE', entity: 'transport_vendor_vehicle', entityId: objectId, details: { vendorId } });
+    return { vendorId };
+  }
+
   // ── rate cards ──
 
   private async cardDtos(ctx: AuthContext, rows: Prisma.TransportRateCardGetPayload<object>[]): Promise<TransportRateCardDto[]> {
@@ -419,6 +440,14 @@ export class TransportVendorsController {
   @Get() @RequirePermission('etms_vendors', 'view')
   list(@Auth() ctx: AuthContext, @Query() q: ListQueryDto) {
     return this.vendors.list(ctx, q);
+  }
+  @Get('by-vehicle/:objectId') @RequirePermission('objects', 'view')
+  vehicleVendor(@Auth() ctx: AuthContext, @Param('objectId', ParseUUIDPipe) objectId: string) {
+    return this.vendors.vehicleVendor(ctx, objectId);
+  }
+  @Put('by-vehicle/:objectId') @RequirePermission('objects', 'edit')
+  setVehicleVendor(@Auth() ctx: AuthContext, @Param('objectId', ParseUUIDPipe) objectId: string, @Body() dto: VehicleVendorDto) {
+    return this.vendors.setVehicleVendor(ctx, objectId, dto.vendorId ?? null);
   }
   @Get(':id') @RequirePermission('etms_vendors', 'view')
   get(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {

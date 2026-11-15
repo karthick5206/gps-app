@@ -1,6 +1,8 @@
-import { TRANSPORT_VEHICLE_CATEGORIES, type TransportVehicleCategory, type TransportVehicleProfileDto } from '@veetracer/shared';
+import { TRANSPORT_VEHICLE_CATEGORIES, type TransportVehicleCategory, type TransportVehicleProfileDto, type TransportVendorDto } from '@veetracer/shared';
+import { useAuth } from '@/features/auth/auth-context';
+import { named, useEntityOptions } from '@/features/masters/use-options';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -15,9 +17,11 @@ export interface VehicleTransportValues {
   wheelchair: string;
   category: string;
   hasAc: '' | 'yes' | 'no';
+  /** v1.16.9: the vendor operating this vehicle ('' = none). */
+  vendorId: string;
 }
 
-export const EMPTY_TRANSPORT_VALUES: VehicleTransportValues = { seats: '', wheelchair: '', category: '', hasAc: '' };
+export const EMPTY_TRANSPORT_VALUES: VehicleTransportValues = { seats: '', wheelchair: '', category: '', hasAc: '', vendorId: '' };
 
 /** The PUT body, or null when nothing usable was typed (seats are what make a profile). */
 export function transportProfileBody(v: VehicleTransportValues) {
@@ -32,16 +36,27 @@ export function transportProfileBody(v: VehicleTransportValues) {
  * Optional: passenger seats (driver not counted), wheelchair spaces, category and AC. Loads the saved profile when
  * editing; the form saves it after the vehicle (PUT /transport/vehicles/:id/profile).
  */
-export function VehicleTransportFields({ objectId, open, value, onChange }: { objectId: string | null; open: boolean; value: VehicleTransportValues; onChange: (v: VehicleTransportValues) => void }) {
+export function VehicleTransportFields({ objectId, open, value, onChange }: { objectId: string | null; open: boolean; value: VehicleTransportValues; onChange: Dispatch<SetStateAction<VehicleTransportValues>> }) {
   const { t } = useTranslation();
   const saved = useQuery({
     queryKey: ['transport-vehicle-profile', objectId],
     enabled: open && !!objectId,
     queryFn: ({ signal }) => api.get<TransportVehicleProfileDto | null>(`${TRANSPORT_VEHICLES_ENDPOINT}/${objectId}/profile`, undefined, signal).catch(() => null),
   });
+  const { can } = useAuth();
+  const vendors = useEntityOptions<TransportVendorDto>('/transport/vendors', named, { enabled: open && can('etms_vendors') });
+  const savedVendor = useQuery({
+    queryKey: ['vehicle-vendor', objectId],
+    enabled: open && !!objectId,
+    queryFn: ({ signal }) => api.get<{ vendorId: string | null }>(`/transport/vendors/by-vehicle/${objectId}`, undefined, signal).catch(() => ({ vendorId: null })),
+  });
+  useEffect(() => {
+    if (savedVendor.data) onChange((cur) => ({ ...cur, vendorId: savedVendor.data!.vendorId ?? '' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedVendor.data]);
   useEffect(() => {
     const p = saved.data;
-    if (p) onChange({ seats: String(p.seats), wheelchair: String(p.wheelchairSpaces ?? 0), category: p.category ?? '', hasAc: p.hasAc === null || p.hasAc === undefined ? '' : p.hasAc ? 'yes' : 'no' });
+    if (p) onChange((cur) => ({ ...cur, seats: String(p.seats), wheelchair: String(p.wheelchairSpaces ?? 0), category: p.category ?? '', hasAc: p.hasAc === null || p.hasAc === undefined ? '' : p.hasAc ? 'yes' : 'no' }));
     // Only when the saved profile arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved.data]);
@@ -50,6 +65,18 @@ export function VehicleTransportFields({ objectId, open, value, onChange }: { ob
   return (
     <fieldset className="grid gap-3 rounded-lg border border-dashed p-3 sm:grid-cols-4">
       <legend className="px-1 text-sm font-medium">{t('Employee transport (optional)')}</legend>
+      {can('etms_vendors') && (
+        <Field label={t('Vendor (cab operator)')} htmlFor="vt-vendor" hint={t('Who runs and bills this vehicle. Vendor billing uses the vendor + this category + the vehicle branch to pick the rate card.')} className="sm:col-span-4">
+          <select id="vt-vendor" className={sel} value={value.vendorId} onChange={(e) => onChange({ ...value, vendorId: e.target.value })}>
+            <option value="">{t('Own vehicle / no vendor')}</option>
+            {vendors.options.map((v) => (
+              <option key={v.value} value={v.value}>
+                {v.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
       <Field label={t('Passenger seats')} htmlFor="vt-seats" hint={t('Driver not counted. Route planning never puts more people in.')} error={seatsBad ? t('{{min}}–{{max}}', { min: SEATS_MIN, max: SEATS_MAX }) : undefined}>
         <Input id="vt-seats" type="number" inputMode="numeric" min={SEATS_MIN} max={SEATS_MAX} value={value.seats} onChange={(e) => onChange({ ...value, seats: e.target.value })} placeholder="e.g. 6" />
       </Field>
