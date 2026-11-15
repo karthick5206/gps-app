@@ -18,8 +18,9 @@ export function invalidatePlans(qc: QueryClient, id?: string) {
     void qc.invalidateQueries({ queryKey: plannerKeys.plan(id) });
     void qc.invalidateQueries({ queryKey: plannerKeys.history(id) });
     void qc.invalidateQueries({ queryKey: plannerKeys.review(id) });
-    void qc.invalidateQueries({ queryKey: plannerKeys.alternatives(id) });
   }
+  // Any plan's status / version change shows in every alternatives list it belongs to (source or sibling).
+  void qc.invalidateQueries({ queryKey: plannerKeys.alternatives('').slice(0, 1) });
 }
 
 // ───────────────────────────── errors (E3 pattern: code → friendly text + kind) ─────────────────────────────
@@ -211,6 +212,7 @@ export function usePlanEdit(plan: PlannerPlan | undefined) {
       void qc.invalidateQueries({ queryKey: plannerKeys.compare });
       void qc.invalidateQueries({ queryKey: plannerKeys.history(r.plan.id) });
       void qc.invalidateQueries({ queryKey: plannerKeys.review(r.plan.id) });
+      void qc.invalidateQueries({ queryKey: plannerKeys.alternatives('').slice(0, 1) });
     },
     onError: (err) => {
       if (plan && plannerErrorOf(err).kind === 'conflict') invalidatePlans(qc, plan.id);

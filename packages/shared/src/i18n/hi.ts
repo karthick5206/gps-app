@@ -5259,4 +5259,6 @@ export const HI: Record<string, string> = {
   'The maximum ride time is above the plan’s limit. Choose a shorter time.': 'अधिकतम सफ़र समय योजना की सीमा से ज़्यादा है। कम समय चुनें।',
   'Your role may not do this (it needs Route planning → edit).': 'आपकी भूमिका यह नहीं कर सकती (इसके लिए रूट योजना → संपादन चाहिए)।',
   'Cancelled.': 'रद्द।',
+  '{{n}} plan(s) discarded; {{failed}} could not be discarded. Check the list and try again.': '{{n}} योजना(एँ) रद्द; {{failed}} रद्द नहीं हो सकीं। सूची जाँचें और फिर कोशिश करें।',
+  'This plan is being optimised. Review and publish it when the optimisation has finished.': 'यह योजना अनुकूलित हो रही है। अनुकूलन पूरा होने पर समीक्षा करके प्रकाशित करें।',
 };

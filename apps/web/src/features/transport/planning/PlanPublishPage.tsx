@@ -56,7 +56,11 @@ export function PlanPublishPage() {
   const [published, setPublished] = useState<PublishRoutePlanResult | null>(null);
   const hash = review.data?.reviewHash;
   useEffect(() => {
-    if (hash) dispatch({ type: 'loaded', hash });
+    if (!hash) return;
+    dispatch({ type: 'loaded', hash });
+    // A different review (reload, stale answer, other selection) needs the override decided again, like the warnings.
+    setOverrideOn(false);
+    setOverrideReason('');
   }, [hash]);
 
   const access = caps.data?.access;
@@ -168,7 +172,9 @@ export function PlanPublishPage() {
         </Card>
       )}
 
-      {!isEditablePlan(plan.status) ? (
+      {plan.status === 'OPTIMIZING' ? (
+        <p role="status" className="text-sm text-muted-foreground">{t('This plan is being optimised. Review and publish it when the optimisation has finished.')}</p>
+      ) : !isEditablePlan(plan.status) ? (
         <p className="text-sm text-muted-foreground">{t('This plan is published or discarded; nothing is left to publish.')}</p>
       ) : routes.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('No unpublished route with passengers is left to publish.')}</p>
