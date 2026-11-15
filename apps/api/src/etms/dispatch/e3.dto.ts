@@ -105,7 +105,7 @@ export class ScheduleListQuery extends ListQueryDto {
   @IsOptional() @IsUUID() profileId?: string;
   @IsOptional() @IsUUID() shiftId?: string;
   @IsOptional() @IsIn(TRANSPORT_DIRECTIONS) direction?: TransportDirection;
-  declare sort?: 'createdAt' | 'validFrom' | 'passenger';
+  declare sort?: 'createdAt' | 'validFrom' | 'passenger' | 'shiftName';
 }
 
 export class CreateSchedulesDto implements CreateTransportSchedulesInput {

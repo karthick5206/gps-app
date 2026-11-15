@@ -64,4 +64,9 @@ export interface MasterPageProps<T> {
   fixedParams?: QueryParams;
   /** Content between the page header and the table card (e.g. summary tiles, status chips). */
   aboveTable?: ReactNode;
+  /**
+   * Heading rows: while the list is sorted by `sortId` (the server keeps each group together), a heading row starts every
+   * group (`label`, with the group's row count on this page) and rows are numbered 1, 2, 3… inside it.
+   */
+  groupBy?: { sortId: string; key: (row: T) => string; label: (row: T) => ReactNode };
 }

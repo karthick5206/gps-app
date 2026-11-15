@@ -62,6 +62,13 @@ How data moves (details in section 5):
 - The user menu links both pages. The getting-started guide links the troubleshooting page.
 - Edit the text in `packages/shared`, not in the page.
 
+**Grouped lists (`MasterPage` `groupBy`):**
+- While the list is sorted by `groupBy.sortId`, a heading row starts each group (label plus "n on this page") and rows are numbered 1, 2, 3 inside it.
+- The server must keep each group together in that sort.
+- Used by Transport → Shifts & schedules → Schedules. Its default sort is `shiftName`, which gives one heading per shift and direction, e.g. "Evening (14:00–23:00) · Login".
+- The API orders that sort by shift login time, then shift name, shift, direction (login first) and passenger A–Z (`listSchedules` in `etms/dispatch/schedules.service.ts`).
+- Sorting by Passenger or Valid shows the plain list.
+
 ### 2.3 Mobile apps
 
 - `apps/mobile/src/app/` – screens (Expo Router: file name = route). `src/features/` – logic per area. `modules/veetrax-alarm/` – native Kotlin SOS alarm.

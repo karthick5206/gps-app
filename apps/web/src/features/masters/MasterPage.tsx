@@ -31,7 +31,7 @@ import {
   XIcon,
 } from 'lucide-react';
 import type { TFunction } from 'i18next';
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -165,6 +165,7 @@ export function MasterPage<T>({
   bulkActions = true,
   fixedParams,
   aboveTable,
+  groupBy,
 }: MasterPageProps<T>) {
   const { t } = useTranslation();
   const fixedKey = JSON.stringify(fixedParams ?? {});
@@ -567,15 +568,48 @@ export function MasterPage<T>({
                 </TableRow>
               ))}
             {!list.isPending &&
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() ? 'selected' : undefined}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className={(cell.column.columnDef.meta as { className?: string } | undefined)?.className}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+              (() => {
+                const grouped = !!groupBy && sorting[0]?.id === groupBy.sortId;
+                const modelRows = table.getRowModel().rows;
+                const counts = new Map<string, number>();
+                if (grouped) for (const r of modelRows) counts.set(groupBy.key(r.original), (counts.get(groupBy.key(r.original)) ?? 0) + 1);
+                let prevKey: string | null = null;
+                let n = 0;
+                return modelRows.map((row) => {
+                  const key = grouped ? groupBy.key(row.original) : null;
+                  const starts = grouped && key !== prevKey;
+                  if (starts) n = 0;
+                  prevKey = key;
+                  n += 1;
+                  const firstDataCell = row.getVisibleCells().findIndex((c) => c.column.id !== '__select');
+                  return (
+                    <Fragment key={row.id}>
+                      {starts && (
+                        <TableRow className="bg-accent/60 hover:bg-accent/60">
+                          <TableCell colSpan={visibleColumnCount} className="py-2 text-sm font-semibold text-primary">
+                            {groupBy.label(row.original)}
+                            <span className="ml-2 text-xs font-normal text-muted-foreground">{t('{{n}} on this page', { n: counts.get(key!) ?? 0 })}</span>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      <TableRow data-state={row.getIsSelected() ? 'selected' : undefined}>
+                        {row.getVisibleCells().map((cell, i) => (
+                          <TableCell key={cell.id} className={(cell.column.columnDef.meta as { className?: string } | undefined)?.className}>
+                            {grouped && i === firstDataCell ? (
+                              <span className="flex items-start gap-2">
+                                <span className="w-5 shrink-0 pt-px text-right text-xs text-muted-foreground tabular-nums">{n}.</span>
+                                <span className="min-w-0">{flexRender(cell.column.columnDef.cell, cell.getContext())}</span>
+                              </span>
+                            ) : (
+                              flexRender(cell.column.columnDef.cell, cell.getContext())
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </Fragment>
+                  );
+                });
+              })()}
             {list.isSuccess && rows.length === 0 && (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={visibleColumnCount}>

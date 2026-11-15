@@ -499,7 +499,7 @@ function SchedulesTab() {
           </span>
         ),
       },
-      { id: 'shiftName', header: 'Shift', cell: (r) => r.shiftName },
+      { id: 'shiftName', header: 'Shift', sortable: true, cell: (r) => r.shiftName },
       { id: 'direction', header: 'Direction', cell: (r) => <DirectionBadge direction={r.direction} /> },
       { id: 'days', header: 'Days', cell: (r) => <DaysText days={r.days} /> },
       {
@@ -516,6 +516,20 @@ function SchedulesTab() {
       { id: 'isActive', header: 'Status', cell: (r) => (r.isActive ? <Badge variant="success">{i18n.t('Active')}</Badge> : <Badge variant="muted">{i18n.t('Archived')}</Badge>) },
     ],
     [],
+  );
+  // Sorted by shift (the default): one heading per shift and direction, e.g. "Evening (14:00–23:00) · Login".
+  const groupBy = useMemo(
+    () => ({
+      sortId: 'shiftName',
+      key: (r: TransportScheduleDto) => `${r.shiftId}|${r.direction}`,
+      label: (r: TransportScheduleDto) => (
+        <span className="inline-flex items-center gap-2">
+          {shifts.options.find((o) => o.value === r.shiftId)?.label ?? r.shiftName}
+          <DirectionBadge direction={r.direction} />
+        </span>
+      ),
+    }),
+    [shifts.options],
   );
   const rowActions = useCallback(
     (r: TransportScheduleDto) => (
@@ -542,7 +556,8 @@ function SchedulesTab() {
         columns={columns}
         rowLabel={(r) => `${r.passenger.displayName} · ${r.direction}`}
         filters={filters}
-        defaultSort={{ id: 'passenger', desc: false }}
+        defaultSort={{ id: 'shiftName', desc: false }}
+        groupBy={groupBy}
         Form={ScheduleForm}
         bulkActions={false}
         history={false}

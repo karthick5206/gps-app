@@ -41,7 +41,8 @@ const SHIFT_CSV: CsvSpec<TransportShiftDto> = {
 };
 const SCHEDULE_LIST: ListSpec = {
   search: (q) => ({ OR: [{ profile: { displayName: { contains: q, mode: 'insensitive' } } }, { profile: { employeeCode: { contains: q, mode: 'insensitive' } } }] }),
-  sort: { createdAt: 'createdAt', validFrom: 'validFrom', passenger: 'profile.displayName' },
+  // shiftName: grouped by shift (login time, then name), passengers A–Z inside each shift (see listSchedules).
+  sort: { createdAt: 'createdAt', validFrom: 'validFrom', passenger: 'profile.displayName', shiftName: 'shift.startMin' },
   defaultSort: 'createdAt',
   defaultOrder: 'desc',
 };
@@ -184,8 +185,15 @@ export class SchedulesService {
     if (q.shiftId) filters.push({ shiftId: q.shiftId });
     if (q.direction) filters.push({ direction: q.direction });
     const where: Prisma.TransportScheduleWhereInput = { AND: filters };
+    // Shift sort keeps each shift's schedules together on a page (the web list shows one heading per shift):
+    // login time → shift name → shift → login before logout → passenger A–Z.
+    const order = q.order === 'desc' ? 'desc' : 'asc';
+    const orderBy: Prisma.TransportScheduleOrderByWithRelationInput[] =
+      q.sort === 'shiftName'
+        ? [{ shift: { startMin: order } }, { shift: { name: order } }, { shiftId: order }, { direction: 'asc' }, { profile: { displayName: 'asc' } }, { id: 'asc' }]
+        : plan.orderBy;
     const [rows, total] = await Promise.all([
-      this.prisma.transportSchedule.findMany({ where, orderBy: plan.orderBy, skip: plan.skip, take: plan.take, include: SCHEDULE_INCLUDE }),
+      this.prisma.transportSchedule.findMany({ where, orderBy, skip: plan.skip, take: plan.take, include: SCHEDULE_INCLUDE }),
       this.prisma.transportSchedule.count({ where }),
     ]);
     const visible = rows.filter((r) => inProfileBranch(ctx, r.profile.branchId));
