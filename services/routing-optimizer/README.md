@@ -350,7 +350,7 @@ compatible, several sequential trips per vehicle, live insertion with committed 
                                           // COMFORT | MINIMUM_VEHICLES
     "weights": { "vehicle": 3600, "time": 1, "distance": 0, "wait": 1, "rideTime": 1 },  // overrides per key
     "priorityWeights": { "PRIVATE": 3, "FLEXIBLE": 1.5, "SHARED": 1 },                 // defaults (owner P6)
-    "timeLimitS": 10,                     // 1..120 (same clamp as v2)
+    "timeLimitS": 10,                     // 1..120 (same clamp as v2); includes the model build; insertOnly stops inserting at the limit
     "warmStart": { "v1": ["P:r1", "D:r1"] },   // current routes (live re-optimisation)
     "insertOnly": false,                  // true: cheapest feasible insertion into warmStart, no re-sequencing
     "firstSolution": "parallel_cheapest_insertion", "localSearch": "guided"
@@ -370,7 +370,8 @@ window start + service + direct.
 
 * **Trips** = segments where the vehicle load returns to 0. A non-PRIVATE pickup has two alternative nodes, "starts a
   trip" (load before = 0) and "joins a trip" (load before >= 1); the arc into a trip-start node carries `turnaroundS`
-  (not from the vehicle start). Turnaround is therefore exact and the model's trips are the reported trips.
+  (not from the vehicle start). Turnaround is therefore exact (with more than 3 distinct `turnaroundS` values the model rounds each UP to
+  its bucket maximum: one shared cost matrix, at most 3 transit matrices) and the model's trips are the reported trips.
 * **PRIVATE = whole-trip exclusivity** (owner P1): a private pickup can only start a trip and an exclusivity
   dimension stops anyone boarding until its drop, after which the load is 0, so the private rider is alone on the
   whole trip. FLEXIBLE is pooled when useful and reported `servedAs: PRIVATE` when alone on its trip. SHARED is always
@@ -384,7 +385,8 @@ window start + service + direct.
 * `insertOnly` (live fast path): no OR-Tools. Warm-start routes are kept in order; each uncommitted request
   (committed ones not yet routed first, then by priority) is inserted at the cheapest feasible position, re-timed with
   earliest times. If a vehicle's warm-start route is itself infeasible, its committed requests are commitment
-  violations and the vehicle takes no insertion.
+  violations and the vehicle takes no insertion. Requests not reached within `timeLimitS` are `NOT_SELECTED`
+  (`binding: ["time_limit"]`, `stats.timedOut`).
 
 ### Result
 
